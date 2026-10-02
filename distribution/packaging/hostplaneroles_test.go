@@ -57,12 +57,12 @@ func TestHostPlaneRolesAreNotRequiredOfEveryPlatform(t *testing.T) {
 		p, _ := c.ContainerPaths.ByRole(role)
 		mounts = append(mounts, Mount{
 			Role:          role,
-			HostPath:      "/mnt/tank/backupd/" + role,
+			HostPath:      "/mnt/tank/retnd/" + role,
 			ContainerPath: p,
 			ReadOnly:      c.WriteModeFor(p) == WriteModeReadOnly,
 		})
 	}
-	svc := Service{Name: "backupd", Source: "a store profile that deploys no runner", Mounts: mounts}
+	svc := Service{Name: "retnd", Source: "a store profile that deploys no runner", Mounts: mounts}
 
 	if v := CheckRequiredMounts(svc, c); len(v) != 0 {
 		t.Errorf("a profile mounting exactly the required roles was refused: %s.\nThat profile is every NAS store package this product ships", format(v))
@@ -84,11 +84,11 @@ func TestAMountedHostPlanePathIsHeldToItsWriteMode(t *testing.T) {
 	}
 
 	svc := Service{
-		Name:   "backupd",
+		Name:   "retnd",
 		Source: "positive control: the scripts directory mounted writable",
 		Mounts: []Mount{{
 			Role:          "workflows",
-			HostPath:      "/opt/backupd/workflows",
+			HostPath:      "/opt/retnd/workflows",
 			ContainerPath: workflows,
 			ReadOnly:      false,
 		}},

@@ -2,8 +2,8 @@
   "generated_from": [
     "core/internal/config/config.go (every yaml struct tag, including nested)",
     "core/internal/config/validate.go (defaults, required-ness, resolution rules)",
-    "core/cmd/backupd (every flag definition and the pinned usage block in main.go)",
-    "apps/generic/cmd/backupd-web/main.go (serve, serve-ui, auth create-admin, healthcheck flags and env)",
+    "core/cmd/retnd (every flag definition and the pinned usage block in main.go)",
+    "apps/generic/cmd/retnd-web/main.go (serve, serve-ui, auth create-admin, healthcheck flags and env)",
     "apps/common/auth/local/store.go + apps/common/email/email.go (the #830 recovery-email/SMTP record)",
     "ui/shared/src (SettingsPage, CapacityCard, RetentionPolicyCard, StorageDestinationsCard, S3/Destination wizards, BackupSetWizardPage, backupSetEditFields.ts, BackupSetRetentionCard, RecoveryFields)"
   ],
@@ -57,7 +57,7 @@
       "default": null,
       "required": true,
       "scope": "deployment",
-      "description": "How often backupd checks each source for new backup files. The deployment-wide DEFAULT since #845: a backup set may override it for itself (sources[].backup_sets[].poll_interval). Validate refuses a non-positive value and anything under config.MinPollInterval (1m), so there is no default: every config states it.",
+      "description": "How often retnd checks each source for new backup files. The deployment-wide DEFAULT since #845: a backup set may override it for itself (sources[].backup_sets[].poll_interval). Validate refuses a non-positive value and anything under config.MinPollInterval (1m), so there is no default: every config states it.",
       "ui": {
         "configurable": true,
         "location": "Settings > Service behaviour",
@@ -85,7 +85,7 @@
       "yaml_path": "state.database",
       "cli_flags": [
         "backup-set create --state-database",
-        "backupd-web serve --state-database"
+        "retnd-web serve --state-database"
       ],
       "env": [],
       "type": "string (path)",
@@ -1723,7 +1723,7 @@
       "field": "admin.username",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web auth create-admin --username"
+        "retnd-web auth create-admin --username"
       ],
       "env": [],
       "type": "string",
@@ -1741,7 +1741,7 @@
       "field": "admin.password_hash",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web auth create-admin --password-stdin"
+        "retnd-web auth create-admin --password-stdin"
       ],
       "env": [],
       "type": "string (hash)",
@@ -1759,7 +1759,7 @@
       "field": "admin.recovery_email",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web auth create-admin --recovery-email"
+        "retnd-web auth create-admin --recovery-email"
       ],
       "env": [],
       "type": "string (email address)",
@@ -1777,7 +1777,7 @@
       "field": "smtp.host",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web auth create-admin --smtp-host"
+        "retnd-web auth create-admin --smtp-host"
       ],
       "env": [],
       "type": "string",
@@ -1795,7 +1795,7 @@
       "field": "smtp.port",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web auth create-admin --smtp-port"
+        "retnd-web auth create-admin --smtp-port"
       ],
       "env": [],
       "type": "int (1-65535)",
@@ -1813,7 +1813,7 @@
       "field": "smtp.security",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web auth create-admin --smtp-security"
+        "retnd-web auth create-admin --smtp-security"
       ],
       "env": [],
       "type": "string enum: starttls | tls | none",
@@ -1831,7 +1831,7 @@
       "field": "smtp.username",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web auth create-admin --smtp-username"
+        "retnd-web auth create-admin --smtp-username"
       ],
       "env": [],
       "type": "string",
@@ -1849,7 +1849,7 @@
       "field": "smtp.password_ref",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web auth create-admin --smtp-password-stdin"
+        "retnd-web auth create-admin --smtp-password-stdin"
       ],
       "env": [],
       "type": "string (reference to stored secret)",
@@ -1867,7 +1867,7 @@
       "field": "smtp.from",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web auth create-admin --smtp-from"
+        "retnd-web auth create-admin --smtp-from"
       ],
       "env": [],
       "type": "string (email address)",
@@ -1885,12 +1885,12 @@
       "field": "config path",
       "yaml_path": null,
       "cli_flags": [
-        "--config (every backupd command except version)",
-        "backupd-web serve --config"
+        "--config (every retnd command except version)",
+        "retnd-web serve --config"
       ],
       "env": [],
       "type": "string (path to file or directory)",
-      "default": "/etc/backupd/config/config.yaml (a directory resolves to config.yaml inside it)",
+      "default": "/etc/retnd/config/config.yaml (a directory resolves to config.yaml inside it)",
       "required": false,
       "scope": "deployment",
       "description": "Which YAML file this process reads its whole configuration from. The packaged mount is the DIRECTORY, because the engine creates and atomically replaces the file.",
@@ -1904,8 +1904,8 @@
       "field": "listen address",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web serve --listen",
-        "backupd-web serve-ui --listen"
+        "retnd-web serve --listen",
+        "retnd-web serve-ui --listen"
       ],
       "env": [
         "LISTEN_ADDR"
@@ -1925,8 +1925,8 @@
       "field": "runtime profile",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web serve --profile",
-        "backupd-web serve-ui --profile"
+        "retnd-web serve --profile",
+        "retnd-web serve-ui --profile"
       ],
       "env": [
         "RUNTIME_PROFILE"
@@ -1946,7 +1946,7 @@
       "field": "trusted upstream CIDRs",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web serve --trusted-upstream"
+        "retnd-web serve --trusted-upstream"
       ],
       "env": [
         "TRUSTED_UPSTREAM_CIDRS"
@@ -1966,7 +1966,7 @@
       "field": "trusted gateway CIDRs",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web serve-ui --trusted-gateway"
+        "retnd-web serve-ui --trusted-gateway"
       ],
       "env": [
         "TRUSTED_GATEWAY_CIDRS"
@@ -1986,8 +1986,8 @@
       "field": "auth store path",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web serve --auth-store",
-        "backupd-web auth create-admin --auth-store"
+        "retnd-web serve --auth-store",
+        "retnd-web auth create-admin --auth-store"
       ],
       "env": [],
       "type": "string (path)",
@@ -2005,7 +2005,7 @@
       "field": "auth mode",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web serve --auth-mode"
+        "retnd-web serve --auth-mode"
       ],
       "env": [],
       "type": "string enum: local | gateway",
@@ -2023,7 +2023,7 @@
       "field": "trust forwarded headers",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web serve --trust-forwarded-headers"
+        "retnd-web serve --trust-forwarded-headers"
       ],
       "env": [
         "TRUST_FORWARDED_HEADERS"
@@ -2043,8 +2043,8 @@
       "field": "public base URL",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web serve --public-base-url",
-        "backupd-web auth create-admin --public-base-url"
+        "retnd-web serve --public-base-url",
+        "retnd-web auth create-admin --public-base-url"
       ],
       "env": [
         "PUBLIC_BASE_URL"
@@ -2064,7 +2064,7 @@
       "field": "upstream engine address",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web serve-ui --upstream"
+        "retnd-web serve-ui --upstream"
       ],
       "env": [
         "UPSTREAM_ADDR"
@@ -2084,7 +2084,7 @@
       "field": "UI bundle root",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web serve-ui --ui-root"
+        "retnd-web serve-ui --ui-root"
       ],
       "env": [
         "UI_ROOT"
@@ -2104,7 +2104,7 @@
       "field": "UI bundle directory",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web serve-ui --ui-dir"
+        "retnd-web serve-ui --ui-dir"
       ],
       "env": [
         "UI_DIR"
@@ -2124,7 +2124,7 @@
       "field": "healthcheck target URL",
       "yaml_path": null,
       "cli_flags": [
-        "backupd-web healthcheck --url"
+        "retnd-web healthcheck --url"
       ],
       "env": [
         "LISTEN_ADDR (derives the default)"
@@ -2153,7 +2153,7 @@
       "default": "INFO",
       "required": false,
       "scope": "deployment",
-      "description": "The FR-23 structured-log level every service surface and `backupd daemon` read from the environment, so the one engine an operator can run headless is not the one they cannot turn up.",
+      "description": "The FR-23 structured-log level every service surface and `retnd daemon` read from the environment, so the one engine an operator can run headless is not the one they cannot turn up.",
       "ui": {
         "configurable": false,
         "location": null,

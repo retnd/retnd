@@ -131,11 +131,11 @@ A result on one architecture says nothing about the other.
    ```sh
    ls -l /var/packages/Backupd/target/bin/
    ```
-   Expect `backupd` and `backupd-web`, both executable.
+   Expect `retnd` and `retnd-web`, both executable.
 6. Confirm the packaged binaries are byte-identical to the release ones:
    ```sh
-   sha256sum /var/packages/Backupd/target/bin/backupd \
-             /var/packages/Backupd/target/bin/backupd-web
+   sha256sum /var/packages/Backupd/target/bin/retnd \
+             /var/packages/Backupd/target/bin/retnd-web
    ```
    Compare against `container/release-manifest.json` for this
    architecture. This is acceptance criterion "SPK contains the exact
@@ -182,7 +182,7 @@ worker, and it is the difference between "the resource spec is wrong" and
    set pointing at the shared folder DSM created for the package.
    Confirm that shared folder exists:
    ```sh
-   ls -ld /volume*/backupd
+   ls -ld /volume*/retnd
    ```
 4. Start the package again.
 5. Expect: Package Center shows Running.
@@ -203,7 +203,7 @@ worker, and it is the difference between "the resource spec is wrong" and
 8. Record the uid the daemons actually run as, and whether they could
    write at all:
    ```sh
-   ps -eo user,pid,args | grep backupd-web
+   ps -eo user,pid,args | grep retnd-web
    ls -ln /var/packages/Backupd/var/log/engine.log \
           /var/packages/Backupd/var/run/engine.pid
    ```
@@ -217,7 +217,7 @@ worker, and it is the difference between "the resource spec is wrong" and
    sudo reboot
    # after it comes back, before touching anything else:
    cat /var/packages/Backupd/var/run/engine.pid
-   ps -eo pid,args | grep backupd-web
+   ps -eo pid,args | grep retnd-web
    ```
    `var/` survives a reboot, so the pid file that comes back names the
    pid space that existed before it. Expect: Package Center shows the
@@ -277,7 +277,7 @@ this criterion is the one most likely to differ between the two.
 1. Before updating, capture the state that has to survive, into files you
    can hold the upgrade against afterwards rather than into your memory:
    ```sh
-   sha256sum /var/packages/Backupd/var/state/backupd.db \
+   sha256sum /var/packages/Backupd/var/state/retnd.db \
              /var/packages/Backupd/etc/config.yaml \
      | tee /tmp/before-upgrade.sha256
    find /var/packages/Backupd/var/state -type f | sort > /tmp/before-upgrade.txt
@@ -321,10 +321,10 @@ This is the destructive-safety step. Read it fully before starting.
 1. Put real, identifiable data in the backup share, outside the package's
    own footprint:
    ```sh
-   mkdir -p /volume1/backupd/acceptance
-   dd if=/dev/urandom of=/volume1/backupd/acceptance/canary.bin bs=1M count=8
-   sha256sum /volume1/backupd/acceptance/canary.bin | tee /tmp/canary.sha256
-   find /volume1/backupd -type f | sort > /tmp/before-uninstall.txt
+   mkdir -p /volume1/retnd/acceptance
+   dd if=/dev/urandom of=/volume1/retnd/acceptance/canary.bin bs=1M count=8
+   sha256sum /volume1/retnd/acceptance/canary.bin | tee /tmp/canary.sha256
+   find /volume1/retnd -type f | sort > /tmp/before-uninstall.txt
    ```
 2. Also record what exists outside the share that must survive:
    ```sh
@@ -336,7 +336,7 @@ This is the destructive-safety step. Read it fully before starting.
 5. Now check the canary FIRST, before anything else:
    ```sh
    sha256sum -c /tmp/canary.sha256
-   find /volume1/backupd -type f | sort > /tmp/after-uninstall.txt
+   find /volume1/retnd -type f | sort > /tmp/after-uninstall.txt
    diff /tmp/before-uninstall.txt /tmp/after-uninstall.txt
    ```
    Expect: the canary verifies, and the diff is empty. Synology documents

@@ -125,7 +125,7 @@ SBOM_RELATIVE = "provenance/sbom.spdx.json"
 # from there -- so it is the issue that removes this guard, canonical.json's
 # image.mirror and this constant together.
 MIRROR_RETIREMENT_ISSUE = 947
-LEGACY_PACKAGE_PATH = "ghcr.io/backupdproject/backupd"
+LEGACY_PACKAGE_PATH = "ghcr.io/retndproject/retnd"
 
 KEY_PATHSPECS = [
     "*.key", "*.pem", "cosign.key", "*cosign*.key", "*.p12", "*.pfx",
@@ -374,7 +374,7 @@ def guard_7_mirror(canonical: Path, reference: str) -> list[str]:
         and both are pushed, same build, same digest. **This is where the
         tree is now**: #895's cutover moved image.reference to
         ghcr.io/retnd/retnd on 2026-09-15 and left image.mirror naming
-        ghcr.io/backupdproject/backupd, and #947 closes it.
+        ghcr.io/retndproject/retnd, and #947 closes it.
       * no mirror at all. The run would push whatever image.reference says
         and abandon the other package path silently, which is the failure
         FR-39 exists for. Refused.

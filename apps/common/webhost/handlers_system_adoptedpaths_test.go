@@ -77,8 +77,8 @@ func TestSystemVersion_ReportsTheAdoptedPathAndTheRenamedOne(t *testing.T) {
 		AdoptedPaths: []legacypath.Adoption{{
 			What:    "configuration",
 			Renamed: "/etc/retnd/config/config.yaml",
-			Legacy:  "/etc/backupd/config/config.yaml",
-			Path:    "/etc/backupd/config/config.yaml",
+			Legacy:  "/etc/retnd/config/config.yaml",
+			Path:    "/etc/retnd/config/config.yaml",
 			Outcome: legacypath.AdoptLegacy,
 		}},
 	})
@@ -105,7 +105,7 @@ func TestSystemVersion_ReportsTheAdoptedPathAndTheRenamedOne(t *testing.T) {
 	if got.What != "configuration" {
 		t.Errorf("what = %q, want %q; an operator with both halves adopted has to be able to tell which is which", got.What, "configuration")
 	}
-	if got.Serving != "/etc/backupd/config/config.yaml" {
+	if got.Serving != "/etc/retnd/config/config.yaml" {
 		t.Errorf("serving = %q, want the pre-rename path that is actually live", got.Serving)
 	}
 	if got.Renamed != "/etc/retnd/config/config.yaml" {

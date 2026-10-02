@@ -1,4 +1,4 @@
-// Command backupd-web is the generic Web host's own executable
+// Command retnd-web is the generic Web host's own executable
 // (issue #82/B4.1, docs/EPIC-B-multi-nas.md §9.2): it runs alongside the
 // CLI (core/cmd/retnd, unchanged by this issue) inside the same
 // canonical OCI image, and adds what that binary does not have: `serve`
@@ -7,8 +7,8 @@
 // §9.3) and `serve-ui` (the shared static UI plus a reverse proxy to the
 // engine).
 //
-// It is `backupd-web` to an operator and this directory is still
-// cmd/retnd-web, for the same reason `backupd` lives in
+// It is `retnd-web` to an operator and this directory is still
+// cmd/retnd-web, for the same reason `retnd` lives in
 // cmd/retnd: a Go package path is not operator-visible, and
 // core/cliecho/cliname.go says so explicitly. Every name this binary
 // prints for itself comes from core/cliecho.WebBinary rather than a
@@ -23,7 +23,7 @@
 // with a LAN-facing published port. Splitting them into two commands of
 // one binary, rather than two separate binaries or images, is the same
 // "one canonical image, vary command" principle already applied to
-// `/backupd` vs. `/backupd-web` themselves.
+// `/retnd` vs. `/retnd-web` themselves.
 //
 // Every other execution mode (`run`, `daemon`, `check`, `status`, ...)
 // stays on cmd/retnd: this binary is deliberately narrow rather
@@ -87,7 +87,7 @@ var (
 // /etc/retnd/config (issue #196) and config.yaml lives inside
 // it; --config also accepts that directory.
 //
-// EPIC R (#890) moved this from /etc/backupd/config. See
+// EPIC R (#890) moved this from /etc/retnd/config. See
 // core/cmd/retnd/setup.go's own copy of this constant for why that move
 // needs core/legacypath's preflight in front of it, and cmdServe below
 // for where this process runs it.
@@ -127,7 +127,7 @@ const defaultProfile = string(profile.Generic)
 // Docker's embedded DNS on the shared internal network, never a
 // published host port (the engine has none).
 //
-// EPIC R (#890) renamed that service from `backupd`. An operator running
+// EPIC R (#890) renamed that service from `retnd`. An operator running
 // an unedited pre-rename compose file is unaffected: that file sets
 // UPSTREAM_ADDR explicitly, and $UPSTREAM_ADDR wins over this default, so
 // the UI host keeps resolving the service name their own file declares.
@@ -1136,7 +1136,7 @@ func cmdAuthCreateAdmin(args []string) int {
 // these deployments are driven by. So:
 //
 //	printf '%s\n%s\n' "$ADMIN_PASS" "$SMTP_PASS" |
-//	  backupd-web auth create-admin --username admin --password-stdin \
+//	  retnd-web auth create-admin --username admin --password-stdin \
 //	    --recovery-email you@example.com --smtp-host smtp.example.com \
 //	    --smtp-username you --smtp-password-stdin --smtp-from you@example.com
 //
@@ -1181,7 +1181,7 @@ func trimOneNewline(s string) string {
 }
 
 // cmdHealthcheck is serve-ui's own HEALTHCHECK: since that container has
-// no config, no state database, and no `backupd status` to run (that
+// no config, no state database, and no `retnd status` to run (that
 // binary/subcommand belongs to the engine's own container, and checks
 // REAL backup health, not "is a web server listening"), this asks the
 // one question that actually applies here: does the UI host's own
@@ -1234,11 +1234,11 @@ func localHealthcheckURL(listenAddr string) string {
 // The exit statuses this binary promises, in one place, because they are
 // a contract a supervisor branches on rather than an implementation
 // detail. Three of them have always been here; the fourth is issue #551,
-// and it is here because container/compose.yaml runs `/backupd-web serve`,
+// and it is here because container/compose.yaml runs `/retnd-web serve`,
 // so the deployment shape that code was justified by (a supervisor
 // replacing a container while the outgoing process has not let go of the
 // serving lock yet, where waiting and trying again is the right answer)
-// is THIS binary's shape rather than `backupd daemon`'s. Leaving it out would
+// is THIS binary's shape rather than `retnd daemon`'s. Leaving it out would
 // have published a contract that holds for the binary an operator types
 // by hand and not for the one their orchestrator restarts.
 //

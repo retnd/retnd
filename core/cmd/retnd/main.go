@@ -1,5 +1,5 @@
-// Command backupd is the entry point for every execution mode this project
-// supports (FR-1, FR-26). It is `backupd` to an operator and this directory is
+// Command retnd is the entry point for every execution mode this project
+// supports (FR-1, FR-26). It is `retnd` to an operator and this directory is
 // still cmd/retnd, because the image symlinks the old name beside
 // the new one and a Go package path is not something anybody types; the
 // constant that decides what this binary prints itself as, and the whole

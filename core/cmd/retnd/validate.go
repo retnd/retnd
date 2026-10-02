@@ -7,7 +7,7 @@ import (
 	"github.com/retnd/retnd/core/internal/app"
 )
 
-// cmdValidate is `backupd validate <source/backup-set/artifact>`:
+// cmdValidate is `retnd validate <source/backup-set/artifact>`:
 // an on-demand re-check of one already-committed artifact's durable copy,
 // wherever that copy actually is. See internal/app.ValidateArtifact's doc
 // for exactly what it checks and why a failure quarantines the artifact

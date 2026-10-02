@@ -52,7 +52,7 @@ import (
 // -e` into a hook. A hook is somebody's code and the only thing that may
 // change it is them.
 
-// This product's rule ids. BSH for "backupd shell": deliberately not
+// This product's rule ids. BSH for "retnd shell": deliberately not
 // ShellCheck's SC namespace, because these are not ShellCheck's checks
 // and a code that looked like one would send an operator to a wiki page
 // describing different analysis.
@@ -442,7 +442,7 @@ func (r *rules) uncheckedCd(stmt *syntax.Stmt, call *syntax.CallExpr, name strin
 //   - the word's literal text, with every expansion that can vanish
 //     removed and the result cleaned of `.` and `..`, has to be an
 //     absolute path of at most one component. `/`, `/tmp`, `/*` and
-//     `"$ROOT/var/../tmp"` are reported; `/srv/backupd/cache/$NAME` is
+//     `"$ROOT/var/../tmp"` are reported; `/srv/retnd/cache/$NAME` is
 //     NOT, because an empty NAME there deletes a directory the
 //     deployment owns rather than a root-level one.
 //

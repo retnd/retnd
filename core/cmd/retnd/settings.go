@@ -10,9 +10,9 @@ import (
 	"github.com/retnd/retnd/core/service"
 )
 
-// cmdSettings is `backupd settings` (report the live retention and
+// cmdSettings is `retnd settings` (report the live retention and
 // capacity settings FR-18/FR-19/FR-21 are currently deciding with) and
-// `backupd settings patch [flags]` (change one of them in place).
+// `retnd settings patch [flags]` (change one of them in place).
 // Issue #277's own investigation confirmed this is not fully covered by
 // "edit config.yaml and validate", the answer that already covers
 // creating a backup set: GET is a discovery surface a config file has no
@@ -70,7 +70,7 @@ import (
 // A chain stopped being purely a policy about time. Since EPIC E a tier
 // names a `medium:` (config.RetentionTier.Medium), so a chain says where
 // the bytes live, and EPIC G requires every capability to be reachable
-// from `backupd` because a browser-only destination change is one
+// from `retnd` because a browser-only destination change is one
 // nobody can automate across a fleet.
 //
 // And the config-file answer was never an equal-power route here. The

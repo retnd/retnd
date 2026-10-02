@@ -18,7 +18,7 @@ import (
 // # Why it is a form of `validate` rather than a verb of `workflow`
 //
 // Because it answers the question `validate` already answers, about a
-// different subject. An operator who has typed `backupd validate
+// different subject. An operator who has typed `retnd validate
 // <artifact>` to ask "is this still sound" asks "are my hooks sound" the
 // same way, and a second noun would mean learning that this product calls
 // one of those checking and the other one something else. cmdValidate

@@ -140,7 +140,7 @@ var localHookSupport = map[PlatformID]LocalHookSupport{
 		Available:    true,
 		DockerAccess: DockerAccessHostGroup,
 		Reason: "A generic Docker/Linux host is the runner installer's own target: " +
-			"scripts/install/install_docker_host.py provisions backupd-workflow-runner.service, " +
+			"scripts/install/install_docker_host.py provisions retnd-workflow-runner.service, " +
 			"puts the service account in the Docker socket's group, and fetches the pinned hook image.",
 	},
 	PlatformOpenMediaVault: {

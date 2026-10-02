@@ -120,7 +120,7 @@ func moveToMedium(t *testing.T, j *state.Journal, artifact model.ArtifactID, med
 	if _, err := j.RecordTransition(ctx, state.Transition{
 		Artifact: artifact, Key: artifact.String() + ":on-medium", From: "COMPLETE", To: "COMPLETE", OccurredAt: at,
 		Placement: &state.PlacementUpdate{
-			Medium: mediumID, Location: "backupd/production/postgres-primary/" + artifact.Name,
+			Medium: mediumID, Location: "retnd/production/postgres-primary/" + artifact.Name,
 			Size: &size, Hash: sha256Hex(content), HashAlg: "sha256",
 			VerificationClass: state.VerificationContent, Status: state.PlacementActive,
 		},
@@ -162,7 +162,7 @@ func addMediumPlacement(t *testing.T, j *state.Journal, artifact model.ArtifactI
 	if _, err := j.RecordTransition(context.Background(), state.Transition{
 		Artifact: artifact, Key: artifact.String() + ":also-on-medium", From: "COMPLETE", To: "COMPLETE", OccurredAt: at,
 		Placement: &state.PlacementUpdate{
-			Medium: mediumID, Location: "backupd/production/postgres-primary/" + artifact.Name,
+			Medium: mediumID, Location: "retnd/production/postgres-primary/" + artifact.Name,
 			Size: &size, Hash: sha256Hex(content), HashAlg: "sha256",
 			VerificationClass: state.VerificationContent, Status: state.PlacementActive,
 		},
@@ -642,7 +642,7 @@ func addSecondMedium(t *testing.T, j *state.Journal, artifact model.ArtifactID, 
 	if _, err := j.RecordTransition(context.Background(), state.Transition{
 		Artifact: artifact, Key: artifact.String() + ":on-" + mediumID, From: "COMPLETE", To: "COMPLETE", OccurredAt: at,
 		Placement: &state.PlacementUpdate{
-			Medium: mediumID, Location: "backupd/production/postgres-primary/" + artifact.Name,
+			Medium: mediumID, Location: "retnd/production/postgres-primary/" + artifact.Name,
 			Size: &size, Hash: sha256Hex(content), HashAlg: "sha256",
 			VerificationClass: state.VerificationContent, Status: state.PlacementActive,
 		},

@@ -124,7 +124,7 @@ describe("where a backup's copies are", () => {
           {
             medium: "offsite_s3",
             mediumType: "",
-            location: "backupd/production/pg/nightly.dump.zst",
+            location: "retnd/production/pg/nightly.dump.zst",
             sizeBytes: 4096,
             storageClass: "",
             verificationClass: "existence",
@@ -152,7 +152,7 @@ describe("where a backup's copies are", () => {
           {
             medium: "offsite_cold",
             mediumType: "s3",
-            location: "backupd/production/pg/nightly.dump.zst",
+            location: "retnd/production/pg/nightly.dump.zst",
             sizeBytes: 4096,
             storageClass: "DEEP_ARCHIVE",
             verificationClass: null,
@@ -215,7 +215,7 @@ describe("where a backup's copies are", () => {
           {
             medium: "offsite_s3",
             mediumType: "s3",
-            location: "backupd/production/pg/nightly.dump.zst",
+            location: "retnd/production/pg/nightly.dump.zst",
             sizeBytes: 4096,
             storageClass: "STANDARD_IA",
             verificationClass: "existence",

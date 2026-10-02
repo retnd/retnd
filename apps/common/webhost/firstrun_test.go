@@ -68,7 +68,7 @@ func (f *fakeFirstRun) ListSSHKeys(context.Context) ([]service.SSHKeyListing, er
 
 func (f *fakeFirstRun) DiscoverSSHKeyCandidates(context.Context) (service.SSHKeyDiscovery, error) {
 	return service.SSHKeyDiscovery{
-		Locations: []service.SSHKeyDiscoveryLocation{{Path: "/etc/backupd", Kind: "mount"}},
+		Locations: []service.SSHKeyDiscoveryLocation{{Path: "/etc/retnd", Kind: "mount"}},
 	}, nil
 }
 

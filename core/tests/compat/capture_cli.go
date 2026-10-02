@@ -17,7 +17,7 @@ import (
 	"github.com/retnd/retnd/core/service"
 )
 
-// FR-35 clause 4, the CLI: build backupd from this working tree,
+// FR-35 clause 4, the CLI: build retnd from this working tree,
 // run a fixed table of invocations against the seeded medium-free
 // deployment, and write down exactly what an operator would have seen.
 //
@@ -41,7 +41,7 @@ import (
 // which surfaces it leaves out and why, because a surface nobody mentions
 // cannot be told apart from one nobody thought of.
 
-// buildCLI builds backupd from this working tree.
+// buildCLI builds retnd from this working tree.
 //
 // The binary, not run() called in-process: FR-35's CLI clause is about
 // what an operator sees in a terminal after an upgrade, and the only way
@@ -312,7 +312,7 @@ func captureBesideAServingProcess(ctx context.Context, bin, cfgPath, root string
 // daily-only chain.
 //
 // The reason this is not folded into the table above is in the package
-// doc: backupd exposes no way to pin its clock, so a multi-tier
+// doc: retnd exposes no way to pin its clock, so a multi-tier
 // chain's attribution genuinely depends on the calendar date the gate
 // runs on. Rather than normalize the verdicts away and keep a cell that
 // certifies nothing, this narrows the chain until the verdicts are the
@@ -455,7 +455,7 @@ func runCLI(ctx context.Context, bin string, args []string, root string, extra .
 // normalizeGoVersion is the second normalization this package does, and
 // unlike the first it is not about tidiness.
 //
-// `backupd version` prints the Go runtime it was built with, and
+// `retnd version` prints the Go runtime it was built with, and
 // that is the machine's fact, not the product's. Pinning it into a
 // checked-in corpus would make this gate red for every developer on a
 // different patch release of Go and green only for whoever captured it,

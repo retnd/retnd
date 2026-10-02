@@ -216,10 +216,10 @@ func TestTheLocalHookMountRuleFiresOnTheCombinationNothingElseReads(t *testing.T
 		if !ok {
 			t.Fatalf("canonical.json declares no container path for the %q role", role)
 		}
-		return Mount{Role: role, HostPath: "/srv/backupd/" + role, ContainerPath: path, ReadOnly: readOnly}
+		return Mount{Role: role, HostPath: "/srv/retnd/" + role, ContainerPath: path, ReadOnly: readOnly}
 	}
 	engine := func(mounts ...Mount) *Service {
-		return &Service{Name: "backupd", Source: "fixture.yml", Mounts: mounts}
+		return &Service{Name: "retnd", Source: "fixture.yml", Mounts: mounts}
 	}
 	// The five storage roles every profile already carries. The rule must
 	// decide on the runner's three and on nothing else.
@@ -294,14 +294,14 @@ func TestTheLocalHookMountRuleFiresOnTheCombinationNothingElseReads(t *testing.T
 // because they ask for opposite things.
 func TestTheLocalHookDocRequirementWouldNoticeASilentDocument(t *testing.T) {
 	t.Run("available", func(t *testing.T) {
-		full := "Install it with backupd-workflow-runner.service, run `sudo usermod -aG docker backupd`, and set WORKFLOW_RUNNER_HOOK_IMAGE."
+		full := "Install it with retnd-workflow-runner.service, run `sudo usermod -aG docker retnd`, and set WORKFLOW_RUNNER_HOOK_IMAGE."
 		if ok, detail := LocalHookDocStates("fixture.md", full, LocalHooksAvailable); !ok {
 			t.Fatalf("a document stating all three facts was refused: %s", detail)
 		}
 		for _, missing := range []string{
-			"run `sudo usermod -aG docker backupd` and set WORKFLOW_RUNNER_HOOK_IMAGE.",
-			"Install backupd-workflow-runner.service and set WORKFLOW_RUNNER_HOOK_IMAGE.",
-			"Install backupd-workflow-runner.service, then `sudo usermod -aG docker backupd`.",
+			"run `sudo usermod -aG docker retnd` and set WORKFLOW_RUNNER_HOOK_IMAGE.",
+			"Install retnd-workflow-runner.service and set WORKFLOW_RUNNER_HOOK_IMAGE.",
+			"Install retnd-workflow-runner.service, then `sudo usermod -aG docker retnd`.",
 		} {
 			if ok, _ := LocalHookDocStates("fixture.md", missing, LocalHooksAvailable); ok {
 				t.Errorf("a document that omits one of the three prerequisites passed:\n%s", missing)
@@ -547,7 +547,7 @@ func TestTheEngineGainsNothingAndTwoRulesSaySo(t *testing.T) {
 	// Rule one: the mount. Both spellings, because a rule that reads one
 	// is a rule that misses the other.
 	for _, socket := range []string{"/var/run/docker.sock", "/run/docker.sock"} {
-		svc := Service{Name: "backupd", Source: "fixture.yml", Mounts: []Mount{{HostPath: socket, ContainerPath: socket}}}
+		svc := Service{Name: "retnd", Source: "fixture.yml", Mounts: []Mount{{HostPath: socket, ContainerPath: socket}}}
 		if v := CheckMountedHostPaths([]Service{svc}); len(v) == 0 {
 			t.Errorf("mounting %s is no longer a violation, so canonical.json's engineDockerAccess:false is a claim nothing enforces", socket)
 		}
@@ -555,8 +555,8 @@ func TestTheEngineGainsNothingAndTwoRulesSaySo(t *testing.T) {
 
 	// Rule two: the two ways of handing over a daemon that need no mount.
 	for _, artifact := range []string{
-		"services:\n  backupd:\n    group_add:\n      - docker\n",
-		"services:\n  backupd:\n    environment:\n      DOCKER_HOST: tcp://127.0.0.1:2375\n",
+		"services:\n  retnd:\n    group_add:\n      - docker\n",
+		"services:\n  retnd:\n    environment:\n      DOCKER_HOST: tcp://127.0.0.1:2375\n",
 	} {
 		if v := CheckNoContainerDockerAccess("fixture.yml", artifact); len(v) == 0 {
 			t.Errorf("this artifact hands a container the Docker daemon and no rule refuses it:\n%s", artifact)
@@ -566,7 +566,7 @@ func TestTheEngineGainsNothingAndTwoRulesSaySo(t *testing.T) {
 	// And the control: the rule must not fire on the shipped artifacts,
 	// or every target's cell would be failing for a reason that has
 	// nothing to do with what it checks.
-	if v := CheckNoContainerDockerAccess("fixture.yml", "services:\n  backupd:\n    read_only: true\n    cap_drop:\n      - ALL\n"); len(v) != 0 {
+	if v := CheckNoContainerDockerAccess("fixture.yml", "services:\n  retnd:\n    read_only: true\n    cap_drop:\n      - ALL\n"); len(v) != 0 {
 		t.Errorf("a hardened service with no Docker access was refused: %s", oneLine(v))
 	}
 }
@@ -593,7 +593,7 @@ func TestADeclaredCredentialMountIsHeldToItsWriteModeWithoutAStorageRole(t *test
 
 	mount := func(containerPath string, readOnly bool) []Service {
 		return []Service{{
-			Name:   "backupd",
+			Name:   "retnd",
 			Source: "fixture.yaml",
 			Mounts: []Mount{{HostPath: "./secrets/tok", ContainerPath: containerPath, ReadOnly: readOnly}},
 		}}

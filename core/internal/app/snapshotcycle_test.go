@@ -471,7 +471,7 @@ func TestRunCycle_TheScannedEntryCountSurvivesToEveryReport(t *testing.T) {
 		t.Errorf("source_complete = %v on a successful run; a skipped symlink is policy, not a hole in the backup", row.SourceComplete)
 	}
 
-	// And the health report, which is what `backupd status` and the
+	// And the health report, which is what `retnd status` and the
 	// dashboard render.
 	report, err := svc.BuildHealthReport(ctx, VersionInfo{})
 	if err != nil {

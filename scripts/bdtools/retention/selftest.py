@@ -340,7 +340,7 @@ def expect_gate_passes(
 def body(root: Path, dry_run: bool) -> int:
     tally = selftest_swap.Tally()
 
-    with tempfile.TemporaryDirectory(prefix="backupd-retention-selftest.") as tmp_name:
+    with tempfile.TemporaryDirectory(prefix="retnd-retention-selftest.") as tmp_name:
         tmp = Path(tmp_name)
         tracker = selftest_swap.AnchorTracker(dry_run=dry_run, root=root, tmp=tmp)
 

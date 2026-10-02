@@ -28,7 +28,7 @@ func hookSpec(t *testing.T) launchSpec {
 	t.Helper()
 	root := t.TempDir()
 	return launchSpec{
-		name:       "backupd-hook-run1-step1-0a1b2c3d",
+		name:       "retnd-hook-run1-step1-0a1b2c3d",
 		runID:      "run1",
 		stepID:     "step1",
 		workDir:    filepath.Join(root, "work"),
@@ -549,7 +549,7 @@ func TestExecute_RefusesWithoutAProvenCapabilityAndRunsNoHostBash(t *testing.T) 
 func TestProveContainerCapability_RefusesANetworkThatUndoesTheIsolation(t *testing.T) {
 	docker := writeFakeDocker(t, fakeDocker{})
 
-	for _, network := range []string{"host", "container:backupd-engine", "container"} {
+	for _, network := range []string{"host", "container:retnd-engine", "container"} {
 		t.Run(network, func(t *testing.T) {
 			_, err := ProveContainerCapability(context.Background(), ContainerConfig{
 				Docker:  docker,
@@ -578,7 +578,7 @@ func TestProveContainerCapability_RefusesANetworkThatUndoesTheIsolation(t *testi
 		Image:   DefaultHookImage,
 		Bash:    hostBashForFake(t),
 		User:    "1000:1000",
-		Network: "backupd-hooks",
+		Network: "retnd-hooks",
 	}); err != nil {
 		t.Fatalf("a named docker network was refused as well, which is a refusal of networking rather than of the host namespace: %v", err)
 	}

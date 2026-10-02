@@ -12,7 +12,7 @@ import (
 	"github.com/retnd/retnd/core/service"
 )
 
-// cmdBackupSetRetention is `backupd backup-set retention
+// cmdBackupSetRetention is `retnd backup-set retention
 // <source/backup-set> [flags]` (issue #333): read which retention policy
 // one backup set is retained under, give that set a whole policy of its
 // own, or take that policy back off so it inherits the deployment's

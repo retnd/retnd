@@ -260,7 +260,7 @@ export function WorkflowEnvironmentEditor({
                 kind === "literal"
                   ? "db-primary.internal"
                   : kind === "file"
-                    ? "/etc/backupd/secrets/pg"
+                    ? "/etc/retnd/secrets/pg"
                     : kind === "env"
                       ? "PGPASSWORD_SOURCE"
                       : "/usr/local/bin/read-secret pg"

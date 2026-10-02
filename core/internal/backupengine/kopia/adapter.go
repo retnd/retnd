@@ -50,7 +50,7 @@ import (
 //
 // It holds no repository state, and like the rclone adapter that is
 // load-bearing: every repository handle it hands out owns its own Kopia
-// repository object and its own config file path, so two backupd
+// repository object and its own config file path, so two retnd
 // operations against two repositories share no cached connection, no
 // cached format blob and no cached credential.
 //
@@ -152,7 +152,7 @@ func (r *repository) Snapshot(ctx context.Context, req backupengine.SnapshotRequ
 
 	var man *snapshot.Manifest
 
-	err = repo.WriteSession(ctx, r.rep, repo.WriteSessionOptions{Purpose: "backupd:snapshot"},
+	err = repo.WriteSession(ctx, r.rep, repo.WriteSessionOptions{Purpose: "retnd:snapshot"},
 		func(ctx context.Context, w repo.RepositoryWriter) error {
 			u := upload.NewUploader(w)
 
@@ -166,7 +166,7 @@ func (r *repository) Snapshot(ctx context.Context, req backupengine.SnapshotRequ
 
 			// Pinned before it is saved: no retention policy in this
 			// repository, global or otherwise, may expire a manifest
-			// backupd wrote. enginepolicy.go carries the argument.
+			// retnd wrote. enginepolicy.go carries the argument.
 			pinManifest(m)
 
 			id, err := snapshot.SaveSnapshot(ctx, w, m)
@@ -228,7 +228,7 @@ func (r *repository) DeleteSnapshot(ctx context.Context, id backupengine.Snapsho
 		return err
 	}
 
-	return repo.WriteSession(ctx, r.rep, repo.WriteSessionOptions{Purpose: "backupd:delete-snapshot"},
+	return repo.WriteSession(ctx, r.rep, repo.WriteSessionOptions{Purpose: "retnd:delete-snapshot"},
 		func(ctx context.Context, w repo.RepositoryWriter) error {
 			if err := w.DeleteManifest(ctx, manifest.ID(id)); err != nil {
 				return fmt.Errorf("deleting snapshot %s: %w", id, err)
@@ -256,10 +256,10 @@ func (r *repository) Maintain(ctx context.Context, mode backupengine.Maintenance
 		return backupengine.MaintenanceReport{}, err
 	}
 
-	err = repo.DirectWriteSession(ctx, r.direct, repo.WriteSessionOptions{Purpose: "backupd:maintenance"},
+	err = repo.DirectWriteSession(ctx, r.direct, repo.WriteSessionOptions{Purpose: "retnd:maintenance"},
 		func(ctx context.Context, dw repo.DirectRepositoryWriter) error {
 			// force=true bypasses Kopia's "is this the owning host"
-			// check. backupd is the only writer of the repositories it
+			// check. retnd is the only writer of the repositories it
 			// manages and it is the thing being asked to maintain them
 			// right now; deferring to an owner string written by whichever
 			// machine created the repository would mean a NAS-side

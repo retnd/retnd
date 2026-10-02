@@ -90,10 +90,10 @@ A deployment can run both, and they do not interact: an artifact set's
 monthly tier can live in `offsite_s3` while an incremental set's snapshots
 live in the `production` repository domain, and neither knows the other
 exists. The one place they meet is the disk: a local repository's bytes sit
-under `<backup_root>/.backupd/repositories/<domain>/`, inside the reserved
+under `<backup_root>/.retnd/repositories/<domain>/`, inside the reserved
 namespace that artifact discovery, retention and prune are all forbidden to
 enter. If you exclude one path from a share or a scanner, exclude
-`.backupd`.
+`.retnd`.
 
 Repository storage is not a storage medium and cannot be pointed at one.
 The repository adapter does speak S3 natively, and that path is exercised
@@ -383,7 +383,7 @@ medium's own storage class, reads it back byte for byte, checks the class the
 object actually landed in against the class the configuration claims, asks the
 endpoint whether the medium's declared `upload_verification` can actually be
 achieved there, and deletes the probe. The probe lives at a randomly named key
-under a reserved `.backupd-preflight/` segment inside the medium's own
+under a reserved `.retnd-preflight/` segment inside the medium's own
 prefix, which no configured artifact can produce.
 
 Eight checks, and each one names which of them failed and whose problem it is.

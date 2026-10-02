@@ -15,8 +15,8 @@
 # THE COMMANDS BELOW ARE `/retnd-web`, AND THEY NEED AN IMAGE BUILT AT
 # R1.5 (#890) OR NEWER
 #
-# 0.3.3 renamed the binaries an operator runs: `backupd` for the engine CLI
-# and `backupd-web` for the web host. That is history, and it stays true of
+# 0.3.3 renamed the binaries an operator runs: `retnd` for the engine CLI
+# and `retnd-web` for the web host. That is history, and it stays true of
 # every image published from 0.3.3 up to this change.
 #
 # R1.5 (#890) moves the half 0.3.3 deliberately left alone: the
@@ -24,13 +24,13 @@
 #
 #   * the entrypoints in the image are `/retnd` (the engine CLI) and
 #     `/retnd-web` (the web host);
-#   * the engine service below is `retnd`, where it was `backupd`.
+#   * the engine service below is `retnd`, where it was `retnd`.
 #     `web-ui` is unchanged, because it never named the product;
 #   * the compose project is named explicitly (`name: retnd` below), so
 #     the default container names are `retnd-retnd-1` and
 #     `retnd-web-ui-1`;
 #   * the container config directory is /etc/retnd, where it was
-#     /etc/backupd. The two DATA mounts, /data/state and /data/backups,
+#     /etc/retnd. The two DATA mounts, /data/state and /data/backups,
 #     carry no brand and do not move, so nothing an operator stores
 #     changes place inside the container.
 #
@@ -53,22 +53,22 @@
 # combination on its own no longer can.
 #
 # THE OTHER DIRECTION IS BRIDGED, ONCE. An operator who pinned the PREVIOUS
-# compose file still has `command: ["/backupd-web", ...]` in their copy,
+# compose file still has `command: ["/retnd-web", ...]` in their copy,
 # and "your stack no longer starts" is not an acceptable upgrade. So the
-# image also carries `/backupd-web` as a REAL HARDLINK to `/retnd-web`: one
+# image also carries `/retnd-web` as a REAL HARDLINK to `/retnd-web`: one
 # inode, two names, no second copy of a ~40 MB binary and no shell wrapper
 # (the runtime image is distroless and has no shell). It is kept for
 # exactly one release and removed by #947. There is deliberately no
-# `/backupd` beside it: no compose file this project has ever shipped named
-# `/backupd` in a `command:` or a `healthcheck:`, so there is no pinned
+# `/retnd` beside it: no compose file this project has ever shipped named
+# `/retnd` in a `command:` or a `healthcheck:`, so there is no pinned
 # file that would need one.
 #
 # What this change did NOT move is the IMAGE REFERENCE, and #895's cutover
-# moved half of it. `image:` below still reads `backupd:${VERSION:-dev}`,
+# moved half of it. `image:` below still reads `retnd:${VERSION:-dev}`,
 # which is a LOCAL build tag and not a registry path -- `docker compose
 # build` resolves it against nothing but this daemon. The PUBLISHED
 # reference is `ghcr.io/retnd/retnd` now, with
-# `ghcr.io/backupdproject/backupd` declared as a one-release mirror in
+# `ghcr.io/retndproject/retnd` declared as a one-release mirror in
 # distribution/packaging/canonical.json: a registry path is not covered by
 # GitHub's repository-transfer redirects, so both are published for one
 # release rather than the old one being abandoned, and #947 closes that
@@ -162,7 +162,7 @@ x-canonical-runtime:
   digest_policy:
     manifest: container/release-manifest.json
     pin: >-
-      Deploy by digest, not by tag: replace image: backupd:<tag>
+      Deploy by digest, not by tag: replace image: retnd:<tag>
       with the registry reference plus the @sha256:... digest recorded for
       your architecture in the manifest above, and verify the binary
       SHA-256 recorded alongside it. A tag can be moved; a digest cannot.
@@ -209,7 +209,7 @@ services:
         # local build but not what a release should ship.
         VERSION: ${VERSION:-dev}
         COMMIT: ${COMMIT:-none}
-    image: backupd:${VERSION:-dev}
+    image: retnd:${VERSION:-dev}
 
     # `/retnd-web serve` (issue #82/B4.1, docs/EPIC-B-multi-nas.md
     # §9.2's "Generic Web App host") is the engine: local authentication,
@@ -561,7 +561,7 @@ services:
     # produced and tagged (docker compose resolves `image:` against
     # whatever is already built/pulled under that tag). Same digest, same
     # binary, different command - never a second image to keep in sync.
-    image: backupd:${VERSION:-dev}
+    image: retnd:${VERSION:-dev}
 
     # Wait for the engine to report healthy before starting: a NAS reboot
     # (or `docker compose up`) starting both containers at once would

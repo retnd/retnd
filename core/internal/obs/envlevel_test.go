@@ -23,12 +23,12 @@ import (
 
 func TestLevelFromEnv(t *testing.T) {
 	for _, tc := range []struct {
-		name         string
-		retndDebug   string
-		backupdDebug string
-		rmDebug      string
-		logLevel     string
-		want         Level
+		name        string
+		retndDebug  string
+		legacyDebug string
+		rmDebug     string
+		logLevel    string
+		want        Level
 	}{
 		{name: "nothing set is unchanged INFO", want: LevelInfo},
 		{name: "LOG_LEVEL selects a level", logLevel: "debug", want: LevelDebug},
@@ -47,9 +47,9 @@ func TestLevelFromEnv(t *testing.T) {
 		// compose file or its unit being touched still has an older
 		// spelling, and an operator mid-diagnosis must not have their
 		// logs silently go quiet under them.
-		{name: "the deprecated BACKUPD_DEBUG alias still works", backupdDebug: "1", want: LevelDebug},
-		{name: "the deprecated BACKUPD_DEBUG alias still wins over LOG_LEVEL", backupdDebug: "1", logLevel: "warn", want: LevelDebug},
-		{name: "the deprecated BACKUPD_DEBUG alias only counts as the documented 1", backupdDebug: "true", want: LevelInfo},
+		{name: "the deprecated BACKUPD_DEBUG alias still works", legacyDebug: "1", want: LevelDebug},
+		{name: "the deprecated BACKUPD_DEBUG alias still wins over LOG_LEVEL", legacyDebug: "1", logLevel: "warn", want: LevelDebug},
+		{name: "the deprecated BACKUPD_DEBUG alias only counts as the documented 1", legacyDebug: "true", want: LevelInfo},
 		{name: "the deprecated RM_DEBUG alias still works", rmDebug: "1", want: LevelDebug},
 		{name: "the deprecated RM_DEBUG alias still wins over LOG_LEVEL", rmDebug: "1", logLevel: "warn", want: LevelDebug},
 		{name: "the deprecated RM_DEBUG alias only counts as the documented 1", rmDebug: "true", want: LevelInfo},
@@ -61,12 +61,12 @@ func TestLevelFromEnv(t *testing.T) {
 		// asked for debug under an older name and typo'd the current one
 		// still gets debug.
 		{name: "any spelling alone is enough", retndDebug: "true", rmDebug: "1", want: LevelDebug},
-		{name: "a typo'd current name does not cancel a deprecated one", retndDebug: "true", backupdDebug: "1", want: LevelDebug},
-		{name: "all three spellings set is still debug", retndDebug: "1", backupdDebug: "1", rmDebug: "1", want: LevelDebug},
+		{name: "a typo'd current name does not cancel a deprecated one", retndDebug: "true", legacyDebug: "1", want: LevelDebug},
+		{name: "all three spellings set is still debug", retndDebug: "1", legacyDebug: "1", rmDebug: "1", want: LevelDebug},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("RETND_DEBUG", tc.retndDebug)
-			t.Setenv("BACKUPD_DEBUG", tc.backupdDebug)
+			t.Setenv("BACKUPD_DEBUG", tc.legacyDebug)
 			t.Setenv("RM_DEBUG", tc.rmDebug)
 			t.Setenv("LOG_LEVEL", tc.logLevel)
 

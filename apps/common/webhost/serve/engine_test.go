@@ -225,7 +225,7 @@ func enrollAndLogIn(t *testing.T, h *engineHarness, client *http.Client, base st
 			"port":     sink.Port(),
 			"security": "none",
 			"username": "",
-			"from":     "backupd@example.test",
+			"from":     "retnd@example.test",
 		},
 	})
 	req, err := http.NewRequest(http.MethodPost, base+"/api/v1/auth/enroll", bytes.NewReader(body))
@@ -248,7 +248,7 @@ func enrollAndLogIn(t *testing.T, h *engineHarness, client *http.Client, base st
 	// Asserted rather than assumed: a 204 already implies the send
 	// succeeded, and this proves the message that succeeded is the
 	// verification message and that it reached the sink.
-	sink.WaitForMessage(t, "backupd: verify your recovery email", 10*time.Second)
+	sink.WaitForMessage(t, "retnd: verify your recovery email", 10*time.Second)
 }
 
 // TestEngine_UnauthenticatedDestructiveRequestIsRefused proves the
@@ -411,7 +411,7 @@ func newUIHarness(t *testing.T) *uiHarness {
 	}
 
 	staticFS := fstest.MapFS{
-		"index.html": &fstest.MapFile{Data: []byte("<html><body>generic backupd UI shell</body></html>")},
+		"index.html": &fstest.MapFile{Data: []byte("<html><body>generic retnd UI shell</body></html>")},
 	}
 
 	ui := httptest.NewServer(serve.NewUI(serve.UIConfig{Upstream: upstream, StaticFS: staticFS}))
@@ -490,7 +490,7 @@ func TestUI_StaticUIServedForNonAPIRoute(t *testing.T) {
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("GET %s status = %d, want %d", path, resp.StatusCode, http.StatusOK)
 		}
-		if !strings.Contains(string(body), "generic backupd UI shell") {
+		if !strings.Contains(string(body), "generic retnd UI shell") {
 			t.Errorf("GET %s body = %q, want it to contain the static index.html content (SPA fallback)", path, body)
 		}
 	}

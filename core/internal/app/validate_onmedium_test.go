@@ -58,7 +58,7 @@ func TestValidateArtifact_RefusesWhenTheDurableCopyIsOnAMedium(t *testing.T) {
 	size := int64(len("payload for validate"))
 	for _, p := range []state.PlacementUpdate{
 		{Medium: state.MediumLocal, Location: local.Location, Status: state.PlacementGone},
-		{Medium: "cold_offsite", Location: "backupd/production/pg/" + f.artifact.Name, Size: &size,
+		{Medium: "cold_offsite", Location: "retnd/production/pg/" + f.artifact.Name, Size: &size,
 			Hash: before.LocalHash, HashAlg: before.LocalHashAlg,
 			VerificationClass: state.VerificationContent, Status: state.PlacementActive},
 	} {

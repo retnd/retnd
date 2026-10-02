@@ -786,7 +786,7 @@ func runValidator(ctx context.Context, cmd config.Command, localPath string) (pa
 		// own timeout fired while the outer context was still fine. It did
 		// not answer in time. Fail closed rather than treat "we don't
 		// know" as a pass.
-		return false, detail + fmt.Sprintf("\n(backupd: validator killed after exceeding its %s timeout)", timeout), nil
+		return false, detail + fmt.Sprintf("\n(retnd: validator killed after exceeding its %s timeout)", timeout), nil
 	default:
 		var exitErr *exec.ExitError
 		if errors.As(runErr, &exitErr) {

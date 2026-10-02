@@ -10,7 +10,7 @@
 //
 // rclone's s3 backend checks for the destination bucket on upload and
 // creates it when it is missing, unless no_check_bucket is set. This
-// adapter sets it, always. A backupd that quietly creates the
+// adapter sets it, always. A retnd that quietly creates the
 // bucket it was pointed at turns a typo in an endpoint or a bucket name
 // into a silent, empty, second home for artifacts nobody will look in
 // again, and it does so with the credentials that were meant to write

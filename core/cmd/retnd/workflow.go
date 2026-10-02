@@ -1281,7 +1281,7 @@ func nonNilHolds(holds []service.WorkflowRecoveryHold) []service.WorkflowRecover
 //
 // Newlines are in that set on purpose. One record is one LINE here (this
 // function's caller adds the newline), so an embedded newline is a
-// record claiming to be two, which is how a fake "backupd: cleanup
+// record claiming to be two, which is how a fake "retnd: cleanup
 // completed" line gets printed with this product's own prefix.
 //
 // The replacement is a visible placeholder rather than deletion, because

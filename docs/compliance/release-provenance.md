@@ -7,6 +7,10 @@ as an operator action.
 `docs/EPIC-B-multi-nas.md` §61 is the requirement list; §73 Work Package 5.2 is
 the compliance half. This document is the operator-facing side of both.
 
+The ordered maintainer procedure is
+[`docs/release-workflow.md`](../release-workflow.md); this document owns the
+design and verification details it relies on.
+
 ## The two halves of the release record, and why they are two files
 
 `container/release-manifest.json` records what a two-architecture Docker build
@@ -113,7 +117,7 @@ discovered after it. It is recorded in
 records no identity.
 
 **It is two commands, and which one you want depends on the version you hold.**
-FR-41 (#895) transferred this repository from `backupdproject/backupd` to
+FR-41 (#895) transferred this repository from `retndproject/retnd` to
 `retnd/retnd` on 2026-09-15. GitHub builds the certificate SAN out of the
 repository the workflow run happened in, and a signature that has been issued
 cannot be reissued, so `0.3.3` and everything before it carries the old
@@ -137,14 +141,14 @@ the old coordinates:
 ```
 cosign verify \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity 'https://github.com/backupdproject/backupd/.github/workflows/release.yml@refs/heads/release' \
-  ghcr.io/backupdproject/backupd:0.3.3
+  --certificate-identity 'https://github.com/retndproject/retnd/.github/workflows/release.yml@refs/heads/release' \
+  ghcr.io/retndproject/retnd:0.3.3
 ```
 
 The second command is the one this project's records say passes, and it was the
 whole point of this section that it did. **Measured at the cutover, and it does
 not hold today.** On 2026-09-15, verifying the transfer,
-`gh api orgs/backupdproject/packages?package_type=container` and
+`gh api orgs/retndproject/packages?package_type=container` and
 `gh api orgs/retnd/packages?package_type=container` both answered an empty list,
 an anonymous `ghcr.io` pull token for either package path is refused with
 `DENIED: invalid token`, and `gh release list` names no release at all. So there
@@ -173,7 +177,7 @@ above would answer
 ```
 Error: no matching signatures: none of the expected identities matched what was in
 the certificate, got subjects
-[https://github.com/backupdproject/backupd/.github/workflows/release.yml@refs/heads/release]
+[https://github.com/retndproject/retnd/.github/workflows/release.yml@refs/heads/release]
 with issuer https://token.actions.githubusercontent.com
 ```
 
@@ -251,36 +255,33 @@ not hold where the script runs.
 
 ## Publishing
 
-`ghcr.io/retnd/retnd:0.4.0` is cut and not pushed.
-`distribution/packaging/canonical.json` records `image.published: false`, and the release
-manifest records the same fact from the other side as a `registry_digest` of `null` per
-architecture and a null `index_digest`. The two are held together by
-`TestReleaseManifestRegistryDigestTracksTheCanonicalPublishFlag`, so neither can move
-alone, and the push below is what fills both in.
+Before a push, `distribution/packaging/canonical.json` records
+`image.published: false`, and the release manifest records the same fact as a
+`registry_digest` of `null` per architecture and a null `index_digest`. After a
+push, all of those values move together. The packaging suite refuses either
+half-recorded state.
 
-`0.3.3` was pushed this way and remains the newest published release: its image index is
-`sha256:bc3cbcd4`, signed keylessly through the release workflow's own OIDC identity with
-the SBOM attested beside it, and each architecture's digest was read back with
-`docker buildx imagetools inspect` rather than taken from the push's own output. `0.3.2`,
-`0.3.1`, `0.3.0`, `0.2.0` and `0.1.0` before it were published the same way and stay
-where they are.
+This document deliberately does not name the “latest” version. The durable
+answers are `canonical.json`, the history of the manifest, and
+`docker buildx imagetools inspect ghcr.io/retnd/retnd:<version>`.
 
-The mechanism that did the push is not automatic, and a later release repeats it by
-hand:
+Publishing is performed by `.github/workflows/release.yml` after a merge commit
+reaches the append-only `release` branch. The maintainer first dispatches that
+workflow with `publish: false`; the dry run executes the parity build and every
+publish guard without logging in, pushing or signing. Merging the release pull
+request is the normal publish action.
+
+The workflow invokes:
 
 ```
-scripts/release/publish-image.sh
+bash scripts/release/publish-image.sh
 ```
 
-It is an operator action on purpose. It publishes a semantic version to a public
-registry, which is not a thing that is taken back cleanly; it needs a registry
-credential this repository does not and must not hold; and pushing from a branch
-would put an image in the registry built from a commit that is not on `main`,
-which is #174's failure moved somewhere no ancestry check can reach. Guard 2
-refuses that last one by requiring `HEAD` to be the commit the release manifest
-records.
+with `DRY_RUN=0` only on the publishing path. The script still owns the
+publish-time refusals and requires the manifest commit to be reachable from
+rewrite-free history.
 
-Its six refusals have a control that runs on every full local gate:
+Its publish-time refusals have controls that run on every full local gate:
 `scripts/tests/publish-image-guards.test.sh` drives the real script in a
 throwaway repository per refusal, through the `GUARDS_ONLY=1` seam that stops
 after the guard block and before the first Docker command, and asserts the
@@ -297,20 +298,22 @@ correction is worse than no attestation at all.
 
 ### After a successful push
 
-Two edits, in this order:
+Read the registry state back with `docker buildx imagetools inspect`; never
+scrape the push's own output. Then update these facts together:
 
 1. `distribution/packaging/canonical.json`: `image.published` false to true.
 2. `container/release-manifest.json`: each architecture's `registry_digest`
-   null to the digest read back out of the registry.
+   and the multi-architecture `index_digest`.
+3. `scripts/install/install_docker_host.py`: `CARRIED_RELEASE` and
+   `CARRIED_RELEASE_DIGEST`, with the digest equal to the manifest's
+   `index_digest`.
 
-Then regenerate the bundle (`(cd distribution && go run ./cmd/provenance -write)`)
-and run the gate. Doing one edit and not the other fails, which is the point:
-a published flag with no digest and a digest with no published flag are both
-half-truths.
-
-The digest is read back with `docker buildx imagetools inspect` rather than
-scraped out of the push's own output. The push reports what it believes it sent;
-the manifest is a claim about what the registry holds.
+Regenerate the bundle (`(cd distribution && go run ./cmd/provenance -write)`)
+and run the gate. Doing one edit and not the others fails, which is the point:
+a published flag with no digest, a digest with no published flag, or an
+installer pin naming a different image are all half-truths. The complete
+ordered procedure is in
+[`docs/release-workflow.md`](../release-workflow.md#5-record-what-the-registry-holds).
 
 ## Version parity
 

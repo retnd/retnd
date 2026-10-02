@@ -145,7 +145,7 @@ func (r *repository) snapshotStreamOnce(
 	)
 
 	err := repo.WriteSession(ctx, r.rep, repo.WriteSessionOptions{
-		Purpose:  "backupd:snapshot-stream",
+		Purpose:  "retnd:snapshot-stream",
 		OnUpload: func(n int64) { uploaded.Add(n) },
 	}, func(ctx context.Context, w repo.RepositoryWriter) error {
 		u := upload.NewUploader(w)
@@ -254,7 +254,7 @@ func (r *repository) OpenSnapshotStream(ctx context.Context, id backupengine.Sna
 // against the filesystem: it names an object on a remote source, so
 // filepath.Abs would silently mix the process working directory into a
 // snapshot's identity and make the same object list differently depending on
-// where backupd was started from.
+// where retnd was started from.
 func streamIdentity(src backupengine.Source) (snapshot.SourceInfo, string, error) {
 	if src.Host == "" || src.User == "" {
 		return snapshot.SourceInfo{}, "", errors.New(

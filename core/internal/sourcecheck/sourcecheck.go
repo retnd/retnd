@@ -698,7 +698,7 @@ func Run(ctx context.Context, target Target, deps Deps) Report {
 // permissions, a probe left behind, anything else), and they all produce
 // the same Writable: false. That is the fail-safe direction and it is the
 // only defensible one here: the decision this answer feeds is whether
-// backupd may destroy a producer's file, and "I could not prove I am
+// retnd may destroy a producer's file, and "I could not prove I am
 // allowed to" has to be worth exactly as much as "I am not allowed to".
 //
 // The cause goes to Observe, never into the Detail. The underlying error
@@ -757,9 +757,9 @@ func writeProbeRefusedDetail(t Target, err error) string {
 		return "a probe file was created under " + path + " and could not be removed again, so these credentials cannot delete there: this source is treated as read-only. One file named with the prefix " + transport.ProbeObjectPrefix + " may have been left behind and is safe to delete"
 	}
 	if category, _ := transport.CategoryOf(err); category == transport.PermissionDenied {
-		return "these credentials may read " + path + " but not write to it, so this source is read-only: backupd will never delete from it, and delete-from-source cannot be enabled until the account is granted write permission there"
+		return "these credentials may read " + path + " but not write to it, so this source is read-only: retnd will never delete from it, and delete-from-source cannot be enabled until the account is granted write permission there"
 	}
-	return "write permission under " + path + " could not be proven, so this source is treated as read-only and backupd will never delete from it"
+	return "write permission under " + path + " could not be proven, so this source is treated as read-only and retnd will never delete from it"
 }
 
 // exchangeHostKey runs the SSH key exchange over an already-open socket

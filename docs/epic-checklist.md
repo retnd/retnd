@@ -266,7 +266,7 @@ synology, truenas, ugos, unraid, zimaos.
 - [ ] **The clock stays pinned** (`page.clock.setFixedTime`). *(Ungated.)* Without
   it every re-record differs in every frame with a timestamp in it, and the diff
   stops telling anybody which picture actually moved.
-- [ ] **Playwright is borrowed, not installed**, out of the `backupd-tests`
+- [ ] **Playwright is borrowed, not installed**, out of the `retnd-tests`
   checkout at the sha in `scripts/e2e/tests-repo.pin`. *(Ungated.)* If the e2e gate
   has not run on this machine, there is nothing to borrow from and the capture says
   so rather than guessing.

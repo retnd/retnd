@@ -166,7 +166,7 @@ tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
       <span style="margin-left:auto"><button class="btn">Check again</button></span>
     </div>
     <p class="meta" style="margin:7px 0 0;max-width:80ch">Checking reads every script, hashes it, parses it
-      with this product's own parser and walks the result against backupd's shell rules. It executes no
+      with this product's own parser and walks the result against retnd's shell rules. It executes no
       hook &mdash; not one line, not in a sandbox &mdash; and it is read on demand rather than on a timer
       because it also opens a connection to the source host and to the Host Workflow Runner.</p>
   </div>
@@ -204,14 +204,14 @@ tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
         needing a shell, a runner or the source host</span></div>
     <div class="finding"><span class="pill pill--err"><span class="dot"></span>error</span>
       <span class="c">remote_bash_syntax</span>
-      <span class="d">20-dump.remote.sh does not pass backupd's shell rules: BSH003 at 24:10 (error) this
+      <span class="d">20-dump.remote.sh does not pass retnd's shell rules: BSH003 at 24:10 (error) this
         recursive, forced delete targets /tmp whenever the expansion in it is empty, because an unset or
         empty variable leaves the literal path behind. That is a root-level directory. Write
         <code>${NAME:?}</code> so the script fails instead, give the expansion a default, or put
         <code>set -u</code> at the top of the script (and 4 more finding(s) on this script)</span></div>
     <div class="finding"><span class="pill pill--warn"><span class="dot"></span>warning</span>
       <span class="c">local_bash_syntax</span>
-      <span class="d">10-quiesce.local.sh parses, and backupd's shell rules report: BSH002 at 14:3 (warning)
+      <span class="d">10-quiesce.local.sh parses, and retnd's shell rules report: BSH002 at 14:3 (warning)
         this cd does not check whether it worked, and nothing in this script does either. When it fails
         &mdash; the directory is gone, the mount is not there &mdash; the commands after it run in the
         directory the script was already in, against the wrong tree. Write <code>cd ... || exit 1</code>,
@@ -259,7 +259,7 @@ tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
         <span class="tag tag--remote">Remote</span>
       </div>
       <div class="pathline">/srv/hooks/api-server/before &middot; set before &middot; 3.4 KiB &middot;
-        sha256 b70c1d55 &middot; parses &middot; 5 findings from backupd's shell rules</div>
+        sha256 b70c1d55 &middot; parses &middot; 5 findings from retnd's shell rules</div>
     </div>
     <div class="actions">
       <button class="btn">&lsaquo; Back to the script list</button>
@@ -268,7 +268,7 @@ tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
   </div>
   <div class="banner banner--info">
     <span class="glyph">&#9432;</span>
-    <span><strong>These are backupd's own shell rules, not ShellCheck.</strong>
+    <span><strong>These are retnd's own shell rules, not ShellCheck.</strong>
       <span class="body">The <code>BSH</code> codes below are this product's checks, written against a
       parsed syntax tree in the engine process: six rules, chosen because each one names a shape that is
       wrong rather than unusual. They are deliberately not <code>SC</code> codes, because a code that looked
@@ -406,7 +406,7 @@ tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
     <div class="mini__h"><span class="pill pill--ok"><span class="dot"></span>clean</span>
       <span class="n">after/10-thaw.local.sh</span></div>
     <div class="mini__b">
-      <p>This script parses, and backupd's shell rules report nothing about it. Nothing was executed: the
+      <p>This script parses, and retnd's shell rules report nothing about it. Nothing was executed: the
         bytes were parsed and walked in this process.</p>
       <p class="meta">Read at 02:41:07 &middot; sha256 99b2e0c3 &middot; six rules applied: BSH001 to
         BSH006.</p>
@@ -441,7 +441,7 @@ tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
   <div class="refused">
     <div class="refused__s">
       <div class="refused__n">30-tag-snapshot.remote.sh</div>
-      <div class="refused__d">/etc/backupd/workflows/before &middot; global-before stage</div>
+      <div class="refused__d">/etc/retnd/workflows/before &middot; global-before stage</div>
       <div class="refused__f"><span class="pill pill--err"><span class="dot"></span>does not parse</span>
         <span class="f2__pos">7:1</span>
         <span>reached EOF without matching if with fi. This product's own parser answered without needing a
@@ -551,7 +551,7 @@ tr.sel td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
       refuses the change as a whole rather than applying the parts of it that are innocent.</li>
     <li><strong>No override on the refusal.</strong> The two blocking conditions are a file a run would
       refuse anyway and a root-level <code>rm -rf</code>.</li>
-    <li><strong>The copy says these are backupd's own rules.</strong> <code>BSH</code>, never
+    <li><strong>The copy says these are retnd's own rules.</strong> <code>BSH</code>, never
       <code>SC</code>, and the word ShellCheck does not appear on any surface: these are six rules of this
       product's own, and a code that looked like somebody else's would send an operator to documentation for
       analysis this product does not perform.</li>

@@ -164,7 +164,7 @@ func TestSourceWritability_EndToEndAgainstARealSFTPFixture(t *testing.T) {
 			t.Fatalf("the connection test FAILED against a read-only source; read-only is a valid posture, not a broken connection: %q / %+v", result.Message, result.Checks)
 		}
 		if result.Writable {
-			t.Fatal("writable is true for a directory with no write bits; the UI would have offered delete-from-source for a source backupd cannot delete from")
+			t.Fatal("writable is true for a directory with no write bits; the UI would have offered delete-from-source for a source retnd cannot delete from")
 		}
 		step := writeProbeStep(t, result)
 		if step.Outcome != "passed" {

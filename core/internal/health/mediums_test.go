@@ -46,7 +46,7 @@ func openMove(artifact, destination, phase, why string, planned time.Time) state
 	return state.Move{
 		Artifact:          mustArtifact(artifact),
 		DestinationMedium: destination,
-		DestinationKey:    "backupd/" + artifact,
+		DestinationKey:    "retnd/" + artifact,
 		Phase:             phase,
 		Error:             why,
 		CreatedAt:         planned,

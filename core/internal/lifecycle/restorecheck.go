@@ -124,7 +124,7 @@ func RunRestoreCheck(ctx context.Context, cmd config.Command, localPath string) 
 	case ctx.Err() != nil:
 		return RestoreCheckResult{}, fmt.Errorf("lifecycle: RunRestoreCheck: cancelled: %w", ctx.Err())
 	case runCtx.Err() != nil:
-		detail += fmt.Sprintf("\n(backupd: restore-test hook killed after exceeding its %s timeout)", timeout)
+		detail += fmt.Sprintf("\n(retnd: restore-test hook killed after exceeding its %s timeout)", timeout)
 		return RestoreCheckResult{Passed: false, Detail: detail}, nil
 	default:
 		var exitErr *exec.ExitError

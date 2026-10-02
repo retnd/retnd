@@ -183,7 +183,7 @@ func (a *Adapter) newFs(ctx context.Context, src transport.Source, forHashing bo
 // hand-waving: sftpConfig pins concurrency at 64, which is 64 requests in
 // flight inside the one connection, so a single stream is not a single
 // request. What is given up is the parallelism ACROSS connections, and for
-// a backupd pulling one artifact at a time from a hardened host
+// a retnd pulling one artifact at a time from a hardened host
 // that parallelism was never the point.
 //
 // fs.AddConfig copies the caller's ConfigInfo rather than replacing it, so

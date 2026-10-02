@@ -1726,13 +1726,13 @@ func (f *backupSetFakeBackend) DiscoverSSHKeyCandidates(context.Context) (servic
 	}
 	return service.SSHKeyDiscovery{
 		Locations: []service.SSHKeyDiscoveryLocation{
-			{Path: "/etc/backupd", Kind: "mount", Found: 1},
+			{Path: "/etc/retnd", Kind: "mount", Found: 1},
 			{Path: "/home/fake/.ssh", Kind: "home", Problem: "this location is not present in this deployment"},
 		},
 		Candidates: []service.SSHKeyCandidate{{
 			ID:          "cand_test_1",
-			Path:        "/etc/backupd/id_ed25519",
-			Location:    "/etc/backupd",
+			Path:        "/etc/retnd/id_ed25519",
+			Location:    "/etc/retnd",
 			Algorithm:   "ssh-ed25519",
 			Fingerprint: "SHA256:fakecandidatefingerprint",
 			PublicKey:   "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeCandidate fake-test-fixture",

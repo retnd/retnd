@@ -2513,7 +2513,7 @@ describe("the incremental wire boundary", () => {
       domain: "offsite-b2",
       description: "Second copy, off site",
       isolation: "isolated",
-      passphrase: { file: "/etc/backupd/offsite-b2.passphrase" },
+      passphrase: { file: "/etc/retnd/offsite-b2.passphrase" },
       location: "",
       maintenanceOwner: "another-instance"
     });
@@ -2527,7 +2527,7 @@ describe("the incremental wire boundary", () => {
       id: "offsite-b2",
       description: "Second copy, off site",
       isolation: "isolated",
-      passphrase: { file: "/etc/backupd/offsite-b2.passphrase", env: "", command: [] },
+      passphrase: { file: "/etc/retnd/offsite-b2.passphrase", env: "", command: [] },
       maintenance_owner: "another-instance"
     });
   });
@@ -2554,13 +2554,13 @@ describe("the incremental wire boundary", () => {
     const body = await createdDomainBody({
       domain: "vaulted",
       isolation: "shared",
-      passphrase: { command: ["/usr/bin/vault", "read", "-field=value", "secret/backupd"] }
+      passphrase: { command: ["/usr/bin/vault", "read", "-field=value", "secret/retnd"] }
     });
 
     expect(body.passphrase).toEqual({
       file: "",
       env: "",
-      command: ["/usr/bin/vault", "read", "-field=value", "secret/backupd"]
+      command: ["/usr/bin/vault", "read", "-field=value", "secret/retnd"]
     });
   });
 
@@ -2808,7 +2808,7 @@ describe("workflow wire mapping (apps/common/webhost/handlers_workflowruns.go)",
     const fetchMock = mockFetchOk({
       backup_set_id: "",
       variables: [
-        { name: "PGPASSWORD", has_value: false, secret: { file: "/etc/backupd/secrets/pg" } },
+        { name: "PGPASSWORD", has_value: false, secret: { file: "/etc/retnd/secrets/pg" } },
         // An empty literal is a real configuration and must not collapse
         // into "no literal".
         { name: "DUMP_LEVEL", has_value: true, value: "" },
@@ -2820,7 +2820,7 @@ describe("workflow wire mapping (apps/common/webhost/handlers_workflowruns.go)",
 
     const env = await httpApi.listWorkflowEnvironment();
 
-    expect(env.variables[0].secret).toEqual({ file: "/etc/backupd/secrets/pg" });
+    expect(env.variables[0].secret).toEqual({ file: "/etc/retnd/secrets/pg" });
     expect(env.variables[0].value).toBeUndefined();
     expect(env.variables[1].value).toBe("");
     expect(env.variables[1].hasValue).toBe(true);

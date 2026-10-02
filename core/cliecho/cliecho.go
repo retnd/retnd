@@ -1,4 +1,4 @@
-// Package cliecho names the command (Binary, `backupd`) that would have done the
+// Package cliecho names the command (Binary, `retnd`) that would have done the
 // same thing as an action taken in the Web UI (issue #599).
 //
 // # Why this exists at all
@@ -127,7 +127,7 @@ type Line struct {
 	Route string
 
 	// Command is the argv an operator could have typed, starting with
-	// "backupd", unquoted. Nil when there is no equivalent. Shell
+	// "retnd", unquoted. Nil when there is no equivalent. Shell
 	// below is what goes on the wire; this is what a parser is fed.
 	Command []string
 
@@ -365,12 +365,12 @@ type entry struct {
 	// ships were only found by somebody reading them.
 	refusals []string
 
-	// namesShippedVerbs are the `backupd` verbs this entry's
+	// namesShippedVerbs are the `retnd` verbs this entry's
 	// sentences name ON PURPOSE.
 	//
 	// Most gap sentences name a verb that does not exist, which is the
 	// point of them. Some name one that does, as a counterexample:
-	// "`backupd run` starts a cycle in your own shell, not in this
+	// "`retnd run` starts a cycle in your own shell, not in this
 	// engine" is telling an operator which verb is NOT the answer, and
 	// "`backup-set patch` refuses --disabled" is saying what the existing
 	// verb will not do. Listing the verb here is how that is told apart

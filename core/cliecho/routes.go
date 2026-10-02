@@ -28,7 +28,7 @@ import (
 // of the five quoted a usage() line that had been replaced by the flag it
 // was denying. core/cmd/retnd's TestNoGapClaimsAVerbThisBinaryShips
 // reads every sentence here against the verb tables now. A sentence that
-// names a shipped verb on purpose, as a counterexample ("`backupd
+// names a shipped verb on purpose, as a counterexample ("`retnd
 // run` is not this"), says so with namesShippedVerbs, and a sentence that
 // names one by accident fails.
 //
@@ -140,7 +140,7 @@ var routes = map[string]entry{
 		// of the three and never was: the client sends restore_placement
 		// and run_backup_set, so NO real request matched that arm. Every
 		// restore and every per-set run fell through to a default whose
-		// sentence is about `backupd run`, a different verb for a
+		// sentence is about `retnd run`, a different verb for a
 		// different act, and the example body said "restore" too, so the
 		// dispatcher-driven parse test certified a branch production
 		// never reaches. A constant spelled in one place cannot be wrong
@@ -218,12 +218,12 @@ var routes = map[string]entry{
 				return newCmd("snapshot", "unhold", req.SnapshotHoldRelease.BackupSetID, req.SnapshotHoldRelease.HoldID)
 			default:
 				// The gap the issue names, and the one a lazier
-				// implementation gets wrong. `backupd run`
+				// implementation gets wrong. `retnd run`
 				// exists and is NOT this: usage() puts it among the
 				// commands that are "ordinary beside a running engine",
 				// so it opens the service in the operator's own process
 				// and runs a cycle there. This asks the SERVING engine
-				// to run one. Printing `backupd run` would print
+				// to run one. Printing `retnd run` would print
 				// a command that does something different to a
 				// different process.
 				return newCmd().refuse(gapRunCycle)
@@ -516,7 +516,7 @@ var routes = map[string]entry{
 		},
 		why: "there is no verb that declares a repository domain from a request body",
 		examples: []Action{
-			{Body: []byte(`{"id":"offsite-b2","isolation":"isolated","description":"Second copy, off site","passphrase":{"file":"/etc/backupd/offsite-b2.passphrase"}}`)},
+			{Body: []byte(`{"id":"offsite-b2","isolation":"isolated","description":"Second copy, off site","passphrase":{"file":"/etc/retnd/offsite-b2.passphrase"}}`)},
 			{Body: []byte(`{"id":"production","isolation":"shared","maintenance_owner":"another-instance","passphrase":{"env":"RETND_PRODUCTION_PASSPHRASE"}}`)},
 		},
 	},
@@ -872,7 +872,7 @@ var routes = map[string]entry{
 			{Params: map[string]string{"id": "offsite_s3"},
 				Body: []byte(`{"region":"eu-west-1","storage_class":"GLACIER_IR"}`)},
 			{Params: map[string]string{"id": "offsite_s3"},
-				Body: []byte(`{"type":"s3","region":"eu-west-1","endpoint":"https://s3.eu-west-1.example.net","bucket":"acme-backups","prefix":"prod","storage_class":"STANDARD","upload_verification":"attested","credentials":{"file":"/etc/backupd/aws-credentials"}}`)},
+				Body: []byte(`{"type":"s3","region":"eu-west-1","endpoint":"https://s3.eu-west-1.example.net","bucket":"acme-backups","prefix":"prod","storage_class":"STANDARD","upload_verification":"attested","credentials":{"file":"/etc/retnd/aws-credentials"}}`)},
 		},
 	},
 	key("DELETE", "/storage-mediums/{id}"): {
@@ -1423,7 +1423,7 @@ func workflowEnvSetExamples(params map[string]string) []Action {
 	bodies := []string{
 		`{"value":"UTC"}`,
 		`{"value":""}`,
-		`{"secret":{"file":"/etc/backupd/pg.passphrase"}}`,
+		`{"secret":{"file":"/etc/retnd/pg.passphrase"}}`,
 		`{"secret":{"env":"RETND_PG_PASSWORD"}}`,
 		`{"secret":{"command":["vault","read","-field=password","secret/pg"]}}`,
 	}

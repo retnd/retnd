@@ -9,7 +9,7 @@ import (
 	"github.com/retnd/retnd/core/internal/config"
 )
 
-// cmdSources is `backupd sources`: a read-only dump of every
+// cmdSources is `retnd sources`: a read-only dump of every
 // configured source and backup set. It never opens the state journal or
 // touches a remote, since internal/app.Service.Sources reads only Config.
 //

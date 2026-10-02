@@ -13,7 +13,7 @@ import (
 	"github.com/retnd/retnd/core/service"
 )
 
-// `backupd snapshot <verb>`: EPIC K's operator surface on a terminal
+// `retnd snapshot <verb>`: EPIC K's operator surface on a terminal
 // (#788).
 //
 // # Why one grouped verb rather than eight top-level ones
@@ -67,7 +67,7 @@ func snapshotVerbNames() []string {
 	return names
 }
 
-// cmdSnapshot dispatches `backupd snapshot <verb> ...`.
+// cmdSnapshot dispatches `retnd snapshot <verb> ...`.
 //
 // The verb is found by scanning the arguments rather than by taking
 // args[0], for cmdBackupSet's reason: a flag written before the verb must

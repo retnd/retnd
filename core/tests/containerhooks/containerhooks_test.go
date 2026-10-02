@@ -487,7 +487,7 @@ func TestAnEngineThatDisconnectsLeavesNoContainerBehind(t *testing.T) {
 // hook that ran somewhere else instead.
 func TestACapabilityRefusalNamesTheMissingPieceAndRunsNothing(t *testing.T) {
 	_, err := hostrunner.ProveContainerCapability(context.Background(), hostrunner.ContainerConfig{
-		Image: "backupd.invalid/no-such-hook-image:0",
+		Image: "retnd.invalid/no-such-hook-image:0",
 		User:  fmt.Sprintf("%d:%d", os.Geteuid(), os.Getegid()),
 	})
 	if err == nil {
@@ -496,7 +496,7 @@ func TestACapabilityRefusalNamesTheMissingPieceAndRunsNothing(t *testing.T) {
 	if !hostrunner.IsCode(err, hostrunner.CodeContainerUnavailable) {
 		t.Fatalf("the refusal is not a container-capability refusal, so nothing upstream can tell it from a hook that failed: %v", err)
 	}
-	if !strings.Contains(err.Error(), "docker pull backupd.invalid/no-such-hook-image:0") {
+	if !strings.Contains(err.Error(), "docker pull retnd.invalid/no-such-hook-image:0") {
 		t.Fatalf("the refusal does not say how to fix it: %v", err)
 	}
 	// And the runner that holds that refusal cannot be served at all,

@@ -238,14 +238,14 @@ func TestClassifyWorkflowRunAndItsConditions(t *testing.T) {
 const (
 	outputCanary = `psql: FATAL: password authentication failed for user "backup"`
 	secretCanary = `PGPASSWORD=hunter2 TOKEN=sk-live-DEADBEEF`
-	pathCanary   = "/etc/backupd/hooks/production/10-pg-quiesce.before.remote.sh"
+	pathCanary   = "/etc/retnd/hooks/production/10-pg-quiesce.before.remote.sh"
 )
 
 // canaryFragments are checked alongside the whole canaries so the test
 // still fails if a future rendering emits only the interesting half.
 var canaryFragments = []string{
 	outputCanary, secretCanary, pathCanary,
-	"hunter2", "sk-live-DEADBEEF", "/etc/backupd", "password authentication failed",
+	"hunter2", "sk-live-DEADBEEF", "/etc/retnd", "password authentication failed",
 }
 
 func assertNoCanary(t *testing.T, what string, conds []alert.Condition) {

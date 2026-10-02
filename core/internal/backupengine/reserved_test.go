@@ -99,12 +99,12 @@ func TestLocalPathIsReservedComparesPathsNotStrings(t *testing.T) {
 		want bool
 	}{
 		{"a repository blob", filepath.Join(reserved, "p", "a1b", "c2d3"), true},
-		{"the reserved directory itself", filepath.Join(root, ".backupd"), true},
-		{"local state beside the repositories", filepath.Join(root, ".backupd", "state", "production.config"), true},
-		{"an unclean path into the namespace", filepath.Join(root, ".", ".backupd", "x"), true},
+		{"the reserved directory itself", filepath.Join(root, ".retnd"), true},
+		{"local state beside the repositories", filepath.Join(root, ".retnd", "state", "production.config"), true},
+		{"an unclean path into the namespace", filepath.Join(root, ".", ".retnd", "x"), true},
 		{"an artifact", filepath.Join(root, "production", "pg", "dump.tar.gz"), false},
-		{"a directory whose name merely starts the same", filepath.Join(root, ".backupdata", "x"), false},
-		{"a sibling of the backup root", "/srv/other/.backupd/x", false},
+		{"a directory whose name merely starts the same", filepath.Join(root, ".retndata", "x"), false},
+		{"a sibling of the backup root", "/srv/other/.retnd/x", false},
 		{"the backup root itself", root, false},
 	}
 

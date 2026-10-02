@@ -15,7 +15,7 @@ import (
 // The two read-only artifact queries, and the one place a name that does not
 // exist gets refused.
 //
-// ListArtifacts and GetArtifactDetail are the reads underneath `backupd
+// ListArtifacts and GetArtifactDetail are the reads underneath `retnd
 // artifacts` and the backups screen. Neither writes, neither reaches a
 // remote, and both are worth reading for what they refuse rather than for
 // what they return.
@@ -206,7 +206,7 @@ func (f ArtifactFilter) matches(sourceName, setName string) bool {
 	return true
 }
 
-// ListArtifacts is `backupd artifacts`' use case: every journal
+// ListArtifacts is `retnd artifacts`' use case: every journal
 // record for every backup set filter selects, in config order (source
 // order, then backup-set order within each source), which is the same
 // deterministic order Sources() renders in.
@@ -346,7 +346,7 @@ type ArtifactDetail struct {
 	Copies []ArtifactCopy
 }
 
-// GetArtifactDetail is `backupd artifacts <source/backup-set/name>`'s
+// GetArtifactDetail is `retnd artifacts <source/backup-set/name>`'s
 // use case (issue #284): until this existed, sqlite3 against the state
 // database directly was the only way for an operator to learn why one
 // specific artifact reached FAILED or QUARANTINED, because

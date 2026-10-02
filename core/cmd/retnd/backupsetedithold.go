@@ -9,7 +9,7 @@ import (
 	"github.com/retnd/retnd/core/internal/config"
 )
 
-// cmdBackupSetEditHold is `backupd backup-set edit-hold
+// cmdBackupSetEditHold is `retnd backup-set edit-hold
 // <source/backup-set> [--release]`.
 //
 // # The gap this closes

@@ -3,7 +3,7 @@
         "SYNO.SDS._ThirdParty.App.Backupd": {
             "type": "url",
             "title": "Backupd",
-            "desc": "Pull-based backupd",
+            "desc": "Pull-based retnd",
             "icon": "images/retnd_{0}.png",
             "url": "/webman/3rdparty/Backupd/index.html",
             "allUsers": true

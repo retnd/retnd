@@ -11,7 +11,7 @@ import (
 	"github.com/retnd/retnd/core/internal/model"
 )
 
-// cmdUnconfigured is `backupd unconfigured` and `backupd
+// cmdUnconfigured is `retnd unconfigured` and `retnd
 // unconfigured clear <source/backup-set>`: issue #418's operator-facing
 // half.
 //
@@ -116,7 +116,7 @@ func printUnconfiguredSet(u app.UnconfiguredSet) {
 	}
 }
 
-// cmdUnconfiguredClear is `backupd unconfigured clear
+// cmdUnconfiguredClear is `retnd unconfigured clear
 // <source/backup-set> [--acknowledge]`.
 func cmdUnconfiguredClear(args []string) int {
 	fs, cfgPath := newFlagSet("unconfigured clear")

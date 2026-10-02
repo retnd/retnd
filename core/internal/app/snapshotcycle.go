@@ -291,7 +291,7 @@ func (s *Service) runSnapshot(
 		VerificationLevel: bs.VerificationLevel,
 		Verification:      s.verificationOptions(bs),
 		Source:            identity,
-		Description:       "backupd " + bs.ID.String(),
+		Description:       "retnd " + bs.ID.String(),
 		Repository:        repo,
 		OpenTree: func(ctx context.Context) (snapshotlifecycle.SourceTree, error) {
 			t, err := adapter.OpenTree(ctx, transportSource)
@@ -524,7 +524,7 @@ func snapshotIdempotencyKey(set model.BackupSetID, operationID, runID string) st
 // together as a source's identity, so a rename would present the same
 // source as a new one, find no predecessor, and store a second full copy
 // of a tree that had not changed.
-const snapshotSourceHost = "backupd"
+const snapshotSourceHost = "retnd"
 
 // snapshotSource is one backup set's identity in the repository's own
 // namespace: ONE source per set, per #783, derived from the set's stable
@@ -742,7 +742,7 @@ func snapshotLineage(bs config.BackupSet) string {
 //
 // A failure reading the catalog is also nil rather than an error, and
 // that is the one judgement call here. BuildHealthReport is what
-// `backupd status` and the dashboard are built on, and it already
+// `retnd status` and the dashboard are built on, and it already
 // fails outright for the reads whose reassuring answer would be a lie
 // (a connection refusal that could not be read must not look like "no
 // set is refused"). This is not one of those: the newest run's byte
@@ -751,7 +751,7 @@ func snapshotLineage(bs config.BackupSet) string {
 //
 // The unfinished-run count is passed IN rather than read here. It is one
 // deployment-wide query whose answer is the same for every set in the
-// report, and reading it per set made `backupd status` re-run it once per
+// report, and reading it per set made `retnd status` re-run it once per
 // configured backup set. BuildHealthReport loads it once and hands each
 // set its own count, exactly as it already does for the relocation
 // journal (movesBySet).

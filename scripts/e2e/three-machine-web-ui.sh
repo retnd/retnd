@@ -123,7 +123,7 @@
 #   scripts/e2e/three-machine-web-ui.sh
 #       stand the stack up and run the built-in browser check.
 #
-#   scripts/e2e/three-machine-web-ui.sh --suite ../backupd-tests/suites/web-ui
+#   scripts/e2e/three-machine-web-ui.sh --suite ../retnd-tests/suites/web-ui
 #       stand it up and run that directory's Playwright suite inside the
 #       client container. The suite's own node_modules is not used: the
 #       image's is, because the checkout's was built for this host.
@@ -143,12 +143,12 @@
 #                     serve-ui, so the browser reaches the stack the way a
 #                     real NAS's front door does (h2 over TLS) rather than
 #                     the plain HTTP/1.1 this rig otherwise uses. The
-#                     reproduction for backupd#730. RETND_SEED_CYCLES=N
+#                     reproduction for retnd#730. RETND_SEED_CYCLES=N
 #                     additionally runs N backup cycles to enlarge the feed.
 #   --break-engine    hand the suite the ability to take the ENGINE away
 #                     mid-session, leaving serve-ui up, so the browser
 #                     meets a front door that cannot reach the service
-#                     behind it. The reproduction for backupd#795.
+#                     behind it. The reproduction for retnd#795.
 #
 #                     The engine is NOT stopped up front, and that is the
 #                     whole design. serve-ui proxies all of /api/v1,
@@ -230,7 +230,7 @@
 #                 withholds from the engine. The engine reaches it
 #                 through one authenticated Unix socket in a volume the
 #                 two share, with the credential read at the path the
-#                 ENGINE sees (backupd#877).
+#                 ENGINE sees (retnd#877).
 #
 #   THE EXEC HOST a second sshd (scripts/e2e/exec-host.Dockerfile, the
 #                 definition core/tests/machines already uses), carrying
@@ -374,12 +374,12 @@ artifacts_dir=""
 keep_on_failure=0
 keep_up=0
 prebuilt_image="${RETND_PRODUCT_IMAGE:-}"
-# backupd#730 reproduction: put an ordinary TLS + HTTP/2 reverse
+# retnd#730 reproduction: put an ordinary TLS + HTTP/2 reverse
 # proxy in front of serve-ui, so the browser reaches the stack the way it
 # reaches a real NAS (h2 over TLS) rather than the plain HTTP/1.1 the rig
 # otherwise uses. Off by default; the default rig is unchanged.
 front_proxy="${RETND_FRONT_PROXY_TLS:-0}"
-# backupd#795 reproduction: let the suite take the engine away while the
+# retnd#795 reproduction: let the suite take the engine away while the
 # browser holds a live session, with serve-ui left up in front of it.
 # Off by default; every line it adds is behind this flag, so a default run
 # is the run it was before.
@@ -476,7 +476,7 @@ run_dir="$tmp_root/$run_id"
 # credential material goes, dead or not.
 [ -n "$artifacts_dir" ] || artifacts_dir="$tmp_root/$run_id-artifacts"
 
-# backupd#795's control channel, and it lives UNDER the artifacts
+# retnd#795's control channel, and it lives UNDER the artifacts
 # directory rather than beside it for one reason: that directory is
 # already bind-mounted into the client container, and the client must not
 # be given anything else. A suite that could reach the Docker socket could
@@ -657,7 +657,7 @@ wf_rejected_dir="rejected-before"
 # ENGINE's. They are different views of the same two files, which is the
 # whole of why config.yaml carries the engine's view: a token_file naming
 # the installer's host path is a file that does not exist in there, and
-# every local hook then fails authentication (backupd#877).
+# every local hook then fails authentication (retnd#877).
 runner_socket_name="workflow-runner.sock"
 runner_token_name="workflow-runner.token"
 engine_secrets_mount="/etc/retnd/wf-secrets"
@@ -741,7 +741,7 @@ teardown() {
   # killed mid-hook can, and a container holding a mount of a directory
   # this teardown is about to remove is how a run leaves rubbish behind.
   #
-  # `backupd.workflow-hook=1` is the PRODUCT's label
+  # `retnd.workflow-hook=1` is the PRODUCT's label
   # (core/internal/hostrunner's LabelHook), not this rig's, and it
   # carries no rig identity -- so on its own that filter names every
   # hook container on the host, including a real deployment's runner's
@@ -756,7 +756,7 @@ teardown() {
   # recorded; this is the one it cannot name in advance, and it is now
   # bounded the same way in spirit.
   if [ "$workflows" = 1 ] && [ -n "$c_runner" ]; then
-    for h in $(docker ps -aq --filter "label=backupd.workflow-hook=1" --filter "since=$c_runner" 2>/dev/null); do
+    for h in $(docker ps -aq --filter "label=retnd.workflow-hook=1" --filter "since=$c_runner" 2>/dev/null); do
       docker rm -f "$h" >/dev/null 2>&1 || true
     done
   fi
@@ -872,7 +872,7 @@ wait_or_die() {
 
 # ------------------------------------------- the engine control channel
 #
-# backupd#795. Only ever used with --break-engine, and every line of it is
+# retnd#795. Only ever used with --break-engine, and every line of it is
 # inert without that flag.
 #
 # engine_is_live is the same healthcheck the startup wait uses, asked of
@@ -914,7 +914,7 @@ serve_ui_reaches_engine() {
 # The health budget one "start" request is given, in seconds.
 #
 # 175 rather than the 120 this used to allow, because the number the
-# suite waits is 180 (backupd-tests' startEngine) and a watcher that
+# suite waits is 180 (retnd-tests' startEngine) and a watcher that
 # gives up at 120 reports a failure for an engine that would have been
 # serving at 130 with a minute of the reader's patience left unspent.
 # 175 and not 180 for the other end of the same arithmetic: the ack has
@@ -1846,7 +1846,7 @@ if [ "$workflows" = 1 ]; then
   #
   # The paths are the CONTAINER's, because that is what the field means:
   # the engine reads its token at the path IT sees, which is the whole of
-  # backupd#877's lesson -- an in-container token_file naming the
+  # retnd#877's lesson -- an in-container token_file naming the
   # installer's host path is a file that does not exist and every
   # .local.sh hook fails authentication. container/compose.yaml binds
   # that credential as a single file at /etc/retnd/workflow-runner.token;
@@ -2133,7 +2133,7 @@ if [ "$workflows" = 1 ]; then
   # `validate workflow` is the product's own answer to "could this set's
   # hooks run?", asked from INSIDE the engine's container, which is the
   # only place the question means anything: the socket and the credential
-  # are paths as THAT process sees them, and backupd#877 was exactly the
+  # are paths as THAT process sees them, and retnd#877 was exactly the
   # case where both were configured, both existed on the host, and
   # neither was there from in here.
   #
@@ -2163,7 +2163,7 @@ if [ "$workflows" = 1 ]; then
   happy_validation="$(validation_of "$wf_set_happy" happy)"
   says "$happy_validation" 'runner_health +ok' \
     || die "the engine does not report a healthy Host Workflow Runner for $wf_set_happy." \
-           "The runner is serving on this host and the socket is mounted into the engine, so this is the backupd#877 shape: $(first_line_about "$happy_validation" runner_health)"
+           "The runner is serving on this host and the socket is mounted into the engine, so this is the retnd#877 shape: $(first_line_about "$happy_validation" runner_health)"
   says "$happy_validation" 'the host workflow runner answered' \
     || die "the runner's health check passed without the runner having answered, which is not a fact this rig can use."
   says "$happy_validation" 'local_bash_syntax +ok' \
@@ -2228,7 +2228,7 @@ wait_or_die 180 "the UI host to answer its own listener" \
 note "$c_web is serving on the edge network as \"$edge_web_alias\", proxying to \"engine\""
 
 if [ "$front_proxy" = 1 ]; then
-  step "starting the TLS + HTTP/2 front proxy (backupd#730 reproduction)"
+  step "starting the TLS + HTTP/2 front proxy (retnd#730 reproduction)"
   # An ordinary reverse proxy in front of serve-ui, taking the edge-network
   # name the client is given and upstreaming to serve-ui's "origin" alias.
   # This is the hop a real NAS has and the plain-HTTP rig did not: the
@@ -2388,7 +2388,7 @@ client_env=(
   -e "RETND_CHROMIUM_NO_SANDBOX=${RETND_CHROMIUM_NO_SANDBOX:-0}"
   # The same value under the name the SUITE reads. This rig's own
   # web-ui-smoke.mjs reads RETND_CHROMIUM_NO_SANDBOX and
-  # backupd-tests' harness reads RETND_NO_SANDBOX, and until #895
+  # retnd-tests' harness reads RETND_NO_SANDBOX, and until #895
   # only the first was exported -- so a run that asked for
   # --no-sandbox got it in the smoke probe and not in the suite the
   # rig exists to drive. Two consumers, two names, one value, set
@@ -2404,7 +2404,7 @@ client_env=(
 # covers a suite that fetches from node. Appended after the array literal so
 # an empty case never expands to a stray argument.
 #
-# NOTE, and it is a gap rather than a decision: nothing in backupd-tests
+# NOTE, and it is a gap rather than a decision: nothing in retnd-tests
 # reads RETND_IGNORE_HTTPS, and its playwright.config.ts never sets
 # ignoreHTTPSErrors. So in front-proxy mode a node fetch inside the suite
 # accepts the self-signed leaf through NODE_TLS_REJECT_UNAUTHORIZED and a
@@ -2448,7 +2448,7 @@ if [ "$workflows" = 1 ]; then
     note "RETND_WORKFLOW_CONTROL $workflow_control_in_client, watched on this host at $workflow_control"
   fi
 fi
-# backupd#795. The flag the suite branches on, and the directory it drives
+# retnd#795. The flag the suite branches on, and the directory it drives
 # the break from. Same appended-after-the-literal shape as the block
 # above, and for the same reason: off, neither variable exists at all, so
 # a spec that reads RETND_ENGINE_UNREACHABLE gets undefined and asserts the

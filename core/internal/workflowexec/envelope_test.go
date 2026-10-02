@@ -415,11 +415,11 @@ func parsePayload(t *testing.T, text string) (map[string]string, string) {
 			}
 			assignments[name] = value
 			rest = tail
-		case strings.HasPrefix(rest, "__backupd_script="):
-			value, tail := cutQuoted(t, rest[len("__backupd_script="):])
+		case strings.HasPrefix(rest, "__retnd_script="):
+			value, tail := cutQuoted(t, rest[len("__retnd_script="):])
 			script, haveScript = value, true
 			rest = tail
-		case rest == "eval \"$__backupd_script\" 0</dev/null\n":
+		case rest == "eval \"$__retnd_script\" 0</dev/null\n":
 			rest = ""
 		default:
 			t.Fatalf("the payload carries a command the envelope never emits, which is what a value escaping its literal looks like: %q", firstLine(rest))
@@ -493,7 +493,7 @@ func TestStdinPayloadClearsEveryInheritedVariableBeforeItExportsAnything(t *test
 	}
 	text := string(payload)
 
-	clearEnd := strings.Index(text, "unset -v __backupd_name")
+	clearEnd := strings.Index(text, "unset -v __retnd_name")
 	if clearEnd < 0 {
 		t.Fatalf("the payload has no clearing prologue at all:\n%s", text)
 	}

@@ -196,7 +196,7 @@ func TestCreateRefusesAnIncompleteClaim(t *testing.T) {
 func TestStoreRefusesARelativeDirectory(t *testing.T) {
 	t.Parallel()
 
-	if _, err := backupengine.NewFileMaintenanceOwnershipStore("var/lib/backupd"); err == nil {
+	if _, err := backupengine.NewFileMaintenanceOwnershipStore("var/lib/retnd"); err == nil {
 		t.Errorf("NewFileMaintenanceOwnershipStore accepted a relative directory")
 	}
 }

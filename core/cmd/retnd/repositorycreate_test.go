@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// `backupd repository create` (issue #862): the CLI half of POST
+// `retnd repository create` (issue #862): the CLI half of POST
 // /repositories, through the same write door.
 //
 // The persistence assertion here is deliberately a SECOND INVOCATION
@@ -138,7 +138,7 @@ func TestRepositoryCreate_RefusesAMalformedInvocation(t *testing.T) {
 		{"no passphrase reference", []string{"repository", "create", "offsite-b2", "--isolation", "shared"}},
 		{"two passphrase references", []string{
 			"repository", "create", "offsite-b2", "--isolation", "shared",
-			"--passphrase-file", "/etc/backupd/p", "--passphrase-env", "RETND_P",
+			"--passphrase-file", "/etc/retnd/p", "--passphrase-env", "RETND_P",
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

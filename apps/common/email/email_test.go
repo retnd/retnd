@@ -289,7 +289,7 @@ func configFor(s *fakeSMTP, security Security) Config {
 		Host:     "127.0.0.1",
 		Port:     s.port(),
 		Security: security,
-		From:     "backupd@example.com",
+		From:     "retnd@example.com",
 	}
 }
 
@@ -298,7 +298,7 @@ func TestSend_PlaintextSessionDeliversTheComposedMessage(t *testing.T) {
 
 	err := Send(context.Background(), configFor(server, SecurityNone), Message{
 		To:      "admin@example.com",
-		Subject: "backupd: recovery email confirmed",
+		Subject: "retnd: recovery email confirmed",
 		Body:    "line one\nline two",
 	})
 	if err != nil {
@@ -311,9 +311,9 @@ func TestSend_PlaintextSessionDeliversTheComposedMessage(t *testing.T) {
 	}
 	got := msgs[0]
 	for _, want := range []string{
-		"From: backupd@example.com\r\n",
+		"From: retnd@example.com\r\n",
 		"To: admin@example.com\r\n",
-		"Subject: backupd: recovery email confirmed\r\n",
+		"Subject: retnd: recovery email confirmed\r\n",
 		"Content-Type: text/plain; charset=utf-8\r\n",
 		"\r\nline one\r\nline two\r\n",
 	} {
@@ -427,7 +427,7 @@ func TestSend_UnreachableHostFailsRatherThanHanging(t *testing.T) {
 		t.Fatalf("close: %v", err)
 	}
 
-	cfg := Config{Host: "127.0.0.1", Port: addr.Port, Security: SecurityNone, From: "backupd@example.com"}
+	cfg := Config{Host: "127.0.0.1", Port: addr.Port, Security: SecurityNone, From: "retnd@example.com"}
 	err = Send(context.Background(), cfg, Message{To: "admin@example.com", Subject: "s", Body: "b"})
 	if err == nil {
 		t.Fatal("Send succeeded against a port nothing is listening on")

@@ -13,7 +13,7 @@ import (
 	"github.com/retnd/retnd/core/internal/retention"
 )
 
-// cmdRetention is `backupd retention` / `backupd retention
+// cmdRetention is `retnd retention` / `retnd retention
 // --dry-run`: FR-20's mandatory dry-run, wired to internal/retention's
 // classification (GFS + last-known-good) via internal/app.
 //

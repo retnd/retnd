@@ -49,7 +49,7 @@ import (
 // "true" is one line away from the right command rather than one search.
 var toggleWords = map[string]bool{"on": true, "off": false}
 
-// cmdBackupSetEnabled is `backupd backup-set enabled
+// cmdBackupSetEnabled is `retnd backup-set enabled
 // <source/backup-set> <on|off>`.
 //
 // Disabling is not a pause button for a running pass: it stops the
@@ -70,7 +70,7 @@ func cmdBackupSetEnabled(args []string) int {
 		})
 }
 
-// cmdBackupSetReadOnly is `backupd backup-set read-only
+// cmdBackupSetReadOnly is `retnd backup-set read-only
 // <source/backup-set> <on|off>`.
 //
 // Turning it ON is a promise this manager keeps forever after: it will

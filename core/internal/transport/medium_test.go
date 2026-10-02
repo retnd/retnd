@@ -290,8 +290,8 @@ func TestMediumRendersUnderEveryVerb(t *testing.T) {
 	m := transport.Medium{
 		ID: "cold", Type: transport.MediumTypeS3, Region: "us-east-1",
 		Endpoint: "https://minio.example:9000", Bucket: "nas-backups",
-		Prefix: "backupd", StorageClass: "STANDARD",
-		Credentials: transport.MediumCredentials{File: "/var/lib/backupd/s3.creds"},
+		Prefix: "retnd", StorageClass: "STANDARD",
+		Credentials: transport.MediumCredentials{File: "/var/lib/retnd/s3.creds"},
 	}
 	for _, verb := range []string{"%v", "%+v", "%#v", "%s"} {
 		if out := fmt.Sprintf(verb, m); out == "" {

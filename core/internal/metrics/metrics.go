@@ -62,31 +62,6 @@ const ContentType = "text/plain; version=0.0.4; charset=utf-8"
 // Prometheus metric name may not contain a hyphen.
 const namePrefix = "retnd_"
 
-// legacyNamePrefix is the prefix every series here carried before the
-// product was renamed to retnd (EPIC R, #885).
-//
-// Every GAUGE family is emitted a second time under it, for one release
-// (FR-37). This is the epic's silent class in its purest form: an alert
-// rule whose series no longer exists does not fire, and a dashboard
-// whose query matches nothing is blank. Both look exactly like "nothing
-// is wrong", which on a backup product is the one report that must never
-// be a lie.
-//
-// Only gauges, and that restriction is structural rather than
-// remembered: duplicateUnderLegacyPrefix copies a family only when its
-// own TYPE line says gauge, so a counter cannot join the duplicated set
-// by being added to a list. A duplicated COUNTER is unsafe in a way a
-// duplicated gauge is not -- `sum(rate(...))` across both names doubles
-// the rate, and the operator who wrote that query has no way to see it
-// -- and the same caveat applies to a careless sum over the gauges. So
-// every duplicated family says so in its own HELP text, which is the one
-// place an operator is guaranteed to read it: FR-37 asks for the caveat
-// to be documented "where the metrics are", and on this tree that is
-// here and in the scrape itself, because nothing wires Render to an
-// endpoint or a flag yet (see this package's own doc) and there is no
-// operator-facing metrics page to carry it.
-const legacyNamePrefix = "backupd_"
-
 // newestGoodBackupAgeHelp names, in the HELP line a scraping operator
 // reads, exactly the states internal/health counts as known-good.
 //
@@ -105,23 +80,14 @@ var newestGoodBackupAgeHelp = "Age of the newest known-good (" +
 // on map iteration or on the order decideState happens to check them in.
 var healthStates = []health.State{health.Healthy, health.Degraded, health.Stale, health.Failing}
 
-// Render renders report as Prometheus text exposition format, followed by
-// the deprecated copy of every gauge family in it.
+// Render renders report as Prometheus text exposition format.
 //
 // Backup sets are sorted by their model.BackupSetID string form before
 // rendering, so two calls against Reports holding the same data in a
 // different slice order produce byte-identical output; nothing here
 // depends on the order report.BackupSets happened to be built in.
-//
-// The compat block is DERIVED from the bytes this function just produced
-// rather than assembled beside them (duplicateUnderLegacyPrefix), which
-// is the only shape in which "identical values under both names" is a
-// property instead of a promise: there is one set of readings, rendered
-// once, and the copy is a rename of the text.
 func Render(report health.Report) string {
-	primary := render(report)
-
-	return primary + duplicateUnderLegacyPrefix(primary)
+	return render(report)
 }
 
 func render(report health.Report) string {
@@ -405,74 +371,6 @@ func render(report health.Report) string {
 	writeWorkflowHealth(&b, sets, report.Workflow)
 
 	return b.String()
-}
-
-// duplicateUnderLegacyPrefix returns the deprecated copy of every GAUGE
-// family in exposition, and nothing for anything else.
-//
-// It reads the text this package just rendered rather than the report,
-// for the reason Render's own doc gives: a second assembly path is a
-// path that can disagree about a value, and two names holding two
-// different readings is worse for the operator than one name holding
-// none.
-//
-// The TYPE line is what decides. A family is copied when its own
-// exposition says `gauge`, so the rule "never duplicate a counter" is
-// enforced by the format rather than by a list somebody maintains: the
-// seven workflow counter families in workflow.go are excluded because
-// they are counters, and a counter added to this file in future is
-// excluded on the day it is added. A HELP line with no TYPE after it
-// copies nothing, which is the safe direction for a family whose kind
-// this function cannot establish.
-//
-// The copy's HELP names its replacement, so a scrape carries its own
-// deprecation notice: the operator who finds a legacy series in a
-// dashboard six months from now reads what to change it to out of the
-// same scrape, without knowing this epic happened.
-func duplicateUnderLegacyPrefix(exposition string) string {
-	var b strings.Builder
-
-	name, help, emitting := "", "", false
-	for line := range strings.Lines(exposition) {
-		switch {
-		case strings.HasPrefix(line, "# HELP "):
-			name, help, emitting = "", "", false
-			rest := strings.TrimPrefix(strings.TrimSuffix(line, "\n"), "# HELP ")
-			if metric, text, ok := strings.Cut(rest, " "); ok {
-				name, help = metric, text
-			}
-		case strings.HasPrefix(line, "# TYPE "):
-			emitting = false
-			rest := strings.TrimPrefix(strings.TrimSuffix(line, "\n"), "# TYPE ")
-			metric, typ, ok := strings.Cut(rest, " ")
-			if !ok || metric != name || typ != "gauge" {
-				continue
-			}
-
-			legacy := legacyName(name)
-			writeHelp(&b, legacy, "DEPRECATED, renamed to "+name+
-				", which this same scrape carries: this copy is emitted for one release only, and a query summing across both names double-counts. "+help)
-			writeType(&b, legacy, typ)
-			emitting = true
-		case emitting:
-			b.WriteString(legacyName(line))
-		}
-	}
-
-	return b.String()
-}
-
-// legacyName swaps the current prefix for the deprecated one, at the
-// start of a metric name or of a whole sample line. A string that does
-// not carry the prefix is returned unchanged rather than mangled: the
-// exposition text this reads is produced by this package, so that cannot
-// happen, and a rewriter that guessed would be one nobody could audit.
-func legacyName(s string) string {
-	if after, ok := strings.CutPrefix(s, namePrefix); ok {
-		return legacyNamePrefix + after
-	}
-
-	return s
 }
 
 func writeProcessInfo(b *strings.Builder, report health.Report) {

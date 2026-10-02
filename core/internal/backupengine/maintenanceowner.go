@@ -76,7 +76,7 @@ var ErrMaintenanceOwnershipExists = errors.New("backupengine: this repository al
 // while it worked, or clobber another window's history.
 var ErrMaintenanceOwnershipStale = errors.New("backupengine: this repository's maintenance ownership record changed since it was read")
 
-// MaintenanceOwner identifies the backupd instance that owns maintenance
+// MaintenanceOwner identifies the retnd instance that owns maintenance
 // for one repository.
 //
 // It is a free-form string rather than a validated type because what

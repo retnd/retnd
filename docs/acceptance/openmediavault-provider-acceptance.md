@@ -63,16 +63,16 @@ docker buildx build \
   --build-arg VERSION="$(git describe --tags --always)" \
   --build-arg COMMIT="$(git rev-parse HEAD)" \
   -f container/Dockerfile \
-  -t <your-registry>/backupd:<version> \
+  -t <your-registry>/retnd:<version> \
   --push .
 ```
 
 or side-load and set `IMAGE` in the env file to the loaded tag:
 
 ```bash
-docker save backupd:<version> | gzip > backupd.tar.gz
-scp backupd.tar.gz root@<omv>:/root/
-ssh root@<omv> 'gunzip -c /root/backupd.tar.gz | docker load'
+docker save retnd:<version> | gzip > retnd.tar.gz
+scp retnd.tar.gz root@<omv>:/root/
+ssh root@<omv> 'gunzip -c /root/retnd.tar.gz | docker load'
 ```
 
 The compose file reads the image reference from a single `IMAGE` variable in
@@ -104,18 +104,18 @@ deployment instead of creating five directories in the wrong place.
 
 ```bash
 DISK=/srv/dev-disk-by-uuid-<your-uuid>
-mkdir -p "$DISK/appdata/backupd"/{state,config,secrets}
-mkdir -p "$DISK/backups/backupd"
-chmod 700 "$DISK/appdata/backupd/secrets"
+mkdir -p "$DISK/appdata/retnd"/{state,config,secrets}
+mkdir -p "$DISK/backups/retnd"
+chmod 700 "$DISK/appdata/retnd/secrets"
 ```
 
-The backup root is `backupd` **inside** `$DISK/backups`, not that
+The backup root is `retnd` **inside** `$DISK/backups`, not that
 directory itself, which is very likely one you already use. Every step below
 creates, owns and later inspects only paths this procedure created.
 
 - [ ] Real `dev-disk-by-uuid-<UUID>` path recorded
-- [ ] `appdata/backupd/{state,config,secrets}` and
-      `backups/backupd` exist
+- [ ] `appdata/retnd/{state,config,secrets}` and
+      `backups/retnd` exist
 - [ ] The UUID appears in exactly one place on the NAS, the env file's `DISK`
 - [ ] Starting the stack with `DISK` unset fails loudly rather than creating
       paths (try it once, on purpose)
@@ -129,8 +129,8 @@ OMV's conventional service account is `uid 1000` for the first admin account;
 check yours with `id <your-admin-user>`.
 
 ```bash
-chown -R 1000:100 "$DISK/appdata/backupd"
-chown 1000:100 "$DISK/backups/backupd"
+chown -R 1000:100 "$DISK/appdata/retnd"
+chown 1000:100 "$DISK/backups/retnd"
 ```
 
 Only paths this procedure created, and the backup root non-recursively. A
@@ -139,7 +139,7 @@ already in it, fights the Workbench's own shared-folder ACL management, and on a
 reinstall would rewrite the retained backup store.
 
 - [ ] `PUID`/`PGID` chosen, recorded, and set in the env file
-- [ ] appdata tree and `backups/backupd` owned by that uid/gid
+- [ ] appdata tree and `backups/retnd` owned by that uid/gid
 - [ ] Nothing else under `$DISK/backups` had its ownership changed
 
 ### 0.5 Create the SSH key, the pinned known_hosts, and the config
@@ -178,21 +178,21 @@ without a valid config: removing that refusal, and serving a first-run flow inst
 the directory becomes optional.
 
 ```bash
-ssh-keygen -t ed25519 -N '' -f "$DISK/appdata/backupd/secrets/id_ed25519"
-ssh-keyscan -t ed25519 <your-sftp-host> > "$DISK/appdata/backupd/secrets/known_hosts"
-chmod 600 "$DISK/appdata/backupd/secrets/id_ed25519"
-chown 1000:100 "$DISK/appdata/backupd/secrets/"*
+ssh-keygen -t ed25519 -N '' -f "$DISK/appdata/retnd/secrets/id_ed25519"
+ssh-keyscan -t ed25519 <your-sftp-host> > "$DISK/appdata/retnd/secrets/known_hosts"
+chmod 600 "$DISK/appdata/retnd/secrets/id_ed25519"
+chown 1000:100 "$DISK/appdata/retnd/secrets/"*
 ```
 
 Verify the host key fingerprint out of band. Then write
-`$DISK/appdata/backupd/config/config.yaml` using the annotated example in
+`$DISK/appdata/retnd/config/config.yaml` using the annotated example in
 `apps/openmediavault/README.md`.
 
 **Never commit the private key, the config, or any transcript containing them.**
 
 - [ ] Key pair generated, mode 0600, owned by `PUID:PGID`
 - [ ] `known_hosts` pinned, fingerprint verified out of band
-- [ ] `$DISK/appdata/backupd/config` exists and is **writable** by `PUID:PGID`
+- [ ] `$DISK/appdata/retnd/config` exists and is **writable** by `PUID:PGID`
 - [ ] `config.yaml` written inside it and readable by `PUID:PGID`
 
 ---
@@ -279,7 +279,7 @@ Web host provides (§13A).
 - [ ] Forgot password answers the same for an invented username as for the real one,
       and the reset link works once and signs every session out when spent
 - [ ] `GET /api/v1/system/capabilities` reports `nativeAuth: false`
-- [ ] `$DISK/appdata/backupd/state/local-auth.json` holds an Argon2id
+- [ ] `$DISK/appdata/retnd/state/local-auth.json` holds an Argon2id
       hash, never a plaintext password, and holds the recovery address and SMTP
       settings with the SMTP password as a secret reference rather than a value:
       `grep` it for the password you typed and find nothing
@@ -293,9 +293,9 @@ Web host provides (§13A).
 Run one backup cycle to completion, then:
 
 ```bash
-ls -la "$DISK/backups/backupd"
-ls -la "$DISK/appdata/backupd/state"
-grep -rIl 'PRIVATE KEY' "$DISK/backups/backupd" || echo "clean"
+ls -la "$DISK/backups/retnd"
+ls -la "$DISK/appdata/retnd/state"
+grep -rIl 'PRIVATE KEY' "$DISK/backups/retnd" || echo "clean"
 ```
 
 Then record a baseline for the removal check at the end of this procedure. The
@@ -307,20 +307,20 @@ hash and a full file listing **outside** the backup root, where whatever might
 damage that tree cannot reach the evidence:
 
 ```bash
-mkdir -p /root/backupd-acceptance
-head -c 8M /dev/urandom > "$DISK/backups/backupd"/canary.bin
-sha256sum "$DISK/backups/backupd"/canary.bin | tee /root/backupd-acceptance/canary.sha256
-find "$DISK/backups/backupd" -type f -printf '%p %s\n' | sort > /root/backupd-acceptance/backup-root.before
+mkdir -p /root/retnd-acceptance
+head -c 8M /dev/urandom > "$DISK/backups/retnd"/canary.bin
+sha256sum "$DISK/backups/retnd"/canary.bin | tee /root/retnd-acceptance/canary.sha256
+find "$DISK/backups/retnd" -type f -printf '%p %s\n' | sort > /root/retnd-acceptance/backup-root.before
 ```
 
-Keep `/root/backupd-acceptance` off the repository: the listing names your own backup
+Keep `/root/retnd-acceptance` off the repository: the listing names your own backup
 sets. Record only that it was taken, and the canary's hash, in the evidence table.
 
-- [ ] At least one completed artifact is under `$DISK/backups/backupd`
+- [ ] At least one completed artifact is under `$DISK/backups/retnd`
 - [ ] `state.db` and `local-auth.json` are under appdata, **not** under the
       backup root
 - [ ] No private key, `known_hosts`, or auth state anywhere under
-      `$DISK/backups/backupd` (§19.2)
+      `$DISK/backups/retnd` (§19.2)
 - [ ] Nothing was written anywhere else under `$DISK/backups`
 - [ ] A sidecar recovery manifest sits next to the artifact and contains no
       secret material (§19.3)
@@ -334,7 +334,7 @@ sets. Record only that it was taken, and the canary's hash, in the evidence tabl
 1. Capture a baseline first, over SSH to the OMV box, so the checks below are a
    comparison rather than an impression:
    ```bash
-   sha256sum $DISK/appdata/backupd/state/state.db | tee /tmp/before-update.sha256
+   sha256sum $DISK/appdata/retnd/state/state.db | tee /tmp/before-update.sha256
    find $DISK/backups -type f -printf '%p %s\n' | sort > /tmp/before-update.txt
    ```
 2. Push or side-load a newer image tag and change `IMAGE` in the env file.
@@ -390,15 +390,15 @@ Check the backup root against the baseline recorded in the storage step, before
 looking at anything else:
 
 ```bash
-sha256sum -c /root/backupd-acceptance/canary.sha256
-find "$DISK/backups/backupd" -type f -printf '%p %s\n' | sort > /root/backupd-acceptance/backup-root.after
-diff /root/backupd-acceptance/backup-root.before /root/backupd-acceptance/backup-root.after
+sha256sum -c /root/retnd-acceptance/canary.sha256
+find "$DISK/backups/retnd" -type f -printf '%p %s\n' | sort > /root/retnd-acceptance/backup-root.after
+diff /root/retnd-acceptance/backup-root.before /root/retnd-acceptance/backup-root.after
 ```
 
 - [ ] `sha256sum -c` reports the canary `OK`
 - [ ] The `diff` against the recorded listing is empty, so the backup root is
       untouched, byte for byte, and every artifact is still readable
-- [ ] `$DISK/appdata/backupd` is untouched
+- [ ] `$DISK/appdata/retnd` is untouched
 - [ ] Nothing elsewhere under `$DISK/backups` changed
 - [ ] Nothing outside the declared host paths was touched, and no OMV
       configuration was modified
@@ -410,7 +410,7 @@ confirm no named volume ever held retained backup data (every persistent path in
 this profile is a bind mount to a host path you chose, precisely so that `-v`
 cannot reach it).
 
-- [ ] `down -v` removes nothing under `$DISK/backups/backupd`
+- [ ] `down -v` removes nothing under `$DISK/backups/retnd`
 
 ---
 
@@ -460,13 +460,13 @@ first hook rather than a hook that runs:
 
 | Host path | In the container | Why |
 |---|---|---|
-| `$DISK/appdata/backupd/workflows` | `/workflows` (read-only) | the hook scripts the engine reads |
-| `$DISK/appdata/backupd/run` | `/data/run` | where the runner's socket appears |
-| `$DISK/appdata/backupd/secrets/workflow-runner.token` | `/etc/retnd/workflow-runner.token` (read-only) | the credential the engine presents |
+| `$DISK/appdata/retnd/workflows` | `/workflows` (read-only) | the hook scripts the engine reads |
+| `$DISK/appdata/retnd/run` | `/data/run` | where the runner's socket appears |
+| `$DISK/appdata/retnd/secrets/workflow-runner.token` | `/etc/retnd/workflow-runner.token` (read-only) | the credential the engine presents |
 
-So install the runner with `--workflows-dir $DISK/appdata/backupd/workflows`,
-`--runtime-dir $DISK/appdata/backupd/run` and its token under
-`$DISK/appdata/backupd/secrets`. None of the three reaches the Docker daemon: the
+So install the runner with `--workflows-dir $DISK/appdata/retnd/workflows`,
+`--runtime-dir $DISK/appdata/retnd/run` and its token under
+`$DISK/appdata/retnd/secrets`. None of the three reaches the Docker daemon: the
 runner holds the socket's group on the host, and the engine container gains
 nothing.
 
@@ -478,7 +478,7 @@ nothing.
 - [ ] The hook image is present on the host (`docker image inspect <the reference>`), and
       the reference the unit was installed with is recorded
 - [ ] A workflow with one `local` hook runs, and its container is gone afterwards
-      (`docker ps -a --filter label=backupd.workflow-hook=1` is empty)
+      (`docker ps -a --filter label=retnd.workflow-hook=1` is empty)
 
 
 ## Evidence (§68)

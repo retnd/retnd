@@ -30,7 +30,7 @@ func TestPreflight_LeavesNothingBehindOnThisMachineEither(t *testing.T) {
 		t.Fatalf("ReadDir: %v", err)
 	}
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), "backupd-preflight-") {
+		if strings.HasPrefix(e.Name(), "retnd-preflight-") {
 			t.Fatalf("the preflight left %s behind under %s", filepath.Join(tmp, e.Name()), tmp)
 		}
 	}

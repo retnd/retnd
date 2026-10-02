@@ -149,7 +149,7 @@ type AdapterRuntime struct {
 // The command is matched against every spelling the image answers to
 // (CommandSpellings), which for one release includes the pre-rename
 // entrypoint canonical.json retains: an operator's own pinned copy of a
-// provider file still names /backupd-web, and it really does run the same
+// provider file still names /retnd-web, and it really does run the same
 // inode as /retnd-web (renameoverlap.go).
 func ReduceToRoles(platform string, svcs []Service, c Canonical) (AdapterRuntime, []Drift) {
 	out := AdapterRuntime{Platform: platform}
@@ -539,7 +539,7 @@ func waitingOnHealthOf(a AdapterRuntime, service string) []string {
 // A retained entrypoint name is a spelling in the same sense. #890 moved
 // the canonical commands to /retnd-web and #891 moved all eleven
 // adapters' healthcheck tests, so nothing in this tree names
-// /backupd-web any more -- but an operator's own pinned copy of a
+// /retnd-web any more -- but an operator's own pinned copy of a
 // provider file does, and it runs the same inode the contract names
 // (renameoverlap.go), which is what the retained spelling is still for
 // until #895 drops it. What this comparison exists to catch is a check

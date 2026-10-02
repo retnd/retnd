@@ -26,7 +26,7 @@
 <Container version="2">
   <Name>retnd-ui</Name>
   <Repository>ghcr.io/retnd/retnd:0.4.0</Repository>
-  <Registry>https://github.com/retnd/retnd/pkgs/container/backupd</Registry>
+  <Registry>https://github.com/retnd/retnd/pkgs/container/retnd</Registry>
   <Network>retnd</Network>
   <MyIP/>
   <Privileged>false</Privileged>

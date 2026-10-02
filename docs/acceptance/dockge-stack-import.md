@@ -37,8 +37,8 @@ can reach or building elsewhere and loading it. The previous release,
 rather run that:
 
 ```bash
-docker buildx build --platform=linux/amd64,linux/arm64 -f container/Dockerfile -t backupd:acceptance .
-docker save backupd:acceptance | ssh admin@<host> 'docker load'
+docker buildx build --platform=linux/amd64,linux/arm64 -f container/Dockerfile -t retnd:acceptance .
+docker save retnd:acceptance | ssh admin@<host> 'docker load'
 ```
 
 - [ ] The image is resolvable on the host, and the exact reference used is recorded
@@ -46,8 +46,8 @@ docker save backupd:acceptance | ssh admin@<host> 'docker load'
 ### 0.3 Create the host paths
 
 ```bash
-mkdir -p /volume1/backupd/state /volume1/backups \
-         /volume1/backupd/config /volume1/backupd/secrets
+mkdir -p /volume1/retnd/state /volume1/backups \
+         /volume1/retnd/config /volume1/retnd/secrets
 ```
 
 The runtime image is distroless: no shell, no root step, nothing inside the
@@ -59,8 +59,8 @@ following `docs/ssh-setup.md`. Never commit either, and never paste a private ke
 into the evidence table.
 
 ```bash
-ssh-keygen -t ed25519 -N "" -f /volume1/backupd/secrets/id_ed25519
-ssh-keyscan -t ed25519 <sftp-host> > /volume1/backupd/secrets/known_hosts
+ssh-keygen -t ed25519 -N "" -f /volume1/retnd/secrets/id_ed25519
+ssh-keyscan -t ed25519 <sftp-host> > /volume1/retnd/secrets/known_hosts
 ```
 
 **Recurse only over what this step created.** `/volume1/backups` is the retained
@@ -72,15 +72,15 @@ fails the build if any procedure in this directory recurses over a backup root o
 a parent of one.
 
 ```bash
-chown -R 1000:1000 /volume1/backupd/state /volume1/backupd/config /volume1/backupd/secrets
+chown -R 1000:1000 /volume1/retnd/state /volume1/retnd/config /volume1/retnd/secrets
 chown 1000:1000 /volume1/backups
-chmod 600 /volume1/backupd/secrets/id_ed25519
+chmod 600 /volume1/retnd/secrets/id_ed25519
 ```
 
 - [ ] All four paths exist and are owned by the app's uid and gid
 - [ ] The recursive ownership change touched only state, config and secrets
 - [ ] It ran **after** the key and `known_hosts` were created
-- [ ] `/volume1/backupd/config` is writable by the app's uid and gid
+- [ ] `/volume1/retnd/config` is writable by the app's uid and gid
 - [ ] Key material lives only on this host, redacted everywhere else
 
 ---
@@ -114,9 +114,9 @@ there, and do it before **Start**. Skip this block entirely to use the first-run
 instead.
 
 ```bash
-$EDITOR /volume1/backupd/config/config.yaml
-chown 1000:1000 /volume1/backupd/config/config.yaml
-chmod 600 /volume1/backupd/config/config.yaml
+$EDITOR /volume1/retnd/config/config.yaml
+chown 1000:1000 /volume1/retnd/config/config.yaml
+chmod 600 /volume1/retnd/config/config.yaml
 ```
 
 The container-side paths in it are fixed by this package and must not be changed:
@@ -127,7 +127,7 @@ annotated example is this same file with another platform's host paths, and
 **Never commit the config or paste one into the evidence table:** it names the SFTP
 host and user.
 
-- [ ] Either `config.yaml` is written into `/volume1/backupd/config` **before** the install
+- [ ] Either `config.yaml` is written into `/volume1/retnd/config` **before** the install
       and is valid, or that directory is left empty and the first-run flow writes it.
       A file that exists and does not validate is the one state that refuses the start,
       so record which of the two routes this run took
@@ -143,12 +143,12 @@ host and user.
    stack in unmodified:
 
    ```bash
-   mkdir -p /opt/stacks/backupd
-   cp container/compose.yaml /opt/stacks/backupd/compose.yaml
-   cp container/.env.example /opt/stacks/backupd/.env
+   mkdir -p /opt/stacks/retnd
+   cp container/compose.yaml /opt/stacks/retnd/compose.yaml
+   cp container/.env.example /opt/stacks/retnd/.env
    ```
 
-2. Edit only `/opt/stacks/backupd/.env`. Record every edit: the number of
+2. Edit only `/opt/stacks/retnd/.env`. Record every edit: the number of
    edits needed to `compose.yaml` itself is an acceptance result, and it must be
    the removal of the `build:` block and nothing else.
 3. In Dockge the stack appears on its own. Press **Start**.
@@ -199,7 +199,7 @@ host and user.
 
 ## Step 4 — Storage mapping and backup-root containment
 
-- [ ] Private state lands under `/volume1/backupd/state`
+- [ ] Private state lands under `/volume1/retnd/state`
 - [ ] Retained artifacts land under `/volume1/backups`
 - [ ] No SSH private key, `known_hosts`, config file or authentication record
       exists anywhere under `/volume1/backups`
@@ -236,7 +236,7 @@ Capture a baseline before the pull and compare after it, so "everything
 survived" is a diff rather than an impression:
 
 ```bash
-sha256sum /volume1/backupd/state/state.db | tee /root/dockge-before-update.sha256
+sha256sum /volume1/retnd/state/state.db | tee /root/dockge-before-update.sha256
 find /volume1/backups -type f -printf '%p %s\n' | sort > /root/dockge-before-update.txt
 ```
 
@@ -283,7 +283,7 @@ diff /root/dockge-before-remove.txt /root/dockge-after-remove.txt
       artifact is untouched, byte for byte
 - [ ] Deleting the stack directory from `/opt/stacks` deleted no
       retained artifact either: the same `sha256sum -c` and `diff` are still clean
-- [ ] `/volume1/backupd/state` still holds the catalogue, so a reinstall
+- [ ] `/volume1/retnd/state` still holds the catalogue, so a reinstall
       pointed at the same paths comes back with the same backup sets
 - [ ] Removing this adapter removes no core behaviour: the same image runs
       unchanged under `container/compose.yaml` on a plain Docker host
@@ -371,7 +371,7 @@ explicitly.
 - [ ] The hook image is present on the host (`docker image inspect <the reference>`), and
       the reference the unit was installed with is recorded
 - [ ] A workflow with one `local` hook runs, and its container is gone afterwards
-      (`docker ps -a --filter label=backupd.workflow-hook=1` is empty)
+      (`docker ps -a --filter label=retnd.workflow-hook=1` is empty)
 
 
 ## Evidence (section 68)

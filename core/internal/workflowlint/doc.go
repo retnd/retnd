@@ -4,7 +4,7 @@
 // it contain one of the handful of mistakes that turn a backup hook into
 // an outage (#906).
 //
-// # This is backupd's own shell check, and it is not ShellCheck
+// # This is retnd's own shell check, and it is not ShellCheck
 //
 // Said first because the codes look familiar and the resemblance stops
 // there. The findings here are produced by rules in rules.go, written

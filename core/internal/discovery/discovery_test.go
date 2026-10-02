@@ -676,7 +676,7 @@ func pathSet(recs []state.Record) map[string]bool {
 // given an id, and carried into the lifecycle as a backup of 16 random
 // bytes.
 func TestDiscover_ALeftoverWriteProbeIsNeverAnArtifact(t *testing.T) {
-	for _, include := range [][]string{nil, {"*"}, {"*.dump", ".backupd-*"}} {
+	for _, include := range [][]string{nil, {"*"}, {"*.dump", ".retnd-*"}} {
 		root := t.TempDir()
 		probe := transport.ProbeObjectPrefix + "6f1d2b7a1c4e4f8b"
 		mustWrite(t, filepath.Join(root, "backup.dump"), "a real payload")

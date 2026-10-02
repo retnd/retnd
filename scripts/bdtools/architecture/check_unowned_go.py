@@ -32,7 +32,7 @@ stops being standard-library-only fail immediately and say so, rather than
 hanging on a fetch.
 
 Paths in the output are rewritten back to the real ones, because a
-complaint about /var/folders/.../T/backupd-unowned.XXXX/bad.go is a
+complaint about /var/folders/.../T/retnd-unowned.XXXX/bad.go is a
 complaint nobody can act on.
 
 Exit code contract, which is all a gate step needs from it:
@@ -429,7 +429,7 @@ def body(argv: list[str]) -> int:
     checked = 0
 
     with tempfile.TemporaryDirectory(
-        prefix="backupd-unowned.",
+        prefix="retnd-unowned.",
         dir=os.environ.get("TMPDIR") or "/tmp",
     ) as tmpname:
         tmp = Path(tmpname)

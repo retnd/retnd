@@ -38,7 +38,7 @@ func validStep() Step {
 		ScriptSize:   12,
 		Target:       TargetLocal,
 		Timeout:      time.Minute,
-		SpoolRef:     "/var/lib/backupd/workflow-runs/run-1/scripts/" + StepID(0, ScopeSet, PhaseBefore, name),
+		SpoolRef:     "/var/lib/retnd/workflow-runs/run-1/scripts/" + StepID(0, ScopeSet, PhaseBefore, name),
 		State:        StatePending,
 	}
 }
@@ -115,7 +115,7 @@ func TestStepValidateRefusesATargetItsNameDoesNotName(t *testing.T) {
 	remote.ID = StepID(remote.Order, remote.Scope, remote.Phase, remote.ScriptName)
 	remote.Target = TargetRemote
 	remote.ExecutionConnectionRef = "primary"
-	remote.SpoolRef = "/var/lib/backupd/workflow-runs/run-1/scripts/" + remote.ID
+	remote.SpoolRef = "/var/lib/retnd/workflow-runs/run-1/scripts/" + remote.ID
 
 	if err := remote.Validate(); err != nil {
 		t.Fatalf("a well-formed remote step was refused: %v", err)

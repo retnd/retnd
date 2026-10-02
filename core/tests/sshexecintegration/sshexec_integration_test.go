@@ -270,7 +270,7 @@ func TestAForcedCommandAccountCannotRunAHookAtAll(t *testing.T) {
 
 	marker := "/tmp/forced-command-hook-should-not-have-run"
 	res, s, err := runHook(t, h, client, remoteexec.Request{
-		Token:   "backupd-exec-forced-run",
+		Token:   "retnd-exec-forced-run",
 		Script:  []byte("touch " + marker + "\nprintf 'the hook ran\\n'\n"),
 		Timeout: 60 * time.Second,
 	})
@@ -408,7 +408,7 @@ func runHook(t *testing.T, h *machines.ExecHost, client *remoteexec.Client, req 
 	s := &sink{}
 	req.Sink = s
 	if req.Token == "" {
-		req.Token = "backupd-exec-" + strings.ReplaceAll(t.Name(), "/", ".")
+		req.Token = "retnd-exec-" + strings.ReplaceAll(t.Name(), "/", ".")
 	}
 	res, err := client.Run(h.Context(), req)
 
@@ -558,7 +558,7 @@ func TestNoEnvironmentValueReachesTheRemoteProcessList(t *testing.T) {
 	go func() {
 		defer close(done)
 		res, s, runErr = runHook(t, h, client, remoteexec.Request{
-			Token:   "backupd-exec-processlist",
+			Token:   "retnd-exec-processlist",
 			Script:  []byte("printf 'started\\n'\nsleep 4\n"),
 			Environ: []string{"PGPASSWORD=" + secret},
 			Timeout: 60 * time.Second,
@@ -584,7 +584,7 @@ func TestNoEnvironmentValueReachesTheRemoteProcessList(t *testing.T) {
 	if strings.Contains(table, "PGPASSWORD") {
 		t.Errorf("an environment variable name is in the remote process list:\n%s", table)
 	}
-	if !strings.Contains(table, "backupd-exec-processlist") {
+	if !strings.Contains(table, "retnd-exec-processlist") {
 		t.Errorf("the step token is NOT in the process list, so the reaper would have nothing to find:\n%s", table)
 	}
 
@@ -720,7 +720,7 @@ func TestAForegroundHookIsTerminatedWithConfirmedCertainty(t *testing.T) {
 
 	const marker = "sleep 611"
 	res, _, err := runHook(t, h, client, remoteexec.Request{
-		Token:   "backupd-exec-foreground-timeout",
+		Token:   "retnd-exec-foreground-timeout",
 		Script:  []byte("printf 'started\\n'\n" + marker + "\n"),
 		Timeout: 3 * time.Second,
 	})
@@ -770,7 +770,7 @@ func TestCancellingAForegroundHookIsAlsoConfirmed(t *testing.T) {
 	}()
 
 	res, err := client.Run(ctx, remoteexec.Request{
-		Token:   "backupd-exec-cancelled",
+		Token:   "retnd-exec-cancelled",
 		Script:  []byte("printf 'started\\n'\n" + marker + "\n"),
 		Sink:    s,
 		Timeout: 5 * time.Minute,
@@ -801,7 +801,7 @@ func TestADeliberatelyDetachedChildIsUnconfirmed(t *testing.T) {
 	client := dial(t, h, connectionFor(t, h, machines.ExecUser))
 
 	res, _, err := runHook(t, h, client, remoteexec.Request{
-		Token:   "backupd-exec-detached",
+		Token:   "retnd-exec-detached",
 		Script:  []byte("printf 'detaching\\n'\nsetsid sleep 613 &\nsleep 600\n"),
 		Timeout: 3 * time.Second,
 	})
@@ -843,7 +843,7 @@ func TestTransportLossIsNotReportedAsAnExitCode(t *testing.T) {
 	}()
 
 	res, runErr := client.Run(h.Context(), remoteexec.Request{
-		Token:   "backupd-exec-transport-loss",
+		Token:   "retnd-exec-transport-loss",
 		Script:  []byte("printf 'started\\n'\nsleep 8\n"),
 		Sink:    s,
 		Timeout: 60 * time.Second,
@@ -874,7 +874,7 @@ func TestTheAuditLineDescribesTheStepAndNoCredential(t *testing.T) {
 	script := []byte("printf 'quiesced\\n'\n")
 	sum := sha256.Sum256(script)
 	req := remoteexec.Request{
-		Token:        "backupd-exec-audit",
+		Token:        "retnd-exec-audit",
 		Script:       script,
 		Environ:      []string{"PGPASSWORD=audit-secret-value"},
 		BackupSet:    "production/db",
@@ -955,7 +955,7 @@ func TestAHookSeesTheResolvedEnvironmentAndNothingTheAccountExported(t *testing.
 		"printf 'path=[%s]\\n' \"${PATH-unset}\"\n")
 
 	res, s, err := runHook(t, h, client, remoteexec.Request{
-		Token:   "backupd-exec-environment",
+		Token:   "retnd-exec-environment",
 		Script:  script,
 		Environ: []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "PGDATABASE=orders"},
 		Timeout: 60 * time.Second,
@@ -1008,8 +1008,8 @@ func TestAHookSeesTheResolvedEnvironmentAndNothingTheAccountExported(t *testing.
 func TestTwoStepsWhoseTokensSharePrefixDoNotKillEachOther(t *testing.T) {
 	h := machines.Start(t).ExecHost(t)
 
-	const shortToken = "backupd-exec-prefix"
-	const longToken = "backupd-exec-prefix-and-more"
+	const shortToken = "retnd-exec-prefix"
+	const longToken = "retnd-exec-prefix-and-more"
 
 	// Two connections, because one client holds one connection and these
 	// two steps genuinely run at the same time.
@@ -1076,7 +1076,7 @@ func TestAGroupIsReapedAfterItsLeaderHasGone(t *testing.T) {
 	const marker = "sleep 618"
 	s := &sink{}
 	res, err := client.Run(h.Context(), remoteexec.Request{
-		Token:   "backupd-exec-orphaned-group",
+		Token:   "retnd-exec-orphaned-group",
 		Script:  []byte("sh -c 'trap \"\" TERM; printf \"started\\n\"; " + marker + "' &\nsleep 3\nexit 0\n"),
 		Sink:    s,
 		Timeout: 8 * time.Second,

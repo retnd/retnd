@@ -382,7 +382,7 @@ describe("every request the shared client makes is a declared operation", () => 
       // sends: a path, never the passphrase.
       ["createRepositoryDomain", () => httpApi.createRepositoryDomain({
         domain: "offsite-b2", isolation: "isolated",
-        passphrase: { file: "/etc/backupd/offsite-b2.passphrase" }
+        passphrase: { file: "/etc/retnd/offsite-b2.passphrase" }
       })],
       ["getOperation", () => httpApi.getOperation("op_1")],
       // The four actions all post to /operations, and the header
@@ -494,7 +494,7 @@ describe("every request the shared client makes is a declared operation", () => 
       // carry one: the write. A reference is what a browser sends, and
       // the contract has no field a resolved secret could travel in.
       ["setWorkflowEnvironment", () =>
-        httpApi.setWorkflowEnvironment("PGPASSWORD", { secret: { file: "/etc/backupd/secrets/pg" } })],
+        httpApi.setWorkflowEnvironment("PGPASSWORD", { secret: { file: "/etc/retnd/secrets/pg" } })],
       ["unsetWorkflowEnvironment", () => httpApi.unsetWorkflowEnvironment("PGPASSWORD")],
       ["getBackupSetWorkflow", () => httpApi.getBackupSetWorkflow("src", "set-1")],
       ["patchBackupSetWorkflow", () =>

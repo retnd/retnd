@@ -21,11 +21,11 @@ import (
 // FAILED -> QUARANTINED. Neither is a fresh problem; both are waypoints on
 // the way back to a durable state. Keyed on destination alone, the first
 // reads as an amber "Attempt failed" and the second as a red "Quarantined
-// for review" — an operator running `backupd activity --severity error` sees a
+// for review" — an operator running `retnd activity --severity error` sees a
 // row that is not an error, from a request that succeeded.
 //
 // TestActivitySeverityByEdge_TheTwoWaypointsAreNotErrors is the direct
-// proof: it drives the real recovery this manager offers (`backupd retry` on a
+// proof: it drives the real recovery this manager offers (`retnd retry` on a
 // FAILED artifact whose durable local copy is byte-identical to the remote
 // object) and asserts the whole recovery, not one transition, produces no
 // severity-error row. A test pinning only one of the two false rows would
@@ -78,7 +78,7 @@ func TestActivitySeverityByEdge_TheTwoWaypointsAreNotErrors(t *testing.T) {
 	}
 	for _, e := range errBody.Events {
 		if e.From == "FAILED" && (e.To == "FAILED" || e.To == "QUARANTINED") {
-			t.Errorf("`backupd activity --severity error` selected %s -> %s, a waypoint of a recovery that succeeded, "+
+			t.Errorf("`retnd activity --severity error` selected %s -> %s, a waypoint of a recovery that succeeded, "+
 				"not a fresh error:\n%s", e.From, e.To, errorsOnly)
 		}
 	}
@@ -115,7 +115,7 @@ func TestActivitySeverityByEdge_ValidateOriginQuarantineStaysRed(t *testing.T) {
 		}
 	}
 	if !sawIt {
-		t.Errorf("`backupd activity --severity error` no longer selects REMOTE_RETAINED -> QUARANTINED, "+
+		t.Errorf("`retnd activity --severity error` no longer selects REMOTE_RETAINED -> QUARANTINED, "+
 			"the validate origin that is a true statement about a broken record and must stay red:\n%s", stdout)
 	}
 }

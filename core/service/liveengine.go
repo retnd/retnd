@@ -27,7 +27,7 @@ import (
 //
 // The obvious mechanism is the wrong one, and it was tried first. The
 // `.journal-lock` startup.go already keeps is taken SHARED by every
-// process that has the journal open, which is every `backupd
+// process that has the journal open, which is every `retnd
 // status`, every `sources`, and every cron `run` for the length of a
 // whole backup cycle. lock_unix.go says so in as many words: a `status`
 // alongside a live `serve` is ordinary use of this CLI. Reading that lock
@@ -50,7 +50,7 @@ import (
 // routinely. An API probe needs a port, a scheme and a credential to be
 // known before the configuration has been read, and answers about a
 // listener rather than about the deployment, so it would miss an engine
-// whose API is not up yet and find a stale one that is. A `backupd
+// whose API is not up yet and find a stale one that is. A `retnd
 // daemon` serves no HTTP at all and would be invisible to it. The lock is
 // held by the kernel on behalf of a live process and released by the
 // kernel when that process dies, however it dies.
@@ -251,7 +251,7 @@ func DetectRunningEngineForJournal(dbPath string) (*RunningEngine, error) {
 // deploymentidentity.go), and it is here because of who calls it: a
 // process about to serve, and nothing else. It used to sit in
 // runStartupSequence, which every CLI subcommand goes through, so a
-// `backupd status` against a deployment whose identity file had
+// `retnd status` against a deployment whose identity file had
 // gone missing renamed the deployment out from under the engine still
 // serving it, and every routed write afterwards refused against that
 // deployment's own engine.
@@ -585,7 +585,7 @@ func configAbsent(configPath string) bool {
 //
 // It is not free and the cost is worth naming: while a write holds it,
 // another process's startup sequence waits (startupLockWait, lock_unix.go)
-// and then reports ErrStartupLocked. For a `backupd status` that
+// and then reports ErrStartupLocked. For a `retnd status` that
 // wait is longer than the hold and nothing is felt. For a container
 // starting at the exact moment of a `create --trust-host-key` that is
 // dialling a source host, the start fails and the supervisor restarts it,

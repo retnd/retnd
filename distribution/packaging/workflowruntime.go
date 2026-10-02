@@ -169,7 +169,7 @@ func readPlatformIDConsts(path string) (map[string]string, error) {
 // The statements a provider's document has to make. Regexes rather than
 // substrings because what matters is that the operator is told a fact,
 // not that a particular sentence was copied: "add the account to the
-// docker group" and "`sudo usermod -aG docker backupd`" are the same
+// docker group" and "`sudo usermod -aG docker retnd`" are the same
 // instruction, and a check that only accepted one of them would be
 // satisfied by rewording rather than by documenting.
 var (
@@ -182,7 +182,7 @@ var (
 	// name. The alternative stays because a procedure written for a host
 	// installed before #890 is still telling its operator a true thing
 	// about that host; #895 drops it.
-	runnerUnitRe = regexp.MustCompile(`(retnd|backupd)-workflow-runner\.service`)
+	runnerUnitRe = regexp.MustCompile(`(retnd|retnd)-workflow-runner\.service`)
 	// dockerGroupRe: the grant the runner's account needs. #865's whole
 	// cost is this one membership, and the installer's refusal names the
 	// same command.
@@ -239,7 +239,7 @@ func LocalHookDocStates(path, doc, answer string) (bool, string) {
 	switch answer {
 	case LocalHooksAvailable:
 		required = []requirement{
-			{runnerUnitRe, "name the systemd unit the runner is installed as (retnd-workflow-runner.service, or the pre-#890 backupd-workflow-runner.service, which only a host installed before that rename still has)"},
+			{runnerUnitRe, "name the systemd unit the runner is installed as (retnd-workflow-runner.service, or the pre-#890 retnd-workflow-runner.service, which only a host installed before that rename still has)"},
 			{dockerGroupRe, "say that the runner's account needs the Docker socket's group (the `usermod -aG` grant)"},
 			{hookImageRe, "name the hook image local hooks run in, which has to be present because the runner refuses to pull one"},
 		}

@@ -331,8 +331,8 @@ touch. #865 closes that: the runner still owns the execution, and what it
 starts is one **ephemeral container per hook**.
 
 ```text
-docker create --name backupd-hook-<run>-<step>-<16 hex>
-           --label backupd.workflow-hook=1 (plus run, step and instance labels)
+docker create --name retnd-hook-<run>-<step>-<16 hex>
+           --label retnd.workflow-hook=1 (plus run, step and instance labels)
            --network none  --security-opt no-new-privileges  --cap-drop ALL
            --read-only  --tmpfs /tmp:rw,nosuid,nodev,size=64m
            --pids-limit 512  --user <the runner's own uid:gid>

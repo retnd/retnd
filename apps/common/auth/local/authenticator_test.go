@@ -74,7 +74,7 @@ func TestAuthenticator_RefusesAnUnknownSessionCookie(t *testing.T) {
 
 // The read-compat window, from the seam webhost actually consults, for
 // every name the cookie has had: #794's bm_session and EPIC R's
-// backupd_session (#889).
+// retnd_session (#889).
 //
 // Each rename changed the name every session cookie is WRITTEN under.
 // Anything already in a browser or a cookie jar at upgrade time still
@@ -125,7 +125,7 @@ func TestAuthenticator_PrefersTheCurrentSessionCookieOverALegacyLeftover(t *test
 	// in preference, the live session alongside it would be refused.
 	authCtx, err := svc.Authenticator().Authenticate(context.Background(), capabilities.AuthRequest{
 		Headers: map[string][]string{"Cookie": {
-			LegacySessionCookieName + "=revoked-leftover; " + SessionCookieName + "=" + token,
+			EarlierSessionCookieName + "=revoked-leftover; " + SessionCookieName + "=" + token,
 		}},
 	})
 	if err != nil {
@@ -151,7 +151,7 @@ func TestAuthenticator_AnEmptyCurrentCookieDoesNotShadowTheLegacyOne(t *testing.
 
 	authCtx, err := svc.Authenticator().Authenticate(context.Background(), capabilities.AuthRequest{
 		Headers: map[string][]string{"Cookie": {
-			SessionCookieName + "=; " + LegacySessionCookieName + "=" + token,
+			SessionCookieName + "=; " + EarlierSessionCookieName + "=" + token,
 		}},
 	})
 	if err != nil {

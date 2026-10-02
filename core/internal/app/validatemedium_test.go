@@ -250,7 +250,7 @@ func moveToMedium(t *testing.T, f committedFixture, store *validateMedium, class
 	}
 
 	const content = "payload for validate"
-	key := "backupd/production/pg/" + f.artifact.Name
+	key := "retnd/production/pg/" + f.artifact.Name
 	size := int64(len(content))
 	for _, p := range []state.PlacementUpdate{
 		{Medium: state.MediumLocal, Location: local.Location, Status: state.PlacementGone},
@@ -276,7 +276,7 @@ func moveToMedium(t *testing.T, f committedFixture, store *validateMedium, class
 		Type:         config.StorageMediumTypeS3,
 		Region:       "us-east-1",
 		Bucket:       "nas-backups",
-		Prefix:       "backupd",
+		Prefix:       "retnd",
 		StorageClass: class,
 	}}
 
@@ -592,7 +592,7 @@ func TestValidateArtifact_QuarantinesOnlyWhenNoVerifiedCopyRemains(t *testing.T)
 	const second = "warm_offsite"
 	size := int64(len(f.content))
 	p := state.PlacementUpdate{
-		Medium: second, Location: "backupd/second/" + f.artifact.Name, Size: &size,
+		Medium: second, Location: "retnd/second/" + f.artifact.Name, Size: &size,
 		Hash: f.hash, HashAlg: "sha256",
 		VerificationClass: state.VerificationContent, Status: state.PlacementActive,
 	}
@@ -632,7 +632,7 @@ func TestValidateArtifact_OneUnreachableCopyDoesNotHideBehindAPass(t *testing.T)
 	const second = "warm_offsite"
 	size := int64(len(f.content))
 	p := state.PlacementUpdate{
-		Medium: second, Location: "backupd/second/" + f.artifact.Name, Size: &size,
+		Medium: second, Location: "retnd/second/" + f.artifact.Name, Size: &size,
 		Hash: f.hash, HashAlg: "sha256",
 		VerificationClass: state.VerificationContent, Status: state.PlacementActive,
 	}
@@ -788,7 +788,7 @@ func addSecondMediumPlacement(t *testing.T, f movedFixture, id string, declare b
 	ctx := context.Background()
 	size := int64(len(f.content))
 	p := state.PlacementUpdate{
-		Medium: id, Location: "backupd/second/" + f.artifact.Name, Size: &size,
+		Medium: id, Location: "retnd/second/" + f.artifact.Name, Size: &size,
 		Hash: f.hash, HashAlg: "sha256",
 		VerificationClass: state.VerificationContent, Status: state.PlacementActive,
 	}

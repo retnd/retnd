@@ -121,7 +121,7 @@ get away from.
   scripts/e2e/three-machine-web-ui.sh
       stand the stack up and run the built-in browser check.
 
-  scripts/e2e/three-machine-web-ui.sh --suite ../backupd-tests/suites/web-ui
+  scripts/e2e/three-machine-web-ui.sh --suite ../retnd-tests/suites/web-ui
       stand it up and run that directory's Playwright suite inside the
       client container. The suite's own node_modules is not used: the
       image's is, because the checkout's was built for this host.
@@ -141,12 +141,12 @@ get away from.
                     serve-ui, so the browser reaches the stack the way a
                     real NAS's front door does (h2 over TLS) rather than
                     the plain HTTP/1.1 this rig otherwise uses. The
-                    reproduction for backupd#730. RETND_SEED_CYCLES=N
+                    reproduction for retnd#730. RETND_SEED_CYCLES=N
                     additionally runs N backup cycles to enlarge the feed.
   --break-engine    hand the suite the ability to take the ENGINE away
                     mid-session, leaving serve-ui up, so the browser
                     meets a front door that cannot reach the service
-                    behind it. The reproduction for backupd#795.
+                    behind it. The reproduction for retnd#795.
 
                     The engine is NOT stopped up front, and that is the
                     whole design. serve-ui proxies all of /api/v1,
@@ -228,7 +228,7 @@ for want of a fixture is a case that never ran.
                 withholds from the engine. The engine reaches it
                 through one authenticated Unix socket in a volume the
                 two share, with the credential read at the path the
-                ENGINE sees (backupd#877).
+                ENGINE sees (retnd#877).
 
   THE EXEC HOST a second sshd (scripts/e2e/exec-host.Dockerfile, the
                 definition core/tests/machines already uses), carrying

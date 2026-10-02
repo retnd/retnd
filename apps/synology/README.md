@@ -46,16 +46,16 @@ The release binaries are the two executables inside the canonical OCI
 image, and they are extracted exactly the way
 `scripts/release/record-release-hashes.sh` extracts them to produce the
 manifest in the first place. The image's two real files are `/retnd` and
-`/retnd-web` (issue #890 renamed them; `/backupd-web` is a hardlink beside
-the second one for one release and there is no `/backupd` at all), and
+`/retnd-web` (issue #890 renamed them; `/retnd-web` is a hardlink beside
+the second one for one release and there is no `/retnd` at all), and
 the local names below are the ones `spkctl build` looks for, which the
 package keeps unchanged:
 
 ```sh
 mkdir -p release/amd64
-cid=$(docker create --platform linux/amd64 backupd:<version> /retnd version)
-docker cp "${cid}:/retnd"     release/amd64/backupd
-docker cp "${cid}:/retnd-web" release/amd64/backupd-web
+cid=$(docker create --platform linux/amd64 retnd:<version> /retnd version)
+docker cp "${cid}:/retnd"     release/amd64/retnd
+docker cp "${cid}:/retnd-web" release/amd64/retnd-web
 docker rm "${cid}"
 ```
 
@@ -134,22 +134,22 @@ Package Center catalogue is a separate exercise with its own review.
 
 ## What runs, and where
 
-Two processes, both the same unmodified `backupd-web` release
+Two processes, both the same unmodified `retnd-web` release
 binary, differing only in their command - the same "one artifact, vary
 command" split `container/compose.yaml` already ships for the generic
 Docker app:
 
 | Process | Command | Listener |
 |---|---|---|
-| engine | `backupd-web serve` | `127.0.0.1:8478`, loopback only |
-| web UI | `backupd-web serve-ui` | `:8477`, the only LAN-facing port |
+| engine | `retnd-web serve` | `127.0.0.1:8478`, loopback only |
+| web UI | `retnd-web serve-ui` | `:8477`, the only LAN-facing port |
 
 The command an operator types on a Docker host is `retnd-web` since issue
 #890, and these two lines are deliberately not that. A `.spk` installs
 native binaries under its own package FHS, and this package names them
 the way `container/release-manifest.json` recorded them for the release
 it ships, so what DSM starts really is
-`${SYNOPKG_PKGDEST}/bin/backupd-web`. The package's own artifact names
+`${SYNOPKG_PKGDEST}/bin/retnd-web`. The package's own artifact names
 are not the CLI's: only the command was renamed, twice, and the `.spk`
 layout has followed neither rename. Extracting the binaries out of the
 image above therefore reads `/retnd` and `/retnd-web`, the image's two
@@ -173,7 +173,7 @@ here is not attributable to one verified peer.
 | `/var/packages/Backupd/target` | the two binaries, the DSM UI files, the config seed | replaced | removed |
 | `/var/packages/Backupd/etc` | `config.yaml`, and the SSH key/known_hosts you put there | kept | kept |
 | `/var/packages/Backupd/var` | SQLite journal, `local-auth.json`, logs, pid files | kept | kept |
-| `/volume?/backupd` | backup data (a DSM shared folder) | kept | kept |
+| `/volume?/retnd` | backup data (a DSM shared folder) | kept | kept |
 
 Both daemons' logs live under `var/log`, on the DSM system volume, and
 `var/` survives every upgrade and reboot. `common.sh` caps each at

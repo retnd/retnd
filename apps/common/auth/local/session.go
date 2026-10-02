@@ -35,50 +35,19 @@ import (
 // authenticated request (via sessionAuthenticator, authenticator.go).
 const SessionCookieName = "retnd_session"
 
-// The names SessionCookieName has had, newest first. Both are READ and
-// neither is ever WRITTEN: every response this package sets a session
-// cookie on sets only SessionCookieName, while every read accepts any of
-// the three names (sessionCookieNames below).
-//
-// That asymmetry is the whole point of the compat window. An operator
-// upgrading in place has browsers and API clients in the field already
-// holding the old cookie, and a rename that only changed the written
-// name would present them all with a signed-out console on the first
-// request after the upgrade - a rename is not a reason to invalidate a
-// credential.
-//
-// Two deprecated names rather than one, because this is the project's
-// third name and the two windows are open at once for one release:
-// backupd_session is what the cookie was called before EPIC R (#885)
-// renamed the product to retnd, and bm_session is what it was called
-// before #794 renamed it to backupd. Both windows close in the release
-// after the one that renames this product (FR-43), which is why #794's
-// shim is not nested inside a third one.
-//
-// Nothing writes either name, and reissueRenamedSessionCookie actively
-// re-issues a recognised session under SessionCookieName on the read
-// that accepted the old one, so a deprecated name leaves the wire on the
-// first request each caller makes rather than on the day its jar happens
-// to turn over.
-const (
-	LegacySessionCookieName  = "backupd_session"
-	EarlierSessionCookieName = "bm_session"
-)
+// Session cookies are written only under SessionCookieName. Reads also
+// accept the earlier bm_session name until its compatibility window closes;
+// accepting it prevents an in-place upgrade from signing out every browser.
+const EarlierSessionCookieName = "bm_session"
 
-// sessionCookieNames are the cookie names a read accepts, in precedence
-// order: the current name wins whenever it carries a value, so a caller
-// that still has a stale old-name cookie alongside a freshly issued new
-// one is authenticated by the new one. Package-level so a read does not
-// allocate to iterate it.
-var sessionCookieNames = []string{SessionCookieName, LegacySessionCookieName, EarlierSessionCookieName}
+// sessionCookieNames are accepted in precedence order. Package-level so a
+// read does not allocate to iterate it.
+var sessionCookieNames = []string{SessionCookieName, EarlierSessionCookieName}
 
-// LegacySessionCookieNames returns the deprecated names a read accepts,
-// newest first. A function rather than a slice, because a package-level
-// slice is writable by every importer; it exists so the contract test
-// and the provider conformance suites enumerate the window rather than
-// re-typing it.
+// LegacySessionCookieNames returns the deprecated names a read accepts.
+// A function avoids exposing a mutable package-level slice.
 func LegacySessionCookieNames() []string {
-	return []string{LegacySessionCookieName, EarlierSessionCookieName}
+	return []string{EarlierSessionCookieName}
 }
 
 // sessionTTL is a fixed lifetime from creation, not a sliding one: simple
@@ -234,11 +203,9 @@ func (m *sessionManager) rotateSession(username string) (token string, expiresAt
 // *http.Request - and funnels back through here so both read paths
 // accept exactly the same set of names.
 //
-// Any of the three names is accepted (sessionCookieNames), newest
-// first, for the compat windows LegacySessionCookieName and
-// EarlierSessionCookieName document. An empty value counts as absent:
-// that is what a cleared cookie a client keeps echoing back looks like,
-// and it must not shadow a name further down the list.
+// Accepted names are checked newest first. An empty value counts as absent:
+// that is what a cleared cookie a client keeps echoing back looks like, and
+// it must not shadow the deprecated name.
 func tokenFromRequest(r *http.Request) string {
 	for _, name := range sessionCookieNames {
 		if c, err := r.Cookie(name); err == nil && c.Value != "" {

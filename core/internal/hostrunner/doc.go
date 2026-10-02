@@ -1,6 +1,6 @@
 // Package hostrunner is the Host Workflow Runner: the out-of-container
 // helper that executes a workflow's local hook scripts on the real
-// backupd host, and the protocol the engine reaches it through.
+// retnd host, and the protocol the engine reaches it through.
 //
 // # Why this process exists at all
 //
@@ -10,7 +10,7 @@
 // most valuable security property of the deployment and it is pinned by
 // gates rather than by intention.
 //
-// A `.local.sh` hook means "run this on the machine backupd is installed
+// A `.local.sh` hook means "run this on the machine retnd is installed
 // on". There are exactly four ways to satisfy that sentence, and three of
 // them are the same mistake wearing different clothes:
 //
@@ -55,7 +55,7 @@
 // in this file.
 //
 // It is not the only one. Every connection must also present the
-// installation-scoped credential written into backupd's secrets area at
+// installation-scoped credential written into retnd's secrets area at
 // install time, compared in constant time. Defense in depth reads as
 // belt-and-braces until you list the ways file permissions have actually
 // failed on the deployments this product targets: a NAS package manager

@@ -12,7 +12,7 @@ if [ -f "${_sd}/common.sh" ]; then
 elif [ -f "/var/packages/${SYNOPKG_PKGNAME}/scripts/common.sh" ]; then
     . "/var/packages/${SYNOPKG_PKGNAME}/scripts/common.sh"
 else
-    echo "backupd: cannot locate common.sh next to $0" >&2
+    echo "retnd: cannot locate common.sh next to $0" >&2
     exit 1
 fi
 

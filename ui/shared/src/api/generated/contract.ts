@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "8e90590ca46f00cc39114455d31178f3df44523873650773c5346feb41d9ee19";
+export const CONTRACT_SHA256 = "f8cc9c340ef96db68d0ba4cc31405c45a542d5a736c2ba763373a5db61dca57d";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -4050,9 +4050,9 @@ export interface WireWorkflowFinding {
   target?: string;
 }
 
-/** One thing backupd's own shell rules reported about one hook
- *  script. These are this product's own checks, carrying its own BSH
- *  codes, and they are NOT ShellCheck: ShellCheck is GPL-3.0 and this
+/** One thing retnd's own shell rules reported about one hook script.
+ *  These are this product's own checks, carrying its own BSH codes,
+ *  and they are NOT ShellCheck: ShellCheck is GPL-3.0 and this
  *  product is Apache-2.0, so the analysis is implemented here against
  *  a Go shell parser's syntax tree rather than shipped as somebody
  *  else's tool. The set is deliberately small and conservative; an
@@ -4140,7 +4140,7 @@ export interface WireWorkflowRunnerSettings {
   token_file?: string;
 }
 
-/** What backupd's own shell verification established about one hook
+/** What retnd's own shell verification established about one hook
  *  script's exact bytes, without running any of them. Three states,
  *  kept distinguishable on purpose: examined and parsed, examined and
  *  refused (a parse error with its position), and NOT EXAMINED, which

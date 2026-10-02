@@ -12,7 +12,7 @@ import (
 	"github.com/retnd/retnd/core/apicontract"
 )
 
-// `backupd activity --follow`: the live feed, in a terminal.
+// `retnd activity --follow`: the live feed, in a terminal.
 //
 // # Two feeds, and why this is not a mode of the other one
 //

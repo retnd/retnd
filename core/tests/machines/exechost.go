@@ -221,7 +221,7 @@ func startExecHost(t *testing.T, network, alias string, inNetwork bool) *ExecHos
 
 	image := h.ensureExecHostImage(t)
 
-	name := fmt.Sprintf("backupd-gate-exec-%d", time.Now().UnixNano())
+	name := fmt.Sprintf("retnd-gate-exec-%d", time.Now().UnixNano())
 	h.mu.Lock()
 	h.containerName = name
 	h.mu.Unlock()
@@ -286,7 +286,7 @@ func (h *ExecHost) ensureExecHostImage(t *testing.T) string {
 	execHostImageOnce.Do(func() {
 		text := execHostDockerfile(t)
 		sum := sha256.Sum256([]byte(text))
-		tag := "backupd-machines-exechost:" + hex.EncodeToString(sum[:6])
+		tag := "retnd-machines-exechost:" + hex.EncodeToString(sum[:6])
 		h.setStage("docker image inspect " + tag)
 		if _, _, err := dockerRun(imageInspectTimeout, "image", "inspect", tag); err == nil {
 			execHostImageRef = tag

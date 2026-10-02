@@ -57,7 +57,7 @@ type snapshotHoldOperationRequest struct {
 	// RunID is optional, and absent means this backup set's last known
 	// good snapshot: the one an operator protecting "the current restore
 	// point" means and the one they would otherwise have to look up
-	// first. core/service and `backupd snapshot hold` have always read an
+	// first. core/service and `retnd snapshot hold` have always read an
 	// unnamed run that way; the contract now says so too.
 	RunID  string `json:"run_id,omitempty"`
 	Reason string `json:"reason"`

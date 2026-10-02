@@ -198,7 +198,7 @@ deployments that treat both as sensitive (`sensitive_endpoint`, #295); and
 a composite invites parsing, which would become a second, unvalidated way
 to build one.
 
-`identitySchema` (`backupd.source-identity.v1`) is mixed into every digest
+`identitySchema` (`retnd.source-identity.v1`) is mixed into every digest
 and pinned by a test, so a future change to the canonical form has to be
 taken as a **migration** — it re-identifies every source in every existing
 deployment — rather than arriving as a refactor.

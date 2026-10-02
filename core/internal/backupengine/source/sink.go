@@ -278,7 +278,7 @@ func (s RepositorySink) Store(ctx context.Context, obj Object) (Stored, error) {
 // snapshotTags is the caller's tags plus the two this sink owns.
 //
 // The identity tags are written LAST, so a caller that passes
-// "backupd.set" itself does not get to say which set this is. They are
+// "retnd.set" itself does not get to say which set this is. They are
 // the repository's answer about its own contents, and a sink that let a
 // tag map overwrite them would make the co-tenancy signal something a
 // configuration file could lie about.

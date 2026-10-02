@@ -123,7 +123,7 @@ describe("the deployment-wide workflow card", () => {
     // Two cells legitimately read "Configured": the runner address and
     // the timeout source. What matters is that neither says "Answering".
     expect(onCard("Configured").length).toBe(2);
-    expect(onCard("/run/backupd/hooks.sock").length).toBe(1);
+    expect(onCard("/run/retnd/hooks.sock").length).toBe(1);
     expect(onCard(/Answering/i).length).toBe(0);
     expect(onCard(/is not answering/i).length).toBe(0);
     // And it says outright that nothing here contacted it.
