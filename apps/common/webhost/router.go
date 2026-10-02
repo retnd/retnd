@@ -697,7 +697,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(requireCSRF).Put("/storage-mediums/{id}/configuration", h.configureStorageMedium)
 
 		// Issue #211: FR-9 catalog recovery, the API expression of
-		// `backupd catalog rebuild` and its --dry-run. Rebuild only
+		// `retnd catalog rebuild` and its --dry-run. Rebuild only
 		// ever adds records whose recovery manifests are already on disk
 		// and never removes or overwrites one, so it carries CSRF but not
 		// the destructive gate; see handlers_catalog.go for the argument

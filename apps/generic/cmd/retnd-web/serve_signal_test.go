@@ -56,8 +56,8 @@ const (
 // this test is about is what an operator reading the container's logs
 // sees, so the assertion has to be against the text itself.
 //
-// It moved from `rbm-web` to `backupd-web` with 0.3.3's rename and from
-// `backupd-web` to `retnd-web` with EPIC R's, and staying a literal is
+// It moved from `rbm-web` to `retnd-web` with 0.3.3's rename and from
+// `retnd-web` to `retnd-web` with EPIC R's, and staying a literal is
 // what makes each of those a visible move. A pin that read
 // cliecho.WebBinary would have followed the rename silently, and the
 // operator whose log-scraper matches this line would have found out from

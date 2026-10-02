@@ -99,7 +99,7 @@ func CheckHealthCheck(svc Service, c Canonical) []Violation {
 	// just the canonical one: #890 moved the entrypoint names and #891
 	// moved all eleven adapters' healthcheck tests. No adapter in this
 	// tree spells it the old way now; an operator's own pinned copy of one
-	// still does, and for one release `/backupd-web healthcheck` and the
+	// still does, and for one release `/retnd-web healthcheck` and the
 	// contract's `/retnd-web healthcheck` are the same inode
 	// (renameoverlap.go).
 	got := svc.HealthcheckTest

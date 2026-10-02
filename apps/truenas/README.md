@@ -82,11 +82,11 @@ whether a container starts.
 
 | Role | Host default | In the container | Mode |
 | --- | --- | --- | --- |
-| State | `/mnt/tank/backupd/state` | `/data/state` | rw |
-| Backups | `/mnt/tank/backupd/backups` | `/data/backups` | rw |
-| Config | `/mnt/tank/backupd/config` | `/etc/retnd/config` | rw |
-| SSH key | `/mnt/tank/backupd/secrets/id_ed25519` | `/etc/retnd/id_ed25519` | ro |
-| Known hosts | `/mnt/tank/backupd/secrets/known_hosts` | `/etc/retnd/known_hosts` | ro |
+| State | `/mnt/tank/retnd/state` | `/data/state` | rw |
+| Backups | `/mnt/tank/retnd/backups` | `/data/backups` | rw |
+| Config | `/mnt/tank/retnd/config` | `/etc/retnd/config` | rw |
+| SSH key | `/mnt/tank/retnd/secrets/id_ed25519` | `/etc/retnd/id_ed25519` | ro |
+| Known hosts | `/mnt/tank/retnd/secrets/known_hosts` | `/etc/retnd/known_hosts` | ro |
 
 `config` is a writable **directory** holding `config.yaml`, not a read-only single
 file (issue #196). Adding a backup set, saving settings and first-run setup all

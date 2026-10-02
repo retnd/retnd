@@ -31,7 +31,7 @@ and the source-safety family's shape, applied to the one destructive path
 that exists in this tree today: prune deleting a file it could not stat
 instead of refusing.
 
-This is not fast. Each mutant builds core/ and backupd and runs a
+This is not fast. Each mutant builds core/ and retnd and runs a
 real capture, so budget a few minutes. It is the only thing standing
 between "the compatibility suite is green" and "the compatibility suite
 is green because it cannot go red".
@@ -458,7 +458,7 @@ def _empty_corpus_cell(p: Path) -> None:
 def body(root: Path, dry_run: bool) -> int:
     tally = selftest_swap.Tally()
 
-    with tempfile.TemporaryDirectory(prefix="backupd-compat-selftest.") as tmp_name:
+    with tempfile.TemporaryDirectory(prefix="retnd-compat-selftest.") as tmp_name:
         tmp = Path(tmp_name)
         tracker = selftest_swap.AnchorTracker(dry_run=dry_run, root=root, tmp=tmp)
 

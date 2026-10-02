@@ -69,7 +69,7 @@ import (
 // It is deliberately not the vendor's "s3": a config written by this
 // adapter must not be openable as a vendor s3 connection, because that is
 // precisely the config shape that expects to find credentials in itself.
-const s3StorageType = "backupd-s3"
+const s3StorageType = "retnd-s3"
 
 // s3Connection is everything <StateDir>/<domain>.config says about a
 // bucket repository.

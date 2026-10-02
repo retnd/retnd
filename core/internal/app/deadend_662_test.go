@@ -480,7 +480,7 @@ func sortedVerbs662Set(in []string) []string {
 }
 
 // stateOf662 reads the artifact's state out of the journal, which is the
-// only thing `backupd artifacts` shows an operator.
+// only thing `retnd artifacts` shows an operator.
 func stateOf662(t *testing.T, j Journal, artifact model.ArtifactID) string {
 	t.Helper()
 	rec, err := j.Get(context.Background(), artifact)

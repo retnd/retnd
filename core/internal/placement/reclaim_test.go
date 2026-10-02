@@ -31,7 +31,7 @@ import (
 // destroys is a copy of a backup, and a suite that establishes the happy
 // path first grows its refusals as afterthoughts around it.
 
-const reclaimKey = "backupd/production/postgres-primary/expired.dump"
+const reclaimKey = "retnd/production/postgres-primary/expired.dump"
 
 var reclaimNow = time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
 

@@ -260,7 +260,7 @@ def worktree(root: Path | str = ".") -> Iterator[Path]:
     the whole point.
     """
     warn_if_dirty(root)
-    directory = Path(tempfile.mkdtemp(prefix="backupd-arch-check.", dir=os.environ.get("TMPDIR", "/tmp")))
+    directory = Path(tempfile.mkdtemp(prefix="retnd-arch-check.", dir=os.environ.get("TMPDIR", "/tmp")))
     harness.sh(["git", "-C", str(root), "worktree", "add", "--quiet", "--detach", str(directory), "HEAD"])
     try:
         yield directory

@@ -3,7 +3,7 @@
 Every brand asset in this repository, the sizes each one is declared at, the
 source it is exported from, and the places that embed or reference it.
 
-This file is FR-44's first check (`docs/EPIC-R-rename-backupd-to-retnd.md`,
+This file is FR-44's first check (`docs/EPIC-R-rename-retnd-to-retnd.md`,
 issue #893) and it is **held to the filesystem in both directions** by
 `scripts/brand/check-brand-assets.sh`, which runs in `scripts/ci-local.sh`:
 
@@ -158,7 +158,7 @@ shown at 8× beside the reasoning.
 The twelve `docs/design/*.png` mockups other than this issue's own are
 **deliberately not regenerated**, and that is a decision rather than an
 omission. `docs/epic-checklist.md` §5 and
-`docs/EPIC-R-rename-backupd-to-retnd.md` §6 both say a dated design note
+`docs/EPIC-R-rename-retnd-to-retnd.md` §6 both say a dated design note
 records a decision at the moment it was taken and is not kept in step with
 later work; their `.html` sources are on the brand-drift guard's `preexisting`
 list for that reason, and re-exporting the pictures from sources that are

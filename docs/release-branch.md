@@ -4,6 +4,10 @@ Issue #258. This is the policy the rest of the release path is built on, so it i
 worth reading before `.github/workflows/release.yml` or
 `scripts/release/publish-image.sh`, both of which assume it.
 
+For the ordered maintainer checklist, commands, post-publish recording and
+failure handling, use [`release-workflow.md`](release-workflow.md). This document
+defines the branch policy that checklist must preserve.
+
 ## What it is
 
 `release` is the publish branch. A push to it runs the release pipeline, and that
@@ -217,10 +221,11 @@ check starts failing, loudly, on the next run rather than months later.
    a backup. Merging is what publishes, and the release run asks for that same green
    check a second time before it pushes anything, so a merge that got here some other
    way stops there rather than shipping.
-7. Record the digests the run prints into the manifest, flip `image.published` to
-   true, regenerate the bundle again and land it on `main`. The manifest test refuses
-   a published flag without digests and digests without the flag, so the two cannot
-   move separately.
+7. Follow [`release-workflow.md`](release-workflow.md#5-record-what-the-registry-holds):
+   read the registry digests back, record them in the manifest, flip
+   `image.published` to true, update the installer's carried digest, regenerate
+   the bundle and land the metadata on `main`. The consistency tests refuse
+   each possible half-recorded state.
 
 ## The first cut, and why it was different
 

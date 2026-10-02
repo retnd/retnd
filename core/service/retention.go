@@ -836,7 +836,7 @@ func declaresAStorageMedium(cfg *config.Config) bool {
 // would find every backup they already had listed under a heading that
 // reads like a fault.
 //
-// `backupd retention` already refuses to print exactly this, for
+// `retnd retention` already refuses to print exactly this, for
 // exactly this reason (printPlacementPlan, core/cmd/retnd/
 // retention.go). This is the same rule on the second surface, so the two
 // tell the same story about the same deployment rather than two.

@@ -118,7 +118,7 @@ func TestTheImageCarriesTheLicenceMaterials(t *testing.T) {
 		// #890: the runtime stage no longer copies each binary from its
 		// own builder. It takes the whole staged directory from
 		// `entrypoints` in ONE COPY, because that is what preserves the
-		// /backupd-web hardlink, so this is the line that says "this is
+		// /retnd-web hardlink, so this is the line that says "this is
 		// the stage that becomes the image".
 		if cp.From == "entrypoints" && cp.Dest == "/" {
 			sawBinary = true

@@ -571,7 +571,7 @@ func TestValidate_AVerificationBudgetSurvivesValidation(t *testing.T) {
 // hash would be computed over a local copy nothing makes.
 //
 // Accepting them would be the same one-way door this package already
-// refuses in the other direction: `backupd check` says the file is fine,
+// refuses in the other direction: `retnd check` says the file is fine,
 // the operator believes their snapshots are hash-validated and stable-for
 // gated, and nothing ever reads either key.
 func TestValidate_RefusesArtifactOnlyKeysOnAnIncrementalSet(t *testing.T) {

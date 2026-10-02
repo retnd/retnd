@@ -170,7 +170,7 @@ func (b *BackupService) SetBackupSetEnabled(_ context.Context, id string, enable
 //
 // # Turning it OFF has to be earned (issue #852)
 //
-// Read-only OFF means "delete from the source after backup", and backupd
+// Read-only OFF means "delete from the source after backup", and retnd
 // may only promise that when the source's own credentials can actually do
 // it. So this call runs the connection test's write probe first and
 // refuses with ErrSourceNotWritable when that source is proven

@@ -57,7 +57,7 @@ func throwawayKeyPair(t *testing.T) (privatePEM []byte, publicLine string, finge
 	if err != nil {
 		t.Fatalf("generating a throwaway ed25519 key: %v", err)
 	}
-	block, err := ssh.MarshalPrivateKey(priv, "backupd test fixture")
+	block, err := ssh.MarshalPrivateKey(priv, "retnd test fixture")
 	if err != nil {
 		t.Fatalf("marshalling the throwaway private key: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestListSSHKeys_MarksAPassphraseProtectedKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generating a throwaway ed25519 key: %v", err)
 	}
-	block, err := ssh.MarshalPrivateKeyWithPassphrase(priv, "backupd test fixture", []byte("not-a-real-passphrase"))
+	block, err := ssh.MarshalPrivateKeyWithPassphrase(priv, "retnd test fixture", []byte("not-a-real-passphrase"))
 	if err != nil {
 		t.Fatalf("marshalling an encrypted throwaway key: %v", err)
 	}
@@ -420,7 +420,7 @@ func TestDiscoverSSHKeyCandidates_NamesEveryLocationItSearched(t *testing.T) {
 // `container/compose.yaml` mounts the operator's SFTP private key at
 // `/etc/retnd/id_ed25519`. R1.5 renamed the container-internal paths and
 // updated that mount, and `sshDiscoveryMountDir` kept pointing at
-// `/etc/backupd` with a doc comment that described the NEW path -- so the
+// `/etc/retnd` with a doc comment that described the NEW path -- so the
 // constant and the sentence above it disagreed, and the location a
 // packaged install actually keeps its key in was scanned on no
 // deployment at all. Nothing caught it: the test above asserts the mount
@@ -448,33 +448,6 @@ func TestDiscoverSSHKeyCandidates_ScansThePathComposeActuallyMountsTheKeyAt(t *t
 	}
 	if got := string(mount[1]); got != sshDiscoveryMountDir {
 		t.Errorf("compose mounts the deployment's key in %q and the scan looks in %q, so on a packaged install the wizard's managed-key panel is empty and nothing says why", got, sshDiscoveryMountDir)
-	}
-}
-
-// TestDiscoverSSHKeyCandidates_StillFindsAKeyAtThePreRenamePath is FR-42
-// for this listing: an operator running an UNEDITED pre-rename compose
-// file mounts their key at `/etc/backupd/id_ed25519`, and a scan that
-// only looked at the current path would tell them they have no keys.
-//
-// Asserted through the location list rather than through a planted file,
-// because the two container paths are absolute and a test cannot write
-// to either one. What is checkable here, and is what went wrong, is that
-// the legacy path is in the set of places the scan looks at all.
-func TestDiscoverSSHKeyCandidates_StillFindsAKeyAtThePreRenamePath(t *testing.T) {
-	svc, _ := openTestService(t)
-	t.Setenv("HOME", t.TempDir())
-
-	found, err := svc.DiscoverSSHKeyCandidates(context.Background())
-	if err != nil {
-		t.Fatalf("DiscoverSSHKeyCandidates: %v", err)
-	}
-
-	var named []string
-	for _, l := range found.Locations {
-		named = append(named, l.Path)
-	}
-	if !slicesContains(named, sshDiscoveryMountDirLegacy) {
-		t.Errorf("the searched locations %v do not include %q, so a deployment upgraded with an unedited pre-rename compose file is told it has no SSH keys when it has one mounted (#895, FR-42)", named, sshDiscoveryMountDirLegacy)
 	}
 }
 

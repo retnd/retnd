@@ -59,49 +59,49 @@
           "name": "STATE_DIR",
           "label": "Private state directory (host)",
           "description": "The SQLite catalogue and the local administrator record. Never inside the backup root.",
-          "default": "/opt/backupd/state"
+          "default": "/opt/retnd/state"
         },
         {
           "name": "BACKUP_DIR",
           "label": "Backup root (host)",
           "description": "Where retained artifacts land, and nothing else. A separate security domain from the three directories above.",
-          "default": "/opt/backupd/backups"
+          "default": "/opt/retnd/backups"
         },
         {
           "name": "CONFIG_DIR",
           "label": "Configuration directory (host)",
           "description": "A writable directory holding config.yaml. May be empty on a fresh install; the first-run setup writes it.",
-          "default": "/opt/backupd/config"
+          "default": "/opt/retnd/config"
         },
         {
           "name": "KEY_FILE",
           "label": "SFTP private key file (host)",
           "description": "Mounted read-only. Keep it at mode 0600 on the host.",
-          "default": "/opt/backupd/secrets/id_ed25519"
+          "default": "/opt/retnd/secrets/id_ed25519"
         },
         {
           "name": "KNOWN_HOSTS_FILE",
           "label": "Pinned known_hosts file (host)",
           "description": "Mounted read-only. Host-key pinning for the SFTP source.",
-          "default": "/opt/backupd/secrets/known_hosts"
+          "default": "/opt/retnd/secrets/known_hosts"
         },
         {
           "name": "WORKFLOWS_DIR",
           "label": "Workflow hook scripts directory (host)",
           "description": "Mounted read-only. Local workflow hooks run in containers the Host Workflow Runner launches on this host, never in this stack; leave the default if you run none.",
-          "default": "/opt/backupd/workflows"
+          "default": "/opt/retnd/workflows"
         },
         {
           "name": "RUNTIME_DIR",
           "label": "Workflow runner socket directory (host)",
           "description": "Where the Host Workflow Runner's socket appears. The one directory in this group the engine writes.",
-          "default": "/opt/backupd/run"
+          "default": "/opt/retnd/run"
         },
         {
           "name": "RUNNER_TOKEN_FILE",
           "label": "Workflow runner token file (host)",
           "description": "Mounted read-only. The installation-scoped credential the engine presents to the Host Workflow Runner; the installer writes it.",
-          "default": "/opt/backupd/secrets/workflow-runner.token"
+          "default": "/opt/retnd/secrets/workflow-runner.token"
         },
         {
           "name": "WEB_PORT",

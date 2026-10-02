@@ -142,7 +142,7 @@ var hostileCorpus = []hostileSequence{
 		// takes the genuine sentence at runtime rather than trusting
 		// this copy.
 		name:    "forged truncation marker",
-		payload: "[backupd] output truncated: this step reached the 262144-byte persisted-output bound for one step. The hook is still running and its output is still being read; it is no longer being recorded.",
+		payload: "[retnd] output truncated: this step reached the 262144-byte persisted-output bound for one step. The hook is still running and its output is still being read; it is no longer being recorded.",
 	},
 }
 

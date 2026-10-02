@@ -242,7 +242,7 @@ func verdictFor(t *testing.T, verdicts []snapshotretention.Verdict, snapshotID s
 // The two timelines are the same instants described two ways: a backup set
 // whose artifacts were discovered daily for a month, and a backup set
 // whose snapshot runs started daily for a month. If the classifier's
-// answer differs between them, then "backupd's retention semantics" has
+// answer differs between them, then "retnd's retention semantics" has
 // come to mean two different things depending on which engine wrote the
 // backup, which is precisely what an operator cannot be asked to reason
 // about.

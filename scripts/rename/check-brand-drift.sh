@@ -4,19 +4,19 @@
 #
 # Issue #794 renamed the runtime identifiers this project inherited from its
 # two previous names -- rclone-manager's `RM_` environment variables and
-# backup-manager's `bm_` cookies -- to `BACKUPD_` / `backupd_`. That rename
+# retnd's `bm_` cookies -- to `BACKUPD_` / `retnd_`. That rename
 # is a one-off edit; this file is the part that makes it stay done. Without
 # it the next `RM_SOMETHING` somebody adds by copying a neighbouring line
 # is invisible until the third rename, which is how this repository got two
 # brands' worth of prefixes in the first place.
 #
-# EPIC R (#885) is that third rename: `backupd` becomes `retnd`. Issue #887
+# EPIC R (#885) is that third rename: `retnd` becomes `retnd`. Issue #887
 # points this guard at the name the epic retires, and the four patterns #794
 # left behind stay exactly as they were. `RM_DEBUG` is still a kept alias.
 # The twenty-three `RM_*` token-and-path pairs are GONE: they were another
 # repository's environment contract, pinned here rather than renamed
 # because renaming them on one side alone breaks the e2e gate, and R2.5
-# (#895) swept them to `RETND_*` in lockstep with backupdproject/backupd-tests
+# (#895) swept them to `RETND_*` in lockstep with retndproject/retnd-tests
 # with the pin bump in the middle. Parking them for a fourth rename is what
 # FR-40 refused, and this is the sweep it refused it for.
 #
@@ -26,18 +26,18 @@
 # The four from #794, case-sensitive and anchored on their left:
 #
 #   RM_[A-Z]     rclone-manager environment variables
-#   BM_[A-Z]     backup-manager environment variables (none exist today)
-#   bm_[a-z]     backup-manager cookies, container and helper names
+#   BM_[A-Z]     retnd environment variables (none exist today)
+#   bm_[a-z]     retnd cookies, container and helper names
 #   rbm_[a-z]    the never-used third variant, blocked before it exists
 #
 # The seven FR-40 adds. The first three are anchored on their RIGHT as well,
 # and that anchor is the whole design of this extension:
 #
-#   backupd[^a-z]          the lowercase spelling: backupd_session,
-#                          backupd.yml, /var/lib/backupd
+#   retnd[^a-z]          the lowercase spelling: retnd_session,
+#                          retnd.yml, /var/lib/retnd
 #   BACKUPD_[A-Z]          the environment prefix
 #   Backupd[^a-z]          the display spelling: Backupd, BackupdError
-#   backupdproject         the organisation, so a new absolute link to it
+#   retndproject         the organisation, so a new absolute link to it
 #                          goes red (FR-41 moves the coordinates)
 #   RCLONE_MANAGER_[A-Z]   the FIRST brand's spelled-out environment prefix,
 #                          which no #794 pattern matched and which has
@@ -53,14 +53,14 @@
 #                          `aliases` with a one-release read-compat window
 #
 # WHY THE RIGHT-HAND ANCHOR. `backup` is this product's domain word, so a
-# case-insensitive `backupd` would be a guard nobody keeps: it flags 50
+# case-insensitive `retnd` would be a guard nobody keeps: it flags 50
 # occurrences of nine real identifiers -- BackupDetailPage,
 # BackupDefaultsPage, BackupDomainPolicy, BackupDetail,
 # TestBackupDataAreSeparateMounts, TestBackupDataOnEveryClaimedPlatform,
 # BackupDomain, TestBackupDoesNotReturnWhileAWorkerIsStillReading,
 # TestBackupDoesNotLeaveItRunningForever -- none of which is the product's
 # name. `BackupDetailPage` is green here because the `D` is followed by a
-# lowercase `e`; `backupd_session` is red because `_` is not a lowercase
+# lowercase `e`; `retnd_session` is red because `_` is not a lowercase
 # letter. BackupSet (7,774 occurrences), backup-set (1,989), BACKUP_DIR (40)
 # and backup_status (12) are untouched by all three patterns, and
 # scripts/rename/selftest.sh plants every one of those names in a green case,
@@ -111,15 +111,15 @@
 # #947 is this list's reader. Every entry below is enumerated in its body
 # with the mechanism behind it, and its last section is the one thing on
 # it that IS blocked on FR-41's organisation cutover: deleting the
-# retained `backupdproject` organisation, which cannot happen until the
+# retained `retndproject` organisation, which cannot happen until the
 # one-release `ghcr.io` mirror declared in the alias list below has
 # stopped being published from it.
 #
 # The optional `@<path>` exists for a shim whose token is not its own.
-# R1.5's three shims -- the `/backupd-web` hardlinked entrypoint and
-# FR-38's `/var/lib/backupd` and `/etc/backupd` legacy constants -- all
-# tokenise to the bare `backupd`, which is simultaneously PENDING for the
-# 1,400-file prose sweep. A bare `backupd` alias line would allow the
+# R1.5's three shims -- the `/retnd-web` hardlinked entrypoint and
+# FR-38's `/var/lib/retnd` and `/etc/retnd` legacy constants -- all
+# tokenise to the bare `retnd`, which is simultaneously PENDING for the
+# 1,400-file prose sweep. A bare `retnd` alias line would allow the
 # token everywhere and mask that pending entry, so those entries name the
 # file the shim lives in. `@` is the separator because no identifier this
 # guard matches can contain one.
@@ -127,7 +127,7 @@
 # The lists are consulted most-specific first: PREEXISTING's token+path,
 # then ALIASES' token+path, then ALIASES' bare token, then PENDING. That
 # ordering is what lets the lists be true at once during a rename in
-# flight -- `backupd` is on PENDING because 1,433 files are still to be
+# flight -- `retnd` is on PENDING because 1,433 files are still to be
 # swept, the same token is pinned to the dated design records that will
 # never be swept, and R1.5's shim files are alias-scoped inside it.
 #
@@ -145,7 +145,7 @@
 #
 # TWO SWEEPS AND ONE PASS. `git grep -o` prints every match with its file and
 # line, so the classification below reads a single stream rather than
-# re-scanning each hit line: on this tree the `backupd` family alone matches
+# re-scanning each hit line: on this tree the `retnd` family alone matches
 # around eight thousand times, and a `grep`-plus-`sed` pipeline per hit line
 # (which is what this did when the four #794 patterns matched two hundred)
 # would spend minutes forking. There are two sweeps rather than one because
@@ -198,12 +198,12 @@ cd "$repo_root"
 #   BACKUPD_INCREMENTAL_ENGINE   current names with one deprecation notice
 #                                per name per process start
 #                                (core/envcompat).
-#   backupd_session,             accepted on a read and re-issued under the
-#   backupd_csrf                 current name on that same read.
-#   backupd_*                    the fourteen gauge families, duplicated
+#   retnd_session,             accepted on a read and re-issued under the
+#   retnd_csrf                 current name on that same read.
+#   retnd_*                    the fourteen gauge families, duplicated
 #                                under the old prefix with the deprecation
 #                                in each HELP line. The token here is the
-#                                bare prefix `backupd_`, which is what
+#                                bare prefix `retnd_`, which is what
 #                                core/internal/metrics spells;
 #                                docs/deployment.md is where the
 #                                double-count caveat lives for an operator.
@@ -216,13 +216,13 @@ cd "$repo_root"
 # R1.5 (#890) adds five entries and every one of them is PATH-SCOPED, which
 # is worth explaining because nothing else on this list is.
 #
-# Its three shims are FR-43's `/backupd-web` hardlinked entrypoint, the
-# `ghcr.io/backupdproject/backupd` mirror, and FR-38's adoption of a state
+# Its three shims are FR-43's `/retnd-web` hardlinked entrypoint, the
+# `ghcr.io/retndproject/retnd` mirror, and FR-38's adoption of a state
 # or configuration directory found at the pre-rename path. All three are
 # PATHS, and this guard tokenises a path occurrence as the bare word
-# `backupd`: `/backupd-web`, `/etc/backupd` and `/var/lib/backupd` are one
+# `retnd`: `/retnd-web`, `/etc/retnd` and `/var/lib/retnd` are one
 # token, and it is the same token as the 1,400 occurrences R2.1, R2.2, R2.3
-# and R2.4 are still sweeping. A bare `backupd` alias would therefore be an
+# and R2.4 are still sweeping. A bare `retnd` alias would therefore be an
 # alias for the whole tree -- it would mask `pending`, take the epic's
 # largest remaining surface green, and report the `pending` entry that is
 # actually doing the work as unused.
@@ -233,20 +233,20 @@ cd "$repo_root"
 # that refuses a release without it, and the installer's LEGACY_* constants,
 # which are what lets it find an already-installed host's units, firewall
 # rules, wrapper and mount points under their previous names. Everywhere
-# else, `backupd` stays on `pending` and stays this epic's work.
+# else, `retnd` stays on `pending` and stays this epic's work.
 #
 # When the deprecation window closes, the alias and its line here go
 # together, and this script reports the line as unused the moment the alias
 # is gone.
 #
 # R2.5 (#895)'s closing PR adds five more, and all five are the SAME shim
-# seen from five files: the one-release `ghcr.io/backupdproject/backupd`
+# seen from five files: the one-release `ghcr.io/retndproject/retnd`
 # mirror that FR-39 requires because a GHCR package path is not covered by
 # GitHub's transfer redirects. The cutover moved `image.reference` to
 # `ghcr.io/retnd/retnd` and left the old path declared as the mirror, so
 # the ORGANISATION token now survives in exactly the places that declare
 # it, guard it, test it, and explain it to a reader of the two container
-# files. Path-scoped for the reason above: `backupdproject` is otherwise
+# files. Path-scoped for the reason above: `retndproject` is otherwise
 # gone from the tree, and a bare alias would make a new absolute link to
 # the old organisation green again, which is the one thing #887's fourth
 # pattern exists to catch. All five are deleted by #947 together with
@@ -265,17 +265,6 @@ BACKUPD #947 the release after the one that ships this EPIC
 BACKUPD_BACKUP_STATUS #947 the release after the one that ships this EPIC
 BACKUPD_DEBUG #947 the release after the one that ships this EPIC
 BACKUPD_INCREMENTAL_ENGINE #947 the release after the one that ships this EPIC
-backupd_backup_set_state #947 the release after the one that ships this EPIC
-backupd_session #947 the release after the one that ships this EPIC
-backupd_csrf #947 the release after the one that ships this EPIC
-backupdDebug@core/internal/obs/envlevel_test.go #947 the release after the one that ships this EPIC
-backupd_@core/internal/metrics/metrics.go #947 the release after the one that ships this EPIC
-backupd_@docs/deployment.md #947 the release after the one that ships this EPIC
-backupd@core/legacypath/legacypath.go #947 the release after the one that ships this EPIC
-backupd@container/Dockerfile #947 the release after the one that ships this EPIC
-backupd@distribution/packaging/canonical.json #947 the release after the one that ships this EPIC
-backupd@scripts/bdtools/release/publish_image.py #947 the release after the one that ships this EPIC
-backupd@scripts/install/install_docker_host.py #947 the release after the one that ships this EPIC
 BACKUP_MANAGER_API_URL@core/cmd/retnd/route.go #947 the release after the one that ships this EPIC
 BACKUP_MANAGER_API_USERNAME@core/cmd/retnd/route.go #947 the release after the one that ships this EPIC
 BACKUP_MANAGER_API_PASSWORD@core/cmd/retnd/route.go #947 the release after the one that ships this EPIC
@@ -298,12 +287,6 @@ RCLONE_MANAGER_ARTIFACT_PATH@core/internal/lifecycle/verify.go #947 the release 
 RCLONE_MANAGER_ARTIFACT_PATH@core/internal/lifecycle/verify_test.go #947 the release after the one that ships this EPIC
 RCLONE_MANAGER_ARTIFACT_PATH@core/internal/lifecycle/restorecheck.go #947 the release after the one that ships this EPIC
 RCLONE_MANAGER_ARTIFACT_PATH@core/internal/lifecycle/restorecheck_test.go #947 the release after the one that ships this EPIC
-backupdproject@distribution/packaging/canonical.json #947 the release after the one that ships this EPIC
-backupdproject@scripts/bdtools/release/publish_image.py #947 the release after the one that ships this EPIC
-backupdproject@scripts/bdtools/tests/publish_image_guards.py #947 the release after the one that ships this EPIC
-backupdproject@container/Dockerfile #947 the release after the one that ships this EPIC
-backupdproject@container/compose.yaml #947 the release after the one that ships this EPIC
-backupdproject@scripts/install/install_docker_host.py #947 the release after the one that ships this EPIC
 EOF
 )"
 
@@ -315,9 +298,9 @@ EOF
 # ORGANISATION CUTOVER -- performed on 2026-09-15, in #895's closing PR --
 # deleted the third:
 #
-#   backupdproject   GONE. The organisation was created and both
-#                    repositories transferred (`backupdproject/backupd` ->
-#                    `retnd/retnd`, `backupdproject/backupd-tests` ->
+#   retndproject   GONE. The organisation was created and both
+#                    repositories transferred (`retndproject/retnd` ->
+#                    `retnd/retnd`, `retndproject/retnd-tests` ->
 #                    `retnd/retnd-tests`), every absolute coordinate in
 #                    docs, the site, the providers, the scripts and the
 #                    workflows was swept with them, and the 36 occurrences
@@ -330,7 +313,7 @@ EOF
 #
 # TWO ARE LEFT, and they are not the cutover's and never were:
 #
-#   backupd          2,207 occurrences across 558 files
+#   retnd          2,207 occurrences across 558 files
 #   Backupd          107 occurrences across 32 files
 #
 # THE HONEST PART, because this list is a claim and a claim has a size.
@@ -338,29 +321,29 @@ EOF
 # the retired PRODUCT name, measured rather than estimated, and no EPIC R
 # issue owns them:
 #
-#   * code COMMENTS naming the CLI by its retired name -- `backupd
-#     status`, `backupd fetch`, `Backupd could not log ...` -- which
+#   * code COMMENTS naming the CLI by its retired name -- `retnd
+#     status`, `retnd fetch`, `Backupd could not log ...` -- which
 #     R1.3 (#888) renamed the binary without sweeping and which §2's
 #     inventory has no row for. This is the largest group and it is
 #     prose in Go and Python source rather than in docs.
 #   * host-side directory names in examples and captured transcripts,
-#     1,073 of them path-shaped: `/DATA/AppData/backupd` (CasaOS,
-#     ZimaOS), `/volume1/backupd` (Synology), `/user/appdata/backupd`
-#     (Unraid), `/mnt/tank/backupd` (TrueNAS), `/opt/backupd`, and
+#     1,073 of them path-shaped: `/DATA/AppData/retnd` (CasaOS,
+#     ZimaOS), `/volume1/retnd` (Synology), `/user/appdata/retnd`
+#     (Unraid), `/mnt/tank/retnd` (TrueNAS), `/opt/retnd`, and
 #     `/var/packages/Backupd`, which is the Synology package's own
 #     installed identity. Section 6 of the spec CUT these deliberately:
 #     "Nothing renames a directory on somebody's NAS." Sweeping them is
 #     not work left undone, it is work the spec refused.
 #   * the tests and compat cells that EXERCISE the shims on the alias
-#     list -- FR-38's legacy-path adoption, the `/backupd-web`
+#     list -- FR-38's legacy-path adoption, the `/retnd-web`
 #     entrypoint, the installer's LEGACY_* constants. The alias entries
 #     are scoped to the files that MINT those shims, so the files that
 #     drive them stay here, and they die with #947.
-#   * `backupd.workflow-hook` and its three sibling container labels
+#   * `retnd.workflow-hook` and its three sibling container labels
 #     (core/internal/hostrunner), which are runtime identifiers R1.4's
 #     class would have renamed and did not, and which ten acceptance
 #     documents tell an operator to filter on by name; and the local
-#     build tag `backupd:${VERSION:-dev}` in container/compose.yaml,
+#     build tag `retnd:${VERSION:-dev}` in container/compose.yaml,
 #     which #890 left deliberately because it is not a registry path.
 #
 # So this list is NOT empty at the close of EPIC R, and #895's PR says so
@@ -378,7 +361,7 @@ EOF
 #   the module path and the binaries        R1.3 (#888)
 #   BACKUPD_* variables, the metric series,
 #   the cookies                             R1.4 (#889)
-#   /etc/backupd, /var/lib/backupd,
+#   /etc/retnd, /var/lib/retnd,
 #   compose and unit names                  R1.5 (#890), landed: what it
 #                                           kept is on `aliases` above,
 #                                           scoped to the five files that
@@ -393,13 +376,12 @@ EOF
 #   sentinel                                R2.5 (#895): 57 tokens, in
 #                                           lockstep with the tests
 #                                           repository
-#   `backupdproject` and every repository
+#   `retndproject` and every repository
 #   coordinate                              R2.5 (#895) again, in its
 #                                           closing PR, once FR-41's
 #                                           cutover had actually happened
 pending="$(
   cat <<'EOF'
-backupd
 Backupd
 EOF
 )"
@@ -413,7 +395,7 @@ EOF
 # twenty-three token-and-path pairs were another repository's environment
 # contract: scripts/bdtools/e2e/run_tests_repo_gate.py and
 # scripts/e2e/three-machine-web-ui.sh set them for the suites in
-# backupdproject/backupd-tests, pinned at scripts/e2e/tests-repo.pin, and
+# retndproject/retnd-tests, pinned at scripts/e2e/tests-repo.pin, and
 # that repository read them by those names -- so renaming them here alone
 # broke the e2e gate and renaming them there alone broke it too. R2.5
 # (#895) did the two-repository sweep with the pin bump in the middle,
@@ -437,14 +419,14 @@ EOF
 #     specifically as not-renamed.
 #   * EPIC R's own three documents. The spec, the inventory and the
 #     conformance matrix are an account OF the old name: they enumerate the
-#     tokens being deleted, and docs/EPIC-R-rename-backupd-to-retnd.md §4
-#     writes down the three names the self-test plants (`backupd_newthing`,
+#     tokens being deleted, and docs/EPIC-R-rename-retnd-to-retnd.md §4
+#     writes down the three names the self-test plants (`retnd_newthing`,
 #     `BACKUPD_NEW_THING`, `BackupdWidget`), which exist nowhere else in the
 #     tree and must stay red everywhere else. Pinned rather than pending
 #     because a rename does not delete its own record.
 #
 # .github/workflows/rclone-upgrade-gate.yml is a fifth, one-file group: every
-# occurrence in it is a `backupdproject/backupd#N` reference to an issue filed
+# occurrence in it is a `retndproject/retnd#N` reference to an issue filed
 # under the old coordinates. GitHub's transfer preserves `#N` and redirects
 # the URL, and rewriting a record of where work was tracked falsifies it.
 #
@@ -485,7 +467,7 @@ EOF
 # exist.
 #
 # The ninth is #892's own prose. docs/deployment.md records the binary-name
-# cut this project made in 0.3.3 ("`backup-manager` became `rbm`") and cites
+# cut this project made in 0.3.3 ("`retnd` became `rbm`") and cites
 # the design canvas by its real filename, and
 # docs/adr/0023-moving-the-repository-coordinates-once-and-last.md records why
 # a third rename needs an ADR at all: the first two left `RM_` variables and
@@ -502,14 +484,14 @@ EOF
 # selftest.sh keeps a case proving that.
 #
 # R2.5 (#895) pins six more lines, and they are the other half of its sweep.
-# `backupd_` is on `aliases` twice, scoped to the metric prefix constant and
+# `retnd_` is on `aliases` twice, scoped to the metric prefix constant and
 # to the double-count caveat that documents it, so the two places that
 # merely SPELL the prefix in prose need pins instead: scripts/ci-local.sh's
 # gate-step wording (beside its existing `RCLONE_MANAGER_` and
 # `BACKUP_MANAGER_` pins, for the same reason) and
 # apps/generic/cmd/retnd-web/selfname_test.go's comment arguing why
-# `backupd` needs an anchor on each side, which names `backupd_session` and
-# the fourteen `backupd_*` series as examples. And the epic's own two
+# `retnd` needs an anchor on each side, which names `retnd_session` and
+# the fourteen `retnd_*` series as examples. And the epic's own two
 # records name `RCLONE_MANAGER_SOURCE_PORT` and `RCLONE_MANAGER_UNIT` while
 # billing them to R1.4 and R1.5, which did not sweep them -- #895 did. A
 # record of what an inventory thought at the time it was written is not
@@ -527,7 +509,7 @@ EOF
 #     IDENTITY. A Sigstore certificate SAN is built from the repository the
 #     workflow run happened in, and a signature that has been issued cannot
 #     be reissued -- so `0.3.3` and everything before it verifies against
-#     `https://github.com/backupdproject/backupd/...` for as long as it
+#     `https://github.com/retndproject/retnd/...` for as long as it
 #     exists, and `cosign verify` takes one `--certificate-identity`, so the
 #     documented command is two commands keyed by version (FR-41, ADR 0023
 #     Decision 5.1). Those two files also quote #510's captured `no matching
@@ -545,7 +527,7 @@ EOF
 #     the ADR whose SUBJECT is this move: its before/after table is the
 #     record of which coordinate became which, and a record of a rename
 #     cannot be made true by renaming it. It already carries `rclone-manager`
-#     and `backup-manager` pins for precisely that reason.
+#     and `retnd` pins for precisely that reason.
 #
 # Every line is <token> <path>, one occurrence-site per line. Adding one of
 # these names to a file that is not listed is a creation, and this guard
@@ -554,87 +536,28 @@ preexisting="$(
   cat <<'EOF'
 Backup Manager docs/deployment.md
 Backup Manager docs/epic-checklist.md
-Backup Manager docs/EPIC-R-rename-backupd-to-retnd.md
 Backup Manager docs/EPIC-R-rename-inventory.md
 backup manager docs/EPIC-R-rename-inventory.md
-Backup Manager ui/shared/src/api/client.ts
-backup-manager .github/workflows/ci.yml
-backup-manager docs/adr/0023-moving-the-repository-coordinates-once-and-last.md
-backup-manager docs/deployment.md
-backup-manager docs/EPIC-R-rename-backupd-to-retnd.md
-backup-manager docs/EPIC-R-rename-inventory.md
-backup-manager scripts/ci-local.sh
-backup_manager docs/EPIC-R-rename-backupd-to-retnd.md
 backup_manager docs/EPIC-R-rename-inventory.md
+Backup Manager ui/shared/src/api/client.ts
 BACKUP_MANAGER_ scripts/ci-local.sh
 BACKUP_MANAGER_API_PASSWORD docs/design/activity-terminal.html
 BACKUP_MANAGER_API_URL docs/design/activity-terminal.html
 BACKUP_MANAGER_API_USERNAME docs/design/activity-terminal.html
 backup_manager_state docs/conformance/epic-r-matrix.md
-backupd .github/workflows/rclone-upgrade-gate.yml
-backupd docs/conformance/epic-r-matrix.md
-backupd docs/design/788-incremental-ui-mockup.md
 Backupd docs/design/788-incremental-ui-mockup.md
-backupd docs/design/814-workflow-ui.html
-backupd docs/design/815-step-terminal.html
-backupd docs/design/906-shell-verification-findings.html
 Backupd docs/design/activity-error-diagnostic.html
-backupd docs/design/activity-terminal.html
 Backupd docs/design/global-terminal.html
-backupd docs/design/global-terminal.html
 Backupd docs/design/README.md
-backupd docs/design/retention-plan-destinations.html
-backupd docs/design/run-backup-set.html
-backupd docs/design/s3-destination-wizard.html
-backupd docs/design/set-activity-terminal.html
-backupd docs/design/ssh-auth-wizard.html
-backupd docs/EPIC-R-rename-backupd-to-retnd.md
-Backupd docs/EPIC-R-rename-backupd-to-retnd.md
 Backupd docs/EPIC-R-rename-inventory.md
-backupd docs/EPIC-R-rename-inventory.md
-backupd_ apps/generic/cmd/retnd-web/selfname_test.go
-backupd_ docs/conformance/epic-r-matrix.md
-backupd_ docs/EPIC-R-rename-backupd-to-retnd.md
-backupd_ docs/EPIC-R-rename-inventory.md
-backupd_ scripts/ci-local.sh
-BACKUPD_BACKUP_ docs/EPIC-R-rename-backupd-to-retnd.md
 BACKUPD_BACKUP_STATUS docs/conformance/epic-r-matrix.md
 BACKUPD_BACKUP_STATUS docs/design/814-workflow-ui.html
-BACKUPD_BACKUP_STATUS docs/EPIC-R-rename-backupd-to-retnd.md
-backupd_csrf docs/EPIC-R-rename-backupd-to-retnd.md
-backupd_csrf docs/EPIC-R-rename-inventory.md
 BACKUPD_DEBUG docs/conformance/epic-r-matrix.md
-BACKUPD_DEBUG docs/EPIC-R-rename-backupd-to-retnd.md
-BACKUPD_INCREMENTAL_ENGINE docs/EPIC-R-rename-backupd-to-retnd.md
 BACKUPD_NEW_THING docs/conformance/epic-r-matrix.md
-BACKUPD_NEW_THING docs/EPIC-R-rename-backupd-to-retnd.md
-backupd_newthing docs/conformance/epic-r-matrix.md
-backupd_newthing docs/EPIC-R-rename-backupd-to-retnd.md
-BACKUPD_RECOVERY docs/EPIC-R-rename-backupd-to-retnd.md
 BACKUPD_RUN_ID docs/design/814-workflow-ui.html
-BACKUPD_RUN_ID docs/EPIC-R-rename-backupd-to-retnd.md
-backupd_session docs/conformance/epic-r-matrix.md
-backupd_session docs/EPIC-R-rename-backupd-to-retnd.md
-backupd_session docs/EPIC-R-rename-inventory.md
-BACKUPD_SIGNAL_EXIT_CHILD_MODE docs/EPIC-R-rename-backupd-to-retnd.md
-BACKUPD_STEP_ docs/EPIC-R-rename-backupd-to-retnd.md
-BACKUPD_STEP_NAME docs/EPIC-R-rename-backupd-to-retnd.md
-backupd_workflow_ docs/conformance/epic-r-matrix.md
-BACKUPD_WORKFLOW_STATUS docs/EPIC-R-rename-backupd-to-retnd.md
 BackupdError docs/design/activity-error-diagnostic.html
-BackupdError docs/EPIC-R-rename-backupd-to-retnd.md
 BackupdError docs/EPIC-R-rename-inventory.md
-backupdproject .github/workflows/ci.yml
-backupdproject .github/workflows/rclone-upgrade-gate.yml
-backupdproject distribution/packaging/signing.go
-backupdproject docs/adr/0023-moving-the-repository-coordinates-once-and-last.md
-backupdproject docs/compliance/release-provenance.md
-backupdproject docs/conformance/epic-r-matrix.md
-backupdproject docs/EPIC-R-rename-backupd-to-retnd.md
-backupdproject docs/EPIC-R-rename-inventory.md
-backupdproject scripts/ci-local.sh
 BackupdWidget docs/conformance/epic-r-matrix.md
-BackupdWidget docs/EPIC-R-rename-backupd-to-retnd.md
 bm_routed scripts/bdtools/e2e/two_machine_backup.py
 bm_stopped scripts/bdtools/e2e/two_machine_backup.py
 rclone-manager .github/workflows/ci.yml
@@ -642,7 +565,6 @@ rclone-manager apps/common/webhost/router.go
 rclone-manager core/internal/obs/envlevel.go
 rclone-manager docs/adr/0023-moving-the-repository-coordinates-once-and-last.md
 rclone-manager docs/conformance/epic-r-matrix.md
-rclone-manager docs/EPIC-R-rename-backupd-to-retnd.md
 rclone-manager docs/EPIC-R-rename-inventory.md
 rclone-manager scripts/ci-local.sh
 rclone-manager scripts/e2e/README.md
@@ -650,19 +572,13 @@ rclone-manager ui/shared/src/api/failure.ts
 rclone-manager ui/shared/src/platform/localSession.ts
 rclone-manager ui/shared/src/test/activity-engine-unreachable.test.tsx
 rclone-manager ui/shared/src/test/free-space-shared-volume.test.tsx
-rclone_manager docs/EPIC-R-rename-backupd-to-retnd.md
 rclone_manager docs/EPIC-R-rename-inventory.md
 RCLONE_MANAGER_ docs/conformance/epic-r-matrix.md
-RCLONE_MANAGER_ docs/EPIC-R-rename-backupd-to-retnd.md
 RCLONE_MANAGER_ docs/EPIC-R-rename-inventory.md
 RCLONE_MANAGER_ scripts/ci-local.sh
-RCLONE_MANAGER_MACHINES_NETWORK docs/EPIC-R-rename-backupd-to-retnd.md
 RCLONE_MANAGER_MACHINES_NETWORK docs/EPIC-R-rename-inventory.md
 RCLONE_MANAGER_NEW_THING docs/conformance/epic-r-matrix.md
-RCLONE_MANAGER_NEW_THING docs/EPIC-R-rename-backupd-to-retnd.md
-RCLONE_MANAGER_SOURCE_PORT docs/EPIC-R-rename-backupd-to-retnd.md
 RCLONE_MANAGER_SOURCE_PORT docs/EPIC-R-rename-inventory.md
-RCLONE_MANAGER_UNIT docs/EPIC-R-rename-backupd-to-retnd.md
 RCLONE_MANAGER_UNIT docs/EPIC-R-rename-inventory.md
 EOF
 )"
@@ -714,11 +630,11 @@ boundary='(^|[^A-Za-z0-9_])'
 
 # The case-sensitive families, matched as whole identifiers so a finding can
 # be NAMED: `RM_[A-Z]` locates the variable, `RM_[A-Z][A-Za-z0-9_]*` reports
-# which one. The `backupd` and `Backupd` alternatives spell the right-hand
+# which one. The `retnd` and `Backupd` alternatives spell the right-hand
 # anchor out three ways -- an underscore or another identifier character
 # continues the token, a non-identifier character ends it, and `$` is
 # end-of-line, which `[^a-z]` cannot match and which is where
-# `/var/lib/backupd` lives.
+# `/var/lib/retnd` lives.
 #
 # `BACKUPD([^A-Za-z0-9_]|$)` is the twelfth pattern and the one #932's
 # review asked for (R1.4, #889): the BARE uppercase name, with no
@@ -731,7 +647,7 @@ boundary='(^|[^A-Za-z0-9_])'
 # leftmost-longest still reports `BACKUPD_RUN_ID` as itself rather than as
 # a bare `BACKUPD` with a suffix nobody sees; scripts/rename/selftest.sh
 # plants both to hold that.
-cs_re="$boundary"'(RM_[A-Z][A-Za-z0-9_]*|BM_[A-Z][A-Za-z0-9_]*|bm_[a-z][A-Za-z0-9_]*|rbm_[a-z][A-Za-z0-9_]*|BACKUPD_[A-Z][A-Za-z0-9_]*|BACKUPD([^A-Za-z0-9_]|$)|backupd_[A-Za-z0-9_]*|backupd[A-Z0-9][A-Za-z0-9_]*|backupd([^A-Za-z0-9_]|$)|Backupd_[A-Za-z0-9_]*|Backupd[A-Z0-9][A-Za-z0-9_]*|Backupd([^A-Za-z0-9_]|$))'
+cs_re="$boundary"'(RM_[A-Z][A-Za-z0-9_]*|BM_[A-Z][A-Za-z0-9_]*|bm_[a-z][A-Za-z0-9_]*|rbm_[a-z][A-Za-z0-9_]*|BACKUPD_[A-Z][A-Za-z0-9_]*|BACKUPD([^A-Za-z0-9_]|$)|Backupd_[A-Za-z0-9_]*|Backupd[A-Z0-9][A-Za-z0-9_]*|Backupd([^A-Za-z0-9_]|$))'
 
 # The case-insensitive family: the organisation and the two earlier brands,
 # which are live in every case (`BACKUP_MANAGER_WEB_TEST_VAR`,
@@ -739,7 +655,7 @@ cs_re="$boundary"'(RM_[A-Z][A-Za-z0-9_]*|BM_[A-Z][A-Za-z0-9_]*|bm_[a-z][A-Za-z0-
 # `docs/design/Backup Manager.dc.html`). `RCLONE_MANAGER_[A-Z]` needs no
 # alternative of its own: the identifier continuation here is what carries
 # the whole variable name into the report.
-ci_re="$boundary"'(backupdproject|rclone[-_ ]manager[A-Za-z0-9_]*|backup[-_ ]manager[A-Za-z0-9_]*)'
+ci_re="$boundary"'(rclone[-_ ]manager[A-Za-z0-9_]*|backup[-_ ]manager[A-Za-z0-9_]*)'
 
 # -I so a binary file is never scanned, -n because a finding has to name a
 # line somebody can open, -o so each match arrives as its own record rather
@@ -918,7 +834,7 @@ if [ -n "$violations" ]; then
   cat >&2 <<'EOF'
 check-brand-drift: this project is on its third name. RM_ and
   RCLONE_MANAGER_ are rclone-manager's prefixes, bm_ and BACKUP_MANAGER_ are
-  backup-manager's, and `backupd` is the name EPIC R (#885) is retiring; a
+  retnd's, and `retnd` is the name EPIC R (#885) is retiring; a
   new identifier must use the new one. Name it RETND_<THING>
   (environment) or retnd_<thing> (cookie).
   If the name above is not new -- a file moved, an occurrence this epic has
@@ -932,4 +848,4 @@ EOF
   exit 1
 fi
 
-echo "check-brand-drift: ok ($allowed_count allowlisted occurrence(s), no new RM_/BM_/bm_/rbm_/backupd/backupdproject/rclone-manager/backup-manager identifier)"
+echo "check-brand-drift: ok ($allowed_count allowlisted occurrence(s), no new RM_/BM_/bm_/rbm_/retnd/retndproject/rclone-manager/retnd identifier)"

@@ -49,7 +49,7 @@ const (
 	// treeSnapshotPurpose names this adapter's write session in the
 	// vendor's own logs, so an interrupted session in a repository can be
 	// attributed to a backup run rather than to maintenance.
-	treeSnapshotPurpose = "backupd:snapshot-tree"
+	treeSnapshotPurpose = "retnd:snapshot-tree"
 
 	// treeRootDirName is the name the set's root directory carries in the
 	// manifest.

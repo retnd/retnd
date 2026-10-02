@@ -63,8 +63,8 @@ const (
 // The second axis is #890's rename, and it is the reason this list is
 // not simply two entries. The deployments that actually shipped the
 // pre-#196 shape shipped it under the OLD brand: the file an operator
-// mounted was /etc/backupd/config.yaml, and the directory shape they
-// were moved to was /etc/backupd/config. Deriving only from the current
+// mounted was /etc/retnd/config.yaml, and the directory shape they
+// were moved to was /etc/retnd/config. Deriving only from the current
 // containerPaths.config would have quietly narrowed this rule to two
 // paths no released deployment has ever used, which is the same defect
 // #196's own control was filed about — a rule named for a historical

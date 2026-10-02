@@ -62,7 +62,7 @@ type FetchPreviewEntry struct {
 	State string
 }
 
-// FetchResult is `backupd fetch`'s use case output: either a
+// FetchResult is `retnd fetch`'s use case output: either a
 // dry-run preview (Preview populated, everything else zero) or a real,
 // on-demand run of one specific backup set's whole cycle share
 // (Reconcile/Discovery populated, Preview nil).
@@ -105,7 +105,7 @@ type FetchResult struct {
 	Progress CycleProgress
 }
 
-// Fetch is `backupd fetch --source ... --backup-set ...`'s use
+// Fetch is `retnd fetch --source ... --backup-set ...`'s use
 // case: an operator-triggered, on-demand run of exactly one backup set's
 // share of the same cycle RunCycle performs for every configured backup
 // set (reconcile, then discover, then drive every in-flight artifact
@@ -143,7 +143,7 @@ func (s *Service) Fetch(ctx context.Context, sourceName, setName string, dryRun 
 	//
 	// Fetch is not a shortcut into a cycle, it is a second, equal way in:
 	// it calls reconcileOne, discoverOne and processArtifacts itself, so a
-	// guard that only sat in the cycle's loop left `backupd fetch` (and
+	// guard that only sat in the cycle's loop left `retnd fetch` (and
 	// the fetch action on the API, and the button in the web UI) walking an
 	// incremental set's source TREE and offering its files for deletion.
 	// One operator click, the outcome EPIC K forbids.
@@ -193,7 +193,7 @@ func (s *Service) Fetch(ctx context.Context, sourceName, setName string, dryRun 
 // transfer.
 func (s *Service) fetchPass(ctx context.Context, source transport.Source, bs config.BackupSet) (FetchResult, error) {
 	// Live progress and the per-set feed, for a caller that installed an
-	// observer (progress.go). Nothing here changes what `backupd
+	// observer (progress.go). Nothing here changes what `retnd
 	// fetch` does in its own process: with no observer on ctx, beginCycle
 	// returns ctx unchanged and every call below is a nil-receiver no-op.
 	//

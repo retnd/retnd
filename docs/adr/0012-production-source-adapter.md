@@ -97,11 +97,11 @@ carries two tags:
 
 | Tag | Value |
 | --- | --- |
-| `backupd.set` | `model.BackupSetID.String()`, e.g. `nas/photos` |
-| `backupd.domain` | `model.RepositoryDomainID.String()`, e.g. `production` |
+| `retnd.set` | `model.BackupSetID.String()`, e.g. `nas/photos` |
+| `retnd.domain` | `model.RepositoryDomainID.String()`, e.g. `production` |
 
 The keys are agreed with the repository adapter (#781), whose `Stats`
-counts DISTINCT `backupd.set` values as the repository's tenants instead
+counts DISTINCT `retnd.set` values as the repository's tenants instead
 of counting Kopia sources. A caller's own tag map cannot overwrite
 either: the identity is the repository's answer about its contents, not a
 configuration value.

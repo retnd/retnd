@@ -8,7 +8,7 @@ import (
 	"github.com/retnd/retnd/core/internal/health"
 )
 
-// Issue #444's third acceptance line: `backupd status` and the Web
+// Issue #444's third acceptance line: `retnd status` and the Web
 // UI read the same computation, which is the property this package exists
 // to keep.
 //

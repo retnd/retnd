@@ -22,14 +22,14 @@ import (
 // # Why this is not part of BuildHealthReport
 //
 // Because it costs a repository open per declared domain, and
-// BuildHealthReport is what GET /api/v1/system/health, `backupd
+// BuildHealthReport is what GET /api/v1/system/health, `retnd
 // status` and every alerting tick are built on. Loading format blobs and
 // an index cache on a surface a dashboard polls would turn a page refresh
 // into storage traffic, and would do it on the deployments that have the
 // most snapshots to index.
 //
 // So the probe is its own call, reached by the two surfaces that mean it
-// -- GET /api/v1/repositories and `backupd repository health` -- and by
+// -- GET /api/v1/repositories and `retnd repository health` -- and by
 // the alerting pass, which runs on the poll cadence rather than on a page
 // load. A caller that wants the verdict inside a health.Report has to
 // hold it itself: health.Report carries a process and its backup sets

@@ -18,7 +18,7 @@ import (
 
 func TestBackupSetPollIntervalIsAbsentUnlessWritten(t *testing.T) {
 	doc := "poll_interval: 15m\n" +
-		"state:\n  database: /var/lib/backupd/state.db\n" +
+		"state:\n  database: /var/lib/retnd/state.db\n" +
 		"sources:\n" +
 		"  - id: production\n" +
 		"    backup_sets:\n" +

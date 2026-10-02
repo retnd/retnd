@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deploys the generic backupd Docker app end to end (issue
+"""Deploys the generic retnd Docker app end to end (issue
 #82/B4.1): validates an SSH private key and known_hosts file, renders
 config.yaml and a compose .env file, wires the mounts, and starts the
 container via `docker compose`.
@@ -42,7 +42,7 @@ Usage:
     python3 scripts/deploy/deploy_generic.py \\
         --ssh-key /path/to/id_ed25519 --known-hosts /path/to/known_hosts \\
         --host sftp.example.com --user backupuser --remote-path /uploads \\
-        --state-dir /srv/backupd/state --backup-dir /srv/backupd/backups
+        --state-dir /srv/retnd/state --backup-dir /srv/retnd/backups
 
 Run `--help` for the full flag list, and see test_deploy_generic.py /
 test_deploy_generic_integration.py for what's actually verified.
@@ -109,14 +109,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(
         prog="deploy_generic.py",
-        description="Deploy the generic backupd Docker app (issue #82/B4.1).",
+        description="Deploy the generic retnd Docker app (issue #82/B4.1).",
         formatter_class=_HelpFormatter,
         epilog=(
             "example:\n"
             "  python3 scripts/deploy/deploy_generic.py \\\n"
             "      --ssh-key /path/to/id_ed25519 --known-hosts /path/to/known_hosts \\\n"
             "      --host sftp.example.com --user backupuser --remote-path /uploads \\\n"
-            "      --state-dir /srv/backupd/state --backup-dir /srv/backupd/backups\n"
+            "      --state-dir /srv/retnd/state --backup-dir /srv/retnd/backups\n"
         ),
     )
 

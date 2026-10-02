@@ -150,7 +150,7 @@ func newTwoMediumFixture(t *testing.T, opts fixtureOpts) *twoMediumFixture {
 
 	a := &transport.Medium{
 		ID: testMedium, Type: transport.MediumTypeS3, Bucket: "nas-backups",
-		Prefix: "backupd", StorageClass: opts.storageClass,
+		Prefix: "retnd", StorageClass: opts.storageClass,
 	}
 	b := &transport.Medium{
 		ID: mediumB, Type: transport.MediumTypeS3, Bucket: "nas-annual",

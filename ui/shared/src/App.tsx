@@ -76,7 +76,7 @@ import { ServiceUnreachablePage, SessionCheckFailedPage } from "@shared/pages/Se
 import { TooltipOptOutDialog } from "@shared/components/TooltipOptOutDialog";
 import { isServiceUnreachable } from "@shared/api/failure";
 
-const THEME_KEY = "backupd.theme";
+const THEME_KEY = "retnd.theme";
 
 export function App() {
   const api = useApi();

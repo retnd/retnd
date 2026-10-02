@@ -10,7 +10,7 @@
 poll_interval: 15m
 
 state:
-  database: /var/lib/backupd/state.db
+  database: /var/lib/retnd/state.db
 
 # The security boundaries, declared where an operator can see them. Every
 # domain states its isolation: co-tenancy is never inferred. Every domain a
@@ -39,7 +39,7 @@ sources:
           host: production.example.internal
           user: backup
           key_file: /run/secrets/backup_ssh_key
-          known_hosts: /etc/backupd/known_hosts
+          known_hosts: /etc/retnd/known_hosts
         remote_path: /backups/postgres
         local_path: /backups/production/postgres
         completion:
@@ -68,7 +68,7 @@ sources:
           host: production.example.internal
           user: backup
           key_file: /run/secrets/backup_ssh_key
-          known_hosts: /etc/backupd/known_hosts
+          known_hosts: /etc/retnd/known_hosts
         remote_path: /snapshots/nightly/srv/uploads
         # How this deployment reaches the source, which is not part of what
         # the source IS: the snapshot is mounted somewhere different on

@@ -245,13 +245,13 @@ func (d Deps) observe(step Step, err error) {
 // artifact's key out of the backup set's source, its name and the
 // artifact's name, none of which config lets contain a "/", so nothing an
 // operator can configure produces a key under this segment.
-const probePrefix = ".backupd-preflight"
+const probePrefix = ".retnd-preflight"
 
 // probeBody is what a probe object contains. It is fixed, small, and says
 // what it is, so an operator who finds one left behind by a preflight this
 // process was killed in the middle of knows immediately what it is and
 // that deleting it is safe.
-var probeBody = []byte("backupd medium preflight probe. This object is written and deleted by a preflight check and is safe to remove.\n")
+var probeBody = []byte("retnd medium preflight probe. This object is written and deleted by a preflight check and is safe to remove.\n")
 
 // Run performs one preflight against medium and reports what it found.
 //
@@ -744,7 +744,7 @@ func probeKey(prefix string) (string, error) {
 // the system temp area forever, which is the shape of leak nobody notices
 // until a filesystem runs out of inodes.
 func writeProbeFile() (path string, cleanup func(), err error) {
-	dir, err := os.MkdirTemp("", "backupd-preflight-*")
+	dir, err := os.MkdirTemp("", "retnd-preflight-*")
 	if err != nil {
 		return "", func() {}, err
 	}

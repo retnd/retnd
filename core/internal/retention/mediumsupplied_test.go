@@ -36,7 +36,7 @@ func bkAttachMediumValues(records []state.Record) []state.Record {
 		out[i].Placements = []state.Placement{
 			{
 				Medium:            "offsite_s3",
-				Location:          "backupd/production/pg/" + out[i].Artifact.Name,
+				Location:          "retnd/production/pg/" + out[i].Artifact.Name,
 				Size:              &size,
 				Hash:              "0000000000000000000000000000000000000000000000000000000000000000",
 				HashAlg:           "sha256",

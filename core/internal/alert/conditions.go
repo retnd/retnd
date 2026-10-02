@@ -184,7 +184,7 @@ func HostKeyConditions(scope string, category transport.Category) []Condition {
 // four access questions and decideRepositoryState reserves Failing for
 // the repository that cannot take a backup at all -- unreachable,
 // unreadable, credentials refused, or read-only. A second threshold here
-// would drift from the verdict GET /api/v1/repositories and `backupd
+// would drift from the verdict GET /api/v1/repositories and `retnd
 // repository health` render, and an operator would be alerted about a
 // state their own status page does not show.
 //

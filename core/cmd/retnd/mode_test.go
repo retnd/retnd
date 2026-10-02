@@ -211,7 +211,7 @@ func TestTheFirstConfigurationWriteSaysWhichModeItRan(t *testing.T) {
 //
 // The detection this was first built on read the SHARED journal lock,
 // which is taken by every process that opens the journal at all: a
-// `backupd status` an operator left in another terminal, a
+// `retnd status` an operator left in another terminal, a
 // `sources`, a cron `run` for the length of a whole backup cycle.
 // lock_unix.go's own doc calls that ordinary use of this CLI. So every
 // configuration write on such a host printed `mode: engine-attached` and

@@ -98,26 +98,12 @@ def sha256_of(path: Path) -> str:
     return h.hexdigest()
 
 
-# The binary_sha256 keys one shipped binary may be recorded under, most
-# preferred first.
-#
-# EPIC R renamed the files the image carries from /backupd and
-# /backupd-web to /retnd and /retnd-web (#890), and an entry recorded for
-# an ALREADY-PUBLISHED release keeps the keys it was published under,
-# because those names identify a build that really went out. So over the
-# overlap release the manifest can legitimately carry either spelling and
-# this check has to accept both, preferring the new one. The `backupd`
-# spelling -- and this table with it -- goes away when the shim window
-# closes (#895).
-#
-# The IMAGE paths are not aliased the same way: /backupd-web is a hardlink
-# to /retnd-web, not a third binary, so it is never extracted or hashed.
-# A name this table does not know is looked up as itself, so an
-# unrecognised binary fails the lookup and is reported missing rather than
-# quietly resolving to one of these.
+# The manifest records each shipped binary under its canonical name. Unknown
+# binaries retain their own key so the parity check reports them missing
+# instead of borrowing another binary's digest.
 MANIFEST_BINARY_KEYS: dict[str, tuple[str, ...]] = {
-    "retnd": ("retnd", "backupd"),
-    "retnd-web": ("retnd-web", "backupd-web"),
+    "retnd": ("retnd",),
+    "retnd-web": ("retnd-web",),
 }
 
 
@@ -175,7 +161,7 @@ def run_guards(root: Path, manifest_path: Path) -> tuple[str, str, Manifest, lis
 
 def check_one(root: Path, arch: str, manifest: Manifest) -> list[str]:
     """Build `arch`, hash its two binaries, and return every mismatch line."""
-    tag = f"backupd:parity-{arch}"
+    tag = f"retnd:parity-{arch}"
     print(f"==> Building linux/{arch}", file=sys.stderr)
     version = manifest["version"]
     commit = manifest["commit"]

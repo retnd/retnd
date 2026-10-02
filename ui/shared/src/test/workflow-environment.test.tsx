@@ -34,7 +34,7 @@ import type { WorkflowEnvVariable, WorkflowEnvVariableInput } from "@shared/api/
 
 const GLOBAL: WorkflowEnvVariable[] = [
   { name: "PGHOST", value: "postgres-primary.internal", hasValue: true },
-  { name: "PGPASSWORD", hasValue: false, secret: { file: "/etc/backupd/secrets/pg" } }
+  { name: "PGPASSWORD", hasValue: false, secret: { file: "/etc/retnd/secrets/pg" } }
 ];
 
 const SET: WorkflowEnvVariable[] = [
@@ -151,7 +151,7 @@ describe("what the editor renders", () => {
     // location is the answer an operator needs ("which file does this
     // hook's password come from"); the value is something no read on
     // this API can carry at all.
-    expect(within(preview).getByText(/from file \/etc\/backupd\/secrets\/pg/)).toBeTruthy();
+    expect(within(preview).getByText(/from file \/etc\/retnd\/secrets\/pg/)).toBeTruthy();
     expect(within(preview).getByText(/never shown/)).toBeTruthy();
     // And no control offers to reveal one.
     expect(screen.queryByRole("button", { name: /reveal|show value/i })).toBeNull();
@@ -219,13 +219,13 @@ describe("writing a variable", () => {
       screen.getByLabelText("Where the value comes from"),
       "Read from a file on the host"
     );
-    await user.type(screen.getByLabelText("Location"), "/etc/backupd/secrets/pg");
+    await user.type(screen.getByLabelText("Location"), "/etc/retnd/secrets/pg");
     await user.click(screen.getByRole("button", { name: "Save variable" }));
 
     await waitFor(() => expect(onSet).toHaveBeenCalledTimes(1));
     expect(onSet.mock.calls[0]).toEqual([
       "PGPASSWORD",
-      { secret: { file: "/etc/backupd/secrets/pg" } }
+      { secret: { file: "/etc/retnd/secrets/pg" } }
     ]);
   });
 

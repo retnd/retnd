@@ -5,7 +5,7 @@
 //
 // Every adapter gates its web UI on `depends_on: <engine>: condition:
 // service_healthy`, and every adapter derived the engine's health check
-// from canonical.json, which said `backupd status`. That is FR-24's
+// from canonical.json, which said `retnd status`. That is FR-24's
 // backup-freshness verdict, and it exits non-zero on a fresh install by
 // design, because a fresh install has backed nothing up. So on every
 // adapter the one container an operator installed the app to reach never
@@ -113,7 +113,7 @@ func requireDocker(t *testing.T) {
 // same time takes the name over, and this run then quietly tests that
 // checkout's image instead of its own. The tag carries the pid and the
 // process start time so two runs on one machine cannot collide either.
-var imageReference = "backupd:adapterstacks-" +
+var imageReference = "retnd:adapterstacks-" +
 	strconv.Itoa(os.Getpid()) + "-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 
 var build struct {
@@ -137,7 +137,7 @@ func buildImage(t *testing.T) string {
 		cmd := exec.Command("docker", "build",
 			"-f", filepath.Join(root, "container", "Dockerfile"),
 			"-t", imageReference,
-			"--label", "com.backupd.test=adapterstacks",
+			"--label", "com.retnd.test=adapterstacks",
 			"--load",
 			root,
 		)
@@ -555,20 +555,20 @@ func containerState(t *testing.T, id string) string {
 	return inspect(t, id).State.Status
 }
 
-// statusExitCode runs `backupd status` inside a running container.
+// statusExitCode runs `retnd status` inside a running container.
 //
 // This is the control the whole file turns on: without it a green run
 // proves only that some stack came up, and a fixture that had quietly
 // become healthy would pass while saying nothing at all about the defect.
 func statusExitCode(t *testing.T, id string) (int, string) {
 	t.Helper()
-	out, err := exec.Command("docker", "exec", id, "/backupd", "status").CombinedOutput()
+	out, err := exec.Command("docker", "exec", id, "/retnd", "status").CombinedOutput()
 	if err == nil {
 		return 0, string(out)
 	}
 	exit, ok := err.(*exec.ExitError)
 	if !ok {
-		t.Fatalf("docker exec %s /backupd status: %v\n%s", id, err, out)
+		t.Fatalf("docker exec %s /retnd status: %v\n%s", id, err, out)
 	}
 	return exit.ExitCode(), string(out)
 }
@@ -612,8 +612,8 @@ func getWithTransportRetry(t *testing.T, url string, timeout time.Duration) *htt
 
 // serviceRunning names a rewritten definition's service by the COMMAND it
 // runs, never by what it is called: the adapters call them
-// backupd/backupd-ui and the canonical definition calls them
-// backupd/web-ui, so a lookup keyed on the name would stop finding
+// retnd/retnd-ui and the canonical definition calls them
+// retnd/web-ui, so a lookup keyed on the name would stop finding
 // them the moment one was renamed.
 func serviceRunning(t *testing.T, file, subcommand string) string {
 	t.Helper()
@@ -696,7 +696,7 @@ func TestEveryDerivedAdapterBringsUpTheWebUIOnAFreshInstall(t *testing.T) {
 			// happened to be healthy.
 			code, statusOut := statusExitCode(t, engineID)
 			if code == 0 {
-				t.Fatalf("%s: `backupd status` exited 0 inside this fixture, so it is not the fresh install this test claims to run:\n%s", rel, statusOut)
+				t.Fatalf("%s: `retnd status` exited 0 inside this fixture, so it is not the fresh install this test claims to run:\n%s", rel, statusOut)
 			}
 
 			uiID := project.containerID(t, uiName)

@@ -141,7 +141,7 @@
   `[ ... ]`, which is a syntax error on exactly the empty value the condition
   was written to handle; `BSH006` a missing `#!` line. Each one is narrowed
   until it fires on shapes that are wrong rather than shapes that are unusual,
-  and each carries a message saying what to write instead. These are backupd's
+  and each carries a message saying what to write instead. These are retnd's
   rules and not ShellCheck's: ShellCheck is GPL-3.0, this product is
   Apache-2.0, and a tool that cannot be shipped is not a tool a save gate can
   depend on. It is not a general shell linter and does not claim to be.
@@ -303,7 +303,7 @@
   (#862). `POST /repositories` persists a new `repository_domains:` entry —
   id, isolation, passphrase REFERENCE, description — into `config.yaml`
   atomically and hot-reloads, through the same door `POST /backup-sets`
-  writes through, and `backupd repository create <domain> --isolation
+  writes through, and `retnd repository create <domain> --isolation
   shared|isolated --passphrase-file F` does the same from a shell. The
   Repositories → "Define a repository domain" screen is a working wizard
   rather than a read-only explanation of one.
@@ -376,8 +376,8 @@
   Content reuse never becomes permanent trust: every path in every source is
   re-read on a bounded cadence the policy names.
 
-  The operator surface is `backupd snapshot` (`list`, `show`, `holds`,
-  `retention`, `verify`, `restore`, `hold`, `unhold`), `backupd repository`
+  The operator surface is `retnd snapshot` (`list`, `show`, `holds`,
+  `retention`, `verify`, `restore`, `hold`, `unhold`), `retnd repository`
   (`health`, `maintenance`), four
   repository-domain screens and four per-set snapshot screens in the web
   interface, and six new `GET` routes plus four actions on `POST /operations`
@@ -395,7 +395,7 @@
   an SFTP source is refused at run time, because pulling a remote producer's
   finished files over SSH is the `artifact` engine's job. Every repository
   domain's storage is local, under the backup root, inside the reserved
-  `.backupd` namespace that artifact discovery, retention and prune may not
+  `.retnd` namespace that artifact discovery, retention and prune may not
   enter. And no verb or schedule runs repository maintenance yet: the
   surfaces report its decision, its owner and what it has reclaimed.
 
@@ -488,7 +488,7 @@
   address or an SMTP server that would not accept the message all leave the same
   `/enroll?token=…` link usable — correct the field and submit again, where a
   too-short password used to burn the link and leave the operator restarting the
-  engine for a fresh one. And `backupd-web auth create-admin` takes the same
+  engine for a fresh one. And `retnd-web auth create-admin` takes the same
   details as optional flags (`--recovery-email`, `--smtp-host`, `--smtp-port`,
   `--smtp-security`, `--smtp-username`, `--smtp-password-stdin`, `--smtp-from`),
   because a provisioning run in a pipeline often has no mail credential to give
@@ -691,9 +691,9 @@
 ### Changed
 
 - **The repository coordinates moved, and EPIC R is finished** (EPIC R #885,
-  R2.5 #895, FR-41, ADR 0023). The organisation `backupdproject` became
-  `retnd` on 2026-09-15: `backupdproject/backupd` is `retnd/retnd` and
-  `backupdproject/backupd-tests` is `retnd/retnd-tests`. This is the last act
+  R2.5 #895, FR-41, ADR 0023). The organisation `retndproject` became
+  `retnd` on 2026-09-15: `retndproject/retnd` is `retnd/retnd` and
+  `retndproject/retnd-tests` is `retnd/retnd-tests`. This is the last act
   of the rename and it happened after every in-tree gate was green, which is
   the ordering ADR 0023's first decision exists for.
 
@@ -705,7 +705,7 @@
   `https://raw.githubusercontent.com/retnd/retnd/main/scripts/install/install_docker_host.py`
   — the old raw path still answers today, but it is not a guarantee anybody
   owes you, so a runbook pinning it should be updated. And the published image
-  is `ghcr.io/retnd/retnd`, with `ghcr.io/backupdproject/backupd` pushed
+  is `ghcr.io/retnd/retnd`, with `ghcr.io/retndproject/retnd` pushed
   alongside it for exactly one release (FR-39) so an unedited compose file
   keeps pulling; that mirror is retired by #947, together with every other
   one-release window this epic opened.
@@ -713,7 +713,7 @@
   **`cosign verify` is two commands now, keyed by version.** A Sigstore
   certificate binds a signature to the repository the release workflow ran in,
   and a signature that has been issued cannot be reissued. So `0.3.3` and
-  everything before it verifies against the `backupdproject/backupd` identity
+  everything before it verifies against the `retndproject/retnd` identity
   for as long as it exists, and everything published after the transfer
   verifies against the `retnd/retnd` one.
   [`docs/compliance/release-provenance.md`](docs/compliance/release-provenance.md)
@@ -725,7 +725,7 @@
   **What did not need doing, recorded rather than ticked.** Two items on the
   org-carry-over checklist turned out to be moot, and saying which is the point
   of having a checklist. There is no GHCR package to move:
-  `gh api orgs/backupdproject/packages?package_type=container` answers an empty
+  `gh api orgs/retndproject/packages?package_type=container` answers an empty
   list, so nothing was ever published under the old package path. And there is
   no branch protection to restore:
   `gh api repos/retnd/retnd/branches/main/protection` answers
@@ -807,9 +807,9 @@
 
   **What an existing deployment sees, in one place.** An unedited compose file
   you pinned yourself starts and works: the old image reference resolves through
-  the one-release mirror, the image carries `/backupd-web` as a hardlink beside
-  `/retnd-web`, and the mounts still land on `/etc/backupd` and
-  `/var/lib/backupd`, which the engine **adopts** — it serves from the
+  the one-release mirror, the image carries `/retnd-web` as a hardlink beside
+  `/retnd-web`, and the mounts still land on `/etc/retnd` and
+  `/var/lib/retnd`, which the engine **adopts** — it serves from the
   pre-rename path and warns on every start, naming the compose line to change
   and the `install_docker_host.py migrate-identity` command that changes mounts,
   persisted paths and systemd units in one transaction. Nothing first-runs over
@@ -826,10 +826,10 @@
 
   **The one-release windows, all of which close in #895.** `BACKUPD_*` hook
   exports and input reads alongside `RETND_*` with identical values;
-  `backupd_session` / `backupd_csrf` accepted on a read and re-issued under the
-  current names; the fourteen `backupd_*` metric **gauges** emitted a second
+  `retnd_session` / `retnd_csrf` accepted on a read and re-issued under the
+  current names; the fourteen `retnd_*` metric **gauges** emitted a second
   time with `DEPRECATED, renamed to retnd_…` in their `# HELP`; the
-  `/backupd-web` entrypoint hardlink; the `ghcr.io/backupdproject/backupd`
+  `/retnd-web` entrypoint hardlink; the `ghcr.io/retndproject/retnd`
   mirror; and FR-38's legacy-path adoption. **A query that reads both metric
   prefixes double-counts** — the duplicated samples are one reading under two
   names, not two measurements — which is why no counter is duplicated and why
@@ -838,24 +838,24 @@
   [`docs/deployment.md`](docs/deployment.md#metrics-and-the-one-release-duplicate-series).
 
   **Two changes with no compatibility window at all.** The CLI's default
-  `User-Agent` is `retnd-cli (api 1)` where it was `backupd-cli (api 1)`:
+  `User-Agent` is `retnd-cli (api 1)` where it was `retnd-cli (api 1)`:
   nothing in this product reads it, but a log filter, an audit query or a
   reverse-proxy rule of yours might, and a fallback would have made both of them
   wrong. And every provider's deployment artefact is renamed — the nine
   `apps/*/compose/retnd.{yml,yaml,env}` files, `apps/unraid/template/retnd{,-ui}.xml`
   and the TrueNAS catalog template now name the `retnd` service, the `retnd`
   compose project and the `retnd-retnd-1` / `retnd-web-ui-1` containers, matching
-  `container/compose.yaml` — so a script of yours naming `backupd-backupd-1` or
-  `backupd-web-ui-1` in a `docker inspect` or `docker logs` line needs updating
+  `container/compose.yaml` — so a script of yours naming `retnd-retnd-1` or
+  `retnd-web-ui-1` in a `docker inspect` or `docker logs` line needs updating
   (#891).
 
   **What deliberately still says the old name.** The image reference and every
-  `backupdproject` URL, because FR-39 moves the image exactly once and #895 moves
+  `retndproject` URL, because FR-39 moves the image exactly once and #895 moves
   the coordinates with it; `container/release-manifest.json`'s already-published
   digest keys, which record artifacts that really were published under those
-  names; the reserved on-disk directories `.backupd` and `.backupd-preflight`
-  inside an operator's own backup root and media; the `backupd.workflow-hook`
-  container label and the `backupd-hook-` container-name prefix; this
+  names; the reserved on-disk directories `.retnd` and `.retnd-preflight`
+  inside an operator's own backup root and media; the `retnd.workflow-hook`
+  container label and the `retnd-hook-` container-name prefix; this
   changelog's earlier entries; and `docs/design/`'s dated notes. Everything
   else, in any casing, is gone.
 
@@ -867,7 +867,7 @@
 
   **FR-38, the state-adoption preflight, is why this issue existed.** An
   operator deploying with the compose file this project published bind-mounts
-  their host configuration directory onto `/etc/backupd/config`. A binary
+  their host configuration directory onto `/etc/retnd/config`. A binary
   defaulting to `/etc/retnd/config` finds nothing there -- and every other
   branch of that condition is correct, because a fresh install really does
   have no configuration. Taking it on a live deployment runs the first-run
@@ -903,15 +903,15 @@
   `21-fresh-install-first-run` and `22-two-journals-refusal`.
 
   **What an upgraded deployment sees.** An unedited pinned compose file still
-  starts: the image carries `/backupd-web` as a real hardlink beside
+  starts: the image carries `/retnd-web` as a real hardlink beside
   `/retnd-web` for one release, the image reference deliberately does NOT move
-  yet (it stays `ghcr.io/backupdproject/backupd` until #895's cutover, so one
+  yet (it stays `ghcr.io/retndproject/retnd` until #895's cutover, so one
   rename costs one compose edit rather than two), and the configuration mount
-  still landing on `/etc/backupd/config` is adopted. The only change is a
+  still landing on `/etc/retnd/config` is adopted. The only change is a
   warning on every start naming the compose line to change and the installer
-  command that changes it. `/backupd` is NOT aliased -- nothing in any compose
+  command that changes it. `/retnd` is NOT aliased -- nothing in any compose
   file's `command:` or `healthcheck:` named it -- so a hand-written
-  `docker exec ... /backupd` has to move to `/retnd`.
+  `docker exec ... /retnd` has to move to `/retnd`.
 
   **What moved.** `container/compose.yaml`'s engine service is `retnd`, the UI
   service stays `web-ui`, the project name is declared so the default container
@@ -928,7 +928,7 @@
   #196 established. **No new configuration key**: the pre-rename paths are
   compiled-in constants, because `KnownFields(true)` makes a new key a one-way
   door out of a rollback. `container/release-manifest.json`'s already-published
-  entries keep their `backupd` / `backupd-web` keys -- they record artifacts
+  entries keep their `retnd` / `retnd-web` keys -- they record artifacts
   that really were published under those names -- and every consumer accepts
   both spellings for the release that spans the rename.
 
@@ -941,10 +941,10 @@
   as `core/cliecho/cliname.go` was written to make possible.
 
   **Nothing about this half is aliased.** At the time #888 landed, the two
-  files inside the image were still `/backupd` and `/backupd-web`, the compose
-  services were still `backupd`, the configuration directory was still
-  `/etc/backupd` and the environment, metrics and cookies were still
-  `BACKUPD_*` / `backupd_*`: those are renames an upgraded deployment has to
+  files inside the image were still `/retnd` and `/retnd-web`, the compose
+  services were still `retnd`, the configuration directory was still
+  `/etc/retnd` and the environment, metrics and cookies were still
+  `BACKUPD_*` / `retnd_*`: those are renames an upgraded deployment has to
   survive rather than renames of a printed word, so they landed with their own
   back-compat windows in #889 and #890, both of which are in this same
   release. What #888 itself changed is only what the program calls itself when
@@ -987,7 +987,7 @@
     -- not one per read, which is a log an operator silences. The debug
     shortcut's three spellings are OR'd rather than ranked, exactly as
     before, because none of them has ever had an "off" value.
-  - **Metrics: `retnd_*` primary, `backupd_*` duplicated, gauges only.** An
+  - **Metrics: `retnd_*` primary, `retnd_*` duplicated, gauges only.** An
     alert rule whose series stopped existing does not fire and a dashboard
     whose query matches nothing is blank; both look like a healthy
     deployment. Every gauge family is emitted a second time under the old
@@ -999,7 +999,7 @@
   - **Cookies: `retnd_session` / `retnd_csrf` issued, the old names read and
     RE-ISSUED.** A hard cut would have signed every browser out mid-task.
     Both of this project's earlier names are accepted on a read
-    (`backupd_session`/`backupd_csrf` and #794's `bm_session`/`bm_csrf`,
+    (`retnd_session`/`retnd_csrf` and #794's `bm_session`/`bm_csrf`,
     whose window is not nested inside a third one and now closes with them),
     and a request arriving under a deprecated name has that same session or
     token re-issued under the current one on that read, so the old name
@@ -1007,11 +1007,11 @@
     turns over.
 
   **Three things are hard cuts, and one of them may be visible to you.** The
-  `x-backupd-proxy-error` response header is now `x-retnd-proxy-error` with
+  `x-retnd-proxy-error` response header is now `x-retnd-proxy-error` with
   no alias, because `serve-ui` writes it and the bundle it serves reads it,
   and the two ship in one image. The API document is `retnd /api/v1` and both
   generated bindings were regenerated from it. And **the CLI's default
-  `User-Agent` is now `retnd-cli (api 1)`, where it was `backupd-cli (api
+  `User-Agent` is now `retnd-cli (api 1)`, where it was `retnd-cli (api
   1)`** -- nothing in this product reads it, but a log filter, an audit query
   or a reverse-proxy rule of yours might, and there is deliberately no
   fallback that would make both of them wrong.
@@ -1025,7 +1025,7 @@
 
 - **The debug shortcut is `BACKUPD_DEBUG`, and `RM_DEBUG` is deprecated**
   (#794). The one-variable diagnostics switch still carried the project's
-  old `RM_` prefix, from before the rename to backupd, which is the wrong
+  old `RM_` prefix, from before the rename to retnd, which is the wrong
   name to read out over the phone call this knob exists for. The engine
   (`obs.LevelFromEnv`) and the web host (`webhost.envLogLevel`) now both
   accept `BACKUPD_DEBUG=1`, and `container/compose.yaml`,
@@ -1040,8 +1040,8 @@
   a diagnosis. Set `BACKUPD_DEBUG` on new deployments; `RM_DEBUG` will be
   removed a release after this one.
 
-- **The session and CSRF cookies are named `backupd_session` and
-  `backupd_csrf`** (#794). They were `bm_session` and `bm_csrf`, named for
+- **The session and CSRF cookies are named `retnd_session` and
+  `retnd_csrf`** (#794). They were `bm_session` and `bm_csrf`, named for
   a brand two renames ago. Both new names are the only ones the runtime
   WRITES; both old names are still READ for one release, so upgrading in
   place does not sign every open console out and does not break a client
@@ -1764,8 +1764,8 @@
 - **The web host introduces itself by the name everything else calls it**
   (#652). The image ships `/rbm-web`, every compose file runs it, the packaging
   manifest names it and the CLI's own exit-code table sends an operator to
-  `rbm-web serve`, while the binary went on saying `backup-manager-web` in 37
-  places, including `usage: backup-manager-web <command> [flags]`. So a fresh
+  `rbm-web serve`, while the binary went on saying `retnd-web` in 37
+  places, including `usage: retnd-web <command> [flags]`. So a fresh
   install answered `docker compose logs` with a name no compose file, no
   document and no other binary in the image still uses. The first-run
   enrolment notice — usually the first line a new deployment prints — had

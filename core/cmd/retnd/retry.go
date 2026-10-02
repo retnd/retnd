@@ -8,7 +8,7 @@ import (
 	"github.com/retnd/retnd/core/internal/lifecycle"
 )
 
-// cmdRetry is `backupd retry <source/backup-set/artifact>`: put one
+// cmdRetry is `retnd retry <source/backup-set/artifact>`: put one
 // FAILED artifact back into the pipeline so it is attempted again (issue
 // #419).
 //

@@ -232,12 +232,12 @@ func createContainer(t *testing.T, image string) string {
 	t.Helper()
 	requireDocker(t)
 	dockerlease.Sweep()
-	name := "backupd-licences-" + strings.NewReplacer("/", "-", " ", "-").Replace(t.Name()) +
+	name := "retnd-licences-" + strings.NewReplacer("/", "-", " ", "-").Replace(t.Name()) +
 		"-" + time.Now().Format("150405.000000")
 	out, err := exec.Command("docker", "create",
 		"--name", name,
 		dockerlease.LabelFlag, dockerlease.LabelSpec,
-		image, "/backupd", "version",
+		image, "/retnd", "version",
 	).CombinedOutput()
 	if err != nil {
 		t.Fatalf("docker create: %v\n%s", err, out)

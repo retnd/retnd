@@ -141,26 +141,26 @@ const HookPidsLimit = 512
 // banner and exits 0, a daemon that answers version and cannot start a
 // container: all three look like success. So the question asked is "did
 // MY bytes run in a container", which cannot be answered by accident.
-const containerProbeMarker = "backupd-container-probe-ok"
+const containerProbeMarker = "retnd-container-probe-ok"
 
 // containerNamePrefix begins the name of every container this runner
 // owns. Termination addresses a container by NAME rather than by id
 // because the name is minted here, before the container exists, which
 // means a launch that never reported an id is still a container this
 // runner can stop.
-const containerNamePrefix = "backupd-hook-"
+const containerNamePrefix = "retnd-hook-"
 
 // LabelHook, LabelRun and LabelStep mark a hook container as this
 // runner's, and say which step it is running.
 //
 // They are what makes an operator's `docker ps` legible -- a container
-// called backupd-hook-... with a run id on it, rather than an anonymous
+// called retnd-hook-... with a run id on it, rather than an anonymous
 // alpine -- and what a sweep of leftovers from a killed runner can select
 // on without ever touching a container it did not create.
 const (
-	LabelHook = "backupd.workflow-hook"
-	LabelRun  = "backupd.workflow-run"
-	LabelStep = "backupd.workflow-step"
+	LabelHook = "retnd.workflow-hook"
+	LabelRun  = "retnd.workflow-run"
+	LabelStep = "retnd.workflow-step"
 
 	// LabelInstance is the one label that is unique to a SINGLE launch,
 	// and it is what makes termination possible rather than merely
@@ -173,7 +173,7 @@ const (
 	// which is exactly the state a cancel landing inside a creation
 	// leaves behind, and the state in which a container used to be able
 	// to run on with nothing watching it (see Executor.reconcile).
-	LabelInstance = "backupd.workflow-instance"
+	LabelInstance = "retnd.workflow-instance"
 )
 
 // dockerProbeTimeout bounds the preflight's own docker calls. Generous,

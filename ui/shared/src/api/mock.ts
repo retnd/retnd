@@ -431,7 +431,7 @@ const ARTIFACTS: BackupArtifact[] = [
       },
       {
         medium: "offsite_s3", mediumType: "s3",
-        location: "backupd/production/postgres-primary/postgres-prod-20260828.dump.zst",
+        location: "retnd/production/postgres-primary/postgres-prod-20260828.dump.zst",
         sizeBytes: 15246903296, storageClass: "STANDARD_IA",
         verificationClass: "existence", verifiedAt: "2026-08-28T06:00:02+02:00",
         access: "immediate", status: "ACTIVE"
@@ -457,7 +457,7 @@ const ARTIFACTS: BackupArtifact[] = [
     placements: [
       {
         medium: "offsite_cold", mediumType: "s3",
-        location: "backupd/production/billing-mysql/billing-20260827.sql.gz",
+        location: "retnd/production/billing-mysql/billing-20260827.sql.gz",
         sizeBytes: 3650722201, storageClass: "DEEP_ARCHIVE",
         verificationClass: null, verifiedAt: null,
         access: "requires_restore", status: "ACTIVE"
@@ -519,7 +519,7 @@ const ARTIFACTS: BackupArtifact[] = [
     placements: [
       {
         medium: "decommissioned_s3", mediumType: "",
-        location: "backupd/production/billing-mysql/billing-20260824.sql.gz",
+        location: "retnd/production/billing-mysql/billing-20260824.sql.gz",
         sizeBytes: 3543348838, storageClass: "",
         verificationClass: "existence", verifiedAt: "2026-07-14T02:20:00+02:00",
         access: "unreachable", status: "ACTIVE"
@@ -2871,7 +2871,7 @@ const WORKFLOW_STEP_LOGS: Record<string, WorkflowStepLogRecord[]> = {
 function defaultWorkflowEnvironment(): WorkflowEnvVariable[] {
   return [
     { name: "PGHOST", value: "postgres-primary.internal", hasValue: true },
-    { name: "PGPASSWORD", hasValue: false, secret: { file: "/etc/backupd/secrets/pg" } }
+    { name: "PGPASSWORD", hasValue: false, secret: { file: "/etc/retnd/secrets/pg" } }
   ];
 }
 
@@ -2888,9 +2888,9 @@ function defaultSetWorkflowEnvironment(): WorkflowEnvVariable[] {
 function defaultWorkflowSettings(): WorkflowSettings {
   return {
     configured: true,
-    root: "/etc/backupd/workflows",
-    beforeDir: "/etc/backupd/workflows/before",
-    afterDir: "/etc/backupd/workflows/after",
+    root: "/etc/retnd/workflows",
+    beforeDir: "/etc/retnd/workflows/before",
+    afterDir: "/etc/retnd/workflows/after",
     scriptTimeoutSeconds: 300,
     scriptTimeoutConfigured: true,
     maxScriptSizeBytes: 65_536,
@@ -2898,8 +2898,8 @@ function defaultWorkflowSettings(): WorkflowSettings {
     execConnections: [...WORKFLOW_EXEC_CONNECTIONS],
     runner: {
       configured: true,
-      socket: "/run/backupd/hooks.sock",
-      tokenFile: "/etc/backupd/hooks.token"
+      socket: "/run/retnd/hooks.sock",
+      tokenFile: "/etc/retnd/hooks.token"
     }
   };
 }
@@ -2925,10 +2925,10 @@ function defaultSetWorkflows(): Map<string, BackupSetWorkflow> {
         environment: defaultSetWorkflowEnvironment(),
         resolvedEnvironmentNames: ["PGHOST", "PGPASSWORD", "DUMP_LEVEL"],
         stages: [
-          { scope: "global", phase: "before", dir: "/etc/backupd/workflows/before" },
+          { scope: "global", phase: "before", dir: "/etc/retnd/workflows/before" },
           { scope: "set", phase: "before", dir: "/srv/hooks/postgres-primary/before" },
           { scope: "set", phase: "after", dir: "/srv/hooks/postgres-primary/after" },
-          { scope: "global", phase: "after", dir: "/etc/backupd/workflows/after" }
+          { scope: "global", phase: "after", dir: "/etc/retnd/workflows/after" }
         ]
       }
     ],
@@ -3102,7 +3102,7 @@ function workflowValidationFor(backupSetId: string): WorkflowValidation {
         {
           check: "runner_health",
           severity: "ok",
-          detail: "the host workflow runner answered: version 0.4.1, bash 5.2.15, running as backupd-hooks"
+          detail: "the host workflow runner answered: version 0.4.1, bash 5.2.15, running as retnd-hooks"
         },
         { check: "script_hash", severity: "ok", detail: "2 scripts captured and hashed" }
       ],
@@ -3196,7 +3196,7 @@ function workflowValidationFor(backupSetId: string): WorkflowValidation {
           check: "runner_health",
           severity: "error",
           detail:
-            "the host workflow runner did not answer on /run/backupd/hooks.sock: dial unix: " +
+            "the host workflow runner did not answer on /run/retnd/hooks.sock: dial unix: " +
             "connect: connection refused. A NAME.local.sh hook has nothing to run on until it does.",
           scope: "set"
         },
@@ -3231,10 +3231,10 @@ function workflowValidationFor(backupSetId: string): WorkflowValidation {
     configured: true,
     root: "/srv/hooks/postgres-primary",
     stages: [
-      { scope: "global", phase: "before", dir: "/etc/backupd/workflows/before" },
+      { scope: "global", phase: "before", dir: "/etc/retnd/workflows/before" },
       { scope: "set", phase: "before", dir: "/srv/hooks/postgres-primary/before" },
       { scope: "set", phase: "after", dir: "/srv/hooks/postgres-primary/after" },
-      { scope: "global", phase: "after", dir: "/etc/backupd/workflows/after" }
+      { scope: "global", phase: "after", dir: "/etc/retnd/workflows/after" }
     ],
     scripts: [
       {
@@ -3494,7 +3494,7 @@ function workflowValidationFor(backupSetId: string): WorkflowValidation {
       {
         check: "runner_health",
         severity: "ok",
-        detail: "the host workflow runner answered: version 0.4.1, bash 5.2.15, running as backupd-hooks"
+        detail: "the host workflow runner answered: version 0.4.1, bash 5.2.15, running as retnd-hooks"
       }
     ],
     validForBackup: true,
@@ -3619,7 +3619,7 @@ const WORKFLOW_HOLDS: WorkflowRecoveryHold[] = [
     backupSetId: WORKFLOW_HELD_SET,
     scope: "set",
     enteredAt: "2026-09-12T02:16:41Z",
-    spoolRef: "/var/lib/backupd/workflow-spool/wfr_2f91a4"
+    spoolRef: "/var/lib/retnd/workflow-spool/wfr_2f91a4"
   }
 ];
 
@@ -4091,14 +4091,14 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
     listSSHKeyCandidates: (): Promise<SSHKeyDiscovery> =>
       delay({
         locations: [
-          { path: "/etc/backupd", kind: "mount", found: 1 },
-          { path: "/home/backupd/.ssh", kind: "home", found: 0, problem: "this location is not present in this deployment" }
+          { path: "/etc/retnd", kind: "mount", found: 1 },
+          { path: "/home/retnd/.ssh", kind: "home", found: 0, problem: "this location is not present in this deployment" }
         ],
         candidates: [
           {
             id: "cand_mock_installer",
-            path: "/etc/backupd/id_ed25519",
-            location: "/etc/backupd",
+            path: "/etc/retnd/id_ed25519",
+            location: "/etc/retnd",
             algorithm: "ssh-ed25519",
             fingerprint: mockCandidateFingerprint,
             publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAImockinstallerkey retnd",

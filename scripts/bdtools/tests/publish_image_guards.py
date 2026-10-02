@@ -518,7 +518,7 @@ def main() -> int:
         rc, out = run_guards(repo, "SKIP_PROVENANCE_CHECK=1")
         expect(rc, out, 2, "no image.mirror")
         expect(rc, out, 2, "ghcr.io/retnd/retnd")
-        expect(rc, out, 2, "ghcr.io/backupdproject/backupd")
+        expect(rc, out, 2, "ghcr.io/retndproject/retnd")
         expect(rc, out, 2, "#947")
         refute(out, "every guard passed")
 
@@ -528,11 +528,11 @@ def main() -> int:
         set_canonical_image(
             repo,
             '{ "reference": "ghcr.io/retnd/retnd:1.0.0", "published": false,'
-            ' "mirror": { "reference": "ghcr.io/backupdproject/backupd:1.0.0", "retiredBy": 947 } }',
+            ' "mirror": { "reference": "ghcr.io/retndproject/retnd:1.0.0", "retiredBy": 947 } }',
         )
         rc, out = run_guards(repo, "SKIP_PROVENANCE_CHECK=1")
         expect(rc, out, 0, "every guard passed")
-        expect(rc, out, 0, "Would publish ghcr.io/retnd/retnd:1.0.0, ghcr.io/backupdproject/backupd:1.0.0")
+        expect(rc, out, 0, "Would publish ghcr.io/retnd/retnd:1.0.0, ghcr.io/retndproject/retnd:1.0.0")
         refute(out, "no image.mirror")
 
         # A mirror left behind on the previous tag pushes nothing to the
@@ -544,10 +544,10 @@ def main() -> int:
         set_canonical_image(
             repo,
             '{ "reference": "ghcr.io/retnd/retnd:1.0.0", "published": false,'
-            ' "mirror": { "reference": "ghcr.io/backupdproject/backupd:0.9.0", "retiredBy": 947 } }',
+            ' "mirror": { "reference": "ghcr.io/retndproject/retnd:0.9.0", "retiredBy": 947 } }',
         )
         rc, out = run_guards(repo, "SKIP_PROVENANCE_CHECK=1")
-        expect(rc, out, 2, "never reaches ghcr.io/backupdproject/backupd")
+        expect(rc, out, 2, "never reaches ghcr.io/retndproject/retnd")
         expect(rc, out, 2, "#947")
 
         # --- the parity proof publish-image.sh runs before the push
@@ -568,7 +568,7 @@ def main() -> int:
             '{ "unsafe_local_build": true, "version": "test", "commit": "'
             + git(repo, "rev-parse", "HEAD").strip()
             + '", "architectures": [ { "architecture": "amd64", '
-            '"binary_sha256": { "backupd": "x", "backupd-web": "y" } } ] }\n'
+            '"binary_sha256": { "retnd": "x", "retnd-web": "y" } } ] }\n'
         )
         rc, out = run_parity(repo)
         expect(rc, out, 2, 'stamped "unsafe_local_build": true')
@@ -578,7 +578,7 @@ def main() -> int:
         repo = new_repo(tmpdirs)
         (repo / "container" / "release-manifest.json").write_text(
             '{ "version": "test", "commit": "", "architectures": [ { "architecture": "amd64", '
-            '"binary_sha256": { "backupd": "x", "backupd-web": "y" } } ] }\n'
+            '"binary_sha256": { "retnd": "x", "retnd-web": "y" } } ] }\n'
         )
         rc, out = run_parity(repo)
         expect(rc, out, 2, "both are needed as build arguments")
@@ -605,7 +605,7 @@ def main() -> int:
         (repo / "container" / "release-manifest.json").write_text(
             '{ "version": "test", "commit": "' + git(repo, "rev-parse", "HEAD").strip() + '", '
             '"architectures": [ { "architecture": "amd64", '
-            '"binary_sha256": { "backupd": "x", "backupd-web": "y" } } ] }\n'
+            '"binary_sha256": { "retnd": "x", "retnd-web": "y" } } ] }\n'
         )
         stub = stub_docker(tmpdirs)
         rc, out = run_parity(repo, f"PATH={stub}{os.pathsep}{os.environ.get('PATH', '')}")
@@ -618,26 +618,26 @@ def main() -> int:
         current = "recorded() indexes by architecture and cannot cross-match another one's digest"
         swapped: dict[str, object] = {
             "architectures": [
-                {"architecture": "amd64", "binary_sha256": {"backupd": "AAA", "backupd-web": "AAW"}},
-                {"architecture": "arm64", "binary_sha256": {"backupd": "BBB", "backupd-web": "BBW"}},
+                {"architecture": "amd64", "binary_sha256": {"retnd": "AAA", "retnd-web": "AAW"}},
+                {"architecture": "arm64", "binary_sha256": {"retnd": "BBB", "retnd-web": "BBW"}},
             ]
         }
         got = {
             (arch, binary): parity.recorded(swapped, arch, binary)
             for arch in ("amd64", "arm64")
-            for binary in ("backupd", "backupd-web")
+            for binary in ("retnd", "retnd-web")
         }
         want = {
-            ("amd64", "backupd"): "AAA",
-            ("amd64", "backupd-web"): "AAW",
-            ("arm64", "backupd"): "BBB",
-            ("arm64", "backupd-web"): "BBW",
+            ("amd64", "retnd"): "AAA",
+            ("amd64", "retnd-web"): "AAW",
+            ("arm64", "retnd"): "BBB",
+            ("arm64", "retnd-web"): "BBW",
         }
         if got != want:
             fail(f"recorded() crossed architectures or binaries: {got} != {want}")
 
         current = "recorded() returns None, not an empty string, for a hash the manifest does not carry"
-        for arch, binary in (("amd64", "backupd-lite"), ("s390x", "backupd")):
+        for arch, binary in (("amd64", "retnd-lite"), ("s390x", "retnd")):
             value = parity.recorded(swapped, arch, binary)
             if value is not None:
                 fail(

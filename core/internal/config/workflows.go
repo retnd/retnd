@@ -506,7 +506,7 @@ func (v *validator) validateWorkflows(c *Config) {
 // THERE, whether anything is listening on it and whether the credential
 // file is 0600 are facts about the machine at a moment, and this file's
 // own header explains why a daemon must not refuse to start over one. The
-// answers live in `backupd validate` and in the health report, where an
+// answers live in `retnd validate` and in the health report, where an
 // operator can read them and act.
 //
 // Half a configuration is refused, though, because that one IS a fact

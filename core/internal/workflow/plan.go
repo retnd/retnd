@@ -852,7 +852,7 @@ func readScriptBytes(src string, maxSize int64) ([]byte, error) {
 // planHashVersion prefixes the canonical form, so that a future change to
 // what the hash covers is a visibly different hash rather than a silent
 // collision in somebody's records.
-const planHashVersion = "backupd/workflow-plan/2"
+const planHashVersion = "retnd/workflow-plan/2"
 
 // hash computes ResolvedPlanHash over a canonical, line-oriented rendering
 // of the plan.

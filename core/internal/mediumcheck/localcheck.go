@@ -235,7 +235,7 @@ func (t LocalTarget) id() string {
 // removed, which is the claim StepDelete actually makes: a destination
 // this manager can write to and not delete from is one no retention pass
 // could ever clean up.
-const localProbeDir = ".backupd-preflight"
+const localProbeDir = ".retnd-preflight"
 
 // RunLocal performs one test connection against the local hard drive and
 // reports what it found, in the identical Report shape Run produces for a

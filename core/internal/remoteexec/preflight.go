@@ -27,7 +27,7 @@ const preflightTimeout = 45 * time.Second
 // entirely. Neither can produce this marker, because producing it requires
 // having executed the bytes this product sent. So the capability test is
 // "did my script run", asked in a way that cannot be answered by accident.
-const probeMarker = "backupd-exec-probe-ok"
+const probeMarker = "retnd-exec-probe-ok"
 
 // Report is what a preflight established about a connection, for the audit
 // line and for the refusal wording.

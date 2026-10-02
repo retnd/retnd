@@ -137,7 +137,7 @@ type WorkflowRefusedScript struct {
 //
 // One line per script, each naming a position, because the whole value of
 // this gate over `bash -n` is that it can say where. It is deliberately
-// multi-line: `backupd` prints an error with Fprintln and a browser shows
+// multi-line: `retnd` prints an error with Fprintln and a browser shows
 // the same string, and folding four broken scripts onto one line would
 // produce a sentence nobody reads to the end of.
 func (r *WorkflowScriptRefusal) Error() string {

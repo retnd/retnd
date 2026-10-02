@@ -177,10 +177,10 @@ describe("CapacityCard", () => {
 
   it("says an operator-configured root differently from a derived one", async () => {
     await renderSettings({
-      settings: settingsFixture({ backupRoot: "/volume1/backups/backupd", backupRootConfigured: true })
+      settings: settingsFixture({ backupRoot: "/volume1/backups/retnd", backupRootConfigured: true })
     });
     const card = capacityCard();
-    expect(card.getByText(/volume1\/backups\/backupd/)).toBeTruthy();
+    expect(card.getByText(/volume1\/backups\/retnd/)).toBeTruthy();
     expect(card.queryByText(/derived from your configured backup sets/)).toBeNull();
   });
 

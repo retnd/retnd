@@ -14,7 +14,7 @@ import (
 )
 
 // This file is the end-to-end proof for issue #286's actual requirement:
-// "backupd must prevent itself from using more space than the cap."
+// "retnd must prevent itself from using more space than the cap."
 // Not a gauge, not a warning, a refusal, taken on the real pipeline path
 // with the real journal and the real filesystem underneath it.
 //

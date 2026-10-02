@@ -23,7 +23,7 @@ import (
 // every backup this binary took of a workflow-configured backup set
 // created no workflow run, ran no hook script, and never asked whether
 // the set was blocked by an interrupted run -- which means an ordinary
-// `backupd run` proceeded over a source that a hook interrupted at three
+// `retnd run` proceeded over a source that a hook interrupted at three
 // in the morning had left quiesced, taking a backup of a stopped database
 // and reporting it as a good one.
 //
@@ -48,7 +48,7 @@ import (
 // Routing the work to that engine instead is not available: `run` and
 // `fetch` are what an operator uses on a host with nothing serving, their
 // output, their exit status and their --dry-run are pinned by FR-35, and
-// a `backupd daemon` serves no HTTP to submit anything to. So the answer
+// a `retnd daemon` serves no HTTP to submit anything to. So the answer
 // is the refusal every other beside-a-live-engine case in this binary
 // gives, with the reason this one has, and exit 3 so a script can wait on
 // it.

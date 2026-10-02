@@ -28,7 +28,7 @@ const (
 	OSMinVer = "7.0-40314"
 
 	// Description is INFO's `description`, shown in Package Center.
-	Description = "Pull-based backupd for SFTP sources, with retention, verification and a local web UI."
+	Description = "Pull-based retnd for SFTP sources, with retention, verification and a local web UI."
 
 	// UIPort is the LAN-facing port the shared Web UI is served on, and
 	// INFO's `adminport`. The engine is NOT published: it binds
@@ -53,8 +53,8 @@ const (
 
 	// PayloadBinDir is where the two release binaries live inside
 	// package.tgz. DSM extracts that archive to
-	// /var/packages/<pkg>/target, so "bin/backupd" lands at
-	// /var/packages/Backupd/target/bin/backupd.
+	// /var/packages/<pkg>/target, so "bin/retnd" lands at
+	// /var/packages/Backupd/target/bin/retnd.
 	//
 	// Member names carry no "./" prefix, matching what the toolkit's own
 	// pkg_make_inner_tarball produces: it pipes `ls <dir>` into `tar -C
@@ -124,13 +124,13 @@ const (
 	// a share "will not be removed after package uninstallation, since it
 	// might delete the user's personal data as well" — which is the
 	// mechanism issue #85's retained-backup-safety criterion rests on.
-	DataShareName = "backupd"
+	DataShareName = "retnd"
 )
 
 // CoreBinaries are the two provider-neutral executables the canonical
 // release produces and this package wraps unchanged. They are also the
 // keys container/release-manifest.json records a SHA-256 under.
-var CoreBinaries = []string{"backupd", "backupd-web"}
+var CoreBinaries = []string{"retnd", "retnd-web"}
 
 // LifecycleScriptNames is the full set of lifecycle scripts the documented
 // structure allows. This package ships all of them, including the ones

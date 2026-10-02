@@ -55,7 +55,7 @@ func TestTheEngineExpiresNothingInARepositoryThisAdapterOpened(t *testing.T) {
 	}
 	if len(expired) != 0 {
 		t.Errorf("the engine would expire %d of this product's snapshots (%v) during the next long backup; "+
-			"backupd decides which snapshots may be deleted, and a hold recorded in the catalog is invisible to this calculation",
+			"retnd decides which snapshots may be deleted, and a hold recorded in the catalog is invisible to this calculation",
 			len(expired), expired)
 	}
 
@@ -147,7 +147,7 @@ func repositoryWithSnapshots(t *testing.T, n int) (repo.Repository, snapshot.Sou
 }
 
 // adapterWithSnapshots is the same fixture seen through this product's own
-// boundary, for the assertions that are about what backupd can do rather
+// boundary, for the assertions that are about what retnd can do rather
 // than about what the vendor would compute.
 func adapterWithSnapshots(t *testing.T, n int) (backupengine.Repository, backupengine.Source) {
 	t.Helper()

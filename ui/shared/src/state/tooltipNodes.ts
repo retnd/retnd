@@ -24,12 +24,12 @@
  *
  * # The two persisted keys, and why the second one exists
  *
- * `backupd.tooltips` is the preference. Absent means ON: a fresh browser
+ * `retnd.tooltips` is the preference. Absent means ON: a fresh browser
  * shows tooltips, and the only thing that turns them off is somebody
  * saying so. Any value other than "off" is read as on, so a corrupted or
  * hand-edited key cannot silently take the help away.
  *
- * `backupd.tooltips.prompted` records that the opt-out dialog has been
+ * `retnd.tooltips.prompted` records that the opt-out dialog has been
  * offered. It is separate from the preference on purpose, because the two
  * answer different questions and one cannot be derived from the other:
  * "tooltips are still on" does not tell you whether the operator was ever
@@ -42,10 +42,10 @@
 import { graph, registerInput } from "./graph";
 
 /** This browser's tooltip preference. Absent means on. */
-export const TOOLTIPS_KEY = "backupd.tooltips";
+export const TOOLTIPS_KEY = "retnd.tooltips";
 
 /** Whether the opt-out dialog has already been offered once. */
-export const TOOLTIP_PROMPTED_KEY = "backupd.tooltips.prompted";
+export const TOOLTIP_PROMPTED_KEY = "retnd.tooltips.prompted";
 
 /** A browser with site data blocked THROWS on property access rather
  *  than answering null, and jsdom ships no Storage until src/test/setup.ts

@@ -328,7 +328,7 @@ func (c *Client) keepAlive(client *ssh.Client) {
 
 		replied := make(chan error, 1)
 		go func() {
-			_, _, err := client.SendRequest("keepalive@backupd", true, nil)
+			_, _, err := client.SendRequest("keepalive@retnd", true, nil)
 			replied <- err
 		}()
 

@@ -22,7 +22,7 @@ import (
 // apart one field at a time. The summary structs are that decision, made
 // once.
 
-// SourceSummary is `backupd sources`' one line of business logic: a
+// SourceSummary is `retnd sources`' one line of business logic: a
 // read-only, presentation-ready view of one configured source and its
 // backup sets. It carries nothing config.Source/config.BackupSet don't
 // already have; it exists so cmd/retnd never reaches into

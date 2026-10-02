@@ -1431,7 +1431,7 @@ func TestContract_APathBuiltFromTheContractReachesTheResourceItNames(t *testing.
 			// id, is what this drives.
 			operation: "setBackupSetWorkflowEnvironment",
 			identity:  "production/postgres/PGPASSWORD",
-			body:      `{"secret":{"file":"/etc/backupd/pg.pass"}}`,
+			body:      `{"secret":{"file":"/etc/retnd/pg.pass"}}`,
 			csrf:      true,
 			arrange:   func(*backupSetFakeBackend) {},
 			reached: func(t *testing.T, b *backupSetFakeBackend, rec *httptest.ResponseRecorder) {
@@ -1440,7 +1440,7 @@ func TestContract_APathBuiltFromTheContractReachesTheResourceItNames(t *testing.
 					t.Errorf("the write reached the backend for scope %q variable %q, want %q and \"PGPASSWORD\" (response %d %q)",
 						fx.lastEnvScope, fx.lastEnvSet.Name, setID, rec.Code, rec.Body.String())
 				}
-				if fx.lastEnvSet.Secret.File != "/etc/backupd/pg.pass" {
+				if fx.lastEnvSet.Secret.File != "/etc/retnd/pg.pass" {
 					t.Errorf("the secret reference reached the backend as %+v, want the file the request named", fx.lastEnvSet.Secret)
 				}
 			},

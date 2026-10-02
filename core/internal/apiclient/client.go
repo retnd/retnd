@@ -71,7 +71,7 @@ const defaultTimeout = 30 * time.Second
 // until one does.
 //
 // This name is a HARD CUT at the rename: there is no
-// `backupd-cli` fallback, because a User-Agent is read by log filters
+// `retnd-cli` fallback, because a User-Agent is read by log filters
 // and audit queries rather than by this product, and a client that sent
 // two names would make both of those wrong. It is called out in
 // CHANGELOG.md's [Unreleased] entry for exactly that reason -- somebody

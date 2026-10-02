@@ -13,7 +13,7 @@ import (
 	"github.com/retnd/retnd/core/internal/state"
 )
 
-// cmdArtifacts is `backupd artifacts`.
+// cmdArtifacts is `retnd artifacts`.
 //
 // With no operand it lists every journal record for every backup set
 // --source/--backup-set select (both optional; omitting either widens the

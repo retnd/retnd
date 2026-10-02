@@ -8,7 +8,7 @@ import (
 	"github.com/retnd/retnd/core/internal/app"
 )
 
-// cmdReconcile is `backupd reconcile`: an on-demand, operator-
+// cmdReconcile is `retnd reconcile`: an on-demand, operator-
 // triggered run of FR-17's reconciliation pass for every configured
 // backup set, the same pass `run` and `daemon` already perform first in
 // every cycle (see internal/app.RunCycle's doc). It exists for an

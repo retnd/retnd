@@ -12,22 +12,22 @@ EPIC R renames the product to `retnd`, and the product's name is inside its
 coordinates: the Go module path is `github.com/<org>/<repo>`, the image path
 is `ghcr.io/<org>/<repo>`, and the documentation site is served from
 `<org>.github.io/<repo>`. So the rename cannot stop at the tree. The
-organisation `backupdproject` holds exactly two repositories, `backupd`
-(public) and `backupd-tests` (private), and both move into a new organisation
+organisation `retndproject` holds exactly two repositories, `retnd`
+(public) and `retnd-tests` (private), and both move into a new organisation
 `retnd`:
 
 | Before | After |
 |---|---|
-| org `backupdproject` | org `retnd` |
-| `backupdproject/backupd` (public) | `retnd/retnd` |
-| `backupdproject/backupd-tests` (private) | `retnd/retnd-tests` |
-| `github.com/backupdproject/backupd` (module) | `github.com/retnd/retnd` |
-| `ghcr.io/backupdproject/backupd` | `ghcr.io/retnd/retnd` |
-| `https://backupdproject.github.io/backupd/` | `https://retnd.github.io/retnd/` |
+| org `retndproject` | org `retnd` |
+| `retndproject/retnd` (public) | `retnd/retnd` |
+| `retndproject/retnd-tests` (private) | `retnd/retnd-tests` |
+| `github.com/retndproject/retnd` (module) | `github.com/retnd/retnd` |
+| `ghcr.io/retndproject/retnd` | `ghcr.io/retnd/retnd` |
+| `https://retndproject.github.io/retnd/` | `https://retnd.github.io/retnd/` |
 
 This is the third rename of this product, and the previous two are why this is
 an ADR rather than a checklist item: `rclone-manager` left `RM_` environment
-variables behind and `backup-manager` left `bm_` cookies behind, and four
+variables behind and `retnd` left `bm_` cookies behind, and four
 follow-up issues exist solely to finish work a rename had declared done.
 
 ## Decision 1: the whole in-tree rename lands first, green; the transfer is the last act
@@ -91,7 +91,7 @@ point of enumerating them was to make each one falsifiable rather than assumed.
    `certificate-identity` is the OIDC subject of the release workflow, derived
    from the repository path, and it is baked immutably into every signature
    already published. New releases carry `retnd/retnd`'s identity and already
-   published ones keep `backupdproject/backupd`'s, so the documented `verify`
+   published ones keep `retndproject/retnd`'s, so the documented `verify`
    command presents the old identity for releases published before the cutover
    and the new one for releases after it, **keyed by version**. The SLSA
    provenance builder identity moves with it. Any downstream policy pinning
@@ -106,7 +106,7 @@ point of enumerating them was to make each one falsifiable rather than assumed.
    that is neither and refuses the file for dropping either one. What cannot
    be shown yet is the *behaviour*: `gh release list` names no release and
    `gh api orgs/retnd/packages?package_type=container` and the same call
-   against `backupdproject` both answer an empty list, so there is no signed
+   against `retndproject` both answer an empty list, so there is no signed
    artifact in either registry path to verify against either identity. That is
    why Decision 7 makes the first release after the cutover the checkpoint.
 2. **`raw.githubusercontent.com` does not follow repository redirects.** Four
@@ -125,8 +125,8 @@ point of enumerating them was to make each one falsifiable rather than assumed.
    treated as dead, because a redirect nobody documents is a redirect nobody
    owes you, and every occurrence was moved anyway.
 3. **A registry path is not redirected to a new owner.**
-   `ghcr.io/backupdproject/backupd` is mirrored **for one release** from a thin
-   retained repository in the retained `backupdproject` organisation, which
+   `ghcr.io/retndproject/retnd` is mirrored **for one release** from a thin
+   retained repository in the retained `retndproject` organisation, which
    makes "do not delete the old organisation" an explicit requirement of this
    epic rather than an oversight. The mirror is on
    `scripts/rename/check-brand-drift.sh`'s alias list with the issue that
@@ -137,19 +137,19 @@ point of enumerating them was to make each one falsifiable rather than assumed.
    `image.mirror.reference` names the retained path, which is the state guard 7
    in `scripts/bdtools/release/publish_image.py` requires — both pushed, same
    build, same digest. But
-   `gh api orgs/backupdproject/packages?package_type=container` answered an
+   `gh api orgs/retndproject/packages?package_type=container` answered an
    **empty list**, and an anonymous `ghcr.io` pull token for either package
    path is refused, so no image has ever actually been published under the old
    path and there is no existing `docker pull` of it to strand. The mirror
    stays declared until #947 regardless: one extra push is cheap, and being
    wrong about that reading costs an operator a 404 with no explanation.
-4. **The Pages origin ceases to exist.** `backupdproject.github.io/backupd`
+4. **The Pages origin ceases to exist.** `retndproject.github.io/retnd`
    has no redirect at all, so the eight-plus absolute links move with the
    cutover and the old origin is documented as dead in the release notes and
    in the site's own honest section.
 
    *Done, and this one was exactly as predicted.* `https://retnd.github.io/retnd/`
-   answers `200` and `https://backupdproject.github.io/backupd/` answers `404`.
+   answers `200` and `https://retndproject.github.io/retnd/` answers `404`.
    Pages followed the transfer on its own; the old origin is gone, and it is the
    one reference of the four where "assume it redirects" would have been wrong.
 
@@ -165,7 +165,7 @@ permissions); branch-protection rules and the required-check list, which names
 jobs by name and is silently empty on a fresh repository; the Pages source and
 any custom domain; the label set, including `epic-r`, `R:phase-1` and
 `R:phase-2`; and both repository descriptions and topics, which SHALL say
-`retnd` — `backupd-tests`'s description still said `rclone-manager` two renames
+`retnd` — `retnd-tests`'s description still said `rclone-manager` two renames
 later, which is this epic's thesis stated by the repository itself.
 
 **What the checklist actually found, on 2026-09-15.** Most of it carried over
@@ -178,7 +178,7 @@ now reads "Black-box end-to-end test suites for retnd". Two items turned out
 to be **moot rather than done**, and saying which is the point of a checklist:
 
 - **GHCR package ownership and visibility.** There is nothing to move.
-  `gh api orgs/backupdproject/packages?package_type=container` answers an empty
+  `gh api orgs/retndproject/packages?package_type=container` answers an empty
   list, so the organisation has never owned a container package.
 - **Branch protection and the required-check list.** There is nothing to
   restore. `gh api repos/retnd/retnd/branches/main/protection` answers `404
@@ -223,19 +223,19 @@ than of one that is coming.
 | `retnd` organisation name reserved | Phase 1 exit-gate line, held before R1.3 swept to it |
 | module path swept to `github.com/retnd/retnd` | done, R1.3 (#888) |
 | `scripts/rename/check-no-module-fetch-instruction.sh` guarding the transient | **deleted**, R2.5 (#895), with its steps in `scripts/ci-local.sh` and `.github/workflows/ci.yml`: the path and the fetch location are the same string now |
-| organisation created, both repositories transferred | **done**, 2026-09-15, R2.5 (#895). `git ls-remote https://github.com/backupdproject/backupd.git HEAD` still resolves, and issue #895 resolves at both coordinates |
+| organisation created, both repositories transferred | **done**, 2026-09-15, R2.5 (#895). `git ls-remote https://github.com/retndproject/retnd.git HEAD` still resolves, and issue #895 resolves at both coordinates |
 | cosign/OIDC identity re-issued, the documented `verify` keyed by version | **done in the tree**, R2.5 (#895); unproven in the registry until a release is published, see Decision 5.1 |
 | four `raw.githubusercontent.com` URLs republished | **done**, R2.5 (#895); all answer `200` at the new path |
 | image path moved with its one-release mirror | **done**, R2.5 (#895): `image.reference` is `ghcr.io/retnd/retnd:0.4.0`, `image.mirror` retains the old path until #947 |
 | Pages origin moved, old origin documented as dead | **done**, R2.5 (#895): new `200`, old `404` |
 | org-level carry-over and the rollback note | **done**, R2.5 (#895), with two items recorded as moot rather than ticked: see Decision 6 |
 
-No absolute `backupdproject` URL is left in the tree outside an enumerated
+No absolute `retndproject` URL is left in the tree outside an enumerated
 allowlist: five alias entries for the one-release `ghcr.io` mirror, five
 `preexisting` pins for the immutable pre-cutover signing identity, the two gate
 steps that spell the guard's own pattern list and this ADR, and the four
 documents that RECORD the rename. The guard's `pending` list no longer carries
-`backupdproject` at all, which is what makes the cutover's completion a measured
+`retndproject` at all, which is what makes the cutover's completion a measured
 fact rather than somebody's reading of this document.
 
 ## Consequences

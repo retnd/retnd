@@ -31,7 +31,7 @@ func TestASetMayConfigureOnlyAConnectionWhenGlobalStagesRun(t *testing.T) {
 	const source = `
 poll_interval: 15m
 state:
-  database: /var/lib/backupd/state.db
+  database: /var/lib/retnd/state.db
 workflows:
   root: /workflows
   global:
@@ -88,7 +88,7 @@ func TestWorkflowEnvironmentPresenceIsRepresentable(t *testing.T) {
 		return `
 poll_interval: 15m
 state:
-  database: /var/lib/backupd/state.db
+  database: /var/lib/retnd/state.db
 workflows:
   root: /workflows
   global:

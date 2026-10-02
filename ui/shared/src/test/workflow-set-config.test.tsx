@@ -246,7 +246,7 @@ describe("the runner-unavailable report", () => {
 
     // Liveness is reported HERE and not on the Settings card, because
     // this is the read that opens the socket.
-    expect(await screen.findByText(/did not answer on \/run\/backupd\/hooks\.sock/)).toBeTruthy();
+    expect(await screen.findByText(/did not answer on \/run\/retnd\/hooks\.sock/)).toBeTruthy();
     expect(within(findingRow("runner_health")).getByText("error")).toBeTruthy();
     const local = findingRow("local_bash_syntax");
     expect(within(local).getByText("not examined")).toBeTruthy();
@@ -885,7 +885,7 @@ describe("a workflow save the shell rules refused", () => {
  */
 describe("what the findings panel is allowed to show", () => {
   it("renders a finding's own text verbatim and resolves nothing it was not given", async () => {
-    const secretish = "PGPASSWORD=$(cat /etc/backupd/secrets/pg)";
+    const secretish = "PGPASSWORD=$(cat /etc/retnd/secrets/pg)";
     const { user } = await checkedWith([scriptWith("before/10-export.remote.sh", {
       examined: true,
       parsed: true,
@@ -924,7 +924,7 @@ describe("what the findings panel is allowed to show", () => {
     // And the environment beside it still states a secret as a LOCATION.
     // The value is something no read on this API carries, so there is
     // nothing for the card to show and no control that offers to.
-    expect(await screen.findByText(/from file \/etc\/backupd\/secrets\/pg/)).toBeTruthy();
+    expect(await screen.findByText(/from file \/etc\/retnd\/secrets\/pg/)).toBeTruthy();
     expect(screen.getAllByText(/never shown/).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: /reveal|show value/i })).toBeNull();
   });

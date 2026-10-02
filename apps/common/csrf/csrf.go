@@ -39,44 +39,20 @@ const (
 	HeaderName = "X-CSRF-Token"
 )
 
-// The names CookieName has had, newest first, kept readable for one
-// release: backupd_csrf from before EPIC R (#885) renamed the product to
-// retnd, and bm_csrf from before #794 renamed it to backupd. Both
-// windows close in the release after the one that renames this product
-// (FR-43) rather than #794's being nested inside a third one.
-//
-// Unlike the session cookie, where the compat window only spares a
-// credential, here it is load bearing for a live page. The client half
-// of this pattern is JavaScript that READS the cookie by name
-// (ui/shared/src/api/client.ts), so an upgrade is guaranteed to have
-// already-loaded and cached bundles in the field echoing whatever value
-// they found under the old name. Issuing a fresh token under the new
-// name only, and comparing against that, would reject every one of
-// those requests with 403 CSRF_TOKEN_MISMATCH until each browser
-// happened to reload - a rename presenting as the exact failure this
-// package exists to produce for an attack.
-//
-// So EnsureCookie carries an existing old-name token FORWARD onto the
-// new name rather than minting a second, different one (below), and
-// Verify accepts any of the three. Both halves then see the same value
-// under the name each knows, and a deprecated name leaves the wire on
-// the first response each client gets rather than whenever its jar turns
-// over.
-const (
-	LegacyCookieName  = "backupd_csrf"
-	EarlierCookieName = "bm_csrf"
-)
+// EarlierCookieName remains readable for the older compatibility window.
+// EnsureCookie carries that token forward under CookieName, and Verify
+// accepts either name so an already-loaded client bundle does not fail its
+// next state-changing request.
+const EarlierCookieName = "bm_csrf"
 
-// cookieNames are the names a read accepts, in precedence order: the
-// current name wins whenever it carries a value. Package-level so a read
-// does not allocate to iterate it.
-var cookieNames = []string{CookieName, LegacyCookieName, EarlierCookieName}
+// cookieNames are accepted in precedence order. Package-level so a read does
+// not allocate to iterate it.
+var cookieNames = []string{CookieName, EarlierCookieName}
 
-// LegacyCookieNames returns the deprecated names a read accepts, newest
-// first. A function rather than a slice, because a package-level slice is
-// writable by every importer.
+// LegacyCookieNames returns the deprecated names a read accepts without
+// exposing a mutable package-level slice.
 func LegacyCookieNames() []string {
-	return []string{LegacyCookieName, EarlierCookieName}
+	return []string{EarlierCookieName}
 }
 
 // readToken returns the double-submit token r carries under any accepted
@@ -108,14 +84,10 @@ var ErrHeaderMismatch = errors.New("csrf: missing or mismatched header")
 // state-changing request a fresh browser session makes is what will need
 // to echo it.
 //
-// "Already carries one" spans every accepted name for the compat windows
-// (LegacyCookieName, EarlierCookieName), and a request that carries only
-// a deprecated name has that exact value re-issued under the current one
-// instead of a fresh token. Minting a new value there would leave the
-// names holding different tokens, and a cached client still echoing the old name's
-// value would then fail Verify - which prefers the current name - on
-// every mutating request. Carrying the value forward makes both halves
-// agree no matter which name either side reads.
+// "Already carries one" spans both accepted names. A request carrying only
+// the deprecated name has that exact value re-issued under the current one.
+// Minting a different value would make the header and preferred cookie
+// disagree on every mutating request.
 //
 // secure decides the issued cookie's own Secure flag, given the request
 // that triggered issuance: a plain `func(r *http.Request) bool { return
@@ -142,13 +114,11 @@ func EnsureCookie(secure func(*http.Request) bool) func(http.Handler) http.Handl
 
 // Verify reports whether r carries a valid double-submit CSRF token: its
 // HeaderName header matches its CSRF cookie, byte-for-byte, in constant
-// time. Any accepted cookie name counts (CookieName first, then the
-// deprecated ones - see LegacyCookieName for the window). A non-nil return
-// is always ErrMissingCookie or ErrHeaderMismatch (check with
-// errors.Is), letting each caller choose its own error response shape/
-// code for the two cases - apps/common/auth/local and
-// apps/common/webhost each have their own, incompatible error body
-// conventions, and this package doesn't referee between them.
+// time. Either accepted cookie name counts. A non-nil return is always
+// ErrMissingCookie or ErrHeaderMismatch (check with errors.Is), letting each
+// caller choose its own error response shape: apps/common/auth/local and
+// apps/common/webhost have incompatible body conventions, and this package
+// does not referee between them.
 func Verify(r *http.Request) error {
 	cookie := readToken(r)
 	if cookie == "" {

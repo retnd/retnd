@@ -202,7 +202,7 @@ func (s *Service) RetryQuarantinedIngestion(ctx context.Context, id model.Artifa
 // is where that whole decision and its argument live.
 //
 // Which of the two happened is not on the return value: a caller that has
-// to tell an operator reads the row back afterwards (`backupd retry` does).
+// to tell an operator reads the row back afterwards (`retnd retry` does).
 // Handing back only "no error" is what the API contract's own response for
 // this operation carries, and one method signature answering to two
 // surfaces is worth less than the row both of them can read.

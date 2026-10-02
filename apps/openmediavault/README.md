@@ -121,11 +121,11 @@ whether a container starts.
 
 | Role | Host path | In the container | Mode |
 | --- | --- | --- | --- |
-| State | `$DISK/appdata/backupd/state` | `/data/state` | rw |
-| Backups | `$DISK/backups/backupd` | `/data/backups` | rw |
-| Config | `$DISK/appdata/backupd/config` | `/etc/backupd/config` | rw |
-| SSH key | `$DISK/appdata/backupd/secrets/id_ed25519` | `/etc/backupd/id_ed25519` | ro |
-| Known hosts | `$DISK/appdata/backupd/secrets/known_hosts` | `/etc/backupd/known_hosts` | ro |
+| State | `$DISK/appdata/retnd/state` | `/data/state` | rw |
+| Backups | `$DISK/backups/retnd` | `/data/backups` | rw |
+| Config | `$DISK/appdata/retnd/config` | `/etc/retnd/config` | rw |
+| SSH key | `$DISK/appdata/retnd/secrets/id_ed25519` | `/etc/retnd/id_ed25519` | ro |
+| Known hosts | `$DISK/appdata/retnd/secrets/known_hosts` | `/etc/retnd/known_hosts` | ro |
 
 `config` is a writable **directory** holding `config.yaml`, not a read-only single
 file (issue #196). Adding a backup set, saving settings and first-run setup all
@@ -143,7 +143,7 @@ no per-path variable: five knobs whose values all repeated the same placeholder
 is how the UUID ended up needing five substitutions while the documentation
 promised one.
 
-Appdata holds private state; `$DISK/backups/backupd` holds retained
+Appdata holds private state; `$DISK/backups/retnd` holds retained
 artifacts. That split is a rule rather than a preference: §19.2 makes them
 separate security domains, and the backup root must never contain SSH private
 keys or authentication state. `distribution/packaging` checks the containment in

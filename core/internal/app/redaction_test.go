@@ -62,7 +62,7 @@ func generateSFTPClientKey(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("ed25519.GenerateKey: %v", err)
 	}
-	block, err := ssh.MarshalPrivateKey(priv, "backupd-295-test-client")
+	block, err := ssh.MarshalPrivateKey(priv, "retnd-295-test-client")
 	if err != nil {
 		t.Fatalf("ssh.MarshalPrivateKey: %v", err)
 	}

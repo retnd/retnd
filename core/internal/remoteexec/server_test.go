@@ -316,7 +316,7 @@ func TestARunOnAForcedCommandAccountIsRefusedRatherThanReportedAsSuccess(t *test
 
 	sink := &collectingSink{}
 	res, err := client.Run(t.Context(), Request{
-		Token:   "backupd-exec-forced",
+		Token:   "retnd-exec-forced",
 		Script:  []byte("printf 'the hook ran\\n'\n"),
 		Sink:    sink,
 		Timeout: 30 * time.Second,
@@ -332,7 +332,7 @@ func TestARunOnAForcedCommandAccountIsRefusedRatherThanReportedAsSuccess(t *test
 		t.Errorf("a refused step reported exit code %d, which is the forced command's status and not the hook's", *res.ExitCode)
 	}
 	for _, command := range server.commands() {
-		if strings.Contains(command, "backupd-exec-forced") {
+		if strings.Contains(command, "retnd-exec-forced") {
 			t.Errorf("the hook's own command was started on a connection that had not been proven exec-capable: %q", command)
 		}
 	}
@@ -360,7 +360,7 @@ func TestARunWithACapabilityForOtherBytesIsRefused(t *testing.T) {
 
 	sink := &collectingSink{}
 	_, err = client.Run(t.Context(), Request{
-		Token:      "backupd-exec-swapped",
+		Token:      "retnd-exec-swapped",
 		Script:     []byte("printf 'a different script entirely\\n'\n"),
 		Capability: capability,
 		Sink:       sink,
@@ -447,7 +447,7 @@ func TestAStalledConnectionAbortsWithinTheStepsBound(t *testing.T) {
 	sink := &collectingSink{}
 	start := time.Now()
 	res, err := client.Run(t.Context(), Request{
-		Token:   "backupd-exec-stalled",
+		Token:   "retnd-exec-stalled",
 		Script:  script,
 		Sink:    sink,
 		Timeout: 2 * time.Second,
@@ -623,7 +623,7 @@ func TestAHookThatEndsUnderItsOwnPayloadWriteReportsItsExitStatus(t *testing.T) 
 
 			sink := &collectingSink{}
 			res, err := client.Run(t.Context(), Request{
-				Token:   "backupd-exec-earlyexit",
+				Token:   "retnd-exec-earlyexit",
 				Script:  oversizedScript(),
 				Sink:    sink,
 				Timeout: 30 * time.Second,
@@ -661,7 +661,7 @@ func TestAnExecChannelThatClosesWithoutAStatusIsStillTransportLoss(t *testing.T)
 
 	sink := &collectingSink{}
 	res, err := client.Run(t.Context(), Request{
-		Token:   "backupd-exec-nostatus",
+		Token:   "retnd-exec-nostatus",
 		Script:  oversizedScript(),
 		Sink:    sink,
 		Timeout: 30 * time.Second,

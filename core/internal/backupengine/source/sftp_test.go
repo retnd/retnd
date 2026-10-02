@@ -81,7 +81,7 @@ func TestAnSFTPSourceStreamsThroughTheAdapter(t *testing.T) {
 
 	sink := source.RepositorySink{
 		Repo:        repo,
-		Source:      backupengine.Source{Host: "nas", User: "backupd", Path: "/sets/sftp-source"},
+		Source:      backupengine.Source{Host: "nas", User: "retnd", Path: "/sets/sftp-source"},
 		Ref:         testRef(t, "sftp-source"),
 		Description: "sftp integration",
 	}
@@ -267,7 +267,7 @@ func TestAnSFTPRunsLoginCostDoesNotGrowWithTheObjectCount(t *testing.T) {
 			Source: src,
 			Sink: source.RepositorySink{
 				Repo:   repo,
-				Source: backupengine.Source{Host: "nas", User: "backupd", Path: "/sets/" + set},
+				Source: backupengine.Source{Host: "nas", User: "retnd", Path: "/sets/" + set},
 				Ref:    testRef(t, set),
 			},
 		}, want)

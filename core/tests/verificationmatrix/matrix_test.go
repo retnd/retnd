@@ -151,7 +151,7 @@ func newFixture(t *testing.T) *fixture {
 		journal: journal,
 		set:     set,
 		setUUID: uuid.NewString(),
-		source:  backupengine.Source{Host: "nas-01", User: "backupd", Path: srcDir},
+		source:  backupengine.Source{Host: "nas-01", User: "retnd", Path: srcDir},
 	}
 }
 

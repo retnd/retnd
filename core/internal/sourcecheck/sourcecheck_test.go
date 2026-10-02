@@ -343,7 +343,7 @@ func TestRun_UnreadableCredentialSkipsEverythingElse(t *testing.T) {
 	verified := false
 	deps := depsFor("", trustedKeysOf(hostKey), knownHostsVerifier(t, addr, hostKey), 4)
 	deps.Credentials = func(context.Context) (string, error) {
-		return "", errors.New("open /var/lib/backupd/keys/ssh_key_4: permission denied")
+		return "", errors.New("open /var/lib/retnd/keys/ssh_key_4: permission denied")
 	}
 	inner := deps.Verify
 	deps.Verify = func(hostname string, remote net.Addr, key ssh.PublicKey) error {
@@ -600,7 +600,7 @@ func TestRun_ResolveFailureIsNotANetworkFailure(t *testing.T) {
 // any of them may appear in the report.
 func TestRun_NoDetailCarriesTransportErrorText(t *testing.T) {
 	poison := []string{
-		"/var/lib/backupd/keys/ssh_key_4",
+		"/var/lib/retnd/keys/ssh_key_4",
 		"ssh: handshake failed: knownhosts.HostKeyCallback",
 		"dial tcp 203.0.113.24:1209: connect: connection refused",
 		"sftp: \"Permission denied\" (SSH_FX_PERMISSION_DENIED)",

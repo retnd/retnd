@@ -47,7 +47,7 @@ snapshot.
 
 The set's identity in the repository is derived from
 `model.SourceIdentity` (a digest), never from the source's path, and its
-host is the literal `backupd` rather than this machine's name. A hostname
+host is the literal `retnd` rather than this machine's name. A hostname
 is not stable, and the engine treats host/user/path as a source's
 identity: a rename would present the same source as a new one and store a
 second full copy of an unchanged tree.

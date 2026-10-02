@@ -61,7 +61,7 @@ var secretsAndPaths = []string{
 // one layer below this package and reaches it through a Detail sentence
 // or a recovery hold.
 var workflowSecretsAndPaths = []string{
-	"/var/run/backupd/host-workflow-runner.sock",
+	"/var/run/retnd/host-workflow-runner.sock",
 	"dump-pgsql.remote.sh",
 	"0007~set~before~dump-pgsql.remote.sh",
 	"run-2026-09-13T02:00:03Z-7f21",

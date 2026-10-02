@@ -99,7 +99,7 @@ func mediumPlacement(content []byte) state.Placement {
 	size := int64(len(content))
 	return state.Placement{
 		Medium:   "offsite_s3",
-		Location: "backupd/production/pg/a.dump",
+		Location: "retnd/production/pg/a.dump",
 		Size:     &size,
 		Hash:     sha256Of(content),
 		HashAlg:  string(transport.SHA256),

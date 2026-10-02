@@ -142,7 +142,7 @@ PROGRAM = "architecture-selftest"
 
 # The traversal target name is deliberately one that does not exist, so a
 # regression fails these controls rather than deleting something.
-TRAVERSAL_ENTRY = "apps/../../backupd-selftest-traversal-target"
+TRAVERSAL_ENTRY = "apps/../../retnd-selftest-traversal-target"
 
 GIT_IDENTITY = ("-c", "user.email=selftest@example.invalid", "-c", "user.name=selftest")
 
@@ -397,7 +397,7 @@ def main(argv: list[str]) -> int:
     root = arch.resolve_toplevel()
     os.chdir(root)
 
-    tmp = Path(tempfile.mkdtemp(prefix="backupd-arch-selftest.", dir=os.environ.get("TMPDIR", "/tmp")))
+    tmp = Path(tempfile.mkdtemp(prefix="retnd-arch-selftest.", dir=os.environ.get("TMPDIR", "/tmp")))
     st = Selftest(root, tmp)
     try:
         return harness.finish(lambda: body(st))
@@ -492,7 +492,7 @@ def body(st: Selftest) -> int:
     )
 
     d = st.mutant("manifest-absolute")
-    _append(d / arch.MANIFEST, "\ndistribution    adapter     /backupd-selftest-absolute-target\n")
+    _append(d / arch.MANIFEST, "\ndistribution    adapter     /retnd-selftest-absolute-target\n")
     st.expect_check_fails(
         "a manifest entry naming an absolute path",
         d,

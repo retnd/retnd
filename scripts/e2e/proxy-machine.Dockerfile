@@ -1,6 +1,6 @@
 # The front reverse proxy the real NAS has and the plain-HTTP rig did not.
 #
-# backupd#730 is the Activity page's fetch(/api/v1/activity) throwing
+# retnd#730 is the Activity page's fetch(/api/v1/activity) throwing
 # TypeError: Failed to fetch on a real 0.4.0 deployment, while curl to the
 # same route answers cleanly. The client request is byte-identical to every
 # other page's (a relative, same-origin GET through the same api client), so

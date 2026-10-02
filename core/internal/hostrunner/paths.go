@@ -28,7 +28,7 @@ const (
 	// <prefix>/workspace/workflow/<run>/<step>/.
 	WorkflowDirName = "workflow"
 
-	// TokenName is the installation-scoped credential, in backupd's
+	// TokenName is the installation-scoped credential, in retnd's
 	// secrets area beside the SSH key and the known_hosts file.
 	TokenName = "workflow-runner.token"
 )

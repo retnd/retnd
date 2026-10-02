@@ -453,7 +453,7 @@ func TestMediumCredentialCanary(t *testing.T) {
 				ID:          "offsite_s3",
 				Type:        transport.MediumTypeS3,
 				Bucket:      "nas-backups",
-				Prefix:      "backupd",
+				Prefix:      "retnd",
 				Credentials: tc.creds,
 			}
 			observed := observableOutputs(t, medium)

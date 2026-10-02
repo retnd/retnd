@@ -4,13 +4,13 @@
     },
     "tool": [
         {
-            "relpath": "bin/backupd",
+            "relpath": "bin/retnd",
             "user": "package",
             "group": "package",
             "permission": "0750"
         },
         {
-            "relpath": "bin/backupd-web",
+            "relpath": "bin/retnd-web",
             "user": "package",
             "group": "package",
             "permission": "0750"

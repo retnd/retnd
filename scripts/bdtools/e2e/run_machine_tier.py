@@ -4,7 +4,7 @@
 # The Go machine tier, run from inside a manager machine (issue #451).
 #
 # Rom's ask for #447 was two containers on a dedicated network, one of them
-# the backupd machine. scripts/e2e/two-machine-backup.sh makes that
+# the retnd machine. scripts/e2e/two-machine-backup.sh makes that
 # literally true for the installer. For the Go machine tier it was not: the
 # test process runs on the host and reaches the source over a published
 # loopback port, because on Docker Desktop for macOS a host process cannot
@@ -232,11 +232,11 @@ class Run:
         run_id = os.environ.get("MACHINE_TIER_RUN_ID") or (
             f"{os.getpid()}-{int(time.time())}-{random.SystemRandom().randint(0, 32767)}"
         )
-        self.label_key = "backupd-test"
+        self.label_key = "retnd-test"
         self.label = self.label_key + "=1"
-        self.net = "backupd-machines-driver-" + run_id
-        self.manager = "backupd-machine-tier-" + run_id
-        self.manager_image = "backupd-machine-tier:1"
+        self.net = "retnd-machines-driver-" + run_id
+        self.manager = "retnd-machine-tier-" + run_id
+        self.manager_image = "retnd-machine-tier:1"
 
         self.source_dockerfile = root / "scripts" / "e2e" / "source-machine.Dockerfile"
         self.manager_dockerfile = root / "scripts" / "e2e" / "manager-machine.Dockerfile"
@@ -245,8 +245,8 @@ class Run:
         # host directory would be written by the container's uid and then be in the
         # way of an ordinary `go build` on the host; a volume is the manager
         # machine's own disk, which is what it would be on a real one.
-        self.build_cache = "backupd-machine-tier-gocache"
-        self.mod_cache = "backupd-machine-tier-gomodcache"
+        self.build_cache = "retnd-machine-tier-gocache"
+        self.mod_cache = "retnd-machine-tier-gomodcache"
 
         self.platform = ""
         # Both read off the daemon and core/go.mod in check_capability,

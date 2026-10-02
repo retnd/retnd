@@ -158,7 +158,7 @@ func TestRun_BackupSetRemove_RefusesEveryOtherVerbsFlags(t *testing.T) {
 }
 
 // TestRun_BackupSetRemove_ArtifactsStillListsWhatStayed pins the sentence
-// the verb prints: the backups "stay listed by `backupd
+// the verb prints: the backups "stay listed by `retnd
 // artifacts`". The unfiltered list has to ASK for a removed set's rows
 // (internal/app widens only when asked, because the quarantine read is
 // the same call and must not), so a terminal that forgot to ask would

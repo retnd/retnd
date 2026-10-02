@@ -197,7 +197,7 @@ func TestAHookUnderARealBashSeesNoShellOptionThisProductNeverAskedForAndAClosedS
 
 	// --- and the hook's own standard input --------------------------------
 	//
-	// The payload ends in `eval "$__backupd_script" 0</dev/null`, so a
+	// The payload ends in `eval "$__retnd_script" 0</dev/null`, so a
 	// hook that reads stdin must see EOF. The bug this catches is a
 	// payload that runs the captured bytes with bash's own script stream
 	// still attached: a `read` then competes with bash's parser for the

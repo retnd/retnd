@@ -31,7 +31,7 @@ var BashArgs = []string{"--noprofile", "--norc", "-s"}
 // operator configured that this product silently overwrites -- which is a
 // variable that looks like it works, the exact failure
 // workflow.ValidateEnvName refuses the RETND_ prefix to avoid.
-const payloadScriptVar = "__backupd_script"
+const payloadScriptVar = "__retnd_script"
 
 // StdinPayload is the whole of what an executor writes to bash's standard
 // input: the environment bootstrap, then the captured script bytes, then
@@ -164,14 +164,14 @@ func StdinPayload(environ []string, script []byte) ([]byte, error) {
 // nothing this product sends has defined one at this point, so every
 // function present is inherited.
 const clearInheritedEnvironment = `unset BASH_ENV ENV SHELLOPTS BASHOPTS 2>/dev/null
-for __backupd_name in $(compgen -e 2>/dev/null); do
-case "$__backupd_name" in PWD|OLDPWD|SHLVL|_) continue ;; esac
-unset -v "$__backupd_name" 2>/dev/null || :
+for __retnd_name in $(compgen -e 2>/dev/null); do
+case "$__retnd_name" in PWD|OLDPWD|SHLVL|_) continue ;; esac
+unset -v "$__retnd_name" 2>/dev/null || :
 done
-for __backupd_name in $(compgen -A function 2>/dev/null); do
-unset -f "$__backupd_name" 2>/dev/null || :
+for __retnd_name in $(compgen -A function 2>/dev/null); do
+unset -f "$__retnd_name" 2>/dev/null || :
 done
-unset -v __backupd_name 2>/dev/null || :
+unset -v __retnd_name 2>/dev/null || :
 `
 
 // ValidateScript refuses script bytes this envelope cannot carry.

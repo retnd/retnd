@@ -74,7 +74,7 @@ const backupDataPath = "/data/backups"
 func separationEnv() map[string]string {
 	out := map[string]string{
 		"DISK":     "/srv/dev-disk-by-uuid-0000",
-		"KEY_FILE": "/srv/backupd/secrets/id_ed25519",
+		"KEY_FILE": "/srv/retnd/secrets/id_ed25519",
 	}
 	for k, v := range env() {
 		out[k] = v
@@ -499,8 +499,8 @@ func TestTheSeparationRuleWouldNoticeANestedLayout(t *testing.T) {
 	const nested = `
 services:
   engine:
-    image: backupd:dev
-    command: ["/backupd-web", "serve", "--profile=generic"]
+    image: retnd:dev
+    command: ["/retnd-web", "serve", "--profile=generic"]
     volumes:
       - /srv/backups:/data/backups
       - /srv/backups/private:/data/state
@@ -568,11 +568,11 @@ func (tpl unraidTemplate) mounts() map[string]compose.Mount {
 // biggest half of M8's platform gap.
 //
 // apps/unraid/template/retnd.xml declares exactly the mounts
-// this rule is about (`/mnt/user/appdata/backupd/state`,
+// this rule is about (`/mnt/user/appdata/retnd/state`,
 // `.../secrets/id_ed25519`, `.../secrets/known_hosts` and
-// `/mnt/user/backups/backupd`) as operator-editable Config
+// `/mnt/user/backups/retnd`) as operator-editable Config
 // defaults, and nothing checked that an operator who repoints Backup root
-// at `/mnt/user/appdata/backupd` has just nested the SFTP private
+// at `/mnt/user/appdata/retnd` has just nested the SFTP private
 // key and the local-auth record inside the backup share. It was outside
 // the suite entirely because the suite only ever read Compose documents.
 func TestTheUnraidTemplateKeepsPrivateStateOutOfTheBackupShare(t *testing.T) {
@@ -607,8 +607,8 @@ func TestTheUnraidTemplateReaderSeesTheDeclaredPaths(t *testing.T) {
 
 	const nested = `<?xml version="1.0"?>
 <Container version="2">
-  <Config Name="Application state" Target="/data/state" Default="/mnt/user/backups/backupd/state" Type="Path">/mnt/user/backups/backupd/state</Config>
-  <Config Name="Backup root" Target="/data/backups" Default="/mnt/user/backups/backupd" Type="Path">/mnt/user/backups/backupd</Config>
+  <Config Name="Application state" Target="/data/state" Default="/mnt/user/backups/retnd/state" Type="Path">/mnt/user/backups/retnd/state</Config>
+  <Config Name="Backup root" Target="/data/backups" Default="/mnt/user/backups/retnd" Type="Path">/mnt/user/backups/retnd</Config>
   <Config Name="Listen address" Target="LISTEN_ADDR" Default=":8080" Type="Variable">:8080</Config>
 </Container>`
 
@@ -661,7 +661,7 @@ func TestAnUnresolvedHostPathIsRefusedRatherThanCompared(t *testing.T) {
 	}
 	// The negative half: a real path must not be flagged, or the rule
 	// would fail every artifact and prove nothing about any of them.
-	for _, resolved := range []string{"/mnt/tank/backupd/state", "/srv/backupd/secrets/id_ed25519"} {
+	for _, resolved := range []string{"/mnt/tank/retnd/state", "/srv/retnd/secrets/id_ed25519"} {
 		if got := unresolvedIn(resolved); len(got) != 0 {
 			t.Errorf("unresolvedIn(%q) = %v, want none", resolved, got)
 		}
@@ -673,8 +673,8 @@ func TestAnUnresolvedHostPathIsRefusedRatherThanCompared(t *testing.T) {
 	const templated = `
 services:
   engine:
-    image: backupd:dev
-    command: ["/backupd-web", "serve", "--profile=generic"]
+    image: retnd:dev
+    command: ["/retnd-web", "serve", "--profile=generic"]
     volumes:
       - "{{ .Values.storage.backups.hostPath }}:/data/backups"
       - "{{ .Values.storage.state.hostPath }}:/data/state"

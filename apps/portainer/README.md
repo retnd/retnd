@@ -49,20 +49,20 @@ shape every metadata format reduces to.
    nothing inside the container can create or chown them for you.
 
    ```
-   mkdir -p /opt/backupd/state /opt/backupd/backups \
-            /opt/backupd/config /opt/backupd/secrets
-   chown 1000:1000 /opt/backupd/state /opt/backupd/backups \
-                   /opt/backupd/config /opt/backupd/secrets
+   mkdir -p /opt/retnd/state /opt/retnd/backups \
+            /opt/retnd/config /opt/retnd/secrets
+   chown 1000:1000 /opt/retnd/state /opt/retnd/backups \
+                   /opt/retnd/config /opt/retnd/secrets
    ```
 
-   The Host Workflow Runner's three paths — `/opt/backupd/workflows`,
-   `/opt/backupd/run` and `/opt/backupd/secrets/workflow-runner.token` — are the
+   The Host Workflow Runner's three paths — `/opt/retnd/workflows`,
+   `/opt/retnd/run` and `/opt/retnd/secrets/workflow-runner.token` — are the
    runner installer's to create, not yours (issue #921). The stack mounts them so
    the engine can reach a runner installed on this host; a deployment that runs no
    local hooks needs nothing there.
 
-2. Put the SFTP private key at `/opt/backupd/secrets/id_ed25519` (mode
-   0600) and the pinned host key at `/opt/backupd/secrets/known_hosts`.
+2. Put the SFTP private key at `/opt/retnd/secrets/id_ed25519` (mode
+   0600) and the pinned host key at `/opt/retnd/secrets/known_hosts`.
    Neither is ever baked into the image or into any file in this repository.
 
 3. Register the template. In Portainer, **Settings, App Templates**, and point
@@ -84,11 +84,11 @@ it is ticked.
 
 | Host path | Container path | Holds |
 | --- | --- | --- |
-| `/opt/backupd/state` | `/data/state` | the catalogue and the local administrator record. Private. |
-| `/opt/backupd/backups` | `/data/backups` | retained artifacts, and nothing else. |
-| `/opt/backupd/config` | `/etc/backupd/config` | `config.yaml`, writable, plus the engine's `ssh_keys/` and `known_hosts.d/` stores. |
-| `/opt/backupd/secrets/id_ed25519` | `/etc/backupd/id_ed25519` | the SFTP private key, read-only. |
-| `/opt/backupd/secrets/known_hosts` | `/etc/backupd/known_hosts` | the pinned host key, read-only. |
+| `/opt/retnd/state` | `/data/state` | the catalogue and the local administrator record. Private. |
+| `/opt/retnd/backups` | `/data/backups` | retained artifacts, and nothing else. |
+| `/opt/retnd/config` | `/etc/retnd/config` | `config.yaml`, writable, plus the engine's `ssh_keys/` and `known_hosts.d/` stores. |
+| `/opt/retnd/secrets/id_ed25519` | `/etc/retnd/id_ed25519` | the SFTP private key, read-only. |
+| `/opt/retnd/secrets/known_hosts` | `/etc/retnd/known_hosts` | the pinned host key, read-only. |
 
 Private state and the backup root are separate security domains and neither one
 is inside the other. `distribution/packaging` fails the build if that stops

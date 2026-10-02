@@ -48,7 +48,7 @@ import (
 // where the engine is. Two shapes still refuse, and both are refusals
 // rather than gaps:
 //
-// A `backupd daemon` announces that it serves this deployment and
+// A `retnd daemon` announces that it serves this deployment and
 // serves no HTTP at all (core/service's liveengine.go says so in as many
 // words). There is nothing to route to, so the change is refused exactly
 // as it was before.
@@ -69,7 +69,7 @@ import (
 //
 // # And why the address and the credentials come from the environment
 //
-// Not from flags. `backupd --help` is pinned line for line by
+// Not from flags. `retnd --help` is pinned line for line by
 // core/tests/compat under FR-35's fourth clause, and a password on a
 // command line is in every process listing on the host and in the shell
 // history of whoever typed it. Not from a file either: this binary writes
@@ -384,7 +384,7 @@ func attachToEngine(ctx context.Context, engine *service.RunningEngine) (configW
 		// an operator can pick out of an access log. #543's claim is that a
 		// routed command leaves the same audit trail as the Web UI, and
 		// "Go-http-client/1.1" names no product and no version.
-		UserAgent: fmt.Sprintf("backupd/%s (api %s)", version, apicontract.Version),
+		UserAgent: fmt.Sprintf("retnd/%s (api %s)", version, apicontract.Version),
 	})
 	if err != nil {
 		// A routeRefusal like every other way this function refuses a

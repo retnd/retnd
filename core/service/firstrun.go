@@ -138,7 +138,7 @@ func NewFirstRun(defaults FirstRunDefaults) (*FirstRun, error) {
 		return nil, fmt.Errorf("service: first run config path %q must be absolute", defaults.ConfigPath)
 	}
 	// Issue #196 made the packaged configuration mount a DIRECTORY, so
-	// `--config /etc/backupd/config` is a spelling an operator is
+	// `--config /etc/retnd/config` is a spelling an operator is
 	// actively invited to type (config.ResolvePath's own doc). Resolving
 	// it here, once, at the boundary where a deployment's answer becomes
 	// this type's, is what keeps everything derived from ConfigPath

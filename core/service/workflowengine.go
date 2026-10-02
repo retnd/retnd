@@ -133,7 +133,7 @@ type workflowRuntime struct {
 //
 // A post-construction setter for EnableAlerts' reason: the value comes
 // from the provider binary (an -ldflags variable in cmd/retnd or
-// backupd-web), and threading it through Open would make every core/ test
+// retnd-web), and threading it through Open would make every core/ test
 // that opens a service state a version it has no opinion about.
 //
 // What it is FOR is the host runner's version check. The engine and the
@@ -311,13 +311,13 @@ func (b *BackupService) WorkflowReconcileGate() error {
 // CLI-triggered backup of a workflow-configured set created no run row,
 // ran no hook, and -- the part that makes it a safety defect rather than
 // a missing feature -- never consulted the recovery holds, so an
-// ordinary `backupd run` proceeded over a source an interrupted hook had
+// ordinary `retnd run` proceeded over a source an interrupted hook had
 // left quiesced.
 //
 // The alternative was for the CLI to submit its work to a serving engine,
 // and that is not available: `run` and `fetch` are what an operator uses
 // on a host with nothing serving at all, their output and exit status are
-// pinned by FR-35, and a `backupd daemon` serves no HTTP to submit to.
+// pinned by FR-35, and a `retnd daemon` serves no HTTP to submit to.
 // What they need is the identical service the engine builds, with the
 // lifecycle really installed, which is what this returns.
 //
@@ -496,7 +496,7 @@ func (l *workflowLifecycle) AroundBackupSet(ctx context.Context, set config.Back
 	// without this the pass returns success to a cycle that took no
 	// backup at all. That is the one outcome this seam must never
 	// produce: internal/app would record the set with no error and no
-	// artifacts, `backupd run` would exit 0, and the deployment would
+	// artifacts, `retnd run` would exit 0, and the deployment would
 	// report a healthy night on which nothing was backed up.
 	//
 	// The run's own state says which of the three it was, and the failed
@@ -825,7 +825,7 @@ func toRecoveryHolds(holds []workflowrun.RecoveryHold) []WorkflowRecoveryHold {
 // Short, and much shorter than a hook's own timeout, because every use of
 // it is a QUESTION rather than work: is the runner there, can this
 // connection run a command, does bash parse these bytes. An operator
-// running `backupd validate` is waiting at a terminal, and a validation
+// running `retnd validate` is waiting at a terminal, and a validation
 // that hangs for the length of a script timeout against an unreachable
 // host is one nobody runs twice.
 const workflowProbeTimeout = 20 * time.Second

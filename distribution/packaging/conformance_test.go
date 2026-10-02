@@ -307,7 +307,7 @@ func allPlatforms() []platformFixture {
 			},
 			acceptance: "proxmox-ve-deployment.md",
 			// Every path the Proxmox procedure names is literal: the
-			// share root is /mnt/backupd inside the guest, and
+			// share root is /mnt/retnd inside the guest, and
 			// the profile derives the rest from it, so there is no
 			// machine-specific placeholder to expand.
 			docSubstitutions: map[string]string{},
@@ -578,7 +578,7 @@ func TestArchitectureParityAndRecordedBinaryHashes(t *testing.T) {
 			// the path: #890 renamed the files the image carries to
 			// /retnd and /retnd-web, while an entry recorded for an
 			// already-published release keeps the keys it went out under
-			// (0.4.0's say backupd and backupd-web). manifestBinaryKeys
+			// (0.4.0's say retnd and retnd-web). manifestBinaryKeys
 			// is the single place the two spellings are bridged, and it
 			// prefers the new one. Reading the path here instead would
 			// report every binary missing on every architecture for as

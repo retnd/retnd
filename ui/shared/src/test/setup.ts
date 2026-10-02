@@ -22,8 +22,8 @@ function storageIsUsable(): boolean {
     // present and unusable. Use it, and believe the answer.
     const probe = window.localStorage;
     if (!probe) return false;
-    probe.setItem("backupd.storage-probe", "1");
-    probe.removeItem("backupd.storage-probe");
+    probe.setItem("retnd.storage-probe", "1");
+    probe.removeItem("retnd.storage-probe");
     return true;
   } catch {
     return false;

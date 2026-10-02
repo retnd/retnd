@@ -197,7 +197,7 @@ func provisionalAdmin(t *testing.T, store *Store, token string, created, deadlin
 		VerificationTokenHash:      hashVerificationToken(token),
 		VerificationTokenExpiresAt: &expires,
 		CreatedAt:                  created,
-	}, &SMTPRecord{Host: "smtp.invalid.test", Port: 587, Security: "starttls", From: "backupd@example.test"}); err != nil {
+	}, &SMTPRecord{Host: "smtp.invalid.test", Port: 587, Security: "starttls", From: "retnd@example.test"}); err != nil {
 		t.Fatalf("Enroll: %v", err)
 	}
 }

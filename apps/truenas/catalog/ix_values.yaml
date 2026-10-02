@@ -6,15 +6,15 @@ image:
 
 storage:
   state:
-    hostPath: "/mnt/tank/backupd/state"
+    hostPath: "/mnt/tank/retnd/state"
   backups:
-    hostPath: "/mnt/tank/backupd/backups"
+    hostPath: "/mnt/tank/retnd/backups"
   configDir:
-    hostPath: "/mnt/tank/backupd/config"
+    hostPath: "/mnt/tank/retnd/config"
   sshKey:
-    hostPath: "/mnt/tank/backupd/secrets/id_ed25519"
+    hostPath: "/mnt/tank/retnd/secrets/id_ed25519"
   knownHosts:
-    hostPath: "/mnt/tank/backupd/secrets/known_hosts"
+    hostPath: "/mnt/tank/retnd/secrets/known_hosts"
 
 network:
   webPort: 8080

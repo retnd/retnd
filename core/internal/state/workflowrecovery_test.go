@@ -61,7 +61,7 @@ func TestRecoverWorkflowPlanRebuildsThePlannedEnvironment(t *testing.T) {
 	planned := []workflow.EnvVar{
 		{Name: "PGHOST", Value: "db.internal"},
 		{Name: "PGOPTIONS", Value: ""},
-		{Name: "PGPASSWORD", Secret: secretref.Ref{File: "/etc/backupd/secrets/db.pw"}},
+		{Name: "PGPASSWORD", Secret: secretref.Ref{File: "/etc/retnd/secrets/db.pw"}},
 		{Name: "API_TOKEN", Secret: secretref.Ref{Env: "RETND_TEST_TOKEN"}},
 		{Name: "VAULT_PW", Secret: secretref.Ref{Command: []string{"vault", "read", "-field=password", "secret/prod/db"}}},
 	}
@@ -421,7 +421,7 @@ func TestCommitWorkflowPlanRefusesAStepSpooledOutsideItsRun(t *testing.T) {
 	ctx := context.Background()
 
 	plan := testWorkflowPlan("run-1")
-	plan.Steps[0].SpoolRef = "/var/lib/backupd/workflow-runs/some-other-run/scripts/" + plan.Steps[0].ID
+	plan.Steps[0].SpoolRef = "/var/lib/retnd/workflow-runs/some-other-run/scripts/" + plan.Steps[0].ID
 
 	err := j.CommitWorkflowPlan(ctx, plan)
 	if err == nil {

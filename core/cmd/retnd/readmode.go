@@ -333,7 +333,7 @@ func dialEngine() (*apiclient.Client, error) {
 		BaseURL:   base,
 		Username:  envcompat.Value(apiUsernameRoute),
 		Password:  envcompat.Value(apiPasswordRoute),
-		UserAgent: "backupd-cli/" + version,
+		UserAgent: "retnd-cli/" + version,
 	})
 }
 

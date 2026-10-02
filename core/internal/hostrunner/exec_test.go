@@ -17,7 +17,7 @@ import (
 // acceptance criterion, reduced to the two things it claims that can be
 // claimed without a daemon.
 //
-// The hook runs on the HOST -- the machine backupd is installed on --
+// The hook runs on the HOST -- the machine retnd is installed on --
 // rather than inside the distroless engine container, which has no shell
 // at all. And it gets there through a container this runner created and
 // then started: the call log shows both, with this step's container name

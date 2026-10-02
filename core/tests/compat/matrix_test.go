@@ -122,7 +122,7 @@ var matrixPairs = []matrixPair{
 	},
 	{
 		name:     "EPIC R",
-		spec:     "../../../docs/EPIC-R-rename-backupd-to-retnd.md",
+		spec:     "../../../docs/EPIC-R-rename-retnd-to-retnd.md",
 		matrix:   "../../../docs/conformance/epic-r-matrix.md",
 		gateID:   regexp.MustCompile(`^R[12]\.\d+$`),
 		ledgerID: regexp.MustCompile(`^V\.\d+$`),

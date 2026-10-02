@@ -178,8 +178,8 @@ A local hook does not run on the host's shell either. Since #865 the runner
 launches one ephemeral container per hook:
 
 ```text
-docker create --name backupd-hook-<run>-<step>-<16 hex>
-           --label backupd.workflow-hook=1 (plus run, step and instance labels)
+docker create --name retnd-hook-<run>-<step>-<16 hex>
+           --label retnd.workflow-hook=1 (plus run, step and instance labels)
            --network none --security-opt no-new-privileges --cap-drop ALL
            --read-only --tmpfs /tmp --pids-limit 512 --user <uid>:<gid>
            --platform <the daemon's own> --entrypoint <bash in the image>
@@ -559,7 +559,7 @@ One mount is redeclared, and the host side of it does not move either:
 | | Phase 4 | Converted adapter |
 |---|---|---|
 | host path | `<appdata>/config/config.yaml` | `<appdata>/config` |
-| container path | `/etc/backupd/config.yaml` | `/etc/retnd/config` |
+| container path | `/etc/retnd/config.yaml` | `/etc/retnd/config` |
 | mode | `ro` | writable |
 
 The file an operator already has stays exactly where it is; what the adapter
@@ -583,8 +583,8 @@ The `${VAR:?}` claim only ever covered the first three rows. There is no
 `${VAR:?}` anywhere in a TrueNAS catalog answer or an Unraid template, and
 saying otherwise made a fail-closed guarantee out of a property those two
 platforms do not have. On TrueNAS the failure it hid was concrete: an upgrade
-that kept a Phase 4 answer of `<pool>/backupd/config/config.yaml` bind
-mounts that FILE at the container's configuration mount — `/etc/backupd/config`
+that kept a Phase 4 answer of `<pool>/retnd/config/config.yaml` bind
+mounts that FILE at the container's configuration mount — `/etc/retnd/config`
 as it was spelled then, `/etc/retnd/config` since issue #890 — `--config`
 resolves to `config.yaml` inside it, and the engine crash-loops
 on ENOTDIR with a message naming neither the mount nor the migration.
@@ -610,22 +610,22 @@ artifacts and its enrolled administrator across the change.
 
 | | before #890 | after #890 |
 |---|---|---|
-| container config path | `/etc/backupd/config` | `/etc/retnd/config` |
-| container key material | `/etc/backupd/id_ed25519`, `/etc/backupd/known_hosts` | `/etc/retnd/id_ed25519`, `/etc/retnd/known_hosts` |
-| container runner token | `/etc/backupd/workflow-runner.token` | `/etc/retnd/workflow-runner.token` |
-| image entrypoints | `/backupd`, `/backupd-web` | `/retnd`, `/retnd-web`, plus `/backupd-web` as a real hardlink for one release |
-| image `HEALTHCHECK` | `/backupd status` | `/retnd status` |
-| engine compose service | `backupd` | `retnd`; `web-ui` never named the product and does not move |
+| container config path | `/etc/retnd/config` | `/etc/retnd/config` |
+| container key material | `/etc/retnd/id_ed25519`, `/etc/retnd/known_hosts` | `/etc/retnd/id_ed25519`, `/etc/retnd/known_hosts` |
+| container runner token | `/etc/retnd/workflow-runner.token` | `/etc/retnd/workflow-runner.token` |
+| image entrypoints | `/retnd`, `/retnd-web` | `/retnd`, `/retnd-web`, plus `/retnd-web` as a real hardlink for one release |
+| image `HEALTHCHECK` | `/retnd status` | `/retnd status` |
+| engine compose service | `retnd` | `retnd`; `web-ui` never named the product and does not move |
 | compose project name | implicit, from the directory | explicit `name: retnd`, so the default containers are `retnd-retnd-1` and `retnd-web-ui-1` |
-| systemd units | `backupd-bridge.service`, `backupd-bridge.timer`, `backupd-workflow-runner.service` | `retnd-bridge.service`, `retnd-bridge.timer`, `retnd-workflow-runner.service` |
+| systemd units | `retnd-bridge.service`, `retnd-bridge.timer`, `retnd-workflow-runner.service` | `retnd-bridge.service`, `retnd-bridge.timer`, `retnd-workflow-runner.service` |
 | `/data/state`, `/data/backups` | unchanged | unchanged |
 | image reference | `ghcr.io/retnd/retnd` | unchanged by this issue; #895 moves it, and pushes the old package path alongside the new one for one release because a GHCR package path is not covered by GitHub's transfer redirects |
 
 | what carries the old answer | what stops it |
 |---|---|
-| an operator's pinned copy of a previously published `compose.yaml`, which this repository cannot edit | nothing has to: the image carries `/backupd-web` as a real hardlink to `/retnd-web` — one inode, two names, no second copy of the binary and no shell wrapper, because the runtime image is distroless — so an unedited pinned file still starts. Kept for exactly one release and removed by #895. There is deliberately no `/backupd` beside it, because no compose file this project has ever shipped named `/backupd` in a `command:` or a `healthcheck:` |
-| a host directory bind-mounted at the old container path | FR-38's state-adoption preflight in `core/service`. For any resolved path with a path segment that is exactly `retnd` it also resolves the `backupd` counterpart, and ADOPTS the legacy location with a warning on every start rather than handing a first-run wizard to a deployment with years of journal in it. It refuses to start only on ambiguity — both populated, different device and inode — and names both paths when it does |
-| a provider adapter's own `command:`, service names and file names | issue #891 moved them as one cut: all eleven adapters name `retnd`, the `retnd` compose project and `retnd-retnd-1`/`retnd-web-ui-1`. Their HOST paths deliberately did not move — those are the operator's own directories, and §6 of `docs/EPIC-R-rename-backupd-to-retnd.md` cuts renaming them. The packaging gates still accept both entrypoint spellings from one place, `distribution/packaging/renameoverlap.go`, rather than each gate deciding for itself, because an operator's pinned copy of a provider file still says `/backupd-web`; `distribution/packaging/canonical.json`'s `retainedBinaries` is the data behind it and #895 deletes both |
+| an operator's pinned copy of a previously published `compose.yaml`, which this repository cannot edit | nothing has to: the image carries `/retnd-web` as a real hardlink to `/retnd-web` — one inode, two names, no second copy of the binary and no shell wrapper, because the runtime image is distroless — so an unedited pinned file still starts. Kept for exactly one release and removed by #895. There is deliberately no `/retnd` beside it, because no compose file this project has ever shipped named `/retnd` in a `command:` or a `healthcheck:` |
+| a host directory bind-mounted at the old container path | FR-38's state-adoption preflight in `core/service`. For any resolved path with a path segment that is exactly `retnd` it also resolves the `retnd` counterpart, and ADOPTS the legacy location with a warning on every start rather than handing a first-run wizard to a deployment with years of journal in it. It refuses to start only on ambiguity — both populated, different device and inode — and names both paths when it does |
+| a provider adapter's own `command:`, service names and file names | issue #891 moved them as one cut: all eleven adapters name `retnd`, the `retnd` compose project and `retnd-retnd-1`/`retnd-web-ui-1`. Their HOST paths deliberately did not move — those are the operator's own directories, and §6 of `docs/EPIC-R-rename-retnd-to-retnd.md` cuts renaming them. The packaging gates still accept both entrypoint spellings from one place, `distribution/packaging/renameoverlap.go`, rather than each gate deciding for itself, because an operator's pinned copy of a provider file still says `/retnd-web`; `distribution/packaging/canonical.json`'s `retainedBinaries` is the data behind it and #895 deletes both |
 | the `binary_sha256` keys of an already-published release in `container/release-manifest.json` | nothing rewrites them. They record the SHA-256 of bytes that were built and pushed before the rename, which is evidence rather than a label, so every consumer accepts both spellings across the overlap release, new spelling first |
 | a pre-#196 single-file configuration mount, under either spelling | `distribution/packaging`'s `legacy-config-file-mount` rule, which derives the pre-rename spellings of both file shapes rather than hardcoding them, and refuses the mount with the three write paths it breaks named |
 
@@ -754,7 +754,7 @@ working with no change. What is new is additive:
 | `--profile=${RUNTIME_PROFILE:-generic}` on both commands | none; `generic` is what the previous build did |
 | `TZ: ${TZ:-UTC}` | none; UTC is what the image defaulted to |
 | `stop_grace_period` | the engine now gets 30s instead of Docker's 10s default, so a shutdown during a journal write is less likely to be killed mid-write |
-| explicit `healthcheck` on the engine | the engine's compose healthcheck is now `/health/live` rather than the image's own freshness verdict, so a DEGRADED or unconfigured instance no longer keeps `web-ui` from starting. Backup freshness stays the image's own HEALTHCHECK, the alerts block, and `docker compose exec retnd /retnd status` (that command was `docker compose exec backupd /backupd status` before issue #890 moved the service name and the entrypoints) |
+| explicit `healthcheck` on the engine | the engine's compose healthcheck is now `/health/live` rather than the image's own freshness verdict, so a DEGRADED or unconfigured instance no longer keeps `web-ui` from starting. Backup freshness stays the image's own HEALTHCHECK, the alerts block, and `docker compose exec retnd /retnd status` (that command was `docker compose exec retnd /retnd status` before issue #890 moved the service name and the entrypoints) |
 | `UI_DIR` / `UI_ROOT` on `web-ui` | none when unset, which is the default |
 | `x-canonical-runtime` | none at runtime; compose ignores unknown `x-` keys |
 

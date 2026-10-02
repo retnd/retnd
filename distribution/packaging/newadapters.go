@@ -144,7 +144,7 @@ func CheckPortainerTemplate(source string, t PortainerTemplates, composeVars []s
 	for _, v := range tpl.Volumes {
 		if HostPathIsAt(v.Bind, "/var/run/docker.sock") || HostPathIsAt(v.Bind, "/run/docker.sock") {
 			out = append(out, Violation{source, RuleProhibitedHostPath,
-				fmt.Sprintf("the template binds %s: Portainer holds the Docker socket because that is what Portainer is, and backupd must never inherit it", v.Bind)})
+				fmt.Sprintf("the template binds %s: Portainer holds the Docker socket because that is what Portainer is, and retnd must never inherit it", v.Bind)})
 		}
 	}
 	if tpl.Image != "" {
@@ -222,7 +222,7 @@ var productPluginMarkers = []struct {
 	{"/api/endpoints", "calls the Portainer API"},
 	{"portainer-ce/api", "imports the Portainer API"},
 	{"portainer/agent", "deploys the Portainer agent, which is a second privileged component this product does not need"},
-	{"PORTAINER_API_KEY", "authenticates against the Portainer API, which makes Portainer a runtime dependency of the backupd"},
+	{"PORTAINER_API_KEY", "authenticates against the Portainer API, which makes Portainer a runtime dependency of the retnd"},
 	{"X-API-Key", "authenticates against a management API"},
 	{"dockge/plugin", "ships a Dockge plugin"},
 }

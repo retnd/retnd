@@ -121,7 +121,7 @@ it restores, whose target is content rather than an instruction.
 
 ### Nothing partially written ever carries an entry's real name
 
-Every file is written to a `.backupd-restore-*` working file in its
+Every file is written to a `.retnd-restore-*` working file in its
 destination directory and renamed into place. A cancelled, refused or
 failed restore removes the working file, so the destination holds fewer
 files rather than a plausible wrong one. `RestoreReport.Complete` is set

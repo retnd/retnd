@@ -27,7 +27,7 @@ const validDomainBody = `{
   "id": "offsite-b2",
   "description": "Second copy, off site",
   "isolation": "isolated",
-  "passphrase": {"file": "/etc/backupd/offsite-b2.passphrase"},
+  "passphrase": {"file": "/etc/retnd/offsite-b2.passphrase"},
   "maintenance_owner": "this"
 }`
 
@@ -71,7 +71,7 @@ func TestCreateRepositoryDomain_PassesAReferenceThroughAndAnswersWithTheCreatedD
 	if got.ID != "offsite-b2" || got.Isolation != "isolated" {
 		t.Errorf("the service was handed %+v, which is not what the body said", got)
 	}
-	if got.Passphrase.File != "/etc/backupd/offsite-b2.passphrase" {
+	if got.Passphrase.File != "/etc/retnd/offsite-b2.passphrase" {
 		t.Errorf("the passphrase reference did not cross the boundary: %+v", got.Passphrase)
 	}
 	if got.MaintenanceOwner != "this" {

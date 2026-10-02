@@ -134,7 +134,7 @@ green "a source SVG whose name is on aria-label is accepted" "$tree" "$svg_check
 tree="$(new_repo)"
 {
   echo '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">'
-  echo '  <title>backupd</title>'
+  echo '  <title>retnd</title>'
   echo '  <circle cx="24" cy="24" r="17"/>'
   echo '</svg>'
 } | write "$tree" docs/site/assets/icon.svg
@@ -179,12 +179,12 @@ green "the store icon's required <title> is accepted when it reads the product n
 tree="$(new_repo)"
 {
   echo '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" role="img" aria-label="retnd">'
-  echo '  <title>backupd</title>'
+  echo '  <title>retnd</title>'
   echo '</svg>'
 } | write "$tree" docs/submission/icon.svg
 commit "$tree"
 red "the same <title> carrying the old name goes red in the exempt file too" \
-  "$tree" "$svg_check" "docs/submission/icon.svg:2:" "backupd" "has to read retnd"
+  "$tree" "$svg_check" "docs/submission/icon.svg:2:" "retnd" "has to read retnd"
 
 tree="$(new_repo)"
 {

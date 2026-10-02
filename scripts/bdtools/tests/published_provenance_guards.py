@@ -63,7 +63,7 @@ CHECK = Path(__file__).resolve().parent.parent.parent / "release" / "check-publi
 # so much that a reader has to diff it against the real thing to see
 # what a case mutated.
 PUBLISHED = {
-    "schema": "backupd/release-provenance/1",
+    "schema": "retnd/release-provenance/1",
     "semanticVersion": "0.4.0",
     "imageReference": "ghcr.io/retnd/retnd:0.4.0",
     "releaseManifest": {

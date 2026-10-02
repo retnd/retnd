@@ -531,7 +531,7 @@ func TestReservedNamespaceIsInvisibleToArtifactManagement(t *testing.T) {
 	}
 
 	// And a path that merely starts with the same characters is outside.
-	if backupengine.LocalPathIsReserved(root, filepath.Join(root, ".backupdata", "x")) {
+	if backupengine.LocalPathIsReserved(root, filepath.Join(root, ".retndata", "x")) {
 		t.Errorf("LocalPathIsReserved matches on a string prefix rather than a path boundary")
 	}
 }
@@ -593,8 +593,8 @@ func TestApprovedDomainAdmitsSeveralBackupSets(t *testing.T) {
 	writeSourceTree(t, dirA)
 	copyTree(t, dirA, dirB)
 
-	sourceA := backupengine.Source{Host: "host-a", User: "backupd", Path: dirA}
-	sourceB := backupengine.Source{Host: "host-b", User: "backupd", Path: dirB}
+	sourceA := backupengine.Source{Host: "host-a", User: "retnd", Path: dirA}
+	sourceB := backupengine.Source{Host: "host-b", User: "retnd", Path: dirB}
 
 	// The tags are how the repository knows which set a snapshot belongs
 	// to, and they are what Stats counts: this is the production sink's
@@ -735,7 +735,7 @@ func TestStatsSeesACrossedIsolationBoundary(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "ledger")
 	writeSourceTree(t, dir)
 
-	src := backupengine.Source{Host: "ledger-host", User: "backupd", Path: dir}
+	src := backupengine.Source{Host: "ledger-host", User: "retnd", Path: dir}
 
 	if _, err := rep.Snapshot(ctx, backupengine.SnapshotRequest{Source: src, Tags: setTags(own)}); err != nil {
 		t.Fatalf("Snapshot of the domain's own set: %v", err)

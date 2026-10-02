@@ -14,7 +14,7 @@ export const unraidBridge: PlatformBridge = {
     // A dedicated directory inside the backups share, not the share
     // itself: the share is very likely one the operator already uses.
     // Pinned to distribution/packaging/canonical.json.
-    storageMount: "/mnt/user/backups/backupd",
+    storageMount: "/mnt/user/backups/retnd",
     adapterVersion: "unraid 1.2.0"
   },
 

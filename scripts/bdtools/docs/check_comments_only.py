@@ -148,7 +148,7 @@ def body(root: Path, ref: str, only: list[str]) -> int:
         print(f"{PROGRAM}: {ref} is not a commit in this repository", file=sys.stderr)
         raise SystemExit(harness.EXIT_USAGE)
 
-    with tempfile.TemporaryDirectory(prefix="backupd-comments-only.") as tmp_name:
+    with tempfile.TemporaryDirectory(prefix="retnd-comments-only.") as tmp_name:
         tmp = Path(tmp_name)
 
         # Built once. `go run` per file would be a compile per file, and

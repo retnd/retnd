@@ -39,8 +39,8 @@ can reach or building elsewhere and loading it. The previous release,
 rather run that:
 
 ```bash
-docker buildx build --platform=linux/amd64,linux/arm64 -f container/Dockerfile -t backupd:acceptance .
-docker save backupd:acceptance | ssh admin@<host> 'docker load'
+docker buildx build --platform=linux/amd64,linux/arm64 -f container/Dockerfile -t retnd:acceptance .
+docker save retnd:acceptance | ssh admin@<host> 'docker load'
 ```
 
 - [ ] The image is resolvable on the host, and the exact reference used is recorded
@@ -48,8 +48,8 @@ docker save backupd:acceptance | ssh admin@<host> 'docker load'
 ### 0.3 Create the host paths
 
 ```bash
-mkdir -p /opt/backupd/state /opt/backupd/backups \
-         /opt/backupd/config /opt/backupd/secrets
+mkdir -p /opt/retnd/state /opt/retnd/backups \
+         /opt/retnd/config /opt/retnd/secrets
 ```
 
 The runtime image is distroless: no shell, no root step, nothing inside the
@@ -61,11 +61,11 @@ following `docs/ssh-setup.md`. Never commit either, and never paste a private ke
 into the evidence table.
 
 ```bash
-ssh-keygen -t ed25519 -N "" -f /opt/backupd/secrets/id_ed25519
-ssh-keyscan -t ed25519 <sftp-host> > /opt/backupd/secrets/known_hosts
+ssh-keygen -t ed25519 -N "" -f /opt/retnd/secrets/id_ed25519
+ssh-keyscan -t ed25519 <sftp-host> > /opt/retnd/secrets/known_hosts
 ```
 
-**Recurse only over what this step created.** `/opt/backupd/backups` is the retained
+**Recurse only over what this step created.** `/opt/retnd/backups` is the retained
 backup store: on a reinstall it already holds data this procedure did not write,
 and a recursive ownership change across it rewrites all of it with nothing to
 restore it from. So the private trees are chowned recursively and the backup root
@@ -74,15 +74,15 @@ fails the build if any procedure in this directory recurses over a backup root o
 a parent of one.
 
 ```bash
-chown -R 1000:1000 /opt/backupd/state /opt/backupd/config /opt/backupd/secrets
-chown 1000:1000 /opt/backupd/backups
-chmod 600 /opt/backupd/secrets/id_ed25519
+chown -R 1000:1000 /opt/retnd/state /opt/retnd/config /opt/retnd/secrets
+chown 1000:1000 /opt/retnd/backups
+chmod 600 /opt/retnd/secrets/id_ed25519
 ```
 
 - [ ] All four paths exist and are owned by the app's uid and gid
 - [ ] The recursive ownership change touched only state, config and secrets
 - [ ] It ran **after** the key and `known_hosts` were created
-- [ ] `/opt/backupd/config` is writable by the app's uid and gid
+- [ ] `/opt/retnd/config` is writable by the app's uid and gid
 - [ ] Key material lives only on this host, redacted everywhere else
 
 ---
@@ -116,9 +116,9 @@ it over SSH on the host running the Docker engine, not inside the Portainer cont
 Skip this block entirely to use the first-run flow instead.
 
 ```bash
-$EDITOR /opt/backupd/config/config.yaml
-chown 1000:1000 /opt/backupd/config/config.yaml
-chmod 600 /opt/backupd/config/config.yaml
+$EDITOR /opt/retnd/config/config.yaml
+chown 1000:1000 /opt/retnd/config/config.yaml
+chmod 600 /opt/retnd/config/config.yaml
 ```
 
 The container-side paths in it are fixed by this package and must not be changed:
@@ -129,7 +129,7 @@ annotated example is this same file with another platform's host paths, and
 **Never commit the config or paste one into the evidence table:** it names the SFTP
 host and user.
 
-- [ ] Either `config.yaml` is written into `/opt/backupd/config` **before** the install
+- [ ] Either `config.yaml` is written into `/opt/retnd/config` **before** the install
       and is valid, or that directory is left empty and the first-run flow writes it.
       A file that exists and does not validate is the one state that refuses the start,
       so record which of the two routes this run took
@@ -194,10 +194,10 @@ host and user.
 
 ## Step 4 — Storage mapping and backup-root containment
 
-- [ ] Private state lands under `/opt/backupd/state`
-- [ ] Retained artifacts land under `/opt/backupd/backups`
+- [ ] Private state lands under `/opt/retnd/state`
+- [ ] Retained artifacts land under `/opt/retnd/backups`
 - [ ] No SSH private key, `known_hosts`, config file or authentication record
-      exists anywhere under `/opt/backupd/backups`
+      exists anywhere under `/opt/retnd/backups`
 - [ ] The key and `known_hosts` are mounted read-only, and a write attempt from
       inside the container fails
 - [ ] The configuration directory is mounted **writable**: creating a backup set
@@ -232,15 +232,15 @@ Capture a baseline before the pull and compare after it, so "everything
 survived" is a diff rather than an impression:
 
 ```bash
-sha256sum /opt/backupd/state/state.db | tee /root/portainer-before-update.sha256
-find /opt/backupd/backups -type f -printf '%p %s\n' | sort > /root/portainer-before-update.txt
+sha256sum /opt/retnd/state/state.db | tee /root/portainer-before-update.sha256
+find /opt/retnd/backups -type f -printf '%p %s\n' | sort > /root/portainer-before-update.txt
 ```
 
 Then, in Portainer, open the stack and use **Update the stack** with
 "Re-pull image" enabled, or run the equivalent on the host.
 
 ```bash
-find /opt/backupd/backups -type f -printf '%p %s\n' | sort > /root/portainer-after-update.txt
+find /opt/retnd/backups -type f -printf '%p %s\n' | sort > /root/portainer-after-update.txt
 diff /root/portainer-before-update.txt /root/portainer-after-update.txt
 ```
 
@@ -259,9 +259,9 @@ looking. **Capture the baseline first and write it outside the tree you are
 about to test**, so whatever damages the tree cannot damage the evidence:
 
 ```bash
-dd if=/dev/urandom of=/opt/backupd/backups/acceptance-canary.bin bs=1M count=8
-sha256sum /opt/backupd/backups/acceptance-canary.bin | tee /root/portainer-canary.sha256
-find /opt/backupd/backups -type f -printf '%p %s\n' | sort > /root/portainer-before-remove.txt
+dd if=/dev/urandom of=/opt/retnd/backups/acceptance-canary.bin bs=1M count=8
+sha256sum /opt/retnd/backups/acceptance-canary.bin | tee /root/portainer-canary.sha256
+find /opt/retnd/backups -type f -printf '%p %s\n' | sort > /root/portainer-before-remove.txt
 ```
 
 Now remove the stack in Portainer: open it and press **Delete this stack**.
@@ -273,7 +273,7 @@ Then verify against the baseline, before inspecting anything else:
 
 ```bash
 sha256sum -c /root/portainer-canary.sha256
-find /opt/backupd/backups -type f -printf '%p %s\n' | sort > /root/portainer-after-remove.txt
+find /opt/retnd/backups -type f -printf '%p %s\n' | sort > /root/portainer-after-remove.txt
 diff /root/portainer-before-remove.txt /root/portainer-after-remove.txt
 ```
 
@@ -281,7 +281,7 @@ diff /root/portainer-before-remove.txt /root/portainer-after-remove.txt
       artifact is untouched, byte for byte
 - [ ] Deleting the stack with volume removal enabled deleted no
       retained artifact either: the same `sha256sum -c` and `diff` are still clean
-- [ ] `/opt/backupd/state` still holds the catalogue, so a reinstall
+- [ ] `/opt/retnd/state` still holds the catalogue, so a reinstall
       pointed at the same paths comes back with the same backup sets
 - [ ] Removing this adapter removes no core behaviour: the same image runs
       unchanged under `container/compose.yaml` on a plain Docker host
@@ -304,7 +304,7 @@ ls /etc/systemd/system > /root/portainer-baseline-units.txt 2>/dev/null || true
 
 ## Step 9 — Destructive-safety re-check
 
-- [ ] A backup set configured with a root outside `/opt/backupd/backups` is refused
+- [ ] A backup set configured with a root outside `/opt/retnd/backups` is refused
 - [ ] A symlink inside the backup root that points outside it is not followed into a delete
 - [ ] A retention apply deletes only artifacts under the backup root
 - [ ] Nothing under the private state, config or secrets paths is ever a delete target
@@ -371,9 +371,9 @@ rather than a hook that runs:
 
 | Form field | In the container | Why |
 |---|---|---|
-| `WORKFLOWS_DIR` (`/opt/backupd/workflows`) | `/workflows` (read-only) | the hook scripts the engine reads |
-| `RUNTIME_DIR` (`/opt/backupd/run`) | `/data/run` | where the runner's socket appears |
-| `RUNNER_TOKEN_FILE` (`/opt/backupd/secrets/workflow-runner.token`) | `/etc/retnd/workflow-runner.token` (read-only) | the credential the engine presents |
+| `WORKFLOWS_DIR` (`/opt/retnd/workflows`) | `/workflows` (read-only) | the hook scripts the engine reads |
+| `RUNTIME_DIR` (`/opt/retnd/run`) | `/data/run` | where the runner's socket appears |
+| `RUNNER_TOKEN_FILE` (`/opt/retnd/secrets/workflow-runner.token`) | `/etc/retnd/workflow-runner.token` (read-only) | the credential the engine presents |
 
 So install the runner with `--workflows-dir` and `--runtime-dir` pointed at the
 first two, and its token written to the third. None of the three hands this
@@ -388,7 +388,7 @@ point of the runner being a host unit and not a container in this stack.
 - [ ] The hook image is present on the host (`docker image inspect <the reference>`), and
       the reference the unit was installed with is recorded
 - [ ] A workflow with one `local` hook runs, and its container is gone afterwards
-      (`docker ps -a --filter label=backupd.workflow-hook=1` is empty)
+      (`docker ps -a --filter label=retnd.workflow-hook=1` is empty)
 
 
 ## Evidence (section 68)

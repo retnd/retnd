@@ -188,7 +188,7 @@ def _json_edit(path: Path, fn: Callable[[dict[str, Any]], None]) -> None:
 def body(root: Path) -> int:
     tally = Tally()
 
-    with tempfile.TemporaryDirectory(prefix="backupd-api-selftest.") as tmp_str:
+    with tempfile.TemporaryDirectory(prefix="retnd-api-selftest.") as tmp_str:
         tmp = Path(tmp_str)
 
         drift = ["bash", "scripts/api/check-contract-drift.sh"]

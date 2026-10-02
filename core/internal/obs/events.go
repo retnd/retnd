@@ -190,7 +190,7 @@ const (
 
 	// EventAPIAction records one action somebody took through the
 	// /api/v1 surface: what was asked, by whom, what came back, and the
-	// `backupd` command that would have done the same thing
+	// `retnd` command that would have done the same thing
 	// (issue #599).
 	//
 	// It is the one event in this catalog that is not emitted by the
@@ -303,7 +303,7 @@ const (
 // "dev" / "none" in a non-release build), and goVersion is typically
 // runtime.Version(). None of these are secret; they exist to make "which
 // build is this" answerable from a log line alone, without shelling into
-// the host to run `backupd version`.
+// the host to run `retnd version`.
 func (l *Logger) Startup(ctx context.Context, binaryVersion, commit, goVersion string) {
 	l.emit(ctx, LevelInfo, EventStartup, cliecho.Binary+" starting",
 		slog.String("version", binaryVersion),

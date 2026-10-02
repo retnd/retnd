@@ -23,7 +23,7 @@ import (
 // nothing watches that file. So on the one deployment where this matters
 // -- a NAS with a daemon serving, which is every real one -- "edit the
 // file" is advice that leaves the change unread until somebody restarts.
-// EPIC G's rule is that every capability is reachable from `backupd`
+// EPIC G's rule is that every capability is reachable from `retnd`
 // as well as from a browser, and a browser-only workflow configuration is
 // one nobody can roll out across a fleet.
 //

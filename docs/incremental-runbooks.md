@@ -204,11 +204,11 @@ wrong filesystem, silently, until somebody needed a restore.)
 It lands here:
 
 ```text
-<backup_root>/.backupd/repositories/production/   the repository's blobs
-<backup_root>/.backupd/state/                     connection config, caches, maintenance ownership
+<backup_root>/.retnd/repositories/production/   the repository's blobs
+<backup_root>/.retnd/state/                     connection config, caches, maintenance ownership
 ```
 
-**Exclude `.backupd` from anything that walks the backup root** — an SMB
+**Exclude `.retnd` from anything that walks the backup root** — an SMB
 share, a virus scanner, a backup of the backup. Artifact management
 already treats that path as reserved and will not enter it.
 

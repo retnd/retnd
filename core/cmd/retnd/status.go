@@ -10,7 +10,7 @@ import (
 	"github.com/retnd/retnd/core/internal/app"
 )
 
-// cmdStatus is `backupd status`: FR-24's health surface, rendered
+// cmdStatus is `retnd status`: FR-24's health surface, rendered
 // for a terminal (and, per container/Dockerfile's TODO(#26), for a
 // container healthcheck: see this exit-code convention's own doc below).
 //
@@ -84,7 +84,7 @@ func cmdStatus(args []string) int {
 		// with what. Both are known here.
 		//
 		// The verbs live in this file rather than in the health reason
-		// because `backupd` command names are this binary's vocabulary and
+		// because `retnd` command names are this binary's vocabulary and
 		// not FR-24's. Which artifacts travels on the report instead
 		// (health.BackupSetHealth.StuckFailures) rather than being
 		// recomputed here, but that is CLI-only today: core/service's

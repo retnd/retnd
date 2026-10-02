@@ -99,10 +99,10 @@ var backtickedPhrase = regexp.MustCompile("`([^`]+)`")
 // shippedVerbsNamedIn reports the verbs a gap sentence names that this
 // binary actually dispatches.
 //
-// It reads `backupd <verb> [<sub>]` and the bare `<verb> [<sub>]`
+// It reads `retnd <verb> [<sub>]` and the bare `<verb> [<sub>]`
 // this file's prose also uses ("`settings` prints the thresholds"), and it
 // understands one level of subcommand: a sentence naming
-// `backupd backup-set test-connection` is naming a verb this binary
+// `retnd backup-set test-connection` is naming a verb this binary
 // does NOT have, even though `backup-set` is dispatched, and that is a
 // true gap rather than a stale sentence.
 func shippedVerbsNamedIn(why string) []string {

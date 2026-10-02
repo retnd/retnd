@@ -17,7 +17,7 @@ import (
 	"github.com/retnd/retnd/core/service"
 )
 
-// cmdActivity is `backupd activity`: the durable lifecycle feed,
+// cmdActivity is `retnd activity`: the durable lifecycle feed,
 // newest first, which is the same append-only transition log the Web UI's
 // Activity page draws (issue #598).
 //

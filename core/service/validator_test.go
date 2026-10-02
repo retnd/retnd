@@ -300,7 +300,7 @@ func TestMaterializeValidators_WritesUnderTheGivenDirectoryNotTMPDIR(t *testing.
 	}
 
 	t.Run("the check catches a TMPDIR-rooted path", func(t *testing.T) {
-		outside := filepath.Join(os.TempDir(), "backupd-validators-control", "trailer-marker.sh")
+		outside := filepath.Join(os.TempDir(), "retnd-validators-control", "trailer-marker.sh")
 		rel, err := filepath.Rel(dir, outside)
 		escaped := err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
 		if !escaped {

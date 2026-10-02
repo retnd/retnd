@@ -184,13 +184,13 @@ tr.ro td{color:var(--text-3)}
 
   <!-- global before -->
   <div class="stage">
-    <div class="stage__head"><span class="n">1</span> Global before <span class="meta">/etc/backupd/workflows/before</span>
+    <div class="stage__head"><span class="n">1</span> Global before <span class="meta">/etc/retnd/workflows/before</span>
       <span class="pill pill--ok" style="margin-left:auto"><span class="dot"></span>2 of 2 succeeded</span></div>
     <div class="step">
       <span class="g">&#10003;</span>
       <span class="name">10-notify-start.local.sh</span>
       <span><span class="tag tag--local">Local Host</span></span>
-      <span class="who">Host Workflow Runner &middot; backupd-hooks</span>
+      <span class="who">Host Workflow Runner &middot; retnd-hooks</span>
       <span><span class="pill pill--ok"><span class="dot"></span>Success</span></span>
       <span class="num">0.4s</span><span class="num">exit 0</span><span class="num">&mdash;</span>
     </div>
@@ -198,7 +198,7 @@ tr.ro td{color:var(--text-3)}
       <span class="g">&#10003;</span>
       <span class="name">20-mount-scratch.local.sh</span>
       <span><span class="tag tag--local">Local Host</span></span>
-      <span class="who">Host Workflow Runner &middot; backupd-hooks</span>
+      <span class="who">Host Workflow Runner &middot; retnd-hooks</span>
       <span><span class="pill pill--ok"><span class="dot"></span>Success</span></span>
       <span class="num">1.1s</span><span class="num">exit 0</span><span class="num">&mdash;</span>
     </div>
@@ -220,7 +220,7 @@ tr.ro td{color:var(--text-3)}
       <span class="g">&#10007;</span>
       <span class="name">20-freeze-db.local.sh</span>
       <span><span class="tag tag--local">Local Host</span></span>
-      <span class="who">Host Workflow Runner &middot; backupd-hooks</span>
+      <span class="who">Host Workflow Runner &middot; retnd-hooks</span>
       <span><span class="pill pill--err"><span class="dot"></span>Failed</span></span>
       <span class="num">6.2s</span><span class="num">exit 1</span><span class="num">&mdash;</span>
     </div>
@@ -249,7 +249,7 @@ tr.ro td{color:var(--text-3)}
     one badge would make that state unsayable, which is the same argument L6's handler doc makes for the
     journal having three columns.<br><br>
     <strong>Every <code>.local.sh</code> row says "Local Host" and names the Host Workflow Runner.</strong>
-    Never "engine container", never "inside backupd": the runner is a component on the machine backupd is
+    Never "engine container", never "inside retnd": the runner is a component on the machine retnd is
     installed on, and a row that implied the engine container grew a shell would be describing a deployment
     shape this product does not have.<br><br>
     <strong>Every script name states where it runs.</strong> A hook is
@@ -298,14 +298,14 @@ tr.ro td{color:var(--text-3)}
       <span class="g">&#8226;</span>
       <span class="name">10-thaw-db.local.sh</span>
       <span><span class="tag tag--local">Local Host</span></span>
-      <span class="who">Host Workflow Runner &middot; backupd-hooks</span>
+      <span class="who">Host Workflow Runner &middot; retnd-hooks</span>
       <span><span class="pill pill--run"><span class="dot dot--pulse"></span>Running</span></span>
       <span class="num">19s</span><span class="num">&mdash;</span><span class="num">&mdash;</span>
     </div>
     <div class="step">
       <span class="g">&ndash;</span><span class="name">20-unmount-scratch.local.sh</span>
       <span><span class="tag tag--local">Local Host</span></span>
-      <span class="who">Host Workflow Runner &middot; backupd-hooks</span>
+      <span class="who">Host Workflow Runner &middot; retnd-hooks</span>
       <span><span class="pill pill--none">Pending</span></span>
       <span class="num">&mdash;</span><span class="num">&mdash;</span><span class="num">&mdash;</span>
     </div>
@@ -389,7 +389,7 @@ tr.ro td{color:var(--text-3)}
     <div class="finding"><span class="pill pill--none">note</span>
       <span class="c">exec_connection</span><span class="d">a set whose OWN source connection is SFTP-only resolves it and fails <code>exec_capability</code> instead — the connection is fine, the account cannot execute</span></div>
     <div class="finding"><span class="pill pill--ok"><span class="dot"></span>ok</span>
-      <span class="c">runner_health</span><span class="d">Host Workflow Runner answered on /run/backupd/hooks.sock (version 0.4.1)</span></div>
+      <span class="c">runner_health</span><span class="d">Host Workflow Runner answered on /run/retnd/hooks.sock (version 0.4.1)</span></div>
   </div>
   <p class="note"><strong>The hold blocks the Run control and nothing else.</strong> A set in
     <code>recovery_required</code> keeps every read on this page &mdash; an operator diagnosing a hold needs
@@ -420,7 +420,7 @@ tr.ro td{color:var(--text-3)}
       <tr><td class="mono">PGHOST</td><td class="mono">db-primary.internal</td>
         <td><span class="tag tag--remote">Global</span></td><td><button class="btn">Edit</button></td></tr>
       <tr><td class="mono">PGPASSWORD</td>
-        <td><span class="masked">from file /etc/backupd/secrets/pg &middot; never shown</span></td>
+        <td><span class="masked">from file /etc/retnd/secrets/pg &middot; never shown</span></td>
         <td><span class="tag tag--remote">Global</span></td><td><button class="btn">Edit</button></td></tr>
       <tr><td class="mono">PGHOST</td><td class="mono">db-primary-replica.internal</td>
         <td><span class="tag tag--local">Backup set</span></td><td><button class="btn">Unset</button></td></tr>
@@ -474,15 +474,15 @@ tr.ro td{color:var(--text-3)}
     <span class="glyph">&#9650;</span>
     <span><strong>The Host Workflow Runner is not answering.</strong>
       <span class="body">This is the component that executes a <code>.local.sh</code> hook on the machine
-      backupd is installed on. Until it answers, every local hook fails and every validation that needs it
+      retnd is installed on. Until it answers, every local hook fails and every validation that needs it
       is reported as unexamined rather than as passing. Its socket and token path are written by the
       installer and are not editable here.</span></span>
   </div>
   <div class="two">
     <div>
-      <div class="field"><label>Global before directory</label><div class="in">/etc/backupd/workflows/before</div>
+      <div class="field"><label>Global before directory</label><div class="in">/etc/retnd/workflows/before</div>
         <span class="hint">Runs before every backup set's own before stage.</span></div>
-      <div class="field"><label>Global after directory</label><div class="in">/etc/backupd/workflows/after</div>
+      <div class="field"><label>Global after directory</label><div class="in">/etc/retnd/workflows/after</div>
         <span class="hint">Runs after every backup set's own after stage, whatever the backup did.</span></div>
       <div class="field"><label>Default script timeout</label><div class="in">300 seconds</div>
         <span class="hint">Applies to any set that does not pin its own.</span></div>
@@ -495,7 +495,7 @@ tr.ro td{color:var(--text-3)}
       <div class="field"><label>Runner liveness, version and execution user</label>
         <div class="in">not on this read</div>
         <span class="hint">Reported by a backup set's own hook check, which opens the socket, and by
-          <code>backupd workflow-runner status</code>. There is no elevation control here and there will
+          <code>retnd workflow-runner status</code>. There is no elevation control here and there will
           not be one.</span></div>
       <div class="field"><label>Maximum script size</label><div class="in">65536 bytes</div>
         <span class="hint">A hook larger than this is refused by validation rather than executed.</span></div>

@@ -128,12 +128,12 @@ func TestParseSharedCredentialsRefusals(t *testing.T) {
 // TestParseSharedCredentialsAcceptsOneNamedProfile is the counterpart to
 // the ambiguity refusal: a file with exactly one profile is unambiguous
 // whatever it is called, and refusing it would break every operator whose
-// secrets manager emits [backupd] instead of [default].
+// secrets manager emits [retnd] instead of [default].
 func TestParseSharedCredentialsAcceptsOneNamedProfile(t *testing.T) {
 	t.Parallel()
 
 	got, err := secretref.ParseSharedCredentials([]byte(
-		"; a comment\n# another\n[backupd]\naws_access_key_id = " + testAccessKeyID +
+		"; a comment\n# another\n[retnd]\naws_access_key_id = " + testAccessKeyID +
 			"\naws_secret_access_key = " + testSecretKey + "\n"))
 	if err != nil {
 		t.Fatalf("ParseSharedCredentials: %v", err)

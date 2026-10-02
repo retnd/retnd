@@ -97,7 +97,7 @@ func testSMTP() smtpSettingsRequest {
 		Security: "starttls",
 		Username: "apikey",
 		Password: testSMTPPassword,
-		From:     "backupd@example.test",
+		From:     "retnd@example.test",
 	}
 }
 
@@ -759,7 +759,7 @@ func TestWriteAuthError_SetsCorrelationIdHeader(t *testing.T) {
 
 // The read-compat window, end to end over the real handler, for every
 // name this cookie has had: #794's bm_session and EPIC R's
-// backupd_session (#889).
+// retnd_session (#889).
 //
 // The upgrade this covers: a browser is signed in, the runtime is
 // replaced with one that issues retnd_session, and the browser's next
@@ -860,7 +860,7 @@ func TestHandler_AnUnrecognisedLegacySessionCookieIsNotReissued(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
-	req.AddCookie(&http.Cookie{Name: LegacySessionCookieName, Value: "not-a-session"})
+	req.AddCookie(&http.Cookie{Name: EarlierSessionCookieName, Value: "not-a-session"})
 	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
 		t.Fatalf("GET session: %v", err)

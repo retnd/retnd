@@ -295,7 +295,7 @@ def browser_half(root: Path, checkout: Path) -> None:
     # fail was a claim about a component rendering given a fixture and
     # not about the path an operator meets (browser -> serve-ui ->
     # reverse proxy -> serve -> SQLite). The tests repository retired
-    # RETND_UI_DIR along with that suite (backupd-tests#65) in
+    # RETND_UI_DIR along with that suite (retnd-tests#65) in
     # favour of RETND_BASE_URL against a real deployment, and
     # scripts/e2e/three-machine-web-ui.sh is that deployment: three
     # private Docker networks, the product's own two containers built

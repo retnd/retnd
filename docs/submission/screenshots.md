@@ -58,7 +58,7 @@ from.
 
 Every screenshot this file describes shows the product's name, in the topbar of every
 screen on the list above and in the sign-in and enrolment pages before them. The product
-was renamed from `backupd` to `retnd` by EPIC R (#885), so every store screenshot that has
+was renamed from `retnd` to `retnd` by EPIC R (#885), so every store screenshot that has
 ever been captured for any of the six listings above is of the old name.
 
 That does not change a single verdict here, and the reason is the point of this file.
@@ -74,7 +74,7 @@ would be claiming a photograph that does not exist.
 What the rename does change is what the operator who eventually runs
 `docs/acceptance/store-submission-preflight.md` has to check before submitting: the build
 in front of the camera must be one whose interface says `retnd`, which means 0.4.0 or
-later. A screenshot taken on `0.3.3` — the newest published image — shows `backupd` and is
+later. A screenshot taken on `0.3.3` — the newest published image — shows `retnd` and is
 not submittable, however good the picture is.
 
 And the one thing that must not happen instead. The temptation a rename creates is to

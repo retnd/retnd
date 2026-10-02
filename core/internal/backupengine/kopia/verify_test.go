@@ -150,7 +150,7 @@ func newFixtureOfTree(t *testing.T, write func(srcDir string) (files, bytes int6
 		}
 	})
 
-	src := backupengine.Source{Host: "nas-01", User: "backupd", Path: srcDir}
+	src := backupengine.Source{Host: "nas-01", User: "retnd", Path: srcDir}
 
 	snap, err := rep.Snapshot(ctx, backupengine.SnapshotRequest{Source: src, Description: "the verification ladder"})
 	if err != nil {

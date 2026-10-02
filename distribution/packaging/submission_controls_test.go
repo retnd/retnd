@@ -95,7 +95,7 @@ func TestEachHardRuleFiresOnTheShapeItIsAbout(t *testing.T) {
 			},
 			clean: []string{
 				"    image: ghcr.io/retnd/retnd:1.0.0\n",
-				"    image: backupd:${VERSION:-dev}\n",
+				"    image: retnd:${VERSION:-dev}\n",
 				"    image: ghcr.io/retnd/retnd@sha256:" + strings.Repeat("a", 64) + "\n",
 				"    image: registry.invalid:5000/retnd/retnd:1.0.0\n",
 				"<Repository>ghcr.io/retnd/retnd:1.0.0</Repository>",
@@ -149,7 +149,7 @@ func TestEachHardRuleFiresOnTheShapeItIsAbout(t *testing.T) {
 				"      USAGE_STATS: none\n",
 				"# There is no telemetry in this release, so there is nothing to disable.\n",
 				"      PUBLIC_BASE_URL: http://localhost:8080\n",
-				"      UPSTREAM_ADDR: http://backupd:8080\n",
+				"      UPSTREAM_ADDR: http://retnd:8080\n",
 				"      PUBLIC_BASE_URL: http://tower.local:8080\n",
 				"  home: https://github.com/retnd/retnd\n",
 				"  icon: https://raw.githubusercontent.com/retnd/retnd/main/docs/submission/icon.svg\n",
@@ -309,12 +309,12 @@ func TestImageTagUnderstandsEveryFloatingForm(t *testing.T) {
 		{"ghcr.io/retnd/retnd:1.0.0", tagPinned},
 		{"ghcr.io/retnd/retnd@sha256:" + strings.Repeat("b", 64), tagPinned},
 		{"registry.invalid:5000/retnd/retnd:1.0.0", tagPinned},
-		{"backupd:${VERSION:-dev}", tagVariable},
+		{"retnd:${VERSION:-dev}", tagVariable},
 		{"ghcr.io/retnd/retnd", tagAbsent},
 		{"registry.invalid:5000/retnd/retnd", tagAbsent},
 		{"ghcr.io/retnd/retnd:latest", tagLatest},
 		{"ghcr.io/retnd/retnd:LATEST", tagLatest},
-		{"backupd:${VERSION:-latest}", tagFloatingDefault},
+		{"retnd:${VERSION:-latest}", tagFloatingDefault},
 	}
 	for _, tc := range cases {
 		if _, got := ImageTag(tc.ref); got != tc.kind {
@@ -334,9 +334,9 @@ func TestImageTagUnderstandsEveryFloatingForm(t *testing.T) {
 // about the fixture.
 const canonicalCompose = `
 services:
-  backupd:
+  retnd:
     image: ghcr.io/retnd/retnd:0.4.0
-    command: ["/backupd-web", "serve"]
+    command: ["/retnd-web", "serve"]
     user: "568:568"
     read_only: true
     privileged: false
@@ -351,9 +351,9 @@ services:
       - "/host/config:/etc/retnd/config"
       - "/host/id_ed25519:/etc/retnd/id_ed25519:ro"
       - "/host/known_hosts:/etc/retnd/known_hosts:ro"
-  backupd-ui:
+  retnd-ui:
     image: ghcr.io/retnd/retnd:0.4.0
-    command: ["/backupd-web", "serve-ui"]
+    command: ["/retnd-web", "serve-ui"]
     user: "568:568"
     read_only: true
     privileged: false
@@ -362,9 +362,9 @@ services:
     tmpfs: ["/tmp:size=16m"]
     environment:
       LISTEN_ADDR: ":8080"
-      UPSTREAM_ADDR: "http://backupd:8080"
+      UPSTREAM_ADDR: "http://retnd:8080"
     healthcheck:
-      test: ["CMD", "/backupd-web", "healthcheck"]
+      test: ["CMD", "/retnd-web", "healthcheck"]
     ports:
       - "8080:8080"
 `
@@ -428,7 +428,7 @@ func TestEveryDriftElementFailsOnADeliberateMismatch(t *testing.T) {
 			capability: "drift-health-check",
 			provider:   "truenas",
 			mutate: func(s string) string {
-				return strings.Replace(s, `["CMD", "/backupd-web", "healthcheck"]`, `["CMD", "true"]`, 1)
+				return strings.Replace(s, `["CMD", "/retnd-web", "healthcheck"]`, `["CMD", "true"]`, 1)
 			},
 			wants: "healthcheck",
 		},
@@ -1095,7 +1095,7 @@ func TestTelemetryRuleReadsAddressLiteralsAsHosts(t *testing.T) {
 	// packages are full of.
 	local := []string{
 		"http://localhost:8080",
-		"http://backupd:8080",
+		"http://retnd:8080",
 		"http://tower.local:8080",
 		"http://127.0.0.1:8080",
 		"http://[::1]:8080",
@@ -1123,7 +1123,7 @@ func TestTelemetryRuleReadsAddressLiteralsAsHosts(t *testing.T) {
 		"[2001:db8::1]":                    true,
 		"::ffff:203.0.113.9":               true,
 		"localhost":                        false,
-		"backupd":                          false,
+		"retnd":                            false,
 		"tower.local":                      false,
 		"127.0.0.1":                        false,
 		"::1":                              false,

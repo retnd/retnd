@@ -408,7 +408,7 @@ func startSourceOn(t *testing.T, f *Source, opts sourceOptions) *Source {
 	f.network = opts.Network
 	f.inNetwork = opts.InNetwork
 
-	name := fmt.Sprintf("backupd-gate-sftp-%d", time.Now().UnixNano())
+	name := fmt.Sprintf("retnd-gate-sftp-%d", time.Now().UnixNano())
 	f.mu.Lock()
 	f.containerName = name
 	f.mu.Unlock()
@@ -572,7 +572,7 @@ func (f *Source) ensureSourceImage(t *testing.T) string {
 	imageOnce.Do(func() {
 		text := sourceDockerfile(t)
 		sum := sha256.Sum256([]byte(text))
-		tag := "backupd-machines-source:" + hex.EncodeToString(sum[:6])
+		tag := "retnd-machines-source:" + hex.EncodeToString(sum[:6])
 		f.setStage("docker image inspect " + tag)
 		if _, _, err := dockerRun(imageInspectTimeout, "image", "inspect", tag); err == nil {
 			imageRef = tag

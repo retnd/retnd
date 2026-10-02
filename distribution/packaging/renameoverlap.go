@@ -2,85 +2,21 @@ package packaging
 
 import (
 	"sort"
-	"strings"
 )
 
-// Issue #890 (R1.5, EPIC R #885) renamed this project's deployment
-// identity, and this file is the whole of the overlap that rename needs
-// on the packaging side. Everything in it is temporary, every piece of it
-// names the same two issues, and issue #895 deletes the file.
-//
-// TWO CLAIMS, DELIBERATELY SEPARATE, because they are about two different
-// artifacts and they retire on two different schedules:
-//
-//   - The IMAGE answers to one pre-rename entrypoint. canonical.json's
-//     `retainedBinaries` is the data; container/Dockerfile links
-//     /backupd-web to /retnd-web. It exists so that an operator's PINNED
-//     compose file, which this repository cannot edit, still starts. Any
-//     rule that asks what an argv[0] or a healthcheck command may SAY has
-//     to accept it, so that a deployment running a pinned pre-#891
-//     provider file does not fail a gate for saying something the image
-//     still honours. Every adapter IN THIS TREE says /retnd-web, as of
-//     #891; this claim is about the copies outside it.
-//
-//   - The RELEASE MANIFEST of an already-published release keys its
-//     hashes under the pre-rename binary NAMES. That is not an alias and
-//     not a compatibility shim: container/release-manifest.json records
-//     the SHA-256 of bytes that were built and pushed before the rename,
-//     and re-keying evidence to change a label would invalidate it. So a
-//     manifest lookup accepts both spellings, new first.
-//
-// WHY A BRAND TOKEN AND NOT A TABLE. core/legacypath makes the same
-// choice for FR-38's state adoption and for the same reason: the rename
-// renamed a NAME. Substituting the token covers /etc/retnd -> /etc/backupd
-// and retnd-web -> backupd-web without a list anybody has to remember to
-// extend, and it is the same derivation on both sides of the product, so
-// the packaging gate and the running process cannot disagree about what
-// the legacy spelling of something is.
-const (
-	// brandToken is this project's name as it appears as a whole path
-	// segment or as the leading token of a binary name.
-	brandToken = "retnd"
-	// retiredBrandToken is what it was called before #890.
-	retiredBrandToken = "backupd"
-)
+// This file owns canonical binary and command comparisons used by the
+// packaging gates. The former deployment-name overlap is closed; only the
+// current paths and entrypoints are accepted.
 
-// LegacyBrandPath returns p with every path segment that is exactly the
-// brand token replaced by the retired one, or "" when p has no such
-// segment.
-//
-// Segments, not substrings: /etc/retnd/config has one and
-// /data/retention does not, and a substring rule would rewrite the
-// second.
-func LegacyBrandPath(p string) string {
-	segments := strings.Split(p, "/")
-	found := false
-	for i, s := range segments {
-		if s == brandToken {
-			segments[i] = retiredBrandToken
-			found = true
-		}
-	}
-	if !found {
-		return ""
-	}
-	return strings.Join(segments, "/")
+// LegacyBrandPath returns no alternate path because the deployment-name
+// compatibility window is closed.
+func LegacyBrandPath(string) string {
+	return ""
 }
 
-// LegacyBrandName returns name with a LEADING brand token replaced by the
-// retired one -- "retnd" -> "backupd", "retnd-web" -> "backupd-web" --
-// or "" when name does not begin with one.
-//
-// Leading only. A name that merely contains the token ("my-retnd-thing")
-// is not a binary this project renamed, and the release manifest has no
-// pre-rename key for it.
-func LegacyBrandName(name string) string {
-	switch {
-	case name == brandToken:
-		return retiredBrandToken
-	case strings.HasPrefix(name, brandToken+"-"):
-		return retiredBrandToken + strings.TrimPrefix(name, brandToken)
-	}
+// LegacyBrandName returns no alternate binary name because release manifests
+// now use only canonical names.
+func LegacyBrandName(string) string {
 	return ""
 }
 

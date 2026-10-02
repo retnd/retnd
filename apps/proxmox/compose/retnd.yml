@@ -8,7 +8,7 @@
 # LXC with nesting=1,keyctl=1 if you accept the caveats in README.md.
 #
 # The PVE host contributes exactly one thing: a directory or dataset it
-# shares into the guest at /mnt/backupd. Everything persistent is a
+# shares into the guest at /mnt/retnd. Everything persistent is a
 # bind mount under that one path, which is what makes recovery work —
 # destroy the guest, rebuild it, re-point it at the same host path, and
 # the state is still there.
@@ -115,7 +115,7 @@ services:
     #
     # ":?" alone does not prove the share is actually mounted, only that
     # the variable is set. Step 1 of docs/acceptance/proxmox-ve-deployment.md
-    # requires `mountpoint -q /mnt/backupd` in the guest before
+    # requires `mountpoint -q /mnt/retnd` in the guest before
     # `up -d`, which is the other half of the same guarantee.
     volumes:
       - ${STATE_DIR:?set STATE_DIR in .env to the guest path for the SQLite state directory, under the shared host directory}:/data/state

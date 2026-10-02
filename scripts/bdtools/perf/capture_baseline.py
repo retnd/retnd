@@ -77,7 +77,7 @@ a `go test` harness's own exit status becomes this script's, unguarded
                     status happened to be 3 -- the CLI's own meaning for
                     #551, "another process is already serving this
                     deployment", reachable if the harness under test ever
-                    shells out to `backupd` -- a capture that never finished
+                    shells out to `retnd` -- a capture that never finished
                     would exit with the number this repository elsewhere
                     reserves for "this machine could not perform the
                     proof".
@@ -277,7 +277,7 @@ def build_record(
         return [picker(r) for r in runtime_records]
 
     return {
-        "schema": "backupd/perf-baseline/1",
+        "schema": "retnd/perf-baseline/1",
         "workload": first["workload"],
         "host_id": host_id,
         "host": host_json,
@@ -339,7 +339,7 @@ def body(args: Args, root: Path) -> int:
             file=sys.stderr,
         )
 
-    with tempfile.TemporaryDirectory(prefix="backupd-perf-") as tmp_str:
+    with tempfile.TemporaryDirectory(prefix="retnd-perf-") as tmp_str:
         tmp = Path(tmp_str)
 
         harness.step(f"runtime harness (apps/generic/tests/perfbaseline), {args.repeat} capture(s)")
@@ -358,7 +358,7 @@ def body(args: Args, root: Path) -> int:
         if not args.skip_image:
             harness.step(f"image size (docker build --platform {image_platform} -f container/Dockerfile)")
             harness.require_docker()
-            tag = f"backupd-perfbaseline:{commit[:12]}"
+            tag = f"retnd-perfbaseline:{commit[:12]}"
             harness.sh(
                 ["docker", "build", "--platform", image_platform, "-f", "container/Dockerfile", "-t", tag, "."],
                 cwd=root,

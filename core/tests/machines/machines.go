@@ -249,7 +249,7 @@ func Start(t *testing.T) *Machines {
 	// created.
 	created := false
 	if !inNetwork {
-		name = fmt.Sprintf("backupd-machines-%d-%d", os.Getpid(), time.Now().UnixNano())
+		name = fmt.Sprintf("retnd-machines-%d-%d", os.Getpid(), time.Now().UnixNano())
 		t.Cleanup(func() {
 			if created {
 				removeNetwork(t, name)

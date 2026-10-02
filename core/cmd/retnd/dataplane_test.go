@@ -14,7 +14,7 @@ import (
 // of a workflow-configured set taken by this binary created no workflow
 // run, ran no hook script, and never asked whether the set was blocked by
 // an interrupted run -- the one that makes it a safety defect rather than
-// a missing feature: an ordinary `backupd fetch` proceeded over a source
+// a missing feature: an ordinary `retnd fetch` proceeded over a source
 // that an interrupted hook had left quiesced, took a backup of a stopped
 // database, and reported it as a good one.
 //

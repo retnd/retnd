@@ -24,7 +24,7 @@ import "strings"
 //
 //	Error: no matching signatures: none of the expected identities matched
 //	what was in the certificate, got subjects
-//	[https://github.com/backupdproject/backupd/.github/workflows/release.yml@refs/heads/release]
+//	[https://github.com/retndproject/retnd/.github/workflows/release.yml@refs/heads/release]
 //	with issuer https://token.actions.githubusercontent.com
 //
 // and the certificate on that signature carries
@@ -57,7 +57,7 @@ const (
 	// readable in one place, and the test holds the two to each other.
 	//
 	// FR-41's cutover moved it. The repository was transferred from
-	// `backupdproject/backupd` to `retnd/retnd` on 2026-09-15, and
+	// `retndproject/retnd` to `retnd/retnd` on 2026-09-15, and
 	// GitHub builds the certificate SAN out of the repository the run
 	// happened in, so every release published from here on carries the
 	// identity below and every release already published carries
@@ -98,7 +98,7 @@ const (
 const (
 	// PreCutoverSigningRepositoryURL is the repository path releases up
 	// to and including LastPreCutoverRelease were signed under.
-	PreCutoverSigningRepositoryURL = "https://github.com/backupdproject/backupd"
+	PreCutoverSigningRepositoryURL = "https://github.com/retndproject/retnd"
 
 	// PreCutoverSigningIdentity is the exact SAN those signatures carry.
 	// The workflow path and the ref did not move at the cutover, only the

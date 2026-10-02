@@ -287,13 +287,13 @@ type SnapshotID string
 // package's repository adapter counts them. A literal at each end is two
 // strings that agree until somebody edits one.
 //
-// The "backupd." prefix keeps them out of the way of the vendor's own
+// The "retnd." prefix keeps them out of the way of the vendor's own
 // manifest labels and of any tag an operator sets by hand with the
 // vendor's CLI against their own bucket.
 const (
 	// TagKeyBackupSet is the backup set a snapshot belongs to, as
 	// model.BackupSetID renders it ("source/set").
-	TagKeyBackupSet = "backupd.set"
+	TagKeyBackupSet = "retnd.set"
 
 	// TagKeyDomain is the Repository Domain the snapshot was written for,
 	// as model.RepositoryDomainID renders it.
@@ -302,7 +302,7 @@ const (
 	// the point: a snapshot whose domain tag disagrees with the repository
 	// holding it is a snapshot written somewhere it does not belong, and
 	// the tag is the only evidence that would survive to say so.
-	TagKeyDomain = "backupd.domain"
+	TagKeyDomain = "retnd.domain"
 
 	// TagKeyRun is the manager's own snapshot-run id, as the catalog
 	// recorded it before the run touched storage.
@@ -319,7 +319,7 @@ const (
 	// this product's own catalog and therefore proves nothing by itself
 	// about which set or which domain the run was for; an orphan is
 	// adopted only when all three agree.
-	TagKeyRun = "backupd.run"
+	TagKeyRun = "retnd.run"
 )
 
 // SnapshotRequest asks for one snapshot of one source.
@@ -835,7 +835,7 @@ const (
 	//
 	// It matters because the engine applies that policy by itself, at
 	// every mid-upload checkpoint, with no reference to this product's
-	// catalog or its holds. Every manifest backupd writes carries a pin
+	// catalog or its holds. Every manifest retnd writes carries a pin
 	// the engine's expiry honours, so this product's own snapshots are
 	// safe either way; a snapshot written into the same repository by
 	// anything else is not.

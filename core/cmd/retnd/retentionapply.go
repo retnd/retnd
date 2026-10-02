@@ -12,7 +12,7 @@ import (
 	"github.com/retnd/retnd/core/service"
 )
 
-// cmdRetentionApply is `backupd retention apply
+// cmdRetentionApply is `retnd retention apply
 // <source/backup-set> --acknowledge`: FR-20's deletion, from a terminal
 // (issue #602).
 //

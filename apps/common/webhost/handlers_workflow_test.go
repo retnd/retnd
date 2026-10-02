@@ -89,7 +89,7 @@ func TestGetWorkflowSettings_ReportsTheResolvedConfiguration(t *testing.T) {
 		ScriptTimeoutConfigured: true,
 		MaxScriptSizeBytes:      65536,
 		ExecConnections:         []string{"pg-primary"},
-		Runner:                  service.WorkflowRunnerSettings{Configured: true, Socket: "/run/backupd/runner.sock", TokenFile: "/run/backupd/runner.token"},
+		Runner:                  service.WorkflowRunnerSettings{Configured: true, Socket: "/run/retnd/runner.sock", TokenFile: "/run/retnd/runner.token"},
 	}
 	fx.env[""] = []service.WorkflowEnvVar{{Name: "PGHOST", Value: "10.0.0.14", HasValue: true}}
 
@@ -117,7 +117,7 @@ func TestGetWorkflowSettings_ReportsTheResolvedConfiguration(t *testing.T) {
 	if len(body.ExecConnections) != 1 || body.ExecConnections[0] != "pg-primary" {
 		t.Errorf("exec_connections = %v, want the one declared connection by NAME", body.ExecConnections)
 	}
-	if body.Runner.Socket != "/run/backupd/runner.sock" || body.Runner.TokenFile != "/run/backupd/runner.token" {
+	if body.Runner.Socket != "/run/retnd/runner.sock" || body.Runner.TokenFile != "/run/retnd/runner.token" {
 		t.Errorf("the runner came back as %+v", body.Runner)
 	}
 	if len(body.Environment) != 1 || body.Environment[0].Name != "PGHOST" {
@@ -417,7 +417,7 @@ var workflowSecretSpellings = []struct {
 	body   string
 	marker string
 }{
-	{"a file", `{"secret":{"file":"/etc/backupd/pg.passphrase"}}`, "/etc/backupd/pg.passphrase"},
+	{"a file", `{"secret":{"file":"/etc/retnd/pg.passphrase"}}`, "/etc/retnd/pg.passphrase"},
 	{"a variable name", `{"secret":{"env":"RETND_PG_PASSWORD"}}`, "RETND_PG_PASSWORD"},
 	{"a command", `{"secret":{"command":["vault","read","-field=password","secret/pg"]}}`, "secret/pg"},
 }

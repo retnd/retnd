@@ -607,7 +607,7 @@ function CredentialsPane(props: {
             id={`${fieldId}-file`}
             className="input"
             value={props.file}
-            placeholder="/etc/backupd/s3.creds"
+            placeholder="/etc/retnd/s3.creds"
             onChange={(e) => props.onFile(e.target.value)}
           />
         </Field>

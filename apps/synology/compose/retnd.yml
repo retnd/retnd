@@ -73,14 +73,14 @@ services:
     # so a ${VAR:-default} here would put the backup root on the DSM
     # system volume and report healthy about it.
     volumes:
-      - ${APPDATA:?set APPDATA in retnd.env to the project directory, e.g. /volume1/docker/backupd}/state:/data/state
+      - ${APPDATA:?set APPDATA in retnd.env to the project directory, e.g. /volume1/docker/retnd}/state:/data/state
       - ${BACKUP_ROOT:?set BACKUP_ROOT in retnd.env to the shared folder retained artifacts land in}:/data/backups
       # A writable directory holding config.yaml (issue #196): the engine
       # creates and atomically replaces that file, and its ssh_keys/ and
       # known_hosts.d/ stores are siblings of it.
-      - ${APPDATA:?set APPDATA in retnd.env to the project directory, e.g. /volume1/docker/backupd}/config:/etc/retnd/config
-      - ${APPDATA:?set APPDATA in retnd.env to the project directory, e.g. /volume1/docker/backupd}/secrets/id_ed25519:/etc/retnd/id_ed25519:ro
-      - ${APPDATA:?set APPDATA in retnd.env to the project directory, e.g. /volume1/docker/backupd}/secrets/known_hosts:/etc/retnd/known_hosts:ro
+      - ${APPDATA:?set APPDATA in retnd.env to the project directory, e.g. /volume1/docker/retnd}/config:/etc/retnd/config
+      - ${APPDATA:?set APPDATA in retnd.env to the project directory, e.g. /volume1/docker/retnd}/secrets/id_ed25519:/etc/retnd/id_ed25519:ro
+      - ${APPDATA:?set APPDATA in retnd.env to the project directory, e.g. /volume1/docker/retnd}/secrets/known_hosts:/etc/retnd/known_hosts:ro
 
     # The start gate, and a liveness question rather than a health
     # verdict (issue #206). The Web UI below declares

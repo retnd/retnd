@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// `backupd settings patch --policy-file` (EPIC G, G2.3, issue
+// `retnd settings patch --policy-file` (EPIC G, G2.3, issue
 // #595): the deployment's whole retention chain, from the command line.
 //
 // cmdSettings used to say the opposite in its own doc, and these tests are
@@ -16,7 +16,7 @@ import (
 // other case the config-file answer already covers". Two things happened
 // to that. A chain stopped being purely a policy about time and started
 // naming where the bytes live, and EPIC G requires every capability to be
-// reachable from `backupd`. And the config-file answer is not an
+// reachable from `retnd`. And the config-file answer is not an
 // equal-power route beside a running engine at all: this very command
 // refuses a file write there, because nothing watches config.yaml (#543),
 // so "edit the file" is advice that does not work in the deployment where

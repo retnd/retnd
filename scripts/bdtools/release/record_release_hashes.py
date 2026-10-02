@@ -272,7 +272,7 @@ def run_guards(root: Path, env: dict[str, str]) -> tuple[str, str, str, Path, li
 
 
 def build_and_hash(root: Path, arch: str, version: str, commit: str) -> dict[str, object]:
-    tag = f"backupd:release-hashes-{arch}"
+    tag = f"retnd:release-hashes-{arch}"
     harness.step(f"Building linux/{arch} ({tag})")
     harness.sh(
         [
@@ -294,7 +294,7 @@ def build_and_hash(root: Path, arch: str, version: str, commit: str) -> dict[str
     try:
         # The two REAL files, never the compatibility name beside them.
         # 0.3.3 renamed the CLI and #890 renamed the container paths, and
-        # the image now carries /retnd, /retnd-web and /backupd-web, where
+        # the image now carries /retnd, /retnd-web and /retnd-web, where
         # the third is a HARDLINK to the second rather than a third
         # binary. Hashing it would record the same bytes twice under two
         # keys and invite a later check that compares a name with itself.
@@ -339,13 +339,13 @@ NOTE = (
     "ghcr.io/retnd/retnd on push (docker buildx build --push prints it, docker buildx "
     "imagetools inspect reads it back). "
     "binary_sha256 KEYS: an entry that records an ALREADY-PUBLISHED release keeps the keys it was published "
-    "under, so 0.4.0 stays keyed backupd/backupd-web -- those names identify a recorded build, and re-keying "
+    "under, so 0.4.0 stays keyed retnd/retnd-web -- those names identify a recorded build, and re-keying "
     "evidence to tidy a label is how evidence stops being evidence. New entries are keyed retnd/retnd-web "
     "after EPIC R's rename (#890), matching the files the image now carries at /retnd and /retnd-web; "
-    "/backupd-web is a hardlink to /retnd-web rather than a third binary, so it gets no key of its own. Every "
+    "/retnd-web is a hardlink to /retnd-web rather than a third binary, so it gets no key of its own. Every "
     "consumer accepts BOTH spellings and prefers the new one for the overlap release -- "
     "distribution/packaging's manifestBinaryKeys, apps/synology/spk's LoadReleaseManifest and "
-    "scripts/bdtools/release/verify_manifest_parity.py -- and the backupd spelling goes away with the shim "
+    "scripts/bdtools/release/verify_manifest_parity.py -- and the retnd spelling goes away with the shim "
     "window (#895)."
 )
 

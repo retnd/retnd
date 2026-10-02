@@ -149,7 +149,7 @@ type Metadata struct {
 	// definition has no store to appear in.
 	StoreArtifacts []string `json:"storeArtifacts"`
 	// BinaryArtifacts maps a canonical binary path
-	// ("/backupd-web") to a checked-in file in this provider's
+	// ("/retnd-web") to a checked-in file in this provider's
 	// package that is supposed to BE those bytes. Empty for every
 	// provider that consumes the OCI image by reference, which is all of
 	// them today, and that is the point: core-binary-hash-parity cannot
@@ -921,7 +921,7 @@ func ImportsProviderRe(provider string) *regexp.Regexp {
 type ReleaseManifest struct {
 	Commit string `json:"commit"`
 	// Version is the VERSION build argument the recorded binaries were
-	// stamped with, which is what `/backupd version` answers. It
+	// stamped with, which is what `/retnd version` answers. It
 	// is NOT necessarily the semantic version the provider packages
 	// advertise: the generator defaults it to `git describe --tags
 	// --always`, and this repository has no tags, so today it is an
@@ -1017,37 +1017,14 @@ func (m ReleaseManifest) ArchitectureSet() []string {
 	return out
 }
 
-// manifestBinaryKeys returns the keys container/release-manifest.json may
-// record a canonical binary's SHA-256 under, most preferred first.
+// manifestBinaryKeys returns the manifest key for a canonical binary.
 //
-// Two spellings, for exactly one release. 0.3.3 renamed the COMMAND an
-// operator types; #890 renamed the FILES the image carries, so the
-// canonical binaries are now /retnd and /retnd-web, plus /backupd-web
-// kept as a hardlink to the second so an unedited pinned compose file
-// still starts. The manifest is a RECORD rather than a label: an entry
-// written for an already-published release keeps the keys it was
-// published under (0.4.0's are backupd and backupd-web), because
-// re-keying it would invalidate evidence to tidy a name. New entries are
-// written under the new spelling.
-//
-// So a lookup accepts either and prefers the new one, in one place,
-// rather than either half being made to lie about the other. The legacy
-// spelling goes away when the shim window closes (#895), and this table
-// goes with it.
-//
-// A path this table does not know is passed through with its slash
-// stripped, which is what the callers did before any of this existed: an
-// unrecognised binary must fail the lookup and be reported missing, never
-// quietly resolve to one of these.
+// The manifest now records only the current binary names. A path this
+// table does not know is passed through with its slash stripped so callers
+// report the unknown key as missing rather than resolving it to another
+// binary.
 func manifestBinaryKeys(binary string) []string {
-	switch name := strings.TrimPrefix(binary, "/"); name {
-	case "retnd", "backupd":
-		return []string{"retnd", "backupd"}
-	case "retnd-web", "backupd-web":
-		return []string{"retnd-web", "backupd-web"}
-	default:
-		return []string{name}
-	}
+	return []string{strings.TrimPrefix(binary, "/")}
 }
 
 // recordedHash returns this architecture's recorded SHA-256 for a

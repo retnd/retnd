@@ -18,7 +18,7 @@ import (
 	"github.com/retnd/retnd/core/internal/workflowlint"
 )
 
-// `backupd validate workflow <source/backup-set>`: everything this
+// `retnd validate workflow <source/backup-set>`: everything this
 // product can find out about a set's hooks WITHOUT running one (#813).
 //
 // # The rule that shapes the whole file
@@ -705,7 +705,7 @@ func (v *workflowValidator) checkScriptLint(ctx context.Context) {
 func lintDetail(name, verb string, shown []workflowlint.Finding, total int) string {
 	first := shown[0]
 
-	detail := fmt.Sprintf("%s %s backupd's shell rules: %s at %d:%d (%s) %s",
+	detail := fmt.Sprintf("%s %s retnd's shell rules: %s at %d:%d (%s) %s",
 		name, verb, first.Code, first.Line, first.Col, first.Severity, first.Message)
 
 	if total > 1 {
@@ -1088,7 +1088,7 @@ func (v *workflowValidator) checkReservedNames() {
 // asymmetry is the whole design: `secretref.Resolve` executes a program
 // the operator named, and this is a command an operator types to check
 // their configuration. A validation that ran `vault read ...` would make
-// `backupd validate` an authenticated call against somebody's secret
+// `retnd validate` an authenticated call against somebody's secret
 // store, and on a misconfigured deployment, a call that hangs.
 //
 // So the honest report for a command reference is that the program
@@ -1179,7 +1179,7 @@ func secretRefProblem(s config.SecretSource) string {
 //
 // Both questions about a local hook go to the RUNNER rather than to bash
 // in this process, and that is the point of the runner existing: a
-// `.local.sh` hook means "run this on the machine backupd is installed
+// `.local.sh` hook means "run this on the machine retnd is installed
 // on", the engine's canonical runtime is a distroless container with no
 // shell at all, and a syntax check performed by a bash this container
 // does not have would be a check against an interpreter the hook will

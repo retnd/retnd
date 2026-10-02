@@ -40,7 +40,7 @@ import (
 // inside it; --config also accepts that directory, which
 // config.ResolvePath turns into this same file.
 //
-// EPIC R (#890) moved this from /etc/backupd/config, which is a
+// EPIC R (#890) moved this from /etc/retnd/config, which is a
 // COMPAT-BREAKING move for every deployment whose compose file still
 // mounts the old path: the mount lands where nothing looks, and the
 // consequence of "no configuration here" is the first-run flow.
@@ -404,7 +404,7 @@ func openConfigWriteRoute(ctx context.Context, configPath string) (configWriteRo
 // RETND_DEBUG=1 as the shortcut - RM_DEBUG=1 is the deprecated alias
 // of that shortcut), the same knob service.Open reads and the same one
 // the web host's own surfaces read. Unset is INFO, unchanged.
-// `backupd daemon` is a documented deployment shape of its own
+// `retnd daemon` is a documented deployment shape of its own
 // (container/compose.yaml names it as a command override), so a
 // hard-coded level here would mean the one engine an operator can run
 // headless is the one they cannot turn up.
@@ -627,7 +627,7 @@ const (
 	// The second half is not an accident somebody should fix quietly.
 	// Every subcommand parses with flag.ContinueOnError and returns this
 	// for whatever fs.Parse hands back, and flag.ErrHelp is one of those,
-	// so `backupd check -h` is a correct command line, a request
+	// so `retnd check -h` is a correct command line, a request
 	// this binary answered, and a 2. That predates #551 and did not
 	// matter while the codes were an implementation detail; publishing
 	// them as a contract is what made it a promise, so the promise says
@@ -639,7 +639,7 @@ const (
 	// way to fix it and is not the one taken. It is twenty-one edits,
 	// one per place that returns 2 for whatever fs.Parse or
 	// parseFlagsAroundOperands handed back, and it would leave
-	// `backupd -h` at 2 anyway: at the top level there is no flag
+	// `retnd -h` at 2 anyway: at the top level there is no flag
 	// set to parse, so `-h` is a name run() cannot find and it goes out
 	// through the unknown-command branch. Two help requests exiting
 	// differently is a worse contract than one honest row, and this

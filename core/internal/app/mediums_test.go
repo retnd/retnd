@@ -23,9 +23,9 @@ func mediumsFixture() []config.StorageMedium {
 			Region:       "us-east-1",
 			Endpoint:     "https://minio.example:9000",
 			Bucket:       "nas-backups",
-			Prefix:       "backupd",
+			Prefix:       "retnd",
 			StorageClass: config.StorageClassStandardIA,
-			Credentials:  config.MediumCredentials{File: "/var/lib/backupd/s3/offsite.creds"},
+			Credentials:  config.MediumCredentials{File: "/var/lib/retnd/s3/offsite.creds"},
 		},
 		{
 			ID:                 "trusted_s3",
@@ -58,9 +58,9 @@ func TestMediumResolver_CarriesEveryConfiguredFieldThroughUnchanged(t *testing.T
 		Region:       "us-east-1",
 		Endpoint:     "https://minio.example:9000",
 		Bucket:       "nas-backups",
-		Prefix:       "backupd",
+		Prefix:       "retnd",
 		StorageClass: config.StorageClassStandardIA,
-		Credentials:  transport.MediumCredentials{File: "/var/lib/backupd/s3/offsite.creds"},
+		Credentials:  transport.MediumCredentials{File: "/var/lib/retnd/s3/offsite.creds"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Resolve(offsite_s3) =\n\t%+v\nwant\n\t%+v", got, want)

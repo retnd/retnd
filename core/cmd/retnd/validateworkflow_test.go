@@ -171,9 +171,9 @@ func workflowLintReport() service.WorkflowValidation {
 		ValidForBackup: true,
 		WorkflowValid:  false,
 		Configured:     true,
-		Root:           "/srv/backupd/workflows",
+		Root:           "/srv/retnd/workflows",
 		Stages: []service.WorkflowStage{
-			{Scope: "global", Phase: "before", Dir: "/srv/backupd/workflows/global-before"},
+			{Scope: "global", Phase: "before", Dir: "/srv/retnd/workflows/global-before"},
 		},
 		Scripts: []service.WorkflowValidatedScript{{
 			StepID: "s1", Order: 1, ScriptName: "10-quiesce.local.sh",
@@ -424,7 +424,7 @@ func TestValidateWorkflowSummarisesASetWithNoScripts(t *testing.T) {
 		WorkflowValid:  true,
 		Configured:     true,
 		Stages: []service.WorkflowStage{
-			{Scope: "global", Phase: "before", Dir: "/srv/backupd/workflows/global-before"},
+			{Scope: "global", Phase: "before", Dir: "/srv/retnd/workflows/global-before"},
 		},
 	}
 

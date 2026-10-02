@@ -92,7 +92,7 @@ func stageMovedArtifact(t *testing.T, configPath, name string) model.ArtifactID 
 		t.Fatalf("RecordTransition(complete): %v", err)
 	}
 
-	key := "backupd/production/postgres-primary/" + name
+	key := "retnd/production/postgres-primary/" + name
 	mv, err := j.PlanMove(ctx, state.MovePlan{
 		Artifact: artifact, SourceMedium: state.MediumLocal,
 		DestinationMedium: "cold_offsite", DestinationKey: key,
@@ -175,7 +175,7 @@ func TestRun_ArtifactsPrintsNoLocalCopyBlockForACopyThatIsGone(t *testing.T) {
 	// altogether would pass.
 	for _, want := range []string{
 		"copy:                cold_offsite",
-		"location:          backupd/production/postgres-primary/moved.dump",
+		"location:          retnd/production/postgres-primary/moved.dump",
 		"status:            " + state.PlacementActive,
 		"access:            immediate",
 		"verified_as:       " + state.VerificationContent,

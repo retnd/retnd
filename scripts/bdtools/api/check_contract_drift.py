@@ -249,7 +249,7 @@ def body() -> int:
 
     problems: list[str] = []
 
-    with tempfile.TemporaryDirectory(prefix="backupd-api-drift.") as tmp_str:
+    with tempfile.TemporaryDirectory(prefix="retnd-api-drift.") as tmp_str:
         tmp = Path(tmp_str)
         gen_go, gen_ts = tmp / "contract.gen.go", tmp / "contract.ts"
 

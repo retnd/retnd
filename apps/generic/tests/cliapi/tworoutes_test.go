@@ -47,7 +47,7 @@ import (
 // against a stand-in engine for exactly that reason, and both said so.
 //
 // A test can still put the two together, as long as it does not import
-// them both: this package runs the real backupd BINARY as a
+// them both: this package runs the real retnd BINARY as a
 // subprocess, and stands up the real apps/common/webhost/serve engine and
 // the real UI host in process. Nothing here is a stand-in. The CSRF cookie
 // is minted by apps/common/csrf, the session by apps/common/auth/local, the
@@ -153,7 +153,7 @@ func startStack(t *testing.T, configPath string) *stack {
 	// administrator was never written to and every login would fail for a
 	// reason that has nothing to do with what is under test.
 	storePath := filepath.Join(t.TempDir(), "local-auth.json")
-	// The same provisioning path `backupd-web auth create-admin`
+	// The same provisioning path `retnd-web auth create-admin`
 	// takes, rather than the bootstrap-token enrolment the neighbouring
 	// file uses: this test needs a username and password to hand the CLI,
 	// and that is the command an operator runs to get one.
@@ -324,7 +324,7 @@ type invocation struct {
 }
 
 func (r invocation) String() string {
-	return fmt.Sprintf("backupd %s\nexit %d\nstdout:\n%s\nstderr:\n%s",
+	return fmt.Sprintf("retnd %s\nexit %d\nstdout:\n%s\nstderr:\n%s",
 		strings.Join(r.argv, " "), r.code, r.stdout, r.stderr)
 }
 
@@ -545,7 +545,7 @@ func TestARoutedMutationIsVisibleOverHTTPWithoutARestart(t *testing.T) {
 // #535 fixed.
 //
 // It is the shipped container's own default: nothing sets
-// $RETND_API_URL, so a `docker exec ... backupd backup-set
+// $RETND_API_URL, so a `docker exec ... retnd backup-set
 // create` finds a serving engine, has no route to it, and stops. That is
 // worth driving on its own, because the first proof passes on a deployment
 // that has been told where its engine is and most have not been.
@@ -1078,7 +1078,7 @@ func TestNoCommandChangesTheConfigurationBesideAnEngineItCannotReach(t *testing.
 
 			// The announcement alone, with no HTTP surface behind it. That
 			// is what the probe reads, and it is also the honest shape of
-			// the case: a `backupd daemon` serves no HTTP at all,
+			// the case: a `retnd daemon` serves no HTTP at all,
 			// and an engine whose address nobody has configured is
 			// indistinguishable from one for a command with no route.
 			release, err := service.AnnounceServing(f.configPath)
@@ -1545,7 +1545,7 @@ func TestARoutedWriteIsAcceptedByTheDeploymentItWasTypedAt(t *testing.T) {
 // announcement itself is the subject: what is being checked is that the
 // process serving the setup flow announces at all, and a test that made its
 // own announcement would be checking its own copy of main.go. So the engine
-// below is the real `backupd-web serve`, started as a subprocess
+// below is the real `retnd-web serve`, started as a subprocess
 // against a directory with no configuration in it, exactly as the container
 // starts it.
 
@@ -1562,7 +1562,7 @@ func buildWeb(t *testing.T, root string) string {
 	cmd.Dir = filepath.Join(root, "apps", "generic")
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build backupd-web: %v\n%s", err, out)
+		t.Fatalf("build retnd-web: %v\n%s", err, out)
 	}
 	return bin
 }
@@ -1600,7 +1600,7 @@ func startFirstRunStack(t *testing.T, webBin string) *firstRunStack {
 	stateDatabase := filepath.Join(stateDir, "state.db")
 	storePath := filepath.Join(stateDir, "local-auth.json")
 
-	// Step 2, done the way `backupd-web auth create-admin` does it,
+	// Step 2, done the way `retnd-web auth create-admin` does it,
 	// because this test needs a password to sign in with. An operator
 	// redeems the bootstrap token instead and ends up with the same record.
 	if _, err := local.CreateAdmin(local.CreateAdminConfig{
@@ -1622,7 +1622,7 @@ func startFirstRunStack(t *testing.T, webBin string) *firstRunStack {
 	)
 	cmd.Stdout, cmd.Stderr = out, out
 	if err := cmd.Start(); err != nil {
-		t.Fatalf("starting backupd-web: %v", err)
+		t.Fatalf("starting retnd-web: %v", err)
 	}
 	t.Cleanup(func() {
 		if err := cmd.Process.Signal(os.Interrupt); err != nil {

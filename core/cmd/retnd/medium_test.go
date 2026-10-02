@@ -118,7 +118,7 @@ func TestMediumPreflightIsRefusedBeforeAnythingIsOpened(t *testing.T) {
 // rather than trusted.
 //
 // EPIC G requires every action taken in the browser to print its
-// backupd equivalent into the global terminal, and that terminal is
+// retnd equivalent into the global terminal, and that terminal is
 // copy-to-clipboard and exportable, so anything printed there ends up
 // pasted into a chat window eventually. Redaction is not the answer:
 // redaction is a policy somebody has to remember to apply at every print

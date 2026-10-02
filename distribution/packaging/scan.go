@@ -573,7 +573,7 @@ func isPlaceholder(value string) bool {
 // The case that forced it is a bind mount whose host side is the workflow
 // runner's credential FILE (issue #921):
 //
-//   - /DATA/AppData/backupd/secrets/workflow-runner.token:/etc/retnd/workflow-runner.token:ro
+//   - /DATA/AppData/retnd/secrets/workflow-runner.token:/etc/retnd/workflow-runner.token:ro
 //
 // credentialRe sees `token:` followed by eight-plus characters and reports
 // a bundled secret. There is no secret there at all: both sides are

@@ -4,7 +4,7 @@ Four entry points, each runnable on its own and each speaking
 `bdtools.harness`'s vocabulary rather than its own:
 
   * `run_tests_repo_gate` -- the per-commit browser and CLI signal from
-    the pinned `backupd-tests` checkout (#158, #197);
+    the pinned `retnd-tests` checkout (#158, #197);
   * `run_machine_tier`    -- the Go machine tier, run from inside a
     manager machine (#451);
   * `bump_tests_pin`      -- moves `scripts/e2e/tests-repo.pin`;

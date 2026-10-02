@@ -114,7 +114,7 @@ func startMailSink(t *testing.T) mailSink {
 	requireMailSinkDocker(t)
 	dockerlease.Sweep()
 
-	name := "backupd-auth-mailsink-" + strings.NewReplacer("/", "-", " ", "-").Replace(t.Name()) + "-" + time.Now().Format("150405.000000")
+	name := "retnd-auth-mailsink-" + strings.NewReplacer("/", "-", " ", "-").Replace(t.Name()) + "-" + time.Now().Format("150405.000000")
 	args := []string{
 		"run", "-d", "--name", name,
 		dockerlease.LabelFlag, dockerlease.LabelSpec,
@@ -304,7 +304,7 @@ func sinkEnrollBody(sink mailSink, recoveryEmail string) enrollRequest {
 			Host:     sink.smtpHost,
 			Port:     sink.smtpPort,
 			Security: "none",
-			From:     "backupd@example.test",
+			From:     "retnd@example.test",
 		},
 	}
 }
@@ -335,7 +335,7 @@ func TestContainer_EnrollmentDeliversAUsableVerificationLinkOverRealSMTP(t *test
 	}
 
 	msg := waitForMessage(t, sink, "confirm-me", verifySubject)
-	if !strings.Contains(msg.From, "backupd@example.test") {
+	if !strings.Contains(msg.From, "retnd@example.test") {
 		t.Errorf("the message's from = %q, want the configured from-address", msg.From)
 	}
 	if !strings.Contains(msg.Body.Text, "bm-admin") {

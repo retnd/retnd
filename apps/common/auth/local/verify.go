@@ -70,7 +70,7 @@ import (
 // the SMTP endpoint works - and it carries the verification link, because
 // two separate messages to the same address at the same moment would only
 // make the operator guess which one mattered.
-const verifySubject = "backupd: verify your recovery email"
+const verifySubject = "retnd: verify your recovery email"
 
 // verifyTokenTTL bounds how long an emailed verification link remains
 // valid.
