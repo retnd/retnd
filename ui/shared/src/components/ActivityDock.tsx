@@ -106,9 +106,9 @@ import type { TooltipId } from "@shared/tooltips/tooltips";
 const DOCK_BUFFER = 1000;
 
 const STORAGE = {
-  open: "backupd.dock.open",
-  height: "backupd.dock.height",
-  filter: "backupd.dock.filter"
+  open: "retnd.dock.open",
+  height: "retnd.dock.height",
+  filter: "retnd.dock.filter"
 } as const;
 
 const MIN_HEIGHT = 120;

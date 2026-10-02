@@ -392,7 +392,7 @@ func TestSFTPConnectionsAreReleasedAndBounded(t *testing.T) {
 	// pulls, so the default path for the artifacts it exists to fetch is
 	// four connections, not one.
 	t.Run("ACopyAboveTheMultiThreadCutoffOpensOneConnection", func(t *testing.T) {
-		content := bytes.Repeat([]byte("backupd"), (8<<20)/len("backupd"))
+		content := bytes.Repeat([]byte("retnd"), (8<<20)/len("retnd"))
 		writeUploadFile(t, f, "big.dump", content)
 		src := f.TransportSource("big", "")
 
@@ -478,7 +478,7 @@ func TestSFTPConnectionsAreReleasedAndBounded(t *testing.T) {
 				t.Fatalf("seed artifact in %s: %v", dir, err)
 			}
 		}
-		payload := bytes.Repeat([]byte("backupd"), (8<<20)/len("backupd"))
+		payload := bytes.Repeat([]byte("retnd"), (8<<20)/len("retnd"))
 		if err := os.WriteFile(filepath.Join(f.UploadDir, "ceiling", "big.dump"), payload, 0o644); err != nil {
 			t.Fatalf("seed the payload: %v", err)
 		}

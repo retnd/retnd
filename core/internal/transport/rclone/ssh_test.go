@@ -777,7 +777,7 @@ func generateClientSSHKeyPair(t *testing.T) (privateKeyPath string, authorizedKe
 	}
 	authorizedKeyLine = string(bytes.TrimSpace(ssh.MarshalAuthorizedKey(sshPub)))
 
-	block, err := ssh.MarshalPrivateKey(priv, "backupd-sftp-test-client")
+	block, err := ssh.MarshalPrivateKey(priv, "retnd-sftp-test-client")
 	if err != nil {
 		t.Fatalf("ssh.MarshalPrivateKey: %v", err)
 	}

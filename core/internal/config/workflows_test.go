@@ -184,7 +184,7 @@ func literal(v string) *string { return &v }
 func workflowConfig() Config {
 	return Config{
 		PollInterval: Duration(time.Minute),
-		State:        State{Database: "/var/lib/backupd/state.db"},
+		State:        State{Database: "/var/lib/retnd/state.db"},
 		Workflows: Workflows{
 			Root:          "/workflows",
 			Global:        WorkflowStageDirs{BeforeDir: "global-before", AfterDir: "global-after"},
@@ -534,7 +534,7 @@ func TestWorkflowSpoolDirSitsBesideTheStateDatabase(t *testing.T) {
 	t.Parallel()
 
 	cfg := workflowConfig()
-	if got, want := cfg.WorkflowSpoolDir(), "/var/lib/backupd/workflow-runs"; got != want {
+	if got, want := cfg.WorkflowSpoolDir(), "/var/lib/retnd/workflow-runs"; got != want {
 		t.Errorf("WorkflowSpoolDir() = %q, want %q", got, want)
 	}
 
@@ -556,7 +556,7 @@ func TestWorkflowBlockRoundTripsThroughYAML(t *testing.T) {
 	const doc = `
 poll_interval: 1m
 state:
-  database: /var/lib/backupd/state.db
+  database: /var/lib/retnd/state.db
 workflows:
   root: /workflows
   global:

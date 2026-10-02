@@ -250,7 +250,7 @@ func request(set model.BackupSetID, repo snapshotlifecycle.Repository, tree *fak
 		SourceIdentity:    model.SourceIdentity("ab12cd34"),
 		Consistency:       model.ModeLiveBestEffort,
 		VerificationLevel: model.LevelStructural,
-		Source:            backupengine.Source{Host: "nas", User: "backupd", Path: "/srv/data"},
+		Source:            backupengine.Source{Host: "nas", User: "retnd", Path: "/srv/data"},
 		Repository:        repo,
 		OpenTree:          tree.open,
 	}

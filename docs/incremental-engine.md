@@ -511,8 +511,8 @@ In this build, one place: a **local** repository under the backup root, in
 a reserved namespace.
 
 ```text
-<backup_root>/.backupd/repositories/<domain>/    the repository's own blobs
-<backup_root>/.backupd/state/                    connection config, index caches, maintenance ownership
+<backup_root>/.retnd/repositories/<domain>/    the repository's own blobs
+<backup_root>/.retnd/state/                    connection config, index caches, maintenance ownership
 ```
 
 The reservation is the mechanism, not the dot prefix. A backup root is a
@@ -523,11 +523,11 @@ directory is a few thousand files with names like `p0a1b2c3` and no
 sidecar manifest, and the most likely outcome is not an error — it is a
 prune that removes pack files, and a repository that cannot restore
 anything, discovered later. So one predicate decides it: everything under
-`<backup_root>/.backupd` is repository internals, is never an artifact,
+`<backup_root>/.retnd` is repository internals, is never an artifact,
 and artifact management may not enter it.
 
 If you exclude one path from an SMB share, a virus scanner, or a backup
-of the backup, exclude `.backupd`.
+of the backup, exclude `.retnd`.
 
 The engine's repository adapter also speaks **S3** natively, and that path
 is exercised against a real object store in the repository's own

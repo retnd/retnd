@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Move scripts/e2e/tests-repo.pin to a newer backupd-tests commit.
+"""Move scripts/e2e/tests-repo.pin to a newer retnd-tests commit.
 
   python3 scripts/bdtools/e2e/bump_tests_pin.py              # the pinned branch's tip
   python3 scripts/bdtools/e2e/bump_tests_pin.py main         # a named ref

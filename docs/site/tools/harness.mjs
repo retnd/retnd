@@ -30,7 +30,7 @@
 // request and Vite's own dev server replies with the SPA's index.html. The
 // app reads that as "not authenticated", forever, and the login page is
 // the only screen anyone can reach. Stubbing the one route is the same fix
-// `backupd-tests`' Suite B applies in its own fixtures, for the
+// `retnd-tests`' Suite B applies in its own fixtures, for the
 // same reason.
 //
 // # Why Playwright is borrowed rather than installed
@@ -168,7 +168,7 @@ const PLAYWRIGHT_MIN = [1, 45];
 function playwrightCandidates() {
   const cacheRoot = resolve(
     process.env.XDG_CACHE_HOME ?? resolve(process.env.HOME ?? "", ".cache"),
-    "backupd-tests-gate"
+    "retnd-tests-gate"
   );
   const pinned = readPin();
   const out = [{ why: "the pinned gate checkout " + pinned.slice(0, 12), dir: resolve(cacheRoot, pinned, "suites/web-ui") }];

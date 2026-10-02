@@ -138,7 +138,7 @@ func TestALocalTreeStreamsThroughTheAdapterIntoARealRepository(t *testing.T) {
 
 	sink := source.RepositorySink{
 		Repo:        repo,
-		Source:      backupengine.Source{Host: "nas", User: "backupd", Path: "/sets/local-source"},
+		Source:      backupengine.Source{Host: "nas", User: "retnd", Path: "/sets/local-source"},
 		Ref:         testRef(t, "local-source"),
 		Description: "integration",
 	}
@@ -474,7 +474,7 @@ func TestCancellationAgainstARealSourceLeavesNothingRunning(t *testing.T) {
 
 	sink := source.RepositorySink{
 		Repo:   repo,
-		Source: backupengine.Source{Host: "nas", User: "backupd", Path: "/sets/cancel"},
+		Source: backupengine.Source{Host: "nas", User: "retnd", Path: "/sets/cancel"},
 		Ref:    testRef(t, "cancel"),
 	}
 
@@ -524,7 +524,7 @@ func TestARealFileRewrittenMidReadIsNotLeftInTheRepository(t *testing.T) {
 	sink := &rewriteDuringStore{
 		inner: source.RepositorySink{
 			Repo:   repo,
-			Source: backupengine.Source{Host: "nas", User: "backupd", Path: "/sets/busy"},
+			Source: backupengine.Source{Host: "nas", User: "retnd", Path: "/sets/busy"},
 			Ref:    testRef(t, "busy"),
 		},
 		duringRead: func(attempt int) {
@@ -596,7 +596,7 @@ func TestARealFileRewrittenMidReadIsNotLeftInTheRepository(t *testing.T) {
 
 	// The torn snapshot is gone from the repository, not merely unused.
 	snaps, err := repo.ListSnapshots(context.Background(), backupengine.Source{
-		Host: "nas", User: "backupd", Path: "/sets/busy/busy.bin",
+		Host: "nas", User: "retnd", Path: "/sets/busy/busy.bin",
 	})
 	if err != nil {
 		t.Fatalf("ListSnapshots: %v", err)
@@ -706,7 +706,7 @@ func TestACancelAfterAStoreLeavesNoUnverifiedSnapshotBehind(t *testing.T) {
 	sink := &cancelAfterStore{
 		inner: source.RepositorySink{
 			Repo:   repo,
-			Source: backupengine.Source{Host: "nas", User: "backupd", Path: "/sets/late"},
+			Source: backupengine.Source{Host: "nas", User: "retnd", Path: "/sets/late"},
 			Ref:    testRef(t, "late"),
 		},
 		cancel: cancel,
@@ -735,7 +735,7 @@ func TestACancelAfterAStoreLeavesNoUnverifiedSnapshotBehind(t *testing.T) {
 	}
 
 	snaps, err := repo.ListSnapshots(context.Background(), backupengine.Source{
-		Host: "nas", User: "backupd", Path: "/sets/late/late.bin",
+		Host: "nas", User: "retnd", Path: "/sets/late/late.bin",
 	})
 	if err != nil {
 		t.Fatalf("ListSnapshots: %v", err)

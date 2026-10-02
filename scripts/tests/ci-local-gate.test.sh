@@ -1210,7 +1210,7 @@ assert_contains "J3 the gate starts a sentinel container" \
   'run -d --rm --name ci-local-sentinel-' "$docker_log"
 assert_contains "J3 the sentinel just sleeps" 'sleep infinity' "$docker_log"
 assert_contains "J3 the sentinel is labelled" \
-  '--label backupd-ci-local-sentinel=1' "$docker_log"
+  '--label retnd-ci-local-sentinel=1' "$docker_log"
 assert_contains "J3 the gate removes the sentinel on the way out" \
   'rm -f ci-local-sentinel-' "$docker_log"
 # Same container, not just some container of each shape: a start and a

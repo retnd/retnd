@@ -8,7 +8,7 @@ import (
 	"github.com/retnd/retnd/core/internal/app"
 )
 
-// cmdCatalog is `backupd catalog`, so far just one subcommand,
+// cmdCatalog is `retnd catalog`, so far just one subcommand,
 // section 71 Work Package 3.3's `catalog rebuild` / `catalog rebuild
 // --dry-run` (EPIC-B section 19.3, issue #102).
 //

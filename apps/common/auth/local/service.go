@@ -137,7 +137,7 @@ type Config struct {
 	// ever be this Service's direct peer. apps/generic/cmd/retnd-web's
 	// `--trust-forwarded-headers` flag is what actually turns this on for
 	// that deployment; container/compose.yaml sets it for the
-	// `backupd` (engine) service only, never for `web-ui` itself
+	// `retnd` (engine) service only, never for `web-ui` itself
 	// (which correctly observes its own real TLS status directly and must
 	// never trust a forwarded header from just anyone hitting its
 	// published port).
@@ -386,7 +386,7 @@ func (s *Service) NeedsEnrollment() (bool, error) {
 // rather than this package's. It lands in the same log as every other
 // line the process writes, and it is usually the FIRST line a new
 // deployment shows anybody, so a prefix nothing else in the image uses is
-// the worst one to have. It said `backupd` until 0.3.3, which was
+// the worst one to have. It said `retnd` until 0.3.3, which was
 // already the wrong half of the pair (the CLI never prints this), and
 // the rename made it a name the product no longer answers to at all. It
 // reads core/cliecho.WebBinary now, the one place that name is spelled.

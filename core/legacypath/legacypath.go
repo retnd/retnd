@@ -4,107 +4,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/retnd/retnd/core/internal/config"
 )
 
-// FR-38, the state-adoption preflight: the reason EPIC R (#885) has a
-// safety requirement at all, and the reason this file is in core/service
-// rather than beside either command.
-//
-// THE FAILURE THIS PREVENTS. An operator deploys with the compose file
-// this project published, which bind-mounts their host state directory
-// onto a container path carrying the old brand. The rename moves that
-// path. The upgraded binary resolves the NEW path, finds no state
-// database there, and every other branch of that condition is correct: a
-// fresh install really does have no state database. So it runs the
-// first-run flow, which claims the administrator account and burns the
-// enrollment token — and the operator's first instinct, completing the
-// wizard it just handed them, is the action that makes it worse. A
-// deployment with years of journal presents a setup screen and there is
-// nothing in the product saying why.
-//
-// So before any first-run decision, the process resolves BOTH locations
-// and decides from facts it can observe (FR-38's table):
-//
-//	new path            legacy path                        outcome
-//	------------------  ---------------------------------  -----------------
-//	holds the artifact  absent, empty, or the SAME          use the new path
-//	                    directory (same device and inode)
-//	absent or empty     holds the artifact                 ADOPT the legacy
-//	                                                       path and warn on
-//	                                                       every start
-//	absent or empty     absent or empty                    fresh install
-//	holds the artifact  holds a DIFFERENT one              refuse to start,
-//	                    (different device and inode)       naming both
-//
-// FOUR THINGS ABOUT THAT TABLE ARE REQUIREMENTS RATHER THAN CHOICES.
-//
-// The forbidden cell is ONE cell and it is unrepresentable: the new path
-// empty, the legacy path holding the artifact, and the process proceeding
-// to first run. Nothing below takes a flag, an environment variable or a
-// configuration value, so there is no input that reaches it. That is why
-// the decision is a pure function of two stat results and why it lives
-// here, on the one door both commands already open a deployment through,
-// instead of being re-derived per binary.
-//
-// It ADOPTS rather than refuses. Refusing to start is a self-inflicted
-// outage on a backup product, the operator has done nothing wrong, and an
-// operator staring at a stopped stack reaches for the wizard as readily as
-// one staring at a fresh install. They get a working deployment and a
-// warning with the fix in it, which is what a deprecation is for.
-//
-// Refusal is reserved for AMBIGUITY, and the same-device-and-inode test is
-// what keeps it from firing on the installer's own rollback window: the
-// installer writes a compose override mounting one host directory at BOTH
-// container paths, so both look populated — and both are the same device
-// and inode, which is not ambiguity. Without that test the supported
-// downgrade path would stop starting, which is the control
-// core/tests/compat's cell 22 exercises.
-//
-// And the legacy path is a COMPILED-IN CONSTANT, never a new
-// configuration key. config.Load decodes with KnownFields(true), so a key
-// added here would make every config.yaml written by this release
-// unreadable by the release before it — a one-way door out of a rollback
-// for the sake of expressing something the process can observe for
-// itself.
-//
-// WHY A PATH SEGMENT AND NOT TWO ABSOLUTE PREFIXES. The epic's inventory
-// frames this as /var/lib/backupd -> /var/lib/retnd and
-// /etc/backupd -> /etc/retnd, and those are the two pairs the packaged
-// deployment uses. But the rename renamed a NAME, and an operator who
-// mounts their state at /srv/retnd/state or /volume1/retnd/config has
-// exactly the same problem for exactly the same reason. Substituting the
-// segment covers the enumerated pairs and that whole class, it needs no
-// table anybody has to remember to extend, and it is what makes this
-// testable end to end: a compat cell can build the same two directories
-// under a throwaway root and drive the real binary at them, which an
-// absolute-prefix table could only have been tested by mocking the thing
-// under test.
-//
-// This whole mechanism is a SHIM with a closing date. It is on
-// scripts/rename/check-brand-drift.sh's alias list with its closing issue
-// (#947) and its removal release, and the issue that closes the window
-// deletes it and replaces core/tests/compat's cell 20 — which pins the
-// warning below — with one pinning a refusal.
-
-const (
-	// renamedPathSegment and retiredPathSegment are the two spellings of
-	// this product's own name as it appears in a filesystem path: one
-	// path component, exactly, never a substring.
-	//
-	// Exactly-one-component is the whole of the matching rule and it is
-	// load-bearing in both directions. /retnd-web is the entrypoint
-	// alias, not a directory this looks inside; a `retnd.db` is a file
-	// name, not a renamed directory; and the organisation half of a
-	// repository coordinate is an organisation, not a state directory.
-	// Substring matching would reach all three. It is also why the guard's
-	// own right-hand anchor exists, for the same reason: `backup` is this
-	// product's domain word.
-	renamedPathSegment = "retnd"
-	retiredPathSegment = "backupd"
-)
+// Package legacypath keeps the resolved-path result type shared by the
+// engine and web host. The deployment-name compatibility window is closed,
+// so current paths no longer have an alternate brand-derived location.
 
 // Outcome is which cell of FR-38's table a resolved path landed
 // in. It is a string so it can be read out of a log line, a `retnd check`
@@ -185,8 +91,8 @@ func ForConfig(requested string) Adoption {
 	if legacy != "" {
 		// ResolvePath again, because the legacy spelling may be the
 		// directory shape: an operator whose --config named
-		// /etc/retnd/config has a /etc/backupd/config directory, not a
-		// /etc/backupd/config file.
+		// /etc/retnd/config has a /etc/retnd/config directory, not a
+		// /etc/retnd/config file.
 		legacy = config.ResolvePath(legacy)
 	}
 	return classifyPaths("configuration", renamed, legacy)
@@ -206,29 +112,10 @@ func ForStateDatabase(requested string) Adoption {
 	return classifyPaths("state database", requested, legacyCounterpart(requested))
 }
 
-// legacyCounterpart is the pre-rename spelling of a path, or "" when the
-// path has no component that is this product's name and the rename
-// therefore cannot have moved it.
-//
-// Every matching component is substituted, not just the first: a path is
-// allowed to name the product twice and there is no reading under which
-// one of the two was renamed and the other was not.
-func legacyCounterpart(p string) string {
-	if p == "" {
-		return ""
-	}
-	parts := strings.Split(p, string(filepath.Separator))
-	found := false
-	for i, part := range parts {
-		if part == renamedPathSegment {
-			parts[i] = retiredPathSegment
-			found = true
-		}
-	}
-	if !found {
-		return ""
-	}
-	return strings.Join(parts, string(filepath.Separator))
+// legacyCounterpart returns no alternate location because the path rename's
+// compatibility window is closed.
+func legacyCounterpart(string) string {
+	return ""
 }
 
 // classifyPaths is FR-38's table, and it is the whole decision. It takes

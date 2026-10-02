@@ -340,7 +340,7 @@ func TestAnIdentityThatCannotBeReadDoesNotStopTheDeploymentStarting(t *testing.T
 //
 // Open is the constructor the CLI comes through as well as the web host
 // (openBackupService and openConfigWriteRoute both call it), so a mint
-// inside it renames a deployment on a `backupd status`. That is
+// inside it renames a deployment on a `retnd status`. That is
 // not a hypothetical: with the engine up and holding a cached identity
 // and the file absent, which is what restoring only the .db leaves, one
 // CLI invocation renamed the deployment and every routed write afterwards

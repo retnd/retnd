@@ -1,5 +1,5 @@
 {
-  "schema": "backupd/third-party-licenses/1",
+  "schema": "retnd/third-party-licenses/1",
   "note": [
     "Generated. Do not hand-edit: run `go run ./cmd/provenance -write` from apps/common.",
     "",

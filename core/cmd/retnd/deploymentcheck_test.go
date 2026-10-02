@@ -35,7 +35,7 @@ import (
 // That claim used to be false. openConfigWriteRoute calls service.Open
 // before it enters config-write mode, service.Open ran runStartupSequence,
 // and that minted. So on a deployment whose identity file was missing
-// beside an engine still holding the old one, a single `backupd
+// beside an engine still holding the old one, a single `retnd
 // status` renamed the deployment, and every routed write afterwards
 // refused against its own engine while telling the operator to go and
 // check $RETND_API_URL. Minting now belongs to core/service's
@@ -178,7 +178,7 @@ func TestARoutedWriteRefusesWhenNeitherSideCanNameItsDeployment(t *testing.T) {
 // deploymentcheck.go promises the near side is read and never minted, and
 // setup.go broke it two calls later: openConfigWriteRoute calls
 // service.Open, which ran the startup sequence, which minted. `backup-set
-// create` is enough, and so is `backupd status`, which writes
+// create` is enough, and so is `retnd status`, which writes
 // nothing and is what somebody runs first when a deployment looks wrong.
 //
 // The engine here is holding the identity it read when it started, so a

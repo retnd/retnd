@@ -156,7 +156,7 @@ func moveTestMediums() []config.StorageMedium {
 		Type:   config.StorageMediumTypeS3,
 		Region: "us-east-1",
 		Bucket: "nas-backups",
-		Prefix: "backupd",
+		Prefix: "retnd",
 	}}
 }
 
@@ -256,7 +256,7 @@ func TestRunCycle_MovesTheArtifactTheChainSaysBelongsElsewhere(t *testing.T) {
 		t.Fatalf("Moves = %+v, want the planned move to have completed", report.Moves)
 	}
 
-	key, err := transport.MediumKey("backupd", artifact)
+	key, err := transport.MediumKey("retnd", artifact)
 	if err != nil {
 		t.Fatalf("MediumKey: %v", err)
 	}
@@ -344,7 +344,7 @@ func TestRunCycle_LeavesAMovedArtifactCompleteOnTheNextCycle(t *testing.T) {
 			artifact, rec.State, moveTestMedium, strings.Join(findings, "\n\t"))
 	}
 
-	key, err := transport.MediumKey("backupd", artifact)
+	key, err := transport.MediumKey("retnd", artifact)
 	if err != nil {
 		t.Fatalf("MediumKey: %v", err)
 	}

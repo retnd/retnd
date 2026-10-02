@@ -358,7 +358,7 @@ var deleteExemptions = []deleteExemption{
 		Func: "run.deleted",
 		Reason: "the medium preflight (#443), and it is outside the rule because it is outside the SUBJECT of the rule: there is no artifact " +
 			"anywhere in this delete. The only key it can pass to DeleteObject is one it generated itself from crypto/rand, under a reserved " +
-			".backupd-preflight/ segment that transport.MediumKey cannot spell for any configured artifact, and the object at it is a " +
+			".retnd-preflight/ segment that transport.MediumKey cannot spell for any configured artifact, and the object at it is a " +
 			"fixed 120-byte probe this same call wrote seconds earlier. CheckSourceDelete asks whether another copy of the BACKUP is readable, " +
 			"and there is no backup: refusing to delete the probe would leave litter in an operator's bucket that nothing in this product ever " +
 			"cleans up. mediumcheck's TestProbeKey_LivesUnderASegmentNoArtifactCanReach pins the containment, and its happy path asserts exactly " +

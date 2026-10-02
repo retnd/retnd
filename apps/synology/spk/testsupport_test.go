@@ -85,7 +85,7 @@ func stagedUIBundle(t *testing.T, platform string) string {
 	t.Helper()
 	dir := t.TempDir()
 	files := map[string]string{
-		UIBundleMarkerName: `{"schema":"backupd/ui-bundle/1","platform":"` + platform + `"}`,
+		UIBundleMarkerName: `{"schema":"retnd/ui-bundle/1","platform":"` + platform + `"}`,
 		"index.html":       "<!doctype html><title>Backupd</title><script src=/assets/app.js></script>",
 		"assets/app.js":    "// " + platform + " bridge\n",
 	}

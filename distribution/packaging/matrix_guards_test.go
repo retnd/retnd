@@ -85,15 +85,15 @@ func sha256Of(b []byte) string {
 func TestCoreBinaryHashParity_NeedsARealByteComparison(t *testing.T) {
 	p, dir := tempProvider(t, "fictional")
 	binary := []byte("not really a binary, but it has a SHA-256 like everything else")
-	write(t, filepath.Join(dir, "payload", "backupd-web"), string(binary))
+	write(t, filepath.Join(dir, "payload", "retnd-web"), string(binary))
 	p.spec.Metadata.BinaryArtifacts = map[string]string{
-		"/backupd-web": filepath.Join("payload", "backupd-web"),
+		"/retnd-web": filepath.Join("payload", "retnd-web"),
 	}
 
 	good := ReleaseManifest{
 		Commit: "0123456789abcdef",
 		Architectures: []ReleaseArchitecture{
-			{Architecture: "amd64", BinarySHA256: map[string]string{"backupd-web": sha256Of(binary)}},
+			{Architecture: "amd64", BinarySHA256: map[string]string{"retnd-web": sha256Of(binary)}},
 		},
 	}
 
@@ -106,7 +106,7 @@ func TestCoreBinaryHashParity_NeedsARealByteComparison(t *testing.T) {
 	corrupted := ReleaseManifest{
 		Commit: "0123456789abcdef",
 		Architectures: []ReleaseArchitecture{
-			{Architecture: "amd64", BinarySHA256: map[string]string{"backupd-web": sha256Of([]byte("a different build"))}},
+			{Architecture: "amd64", BinarySHA256: map[string]string{"retnd-web": sha256Of([]byte("a different build"))}},
 		},
 	}
 	ok, detail := coreBinaryHashParity(p, corrupted)
@@ -142,8 +142,8 @@ func TestCoreBinaryHashParity_RefusesEveryProviderThatShipsNoBinary(t *testing.T
 // directions.
 func TestArchitectureParity_IsPerProvider(t *testing.T) {
 	manifest := ReleaseManifest{Architectures: []ReleaseArchitecture{
-		{Architecture: "amd64", BinarySHA256: map[string]string{"backupd": "x", "backupd-web": "x"}},
-		{Architecture: "arm64", BinarySHA256: map[string]string{"backupd": "x", "backupd-web": "x"}},
+		{Architecture: "amd64", BinarySHA256: map[string]string{"retnd": "x", "retnd-web": "x"}},
+		{Architecture: "arm64", BinarySHA256: map[string]string{"retnd": "x", "retnd-web": "x"}},
 	}}
 
 	p, dir := tempProvider(t, "fictional")
@@ -234,19 +234,19 @@ func TestReleaseManifestIntegrity_SeparatesGitFailingFromGitSayingNo(t *testing.
 // hash-completeness half.
 func TestReleaseManifest_RecordsEveryBinary(t *testing.T) {
 	full := ReleaseManifest{Architectures: []ReleaseArchitecture{
-		{Architecture: "amd64", BinarySHA256: map[string]string{"backupd": "a", "backupd-web": "b"}},
+		{Architecture: "amd64", BinarySHA256: map[string]string{"retnd": "a", "retnd-web": "b"}},
 	}}
-	if ok, detail := full.RecordsEveryBinary([]string{"/backupd", "/backupd-web"}); !ok {
+	if ok, detail := full.RecordsEveryBinary([]string{"/retnd", "/retnd-web"}); !ok {
 		t.Fatalf("a complete manifest must be accepted, got: %s", detail)
 	}
 	partial := ReleaseManifest{Architectures: []ReleaseArchitecture{
-		{Architecture: "amd64", BinarySHA256: map[string]string{"backupd": "a"}},
+		{Architecture: "amd64", BinarySHA256: map[string]string{"retnd": "a"}},
 	}}
-	if ok, _ := partial.RecordsEveryBinary([]string{"/backupd", "/backupd-web"}); ok {
+	if ok, _ := partial.RecordsEveryBinary([]string{"/retnd", "/retnd-web"}); ok {
 		t.Errorf("a manifest missing one binary's hash must be refused")
 	}
 	empty := ReleaseManifest{}
-	if ok, _ := empty.RecordsEveryBinary([]string{"/backupd"}); ok {
+	if ok, _ := empty.RecordsEveryBinary([]string{"/retnd"}); ok {
 		t.Errorf("a manifest with no architectures at all must be refused")
 	}
 }
@@ -255,36 +255,26 @@ func TestReleaseManifest_RecordsEveryBinary(t *testing.T) {
 // between canonical.json's binary paths and
 // container/release-manifest.json's keys.
 //
-// There are two accepted spellings for one release: #890 renamed the
-// files the image carries to /retnd and /retnd-web while an
-// already-published entry keeps the keys it went out under, so a lookup
-// takes either and prefers the new one. The guard still earns its place,
-// and the reason is unchanged: the risk never came from the translation
-// being wrong, it came from a mapping nobody constrained. A function that
-// returned one of the recorded keys for absolutely everything would
-// satisfy every provider row in the matrix, and it would turn "this
-// binary is not in the manifest" into "some binary is", which is the
-// architecture-parity and artifact-provenance columns reporting a hash
-// nobody asked for. So it is checked from the side that matters: on names
-// the table must NOT recognise.
+// Canonical binary names map only to their own manifest keys. The guard
+// earns its place because a function that returned one recorded key for
+// every input would turn "this binary is not in the manifest" into "some
+// binary is", making architecture parity and artifact provenance report a
+// hash nobody asked for.
 func TestTheManifestKeyCannotPairAHashWithTheWrongBinary(t *testing.T) {
 	for _, tc := range []struct {
 		in   string
 		want []string
 	}{
-		{"/retnd", []string{"retnd", "backupd"}},
-		{"retnd", []string{"retnd", "backupd"}},
-		{"/retnd-web", []string{"retnd-web", "backupd-web"}},
-		{"/backupd", []string{"retnd", "backupd"}},
-		{"/backupd-web", []string{"retnd-web", "backupd-web"}},
-		{"backupd-web", []string{"retnd-web", "backupd-web"}},
+		{"/retnd", []string{"retnd"}},
+		{"retnd", []string{"retnd"}},
+		{"/retnd-web", []string{"retnd-web"}},
+		{"retnd-web", []string{"retnd-web"}},
 
 		// Anything else keeps its own name and only its own name, and
 		// therefore fails the lookup: an invented binary must be reported
 		// missing rather than borrowing one of the pairs above.
 		{"/rclone", []string{"rclone"}},
 		{"/retnd-webhook", []string{"retnd-webhook"}},
-		{"/backupd-webhook", []string{"backupd-webhook"}},
 		{"/rbmx", []string{"rbmx"}},
 	} {
 		if got := manifestBinaryKeys(tc.in); !slices.Equal(got, tc.want) {
@@ -296,17 +286,16 @@ func TestTheManifestKeyCannotPairAHashWithTheWrongBinary(t *testing.T) {
 	// binary the manifest does not record has to come back refused, not
 	// translated onto one it does.
 	m := ReleaseManifest{Architectures: []ReleaseArchitecture{
-		{Architecture: "amd64", BinarySHA256: map[string]string{"backupd": "a", "backupd-web": "b"}},
+		{Architecture: "amd64", BinarySHA256: map[string]string{"retnd": "a", "retnd-web": "b"}},
 	}}
-	if ok, detail := m.RecordsEveryBinary([]string{"/retnd", "/retnd-web", "/backupd-sidecar"}); ok {
+	if ok, detail := m.RecordsEveryBinary([]string{"/retnd", "/retnd-web", "/retnd-sidecar"}); ok {
 		t.Errorf("a binary with no hash of its own was accepted: %s", detail)
 	}
 
-	// The positive control for the pair above, and the overlap release's
-	// actual shape: the 0.4.0 entry's legacy keys satisfy the renamed
-	// canonical binaries, including the /backupd-web hardlink.
-	if ok, detail := m.RecordsEveryBinary([]string{"/retnd", "/retnd-web", "/backupd-web"}); !ok {
-		t.Errorf("a manifest keyed under the published spelling was refused: %s", detail)
+	// The positive control: both canonical binaries are recorded under
+	// their current names.
+	if ok, detail := m.RecordsEveryBinary([]string{"/retnd", "/retnd-web"}); !ok {
+		t.Errorf("a manifest keyed under the canonical spelling was refused: %s", detail)
 	}
 }
 
@@ -432,8 +421,8 @@ func TestBridgeFlagsOnlyCountWhereABundleLoadsThem(t *testing.T) {
 	// a working-looking UI, and neither the store artifacts nor the
 	// bridge flag would notice.
 	wrong := SelectUIBundle(&Service{
-		Name:        "backupd-ui",
-		Command:     []string{"/backupd-web", "serve-ui", "--profile=truenas"},
+		Name:        "retnd-ui",
+		Command:     []string{"/retnd-web", "serve-ui", "--profile=truenas"},
 		Environment: map[string]string{"UI_ROOT": "/ui/bundles"},
 	}, UIBundleSelection{Mechanism: UIBundleNone}, "unraid")
 	if wrong.Provider != "truenas" {
@@ -641,9 +630,9 @@ func TestRoleMountsRefusesAMountWithNoKnownRole(t *testing.T) {
 	// containment alike.
 	p, dir := tempProvider(t, "fictional")
 	write(t, filepath.Join(dir, "compose.yaml"), `services:
-  backupd:
+  retnd:
     image: `+canonical.Image.Reference+`
-    command: ["/backupd-web", "serve"]
+    command: ["/retnd-web", "serve"]
     volumes:
       - /srv/app/state:/data/state
       - /srv/app/backups:/data/backups
@@ -845,7 +834,7 @@ func TestProxmoxProcedureIsSafeToFollowLiterally(t *testing.T) {
 		},
 		{
 			name: "the chown moves back ahead of the key",
-			text: "sudo chown -R 1000:100 /mnt/backupd\n" + text,
+			text: "sudo chown -R 1000:100 /mnt/retnd\n" + text,
 			want: "recursive chown runs before the SSH key exists",
 		},
 	}

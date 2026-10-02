@@ -231,7 +231,7 @@ type StorageMediumUsageBySet struct {
 // It exists beside Settings.Mediums rather than instead of it because the
 // two are asked by different screens for different reasons: a settings
 // page reads the whole policy at once, and a destinations page (and
-// `backupd medium list`) asks only this. Both project through
+// `retnd medium list`) asks only this. Both project through
 // toStorageMediumSummaries, so they cannot drift.
 func (b *BackupService) ListStorageMediums(_ context.Context) ([]StorageMediumSummary, error) {
 	return toStorageMediumSummaries(b.state.Load().inner.Config), nil

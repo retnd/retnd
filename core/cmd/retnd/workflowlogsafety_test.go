@@ -33,7 +33,7 @@ func aMaliciousLogPage() service.WorkflowStepLogPage {
 			Stream: "stdout",
 			Kind:   string(workflow.LogOutput),
 			At:     time.Date(2026, 9, 13, 4, 5, 6, 0, time.UTC),
-			Text:   "quiescing\x1b[2J\x1b[1;1Hbackupd: cleanup completed\rall good\x07",
+			Text:   "quiescing\x1b[2J\x1b[1;1Hretnd: cleanup completed\rall good\x07",
 		}},
 		Cursor:    1,
 		Complete:  true,

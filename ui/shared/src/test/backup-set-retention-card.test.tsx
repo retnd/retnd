@@ -392,7 +392,7 @@ describe("mapping one backup set's tier to a storage medium", () => {
     expect(words).toMatch(/offsite_s3/);
     expect(words).toMatch(/I delete the copy on this machine/);
     expect(words).toMatch(/billed by your provider/i);
-    // No figure comes with it (backupd#211).
+    // No figure comes with it (retnd#211).
     expect(words).not.toMatch(/\$\s?\d/);
     // The chain is edited and valid, and Save still waits for the tick.
     expect((save() as HTMLButtonElement).disabled).toBe(true);

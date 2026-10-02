@@ -483,7 +483,7 @@ case "${1:-}" in
   version) printf '27.0.0-stand-in\n' ;;
   image) printf 'sha256:feedfacefeedface\n' ;;
   run)
-    printf 'backupd-container-probe-ok\n'
+    printf 'retnd-container-probe-ok\n'
     printf 'bash_path=/usr/local/bin/bash\n'
     printf 'bash_version=5.2.37(1)-release\n'
     printf 'uid=1000\n'

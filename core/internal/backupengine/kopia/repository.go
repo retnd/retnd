@@ -59,7 +59,7 @@ import (
 // vendor's own prefixes, and cannot collide with one either. Probe blobs
 // are deleted by the probe that wrote them; one left behind by a killed
 // process is inert.
-const probePrefix = "_backupd_probe_"
+const probePrefix = "_retnd_probe_"
 
 // probeSize is how many bytes the cheap probe writes. It is larger than
 // one range read so that a partial read can be checked against an offset
@@ -394,7 +394,7 @@ func (r *repository) Health(ctx context.Context) (backupengine.HealthReport, err
 	// here, once per health check, because a repository whose stored
 	// policy still expires snapshots is a working repository with a
 	// condition worth an operator's attention -- which is exactly what
-	// this type is for. Every manifest backupd writes here is pinned and
+	// this type is for. Every manifest retnd writes here is pinned and
 	// therefore safe; a snapshot written by other software against the
 	// same repository is not.
 	if r.engineRetention != nil {
@@ -1008,7 +1008,7 @@ func configPath(loc backupengine.RepositoryLocation) (string, error) {
 func connectOptions(loc backupengine.RepositoryLocation) *repo.ConnectOptions {
 	return &repo.ConnectOptions{
 		ClientOptions: repo.ClientOptions{
-			Description: "backupd:" + loc.Domain.String(),
+			Description: "retnd:" + loc.Domain.String(),
 		},
 	}
 }

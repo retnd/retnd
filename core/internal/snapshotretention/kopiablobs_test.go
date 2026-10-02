@@ -9,7 +9,7 @@
 // disappear from the repository's own storage?
 //
 // The last one is the criterion the issue states as "repository pack files
-// are never directly pruned by backupd", and it is asserted as a
+// are never directly pruned by retnd", and it is asserted as a
 // directory-level fact: every blob file present before the pass is present
 // after it. Nothing weaker would do. A pass that deleted a manifest AND
 // the packs its content lived in would satisfy every assertion in

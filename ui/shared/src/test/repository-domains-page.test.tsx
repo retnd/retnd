@@ -239,7 +239,7 @@ describe("declaring a domain", () => {
   /** Fill in the two answers a declaration cannot be made without. */
   async function fillIdentity(user: UserEvent, id = "offsite-c2") {
     await user.type(screen.getByLabelText("Domain id"), id);
-    await user.type(screen.getByLabelText("Passphrase file on this NAS"), "/etc/backupd/" + id);
+    await user.type(screen.getByLabelText("Passphrase file on this NAS"), "/etc/retnd/" + id);
   }
 
   /** The same wizard, landing on the REAL fleet page rather than a stub.
@@ -311,7 +311,7 @@ describe("declaring a domain", () => {
       // The passphrase is a REFERENCE. A request carrying the secret
       // itself is the one failure on this screen that cannot be undone
       // by editing a form, because it is already in an access log.
-      passphrase: { file: "/etc/backupd/offsite-c2" },
+      passphrase: { file: "/etc/retnd/offsite-c2" },
       location: "",
       maintenanceOwner: "another-instance"
     });
@@ -386,7 +386,7 @@ describe("declaring a domain", () => {
     expect(screen.getByRole("button", { name: "Create domain" })).toBeDisabled();
     await user.type(screen.getByLabelText("Domain id"), "offsite-c2");
     expect(screen.getByRole("button", { name: "Create domain" })).toBeDisabled();
-    await user.type(screen.getByLabelText("Passphrase file on this NAS"), "/etc/backupd/p");
+    await user.type(screen.getByLabelText("Passphrase file on this NAS"), "/etc/retnd/p");
     expect(screen.getByRole("button", { name: "Create domain" })).toBeEnabled();
   });
 

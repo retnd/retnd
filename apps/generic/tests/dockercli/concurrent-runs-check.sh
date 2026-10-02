@@ -6,7 +6,7 @@
 # must pass, and each must have tested the image it built itself.
 #
 # Before the per-run reference this checks, both runs built and retagged
-# one name, `backupd:dockercli-test`. Whichever built last owned
+# one name, `retnd:dockercli-test`. Whichever built last owned
 # it, and the other run went on inspecting, running and compose-ing an
 # image built from a different commit, with nothing able to notice. The
 # suite's own TestTheImageUnderTestIsTheOneThisRunBuilt is what would
@@ -112,7 +112,7 @@ else
 fi
 
 for ref in "${refs[@]:-}"; do
-  if [ "$ref" = "backupd:dockercli-test" ]; then
+  if [ "$ref" = "retnd:dockercli-test" ]; then
     echo "    FAIL: a run built the old globally shared tag $ref"
     status=1
   fi

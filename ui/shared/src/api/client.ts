@@ -234,20 +234,12 @@ function readCookie(name: string): string {
  * including the very first page load — carries a retnd_csrf cookie; a
  * state-changing request has to echo its value back as this header, or
  * the backend refuses it with 403 CSRF_TOKEN_MISMATCH.
- *
- * CSRF_LEGACY_COOKIE_NAMES are the names this cookie had before each of
- * this project's two earlier renames — `backupd_csrf` before EPIC R
- * (#885) renamed the product to retnd, `bm_csrf` before #794 renamed it
- * to backupd — and they are read as fallbacks for the same one release
- * the backend accepts them (csrf.LegacyCookieNames). The backend carries
- * an old-name token forward onto the current name on any response, so
- * these fallbacks normally never fire; they cover the one window where
- * they could — a bundle this browser already had cached making a
- * mutating request before any document load from the upgraded runtime
- * has had a chance to re-issue the cookie.
+ * CSRF_LEGACY_COOKIE_NAMES contains the remaining read-compatibility name.
+ * The backend carries its token forward under the current name on the next
+ * response, while an already-loaded client can still echo the value it found.
  */
 const CSRF_COOKIE_NAME = "retnd_csrf";
-const CSRF_LEGACY_COOKIE_NAMES = ["backupd_csrf", "bm_csrf"];
+const CSRF_LEGACY_COOKIE_NAMES = ["bm_csrf"];
 const CSRF_HEADER_NAME = "X-CSRF-Token";
 
 /**

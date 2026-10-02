@@ -125,20 +125,7 @@ func discoveryDirFromEnv() string {
 // deployment that mounts a second key beside it is described too, and it
 // is reported as searched even on a machine where it does not exist,
 // because "not mounted here" is an answer and silence is not.
-//
-// sshDiscoveryMountDirLegacy is the pre-rename container path, and it is
-// scanned as well for the same reason FR-38 adopts a state directory
-// found at the old location: an operator running an UNEDITED pre-rename
-// compose file still mounts their key at /etc/backupd/id_ed25519, and a
-// scan that only looked at the new path would report "no keys found" on a
-// deployment that has one. That is the whole shape FR-42 refuses. R1.5
-// (#890) renamed this constant's neighbours and left this one pointing at
-// the old path with a comment describing the new one, so between #890 and
-// #895 the mount location was scanned on no deployment at all.
-const (
-	sshDiscoveryMountDir       = "/etc/retnd"
-	sshDiscoveryMountDirLegacy = "/etc/backupd"
-)
+const sshDiscoveryMountDir = "/etc/retnd"
 
 // ErrSSHKeyCandidateNotFound is returned by ImportSSHKeyCandidate when
 // the id does not resolve against a fresh scan of the fixed locations.
@@ -527,7 +514,6 @@ func discoverSSHKeyCandidates(configuredKeyFiles []string, stored []SSHKeyListin
 		kind string
 	}{
 		{sshDiscoveryMountDir, "mount"},
-		{sshDiscoveryMountDirLegacy, "mount-legacy"},
 		{homeSSHDir(), "home"},
 		{discoveryDirFromEnv(), "discovery-dir"},
 	} {

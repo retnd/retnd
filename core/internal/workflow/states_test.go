@@ -161,7 +161,7 @@ func TestValidateRefusesRecordsTheJournalMustNotStore(t *testing.T) {
 		WorkflowStatus:   StatusRunning,
 		RecoveryState:    RecoveryNone,
 		ResolvedPlanHash: strings.Repeat("a", 64),
-		ScriptSpoolRef:   "/var/lib/backupd/workflow-runs/run-1",
+		ScriptSpoolRef:   "/var/lib/retnd/workflow-runs/run-1",
 	}
 
 	if err := goodRun.Validate(); err != nil {
@@ -227,7 +227,7 @@ func TestValidateRefusesRecordsTheJournalMustNotStore(t *testing.T) {
 		ScriptSize:   12,
 		Target:       TargetLocal,
 		Timeout:      time.Minute,
-		SpoolRef:     "/var/lib/backupd/workflow-runs/run-1/scripts/0000~set~before~a.local.sh",
+		SpoolRef:     "/var/lib/retnd/workflow-runs/run-1/scripts/0000~set~before~a.local.sh",
 		State:        StatePending,
 	}
 

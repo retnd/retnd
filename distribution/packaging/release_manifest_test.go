@@ -578,7 +578,7 @@ func fixtureManifest(p providerUnderTest, commit string) ReleaseManifest {
 		hashes := map[string]string{}
 		for _, b := range p.canonical.Binaries {
 			// manifestBinaryKeys, not a bare TrimPrefix: the canonical
-			// binary paths (/retnd, /retnd-web, and /backupd-web for the
+			// binary paths (/retnd, /retnd-web, and /retnd-web for the
 			// hardlink) and the keys container/release-manifest.json
 			// records a hash under are not the same strings while the
 			// #890 overlap release lasts, and the fixture has to key the

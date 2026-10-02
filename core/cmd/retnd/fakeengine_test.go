@@ -81,8 +81,8 @@ type fakeEngine struct {
 // startFakeEngine announces that this process serves the deployment
 // configPath names, opens a BackupService over it, and serves it.
 //
-// Announce first, then open, which is the order backupd-web and
-// `backupd daemon` use and which is now load-bearing rather than
+// Announce first, then open, which is the order retnd-web and
+// `retnd daemon` use and which is now load-bearing rather than
 // tidy: core/service mints a deployment identity in AnnounceServing and
 // nowhere else (#555 as #559 left it), so an engine that opened first
 // would cache an empty identity and every routed write against it would

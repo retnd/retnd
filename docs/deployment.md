@@ -5,29 +5,29 @@ This documents the container packaging for `core/cmd/retnd` (A3.9): what's in
 than just asserting it. It's meant to be read next to `container/Dockerfile` and
 `container/compose.yaml`, which carry the same reasoning inline as comments.
 
-## The command is `retnd`, and `/backupd-web` survives for exactly one release
+## The command is `retnd`, and `/retnd-web` survives for exactly one release
 
 EPIC R (#885) renamed the product. The engine CLI is `retnd`, the web host is
 `retnd-web`, and inside the image those are the two real binaries at `/retnd` and
 `/retnd-web`. Everything in this file, in `container/compose.yaml` and in every adapter
-names them. This is the third name the command has had — `backup-manager` became `rbm`
-in 0.3.3, and `rbm` became `backupd` in 0.4.0 — and it is the first rename that ships a
+names them. This is the third name the command has had — `retnd` became `rbm`
+in 0.3.3, and `rbm` became `retnd` in 0.4.0 — and it is the first rename that ships a
 compatibility window, because by now the name is not only a printed word: it is in the
 image's entrypoints, the compose service and the container's own paths.
 
-**One name is aliased, deliberately.** `container/Dockerfile` creates `/backupd-web` in
+**One name is aliased, deliberately.** `container/Dockerfile` creates `/retnd-web` in
 the runtime stage as a **real hardlink** to `/retnd-web`: one inode, two names, no second
 copy of a ~40 MB binary and no shell wrapper, because the distroless runtime has no shell
 to resolve a name through. So a compose file, `docker run` line or unit of yours that
-still spells `/backupd-web` starts on a new image instead of dying with
-`exec /backupd-web: no such file or directory`. It is a shim with a closing date: #895
+still spells `/retnd-web` starts on a new image instead of dying with
+`exec /retnd-web: no such file or directory`. It is a shim with a closing date: #895
 deletes the hardlink, so the window is one release.
 
-**Everything else about the names is a cut.** There is no `/backupd` beside `/retnd`. A
+**Everything else about the names is a cut.** There is no `/retnd` beside `/retnd`. A
 caller that execs the engine binary by its old path stops working the moment the tag
 moves — loudly, at container start — and that asymmetry is the decision rather than an
-oversight: `/backupd-web` is the path operators pinned in their own compose files, and
-`/backupd` is the path this project's own files pinned. The image's own `HEALTHCHECK` is
+oversight: `/retnd-web` is the path operators pinned in their own compose files, and
+`/retnd` is the path this project's own files pinned. The image's own `HEALTHCHECK` is
 `["/retnd", "status"]`, and `scripts/install/install_docker_host.py` refuses a `--release`
 older than the images that contain `/retnd-web`, for the mirror-image reason: the compose
 definition it writes runs `/retnd-web`, which no image published before R1.5 (#890)
@@ -43,7 +43,7 @@ pulling them OUT of the image names `/retnd` and `/retnd-web`.
 is `retnd` (the UI service is still `web-ui`, because it never named the product), the
 compose project is named `retnd`, so the default container names are `retnd-retnd-1` and
 `retnd-web-ui-1`, and the container configuration directory is `/etc/retnd`. A script of
-yours that named `backupd-backupd-1` in a `docker inspect` or `docker logs` line needs
+yours that named `retnd-retnd-1` in a `docker inspect` or `docker logs` line needs
 updating; nothing else about those containers changed. The two data mounts,
 `/data/state` and `/data/backups`, carry no brand and did not move, and **nothing renames
 a directory on your NAS**: everything on the left of a `:` in `container/compose.yaml` is
@@ -60,7 +60,7 @@ procedure. In short, and in the three shapes an upgrade actually takes:
   fails. It is idempotent, and a deployment that has already moved is told so.
 - **With an unedited compose file you pinned yourself**, nothing is required of you for
   one release: the old image reference resolves through the mirror, the image carries
-  `/backupd-web`, and the engine adopts the state and configuration it finds at the
+  `/retnd-web`, and the engine adopts the state and configuration it finds at the
   pre-rename paths, warning on every start with the compose line to change and the
   command that changes it. `config.yaml` is byte-identical either way — the pre-rename
   paths are compiled-in constants and not a new configuration key — so a rollback to the
@@ -76,7 +76,7 @@ Two things are deliberately NOT renamed. The image reference is still
 `ghcr.io/retnd/retnd` until the repository coordinates move (#895), because
 moving it inside the old organisation first would have cost every operator two compose
 edits for one rename. And `container/release-manifest.json`'s already-published entries
-keep their `backupd` and `backupd-web` digest keys: they record artifacts that really
+keep their `retnd` and `retnd-web` digest keys: they record artifacts that really
 were published under those names, so rewriting them would falsify the release record.
 Its consumer accepts both spellings for the release range that spans the rename.
 
@@ -370,9 +370,9 @@ for the refusal.
 
 One storage note for a deployment that enables it: a repository's bytes live
 under the `/data/backups` mount, in the reserved namespace
-`<backup_root>/.backupd/repositories/<domain>/`. That path must be on a
+`<backup_root>/.retnd/repositories/<domain>/`. That path must be on a
 filesystem the container can write to and that is not walked by anything else
-&mdash; exclude `.backupd` from any SMB/AFP share, scanner or backup-of-the-backup
+&mdash; exclude `.retnd` from any SMB/AFP share, scanner or backup-of-the-backup
 that covers the backup volume.
 
 ## No privileged mode
@@ -772,17 +772,17 @@ today has no scrape endpoint to point Prometheus at. This section is here becaus
 names moved and because the move has one hazard worth reading before you write a query
 against them.
 
-Those series were `backupd_*` until EPIC R (#885) renamed the product. An alert rule
+Those series were `retnd_*` until EPIC R (#885) renamed the product. An alert rule
 whose series stopped existing does not fire, and a dashboard whose query matches nothing
 is blank; both look exactly like a healthy deployment, which is the failure mode this
 project will not ship. So **every gauge family is emitted a second time under the
-`backupd_` prefix for one release**, derived from the bytes of the first rendering so the
+`retnd_` prefix for one release**, derived from the bytes of the first rendering so the
 two cannot disagree, with `DEPRECATED, renamed to retnd_…` in its own `# HELP` line —
 so a scrape carries its own deprecation notice.
 
 **The caveat: a query that reads both prefixes double-counts.** The duplicated samples
 are the same readings under two names, not two measurements, so
-`sum(retnd_backup_set_state) + sum(backupd_backup_set_state)` reports twice as many
+`sum(retnd_backup_set_state) + sum(retnd_backup_set_state)` reports twice as many
 backup sets as exist, and so does any regex matcher loose enough to catch both names
 (`{__name__=~".*backup_set_state"}`). Point every rule, recording rule and dashboard at
 `retnd_*` only. The old names exist so that a rule you have **not** migrated keeps
@@ -833,7 +833,7 @@ diagnostic knob must never take a backup host down.
 `BACKUPD_DEBUG=1` and `RM_DEBUG=1` are that shortcut's two **deprecated** older
 spellings, one per name this project has had: `BACKUPD_DEBUG` from before the
 rename to `retnd` (EPIC R, issue #885) and `RM_DEBUG` from before the rename to
-`backupd` (issue #794). Both are still read, so a deployment upgraded without its
+`retnd` (issue #794). Both are still read, so a deployment upgraded without its
 compose file or its unit being re-derived does not go quiet in the middle of a
 diagnosis, and both are removed in the release after the one that renames this
 product. The current name wins when more than one is set, and the process prints

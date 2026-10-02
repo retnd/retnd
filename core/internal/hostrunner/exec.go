@@ -455,7 +455,7 @@ func containerName(runID, stepID, token string) string {
 // the result the same LENGTH -- the budget arithmetic above is about
 // bytes, and a substitution that changed the length would make that
 // bound wrong -- and keeps the name legible: an operator reading
-// `docker ps` sees backupd-hook-wfr_...-0000_global_before_10-quiesce...
+// `docker ps` sees retnd-hook-wfr_...-0000_global_before_10-quiesce...
 // rather than a hash. Uniqueness does not rest on this at all: the token
 // appended after it is eight bytes of randomness per launch, and the
 // labels carry the exact run and step ids untransliterated, which is

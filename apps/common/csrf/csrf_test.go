@@ -111,7 +111,7 @@ func TestVerify_MatchingCookieAndHeaderSucceeds(t *testing.T) {
 }
 
 // The read-compat window, for every name this cookie has had: #794's
-// bm_csrf and EPIC R's backupd_csrf (#889). Three things have to hold
+// bm_csrf and EPIC R's retnd_csrf (#889). Three things have to hold
 // while a deprecated name is still accepted, each of which is a live 403
 // for a real browser if it doesn't.
 //
@@ -188,7 +188,7 @@ func TestEnsureCookie_DoesNotReissueWhenBothNamesArePresent(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.AddCookie(&http.Cookie{Name: CookieName, Value: "already-migrated"})
-	req.AddCookie(&http.Cookie{Name: LegacyCookieName, Value: "left-over"})
+	req.AddCookie(&http.Cookie{Name: EarlierCookieName, Value: "left-over"})
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 

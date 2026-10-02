@@ -148,7 +148,7 @@ func crashMidSnapshot(root, runID string, killAfter int) error {
 		return errors.New("this repository cannot store a source tree as one snapshot")
 	}
 
-	journal, err := state.Open(ctx, filepath.Join(root, "state", "backupd.db"))
+	journal, err := state.Open(ctx, filepath.Join(root, "state", "retnd.db"))
 	if err != nil {
 		return fmt.Errorf("opening the journal: %w", err)
 	}
@@ -180,11 +180,11 @@ func crashMidSnapshot(root, runID string, killAfter int) error {
 		Consistency:       set.Consistency,
 		VerificationLevel: set.VerificationLevel,
 		Source: backupengine.Source{
-			Host: "backupd",
+			Host: "retnd",
 			User: set.Repository.Domain.String(),
 			Path: "/" + string(set.SourceIdentity),
 		},
-		Description: "backupd " + set.ID.String(),
+		Description: "retnd " + set.ID.String(),
 		Repository:  repo,
 		OpenTree: func(ctx context.Context) (snapshotlifecycle.SourceTree, error) {
 			tree, err := reader.OpenTree(ctx, src)

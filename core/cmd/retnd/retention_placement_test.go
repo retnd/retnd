@@ -13,7 +13,7 @@ import (
 )
 
 // FR-27/FR-30 (issue #239) on the surface FR-20 calls the mandatory
-// dry-run: `backupd retention` has to show every MOVE it would
+// dry-run: `retnd retention` has to show every MOVE it would
 // make, not only every deletion, before anything runs.
 //
 // Both tests drive the real command over a real local-backend fetch, the
@@ -49,7 +49,7 @@ func writeOffsiteTestConfig(t *testing.T) string {
 		"    type: s3\n" +
 		"    region: us-east-1\n" +
 		"    bucket: nas-backups\n" +
-		"    prefix: backupd\n" +
+		"    prefix: retnd\n" +
 		"    credentials:\n" +
 		"      env: BACKUP_S3_COLD\n" +
 		"sources:\n" +

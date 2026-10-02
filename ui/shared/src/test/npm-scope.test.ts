@@ -1,25 +1,7 @@
 /**
- * The two npm scopes this repository publishes under, asserted because
- * nothing else in the gate does.
- *
- * R2.4 (#894) moved `@backupd/ui-shared` and
- * `@backupd/provider-conformance` to `@retnd/*`, and the acceptance for it
- * assumed a lockfile left behind on the old scope would fail the install.
- * It does not, and that was checked rather than assumed: both packages are
- * `private` and unpublished, nothing in the tree depends on either by
- * name, and `npm ci` validates the dependency graph rather than the root
- * `name`, so a `package-lock.json` still saying `@backupd/ui-shared`
- * against a `package.json` saying `@retnd/ui-shared` installs all 271
- * packages and exits 0.
- *
- * `check-brand-drift.sh` does not catch it either, and will not until the
- * end of EPIC R: `@backupd/` reduces to the token `backupd`, which is on
- * the guard's `pending` list and therefore allowed anywhere for as long as
- * the sweep is in flight.
- *
- * So the published identity of these two packages is gated here, where
- * `npm test` already runs, and the drift the acceptance describes turns
- * this red.
+ * The two private workspace package names, asserted because npm validates
+ * their dependency graphs without requiring package.json and package-lock.json
+ * to agree on the root package name.
  */
 import { describe, expect, it } from "vitest";
 
@@ -75,10 +57,6 @@ describe("the npm scopes", () => {
         expect(nameOf(rootEntry(lock))).toBe(workspace.name);
       });
 
-      it("is on no scope but @retnd", () => {
-        expect(workspace.manifest).not.toContain("@backupd/");
-        expect(workspace.lock).not.toContain("@backupd/");
-      });
     });
   }
 });

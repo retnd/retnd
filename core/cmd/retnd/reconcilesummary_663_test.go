@@ -17,7 +17,7 @@ import (
 // A late addition folded into the same commit as issue #663's Defect A,
 // found by FixE2E-2 against a real deployment: once a settled
 // self-contradictory row starts printing "journal row needs repair"
-// (Defect A above), `backupd reconcile`'s own trailing summary line still
+// (Defect A above), `retnd reconcile`'s own trailing summary line still
 // said "no unresolved findings" unconditionally whenever nothing errored.
 // A run that prints a repair instruction and then claims nothing is
 // unresolved contradicts itself in two consecutive lines, which is worse
@@ -136,7 +136,7 @@ func writeReconcileSummary663Config(t *testing.T) string {
 }
 
 // TestReconcile663_SummaryDoesNotContradictARecordFaultFinding is
-// FixE2E-2's finding, folded in: `backupd reconcile` must never print
+// FixE2E-2's finding, folded in: `retnd reconcile` must never print
 // "journal row needs repair" and "no unresolved findings" in the same
 // run. Exit status is asserted separately and must stay 0: a settled
 // record fault is something an operator should look at, not an error

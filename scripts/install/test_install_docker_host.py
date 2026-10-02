@@ -141,7 +141,7 @@ class Fixture:
     def __init__(self, stack: unittest.TestCase) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         stack.addCleanup(self.tmp.cleanup)
-        self.prefix = Path(self.tmp.name) / "backupd"
+        self.prefix = Path(self.tmp.name) / "retnd"
         (self.prefix / "secrets").mkdir(parents=True)
         self.key = self.prefix / "secrets" / "id_ed25519"
         self.key.write_text("not a key, never read by this installer\n")
@@ -1032,7 +1032,7 @@ if 'utf' in locale.getpreferredencoding(False).lower().replace('-', ''):
     raise SystemExit(0)
 tmp = tempfile.mkdtemp()
 args = installer.resolve(installer.build_parser().parse_args(
-    ['install', '--prefix', tmp + '/backupd']))
+    ['install', '--prefix', tmp + '/retnd']))
 installer.stage_payload(args)
 sys.stdout.buffer.write(b'STAGED ')
 sys.stdout.buffer.write(
@@ -1333,7 +1333,7 @@ class TestTheFirstRunEpilogIsOnlyForAFirstRun(unittest.TestCase):
 
 class TestTheInstallHandsOverTheEnrollmentLinkItself(unittest.TestCase):
     """Issue #803. The last step of a fresh install used to be a
-    hand-typed 200-character `docker compose ... logs backupd | grep
+    hand-typed 200-character `docker compose ... logs retnd | grep
     enroll` on a NAS shell, and every part of that invocation is
     something the installer wrote itself minutes earlier.
 
@@ -1344,7 +1344,7 @@ class TestTheInstallHandsOverTheEnrollmentLinkItself(unittest.TestCase):
     the notice really is not there.
     """
 
-    NOTICE = ("backupd-web: no administrator account exists yet. Open "
+    NOTICE = ("retnd-web: no administrator account exists yet. Open "
               "http://10.0.0.10:8080/enroll?token=Aq9_tokenshapedthing to create one "
               "(valid 30 minutes, single use).")
 
@@ -1425,7 +1425,7 @@ class TestTheInstallHandsOverTheEnrollmentLinkItself(unittest.TestCase):
         self.assertNotIn("grep", joined,
                          "the installer has the link in hand; telling somebody to grep for it "
                          "anyway is the step this removed")
-        self.assertNotIn("logs backupd", joined)
+        self.assertNotIn("logs retnd", joined)
 
     def test_a_link_that_never_arrived_falls_back_to_the_exact_command(self):
         """Exact, and not an abbreviation of it. The fallback is reached
@@ -1455,12 +1455,12 @@ class TestVersionOrdering(unittest.TestCase):
 
     def test_a_tag_is_read_out_of_a_full_reference(self):
         self.assertEqual(installer.image_tag("ghcr.io/retnd/retnd:0.2.0"), "0.2.0")
-        self.assertEqual(installer.image_tag("backupd:1.4.2"), "1.4.2")
+        self.assertEqual(installer.image_tag("retnd:1.4.2"), "1.4.2")
 
     def test_a_registry_port_is_not_mistaken_for_a_tag(self):
         """A colon in a reference is not always a tag separator."""
-        self.assertEqual(installer.image_tag("localhost:5000/backupd"), "")
-        self.assertEqual(installer.image_tag("localhost:5000/backupd:0.4.0"), "0.4.0")
+        self.assertEqual(installer.image_tag("localhost:5000/retnd"), "")
+        self.assertEqual(installer.image_tag("localhost:5000/retnd:0.4.0"), "0.4.0")
 
     def test_the_carried_version_is_described_relative_to_what_is_installed(self):
         """Issue #588. compare_versions answers where the INSTALLED version
@@ -1471,7 +1471,7 @@ class TestVersionOrdering(unittest.TestCase):
         Upgrading a real NAS from 0.3.1 to 0.4.0 printed "This installer
         carries 0.4.0 (older)", which is the one sentence that makes
         somebody stop a correct upgrade."""
-        line = installer.describe_what_is_here(2, 2, "0.3.1", "the backupd container", "0.4.0")
+        line = installer.describe_what_is_here(2, 2, "0.3.1", "the retnd container", "0.4.0")
         self.assertIn("0.4.0 (newer)", line)
         self.assertNotIn("0.4.0 (older)", line)
         # And the other direction, which is a real downgrade.
@@ -1563,7 +1563,7 @@ class TestInstallModeDecision(unittest.TestCase):
 
     def decide(self, **kw):
         base = dict(requested=None, installed=False, installed_tag=None,
-                    target_version="0.2.0", interactive=False, prefix=Path("/opt/backupd"))
+                    target_version="0.2.0", interactive=False, prefix=Path("/opt/retnd"))
         base.update(kw)
         return installer.decide_install_mode(**base)
 
@@ -1594,10 +1594,10 @@ class TestInstallModeDecision(unittest.TestCase):
         where the path belongs, rendering "version 0.1.0 at 0.2.0's
         prefix", which names no path at all."""
         exc = refusal_from(self.decide, requested="fresh", installed=True, installed_tag="0.1.0",
-                           prefix=Path("/volume1/backupd"))
+                           prefix=Path("/volume1/retnd"))
         self.assertIsNotNone(exc)
         self.assertEqual(exc.code, installer.EXIT_EXISTING_INSTALL)
-        self.assertIn("/volume1/backupd", exc.message,
+        self.assertIn("/volume1/retnd", exc.message,
                       "the refusal has to name where the install it found actually is")
         self.assertNotIn("0.2.0's prefix", exc.message)
 
@@ -2519,10 +2519,10 @@ class TestCounterDeltaNamesTheRule(unittest.TestCase):
 # container this project's own compose project labelled, and two it did
 # not.
 PS_NDJSON_MIXED_HOST = (
-    '{"Names": "backupd", "Image": "ghcr.io/retnd/retnd:0.1.0", '
-    '"Labels": "com.docker.compose.project=backupd,com.docker.compose.service=backupd"}\n'
-    '{"Names": "backupd-ui", "Image": "ghcr.io/retnd/retnd:0.1.0", '
-    '"Labels": "com.docker.compose.project=backupd,com.docker.compose.service=backupd-ui"}\n'
+    '{"Names": "retnd", "Image": "ghcr.io/retnd/retnd:0.1.0", '
+    '"Labels": "com.docker.compose.project=retnd,com.docker.compose.service=retnd"}\n'
+    '{"Names": "retnd-ui", "Image": "ghcr.io/retnd/retnd:0.1.0", '
+    '"Labels": "com.docker.compose.project=retnd,com.docker.compose.service=retnd-ui"}\n'
     '{"Names": "plex", "Image": "plexinc/pms-docker:latest", "Labels": "com.docker.compose.project=media"}\n'
     '{"Names": "portainer", "Image": "portainer/portainer-ce:latest", "Labels": ""}\n'
 )
@@ -2536,13 +2536,13 @@ class TestOtherRunningContainers(unittest.TestCase):
     can say what else it is about to disrupt."""
 
     def test_this_projects_own_containers_are_excluded(self):
-        got = installer._other_containers_from_ps_ndjson(PS_NDJSON_MIXED_HOST, "backupd")
+        got = installer._other_containers_from_ps_ndjson(PS_NDJSON_MIXED_HOST, "retnd")
         names = [name for name, _ in got]
-        self.assertNotIn("backupd", names)
-        self.assertNotIn("backupd-ui", names)
+        self.assertNotIn("retnd", names)
+        self.assertNotIn("retnd-ui", names)
 
     def test_containers_from_another_project_or_no_project_label_are_named(self):
-        got = installer._other_containers_from_ps_ndjson(PS_NDJSON_MIXED_HOST, "backupd")
+        got = installer._other_containers_from_ps_ndjson(PS_NDJSON_MIXED_HOST, "retnd")
         names = {name for name, _ in got}
         self.assertEqual(names, {"plex", "portainer"},
                          "a differently-labelled container and an unlabelled one both count as "
@@ -2550,9 +2550,9 @@ class TestOtherRunningContainers(unittest.TestCase):
 
     def test_a_host_with_no_other_containers_reports_none(self):
         got = installer._other_containers_from_ps_ndjson(
-            '{"Names": "backupd", "Image": "x", '
-            '"Labels": "com.docker.compose.project=backupd"}\n',
-            "backupd",
+            '{"Names": "retnd", "Image": "x", '
+            '"Labels": "com.docker.compose.project=retnd"}\n',
+            "retnd",
         )
         self.assertEqual(got, [])
 
@@ -2770,23 +2770,13 @@ class TestRemediationIsSafe(unittest.TestCase):
                 self.assertTrue(any(tag in line for tag in installer.RULE_TAGS),
                                 f"a delete that does not name the tag can remove somebody else's rule: {line}")
 
-    def test_insert_and_delete_describe_the_same_rules_plus_the_pre_rename_ones(self):
-        """Anything the installer adds it has to be able to take back, and
-        #890 adds a second thing to take back that it never adds: the
-        rules an EARLIER release inserted under the pre-rename comment are
-        on the host's firewall already, and this undo is the only code
-        that will ever look for them again."""
+    def test_insert_and_delete_describe_the_same_rules(self):
+        """Anything the installer adds it has to be able to take back."""
         d = self.doctor()
         ins = {ln.split(" -I ")[1] for ln in d.insert_script().splitlines() if " -I " in ln}
         dele = {ln.split(" -D ")[1].split(" || ")[0] for ln in d.delete_script().splitlines() if " -D " in ln}
         inserted = {i.replace(" 1 ", " ", 1) for i in ins}
-        self.assertTrue(inserted <= dele, "anything the installer adds it has to be able to take back")
-        self.assertEqual(
-            dele - inserted,
-            {rule.replace(installer.RULE_TAG, installer.LEGACY_RULE_TAG) for rule in inserted},
-            "the only extra rules the undo names are the same rules under the pre-rename comment")
-        for rule in dele - inserted:
-            self.assertIn(installer.LEGACY_RULE_TAG, rule)
+        self.assertEqual(inserted, dele)
 
 
 class TestSudoRefusals(unittest.TestCase):
@@ -3069,14 +3059,7 @@ class TestPersistenceUnit(unittest.TestCase):
                          {f"{d.UNIT_DIR}/{d.SERVICE_UNIT}", f"{d.UNIT_DIR}/{d.TIMER_UNIT}"},
                          "the install script writes neither unit file")
         self.assertTrue(written <= removed, "anything installed has to be removable")
-        # And the remove script names MORE than the install writes, which
-        # is #890: the pre-rename pair is on hosts an earlier release
-        # installed, so an undo that knew only this release's names would
-        # leave a timer re-asserting firewall rules for a deployment that
-        # had been removed.
-        self.assertEqual(
-            removed - written,
-            {f"{d.UNIT_DIR}/{d.LEGACY_SERVICE_UNIT}", f"{d.UNIT_DIR}/{d.LEGACY_TIMER_UNIT}"})
+        self.assertEqual(removed, written)
 
     def test_the_remove_script_tolerates_a_half_installed_host(self):
         """Undo has to work on a machine where installation failed partway,
@@ -3096,7 +3079,7 @@ class TestPersistenceVerification(unittest.TestCase):
     needing a real systemd to produce the state it is reading."""
 
     # Sourced from the constants, never spelled out. These were the
-    # literal `backupd-bridge.service` and `.timer` strings until #890
+    # literal `retnd-bridge.service` and `.timer` strings until #890
     # renamed them, and a canned `systemctl` fixture that spells a unit
     # name out itself is one that goes on passing while describing a host
     # nobody has.
@@ -3530,7 +3513,7 @@ class TestNoArgumentInstallHasWhatItNeeds(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         args = installer.resolve(installer.build_parser().parse_args(
-            ["install", "--prefix", str(Path(tmp.name) / "backupd")]))
+            ["install", "--prefix", str(Path(tmp.name) / "retnd")]))
 
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
@@ -3553,7 +3536,7 @@ class TestNoArgumentInstallHasWhatItNeeds(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         args = installer.resolve(installer.build_parser().parse_args(
-            ["install", "--prefix", str(Path(tmp.name) / "backupd")]))
+            ["install", "--prefix", str(Path(tmp.name) / "retnd")]))
         with contextlib.redirect_stdout(io.StringIO()):
             installer.ensure_credentials(args)
         self.assertTrue(args.known_hosts.is_file())
@@ -3569,7 +3552,7 @@ class TestNoArgumentInstallHasWhatItNeeds(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         named = Path(tmp.name) / "typo" / "id_ed25519"
         args = installer.resolve(installer.build_parser().parse_args(
-            ["install", "--prefix", str(Path(tmp.name) / "backupd"),
+            ["install", "--prefix", str(Path(tmp.name) / "retnd"),
              "--ssh-key", str(named)]))
         self.assertTrue(args.ssh_key_supplied)
         with contextlib.redirect_stdout(io.StringIO()):
@@ -3586,7 +3569,7 @@ class TestNoArgumentInstallHasWhatItNeeds(unittest.TestCase):
         every backup silently."""
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        prefix = Path(tmp.name) / "backupd"
+        prefix = Path(tmp.name) / "retnd"
         (prefix / "secrets").mkdir(parents=True)
         key = prefix / "secrets" / "id_ed25519"
         key.write_text("the key a source already trusts\n")
@@ -3652,7 +3635,7 @@ class TestEveryDirectoryIsBornWithoutGroupOrWorldWrite(unittest.TestCase):
         share.mkdir()
         os.chmod(share, 0o777)
         args = installer.resolve(installer.build_parser().parse_args(
-            ["install", "--prefix", str(share / "backupd")]))
+            ["install", "--prefix", str(share / "retnd")]))
 
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
@@ -3727,7 +3710,7 @@ class TestPreflightDoesNotCryAboutWhatInstallWillCreate(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         args = installer.resolve(installer.build_parser().parse_args(
-            ["preflight", "--prefix", str(Path(tmp.name) / "backupd")]))
+            ["preflight", "--prefix", str(Path(tmp.name) / "retnd")]))
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             installer.Preflight(args).check_credentials()
@@ -3759,7 +3742,7 @@ class TestAnUpgradeKeepsTheCredentialsTheInstallAlreadyUses(unittest.TestCase):
         outside the prefix, exactly as an operator with an existing key
         would have installed it."""
         root = Path(tmp.name)
-        prefix = root / "backupd"
+        prefix = root / "retnd"
         elsewhere = root / "home" / ".ssh"
         elsewhere.mkdir(parents=True)
         key = elsewhere / "backup_ed25519"
@@ -3965,7 +3948,7 @@ class TestAnUpgradeKeepsTheCredentialsTheInstallAlreadyUses(unittest.TestCase):
         is the failure a guard nobody exercises does not prevent."""
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        prefix = Path(tmp.name) / "backupd"
+        prefix = Path(tmp.name) / "retnd"
         env = {"SSH_KEY_FILE": "/somewhere/else/id_ed25519",
                "KNOWN_HOSTS_FILE": "/somewhere/else/known_hosts"}
         for command in ("preflight", "install", "status", "uninstall",
@@ -3982,7 +3965,7 @@ class TestAnUpgradeKeepsTheCredentialsTheInstallAlreadyUses(unittest.TestCase):
     def test_a_fresh_host_adopts_nothing(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        prefix = Path(tmp.name) / "backupd"
+        prefix = Path(tmp.name) / "retnd"
         args = installer.resolve(installer.build_parser().parse_args(
             ["install", "--prefix", str(prefix)]))
         was = args.ssh_key
@@ -3998,7 +3981,7 @@ class TestAnUpgradeKeepsTheCredentialsTheInstallAlreadyUses(unittest.TestCase):
         nothing to adopt and nothing to say."""
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        prefix = Path(tmp.name) / "backupd"
+        prefix = Path(tmp.name) / "retnd"
         first = installer.resolve(installer.build_parser().parse_args(
             ["install", "--prefix", str(prefix), "--compose-file", str(CANONICAL_COMPOSE)]))
         with contextlib.redirect_stdout(io.StringIO()):
@@ -4045,7 +4028,7 @@ class TestReplacingTheStagedComposeIsAnnounced(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         args = installer.resolve(installer.build_parser().parse_args(
-            ["install", "--prefix", str(Path(tmp.name) / "backupd"),
+            ["install", "--prefix", str(Path(tmp.name) / "retnd"),
              "--compose-file", str(CANONICAL_COMPOSE)]))
         installer.stage_payload(args)
         staged = args.prefix / "compose.yaml"
@@ -4066,7 +4049,7 @@ class TestReplacingTheStagedComposeIsAnnounced(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         args = installer.resolve(installer.build_parser().parse_args(
-            ["install", "--prefix", str(Path(tmp.name) / "backupd"),
+            ["install", "--prefix", str(Path(tmp.name) / "retnd"),
              "--compose-file", str(CANONICAL_COMPOSE)]))
         installer.stage_payload(args)
         out = io.StringIO()
@@ -4102,12 +4085,12 @@ class TestOneWayToReadAVersionOutOfAReference(unittest.TestCase):
 
     def test_a_registry_port_is_still_not_a_tag(self):
         """The case the old image_tag() got right, kept."""
-        self.assertEqual(installer.image_tag("localhost:5000/backupd"), "")
-        self.assertEqual(installer.image_name("localhost:5000/backupd"), "localhost:5000/backupd")
-        self.assertEqual(installer.image_digest("localhost:5000/backupd"), "")
+        self.assertEqual(installer.image_tag("localhost:5000/retnd"), "")
+        self.assertEqual(installer.image_name("localhost:5000/retnd"), "localhost:5000/retnd")
+        self.assertEqual(installer.image_digest("localhost:5000/retnd"), "")
 
     def test_a_reference_with_no_version_in_it_says_so_rather_than_guessing(self):
-        self.assertEqual(installer.reference_version("localhost:5000/backupd"), "")
+        self.assertEqual(installer.reference_version("localhost:5000/retnd"), "")
         self.assertEqual(installer.reference_version("ghcr.io/retnd/retnd@sha256:" + "ef" * 32), "")
 
     def test_the_digest_this_release_recorded_names_this_release(self):
@@ -4148,7 +4131,7 @@ class TestOneWayToReadAVersionOutOfAReference(unittest.TestCase):
         and the old inline expression wrote exactly that for any reference
         carrying no tag."""
         fx = Fixture(self)
-        rendered = installer.render_env(fx.args("--image", "localhost:5000/backupd"))
+        rendered = installer.render_env(fx.args("--image", "localhost:5000/retnd"))
         self.assertIn("VERSION=unknown", rendered)
         self.assertNotIn("VERSION=latest", rendered)
         self.assertIsNone(installer._semver("latest"),
@@ -4241,31 +4224,31 @@ class TestNamingAPreviousRelease(unittest.TestCase):
         that predates it."""
         default = _subparser(installer.build_parser(), "install").get_default("image")
         self.assertEqual(self.args().image, default)
-        self.assertEqual(self.args("--image", "localhost:5000/backupd").image,
-                         "localhost:5000/backupd",
+        self.assertEqual(self.args("--image", "localhost:5000/retnd").image,
+                         "localhost:5000/retnd",
                          "a tagless --image with no --release is left exactly as typed")
         self.assertEqual(self.args("--release", installer.CARRIED_RELEASE).image, default)
 
     def test_it_fills_a_tagless_reference_an_operator_did_name(self):
-        args = self.args("--image", "registry.example:5000/backupd", "--release", "0.4.0")
-        self.assertEqual(args.image, "registry.example:5000/backupd:0.4.0")
+        args = self.args("--image", "registry.example:5000/retnd", "--release", "0.4.0")
+        self.assertEqual(args.image, "registry.example:5000/retnd:0.4.0")
 
     def test_an_image_that_already_agrees_is_not_a_conflict(self):
         args = self.args("--image", "ghcr.io/retnd/retnd:0.4.0", "--release", "0.4.0")
         self.assertEqual(args.image, "ghcr.io/retnd/retnd:0.4.0")
 
     def test_it_refuses_a_release_older_than_the_binaries_it_writes(self):
-        # The embedded compose runs /backupd-web. That path exists from 0.3.3
+        # The embedded compose runs /retnd-web. That path exists from 0.3.3
         # onwards and in no image published before it, so writing this
         # deployment against an older tag produces two containers that die
-        # with "exec /backupd-web: no such file or directory" while the
+        # with "exec /retnd-web: no such file or directory" while the
         # installer waits for a health check that can never pass. 0.3.0,
         # 0.3.1 and 0.3.2 are all still on the registry, so this is
         # reachable rather than theoretical.
         for old in ("0.3.2", "0.3.0", "0.2.0", "0.1.0"):
             with self.subTest(release=old):
                 exc = refusal_from(self.args, "--release", old)
-                self.assertIsNotNone(exc, f"--release {old} names an image with no /backupd-web in it")
+                self.assertIsNotNone(exc, f"--release {old} names an image with no /retnd-web in it")
                 self.assertEqual(exc.code, installer.EXIT_RELEASE_TOO_OLD)
                 self.assertIn(old, exc.message)
                 self.assertIn(installer.FIRST_RELEASE_WITH_RBM, exc.message)
@@ -4277,7 +4260,7 @@ class TestNamingAPreviousRelease(unittest.TestCase):
         self.assertIsNone(
             exc,
             f"--release {installer.FIRST_RELEASE_WITH_RBM} is the first release whose image "
-            "carries /backupd-web, so it has to be accepted",
+            "carries /retnd-web, so it has to be accepted",
         )
 
     def test_two_flags_naming_different_versions_refuse_rather_than_pick_one(self):
@@ -4306,7 +4289,7 @@ class TestNamingAPreviousRelease(unittest.TestCase):
 
     def test_it_refuses_under_an_image_archive(self):
         fx = Fixture(self)
-        archive = fx.prefix / "backupd-0.4.0.tar"
+        archive = fx.prefix / "retnd-0.4.0.tar"
         archive.write_bytes(b"not really a tarball")
         exc = refusal_from(fx.args, "--image-archive", str(archive), "--release", "0.4.0")
         self.assertIsNotNone(exc)
@@ -4754,7 +4737,7 @@ class TestProvingTheReleaseThisInstallerCarries(unittest.TestCase):
 
     def test_somebody_elses_registry_is_not_vouched_for(self):
         registry = _FakeRegistry(digest=self.recorded)
-        pf = self.preflight("--image", "registry.example:5000/backupd:0.2.0", registry=registry)
+        pf = self.preflight("--image", "registry.example:5000/retnd:0.2.0", registry=registry)
         printed = self.notes_from(pf)
         self.assertEqual(registry.asked, [], "nothing recorded here describes another registry")
         self.assertIn("!!", printed)
@@ -5292,7 +5275,7 @@ class TestARestartLoopIsNotAnInstall(unittest.TestCase):
     """A CLI-only engine serves nothing, so there is no health endpoint to
     ask and "the container is running" is the whole available claim.
 
-    Which is why it is sampled over a window rather than once. `backupd
+    Which is why it is sampled over a window rather than once. `retnd
     daemon` refuses rather than starts when it is handed something it
     cannot use, and for the first second of that the container genuinely
     is running: a single sample would report an install that is really a
@@ -5390,7 +5373,7 @@ class TestTheInstallerStillTravelsAlone(unittest.TestCase):
         self.assertEqual(proc.returncode, 0,
                          f"the installer did not survive being copied out of the checkout:\n"
                          f"{proc.stderr}")
-        self.assertIn("Install backupd on a Docker host", proc.stdout)
+        self.assertIn("Install retnd on a Docker host", proc.stdout)
         for command in ("preflight", "install", "status", "uninstall"):
             self.assertIn(command, proc.stdout, "every subcommand has to still be reachable")
 
@@ -5561,7 +5544,7 @@ def enrolment_notice(base_url: str, token: str) -> str:
 
     Two files, because the line is assembled from two. The name it opens
     with is derived in core/cliecho/cliname.go, deliberately, so that
-    `backupd` and `backupd-web` cannot drift apart; the sentence itself is the
+    `retnd` and `retnd-web` cannot drift apart; the sentence itself is the
     Fprintf format in apps/common/auth/local/service.go's
     PrintBootstrapNotice, which is the only thing that knows the expiry
     and the single use it promises.
@@ -5595,7 +5578,7 @@ class TestTheSiteShowsTheOutputThisInstallerPrints(unittest.TestCase):
     type. What it could not do by hand is keep it true. Every block was
     typed out, so the `Compose:` line arrived hand-wrapped with a `\\` the
     installer never emits and both blocks elided the compose invocation to
-    `docker compose -p backupd ...`, which is an abbreviation
+    `docker compose -p retnd ...`, which is an abbreviation
     printed as though it were output. Output that is nearly right is worse
     than none, because a reader compares it against their screen
     character by character and concludes their install went wrong.
@@ -5885,8 +5868,8 @@ class TestTheSiteShowsTheOutputThisInstallerPrints(unittest.TestCase):
 
     def test_the_deployment_note_quotes_it_too(self):
         """The third copy of the same sentence, found while pinning the
-        other two and carrying the binary name from before `backupd-web` was
-        derived from `backupd`. Quoted against the shipped Compose default
+        other two and carrying the binary name from before `retnd-web` was
+        derived from `retnd`. Quoted against the shipped Compose default
         rather than an installed host's address, because that document is
         about standing the stack up by hand, where `localhost` really is
         what container/compose.yaml sets.
@@ -5967,7 +5950,7 @@ class TestTheSiteReferenceNamesEverySubcommandThisParserDeclares(unittest.TestCa
     It added `enroll-link`, a seventh installer subcommand, and
     reference.html still said "Its six subcommands" in two places with no
     row for it. Every existing check was green: the flag table is held to
-    the parser's options and the command table to the `backupd` binary's
+    the parser's options and the command table to the `retnd` binary's
     dispatch table, and neither of them has an opinion about how many
     subcommands the installer has.
 
@@ -6086,7 +6069,7 @@ class TestReissuingAnEnrollmentLink(unittest.TestCase):
     reason to prefer either.
     """
 
-    NOTICE = "backupd-web: no administrator account exists yet. Open {} to create one (valid 30 minutes, single use)."
+    NOTICE = "retnd-web: no administrator account exists yet. Open {} to create one (valid 30 minutes, single use)."
 
     def test_the_newest_notice_wins_not_the_first(self):
         fx = Fixture(self)
@@ -6472,7 +6455,7 @@ class TestTheHostWorkflowRunner(unittest.TestCase):
     def test_a_root_deployment_is_refused_a_runner_rather_than_given_a_root_one(self):
         """The unprivileged-by-default rule, at the installer end.
 
-        Installing backupd as an administrator says nothing about whether
+        Installing retnd as an administrator says nothing about whether
         every script in a hook directory should run as root -- including
         one that arrived by rsync from somewhere else. It is a feature
         that stays off with a reason, not an install that stops: a
@@ -6856,467 +6839,6 @@ class TestTheRunnerRunsHooksInContainers(unittest.TestCase):
         self.assertEqual(installer.hook_image(upgraded), "registry.example/hooks:3",
                          "an operator's own hook image did not survive the upgrade")
 
-
-class TestAHalfMigratedHostIsRefused(unittest.TestCase):
-    """FR-39: a host with BOTH names of a renamed unit enabled is refused
-    rather than tolerated.
-
-    Because both fire. Two copies of the bridge oneshot re-assert the same
-    four firewall rules against each other, and two runners answer for the
-    same socket, so which one an operator is debugging depends on which
-    systemd started last. Nothing about that is fixed by retrying, which
-    is why it carries an exit code of its own.
-    """
-
-    def refusal_for(self, enabled):
-        """The refusal a host whose systemd reports `enabled` as enabled
-        produces, or None.
-
-        systemd is faked through installer.run, not through a real
-        systemctl: the point of the check is what it does with an answer,
-        and the answer is exactly what a test machine cannot be made to
-        give.
-        """
-        pf = installer.Preflight(Fixture(self).args())
-
-        def fake_run(argv, **kwargs):
-            state = "enabled" if argv[-1] in enabled else "not-found"
-            return types.SimpleNamespace(returncode=0, stdout=state + "\n", stderr="")
-
-        with unittest.mock.patch.object(installer, "run", fake_run), \
-             unittest.mock.patch.object(installer, "find_tool", lambda name: "/bin/systemctl"):
-            with contextlib.redirect_stdout(io.StringIO()):
-                return refusal_from(pf.check_unit_rename_is_not_half_done)
-
-    def test_both_names_of_one_unit_enabled_is_refused_and_names_both(self):
-        old, new = installer.renamed_units()[0]
-        exc = self.refusal_for({old, new})
-        self.assertIsNotNone(exc, "a host with two units armed for one job was installed onto")
-        self.assertEqual(exc.code, installer.EXIT_HALF_MIGRATED_UNITS)
-        self.assertIn(old, exc.message)
-        self.assertIn(new, exc.message)
-        self.assertIn(f"systemctl disable --now {old}", exc.remedy,
-                      "the remedy has to name the exact command, for the exact unit")
-        self.assertIn("migrate-identity", exc.remedy,
-                      "the other way out is the command that finishes the rename")
-
-    def test_every_renamed_pair_is_checked_and_not_only_the_first(self):
-        """Three units are renamed, and a check that read only the bridge
-        service would pass a host whose runner is the half-migrated one."""
-        for old, new in installer.renamed_units():
-            with self.subTest(unit=old):
-                exc = self.refusal_for({old, new})
-                self.assertIsNotNone(exc, f"{old} and {new} enabled together was accepted")
-                self.assertEqual(exc.code, installer.EXIT_HALF_MIGRATED_UNITS)
-
-    def test_the_current_name_alone_is_not_a_refusal(self):
-        """The positive control on a migrated host: without it, "refuses a
-        half-migrated host" is also satisfied by refusing every host that
-        has the unit at all."""
-        for _old, new in installer.renamed_units():
-            with self.subTest(unit=new):
-                self.assertIsNone(self.refusal_for({new}))
-
-    def test_the_pre_rename_name_alone_is_not_a_refusal(self):
-        """A host that has not migrated YET is not half migrated, and
-        refusing it would refuse the upgrade that performs the rename."""
-        for old, _new in installer.renamed_units():
-            with self.subTest(unit=old):
-                self.assertIsNone(self.refusal_for({old}))
-
-    def test_a_host_with_no_systemd_is_not_a_refusal(self):
-        """DSM, an unprivileged install, a container host with another
-        supervisor: nothing is enabled either way, and the installer
-        stages the unit file and prints the commands there."""
-        pf = installer.Preflight(Fixture(self).args())
-        with unittest.mock.patch.object(installer, "find_tool", lambda name: None):
-            with contextlib.redirect_stdout(io.StringIO()):
-                self.assertIsNone(refusal_from(pf.check_unit_rename_is_not_half_done))
-
-    def test_it_is_asked_before_anything_is_pulled_or_created(self):
-        """Ordering, read out of check_all the same way the release proof
-        is. A refusal that arrives after a two-gigabyte pull has cost an
-        operator the download it exists to save them."""
-        src = Path(installer.__file__).read_text(encoding="utf-8")
-        body = src[src.index("    def check_all(self)"):src.index("    # -- the machine")]
-        self.assertIn("self.check_unit_rename_is_not_half_done()", body)
-        self.assertLess(body.index("self.check_unit_rename_is_not_half_done()"),
-                        body.index("self.check_image()"))
-
-
-class TestTheIdentityMigrationIsOneTransaction(unittest.TestCase):
-    """#890/FR-39: the compose mounts, the persisted config.yaml and the
-    systemd units move together, or the deployment is left as it was.
-
-    Each one alone is a deployment that does not work: new mounts with an
-    un-rewritten config.yaml is an engine whose known_hosts path is not
-    mounted, and the reverse is the same failure from the other end. So
-    the interesting assertions here are the negative ones -- what the
-    command refuses to leave behind.
-    """
-
-    LEGACY_CONFIG: ClassVar[str] = (
-        "# written before the rename; the mount was /etc/backupd/config\n"
-        "poll_interval: 1h\n"
-        "state:\n"
-        "  database: /var/lib/backupd/state.db\n"
-        "sources:\n"
-        "  - id: production\n"
-        "    remote:\n"
-        "      key:\n"
-        "        file: /etc/backupd/id_ed25519\n"
-        "      known_hosts: '/etc/backupd/known_hosts'\n"
-    )
-
-    def installed_deployment(self, config=None):
-        """A staged deployment carrying a pre-rename config.yaml."""
-        fx = Fixture(self)
-        args = fx.args(command="migrate-identity")
-        args.config_dir.mkdir(parents=True, exist_ok=True)
-        (args.config_dir / "config.yaml").write_text(
-            self.LEGACY_CONFIG if config is None else config, encoding="utf-8")
-        with contextlib.redirect_stdout(io.StringIO()):
-            installer.stage_payload(args)
-        return args
-
-    def fake_docker_and_systemd(self, unit_dir, enabled):
-        """Every subprocess this command makes, answered.
-
-        `docker compose ps -a` reports no container (the payload on disk
-        is what detect_existing finds), stop and up succeed, and systemd
-        answers is-enabled from `enabled`. The sudo escalation is
-        replaced by a recorder: the script it would run is the observable,
-        and running it for real would edit this machine's own units.
-        """
-        scripts = []
-        calls = []
-
-        def fake_run(argv, **kwargs):
-            calls.append(list(argv))
-            out = ""
-            if "is-enabled" in argv:
-                out = "enabled" if argv[-1] in enabled else "not-found"
-            elif "is-active" in argv:
-                out = "active"
-            elif "list-timers" in argv:
-                out = f"Thu 2026-09-03 {installer.BridgeDoctor.TIMER_UNIT}"
-            return types.SimpleNamespace(returncode=0, stdout=out + "\n", stderr="")
-
-        patches = [
-            unittest.mock.patch.object(installer, "run", fake_run),
-            unittest.mock.patch.object(installer, "find_tool", lambda name: f"/bin/{name}"),
-            unittest.mock.patch.object(installer, "SYSTEMD_UNIT_DIR", str(unit_dir)),
-            unittest.mock.patch.object(installer.BridgeDoctor, "UNIT_DIR", str(unit_dir)),
-            unittest.mock.patch.object(installer.Sudo, "run_script",
-                                       lambda self, script, **kw: scripts.append(script)),
-        ]
-        for patch in patches:
-            patch.start()
-            self.addCleanup(patch.stop)
-        return scripts, calls
-
-    def test_it_moves_the_mount_the_persisted_paths_and_the_units_together(self):
-        args = self.installed_deployment()
-        unit_dir = args.prefix / "units"
-        unit_dir.mkdir()
-        for unit in (installer.BridgeDoctor.LEGACY_SERVICE_UNIT,
-                     installer.BridgeDoctor.LEGACY_TIMER_UNIT):
-            (unit_dir / unit).write_text("[Unit]\n")
-        scripts, _calls = self.fake_docker_and_systemd(unit_dir, enabled={
-            installer.BridgeDoctor.SERVICE_UNIT, installer.BridgeDoctor.TIMER_UNIT})
-
-        with contextlib.redirect_stdout(io.StringIO()):
-            code = installer.cmd_migrate_identity(args)
-        self.assertEqual(code, installer.EXIT_OK)
-
-        # The persisted paths.
-        config = (args.config_dir / "config.yaml").read_text(encoding="utf-8")
-        self.assertIn(f"{installer.CONTAINER_ETC_DIR}/known_hosts", config)
-        self.assertIn("/var/lib/retnd/state.db", config,
-                      "state.database still names the pre-rename directory")
-        self.assertEqual(installer.config_path_complaints(config), [])
-
-        # The mount: the deployment's compose invocation carries the
-        # override that mounts it, so the move is in effect rather than
-        # merely rendered.
-        override = args.prefix / installer.ROLLBACK_OVERRIDE_NAME
-        self.assertTrue(override.is_file())
-        self.assertIn(str(override), installer.compose_argv(args))
-
-        # The units: one sudo script, and it disables the pre-rename pair
-        # before it writes the current one.
-        self.assertEqual(len(scripts), 1, "the unit rename took more than one escalation")
-        script = scripts[0]
-        for legacy in (installer.BridgeDoctor.LEGACY_SERVICE_UNIT,
-                       installer.BridgeDoctor.LEGACY_TIMER_UNIT):
-            self.assertIn(f"disable --now {legacy}", script)
-        self.assertLess(script.index(f"disable --now {installer.BridgeDoctor.LEGACY_TIMER_UNIT}"),
-                        script.index(f"cat > {unit_dir}/{installer.BridgeDoctor.SERVICE_UNIT}"),
-                        "the current unit was written while the pre-rename one was still enabled")
-        self.assertIn(f"enable --now {installer.BridgeDoctor.TIMER_UNIT}", script)
-
-    def test_a_migration_that_moves_the_mount_without_rewriting_the_paths_refuses(self):
-        """The planted failure. With the rewrite stubbed out to a no-op --
-        which is what a rewriter that silently skipped a line it did not
-        understand would be -- the mounts have moved and `state.database`
-        still names /var/lib/backupd, so the deployment would start,
-        report healthy and fail at the first cycle. The transaction has to
-        catch that itself rather than leave it to be discovered.
-        """
-        args = self.installed_deployment()
-        unit_dir = args.prefix / "units"
-        unit_dir.mkdir()
-        scripts, _calls = self.fake_docker_and_systemd(unit_dir, enabled=set())
-
-        with unittest.mock.patch.object(installer, "rewrite_persisted_config",
-                                        lambda args: ("", [])):
-            with contextlib.redirect_stdout(io.StringIO()):
-                exc = refusal_from(installer.cmd_migrate_identity, args)
-
-        self.assertIsNotNone(exc, "the mount moved, the paths did not, and it reported success")
-        self.assertEqual(exc.code, installer.EXIT_VERIFY)
-        self.assertIn("/var/lib/backupd/state.db", exc.message,
-                      "the refusal has to name the line an operator must fix")
-        self.assertIn("database", exc.message)
-        self.assertEqual(scripts, [],
-                         "it renamed the units on a host whose config.yaml had not moved")
-
-    def test_the_runner_binary_is_renamed_rather_than_re_extracted(self):
-        """The same bytes under the current name, and nothing left under
-        the old one.
-
-        Renamed rather than re-extracted out of the image because the
-        engine refuses a runner whose version is not exactly its own: a
-        migration that pulled the binary out of whatever image this
-        invocation happens to name would turn a rename into a version
-        mismatch on any host not running the carried release. And the unit
-        names the binary by absolute path, so a file left under the old
-        name is a file nothing will ever reference again.
-        """
-        args = self.installed_deployment()
-        bindir = args.prefix / "bin"
-        bindir.mkdir(exist_ok=True)
-        bytes_the_engine_accepts = "the exact binary the running engine will talk to\n"
-        (bindir / f"{installer.LEGACY_RUNNER_BINARY_VERSIONED_PREFIX}0.3.9").write_text(
-            bytes_the_engine_accepts)
-        os.symlink(f"{installer.LEGACY_RUNNER_BINARY_VERSIONED_PREFIX}0.3.9",
-                   bindir / installer.LEGACY_RUNNER_BINARY_NAME)
-        (args.prefix / installer.LEGACY_WORKFLOW_RUNNER_UNIT).write_text("[Unit]\n")
-        unit_dir = args.prefix / "units"
-        unit_dir.mkdir()
-        _scripts, calls = self.fake_docker_and_systemd(unit_dir, enabled=set())
-
-        with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(installer.cmd_migrate_identity(args), installer.EXIT_OK)
-
-        versioned = bindir / f"{installer.RUNNER_BINARY_VERSIONED_PREFIX}0.3.9"
-        stable = bindir / installer.RUNNER_BINARY_NAME
-        self.assertEqual(versioned.read_text(), bytes_the_engine_accepts,
-                         "the renamed binary is not the binary that was there")
-        self.assertEqual(os.readlink(stable), versioned.name,
-                         "the stable name still points at the pre-rename target")
-        self.assertEqual([p.name for p in sorted(bindir.iterdir())],
-                         [versioned.name, stable.name],
-                         "a pre-rename name was left in bin, referenced by nothing")
-        self.assertFalse(any(call[:2] in (["docker", "create"], ["docker", "cp"])
-                             for call in calls),
-                         "it re-extracted the binary out of an image instead of renaming the one "
-                         f"the deployment is running: {calls}")
-        self.assertTrue((args.prefix / installer.WORKFLOW_RUNNER_UNIT).is_file(),
-                        "the unit staged under the prefix was not restaged under its current name")
-        self.assertFalse((args.prefix / installer.LEGACY_WORKFLOW_RUNNER_UNIT).exists(),
-                         "two unit files with the same ExecStart and different names, and an "
-                         "operator copying either")
-
-    def test_a_config_shape_the_rewriter_does_not_understand_is_refused_not_skipped(self):
-        """Skipping is the failure that matters: the mount has moved, so a
-        surviving /etc/backupd value is an engine that cannot read its own
-        known_hosts, discovered at the first backup cycle rather than
-        here."""
-        exc = refusal_from(installer.rewrite_container_paths,
-                           "sources:\n  - known_hosts: [/etc/backupd/known_hosts]\n")
-        self.assertIsNotNone(exc, "a shape it cannot rewrite was passed over in silence")
-        self.assertEqual(exc.code, installer.EXIT_EXISTING_INSTALL)
-        self.assertIn("/etc/backupd/known_hosts", exc.message)
-        self.assertIn("line 2", exc.message)
-
-    def test_the_rewrite_moves_only_the_paths_that_moved(self):
-        """/data/state and /data/backups carry no brand and do not move.
-        A rewriter that relocated an operator's catalog as a side effect of
-        a rename would be the worst kind of correct."""
-        text, changes = installer.rewrite_container_paths(
-            "state:\n"
-            "  database: /data/state/state.db\n"
-            "backup_dir: /data/backups\n"
-            "known_hosts: /etc/backupd/known_hosts\n")
-        self.assertEqual(changes and len(changes), 1, changes)
-        self.assertIn("  database: /data/state/state.db\n", text)
-        self.assertIn("backup_dir: /data/backups\n", text)
-        self.assertIn(f"known_hosts: {installer.CONTAINER_ETC_DIR}/known_hosts\n", text)
-
-    def test_a_path_that_merely_starts_with_the_old_directory_is_left_alone(self):
-        """Prefix matching on a directory, not on a string: /etc/backupdx
-        is somebody else's directory and moving it would be inventing a
-        path nothing is mounted at."""
-        self.assertEqual(installer.moved_container_path("/etc/backupdx/config"), "")
-        self.assertEqual(installer.moved_container_path("/etc/backupd"),
-                         installer.CONTAINER_ETC_DIR)
-        self.assertEqual(installer.moved_container_path("/etc/backupd/known_hosts.d/nas"),
-                         f"{installer.CONTAINER_ETC_DIR}/known_hosts.d/nas")
-
-    def test_nothing_installed_is_not_a_failure_and_changes_nothing(self):
-        """`migrate-identity` on a host with no deployment is a no-op, not
-        a refusal: a wrapper that runs it before `install` should not stop
-        the install."""
-        fx = Fixture(self)
-        args = fx.args(command="migrate-identity")
-        with unittest.mock.patch.object(
-                installer, "run",
-                lambda argv, **kw: types.SimpleNamespace(returncode=0, stdout="", stderr="")):
-            with contextlib.redirect_stdout(io.StringIO()) as out:
-                code = installer.cmd_migrate_identity(args)
-        self.assertEqual(code, installer.EXIT_OK)
-        self.assertIn("nothing to migrate", out.getvalue())
-        self.assertFalse((args.prefix / "compose.yaml").exists(),
-                         "it staged a deployment onto a host that had none")
-
-
-class TestTheRollbackWindowMountsOneDirectoryTwice(unittest.TestCase):
-    """FR-38. For one release the ONE host config directory is mounted at
-    both container paths, so an operator who rolls the image back to the
-    previous build still finds its configuration where that build looks.
-
-    Both targets being the same directory is also what makes the engine's
-    state-adoption preflight accept it: it stats each path, gets the same
-    device and inode, and reads them as one state rather than as two
-    rival ones.
-    """
-
-    def override(self):
-        fx = Fixture(self)
-        args = fx.args(command="install")
-        return args, installer.render_rollback_override(args)
-
-    @staticmethod
-    def mounts(text):
-        """The `- source:target` entries under the one service, parsed out
-        of the emitted YAML text."""
-        pairs = []
-        for line in text.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("- /"):
-                source, _, target = stripped[2:].rpartition(":")
-                pairs.append((source, target))
-        return pairs
-
-    def test_two_container_targets_share_one_host_source(self):
-        args, text = self.override()
-        pairs = self.mounts(text)
-        self.assertEqual(len(pairs), 2, f"expected two mounts, parsed {pairs}")
-        sources = {source for source, _target in pairs}
-        targets = {target for _source, target in pairs}
-        self.assertEqual(len(sources), 1,
-                         "the two container paths must be the SAME host directory, or the engine's "
-                         f"preflight sees two different states: {pairs}")
-        self.assertEqual(sources, {str(args.host_dirs['--config-dir'])})
-        self.assertEqual(targets, {installer.CONTAINER_CONFIG_DIR,
-                                   installer.LEGACY_CONTAINER_CONFIG_DIR})
-
-    def test_it_overlays_the_engine_service_and_nothing_else(self):
-        _args, text = self.override()
-        self.assertIn(f"  {installer.ENGINE_SERVICE}:\n", text)
-        self.assertNotIn("web-ui", text, "web-ui mounts no configuration directory")
-        self.assertNotIn("image:", text,
-                         "the image reference is compose.image.yaml's, and this file has no "
-                         "opinion about it")
-
-    def test_staging_writes_it_and_the_compose_invocation_layers_it(self):
-        """An override nothing passes to `docker compose` is a file, not a
-        mount: the rollback window only exists if every compose call this
-        installer makes names it."""
-        fx = Fixture(self)
-        args = fx.args(command="install")
-        self.assertNotIn(str(args.prefix / installer.ROLLBACK_OVERRIDE_NAME),
-                         installer.compose_argv(args),
-                         "a -f for a file that does not exist makes every compose call fail")
-        with contextlib.redirect_stdout(io.StringIO()):
-            installer.stage_payload(args)
-        argv = installer.compose_argv(args)
-        self.assertIn(str(args.prefix / installer.ROLLBACK_OVERRIDE_NAME), argv)
-        self.assertLess(argv.index(str(args.prefix / "compose.image.yaml")),
-                        argv.index(str(args.prefix / installer.ROLLBACK_OVERRIDE_NAME)),
-                        "the mount override has to be the last word on the mounts")
-
-    def test_uninstall_takes_it_away_with_the_rest_of_the_payload(self):
-        fx = Fixture(self)
-        args = fx.args(command="install")
-        with contextlib.redirect_stdout(io.StringIO()):
-            installer.stage_payload(args)
-        override = args.prefix / installer.ROLLBACK_OVERRIDE_NAME
-        self.assertTrue(override.is_file())
-
-        def fake_run(argv, **kwargs):
-            return types.SimpleNamespace(returncode=0, stdout="", stderr="")
-
-        uninstall = fx.args(command="uninstall")
-        with unittest.mock.patch.object(installer, "run", fake_run):
-            with contextlib.redirect_stdout(io.StringIO()):
-                installer.cmd_uninstall(uninstall)
-        self.assertFalse(override.exists(),
-                         "an override left behind is a -f pointing at a mount for a deployment "
-                         "that is gone")
-
-
-class TestTheFirewallTagIsSearchedUnderBothSpellings(unittest.TestCase):
-    """#890 renames the comment new rules carry, and that comment is not a
-    string in this file: it is written into LIVE KERNEL RULES by an
-    earlier release, on hosts that are already installed.
-
-    So the rules an installed host is carrying say `backupd-bridge`, and
-    anything looking only for `retnd-bridge` cannot see one of them.
-    `network-undo` would report success having deleted nothing.
-    """
-
-    def doctor(self):
-        d = installer.BridgeDoctor(Fixture(self).args())
-        d.iptables = "/sbin/iptables"
-        d._bridge_interfaces = ["docker0", "br-0123456789ab"]
-        return d
-
-    def test_the_search_covers_both_spellings_and_the_insert_only_the_current_one(self):
-        d = self.doctor()
-        searched = {spec[spec.index("--comment") + 1] for _chain, spec in d.all_rule_specs()}
-        inserted = {spec[spec.index("--comment") + 1] for _chain, spec in d.rule_specs()}
-        self.assertEqual(searched, {installer.RULE_TAG, installer.LEGACY_RULE_TAG})
-        self.assertEqual(inserted, {installer.RULE_TAG},
-                         "re-tagging a rule that is already doing its job would mean deleting and "
-                         "re-inserting a firewall rule for a cosmetic reason")
-
-    def test_the_undo_deletes_a_rule_carrying_the_pre_rename_comment(self):
-        d = self.doctor()
-        deleted = [line for line in d.delete_script().splitlines()
-                   if f"--comment {installer.LEGACY_RULE_TAG}" in line and " -D " in line]
-        self.assertEqual(len(deleted), len(d.rule_specs()),
-                         "every rule this installer can insert has to be deletable under the "
-                         f"pre-rename comment too: {d.delete_script()}")
-        for line in deleted:
-            self.assertIn(" -C ", line, "it deletes without checking the rule is ours first")
-
-    def test_the_undo_says_which_comments_it_looked_for(self):
-        """An operator reading the output has to be able to tell whether
-        the rules on their host were covered."""
-        fx = Fixture(self)
-        args = fx.args(command="network-undo")
-        doctor = installer.BridgeDoctor(args)
-        doctor.iptables = "/sbin/iptables"
-        doctor._bridge_interfaces = ["docker0"]
-        doctor.sudo.run_script = lambda *a, **kw: None
-        with unittest.mock.patch.object(installer, "BridgeDoctor", lambda a: doctor):
-            with contextlib.redirect_stdout(io.StringIO()) as out:
-                installer.cmd_network_undo(args)
-        printed = out.getvalue()
-        self.assertIn(installer.RULE_TAG, printed)
-        self.assertIn(installer.LEGACY_RULE_TAG, printed)
 
 
 if __name__ == "__main__":

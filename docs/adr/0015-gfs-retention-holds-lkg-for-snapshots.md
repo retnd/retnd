@@ -128,7 +128,7 @@ subject to a hold.
 
 The guarantee is a **pin**. Every manifest
 `core/internal/backupengine/kopia` saves — the filesystem path, the
-streaming path and the tree path — carries the pin `backupd`, and the
+streaming path and the tree path — carries the pin `retnd`, and the
 vendor's expiry keeps any pinned manifest whatever the policy says
 (`snapshot/policy/expire.go`). The vendor's `DeleteManifest`, which is
 what this adapter's `DeleteSnapshot` calls, ignores pins entirely. That

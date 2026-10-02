@@ -429,14 +429,14 @@ func fullyConnectedSet() config.BackupSet {
 			Host:           "nas.internal",
 			Port:           2222,
 			User:           "backup-agent",
-			KnownHosts:     "/etc/backupd/known_hosts.d/production_postgres-primary_known_hosts",
+			KnownHosts:     "/etc/retnd/known_hosts.d/production_postgres-primary_known_hosts",
 			MaxConnections: 4,
 			Key: config.Key{
-				File:    "/etc/backupd/ssh_keys/id_ed25519",
+				File:    "/etc/retnd/ssh_keys/id_ed25519",
 				Env:     "BACKUP_SSH_KEY",
 				Command: []string{"/usr/local/bin/fetch-key", "postgres-primary"},
 				Passphrase: config.Passphrase{
-					File:    "/etc/backupd/ssh_keys/id_ed25519.passphrase",
+					File:    "/etc/retnd/ssh_keys/id_ed25519.passphrase",
 					Env:     "BACKUP_SSH_KEY_PASSPHRASE",
 					Command: []string{"/usr/local/bin/fetch-passphrase", "postgres-primary"},
 				},
@@ -453,7 +453,7 @@ func fullyConnectedSet() config.BackupSet {
 
 func fullKeyEncryption() config.KeyEncryption {
 	return config.KeyEncryption{
-		File:    "/etc/backupd/key-encryption",
+		File:    "/etc/retnd/key-encryption",
 		Env:     "BACKUP_KEY_ENCRYPTION",
 		Command: []string{"/usr/local/bin/fetch-key-encryption"},
 	}

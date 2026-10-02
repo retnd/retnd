@@ -24,10 +24,10 @@ the gate (#672); it stays a file at that path because
 sandbox tree, and `ci-local.sh` keeps calling the shim so that stand-in is the
 thing that runs. The step:
 
-1. clones `backupd-tests` at the sha in `tests-repo.pin` into
-   `${XDG_CACHE_HOME:-$HOME/.cache}/backupd-tests-gate/<sha>`, once
+1. clones `retnd-tests` at the sha in `tests-repo.pin` into
+   `${XDG_CACHE_HOME:-$HOME/.cache}/retnd-tests-gate/<sha>`, once
    per pin;
-2. builds `backupd` from **this working tree** and runs that
+2. builds `retnd` from **this working tree** and runs that
    repository's CLI smoke slice against it, 55 black-box cases in about
    eleven seconds. That is a signal this repository has never had: nothing
    here exercised the CLI black-box on a per-commit basis at all;
@@ -86,7 +86,7 @@ change there and the pin bump in the same PR.
   machine with a downloadable trace, not as a gate: nothing triggers it.
   `ci.yml` is the one workflow here that does trigger on its own, on a
   pull request into `release` (#575), and Suite B is not in it.
-- **`backupd-tests` pins a build of this repository**, in its own
+- **`retnd-tests` pins a build of this repository**, in its own
   `build-under-test.json`. The two pins point opposite ways on purpose. A
   new test cannot break in-flight work here until someone bumps this one,
   and a release here cannot silently change what those suites certify.
@@ -188,7 +188,7 @@ be missing: a comment added above the block leaves the rendered help unchanged.
 
 ## Reproducing #730 (the Activity fetch that throws)
 
-`backupd#730` is the Activity page's `fetch(/api/v1/activity)`
+`retnd#730` is the Activity page's `fetch(/api/v1/activity)`
 throwing `TypeError: Failed to fetch` on a real 0.4.0 NAS, while `curl` to
 the same route answers cleanly. The client request is byte-for-byte the
 same relative, same-origin GET every other page makes (`ui/shared/src/api/
@@ -220,7 +220,7 @@ RETND_SEED_CYCLES=8 scripts/e2e/three-machine-web-ui.sh \
 
 The built-in `web-ui-smoke.mjs` client counts a failed request or an
 uncaught rejection on the Activity page as a failure, which is exactly
-#730's shape; `--suite ../backupd-tests/suites/web-ui` runs the full
+#730's shape; `--suite ../retnd-tests/suites/web-ui` runs the full
 Suite B, whose `real-path.spec.ts` asserts `getByRole("alert")` is absent
 on `/activity`. Either goes **red** if #730 reproduces over this transport.
 
@@ -235,7 +235,7 @@ narrowed it either way.
 
 ## Reproducing #795 (the Activity page that shows nothing)
 
-`backupd#795` is the other half of the same page failing, and unlike #730 it
+`retnd#795` is the other half of the same page failing, and unlike #730 it
 is not an experiment: the cause was known before the rig was asked to
 reproduce it. The web-ui container could not resolve the engine —
 `dial tcp: lookup rclone-manager: no such host` — so `serve-ui` answered
@@ -248,7 +248,7 @@ stands up:
 ```sh
 scripts/e2e/three-machine-web-ui.sh --break-engine
 scripts/e2e/three-machine-web-ui.sh --break-engine \
-  --suite ../backupd-tests/suites/web-ui
+  --suite ../retnd-tests/suites/web-ui
 ```
 
 **The engine is left running when the stack is handed over**, and that is the

@@ -29,7 +29,7 @@ renderer that has to guess whether the block it is reading was prefixed.
 #     playing the VPS being backed up;
 #   * a temporary network joining exactly those two.
 #
-# Then it installs backupd onto the manager machine with
+# Then it installs retnd onto the manager machine with
 # scripts/install/install_docker_host.py, the real installer, creates a
 # backup set through the CLI, runs it, and compares the artifact's SHA-256
 # against the source's. Not "the file is there": the bug this was written
@@ -81,7 +81,7 @@ renderer that has to guess whether the block it is reading was prefixed.
 #   connection-cap  #264, the shape that actually broke on real hardware.
 #                   Both production sources carry an iptables rule
 #                   rejecting a third simultaneous SSH connection from one
-#                   address with a TCP reset. backupd failed
+#                   address with a TCP reset. retnd failed
 #                   against it because every operation built its own Fs
 #                   and nothing released one, so the pools accumulated
 #                   until the third was refused. Listing succeeded and the
@@ -103,7 +103,7 @@ renderer that has to guess whether the block it is reading was prefixed.
 #                   order they matter.
 #
 #                   First, that the lifecycle feed is readable at all
-#                   against a real deployment: `backupd activity`
+#                   against a real deployment: `retnd activity`
 #                   with the route configured announces
 #                   `mode: engine-attached`, which means it asked the
 #                   engine over HTTP, and it lists the transitions the
@@ -172,7 +172,7 @@ renderer that has to guess whether the block it is reading was prefixed.
 #                   Two parts. The first is a FENCE: for every artifact
 #                   the set produced, a fresh sha256 of the committed
 #                   file, computed inside the manager machine, has to
-#                   equal what the real `backupd` reports for it AND what the
+#                   equal what the real `retnd` reports for it AND what the
 #                   sidecar recovery manifest records. Nothing in this
 #                   repository could say that before -- every other test
 #                   compares a record against another record, or against
@@ -188,7 +188,7 @@ renderer that has to guess whether the block it is reading was prefixed.
 #                   the field produced -- an empty record (size_bytes 0,
 #                   and the sha256 of no bytes at all, carrying
 #                   verification_class "content") over a good file at its
-#                   final name -- the product's own `backupd reconcile` is run
+#                   final name -- the product's own `retnd reconcile` is run
 #                   over it, and three things are then required. The copy
 #                   is NOT condemned: reconciliation finds nothing
 #                   unresolved and leaves the artifact at a durable
@@ -244,7 +244,7 @@ renderer that has to guess whether the block it is reading was prefixed.
 # seconds more than the install-and-back-up it shares with plain. The plant
 # itself is milliseconds; the ten seconds are the two backup cycles the
 # dead-end walk has to actually perform against a real source, and the
-# nine `backupd` invocations it walks.
+# nine `retnd` invocations it walks.
 #
 # The image build is the expensive part on a cold Docker cache (minutes:
 # it compiles the Go binaries and builds the UI bundle) and is done once
@@ -313,13 +313,13 @@ CONNECTION_CAP = 2
 # is the TAG the installer compares (installed_image_tag against
 # image_tag), and this case is about the mode's own bookkeeping, not about
 # two different builds.
-LIFECYCLE_FROM = "backupd-e2e-lifecycle:0.2.0"
-LIFECYCLE_TO = "backupd-e2e-lifecycle:0.3.0"
+LIFECYCLE_FROM = "retnd-e2e-lifecycle:0.2.0"
+LIFECYCLE_TO = "retnd-e2e-lifecycle:0.3.0"
 
 # Deterministic payload bytes rather than /dev/urandom, so a failure is
 # reproducible and a digest mismatch can be reasoned about.
 PAYLOAD_BYTES = 3145728
-PAYLOAD_PASS = "backupd-e2e-356"
+PAYLOAD_PASS = "retnd-e2e-356"
 
 # The sha256 of no bytes at all. #662's whole shape in one constant: this
 # is what the field deployment recorded as the content hash of a good
@@ -366,7 +366,7 @@ class Proof:
             "E2E_RUN_ID",
             f"{os.getpid()}-{int(time.time())}-{random.randint(0, 32767)}",
         )
-        self.label_key = "backupd-e2e"
+        self.label_key = "retnd-e2e"
         self.label = self.label_key + "=two-machine"
 
         # Where this run's throwaway host keys and payload live. Inside the
@@ -377,9 +377,9 @@ class Proof:
         # The files below are removed by name at teardown.
         self.run_dir = repo_root / ".e2e-two-machine" / self.run_id
 
-        self.product_image = "backupd-e2e:" + self.run_id
-        self.source_image = "backupd-e2e-source:1"
-        self.machine_image = "backupd-e2e-machine:1"
+        self.product_image = "retnd-e2e:" + self.run_id
+        self.source_image = "retnd-e2e-source:1"
+        self.machine_image = "retnd-e2e-machine:1"
 
         self.source_dockerfile = repo_root / "scripts" / "e2e" / "source-machine.Dockerfile"
 
@@ -540,7 +540,7 @@ class Proof:
             "docker",
             "compose",
             "-p",
-            "backupd",
+            "retnd",
             "--env-file",
             prefix + "/.env",
             "-f",
@@ -584,7 +584,7 @@ class Proof:
         proof that it does.
         """
         return self.mgr_compose(
-            mgr, prefix, "exec", "-T", "backupd", "/backupd", *args, check=check, capture=capture
+            mgr, prefix, "exec", "-T", "retnd", "/retnd", *args, check=check, capture=capture
         )
 
     def bm_stopped(
@@ -604,8 +604,8 @@ class Proof:
             "--rm",
             "--no-deps",
             "-T",
-            "backupd",
-            "/backupd",
+            "retnd",
+            "/retnd",
             *args,
             check=check,
             capture=capture,
@@ -637,22 +637,22 @@ class Proof:
             "RETND_API_USERNAME=" + self.admin_user,
             "-e",
             "RETND_API_PASSWORD=" + self.admin_pass,
-            "backupd",
-            "/backupd",
+            "retnd",
+            "/retnd",
             *args,
             check=check,
         )
 
     def engine_answers(self, mgr: str, prefix: str) -> bool:
         """Readiness probe: the engine answers `version` through compose exec."""
-        return harness.sh_ok(self.compose_argv(mgr, prefix, "exec", "-T", "backupd", "/backupd", "version"))
+        return harness.sh_ok(self.compose_argv(mgr, prefix, "exec", "-T", "retnd", "/retnd", "version"))
 
     def engine_log(self, mgr: str, prefix: str) -> str:
         """Best-effort by design: only ever called to enrich a failure
         message, so a compose invocation that cannot reach the stack must
         not replace the real failure with its own.
         """
-        out: str = self.mgr_compose(mgr, prefix, "logs", "backupd", check=False).stdout
+        out: str = self.mgr_compose(mgr, prefix, "logs", "retnd", check=False).stdout
         return out
 
     # -----------------------------------------------------------------
@@ -1038,7 +1038,7 @@ class Proof:
 
         # Nothing is installed yet, and the test says so rather than
         # assuming it: the GIVEN is a machine with Docker and no
-        # backupd.
+        # retnd.
         if harness.sh_out(["docker", "exec", mgr, "docker", "ps", "-aq"]).strip():
             die("the manager machine already has containers on it, so it is not the fresh machine this test needs.")
 
@@ -1098,7 +1098,7 @@ class Proof:
 
         # ---------------------------------------------------- run it
         step("  running the backup set")
-        cycled = self.bm(mgr, prefix, "run", "--config", "/etc/backupd/config", check=False, capture=False)
+        cycled = self.bm(mgr, prefix, "run", "--config", "/etc/retnd/config", check=False, capture=False)
         if cycled.returncode != 0:
             die(
                 "the backup cycle exited non-zero.",
@@ -1115,7 +1115,7 @@ class Proof:
         # artifacts all landed and verified is HEALTHY, and `status` exits
         # non-zero on anything else (FR-24).
         health = self.bm(
-            mgr, prefix, "status", "--config", "/etc/backupd/config", check=False, capture=False
+            mgr, prefix, "status", "--config", "/etc/retnd/config", check=False, capture=False
         )
         if health.returncode != 0:
             die("the engine's own status says this backup set is not healthy, even though the bytes match.")
@@ -1194,7 +1194,7 @@ class Proof:
                     "the installer refused or failed with no arguments on a machine with nothing pre-existing.",
                     "That is #347's whole criterion, and this is the run that was never performed before.",
                 )
-            return "/root/backupd", _combined(done)
+            return "/root/retnd", _combined(done)
 
         if case_name == "lifecycle":
             harness.sh(["docker", "exec", mgr, "docker", "tag", self.product_image, LIFECYCLE_FROM])
@@ -1204,7 +1204,7 @@ class Proof:
             if done.returncode != 0:
                 print(_combined(done), file=sys.stderr, flush=True)
                 die("the installer refused or failed on the manager machine.")
-            return "/root/backupd", _combined(done)
+            return "/root/retnd", _combined(done)
 
         # The ordinary route: an explicit image, and the canonical compose
         # file copied in from a checkout, which is the other half of #346's
@@ -1242,9 +1242,9 @@ class Proof:
         lines = reported.splitlines()
         # This line is about the VERSION, not the name, but it stays
         # anchored on the name so a banner that says something else still
-        # fails here. 0.3.3 is a clean cut: the image carries /backupd and
+        # fails here. 0.3.3 is a clean cut: the image carries /retnd and
         # nothing else, so there is no second spelling to allow for.
-        if "backupd " + self.version not in lines:
+        if "retnd " + self.version not in lines:
             die(
                 "the installed engine reports a different version from the one that was installed.",
                 "asked for: " + self.version,
@@ -1402,10 +1402,10 @@ class Proof:
         """
         create_argv = [
             "backup-set", "create", "e2e/source",
-            "--config", "/etc/backupd/config",
+            "--config", "/etc/retnd/config",
             "--host", source_ip,
             "--user", SFTP_USER,
-            "--ssh-key-file", "/etc/backupd/id_ed25519",
+            "--ssh-key-file", "/etc/retnd/id_ed25519",
             "--trust-host-key",
             "--remote-path", "/upload",
             "--local-path", "/data/backups/source",
@@ -1428,7 +1428,7 @@ class Proof:
         # And nothing was written. `sources` needs a configuration to read,
         # so on an installation that still has none it refuses, and a zero
         # here would mean the refused create left one behind after all.
-        if self.bm(mgr, prefix, "sources", "--config", "/etc/backupd/config", check=False).returncode == 0:
+        if self.bm(mgr, prefix, "sources", "--config", "/etc/retnd/config", check=False).returncode == 0:
             die(
                 'the refused create left a configuration behind, so "nothing was written" '
                 "is not true on a real install.",
@@ -1436,7 +1436,7 @@ class Proof:
         note("refused with exit 3, and this installation still has no configuration")
 
         step("  creating a backup set through the CLI, with the engine stopped")
-        self.mgr_compose(mgr, prefix, "stop", "backupd", check=False)
+        self.mgr_compose(mgr, prefix, "stop", "retnd", check=False)
         if self.bm_stopped(mgr, prefix, *create_argv, check=False, capture=False).returncode != 0:
             die("creating the backup set through the CLI failed.")
 
@@ -1447,7 +1447,7 @@ class Proof:
         if case_name == "plain":
             self.run_source_verification(mgr, prefix, source_ip)
 
-        self.mgr_compose(mgr, prefix, "start", "backupd")
+        self.mgr_compose(mgr, prefix, "start", "retnd")
         # On the engine answering, not on the file existing: `run --rm`
         # wrote it before this line was reached, so waiting on the file
         # would wait for nothing and the next step would race the restart.
@@ -1548,9 +1548,9 @@ class Proof:
         trusted = trusted_lines[0]
 
         base = [
-            "--config", "/etc/backupd/config",
+            "--config", "/etc/retnd/config",
             "--host", source_ip,
-            "--ssh-key-file", "/etc/backupd/id_ed25519",
+            "--ssh-key-file", "/etc/retnd/id_ed25519",
             "--known-hosts-line", trusted,
             "--remote-path", "/upload",
             "--completion-strategy", "rename",
@@ -1578,7 +1578,7 @@ class Proof:
         step("  #624: a check that passes clears the mark")
         checked = self.bm_stopped(
             mgr, prefix, "backup-set", "test-connection", "e2e/offline",
-            "--config", "/etc/backupd/config", check=False,
+            "--config", "/etc/retnd/config", check=False,
         )
         out = _combined(checked)
         if checked.returncode != 0:
@@ -1628,7 +1628,7 @@ class Proof:
             die("`backup-set create --no-verify` failed for the unreachable set.", _combined(marked))
         failed = self.bm_stopped(
             mgr, prefix, "backup-set", "test-connection", "e2e/nobody",
-            "--config", "/etc/backupd/config", check=False,
+            "--config", "/etc/retnd/config", check=False,
         )
         if failed.returncode != 1:
             die(
@@ -1653,7 +1653,7 @@ class Proof:
         # still asserts about one backup set.
         for set_id in ("e2e/nobody", "e2e/offline"):
             if self.bm_stopped(
-                mgr, prefix, "backup-set", "remove", set_id, "--config", "/etc/backupd/config",
+                mgr, prefix, "backup-set", "remove", set_id, "--config", "/etc/retnd/config",
                 check=False,
             ).returncode != 0:
                 die(f"could not remove {set_id}, so the rest of this case would be asserting about three backup sets.")
@@ -1668,7 +1668,7 @@ class Proof:
         here rather than in a unit test because both halves of #598 are
         about wiring that only exists in a real deployment.
 
-        The browser suite over in backupd-tests drives createMockApi
+        The browser suite over in retnd-tests drives createMockApi
         through a Vite dev server. That is worth having and it is
         structurally incapable of catching what was reported: the mock
         resolved every read cleanly, so every case in it is a claim about a
@@ -1679,12 +1679,12 @@ class Proof:
         self._create_admin(mgr, prefix, "so the CLI has a route to authenticate on")
 
         step("  the lifecycle feed, read from the engine over its own API (#598)")
-        feed = self.bm_routed(mgr, prefix, "activity", "--config", "/etc/backupd/config", check=False)
+        feed = self.bm_routed(mgr, prefix, "activity", "--config", "/etc/retnd/config", check=False)
         feed_err = self.case_dir / "activity.err"
         feed_err.write_text(feed.stderr, encoding="utf-8")
         if feed.returncode != 0:
             die(
-                "`backupd activity` failed against a deployment that has just completed a backup.",
+                "`retnd activity` failed against a deployment that has just completed a backup.",
                 "stderr: " + feed.stderr,
             )
         if not any(line.startswith("mode: engine-attached") for line in feed.stderr.splitlines()):
@@ -1723,11 +1723,11 @@ class Proof:
         # --json is what a support conversation or a cron job parses, so it
         # is asserted on the contract's field names rather than on the table.
         as_json = self.bm_routed(
-            mgr, prefix, "activity", "--config", "/etc/backupd/config", "--limit", "1", "--json",
+            mgr, prefix, "activity", "--config", "/etc/retnd/config", "--limit", "1", "--json",
             check=False,
         )
         if as_json.returncode != 0:
-            die("`backupd activity --json` failed against the running engine.")
+            die("`retnd activity --json` failed against the running engine.")
         if not all(field in as_json.stdout for field in ('"events"', '"artifact_id"', '"occurred_at"')):
             die("--json did not emit the contract's own ListActivityResponse shape.", "it emitted: " + as_json.stdout)
         note("--json emits the wire objects, field names and all")
@@ -1738,14 +1738,14 @@ class Proof:
         # because there is no engine container left to exec into, which is
         # itself the situation being modelled.
         step("  a read with no engine to reach never claims it reached one")
-        self.mgr_compose(mgr, prefix, "stop", "backupd", check=False)
+        self.mgr_compose(mgr, prefix, "stop", "retnd", check=False)
         down = self.mgr_compose(
             mgr, prefix,
             "run", "--rm", "--no-deps", "-T",
             "-e", "RETND_API_URL=http://127.0.0.1:8080",
             "-e", "RETND_API_USERNAME=" + self.admin_user,
             "-e", "RETND_API_PASSWORD=" + self.admin_pass,
-            "backupd", "/backupd", "activity", "--config", "/etc/backupd/config",
+            "retnd", "/retnd", "activity", "--config", "/etc/retnd/config",
             check=False,
         )
         (self.case_dir / "activity-engine-down.err").write_text(down.stderr, encoding="utf-8")
@@ -1764,7 +1764,7 @@ class Proof:
                 "it said: " + down.stderr,
             )
         note(f"it announced: {mode_lines[0][:60]}...")
-        self.mgr_compose(mgr, prefix, "start", "backupd")
+        self.mgr_compose(mgr, prefix, "start", "retnd")
         wait_or_die(180, "the engine to answer again", lambda: self.engine_answers(mgr, prefix))
 
         self._assert_500_explains_itself(mgr, prefix)
@@ -1791,7 +1791,7 @@ class Proof:
 
         refused = self.bm_routed(
             mgr, prefix, "settings", "patch", "--timezone", "Europe/Berlin",
-            "--config", "/etc/backupd/config", check=False,
+            "--config", "/etc/retnd/config", check=False,
         )
         if harness.sh(["docker", "exec", mgr, "chmod", "0755", prefix + "/config"], check=False).returncode != 0:
             die("could not restore the configuration directory's permissions on the manager machine.")
@@ -1857,17 +1857,17 @@ class Proof:
         minutes from now.
         """
         step("  creating an administrator, " + why)
-        self.mgr_compose(mgr, prefix, "stop", "backupd", check=False)
+        self.mgr_compose(mgr, prefix, "stop", "retnd", check=False)
         made = self.mgr_compose(
             mgr, prefix,
-            "run", "--rm", "--no-deps", "-T", "backupd",
-            "/backupd-web", "auth", "create-admin", "--username", self.admin_user, "--password-stdin",
+            "run", "--rm", "--no-deps", "-T", "retnd",
+            "/retnd-web", "auth", "create-admin", "--username", self.admin_user, "--password-stdin",
             check=False,
             stdin_text=self.admin_pass,
         )
         if made.returncode != 0:
             die("could not create an administrator on the installed instance.", _combined(made))
-        self.mgr_compose(mgr, prefix, "start", "backupd")
+        self.mgr_compose(mgr, prefix, "start", "retnd")
         # On the engine answering, not on the record existing: `run --rm`
         # wrote that file before this line was reached, so waiting on it
         # would wait for nothing and the next command would race the
@@ -2021,7 +2021,7 @@ class Proof:
         remote_path=. Counting that rather than the indentation, because the
         indentation is a format and the field is a fact.
         """
-        out = self.bm(mgr, prefix, "sources", "--config", "/etc/backupd/config", check=False).stdout
+        out = self.bm(mgr, prefix, "sources", "--config", "/etc/retnd/config", check=False).stdout
         return sum(1 for line in out.splitlines() if "remote_path=" in line)
 
     def count_artifacts(self, mgr: str, prefix: str) -> int:
@@ -2031,7 +2031,7 @@ class Proof:
         engine counting its catalog rather than this script counting lines
         it happens to recognise.
         """
-        out = self.bm(mgr, prefix, "artifacts", "--config", "/etc/backupd/config", check=False).stdout
+        out = self.bm(mgr, prefix, "artifacts", "--config", "/etc/retnd/config", check=False).stdout
         counts = [
             int(found.group(1))
             for found in (re.match(r"^([0-9]+) artifact\(s\)$", line) for line in out.splitlines())
@@ -2095,10 +2095,10 @@ class Proof:
         # so it follows the same stop/run --rm/start shape the create above
         # does.
         step("  narrowing the chain so today's restore points do not all survive it")
-        self.mgr_compose(mgr, prefix, "stop", "backupd", check=False)
+        self.mgr_compose(mgr, prefix, "stop", "retnd", check=False)
         if self.bm_stopped(
             mgr, prefix, "backup-set", "retention", "e2e/source",
-            "--config", "/etc/backupd/config",
+            "--config", "/etc/retnd/config",
             "--daily-days", "1", "--weekly-months", "1", "--monthly-months", "1",
             check=False,
         ).returncode != 0:
@@ -2110,7 +2110,7 @@ class Proof:
         step("  applying the plan")
         applied = self.bm_stopped(
             mgr, prefix, "retention", "apply", "e2e/source",
-            "--config", "/etc/backupd/config", "--acknowledge",
+            "--config", "/etc/retnd/config", "--acknowledge",
             check=False,
         )
         apply_out = applied.stdout
@@ -2199,14 +2199,14 @@ class Proof:
         # recorded as unrecoverable data loss is the version of #608 that
         # would be an emergency rather than a defect.
         step("  bringing the engine back up")
-        self.mgr_compose(mgr, prefix, "start", "backupd")
+        self.mgr_compose(mgr, prefix, "start", "retnd")
         wait_or_die(
             180,
             "the engine to answer again after the retention apply",
             lambda: self.engine_answers(mgr, prefix),
         )
 
-        health = self.bm(mgr, prefix, "status", "--config", "/etc/backupd/config", check=False).stdout
+        health = self.bm(mgr, prefix, "status", "--config", "/etc/retnd/config", check=False).stdout
         print(_indent(health, 4, bar=True), flush=True)
         if not any(line.startswith("e2e/source:") for line in health.splitlines()):
             die("the engine's status says nothing about e2e/source after the retention apply.", "It said: " + health)
@@ -2273,7 +2273,7 @@ class Proof:
         bytes are measured and asserted non-empty before anything is
         written, every mutation reports how many rows it actually changed
         and refuses if that is zero, and the quarantine that follows is
-        produced by the product's own `backupd reconcile` rather than written by
+        produced by the product's own `retnd reconcile` rather than written by
         hand.
         """
         step("  #662 part A: the record has to describe the bytes on disk")
@@ -2289,14 +2289,14 @@ class Proof:
         return "e2e/source/" + name
 
     def _journal_record(self, mgr: str, prefix: str, name: str) -> dict[str, str]:
-        """One artifact's record as the REAL `backupd` reports it.
+        """One artifact's record as the REAL `retnd` reports it.
 
         Through the shipped CLI rather than by reading the database,
         because "what the product says about this artifact" is the thing
         under test: an operator has no other window, and #662 was found by
         somebody reading exactly this output.
 
-        Worth stating plainly, because it is part of the defect: `backupd
+        Worth stating plainly, because it is part of the defect: `retnd
         artifacts <id>` does not print the local placement's own
         size_bytes at all. printArtifactCopies suppresses the block
         entirely when the only copy is an ordinary ACTIVE local one, which
@@ -2306,7 +2306,7 @@ class Proof:
         is the checksum. That is why the manifest is read too.
         """
         out = self.bm(
-            mgr, prefix, "artifacts", self._artifact_id(name), "--config", "/etc/backupd/config"
+            mgr, prefix, "artifacts", self._artifact_id(name), "--config", "/etc/retnd/config"
         ).stdout
         record = {}
         for line in out.splitlines():
@@ -2415,7 +2415,7 @@ class Proof:
         No test anywhere in this repository could say this before: every
         other one compares a record against another record, or against a
         file the test itself wrote. This compares the product's own two
-        records -- the journal, through the shipped `backupd`, and the sidecar
+        records -- the journal, through the shipped `retnd`, and the sidecar
         recovery manifest -- against a fresh sha256 of the committed file,
         computed inside the machine the file is on.
         """
@@ -2562,7 +2562,7 @@ class Proof:
         operator in words, and the file is untouched.
 
         This was the red half. It walked every documented verb against the
-        real distroless `backupd` inside the manager machine and proved that
+        real distroless `retnd` inside the manager machine and proved that
         none of them ended at a durable restore point, which is #662's
         third defect. The walk is not deleted now that it passes -- it is
         kept, in `_walk_the_dead_end`, and runs if a plant ever opens the
@@ -2602,7 +2602,7 @@ class Proof:
         # write race with the serving process, which would be a flake about
         # something this case is not testing.
         step("  planting the record the field produced (an empty record over a good file)")
-        self.mgr_compose(mgr, prefix, "stop", "backupd", check=False)
+        self.mgr_compose(mgr, prefix, "stop", "retnd", check=False)
         self._sqlite(
             mgr, prefix,
             "UPDATE artifacts SET transfer_bytes = 0, local_hash = ?, local_hash_alg = 'sha256' "
@@ -2620,7 +2620,7 @@ class Proof:
             what="the journal's local placement for " + name,
         )
         self._plant_manifest(mgr, backups, name, size=0, checksum=EMPTY_SHA256)
-        self.mgr_compose(mgr, prefix, "start", "backupd")
+        self.mgr_compose(mgr, prefix, "start", "retnd")
         wait_or_die(180, "the engine to answer again after the plant", lambda: self.engine_answers(mgr, prefix))
 
         # The file has to be untouched by all of that. If the plant moved a
@@ -2654,7 +2654,7 @@ class Proof:
         #      carrying a journal nobody knows disagreed with itself;
         #   3. none of it touched the file.
         step("  the product's own reconciliation, over the planted record")
-        reconciled = self.bm(mgr, prefix, "reconcile", "--config", "/etc/backupd/config", check=False)
+        reconciled = self.bm(mgr, prefix, "reconcile", "--config", "/etc/retnd/config", check=False)
         reconcile_out = _combined(reconciled)
         print(_indent(reconcile_out, 4, bar=True), flush=True)
 
@@ -2691,7 +2691,7 @@ class Proof:
             die(
                 "reconciliation reported something unresolved over a record the product can now settle "
                 "for itself (#662).",
-                f"`backupd reconcile` exited {reconciled.returncode} and said: {reconcile_out}",
+                f"`retnd reconcile` exited {reconciled.returncode} and said: {reconcile_out}",
                 "state: " + state_now,
             )
         note(
@@ -2709,14 +2709,14 @@ class Proof:
         #    A fix that repaired the contradicted row would leave the
         #    explicit call with nothing to say, correctly, and the sentence
         #    would then only be on the transition the journal recorded,
-        #    which `backupd artifacts <id>` prints as `reason:` (FR-17).
+        #    which `retnd artifacts <id>` prints as `reason:` (FR-17).
         #
         #    Measured, not assumed: today it lands on the reconcile stdout
         #    arm, every pass, forever. Reconciliation does NOT write the
         #    row when the verdict is valid, so nothing is consumed and the
         #    contradiction is re-derived and re-reported by every later
         #    pass -- which is what lets an operator who was not watching
-        #    the terminal at second zero type `backupd reconcile` and be told.
+        #    the terminal at second zero type `retnd reconcile` and be told.
         #    The `reason:` arm is unreachable BY CONSTRUCTION: the clause
         #    rides a no-action finding (From == To), a no-action finding
         #    calls no lifecycle.Advance, and only the quarantining branches
@@ -2732,7 +2732,7 @@ class Proof:
                 "The copy is at a durable restore point, which is half the fix. But nothing said WHY, so "
                 "this deployment carries a journal that disagreed with itself and no operator was told.",
                 "absent from both operator-visible surfaces: " + ", ".join(repr(p) for p in missing),
-                "`backupd reconcile` said: " + reconcile_out,
+                "`retnd reconcile` said: " + reconcile_out,
                 "the journal records this reason: " + (recorded_reason or "(none)"),
                 "state: " + state_now,
             )
@@ -2769,7 +2769,7 @@ class Proof:
 
         This was part B's whole body and it was RED ON PURPOSE: every
         documented verb an operator has, walked against the real distroless
-        `backupd` inside the manager machine, with the requirement that one of
+        `retnd` inside the manager machine, with the requirement that one of
         them end at a durable restore point. None did.
 
         It is kept rather than deleted because a fence deleted the day it
@@ -2782,17 +2782,17 @@ class Proof:
             f"the dead end opened again: reconciliation left {artifact} at {state_now}, which is not a durable restore "
             "point. Walking every verb an operator has, as #662 did."
         )
-        note("`backupd reconcile` said: " + reconcile_out)
+        note("`retnd reconcile` said: " + reconcile_out)
 
         # ------------------------------------------------ the walk
         walk: list[str] = []
         accepted_before = self._verbs_that_engage(mgr, prefix, artifact, walk)
 
         walk.append("validate: " + _verdict(self.bm(
-            mgr, prefix, "validate", artifact, "--config", "/etc/backupd/config", check=False)))
+            mgr, prefix, "validate", artifact, "--config", "/etc/retnd/config", check=False)))
 
         retried = self.bm(
-            mgr, prefix, "quarantine", "retry", artifact, "--config", "/etc/backupd/config", check=False
+            mgr, prefix, "quarantine", "retry", artifact, "--config", "/etc/retnd/config", check=False
         )
         walk.append("quarantine retry: " + _verdict(retried))
 
@@ -2804,12 +2804,12 @@ class Proof:
         # asked the same question an operator asks: about an artifact that is
         # FAILED, out of quarantine, with a good file at its final name.
         for cycle in (1, 2):
-            self.bm(mgr, prefix, "run", "--config", "/etc/backupd/config", check=False)
+            self.bm(mgr, prefix, "run", "--config", "/etc/retnd/config", check=False)
             detail = self._journal_record(mgr, prefix, name)
             walk.append("cycle {}: artifact is {}; last failure: {}".format(
                 cycle, detail.get("state", ""), detail.get("reason", "(none recorded)")))
             if cycle < 2 and detail.get("state") == "FAILED":
-                again = self.bm(mgr, prefix, "retry", artifact, "--config", "/etc/backupd/config", check=False)
+                again = self.bm(mgr, prefix, "retry", artifact, "--config", "/etc/retnd/config", check=False)
                 walk.append("retry: " + _verdict(again))
 
         # The one-way door, measured rather than argued: the verbs that
@@ -2818,9 +2818,9 @@ class Proof:
         accepted_after = self._verbs_that_engage(mgr, prefix, artifact, walk, suffix=" (again)")
 
         walk.append("validate (again): " + _verdict(self.bm(
-            mgr, prefix, "validate", artifact, "--config", "/etc/backupd/config", check=False)))
+            mgr, prefix, "validate", artifact, "--config", "/etc/retnd/config", check=False)))
         walk.append("reconcile (again): " + _verdict(self.bm(
-            mgr, prefix, "reconcile", "--config", "/etc/backupd/config", check=False)))
+            mgr, prefix, "reconcile", "--config", "/etc/retnd/config", check=False)))
 
         final = self._journal_record(mgr, prefix, name)
         final_state = final.get("state", "")
@@ -2869,7 +2869,7 @@ class Proof:
         engaged = []
         for verb in ("quarantine revalidate", "quarantine reinstate"):
             result = self.bm(
-                mgr, prefix, *verb.split(), artifact, "--config", "/etc/backupd/config", check=False
+                mgr, prefix, *verb.split(), artifact, "--config", "/etc/retnd/config", check=False
             )
             said = _verdict(result)
             walk.append(verb + suffix + ": " + said)
@@ -2906,8 +2906,8 @@ def _combined(proc: subprocess.CompletedProcess[str]) -> str:
 def _verdict(proc: subprocess.CompletedProcess[str]) -> str:
     """One line naming what a verb did: its status and what it said.
 
-    The engine's structured startup lines are dropped. Every `backupd` call logs
-    `backupd starting` and `embedded rclone version` as JSON on stderr before it
+    The engine's structured startup lines are dropped. Every `retnd` call logs
+    `retnd starting` and `embedded rclone version` as JSON on stderr before it
     does anything, and in a walk of nine verbs that is eighteen lines of
     identical preamble wrapped around the nine sentences somebody has to
     read. Dropping them is not hiding evidence: they say the same thing on

@@ -19,13 +19,13 @@ func testConfig() *config.Config {
 					Type:       "sftp",
 					Host:       "db.example.com",
 					Port:       2222,
-					User:       "backupd-hooks",
-					KnownHosts: "/etc/backupd/known_hosts",
-					Key:        config.Key{File: "/etc/backupd/hooks.key"},
+					User:       "retnd-hooks",
+					KnownHosts: "/etc/retnd/known_hosts",
+					Key:        config.Key{File: "/etc/retnd/hooks.key"},
 				},
 			}},
 		},
-		KeyEncryption: config.KeyEncryption{File: "/etc/backupd/at-rest.key"},
+		KeyEncryption: config.KeyEncryption{File: "/etc/retnd/at-rest.key"},
 		Sources: []config.Source{{
 			Name: "production",
 			BackupSets: []config.BackupSet{{
@@ -33,9 +33,9 @@ func testConfig() *config.Config {
 				Remote: config.Remote{
 					Type:           "sftp",
 					Host:           "db.example.com",
-					User:           "backupd-transfer",
-					KnownHosts:     "/etc/backupd/known_hosts",
-					Key:            config.Key{File: "/etc/backupd/transfer.key"},
+					User:           "retnd-transfer",
+					KnownHosts:     "/etc/retnd/known_hosts",
+					Key:            config.Key{File: "/etc/retnd/transfer.key"},
 					MaxConnections: 2,
 				},
 				RemotePath: "/var/backups",
@@ -58,10 +58,10 @@ func TestResolvePrefersADeclaredExecConnection(t *testing.T) {
 	if conn.Kind != KindDeclared {
 		t.Errorf("kind = %q, want %q", conn.Kind, KindDeclared)
 	}
-	if conn.Source.User != "backupd-hooks" {
+	if conn.Source.User != "retnd-hooks" {
 		t.Errorf("user = %q; the transfer credential was used for execution", conn.Source.User)
 	}
-	if conn.Source.KeyFile != "/etc/backupd/hooks.key" {
+	if conn.Source.KeyFile != "/etc/retnd/hooks.key" {
 		t.Errorf("key = %q", conn.Source.KeyFile)
 	}
 	if conn.Source.Port != 2222 {
@@ -73,7 +73,7 @@ func TestResolvePrefersADeclaredExecConnection(t *testing.T) {
 	// #298's at-rest key encryption is a deployment-wide setting and has
 	// to reach the credential code, or an exec connection whose key file
 	// is encrypted cannot be opened at all.
-	if conn.Source.KeyEncryptionFile != "/etc/backupd/at-rest.key" {
+	if conn.Source.KeyEncryptionFile != "/etc/retnd/at-rest.key" {
 		t.Errorf("key_encryption = %q", conn.Source.KeyEncryptionFile)
 	}
 	// An execution connection has no tree to walk, so it must not carry
@@ -96,7 +96,7 @@ func TestResolveFallsBackToTheBackupSetsOwnSourceConnection(t *testing.T) {
 	if conn.Kind != KindBackupSetSource {
 		t.Errorf("kind = %q, want %q", conn.Kind, KindBackupSetSource)
 	}
-	if conn.Source.User != "backupd-transfer" {
+	if conn.Source.User != "retnd-transfer" {
 		t.Errorf("user = %q", conn.Source.User)
 	}
 	if conn.Source.MaxConnections != 2 {
@@ -242,7 +242,7 @@ func TestTheRemoteCommandIsFixedAndCarriesNothingElse(t *testing.T) {
 
 	c := &Client{conn: Connection{Ref: "db-hooks", BashPath: "/usr/local/bin/bash", Source: transport.Source{User: "hookuser"}}}
 
-	if got, want := c.remoteCommand("backupd-exec-r1-0001"), "exec /usr/local/bin/bash --noprofile --norc -s backupd-exec-r1-0001"; got != want {
+	if got, want := c.remoteCommand("retnd-exec-r1-0001"), "exec /usr/local/bin/bash --noprofile --norc -s retnd-exec-r1-0001"; got != want {
 		t.Errorf("remoteCommand = %q, want %q", got, want)
 	}
 	if got, want := c.remoteCommand(""), "exec /usr/local/bin/bash --noprofile --norc -s"; got != want {
@@ -274,7 +274,7 @@ func TestARequestTokenCannotCarryShellSyntax(t *testing.T) {
 		}
 	}
 
-	req := Request{Token: "backupd-exec-run1-0003.quiesce", Sink: sink}
+	req := Request{Token: "retnd-exec-run1-0003.quiesce", Sink: sink}
 	if err := req.validate(); err != nil {
 		t.Errorf("an ordinary token was refused: %v", err)
 	}

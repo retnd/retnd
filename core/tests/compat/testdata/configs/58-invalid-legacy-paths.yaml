@@ -23,8 +23,8 @@
 # mechanism that fires on `polling_interval` says nothing about whether
 # anybody used it here.
 legacy_paths:
-  state: /var/lib/backupd
-  config: /etc/backupd
+  state: /var/lib/retnd
+  config: /etc/retnd
 
 state:
   database: /var/lib/retnd/state.db

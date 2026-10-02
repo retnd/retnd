@@ -231,7 +231,7 @@ func seedFutureSchemaVersion(t *testing.T, dbPath string) {
 // states it: not merely "OpenConfigAndJournal returns an error", but
 // "BackupService and the daemon/API never start". Open is the one
 // production constructor a web host has (apps/generic/cmd/
-// backupd-web/main.go calls it, and returns a non-zero exit
+// retnd-web/main.go calls it, and returns a non-zero exit
 // without ever reaching serve.RunEngine if it fails), so a nil
 // *BackupService out of Open is exactly "no scheduler tick, no cycle, no
 // transfer, no delete" — there is no object left for any of those to be

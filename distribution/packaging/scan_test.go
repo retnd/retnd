@@ -46,7 +46,7 @@ func cleanFixture(t *testing.T) string {
 	mustWrite(t, filepath.Join(root, "compose", "retnd.yml"), `services:
   engine:
     image: ghcr.io/retnd/retnd:1.0.0
-    command: ["/backupd-web", "serve"]
+    command: ["/retnd-web", "serve"]
     read_only: true
     volumes:
       - /srv/state:/data/state
@@ -142,7 +142,7 @@ func TestScanLifecycleCatchesViolations(t *testing.T) {
   engine:
     build:
       context: ../..
-    command: ["/backupd-web", "serve"]
+    command: ["/retnd-web", "serve"]
 `)
 			},
 			wantRule: RuleBuildsOwnImage,
@@ -153,7 +153,7 @@ func TestScanLifecycleCatchesViolations(t *testing.T) {
 				mustWrite(t, filepath.Join(root, "compose", "retnd.yml"), `services:
   engine:
     image: ghcr.io/retnd/retnd:1.0.0
-    command: ["/bin/sh", "-c", "/setup && /backupd-web serve"]
+    command: ["/bin/sh", "-c", "/setup && /retnd-web serve"]
 `)
 			},
 			wantRule: RuleNonCanonicalCommand,
@@ -165,7 +165,7 @@ func TestScanLifecycleCatchesViolations(t *testing.T) {
   engine:
     image: ghcr.io/retnd/retnd:1.0.0
     entrypoint: ["/init"]
-    command: ["/backupd-web", "serve"]
+    command: ["/retnd-web", "serve"]
 `)
 			},
 			wantRule: RuleEntrypointOverride,
@@ -173,7 +173,7 @@ func TestScanLifecycleCatchesViolations(t *testing.T) {
 		{
 			name: "a catalog lifecycle hook",
 			mutate: func(t *testing.T, root string) {
-				mustWrite(t, filepath.Join(root, "catalog", "app.yaml"), `name: backupd
+				mustWrite(t, filepath.Join(root, "catalog", "app.yaml"), `name: retnd
 post_install: /usr/local/bin/seed-state.sh
 `)
 			},
@@ -185,7 +185,7 @@ post_install: /usr/local/bin/seed-state.sh
 				mustWrite(t, filepath.Join(root, "compose", "retnd.yml"), `services:
   engine:
     image: ghcr.io/retnd/retnd:1.0.0
-    command: ["/backupd-web", "serve"]
+    command: ["/retnd-web", "serve"]
     privileged: true
 `)
 			},
@@ -199,7 +199,7 @@ post_install: /usr/local/bin/seed-state.sh
 			mutate: func(t *testing.T, root string) {
 				mustWrite(t, filepath.Join(root, "template", "retnd.xml"),
 					`<?xml version="1.0"?>`+"\n"+`<Container version="2">
-  <Name>backupd</Name>
+  <Name>retnd</Name>
   <PostArgs>/usr/local/bin/seed.sh</PostArgs>
 </Container>
 `)
@@ -211,8 +211,8 @@ post_install: /usr/local/bin/seed-state.sh
 			mutate: func(t *testing.T, root string) {
 				mustWrite(t, filepath.Join(root, "template", "retnd.xml"),
 					`<?xml version="1.0"?>`+"\n"+`<Container version="2">
-  <Name>backupd</Name>
-  <PostArgs>/backupd-web serve &amp;&amp; /usr/local/bin/seed.sh</PostArgs>
+  <Name>retnd</Name>
+  <PostArgs>/retnd-web serve &amp;&amp; /usr/local/bin/seed.sh</PostArgs>
 </Container>
 `)
 			},
@@ -223,7 +223,7 @@ post_install: /usr/local/bin/seed-state.sh
 			mutate: func(t *testing.T, root string) {
 				mustWrite(t, filepath.Join(root, "template", "retnd.xml"),
 					`<?xml version="1.0"?>`+"\n"+`<Container version="2">
-  <Name>backupd</Name>
+  <Name>retnd</Name>
   <Privileged>true</Privileged>
 </Container>
 `)
@@ -255,8 +255,8 @@ func TestScanLifecycleAcceptsACanonicalUnraidCommand(t *testing.T) {
 	root := cleanFixture(t)
 	mustWrite(t, filepath.Join(root, "template", "retnd.xml"),
 		`<?xml version="1.0"?>`+"\n"+`<Container version="2">
-  <Name>backupd</Name>
-  <PostArgs>/backupd-web serve</PostArgs>
+  <Name>retnd</Name>
+  <PostArgs>/retnd-web serve</PostArgs>
 </Container>
 `)
 	got, err := ScanLifecycle(root)
@@ -335,7 +335,7 @@ func TestScanSecretsCatchesBundledCredentials(t *testing.T) {
 			// installer, so there is no secret in the tree to find.
 			name:   "a mount whose host side is the runner's credential file",
 			file:   "compose/retnd.yml",
-			body:   "services:\n  backupd:\n    volumes:\n      - /srv/backupd/secrets/workflow-runner.token:/etc/retnd/workflow-runner.token:ro\n",
+			body:   "services:\n  retnd:\n    volumes:\n      - /srv/retnd/secrets/workflow-runner.token:/etc/retnd/workflow-runner.token:ro\n",
 			expect: false,
 		},
 		{
@@ -394,7 +394,7 @@ func TestContains(t *testing.T) {
 	}{
 		{"/mnt/user/backups", "/mnt/user/backups", true},
 		{"/mnt/user/backups", "/mnt/user/backups/set-a/artifact.tar", true},
-		{"/mnt/user/backups", "/mnt/user/appdata/backupd/state", false},
+		{"/mnt/user/backups", "/mnt/user/appdata/retnd/state", false},
 		// The prefix trap: "/mnt/user/backups-old" starts with
 		// "/mnt/user/backups" as a string but is a sibling, not a child.
 		{"/mnt/user/backups", "/mnt/user/backups-old/x", false},
@@ -508,7 +508,7 @@ func TestScanForBespokeAuthCatchesAnOwnAuthMechanism(t *testing.T) {
 		{"an LDAP bind in a catalog file", "catalog/app.yaml", "auth: ldap\n", true},
 		{"an htpasswd file", "compose/users.yml", "htpasswd: /etc/nginx/.htpasswd\n", true},
 		{"an --auth-mode override", "compose/retnd.yml",
-			"services:\n  engine:\n    command: [\"/backupd-web\", \"serve\", \"--auth-mode=ugos\"]\n", true},
+			"services:\n  engine:\n    command: [\"/retnd-web\", \"serve\", \"--auth-mode=ugos\"]\n", true},
 		{"a README explaining there is no SSO", "README.md",
 			"There is no SSO and no LDAP here: this platform uses the generic host's local auth.\n", false},
 		{"the clean baseline", "compose/extra.yml", "services: {}\n", false},
@@ -541,7 +541,7 @@ func TestScanForOMVPluginCatchesPluginMaterial(t *testing.T) {
 		expect bool
 	}{
 		{"a Debian packaging directory", "debian/control.txt", "Package: openmediavault-backupmanager\n", true},
-		{"a salt state tree", "salt/deploy.yml", "backupd: {}\n", true},
+		{"a salt state tree", "salt/deploy.yml", "retnd: {}\n", true},
 		{"a Workbench navigation file", "workbench/navigation.yaml", "route: /services/backup\n", true},
 		{"an RPC service", "rpc/backupmanager.json", "{\"service\": \"Backupd\"}\n", true},
 		{"an omv-mkconf hook referenced from metadata", "compose/retnd.yml",
@@ -751,10 +751,10 @@ func TestCheckExtraParamsHardeningCatchesFlagsThatUndoIt(t *testing.T) {
 // TRUST_FORWARDED_HEADERS used to return nothing, while docs/deployment.md
 // makes it the one variable with an explicit never-set-it-here rule.
 func TestCheckForwardedHeaderTrustFailsInBothDirections(t *testing.T) {
-	engineTrusting := Service{Name: "backupd", Source: "compose.yml", Environment: map[string]string{"TRUST_FORWARDED_HEADERS": "true"}}
-	engineSilent := Service{Name: "backupd", Source: "template.xml", Environment: map[string]string{}}
-	uiTrusting := Service{Name: "backupd-ui", Source: "compose.yml", Environment: map[string]string{"TRUST_FORWARDED_HEADERS": "true"}}
-	uiSilent := Service{Name: "backupd-ui", Source: "compose.yml", Environment: map[string]string{}}
+	engineTrusting := Service{Name: "retnd", Source: "compose.yml", Environment: map[string]string{"TRUST_FORWARDED_HEADERS": "true"}}
+	engineSilent := Service{Name: "retnd", Source: "template.xml", Environment: map[string]string{}}
+	uiTrusting := Service{Name: "retnd-ui", Source: "compose.yml", Environment: map[string]string{"TRUST_FORWARDED_HEADERS": "true"}}
+	uiSilent := Service{Name: "retnd-ui", Source: "compose.yml", Environment: map[string]string{}}
 
 	tests := []struct {
 		name     string
@@ -787,13 +787,13 @@ func TestCheckForwardedHeaderTrustFailsInBothDirections(t *testing.T) {
 const cleanProcedure = `
 # Example procedure
 
-	mkdir -p /mnt/user/backups/backupd
-	chown -R 99:100 /mnt/user/appdata/backupd
-	chown 99:100 /mnt/user/backups/backupd
+	mkdir -p /mnt/user/backups/retnd
+	chown -R 99:100 /mnt/user/appdata/retnd
+	chown 99:100 /mnt/user/backups/retnd
 
-	head -c 8M /dev/urandom > /mnt/user/backups/backupd/canary.bin
-	sha256sum /mnt/user/backups/backupd/canary.bin | tee /root/evidence/canary.sha256
-	find /mnt/user/backups/backupd -type f | sort > /root/evidence/before
+	head -c 8M /dev/urandom > /mnt/user/backups/retnd/canary.bin
+	sha256sum /mnt/user/backups/retnd/canary.bin | tee /root/evidence/canary.sha256
+	find /mnt/user/backups/retnd -type f | sort > /root/evidence/before
 
 	sha256sum -c /root/evidence/canary.sha256
 	diff /root/evidence/before /root/evidence/after
@@ -802,7 +802,7 @@ const cleanProcedure = `
 `
 
 func TestCheckAcceptanceProcedureAcceptsASafeVerifiableProcedure(t *testing.T) {
-	if v := CheckAcceptanceProcedure(cleanProcedure, "/mnt/user/backups/backupd", nil); len(v) > 0 {
+	if v := CheckAcceptanceProcedure(cleanProcedure, "/mnt/user/backups/retnd", nil); len(v) > 0 {
 		t.Errorf("a safe, baseline-recording procedure was reported as unsafe:\n%s", format(v))
 	}
 }
@@ -821,7 +821,7 @@ func TestCheckAcceptanceProcedureCatchesDestructiveAndUnverifiableSteps(t *testi
 		},
 		{
 			name:     "recursive chown on the backup root itself",
-			mutate:   func(s string) string { return s + "\n\tchown -R 99:100 /mnt/user/backups/backupd\n" },
+			mutate:   func(s string) string { return s + "\n\tchown -R 99:100 /mnt/user/backups/retnd\n" },
 			wantRule: RuleRecursiveChown,
 		},
 		{
@@ -853,14 +853,14 @@ func TestCheckAcceptanceProcedureCatchesDestructiveAndUnverifiableSteps(t *testi
 		{
 			name: "baseline recorded inside the tree it vouches for",
 			mutate: func(s string) string {
-				return strings.ReplaceAll(s, "/root/evidence/canary.sha256", "/mnt/user/backups/backupd/canary.sha256")
+				return strings.ReplaceAll(s, "/root/evidence/canary.sha256", "/mnt/user/backups/retnd/canary.sha256")
 			},
 			wantRule: RuleBaselineInsideBackupRoot,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			v := CheckAcceptanceProcedure(tc.mutate(cleanProcedure), "/mnt/user/backups/backupd", tc.subs)
+			v := CheckAcceptanceProcedure(tc.mutate(cleanProcedure), "/mnt/user/backups/retnd", tc.subs)
 			if !hasRule(v, tc.wantRule) {
 				t.Errorf("no %s reported; got:\n%s", tc.wantRule, format(v))
 			}
@@ -903,15 +903,15 @@ func TestRenderedCatalogCarriesTheDefaultsItWasRenderedWith(t *testing.T) {
   reference: "docker.io/somebody/else:latest"
 storage:
   state:
-    hostPath: "/mnt/tank/backupd/state"
+    hostPath: "/mnt/tank/retnd/state"
   backups:
-    hostPath: "/mnt/tank/backupd/secrets"
+    hostPath: "/mnt/tank/retnd/secrets"
   configDir:
-    hostPath: "/mnt/tank/backupd/config/config.yaml"
+    hostPath: "/mnt/tank/retnd/config/config.yaml"
   sshKey:
-    hostPath: "/mnt/tank/backupd/secrets/id_ed25519"
+    hostPath: "/mnt/tank/retnd/secrets/id_ed25519"
   knownHosts:
-    hostPath: "/mnt/tank/backupd/secrets/known_hosts"
+    hostPath: "/mnt/tank/retnd/secrets/known_hosts"
 network:
   webPort: 9999
 runtime:

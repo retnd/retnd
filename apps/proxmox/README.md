@@ -79,17 +79,17 @@ unchanged.
 ## What the PVE host contributes
 
 Exactly one thing: a directory or dataset, shared into the guest at
-`/mnt/backupd`.
+`/mnt/retnd`.
 
 ```bash
-zfs create -o mountpoint=/srv/backupd rpool/backupd
+zfs create -o mountpoint=/srv/retnd rpool/retnd
 ```
 
 For a VM, share it in with a virtiofs directory mapping (PVE 8.4 and
 later) or an NFS export. For the LXC variant, a bind mount point:
 
 ```bash
-pct set <ctid> --mp0 /srv/backupd,mp=/mnt/backupd
+pct set <ctid> --mp0 /srv/retnd,mp=/mnt/retnd
 ```
 
 Everything persistent lives under that one path, split into four
@@ -97,10 +97,10 @@ directories that are four different things:
 
 | Guest path | Holds | Why it is separate |
 | --- | --- | --- |
-| `/mnt/backupd/state` | SQLite catalog, administrator record | Private application state (§19.2) |
-| `/mnt/backupd/backups` | Retained artifacts | The user backup root, a separate security domain |
-| `/mnt/backupd/config` | `config.yaml`, mounted writable | Validated before the listener opens; the engine also creates `ssh_keys/` and `known_hosts.d/` here |
-| `/mnt/backupd/secrets` | SSH key, pinned `known_hosts`, read-only | Never inside the backup root, never in this repository |
+| `/mnt/retnd/state` | SQLite catalog, administrator record | Private application state (§19.2) |
+| `/mnt/retnd/backups` | Retained artifacts | The user backup root, a separate security domain |
+| `/mnt/retnd/config` | `config.yaml`, mounted writable | Validated before the listener opens; the engine also creates `ssh_keys/` and `known_hosts.d/` here |
+| `/mnt/retnd/secrets` | SSH key, pinned `known_hosts`, read-only | Never inside the backup root, never in this repository |
 
 `distribution/packaging` enforces the containment rule in the last column
 on every commit: no key material, config or authentication state may sit

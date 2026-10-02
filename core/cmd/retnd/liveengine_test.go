@@ -14,7 +14,7 @@ import (
 // Issues #538 and #540: the incident in #535, planted exactly as it
 // happened, and the guard that it cannot be reported as a success.
 //
-// #535 was `docker exec ... backupd backup-set create` against a
+// #535 was `docker exec ... retnd backup-set create` against a
 // container that was already running the engine. The write landed in
 // config.yaml, the CLI adopted it in its own memory, the CLI exited, and
 // the engine, which had read that file when it started and has no watcher
@@ -61,7 +61,7 @@ import (
 // starts nothing expensive; it only has to open a journal.
 const engineStartTimeout = 60 * time.Second
 
-// startEngineHolding re-executes this test binary as `backupd
+// startEngineHolding re-executes this test binary as `retnd
 // daemon --config configPath` and returns once that process has the
 // journal open, plus a func that stops it and waits for it to be gone.
 //
@@ -166,7 +166,7 @@ type mutation struct {
 // sets $RETND_API_URL, and TestMain clears it, so what every case
 // below asserts is that finding an engine and having no way to reach it
 // still refuses and still leaves the file alone. It is the case a
-// `backupd daemon` is always in, since a daemon serves no HTTP at
+// `retnd daemon` is always in, since a daemon serves no HTTP at
 // all, and the one an operator who has set nothing up is in.
 //
 // The other half, that a routed write reaches the engine and does not

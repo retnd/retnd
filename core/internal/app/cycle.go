@@ -104,7 +104,7 @@ type BackupSetCycleResult struct {
 // report that spells it the same way it spells a source that has gone
 // unreachable makes an ordinary edit look like a backup that broke:
 // core/service would fail the operation the operator submitted,
-// `backupd run` would exit 1, and the activity feed would carry
+// `retnd run` would exit 1, and the activity feed would carry
 // "context canceled" as the reason a backup did not happen. In a product
 // whose whole job is to be believed about backups, a false alarm is not
 // a cosmetic defect.

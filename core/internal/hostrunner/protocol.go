@@ -57,7 +57,7 @@ import (
 // "unmarshal error", and a future in which the two can legitimately
 // differ -- a protocol frozen across several releases -- is the normal
 // case rather than a hypothetical.
-const Protocol = "backupd/workflow-runner/1"
+const Protocol = "retnd/workflow-runner/1"
 
 // MaxFrameSize bounds one frame.
 //
@@ -254,7 +254,7 @@ type Hello struct {
 	// behaving subtly differently, which is not.
 	Version string `json:"version"`
 
-	// Token is the installation-scoped credential from backupd's
+	// Token is the installation-scoped credential from retnd's
 	// secrets area.
 	Token string `json:"token"`
 }

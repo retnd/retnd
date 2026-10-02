@@ -190,7 +190,7 @@ func TestAHostPlaneMountIsOptionalToCarryAndNotOptionalToCarryCorrectly(t *testi
 	webUI := copyService(*base.WebUI)
 	engine.Mounts = append(engine.Mounts, Mount{
 		Role:          "workflows",
-		HostPath:      "/srv/backupd/workflows",
+		HostPath:      "/srv/retnd/workflows",
 		ContainerPath: workflows,
 		ReadOnly:      false,
 	})
@@ -554,20 +554,20 @@ func TestThePortainerTemplateCheckFailsOnEveryWayItCanBeWrong(t *testing.T) {
 		Templates: []PortainerTemplate{{
 			Type:        3,
 			Title:       "Backupd",
-			Name:        "backupd",
+			Name:        "retnd",
 			Description: "d",
 			Logo:        "https://example.invalid/logo.svg",
 			Platform:    "linux",
 			Categories:  []string{"backup"},
 			Env: []PortainerEnv{
-				{Name: "STATE_DIR", Label: "state", Default: "/opt/backupd/state"},
+				{Name: "STATE_DIR", Label: "state", Default: "/opt/retnd/state"},
 			},
 		}},
 	}
 	good.Templates[0].Repository.URL = "https://example.invalid/repo"
 	good.Templates[0].Repository.Stackfile = stackfile
 	vars := []string{"STATE_DIR"}
-	env := map[string]string{"STATE_DIR": "/opt/backupd/state"}
+	env := map[string]string{"STATE_DIR": "/opt/retnd/state"}
 
 	if v := CheckPortainerTemplate("fixture", good, vars, env, stackfile); len(v) > 0 {
 		t.Fatalf("the clean fixture already fails, so no control below means anything:\n%s", format(v))
@@ -1055,7 +1055,7 @@ func TestStoreMetadataStaysInTheDistributionAdapter(t *testing.T) {
 	// The control. A clean result over two large trees is exactly the
 	// shape that hides a scanner walking nothing.
 	fixture := t.TempDir()
-	write(t, filepath.Join(fixture, "ok.go"), "package p\n\nconst Name = \"backupd\"\n")
+	write(t, filepath.Join(fixture, "ok.go"), "package p\n\nconst Name = \"retnd\"\n")
 	if v, err := ScanForStoreMetadataLeak(fixture); err != nil || len(v) > 0 {
 		t.Fatalf("a clean fixture reported %v (err %v)", v, err)
 	}

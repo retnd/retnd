@@ -387,7 +387,7 @@ func TestAnSFTPSourceIsRefusedAWalkedTreeRunBeforeAnythingIsDialed(t *testing.T)
 }
 
 // placeHold puts a hold on one run's snapshot through the journal's own
-// API, which is the same call `backupd snapshot hold` makes.
+// API, which is the same call `retnd snapshot hold` makes.
 func placeHold(t *testing.T, d *deployment, holdID, runID, reason string) {
 	t.Helper()
 

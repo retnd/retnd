@@ -71,7 +71,7 @@ func TestS3OptionsAreExactlyThisAllowlist(t *testing.T) {
 		Region:       "us-west-2",
 		Endpoint:     "https://s3.example.invalid",
 		Bucket:       "backups",
-		Prefix:       "backupd",
+		Prefix:       "retnd",
 		StorageClass: "STANDARD_IA",
 		Credentials:  transport.MediumCredentials{Env: "MEDIUM_CREDS"},
 	}

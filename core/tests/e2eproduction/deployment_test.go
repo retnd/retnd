@@ -81,7 +81,7 @@ const setUUID = "3d5f7a91-2c4e-4b8d-9f1a-6e0c2b4d8a70"
 // domainID is the one repository domain this suite declares.
 const domainID = "production"
 
-// deployment is one whole backupd installation: a configuration the
+// deployment is one whole retnd installation: a configuration the
 // product parsed, a source tree on disk, a Kopia repository, and a
 // journal.
 type deployment struct {
@@ -217,7 +217,7 @@ func newDeployment(t *testing.T, opts deploymentOptions) *deployment {
 		}
 	})
 
-	journal, err := state.Open(ctx, filepath.Join(root, "state", "backupd.db"))
+	journal, err := state.Open(ctx, filepath.Join(root, "state", "retnd.db"))
 	if err != nil {
 		t.Fatalf("opening the journal: %v", err)
 	}
@@ -236,14 +236,14 @@ func newDeployment(t *testing.T, opts deploymentOptions) *deployment {
 }
 
 // configYAML is the operator's file. It is written as text rather than
-// marshalled from a struct for the reason backupd-tests renders its own
+// marshalled from a struct for the reason retnd-tests renders its own
 // fixtures as text: the file is part of the contract, and a struct
 // marshalled back out would prove only that this package can round-trip
 // its own types.
 func configYAML(root, passphrase, level string) string {
 	return fmt.Sprintf(`poll_interval: 15m
 state:
-  database: %[1]s/state/backupd.db
+  database: %[1]s/state/retnd.db
 retention:
   timezone: UTC
   week_starts_on: monday
@@ -359,7 +359,7 @@ func (d *deployment) run(t *testing.T, runID string, opts snapshotlifecycle.Veri
 		VerificationLevel: d.set.VerificationLevel,
 		Verification:      opts,
 		Source:            d.snapshotSource(),
-		Description:       "backupd " + d.set.ID.String(),
+		Description:       "retnd " + d.set.ID.String(),
 		Repository:        d.repo,
 		OpenTree: func(ctx context.Context) (snapshotlifecycle.SourceTree, error) {
 			tree, err := adapter.OpenTree(ctx, src)
@@ -378,7 +378,7 @@ func (d *deployment) run(t *testing.T, runID string, opts snapshotlifecycle.Veri
 // path, so a renamed host does not fork the lineage.
 func (d *deployment) snapshotSource() backupengine.Source {
 	return backupengine.Source{
-		Host: "backupd",
+		Host: "retnd",
 		User: d.set.Repository.Domain.String(),
 		Path: "/" + string(d.set.SourceIdentity),
 	}

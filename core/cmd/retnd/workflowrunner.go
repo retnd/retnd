@@ -22,7 +22,7 @@ import (
 // Everything else here talks to a deployment. This talks to a host. The
 // canonical runtime is distroless, read-only, non-root and has no shell
 // (container/compose.yaml, docs/runtime-contract.md), so a `.local.sh`
-// hook -- which means "run this on the machine backupd is installed on"
+// hook -- which means "run this on the machine retnd is installed on"
 // -- cannot be executed by the engine at all. internal/hostrunner's
 // package doc lays out the four ways that sentence could be satisfied and
 // why three of them are the same mistake; this is the fourth, and it is a

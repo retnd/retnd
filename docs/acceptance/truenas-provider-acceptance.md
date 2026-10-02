@@ -54,7 +54,7 @@ docker buildx build \
   --build-arg VERSION="$(git describe --tags --always)" \
   --build-arg COMMIT="$(git rev-parse HEAD)" \
   -f container/Dockerfile \
-  -t <your-registry>/backupd:<version> \
+  -t <your-registry>/retnd:<version> \
   --push .
 ```
 
@@ -62,10 +62,10 @@ docker buildx build \
 
 ```bash
 docker buildx build --platform=linux/amd64 -f container/Dockerfile \
-  -t backupd:<version> --load .
-docker save backupd:<version> | gzip > backupd.tar.gz
-scp backupd.tar.gz root@<truenas>:/mnt/POOL/
-ssh root@<truenas> 'gunzip -c /mnt/POOL/backupd.tar.gz | docker load'
+  -t retnd:<version> --load .
+docker save retnd:<version> | gzip > retnd.tar.gz
+scp retnd.tar.gz root@<truenas>:/mnt/POOL/
+ssh root@<truenas> 'gunzip -c /mnt/POOL/retnd.tar.gz | docker load'
 ```
 
 Record which option you used and the exact reference in the evidence table. If you
@@ -82,18 +82,18 @@ The package's host-path defaults come from `distribution/packaging/canonical.jso
 declares. Create them as datasets, not directories, so snapshots and quotas work:
 
 ```bash
-zfs create -p POOL/backupd/state
-zfs create -p POOL/backupd/backups
-zfs create -p POOL/backupd/config
-zfs create -p POOL/backupd/secrets
+zfs create -p POOL/retnd/state
+zfs create -p POOL/retnd/backups
+zfs create -p POOL/retnd/config
+zfs create -p POOL/retnd/secrets
 ```
 
 Then confirm all four are actually mounted before you install anything:
 
 ```bash
-zfs list -o name,mountpoint -r POOL/backupd
+zfs list -o name,mountpoint -r POOL/retnd
 for d in state backups config secrets; do
-  mountpoint -q "/mnt/POOL/backupd/$d" || echo "NOT MOUNTED: $d"
+  mountpoint -q "/mnt/POOL/retnd/$d" || echo "NOT MOUNTED: $d"
 done
 ```
 
@@ -117,9 +117,9 @@ Pick the uid/gid the app will run as and set it now. TrueNAS's own `apps` accoun
 is `568:568` and is the conventional choice:
 
 ```bash
-chown 568:568 /mnt/POOL/backupd \
-  /mnt/POOL/backupd/{state,backups,config,secrets}
-chmod 700 /mnt/POOL/backupd/secrets
+chown 568:568 /mnt/POOL/retnd \
+  /mnt/POOL/retnd/{state,backups,config,secrets}
+chmod 700 /mnt/POOL/retnd/secrets
 ```
 
 The mountpoints are chowned, not the trees beneath them. On a first install that
@@ -169,14 +169,14 @@ directory becomes optional.
 
 
 ```bash
-ssh-keygen -t ed25519 -N '' -f /mnt/POOL/backupd/secrets/id_ed25519
-ssh-keyscan -t ed25519 <your-sftp-host> > /mnt/POOL/backupd/secrets/known_hosts
-chmod 600 /mnt/POOL/backupd/secrets/id_ed25519
-chown 568:568 /mnt/POOL/backupd/secrets/*
+ssh-keygen -t ed25519 -N '' -f /mnt/POOL/retnd/secrets/id_ed25519
+ssh-keyscan -t ed25519 <your-sftp-host> > /mnt/POOL/retnd/secrets/known_hosts
+chmod 600 /mnt/POOL/retnd/secrets/id_ed25519
+chown 568:568 /mnt/POOL/retnd/secrets/*
 ```
 
 Verify the host key fingerprint out of band before you trust it. Then write
-`/mnt/POOL/backupd/config/config.yaml`; the container-side paths in it are
+`/mnt/POOL/retnd/config/config.yaml`; the container-side paths in it are
 fixed by the package and must not be changed (see
 `apps/truenas/README.md` for the annotated example, and
 `scripts/deploy/deploy_generic.py`'s `render_config_yaml` for the authoritative
@@ -186,7 +186,7 @@ shape).
 
 - [ ] Key pair generated, mode 0600, owned by `PUID:PGID`
 - [ ] `known_hosts` pinned, fingerprint verified out of band
-- [ ] `/mnt/POOL/backupd/config` exists and is **writable** by `PUID:PGID`
+- [ ] `/mnt/POOL/retnd/config` exists and is **writable** by `PUID:PGID`
 - [ ] `config.yaml` written inside it and readable by `PUID:PGID`
 
 ---
@@ -276,7 +276,7 @@ package ships no credential of its own.
       and the reset link works once, expires, and signs every session out when
       spent
 - [ ] `GET /api/v1/system/capabilities` reports `nativeAuth: false`
-- [ ] `/mnt/POOL/backupd/state/local-auth.json` exists and contains an
+- [ ] `/mnt/POOL/retnd/state/local-auth.json` exists and contains an
       Argon2id hash, never a plaintext password, and holds the recovery address
       and SMTP settings with the SMTP password as a secret reference rather than
       a value: `grep` it for the password you typed and find nothing
@@ -290,9 +290,9 @@ package ships no credential of its own.
 2. Then, on the NAS:
 
 ```bash
-ls -la /mnt/POOL/backupd/backups
-ls -la /mnt/POOL/backupd/state
-grep -rIl 'PRIVATE KEY' /mnt/POOL/backupd/backups || echo "clean"
+ls -la /mnt/POOL/retnd/backups
+ls -la /mnt/POOL/retnd/state
+grep -rIl 'PRIVATE KEY' /mnt/POOL/retnd/backups || echo "clean"
 ```
 
 Then record a baseline for the removal check at the end of this procedure. The
@@ -304,13 +304,13 @@ hash and a full file listing **outside** the backup root, where whatever might
 damage that tree cannot reach the evidence:
 
 ```bash
-mkdir -p /root/backupd-acceptance
-head -c 8M /dev/urandom > /mnt/POOL/backupd/backups/canary.bin
-sha256sum /mnt/POOL/backupd/backups/canary.bin | tee /root/backupd-acceptance/canary.sha256
-find /mnt/POOL/backupd/backups -type f -printf '%p %s\n' | sort > /root/backupd-acceptance/backup-root.before
+mkdir -p /root/retnd-acceptance
+head -c 8M /dev/urandom > /mnt/POOL/retnd/backups/canary.bin
+sha256sum /mnt/POOL/retnd/backups/canary.bin | tee /root/retnd-acceptance/canary.sha256
+find /mnt/POOL/retnd/backups -type f -printf '%p %s\n' | sort > /root/retnd-acceptance/backup-root.before
 ```
 
-Keep `/root/backupd-acceptance` off the repository: the listing names your own backup
+Keep `/root/retnd-acceptance` off the repository: the listing names your own backup
 sets. Record only that it was taken, and the canary's hash, in the evidence table.
 
 - [ ] At least one completed artifact is under the backups dataset
@@ -395,9 +395,9 @@ Check the backup root against the baseline recorded in the storage step, before
 looking at anything else:
 
 ```bash
-sha256sum -c /root/backupd-acceptance/canary.sha256
-find /mnt/POOL/backupd/backups -type f -printf '%p %s\n' | sort > /root/backupd-acceptance/backup-root.after
-diff /root/backupd-acceptance/backup-root.before /root/backupd-acceptance/backup-root.after
+sha256sum -c /root/retnd-acceptance/canary.sha256
+find /mnt/POOL/retnd/backups -type f -printf '%p %s\n' | sort > /root/retnd-acceptance/backup-root.after
+diff /root/retnd-acceptance/backup-root.before /root/retnd-acceptance/backup-root.after
 ```
 
 - [ ] `sha256sum -c` reports the canary `OK`

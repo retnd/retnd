@@ -87,8 +87,8 @@ services:
       TRUST_FORWARDED_HEADERS: "true"
 
     volumes:
-      - /mnt/tank/backupd/state:/data/state
-      - /mnt/tank/backupd/backups:/data/backups
+      - /mnt/tank/retnd/state:/data/state
+      - /mnt/tank/retnd/backups:/data/backups
       # A writable directory, with config.yaml inside it (issue
       # #196). A read-only single-file mount is what this line used
       # to be, and it made adding a backup set, saving settings and
@@ -96,9 +96,9 @@ services:
       # config.yaml through a temp file created in its own
       # directory, which on that shape is the image's read-only
       # rootfs.
-      - /mnt/tank/backupd/config:/etc/retnd/config
-      - /mnt/tank/backupd/secrets/id_ed25519:/etc/retnd/id_ed25519:ro
-      - /mnt/tank/backupd/secrets/known_hosts:/etc/retnd/known_hosts:ro
+      - /mnt/tank/retnd/config:/etc/retnd/config
+      - /mnt/tank/retnd/secrets/id_ed25519:/etc/retnd/id_ed25519:ro
+      - /mnt/tank/retnd/secrets/known_hosts:/etc/retnd/known_hosts:ro
 
     # The start gate, and a liveness question rather than a health
     # verdict (issue #206). The Web UI below declares

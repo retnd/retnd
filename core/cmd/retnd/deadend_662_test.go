@@ -16,7 +16,7 @@ import (
 	"github.com/retnd/retnd/core/internal/state"
 )
 
-// Issue #662 at the surface the operator actually met it on: `backupd` in a
+// Issue #662 at the surface the operator actually met it on: `retnd` in a
 // terminal.
 //
 // Every case here is a command that was really typed on the NAS, with the
@@ -27,18 +27,18 @@ import (
 //
 // The measured session, condensed:
 //
-//	backupd status
+//	retnd status
 //	  cicd-pipeline/var-backups: FAILING
 //	    a FAILED artifact has no retry scheduled and needs intervention
 //	    current transfers: 0, pending deletes: 0, failures: 3
-//	backupd fetch --backup-set … --dry-run
+//	retnd fetch --backup-set … --dry-run
 //	  dpkg.diversions.5.gz   294 bytes  (already known)      [x28]
 //	  28 object(s) on the remote
-//	backupd validate <artifact>
-//	  backupd: app: validate: … is FAILED, not a durable restore point (…)
-//	backupd quarantine reinstate <artifact>
-//	  backupd: app: artifact is not quarantined: … is FAILED
-//	backupd retry <artifact>
+//	retnd validate <artifact>
+//	  retnd: app: validate: … is FAILED, not a durable restore point (…)
+//	retnd quarantine reinstate <artifact>
+//	  retnd: app: artifact is not quarantined: … is FAILED
+//	retnd retry <artifact>
 //	  … re-entering the pipeline (FAILED -> DISCOVERED)   then FAILED again
 //
 // Exit codes are asserted alongside the text, and separately: a refusal
@@ -302,7 +302,7 @@ func TestIssue662_CLIARefusedArtifactIsToldWhatToDoInstead(t *testing.T) {
 			for _, args := range attempts {
 				code, out, errOut := runCLI662(t, args...)
 				said := out + errOut
-				transcript = append(transcript, fmt.Sprintf("$ backupd %s\n      exit %d\n    %s",
+				transcript = append(transcript, fmt.Sprintf("$ retnd %s\n      exit %d\n    %s",
 					strings.Join(stripConfig662(args), " "), code, strings.TrimSpace(indent662(said))))
 				if namesAVerb662(said) {
 					toldWhatToDo = true
@@ -334,8 +334,8 @@ func TestIssue662_CLIARefusedArtifactIsToldWhatToDoInstead(t *testing.T) {
 // TestIssue662_CLIRetryMustNotMakeReinstateUnreachable is the one-way door where
 // an operator walks through it.
 //
-// `backupd quarantine reinstate` is the verb for "I have looked at the file, it
-// is good, believe it again". Before `backupd quarantine retry` it accepts the
+// `retnd quarantine reinstate` is the verb for "I have looked at the file, it
+// is good, believe it again". Before `retnd quarantine retry` it accepts the
 // artifact; afterwards it refuses on state grounds alone, and the artifact
 // is no closer to resolution than before. The natural first move is a
 // one-way door out of the only state that offers the verb that fits.
@@ -371,7 +371,7 @@ func TestIssue662_CLIRetryMustNotMakeReinstateUnreachable(t *testing.T) {
 	}
 	if strings.Contains(after, "not quarantined") {
 		t.Errorf(
-			"#662 defect 3, the one-way door: `backupd quarantine retry` made `backupd quarantine reinstate` unreachable "+
+			"#662 defect 3, the one-way door: `retnd quarantine retry` made `retnd quarantine reinstate` unreachable "+
 				"and resolved nothing.\n"+
 				"  before retry (exit %d): %s\n"+
 				"  after  retry (exit %d): %s\n"+
@@ -386,7 +386,7 @@ func TestIssue662_CLIRetryMustNotMakeReinstateUnreachable(t *testing.T) {
 // TestIssue662_CLIRetryLoopsAndTheRefusalNamesNoWayOut is the loop, measured,
 // and the sentence the operator gets each time round it.
 //
-// `backupd retry` moves FAILED -> DISCOVERED, the next cycle hits the same
+// `retnd retry` moves FAILED -> DISCOVERED, the next cycle hits the same
 // FR-12 collision, and the artifact is FAILED again. "A hundred cycles
 // produce the same three failures."
 //
@@ -396,7 +396,7 @@ func TestIssue662_CLIRetryMustNotMakeReinstateUnreachable(t *testing.T) {
 //     because a refusal that exits 0 is how a scheduled run hides this;
 //   - that the loop really is a loop (the same state, three rounds running,
 //     from the same refusal);
-//   - that the refusal an operator reads off `backupd artifacts` -- the FR-12
+//   - that the refusal an operator reads off `retnd artifacts` -- the FR-12
 //     collision message, which is CORRECT and must not change its verdict
 //     -- names something they could do about it.
 //
@@ -435,7 +435,7 @@ func TestIssue662_CLIRetryLoopsAndTheRefusalNamesNoWayOut(t *testing.T) {
 					"--backup-set", "production/postgres-primary")
 				st := stateOf(t, fx.configPath, fx.artifact)
 				rounds = append(rounds, fmt.Sprintf(
-					"round %d: `backupd retry` exit %d %q; `backupd fetch` exit %d %q; artifact %s",
+					"round %d: `retnd retry` exit %d %q; `retnd fetch` exit %d %q; artifact %s",
 					round, retryCode, oneLine662(retryOut+retryErr), fetchCode, oneLine662(fetchOut+fetchErr), st))
 
 				if durableState662(st) {
@@ -444,7 +444,7 @@ func TestIssue662_CLIRetryLoopsAndTheRefusalNamesNoWayOut(t *testing.T) {
 				if fetchCode == exitOK {
 					t.Errorf(
 						"#662: a cycle that got nothing through exited %d.\n  %s\n"+
-							"`backupd fetch` reporting success over a set whose only artifact came back FAILED is how "+
+							"`retnd fetch` reporting success over a set whose only artifact came back FAILED is how "+
 							"a scheduled run hides this defect indefinitely.",
 						fetchCode, rounds[len(rounds)-1])
 				}
@@ -455,13 +455,13 @@ func TestIssue662_CLIRetryLoopsAndTheRefusalNamesNoWayOut(t *testing.T) {
 			_, detail, detailErr := runCLI662(t, "artifacts", "--config", fx.configPath, id)
 			said := detail + detailErr
 			if !strings.Contains(said, "refusing to overwrite an existing final-name file") {
-				t.Fatalf("`backupd artifacts` does not show the collision refusal, so this case is not measuring "+
+				t.Fatalf("`retnd artifacts` does not show the collision refusal, so this case is not measuring "+
 					"#662's artifact:\n%s", indent662(said))
 			}
 			if !namesAVerb662(said) {
 				t.Errorf(
 					"#662 defect 3: three retries, three identical collisions, and the refusal an operator reads "+
-						"names no way out.\n  %s\n\n  what `backupd artifacts` shows:\n%s\n\n"+
+						"names no way out.\n  %s\n\n  what `retnd artifacts` shows:\n%s\n\n"+
 						"The refusal itself is right -- FR-12 must not clobber a file this package cannot "+
 						"identify -- and #662 says so. What is missing is the next line: which command lets the "+
 						"operator, who CAN identify it, act on that.",
@@ -482,7 +482,7 @@ func TestIssue662_CLIRetryLoopsAndTheRefusalNamesNoWayOut(t *testing.T) {
 //
 // "Needs intervention" and then nothing: not which artifacts, not which
 // verb. The count is there, so the operator knows how many, and has to go
-// hunting through `backupd artifacts` to find out which.
+// hunting through `retnd artifacts` to find out which.
 func TestIssue662_CLIStatusNamesWhichArtifactsNeedInterventionAndWhat(t *testing.T) {
 	fx := stage662DeadEnd(t, false)
 	fx.drive662ToFailed(t)
@@ -497,7 +497,7 @@ func TestIssue662_CLIStatusNamesWhichArtifactsNeedInterventionAndWhat(t *testing
 	// defect. These prove the text is here and searchable, and that the
 	// set really is in the state the issue reports.
 	if !strings.Contains(said, "production/postgres-primary") {
-		t.Fatalf("control: `backupd status` output does not even name the backup set (exit %d); nothing was captured "+
+		t.Fatalf("control: `retnd status` output does not even name the backup set (exit %d); nothing was captured "+
 			"or nothing ran:\n%s", code, indent662(said))
 	}
 	if !strings.Contains(said, "FAILING") {
@@ -505,14 +505,14 @@ func TestIssue662_CLIStatusNamesWhichArtifactsNeedInterventionAndWhat(t *testing
 			code, indent662(said))
 	}
 	if code == exitOK {
-		t.Errorf("#662: `backupd status` over a FAILING set exited %d, want non-zero", code)
+		t.Errorf("#662: `retnd status` over a FAILING set exited %d, want non-zero", code)
 	}
 
 	namesTheArtifact := strings.Contains(said, fx.artifact.Name)
 	namesAWay := namesAVerb662(said)
 	if !namesTheArtifact || !namesAWay {
 		t.Errorf(
-			"#662 defect 3: `backupd status` says intervention is needed without saying on what or with what.\n"+
+			"#662 defect 3: `retnd status` says intervention is needed without saying on what or with what.\n"+
 				"  names the stuck artifact (%s): %v\n"+
 				"  names a verb to run:            %v\n"+
 				"  output:\n%s\n"+
@@ -567,7 +567,7 @@ func TestIssue662_CLIDryRunDisclosesTheFailuresItIsNotPlanning(t *testing.T) {
 	}
 	if !mentionsAFailure662(said) {
 		t.Errorf(
-			"#662: `backupd fetch --dry-run` reports an empty plan over a set with a FAILED artifact and never "+
+			"#662: `retnd fetch --dry-run` reports an empty plan over a set with a FAILED artifact and never "+
 				"mentions it (exit %d).\n%s\n"+
 				"Every object reads \"(already known)\", which is true and is exactly why the operator could not "+
 				"tell a settled backup set apart from one that is stuck. A plan that will not touch a failed "+
@@ -589,7 +589,7 @@ func TestIssue662_CLIDryRunDisclosesTheFailuresItIsNotPlanning(t *testing.T) {
 func namesAVerb662(text string) bool {
 	for _, verb := range []string{
 		"quarantine reinstate", "quarantine revalidate", "quarantine retry",
-		"backupd retry", "backupd validate", "backupd reconcile",
+		"retnd retry", "retnd validate", "retnd reconcile",
 	} {
 		if strings.Contains(text, verb) {
 			return true

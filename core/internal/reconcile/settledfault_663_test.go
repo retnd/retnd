@@ -239,7 +239,7 @@ func TestIssue663_TheSettledFaultReachesAFindingAnOperatorSees(t *testing.T) {
 }
 
 // TestIssue663_AnUncontradictedRowIsStillSilent is the fence on the case
-// above. NeedsInvestigation is what `backupd reconcile` prints on, so setting
+// above. NeedsInvestigation is what `retnd reconcile` prints on, so setting
 // it for a row with nothing wrong would turn every healthy artifact into a
 // line of output on every pass, which is the same defect as printing
 // nothing: an operator who is told about everything is told about nothing.

@@ -121,7 +121,7 @@ func startMedium(t *testing.T, opts mediumOptions) *Medium {
 		SecretAccessKey: randomHex(t, 24),
 	}
 
-	name := fmt.Sprintf("backupd-gate-minio-%d", time.Now().UnixNano())
+	name := fmt.Sprintf("retnd-gate-minio-%d", time.Now().UnixNano())
 	args := []string{
 		"run", "-d", "--name", name,
 		dockerlease.LabelFlag, dockerlease.LabelSpec,

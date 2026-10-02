@@ -138,7 +138,7 @@ type WorkflowRun struct {
 	BackupSet string
 
 	// RunID is the workflow run's own id, which is what an operator
-	// types into `backupd workflow show` to see the rest. Naming it is
+	// types into `retnd workflow show` to see the rest. Naming it is
 	// what keeps a notification's Detail short: the notification says
 	// what happened and where to look, not everything that is known.
 	RunID string

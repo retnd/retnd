@@ -16,17 +16,17 @@ package cliecho
 // survivable the moment it does. Renaming the command then means reading
 // fifty string literals and deciding, one at a time, whether each is the
 // CLI or something that merely looks like it. EPIC R (#885) is the rename
-// that proved the point: it moves the command from `backupd` to `retnd`,
-// and three shapes in this tree still spell "backupd" while being NOT this
+// that proved the point: it moves the command from `retnd` to `retnd`,
+// and three shapes in this tree still spell "retnd" while being NOT this
 // constant, so every one of them would have been swept up by a careless
 // search-and-replace:
 //
-//   - filesystem paths (/etc/backupd/config, /var/lib/backupd)
+//   - filesystem paths (/etc/retnd/config, /var/lib/retnd)
 //     which an operator's existing deployment already has on disk, and
 //     which #890 moved to /etc/retnd/config and /var/lib/retnd rather than
 //     renaming in place;
 //   - the project, the image and the compose service (ghcr.io/spdrman/
-//     backupd, the "backupd" service in container/
+//     retnd, the "retnd" service in container/
 //     compose.yaml, "Backupd" as the product's name);
 //   - wire identity that a log or an audit trail may already be matched
 //     on, which is the User-Agent core/internal/apiclient sends.
@@ -70,10 +70,10 @@ package cliecho
 //
 // That is a property worth keeping, and EPIC R is the release in which it
 // earns its keep twice over. The runtime stage's two files are still
-// /backupd and /backupd-web -- container-internal paths are R1.5's (#890),
+// /retnd and /retnd-web -- container-internal paths are R1.5's (#890),
 // not this issue's -- so for the length of that window the filename an
 // operator reaches this build through is the PREVIOUS name. Reading argv[0]
-// would make the binary print `backupd` at somebody who cannot type it any
+// would make the binary print `retnd` at somebody who cannot type it any
 // more. It would still be wrong once R1.5 lands, and for a reason no rename
 // removes: a wrapper script, a busybox-style multi-call link or a
 // `docker run --entrypoint` under any other filename would make this
@@ -91,7 +91,7 @@ const (
 	// "usage:" line, and every sentence that says which command to run
 	// next.
 	//
-	// It was `backupd` until EPIC R (#885), and R1.3 (#888) retired that
+	// It was `retnd` until EPIC R (#885), and R1.3 (#888) retired that
 	// name rather than aliasing it: the image ships no symlink under the
 	// old spelling, so anything already automated against it has to move
 	// across. Printing two names is how a reference stops being one,

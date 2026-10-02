@@ -68,7 +68,7 @@ func stagedUIBundle(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	files := map[string]string{
-		spk.UIBundleMarkerName: `{"schema":"backupd/ui-bundle/1","platform":"` + spk.UIBundlePlatform + `"}`,
+		spk.UIBundleMarkerName: `{"schema":"retnd/ui-bundle/1","platform":"` + spk.UIBundlePlatform + `"}`,
 		"index.html":           "<!doctype html><title>Backupd</title>",
 	}
 	for name, body := range files {

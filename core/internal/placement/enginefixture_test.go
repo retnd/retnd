@@ -775,7 +775,7 @@ func newFixture(t *testing.T, opts fixtureOpts) *fixture {
 		artifact: artifact, content: content, hash: sha256Hex(content),
 		localDir: localDir, root: root, clock: clock,
 	}
-	f.key, err = transport.MediumKey("backupd", artifact)
+	f.key, err = transport.MediumKey("retnd", artifact)
 	if err != nil {
 		t.Fatalf("computing the destination key: %v", err)
 	}
@@ -785,7 +785,7 @@ func newFixture(t *testing.T, opts fixtureOpts) *fixture {
 		Store:   &guardedMedium{fakeMedium: medium, guard: g},
 		Local:   counted,
 		Mediums: fixedMediums{
-			medium: transport.Medium{ID: testMedium, Type: transport.MediumTypeS3, Bucket: "nas-backups", Prefix: "backupd", StorageClass: opts.storageClass},
+			medium: transport.Medium{ID: testMedium, Type: transport.MediumTypeS3, Bucket: "nas-backups", Prefix: "retnd", StorageClass: opts.storageClass},
 			class:  class,
 		},
 		Sets:             sets,

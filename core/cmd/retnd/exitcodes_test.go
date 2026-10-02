@@ -156,7 +156,7 @@ func TestADaemonThatCannotLoadItsConfigurationStillExitsOne(t *testing.T) {
 	}
 }
 
-// runDaemonChild re-executes this test binary as `backupd daemon
+// runDaemonChild re-executes this test binary as `retnd daemon
 // --config configPath` and returns the status it exited with, plus
 // everything it printed.
 //

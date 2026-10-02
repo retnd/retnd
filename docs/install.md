@@ -117,10 +117,10 @@ of a CLI-only deployment stays CLI-only, because an upgrade is not the place to 
 publishing a Web UI on the LAN of a host somebody deliberately installed without one.
 `--no-cli-only` converts it back, and says so.
 
-### Compatibility: `--prefix` no longer defaults to `/volume1/backupd`
+### Compatibility: `--prefix` no longer defaults to `/volume1/retnd`
 
 It defaults to `~/retnd`. If you have a script that relied on the old default
-being applied for you, pass `--prefix /volume1/backupd` explicitly. The old
+being applied for you, pass `--prefix /volume1/retnd` explicitly. The old
 default was a guess at one NAS vendor's share layout that was wrong by a directory name
 on the actual UGREEN this was proven on, and wrong entirely on anything not
 Synology-shaped, so it never once saved anybody a flag.
@@ -429,12 +429,12 @@ python3 install_docker_host.py migrate-identity --prefix ~/retnd
 It takes the stack down first — the engine opens the state database with
 `journal_mode=WAL`, so nothing here edits a file the engine still holds open — then
 restages the deployment so the mounts become `/etc/retnd/...`, rewrites every absolute
-container path the installed `config.yaml` names, renames `backupd-bridge.service`,
-`backupd-bridge.timer` and `backupd-workflow-runner.service` to their `retnd-`
+container path the installed `config.yaml` names, renames `retnd-bridge.service`,
+`retnd-bridge.timer` and `retnd-workflow-runner.service` to their `retnd-`
 spellings, and brings the stack back up. The mounts move **before** `config.yaml` is
 rewritten, which is the opposite of the intuitive order and is the whole reason the
 intermediate state starts: the staged payload mounts your one host configuration
-directory at both `/etc/retnd/config` and `/etc/backupd/config` for the rollback
+directory at both `/etc/retnd/config` and `/etc/retnd/config` for the rollback
 window, so the un-rewritten `config.yaml` still resolves every path it names. Anything
 that fails after the rewrite puts `config.yaml` back byte for byte and brings the stack
 up on the pre-migration configuration. Re-running it on a deployment that has already
@@ -447,7 +447,7 @@ Two refusals it can produce, and each names its own fix:
   entry, a flow mapping or a multi-line scalar. It prints the line number and the line,
   and leaves `config.yaml` exactly as it was. Change that one line to name `/etc/retnd`
   and re-run. It refuses rather than skipping the line because the mount has already
-  moved by then, and a surviving `/etc/backupd` value is a deployment that starts,
+  moved by then, and a surviving `/etc/retnd` value is a deployment that starts,
   reports healthy, and fails at the first backup cycle on a path nothing is mounted at.
 - **Exit 22**, when both spellings of a renamed unit are enabled on this host, which
   happens if somebody copied a unit file across by hand or re-enabled an old one from a
@@ -455,13 +455,13 @@ Two refusals it can produce, and each names its own fix:
   four firewall rules against each other, and which one you are debugging would depend
   on which systemd started last. Either let `migrate-identity` finish the rename, or
   disable the pre-rename unit yourself with the `sudo systemctl disable --now
-  backupd-bridge.service` line the refusal prints for each pair it found.
+  retnd-bridge.service` line the refusal prints for each pair it found.
 
 **With an unedited compose file you pinned yourself.** It still starts and still works,
 for one release. The old image reference resolves through the mirror published from the
-retained organisation, the image carries `/backupd-web` as a hardlink beside
-`/retnd-web`, and your `volumes:` lines still land on `/etc/backupd` and
-`/var/lib/backupd` — which the engine **adopts**: when the current path holds no state
+retained organisation, the image carries `/retnd-web` as a hardlink beside
+`/retnd-web`, and your `volumes:` lines still land on `/etc/retnd` and
+`/var/lib/retnd` — which the engine **adopts**: when the current path holds no state
 and the pre-rename path holds it, the deployment is served from the pre-rename path and
 warns on every start, naming the compose line to change and this installer's
 `migrate-identity` command. Nothing first-runs over an existing journal (FR-38), so the
@@ -478,9 +478,9 @@ host directory bind-mounted at both container paths — which is exactly what
 and one inode, and it starts normally.
 
 **On a `--cli-only` host**, the command is `retnd` and the wrapper is
-`<prefix>/bin/retnd`. An existing `<prefix>/bin/backupd` is rewritten with the same
+`<prefix>/bin/retnd`. An existing `<prefix>/bin/retnd` is rewritten with the same
 body rather than left alone or deleted, so the command already in your shell history
-keeps working for the same one release; left alone it would exec a `/backupd` the image
+keeps working for the same one release; left alone it would exec a `/retnd` the image
 no longer has.
 
 ## It derives from the canonical definition, it does not restate it
@@ -725,7 +725,7 @@ This edits a firewall on a machine reachable only over SSH.
 - Idempotent by construction: each line is `iptables -C … || iptables -I …`.
 - Reversible: every rule carries the `retnd-bridge` comment, and
   `network-undo` removes exactly those and nothing else. It also deletes rules
-  carrying the previous `backupd-bridge` comment, because a host repaired before
+  carrying the previous `retnd-bridge` comment, because a host repaired before
   the rename (issue #890) is still carrying those and nothing else will ever look
   for them again; new rules only ever get the current comment.
 - The host's own rules are never touched, replaced or reordered.

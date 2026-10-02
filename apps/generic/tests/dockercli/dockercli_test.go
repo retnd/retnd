@@ -6,9 +6,9 @@
 //
 // This lives under apps/generic/, not core/, even though half of it
 // (TestHealthCheckTracksStatusExitCode, TestDaemonStaysRunningWithValidConfig)
-// only exercises the plain /backupd binary core/ alone produces:
+// only exercises the plain /retnd binary core/ alone produces:
 // container/Dockerfile's frontend-build and build-web stages COPY apps/
-// and ui/shared/ to build /backupd-web, so a test package that
+// and ui/shared/ to build /retnd-web, so a test package that
 // builds this Dockerfile at all cannot live inside core/'s own module
 // without breaking "core/ builds and its full test suite passes with
 // apps/ deleted entirely" (§7.1, WP1.1's own acceptance criterion,
@@ -255,7 +255,7 @@ func TestAnImageBuildAbandonedPartWayThroughIsReportedAsAFailure(t *testing.T) {
 
 // degradedConfig writes a config whose one backup set has never had an
 // artifact discovered for it: internal/health's own decideState (see that
-// package's doc) reports this as DEGRADED, and `backupd status`
+// package's doc) reports this as DEGRADED, and `retnd status`
 // (cmd/retnd/status.go) exits 1 for anything short of HEALTHY.
 // This is real backup-set evidence, not a synthetic health override, so
 // it exercises exactly what a container healthcheck would see in
@@ -344,12 +344,12 @@ func runDaemonContainer(t *testing.T, image, dir string) string {
 	t.Helper()
 	// Reclaim anything a previously KILLED run left behind (#150).
 	dockerlease.Sweep()
-	name := "backupd-dockercli-" + t.Name() + "-" + time.Now().Format("150405.000000")
+	name := "retnd-dockercli-" + t.Name() + "-" + time.Now().Format("150405.000000")
 
 	args := []string{
 		"run", "-d", "--name", name,
 		dockerlease.LabelFlag, dockerlease.LabelSpec,
-		"-v", filepath.Join(dir, "config") + ":/etc/backupd/config",
+		"-v", filepath.Join(dir, "config") + ":/etc/retnd/config",
 		"-v", filepath.Join(dir, "state") + ":/data/state",
 		"-v", filepath.Join(dir, "remote") + ":/data/remote:ro",
 		"-v", filepath.Join(dir, "backups") + ":/data/backups",
@@ -359,7 +359,7 @@ func runDaemonContainer(t *testing.T, image, dir string) string {
 		// ENTRYPOINT can only ever prefix one of them - see that file's
 		// own doc comment), so `command:`/`docker run` args are the whole
 		// argv, exactly as container/compose.yaml's own `command:` does.
-		image, "/backupd", "daemon", "--config", "/etc/backupd/config",
+		image, "/retnd", "daemon", "--config", "/etc/retnd/config",
 	}
 	out, err := exec.Command("docker", args...).CombinedOutput()
 	if err != nil {
@@ -416,9 +416,9 @@ func healthStatus(t *testing.T, name string, timeout time.Duration) string {
 
 // TestHealthCheckTracksStatusExitCode is this issue's RED/GREEN pivot:
 // against container/Dockerfile as EPIC A left it, HEALTHCHECK runs
-// `backupd version`, which exits 0 unconditionally, so a container
+// `retnd version`, which exits 0 unconditionally, so a container
 // whose one backup set is DEGRADED still reports "healthy" — the bug this
-// issue's item 1 fixes. Once HEALTHCHECK runs `backupd status`
+// issue's item 1 fixes. Once HEALTHCHECK runs `retnd status`
 // instead, the same DEGRADED backup set makes it report "unhealthy".
 func TestHealthCheckTracksStatusExitCode(t *testing.T) {
 	image := buildImage(t)
@@ -434,7 +434,7 @@ func TestHealthCheckTracksStatusExitCode(t *testing.T) {
 	// up reporting Docker health "unhealthy", which would make this
 	// assertion pass for entirely the wrong reason - a false positive
 	// that proves nothing about whether HEALTHCHECK actually tracks
-	// `backupd status`'s exit code. Requiring State.Running is
+	// `retnd status`'s exit code. Requiring State.Running is
 	// what makes "unhealthy" mean "the DEGRADED backup set was detected
 	// by a live container", not "the container is not there to be
 	// healthy or not".
@@ -449,7 +449,7 @@ func TestHealthCheckTracksStatusExitCode(t *testing.T) {
 
 	if got != "unhealthy" {
 		logs, _ := exec.Command("docker", "logs", name).CombinedOutput()
-		t.Errorf("container health status = %q, want %q (backupd status must exit non-zero for a DEGRADED backup set, and HEALTHCHECK must run status, not version); logs:\n%s", got, "unhealthy", logs)
+		t.Errorf("container health status = %q, want %q (retnd status must exit non-zero for a DEGRADED backup set, and HEALTHCHECK must run status, not version); logs:\n%s", got, "unhealthy", logs)
 	}
 }
 
@@ -482,8 +482,8 @@ func TestDaemonStaysRunningWithValidConfig(t *testing.T) {
 // TestServeCommandExposesTheEngineAPIOnly is the Docker CLI-level
 // regression check for the engine half of the two-container split
 // (project-owner requirement folded into issue #82/B4.1 before merge):
-// `/backupd-web serve`, run standalone in a real container exactly
-// as `backupd`'s own compose `command` does, exposes the
+// `/retnd-web serve`, run standalone in a real container exactly
+// as `retnd`'s own compose `command` does, exposes the
 // versioned API unauthenticated-refused, and serves NO static UI at all
 // - that is `web-ui`'s job now (see
 // TestComposeStack_WebUIProxiesToTheEngineEndToEnd for the real
@@ -493,17 +493,17 @@ func TestServeCommandExposesTheEngineAPIOnly(t *testing.T) {
 	dir := degradedConfig(t)
 	// Reclaim anything a previously KILLED run left behind (#150).
 	dockerlease.Sweep()
-	name := "backupd-dockercli-" + t.Name() + "-" + time.Now().Format("150405.000000")
+	name := "retnd-dockercli-" + t.Name() + "-" + time.Now().Format("150405.000000")
 
 	args := []string{
 		"run", "-d", "--name", name,
 		dockerlease.LabelFlag, dockerlease.LabelSpec,
 		"-p", "0:8080", // publish --listen's :8080 to an ephemeral host port
-		"-v", filepath.Join(dir, "config") + ":/etc/backupd/config",
+		"-v", filepath.Join(dir, "config") + ":/etc/retnd/config",
 		"-v", filepath.Join(dir, "state") + ":/data/state",
 		"-v", filepath.Join(dir, "remote") + ":/data/remote:ro",
 		"-v", filepath.Join(dir, "backups") + ":/data/backups",
-		image, "/backupd-web", "serve", "--config", "/etc/backupd/config", "--listen", ":8080",
+		image, "/retnd-web", "serve", "--config", "/etc/retnd/config", "--listen", ":8080",
 	}
 	out, err := exec.Command("docker", args...).CombinedOutput()
 	if err != nil {
@@ -581,7 +581,7 @@ type composeFile struct {
 // TestComposeConfig_EngineHasNoPublishedPortWebUIDoes is a static check
 // (no Docker needed) of the actual network-isolation requirement in
 // container/compose.yaml: the project-owner requirement folded into this
-// issue before merge is that `backupd` (the engine) has NO
+// issue before merge is that `retnd` (the engine) has NO
 // published port at all - reachable only from `web-ui`, over the
 // internal Docker network - and `web-ui` is the only service with one.
 // Reading the real compose file directly, rather than re-deriving the
@@ -601,12 +601,12 @@ func TestComposeConfig_EngineHasNoPublishedPortWebUIDoes(t *testing.T) {
 		t.Fatalf("yaml.Unmarshal compose.yaml: %v", err)
 	}
 
-	engine, ok := cf.Services["backupd"]
+	engine, ok := cf.Services["retnd"]
 	if !ok {
-		t.Fatal(`compose.yaml has no "backupd" service`)
+		t.Fatal(`compose.yaml has no "retnd" service`)
 	}
 	if len(engine.Ports) != 0 {
-		t.Errorf(`services.backupd.ports = %v, want none (the engine must not be reachable from the LAN/host directly)`, engine.Ports)
+		t.Errorf(`services.retnd.ports = %v, want none (the engine must not be reachable from the LAN/host directly)`, engine.Ports)
 	}
 
 	ui, ok := cf.Services["web-ui"]
@@ -621,9 +621,9 @@ func TestComposeConfig_EngineHasNoPublishedPortWebUIDoes(t *testing.T) {
 // workingRemoteConfig is like degradedConfig, but seeds a real, matching
 // artifact into the remote directory before the container ever starts,
 // so the very first scheduled cycle finds a genuine, fresh backup and
-// `backupd status` reports HEALTHY - required here because
+// `retnd status` reports HEALTHY - required here because
 // container/compose.yaml's `web-ui` service has
-// `depends_on: backupd: condition: service_healthy`, so
+// `depends_on: retnd: condition: service_healthy`, so
 // TestComposeStack_WebUIProxiesToTheEngineEndToEnd's stack would never
 // finish starting against a permanently-DEGRADED backup set the way
 // degradedConfig deliberately produces for the healthcheck tests above.
@@ -779,12 +779,12 @@ func upComposeFiles(t *testing.T, image, envFile string, files []string) (*compo
 	t.Helper()
 
 	p := &composeProject{
-		name:    "backupd-dockercli-" + sanitizeProjectName(t.Name()),
+		name:    "retnd-dockercli-" + sanitizeProjectName(t.Name()),
 		envFile: envFile,
 		files:   files,
 	}
 
-	// Compose resolves `image: backupd:${VERSION:-dev}` against
+	// Compose resolves `image: retnd:${VERSION:-dev}` against
 	// VERSION, so VERSION has to be exactly the tag half of the image
 	// buildImage produced for `--no-build` to find it rather than trying
 	// (and failing, with no `build:` context error) to build a fresh one
@@ -870,7 +870,7 @@ func (p *composeProject) publishedPort(t *testing.T, service, containerPort stri
 // exactly as an operator would (not a hand-assembled `docker run`
 // replicating the same topology): brings up BOTH services from
 // container/compose.yaml, waits for web-ui's dependency-gated startup
-// (it will not even start until backupd reports healthy - see
+// (it will not even start until retnd reports healthy - see
 // compose.yaml's own `depends_on: condition: service_healthy`), enrolls
 // and logs in entirely through web-ui's published port, confirms an
 // authenticated request proxies through to the real engine and
@@ -878,9 +878,9 @@ func (p *composeProject) publishedPort(t *testing.T, service, containerPort stri
 // directly from the host at all.
 func TestComposeStack_WebUIProxiesToTheEngineEndToEnd(t *testing.T) {
 	// No retag onto a second name here any more. buildImage already
-	// tagged this run's own image as `backupd:<per-run tag>`, and
+	// tagged this run's own image as `retnd:<per-run tag>`, and
 	// startComposeStack passes that tag straight to compose as VERSION,
-	// so compose resolves `image: backupd:${VERSION:-dev}` to the
+	// so compose resolves `image: retnd:${VERSION:-dev}` to the
 	// exact image this run built. The retag that used to sit here pointed
 	// a globally shared name at it instead, which is the whole of #185:
 	// the next worktree to run this test moved that name onto its own
@@ -958,7 +958,7 @@ func TestComposeStack_WebUIProxiesToTheEngineEndToEnd(t *testing.T) {
 		t.Fatal("no retnd_csrf cookie present after seeding GET / through web-ui")
 	}
 
-	engineID := project.containerID(t, "backupd")
+	engineID := project.containerID(t, "retnd")
 	logs, err := exec.Command("docker", "logs", engineID).CombinedOutput()
 	if err != nil {
 		t.Fatalf("docker logs %s: %v", engineID, err)
@@ -975,7 +975,7 @@ func TestComposeStack_WebUIProxiesToTheEngineEndToEnd(t *testing.T) {
 	sinkHost, sinkAPI := startComposeMailSink(t, project)
 
 	enrollBody := strings.NewReader(fmt.Sprintf(
-		`{"username":"bm-admin","password":"correct-horse-battery","recoveryEmail":"admin@example.test","smtp":{"host":%q,"port":2500,"security":"none","username":"","from":"backupd@example.test"}}`,
+		`{"username":"bm-admin","password":"correct-horse-battery","recoveryEmail":"admin@example.test","smtp":{"host":%q,"port":2500,"security":"none","username":"","from":"retnd@example.test"}}`,
 		sinkHost))
 	enrollReq, err := http.NewRequest(http.MethodPost, base+"/api/v1/auth/enroll", enrollBody)
 	if err != nil {
@@ -997,7 +997,7 @@ func TestComposeStack_WebUIProxiesToTheEngineEndToEnd(t *testing.T) {
 	// The confirmation really left the engine's container and arrived at
 	// the sink: the 204 above already implies the send succeeded, and
 	// this is what proves the message exists and is the one it claims.
-	waitForSinkMessage(t, sinkAPI, "admin", "backupd: verify your recovery email")
+	waitForSinkMessage(t, sinkAPI, "admin", "retnd: verify your recovery email")
 
 	versionResp, err := client.Get(base + "/api/v1/system/version")
 	if err != nil {
@@ -1060,7 +1060,7 @@ func startComposeMailSink(t *testing.T, project *composeProject) (host string, a
 	t.Helper()
 	dockerlease.Sweep()
 
-	name := "backupd-dockercli-mailsink-" + sanitizeProjectName(t.Name())
+	name := "retnd-dockercli-mailsink-" + sanitizeProjectName(t.Name())
 	// A stale container from a killed run would hold the name, and the
 	// project network it is attached to would then also refuse to go
 	// away. Removing it first makes this re-runnable.

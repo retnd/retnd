@@ -59,7 +59,7 @@ questions:
                 schema:
                   type: hostpath
                   required: true
-                  default: "/mnt/tank/backupd/state"
+                  default: "/mnt/tank/retnd/state"
         - variable: backups
           label: Backup root
           schema:
@@ -74,13 +74,13 @@ questions:
                 schema:
                   type: hostpath
                   required: true
-                  default: "/mnt/tank/backupd/backups"
+                  default: "/mnt/tank/retnd/backups"
         # RENAMED from "config" on purpose (issue #196). TrueNAS carries
         # an installed application's answered values forward across an
         # upgrade, so keeping the identifier would have kept a Phase 4
-        # answer of /mnt/POOL/backupd/config/config.yaml and bind
+        # answer of /mnt/POOL/retnd/config/config.yaml and bind
         # mounted that FILE at the container's config mount
-        # (/etc/backupd/config as it was spelled then; /etc/retnd/config
+        # (/etc/retnd/config as it was spelled then; /etc/retnd/config
         # since issue #890), where --config then resolves to
         # .../config/config.yaml and the engine crash-loops with "not a
         # directory" — a message naming neither the mount nor the
@@ -105,7 +105,7 @@ questions:
                 schema:
                   type: hostpath
                   required: true
-                  default: "/mnt/tank/backupd/config"
+                  default: "/mnt/tank/retnd/config"
         - variable: sshKey
           label: SFTP private key
           schema:
@@ -119,7 +119,7 @@ questions:
                 schema:
                   type: hostpath
                   required: true
-                  default: "/mnt/tank/backupd/secrets/id_ed25519"
+                  default: "/mnt/tank/retnd/secrets/id_ed25519"
         - variable: knownHosts
           label: Pinned known_hosts
           schema:
@@ -133,7 +133,7 @@ questions:
                 schema:
                   type: hostpath
                   required: true
-                  default: "/mnt/tank/backupd/secrets/known_hosts"
+                  default: "/mnt/tank/retnd/secrets/known_hosts"
 
   - variable: network
     label: Network

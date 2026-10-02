@@ -304,7 +304,7 @@ def plant_revision_cache_race(tracker: selftest_swap.AnchorTracker, tree: Path) 
 def body(root: Path, dry_run: bool) -> int:
     tally = selftest_swap.Tally()
 
-    with tempfile.TemporaryDirectory(prefix="backupd-race-selftest.") as tmp_name:
+    with tempfile.TemporaryDirectory(prefix="retnd-race-selftest.") as tmp_name:
         tmp = Path(tmp_name)
         tracker = selftest_swap.AnchorTracker(dry_run=dry_run, root=root, tmp=tmp)
 

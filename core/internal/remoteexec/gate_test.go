@@ -98,7 +98,7 @@ func TestAnAccountWhoseShellStartupChangedWhatAHookMeansIsRefused(t *testing.T) 
 			// time the hook's first line is reached.
 			name:    "BASH_ENV points at a file",
 			field:   "bash_env",
-			value:   "/etc/profile.d/backupd-hooks.sh",
+			value:   "/etc/profile.d/retnd-hooks.sh",
 			refused: "BASH_ENV is set",
 		},
 		{
@@ -140,7 +140,7 @@ func TestAnAccountWhoseShellStartupChangedWhatAHookMeansIsRefused(t *testing.T) 
 
 			sink := &collectingSink{}
 			res, err := client.Run(t.Context(), Request{
-				Token:   "backupd-exec-contaminated",
+				Token:   "retnd-exec-contaminated",
 				Script:  []byte("printf 'the hook ran\\n'\n"),
 				Sink:    sink,
 				Timeout: 30 * time.Second,
@@ -164,7 +164,7 @@ func TestAnAccountWhoseShellStartupChangedWhatAHookMeansIsRefused(t *testing.T) 
 			// the contaminated shell and was then reported as not having
 			// run.
 			for _, command := range server.commands() {
-				if strings.Contains(command, "backupd-exec-contaminated") {
+				if strings.Contains(command, "retnd-exec-contaminated") {
 					t.Errorf("the hook's own command was started on a contaminated account anyway: %q", command)
 				}
 			}
@@ -193,7 +193,7 @@ func TestAnExecCapableAccountIsNotRefusedForTheOptionsEveryBashHas(t *testing.T)
 
 	sink := &collectingSink{}
 	if _, err := client.Run(t.Context(), Request{
-		Token:   "backupd-exec-clean",
+		Token:   "retnd-exec-clean",
 		Script:  []byte("printf 'the hook ran\\n'\n"),
 		Sink:    sink,
 		Timeout: 30 * time.Second,
@@ -232,7 +232,7 @@ func TestAStepWhoseSessionNeverCompletesRecordsTerminationAsUnconfirmed(t *testi
 
 	sink := &collectingSink{}
 	res, err := client.Run(t.Context(), Request{
-		Token:   "backupd-exec-detached",
+		Token:   "retnd-exec-detached",
 		Script:  []byte("printf 'quiescing\\n'\n"),
 		Sink:    sink,
 		Timeout: 500 * time.Millisecond,
@@ -291,7 +291,7 @@ func TestAStepThatEndsWhileTerminationWaitsIsRecordedAsConfirmed(t *testing.T) {
 
 	sink := &collectingSink{}
 	res, err := client.Run(t.Context(), Request{
-		Token:   "backupd-exec-stops",
+		Token:   "retnd-exec-stops",
 		Script:  []byte("printf 'quiescing\\n'\n"),
 		Sink:    sink,
 		Timeout: 200 * time.Millisecond,

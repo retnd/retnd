@@ -49,8 +49,8 @@ import (
 // the verification link, and its subject lives with the rest of that
 // flow in verify.go (verifySubject).
 const (
-	resetSubject = "backupd: password reset"
-	testSubject  = "backupd: SMTP test"
+	resetSubject = "retnd: password reset"
+	testSubject  = "retnd: SMTP test"
 )
 
 // smtpSettingsRequest is the SMTP half of an enrollment or a settings

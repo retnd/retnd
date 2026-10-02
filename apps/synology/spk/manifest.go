@@ -99,34 +99,12 @@ func (m ReleaseManifest) Arch(goarch string) (ArchEntry, error) {
 	return ArchEntry{}, fmt.Errorf("the release manifest records no %s entry (it has %v), so there is nothing to check a %s package against", goarch, have, goarch)
 }
 
-// manifestKeySpellings maps a core binary to the binary_sha256 keys a
-// release manifest may record its hash under, most preferred first.
+// ManifestKeys returns the binary_sha256 key used for binary.
 //
-// Two spellings, for exactly one release. #890 renamed the files the
-// canonical image carries to /retnd and /retnd-web, but a manifest entry
-// for an ALREADY-PUBLISHED release keeps the keys it went out under
-// (0.4.0's say backupd and backupd-web), because those keys identify a
-// build that really shipped and re-keying evidence to tidy a label stops
-// it being evidence. So this reader accepts either and prefers the new
-// one, and the legacy spelling goes away when the shim window closes
-// (#895), taking this table with it.
-//
-// A name the table does not know is looked up as itself, so an
-// unrecognised binary is reported missing rather than quietly borrowing
-// one of these hashes -- which is the whole reason a parity check exists.
-var manifestKeySpellings = map[string][]string{
-	"retnd":       {"retnd", "backupd"},
-	"backupd":     {"retnd", "backupd"},
-	"retnd-web":   {"retnd-web", "backupd-web"},
-	"backupd-web": {"retnd-web", "backupd-web"},
-}
-
-// ManifestKeys returns the binary_sha256 keys binary may be recorded
-// under, most preferred first. See manifestKeySpellings.
+// Release manifests now use only canonical binary names. Unknown binaries
+// keep their own name so callers report a missing hash instead of borrowing
+// another binary's record.
 func ManifestKeys(binary string) []string {
-	if keys, ok := manifestKeySpellings[binary]; ok {
-		return keys
-	}
 	return []string{binary}
 }
 

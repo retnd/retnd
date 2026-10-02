@@ -40,7 +40,7 @@ func TestTheAttestedRungPassesWhereTheBackendCanAttest(t *testing.T) {
 	if err := os.WriteFile(local, content, 0o600); err != nil {
 		t.Fatalf("writing the source file: %v", err)
 	}
-	const key = "backupd/production/postgres-primary/backup.dump"
+	const key = "retnd/production/postgres-primary/backup.dump"
 	if _, err := adapter.UploadFromLocal(ctx, medium, local, key, transport.UploadOptions{}); err != nil {
 		t.Fatalf("UploadFromLocal: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestTheAttestedRungCatchesAWrongObjectWhereItCanAttest(t *testing.T) {
 	if err := os.WriteFile(local, stored, 0o600); err != nil {
 		t.Fatalf("writing the source file: %v", err)
 	}
-	const key = "backupd/production/postgres-primary/backup.dump"
+	const key = "retnd/production/postgres-primary/backup.dump"
 	if _, err := adapter.UploadFromLocal(ctx, medium, local, key, transport.UploadOptions{}); err != nil {
 		t.Fatalf("UploadFromLocal: %v", err)
 	}

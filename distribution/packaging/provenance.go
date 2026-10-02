@@ -170,7 +170,7 @@ type Inventory struct {
 }
 
 // InventorySchema is the current shape's identifier.
-const InventorySchema = "backupd/third-party-licenses/1"
+const InventorySchema = "retnd/third-party-licenses/1"
 
 // ParseInventory reads an inventory document.
 func ParseInventory(data []byte) (Inventory, error) {
@@ -532,7 +532,7 @@ func BuildSPDX(inv Inventory, name, namespace, created string) SPDXDocument {
 // ---------------------------------------------------------------------
 
 // ProvenanceSchema is the current bundle shape's identifier.
-const ProvenanceSchema = "backupd/release-provenance/1"
+const ProvenanceSchema = "retnd/release-provenance/1"
 
 // ProvenanceDir is where the generated compliance artifacts live.
 //
@@ -745,7 +745,7 @@ func ArtifactParityComplaints(targets map[string]DistributionTarget, recorded []
 // repository with no tags is an abbreviated commit) and the tag every
 // provider package advertises is a semantic version that resolves
 // nowhere. The moment a push happens, the two must be the same string,
-// or `docker run ghcr.io/retnd/retnd:1.0.0 /backupd
+// or `docker run ghcr.io/retnd/retnd:1.0.0 /retnd
 // version` answers with a commit SHA that the listing never mentions.
 func VersionParityComplaints(published bool, canonicalTag, manifestVersion, bundleVersion string, versionIsABuildStamp bool) []string {
 	var out []string

@@ -244,7 +244,7 @@ func TestWhatThisGuardMustNotReport(t *testing.T) {
 		{
 			"a key PATH, which is not key material and is exactly what this product asks operators to supply",
 			"scripts/install/install_docker_host.py",
-			"# The SFTP client private key, never read and never printed.\nDEFAULT_KEY = \"/volume1/backupd/secrets/id_ed25519\"\n",
+			"# The SFTP client private key, never read and never printed.\nDEFAULT_KEY = \"/volume1/retnd/secrets/id_ed25519\"\n",
 		},
 	}
 

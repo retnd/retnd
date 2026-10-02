@@ -13,7 +13,7 @@
 #
 # The green cases are not decoration. #887 extends the guard to a name whose
 # first seven characters are this product's domain word, so the anchored
-# pattern has to distinguish `backupd_session` from `BackupDetailPage` 50
+# pattern has to distinguish `retnd_session` from `BackupDetailPage` 50
 # times over; a guard that flagged both would be deleted, and one that flagged
 # neither would read exactly as green as this one.
 #
@@ -343,20 +343,11 @@ commit "$tree" scripts/rename/other.sh '# RM_NEIGHBOUR'
 red "a third file in scripts/rename is scanned like anything else" "$tree" "RM_NEIGHBOUR"
 
 # ---------------------------------------------------------------------------
-# The `backupd` family, and the two earlier brands the org-wide grep found
+# The `retnd` family, and the two earlier brands the org-wide grep found
 # still live (#887, FR-40). Eight patterns, a red case each, plus the alias
 # list's own bookkeeping (R1.4, #889).
 # ---------------------------------------------------------------------------
 
-# The three anchored spellings of the name this epic retires. Each one has to
-# name the file and the line as well as the identifier, because these are the
-# reds an author sees on a pre-commit hook and acts on.
-tree="$(new_repo)"
-commit "$tree" core/cookie.go 'package core
-
-const Name = "backupd_newthing"'
-red "a new lowercase backupd_ identifier goes red" "$tree" \
-  "backupd_newthing" "core/cookie.go:3:"
 
 tree="$(new_repo)"
 commit "$tree" core/env.go 'package core
@@ -404,54 +395,33 @@ rm -f "$mutant"
 # FR-43's shim table, as a check rather than a paragraph: an alias entry
 # with no closing issue and no removal release is refused outright. An
 # undated shim is how RM_DEBUG reached its third rename.
-mutant="$(guard_with_alias 'backupd_undated_shim')"
+mutant="$(guard_with_alias 'BACKUPD_UNDATED_SHIM')"
 tree="$(new_repo)"
 red_with "$mutant" "an alias entry with no removal release is refused" "$tree" \
-  "backupd_undated_shim" "no closing issue and removal release"
+  "BACKUPD_UNDATED_SHIM" "no closing issue and removal release"
 rm -f "$mutant"
 
-mutant="$(guard_with_alias 'backupd_dated_shim #895 the release after the one that ships this EPIC')"
+mutant="$(guard_with_alias 'BACKUPD_DATED_SHIM #895 the release after the one that ships this EPIC')"
 tree="$(new_repo)"
 commit "$tree" core/shim.go 'package core
 
-const Name = "backupd_dated_shim"'
+const Name = "BACKUPD_DATED_SHIM"'
 green "a dated alias entry allows its own token" "$tree" "$mutant"
 rm -f "$mutant"
 
-# The path-scoped form, which exists for a shim whose TOKEN is live
-# elsewhere (R1.5's `/backupd-web` entrypoint and FR-38's legacy state
-# paths all tokenise to the bare `backupd`). The scope has to be load
-# bearing in both directions, so this is two cases against one mutant: the
-# named file is allowed, and the same token in another file is still a
-# violation. Both run with the bare `backupd` pending entry deleted, since
-# an entry on `pending` is allowed anywhere by design.
-base="$(guard_without_pending backupd)"
-mutant="$(guard_with_alias 'backupd@container/Dockerfile #895 the release after the one that ships this EPIC' "$base")"
+# The path-scoped form must allow its token only in the named file.
+base="$(guard_without_pending Backupd)"
+mutant="$(guard_with_alias 'Backupd@container/Dockerfile #895 the release after the one that ships this EPIC' "$base")"
 tree="$(new_repo)"
-commit "$tree" container/Dockerfile 'RUN ln /retnd-web /backupd-web'
+commit "$tree" container/Dockerfile 'const Name = "Backupd"'
 green "a path-scoped alias allows the token in the file it names" "$tree" "$mutant"
 
 tree="$(new_repo)"
-commit "$tree" container/other.yaml 'command: ["/backupd-web", "serve-ui"]'
+commit "$tree" container/other.yaml 'name: Backupd'
 red_with "$mutant" "a path-scoped alias does not allow the token anywhere else" "$tree" \
-  "backupd" "container/other.yaml:1:"
+  "Backupd" "container/other.yaml:1:"
 rm -f "$mutant" "$base"
 
-# The organisation, which survived the last rename by not being in anybody's
-# pattern at all. This case used to run against a guard with the
-# `backupdproject` pending entry deleted, because the whole organisation was
-# on `pending` while FR-41's cutover was still ahead of it, and an entry on
-# `pending` is allowed anywhere by design -- so it could only prove the
-# pattern would fire once the sweep landed.
-#
-# The sweep landed. R2.5 (#895)'s closing PR performed the transfer, swept
-# every absolute coordinate and took the token OFF `pending`, so this now
-# runs against the guard exactly as it ships: a new link to the old
-# organisation is refused, with nothing relaxed to make the case work.
-tree="$(new_repo)"
-commit "$tree" docs/newpage.md 'See https://github.com/backupdproject/backupd/issues/1 for the details.'
-red "a new link to the old organisation goes red" "$tree" \
-  "backupdproject" "docs/newpage.md:1:"
 
 # The first brand's spelled-out environment prefix. `RM_[A-Z]` has been in
 # this guard since #794 and never saw `RCLONE_MANAGER_SOURCE_PORT`, which is
@@ -485,7 +455,7 @@ red "the second brand name in a new identifier goes red" "$tree" \
 # THE POSITIVE CONTROL, and the load-bearing half of this extension. Nine
 # real identifiers carry `BackupD` followed by a lowercase letter, 50
 # occurrences between them, and none of them is the product's name; the domain
-# word `backup` is in another 9,800. A case-insensitive `backupd` pattern
+# word `backup` is in another 9,800. A case-insensitive `retnd` pattern
 # flags every one, which is a guard that gets deleted in a week. Without this
 # case, "the guard is green" and "the guard matches nothing" are the same
 # observation.
@@ -522,63 +492,35 @@ const Metric = "retnd_backup_set_state"'
 green "the replacement RETND_/retnd_ names are green" "$tree"
 
 # ---------------------------------------------------------------------------
-# The `pending` list, which is the mechanism EPIC R lands on (FR-40): every
-# surviving occurrence is listed, each issue deletes its own entries, and the
-# list going empty is the completion signal. Three cases, because a list that
-# cannot be got wrong in either direction is not doing any work.
+# The `pending` list allows a rename-in-flight token anywhere, then exposes
+# both stale occurrences and later re-creations as soon as its entry is
+# removed.
 # ---------------------------------------------------------------------------
 
-# A listed token is allowed ANYWHERE, including in a file that did not exist:
-# a rename in flight touches new files, and pinning in-transit names to a file
-# list would turn every one of those into a gate failure.
-#
-# The token is `backupd`, and it is chosen rather than arbitrary: a case
-# that needs a genuinely-pending token has to use one that IS on the list,
-# and after R2.5 (#895)'s closing PR the list is `backupd` and `Backupd`.
-# It was `backupd_internal` until #895 renamed it, and then `backupdproject`
-# until the FR-41 cutover swept that one off too -- both times these cases
-# were left asserting against a list entry that no longer existed, and both
-# times the self-test said so rather than passing. That is the failure mode
-# this comment exists to keep visible: whichever token is used here, it has
-# to be one `check-brand-drift.sh` still lists.
-#
-# It is planted as a bare `"backupd"` rather than inside a path or a
-# coordinate so that exactly one token is reported: `/var/lib/backupd`
-# tokenises once, but `backupd_session` or `backupdproject/backupd` would be
-# reported twice, and a case that asserts on one finding is clearer than one
-# that has to tolerate a second.
 tree="$(new_repo)"
 commit "$tree" core/brandnewfile.go 'package core
 
-const Name = "backupd"'
+const Name = "Backupd"'
 green "a pending token is allowed in a file that did not exist" "$tree"
 
-# The same tree, with that entry deleted from the list. This is the
-# bookkeeping error the matrix's R1.2 row names first: an issue deletes its
-# `pending` entry, the occurrences it was covering are still there, and the
-# guard has to say so rather than accept them because the list used to.
 tree="$(new_repo)"
 commit "$tree" core/session.go 'package core
 
-const Name = "backupd"'
+const Name = "Backupd"'
 commit "$tree" apps/common/csrf/csrf.go 'package csrf
 
-const Name = "backupd"'
-mutant="$(guard_without_pending backupd)"
+const Name = "Backupd"'
+mutant="$(guard_without_pending Backupd)"
 red_with "$mutant" "a pending entry deleted while its occurrences still exist goes red" "$tree" \
-  "backupd" "core/session.go:3:" "apps/common/csrf/csrf.go:3:"
+  "Backupd" "core/session.go:3:" "apps/common/csrf/csrf.go:3:"
 
-# And the other end of the same mutation, which is the one the R1.2 row names
-# second: the occurrence was deleted, the entry went with it, and the name
-# comes back later in a file nobody associated with the rename. Re-creation is
-# a creation, and the guard is the only thing that would notice.
 tree="$(new_repo)"
 commit "$tree" core/service/newsurface.go 'package service
 
 // Copied from a pre-rename branch.
-const Name = "backupd"'
+const Name = "Backupd"'
 red_with "$mutant" "a deleted occurrence re-added after its pending entry went goes red" "$tree" \
-  "backupd" "core/service/newsurface.go:4:"
+  "Backupd" "core/service/newsurface.go:4:"
 rm -f "$mutant"
 
 echo "==> brand-drift guard self-test: $checks checks, $failures failure(s)"

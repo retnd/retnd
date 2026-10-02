@@ -51,7 +51,7 @@ func TestDeleteRemote_RefusesWhenTheDurableCopyIsOnAMedium(t *testing.T) {
 	at := time.Now().UTC()
 	for _, p := range []state.PlacementUpdate{
 		{Medium: state.MediumLocal, Location: localPath, Status: state.PlacementGone},
-		{Medium: "cold_offsite", Location: "backupd/production/pg/" + artifact.Name, Size: &size,
+		{Medium: "cold_offsite", Location: "retnd/production/pg/" + artifact.Name, Size: &size,
 			Hash: "0000000000000000000000000000000000000000000000000000000000000000", HashAlg: "sha256",
 			VerificationClass: state.VerificationContent, Status: state.PlacementActive},
 	} {

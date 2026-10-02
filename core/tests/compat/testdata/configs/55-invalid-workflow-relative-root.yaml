@@ -6,7 +6,7 @@
 poll_interval: 15m
 
 state:
-  database: /var/lib/backupd/state.db
+  database: /var/lib/retnd/state.db
 
 workflows:
   root: workflows

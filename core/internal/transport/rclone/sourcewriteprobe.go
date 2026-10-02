@@ -28,7 +28,7 @@ var _ transport.SourceWriteProbe = (*Adapter)(nil)
 // between the two halves) knows immediately what wrote it and that
 // deleting it is safe. internal/mediumcheck's probeBody is the same
 // decision on the medium side.
-var probeBody = []byte("backupd write-permission probe. This file is written and deleted by a connection check and is safe to remove.\n")
+var probeBody = []byte("retnd write-permission probe. This file is written and deleted by a connection check and is safe to remove.\n")
 
 // The three refusals ProbeSourceWrite reports, as this package's own
 // errors, and the reason they are all it reports.

@@ -270,7 +270,7 @@ type SourceWriteProbe interface {
 // show one -- and the name says what it is, so whoever finds one knows
 // immediately that deleting it is safe. internal/mediumcheck's probePrefix
 // is the same decision on the medium side.
-const ProbeObjectPrefix = ".backupd-write-probe-"
+const ProbeObjectPrefix = ".retnd-write-probe-"
 
 // ErrProbeNotRemoved marks the one write-probe outcome that leaves
 // something behind: the probe object was created and could not then be

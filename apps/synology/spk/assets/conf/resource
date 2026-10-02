@@ -2,7 +2,7 @@
     "data-share": {
         "shares": [
             {
-                "name": "backupd",
+                "name": "retnd",
                 "once": false,
                 "permission": {
                     "rw": ["Backupd"]

@@ -34,13 +34,13 @@ import (
 //     artifact set to the incremental engine. That promise is made to
 //     every existing installation, so it is tested through the shipped
 //     CLI against a real pre-Kopia configuration, not through a struct.
-//   - upgrading KOPIA underneath backupd. The vendored engine is a
+//   - upgrading KOPIA underneath retnd. The vendored engine is a
 //     dependency this product embeds, and a bump has to be provable in
 //     one run: the whole §10 matrix against a real repository, plus the
 //     four costs an embedded engine imposes on everything downstream --
 //     binary size, dependency count, build, and resident memory.
 
-// --- upgrading backupd onto a pre-Kopia deployment -----------------------
+// --- upgrading retnd onto a pre-Kopia deployment -----------------------
 
 // preKopiaConfig is exactly what an installation from before EPIC K has:
 // two artifact backup sets on local remotes, and not one word about an
@@ -51,7 +51,7 @@ import (
 func preKopiaConfig(root string) string {
 	return fmt.Sprintf(`poll_interval: 15m
 state:
-  database: %[1]s/state/backupd.db
+  database: %[1]s/state/retnd.db
 sources:
   - id: production
     backup_sets:
@@ -88,7 +88,7 @@ retention:
 //
 // It drives the shipped binary rather than the packages, because the
 // claim is about what happens when an operator installs a new version
-// over an old deployment: they run `backupd run`, and either their
+// over an old deployment: they run `retnd run`, and either their
 // backups happen or they do not. A test at the package level would be
 // asserting that this suite can construct a Config.
 //
@@ -160,7 +160,7 @@ func TestAPreKopiaDeploymentRunsUnchangedAndIsNeverMigrated(t *testing.T) {
 	// 2. a cycle runs, through the shipped command.
 	out, err := runCLI(t, root, "run", "--config", configPath)
 	if err != nil {
-		t.Fatalf("`backupd run` against a pre-Kopia deployment: %v\n%s", err, out)
+		t.Fatalf("`retnd run` against a pre-Kopia deployment: %v\n%s", err, out)
 	}
 
 	for _, name := range []string{"pg-2026-06-01.dump", "uploads-2026-06-01.tar"} {
@@ -180,7 +180,7 @@ func TestAPreKopiaDeploymentRunsUnchangedAndIsNeverMigrated(t *testing.T) {
 			before, after)
 	}
 
-	journal, err := state.Open(ctx, filepath.Join(root, "state", "backupd.db"))
+	journal, err := state.Open(ctx, filepath.Join(root, "state", "retnd.db"))
 	if err != nil {
 		t.Fatalf("opening the journal the cycle wrote: %v", err)
 	}
@@ -377,7 +377,7 @@ retention:
 	}
 }
 
-// --- upgrading kopia underneath backupd ----------------------------------
+// --- upgrading kopia underneath retnd ----------------------------------
 
 // kopiaUpgradeRecord is the four costs an embedded engine imposes,
 // measured, plus the version they belong to.
@@ -584,7 +584,7 @@ func TestTheKopiaUpgradeCompatibilitySuite(t *testing.T) {
 func measureUpgradeCosts(t *testing.T, peakRSS int64) kopiaUpgradeRecord {
 	t.Helper()
 
-	bin := filepath.Join(harnessDir, "backupd-measured")
+	bin := filepath.Join(harnessDir, "retnd-measured")
 
 	started := time.Now()
 
@@ -725,7 +725,7 @@ func cliBinary(t *testing.T) string {
 	t.Helper()
 
 	cliOnce.Do(func() {
-		bin := filepath.Join(harnessDir, "backupd")
+		bin := filepath.Join(harnessDir, "retnd")
 
 		cmd := exec.Command("go", "build", "-o", bin, "./cmd/retnd")
 		cmd.Dir = coreDir(t)

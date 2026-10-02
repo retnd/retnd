@@ -61,7 +61,7 @@ import (
 // re-identifies every source, which is exactly the observable consequence,
 // and the tests pin the current value so the change cannot happen by
 // refactor.
-const identitySchema = "backupd.source-identity.v1"
+const identitySchema = "retnd.source-identity.v1"
 
 // SourceEndpointKind names the kind of endpoint a source is reached
 // through. It is a closed set, like backupengine.LocationKind and for the

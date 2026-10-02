@@ -30,7 +30,7 @@ import (
 //
 // So this compares the whole reduced runtime rather than seven fields.
 // What it deliberately does NOT compare is the image reference: the
-// canonical definition builds `backupd:${VERSION:-dev}` from
+// canonical definition builds `retnd:${VERSION:-dev}` from
 // container/Dockerfile because it is also the file that produces the
 // image, and an adapter pulls the published reference. That difference is
 // real, it is the one thing an adapter is supposed to change here, and
@@ -182,7 +182,7 @@ func (c Canonical) equivalentRole(role string, got, want *Service) []Divergence 
 
 	// The retained entrypoint name is set aside for the same reason the
 	// runtime profile is: it is not a difference in what runs. #890's
-	// /backupd-web is a hardlink to the /retnd-web the canonical stack
+	// /retnd-web is a hardlink to the /retnd-web the canonical stack
 	// names, so a deployment still spelling it that way -- an operator's
 	// pinned file rather than anything #891 left behind -- is running the
 	// same inode and the same subcommand.

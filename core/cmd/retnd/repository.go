@@ -11,7 +11,7 @@ import (
 	"github.com/retnd/retnd/core/service"
 )
 
-// `backupd repository <verb>`: the store an incremental backup set's
+// `retnd repository <verb>`: the store an incremental backup set's
 // snapshots live in, as an operator asks about it (#788).
 //
 // # Why this is a verb group of its own
@@ -46,7 +46,7 @@ func repositoryVerbNames() []string {
 	return names
 }
 
-// cmdRepository dispatches `backupd repository <verb> ...`.
+// cmdRepository dispatches `retnd repository <verb> ...`.
 func cmdRepository(args []string) int {
 	for _, a := range args {
 		if verb, ok := repositoryVerbs[a]; ok {
@@ -57,7 +57,7 @@ func cmdRepository(args []string) int {
 	return usageError("repository: expected a verb; the verbs are %s", strings.Join(repositoryVerbNames(), ", "))
 }
 
-// repositoryCreate is `backupd repository create <domain> ...` (#862):
+// repositoryCreate is `retnd repository create <domain> ...` (#862):
 // the terminal's way to declare a repository domain, through the same
 // *BackupService method POST /api/v1/repositories calls.
 //
@@ -140,12 +140,12 @@ func repositoryCreate(args []string) int {
 	// (core/service's declaredRepositoryHealth says why), so every probe
 	// row would be a false nobody measured -- and "the declared
 	// passphrase did not open this repository" is a sentence about a
-	// store that does not exist yet. `backupd repository health` is the
+	// store that does not exist yet. `retnd repository health` is the
 	// verb that probes.
 	fmt.Printf("declared repository domain %s  %s\n", created.Domain, created.State)
 	fmt.Printf("  shared:          %v\n", created.MayShare)
 	fmt.Printf("  %s\n", created.Detail)
-	fmt.Printf("  `backupd repository health` probes it; nothing here opened its storage\n")
+	fmt.Printf("  `retnd repository health` probes it; nothing here opened its storage\n")
 
 	return 0
 }
@@ -163,7 +163,7 @@ func (l *stringList) Set(value string) error {
 	return nil
 }
 
-// repositoryHealth is `backupd repository health`.
+// repositoryHealth is `retnd repository health`.
 //
 // The exit code is the verdict: a deployment with a failing repository
 // exits non-zero, so this is usable in the same monitoring shape `check`
@@ -282,7 +282,7 @@ func eventWords(at time.Time, status string) string {
 	return fmt.Sprintf("%s at %s", orNotRecorded(status), at.UTC().Format(time.RFC3339))
 }
 
-// repositoryMaintenance is `backupd repository maintenance <domain>`.
+// repositoryMaintenance is `retnd repository maintenance <domain>`.
 func repositoryMaintenance(args []string) int {
 	fs, cfgPath := newFlagSet("repository maintenance")
 	operands, err := parseFlagsAroundOperands(fs, args)

@@ -102,7 +102,7 @@ func TestSourceWriteProbe_AgainstARealServer(t *testing.T) {
 	t.Run("a read-only source is proven not writable, and nothing is left behind", func(t *testing.T) {
 		err := probe.ProbeSourceWrite(src.Context(), src.TransportSource("probe-readonly-set", readOnlyDir))
 		if err == nil {
-			t.Fatal("the probe reported a directory with no write bits as writable; delete-from-source would have been offered for a source backupd cannot delete from")
+			t.Fatal("the probe reported a directory with no write bits as writable; delete-from-source would have been offered for a source retnd cannot delete from")
 		}
 		// Read-only, not broken: the category is what the connection
 		// check words its "this source is read-only" sentence from, and a

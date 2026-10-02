@@ -437,10 +437,10 @@ func TestNewFirstRun_RefusesADeploymentItCannotProduceAValidConfigFor(t *testing
 		want     string
 	}{
 		{"no config path", FirstRunDefaults{StateDatabase: "/data/state/state.db"}, "config path"},
-		{"no state database", FirstRunDefaults{ConfigPath: "/etc/backupd/config.yaml"}, "state database"},
+		{"no state database", FirstRunDefaults{ConfigPath: "/etc/retnd/config.yaml"}, "state database"},
 		{
 			"relative state database",
-			FirstRunDefaults{ConfigPath: "/etc/backupd/config.yaml", StateDatabase: "state/state.db"},
+			FirstRunDefaults{ConfigPath: "/etc/retnd/config.yaml", StateDatabase: "state/state.db"},
 			"state database",
 		},
 	}

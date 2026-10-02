@@ -35,8 +35,8 @@ func sftpInstance() map[string]string {
 		"port":                "2222",
 		"user":                "backupuser",
 		"path":                "/srv/backups",
-		"prefix":              "backupd",
-		"known_hosts":         "/etc/backupd/known_hosts",
+		"prefix":              "retnd",
+		"known_hosts":         "/etc/retnd/known_hosts",
 		"upload_verification": "readback",
 		"credentials":         "6f1c1f3a-0e1b-4b1e-9a1e-2f1c1f3a0e1b",
 	}

@@ -18,7 +18,7 @@
         "type": "apiKey",
         "in": "cookie",
         "name": "retnd_session",
-        "description": "The authenticated session. For the generic runtime profile this is apps/common/auth/local's own HTTP-only cookie; a runtime profile with a native gateway (native_auth) establishes the same session from provider identity headers accepted only from a trusted peer. Which mechanism established it is a profile concern; that a caller of a secured operation has one is not. This cookie has had two earlier names, one per rename of this project: bm_session before #794 renamed it to backupd, and backupd_session before EPIC R (#885) renamed the product to retnd. The runtime still ACCEPTS both names on a read, for one release, so an in-place upgrade does not sign every caller out; it issues only the name declared here, and a request arriving under a deprecated name has that same session re-issued under this one on that read, so the old name leaves the wire on the caller's next request. A client should carry back whatever the runtime set. Both windows close in the same release, the one after the release that renames this product."
+        "description": "The authenticated session. For the generic runtime profile this is apps/common/auth/local's own HTTP-only cookie; a runtime profile with a native gateway (native_auth) establishes the same session from provider identity headers accepted only from a trusted peer. Which mechanism established it is a profile concern; that a caller of a secured operation has one is not. This cookie has had two earlier names, one per rename of this project: bm_session before #794 renamed it to retnd, and retnd_session before EPIC R (#885) renamed the product to retnd. The runtime still ACCEPTS both names on a read, for one release, so an in-place upgrade does not sign every caller out; it issues only the name declared here, and a request arriving under a deprecated name has that same session re-issued under this one on that read, so the old name leaves the wire on the caller's next request. A client should carry back whatever the runtime set. Both windows close in the same release, the one after the release that renames this product."
       },
       "csrf": {
         "type": "apiKey",
@@ -30,7 +30,7 @@
         "type": "apiKey",
         "in": "cookie",
         "name": "retnd_csrf",
-        "description": "The other half of the double-submit pair above, and the half a client has to READ. The runtime issues this cookie on any response that does not already carry one, and a caller echoes its value back in X-CSRF-Token; the two are compared byte for byte. It is declared here because a client cannot implement the csrf requirement from this document without knowing which cookie to echo, and until it was, the only place that name existed was the two implementations. This cookie has had two earlier names, one per rename of this project: bm_csrf before #794 renamed it to backupd, and backupd_csrf before EPIC R (#885) renamed the product to retnd. For one release the runtime accepts any of the three names on a read, and a request arriving with only a deprecated one has that same token re-issued under the name declared here rather than being given a second, different one - so a client that echoes the value it found under either name is accepted, and a client written against this document reads the current name and finds it."
+        "description": "The other half of the double-submit pair above, and the half a client has to READ. The runtime issues this cookie on any response that does not already carry one, and a caller echoes its value back in X-CSRF-Token; the two are compared byte for byte. It is declared here because a client cannot implement the csrf requirement from this document without knowing which cookie to echo, and until it was, the only place that name existed was the two implementations. This cookie has had two earlier names, one per rename of this project: bm_csrf before #794 renamed it to retnd, and retnd_csrf before EPIC R (#885) renamed the product to retnd. For one release the runtime accepts any of the three names on a read, and a request arriving with only a deprecated one has that same token re-issued under the name declared here rather than being given a second, different one - so a client that echoes the value it found under either name is accepted, and a client written against this document reads the current name and finds it."
       },
       "bootstrapToken": {
         "type": "apiKey",
@@ -5907,7 +5907,7 @@
       },
       "WorkflowLintFinding": {
         "type": "object",
-        "description": "One thing backupd's own shell rules reported about one hook script. These are this product's own checks, carrying its own BSH codes, and they are NOT ShellCheck: ShellCheck is GPL-3.0 and this product is Apache-2.0, so the analysis is implemented here against a Go shell parser's syntax tree rather than shipped as somebody else's tool. The set is deliberately small and conservative; an operator who wants a general shell linter should run one.",
+        "description": "One thing retnd's own shell rules reported about one hook script. These are this product's own checks, carrying its own BSH codes, and they are NOT ShellCheck: ShellCheck is GPL-3.0 and this product is Apache-2.0, so the analysis is implemented here against a Go shell parser's syntax tree rather than shipped as somebody else's tool. The set is deliberately small and conservative; an operator who wants a general shell linter should run one.",
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -5943,7 +5943,7 @@
       },
       "WorkflowScriptLint": {
         "type": "object",
-        "description": "What backupd's own shell verification established about one hook script's exact bytes, without running any of them. Three states, kept distinguishable on purpose: examined and parsed, examined and refused (a parse error with its position), and NOT EXAMINED, which is a script larger than the verification reads. A client that folded the third into either of the others would report either a pass nobody proved or a fault nobody found.",
+        "description": "What retnd's own shell verification established about one hook script's exact bytes, without running any of them. Three states, kept distinguishable on purpose: examined and parsed, examined and refused (a parse error with its position), and NOT EXAMINED, which is a script larger than the verification reads. A client that folded the third into either of the others would report either a pass nobody proved or a fault nobody found.",
         "additionalProperties": false,
         "properties": {
           "examined": {

@@ -139,7 +139,7 @@ func TestOpenRepositoryConnectsTheRequestedStorage(t *testing.T) {
 	root := t.TempDir()
 
 	// One state directory, deliberately shared, which is what production
-	// looks like: /var/lib/backupd holds the connection config for every
+	// looks like: /var/lib/retnd holds the connection config for every
 	// repository this manager knows about, keyed by domain id.
 	stateDir := filepath.Join(t.TempDir(), "state")
 

@@ -382,7 +382,7 @@ type commitMeasurement struct {
 	// operator reads, or empty when the record and the file agreed.
 	//
 	// It is carried rather than only logged because the journal
-	// transition is where an operator meets it (`backupd artifacts` prints
+	// transition is where an operator meets it (`retnd artifacts` prints
 	// the recorded detail), and a transport telling the manager something
 	// false about a copy it just made is a fault worth reporting, not a
 	// discrepancy to paper over.

@@ -215,7 +215,7 @@ func TestAnArchiveClassCopyCannotSatisfyTheStandingInvariant(t *testing.T) {
 		State:    "COMPLETE",
 		Placements: []state.Placement{{
 			Medium:            mediumDeepFreeze,
-			Location:          "backupd/production/postgres-primary/2024-06-15T02-00-00Z.dump",
+			Location:          "retnd/production/postgres-primary/2024-06-15T02-00-00Z.dump",
 			Status:            state.PlacementActive,
 			VerificationClass: state.VerificationExistence,
 		}},

@@ -423,7 +423,7 @@ function SettingBox({
           value={value}
           inputMode={box === "scriptTimeoutSeconds" ? "numeric" : undefined}
           onChange={(e) => onChange(e.target.value)}
-          placeholder={box === "scriptTimeoutSeconds" ? "300" : "/etc/backupd/workflows/before"}
+          placeholder={box === "scriptTimeoutSeconds" ? "300" : "/etc/retnd/workflows/before"}
           style={{
             font: "inherit",
             fontSize: 13,

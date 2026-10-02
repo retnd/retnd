@@ -206,7 +206,7 @@ func enrollReturningCredentials(t *testing.T, c *http.Client, base, bootstrapTok
 	sink := emailtest.Start(t)
 
 	body := fmt.Sprintf(
-		`{"username":%q,"password":%q,"recoveryEmail":"perf@example.test","smtp":{"host":%q,"port":%d,"security":"none","username":"","from":"backupd@example.test"}}`,
+		`{"username":%q,"password":%q,"recoveryEmail":"perf@example.test","smtp":{"host":%q,"port":%d,"security":"none","username":"","from":"retnd@example.test"}}`,
 		username, password, sink.Host(), sink.Port())
 	req, err := http.NewRequest(http.MethodPost, base+"/api/v1/auth/enroll", strings.NewReader(body))
 	if err != nil {
@@ -225,7 +225,7 @@ func enrollReturningCredentials(t *testing.T, c *http.Client, base, bootstrapTok
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("enroll: status %d: %s", resp.StatusCode, payload)
 	}
-	sink.WaitForMessage(t, "backupd: verify your recovery email", 10*time.Second)
+	sink.WaitForMessage(t, "retnd: verify your recovery email", 10*time.Second)
 	return username, password
 }
 

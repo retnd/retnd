@@ -75,11 +75,11 @@ Docker, Add Container.
 
 | Role | Host default | In the container | Mode |
 | --- | --- | --- | --- |
-| State | `/mnt/user/appdata/backupd/state` | `/data/state` | rw |
-| Backups | `/mnt/user/backups/backupd` | `/data/backups` | rw |
-| Config | `/mnt/user/appdata/backupd/config` | `/etc/retnd/config` | rw |
-| SSH key | `/mnt/user/appdata/backupd/secrets/id_ed25519` | `/etc/retnd/id_ed25519` | ro |
-| Known hosts | `/mnt/user/appdata/backupd/secrets/known_hosts` | `/etc/retnd/known_hosts` | ro |
+| State | `/mnt/user/appdata/retnd/state` | `/data/state` | rw |
+| Backups | `/mnt/user/backups/retnd` | `/data/backups` | rw |
+| Config | `/mnt/user/appdata/retnd/config` | `/etc/retnd/config` | rw |
+| SSH key | `/mnt/user/appdata/retnd/secrets/id_ed25519` | `/etc/retnd/id_ed25519` | ro |
+| Known hosts | `/mnt/user/appdata/retnd/secrets/known_hosts` | `/etc/retnd/known_hosts` | ro |
 
 `config` is a writable **directory** holding `config.yaml`, not a read-only single
 file (issue #196). Adding a backup set, saving settings and first-run setup all

@@ -435,10 +435,10 @@ func TestBSH003IsSilentWhereTheDeleteIsNotRootLevel(t *testing.T) {
 		name   string
 		script []string
 	}{
-		{"a path the deployment owns", []string{"#!/bin/bash", "rm -rf /srv/backupd/cache/$NAME"}},
+		{"a path the deployment owns", []string{"#!/bin/bash", "rm -rf /srv/retnd/cache/$NAME"}},
 		{"an expansion that fails when unset", []string{"#!/bin/bash", `rm -rf "${STAGING:?}/tmp"`}},
-		{"an expansion with a default", []string{"#!/bin/bash", `rm -rf "${STAGING:-/srv/backupd/stage}/tmp"`}},
-		{"an assign-default that cannot be empty", []string{"#!/bin/bash", `rm -rf "${STAGING:=/srv/backupd/stage}/tmp"`}},
+		{"an expansion with a default", []string{"#!/bin/bash", `rm -rf "${STAGING:-/srv/retnd/stage}/tmp"`}},
+		{"an assign-default that cannot be empty", []string{"#!/bin/bash", `rm -rf "${STAGING:=/srv/retnd/stage}/tmp"`}},
 		{"a non-colon error branch, read as a guard on purpose", []string{"#!/bin/bash", `rm -rf "${STAGING?}/tmp"`}},
 		{"a length, which is a number and never empty", []string{"#!/bin/bash", `rm -rf "/${#items}/tmp"`}},
 		{"a hole beside an expansion that cannot be one", []string{"#!/bin/bash", `rm -rf "/$STAGING/${#items}/data"`}},
@@ -446,7 +446,7 @@ func TestBSH003IsSilentWhereTheDeleteIsNotRootLevel(t *testing.T) {
 		{"set -u with an expansion that really does abort", []string{"#!/bin/bash", "set -u", `rm -rf "${STAGING:?}/tmp"`}},
 		{"no force flag, so it prompts rather than deleting", []string{"#!/bin/bash", "rm -r $STAGING/tmp"}},
 		{"no recursion", []string{"#!/bin/bash", "rm -f $STAGING/tmp"}},
-		{"a literal path with no expansion at all", []string{"#!/bin/bash", "rm -rf /tmp/backupd.lock"}},
+		{"a literal path with no expansion at all", []string{"#!/bin/bash", "rm -rf /tmp/retnd.lock"}},
 		{"a relative target", []string{"#!/bin/bash", "rm -rf ./$NAME/data"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

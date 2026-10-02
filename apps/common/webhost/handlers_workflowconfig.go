@@ -214,7 +214,7 @@ type workflowFindingBody struct {
 	Target   string `json:"target"`
 }
 
-// workflowLintFindingBody is one thing backupd's own shell rules
+// workflowLintFindingBody is one thing retnd's own shell rules
 // reported about one hook script.
 //
 // This product's own checks and its own BSH codes, and NOT ShellCheck:

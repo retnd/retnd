@@ -15,14 +15,14 @@ poll_interval: 15m
 
 state:
   # The SQLite lifecycle journal. Under var/, which survives upgrades.
-  database: /var/packages/Backupd/var/state/backupd.db
+  database: /var/packages/Backupd/var/state/retnd.db
 
 sources: []
 
 # Replace the empty list above with something like this. The paths assume
 # the shared folder this package asked DSM to create, which appears as
-# /volume1/backupd on a single-volume NAS - check `ls -d
-# /volume*/backupd` if yours has more than one volume.
+# /volume1/retnd on a single-volume NAS - check `ls -d
+# /volume*/retnd` if yours has more than one volume.
 #
 # sources:
 #   - id: production
@@ -35,7 +35,7 @@ sources: []
 #           key_file: /var/packages/Backupd/etc/id_ed25519
 #           known_hosts: /var/packages/Backupd/etc/known_hosts
 #         remote_path: /backups/postgres
-#         local_path: /volume1/backupd/production/postgres
+#         local_path: /volume1/retnd/production/postgres
 #         completion:
 #           strategy: stable
 #           stable_for: 10m
