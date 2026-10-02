@@ -693,3 +693,34 @@ jobs:
 
       - name: Push
         run: git push origin HEAD:main
+
+  prepare-manifest-artifact:
+    name: prepare release manifest artifact
+    if: github.event_name == 'workflow_dispatch' && inputs.publish == false && inputs.confirm != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout the published source candidate
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build both architectures and record their binary hashes
+        env:
+          VERSION: ${{ inputs.confirm }}
+        run: bash scripts/release/record-release-hashes.sh
+
+      - name: Upload the generated manifest
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-manifest-${{ inputs.confirm }}
+          path: container/release-manifest.json
+          if-no-files-found: error
