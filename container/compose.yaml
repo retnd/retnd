@@ -52,17 +52,6 @@
 # exactly that reason, so the one path that could have produced the broken
 # combination on its own no longer can.
 #
-# THE OTHER DIRECTION IS BRIDGED, ONCE. An operator who pinned the PREVIOUS
-# compose file still has `command: ["/retnd-web", ...]` in their copy,
-# and "your stack no longer starts" is not an acceptable upgrade. So the
-# image also carries `/retnd-web` as a REAL HARDLINK to `/retnd-web`: one
-# inode, two names, no second copy of a ~40 MB binary and no shell wrapper
-# (the runtime image is distroless and has no shell). It is kept for
-# exactly one release and removed by #947. There is deliberately no
-# `/retnd` beside it: no compose file this project has ever shipped named
-# `/retnd` in a `command:` or a `healthcheck:`, so there is no pinned
-# file that would need one.
-#
 # What this change did NOT move is the IMAGE REFERENCE, and #895's cutover
 # moved half of it. `image:` below still reads `retnd:${VERSION:-dev}`,
 # which is a LOCAL build tag and not a registry path -- `docker compose
