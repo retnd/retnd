@@ -2,7 +2,7 @@
 
 # retnd container image (A3.9, extended by issue #82/B4.1).
 #
-# Five stages:
+# Four stages:
 #   1. `build`          - the provider-neutral core binary (manager logic
 #                          plus the embedded rclone packages, see
 #                          core/internal/transport/rclone). Unchanged by
@@ -13,11 +13,7 @@
 #                          which imports core/service + apps/common and
 #                          embeds stage 2's output via go:embed
 #                          (apps/generic/webui).
-#   4. `entrypoints`    - stages 1 and 3's binaries in one directory, with
-#                          /retnd-web hardlinked to /retnd-web, because
-#                          the runtime image has no shell to run `ln` in
-#                          (#890; see that stage's own note).
-#   5. (untagged)       - the distroless runtime, carrying both binaries
+#   4. (untagged)       - the distroless runtime, carrying both binaries
 #                          and nothing else.
 #
 # There is no `rclone` executable anywhere in this image: rclone is
@@ -46,28 +42,9 @@
 # and the names core/cliecho's Binary/WebBinary print.
 #
 # #890 finished the move on the deployment side, and this file is where it
-# lands: the FILES in the runtime stage are now `/retnd` and `/retnd-web`,
-# the image's own HEALTHCHECK names `/retnd`, and the compose service and
-# container config directory move with them (container/compose.yaml).
-# Until #890 these two COPYs landed the same binaries at `/retnd` and
-# `/retnd-web`, deliberately: a container-internal path is an upgrade an
-# existing deployment has to survive rather than a command an operator
-# retypes, so it was a separate change from renaming the command.
-#
-# ONE BRIDGE, FOR ONE RELEASE. `/retnd-web` is still in the image, as a
-# REAL HARDLINK to `/retnd-web` - one inode, two names, so it costs no
-# bytes and cannot drift from the file it aliases. It exists because a
-# pinned copy of the previous container/compose.yaml still says
-# `command: ["/retnd-web", ...]`, and an upgrade whose first symptom is
-# "exec /retnd-web: no such file or directory" is not an upgrade. The
-# `entrypoints` stage below creates it and #947 removes it.
-#
-# There is deliberately NO `/retnd`. Nothing this project ever shipped
-# named `/retnd` in a compose `command:` or `healthcheck:`, so there is
-# no pinned file that would stop starting - only the web host needed a
-# bridge. A `docker exec`, cron entry or hand-written compose naming
-# `/retnd` has to move to `/retnd`, and container/compose.yaml says the
-# same from the other side.
+# lands: the runtime image contains `/retnd` and `/retnd-web`, the image's
+# own HEALTHCHECK names `/retnd`, and the compose service and container
+# config directory use the same identity (container/compose.yaml).
 #
 # What #890 did NOT move is the image reference, and #895's cutover did:
 # it is `ghcr.io/retnd/retnd` now, with `ghcr.io/retndproject/retnd`
@@ -348,33 +325,6 @@ RUN --mount=type=cache,target=/go/pkg/mod \
         -o /out/retnd-web \
         ./cmd/retnd-web
 
-# ---- entrypoint staging -------------------------------------------------
-# The one thing the runtime stage cannot do for itself: create a hardlink.
-#
-# The image ships `/retnd` and `/retnd-web`, plus `/retnd-web` as a
-# second NAME for the same inode (#890's one-release bridge for a pinned
-# compose file; #895 removes it). The distroless runtime has no shell and
-# no coreutils, so there is no `RUN ln` to be had in it, and copying the
-# same binary twice under two names would be a genuine second copy - tens
-# of megabytes of duplicate layer content, charged against the image-size
-# budget in docs/perf/, for a compatibility alias.
-#
-# So the link is made here, in a stage that does have a shell, and the
-# whole directory is brought across in ONE `COPY --from=entrypoints /out/
-# /` below. That is load bearing: BuildKit preserves hardlinks between
-# files copied by a SINGLE COPY of a tree, and splitting it into one COPY
-# per name would silently turn the link back into two files.
-#
-# It reuses the Go builder's already-pinned digest rather than introducing
-# a base image: that digest is in this build graph already, so it costs no
-# extra pull and needs no pin of its own to stay reproducible. Nothing is
-# compiled or executed here - the binaries are the TARGET architecture's,
-# this stage is $BUILDPLATFORM-native, and `ln` never runs them.
-FROM --platform=$BUILDPLATFORM golang@sha256:ded31c68586d2e49e760acc2e65a884b23d032e9bbbed0ae0c55abd3fcaf4452 AS entrypoints
-
-COPY --from=build /out/retnd /out/retnd
-COPY --from=build-web /out/retnd-web /out/retnd-web
-RUN ln /out/retnd-web /out/retnd-web
 
 # ---- runtime ------------------------------------------------------------
 # distroless static, nonroot variant: no shell, no package manager, no libc
@@ -388,20 +338,11 @@ RUN ln /out/retnd-web /out/retnd-web
 # rather than a value baked in here).
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 
-COPY --from=entrypoints /out/ /
+COPY --from=build /out/retnd /retnd
+COPY --from=build-web /out/retnd-web /retnd-web
 
-# That one line is the whole of what this image carries as commands:
-# `/retnd`, `/retnd-web`, and `/retnd-web` as a second name for the same
-# inode - `docker export | tar -tv` shows the third as a link entry rather
-# than a second multi-megabyte member, which is the only way to tell the
-# bridge from a duplicate.
-#
-# 0.3.3 retired `rbm` rather than aliasing it, and #890 did the same for
-# `/retnd`: there is no link under that name beside either binary and
-# nothing here creates one, because nothing this project shipped ever named
-# it in a compose file, healthcheck or cron entry. `/retnd-web` is the
-# single exception, it is there so an unedited pinned compose file still
-# starts, and #895 deletes it along with the `entrypoints` stage's `ln`.
+# Those two lines are the whole of what this image carries as commands.
+# No retired binary names are retained as compatibility aliases.
 
 # The licence, the notices and the machine-readable inventory the other
 # two point at, at a fixed path a recipient can find without a shell
