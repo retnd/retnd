@@ -627,6 +627,9 @@ jobs:
       - name: the release-manifest generator still refuses what #174 needs it to
         run: bash scripts/tests/record-release-hashes-guards.test.sh
 
+      - name: published registry facts update every release record atomically
+        run: bash scripts/tests/record-published-release.test.sh
+
       - name: core/app imports neither platform, distribution nor a NAS SDK (static check)
         run: bash scripts/architecture/check-core-dependency-rule.sh
 

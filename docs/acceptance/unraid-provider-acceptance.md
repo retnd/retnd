@@ -38,14 +38,12 @@ it. If you skip it, the UI container starts, serves the static bundle, and then
 
 ### 0.1 Make the canonical image resolvable
 
-`ghcr.io/retnd/retnd:0.4.0` is cut but not pushed yet:
-`distribution/packaging/canonical.json` records `image.published: false`, and
-`container/release-manifest.json` carries a `registry_digest` of `null` per
-architecture. So the reference does not resolve from the registry today, and the
-steps below are how you make it resolve, by pushing a build to a registry this host
-can reach or building elsewhere and loading it. The previous release,
-`ghcr.io/retnd/retnd:0.3.3`, stays published and signed if you would
-rather run that. Either push to your own registry:
+The canonical reference is `ghcr.io/retnd/retnd:0.5.0`.
+`distribution/packaging/canonical.json` and
+`container/release-manifest.json` jointly record whether it has been published:
+`image.published: true` requires an index digest and one registry digest per
+architecture. If those records still say `false` and `null`, the reference does
+not resolve yet. Push a build to a registry this host can reach:
 
 ```bash
 docker buildx build \

@@ -335,7 +335,7 @@ func TestImageTagUnderstandsEveryFloatingForm(t *testing.T) {
 const canonicalCompose = `
 services:
   retnd:
-    image: ghcr.io/retnd/retnd:0.4.0
+    image: ghcr.io/retnd/retnd:0.5.0
     command: ["/retnd-web", "serve"]
     user: "568:568"
     read_only: true
@@ -352,7 +352,7 @@ services:
       - "/host/id_ed25519:/etc/retnd/id_ed25519:ro"
       - "/host/known_hosts:/etc/retnd/known_hosts:ro"
   retnd-ui:
-    image: ghcr.io/retnd/retnd:0.4.0
+    image: ghcr.io/retnd/retnd:0.5.0
     command: ["/retnd-web", "serve-ui"]
     user: "568:568"
     read_only: true
@@ -403,7 +403,7 @@ func TestEveryDriftElementFailsOnADeliberateMismatch(t *testing.T) {
 		{
 			capability: "drift-image-reference",
 			provider:   "truenas",
-			mutate:     func(s string) string { return strings.ReplaceAll(s, "retnd:0.4.0", "retnd:9.9.9") },
+			mutate:     func(s string) string { return strings.ReplaceAll(s, "retnd:0.5.0", "retnd:9.9.9") },
 			wants:      "9.9.9",
 		},
 		{

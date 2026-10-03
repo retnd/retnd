@@ -488,11 +488,17 @@ def publish(root: Path, tags: list[str], manifest_commit: str, manifest: Path) -
     print(f"==> index digest: {index_digest}", file=sys.stderr)
 
     if sign:
-        # Every pushed path, not just the canonical one: a signature over
-        # one package name does not verify a pull of the other, and the
-        # mirror is there to be pulled.
+        # Every pushed path, not just the canonical one: signatures and
+        # attestations are bound to a package name as well as the digest,
+        # and the mirror is there to be pulled and verified independently.
+        sbom = root / SBOM_RELATIVE
         for tag in tags:
-            harness.sh(["cosign", "sign", "--yes", f"{tag}@{index_digest}"], capture=False)
+            subject = f"{tag}@{index_digest}"
+            harness.sh(["cosign", "sign", "--yes", subject], capture=False)
+            harness.sh(
+                ["cosign", "attest", "--yes", "--type", "spdxjson", "--predicate", str(sbom), subject],
+                capture=False,
+            )
 
     print(file=sys.stderr)
     raw = harness.sh_out(["docker", "buildx", "imagetools", "inspect", reference, "--raw"])

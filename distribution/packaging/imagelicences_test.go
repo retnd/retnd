@@ -113,22 +113,21 @@ func TestTheImageCarriesTheLicenceMaterials(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RuntimeStageCopies: %v", err)
 	}
-	sawBinary := false
+	sawCore := false
+	sawWeb := false
 	for _, cp := range copies {
-		// #890: the runtime stage no longer copies each binary from its
-		// own builder. It takes the whole staged directory from
-		// `entrypoints` in ONE COPY, because that is what preserves the
-		// /retnd-web hardlink, so this is the line that says "this is
-		// the stage that becomes the image".
-		if cp.From == "entrypoints" && cp.Dest == "/" {
-			sawBinary = true
+		if cp.From == "build" && cp.Dest == "/retnd" {
+			sawCore = true
+		}
+		if cp.From == "build-web" && cp.Dest == "/retnd-web" {
+			sawWeb = true
 		}
 		if cp.From == "" && strings.HasPrefix(cp.Sources[0], "core/") {
 			t.Errorf("line %d COPYs %v, which is a builder stage's copy; the reader is not confined to the runtime stage", cp.Line, cp.Sources)
 		}
 	}
-	if !sawBinary {
-		t.Error("the runtime stage read here does not copy the staged entrypoints directory, so this is not the stage that becomes the image")
+	if !sawCore || !sawWeb {
+		t.Errorf("the runtime stage does not copy both release binaries from their builders (retnd=%t, retnd-web=%t)", sawCore, sawWeb)
 	}
 }
 

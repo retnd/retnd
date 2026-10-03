@@ -4210,12 +4210,12 @@ class TestNamingAPreviousRelease(unittest.TestCase):
         return Fixture(self).args(*extra, command=command)
 
     def test_it_fills_the_tag_of_the_reference_nobody_named(self):
-        args = self.args("--release", "0.4.0")
-        self.assertEqual(installer.image_tag(args.image), "0.4.0")
+        args = self.args("--release", "0.5.0")
+        self.assertEqual(installer.image_tag(args.image), "0.5.0")
         self.assertEqual(installer.image_name(args.image),
                          f"{installer.RELEASE_REGISTRY}/{installer.RELEASE_REPOSITORY}",
                          "--release moves the tag and nothing else; the registry is not its to change")
-        self.assertIn("VERSION=0.4.0", installer.render_env(args))
+        self.assertIn("VERSION=0.5.0", installer.render_env(args))
         self.assertIn(args.image, installer.render_image_override(args))
 
     def test_leaving_it_alone_changes_nothing(self):
@@ -4230,22 +4230,22 @@ class TestNamingAPreviousRelease(unittest.TestCase):
         self.assertEqual(self.args("--release", installer.CARRIED_RELEASE).image, default)
 
     def test_it_fills_a_tagless_reference_an_operator_did_name(self):
-        args = self.args("--image", "registry.example:5000/retnd", "--release", "0.4.0")
-        self.assertEqual(args.image, "registry.example:5000/retnd:0.4.0")
+        args = self.args("--image", "registry.example:5000/retnd", "--release", "0.5.0")
+        self.assertEqual(args.image, "registry.example:5000/retnd:0.5.0")
 
     def test_an_image_that_already_agrees_is_not_a_conflict(self):
-        args = self.args("--image", "ghcr.io/retnd/retnd:0.4.0", "--release", "0.4.0")
-        self.assertEqual(args.image, "ghcr.io/retnd/retnd:0.4.0")
+        args = self.args("--image", "ghcr.io/retnd/retnd:0.5.0", "--release", "0.5.0")
+        self.assertEqual(args.image, "ghcr.io/retnd/retnd:0.5.0")
 
     def test_it_refuses_a_release_older_than_the_binaries_it_writes(self):
-        # The embedded compose runs /retnd-web. That path exists from 0.3.3
+        # The embedded compose runs /retnd-web. That path exists from 0.4.0
         # onwards and in no image published before it, so writing this
         # deployment against an older tag produces two containers that die
         # with "exec /retnd-web: no such file or directory" while the
-        # installer waits for a health check that can never pass. 0.3.0,
-        # 0.3.1 and 0.3.2 are all still on the registry, so this is
-        # reachable rather than theoretical.
-        for old in ("0.3.2", "0.3.0", "0.2.0", "0.1.0"):
+        # installer waits for a health check that can never pass. The older
+        # tags remain on the registry, so this is reachable rather than
+        # theoretical.
+        for old in ("0.3.3", "0.3.2", "0.3.0", "0.2.0", "0.1.0"):
             with self.subTest(release=old):
                 exc = refusal_from(self.args, "--release", old)
                 self.assertIsNotNone(exc, f"--release {old} names an image with no /retnd-web in it")
@@ -4255,7 +4255,7 @@ class TestNamingAPreviousRelease(unittest.TestCase):
 
     def test_the_floor_itself_is_installable(self):
         # A floor that refused its own boundary would be off by one, and
-        # 0.3.3 is the release that carries these binaries.
+        # 0.4.0 is the first release that carries these binary paths.
         exc = refusal_from(self.args, "--release", installer.FIRST_RELEASE_WITH_RBM)
         self.assertIsNone(
             exc,
@@ -4314,8 +4314,8 @@ class TestNamingAPreviousRelease(unittest.TestCase):
                 self.assertEqual(exc.code, installer.EXIT_USAGE)
 
     def test_a_prerelease_is_a_version_and_is_accepted(self):
-        args = self.args("--release", "0.4.0-rc.1")
-        self.assertEqual(installer.image_tag(args.image), "0.4.0-rc.1")
+        args = self.args("--release", "0.5.0-rc.1")
+        self.assertEqual(installer.image_tag(args.image), "0.5.0-rc.1")
 
     def test_resolving_it_reaches_no_network(self):
         """The constraint the whole design rests on. Fixture.args() calls

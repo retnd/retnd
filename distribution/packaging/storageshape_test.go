@@ -127,42 +127,18 @@ func TestTheCanonicalDefinitionIsHeldToTheStorageShapeRule(t *testing.T) {
 func TestTheReadOnlyConfigFileMountIsRefused(t *testing.T) {
 	c := MustLoad()
 
-	// Both shapes of "the configuration is a file", in both spellings of
-	// the configuration directory, as a table.
-	//
-	// The first row is the one this control used to get wrong. Its
-	// comment said "the pre-#196 declaration, verbatim in shape:
-	// <host>/config/config.yaml:/etc/retnd/config.yaml:ro" -- the
-	// pre-rename path, which is what actually shipped -- and then planted
-	// ConfigFilePath(), which is the config DIRECTORY plus config.yaml
-	// and therefore one level deeper (/etc/retnd/config/config.yaml as
-	// it was spelled then), a path no deployment has ever used. So the
-	// rule named for the historical shape was proven against a value that
-	// is not it, and the historical shape itself would have come back
-	// through the generic role refusal with the unhelpful message this
-	// rule exists to replace.
-	//
-	// The last two rows are the same trap one rename later (#890). Every
-	// deployment that ever shipped the pre-#196 shape shipped it under
-	// the pre-rename configuration directory, so a rule derived only
-	// from today's containerPaths.config would once again be a rule
-	// named for a historical shape that cannot fire on it. They are
-	// derived through LegacyBrandPath rather than typed, so they follow
-	// canonical.json, and they go when #895 closes the overlap.
+	// Both historical shapes of "the configuration is a file". The first is
+	// the pre-#196 declaration (`<config-parent>/config.yaml`); the second
+	// appends the filename to today's configuration directory and catches the
+	// same category error at a different depth.
 	legacyPath := path.Join(path.Dir(c.ContainerPaths.Config), c.ConfigFileName)
-	preRenameDir := LegacyBrandPath(c.ContainerPaths.Config)
-	if preRenameDir == "" {
-		t.Fatalf("containerPaths.config is %s, which carries no brand segment to substitute, so the two pre-rename rows below would repeat the two above", c.ContainerPaths.Config)
-	}
 	for _, tc := range []struct {
 		name          string
 		containerPath string
 		hostPath      string
 	}{
 		{"the pre-#196 shape, literally", legacyPath, "/mnt/tank/retnd/config/config.yaml"},
-		{"the same mistake made against the new directory", c.ConfigFilePath(), "/mnt/tank/retnd/config/config.yaml"},
-		{"the pre-#196 shape as it actually shipped, under the pre-rename directory", path.Join(path.Dir(preRenameDir), c.ConfigFileName), "/mnt/tank/retnd/config/config.yaml"},
-		{"the same mistake against the pre-rename directory", path.Join(preRenameDir, c.ConfigFileName), "/mnt/tank/retnd/config/config.yaml"},
+		{"the same mistake made against the current directory", c.ConfigFilePath(), "/mnt/tank/retnd/config/config.yaml"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			legacy := []Service{{

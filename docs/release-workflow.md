@@ -16,11 +16,13 @@ A release crosses three states:
    `container/release-manifest.json` is `null`.
 2. **Published from `release`.** A merge commit reaching `release` starts
    `.github/workflows/release.yml`. The workflow requires the `release gate`,
-   rebuilds both architectures, checks manifest parity, pushes the image and
-   signs each pushed package path with the workflow's keyless OIDC identity.
-3. **Recorded on `main`.** Registry digests are read back, committed with
-   `image.published: true`, copied into the installer pin, and folded into a
-   regenerated provenance bundle.
+   rebuilds both architectures, checks manifest parity, pushes the image, and
+   signs and attests each pushed package path with the workflow's keyless OIDC
+   identity.
+3. **Recorded on `main` automatically.** The same workflow reads registry
+   digests back, commits them with `image.published: true`, copies the index
+   digest into the installer pin, regenerates and verifies provenance, and
+   merges the published release ancestry into `main`.
 
 `main` is where work and release metadata are prepared. `release` is an
 append-only publish destination: never branch from it, rebase it, force-push it
@@ -156,76 +158,42 @@ The jobs run in this order:
    uploads the bundle as a workflow artifact.
 4. `publish` verifies manifest parity, runs the publish guards, performs one
    multi-platform Buildx push for every declared package path, reads the index
-   digest back and signs each path with Cosign.
-5. `merge-back-to-main` merges the published release commit into `main` after a
-   successful publish. A conflict fails rather than choosing a resolution.
+   digest back, signs each path with Cosign and attaches the SPDX SBOM as an
+   attestation.
+5. `merge-back-to-main` merges the published commit with `--no-commit`, reads
+   the index and platform digests back from GHCR, updates the release manifest,
+   canonical published state and installer pin, regenerates provenance, runs
+   the focused consistency suites, creates one merge commit and pushes it to
+   `main`.
 
-Save the run URL and its digest output on the release issue. The publisher emits
-the index digest and candidate platform digests, but the committed record is
-based on a fresh registry read, not on the push's stdout.
+Merging the reviewed pull request into `release` is the only publication
+action. Do not edit registry digests, run a second publish dispatch or open a
+post-publish metadata pull request. If any automated step fails, preserve the
+failed run and repair the workflow on `main`; never move an existing release
+tag or overwrite a published semantic version.
 
-### Current SBOM-attestation boundary
+Save the run URL on the release issue. The run is complete only when
+`merge-back-to-main` is green and `main` contains the automated merge commit.
+That commit is the durable registry record; publisher stdout is diagnostic
+output, not release metadata.
 
-The workflow and provenance design require an SPDX attestation, but the current
-`publish_image.py` implementation invokes `cosign sign` and contains no
-`cosign attest` invocation. A green publishing run therefore proves that the
-compliance bundle was generated and uploaded and that the image was signed; it
-does **not** by itself prove that an SBOM attestation exists in the registry.
-Check for the attestation explicitly before declaring that acceptance item
-complete. Do not convert the uploaded workflow artifact into a claim about a
-registry attestation.
+The post-publish job enforces the transition as one unit:
 
-## 5. Record what the registry holds
+- `container/release-manifest.json` receives the registry's index digest and
+  each declared architecture's manifest digest;
+- `distribution/packaging/canonical.json` moves to `image.published: true`;
+- `scripts/install/install_docker_host.py` receives the same immutable index
+  digest;
+- `distribution/cmd/provenance` regenerates the compliance bundle;
+- packaging, installer, published-provenance and checksum checks must all pass
+  before anything is pushed to `main`.
 
-Inspect the canonical image after the push:
+`scripts/release/record-published-release.py` performs the deterministic file
+update. It refuses malformed digests, version disagreement, missing
+architectures, duplicate platform entries and any architecture not declared by
+the candidate manifest.
 
-```bash
-IMAGE="ghcr.io/retnd/retnd:${VERSION}"
-docker buildx imagetools inspect "$IMAGE"
-docker buildx imagetools inspect "$IMAGE" --raw
-```
-
-Read the index digest and each architecture's manifest digest from the registry.
-Then update these values together on a branch from the current `main`:
-
-1. `container/release-manifest.json`
-   - set each architecture's `registry_digest`;
-   - set `index_digest`.
-2. `distribution/packaging/canonical.json`
-   - set `image.published` to `true`.
-3. `scripts/install/install_docker_host.py`
-   - set `CARRIED_RELEASE` to `$VERSION`;
-   - set `CARRIED_RELEASE_DIGEST` to the manifest's `index_digest`.
-4. Regenerate the compliance bundle:
-
-   ```bash
-   (cd distribution && go run ./cmd/provenance -write)
-   ```
-
-Run the focused consistency checks:
-
-```bash
-(
-  cd distribution
-  go test ./packaging -count=1
-  go run ./cmd/provenance
-)
-python3 scripts/install/test_install_docker_host.py
-bash scripts/release/check-published-provenance.sh
-sha256sum -c provenance/checksums.txt
-```
-
-The packaging tests refuse all half-recorded states: published without digests,
-digests while unpublished, a version mismatch, or an installer pin different
-from the manifest's index digest.
-
-Open the post-publish metadata pull request into `main` with `Closes #N` in its
-body. If the release issue was closed by the release pull request, use the issue
-that tracks recording and verification. Once published facts have landed on
-`main`, `check-published-provenance.sh` freezes the published flag, recorded
-version, architectures and registry digests against later rewrites.
-
-## 6. Verify the public release
+## 5. Verify the public release
 
 Verify by immutable digest, not only by the mutable tag:
 
@@ -246,7 +214,7 @@ Also confirm:
   `provenance/` and `container/release-manifest.json`;
 - the installer accepts the canonical tag and pins it to the recorded index
   digest;
-- the post-publish metadata pull request is green and merged.
+- `merge-back-to-main` is green and its automated merge commit is on `main`.
 
 The workflow does not create a Git tag or a GitHub Release. Do not report either
 as published unless a separate, observed process created it.
