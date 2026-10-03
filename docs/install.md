@@ -20,7 +20,7 @@ python3 scripts/install/install_docker_host.py install \
     --prefix /volume1/retnd \
     --ssh-key /volume1/retnd/secrets/id_ed25519 \
     --known-hosts /volume1/retnd/secrets/known_hosts \
-    --image ghcr.io/retnd/retnd:0.4.0
+    --image ghcr.io/retnd/retnd:0.5.0
 ```
 
 **One file, and no checkout.** Copy
@@ -249,9 +249,9 @@ Preflight prints the reference it is about to install before anything is created
 and then proves it:
 
 ```
-  ok   installing ghcr.io/retnd/retnd:0.4.0
-  ok   ghcr.io/retnd/retnd:0.4.0 is sha256:..., the identity the release
-       manifest records for 0.4.0
+  ok   installing ghcr.io/retnd/retnd:0.5.0
+  ok   ghcr.io/retnd/retnd:0.5.0 is sha256:..., the identity the release
+       manifest records for 0.5.0
 ```
 
 A registry tag is a mutable pointer, which `scripts/release/publish-image.sh` says
@@ -263,24 +263,25 @@ HEAD against the registry settles it. If the tag has moved, this refuses with ex
 no dependency: the installer is standard library only because a NAS may not let you
 install anything.
 
-**Read the version you have before you expect that line.** A release is cut before it
-is pushed, and in that window the manifest records `index_digest: null`, the installer
-carries no digest, and what preflight prints is this instead:
+**Read the manifest state before you expect that line.** A release is cut before
+it is pushed. During that window the manifest records `index_digest: null`, the
+installer carries no digest, and preflight prints this instead:
 
 ```
-  ok   installing ghcr.io/retnd/retnd:0.4.0
-  !!   0.4.0 is cut and not pushed, so container/release-manifest.json records no
+  ok   installing ghcr.io/retnd/retnd:0.5.0
+  !!   0.5.0 is cut and not pushed, so container/release-manifest.json records no
        identity for it and there is nothing here to hold
-       ghcr.io/retnd/retnd:0.4.0 to.
+       ghcr.io/retnd/retnd:0.5.0 to.
 ```
 
-That is 0.4.0 today. It is a warning and never a refusal, and the difference is the
-whole design: the alternative was to move the version and leave 0.3.3's digest behind,
-which compares a perfectly correct 0.4.0 image against the previous release's identity
-and hands every operator exit 52 on a good install. The digest is filled in, and this
-installer reissued with it, when the release workflow has pushed and the digests are
-recorded back into the manifest. Until then, `--release 0.3.3` installs the last
-release this can prove, or `--image-archive` installs a build you made yourself.
+That warning is never a refusal. Copying 0.4.0's digest forward would compare a
+correct 0.5.0 image against the previous release's identity and reject it. After
+the release workflow pushes 0.5.0, its `merge-back-to-main` job reads the index
+digest from GHCR, updates the manifest and this installer together, regenerates
+provenance and runs the consistency suites before pushing the record to `main`.
+Until that automated commit lands, `--release 0.4.0` installs the last release
+this candidate installer can prove, or `--image-archive` installs a build you
+made yourself.
 
 That proof only covers the release the installer carries, and a release cut after
 this installer was written can never have a digest in it. That is why the `--image`

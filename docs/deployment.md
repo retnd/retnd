@@ -938,13 +938,15 @@ field, and a second run from that same clean checkout reproduces its binary hash
 exactly. The SHA is not repeated here on purpose: it moves with every release, and a
 copy of it in prose is a copy that goes stale without anything noticing.
 
-**What this records about the registry**: nothing yet, for the version currently cut.
-`distribution/packaging/canonical.json` records `image.published: false` for
-`ghcr.io/retnd/retnd:0.4.0`, and the manifest carries a `registry_digest` of
-`null` per architecture and a null `index_digest` to say the same thing from the other
-side. `TestReleaseManifestRegistryDigestTracksTheCanonicalPublishFlag` holds the two
-together in both directions: a published flag with no digest and a digest with no
-published flag are both half-truths.
+**What this records about the registry** depends on the release state.
+Before publication, `distribution/packaging/canonical.json` records
+`image.published: false` and the manifest carries a `registry_digest` of `null`
+per architecture plus a null `index_digest`. After the release workflow pushes
+the image, its `merge-back-to-main` job reads those digests from GHCR and
+commits them with `image.published: true`.
+`TestReleaseManifestRegistryDigestTracksTheCanonicalPublishFlag` holds the two
+together in both directions: a published flag with no digest and a digest with
+no published flag are both half-truths.
 
 They are filled in from a real push rather than from the push's own output. That is how
 `0.3.3` was recorded: `docker buildx imagetools inspect` read each architecture's digest

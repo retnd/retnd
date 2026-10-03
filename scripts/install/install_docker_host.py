@@ -200,19 +200,11 @@ EXIT_RELEASE_TOO_OLD = 52
 # right to, where one retrying this would loop for ever.
 EXIT_ENROLLMENT_CLOSED = 53
 
-# The release that renamed the binaries inside the image. The compose
-# definition this installer stages names a `-web` binary by absolute
-# path, and images published before that release carry none at all, so
-# --release cannot honestly go lower.
-#
-# The name staged is `/retnd-web` from #890 onwards, and `/retnd-web`
-# is the name 0.3.3 introduced -- so this floor is the floor for the
-# PRE-rename spelling, and the release that first carries the retnd
-# entrypoints raises it again. That bump belongs to whoever cuts that
-# release: the version number does not exist yet, because
-# container/release-manifest.json records 0.4.0 as the newest published
-# release and its images carry `/retnd` and `/retnd-web`.
-FIRST_RELEASE_WITH_RBM = "0.3.3"
+# The first release carrying the binary paths embedded in the compose
+# definition this installer stages. Images published before this release
+# do not contain `/retnd` and `/retnd-web`, so `--release` cannot honestly
+# go lower: both containers would fail before their health checks start.
+FIRST_RELEASE_WITH_RBM = "0.4.0"
 EXIT_RELEASE_DIGEST_MISMATCH = 52
 
 # The architectures the release manifest claims. Anything else has no
@@ -248,11 +240,9 @@ CONTAINER_STATE_DIR = "/data/state"
 CONTAINER_BACKUP_DIR = "/data/backups"
 
 # The engine binary inside the image, by the absolute path the compose
-# definition and the CLI wrapper both name it at (#890). The image's
-# entrypoints are /retnd and /retnd-web from this release on; /retnd-web
-# survives one release as a hardlink to /retnd-web so an unedited pinned
-# compose file still starts, and there is deliberately no /retnd at all,
-# so a wrapper or a `command:` still naming it execs nothing.
+# definition and the CLI wrapper both name (#890). The image carries exactly
+# two entrypoints, `/retnd` and `/retnd-web`; retired binary aliases are not
+# retained.
 ENGINE_BINARY = "/retnd"
 
 # What the CLI wrapper under <prefix>/bin is called, and what an install
@@ -318,7 +308,7 @@ SOURCE_PORT_ENV_LEGACY = "RCLONE_MANAGER_SOURCE_PORT"
 #
 # The digest is what makes `--release` safe to offer at all. A tag is a
 # mutable pointer (scripts/release/publish-image.sh says so in its own
-# words), so "install 0.4.0" is a claim about a name until something
+# words), so "install 0.5.0" is a claim about a name until something
 # compares the name against a recorded identity. One anonymous HEAD does
 # that, with no cosign and no dependency, which is why the digest is here
 # and not derived.
@@ -338,8 +328,8 @@ SOURCE_PORT_ENV_LEGACY = "RCLONE_MANAGER_SOURCE_PORT"
 # It proves exactly one version: this one. A release cut after this
 # installer was written has no digest here and cannot get one, which is
 # the reason the --image default is pinned rather than floating.
-CARRIED_RELEASE = "0.4.0"
-CARRIED_RELEASE_DIGEST = "sha256:f490abb3c2148eb47849597baff0bee820f70c8d7f3e2b90ad9c7205d901fcac"
+CARRIED_RELEASE = "0.5.0"
+CARRIED_RELEASE_DIGEST = None
 
 # Where that release lives. Split into two halves rather than written as
 # one reference on purpose: the --image default is the one literal
@@ -1154,7 +1144,7 @@ class Preflight:
 
         Then the proof, which is what makes naming a release safe to
         offer at all. A tag is a mutable pointer, and this project says so
-        in its own release tooling, so "install 0.4.0" is a claim about a
+        in its own release tooling, so "install 0.5.0" is a claim about a
         name until something compares the name against a recorded
         identity. container/release-manifest.json records that identity at
         push time and CARRIED_RELEASE_DIGEST is a copy of it, so one
@@ -2769,17 +2759,6 @@ EMBEDDED_COMPOSE_YAML = """\
 # exactly that reason, so the one path that could have produced the broken
 # combination on its own no longer can.
 #
-# THE OTHER DIRECTION IS BRIDGED, ONCE. An operator who pinned the PREVIOUS
-# compose file still has `command: ["/retnd-web", ...]` in their copy,
-# and "your stack no longer starts" is not an acceptable upgrade. So the
-# image also carries `/retnd-web` as a REAL HARDLINK to `/retnd-web`: one
-# inode, two names, no second copy of a ~40 MB binary and no shell wrapper
-# (the runtime image is distroless and has no shell). It is kept for
-# exactly one release and removed by #947. There is deliberately no
-# `/retnd` beside it: no compose file this project has ever shipped named
-# `/retnd` in a `command:` or a `healthcheck:`, so there is no pinned
-# file that would need one.
-#
 # What this change did NOT move is the IMAGE REFERENCE, and #895's cutover
 # moved half of it. `image:` below still reads `retnd:${VERSION:-dev}`,
 # which is a LOCAL build tag and not a registry path -- `docker compose
@@ -3412,7 +3391,7 @@ services:
 """
 
 # Written by scripts/install/embed_compose.py alongside the blob above.
-EMBEDDED_COMPOSE_SHA256 = "198d064667f71014a86e255d176ca7b10928459651362400e35e6e4ba50074a9"
+EMBEDDED_COMPOSE_SHA256 = "602c848cd979a6a4b256380bc9df3e0d07a0c0bcedd7ef0a9f1c484d773b6016"
 
 
 def embedded_compose_bytes() -> bytes:
@@ -7356,7 +7335,7 @@ def _add_install_prereq_groups(sp: argparse.ArgumentParser) -> None:
                               "test, so this installer needs no checkout on the host. Supply it to install "
                               "a locally modified runtime from a checkout; naming a path that does not "
                               "exist is still a refusal.")
-    runtime.add_argument("--image", default="ghcr.io/retnd/retnd:0.4.0",
+    runtime.add_argument("--image", default="ghcr.io/retnd/retnd:0.5.0",
                          action=_RecordsThatItWasSupplied,
                          help="Image reference both services run.")
     runtime.add_argument("--release", default=CARRIED_RELEASE,
@@ -7530,7 +7509,7 @@ def build_parser() -> argparse.ArgumentParser:
             "      --prefix /volume1/retnd \\\n"
             "      --ssh-key /volume1/retnd/secrets/id_ed25519 \\\n"
             "      --known-hosts /volume1/retnd/secrets/known_hosts \\\n"
-            "      --image ghcr.io/retnd/retnd:0.4.0\n"
+            "      --image ghcr.io/retnd/retnd:0.5.0\n"
         ),
     )
     _add_shared_groups(sp_install)

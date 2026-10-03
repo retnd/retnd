@@ -167,16 +167,15 @@ shape; this is the same thing with TrueNAS's paths.
 
 ## The image reference
 
-`ghcr.io/retnd/retnd:0.4.0` is the reference every package here
-carries, and it is not pushed yet. `distribution/packaging/canonical.json`
-records `image.published: false`, and `container/release-manifest.json` carries
-a `registry_digest` of `null` per architecture; those two move together, so
-either both describe a real push or neither does. Until the release workflow
-pushes 0.4.0 and the digests are recorded back, reach it the way the acceptance
-procedure's step 0 describes, by pushing to your own registry or side-loading a
-build. The previous release, `ghcr.io/retnd/retnd:0.3.3`, stays
-published and signed if you would rather run that. The reference is one question in the wizard and one line in the
-compose file, so substituting it is a one-place change.
+`ghcr.io/retnd/retnd:0.5.0` is the reference every package here
+carries. `distribution/packaging/canonical.json` and
+`container/release-manifest.json` jointly record whether it has been published:
+`image.published: true` requires an index digest and one registry digest per
+architecture. If those records still say `false` and `null`, make the image
+resolvable as the acceptance procedure's step 0 describes, by pushing to your
+own registry or side-loading a build. The reference is one question in the
+wizard and one line in the compose file, so substituting it is a one-place
+change.
 
 ## Contributing this to the TrueNAS catalog
 

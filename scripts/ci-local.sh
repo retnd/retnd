@@ -864,6 +864,9 @@ if [ "$FAST" != "1" ]; then
   gate_step "release-manifest generator guards (#174)"
   bash scripts/tests/record-release-hashes-guards.test.sh
 
+  gate_step "post-publish registry metadata recorder"
+  bash scripts/tests/record-published-release.test.sh
+
   # The publish script is the one step in this repository that does
   # something irreversible, and it runs once, on the day it matters. Its
   # six refusals get the same treatment #174's five got: driven against

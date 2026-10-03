@@ -31,7 +31,7 @@
 -->
 <Container version="2">
   <Name>retnd</Name>
-  <Repository>ghcr.io/retnd/retnd:0.4.0</Repository>
+  <Repository>ghcr.io/retnd/retnd:0.5.0</Repository>
   <Registry>https://github.com/retnd/retnd/pkgs/container/retnd</Registry>
   <Network>retnd</Network>
   <MyIP/>

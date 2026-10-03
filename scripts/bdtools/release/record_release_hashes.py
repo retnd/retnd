@@ -338,15 +338,9 @@ NOTE = (
     "evidence of what was compiled. registry_digest is the digest ghcr.io assigns "
     "ghcr.io/retnd/retnd on push (docker buildx build --push prints it, docker buildx "
     "imagetools inspect reads it back). "
-    "binary_sha256 KEYS: an entry that records an ALREADY-PUBLISHED release keeps the keys it was published "
-    "under, so 0.4.0 stays keyed retnd/retnd-web -- those names identify a recorded build, and re-keying "
-    "evidence to tidy a label is how evidence stops being evidence. New entries are keyed retnd/retnd-web "
-    "after EPIC R's rename (#890), matching the files the image now carries at /retnd and /retnd-web; "
-    "/retnd-web is a hardlink to /retnd-web rather than a third binary, so it gets no key of its own. Every "
-    "consumer accepts BOTH spellings and prefers the new one for the overlap release -- "
-    "distribution/packaging's manifestBinaryKeys, apps/synology/spk's LoadReleaseManifest and "
-    "scripts/bdtools/release/verify_manifest_parity.py -- and the retnd spelling goes away with the shim "
-    "window (#895)."
+    "binary_sha256 keys match the two executable paths in the image: retnd and retnd-web. A manifest that "
+    "already records a published release is historical evidence and must not be rewritten merely to rename "
+    "a key; a new semantic version records the names its image actually carries."
 )
 
 

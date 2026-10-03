@@ -205,10 +205,6 @@ signed under that branch's ref: an artifact this record does not describe and th
 command rejects, which is #510's failure mode again except that a pushed image cannot
 be taken back the way a wrong sentence can.
 
-The tag in that example is `0.3.3` rather than the `0.4.0` this tree declares, because
-`0.4.0` is not pushed yet and there is nothing at that tag to verify. `0.3.3` is the
-newest tag there is something to verify at. Move it once the release workflow has
-published, at the same time the digests are recorded back.
 
 The SBOM is attached as an attestation over the same digest
 (`cosign attest --type spdxjson`), not baked into the image. That keeps the
@@ -321,7 +317,7 @@ ordered procedure is in
 binaries were stamped with, which is what `/retnd version` answers.
 `canonical.json`'s `image.tag` is the semantic version every provider package
 advertises. Those have to be the same string in a real release, and now they are:
-both record `0.4.0`, the tag cut for this release rather than the generator's
+both record `0.5.0`, the tag cut for this release rather than the generator's
 `git describe --tags --always` fallback that produced an abbreviated commit before
 this repository had any tags.
 

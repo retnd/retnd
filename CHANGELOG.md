@@ -2,7 +2,17 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-03
+
 ### Added
+
+- **Publishing is now one reviewed merge into `release`.** The Release workflow
+  builds and pushes both architectures, signs every declared package path,
+  attaches the SPDX SBOM attestation, reads the immutable index and platform
+  digests back from GHCR, updates the canonical published state and installer
+  pin, regenerates and verifies provenance, and commits the complete release
+  record to `main`. No post-publish metadata pull request or hand-edited digest
+  remains in the normal path.
 
 - **Scripted backup workflows are documented, with clips taken by a committed
   script rather than by hand** (EPIC L, #817, over everything #808 through #816
