@@ -399,7 +399,7 @@ function Stage({
           className="eyebrow"
           style={{
             fontSize: executing ? 12 : 11,
-            fontWeight: executing ? 800 : 700,
+            fontWeight: 700,
             color: executing
               ? "var(--accent)"
               : stage.eligible

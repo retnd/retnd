@@ -47,6 +47,7 @@ function renderDetail(source: string, set: string, api: RetndApi, readOnly = fal
 }
 
 async function openEditMode(api: RetndApi, target: BackupSet) {
+  vi.spyOn(api, "workflowRecovery").mockResolvedValue([]);
   renderDetail(target.source, target.set, api);
   await screen.findByText(target.name);
   await act(async () => {
