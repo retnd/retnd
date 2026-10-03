@@ -112,6 +112,12 @@ retention:
 func TestAPreKopiaDeploymentRunsUnchangedAndIsNeverMigrated(t *testing.T) {
 	ctx := context.Background()
 
+	// The assertion below is about the set-level refusal for an artifact
+	// backup set. Open the deployment-wide feature gate so the CLI reaches
+	// that check instead of stopping earlier at the independent production
+	// gate. The pre-Kopia file remains byte-for-byte unchanged.
+	t.Setenv(config.IncrementalEngineEnvVar, "1")
+
 	root := t.TempDir()
 	for _, dir := range []string{"state", "remote", "local"} {
 		if err := os.MkdirAll(filepath.Join(root, dir), 0o750); err != nil {
