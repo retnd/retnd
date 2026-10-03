@@ -130,7 +130,7 @@ def go(args: list[str], module_dir: Path) -> None:
         ["go", *args],
         cwd=module_dir,
         capture=False,
-        env={**os.environ, "GOWORK": "off"},
+        env={**os.environ, "GOWORK": "off", "RETND_CORE_WITHOUT_APPS": "1"},
     )
 
 

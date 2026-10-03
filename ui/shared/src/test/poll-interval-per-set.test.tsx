@@ -21,6 +21,7 @@ import { backupSetPath } from "@shared/utilities/routes";
  */
 
 async function openEditMode(api: RetndApi, target: BackupSet) {
+  vi.spyOn(api, "workflowRecovery").mockResolvedValue([]);
   render(
     <MemoryRouter initialEntries={[backupSetPath(target.source, target.set)]}>
       <ApiProvider api={api}>
