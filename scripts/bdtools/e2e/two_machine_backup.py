@@ -1097,8 +1097,14 @@ class Proof:
         self._create_backup_set(case_name, mgr, prefix, source_ip)
 
         # ---------------------------------------------------- run it
-        step("  running the backup set")
-        cycled = self.bm(mgr, prefix, "run", "--config", "/etc/retnd/config", check=False, capture=False)
+        # A direct CLI cycle and the serving engine cannot own one deployment
+        # concurrently. Stop the engine, run through the same one-shot
+        # container used for configuration writes, then start it again.
+        step("  running the backup set with the serving engine stopped")
+        self.mgr_compose(mgr, prefix, "stop", "retnd", check=False)
+        cycled = self.bm_stopped(
+            mgr, prefix, "run", "--config", "/etc/retnd/config", check=False, capture=False
+        )
         if cycled.returncode != 0:
             die(
                 "the backup cycle exited non-zero.",
@@ -1107,6 +1113,12 @@ class Proof:
                 if case_name == "connection-cap"
                 else "",
             )
+        self.mgr_compose(mgr, prefix, "start", "retnd")
+        wait_or_die(
+            180,
+            "the engine to answer again after the backup cycle",
+            lambda: self.engine_answers(mgr, prefix),
+        )
 
         backups = prefix + "/backups/source"
         self._assert_bytes(mgr, src, backups)
