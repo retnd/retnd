@@ -580,6 +580,24 @@ RCLONE_MANAGER_MACHINES_NETWORK docs/EPIC-R-rename-inventory.md
 RCLONE_MANAGER_NEW_THING docs/conformance/epic-r-matrix.md
 RCLONE_MANAGER_SOURCE_PORT docs/EPIC-R-rename-inventory.md
 RCLONE_MANAGER_UNIT docs/EPIC-R-rename-inventory.md
+Backup Manager docs/EPIC-R-rename-retnd-to-retnd.md
+backup_manager docs/EPIC-R-rename-retnd-to-retnd.md
+BACKUPD_BACKUP_ docs/EPIC-R-rename-retnd-to-retnd.md
+BACKUPD_NEW_THING docs/EPIC-R-rename-retnd-to-retnd.md
+BACKUPD_RECOVERY docs/EPIC-R-rename-retnd-to-retnd.md
+BACKUPD_RUN_ID docs/EPIC-R-rename-retnd-to-retnd.md
+BACKUPD_SIGNAL_EXIT_CHILD_MODE docs/EPIC-R-rename-retnd-to-retnd.md
+BACKUPD_STEP_ docs/EPIC-R-rename-retnd-to-retnd.md
+BACKUPD_STEP_NAME docs/EPIC-R-rename-retnd-to-retnd.md
+BACKUPD_WORKFLOW_STATUS docs/EPIC-R-rename-retnd-to-retnd.md
+BackupdError docs/EPIC-R-rename-retnd-to-retnd.md
+BackupdWidget docs/EPIC-R-rename-retnd-to-retnd.md
+rclone-manager docs/EPIC-R-rename-retnd-to-retnd.md
+rclone_manager docs/EPIC-R-rename-retnd-to-retnd.md
+RCLONE_MANAGER_ docs/EPIC-R-rename-retnd-to-retnd.md
+RCLONE_MANAGER_MACHINES_NETWORK docs/EPIC-R-rename-retnd-to-retnd.md
+RCLONE_MANAGER_UNIT docs/EPIC-R-rename-retnd-to-retnd.md
+RCLONE_MANAGER_NEW_THING docs/EPIC-R-rename-retnd-to-retnd.md
 EOF
 )"
 
