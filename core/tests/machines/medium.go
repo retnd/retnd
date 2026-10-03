@@ -34,11 +34,10 @@ import (
 	"github.com/retnd/retnd/core/tests/dockerlease"
 )
 
-// minioImage is pinned by name rather than by digest, matching
-// the source machine's own choice: this is a test fixture, not a shipped artifact,
-// and the supply-chain rules that govern the product's own images
-// (distribution/packaging/canonical.json) are about what an operator runs.
-const minioImage = "minio/minio:latest"
+// Pin the maintained Chainguard build by digest. MinIO stopped publishing
+// usable images to Docker Hub and Quay in 2025; a rolling tag made every
+// hermetic S3 test fail once Docker Hub archived the repository.
+const minioImage = "cgr.dev/chainguard/minio@sha256:4cf4831a2bbcf13ddca09c1cbcc9faff716dd3c4247e0babc32864b8ee8e0034"
 
 const (
 	minioRunTimeout   = 120 * time.Second

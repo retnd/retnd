@@ -33,6 +33,7 @@ import { backupSetIdentity } from "@shared/utilities/backupSetIdentity";
  *  is something the test can see rather than something it has to trust a
  *  spy about. */
 function renderDetailWithList(source: string, set: string, api: RetndApi, readOnly = false) {
+  vi.spyOn(api, "workflowRecovery").mockResolvedValue([]);
   return render(
     <MemoryRouter initialEntries={[backupSetPath(source, set)]}>
       <ApiProvider api={api}>
@@ -71,6 +72,7 @@ function SetsFromNode() {
 }
 
 function renderDetailWithNodeBackedList(source: string, set: string, api: RetndApi) {
+  vi.spyOn(api, "workflowRecovery").mockResolvedValue([]);
   return render(
     <MemoryRouter initialEntries={[backupSetPath(source, set)]}>
       <ApiProvider api={api}>

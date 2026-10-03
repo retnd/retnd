@@ -246,6 +246,7 @@ func checkStatements(text string) []string {
 
 // repoResolver resolves a reference against the repository at root.
 func repoResolver(root string) resolver {
+	withoutApps := os.Getenv("RETND_CORE_WITHOUT_APPS") == "1"
 	return func(ref string) (bool, string) {
 		dir, name, isGo := strings.Cut(ref, ":")
 		if !isGo {
@@ -253,6 +254,14 @@ func repoResolver(root string) resolver {
 				return false, "no file at that path"
 			}
 
+			return true, ""
+		}
+		// The architecture gate deliberately deletes apps/ before running
+		// every core test. App-owned proofs remain valid matrix references;
+		// that one isolated run is proving only that core has no dependency
+		// on their source tree. Normal matrix runs still resolve every app
+		// citation against the repository.
+		if withoutApps && strings.HasPrefix(dir, "apps/") {
 			return true, ""
 		}
 
