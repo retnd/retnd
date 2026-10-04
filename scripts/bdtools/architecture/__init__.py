@@ -251,23 +251,26 @@ def tracked_files(root: Path | str = ".") -> list[str]:
 
 @contextmanager
 def worktree(root: Path | str = ".") -> Iterator[Path]:
-    """A detached worktree of HEAD in a fresh temp directory.
+    """A detached worktree of HEAD in a fresh sibling directory.
 
     `--detach`, because this proves a property of the current tree rather
-    than making a branch anyone will commit on. Removal tolerates the
-    check's own `rm -rf` having already deleted files git expects to
-    find, which is the normal case here: deleting the tree under test is
-    the whole point.
+    than making a branch anyone will commit on. A sibling of the checkout
+    keeps security-sensitive tests out of a world-writable `/tmp` ancestry;
+    those tests correctly reject such paths as unsafe for executable hooks.
+    Removal tolerates the check's own `rm -rf` having already deleted files
+    git expects to find, which is the normal case here: deleting the tree
+    under test is the whole point.
     """
-    warn_if_dirty(root)
-    directory = Path(tempfile.mkdtemp(prefix="retnd-arch-check.", dir=os.environ.get("TMPDIR", "/tmp")))
-    harness.sh(["git", "-C", str(root), "worktree", "add", "--quiet", "--detach", str(directory), "HEAD"])
+    root_path = Path(root).resolve()
+    warn_if_dirty(root_path)
+    directory = Path(tempfile.mkdtemp(prefix="retnd-arch-check.", dir=root_path.parent))
+    harness.sh(["git", "-C", str(root_path), "worktree", "add", "--quiet", "--detach", str(directory), "HEAD"])
     try:
         yield directory
     finally:
-        if not harness.sh_ok(["git", "-C", str(root), "worktree", "remove", "--force", str(directory)]):
+        if not harness.sh_ok(["git", "-C", str(root_path), "worktree", "remove", "--force", str(directory)]):
             subprocess.run(["rm", "-rf", str(directory)], check=False)
-        harness.sh_ok(["git", "-C", str(root), "worktree", "prune"])
+        harness.sh_ok(["git", "-C", str(root_path), "worktree", "prune"])
 
 
 def resolve_toplevel() -> Path:

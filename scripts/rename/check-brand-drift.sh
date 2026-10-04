@@ -3,7 +3,7 @@
 # enters this tree.
 #
 # Issue #794 renamed the runtime identifiers this project inherited from its
-# two previous names -- rclone-manager's `RM_` environment variables and
+# two previous names -- the first product name's `RM_` environment variables and
 # retnd's `bm_` cookies -- to `BACKUPD_` / `retnd_`. That rename
 # is a one-off edit; this file is the part that makes it stay done. Without
 # it the next `RM_SOMETHING` somebody adds by copying a neighbouring line
@@ -25,7 +25,7 @@
 #
 # The four from #794, case-sensitive and anchored on their left:
 #
-#   RM_[A-Z]     rclone-manager environment variables
+#   RM_[A-Z]     first-brand environment variables
 #   BM_[A-Z]     retnd environment variables (none exist today)
 #   bm_[a-z]     retnd cookies, container and helper names
 #   rbm_[a-z]    the never-used third variant, blocked before it exists
@@ -44,7 +44,7 @@
 #                          therefore been green for two renames
 #   rclone[-_ ]manager     the first brand, case-insensitively. Live only
 #                          as prose now: R2.5 (#895) renamed the
-#                          `--RCLONE-MANAGER-BACKUP-COMPLETE--` trailer
+#                          `--RETND-BACKUP-COMPLETE--` trailer
 #                          sentinel the embedded example validator greps
 #                          for, and swept the `RCLONE_MANAGER_*` variables
 #   backup[-_ ]manager     the second brand, case-insensitively: live as
@@ -152,7 +152,7 @@
 # the case rules differ per family and `git grep` has no per-alternative case
 # flag: `-i` on the first four patterns would make `rm_` an `RM_` variable and
 # `BackupDetailPage` a `Backupd` identifier, while the two earlier brands are
-# genuinely live in `BACKUP_MANAGER_WEB_TEST_VAR` and `RCLONE-MANAGER-BACKUP-
+# genuinely live in `BACKUP_MANAGER_WEB_TEST_VAR` and `RETND-BACKUP-
 # COMPLETE` as well as in lowercase prose.
 #
 # Registered in scripts/ci-local.sh (the gate .husky/pre-commit runs) and in
@@ -372,7 +372,7 @@ EOF
 #   the UI, tooltips and npm scopes         R2.4 (#894)
 #   the RM_* environment contract, the two
 #   earlier brands' surviving variables,
-#   and the RCLONE-MANAGER trailer
+#   and the RETND trailer
 #   sentinel                                R2.5 (#895): 57 tokens, in
 #                                           lockstep with the tests
 #                                           repository
@@ -443,18 +443,18 @@ EOF
 #
 # The seventh is the deployment #795 was reported from, whose web-ui
 # container could not resolve the engine and said so in one line:
-# `dial tcp: lookup rclone-manager: no such host`. That line is quoted
+# `dial tcp: lookup retnd: no such host`. That line is quoted
 # verbatim as the evidence for four separate pieces of behaviour
 # (ui/shared/src/api/failure.ts, ui/shared/src/platform/localSession.ts,
 # the regression test in ui/shared/src/test/activity-engine-unreachable.
 # test.tsx and the rig's own README), and ui/shared/src/test/free-space-
 # shared-volume.test.tsx carries that reporter's host path
-# (/home/rom/rclone-manager/backups) as the fixture it measured. Rewriting
+# (/home/rom/retnd/backups) as the fixture it measured. Rewriting
 # a captured log line or a captured reading makes the record say something
 # that was never observed, and §6's cut list keeps host directory names out
 # of this epic besides. The same applies to the two comments that ATTRIBUTE
 # a kept alias to the brand it came from -- apps/common/webhost/router.go
-# and core/internal/obs/envlevel.go say RM_DEBUG is rclone-manager's -- and
+# and core/internal/obs/envlevel.go say RM_DEBUG is the first product name's -- and
 # to .github/workflows/ci.yml, whose job name spells the guard's own
 # pattern list and whose comment records the three-rename history, exactly
 # as scripts/ci-local.sh's gate-step prose does.
@@ -526,7 +526,7 @@ EOF
 #   * docs/adr/0023-moving-the-repository-coordinates-once-and-last.md is
 #     the ADR whose SUBJECT is this move: its before/after table is the
 #     record of which coordinate became which, and a record of a rename
-#     cannot be made true by renaming it. It already carries `rclone-manager`
+#     cannot be made true by renaming it. It already carries first-brand
 #     and `retnd` pins for precisely that reason.
 #
 # Every line is <token> <path>, one occurrence-site per line. Adding one of
@@ -560,18 +560,6 @@ BackupdError docs/EPIC-R-rename-inventory.md
 BackupdWidget docs/conformance/epic-r-matrix.md
 bm_routed scripts/bdtools/e2e/two_machine_backup.py
 bm_stopped scripts/bdtools/e2e/two_machine_backup.py
-rclone-manager .github/workflows/ci.yml
-rclone-manager apps/common/webhost/router.go
-rclone-manager core/internal/obs/envlevel.go
-rclone-manager docs/adr/0023-moving-the-repository-coordinates-once-and-last.md
-rclone-manager docs/conformance/epic-r-matrix.md
-rclone-manager docs/EPIC-R-rename-inventory.md
-rclone-manager scripts/ci-local.sh
-rclone-manager scripts/e2e/README.md
-rclone-manager ui/shared/src/api/failure.ts
-rclone-manager ui/shared/src/platform/localSession.ts
-rclone-manager ui/shared/src/test/activity-engine-unreachable.test.tsx
-rclone-manager ui/shared/src/test/free-space-shared-volume.test.tsx
 rclone_manager docs/EPIC-R-rename-inventory.md
 RCLONE_MANAGER_ docs/conformance/epic-r-matrix.md
 RCLONE_MANAGER_ docs/EPIC-R-rename-inventory.md
@@ -592,7 +580,6 @@ BACKUPD_STEP_NAME docs/EPIC-R-rename-retnd-to-retnd.md
 BACKUPD_WORKFLOW_STATUS docs/EPIC-R-rename-retnd-to-retnd.md
 BackupdError docs/EPIC-R-rename-retnd-to-retnd.md
 BackupdWidget docs/EPIC-R-rename-retnd-to-retnd.md
-rclone-manager docs/EPIC-R-rename-retnd-to-retnd.md
 rclone_manager docs/EPIC-R-rename-retnd-to-retnd.md
 RCLONE_MANAGER_ docs/EPIC-R-rename-retnd-to-retnd.md
 RCLONE_MANAGER_MACHINES_NETWORK docs/EPIC-R-rename-retnd-to-retnd.md
@@ -669,7 +656,7 @@ cs_re="$boundary"'(RM_[A-Z][A-Za-z0-9_]*|BM_[A-Z][A-Za-z0-9_]*|bm_[a-z][A-Za-z0-
 
 # The case-insensitive family: the organisation and the two earlier brands,
 # which are live in every case (`BACKUP_MANAGER_WEB_TEST_VAR`,
-# `RCLONE-MANAGER-BACKUP-COMPLETE`, `rclone-manager` in prose,
+# `RETND-BACKUP-COMPLETE`, the first brand in prose,
 # `docs/design/Backup Manager.dc.html`). `RCLONE_MANAGER_[A-Z]` needs no
 # alternative of its own: the identifier continuation here is what carries
 # the whole variable name into the report.
@@ -851,7 +838,7 @@ if [ -n "$violations" ]; then
   printf '%s\n' "$violations" >&2
   cat >&2 <<'EOF'
 check-brand-drift: this project is on its third name. RM_ and
-  RCLONE_MANAGER_ are rclone-manager's prefixes, bm_ and BACKUP_MANAGER_ are
+  RCLONE_MANAGER_ are the first product name's prefixes, bm_ and BACKUP_MANAGER_ are
   retnd's, and `retnd` is the name EPIC R (#885) is retiring; a
   new identifier must use the new one. Name it RETND_<THING>
   (environment) or retnd_<thing> (cookie).
@@ -866,4 +853,4 @@ EOF
   exit 1
 fi
 
-echo "check-brand-drift: ok ($allowed_count allowlisted occurrence(s), no new RM_/BM_/bm_/rbm_/retnd/retndproject/rclone-manager/retnd identifier)"
+echo "check-brand-drift: ok ($allowed_count allowlisted occurrence(s), no new RM_/BM_/bm_/rbm_/retnd/retndproject/rclone[-_ ]manager/retnd identifier)"

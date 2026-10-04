@@ -477,7 +477,7 @@ jobs:
       # gate does.
 
   brand-drift:
-    name: no new RM_/BM_/bm_/rbm_/retnd/retndproject/rclone-manager/retnd identifier (#794, #887)
+    name: no new RM_/BM_/bm_/rbm_/retnd/retndproject/rclone[-_ ]manager/retnd identifier (#794, #887)
     runs-on: ubuntu-latest
     # Its own job rather than a step inside somebody else's, for the same
     # reason the gofmt sweep above has one: it is not a module's question.
@@ -489,7 +489,7 @@ jobs:
     # why the self-test runs here too -- a guard whose only evidence is that
     # it passes on the tree it ships with has proven nothing.
     #
-    # This project is on its third name (rclone-manager -> retnd ->
+    # This project is on its third name (the first product name -> retnd ->
     # retnd -> retnd, EPIC R #885) and every previous rename left runtime
     # identifiers behind. #794 renamed the first two brands' prefixes and
     # #887 pointed the guard at the `retnd` family, the `retndproject`

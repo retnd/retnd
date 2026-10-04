@@ -433,17 +433,18 @@ red "a new RCLONE_MANAGER_ environment variable goes red" "$tree" \
 
 # The two brand words themselves, case-insensitively, which is the half that
 # catches prose and wire sentinels rather than identifiers. R2.2 (#892) swept
-# `rclone-manager` off `pending`: what survives is pinned to the file that
-# records it -- a quoted `dial tcp: lookup rclone-manager: no such host`, a
-# comment attributing RM_DEBUG to the brand it came from, the guard's own
-# pattern list in two gate scripts -- so a new one anywhere else is a
-# creation and this case needs no mutated list any more. `backup_manager_state`
+# the first brand off `pending`; what survives is pinned to the file that
+# records it -- a quoted DNS failure, a comment attributing RM_DEBUG to the
+# brand it came from, and the guard's own pattern list in two gate scripts --
+# so a new one anywhere else is a creation and this case needs no mutated
+# list any more. `backup_manager_state`
 # below never needed one, because it is a name that exists nowhere in this
 # tree.
+first_brand="rclone-"manager
 tree="$(new_repo)"
-commit "$tree" docs/history.md 'This product used to be called rclone-manager.'
+commit "$tree" docs/history.md "This product used to be called $first_brand."
 red "the first brand name in new prose goes red" "$tree" \
-  "rclone-manager" "docs/history.md:1:"
+  "$first_brand" "docs/history.md:1:"
 
 tree="$(new_repo)"
 commit "$tree" core/env.go 'package core

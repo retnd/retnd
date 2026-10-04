@@ -1,7 +1,9 @@
-package source_test
+package sftpintegration_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -12,11 +14,125 @@ import (
 
 	"github.com/retnd/retnd/core/internal/backend"
 	"github.com/retnd/retnd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/backupengine/kopia"
 	"github.com/retnd/retnd/core/internal/backupengine/source"
 	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/secretref"
 	"github.com/retnd/retnd/core/internal/transport/rclone"
 	"github.com/retnd/retnd/core/tests/machines"
 )
+
+const integrationPassphrase = "a-passphrase-long-enough-to-be-a-passphrase"
+
+func realRepository(t *testing.T) (backupengine.StreamingRepository, string, string) {
+	t.Helper()
+
+	root := t.TempDir()
+	domain, err := model.NewRepositoryDomainID("production")
+	if err != nil {
+		t.Fatalf("NewRepositoryDomainID: %v", err)
+	}
+	passFile := filepath.Join(t.TempDir(), "passphrase")
+	if err := os.WriteFile(passFile, []byte(integrationPassphrase), 0o600); err != nil {
+		t.Fatalf("writing the passphrase file: %v", err)
+	}
+	loc := backupengine.RepositoryLocation{
+		Kind:       backupengine.LocationLocal,
+		Domain:     domain,
+		Root:       root,
+		StateDir:   filepath.Join(t.TempDir(), "state"),
+		Passphrase: secretref.Ref{File: passFile},
+	}
+
+	eng := kopia.New()
+	ctx := context.Background()
+	if err := eng.CreateRepository(ctx, loc); err != nil {
+		t.Fatalf("CreateRepository: %v", err)
+	}
+
+	rep, err := eng.OpenRepository(ctx, loc)
+	if err != nil {
+		t.Fatalf("OpenRepository: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := rep.Close(context.Background()); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	})
+
+	streaming, ok := rep.(backupengine.StreamingRepository)
+	if !ok {
+		t.Fatalf("%T is not a streaming repository", rep)
+	}
+
+	repoDir, err := backupengine.ReservedLocalDir(root, domain)
+	if err != nil {
+		t.Fatalf("ReservedLocalDir: %v", err)
+	}
+
+	return streaming, root, repoDir
+}
+
+func testRef(t *testing.T, set string) model.RepositoryRef {
+	t.Helper()
+
+	domain, err := model.NewRepositoryDomainID("production")
+	if err != nil {
+		t.Fatalf("NewRepositoryDomainID: %v", err)
+	}
+	id, err := model.NewBackupSetID("nas", set)
+	if err != nil {
+		t.Fatalf("NewBackupSetID: %v", err)
+	}
+
+	return model.RepositoryRef{Domain: domain, Set: id}
+}
+
+func sha256Of(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+func patternBytes(n int, seed uint32) []byte {
+	out := make([]byte, n)
+	x := seed | 1
+	for i := range out {
+		x ^= x << 13
+		x ^= x >> 17
+		x ^= x << 5
+		out[i] = byte(x)
+	}
+	return out
+}
+
+func assertNothingStaged(t *testing.T, root, repoDir string) {
+	t.Helper()
+
+	const suspicious = 1 << 20
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if path == repoDir {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.Size() >= suspicious {
+			t.Errorf("%s is %d bytes and is not inside the repository: something staged a copy of an object", path, info.Size())
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking the run root: %v", err)
+	}
+}
 
 // An SFTP source, end to end, against a real SSH server in a container
 // this test stands up for itself: real keys, a real host-key check, real

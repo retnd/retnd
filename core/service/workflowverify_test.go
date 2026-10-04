@@ -370,14 +370,10 @@ func TestTheValidationReportCarriesEachScriptsFindingsWithPositions(t *testing.T
 func openWorkflowSaveService(t *testing.T) (*BackupService, string, string) {
 	t.Helper()
 
-	// EvalSymlinks, because the spool's custody check refuses a
-	// symlinked ancestor and macOS puts every temporary directory under
-	// /var, which is a link to /private/var. Resolving it here is what a
-	// real deployment's configuration would already be.
-	dir, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatalf("EvalSymlinks(TempDir): %v", err)
-	}
+	// Use the package-local secure fixture root shared with the preflight
+	// tests. A t.TempDir below Linux's mode-1777 /tmp is intentionally
+	// rejected by workflow.Snapshot's executable-hook custody check.
+	dir := symlinkFreeTempDir(t)
 
 	root := filepath.Join(dir, "workflows")
 	if err := os.MkdirAll(root, 0o700); err != nil {

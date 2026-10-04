@@ -39,11 +39,10 @@ import (
 func openServiceWithLocalHooks(t *testing.T, runnerBlock string, hooks map[string]string) *BackupService {
 	t.Helper()
 
-	// A root with no symbolic link anywhere above it, because
-	// workflow.Snapshot refuses to spool through one (a spool created
-	// through a link is a spool whose location another account chose).
-	// On a Mac both /tmp and Go's per-test directory sit under symlinked
-	// ancestors, so the path is resolved rather than merely chosen.
+	// Build security-sensitive fixtures under the package directory. On
+	// Linux, t.TempDir and os.MkdirTemp("", ...) live below mode-1777
+	// /tmp, which workflow.Snapshot correctly refuses as an executable
+	// hook ancestor. EvalSymlinks still handles macOS checkout ancestors.
 	dir := symlinkFreeTempDir(t)
 	root := filepath.Join(dir, "workflows")
 	before := filepath.Join(root, "before")
@@ -108,21 +107,25 @@ func openServiceWithLocalHooks(t *testing.T, runnerBlock string, hooks map[strin
 	return svc
 }
 
-// symlinkFreeTempDir is a temporary directory whose path contains no
-// symbolic link, which is what workflow.Snapshot's custody rule requires
-// of a spool root.
+// symlinkFreeTempDir is a temporary directory under this package's secure
+// checkout ancestry, with any symlinks resolved.
 func symlinkFreeTempDir(t *testing.T) string {
 	t.Helper()
 
-	dir, err := os.MkdirTemp("", "bdwf")
+	dir, err := os.MkdirTemp(".", ".service-workflow-")
 	if err != nil {
 		t.Fatalf("MkdirTemp: %v", err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 
-	resolved, err := filepath.EvalSymlinks(dir)
+	absolute, err := filepath.Abs(dir)
 	if err != nil {
-		t.Fatalf("EvalSymlinks(%s): %v", dir, err)
+		t.Fatalf("Abs(%s): %v", dir, err)
+	}
+
+	resolved, err := filepath.EvalSymlinks(absolute)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%s): %v", absolute, err)
 	}
 
 	return resolved
