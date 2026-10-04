@@ -547,21 +547,24 @@ func TestVerificationOfALargeNamespaceIsBoundedAndCancellable(t *testing.T) {
 		t.Errorf("the cancelled verification failed with %v; an operator who cancelled has to see context.Canceled, not whatever noticed first", err)
 	}
 
-	// Promptly: within the cancellation point plus the same again. A
-	// walk that ran to completion and then noticed would pass an
-	// errors.Is check and still be the bug.
-	if limit := cancelAfter + large.elapsed/2; stopped > limit {
-		t.Errorf("the cancelled verification took %s to return, cancelled at %s; the whole walk takes %s, so this one did not stop when it was asked",
-			stopped.Round(time.Millisecond), cancelAfter, large.elapsed.Round(time.Millisecond))
+	// Promptly, judged by what the walk did after the cancel rather than by
+	// the clock. The directory's manifest is decoded whole by one vendor call
+	// before the first object is resolved (snapshotfs.readDirEntries), no
+	// context reaches into it, and it is linear in the directory's width: it
+	// was 46% of the whole walk on a workstation and 63% to 77% on a hosted
+	// runner. A bound written as a fraction of the walk's duration therefore
+	// measured the machine, and failed a run that had resolved ONE object of
+	// 200,001. What a walk that noticed late cannot hide is how many objects it
+	// went on to resolve: cancelled a tenth of the way in, a tenth of them is
+	// the most a prompt one can have done, and one that ran to completion and
+	// then noticed would have done all of them.
+	if limit := whole.ObjectsVerified / 10; report.ObjectsVerified > limit {
+		t.Errorf("the cancelled verification resolved %d of %d objects after being cancelled a tenth of the way in (at %s), so it did not stop when it was asked",
+			report.ObjectsVerified, whole.ObjectsVerified, cancelAfter)
 	}
 
 	if report.Level != "" {
 		t.Errorf("the cancelled verification claims to have achieved %q; an interrupted run proved no level at all", report.Level)
-	}
-
-	if report.ObjectsVerified >= whole.ObjectsVerified {
-		t.Errorf("the cancelled verification reports %d objects and the complete one reported %d; a report that is not partial means the cancellation did nothing",
-			report.ObjectsVerified, whole.ObjectsVerified)
 	}
 
 	t.Logf("cancelled after %s: returned in %s having resolved %d of %d objects",
