@@ -677,14 +677,21 @@ func (c *Client) runOnce(ctx context.Context, timeout time.Duration, command str
 		// only worth having if the whole payload reached the far
 		// side, so here the write's verdict still fails the session.
 		if writeErr := drainWrite(session, writeDone); writeErr != nil {
-			// The far side's own status travels with the write error when
-			// it gave one. A caller for whom a refusal is an answer (the
-			// probe) can still read it; every other caller looks at the
-			// error first and is unchanged, because for them a payload that
-			// did not arrive whole is still a failed session.
+			// A session that nevertheless ENDED WITH A STATUS (including 0:
+			// a forced command that ran its own program) gave an answer, and
+			// the write failed on that answer's own ending. The status
+			// travels with the error so the probe, for whom a refusal is an
+			// answer, can still read it. Every other caller looks at the
+			// error first and gets the same ErrTransportLoss text as before,
+			// because for them a payload that did not arrive whole is still
+			// a failed session.
 			var exitErr *ssh.ExitError
-			if errors.As(waitErr, &exitErr) && exitErr.Signal() == "" {
-				return exitErr.ExitStatus(), writeErr
+
+			switch {
+			case waitErr == nil:
+				return 0, &answeredWriteError{err: writeErr, status: 0}
+			case errors.As(waitErr, &exitErr) && exitErr.Signal() == "":
+				return 0, &answeredWriteError{err: writeErr, status: exitErr.ExitStatus()}
 			}
 
 			return 0, writeErr
@@ -705,6 +712,21 @@ func (c *Client) runOnce(ctx context.Context, timeout time.Duration, command str
 		return 0, fmt.Errorf("%w: an internal exec channel on %s did not answer within %s", ErrTransportLoss, c.describeEndpoint(), timeout)
 	}
 }
+
+// answeredWriteError is a failed payload write on a session that nonetheless
+// ended with an exit status. It is an ErrTransportLoss to everything that
+// asks (errors.Is sees through it, and its text is the write error's), and
+// it carries the status for the one caller that can use it: the capability
+// probe, which has to tell "the far side answered and went" from "the far
+// side went". A status of 0 is a real answer here, which is why this is a
+// type and not an exit code returned beside the error.
+type answeredWriteError struct {
+	err    error
+	status int
+}
+
+func (e *answeredWriteError) Error() string { return e.err.Error() }
+func (e *answeredWriteError) Unwrap() error { return e.err }
 
 // reaperScript finds every process in this step's process GROUP, sends the
 // group a TERM and then a KILL, and reports what is left.
