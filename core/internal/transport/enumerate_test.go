@@ -378,8 +378,32 @@ func measureEnumeration(t *testing.T, run func(yield func(transport.RemoteArtifa
 		m.peakHeap = peak - base.HeapAlloc
 	}
 	m.rssDelta = maxRSS(t) - rssBefore
-	m.goroutineDelta = runtime.NumGoroutine() - goroutinesBefore
+	m.goroutineDelta = settledGoroutineDelta(goroutinesBefore)
 	return m
+}
+
+// settledGoroutineDelta is how many more goroutines exist than were counted
+// before the run, once one that is merely on its way out has had time to go.
+//
+// runtime.NumGoroutine is an instantaneous count of the whole process, so a
+// single reading right after the call lands on whatever a timer, a finalizer
+// or a sibling test happens to be doing at that instant: a hosted run read +1
+// here and -2 in the cancellation test below, with nothing leaked. A goroutine
+// that IS leaked is still there on every later reading, so the lowest value
+// over a short settle window is the one that means something.
+func settledGoroutineDelta(before int) int {
+	lowest := runtime.NumGoroutine() - before
+	deadline := time.Now().Add(2 * time.Second)
+
+	for lowest > 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+
+		if d := runtime.NumGoroutine() - before; d < lowest {
+			lowest = d
+		}
+	}
+
+	return lowest
 }
 
 // TestEnumerationMemoryDoesNotScaleWithEntryCount is #792's acceptance
@@ -622,13 +646,11 @@ func TestCancellingMidEnumerationStopsPromptlyAndLeaksNothing(t *testing.T) {
 	if opened != closed {
 		t.Errorf("cancellation left %d of %d directory readers open", opened-closed, opened)
 	}
-	// Let any goroutine that was going to leak get scheduled first. A
-	// NEGATIVE delta is not a leak: goroutines that were alive when the
-	// count was taken (another test's, still winding down) can exit while
-	// this one runs, and a hosted runner saw -2. Only more than there were
-	// is something this enumeration left behind.
-	time.Sleep(50 * time.Millisecond)
-	if delta := runtime.NumGoroutine() - goroutinesBefore; delta > 0 {
+	// A NEGATIVE delta is not a leak: goroutines that were alive when the
+	// count was taken (another test's, still winding down) can exit while this
+	// one runs, and a hosted runner saw -2. Nor is a transient positive one,
+	// which is why the count is settled rather than read once.
+	if delta := settledGoroutineDelta(goroutinesBefore); delta > 0 {
 		t.Errorf("cancellation left %d goroutine(s) behind", delta)
 	}
 }
