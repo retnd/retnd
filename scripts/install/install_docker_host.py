@@ -2763,12 +2763,10 @@ EMBEDDED_COMPOSE_YAML = """\
 # moved half of it. `image:` below still reads `retnd:${VERSION:-dev}`,
 # which is a LOCAL build tag and not a registry path -- `docker compose
 # build` resolves it against nothing but this daemon. The PUBLISHED
-# reference is `ghcr.io/retnd/retnd` now, with
-# `ghcr.io/retndproject/retnd` declared as a one-release mirror in
-# distribution/packaging/canonical.json: a registry path is not covered by
-# GitHub's repository-transfer redirects, so both are published for one
-# release rather than the old one being abandoned, and #947 closes that
-# window. The local tag is the retired name in a string an operator does
+# reference is `ghcr.io/retnd/retnd` now, and it is the only package
+# published: the one-release mirror under the old organisation is gone
+# (that organisation no longer exists, and nothing was ever published
+# there). The local tag is the retired name in a string an operator does
 # not pin, which is the residue EPIC R's `pending` list still carries.
 #
 # TWO SERVICES, ONE IMAGE (project-owner requirement, folded in before
@@ -3391,7 +3389,7 @@ services:
 """
 
 # Written by scripts/install/embed_compose.py alongside the blob above.
-EMBEDDED_COMPOSE_SHA256 = "602c848cd979a6a4b256380bc9df3e0d07a0c0bcedd7ef0a9f1c484d773b6016"
+EMBEDDED_COMPOSE_SHA256 = "8e7f7837d3d7beb75cc310a55857a64d9d43615020436caa97c4a2d1b0c80d03"
 
 
 def embedded_compose_bytes() -> bytes:
