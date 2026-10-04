@@ -158,7 +158,7 @@ ssh admin@<guest> 'docker --version && docker compose version'
 
 ### 0.5 Make the canonical image resolvable
 
-The canonical reference is `ghcr.io/retnd/retnd:0.5.0`.
+The canonical reference is `ghcr.io/retnd/retnd:0.5.1`.
 `distribution/packaging/canonical.json` and
 `container/release-manifest.json` jointly record whether it has been published:
 `image.published: true` requires an index digest and one registry digest per

@@ -38,7 +38,7 @@ it. If you skip it, the UI container starts, serves the static bundle, and then
 
 ### 0.1 Make the canonical image resolvable
 
-The canonical reference is `ghcr.io/retnd/retnd:0.5.0`.
+The canonical reference is `ghcr.io/retnd/retnd:0.5.1`.
 `distribution/packaging/canonical.json` and
 `container/release-manifest.json` jointly record whether it has been published:
 `image.published: true` requires an index digest and one registry digest per

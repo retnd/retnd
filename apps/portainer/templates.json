@@ -41,7 +41,7 @@
           "name": "IMAGE",
           "label": "Canonical image reference",
           "description": "The one multi-architecture image both containers run. If canonical.json still records this release as unpublished, change this to wherever you pushed or loaded a build until the release workflow records the GHCR digests.",
-          "default": "ghcr.io/retnd/retnd:0.5.0"
+          "default": "ghcr.io/retnd/retnd:0.5.1"
         },
         {
           "name": "PUID",
