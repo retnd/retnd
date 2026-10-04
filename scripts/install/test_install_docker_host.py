@@ -4210,12 +4210,12 @@ class TestNamingAPreviousRelease(unittest.TestCase):
         return Fixture(self).args(*extra, command=command)
 
     def test_it_fills_the_tag_of_the_reference_nobody_named(self):
-        args = self.args("--release", "0.5.0")
-        self.assertEqual(installer.image_tag(args.image), "0.5.0")
+        args = self.args("--release", "0.5.1")
+        self.assertEqual(installer.image_tag(args.image), "0.5.1")
         self.assertEqual(installer.image_name(args.image),
                          f"{installer.RELEASE_REGISTRY}/{installer.RELEASE_REPOSITORY}",
                          "--release moves the tag and nothing else; the registry is not its to change")
-        self.assertIn("VERSION=0.5.0", installer.render_env(args))
+        self.assertIn("VERSION=0.5.1", installer.render_env(args))
         self.assertIn(args.image, installer.render_image_override(args))
 
     def test_leaving_it_alone_changes_nothing(self):
@@ -4230,12 +4230,12 @@ class TestNamingAPreviousRelease(unittest.TestCase):
         self.assertEqual(self.args("--release", installer.CARRIED_RELEASE).image, default)
 
     def test_it_fills_a_tagless_reference_an_operator_did_name(self):
-        args = self.args("--image", "registry.example:5000/retnd", "--release", "0.5.0")
-        self.assertEqual(args.image, "registry.example:5000/retnd:0.5.0")
+        args = self.args("--image", "registry.example:5000/retnd", "--release", "0.5.1")
+        self.assertEqual(args.image, "registry.example:5000/retnd:0.5.1")
 
     def test_an_image_that_already_agrees_is_not_a_conflict(self):
-        args = self.args("--image", "ghcr.io/retnd/retnd:0.5.0", "--release", "0.5.0")
-        self.assertEqual(args.image, "ghcr.io/retnd/retnd:0.5.0")
+        args = self.args("--image", "ghcr.io/retnd/retnd:0.5.1", "--release", "0.5.1")
+        self.assertEqual(args.image, "ghcr.io/retnd/retnd:0.5.1")
 
     def test_it_refuses_a_release_older_than_the_binaries_it_writes(self):
         # The embedded compose runs /retnd-web. That path exists from 0.4.0
@@ -4264,12 +4264,12 @@ class TestNamingAPreviousRelease(unittest.TestCase):
         )
 
     def test_two_flags_naming_different_versions_refuse_rather_than_pick_one(self):
-        exc = refusal_from(self.args, "--image", "ghcr.io/retnd/retnd:0.5.0",
+        exc = refusal_from(self.args, "--image", "ghcr.io/retnd/retnd:0.5.1",
                            "--release", "0.4.0")
         self.assertIsNotNone(exc, "installing a version other than the one that was named, quietly, "
                                   "is the whole failure this flag exists to prevent")
         self.assertEqual(exc.code, installer.EXIT_RELEASE_CONFLICT)
-        self.assertIn("0.5.0", exc.message)
+        self.assertIn("0.5.1", exc.message)
         self.assertIn("0.4.0", exc.message)
 
     def test_a_digest_is_not_weakened_into_a_tag(self):

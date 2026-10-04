@@ -2,6 +2,43 @@
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-04
+
+0.5.1 is 0.5.0 plus the one logo. 0.5.0 was published without it: the logo
+rework (#1019) landed on `main` after the 0.5.0 image inputs were recorded, and
+it changed an image input (`ui/shared`), so shipping it means a new image and
+re-recorded hashes rather than an edit to a published tag (#1042).
+
+### Changed
+
+- **There is one retnd logo, and it adapts** (#1019). The logo used to be seven
+  SVGs: a light and a dark lockup, and five separate drawings of the mark (two of
+  them in different blues). It is now `docs/site/assets/logo.svg`, built the way the
+  reses logo was: every shape paints with `currentColor`, two theme groups set the
+  colour from `prefers-color-scheme`, every stroke is in the mark's own grid so it
+  scales without a hairline or a font, and `#mark` and `#wordmark` are separate
+  groups in `<defs>` so a consumer can take either one. The muted `d` is the
+  wordmark's own ink at half strength instead of a second fixed colour, so it stays
+  muted when the wordmark is recoloured. The README, all six docs-site pages (whose
+  topbar cuts the mark out of the same file with an SVG view fragment), the app's
+  favicon links and the Unraid manifest point at it, and
+  `scripts/brand/export-rasters.sh` now derives every favicon, touch icon and social
+  PNG from it, pixel-for-pixel what was shipped. That script was also not byte-stable
+  between runs (ImageMagick stamped a time into each PNG), which it now is. The file
+  sits inside `docs/site/` because that is all the Pages workflow publishes. Kept
+  apart on purpose: the store-listing icon, which needs a square tile and a
+  `<title>`, and the three provider tiles.
+
+### Fixed
+
+- **The layer manifest no longer lists a directory the logo change deleted**
+  (#1046). `scripts/architecture/layers.conf` still classified the root
+  `assets/` directory after #1020 removed it, so `check-layer-manifest.sh`
+  failed (`manifest entry assets does not exist`) on the first pull request
+  that ran the gate against `main`. CI runs only on pull requests into
+  `release`, so nothing had asked the question between the merge and the
+  release candidate.
+
 ## [0.5.0] - 2026-10-03
 
 ### Added

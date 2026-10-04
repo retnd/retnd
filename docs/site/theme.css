@@ -7,7 +7,7 @@
    so the site takes its colours from the application rather than
    choosing its own. ui/shared/src/design-system/tokens.css sets
    --platform-accent to oklch(0.52 0.09 255), which is the slate
-   blue #446b9c, and docs/assets/logo-light.svg already draws the
+   blue #446b9c, and docs/site/assets/logo.svg already draws the
    product mark in exactly that. Anything else here would make
    every picture on the page look like it came from a different
    product.
