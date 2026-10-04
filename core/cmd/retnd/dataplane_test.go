@@ -34,15 +34,29 @@ import (
 // workflowFixtureWithoutARunner is a deployment whose backup set runs a
 // NAME.local.sh hook and which has no host workflow runner configured.
 //
-// It builds its own directory rather than calling workflowFixture,
-// because the whole path has to be free of symbolic links: a run spools
-// its captured scripts under the state directory, and workflow.Snapshot
-// refuses to create a spool through a link (on a Mac, Go's per-test
-// directory is under one).
+// It builds its own directory rather than calling workflowFixture, and
+// not under t.TempDir: a run spools its captured scripts under the state
+// directory, and workflow.Snapshot refuses a spool whose ancestry is not
+// in this process's sole custody. That rules out a symbolic link (on a Mac,
+// Go's per-test directory is under one) and it rules out a world-writable
+// ancestor (on Linux t.TempDir is under /tmp, mode 1777, which the hosted
+// runner correctly gets refused for). The directory is therefore made
+// beneath this package's own checkout, symlinks resolved.
 func workflowFixtureWithoutARunner(t *testing.T) (configPath, root string) {
 	t.Helper()
 
-	dir, err := filepath.EvalSymlinks(t.TempDir())
+	made, err := os.MkdirTemp(".", ".dataplane-workflow-")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(made) })
+
+	absolute, err := filepath.Abs(made)
+	if err != nil {
+		t.Fatalf("Abs(%s): %v", made, err)
+	}
+
+	dir, err := filepath.EvalSymlinks(absolute)
 	if err != nil {
 		t.Fatalf("EvalSymlinks: %v", err)
 	}

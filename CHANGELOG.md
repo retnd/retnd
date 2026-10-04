@@ -1078,6 +1078,28 @@
   container `retnd-licenses`; shipped compose projects and image references
   remain under `retnd`.
 
+  The first hosted run of that gate then found five more things that were wrong
+  with the tests and not with the product, and all five are repaired. The
+  `core/cmd/retnd` workflow fixtures were still built under mode-1777 `/tmp`,
+  which the workflow code rightly refuses as an ancestor of an executable script,
+  so they now live under the package's own checkout. The core `-race` step ran
+  under `go test`'s ten-minute per-package default, which the `kopia` package
+  (a 2 GiB bounded-memory stream and a 200,000-entry namespace) outlasts on a
+  hosted runner while every test in it passes, so the hosted workflow, the rclone
+  upgrade gate and `scripts/ci-local.sh` all pass `-timeout 30m`.
+  `TestCancellingMidEnumerationStopsPromptlyAndLeaksNothing` asserted a goroutine
+  delta of exactly zero and failed on -2 when other goroutines wound down during
+  it; only a positive delta is a leak. The verification heap-bound test read
+  either about 0 or about 26 MB of "growth" from the tree walker's fixed
+  already-seen set depending on where a 20 ms sampler tick fell; it samples every
+  millisecond and takes the lowest of three runs, and was watched to fail again
+  by 34 to 82 MB when `blob.ReadBlobMap` is held live during a verification.
+  Finally, the `ui/shared` page tests waited on Testing Library's one-second
+  `findBy` default and Vitest's five-second test limit for pages that enter edit
+  mode through two 180 ms mock calls under real stylesheets, so thirteen of them
+  failed under load with "Unable to find role button SAVE ALL & EXIT EDIT";
+  those ceilings are now five and twenty seconds.
+
 - **The docs-site capture tooling works again, in four separate places** (#817).
   Nothing in this repository checks that the scripts which take the
   documentation site's screenshots and clips still run, and by the time EPIC L
