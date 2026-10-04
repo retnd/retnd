@@ -173,7 +173,7 @@ check-svg-text: <text>, <tspan>, <title> and <desc> are the four places the
       further reason that a <title> child is drawn as a hover tooltip;
     * a description for a human reading the file goes in an XML comment,
       which this check strips before it looks;
-    * letterforms are <path> data. docs/assets/logo-light.svg is the worked
+    * letterforms are <path> data. docs/site/assets/logo.svg is the worked
       example, and docs/design/brand-assets.md records the construction.
   The one exception is a store-listing icon, whose <title> distribution/
   packaging's CheckStoreIcon requires because catalogue front ends read it

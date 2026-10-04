@@ -134,14 +134,25 @@ html, body {
 
 .topbar.collapsed .topbar-brand { margin-bottom: 0; }
 
+/* The mark alone, cut out of the one logo (docs/site/assets/logo.svg) by an SVG view
+   fragment on the <img> src, so there is no second file: the lockup is
+   122.2 x 48 and the mark is its left 48-unit square, so the box is
+   forced square and the fragment shows only that square.
+
+   The bar is dark in every colour scheme, and the logo follows the READER'S
+   scheme, so in a light scheme it would draw its dark-on-light ink on a
+   dark bar. brightness(0) invert(1) makes every opaque pixel white whatever
+   the file chose, which is right for a one-colour mark on this bar and is
+   what the old white-only copy did by being a different file. */
 .topbar-brand img {
   width: calc(28px + 52px * (1 - var(--p2)));
   height: auto;
-  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.3));
+  aspect-ratio: 1;
+  filter: brightness(0) invert(1) drop-shadow(0 2px 8px rgba(0, 0, 0, 0.3));
   transition: filter 0.2s;
 }
 
-.topbar.collapsed .topbar-brand img { filter: none; }
+.topbar.collapsed .topbar-brand img { filter: brightness(0) invert(1); }
 
 .topbar-brand .brand-name {
   /* IBM Plex Mono, matching the application's own wordmark
