@@ -29,6 +29,16 @@ re-recorded hashes rather than an edit to a published tag (#1042).
   apart on purpose: the store-listing icon, which needs a square tile and a
   `<title>`, and the three provider tiles.
 
+### Fixed
+
+- **The layer manifest no longer lists a directory the logo change deleted**
+  (#1046). `scripts/architecture/layers.conf` still classified the root
+  `assets/` directory after #1020 removed it, so `check-layer-manifest.sh`
+  failed (`manifest entry assets does not exist`) on the first pull request
+  that ran the gate against `main`. CI runs only on pull requests into
+  `release`, so nothing had asked the question between the merge and the
+  release candidate.
+
 ## [0.5.0] - 2026-10-03
 
 ### Added
