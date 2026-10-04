@@ -338,6 +338,69 @@ func TestARunOnAForcedCommandAccountIsRefusedRatherThanReportedAsSuccess(t *test
 	}
 }
 
+// TestARefusalThatFinishesBeforeThePayloadIsStillAnExecCapabilityRefusal is the
+// answer to a hosted failure that no single run reproduces.
+//
+// Two kinds of account never read the probe they are sent, and both end the
+// session under the client's payload write: an internal-sftp account prints
+// its banner and exits 1, and a forced-command account runs its own program
+// and exits 0. Whether the write lands before the close or after it is a
+// race, and when it lost, runOnce returned the write error and threw away
+// the status and output the server had already given, so the refusal was
+// reported as ErrTransportLoss ("writing the execution envelope to the exec
+// channel: EOF"): a caller was told the connection was broken, and an
+// operator was told nothing about the capability that is missing. It was
+// seen on a hosted run once for each kind, in two different tests.
+//
+// Many preflights, because the window is microseconds wide: each one is a
+// fresh session, and any one of them classifying the refusal as a lost
+// connection is the defect.
+func TestARefusalThatFinishesBeforeThePayloadIsStillAnExecCapabilityRefusal(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		answer func(t *testing.T, s *fakeSession)
+	}{
+		{"an SFTP-only account, which prints a banner and exits 1", func(t *testing.T, s *fakeSession) {
+			t.Helper()
+			s.Print(t, "This service allows sftp connections only.\n")
+			s.Exit(1)
+		}},
+		{"a forced-command account, which runs its own program and exits 0", func(t *testing.T, s *fakeSession) {
+			t.Helper()
+			s.Print(t, "forced-command-only: this account runs its own program\n")
+			s.Exit(0)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := startFakeSSHD(t, tc.answer)
+			client := connectTo(t, server)
+
+			const attempts = 400
+
+			lost := 0
+
+			for range attempts {
+				_, err := client.Preflight(t.Context(), []byte("printf 'the hook ran\\n'\n"))
+				if err == nil {
+					t.Fatal("the account passed the exec preflight")
+				}
+
+				if !errors.Is(err, ErrExecCapability) {
+					lost++
+
+					if lost == 1 {
+						t.Errorf("the refusal is not an ErrExecCapability, so a caller cannot tell it from a broken connection: %v", err)
+					}
+				}
+			}
+
+			if lost > 0 {
+				t.Errorf("%d of %d refusals were reported as something other than a capability refusal", lost, attempts)
+			}
+		})
+	}
+}
+
 // TestARunWithACapabilityForOtherBytesIsRefused is the other half of the
 // gate. A proof is about a specific script on a specific connection: the
 // syntax check that is part of it was run against those bytes, so honouring
