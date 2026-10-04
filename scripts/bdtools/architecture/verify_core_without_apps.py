@@ -109,7 +109,6 @@ from __future__ import annotations
 
 import os
 import sys
-import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -120,48 +119,34 @@ from bdtools import harness
 PROGRAM = "verify-core-without-apps"
 
 
-def go(args: list[str], module_dir: Path, tmpdir: Path) -> None:
+def go(args: list[str], module_dir: Path) -> None:
     """One `GOWORK=off go ...` inside the worktree, with its status kept.
 
     `capture=False` so the build's own output reaches the operator's
     terminal as it happens, exactly as the bash subshell's did; the
     status still travels, because `harness.sh` defaults to `check=True`.
-
-    Go's test directories live under a private path in the real checkout,
-    not the worktree's default `/tmp` parent. Workflow custody tests
-    correctly reject world-writable ancestors such as `/tmp`; that host
-    detail is unrelated to whether core depends on apps.
     """
     harness.sh(
         ["go", *args],
         cwd=module_dir,
         capture=False,
-        env={
-            **os.environ,
-            "GOWORK": "off",
-            "RETND_CORE_WITHOUT_APPS": "1",
-            "TMPDIR": str(tmpdir),
-        },
+        env={**os.environ, "GOWORK": "off", "RETND_CORE_WITHOUT_APPS": "1"},
     )
 
 
 def body(root: Path) -> int:
-    with (
-        arch.worktree(root) as tree,
-        tempfile.TemporaryDirectory(prefix=".retnd-core-without-apps.", dir=root) as tmp,
-    ):
+    with arch.worktree(root) as tree:
         if not (tree / "core").is_dir():
             print("FAIL: core/ module does not exist yet.", file=sys.stderr)
             return harness.EXIT_FAILED
 
         harness.sh(["rm", "-rf", str(tree / "apps")])
 
-        test_tmp = Path(tmp)
         print("==> go build ./... (core/, with apps/ deleted entirely)")
-        go(["build", "./..."], tree / "core", test_tmp)
+        go(["build", "./..."], tree / "core")
 
         print("==> go test ./... (core/, with apps/ deleted entirely)")
-        go(["test", "./..."], tree / "core", test_tmp)
+        go(["test", "./..."], tree / "core")
     print("OK: core/ builds and its full test suite passes with apps/ deleted entirely.")
     return harness.EXIT_OK
 

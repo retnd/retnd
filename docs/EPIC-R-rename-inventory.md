@@ -7,7 +7,7 @@ from (FR-40).
 
 **The finding this file exists to make unavoidable: the previous two renames did not
 finish, and this EPIC renames what they left behind as well.** Three brands' worth of
-identifiers are live in these two trees right now — `rclone-manager`'s
+identifiers are live in these two trees right now — `retnd`'s
 `RCLONE_MANAGER_*` and `RM_*` environment prefixes, `retnd`'s `bm_` cookies,
 and `retnd` itself. EPIC R takes all of them to `retnd`.
 
@@ -47,7 +47,7 @@ treats these as different patterns and conflating them would allowlist the wrong
 | `RM_[A-Z]` | 38 / 201 / 207 | 24 / 149 / 173 | **350** |
 | `backup_manager` *(ci)* | 37 / 112 / 127 | 1 / 1 / 1 | **113** |
 | `rclone_manager` *(ci)* | 19 / 48 / 53 | 0 / 0 / 0 | **48** |
-| `rclone-manager` *(ci)* | 17 / 27 / 27 | 3 / 3 / 3 | **30** |
+| `retnd` *(ci)* | 17 / 27 / 27 | 3 / 3 / 3 | **30** |
 | `retnd` *(ci)* | 4 / 8 / 8 | 1 / 2 / 2 | **10** |
 | `bm_[a-z]` | 13 / 51 / 53 | 6 / 20 / 20 | **71** |
 | `backup manager` *(ci, space)* | 3 / 3 / 3 | 0 / 0 / 0 | **3** |
@@ -86,7 +86,7 @@ R2.3 #893, R2.4 #894, R2.5 #895.
 | 16 | `@retnd/ui-shared`, `@retnd/provider-conformance` + two lockfiles | `@retnd/*` | main | 4 / 6 | **R2.4** | gated (workspace resolution) | An npm scope is a package name, not prose; nearly missed |
 | 17 | `retnd` in `retnd-tests`: `suites/{cli,web-ui,equivalence}`, fixtures, tools, `build-under-test.json` | `retnd` | tests | 153 / 527 | **R2.5** | gated their side | Lockstep with `tests-repo.pin`; their side lands first or the gate is red |
 | 18 | `retndproject` org + `retnd`/`retnd-tests` repo names, Pages origin, 4 `raw.githubusercontent.com` URLs, cosign/OIDC identity, absolute links | `retnd/retnd`, `retnd/retnd-tests`, `retnd.github.io/retnd` | both | 948 / 2,478 | **R2.5** | gated (release gate, Pages) | FR-41. Redirects cover git/web and preserve every `#N`; they do not cover the raw host, the registry path, Pages or the signing identity |
-| 19 | `rclone-manager`, `rclone_manager`, `retnd`, `backup_manager` as prose and identifiers | `retnd` | both | ~60 / ~190 | **R2.2** (prose), **R1.4** (identifiers), **R1.2** (guard lists) | guard, since #887 added the patterns | The unfinished half of two earlier renames. `CHANGELOG.md` and the dated `docs/design/` notes keep theirs |
+| 19 | `retnd`, `rclone_manager`, `retnd`, `backup_manager` as prose and identifiers | `retnd` | both | ~60 / ~190 | **R2.2** (prose), **R1.4** (identifiers), **R1.2** (guard lists) | guard, since #887 added the patterns | The unfinished half of two earlier renames. `CHANGELOG.md` and the dated `docs/design/` notes keep theirs |
 | 20 | `backup manager` with a space — incl. the filename `docs/design/Backup Manager.dc.html` | **unchanged** | main | 3 / 3 | **R1.2** (`preexisting`) | guard | A dated design record. Renaming it falsifies the record (checklist §5) |
 | 21 | `BM_[A-Z]`, `rbm_[a-z]` | **unchanged** | main | 1 / 4 | **R1.2** | gated | Self-test plants only. Zero real occurrences in either tree |
 | 22 | `ibm_signer.go` (rclone's own S3 backend, in `compliance.json` and `source-offer.md`) | **unchanged** | main | 2 / 5 | **R1.2** (lookalike control) | gated | The guard's original false-positive case, and still one |

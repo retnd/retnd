@@ -1450,9 +1450,9 @@ export function BackupSetWizardPage({ readOnly, firstRun = false, onFirstRunComp
                 </Choice>
                 <Choice
                   name="wizard-engine"
-                  title={ENGINE_COPY.kopia.name}
+                  title={ENGINE_COPY["kopia"].name}
                   wire="engine=kopia"
-                  detail={ENGINE_COPY.kopia.summary}
+                  detail={ENGINE_COPY["kopia"].summary}
                   checked={engine === "kopia"}
                   onChange={() => setEngine("kopia")}
                 >

@@ -200,7 +200,7 @@ function IncrementalConfiguration({
         <CellGrid>
           <Cell
             label="Engine"
-            value={ENGINE_COPY.kopia.name}
+            value={ENGINE_COPY["kopia"].name}
             wire="engine=kopia"
             tip="wizard.incremental.engine"
           />

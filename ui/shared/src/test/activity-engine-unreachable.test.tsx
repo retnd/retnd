@@ -2,7 +2,7 @@
  * Issue #795. The Activity page showing nothing on a real UGREEN NAS
  * because the web-ui container could not reach the engine container:
  *
- *     serve-ui: dial tcp: lookup rclone-manager: no such host
+ *     serve-ui: dial tcp: lookup retnd: no such host
  *
  * That is one deployment fault with TWO different shapes on the browser's
  * side, and the difference is the whole of why this file exists.

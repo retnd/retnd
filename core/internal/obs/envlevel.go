@@ -37,7 +37,7 @@ import (
 // Two DEPRECATED spellings of that shortcut are still read, both under
 // names this project used before (EPIC R, #885, FR-37): BACKUPD_DEBUG,
 // which is the name docs/deployment.md and the compose files named until
-// this rename, and RM_DEBUG, which is rclone-manager's (#794). Both are
+// this rename, and RM_DEBUG, which comes from the first product name (#794). Both are
 // still honoured so an upgrade does not silently turn a diagnosing
 // operator's logs back off, and each produces one deprecation notice per
 // process the first time it is read. RETND_DEBUG is the only spelling

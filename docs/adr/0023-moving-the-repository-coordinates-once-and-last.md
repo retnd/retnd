@@ -26,7 +26,7 @@ organisation `retndproject` holds exactly two repositories, `retnd`
 | `https://retndproject.github.io/retnd/` | `https://retnd.github.io/retnd/` |
 
 This is the third rename of this product, and the previous two are why this is
-an ADR rather than a checklist item: `rclone-manager` left `RM_` environment
+an ADR rather than a checklist item: `retnd` left `RM_` environment
 variables behind and `retnd` left `bm_` cookies behind, and four
 follow-up issues exist solely to finish work a rename had declared done.
 
@@ -165,7 +165,7 @@ permissions); branch-protection rules and the required-check list, which names
 jobs by name and is silently empty on a fresh repository; the Pages source and
 any custom domain; the label set, including `epic-r`, `R:phase-1` and
 `R:phase-2`; and both repository descriptions and topics, which SHALL say
-`retnd` — `retnd-tests`'s description still said `rclone-manager` two renames
+`retnd` — `retnd-tests`'s description still said `retnd` two renames
 later, which is this epic's thesis stated by the repository itself.
 
 **What the checklist actually found, on 2026-09-15.** Most of it carried over
