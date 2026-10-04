@@ -1,5 +1,9 @@
 /** Option 1a "Cycle" — the selected mark. A broken ring reads as a transfer
- *  cycle in progress and survives 16px. Colour comes from currentColor so the
+ *  cycle in progress and survives 16px. It is the `#mark` group of
+ *  docs/site/assets/logo.svg, the one logo file, drawn here in JSX because the app
+ *  paints it with the provider accent rather than the file's own scheme
+ *  colours; src/test/logo-geometry.test.tsx holds this geometry to the
+ *  file's, so the two cannot drift. Colour comes from currentColor so the
  *  provider accent token drives it with no per-provider asset.
  *
  *  `title` is the accessible name and nothing else. It used to be rendered
@@ -32,9 +36,9 @@ export function Logo({ size = 24, title }: { size?: number; title?: string }) {
 
 /** The wordmark beside the mark, and it is TYPE rather than art: it inherits
  *  `--font-mono` and the text tokens, so it themes with the surface it sits
- *  on and needs no asset per provider. The drawn lockup in
- *  `docs/assets/logo-*.svg` is the same name as geometry, for the places a
- *  font cannot be relied on; `docs/design/brand-assets.md` records that the
+ *  on and needs no asset per provider. The `#wordmark` group of
+ *  docs/site/assets/logo.svg is the same name as geometry, for the places a font
+ *  cannot be relied on; `docs/design/brand-assets.md` records that the
  *  two are deliberately different objects.
  *
  *  The trailing `d` carries the daemon accent, in the muted text tone. That
