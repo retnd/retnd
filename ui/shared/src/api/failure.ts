@@ -247,7 +247,7 @@ export function describeFailure(e: unknown, fallbackMessage: string): OperatorFa
  *
  * The reported deployment is the reason there is a difference worth
  * drawing. Its web-ui container could not resolve the engine's name
- * ("dial tcp: lookup rclone-manager: no such host"), so every /api/v1
+ * ("dial tcp: lookup retnd: no such host"), so every /api/v1
  * call was answered 502 by the proxy inside serve-ui with no body on it
  * at all, and the Activity page told the operator that the backup
  * service had returned something unexpected. It had returned nothing; it

@@ -170,9 +170,9 @@ and the container is never started, so the command never runs:
 
 ```
 docker image inspect --format '{{json .Config.Labels}}' <image>
-docker create --name bm <image> /retnd version
-docker cp bm:/licenses .
-docker rm bm
+docker create --name retnd-licenses <image> /retnd version
+docker cp retnd-licenses:/licenses .
+docker rm retnd-licenses
 ```
 
 That was not always true. The runtime stage used to copy the two binaries and

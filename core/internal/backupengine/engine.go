@@ -827,7 +827,7 @@ const (
 	// condition. Health returns it beside an error, and a caller that
 	// must decide whether to start a backup reads the error; a caller
 	// that must show an operator a status reads this.
-	HealthWarningUnreachable HealthWarningKind = "unreachable"
+	HealthWarningUnreachable HealthWarningKind = "repository_unreachable"
 
 	// HealthWarningEngineRetention means this repository's own stored
 	// retention policy still expires snapshots, and the correction this

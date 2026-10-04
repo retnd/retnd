@@ -238,7 +238,7 @@ narrowed it either way.
 `retnd#795` is the other half of the same page failing, and unlike #730 it
 is not an experiment: the cause was known before the rig was asked to
 reproduce it. The web-ui container could not resolve the engine —
-`dial tcp: lookup rclone-manager: no such host` — so `serve-ui` answered
+`dial tcp: lookup retnd: no such host` — so `serve-ui` answered
 every `/api/v1` call itself, 502 with no body on it, and the Activity page
 put nothing useful on screen.
 

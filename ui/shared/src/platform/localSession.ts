@@ -11,7 +11,7 @@
  *
  * which reads any refusal at all as "this browser is not signed in". On
  * the deployment #795 was reported from, the web-ui container could not
- * reach the engine ("dial tcp: lookup rclone-manager: no such host"), so
+ * reach the engine ("dial tcp: lookup retnd: no such host"), so
  * every /api/v1 call — this one included — was answered 502 by serve-ui's
  * own reverse proxy. An operator who reloaded the page was therefore told
  * they were signed out, which is a claim this frontend had no evidence
