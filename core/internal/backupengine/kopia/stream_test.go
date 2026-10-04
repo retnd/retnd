@@ -308,14 +308,6 @@ func assertNothingStaged(t *testing.T, root, repoDir string) {
 // "peak live heap stays far below the file size", and that is exactly what
 // HeapAlloc measures.
 func peakHeap(fn func()) uint64 {
-	return peakHeapEvery(20*time.Millisecond, fn)
-}
-
-// peakHeapEvery is peakHeap with the sampling interval chosen by the
-// caller. A coarse interval is right for a run measured in seconds; it is
-// wrong for one that finishes in tens of milliseconds, where whether a
-// transient allocation is seen at all depends on where the ticks fall.
-func peakHeapEvery(interval time.Duration, fn func()) uint64 {
 	var peak atomic.Uint64
 
 	stop := make(chan struct{})
@@ -342,7 +334,7 @@ func peakHeapEvery(interval time.Duration, fn func()) uint64 {
 				}
 			}
 
-			time.Sleep(interval)
+			time.Sleep(20 * time.Millisecond)
 		}
 	}()
 
