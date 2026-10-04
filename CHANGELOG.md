@@ -1086,7 +1086,7 @@
   under `go test`'s ten-minute per-package default, which the `kopia` package
   (a 2 GiB bounded-memory stream and a 200,000-entry namespace) outlasts on a
   hosted runner while every test in it passes, so the hosted workflow, the rclone
-  upgrade gate and `scripts/ci-local.sh` all pass `-timeout 30m`.
+  upgrade gate and `scripts/ci-local.sh` all pass `-timeout 45m`.
   `TestCancellingMidEnumerationStopsPromptlyAndLeaksNothing` asserted a goroutine
   delta of exactly zero and failed on -2 when other goroutines wound down during
   it; only a positive delta is a leak. The verification heap-bound test read
@@ -1111,6 +1111,19 @@
   demand). And the unverified-recovery banner test asserted on an element
   `findByText` had returned before the banner re-rendered, which it now retries
   until the banner settles.
+
+  The third run reached the last test in the `kopia` package that had never
+  finished on a hosted runner, and it too judged by the clock: a cancelled
+  verification of a 200,000-entry directory had to return within the cancel point
+  plus half the full walk. The directory's manifest is decoded whole by one vendor
+  call before the first object, no context reaches into it, and it is 46% of the
+  walk on a workstation and up to 77% on a hosted runner, so the test failed a run
+  that had resolved one object of 200,001. It now asserts what a late-noticing
+  walk cannot hide, that no more than a tenth of the objects were resolved after
+  a cancel a tenth of the way in, and was watched to fail (200,001 of 200,001)
+  with the per-entry cancellation check disabled. The `-race` step's package
+  timeout is 45 minutes rather than 30, because that package alone took 22 of them
+  on the hosted runner.
 
 - **The docs-site capture tooling works again, in four separate places** (#817).
   Nothing in this repository checks that the scripts which take the
