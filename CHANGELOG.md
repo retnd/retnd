@@ -1091,14 +1091,26 @@
   delta of exactly zero and failed on -2 when other goroutines wound down during
   it; only a positive delta is a leak. The verification heap-bound test read
   either about 0 or about 26 MB of "growth" from the tree walker's fixed
-  already-seen set depending on where a 20 ms sampler tick fell; it samples every
-  millisecond and takes the lowest of three runs, and was watched to fail again
-  by 34 to 82 MB when `blob.ReadBlobMap` is held live during a verification.
+  already-seen set depending on where a 20 ms sampler tick fell, and sampling more
+  finely only moved the problem to a faster runner, which finished the small
+  verification between ticks every time. It now measures bytes allocated, which is
+  cumulative and cannot fall between ticks, and was watched to fail by about 69 MB,
+  the same each run, when `blob.ReadBlobMap` is held live during a verification.
   Finally, the `ui/shared` page tests waited on Testing Library's one-second
   `findBy` default and Vitest's five-second test limit for pages that enter edit
   mode through two 180 ms mock calls under real stylesheets, so thirteen of them
   failed under load with "Unable to find role button SAVE ALL & EXIT EDIT";
   those ceilings are now five and twenty seconds.
+
+  The second hosted run found two more races. The host runner forgot a finished
+  step only after writing its result, so a cancel sent the moment a client saw
+  that result was answered as a success for a step that had already reported,
+  where every other step it is not running is `not_found`; it now forgets the step
+  before the write, and a test holds the server inside the write to prove it (it
+  fails against the old order every time, where a loop could not reproduce it on
+  demand). And the unverified-recovery banner test asserted on an element
+  `findByText` had returned before the banner re-rendered, which it now retries
+  until the banner settles.
 
 - **The docs-site capture tooling works again, in four separate places** (#817).
   Nothing in this repository checks that the scripts which take the
