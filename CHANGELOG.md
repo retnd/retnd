@@ -1089,7 +1089,10 @@
   upgrade gate and `scripts/ci-local.sh` all pass `-timeout 45m`.
   `TestCancellingMidEnumerationStopsPromptlyAndLeaksNothing` asserted a goroutine
   delta of exactly zero and failed on -2 when other goroutines wound down during
-  it; only a positive delta is a leak. The verification heap-bound test read
+  it; only a positive delta that persists is a leak, so that test and
+  `TestEnumerationMemoryDoesNotScaleWithEntryCount` (which read +1 with nothing
+  leaked) now settle the count over a short window instead of reading it once.
+  The verification heap-bound test read
   either about 0 or about 26 MB of "growth" from the tree walker's fixed
   already-seen set depending on where a 20 ms sampler tick fell, and sampling more
   finely only moved the problem to a faster runner, which finished the small
@@ -1112,7 +1115,7 @@
   `findByText` had returned before the banner re-rendered, which it now retries
   until the banner settles.
 
-  The third run reached the last test in the `kopia` package that had never
+  The third run reached a test in the `kopia` package that had never
   finished on a hosted runner, and it too judged by the clock: a cancelled
   verification of a 200,000-entry directory had to return within the cancel point
   plus half the full walk. The directory's manifest is decoded whole by one vendor
