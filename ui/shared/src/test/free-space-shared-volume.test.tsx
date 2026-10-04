@@ -85,7 +85,7 @@ const WIRE_HEALTH = {
 const VOLUME: ManagerStorage = {
   known: true,
   unknownReason: "",
-  measuredPath: "/home/rom/rclone-manager/backups",
+  measuredPath: "/home/rom/retnd/backups",
   totalBytes: VOLUME_TOTAL,
   freeBytes: VOLUME_FREE,
   availableBytes: VOLUME_FREE,
@@ -165,7 +165,7 @@ async function sharedVolumeSets(): Promise<BackupSet[]> {
       set: i === 0 ? "home-nightly" : "home-weekly",
       name: i === 0 ? "Home nightly" : "Home weekly",
       state: "healthy",
-      destination: "/home/rom/rclone-manager/backups/",
+      destination: "/home/rom/retnd/backups/",
       readOnly: false,
       readOnlyRetainedCount: 0
     };

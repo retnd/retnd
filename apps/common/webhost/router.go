@@ -176,7 +176,7 @@ func DebugEnabled() bool { return envLogLevel() == slog.LevelDebug }
 // Two DEPRECATED spellings are still read, each under a name this
 // project used before (EPIC R, #885, FR-37): BACKUPD_DEBUG, the name
 // this shortcut had until the rename to retnd, and RM_DEBUG,
-// rclone-manager's (#794). Both are still honoured so an upgrade does
+// the first product name's (#794). Both are still honoured so an upgrade does
 // not silently turn a diagnosing operator's logs back off, and
 // core/envcompat ranks them behind the current name and prints one
 // deprecation notice per name per process.

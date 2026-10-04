@@ -244,7 +244,7 @@ bash scripts/format/check-gofmt.sh
 
 # No new old-brand identifier, over every tracked source file (#794, #887).
 # This project is on its third name, and both previous ones left runtime
-# identifiers behind: rclone-manager's RM_ and RCLONE_MANAGER_ environment
+# identifiers behind: the first product name's RM_ and RCLONE_MANAGER_ environment
 # variables and retnd's bm_ cookies and BACKUP_MANAGER_ variables.
 # #794 renamed some of them to BACKUPD_ / retnd_, and EPIC R (#885) is
 # renaming the whole `retnd` family to `retnd`; #887 pointed this guard at
@@ -293,7 +293,7 @@ bash scripts/format/check-gofmt.sh
 # docs/conformance/epic-r-matrix.md. scripts/brand/selftest.sh is the proof
 # these two can still fail, and it plants exactly the two violations FR-44
 # names.
-gate_step "no new RM_/BM_/bm_/rbm_/retnd/retndproject/rclone-manager/retnd identifier, no brand asset unaccounted for or carrying a text node, and all three of those guards can still fail (#794, #887, #893)"
+gate_step "no new RM_/BM_/bm_/rbm_/retnd/retndproject/rclone[-_ ]manager/retnd identifier, no brand asset unaccounted for or carrying a text node, and all three of those guards can still fail (#794, #887, #893)"
 bash scripts/rename/check-brand-drift.sh
 bash scripts/rename/selftest.sh
 bash scripts/brand/check-svg-text.sh

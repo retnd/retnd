@@ -1069,6 +1069,15 @@
 
 ### Fixed
 
+- **The 0.5.0 release gate now exercises the intended test tiers** (#1017).
+  Security-sensitive workflow fixtures are created under a secure checkout
+  path, repository-wide source scans recognize the deliberately incomplete
+  core-only worktree, and the SFTP container proof lives in the machine tier
+  rather than an internal unit package. The same release audit completed the
+  retired first-product-name text sweep and names the documented licence-copy
+  container `retnd-licenses`; shipped compose projects and image references
+  remain under `retnd`.
+
 - **The docs-site capture tooling works again, in four separate places** (#817).
   Nothing in this repository checks that the scripts which take the
   documentation site's screenshots and clips still run, and by the time EPIC L
@@ -1190,7 +1199,7 @@
 
 - **A deployment whose engine is unreachable says so, on every surface that
   meets it** (#795). The web-ui container on a reported NAS could not resolve
-  the engine (`dial tcp: lookup rclone-manager: no such host`), and the
+  the engine (`dial tcp: lookup retnd: no such host`), and the
   Activity page showed nothing. One fault, and three places turned it into
   something other than what it was.
 
@@ -1513,7 +1522,7 @@
 - **A licence that names this product and its copyright holder, and a
   contributor agreement** (#685). `LICENSE`'s appendix, `NOTICE` and
   `compliance.json` all said *Backup Manager*, in the one file a redistributor
-  reads to find out what they have; the product is rclone-manager and the
+  reads to find out what they have; the product is retnd and the
   holder is Roman Goldmann. Both artifacts are regenerated from
   `compliance.json` rather than hand-edited, and the Apache-2.0 body itself is
   untouched — only the appendix's copyright line was ever ours to write.
