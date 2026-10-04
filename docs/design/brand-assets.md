@@ -28,23 +28,17 @@ user-unit coordinate system.
 
 | Asset | Sizes | Source | Embedded / referenced at |
 | --- | --- | --- | --- |
-| `assets/logo-mark.svg` | `viewBox 0 0 48 48` | drawn | export source for `docs/assets/logo-mark-256.png` and `docs/assets/logo-mark-640x320.png` |
-| `docs/assets/logo-light.svg` | `viewBox 0 0 122.2 48` | drawn | `README.md`, `width="175"`, the light-scheme `<img>` |
-| `docs/assets/logo-dark.svg` | `viewBox 0 0 122.2 48` | drawn | `README.md`, the `prefers-color-scheme: dark` `<source>` |
-| `docs/assets/logo-mark-256.png` | 256×256, safe-area framing | `assets/logo-mark.svg` | nothing in-tree: it exists for use outside the repository |
-| `docs/assets/logo-mark-640x320.png` | 640×320, bleed framing | `assets/logo-mark.svg` | nothing in-tree: social-card proportions, for use outside the repository |
-| `docs/site/assets/icon.svg` | `viewBox 0 0 48 48` | drawn | `<link rel="icon">` on all six `docs/site/*.html`; export source for the site favicons |
-| `docs/site/assets/logo-mark-light.svg` | `viewBox 0 0 48 48` | drawn | the hero `<img>` on all six `docs/site/*.html`; export source for both `apple-touch-icon.png` |
-| `docs/site/assets/favicon.ico` | 16×16, 32×32, 48×48 | `docs/site/assets/icon.svg` | `<link rel="icon" type="image/x-icon">` on all six `docs/site/*.html` |
-| `docs/site/assets/favicon-16.png` | 16×16 | `docs/site/assets/icon.svg` | `<link rel="icon" sizes="16x16">` on all six `docs/site/*.html` |
-| `docs/site/assets/favicon-32.png` | 32×32 | `docs/site/assets/icon.svg` | `<link rel="icon" sizes="32x32">` on all six `docs/site/*.html` |
-| `docs/site/assets/apple-touch-icon.png` | 180×180 | `docs/site/assets/logo-mark-light.svg` | `<link rel="apple-touch-icon">` on all six `docs/site/*.html` |
-| `ui/shared/public/icon.svg` | `viewBox 0 0 48 48` | drawn | the in-app mark; `apps/unraid/frontend/webui.json`; `distribution/packaging`'s store-icon control reads it |
-| `ui/shared/public/favicon.svg` | `viewBox 0 0 48 48` | drawn | `ui/shared/index.html`; export source for the app favicons |
-| `ui/shared/public/favicon.ico` | 16×16, 32×32, 48×48 | `ui/shared/public/favicon.svg` | `ui/shared/index.html` |
-| `ui/shared/public/favicon-16.png` | 16×16 | `ui/shared/public/favicon.svg` | `ui/shared/index.html` |
-| `ui/shared/public/favicon-32.png` | 32×32 | `ui/shared/public/favicon.svg` | `ui/shared/index.html` |
-| `ui/shared/public/apple-touch-icon.png` | 180×180 | `docs/site/assets/logo-mark-light.svg` | `ui/shared/index.html` |
+| `docs/site/assets/logo.svg` | `viewBox 0 0 122.2 48`; `#mark` `0 0 48 48`; `#wordmark` ink `58.5 14.5 59.2 19` | drawn | **the one logo.** `README.md`, `width="175"`; the `#mark` square of it as the topbar `<img>` on all six `docs/site/*.html` (an SVG view fragment, see **One file, three jobs**); `apps/unraid/frontend/webui.json`; the source every raster below is exported from |
+| `docs/assets/logo-mark-256.png` | 256×256, safe-area framing | `docs/site/assets/logo.svg` | nothing in-tree: it exists for use outside the repository |
+| `docs/assets/logo-mark-640x320.png` | 640×320, bleed framing | `docs/site/assets/logo.svg` | nothing in-tree: social-card proportions, for use outside the repository |
+| `docs/site/assets/favicon.ico` | 16×16, 32×32, 48×48 | `docs/site/assets/logo.svg` | `<link rel="icon" type="image/x-icon">` on all six `docs/site/*.html` |
+| `docs/site/assets/favicon-16.png` | 16×16 | `docs/site/assets/logo.svg` | `<link rel="icon" sizes="16x16">` on all six `docs/site/*.html` |
+| `docs/site/assets/favicon-32.png` | 32×32 | `docs/site/assets/logo.svg` | `<link rel="icon" sizes="32x32">` on all six `docs/site/*.html` |
+| `docs/site/assets/apple-touch-icon.png` | 180×180 | `docs/site/assets/logo.svg` | `<link rel="apple-touch-icon">` on all six `docs/site/*.html` |
+| `ui/shared/public/favicon.ico` | 16×16, 32×32, 48×48 | `docs/site/assets/logo.svg` | `ui/shared/index.html` |
+| `ui/shared/public/favicon-16.png` | 16×16 | `docs/site/assets/logo.svg` | `ui/shared/index.html` |
+| `ui/shared/public/favicon-32.png` | 32×32 | `docs/site/assets/logo.svg` | `ui/shared/index.html` |
+| `ui/shared/public/apple-touch-icon.png` | 180×180 | `docs/site/assets/logo.svg` | `ui/shared/index.html` |
 | `docs/submission/icon.svg` | `viewBox 0 0 256 256` | drawn | the store-listing icon for **all eleven** providers: `distribution/packaging/submission.json`'s `materials-icon`, the six `docs/submission/*.md` material tables, `apps/truenas/catalog/app.yaml`, and both `apps/unraid/template/*.xml` `<Icon>` URLs |
 | `apps/casaos/icon.svg` | `viewBox 0 0 64 64` | drawn | `apps/casaos/compose/retnd.yml`'s `x-casaos` icon URL; `distribution/packaging/compliance.json` |
 | `apps/zimaos/icon.svg` | `viewBox 0 0 64 64` | drawn | `apps/zimaos/compose/retnd.yml`'s `x-casaos` icon URL; `distribution/packaging/compliance.json` |
@@ -64,10 +58,60 @@ user-unit coordinate system.
 | `docs/design/ssh-auth-wizard.png` | export of its `.html` | dated design note | record only |
 | `docs/site/screens/` | 35 PNG, 20 GIF, 11 superseded | `docs/site/tools/capture-*.mjs` | the six `docs/site/*.html` pages. The one **directory row** in this table: these are product captures re-recorded by committed tooling and gated by the site half of #893, not art anybody hand-maintains, and 66 per-file rows would go stale on the next recording |
 
+## One file, three jobs
+
+`docs/site/assets/logo.svg` replaced seven SVGs: a light and a dark lockup, and five separate
+drawings of the mark (the export source, two favicon sources, the white hero copy and the
+in-app icon). They had drifted apart in small ways, for instance two different blues for
+"the mark", and now there is one file doing all of their jobs. It was reworked the way the
+reses logo was, and each change answers one of the three things it has to do:
+
+- **It adapts.** Nothing inside `<defs>` has a colour of its own: every shape paints with
+  `currentColor`. Two theme groups at the bottom of the file set `color` from
+  `prefers-color-scheme` (mark `#446b9c` / `#ffffff`, wordmark `#191a19` / `#eceeeb`), so
+  the default render follows the reader's scheme and whoever instantiates a part can
+  recolour it by setting `color` on the way in.
+- **It scales.** Every shape is a path or circle stroked in the mark's own 48-unit grid, so
+  a stroke grows with the artwork. No `vector-effect="non-scaling-stroke"`, no raster, no
+  font. Unlike the reses logo it needs no mask: that file drew its gaps with opaque white
+  knockout silhouettes, which a dark ground shows, and masks fixed it; this mark's gap is
+  a dash in a stroke, which is transparent already.
+- **It splits.** `<defs>` holds `#mark` and `#wordmark`, both in the lockup's coordinates.
+  A consumer takes one by giving its own `<svg>` the part's box and instantiating it:
+
+  ```html
+  <svg viewBox="0 0 48 48" style="color:#fff"><use href="logo.svg#mark"/></svg>
+  <svg viewBox="58.5 14.5 59.2 19" style="color:#191a19"><use href="logo.svg#wordmark"/></svg>
+  ```
+
+  Where the consumer is an `<img>` and cannot instantiate anything, the site topbar uses
+  an SVG view fragment, `logo.svg#svgView(viewBox(0,0,48,48))`, which shows the left 48
+  units and nothing else. The raster exporter does the same cut with a stylesheet and a
+  crop (`scripts/brand/export-rasters.sh`).
+
+### Where it lives, and why it is under `docs/site/`
+
+`docs/site/assets/logo.svg`, not a repository-level `assets/`. `.github/workflows/pages.yml`
+publishes `docs/site` and nothing else, so a logo outside that tree is one the site's own
+pages cannot reach on the published origin: `../../assets/logo.svg` resolves from a
+checkout and is a 404 from Pages. A copy inside the tree would be a second logo, which is
+the thing this file replaced seven of. Inside it, the file is also covered by that
+workflow's `docs/site/**` trigger, so changing the logo redeploys the site that shows it.
+`README.md`, the app and the Unraid manifest reference it by its repository path.
+
+### Where the one logo is deliberately not used
+
+- **`docs/submission/icon.svg`**, the store-listing tile for all eleven providers. A
+  listing needs a square 256 tile with a `<title>`, and `distribution/packaging`'s
+  `CheckStoreIcon` refuses the logo on exactly those grounds (a test holds that). A
+  listing is also a background this file cannot see, which is where a scheme-driven
+  default goes wrong.
+- **`apps/casaos/icon.svg`, `apps/zimaos/icon.svg`, `apps/portainer/logo.svg`**, below.
+
 ## Re-exporting
 
-`scripts/brand/export-rasters.sh` regenerates every raster row above from the
-four SVG sources. It is idempotent: run it against an unchanged tree and
+`scripts/brand/export-rasters.sh` regenerates every raster row above from the one
+SVG source. It is idempotent: run it against an unchanged tree and
 `git status` stays clean.
 
 Three framings, measured off the committed PNGs before they were replaced so
@@ -143,10 +187,12 @@ coordinate system:
   mark's own inset on the left. `README.md`'s `width` went from 240 to 175,
   which is the width that renders the mark at exactly the size it was before.
 - **The accent stayed on the `d`.** The previous name ended in `d` and so does
-  this one, so the two-tone split needed no letter reassignment: `d` is painted
-  `#8b8d8a` on light and `#767976` on dark, the same two values as before, and
-  `retn` carries the full-strength tone. Keeping the tones unchanged was
-  deliberate — the re-fit changes the geometry and only the geometry.
+  this one, so the two-tone split needed no letter reassignment. The tone is now
+  the wordmark's own ink at half strength (`stroke-opacity .5` on that one path)
+  rather than a second fixed colour, so it stays a muted version of whatever the
+  wordmark is set in once it is split out and recoloured. Measured against the two
+  values it replaces it lands within two units per channel: `#8b8d8a` on white
+  renders as (139, 140, 139) and `#767976` on black as (118, 119, 117).
 
 `docs/design/893-16px-wordmark-or-monogram.html` is the dated note for the one
 decision FR-44 names explicitly: at 16 px the favicon is the **mark**, not the
@@ -183,9 +229,11 @@ accounted for, and their row says `record only`.
   `--font-mono` with the trailing `d` in the muted text token — the same split,
   in the same order, as the drawn lockup, but rendered by the reader's font
   rather than by path data. That is intentional: those two surfaces theme with
-  the provider accent and must not carry an asset per provider. It does mean
-  the drawn lockup and the in-product lockup are different objects that happen
-  to agree, and nothing automated holds them to each other.
+  the provider accent and must not carry an asset per provider. The in-app
+  `Logo` mark is the same ring as `#mark`, drawn in JSX so `--accent` can colour
+  it, and a test holds its geometry to the file's. The wordmark and the drawn
+  one are different objects that happen to agree, and nothing automated holds
+  them to each other.
 
 ## Human acceptance (FR-44)
 

@@ -9,10 +9,11 @@ from: every screen, both themes, every provider treatment and the risk states.
 when the two disagree.
 
 `Logo Options.dc.html` is the logo exploration. **Option 1a, "Cycle", is the one
-that was selected**, and it ships as `ui/shared/public/icon.svg`, tinted by
-`--accent` so no provider carries an asset of its own. That sentence is the only
-record of which option won, so it lives here rather than in a pull request
-somebody has to go and find.
+that was selected**, and it ships as the `#mark` group of `docs/site/assets/logo.svg`, the
+one logo file (the in-app `Logo` component draws the same ring in `--accent`, so no
+provider carries an asset of its own). That sentence is the only record of which
+option won, so it lives here rather than in a pull request somebody has to go and
+find.
 
 The `*.html` files with a matching `*.png` are per-issue design notes: one screen
 or one interaction, the reasoning next to the picture, dated by the issue that

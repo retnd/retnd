@@ -622,15 +622,18 @@ func TestStoreIconRuleRefusesAnInAppMark(t *testing.T) {
 		}
 	}
 
-	// The shipped in-app mark is the case that motivated this rule, and
-	// it is still the right file for the shell: this asserts the two are
-	// genuinely different files rather than one file nobody checked.
-	inApp, err := os.ReadFile(Path("ui/shared/public/icon.svg"))
+	// The product's one logo is the case that motivated this rule, and it
+	// is still the right file for everything but a store listing: this
+	// asserts the two are genuinely different files rather than one file
+	// nobody checked. The logo is a 122.2 x 48 lockup that names itself on
+	// aria-label and carries no <title>, and a listing needs a square tile
+	// with one.
+	logo, err := os.ReadFile(Path("docs/site/assets/logo.svg"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v := CheckStoreIcon("ui/shared/public/icon.svg", string(inApp), 256); len(v) == 0 {
-		t.Error("the in-app mark passes the store-icon rule, which means the rule no longer distinguishes the two")
+	if v := CheckStoreIcon("docs/site/assets/logo.svg", string(logo), 256); len(v) == 0 {
+		t.Error("the product logo passes the store-icon rule, which means the rule no longer distinguishes the two")
 	}
 }
 
