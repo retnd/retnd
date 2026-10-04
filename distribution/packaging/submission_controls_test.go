@@ -335,7 +335,7 @@ func TestImageTagUnderstandsEveryFloatingForm(t *testing.T) {
 const canonicalCompose = `
 services:
   retnd:
-    image: ghcr.io/retnd/retnd:0.5.0
+    image: ghcr.io/retnd/retnd:0.5.1
     command: ["/retnd-web", "serve"]
     user: "568:568"
     read_only: true
@@ -352,7 +352,7 @@ services:
       - "/host/id_ed25519:/etc/retnd/id_ed25519:ro"
       - "/host/known_hosts:/etc/retnd/known_hosts:ro"
   retnd-ui:
-    image: ghcr.io/retnd/retnd:0.5.0
+    image: ghcr.io/retnd/retnd:0.5.1
     command: ["/retnd-web", "serve-ui"]
     user: "568:568"
     read_only: true
@@ -403,7 +403,7 @@ func TestEveryDriftElementFailsOnADeliberateMismatch(t *testing.T) {
 		{
 			capability: "drift-image-reference",
 			provider:   "truenas",
-			mutate:     func(s string) string { return strings.ReplaceAll(s, "retnd:0.5.0", "retnd:9.9.9") },
+			mutate:     func(s string) string { return strings.ReplaceAll(s, "retnd:0.5.1", "retnd:9.9.9") },
 			wants:      "9.9.9",
 		},
 		{
@@ -622,15 +622,18 @@ func TestStoreIconRuleRefusesAnInAppMark(t *testing.T) {
 		}
 	}
 
-	// The shipped in-app mark is the case that motivated this rule, and
-	// it is still the right file for the shell: this asserts the two are
-	// genuinely different files rather than one file nobody checked.
-	inApp, err := os.ReadFile(Path("ui/shared/public/icon.svg"))
+	// The product's one logo is the case that motivated this rule, and it
+	// is still the right file for everything but a store listing: this
+	// asserts the two are genuinely different files rather than one file
+	// nobody checked. The logo is a 122.2 x 48 lockup that names itself on
+	// aria-label and carries no <title>, and a listing needs a square tile
+	// with one.
+	logo, err := os.ReadFile(Path("docs/site/assets/logo.svg"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v := CheckStoreIcon("ui/shared/public/icon.svg", string(inApp), 256); len(v) == 0 {
-		t.Error("the in-app mark passes the store-icon rule, which means the rule no longer distinguishes the two")
+	if v := CheckStoreIcon("docs/site/assets/logo.svg", string(logo), 256); len(v) == 0 {
+		t.Error("the product logo passes the store-icon rule, which means the rule no longer distinguishes the two")
 	}
 }
 

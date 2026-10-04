@@ -72,7 +72,7 @@ services:
   # scheduler in one process. Holds the state database and the
   # credentials, and publishes no port at all.
   retnd:
-    image: ghcr.io/retnd/retnd:0.5.0
+    image: ghcr.io/retnd/retnd:0.5.1
     command: ["/retnd-web", "serve", "--profile=generic"]
 
     user: "1000:1000"
@@ -230,7 +230,7 @@ services:
   # engine. The only container with a published port, and the app CasaOS
   # opens when the tile is clicked.
   web-ui:
-    image: ghcr.io/retnd/retnd:0.5.0
+    image: ghcr.io/retnd/retnd:0.5.1
     command: ["/retnd-web", "serve-ui", "--profile=generic"]
 
     depends_on:

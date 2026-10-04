@@ -204,7 +204,7 @@ profile and must not be changed.
 
 ## The image reference
 
-`ghcr.io/retnd/retnd:0.5.0` is the reference every package here
+`ghcr.io/retnd/retnd:0.5.1` is the reference every package here
 carries. `distribution/packaging/canonical.json` and
 `container/release-manifest.json` jointly record whether it has been published:
 `image.published: true` requires an index digest and one registry digest per

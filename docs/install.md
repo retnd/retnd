@@ -20,7 +20,7 @@ python3 scripts/install/install_docker_host.py install \
     --prefix /volume1/retnd \
     --ssh-key /volume1/retnd/secrets/id_ed25519 \
     --known-hosts /volume1/retnd/secrets/known_hosts \
-    --image ghcr.io/retnd/retnd:0.5.0
+    --image ghcr.io/retnd/retnd:0.5.1
 ```
 
 **One file, and no checkout.** Copy
@@ -249,9 +249,9 @@ Preflight prints the reference it is about to install before anything is created
 and then proves it:
 
 ```
-  ok   installing ghcr.io/retnd/retnd:0.5.0
-  ok   ghcr.io/retnd/retnd:0.5.0 is sha256:..., the identity the release
-       manifest records for 0.5.0
+  ok   installing ghcr.io/retnd/retnd:0.5.1
+  ok   ghcr.io/retnd/retnd:0.5.1 is sha256:..., the identity the release
+       manifest records for 0.5.1
 ```
 
 A registry tag is a mutable pointer, which `scripts/release/publish-image.sh` says
@@ -268,18 +268,18 @@ it is pushed. During that window the manifest records `index_digest: null`, the
 installer carries no digest, and preflight prints this instead:
 
 ```
-  ok   installing ghcr.io/retnd/retnd:0.5.0
-  !!   0.5.0 is cut and not pushed, so container/release-manifest.json records no
+  ok   installing ghcr.io/retnd/retnd:0.5.1
+  !!   0.5.1 is cut and not pushed, so container/release-manifest.json records no
        identity for it and there is nothing here to hold
-       ghcr.io/retnd/retnd:0.5.0 to.
+       ghcr.io/retnd/retnd:0.5.1 to.
 ```
 
-That warning is never a refusal. Copying 0.4.0's digest forward would compare a
-correct 0.5.0 image against the previous release's identity and reject it. After
-the release workflow pushes 0.5.0, its `merge-back-to-main` job reads the index
+That warning is never a refusal. Copying 0.5.0's digest forward would compare a
+correct 0.5.1 image against the previous release's identity and reject it. After
+the release workflow pushes 0.5.1, its `merge-back-to-main` job reads the index
 digest from GHCR, updates the manifest and this installer together, regenerates
 provenance and runs the consistency suites before pushing the record to `main`.
-Until that automated commit lands, `--release 0.4.0` installs the last release
+Until that automated commit lands, `--release 0.5.0` installs the last release
 this candidate installer can prove, or `--image-archive` installs a build you
 made yourself.
 
