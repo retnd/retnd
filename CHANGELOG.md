@@ -1089,7 +1089,10 @@
   upgrade gate and `scripts/ci-local.sh` all pass `-timeout 45m`.
   `TestCancellingMidEnumerationStopsPromptlyAndLeaksNothing` asserted a goroutine
   delta of exactly zero and failed on -2 when other goroutines wound down during
-  it; only a positive delta is a leak. The verification heap-bound test read
+  it; only a positive delta that persists is a leak, so that test and
+  `TestEnumerationMemoryDoesNotScaleWithEntryCount` (which read +1 with nothing
+  leaked) now settle the count over a short window instead of reading it once.
+  The verification heap-bound test read
   either about 0 or about 26 MB of "growth" from the tree walker's fixed
   already-seen set depending on where a 20 ms sampler tick fell, and sampling more
   finely only moved the problem to a faster runner, which finished the small
@@ -1112,7 +1115,7 @@
   `findByText` had returned before the banner re-rendered, which it now retries
   until the banner settles.
 
-  The third run reached the last test in the `kopia` package that had never
+  The third run reached a test in the `kopia` package that had never
   finished on a hosted runner, and it too judged by the clock: a cancelled
   verification of a 200,000-entry directory had to return within the cancel point
   plus half the full walk. The directory's manifest is decoded whole by one vendor
@@ -1124,6 +1127,21 @@
   with the per-entry cancellation check disabled. The `-race` step's package
   timeout is 45 minutes rather than 30, because that package alone took 22 of them
   on the hosted runner.
+
+- **An exec refusal is always reported as a refusal** (#1029). When a remote
+  workflow hook is configured over an account whose server answers an exec
+  request with "This service allows sftp connections only." and exits 1 (an
+  internal-sftp account), or runs its own program and exits 0 (a forced-command
+  account), the server never reads the probe it was sent, so the client's write
+  of that probe could fail on the refusal's own ending, and the refusal was
+  reported as a lost connection (`writing the execution envelope to the exec
+  channel: EOF`) instead of naming the missing capability. About half of the
+  refusals took that path against a fast server, and a hosted run saw it once for
+  each kind of account. The probe now reads the exit status the server already
+  gave, 0 included, and reports the refusal as the capability error it is; a
+  write that fails with no such answer, or with the probe's marker already
+  printed, still fails the session, because a probe that ran over a prefix of its
+  payload proves nothing.
 
 - **The docs-site capture tooling works again, in four separate places** (#817).
   Nothing in this repository checks that the scripts which take the
