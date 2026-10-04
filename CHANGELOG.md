@@ -700,6 +700,24 @@
 
 ### Changed
 
+- **There is one retnd logo, and it adapts** (#1019). The logo used to be seven
+  SVGs: a light and a dark lockup, and five separate drawings of the mark (two of
+  them in different blues). It is now `docs/site/assets/logo.svg`, built the way the
+  reses logo was: every shape paints with `currentColor`, two theme groups set the
+  colour from `prefers-color-scheme`, every stroke is in the mark's own grid so it
+  scales without a hairline or a font, and `#mark` and `#wordmark` are separate
+  groups in `<defs>` so a consumer can take either one. The muted `d` is the
+  wordmark's own ink at half strength instead of a second fixed colour, so it stays
+  muted when the wordmark is recoloured. The README, all six docs-site pages (whose
+  topbar cuts the mark out of the same file with an SVG view fragment), the app's
+  favicon links and the Unraid manifest point at it, and
+  `scripts/brand/export-rasters.sh` now derives every favicon, touch icon and social
+  PNG from it, pixel-for-pixel what was shipped. That script was also not byte-stable
+  between runs (ImageMagick stamped a time into each PNG), which it now is. The file
+  sits inside `docs/site/` because that is all the Pages workflow publishes. Kept
+  apart on purpose: the store-listing icon, which needs a square tile and a
+  `<title>`, and the three provider tiles.
+
 - **The repository coordinates moved, and EPIC R is finished** (EPIC R #885,
   R2.5 #895, FR-41, ADR 0023). The organisation `retndproject` became
   `retnd` on 2026-09-15: `retndproject/retnd` is `retnd/retnd` and
