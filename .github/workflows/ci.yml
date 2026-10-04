@@ -115,14 +115,14 @@ jobs:
         # this file job for job, and a mirror that runs a weaker check
         # than the thing it mirrors is worse than no mirror.
         #
-        # -timeout 30m, because go test's default of 10m is per PACKAGE
+        # -timeout 45m, because go test's default of 10m is per PACKAGE
         # binary and core/internal/backupengine/kopia alone (a 2 GiB
         # bounded-memory stream, a 200,000-entry namespace stored and
         # verified, each under the race detector) outlasts it on a hosted
         # runner while every one of its tests is passing. The timeout is
         # a hang detector here, not a performance budget; the budgets are
         # asserted by the tests themselves.
-        run: go test -race -timeout 30m ./...
+        run: go test -race -timeout 45m ./...
 
   apps-common-build-vet-test:
     name: apps/common build, vet, test
