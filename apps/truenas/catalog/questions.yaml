@@ -37,7 +37,7 @@ questions:
           schema:
             type: string
             required: true
-            default: "ghcr.io/retnd/retnd:0.5.0"
+            default: "ghcr.io/retnd/retnd:0.5.1"
 
   - variable: storage
     label: Storage
