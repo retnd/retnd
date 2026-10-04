@@ -38,6 +38,10 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: "./src/test/setup.ts",
+    // Whole-page tests through real CSS and a 180ms-per-call mock: see
+    // src/test/setup.ts for why neither testing-library's one-second
+    // wait nor vitest's five-second test limit is the right ceiling.
+    testTimeout: 20_000,
     // Process real stylesheets instead of stubbing them to an empty
     // module, so a test that imports one is asserting against the CSS this
     // project actually ships. It is off by default in vitest, and that

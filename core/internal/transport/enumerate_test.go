@@ -622,9 +622,13 @@ func TestCancellingMidEnumerationStopsPromptlyAndLeaksNothing(t *testing.T) {
 	if opened != closed {
 		t.Errorf("cancellation left %d of %d directory readers open", opened-closed, opened)
 	}
-	// Let any goroutine that was going to leak get scheduled first.
+	// Let any goroutine that was going to leak get scheduled first. A
+	// NEGATIVE delta is not a leak: goroutines that were alive when the
+	// count was taken (another test's, still winding down) can exit while
+	// this one runs, and a hosted runner saw -2. Only more than there were
+	// is something this enumeration left behind.
 	time.Sleep(50 * time.Millisecond)
-	if delta := runtime.NumGoroutine() - goroutinesBefore; delta != 0 {
+	if delta := runtime.NumGoroutine() - goroutinesBefore; delta > 0 {
 		t.Errorf("cancellation left %d goroutine(s) behind", delta)
 	}
 }

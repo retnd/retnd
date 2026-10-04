@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/retnd/retnd/core/internal/backupengine"
 	"github.com/retnd/retnd/core/internal/backupengine/kopia"
@@ -689,35 +690,62 @@ func TestASampledVerificationCostsTheSnapshotAndNotTheRepository(t *testing.T) {
 	}
 }
 
-// verifyHeapCost runs one verification and reports it with the peak heap
-// it held above a freshly collected baseline.
+// verifyHeapCost runs the verification several times and reports it with the
+// LOWEST peak heap any run held above a freshly collected baseline.
+//
+// Two things make one reading of this number unreliable, and they are fixed
+// differently.
+//
+// Sampled every millisecond rather than every 20: the tree walker allocates a
+// fixed ~25 MB for its already-seen set on EVERY verification, small
+// snapshot or large, and that cost is the same in the clean pass and the
+// loaded one. A verification of a twelve-file snapshot can finish inside one
+// 20 ms tick, so whether the sampler saw that fixed cost at all was a coin
+// flip per pass, and the difference between the two passes -- the number this
+// test asserts on -- read either ~0 or ~26 MB.
+//
+// The minimum of three runs rather than one: with the sampler fixed, one run
+// in ten still read ~9 MB of growth, which is where the collector happened to
+// be in its cycle. What this test exists to catch -- a map of 60,000 blob
+// records held live for the walk -- is in EVERY run, so it survives taking the
+// minimum; collector timing is in some of them, so it does not.
 func verifyHeapCost(t *testing.T, f *verifyFixture, req backupengine.VerifyRequest) (backupengine.VerifyReport, uint64) {
 	t.Helper()
 
-	runtime.GC()
-
-	var base runtime.MemStats
-
-	runtime.ReadMemStats(&base)
+	const runs = 3
 
 	var (
 		report backupengine.VerifyReport
-		err    error
+		lowest uint64
 	)
 
-	peak := peakHeap(func() {
-		report, err = f.repo.Verify(context.Background(), f.snapshot.ID, req)
-	})
+	for i := range runs {
+		runtime.GC()
 
-	if err != nil {
-		t.Fatalf("%s Verify: %v (%v)", req.Level, err, report.Errors)
+		var base runtime.MemStats
+
+		runtime.ReadMemStats(&base)
+
+		var err error
+
+		peak := peakHeapEvery(time.Millisecond, func() {
+			report, err = f.repo.Verify(context.Background(), f.snapshot.ID, req)
+		})
+		if err != nil {
+			t.Fatalf("%s Verify: %v (%v)", req.Level, err, report.Errors)
+		}
+
+		var cost uint64
+		if peak > base.HeapAlloc {
+			cost = peak - base.HeapAlloc
+		}
+
+		if i == 0 || cost < lowest {
+			lowest = cost
+		}
 	}
 
-	if peak <= base.HeapAlloc {
-		return report, 0
-	}
-
-	return report, peak - base.HeapAlloc
+	return report, lowest
 }
 
 // writeUnrelatedBlobs puts n blobs into a repository's storage that no
