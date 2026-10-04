@@ -83,8 +83,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/spdrman/rclone-manager/core/internal/config"
-	"github.com/spdrman/rclone-manager/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/obs"
 )
 
 // ErrStorageMediumNotProven is a write that declares where this

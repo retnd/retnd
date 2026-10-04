@@ -3,14 +3,15 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/internal/config"
-	"github.com/spdrman/rclone-manager/core/internal/discovery"
-	"github.com/spdrman/rclone-manager/core/internal/model"
-	"github.com/spdrman/rclone-manager/core/internal/obs"
-	"github.com/spdrman/rclone-manager/core/internal/placement"
-	"github.com/spdrman/rclone-manager/core/internal/reconcile"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/discovery"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/placement"
+	"github.com/retnd/retnd/core/internal/reconcile"
 )
 
 // FR-1's processing cycle: the one piece of work `run` performs once and
@@ -79,6 +80,18 @@ type BackupSetCycleResult struct {
 	// achieved for this backup set (see CycleProgress): how much work
 	// was in front of it, and how much of that moved.
 	Progress CycleProgress
+
+	// Snapshot is the incremental engine's half of a pass, and nil for
+	// every artifact set -- which is every set in every deployment that
+	// has not opted into EPIC K's engine.
+	//
+	// A pointer rather than a value, on the reasoning
+	// service.Operation.Cycle's own doc gives: absent and empty are
+	// different answers. A zero SnapshotSetResult beside the artifact
+	// fields above would read as "a snapshot run happened and did
+	// nothing", which for the overwhelming majority of sets is a claim
+	// about a pipeline they never ran.
+	Snapshot *SnapshotSetResult
 }
 
 // SystemicFailure is the question every consumer of Err is actually
@@ -91,7 +104,7 @@ type BackupSetCycleResult struct {
 // report that spells it the same way it spells a source that has gone
 // unreachable makes an ordinary edit look like a backup that broke:
 // core/service would fail the operation the operator submitted,
-// `rbm run` would exit 1, and the activity feed would carry
+// `retnd run` would exit 1, and the activity feed would carry
 // "context canceled" as the reason a backup did not happen. In a product
 // whose whole job is to be believed about backups, a false alarm is not
 // a cosmetic defect.
@@ -217,7 +230,7 @@ type CycleReport struct {
 // RunCycle is FR-1's "one processing cycle": the single piece of business
 // logic `run` performs once and `daemon` repeats at poll_interval. Both
 // commands call exactly this method; neither has, or is allowed to have,
-// any cycle logic of its own (see this package's doc and cmd/backup-manager,
+// any cycle logic of its own (see this package's doc and cmd/retnd,
 // which only wires flags, signals and output formatting around this call).
 //
 // The cycle order matters and follows the EPIC directly: for each
@@ -274,9 +287,23 @@ func (s *Service) RunCycle(ctx context.Context) CycleReport {
 	// now because it is a count of the configuration snapshot the cycle
 	// started with. Reassigning ctx keeps cancellation flowing exactly as
 	// before; this only adds a value to it.
-	ctx = beginCycle(ctx, s.enabledBackupSetCount())
+	ctx = beginCycle(ctx, s.enabledBackupSetCount(ctx, start))
 
 	report := CycleReport{StartedAt: start}
+
+	// Whether this is a scheduled wake or a cycle somebody asked for
+	// (issue #845), read once: it decides which sets this pass is even
+	// allowed to visit, and reading it per set would invite a future
+	// edit to make the answer vary inside one cycle.
+	//
+	// The INSTANT that question is answered at is frozen the same way,
+	// at `start`, and for a sharper reason: a pass over one set takes
+	// real time, so a clock read per set would let a slow early set
+	// carry a later one over its own deadline and into a wake it was not
+	// due for -- a set the denominator above (counted before the loop)
+	// has already excluded, making progress read "2 of 1" and making
+	// membership of a wake depend on the order sets sit in the file.
+	scheduled := IsScheduledCycle(ctx)
 
 sourcesLoop:
 	for _, src := range s.Config.Sources {
@@ -303,7 +330,22 @@ sourcesLoop:
 			if holds := BackupSetHoldsFrom(ctx); holds != nil && holds.Held(bs.ID.String()) {
 				continue
 			}
-			report.Sets = append(report.Sets, s.processBackupSet(ctx, src, bs))
+			// Issue #845's per-set cadence. On a SCHEDULED wake a set
+			// is processed only if its own effective poll interval has
+			// elapsed since the last pass over it; on a cycle an
+			// operator asked for, every enabled set runs, however
+			// recently the schedule reached it. See pollschedule.go for
+			// why the filter is here, inside the one sequential loop,
+			// rather than in a timer per set.
+			//
+			// The attempt is recorded whether or not the pass then
+			// succeeds, and before it runs, so a source that is failing
+			// is retried at its interval rather than on every wake.
+			if scheduled && !s.pollDue(bs, start) {
+				continue
+			}
+			s.recordPollAttempt(bs.ID, s.now())
+			report.Sets = append(report.Sets, s.runBackupSetInWorkflow(ctx, src, bs))
 		}
 	}
 
@@ -333,7 +375,7 @@ sourcesLoop:
 
 	// Issue #361's verdict, in the event stream, before anything that
 	// reads the cycle's state. `run` turns this into an exit status too
-	// (cmd/backup-manager/setup.go), but `daemon` has no exit status to
+	// (cmd/retnd/setup.go), but `daemon` has no exit status to
 	// turn it into, and a cycle that backed nothing up has to be visible
 	// to whatever is shipping these logs either way.
 	s.reportBarrenSets(ctx, report)
@@ -437,6 +479,67 @@ func (s *Service) processBackupSet(ctx context.Context, src config.Source, bs co
 		result.Err = err
 		return result
 	}
+
+	// EPIC K's engine dispatch: which pipeline this set gets, decided
+	// HERE, before reconcileOne, which is the last point before anything
+	// reads or writes this set's remote.
+	//
+	// Position is the whole of it. Without a decision at this line an
+	// incremental set would run the ARTIFACT pipeline: its source TREE
+	// walked as though every file in it were a finished artifact, copied,
+	// committed, and then offered for deletion unless the set happens to
+	// be read-only. That is the one outcome EPIC K names as unacceptable,
+	// and it would arrive looking like a successful cycle.
+	//
+	// #780 put a refusal here for every engine but the artifact one, and
+	// #783 replaces it for the incremental engine only: that set's whole
+	// pass is snapshotcycle.go's, and it RETURNS rather than falling
+	// through, because the steps below -- artifact reconciliation,
+	// discovery, the per-artifact walk, the artifact retention preview --
+	// are the other engine's pipeline and none of them means anything for
+	// a source stored as snapshots.
+	//
+	// Anything else is still refused, by the same function and for the
+	// same reason (see unrunnableEngine): an engine this build has no
+	// pipeline for is a set-level failure rather than a silent skip,
+	// because a set that quietly does nothing every cycle is
+	// indistinguishable from one that is working (see reportBarrenSets).
+	// The set is still counted in the progress feed above, so a refusal
+	// does not freeze "set 2 of 5".
+	if bs.Engine == model.EngineKopia {
+		// EPIC K's production gate (#789), checked before the pipeline
+		// rather than inside it. A gated set is a set-level failure for
+		// unrunnableEngine's reason -- silence is indistinguishable from
+		// success -- and it is refused HERE so that nothing opens a
+		// repository, reads the source or writes a snapshot-run row for
+		// a pass that was never going to happen. See incrementalgate.go.
+		if err := s.incrementalEngineGate(); err != nil {
+			refusal := gatedSetRefusal(bs)
+			s.logger().Error(ctx, "snapshot-cycle", refusal)
+			result.Err = refusal
+
+			return result
+		}
+
+		snap := s.processIncrementalSet(ctx, src, bs)
+		result.Snapshot = snap
+		result.Err = snap.Err
+
+		if snap.Err != nil {
+			s.logger().Error(ctx, "snapshot-cycle", snap.Err)
+		}
+
+		result.Progress = snapshotProgress(snap)
+
+		return result
+	}
+
+	if err := unrunnableEngine(bs.Engine); err != nil {
+		s.logger().Error(ctx, "cycle", err)
+		result.Err = err
+
+		return result
+	}
 	recRep, err := s.reconcileOne(ctx, source, bs.ID)
 	result.Reconcile = recRep
 	for _, f := range recRep.Findings {
@@ -508,18 +611,80 @@ func (s *Service) processBackupSet(ctx context.Context, src config.Source, bs co
 
 // enabledBackupSetCount is how many backup sets RunCycle will actually
 // visit: every configured set except the ones saved disabled, which the
-// loop above skips entirely. It is the denominator live progress reports,
-// and it counts what the cycle will do rather than what the configuration
-// contains, because a count that included a set nothing will process would
-// stop one short of finishing every time.
-func (s *Service) enabledBackupSetCount() int {
+// loop above skips entirely, and on a SCHEDULED cycle except the ones
+// that are not due yet on their own poll interval (issue #845). It is the
+// denominator live progress reports, and it counts what the cycle will do
+// rather than what the configuration contains, because a count that
+// included a set nothing will process would stop one short of finishing
+// every time.
+//
+// It takes ctx for that second exclusion, and `now` with it: whether a
+// set is due is a property of this cycle rather than of the
+// configuration, and it has to be decided at the SAME instant the loop
+// decides it, or the denominator and the loop disagree about the wake
+// they are both describing. RunCycle passes its start instant to both.
+func (s *Service) enabledBackupSetCount(ctx context.Context, now time.Time) int {
+	scheduled := IsScheduledCycle(ctx)
 	n := 0
 	for _, src := range s.Config.Sources {
 		for _, bs := range src.BackupSets {
-			if !bs.Disabled {
-				n++
+			if bs.Disabled {
+				continue
 			}
+			if scheduled && !s.pollDue(bs, now) {
+				continue
+			}
+			n++
 		}
 	}
 	return n
+}
+
+// ErrEngineNotImplemented is what an ARTIFACT-pipeline entry point
+// reports for a backup set configured for a different engine.
+//
+// It is a distinct sentinel because the operator response is distinct, and
+// unusually so: nothing is wrong with the configuration. The set names an
+// engine that this entry point is not the pipeline for, so the answer is
+// to run it the way that engine is run -- a processing cycle, for the
+// incremental engine -- or to move the set back to the artifact engine,
+// never to hunt for a mistake in the file. A generic error here would
+// send somebody looking for one.
+var ErrEngineNotImplemented = errors.New("app: this entry point has no pipeline for the configured backup engine")
+
+// unrunnableEngine reports whether this set may be run through the
+// ARTIFACT pipeline, and says why not in the operator's words.
+//
+// It is the guard for every entry point that IS that pipeline and has no
+// engine dispatch of its own: Fetch, ReconcileAll, and the default arm of
+// processBackupSet's dispatch. What it is emphatically not is a statement
+// about what this build can do -- since #783 the incremental engine has a
+// pipeline (snapshotcycle.go), and processBackupSet routes to it BEFORE
+// asking this function anything.
+//
+// An EMPTY engine is runnable, and that carve-out is narrower than it
+// looks: config.Validate resolves an omitted `engine` key to
+// model.EngineArtifact by name, so a Config that came through Load and
+// Validate never carries one. The only way to reach this branch is a
+// config.BackupSet built in memory that skipped Validate, which is every
+// fixture in this package's own tests and nothing in production. It is
+// explicitly NOT a second default for the engine decision: that decision
+// has exactly one home (model.ResolveBackupEngine) and this is not it.
+//
+// Anything else is refused rather than attempted, including an engine this
+// function has not been taught, and including the incremental engine at
+// these entry points. "Run it and see" means running the artifact
+// pipeline -- discover, copy, commit, delete the source's copy -- over
+// whatever that engine's source actually is, and for a source TREE that
+// is the one outcome EPIC K names as unacceptable.
+func unrunnableEngine(engine model.BackupEngine) error {
+	switch engine {
+	case model.EngineArtifact, "":
+		return nil
+	}
+
+	return fmt.Errorf("%w: this set is configured for the %q engine (%s), and this is the %q engine's pipeline; "+
+		"an incremental set's snapshots are taken by a processing cycle, which dispatches to the snapshot lifecycle instead. "+
+		"Nothing was read from this set's source, and nothing on it was deleted",
+		ErrEngineNotImplemented, engine, engine.Describe(), model.EngineArtifact)
 }

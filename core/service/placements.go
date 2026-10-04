@@ -27,10 +27,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/internal/archive"
-	"github.com/spdrman/rclone-manager/core/internal/config"
-	"github.com/spdrman/rclone-manager/core/internal/placement"
-	"github.com/spdrman/rclone-manager/core/internal/state"
+	"github.com/retnd/retnd/core/internal/archive"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/placement"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // MediumTypeLocal is what a local placement reports as its kind.

@@ -73,16 +73,16 @@ pveversion -v | head -3
 ### 0.2 Choose and create the storage the app will use
 
 The profile keeps every persistent path under one host directory or dataset, which
-is mounted into the guest at `/mnt/backup-manager`. On ZFS:
+is mounted into the guest at `/mnt/retnd`. On ZFS:
 
 ```bash
-zfs create -o mountpoint=/srv/backup-manager rpool/backup-manager
+zfs create -o mountpoint=/srv/retnd rpool/retnd
 ```
 
 or on a plain directory storage:
 
 ```bash
-mkdir -p /srv/backup-manager
+mkdir -p /srv/retnd
 ```
 
 - [ ] Host path created, recorded in the evidence table
@@ -111,7 +111,7 @@ that id belongs to an existing guest: pick another and re-run until both fail.
 Default (VM). Use any current Debian or Ubuntu LTS cloud image:
 
 ```bash
-qm create "$VMID" --name backup-manager --memory 2048 --cores 2 \
+qm create "$VMID" --name retnd --memory 2048 --cores 2 \
   --net0 virtio,bridge=vmbr0 --scsihw virtio-scsi-single
 # import the cloud image, set --scsi0, --ide2 cloudinit, --boot order=scsi0
 qm set "$VMID" --ciuser admin --sshkeys ~/.ssh/id_ed25519.pub
@@ -130,7 +130,7 @@ from the host, or give the VM its own disk and skip the host-side dataset. Recor
 which you used.
 
 - [ ] Guest created and reachable over SSH
-- [ ] Host directory visible inside the guest at `/mnt/backup-manager`
+- [ ] Host directory visible inside the guest at `/mnt/retnd`
 - [ ] `qm config $VMID` recorded
 
 **Variant (unprivileged LXC).** Only if you accept the caveats in
@@ -139,7 +139,7 @@ which you used.
 ```bash
 pct create "$VMID" <template> --unprivileged 1 --features nesting=1,keyctl=1 \
   --memory 2048 --cores 2 --net0 name=eth0,bridge=vmbr0,ip=dhcp
-pct set "$VMID" --mp0 /srv/backup-manager,mp=/mnt/backup-manager
+pct set "$VMID" --mp0 /srv/retnd,mp=/mnt/retnd
 pct start "$VMID"
 ```
 
@@ -158,14 +158,12 @@ ssh admin@<guest> 'docker --version && docker compose version'
 
 ### 0.5 Make the canonical image resolvable
 
-`ghcr.io/spdrman/backup-manager:0.4.0` is cut but not pushed yet:
-`distribution/packaging/canonical.json` records `image.published: false`, and
-`container/release-manifest.json` carries a `registry_digest` of `null` per
-architecture. So the reference does not resolve from the registry today, and the
-steps below are how you make it resolve, by pushing a build to a registry this host
-can reach or building elsewhere and loading it. The previous release,
-`ghcr.io/spdrman/backup-manager:0.3.3`, stays published and signed if you would
-rather run that. Either push to your own registry:
+The canonical reference is `ghcr.io/retnd/retnd:0.5.0`.
+`distribution/packaging/canonical.json` and
+`container/release-manifest.json` jointly record whether it has been published:
+`image.published: true` requires an index digest and one registry digest per
+architecture. If those records still say `false` and `null`, the reference does
+not resolve yet. Push a build to a registry this host can reach:
 
 ```bash
 docker buildx build \
@@ -173,27 +171,27 @@ docker buildx build \
   --build-arg VERSION="$(git describe --tags --always)" \
   --build-arg COMMIT="$(git rev-parse HEAD)" \
   -f container/Dockerfile \
-  -t <your-registry>/backup-manager:<version> \
+  -t <your-registry>/retnd:<version> \
   --push .
 ```
 
 or side-load into the guest and set `IMAGE` in the env file to the loaded tag:
 
 ```bash
-docker save backup-manager:<version> | gzip > backup-manager.tar.gz
-scp backup-manager.tar.gz admin@<guest>:/tmp/
-ssh admin@<guest> 'gunzip -c /tmp/backup-manager.tar.gz | docker load'
+docker save retnd:<version> | gzip > retnd.tar.gz
+scp retnd.tar.gz admin@<guest>:/tmp/
+ssh admin@<guest> 'gunzip -c /tmp/retnd.tar.gz | docker load'
 ```
 
 The compose file reads the image reference from a single `IMAGE` variable in
-`apps/proxmox/compose/backup-manager.env`, so this is one line in one file.
+`apps/proxmox/compose/retnd.env`, so this is one line in one file.
 
 - [ ] Canonical image resolvable inside the guest, reference recorded
 
 ### 0.6 Resolve paths, ownership, key material and config
 
 ```bash
-ssh admin@<guest> 'sudo mkdir -p /mnt/backup-manager/{state,backups,config,secrets}'
+ssh admin@<guest> 'sudo mkdir -p /mnt/retnd/{state,backups,config,secrets}'
 ```
 
 The runtime image is distroless: no shell, no root step, nothing inside the
@@ -205,8 +203,8 @@ Create the SSH key and pinned `known_hosts` **on the guest**, following
 key into the evidence table, and never put one in `apps/proxmox/`.
 
 ```bash
-ssh admin@<guest> 'ssh-keygen -t ed25519 -N "" -f /mnt/backup-manager/secrets/id_ed25519'
-ssh admin@<guest> 'ssh-keyscan -t ed25519 <sftp-host> > /mnt/backup-manager/secrets/known_hosts'
+ssh admin@<guest> 'ssh-keygen -t ed25519 -N "" -f /mnt/retnd/secrets/id_ed25519'
+ssh admin@<guest> 'ssh-keyscan -t ed25519 <sftp-host> > /mnt/retnd/secrets/known_hosts'
 ```
 
 **Chown last, once the files exist.** `ssh-keygen` writes the private key owned
@@ -217,8 +215,8 @@ SFTP connection fails with a permission error that points at the key rather than
 at this step. This is the same ordering the TrueNAS, Unraid and OpenMediaVault
 procedures already use.
 
-**Recurse only over what this step created.** `/mnt/backup-manager` is the shared
-host directory, and `/mnt/backup-manager/backups` is the retained backup store: on
+**Recurse only over what this step created.** `/mnt/retnd` is the shared
+host directory, and `/mnt/retnd/backups` is the retained backup store: on
 a reinstall both already hold data this procedure did not write, and a `chown -R`
 across either rewrites the ownership of all of it with nothing to restore it from.
 So the two private trees are chowned recursively and the share root and the backup
@@ -229,19 +227,19 @@ backup root or a parent of it.
 
 ```bash
 ssh admin@<guest> '
-  sudo chown -R 1000:100 /mnt/backup-manager/state /mnt/backup-manager/config /mnt/backup-manager/secrets
-  sudo chown 1000:100 /mnt/backup-manager /mnt/backup-manager/backups
-  sudo chmod 600 /mnt/backup-manager/secrets/id_ed25519
-  sudo -u "#1000" cat /mnt/backup-manager/secrets/id_ed25519 > /dev/null && echo readable
+  sudo chown -R 1000:100 /mnt/retnd/state /mnt/retnd/config /mnt/retnd/secrets
+  sudo chown 1000:100 /mnt/retnd /mnt/retnd/backups
+  sudo chmod 600 /mnt/retnd/secrets/id_ed25519
+  sudo -u "#1000" cat /mnt/retnd/secrets/id_ed25519 > /dev/null && echo readable
 '
 ```
 
-- [ ] `/mnt/backup-manager/{state,backups,config,secrets}` exist, owned by the app's uid/gid
+- [ ] `/mnt/retnd/{state,backups,config,secrets}` exist, owned by the app's uid/gid
 - [ ] The recursive chown touched only `state`, `config` and `secrets`; the share
       root and `backups` were chowned as mountpoints, not as trees
 - [ ] The chown ran **after** the key and `known_hosts` were created
 - [ ] `sudo -u '#1000' cat .../secrets/id_ed25519` succeeded, and the key is mode 600
-- [ ] `/mnt/backup-manager/config` exists and is **writable** by the app's uid/gid
+- [ ] `/mnt/retnd/config` exists and is **writable** by the app's uid/gid
 - [ ] `config/config.yaml` written inside it and valid
 - [ ] Key material lives only on the guest, redacted everywhere else
 
@@ -258,23 +256,23 @@ would look healthy while writing the state database and every retained artifact
 somewhere the recovery story in step 8 cannot find them.
 
 ```bash
-ssh admin@<guest> 'mountpoint -q /mnt/backup-manager && echo mounted'
+ssh admin@<guest> 'mountpoint -q /mnt/retnd && echo mounted'
 ```
 
-- [ ] `mountpoint -q /mnt/backup-manager` succeeded in the guest, before `up -d`
+- [ ] `mountpoint -q /mnt/retnd` succeeded in the guest, before `up -d`
 
 ```bash
-scp apps/proxmox/compose/backup-manager.yml admin@<guest>:/opt/backup-manager/
-scp apps/proxmox/compose/backup-manager.env admin@<guest>:/opt/backup-manager/.env
-ssh admin@<guest> 'cd /opt/backup-manager && docker compose -f backup-manager.yml up -d'
+scp apps/proxmox/compose/retnd.yml admin@<guest>:/opt/retnd/
+scp apps/proxmox/compose/retnd.env admin@<guest>:/opt/retnd/.env
+ssh admin@<guest> 'cd /opt/retnd && docker compose -f retnd.yml up -d'
 ```
 
 - [ ] Both containers reach `running`
-- [ ] `backup-manager` reports healthy (it declares the liveness probe
-      `/rbm-web healthcheck --url http://127.0.0.1:8080/health/live`,
-      not the image's own `/rbm status`: the Web UI waits on this, and
+- [ ] `retnd` reports healthy (it declares the liveness probe
+      `/retnd-web healthcheck --url http://127.0.0.1:8080/health/live`,
+      not the image's own `/retnd status`: the Web UI waits on this, and
       the backup-freshness verdict is non-zero on a fresh install)
-- [ ] `backup-manager-ui` reports healthy (it overrides the image's own healthcheck)
+- [ ] `web-ui` reports healthy (it overrides the image's own healthcheck)
 - [ ] `docker compose logs` shows no repeated restart
 
 ## Step 2 — Reproducibility
@@ -284,7 +282,7 @@ means a second operator following this file from a clean guest lands in the same
 place. Prove it rather than asserting it:
 
 ```bash
-qm clone "$VMID" "$((VMID + 1))" --name backup-manager-repro   # or pct clone
+qm clone "$VMID" "$((VMID + 1))" --name retnd-repro   # or pct clone
 ```
 
 Bring the clone up from step 0.5 onward against a *separate* host directory, using
@@ -292,7 +290,7 @@ the same two files and no manual edits beyond the env file's documented
 substitutions.
 
 - [ ] Second guest reaches the same running state from the same two files
-- [ ] The only edits needed were inside `backup-manager.env`
+- [ ] The only edits needed were inside `retnd.env`
 - [ ] Number of undocumented manual steps required: **must be zero**, record it
 
 ## Step 3 — Web UI access
@@ -308,16 +306,31 @@ reached at the guest's own address and published port.
 ## Step 4 — Authentication (local-account only)
 
 - [ ] First start printed a one-time enrollment link (keep it out of the evidence table)
-- [ ] Enrollment sets an administrator password, stored as an Argon2id hash
+- [ ] Enrollment asked for a recovery email address and the SMTP details to reach it,
+      beside the username and password. Use a mail account you control and keep the
+      SMTP password out of the evidence table; record the host and port only
+- [ ] The confirmation message arrived at the recovery address, and it arrived
+      **before** any account existed. Provoke the failure once, with a deliberately
+      wrong port: the API answers `SMTP_SEND_FAILED` and no administrator is created
+- [ ] That failure did not consume the link. The same URL completed the enrollment
+      once the SMTP details were corrected
+- [ ] Enrollment sets an administrator password, stored as an Argon2id hash, with the
+      recovery address beside it in the same record and the SMTP password held as a
+      secret reference rather than a value
 - [ ] The enrollment link is single-use and rejected the second time
+- [ ] Forgot password answers identically for the administrator's username and for a
+      name that does not exist, and mails a single-use reset link to the recovery
+      address; completing the reset sets the new password and signs out the session
+      that asked. The mail leaves the guest, and it is the only outbound connection
+      in this procedure that is not SFTP
 - [ ] An unauthenticated request to `/api/v1/` is refused
 - [ ] The UI reports auth mode `local-account`, not a PVE session
 - [ ] No PVE realm, PAM user, or PVE API token was created or used
 
 ## Step 5 — Storage mapping and backup-root containment
 
-- [ ] State lands under the host path mapped to `/mnt/backup-manager/state`
-- [ ] Retained artifacts land under the host path mapped to `/mnt/backup-manager/backups`
+- [ ] State lands under the host path mapped to `/mnt/retnd/state`
+- [ ] Retained artifacts land under the host path mapped to `/mnt/retnd/backups`
 - [ ] No SSH private key, `known_hosts`, config file or auth record exists anywhere
       inside the backup root (§19.2)
 - [ ] The key and `known_hosts` are mounted read-only, and a write attempt from
@@ -346,12 +359,12 @@ diff rather than an impression:
 
 ```bash
 ssh admin@<guest> '
-  sha256sum /mnt/backup-manager/state/state.db | tee /tmp/before-update.sha256
-  find /mnt/backup-manager/backups -type f -printf "%p %s\n" | sort > /tmp/before-update.txt
+  sha256sum /mnt/retnd/state/state.db | tee /tmp/before-update.sha256
+  find /mnt/retnd/backups -type f -printf "%p %s\n" | sort > /tmp/before-update.txt
 '
-ssh admin@<guest> 'cd /opt/backup-manager && docker compose pull && docker compose up -d'
+ssh admin@<guest> 'cd /opt/retnd && docker compose pull && docker compose up -d'
 ssh admin@<guest> '
-  find /mnt/backup-manager/backups -type f -printf "%p %s\n" | sort > /tmp/after-update.txt
+  find /mnt/retnd/backups -type f -printf "%p %s\n" | sort > /tmp/after-update.txt
   diff /tmp/before-update.txt /tmp/after-update.txt
 '
 ```
@@ -359,7 +372,9 @@ ssh admin@<guest> '
 - [ ] `diff` of the retained-artifact listing is empty: the update moved no
       backup data
 - [ ] New image version reported by the UI
-- [ ] Backup sets, schedules, retained artifacts and the administrator account all survive
+- [ ] Backup sets, schedules, retained artifacts and the administrator account all survive,
+      the account's recovery address and SMTP settings with it (a test send from
+      Settings still succeeds after the update)
 - [ ] No re-enrollment was required
 - [ ] Nothing on the PVE host changed (step 9 re-checks)
 
@@ -378,9 +393,9 @@ through a virtiofs or `mp0` mapping, so it is the one where a mapping problem ca
 silently empty the guest's view of it.
 
 ```bash
-dd if=/dev/urandom of=/srv/backup-manager/backups/acceptance-canary.bin bs=1M count=8
-sha256sum /srv/backup-manager/backups/acceptance-canary.bin | tee /root/pve-canary.sha256
-find /srv/backup-manager -type f -printf '%p %s\n' | sort > /root/pve-before-destroy.txt
+dd if=/dev/urandom of=/srv/retnd/backups/acceptance-canary.bin bs=1M count=8
+sha256sum /srv/retnd/backups/acceptance-canary.bin | tee /root/pve-canary.sha256
+find /srv/retnd -type f -printf '%p %s\n' | sort > /root/pve-before-destroy.txt
 ```
 
 Confirm the id you are about to destroy is the one this procedure created:
@@ -397,7 +412,7 @@ Then verify against the baseline, before doing anything else:
 
 ```bash
 sha256sum -c /root/pve-canary.sha256
-find /srv/backup-manager -type f -printf '%p %s\n' | sort > /root/pve-after-destroy.txt
+find /srv/retnd -type f -printf '%p %s\n' | sort > /root/pve-after-destroy.txt
 diff /root/pve-before-destroy.txt /root/pve-after-destroy.txt
 ```
 
@@ -445,11 +460,11 @@ must say so rather than being filled in green.
 The host directory or dataset is new containment surface, so re-run the
 destructive-safety expectations against it specifically:
 
-- [ ] A backup set configured with a root outside `/mnt/backup-manager/backups` is refused
+- [ ] A backup set configured with a root outside `/mnt/retnd/backups` is refused
 - [ ] A symlink placed inside the backup root that points outside it is not followed
       into a delete
 - [ ] A retention apply deletes only artifacts under the backup root
-- [ ] Nothing under `/mnt/backup-manager/{state,config,secrets}` is ever a delete target
+- [ ] Nothing under `/mnt/retnd/{state,config,secrets}` is ever a delete target
 - [ ] Destroying the guest mid-operation leaves the state database recoverable
 
 ## Step 11 — Cross-check against the automated matrix
@@ -465,6 +480,76 @@ cd distribution && go test ./packaging/ -run TestCrossProviderConformance -v
 
 ---
 
+## Step 12 — Local workflow hooks, and the Docker prerequisite
+
+A workflow step whose target is `local` does not run in the engine container, and since
+issue #865 it does not run on a host shell either: it runs in an **ephemeral Docker
+container** launched by the **Host Workflow Runner**, a small version-pinned process
+systemd supervises as `retnd-workflow-runner.service`
+(`docs/adr/0020-host-workflow-runner.md`, `docs/runtime-contract.md`).
+
+Local hooks are **available**, and the runner belongs **inside the container-host guest**
+this procedure deploys — never on the PVE host. The guest is an ordinary Linux machine
+you administer, so it can carry a systemd unit and a group grant; the PVE host cannot,
+and step 9's rule that its management plane stays untouched applies to the runner
+exactly as it does to the stack. A hook that needs something on the PVE host is a
+remote step against it, not a local one.
+
+Three prerequisites, all three re-proved by the runner's own startup probe, and any one
+of them missing is a refusal rather than a hook that quietly does not run:
+
+- **a daemon the runner's account can reach.** That is one supplementary group:
+  `sudo usermod -aG docker <the runner's account>`, or whatever group owns the socket
+  here — the installer reads the group off the socket rather than assuming `docker`. The
+  unit gets `SupplementaryGroups=` and that socket in `ReadWritePaths`; nothing else
+  does. The membership is root-equivalent on this host, which is exactly why it belongs
+  to the runner and to nothing else: **the engine container gains nothing** — no socket,
+  no `group_add`, no `DOCKER_HOST`, and `distribution/packaging`'s preflight fails the
+  build if any shipped package asks for one;
+- **the hook image, already on the host.** `--hook-image` defaults to the pinned
+  `bash:5.2.37-alpine3.21`, `install` fetches it, and `WORKFLOW_RUNNER_HOOK_IMAGE` in the
+  deployment's `.env` names a different one. The runner never pulls: an image that is not
+  there is a refusal, not a download;
+- **a non-root account.** The runner refuses to run as root, so a root deployment gets no
+  runner and is told so.
+
+`python3 scripts/install/install_docker_host.py preflight` refuses with exit 12, and the
+refusal carries the `usermod -aG` line, when this deployment has hook scripts and the
+runner's account cannot reach the daemon. A deployment with an empty workflows
+directory is held to none of it, and `WORKFLOW_RUNNER=off` in the `.env` says so
+explicitly.
+
+And a fourth prerequisite, inside the guest rather than on the PVE host, which
+was missing until issue #921: the engine has to be able to see the runner. The
+stack mounts three paths for it, named in `retnd.env` with these values, and an
+operator who installs the runner somewhere else gets a refusal at the first hook
+rather than a hook that runs:
+
+| `retnd.env` | In the container | Why |
+|---|---|---|
+| `WORKFLOWS_DIR=/mnt/retnd/workflows` | `/workflows` (read-only) | the hook scripts the engine reads |
+| `RUNTIME_DIR=/mnt/retnd/run` | `/data/run` | where the runner's socket appears |
+| `RUNNER_TOKEN_FILE=/mnt/retnd/secrets/workflow-runner.token` | `/etc/retnd/workflow-runner.token` (read-only) | the credential the engine presents |
+
+So install the runner with `--workflows-dir` and `--runtime-dir` pointed at the
+first two, and its token written to the third. All three fail closed like every
+other host path in this profile, so a `retnd.env` copied from before them stops
+the deployment with the message naming the variable rather than landing a bind
+mount on the guest's root disk. None of them reaches the Docker daemon: the
+runner holds the socket's group, inside this guest, and the engine container
+gains nothing.
+
+- [ ] `systemctl is-active retnd-workflow-runner.service` reports `active`, and the
+      account it runs as is recorded in the evidence table
+- [ ] That account is in the Docker socket's group (`id <account>`), and the engine
+      container is **not**: `docker inspect` shows no socket mount, no `group_add` and no
+      `DOCKER_HOST` on either shipped service
+- [ ] The hook image is present on the host (`docker image inspect <the reference>`), and
+      the reference the unit was installed with is recorded
+- [ ] A workflow with one `local` hook runs, and its container is gone afterwards
+      (`docker ps -a --filter label=retnd.workflow-hook=1` is empty)
+
+
 ## Evidence (§68)
 
 Fill this in in the same commit that flips Proxmox VE from uncertified to
@@ -477,7 +562,7 @@ certified.
 | Architecture | |
 | Guest shape used (VM or unprivileged LXC) and its config | |
 | VMID chosen at step 0.3, and the evidence both `qm status` and `pct status` reported it free | |
-| Host storage / dataset used for `/mnt/backup-manager` | |
+| Host storage / dataset used for `/mnt/retnd` | |
 | How the host directory was shared into the guest | |
 | Package / image version | |
 | Image reference used, and how it was made resolvable | |

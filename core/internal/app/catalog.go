@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/internal/lifecycle"
-	"github.com/spdrman/rclone-manager/core/internal/model"
-	"github.com/spdrman/rclone-manager/core/internal/recovery"
-	"github.com/spdrman/rclone-manager/core/internal/state"
+	"github.com/retnd/retnd/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/recovery"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // Rebuilding the journal from what is on the disk, when the journal is the

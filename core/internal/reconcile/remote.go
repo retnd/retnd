@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/spdrman/rclone-manager/core/internal/model"
-	"github.com/spdrman/rclone-manager/core/internal/state"
-	"github.com/spdrman/rclone-manager/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // This file is the whole of what reconciliation asks a remote, and the

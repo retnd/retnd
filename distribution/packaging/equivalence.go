@@ -2,6 +2,7 @@ package packaging
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -29,7 +30,7 @@ import (
 //
 // So this compares the whole reduced runtime rather than seven fields.
 // What it deliberately does NOT compare is the image reference: the
-// canonical definition builds `backup-manager:${VERSION:-dev}` from
+// canonical definition builds `retnd:${VERSION:-dev}` from
 // container/Dockerfile because it is also the file that produces the
 // image, and an adapter pulls the published reference. That difference is
 // real, it is the one thing an adapter is supposed to change here, and
@@ -99,12 +100,19 @@ var EquivalenceProperties = []struct {
 // Both sides are already reduced to roles by command, never by service
 // name, so an adapter that renames its services is still compared against
 // the right half of the canonical definition.
-func CheckStackEquivalence(adapter, canonical AdapterRuntime) []Divergence {
+//
+// A method on Canonical because two of the comparisons below have to know
+// which command spellings name the same image entrypoint: #890 moved the
+// canonical stack's argv to /retnd-web and #891 moved the adapters', so
+// the two agree in this tree -- while an operator's own pinned copy of a
+// provider file is still byte-for-byte the canonical runtime with one
+// argument spelled the old way (renameoverlap.go).
+func (c Canonical) CheckStackEquivalence(adapter, canonical AdapterRuntime) []Divergence {
 	var out []Divergence
 
 	out = append(out, equivalentRoleSet(adapter, canonical)...)
-	out = append(out, equivalentRole("engine", adapter.Engine, canonical.Engine)...)
-	out = append(out, equivalentRole("web-ui", adapter.WebUI, canonical.WebUI)...)
+	out = append(out, c.equivalentRole("engine", adapter.Engine, canonical.Engine)...)
+	out = append(out, c.equivalentRole("web-ui", adapter.WebUI, canonical.WebUI)...)
 	out = append(out, equivalentEngineEnvironment(adapter, canonical)...)
 
 	sort.Slice(out, func(i, j int) bool {
@@ -166,21 +174,27 @@ func equivalentRoleSet(adapter, canonical AdapterRuntime) []Divergence {
 // silent pass: equivalentRoleSet has already reported the missing role,
 // and reporting it again as four more divergences would bury the one
 // fact that matters under its consequences.
-func equivalentRole(role string, got, want *Service) []Divergence {
+func (c Canonical) equivalentRole(role string, got, want *Service) []Divergence {
 	if got == nil || want == nil {
 		return nil
 	}
 	var out []Divergence
 
-	if a, b := withoutProfile(got.Command), withoutProfile(want.Command); !equalStrings(a, b) {
+	// The retained entrypoint name is set aside for the same reason the
+	// runtime profile is: it is not a difference in what runs. #890's
+	// /retnd-web is a hardlink to the /retnd-web the canonical stack
+	// names, so a deployment still spelling it that way -- an operator's
+	// pinned file rather than anything #891 left behind -- is running the
+	// same inode and the same subcommand.
+	if a, b := c.sameEntrypoint(withoutProfile(got.Command)), withoutProfile(want.Command); !equalStrings(a, b) {
 		out = append(out, Divergence{PropCommand, role,
-			fmt.Sprintf("runs %v and the canonical stack runs %v (the runtime profile is set aside on both sides, because selecting one is what an adapter is for)", a, b),
+			fmt.Sprintf("runs %v and the canonical stack runs %v (the runtime profile is set aside on both sides, because selecting one is what an adapter is for)", withoutProfile(got.Command), b),
 			whyFor(PropCommand)})
 	}
 
 	out = append(out, equivalentMounts(role, got, want)...)
 	out = append(out, equivalentPorts(role, got, want)...)
-	out = append(out, equivalentHealth(role, got, want)...)
+	out = append(out, c.equivalentHealth(role, got, want)...)
 	return out
 }
 
@@ -203,16 +217,32 @@ func withoutProfile(argv []string) []string {
 // the adapter handing the container a piece of the host nothing in the
 // canonical definition asked for, which no comparison of the canonical
 // list against the adapter's would ever see.
+//
+// The host-plane roles are the one asymmetry, and it is the same
+// distinction HostPlaneRoles draws for CheckRequiredMounts: the canonical
+// stack mounts the workflow runner's socket directory, its token and its
+// script directory, and a store profile that deploys no runner has no
+// business being told it is missing storage. Demanding them here made
+// exactly three of ten adapters -- the three this file compares -- carry
+// a runner the other seven are never asked about. So a host-plane path
+// the adapter does not mount is not a divergence; one it DOES mount is
+// held to the canonical write mode like any other, which is the half
+// that matters, because the engine executes what it reads out of
+// /workflows.
 func equivalentMounts(role string, got, want *Service) []Divergence {
 	why := whyFor(PropContainerMounts)
 	var out []Divergence
 
 	gotMounts := mountModes(got)
 	wantMounts := mountModes(want)
+	optional := hostPlaneMountPaths(want)
 
 	for _, path := range sortedMountPaths(wantMounts) {
 		mode, ok := gotMounts[path]
 		if !ok {
+			if optional[path] {
+				continue
+			}
 			out = append(out, Divergence{PropContainerMounts, role,
 				fmt.Sprintf("mounts nothing at %s, and the canonical stack mounts it %s", path, wantMounts[path]), why})
 			continue
@@ -226,6 +256,21 @@ func equivalentMounts(role string, got, want *Service) []Divergence {
 		if _, ok := wantMounts[path]; !ok {
 			out = append(out, Divergence{PropContainerMounts, role,
 				fmt.Sprintf("mounts %s, and the canonical stack's %s role mounts nothing there", path, role), why})
+		}
+	}
+	return out
+}
+
+// hostPlaneMountPaths is the set of container paths on the canonical side
+// that belong to a host-plane role. The role is read off the mount rather
+// than looked up from canonical.json a second time: ReadCompose already
+// resolved it from the container path, which is the only side of a mount
+// the binaries fix.
+func hostPlaneMountPaths(svc *Service) map[string]bool {
+	out := map[string]bool{}
+	for _, m := range svc.Mounts {
+		if slices.Contains(HostPlaneRoles, m.Role) {
+			out[m.ContainerPath] = true
 		}
 	}
 	return out
@@ -294,7 +339,7 @@ func containerPorts(svc *Service) []string {
 // same thing, and comparing test commands alone would call an adapter
 // with no health check equivalent to one that has the canonical check,
 // since neither declares a differing test.
-func equivalentHealth(role string, got, want *Service) []Divergence {
+func (c Canonical) equivalentHealth(role string, got, want *Service) []Divergence {
 	why := whyFor(PropHealthCheck)
 	gotSeam, wantSeam := SeamOf(got), SeamOf(want)
 	if gotSeam != wantSeam {
@@ -304,7 +349,7 @@ func equivalentHealth(role string, got, want *Service) []Divergence {
 	if gotSeam != SeamDeclared {
 		return nil
 	}
-	if !sameTest(got.HealthcheckTest, want.HealthcheckTest) {
+	if !c.sameTest(got.HealthcheckTest, want.HealthcheckTest) {
 		return []Divergence{{PropHealthCheck, role,
 			fmt.Sprintf("declares health check %v and the canonical stack declares %v", got.HealthcheckTest, want.HealthcheckTest), why}}
 	}

@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/internal/capacity"
-	"github.com/spdrman/rclone-manager/core/internal/lifecycle"
-	"github.com/spdrman/rclone-manager/core/internal/obs"
-	"github.com/spdrman/rclone-manager/core/internal/transport"
-	"github.com/spdrman/rclone-manager/core/internal/transport/retry"
+	"github.com/retnd/retnd/core/internal/capacity"
+	"github.com/retnd/retnd/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/transport/retry"
 )
 
 // --- the fixture: a transport that can refuse one named remote path at a

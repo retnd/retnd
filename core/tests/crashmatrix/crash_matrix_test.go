@@ -86,14 +86,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/internal/lifecycle"
-	"github.com/spdrman/rclone-manager/core/internal/model"
-	"github.com/spdrman/rclone-manager/core/internal/reconcile"
-	"github.com/spdrman/rclone-manager/core/internal/state"
-	"github.com/spdrman/rclone-manager/core/internal/transport"
-	"github.com/spdrman/rclone-manager/core/internal/transport/rclone"
-	"github.com/spdrman/rclone-manager/core/tests/classifytransport"
-	"github.com/spdrman/rclone-manager/core/tests/machines"
+	"github.com/retnd/retnd/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/reconcile"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/transport/rclone"
+	"github.com/retnd/retnd/core/tests/classifytransport"
+	"github.com/retnd/retnd/core/tests/machines"
 )
 
 // --- building and running the harness ---------------------------------

@@ -16,10 +16,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/internal/config"
-	"github.com/spdrman/rclone-manager/core/internal/state"
-	"github.com/spdrman/rclone-manager/core/internal/transport"
-	"github.com/spdrman/rclone-manager/core/internal/transport/retry"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/transport/retry"
 )
 
 // shortRemoteHashRetries makes the in-call retry budget cheap, so a test

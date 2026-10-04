@@ -21,8 +21,8 @@ import { MemoryRouter } from "react-router-dom";
 import { DashboardActivity } from "@shared/pages/DashboardActivity";
 import { ApiProvider } from "@shared/api/ApiContext";
 import { createMockApi } from "@shared/api/mock";
-import { BackupManagerError } from "@shared/api/contracts";
-import type { BackupManagerApi } from "@shared/api/contracts";
+import { RetndError } from "@shared/api/contracts";
+import type { RetndApi } from "@shared/api/contracts";
 import type { BackupSet } from "@shared/types/backup";
 import type { LiveActivity, SetActivity } from "@shared/types/activity";
 
@@ -42,6 +42,8 @@ const BASE_SET: BackupSet = {
   stableForSeconds: 0,
   destination: "/data/backups/production/postgres/",
   retentionIsOverride: false,
+  pollIntervalSeconds: null,
+  effectivePollIntervalSeconds: 900,
   validations: ["transfer", "checksum"],
   state: "healthy",
   stateNote: "Verified nightly dump.",
@@ -56,7 +58,12 @@ const BASE_SET: BackupSet = {
   retainedBytes: 421 * 1024 ** 3,
   trustedHostKeys: [{ algorithm: "ssh-ed25519", fingerprint: "SHA256:test-fingerprint" }],
   trustedHostKeyRecordedAt: "2026-08-02T10:14:00+02:00",
-  sshKeyId: "key_a1b2c3"
+  sshKeyId: "key_a1b2c3",
+  // EPIC K (issue #788): this fixture is an artifact set, which is
+  // what every set in this suite was before the incremental engine
+  // existed, so `incremental` is null rather than an empty block.
+  engine: "artifact",
+  incremental: null
 };
 
 const SECOND_SET: BackupSet = {
@@ -98,7 +105,7 @@ function feed(sets: SetActivity[], pollAfterMs = 10_000): LiveActivity {
   return { observedAt: "2026-08-29T02:01:20+02:00", epoch: "one-process", pollAfterMs, sets, deployment: null };
 }
 
-function renderStrips(api: BackupManagerApi, sets: BackupSet[] | null = [BASE_SET, SECOND_SET]) {
+function renderStrips(api: RetndApi, sets: BackupSet[] | null = [BASE_SET, SECOND_SET]) {
   return render(
     <MemoryRouter>
       <ApiProvider api={api}>
@@ -164,7 +171,7 @@ describe("the strips on the dashboard", () => {
 
   it("says what went wrong rather than showing an empty panel", async () => {
     const getLiveActivity = vi.fn().mockRejectedValue(
-      new BackupManagerError({
+      new RetndError({
         code: "INTERNAL",
         message: "The backup service could not read live activity.",
         correlationId: "cid_test"

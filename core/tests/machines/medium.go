@@ -25,19 +25,19 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/internal/transport"
-	"github.com/spdrman/rclone-manager/core/tests/dockerlease"
+	"github.com/retnd/retnd/core/internal/transport"
+	"github.com/retnd/retnd/core/tests/dockerlease"
 )
 
-// minioImage is pinned by name rather than by digest, matching
-// the source machine's own choice: this is a test fixture, not a shipped artifact,
-// and the supply-chain rules that govern the product's own images
-// (distribution/packaging/canonical.json) are about what an operator runs.
-const minioImage = "minio/minio:latest"
+// Pin the maintained Chainguard build by digest. MinIO stopped publishing
+// usable images to Docker Hub and Quay in 2025; a rolling tag made every
+// hermetic S3 test fail once Docker Hub archived the repository.
+const minioImage = "cgr.dev/chainguard/minio@sha256:4cf4831a2bbcf13ddca09c1cbcc9faff716dd3c4247e0babc32864b8ee8e0034"
 
 const (
 	minioRunTimeout   = 120 * time.Second
@@ -120,7 +120,7 @@ func startMedium(t *testing.T, opts mediumOptions) *Medium {
 		SecretAccessKey: randomHex(t, 24),
 	}
 
-	name := fmt.Sprintf("rclone-manager-gate-minio-%d", time.Now().UnixNano())
+	name := fmt.Sprintf("retnd-gate-minio-%d", time.Now().UnixNano())
 	args := []string{
 		"run", "-d", "--name", name,
 		dockerlease.LabelFlag, dockerlease.LabelSpec,
@@ -144,6 +144,13 @@ func startMedium(t *testing.T, opts mediumOptions) *Medium {
 		t.Fatalf("machines: docker run: %v\n%s", err, errOut)
 	}
 	f.containerID = strings.TrimSpace(stdout)
+	// Registered as soon as the container exists and BEFORE readiness is
+	// waited on, so a server that never comes up is still removed.
+	// t.Cleanup runs on the failure path too, which is what makes "the
+	// container always goes away" true rather than usually true; the
+	// labelled sweep in tests/dockerlease is the backstop for a process
+	// that is killed outright. ADR 0011 records this as the hermetic
+	// requirement the S3 fixture has to meet.
 	t.Cleanup(func() {
 		_, _, _ = dockerRun(dockerExecTimeout, "rm", "-f", f.containerID)
 	})
@@ -256,6 +263,62 @@ func (f *Medium) HasBucket(t *testing.T, bucket string) bool {
 	t.Helper()
 	_, _, err := dockerRun(dockerExecTimeout, "exec", f.containerID, "test", "-d", "/data/"+bucket)
 	return err == nil
+}
+
+// LargestObjectBytes is the size of the biggest file this medium's drive
+// holds for one bucket.
+//
+// It exists so a test can check a precondition it otherwise has to assert
+// by arithmetic: whether any object in the bucket is big enough that the
+// S3 client uploaded it in parts rather than in one PUT. A test that
+// merely writes a lot of data and says "this must have been multipart" is
+// making a claim about a client's internal threshold with nothing
+// watching it.
+//
+// Answered from the drive rather than through the S3 client, for
+// HasBucket's reason: the fixture must not depend on the client the tests
+// exist to exercise. MinIO in single-drive mode stores an object's data
+// whole, so the biggest file under the bucket's directory IS the biggest
+// object -- plus its small metadata sidecars, which cannot be the maximum.
+//
+// `ls -lR` rather than du(1) or find(1): du reports a directory's
+// CUMULATIVE size, so its maximum is always the bucket total and never an
+// object, and the MinIO image has no find, no awk and no xargs to filter
+// with. So the whole recursive listing comes back, the regular-file lines
+// are picked out here, and the maximum is taken in Go.
+func (f *Medium) LargestObjectBytes(t *testing.T, bucket string) int64 {
+	t.Helper()
+
+	stdout, errOut, err := dockerRun(dockerExecTimeout, "exec", f.containerID, "ls", "-lR", "/data/"+bucket)
+	if err != nil {
+		t.Fatalf("machines: measuring objects in %q: %v\n%s", bucket, err, errOut)
+	}
+
+	var largest int64
+
+	for _, line := range strings.Split(stdout, "\n") {
+		// A regular file's long-listing line begins with "-"; a
+		// directory's begins with "d" and its "total" line with a digit.
+		if !strings.HasPrefix(line, "-") {
+			continue
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) < 5 {
+			continue
+		}
+
+		n, err := strconv.ParseInt(fields[4], 10, 64)
+		if err != nil {
+			continue
+		}
+
+		if n > largest {
+			largest = n
+		}
+	}
+
+	return largest
 }
 
 // ContainerID is the exact id this fixture created, for a test that needs

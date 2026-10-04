@@ -32,7 +32,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spdrman/rclone-manager/distribution/compose"
+	"github.com/retnd/retnd/distribution/compose"
 )
 
 // env is what an operator's .env supplies. The canonical definition uses
@@ -49,15 +49,26 @@ import (
 // quietly checking nothing.
 func env() map[string]string {
 	return map[string]string{
-		"STATE_DIR":        "/srv/backup-manager/state",
-		"BACKUP_DIR":       "/srv/backup-manager/backups",
-		"CONFIG_DIR":       "/srv/backup-manager/config",
-		"SSH_KEY_FILE":     "/srv/backup-manager/secrets/id_ed25519",
-		"KEY_FILE":         "/srv/backup-manager/secrets/id_ed25519",
-		"KNOWN_HOSTS_FILE": "/srv/backup-manager/secrets/known_hosts",
-		"DISK":             "/srv/dev-disk-by-uuid-11111111-2222-3333-4444-555555555555",
-		"APPDATA":          "/volume1/docker/backup-manager",
-		"BACKUP_ROOT":      "/volume1/backup-manager",
+		"STATE_DIR":        "/srv/retnd/state",
+		"BACKUP_DIR":       "/srv/retnd/backups",
+		"CONFIG_DIR":       "/srv/retnd/config",
+		"SSH_KEY_FILE":     "/srv/retnd/secrets/id_ed25519",
+		"KEY_FILE":         "/srv/retnd/secrets/id_ed25519",
+		"KNOWN_HOSTS_FILE": "/srv/retnd/secrets/known_hosts",
+		// EPIC L's three, which apps/proxmox and apps/portainer name in
+		// host paths (#877, #921). Their absence was the same omission
+		// this comment already describes, one epic later: both artifacts
+		// reached CheckProhibited with three volumes the parser could
+		// not resolve, so the prohibition list reported "cannot be shown
+		// to be free of /var/run/docker.sock" on mounts that are free of
+		// it, and the two adapters carrying EPIC L were the two the
+		// privilege gate could not actually judge.
+		"WORKFLOWS_DIR":     "/srv/retnd/workflows",
+		"RUNTIME_DIR":       "/srv/retnd/run",
+		"RUNNER_TOKEN_FILE": "/srv/retnd/secrets/workflow-runner.token",
+		"DISK":              "/srv/dev-disk-by-uuid-11111111-2222-3333-4444-555555555555",
+		"APPDATA":           "/volume1/docker/retnd",
+		"BACKUP_ROOT":       "/volume1/retnd",
 	}
 }
 
@@ -447,8 +458,8 @@ func TestProhibitionScanSeesKeysTheParserHasNoFieldFor(t *testing.T) {
 	const doc = `
 services:
   something-nobody-modelled:
-    image: backup-manager:dev
-    command: ["/rbm-web", "serve"]
+    image: retnd:dev
+    command: ["/retnd-web", "serve"]
     privileged: true
     x-invented-key:
       nested:
@@ -468,7 +479,7 @@ services:
 // TestTheStartGateRejectsTheBackupFreshnessCommand is the control that
 // names the regression rather than a generic mutation: the exact
 // healthcheck this file used to declare, put back, has to be rejected.
-// web-ui waits on this check, so with `rbm status` in it a
+// web-ui waits on this check, so with `retnd status` in it a
 // DEGRADED backup set or an unconfigured instance keeps the only
 // LAN-facing listener from starting.
 func TestTheStartGateRejectsTheBackupFreshnessCommand(t *testing.T) {
@@ -491,10 +502,10 @@ func TestTheStartGateRejectsTheBackupFreshnessCommand(t *testing.T) {
 		t.Fatalf("the canonical definition already fails its own start-gate rule: %s", findingText(findings))
 	}
 
-	mutated := doc.WithServiceHealthcheckTest(compose.RoleEngine, []any{"CMD", "/rbm", "status"})
+	mutated := doc.WithServiceHealthcheckTest(compose.RoleEngine, []any{"CMD", "/retnd", "status"})
 	findings := mutated.CheckField(field)
 	if len(findings) == 0 {
-		t.Fatal("declaring `rbm status` as the engine's healthcheck passed the start-gate rule, so the rule cannot see the thing it exists to prevent")
+		t.Fatal("declaring `retnd status` as the engine's healthcheck passed the start-gate rule, so the rule cannot see the thing it exists to prevent")
 	}
 	if !strings.Contains(findingText(findings), "start-gate-liveness") {
 		t.Errorf("the finding %q does not name the rule that produced it", findingText(findings))
@@ -567,11 +578,11 @@ func TestMountsRefusesWhatItCannotResolveInsteadOfAnsweringWrongly(t *testing.T)
 	const doc = `
 services:
   engine:
-    image: backup-manager:dev
-    command: ["/rbm-web", "serve"]
+    image: retnd:dev
+    command: ["/retnd-web", "serve"]
     volumes:
-      - ${KEY_FILE:?set KEY_FILE in .env to the SFTP private key}:/etc/backup-manager/id_ed25519:ro
-      - /srv/backup-manager/state:/data/state
+      - ${KEY_FILE:?set KEY_FILE in .env to the SFTP private key}:/etc/retnd/id_ed25519:ro
+      - /srv/retnd/state:/data/state
 `
 	parsed, err := compose.Parse([]byte(doc), "synthetic.yaml", map[string]string{})
 	if err != nil {
@@ -586,7 +597,7 @@ services:
 	if len(mounts) != 1 {
 		t.Fatalf("Mounts = %+v, want only the one entry that actually resolves: an unresolved host path must not be answered as a Mount", mounts)
 	}
-	if mounts[0].HostPath != "/srv/backup-manager/state" {
+	if mounts[0].HostPath != "/srv/retnd/state" {
 		t.Errorf("Mounts[0].HostPath = %q, want the resolved entry", mounts[0].HostPath)
 	}
 
@@ -687,11 +698,11 @@ func TestServiceRolesAreDerivedFromTheCommand(t *testing.T) {
 	renamed, err := compose.Parse([]byte(`
 services:
   totally-different-name:
-    image: backup-manager:dev
-    command: ["/rbm-web", "serve", "--profile=generic"]
+    image: retnd:dev
+    command: ["/retnd-web", "serve", "--profile=generic"]
   another-name-entirely:
-    image: backup-manager:dev
-    command: ["/rbm-web", "serve-ui", "--profile=generic"]
+    image: retnd:dev
+    command: ["/retnd-web", "serve-ui", "--profile=generic"]
 `), "synthetic.yaml", env())
 	if err != nil {
 		t.Fatalf("parse: %v", err)

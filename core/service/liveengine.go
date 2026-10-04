@@ -7,8 +7,9 @@ import (
 	"os"
 	"sync"
 
-	"github.com/spdrman/rclone-manager/core/internal/config"
-	"github.com/spdrman/rclone-manager/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/legacypath"
 )
 
 // Issue #537, Phase 1 of #536: telling whether an engine is already
@@ -26,7 +27,7 @@ import (
 //
 // The obvious mechanism is the wrong one, and it was tried first. The
 // `.journal-lock` startup.go already keeps is taken SHARED by every
-// process that has the journal open, which is every `backup-manager
+// process that has the journal open, which is every `retnd
 // status`, every `sources`, and every cron `run` for the length of a
 // whole backup cycle. lock_unix.go says so in as many words: a `status`
 // alongside a live `serve` is ordinary use of this CLI. Reading that lock
@@ -49,7 +50,7 @@ import (
 // routinely. An API probe needs a port, a scheme and a credential to be
 // known before the configuration has been read, and answers about a
 // listener rather than about the deployment, so it would miss an engine
-// whose API is not up yet and find a stale one that is. A `backup-manager
+// whose API is not up yet and find a stale one that is. A `retnd
 // daemon` serves no HTTP at all and would be invisible to it. The lock is
 // held by the kernel on behalf of a live process and released by the
 // kernel when that process dies, however it dies.
@@ -250,7 +251,7 @@ func DetectRunningEngineForJournal(dbPath string) (*RunningEngine, error) {
 // deploymentidentity.go), and it is here because of who calls it: a
 // process about to serve, and nothing else. It used to sit in
 // runStartupSequence, which every CLI subcommand goes through, so a
-// `rbm status` against a deployment whose identity file had
+// `retnd status` against a deployment whose identity file had
 // gone missing renamed the deployment out from under the engine still
 // serving it, and every routed write afterwards refused against that
 // deployment's own engine.
@@ -527,7 +528,7 @@ func (s *FirstRunServing) Release() error {
 var ErrNotAnnounced = errors.New("service: this deployment could not be announced, so it cannot be set up yet")
 
 // notAnnounced marks an error as that refusal without altering a word of
-// it, the same trick core/cmd/backup-manager's engineHeld plays.
+// it, the same trick core/cmd/retnd's engineHeld plays.
 //
 // The words matter here more than usual: what validateStateDir says
 // ("/data/state is not writable", "exists and is not a directory") is the
@@ -584,7 +585,7 @@ func configAbsent(configPath string) bool {
 //
 // It is not free and the cost is worth naming: while a write holds it,
 // another process's startup sequence waits (startupLockWait, lock_unix.go)
-// and then reports ErrStartupLocked. For a `rbm status` that
+// and then reports ErrStartupLocked. For a `retnd status` that
 // wait is longer than the hold and nothing is felt. For a container
 // starting at the exact moment of a `create --trust-host-key` that is
 // dialling a source host, the start fails and the supervisor restarts it,
@@ -656,12 +657,29 @@ func (g *ConfigWriteGuard) Release() error {
 // that follows is about to open, or it would answer about a deployment
 // nobody asked about.
 func journalNamedBy(configPath string) (string, bool) {
-	cfg, err := config.Load(config.ResolvePath(configPath))
+	// FR-38's preflight, on BOTH halves, for the same reason the
+	// resolution above happens at all: this has to reach the journal the
+	// call that follows is about to open. OpenConfigAndJournal adopts a
+	// pre-rename configuration directory and then a pre-rename journal
+	// path, so an announcement or a routed-write check that skipped
+	// either one would ask about a deployment nobody is serving — which
+	// is #571 reached through the rename instead of through a first run.
+	// legacypath.ForConfig/ForStateDatabase are pure, so both sides
+	// reach the same answer without either telling the other.
+	cfgAdoption := legacypath.ForConfig(configPath)
+	if cfgAdoption.Outcome == legacypath.Ambiguous {
+		return "", false
+	}
+	cfg, err := config.Load(cfgAdoption.Path)
 	if err != nil {
 		return "", false
 	}
 	if cfg.State.Database == "" {
 		return "", false
 	}
-	return cfg.State.Database, true
+	stateAdoption := legacypath.ForStateDatabase(cfg.State.Database)
+	if stateAdoption.Outcome == legacypath.Ambiguous {
+		return "", false
+	}
+	return stateAdoption.Path, true
 }

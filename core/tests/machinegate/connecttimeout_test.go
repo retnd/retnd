@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/internal/transport/rclone"
-	"github.com/spdrman/rclone-manager/core/tests/machines"
+	"github.com/retnd/retnd/core/internal/transport/rclone"
+	"github.com/retnd/retnd/core/tests/machines"
 )
 
 // Whether the connect ceiling the retry budget is derived from leaves a real

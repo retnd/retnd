@@ -50,7 +50,7 @@ import (
 // observed from outside that process, so these cases run in a child: this
 // test binary re-executes itself with signalExitChildEnv set to one of
 // the modes below.
-const signalExitChildEnv = "RM_SIGNAL_EXIT_CHILD_MODE"
+const signalExitChildEnv = "RETND_SIGNAL_EXIT_CHILD_MODE"
 
 // childReady is printed by the child once its handlers are installed. The
 // parent waits for it before signalling, so no case can pass or fail on
@@ -137,7 +137,7 @@ func TestSignalExitChildProcess(t *testing.T) {
 //
 // The other two rows are the fix, in the two orders it can be reached in:
 // before rclone has ever registered anything (which is what
-// cmd/backup-manager's daemon does, at startup, before its first
+// cmd/retnd's daemon does, at startup, before its first
 // transfer) and after it already has (which is what a later call, or any
 // reordering of that startup, would hit). Both have to hold, because
 // lib/atexit installs its handler lazily on the first registration and

@@ -125,7 +125,16 @@ func derivationMutations() []derivationMutation {
 			return "dropped --profile= from the engine command"
 		}},
 		{FieldStorageMounts, func(a *AdapterRuntime, _ *Canonical) string {
+			// The role goes with the path. ReadCompose resolves Role
+			// FROM the container path against KnownRoles, so a profile
+			// that really pointed a mount at /somewhere/else would carry
+			// no role at all — and since #921 that is what checkMounts
+			// reads to tell "a path we do not know" from "a path we know
+			// and do not require". Mutating the path alone would leave
+			// this control passing on the missing-role half while the
+			// message claims the other one.
 			a.Engine.Mounts[0].ContainerPath = "/somewhere/else"
+			a.Engine.Mounts[0].Role = ""
 			return "moved one engine mount to a container path the runtime does not know"
 		}},
 		{FieldPublishedPort, func(a *AdapterRuntime, _ *Canonical) string {
@@ -157,7 +166,7 @@ func derivationMutations() []derivationMutation {
 // regression rather than mutating something adjacent to it: the exact
 // health check every adapter shipped with, put back, has to be refused.
 //
-// A generic mutation cannot say this. `rbm status` is a real
+// A generic mutation cannot say this. `retnd status` is a real
 // command the image really ships and really answers, so nothing about it
 // looks wrong from the outside; what is wrong is that a container start
 // waits on it, and a fresh install has backed nothing up.
@@ -171,11 +180,11 @@ func TestTheBackupFreshnessVerdictIsRefusedAsAnEngineStartGate(t *testing.T) {
 				t.Fatalf("the unmutated adapter already drifts, so this control would pass for the wrong reason:\n%s", FormatDrift(d))
 			}
 
-			a.Engine.HealthcheckTest = []string{"CMD", "/rbm", "status"}
+			a.Engine.HealthcheckTest = []string{"CMD", "/retnd", "status"}
 			a.Engine.HealthcheckDisabled = false
 			d := CheckDerivation(a, c)
 			if !namesField(d, FieldHealthCheck) {
-				t.Fatalf("declaring `rbm status` as the engine's health check produced %s, want a refusal naming %q: it is FR-24's freshness verdict, non-zero on a fresh install, and the Web UI waits on it", FormatDrift(d), FieldHealthCheck)
+				t.Fatalf("declaring `retnd status` as the engine's health check produced %s, want a refusal naming %q: it is FR-24's freshness verdict, non-zero on a fresh install, and the Web UI waits on it", FormatDrift(d), FieldHealthCheck)
 			}
 		})
 	}
@@ -358,7 +367,7 @@ func TestAThirdContainerIsRefused(t *testing.T) {
 	p := allPlatforms()[0]
 	a := adapterRuntimes(t, p, c)[0].rt
 
-	a.Others = append(a.Others, Service{Name: "backup-manager-sidecar", Command: []string{"/usr/bin/some-agent"}})
+	a.Others = append(a.Others, Service{Name: "retnd-sidecar", Command: []string{"/usr/bin/some-agent"}})
 	d := CheckDerivation(a, c)
 	if !namesField(d, FieldRuntimeProfile) {
 		t.Errorf("a third container produced %s, want a refusal naming %q", FormatDrift(d), FieldRuntimeProfile)

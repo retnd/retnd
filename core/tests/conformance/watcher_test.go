@@ -11,11 +11,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/spdrman/rclone-manager/core/internal/artifactstore"
-	"github.com/spdrman/rclone-manager/core/internal/model"
-	"github.com/spdrman/rclone-manager/core/internal/placement"
-	"github.com/spdrman/rclone-manager/core/internal/state"
-	"github.com/spdrman/rclone-manager/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/artifactstore"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/placement"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // This file is the continuous invariant watcher the phase 2 exit gate

@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/spdrman/rclone-manager/core/cliecho"
-	"github.com/spdrman/rclone-manager/core/internal/obs"
+	"github.com/retnd/retnd/core/cliecho"
+	"github.com/retnd/retnd/core/internal/obs"
 )
 
 // What somebody did in the Web UI, recorded where an operator can read it

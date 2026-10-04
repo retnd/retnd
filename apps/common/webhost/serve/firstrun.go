@@ -16,10 +16,9 @@ import (
 	"net/http"
 	"sync"
 	"sync/atomic"
-	"time"
 
-	"github.com/spdrman/rclone-manager/apps/common/auth/local"
-	"github.com/spdrman/rclone-manager/apps/common/webhost"
+	"github.com/retnd/retnd/apps/common/auth/local"
+	"github.com/retnd/retnd/apps/common/webhost"
 )
 
 // ErrNoActivator is returned by NewFirstRunEngine when cfg carries a
@@ -164,21 +163,15 @@ func (e *FirstRunEngine) Close() error {
 	return a.cleanup()
 }
 
-// PollInterval satisfies Scheduler. It is never the interval actually
-// used: there is no configuration to read one from until activation, so
-// RunOnSchedule below reads the real value off the activated backend
-// instead of trusting what RunEngine passes it. Zero is returned rather
-// than a guess, so nothing can silently schedule on a made-up interval.
-func (e *FirstRunEngine) PollInterval() time.Duration { return 0 }
-
 // RunOnSchedule satisfies Scheduler by waiting for activation and then
-// delegating to the real backend's own loop, on its own configured
-// interval. A process that is shut down before it is ever configured
-// returns nil: never having been configured is not a scheduler failure.
+// delegating to the real backend's own loop, which reads its cadence off
+// the configuration that activation just wrote. A process that is shut
+// down before it is ever configured returns nil: never having been
+// configured is not a scheduler failure.
 //
-// The interval argument is deliberately ignored, for the reason
-// PollInterval gives above.
-func (e *FirstRunEngine) RunOnSchedule(ctx context.Context, _ time.Duration) error {
+// There is nothing to schedule before activation, and nothing to read a
+// cadence from either, which is why waiting is the whole implementation.
+func (e *FirstRunEngine) RunOnSchedule(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		return nil
@@ -192,7 +185,7 @@ func (e *FirstRunEngine) RunOnSchedule(ctx context.Context, _ time.Duration) err
 		// case already describes a host with nothing to tick.
 		return nil
 	}
-	return scheduler.RunOnSchedule(ctx, scheduler.PollInterval())
+	return scheduler.RunOnSchedule(ctx)
 }
 
 // newEngineHandler is NewEngine's body, with the backend and the
@@ -211,6 +204,7 @@ func newEngineHandler(cfg EngineConfig, backend webhost.BackupServiceClient, onC
 		Logger:        cfg.Logger,
 		BinaryVersion: cfg.BinaryVersion,
 		Commit:        cfg.Commit,
+		AdoptedPaths:  cfg.AdoptedPaths,
 	})
 
 	mux := http.NewServeMux()
@@ -237,9 +231,19 @@ func newEngineHandler(cfg EngineConfig, backend webhost.BackupServiceClient, onC
 	// construction checked; mustIdentityBoundary (engine.go) is the
 	// construction-time refusal that makes a nil here mean "this profile
 	// has no gateway" and never "the boundary went missing".
-	return StripUntrustedIdentity(gatewayOf(cfg.Platform))(
-		SecurityHeaders(
-			local.EnsureCSRFCookie(cfg.TrustForwardedHeaders)(mux)))
+	//
+	// webhost.RequestScope goes outside all of it, and outside the mux,
+	// so EVERY response this process produces carries the id an operator
+	// can quote and every line it logs can name the same request
+	// (issue #730): the auth routes above, the API router, and the mux's
+	// own 404 for a path neither of them claims. The API router installs
+	// it too, for a provider that builds a route table without this
+	// composition; nesting is a pass-through, so one request is still
+	// minted exactly one id.
+	return webhost.RequestScope(
+		StripUntrustedIdentity(gatewayOf(cfg.Platform))(
+			SecurityHeaders(
+				local.EnsureCSRFCookie(cfg.TrustForwardedHeaders)(mux))))
 }
 
 // recorderFor resolves where API actions are recorded (issue #599).

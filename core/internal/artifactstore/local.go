@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/spdrman/rclone-manager/core/internal/model"
+	"github.com/retnd/retnd/core/internal/model"
 )
 
 // This file is the one implementation of the seam store.go describes: the

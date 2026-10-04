@@ -1,11 +1,11 @@
-# EPIC: Multi-NAS Backup Manager Apps — Provider-Neutral Core, UGOS/Synology/TrueNAS/Unraid/OpenMediaVault/Proxmox Layers — Lean TDD Revision
+# EPIC: Multi-NAS retnd Apps — Provider-Neutral Core, UGOS/Synology/TrueNAS/Unraid/OpenMediaVault/Proxmox Layers — Lean TDD Revision
 
 ## Status
 
 **Type:** EPIC / Detailed implementation specification  
 **Repository:** `iasbuilt/iac`  
 **Parent / predecessor EPIC:** `Embedded-rclone NAS Backup Lifecycle Manager — UI-Ready Architecture`  
-**Primary implementation root:** `tools/backup-manager/`  
+**Primary implementation root:** `tools/retnd/`  
 **Target platform:** UGREEN NAS / UGOS Pro  
 **Primary UI distribution:** UGOS Pro Docker Application packaged as `.UPK`  
 **Secondary distribution:** headless Docker image/package for terminal operation  
@@ -108,7 +108,7 @@ Critical findings:
 1. A twelve-step wizard is unnecessarily long and increases setup failure.
 2. "Restore Points" suggests restore functionality, but restore execution is explicitly out of scope.
 3. The most consequential behavior—deleting the remote source after safe ingestion—was not prominent enough in onboarding and configuration.
-4. A backup manager that only shows failures when someone opens the UI is operationally weak.
+4. A retnd that only shows failures when someone opens the UI is operationally weak.
 5. Stable-size completion detection was presented alongside producer atomic rename/manifest as if they provided equivalent assurance.
 6. The UI did not provide a clear reinstall/recovery path when application state is lost but backup files remain.
 
@@ -131,7 +131,7 @@ Required corrections:
 
 Critical findings:
 
-1. Separate `backup-manager-ugos` and `backup-manager-cli` images create needless artifact drift when the design already embeds the UI in the same Go binary.
+1. Separate `retnd-ugos` and `retnd-cli` images create needless artifact drift when the design already embeds the UI in the same Go binary.
 2. Four image builds (UGOS/CLI × amd64/arm64) double the release surface without adding lifecycle isolation.
 3. "Same core version" is weaker than using the exact same executable/image digest.
 4. Upgrade rollback could fail if an older binary sees a newer schema.
@@ -175,7 +175,7 @@ They further agree that this EPIC is not implementation-ready unless all of the 
 
 # 1. Purpose
 
-Build a **provider-neutral backup-manager core** and a family of thin NAS-platform application layers.
+Build a **provider-neutral retnd core** and a family of thin NAS-platform application layers.
 
 The core SHALL remain independent of UGOS, Synology DSM, TrueNAS, Unraid, OpenMediaVault, Proxmox VE, or any other NAS/hypervisor UI.
 
@@ -401,7 +401,18 @@ Local authentication SHALL use:
 - CSRF protection;
 - rate limiting;
 - one-time bootstrap/enrollment flow;
-- no plaintext password persistence.
+- no plaintext password persistence;
+- a recovery email address, captured during enrollment beside the username and
+  password and verified by a confirmation message sent to it before enrollment
+  is allowed to succeed;
+- SMTP submission details for that message, supplied by the operator at the same
+  time, with the SMTP password held as a secret reference and never persisted,
+  logged or returned in plaintext;
+- self-service password recovery: a single-use, expiring reset link mailed to the
+  recovery address, whose use SHALL invalidate every live session.
+
+The recovery address is an additional field, not a replacement identity: the
+username remains the login credential.
 
 Provider-native authentication may replace local auth only after its trust boundary passes provider-specific security tests.
 
@@ -410,7 +421,7 @@ Provider-native authentication may replace local auth only after its trust bound
 The canonical release primitive SHALL be the provider-neutral Go binary per architecture:
 
 ```text
-backup-manager binary
+retnd binary
        │
        ├── canonical OCI image
        │      ├── Generic Docker
@@ -897,7 +908,7 @@ The core SHALL contain no provider SDK dependencies.
 
 Produce a provider-neutral React/TypeScript application under `ui/shared/`.
 
-It SHALL contain normal backup-manager product UI.
+It SHALL contain normal retnd product UI.
 
 Provider-specific bootstrap code SHALL not live here.
 
@@ -1046,12 +1057,12 @@ The implementation SHALL define these values centrally.
 Proposed values:
 
 ```text
-Display name: Backup Manager
-App ID:       com.iasbuilt.backupmanager
+Display name: retnd
+App ID:       com.iasbuilt.retnd
 Category:     backup
 ```
 
-`com.iasbuilt.backupmanager` is a proposed identifier and MUST be confirmed before the first externally distributed or App Center-submitted package because the UGOS application ID is intended to remain stable.
+`com.iasbuilt.retnd` is a proposed identifier and MUST be confirmed before the first externally distributed or App Center-submitted package because the UGOS application ID is intended to remain stable.
 
 Do not derive runtime filesystem paths from the human-readable display name.
 
@@ -1065,14 +1076,14 @@ Target structure:
 
 ```text
 tools/
-  backup-manager/
+  retnd/
     README.md
     go.work
 
     core/
       go.mod
       cmd/
-        backup-manager/
+        retnd/
       app/
         service.go
         operations.go
@@ -1270,15 +1281,15 @@ The release manifest SHALL prove core parity through binary hashes and image/pac
 The provider-neutral core executable SHALL support at minimum:
 
 ```bash
-rbm run
-rbm daemon
-rbm status
-rbm check
-rbm retention --dry-run
-rbm retention
-rbm reconcile
-rbm validate <artifact-id>
-rbm version
+retnd run
+retnd daemon
+retnd status
+retnd check
+retnd retention --dry-run
+retnd retention
+retnd reconcile
+retnd validate <artifact-id>
+retnd version
 ```
 
 ## 9.1 Headless Docker default
@@ -1286,13 +1297,13 @@ rbm version
 The headless Docker distribution SHOULD default to:
 
 ```bash
-rbm daemon
+retnd daemon
 ```
 
 Users SHALL be able to override the command, for example:
 
 ```bash
-docker run --rm ... rbm check
+docker run --rm ... retnd check
 ```
 
 ## 9.2 Generic Web App host
@@ -1313,7 +1324,7 @@ It SHALL be used by generic Docker and provider packages that do not yet impleme
 The UPK Compose profile SHALL run the canonical image in a combined supervised mode such as:
 
 ```bash
-rbm serve --with-daemon --auth-mode=ugos
+retnd serve --with-daemon --auth-mode=ugos
 ```
 
 Exact command naming may vary.
@@ -1343,7 +1354,7 @@ Reason:
 - native UGOS desktop-window experience;
 - JSSDK support;
 - UGOS login/session integration;
-- no separate backup-manager password database.
+- no separate retnd password database.
 
 The application SHOULD initially support the UGOS `pc` client target.
 
@@ -1496,16 +1507,24 @@ Synology DSM (until native DSM auth is implemented)
 
 Requirements:
 
-- first-run administrator enrollment;
+- first-run administrator enrollment, capturing a recovery email address and the
+  SMTP details used to reach it;
+- a confirmation email to that address, sent over those SMTP details, which must
+  succeed for enrollment to succeed;
 - Argon2id or equivalent password hashing;
 - HTTP-only secure session cookie;
 - CSRF protection;
 - brute-force/rate-limit protection;
 - session invalidation;
 - password rotation;
-- no plaintext password persistence;
+- password recovery by single-use, expiring link mailed to the recovery address,
+  answering identically whether or not the account named exists;
+- recovery address and SMTP details editable after enrollment, with a test send
+  and re-confirmation of a changed address;
+- no plaintext password persistence, for the account password or the SMTP one;
 - no default/static password;
-- provider packaging must not bake credentials into images.
+- provider packaging must not bake credentials into images, which includes SMTP
+  credentials.
 
 A provider MAY later replace local auth with a native provider adapter without changing core application logic.
 
@@ -1795,7 +1814,7 @@ Private state includes:
 Preferred container path:
 
 ```text
-/var/lib/backup-manager/
+/var/lib/retnd/
 ```
 
 The UPK SHALL mount this path from a **UGOS-owned private writable application location** proven in Phase 0.
@@ -1830,7 +1849,7 @@ Recovery metadata SHOULD preserve enough information to reconstruct safely:
 - checksum(s);
 - validation result summary;
 - retention-relevant timestamp;
-- backup-manager format version.
+- retnd format version.
 
 Recovery metadata MUST NOT contain:
 
@@ -1842,8 +1861,8 @@ Recovery metadata MUST NOT contain:
 Provide a dry-run recovery command such as:
 
 ```bash
-rbm catalog rebuild --dry-run
-rbm catalog rebuild
+retnd catalog rebuild --dry-run
+retnd catalog rebuild
 ```
 
 Reconstruction MUST NOT delete remote or local backup files.
@@ -1910,7 +1929,7 @@ Illustrative skeleton:
 
 ```yaml
 spec_version: "2.1"
-app_id: com.iasbuilt.backupmanager
+app_id: com.iasbuilt.retnd
 version: 0.1.0
 
 support_arch:
@@ -1924,7 +1943,7 @@ is_docker_app: true
 only_admin: true
 
 port: 29090
-proxy_path: backup-manager-api
+proxy_path: retnd-api
 open_type: inner
 
 tag_types:
@@ -1949,20 +1968,20 @@ parameters:
         description: Application logging verbosity.
 
 privacy_policy_link:
-  - https://<publisher>/backup-manager/privacy
+  - https://<publisher>/retnd/privacy
 
 # Current UGREEN project.yaml rules require these when
 # open-source code/components are used.
 license_agreement_link:
-  - https://<publisher>/backup-manager/licenses
+  - https://<publisher>/retnd/licenses
 source_code_link:
-  - https://<publisher>/backup-manager/source
+  - https://<publisher>/retnd/source
 technical_support_link:
-  - https://<publisher>/backup-manager/support
+  - https://<publisher>/retnd/support
 
 i18n:
   en-US:
-    name: Backup Manager
+    name: retnd
     description: Pull, verify, retain, and monitor remote backup artifacts.
     author: <publisher>
     publisher: <publisher>
@@ -1984,19 +2003,19 @@ Illustrative:
 
 ```yaml
 services:
-  backup-manager:
+  retnd:
     image: <exact-versioned-canonical-image-tag>
     restart: always
 
     environment:
       TZ: ${TZ}
-      BACKUP_MANAGER_LOG_LEVEL: ${LOG_LEVEL}
-      BACKUP_MANAGER_AUTH_MODE: ugos
-      BACKUP_MANAGER_DATA_DIR: /var/lib/backup-manager
-      BACKUP_MANAGER_BACKUP_ROOT: /data/backups
+      RETND_LOG_LEVEL: ${LOG_LEVEL}
+      RETND_AUTH_MODE: ugos
+      RETND_DATA_DIR: /var/lib/retnd
+      RETND_BACKUP_ROOT: /data/backups
 
     volumes:
-      - <verified-private-state-source>:/var/lib/backup-manager
+      - <verified-private-state-source>:/var/lib/retnd
       - ${BACKUP_ROOT}:/data/backups
 
     ports:
@@ -2033,7 +2052,7 @@ The default application page SHALL be a concise operations dashboard.
 Show:
 
 ```text
-Backup Manager        HEALTHY
+retnd        HEALTHY
 Last successful cycle  8 minutes ago
 Storage                1.8 TB free
 ```
@@ -2206,7 +2225,7 @@ Stable-size mode SHALL require:
 
 The UI SHALL prominently disclose:
 
-> After a backup has been transferred, verified, durably committed to the NAS, and recorded safe by Backup Manager, the original remote backup artifact is deleted from the source server.
+> After a backup has been transferred, verified, durably committed to the NAS, and recorded safe by retnd, the original remote backup artifact is deleted from the source server.
 
 The administrator SHALL acknowledge this behavior before enabling a new backup set.
 
@@ -2541,7 +2560,7 @@ including:
 
 ```json
 {
-  "backup_manager": "...",
+  "retnd": "...",
   "api_version": "v1",
   "ui_build": "...",
   "rclone": "...",
@@ -2570,7 +2589,7 @@ The headless package supports operators who want:
 Publish:
 
 ```text
-<registry>/iasbuilt/backup-manager:<version>
+<registry>/iasbuilt/retnd:<version>
 ```
 
 The image is the same architecture-specific image digest bundled into the matching UPK release.
@@ -2583,24 +2602,24 @@ A convenience `latest` tag MAY exist in the registry, but it SHALL NOT be used b
 
 ```bash
 docker run --rm \
-  -v /path/to/config:/etc/backup-manager:ro \
-  -v /path/to/state:/var/lib/backup-manager \
+  -v /path/to/config:/etc/retnd:ro \
+  -v /path/to/state:/var/lib/retnd \
   -v /path/to/backups:/data/backups \
-  <registry>/iasbuilt/backup-manager:0.1.0 \
-  rbm check
+  <registry>/iasbuilt/retnd:0.1.0 \
+  retnd check
 ```
 
 Daemon:
 
 ```bash
 docker run -d \
-  --name backup-manager \
+  --name retnd \
   --restart unless-stopped \
-  -v /path/to/config:/etc/backup-manager:ro \
-  -v /path/to/state:/var/lib/backup-manager \
+  -v /path/to/config:/etc/retnd:ro \
+  -v /path/to/state:/var/lib/retnd \
   -v /path/to/backups:/data/backups \
-  <registry>/iasbuilt/backup-manager:0.1.0 \
-  rbm daemon
+  <registry>/iasbuilt/retnd:0.1.0 \
+  retnd daemon
 ```
 
 The HTTP/UI listener SHALL be disabled by default in headless mode unless explicitly enabled.
@@ -2613,17 +2632,17 @@ Provide a supported example:
 
 ```yaml
 services:
-  backup-manager:
-    image: <registry>/iasbuilt/backup-manager:0.1.0
+  retnd:
+    image: <registry>/iasbuilt/retnd:0.1.0
     restart: unless-stopped
 
     command:
-      - backup-manager
+      - retnd
       - daemon
 
     volumes:
-      - ./config:/etc/backup-manager:ro
-      - ./state:/var/lib/backup-manager
+      - ./config:/etc/retnd:ro
+      - ./state:/var/lib/retnd
       - /mnt/backups:/data/backups
 
     read_only: true
@@ -2674,8 +2693,8 @@ linux/arm64
 Build matrix SHALL produce one canonical image per architecture:
 
 ```text
-backup-manager:<version>  linux/amd64
-backup-manager:<version>  linux/arm64
+retnd:<version>  linux/amd64
+retnd:<version>  linux/arm64
 ```
 
 For registry publication this MAY be represented by a multi-architecture manifest.
@@ -2700,10 +2719,10 @@ packaging/ugos/
 │   └── docker-compose.yaml
 ├── rootfs_amd64/
 │   └── images/
-│       └── backup-manager-<version>-amd64.tar
+│       └── retnd-<version>-amd64.tar
 └── rootfs_arm64/
     └── images/
-        └── backup-manager-<version>-arm64.tar
+        └── retnd-<version>-arm64.tar
 ```
 
 Do not put additional arbitrary files into Docker App `rootfs_common`.
@@ -2932,6 +2951,7 @@ On first open:
 
 ```text
 Administrator account creation   (local-auth only; skipped under platform-auth)
+  username, password, recovery email, SMTP details, confirmation email
   ↓
 Welcome / product purpose
   ↓
@@ -2976,8 +2996,19 @@ as one:
 - Password handling follows section 3.6: Argon2id or equivalent, no plaintext
   persistence, HTTP-only session cookies, CSRF protection, and rate limiting on
   both enrollment and login.
+- **The account SHALL be recoverable, and enrollment is where that is
+  arranged.** The same form SHALL capture a recovery email address and the SMTP
+  submission details used to reach it. Before the administrator record is
+  written, a confirmation message SHALL be sent to that address over those
+  details; a send that fails SHALL fail the enrollment, leaving no account
+  behind and enrollment still open. An unverifiable address is worth nothing on
+  the day it is needed, so it is verified on the day it is given.
 - Enrollment SHALL be rate-limited and SHALL log every attempt, successful or
   not, to the audit trail (section 58).
+
+The recovery address does not become the login identity. The username stays what
+an operator signs in with, and the address is an additional field on the same
+record.
 
 Backup setup remains skippable, per below. Account creation does not.
 
@@ -2985,7 +3016,7 @@ If the target App Center region/current UGREEN rules require first-launch privac
 
 Backup setup itself SHALL be skippable so experienced administrators can enter the main UI and configure manually.
 
-The welcome screen SHALL make clear that Backup Manager:
+The welcome screen SHALL make clear that retnd:
 
 - manages backup artifacts that another system creates;
 - does not create the database/application backup itself;
@@ -2993,6 +3024,28 @@ The welcome screen SHALL make clear that Backup Manager:
 - deletes the remote backup artifact only after the predecessor lifecycle has safely committed the NAS copy.
 
 No remote data may be deleted during first-run connection tests.
+
+## 49.2 Losing the password
+
+Because enrollment is single-shot and irreversible, the product SHALL offer a
+recovery path that does not require reopening it:
+
+- Sign-in SHALL offer a forgot-password route taking the username alone.
+- That route SHALL answer identically whether or not the name matches the
+  administrator, so it cannot be used to discover the account's name.
+- Where it does match, and a confirmed recovery address exists, a single-use,
+  expiring reset link SHALL be mailed to that address over the stored SMTP
+  details.
+- Completing a reset SHALL set the new password and invalidate every live
+  session, including the one that asked, so a stolen session cookie does not
+  survive the reset it triggered.
+- The recovery address and the SMTP details SHALL be editable afterwards, with a
+  test send available, and changing the address SHALL re-verify it by
+  confirmation message rather than trusting the new value.
+
+A factory reset remains the answer only where recovery was never configured or
+the mail path is gone, and it is what it always was: destructive, deliberate,
+and indistinguishable from a fresh install.
 
 ---
 
@@ -3525,7 +3578,7 @@ Container/CLI behavior SHALL be specified as integration tests before the packag
 
 Test:
 
-- `rbm check`;
+- `retnd check`;
 - one-cycle `run`;
 - daemon;
 - clean `SIGTERM`;
@@ -3703,7 +3756,7 @@ Implement/prove:
 
 Implement/prove:
 
-- private writable state source for `/var/lib/backup-manager`;
+- private writable state source for `/var/lib/retnd`;
 - user-authorized backup root mounted at `/data/backups`;
 - update persistence;
 - disable/enable persistence;
@@ -3747,7 +3800,7 @@ Proceed only if the core/shared UI are provider-neutral **and** an authorized UG
 
 ---
 
-# 70. Phase 2 — Functional Backup Manager UI MVP
+# 70. Phase 2 — Functional retnd UI MVP
 
 ## Objective
 
@@ -3895,7 +3948,7 @@ Keep filtering and diagnostics intentionally simple for v1.
 
 ### Phase 2 Exit Gate
 
-An administrator can install/open the app and perform normal backup-manager configuration and monitoring without using a terminal.
+An administrator can install/open the app and perform normal retnd configuration and monitoring without using a terminal.
 
 ---
 
@@ -4119,14 +4172,14 @@ Include:
 
 ## Work Package 4.3 — TrueNAS + Unraid + OpenMediaVault Container Provider Packages
 
-> If a packaging profile here runs `/rbm-web serve-ui` as its own
+> If a packaging profile here runs `/retnd-web serve-ui` as its own
 > container (the same two-container split B4.1 shipped for the generic Docker
 > app), remember to override the canonical image's own baked-in `HEALTHCHECK`
-> independently for that container: it runs `rbm status`, which
+> independently for that container: it runs `retnd status`, which
 > needs a config file and a state database `serve-ui` never has. See
 > `container/compose.yaml`'s `web-ui` service and docs/deployment.md's
 > "Healthchecks differ per container" for the working example
-> (`/rbm-web healthcheck` instead).
+> (`/retnd-web healthcheck` instead).
 
 ### TrueNAS
 
@@ -4379,7 +4432,7 @@ In addition to functional completion, every applicable child issue SHALL demonst
 
 This EPIC is complete when:
 
-- [ ] the predecessor backup-manager core remains the only lifecycle engine;
+- [ ] the predecessor retnd core remains the only lifecycle engine;
 - [ ] one canonical provider-neutral core binary exists per release/architecture;
 - [ ] container-based providers use the canonical OCI image built from that core binary;
 - [ ] Synology SPK proves the embedded core binary hash;
@@ -4507,19 +4560,19 @@ TDD itself is part of the safety system. Any change to authentication, deletion,
 Create/update:
 
 ```text
-tools/backup-manager/README.md
-tools/backup-manager/docs/architecture.md
-tools/backup-manager/docs/provider-apps.md
-tools/backup-manager/docs/testing-tdd.md
-tools/backup-manager/docs/security.md
-tools/backup-manager/docs/providers/ugos.md
-tools/backup-manager/docs/providers/synology.md
-tools/backup-manager/docs/providers/truenas.md
-tools/backup-manager/docs/providers/unraid.md
-tools/backup-manager/docs/providers/openmediavault.md
-tools/backup-manager/docs/providers/proxmox.md
-tools/backup-manager/docs/providers/docker.md
-tools/backup-manager/docs/release.md
+tools/retnd/README.md
+tools/retnd/docs/architecture.md
+tools/retnd/docs/provider-apps.md
+tools/retnd/docs/testing-tdd.md
+tools/retnd/docs/security.md
+tools/retnd/docs/providers/ugos.md
+tools/retnd/docs/providers/synology.md
+tools/retnd/docs/providers/truenas.md
+tools/retnd/docs/providers/unraid.md
+tools/retnd/docs/providers/openmediavault.md
+tools/retnd/docs/providers/proxmox.md
+tools/retnd/docs/providers/docker.md
+tools/retnd/docs/release.md
 ```
 
 `architecture.md` SHALL document the dependency rule:
@@ -4585,7 +4638,7 @@ ADR-UGOS-009
 Require test-driven development and safety-specification tests for all implementation work
 
 ADR-PLATFORM-001
-Keep backup-manager core provider-neutral; all NAS OS integrations live under apps/<provider>
+Keep retnd core provider-neutral; all NAS OS integrations live under apps/<provider>
 
 ADR-PLATFORM-002
 Use one shared provider-neutral React UI with thin provider bridges
@@ -4642,7 +4695,7 @@ Do not paper over an unresolved security-sensitive question with an assumption.
 # 81. Recommended Implementation Sequence
 
 ```text
-Parent backup-manager core behavior
+Parent retnd core behavior
         ↓
 Phase 1 — Extract provider-neutral core/shared UI + prove UGOS adapter
         ↓
@@ -4818,7 +4871,7 @@ download/install .UPK
         ↓
 App Center installs Docker dependency/app
         ↓
-Backup Manager icon appears
+retnd icon appears
         ↓
 open inside UGOS desktop
         ↓
@@ -4862,9 +4915,9 @@ docker pull canonical versioned image
         ↓
 mount config/state/backups
         ↓
-rbm check
+retnd check
         ↓
-rbm daemon
+retnd daemon
         ↓
 manage via CLI
 ```
@@ -5017,7 +5070,7 @@ The adversarial panel required these substantive changes from the prior draft:
 
 ```text
                          REPOSITORY
-                tools/backup-manager/
+                tools/retnd/
                         │
         ┌───────────────┼────────────────┐
         │               │                │

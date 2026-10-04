@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spdrman/rclone-manager/apps/common/platform/capabilities"
-	"github.com/spdrman/rclone-manager/apps/common/platform/notify"
-	"github.com/spdrman/rclone-manager/core/service"
+	"github.com/retnd/retnd/apps/common/platform/capabilities"
+	"github.com/retnd/retnd/apps/common/platform/notify"
+	"github.com/retnd/retnd/core/service"
 )
 
 // These tests cover the two things that make alerting a capability rather

@@ -21,9 +21,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/internal/app"
-	"github.com/spdrman/rclone-manager/core/internal/config"
-	"github.com/spdrman/rclone-manager/core/internal/state"
+	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // int64p is a local helper: the byte fields are pointers precisely so a

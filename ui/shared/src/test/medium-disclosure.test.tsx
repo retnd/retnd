@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { MemoryRouter } from "react-router-dom";
 import { SettingsPage } from "@shared/pages/SettingsPage";
 import { ApiProvider } from "@shared/api/ApiContext";
-import { BackupManagerError } from "@shared/api/contracts";
+import { RetndError } from "@shared/api/contracts";
 import type { AppSettings, StorageMedium, UpdateSettingsRequest } from "@shared/api/contracts";
 import { createMockApi } from "@shared/api/mock";
 import { PlatformProvider } from "@shared/platform/PlatformContext";
@@ -94,8 +94,9 @@ function settingsFixture(over: {
       capBytes: 0, warningFreeBytes: 0, criticalFreeBytes: 0, safetyMarginBytes: 0,
       backupRoot: "/data/backups", backupRootConfigured: false
     },
+    service: { pollIntervalSeconds: 900 },
     mediums: over.mediums ?? MEDIUMS,
-    schema: { retention: SCHEMA, storage: STORAGE }
+    schema: { retention: SCHEMA, storage: STORAGE, service: { minPollIntervalSeconds: 60 } }
   };
 }
 
@@ -371,7 +372,7 @@ describe("mapping a retention tier to a storage medium", () => {
       }),
       updateSettings: () =>
         Promise.reject(
-          new BackupManagerError({
+          new RetndError({
             code: "MEDIUM_DISCLOSURE_REQUIRED",
             message:
               "This write sends monthly to offsite_s3. After a backup uploads and I verify it, I delete the copy on this machine.",
@@ -402,7 +403,6 @@ const HEALTH: SystemHealth = {
   oldestSetFreshnessHours: 4,
   setsHealthy: 1, setsDegraded: 0, setsStale: 0, setsFailing: 0,
   quarantinedCount: 0, readOnlyRetainedCount: 0,
-  storageFreeBytes: 1e12, storageTotalBytes: 4e12,
   storageState: "nominal", storageReadingsUnavailable: 0
 };
 

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spdrman/rclone-manager/core/internal/config"
-	"github.com/spdrman/rclone-manager/core/internal/obs"
-	"github.com/spdrman/rclone-manager/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // The one place a diagnostic is proven to reach a log rather than only a

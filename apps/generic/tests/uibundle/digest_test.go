@@ -42,15 +42,15 @@ func repoRoot(t *testing.T) string {
 // testing the artifact that ships.
 func buildWebHost(t *testing.T, root string) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "backup-manager-web")
+	bin := filepath.Join(t.TempDir(), "retnd-web")
 	if runtime.GOOS == "windows" {
 		bin += ".exe"
 	}
-	cmd := exec.Command("go", "build", "-o", bin, "./cmd/backup-manager-web")
+	cmd := exec.Command("go", "build", "-o", bin, "./cmd/retnd-web")
 	cmd.Dir = filepath.Join(root, "apps", "generic")
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build backup-manager-web: %v\n%s", err, out)
+		t.Fatalf("build retnd-web: %v\n%s", err, out)
 	}
 	return bin
 }
@@ -249,8 +249,8 @@ func TestBridgeSelectionIsNotACompileTimeInput(t *testing.T) {
 	root := repoRoot(t)
 
 	build := func(env ...string) string {
-		bin := filepath.Join(t.TempDir(), "backup-manager-web")
-		cmd := exec.Command("go", "build", "-trimpath", "-o", bin, "./cmd/backup-manager-web")
+		bin := filepath.Join(t.TempDir(), "retnd-web")
+		cmd := exec.Command("go", "build", "-trimpath", "-o", bin, "./cmd/retnd-web")
 		cmd.Dir = filepath.Join(root, "apps", "generic")
 		cmd.Env = append(append(os.Environ(), "GOWORK=off"), env...)
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -260,7 +260,7 @@ func TestBridgeSelectionIsNotACompileTimeInput(t *testing.T) {
 	}
 
 	base := build()
-	withPlatform := build("VITE_PLATFORM=synology", "BACKUP_MANAGER_PLATFORM=synology")
+	withPlatform := build("VITE_PLATFORM=synology", "RETND_PLATFORM=synology")
 	if base != withPlatform {
 		t.Fatalf("naming a provider at build time changed the binary: %s vs %s", base, withPlatform)
 	}
@@ -273,8 +273,8 @@ func TestBridgeSelectionIsNotACompileTimeInput(t *testing.T) {
 		t.Fatalf("two identical builds already differ (%s vs %s), so this test cannot distinguish a change from build noise", base, stamped)
 	}
 	changed := func() string {
-		bin := filepath.Join(t.TempDir(), "backup-manager-web")
-		cmd := exec.Command("go", "build", "-trimpath", "-ldflags", "-X main.version=deliberately-different", "-o", bin, "./cmd/backup-manager-web")
+		bin := filepath.Join(t.TempDir(), "retnd-web")
+		cmd := exec.Command("go", "build", "-trimpath", "-ldflags", "-X main.version=deliberately-different", "-o", bin, "./cmd/retnd-web")
 		cmd.Dir = filepath.Join(root, "apps", "generic")
 		cmd.Env = append(os.Environ(), "GOWORK=off")
 		if out, err := cmd.CombinedOutput(); err != nil {

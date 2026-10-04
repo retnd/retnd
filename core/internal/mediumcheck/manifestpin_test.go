@@ -13,8 +13,8 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/spdrman/rclone-manager/core/internal/backend"
-	"github.com/spdrman/rclone-manager/core/internal/mediumcheck"
+	"github.com/retnd/retnd/core/internal/backend"
+	"github.com/retnd/retnd/core/internal/mediumcheck"
 )
 
 // TestTheProbeStepVocabularyMatchesMediumcheckSteps is issue #665's test

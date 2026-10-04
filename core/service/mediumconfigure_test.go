@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spdrman/rclone-manager/core/internal/backend"
-	"github.com/spdrman/rclone-manager/core/internal/config"
+	"github.com/retnd/retnd/core/internal/backend"
+	"github.com/retnd/retnd/core/internal/config"
 )
 
 // The field-id table's two directions have to agree (I2.2, issue #669).

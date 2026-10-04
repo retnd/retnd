@@ -10,31 +10,51 @@
   ],
   "image": {
     "registry": "ghcr.io",
-    "repository": "spdrman/backup-manager",
-    "tag": "0.4.0",
-    "reference": "ghcr.io/spdrman/backup-manager:0.4.0",
-    "published": true,
+    "repository": "retnd/retnd",
+    "tag": "0.5.0",
+    "reference": "ghcr.io/retnd/retnd:0.5.0",
+    "published": false,
     "note": [
-      "published:false. 0.4.0 is cut but not pushed: container/release-manifest.json carries a",
+      "published:false. 0.5.0 is cut but not pushed: container/release-manifest.json carries a",
       "registry_digest of null per architecture and a null index_digest, and this flag says the",
       "same thing from the other side. That file and this flag move together:",
       "TestReleaseManifestRegistryDigestTracksTheCanonicalPublishFlag refuses a published flag",
       "with no digest and a digest with no flag, because either one alone is a half-truth. The",
       "release workflow does the push, and the digests are recorded back here afterwards.",
-      "0.3.3 is the newest release that IS published and signed, so anyone who wants a",
-      "release rather than a cut one has 0.3.3; 0.3.0, 0.3.1 and 0.3.2 are on the registry too.",
+      "0.4.0 is the newest release that IS published and signed, so anyone who wants a",
+      "release rather than a cut one has 0.4.0; earlier published releases remain on the registry.",
       "This line names a version and therefore goes stale on its own, which it already did",
       "twice: it said 0.3.0 through the whole of 0.3.1 and 0.3.2, and it went on saying 0.3.2",
       "after 0.3.3 was pushed. The durable answer is the git history of this file, where each",
       "`Record <version>'s registry digests` commit is one real push, and",
-      "`docker buildx imagetools inspect ghcr.io/spdrman/backup-manager:<version>` asks the",
+      "`docker buildx imagetools inspect ghcr.io/retnd/retnd:<version>` asks the",
       "registry directly.",
       "This reference is the one string every provider package must carry, so pointing the",
       "project at a different registry stays a one-line change here rather than an edit in four",
       "metadata formats. Every acceptance procedure in docs/acceptance/ keeps its step 0 for a",
       "deployment that cannot reach ghcr.io (push to your own registry, or docker save/load),",
       "and every profile keeps the reference substitutable."
-    ]
+    ],
+    "mirror": {
+      "reference": "ghcr.io/retndproject/retnd:0.5.0",
+      "retiredBy": 947,
+      "note": [
+        "FR-39: a GHCR package path is not covered by GitHub's transfer redirects, so the",
+        "old package path is pushed alongside the new one for exactly one release. FR-41's",
+        "cutover (#895) moved image.reference above to ghcr.io/retnd/retnd and left this",
+        "naming the retained path, which is the state guard 7 in",
+        "scripts/bdtools/release/publish_image.py calls 'the reference has moved': both are",
+        "pushed, same build, same digest. Removing this object is #947's job, together with",
+        "that guard, which refuses a run whose push set does not contain this reference.",
+        "MEASURED AT THE CUTOVER, and it is the reason this object is a formality rather",
+        "than a rescue: `gh api orgs/retndproject/packages?package_type=container`",
+        "answered an EMPTY list on 2026-09-15, so no image has ever actually been",
+        "published under the old package path and there is no existing `docker pull` of it",
+        "to strand. The declaration stays until #947 anyway, because the cost of keeping",
+        "it is one extra push and the cost of being wrong about that reading is an",
+        "operator's pinned pull 404ing with nothing to tell them why."
+      ]
+    }
   },
   "architectures": [
     "amd64",
@@ -88,14 +108,14 @@
   "healthchecks": {
     "engine": [
       "CMD",
-      "/rbm-web",
+      "/retnd-web",
       "healthcheck",
       "--url",
       "http://127.0.0.1:8080/health/live"
     ],
     "webUI": [
       "CMD",
-      "/rbm-web",
+      "/retnd-web",
       "healthcheck"
     ]
   },
@@ -110,7 +130,7 @@
     "derive.go has to hold four metadata formats to them, one of which is an",
     "Unraid XML template no Compose parser can read.",
     "",
-    "The engine's is a LIVENESS question and deliberately not `backup-manager",
+    "The engine's is a LIVENESS question and deliberately not `retnd",
     "status` (issue #206). Every adapter's Web UI declares",
     "`depends_on: <engine>: condition: service_healthy`, so whatever this asks",
     "stands between an operator and the only LAN-facing container in the",
@@ -133,7 +153,7 @@
     "dependency either, so the badge it produces is the freshness report it is",
     "meant to be.",
     "",
-    "The Web UI's is unchanged: `/rbm status` needs a config file and a",
+    "The Web UI's is unchanged: `/retnd status` needs a config file and a",
     "state database that container does not have, so every adapter has to either",
     "override it with the Web UI test or disable it outright (Unraid, whose only",
     "seam is `docker run --health-cmd`, which is shell form the distroless image",
@@ -141,36 +161,61 @@
   ],
   "commands": {
     "engine": [
-      "/rbm-web",
+      "/retnd-web",
       "serve"
     ],
     "webUI": [
-      "/rbm-web",
+      "/retnd-web",
       "serve-ui"
     ],
     "headless": [
-      "/rbm",
+      "/retnd",
       "daemon"
     ],
     "healthcheck": [
-      "/rbm-web",
+      "/retnd-web",
       "healthcheck"
     ],
     "imageHealthcheck": [
-      "/rbm",
+      "/retnd",
       "status"
     ]
   },
   "binaries": [
-    "/rbm",
-    "/rbm-web"
+    "/retnd",
+    "/retnd-web"
   ],
+  "_retainedBinaries_comment": [
+    "The ONE pre-rename entrypoint the image still answers to, and the whole of",
+    "issue #890's binary-name overlap (R1.5, EPIC R #885).",
+    "",
+    "#890 renamed the two entrypoints to /retnd and /retnd-web. An operator who",
+    "pinned a previously published compose file still has",
+    "`command: [\"/retnd-web\", ...]` in their copy, and \"your stack no longer",
+    "starts\" is not an acceptable upgrade, so container/Dockerfile links",
+    "/retnd-web to /retnd-web: one inode, two names, no second copy of the",
+    "binary and no shell wrapper (the runtime image is distroless). There is",
+    "deliberately no /retnd beside it, because no compose file this project",
+    "has ever shipped named /retnd in a `command:` or a `healthcheck:`.",
+    "",
+    "Keyed alias -> real binary, and NOT a second entry in `binaries`, because",
+    "the two lists answer different questions. `binaries` is what the image",
+    "CONTAINS, so it is what container/release-manifest.json has to record a",
+    "SHA-256 for; a hardlink has no hash of its own to record. This map is what",
+    "an argv[0] or a healthcheck command may SAY, which is a wider set for",
+    "exactly one release. renameoverlap.go is the only reader, and issue #895",
+    "deletes this block, that file and the Dockerfile link together."
+  ],
+  "retainedBinaries": {},
   "containerPaths": {
     "state": "/data/state",
     "backups": "/data/backups",
-    "config": "/etc/backup-manager/config",
-    "sshKey": "/etc/backup-manager/id_ed25519",
-    "knownHosts": "/etc/backup-manager/known_hosts"
+    "config": "/etc/retnd/config",
+    "sshKey": "/etc/retnd/id_ed25519",
+    "knownHosts": "/etc/retnd/known_hosts",
+    "runtime": "/data/run",
+    "workflows": "/workflows",
+    "runnerToken": "/etc/retnd/workflow-runner.token"
   },
   "configFileName": "config.yaml",
   "_config_role_comment": [
@@ -195,26 +240,61 @@
     "engine only ever reads it, and the shapes are different claims."
   ],
   "readOnlyContainerPaths": [
-    "/etc/backup-manager/id_ed25519",
-    "/etc/backup-manager/known_hosts"
+    "/etc/retnd/id_ed25519",
+    "/etc/retnd/known_hosts",
+    "/etc/retnd/workflow-runner.token",
+    "/workflows"
   ],
   "writableContainerPaths": [
     "/data/state",
     "/data/backups",
-    "/etc/backup-manager/config"
+    "/etc/retnd/config",
+    "/data/run"
   ],
+  "_workflowRunner_comment": [
+    "The host-side Host Workflow Runner contract (issue #877). Nothing in this",
+    "block is carried by a packaged artifact, and that is exactly why it is",
+    "here: L2's runner is a systemd unit beside the stack, and since #865 every",
+    "LOCAL workflow hook runs in an ephemeral Docker container that unit",
+    "launches. So a hard new prerequisite (a reachable daemon, the socket's",
+    "group, a pinned image) arrived without changing one line of any compose",
+    "file, which means no existing packaging check could see it.",
+    "",
+    "Every field below has one authority elsewhere and a test that reads it:",
+    "hookImage is core/internal/hostrunner's DefaultHookImage, and unit,",
+    "installer, hookImageEnvKey and modeEnvKey are the installer's own",
+    "constants. The installer and the runner were already pinned to each other",
+    "by scripts/install/test_install_docker_host.py; this makes the packaging",
+    "manifests part of that pin rather than a fourth independent copy that goes",
+    "stale the next time the image moves.",
+    "",
+    "engineDockerAccess is false and has to stay false. docs/runtime-contract.md",
+    "says it in words -- 'this container gains nothing' -- and two rules say it",
+    "structurally: the docker-socket entry in ProhibitedHostPaths, which reads",
+    "mounts, and submission.json's no-container-docker-access, which reads the",
+    "two ways of handing over a daemon that need no mount at all (a group_add,",
+    "or a DOCKER_HOST)."
+  ],
+  "workflowRunner": {
+    "unit": "retnd-workflow-runner.service",
+    "installer": "scripts/install/install_docker_host.py",
+    "hookImage": "bash:5.2.37-alpine3.21",
+    "hookImageEnvKey": "WORKFLOW_RUNNER_HOOK_IMAGE",
+    "modeEnvKey": "WORKFLOW_RUNNER",
+    "engineDockerAccess": false
+  },
   "platforms": {
     "truenas": {
       "uiBridge": "apps/truenas/frontend/platform.ts",
       "displayName": "TrueNAS",
       "tier": "B",
-      "storageMount": "/mnt/tank/backup-manager/backups",
+      "storageMount": "/mnt/tank/retnd/backups",
       "hostPaths": {
-        "state": "/mnt/tank/backup-manager/state",
-        "backups": "/mnt/tank/backup-manager/backups",
-        "config": "/mnt/tank/backup-manager/config",
-        "sshKey": "/mnt/tank/backup-manager/secrets/id_ed25519",
-        "knownHosts": "/mnt/tank/backup-manager/secrets/known_hosts"
+        "state": "/mnt/tank/retnd/state",
+        "backups": "/mnt/tank/retnd/backups",
+        "config": "/mnt/tank/retnd/config",
+        "sshKey": "/mnt/tank/retnd/secrets/id_ed25519",
+        "knownHosts": "/mnt/tank/retnd/secrets/known_hosts"
       },
       "hostPathNote": "tank is the pool name the defaults assume; docs/acceptance/truenas-provider-acceptance.md step 0.2 covers substituting a real pool.",
       "trustForwardedHeaders": true,
@@ -229,17 +309,17 @@
       "uiBridge": "apps/unraid/frontend/platform.ts",
       "displayName": "Unraid",
       "tier": "B",
-      "storageMount": "/mnt/user/backups/backup-manager",
+      "storageMount": "/mnt/user/backups/retnd",
       "hostPaths": {
-        "state": "/mnt/user/appdata/backup-manager/state",
-        "backups": "/mnt/user/backups/backup-manager",
-        "config": "/mnt/user/appdata/backup-manager/config",
-        "sshKey": "/mnt/user/appdata/backup-manager/secrets/id_ed25519",
-        "knownHosts": "/mnt/user/appdata/backup-manager/secrets/known_hosts"
+        "state": "/mnt/user/appdata/retnd/state",
+        "backups": "/mnt/user/backups/retnd",
+        "config": "/mnt/user/appdata/retnd/config",
+        "sshKey": "/mnt/user/appdata/retnd/secrets/id_ed25519",
+        "knownHosts": "/mnt/user/appdata/retnd/secrets/known_hosts"
       },
       "hostPathNote": "appdata holds private state, and retained artifacts land in a directory of the app's own inside the backups user share; \u00a719.2 keeps those two separate security domains. The backup root is deliberately a dedicated child of the share rather than the share itself: the share is very likely to be one the operator already uses, and step 0 of the acceptance procedure creates and owns only paths it created.",
       "trustForwardedHeaders": false,
-      "trustForwardedHeadersNote": "Unraid's two templates join `backup-manager`, a durable, host-wide, generically named user-defined bridge the operator creates by hand. Every container on such a bridge reaches every port of every other one, so the engine's isolation from anything else attached later is a convention, not a topology, and apps/common/auth/local requires a topology. The engine therefore does not trust forwarded headers here and rate-limits on the proxy's own address: one shared bucket for all clients, which over-limits rather than not limiting at all. This is the one place the Unraid profile is weaker than the compose ones, and apps/unraid/README.md says so.",
+      "trustForwardedHeadersNote": "Unraid's two templates join `retnd`, a durable, host-wide, generically named user-defined bridge the operator creates by hand. Every container on such a bridge reaches every port of every other one, so the engine's isolation from anything else attached later is a convention, not a topology, and apps/common/auth/local requires a topology. The engine therefore does not trust forwarded headers here and rate-limits on the proxy's own address: one shared bucket for all clients, which over-limits rather than not limiting at all. This is the one place the Unraid profile is weaker than the compose ones, and apps/unraid/README.md says so.",
       "profile": "unraid",
       "derivesFrom": {
         "source": "container/compose.yaml",
@@ -250,13 +330,13 @@
       "uiBridge": "apps/openmediavault/frontend/platform.ts",
       "displayName": "OpenMediaVault",
       "tier": "C",
-      "storageMount": "/srv/dev-disk-by-uuid/backups/backup-manager",
+      "storageMount": "/srv/dev-disk-by-uuid/backups/retnd",
       "hostPaths": {
-        "state": "/srv/dev-disk-by-uuid/appdata/backup-manager/state",
-        "backups": "/srv/dev-disk-by-uuid/backups/backup-manager",
-        "config": "/srv/dev-disk-by-uuid/appdata/backup-manager/config",
-        "sshKey": "/srv/dev-disk-by-uuid/appdata/backup-manager/secrets/id_ed25519",
-        "knownHosts": "/srv/dev-disk-by-uuid/appdata/backup-manager/secrets/known_hosts"
+        "state": "/srv/dev-disk-by-uuid/appdata/retnd/state",
+        "backups": "/srv/dev-disk-by-uuid/backups/retnd",
+        "config": "/srv/dev-disk-by-uuid/appdata/retnd/config",
+        "sshKey": "/srv/dev-disk-by-uuid/appdata/retnd/secrets/id_ed25519",
+        "knownHosts": "/srv/dev-disk-by-uuid/appdata/retnd/secrets/known_hosts"
       },
       "hostPathNote": "dev-disk-by-uuid is a placeholder, deliberately matching what apps/openmediavault/frontend/platform.ts already declares: a real OMV system mounts data filesystems at /srv/dev-disk-by-uuid-<UUID>/, which differs per machine. The profile funnels every host path through the one DISK variable so the UUID is substituted exactly once, and the compose file derives the rest. Retained artifacts land in a dedicated child of the backups directory rather than in the directory itself, so step 0 of the acceptance procedure only ever creates and owns paths it created.",
       "trustForwardedHeaders": true,
@@ -271,15 +351,15 @@
       "uiBridge": "apps/proxmox/frontend/platform.ts",
       "displayName": "Proxmox VE",
       "tier": "C",
-      "storageMount": "/mnt/backup-manager/backups",
+      "storageMount": "/mnt/retnd/backups",
       "hostPaths": {
-        "state": "/mnt/backup-manager/state",
-        "backups": "/mnt/backup-manager/backups",
-        "config": "/mnt/backup-manager/config",
-        "sshKey": "/mnt/backup-manager/secrets/id_ed25519",
-        "knownHosts": "/mnt/backup-manager/secrets/known_hosts"
+        "state": "/mnt/retnd/state",
+        "backups": "/mnt/retnd/backups",
+        "config": "/mnt/retnd/config",
+        "sshKey": "/mnt/retnd/secrets/id_ed25519",
+        "knownHosts": "/mnt/retnd/secrets/known_hosts"
       },
-      "hostPathNote": "These are paths inside the GUEST, not on the Proxmox VE host. WP4.5 rules out running the app on the host, so the supported model is a dedicated container-host guest (a VM by default) with one PVE host directory or dataset shared into it at /mnt/backup-manager. That share root is not the backup root: storageMount is its backups child, so private state, config and key material are siblings of the retained artifacts rather than parents of them, and step 0.6 of the acceptance procedure only ever recurses over the paths it created. How the sharing is configured is the operator's choice (virtiofs, NFS, or pct --mp0 for the LXC variant) and is therefore documented rather than declared here.",
+      "hostPathNote": "These are paths inside the GUEST, not on the Proxmox VE host. WP4.5 rules out running the app on the host, so the supported model is a dedicated container-host guest (a VM by default) with one PVE host directory or dataset shared into it at /mnt/retnd. That share root is not the backup root: storageMount is its backups child, so private state, config and key material are siblings of the retained artifacts rather than parents of them, and step 0.6 of the acceptance procedure only ever recurses over the paths it created. How the sharing is configured is the operator's choice (virtiofs, NFS, or pct --mp0 for the LXC variant) and is therefore documented rather than declared here.",
       "trustForwardedHeaders": true,
       "trustForwardedHeadersNote": "The compose file declares its own project network, created and destroyed with the deployment, whose only two members are these two containers. The guest is dedicated to being the container host, so nothing else on the PVE cluster shares that network: the engine's sole possible direct TCP peer is the Web UI container, by topology rather than by convention.",
       "profile": "proxmox",
@@ -292,15 +372,15 @@
       "uiBridge": "apps/synology/frontend/platform.ts",
       "displayName": "Synology DSM",
       "tier": "B",
-      "storageMount": "/volume1/backup-manager",
+      "storageMount": "/volume1/retnd",
       "hostPaths": {
-        "state": "/volume1/docker/backup-manager/state",
-        "backups": "/volume1/backup-manager",
-        "config": "/volume1/docker/backup-manager/config",
-        "sshKey": "/volume1/docker/backup-manager/secrets/id_ed25519",
-        "knownHosts": "/volume1/docker/backup-manager/secrets/known_hosts"
+        "state": "/volume1/docker/retnd/state",
+        "backups": "/volume1/retnd",
+        "config": "/volume1/docker/retnd/config",
+        "sshKey": "/volume1/docker/retnd/secrets/id_ed25519",
+        "knownHosts": "/volume1/docker/retnd/secrets/known_hosts"
       },
-      "hostPathNote": "These are the CONTAINER MANAGER project's paths (issue #169), not the .spk's. The .spk keeps its state under the DSM package FHS at /var/packages/BackupManager/{etc,var} and is untouched by this entry; the two are alternative ways to install the same release on the same NAS, and apps/synology/README.md says which to pick. /volume1/docker is Container Manager's own default project location and /volume1/backup-manager is the shared folder the .spk's data-share worker already asks DSM for, so an operator who has run either one recognises both. Substitute your own volume number.",
+      "hostPathNote": "These are the CONTAINER MANAGER project's paths (issue #169), not the .spk's. The .spk keeps its state under the DSM package FHS at /var/packages/Backupd/{etc,var} and is untouched by this entry; the two are alternative ways to install the same release on the same NAS, and apps/synology/README.md says which to pick. /volume1/docker is Container Manager's own default project location and /volume1/retnd is the shared folder the .spk's data-share worker already asks DSM for, so an operator who has run either one recognises both. Substitute your own volume number.",
       "profile": "synology",
       "derivesFrom": {
         "source": "container/compose.yaml",
@@ -314,15 +394,15 @@
       "uiBridgeNote": "No frontend bridge. A Portainer App Template has no payload to carry a bundle in, the canonical image has 347,956 bytes of headroom and a bundle costs roughly 352 KB, and a bridge would need this platform's id in the /api/v1 contract, the capability table, the profile table and the bundle list, which is core and shared-UI code. The deployment selects the generic profile and the shared UI describes it as the Docker Compose deployment it is.",
       "displayName": "Portainer CE",
       "tier": "B",
-      "storageMount": "/opt/backup-manager/backups",
+      "storageMount": "/opt/retnd/backups",
       "hostPaths": {
-        "state": "/opt/backup-manager/state",
-        "backups": "/opt/backup-manager/backups",
-        "config": "/opt/backup-manager/config",
-        "sshKey": "/opt/backup-manager/secrets/id_ed25519",
-        "knownHosts": "/opt/backup-manager/secrets/known_hosts"
+        "state": "/opt/retnd/state",
+        "backups": "/opt/retnd/backups",
+        "config": "/opt/retnd/config",
+        "sshKey": "/opt/retnd/secrets/id_ed25519",
+        "knownHosts": "/opt/retnd/secrets/known_hosts"
       },
-      "hostPathNote": "Portainer runs on an ordinary Docker host, so there is no vendor share layout to follow. /opt/backup-manager is the default the App Template puts in front of an operator and is substitutable in one place, the template's env list, which distribution/packaging pins to compose/backup-manager.env. Retained artifacts land in a dedicated child rather than in the app root, so state, config and key material are siblings of the backup root and never parents of it.",
+      "hostPathNote": "Portainer runs on an ordinary Docker host, so there is no vendor share layout to follow. /opt/retnd is the default the App Template puts in front of an operator and is substitutable in one place, the template's env list, which distribution/packaging pins to compose/retnd.env. Retained artifacts land in a dedicated child rather than in the app root, so state, config and key material are siblings of the backup root and never parents of it.",
       "trustForwardedHeaders": true,
       "trustForwardedHeadersNote": "The stack declares its own project network, created and destroyed with the stack, whose only two members are these two containers. Portainer itself is not on it. The engine's sole possible direct TCP peer is the Web UI container, by topology rather than by convention, which is what apps/common/auth/local requires.",
       "profile": "generic",
@@ -338,11 +418,11 @@
       "tier": "C",
       "storageMount": "/volume1/backups",
       "hostPaths": {
-        "state": "/volume1/backup-manager/state",
+        "state": "/volume1/retnd/state",
         "backups": "/volume1/backups",
-        "config": "/volume1/backup-manager/config",
-        "sshKey": "/volume1/backup-manager/secrets/id_ed25519",
-        "knownHosts": "/volume1/backup-manager/secrets/known_hosts"
+        "config": "/volume1/retnd/config",
+        "sshKey": "/volume1/retnd/secrets/id_ed25519",
+        "knownHosts": "/volume1/retnd/secrets/known_hosts"
       },
       "hostPathNote": "These are container/.env.example's own defaults, not a Dockge layout, and that is the point: Dockge deploys the canonical stack unmodified, so its host paths ARE the canonical stack's. TestTheDockgeStackIsTheCanonicalStack pins these five to that file, so the import workflow in apps/dockge/README.md cannot drift from the runtime it imports.",
       "trustForwardedHeaders": true,
@@ -358,13 +438,13 @@
       "uiBridgeNote": "No frontend bridge. A store compose file has no payload to carry a bundle in and the canonical image cannot carry a sixth one; a bridge would also need a CasaOS platform id in the /api/v1 contract, the capability table, the profile table and the bundle list, and this adapter's own contract says no CasaOS import may enter the Go core or the shared UI.",
       "displayName": "CasaOS",
       "tier": "B",
-      "storageMount": "/DATA/Backups/backup-manager",
+      "storageMount": "/DATA/Backups/retnd",
       "hostPaths": {
-        "state": "/DATA/AppData/backup-manager/state",
-        "backups": "/DATA/Backups/backup-manager",
-        "config": "/DATA/AppData/backup-manager/config",
-        "sshKey": "/DATA/AppData/backup-manager/secrets/id_ed25519",
-        "knownHosts": "/DATA/AppData/backup-manager/secrets/known_hosts"
+        "state": "/DATA/AppData/retnd/state",
+        "backups": "/DATA/Backups/retnd",
+        "config": "/DATA/AppData/retnd/config",
+        "sshKey": "/DATA/AppData/retnd/secrets/id_ed25519",
+        "knownHosts": "/DATA/AppData/retnd/secrets/known_hosts"
       },
       "hostPathNote": "CasaOS's own layout: private application data under /DATA/AppData, user data under /DATA. The backup root is deliberately outside /DATA/AppData, so an uninstall that offers to delete the app's data cannot reach a retained artifact. Literal, not variables: a CasaOS store install deploys the file as it stands with no .env beside it, so a ${VAR} here would be an unresolved reference at install time rather than a knob.",
       "trustForwardedHeaders": true,
@@ -380,13 +460,13 @@
       "uiBridgeNote": "No frontend bridge, for the same three reasons CasaOS ships none: no payload, no room in the image, and a bridge would put a ZimaOS platform id into the Go core and the shared UI.",
       "displayName": "ZimaOS",
       "tier": "B",
-      "storageMount": "/DATA/Backups/backup-manager",
+      "storageMount": "/DATA/Backups/retnd",
       "hostPaths": {
-        "state": "/DATA/AppData/backup-manager/state",
-        "backups": "/DATA/Backups/backup-manager",
-        "config": "/DATA/AppData/backup-manager/config",
-        "sshKey": "/DATA/AppData/backup-manager/secrets/id_ed25519",
-        "knownHosts": "/DATA/AppData/backup-manager/secrets/known_hosts"
+        "state": "/DATA/AppData/retnd/state",
+        "backups": "/DATA/Backups/retnd",
+        "config": "/DATA/AppData/retnd/config",
+        "sshKey": "/DATA/AppData/retnd/secrets/id_ed25519",
+        "knownHosts": "/DATA/AppData/retnd/secrets/known_hosts"
       },
       "hostPathNote": "The same five paths CasaOS uses, because ZimaOS is built on CasaOS and lays /DATA out the same way. They are identical on purpose and the two adapters are one runtime under two store registrations; inventing a difference to justify the second directory would be worse than saying so.",
       "trustForwardedHeaders": true,

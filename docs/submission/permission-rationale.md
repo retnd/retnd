@@ -7,7 +7,7 @@ stops matching what is below.
 
 ## The short version
 
-Backup Manager asks for less than almost anything else on a NAS. It drops every Linux
+retnd asks for less than almost anything else on a NAS. It drops every Linux
 capability, runs as a user the administrator chooses, runs on a read-only root filesystem,
 and gets exactly five paths, three of them read-only.
 
@@ -49,6 +49,27 @@ Five paths, and the split between them is the point rather than an implementatio
 The three read-only mounts are checked as read-only by the preflight, not merely checked
 as present: a profile that quietly drops the read-only flag still satisfies every "is the
 path there" test ever written.
+
+## Local workflow hooks, and the Docker socket
+
+The one privilege question a backup tool on a NAS raises, and the answer is that the
+shipped package asks for none of it.
+
+A workflow hook that runs *on the NAS* runs in an ephemeral container launched by a
+separate, optional, host-side component the administrator installs themselves — never by
+this package, and never by the store. That component is the only thing that needs the
+**Docker socket**, through membership of the socket's group, which on a NAS is
+root-equivalent. It is the reason the component is separate and tiny.
+
+| What | Value | Why |
+|---|---|---|
+| Docker socket | never mounted | Neither shipped container is a Docker client. The preflight refuses any packaged file that mounts `/var/run/docker.sock` or `/run/docker.sock`, under either spelling. |
+| Host group membership | never requested | No `group_add`, no `--group-add`. A group grant hands over a daemon with no mount to show for it, so it is refused by name rather than by absence. |
+| `DOCKER_HOST` and friends | never set | The other way to reach a daemon without a socket. Also refused. |
+| Local hooks where that component is absent | refused, not skipped | An administrator is told at install time, and on a platform that cannot host the component at all the per-provider acceptance procedure says so and names the remote alternative. |
+
+Remote workflow hooks need nothing on the NAS: they run over the administrator's own SSH
+connection to a machine they chose.
 
 ## Lifecycle
 

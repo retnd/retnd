@@ -48,8 +48,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/spdrman/rclone-manager/core/internal/backend"
-	"github.com/spdrman/rclone-manager/core/internal/config"
+	"github.com/retnd/retnd/core/internal/backend"
+	"github.com/retnd/retnd/core/internal/config"
 )
 
 // StorageMediumConfiguration is one declared instance's manifest field

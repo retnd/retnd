@@ -10,13 +10,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spdrman/rclone-manager/core/internal/config"
-	"github.com/spdrman/rclone-manager/core/internal/discovery"
-	"github.com/spdrman/rclone-manager/core/internal/lifecycle"
-	"github.com/spdrman/rclone-manager/core/internal/model"
-	"github.com/spdrman/rclone-manager/core/internal/obs"
-	"github.com/spdrman/rclone-manager/core/internal/state"
-	"github.com/spdrman/rclone-manager/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/discovery"
+	"github.com/retnd/retnd/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // This file is issue #418: the artifacts of a backup set the journal

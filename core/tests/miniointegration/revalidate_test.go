@@ -11,14 +11,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/internal/config"
-	"github.com/spdrman/rclone-manager/core/internal/model"
-	"github.com/spdrman/rclone-manager/core/internal/placement"
-	"github.com/spdrman/rclone-manager/core/internal/revalidate"
-	"github.com/spdrman/rclone-manager/core/internal/state"
-	"github.com/spdrman/rclone-manager/core/internal/transport"
-	"github.com/spdrman/rclone-manager/core/internal/transport/rclone"
-	"github.com/spdrman/rclone-manager/core/tests/machines"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/placement"
+	"github.com/retnd/retnd/core/internal/revalidate"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/transport/rclone"
+	"github.com/retnd/retnd/core/tests/machines"
 )
 
 // Whether revalidation against a real S3 endpoint checks existence without
@@ -100,7 +100,7 @@ func TestRevalidationAgainstMinioExistenceChecksAndNeverDownloads(t *testing.T) 
 		t.Fatalf("NewArtifactID: %v", err)
 	}
 
-	key, err := transport.MediumKey("rclone-manager", artifact)
+	key, err := transport.MediumKey("retnd", artifact)
 	if err != nil {
 		t.Fatalf("MediumKey: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestRevalidationAgainstMinioNoticesAnObjectThatIsGone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewArtifactID: %v", err)
 	}
-	key, err := transport.MediumKey("rclone-manager", artifact)
+	key, err := transport.MediumKey("retnd", artifact)
 	if err != nil {
 		t.Fatalf("MediumKey: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestAttestingAMinioPlacementIsRefused(t *testing.T) {
 	if err := os.WriteFile(local, content, 0o600); err != nil {
 		t.Fatalf("writing the source file: %v", err)
 	}
-	const key = "rclone-manager/production/postgres-primary/backup.dump"
+	const key = "retnd/production/postgres-primary/backup.dump"
 	if _, err := adapter.UploadFromLocal(ctx, medium, local, key, transport.UploadOptions{}); err != nil {
 		t.Fatalf("UploadFromLocal: %v", err)
 	}

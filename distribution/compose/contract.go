@@ -38,7 +38,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/spdrman/rclone-manager/distribution/packaging"
+	"github.com/retnd/retnd/distribution/packaging"
 )
 
 //go:embed runtime-contract.json
@@ -309,10 +309,11 @@ func (d Document) ServiceNames() []string {
 
 // Roles maps each service name to its role.
 //
-// The role comes from the command, never from the name. apps/truenas
-// calls its two services backup-manager and backup-manager-ui and the
-// canonical file calls them rclone-manager and web-ui; a check keyed on
-// the name would silently stop checking the moment someone renamed one.
+// The role comes from the command, never from the name. apps/unraid
+// calls its two containers retnd and retnd-ui and the canonical file
+// calls its two services retnd and web-ui; a check keyed on the name
+// would silently stop checking the moment someone renamed one, which
+// #891 did to all eleven adapters at once.
 func (d Document) Roles() map[string]Role {
 	out := map[string]Role{}
 	for name, raw := range d.services() {
@@ -388,13 +389,13 @@ func (d Document) Mounts(service map[string]any) []Mount {
 // carries a colon inside its message, and splitting the raw string on
 // ":" turned
 //
-//	${KEY_FILE:?set KEY_FILE in .env to the SFTP private key}:/etc/backup-manager/id_ed25519:ro
+//	${KEY_FILE:?set KEY_FILE in .env to the SFTP private key}:/etc/retnd/id_ed25519:ro
 //
 // into HostPath "${KEY_FILE", ContainerPath "?set KEY_FILE in .env to
 // the SFTP private key" and ReadOnly false. Every prohibited-path
 // comparison against that HostPath then matched nothing, with no
 // diagnostic, which is a security gate failing open rather than a parse
-// bug. apps/proxmox/compose/backup-manager.yml was already being checked
+// bug. apps/proxmox/compose/retnd.yml was already being checked
 // that way. Compose's long volume syntax degraded the same way, through
 // a map rendered as one string.
 func (d Document) UnparseableMounts(service map[string]any) []string {

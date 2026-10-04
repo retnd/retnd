@@ -37,25 +37,50 @@ import { useResource } from "@shared/state/resource";
 import { configuredNode, countsNode, healthNode, operationsNode, quarantineNode, readOnlyNode, setsNode, versionNode } from "@shared/state/appNodes";
 import { AppShell } from "@shared/layouts/AppShell";
 import { WarningBanner } from "@shared/components/WarningBanner";
+import { RecoveryVerificationBanner } from "@shared/components/RecoveryVerificationBanner";
 import { DashboardPage } from "@shared/pages/DashboardPage";
 import { BackupSetsPage } from "@shared/pages/BackupSetsPage";
 import { BackupSetDetailPage } from "@shared/pages/BackupSetDetailPage";
 import { BackupSetWizardPage } from "@shared/pages/BackupSetWizardPage";
 import { BackupsPage } from "@shared/pages/BackupsPage";
 import { BackupDetailPage } from "@shared/pages/BackupDetailPage";
+// EPIC K's operational screens (issue #788). Every one of them is a
+// sub-resource of something already routed: snapshots and their retention
+// hang off a backup set, and the two fleet screens off the repository
+// domains the deployment declares.
+import { SnapshotsPage } from "@shared/pages/SnapshotsPage";
+import { SnapshotDetailPage } from "@shared/pages/SnapshotDetailPage";
+import { SnapshotRestorePage } from "@shared/pages/SnapshotRestorePage";
+import { SnapshotRetentionPage } from "@shared/pages/SnapshotRetentionPage";
+import { RepositoryHealthPage } from "@shared/pages/RepositoryHealthPage";
+import { RepositoryMaintenancePage } from "@shared/pages/RepositoryMaintenancePage";
+// EPIC L's run screen (issue #814). Routed top-level rather than under a
+// backup set, matching the API's own /workflow-runs/{run}: a run outlives
+// the configuration that produced it, and "what is stuck in this
+// deployment" is not a question any one set's page can be asked.
+import { WorkflowRunPage } from "@shared/pages/WorkflowRunPage";
 import { ActivityPage } from "@shared/pages/ActivityPage";
 import { QuarantinePage } from "@shared/pages/QuarantinePage";
 import { SettingsPage } from "@shared/pages/SettingsPage";
+import { RepositoryDomainsPage } from "@shared/pages/RepositoryDomainsPage";
+import { RepositoryDomainNewPage } from "@shared/pages/RepositoryDomainNewPage";
+import { BackupDefaultsPage } from "@shared/pages/BackupDefaultsPage";
 import { CatalogRecoveryPage } from "@shared/pages/CatalogRecoveryPage";
 import { ConfigurationSavedPage } from "@shared/pages/ConfigurationSavedPage";
 import { LoginPage } from "@shared/auth/LoginPage";
 import { EnrollmentPage } from "@shared/auth/EnrollmentPage";
+import { ForgotPasswordPage } from "@shared/auth/ForgotPasswordPage";
+import { ResetPasswordPage } from "@shared/auth/ResetPasswordPage";
+import { VerifyEmailPage } from "@shared/auth/VerifyEmailPage";
+import { ServiceUnreachablePage, SessionCheckFailedPage } from "@shared/pages/SessionCheckFailure";
+import { TooltipOptOutDialog } from "@shared/components/TooltipOptOutDialog";
+import { isServiceUnreachable } from "@shared/api/failure";
 
-const THEME_KEY = "backup-manager.theme";
+const THEME_KEY = "retnd.theme";
 
 export function App() {
   const api = useApi();
-  const { auth, authLoading, refreshAuth, bridge } = usePlatform();
+  const { auth, authError, authLoading, refreshAuth, bridge } = usePlatform();
   const navigate = useNavigate();
 
   const [theme, setTheme] = useState<"light" | "dark">(() => {
@@ -154,10 +179,50 @@ export function App() {
 
   if (authLoading) return <Splash />;
 
+  // Issue #795, and it sits ABOVE the sign-in gate because it is the
+  // reason the gate below would otherwise be reached. A browser whose
+  // session check could not be MADE is not a browser that is signed
+  // out, and the deployment this was reported from proved how far apart
+  // those two are: the engine container was unreachable from the web-ui
+  // container, every /api/v1 call was answered 502 by serve-ui's own
+  // proxy, and the operator was shown a sign-in form. Signing in is the
+  // one action that could not possibly have worked, since the form
+  // posts down the same broken hop.
+  //
+  // authError is set only when the check failed for a reason that is
+  // not an answer about the session (PlatformContext.refetchAuth); a
+  // 401 still lands on the login page below, as it must.
+  //
+  // Which of the two surfaces is decided on the failure's recorded
+  // PROVENANCE, not on the fact that there was one (#795's review). "Not
+  // answering" is only true for a request that got no reply and for a
+  // refusal written by the proxy in front of the service; the other
+  // rejections this gate sees — an unreadable body, a typed refusal that
+  // is not about the session — are retnd answering, and putting that
+  // heading over them contradicted the ErrorState directly underneath
+  // it.
+  if (authError) {
+    return isServiceUnreachable(authError) ? (
+      <ServiceUnreachablePage error={authError} onRetry={refreshAuth} />
+    ) : (
+      <SessionCheckFailedPage error={authError} onRetry={refreshAuth} />
+    );
+  }
+
   if (!auth?.authenticated) {
     return (
       <Routes>
         <Route path="/enroll" element={<EnrollmentPage onEnrolled={refreshAuth} />} />
+        {/* Issue #830. Unauthenticated by necessity: somebody who cannot
+            sign in is exactly who these are for, and a gate in front of
+            them would be a recovery flow that requires the thing being
+            recovered. The verification link is the same shape for a
+            third reason (§8): it is opened from whatever device holds
+            the mailbox, which is frequently not the one the console is
+            signed in on. */}
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/verify-email" element={<VerifyEmailPage />} />
         <Route path="*" element={<LoginPage onSignedIn={refreshAuth} />} />
       </Routes>
     );
@@ -179,6 +244,12 @@ export function App() {
       onToggleTheme={() => setTheme(theme === "light" ? "dark" : "light")}
       onSignOut={() => api.logout().then(refreshAuth)}
     >
+      {/* Issue #830 §9, and it sits here for the same reason the
+          first-run banner below does: above <Routes>, mounted once for
+          the session, on every page. It renders nothing at all for a
+          verified account, which is the overwhelmingly common case. */}
+      <RecoveryVerificationBanner />
+
       {configured ? null : (
         // Deliberately no button of its own: the two pages that can act on
         // this (the dashboard and the backup-sets list) already offer
@@ -193,10 +264,10 @@ export function App() {
         <WarningBanner
           tone="info"
           eyebrow="First run"
-          title="Backup Manager has no configuration yet"
+          title="retnd has no configuration yet"
           dismissible={false}
         >
-          {"Add your first backup set, under Backup sets, and Backup Manager writes its " +
+          {"Add your first backup set, under Backup sets, and retnd writes its " +
             "configuration for you. Until that is done nothing is backed up, and the " +
             "pages here have nothing behind them to show."}
         </WarningBanner>
@@ -210,7 +281,7 @@ export function App() {
         // refusal into an application that silently does nothing.
         <WarningBanner
           tone="warn"
-          title="Backup Manager update required"
+          title="retnd update required"
           eyebrow="Version mismatch"
           dismissible={false}
         >
@@ -254,6 +325,32 @@ export function App() {
             {set}/... shape (router.go). A single :setId segment cannot
             match a path with that extra segment in it (issue #285). */}
         <Route path="/sets/:source/:set" element={<BackupSetDetailPage readOnly={readOnly} />} />
+        {/* EPIC K's per-set screens (issue #788), under the set they
+            belong to and with the same two-segment id the route above
+            takes. A snapshot is addressed by RUN id, which is what the
+            API's own `.../snapshots/{run}` route takes and the only name
+            a run that never committed a manifest has. */}
+        <Route path="/sets/:source/:set/snapshots" element={<SnapshotsPage readOnly={readOnly} />} />
+        <Route
+          path="/sets/:source/:set/snapshots/:runId"
+          element={<SnapshotDetailPage readOnly={readOnly} />}
+        />
+        <Route path="/sets/:source/:set/restore" element={<SnapshotRestorePage readOnly={readOnly} />} />
+        <Route
+          path="/sets/:source/:set/snapshot-retention"
+          element={<SnapshotRetentionPage readOnly={readOnly} />}
+        />
+        {/* The two fleet-wide screens. Repository health is a different
+            question from any backup set's, and maintenance is a different
+            one again: a domain can be perfectly healthy and unmaintained
+            because nobody has claimed it. */}
+        <Route path="/repositories/health" element={<RepositoryHealthPage />} />
+        <Route path="/repositories/maintenance" element={<RepositoryMaintenancePage />} />
+        {/* EPIC L (#814). One segment, because a workflow run id is
+            opaque and single-segment — the engine mints it — unlike a
+            backup set id, which is source and set joined by "/". Callers
+            build the URL with workflowRunPath() (utilities/routes.ts). */}
+        <Route path="/workflow-runs/:runId" element={<WorkflowRunPage readOnly={readOnly} />} />
         <Route path="/backups" element={<BackupsPage readOnly={readOnly} />} />
         {/* And three, not one, for the same reason one route up: an
             artifact id (model.ArtifactID.String()) is a backup set id
@@ -270,12 +367,26 @@ export function App() {
         <Route path="/activity" element={<ActivityPage />} />
         <Route path="/quarantine" element={<QuarantinePage readOnly={readOnly} quarantine={quarantine} />} />
         <Route path="/settings" element={<SettingsPage readOnly={readOnly} />} />
+        {/* EPIC K's deployment-level screens (issue #788). A repository
+            domain is a boundary several backup sets sit inside, so it is
+            routed beside Settings rather than under any one set: nothing
+            about it can be answered from inside a set that shares it. */}
+        <Route path="/repositories" element={<RepositoryDomainsPage readOnly={readOnly} />} />
+        <Route path="/repositories/new" element={<RepositoryDomainNewPage />} />
+        <Route path="/settings/backup-defaults" element={<BackupDefaultsPage readOnly={readOnly} />} />
         <Route path="/catalog-recovery" element={<CatalogRecoveryPage readOnly={readOnly} />} />
+        {/* Issue #830 §8, and mounted on BOTH sides of the sign-in gate
+            (the unauthenticated router above has it too). Without this
+            one, an operator who is already signed in on the device that
+            holds the mailbox lands on the catch-all below, is redirected
+            to the dashboard, and never spends the token - the link looks
+            broken precisely for the person most likely to click it. */}
+        <Route path="/verify-email" element={<VerifyEmailPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 
       <p style={{ margin: 0, fontSize: "var(--text-sm)", color: "var(--text-3)" }}>
-        {"Backup Manager running on " + bridge.name}
+        {"retnd running on " + bridge.name}
         {" \u00b7 "}
         <button
           onClick={() => navigate("/catalog-recovery")}
@@ -285,6 +396,15 @@ export function App() {
           Catalog recovery
         </button>
       </p>
+
+      {/* Issue #829, mounted once here rather than inside any tooltip
+          host: it is a modal, it is raised from the "x" of whichever
+          pop-up the operator closed first, and by the time it is answered
+          that pop-up is gone. Above every route deliberately, so the
+          answer is the same question wherever it was asked from, and
+          inside the shell so its Settings link has a page to reach.
+          Renders nothing until its node says otherwise. */}
+      <TooltipOptOutDialog />
     </AppShell>
   );
 }

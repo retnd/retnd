@@ -5,7 +5,7 @@
 //
 // Every adapter gates its web UI on `depends_on: <engine>: condition:
 // service_healthy`, and every adapter derived the engine's health check
-// from canonical.json, which said `rbm status`. That is FR-24's
+// from canonical.json, which said `retnd status`. That is FR-24's
 // backup-freshness verdict, and it exits non-zero on a fresh install by
 // design, because a fresh install has backed nothing up. So on every
 // adapter the one container an operator installed the app to reach never
@@ -67,7 +67,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/spdrman/rclone-manager/distribution/compose"
+	"github.com/retnd/retnd/distribution/compose"
 )
 
 // ---------------------------------------------------------------------
@@ -113,7 +113,7 @@ func requireDocker(t *testing.T) {
 // same time takes the name over, and this run then quietly tests that
 // checkout's image instead of its own. The tag carries the pid and the
 // process start time so two runs on one machine cannot collide either.
-var imageReference = "backup-manager:adapterstacks-" +
+var imageReference = "retnd:adapterstacks-" +
 	strconv.Itoa(os.Getpid()) + "-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 
 var build struct {
@@ -137,7 +137,7 @@ func buildImage(t *testing.T) string {
 		cmd := exec.Command("docker", "build",
 			"-f", filepath.Join(root, "container", "Dockerfile"),
 			"-t", imageReference,
-			"--label", "com.rclone-manager.test=adapterstacks",
+			"--label", "com.retnd.test=adapterstacks",
 			"--load",
 			root,
 		)
@@ -189,7 +189,7 @@ func TestMain(m *testing.M) {
 // the configuration mount is a directory at all (issue #196), and an
 // empty one is the only honest shape for an install nobody has
 // configured. The engine serves the first-run setup flow from it, and
-// `rbm status` exits non-zero in it, which every test below
+// `retnd status` exits non-zero in it, which every test below
 // reads back rather than assumes.
 func freshInstall(t *testing.T) string {
 	t.Helper()
@@ -199,7 +199,7 @@ func freshInstall(t *testing.T) string {
 	// hard permission failure at the first write; a macOS Docker Desktop
 	// daemon is lenient about it, which is exactly how a fixture like this
 	// passes locally and fails on a real runner.
-	for _, sub := range []string{"state", "backups", "config"} {
+	for _, sub := range []string{"state", "backups", "config", "workflows", "run"} {
 		if err := os.MkdirAll(filepath.Join(dir, sub), 0o777); err != nil {
 			t.Fatalf("MkdirAll %s: %v", sub, err)
 		}
@@ -211,27 +211,45 @@ func freshInstall(t *testing.T) string {
 }
 
 // freshInstallHostPaths lays a fixture directory out as the host side of
-// the five canonical storage roles, keyed by the CONTAINER path an
-// adapter mounts them at.
+// every canonical container path an adapter may mount, keyed by the
+// CONTAINER path it mounts them at.
 //
 // Keyed by the container side because that is the half the binaries fix
 // and every adapter therefore agrees on. The host side is exactly what
 // this rewrite replaces.
+//
+// The three host-plane paths are here for the same reason the five
+// storage roles are, and their absence took four adapters out of this
+// suite without taking them out of its list: EPIC L (#877, #921) gave
+// apps/casaos, apps/openmediavault, apps/portainer and apps/proxmox a
+// /workflows mount, a /data/run mount and the runner's credential file,
+// and rewriteAdapterCompose refuses a container path this map does not
+// carry. So those four failed before the stack was ever started, on the
+// rewrite rather than on the runtime, and the acceptance criterion this
+// suite exists for was unproven on exactly the adapters carrying the
+// newest mounts. They are empty and unconfigured on purpose: no
+// config.yaml names a runner, so nothing connects to the socket
+// directory, and an empty read-only script tree is what a fresh install
+// really has.
 func freshInstallHostPaths(t *testing.T, dir string) map[string]string {
 	t.Helper()
 	keyFile := filepath.Join(dir, "id_ed25519")
 	knownHosts := filepath.Join(dir, "known_hosts")
-	for _, f := range []string{keyFile, knownHosts} {
+	runnerToken := filepath.Join(dir, "workflow-runner.token")
+	for _, f := range []string{keyFile, knownHosts, runnerToken} {
 		if err := os.WriteFile(f, nil, 0o644); err != nil {
 			t.Fatalf("WriteFile %s: %v", f, err)
 		}
 	}
 	return map[string]string{
-		"/data/state":                     filepath.Join(dir, "state"),
-		"/data/backups":                   filepath.Join(dir, "backups"),
-		"/etc/backup-manager/config":      filepath.Join(dir, "config"),
-		"/etc/backup-manager/id_ed25519":  keyFile,
-		"/etc/backup-manager/known_hosts": knownHosts,
+		"/data/state":                      filepath.Join(dir, "state"),
+		"/data/backups":                    filepath.Join(dir, "backups"),
+		"/etc/retnd/config":                filepath.Join(dir, "config"),
+		"/etc/retnd/id_ed25519":            keyFile,
+		"/etc/retnd/known_hosts":           knownHosts,
+		"/workflows":                       filepath.Join(dir, "workflows"),
+		"/data/run":                        filepath.Join(dir, "run"),
+		"/etc/retnd/workflow-runner.token": runnerToken,
 	}
 }
 
@@ -537,20 +555,20 @@ func containerState(t *testing.T, id string) string {
 	return inspect(t, id).State.Status
 }
 
-// statusExitCode runs `rbm status` inside a running container.
+// statusExitCode runs `retnd status` inside a running container.
 //
 // This is the control the whole file turns on: without it a green run
 // proves only that some stack came up, and a fixture that had quietly
 // become healthy would pass while saying nothing at all about the defect.
 func statusExitCode(t *testing.T, id string) (int, string) {
 	t.Helper()
-	out, err := exec.Command("docker", "exec", id, "/rbm", "status").CombinedOutput()
+	out, err := exec.Command("docker", "exec", id, "/retnd", "status").CombinedOutput()
 	if err == nil {
 		return 0, string(out)
 	}
 	exit, ok := err.(*exec.ExitError)
 	if !ok {
-		t.Fatalf("docker exec %s /rbm status: %v\n%s", id, err, out)
+		t.Fatalf("docker exec %s /retnd status: %v\n%s", id, err, out)
 	}
 	return exit.ExitCode(), string(out)
 }
@@ -594,8 +612,8 @@ func getWithTransportRetry(t *testing.T, url string, timeout time.Duration) *htt
 
 // serviceRunning names a rewritten definition's service by the COMMAND it
 // runs, never by what it is called: the adapters call them
-// backup-manager/backup-manager-ui and the canonical definition calls them
-// rclone-manager/web-ui, so a lookup keyed on the name would stop finding
+// retnd/retnd-ui and the canonical definition calls them
+// retnd/web-ui, so a lookup keyed on the name would stop finding
 // them the moment one was renamed.
 func serviceRunning(t *testing.T, file, subcommand string) string {
 	t.Helper()
@@ -678,7 +696,7 @@ func TestEveryDerivedAdapterBringsUpTheWebUIOnAFreshInstall(t *testing.T) {
 			// happened to be healthy.
 			code, statusOut := statusExitCode(t, engineID)
 			if code == 0 {
-				t.Fatalf("%s: `rbm status` exited 0 inside this fixture, so it is not the fresh install this test claims to run:\n%s", rel, statusOut)
+				t.Fatalf("%s: `retnd status` exited 0 inside this fixture, so it is not the fresh install this test claims to run:\n%s", rel, statusOut)
 			}
 
 			uiID := project.containerID(t, uiName)

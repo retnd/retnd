@@ -102,12 +102,12 @@ type Service struct {
 	// read whichever of the two a platform actually uses.
 	ExtraParams string
 	// HealthcheckDisabled records `--no-healthcheck`. The canonical image
-	// bakes in `HEALTHCHECK /rbm status`, which needs a config
+	// bakes in `HEALTHCHECK /retnd status`, which needs a config
 	// file and a state database. The Web UI container has neither, so
 	// every profile has to do something about it: the compose profiles
-	// override the test with `/rbm-web healthcheck`, and Unraid,
-	// whose --health-cmd would run through a shell the distroless image
-	// does not contain, disables it instead.
+	// override the test with the canonical `healthcheck` command, and
+	// Unraid, whose --health-cmd would run through a shell the distroless
+	// image does not contain, disables it instead.
 	HealthcheckDisabled bool
 	// WaitsForHealthy is every service this one refuses to start before,
 	// naming the ones it waits on for HEALTH specifically
@@ -421,7 +421,7 @@ func splitVolumeSpec(spec string) []string {
 // directory a NAS happens to hand out, and an empty answer here is a
 // finding in its own right rather than a lookup miss to skip over.
 func roleForContainerPath(canonical Canonical, containerPath string) string {
-	for _, role := range Roles {
+	for _, role := range KnownRoles() {
 		p, _ := canonical.ContainerPaths.ByRole(role)
 		if p == containerPath {
 			return role

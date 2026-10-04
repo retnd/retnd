@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spdrman/rclone-manager/core/service"
+	"github.com/retnd/retnd/core/service"
 )
 
 // The edit hold, and mostly the null.

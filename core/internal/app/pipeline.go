@@ -6,14 +6,14 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/spdrman/rclone-manager/core/internal/capacity"
-	"github.com/spdrman/rclone-manager/core/internal/config"
-	"github.com/spdrman/rclone-manager/core/internal/discovery"
-	"github.com/spdrman/rclone-manager/core/internal/lifecycle"
-	"github.com/spdrman/rclone-manager/core/internal/model"
-	"github.com/spdrman/rclone-manager/core/internal/state"
-	"github.com/spdrman/rclone-manager/core/internal/transport"
-	"github.com/spdrman/rclone-manager/core/internal/transport/retry"
+	"github.com/retnd/retnd/core/internal/capacity"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/discovery"
+	"github.com/retnd/retnd/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/transport/retry"
 )
 
 // One artifact, one step at a time: the walk every command in this package

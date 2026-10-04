@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>rclone-manager: a backup lifecycle manager for a NAS</title>
-  <meta name="description" content="rclone-manager pulls completed backup artifacts off a remote server over SFTP, verifies them, commits them durably to a NAS, and only then deletes the remote copy.">
+  <title>retnd: a backup lifecycle manager for a NAS</title>
+  <meta name="description" content="retnd pulls completed backup artifacts off a remote server over SFTP, verifies them, commits them durably to a NAS, and only then deletes the remote copy.">
   <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
   <link rel="icon" type="image/x-icon" href="assets/favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
@@ -15,6 +15,25 @@
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="theme.css">
   <link rel="stylesheet" href="topbar.css">
+  <style>
+    .brand-pronunciation {
+      margin: 0.35rem 0 0.85rem;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.9rem;
+      line-height: 1.4;
+      opacity: 0.78;
+    }
+    .brand-pronunciation-word {
+      font-weight: 600;
+    }
+    .brand-pronunciation-ipa {
+      margin-left: 0.45rem;
+    }
+    .brand-pronunciation-say {
+      margin-left: 0.55rem;
+      font-family: "IBM Plex Sans", sans-serif;
+    }
+  </style>
   <script src="topbar.js" defer></script>
   <script src="copy.js" defer></script>
   <script src="tooltip.js" defer></script>
@@ -23,14 +42,18 @@
 <header class="topbar is-hero" id="topbar">
   <div class="topbar-content">
     <a class="topbar-brand" href="index.html">
-      <img src="assets/logo-mark-light.svg" alt="rclone-manager mark: a broken ring standing for a transfer cycle in progress">
-      <h1 class="brand-name">rclone<span class="brand-dash">-</span>manager</h1>
+      <img src="assets/logo-mark-light.svg" alt="retnd mark: a broken ring standing for a transfer cycle in progress">
+      <h1 class="brand-name">retn<span class="brand-dash">d</span></h1>
     </a>
+    <p class="brand-pronunciation" aria-label="retnd, pronounced retained">
+      <span class="brand-pronunciation-ipa">/rɪˈteɪnd/</span>
+      <span class="brand-pronunciation-say">pronounced <strong>ri-TAYND</strong> · “retained”</span>
+    </p>
     <p class="tagline">Pulls finished backups off a remote server, verifies them, commits them to the NAS, and only then deletes the original.</p>
     <div class="badges">
       <img src="https://img.shields.io/badge/go-1.27%2B-00ADD8?logo=go" alt="Go 1.27+">
       <img src="https://img.shields.io/badge/licence-Apache--2.0-blue" alt="Apache-2.0 licence">
-      <img src="https://img.shields.io/badge/image-0.4.0%20cut%2C%20not%20pushed-lightgrey" alt="Container image 0.4.0 is cut and not pushed; 0.3.3 is the newest published image">
+      <img src="https://img.shields.io/badge/image-0.5.0-blue" alt="Container image 0.5.0">
     </div>
   </div>
 
@@ -56,6 +79,10 @@
         <span class="nav-label nav-label-full">The web interface</span>
         <span class="nav-label nav-label-short">Web UI</span>
       </a>
+      <a href="workflows.html" class="nav-item">
+        <span class="nav-label nav-label-full">Scripted workflows</span>
+        <span class="nav-label nav-label-short">Workflows</span>
+      </a>
       <a href="ssh.html" class="nav-item">
         <span class="nav-label nav-label-full">SSH &amp; connections</span>
         <span class="nav-label nav-label-short">SSH</span>
@@ -66,21 +93,21 @@
         <span class="nav-label nav-label-short">Ref</span>
       </a>
 
-      <a href="https://github.com/spdrman/rclone-manager" target="_blank" rel="noopener" class="nav-item nav-item-github" aria-label="GitHub repository">
+      <a href="https://github.com/retnd/retnd" target="_blank" rel="noopener" class="nav-item nav-item-github" aria-label="GitHub repository">
         <svg class="nav-icon nav-icon-github" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
           <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
         </svg>
         <span class="nav-label nav-label-full">GitHub</span>
       </a>
 
-      <a href="https://github.com/spdrman/rclone-manager/blob/main/README.md" target="_blank" rel="noopener" class="nav-item">
+      <a href="https://github.com/retnd/retnd/blob/main/README.md" target="_blank" rel="noopener" class="nav-item">
         <span class="nav-label nav-label-full">README</span>
       </a>
-      <a href="https://github.com/spdrman/rclone-manager/blob/main/docs/deployment.md" target="_blank" rel="noopener" class="nav-item">
+      <a href="https://github.com/retnd/retnd/blob/main/docs/deployment.md" target="_blank" rel="noopener" class="nav-item">
         <span class="nav-label nav-label-full">Deployment</span>
         <span class="nav-label nav-label-short">Deploy</span>
       </a>
-      <a href="https://github.com/spdrman/rclone-manager/issues" target="_blank" rel="noopener" class="nav-item">
+      <a href="https://github.com/retnd/retnd/issues" target="_blank" rel="noopener" class="nav-item">
         <span class="nav-label nav-label-full">Issues</span>
       </a>
 
@@ -104,35 +131,29 @@
 <main>
 
   <section>
-    <p>A backup producer somewhere writes a dump, an archive or a snapshot to disk. That machine has finite space, so something has to move the artifact off it and something has to delete the original. rclone-manager is the half of that job that runs on the NAS: it discovers finished artifacts on the remote server over SFTP, pulls them, verifies them, commits them durably, records that it did, and only then removes the remote copy.</p>
+    <p>A backup producer somewhere writes a dump, an archive or a snapshot to disk. That machine has finite space, so something has to move the artifact off it and something has to delete the original. retnd is the half of that job that runs on the NAS: it discovers finished artifacts on the remote server over SFTP, pulls them, verifies them, commits them durably, records that it did, and only then removes the remote copy.</p>
     <p>It is a standalone Go binary that embeds pinned rclone Go packages. It does not fork rclone, and it does not shell out to the <code>rclone</code> command line for normal data movement.</p>
   </section>
 
   <section class="install-hero">
     <h2 id="install">Installing it</h2>
     <p>Two commands, no arguments, on any machine with Docker:</p>
-    <pre class="cmd-primary"><code>curl -fsSLO https://raw.githubusercontent.com/spdrman/rclone-manager/main/scripts/install/install_docker_host.py</code></pre>
+    <pre class="cmd-primary"><code>curl -fsSLO https://raw.githubusercontent.com/retnd/retnd/main/scripts/install/install_docker_host.py</code></pre>
     <pre class="cmd-primary"><code>python3 install_docker_host.py install</code></pre>
 
     <p class="io-label">Output</p>
-    <pre class="io-out"><code><!-- BEGIN INSTALL-OUTPUT -->==&gt; Installed.
+    <div class="io">
+      <pre class="io-out"><code><!-- BEGIN INSTALL-OUTPUT -->==&gt; Installed.
     Web UI:  http://10.0.0.10:8080
-    Compose: docker compose -p rclone-manager --env-file /home/you/rclone-manager/.env -f /home/you/rclone-manager/compose.yaml -f /home/you/rclone-manager/compose.image.yaml
+    Compose: docker compose -p retnd --env-file /home/you/retnd/.env -f /home/you/retnd/compose.yaml -f /home/you/retnd/compose.image.yaml
 
     No config.yaml was written, on purpose. Issue #176 shipped a first-run setup flow
     precisely so that a fresh install does not need one hand-written before it starts.
-    Open the Web UI and follow it. The enrollment link is in the engine's log:
-      docker compose -p rclone-manager --env-file /home/you/rclone-manager/.env -f /home/you/rclone-manager/compose.yaml -f /home/you/rclone-manager/compose.image.yaml logs rclone-manager | grep enroll<!-- END INSTALL-OUTPUT --></code></pre>
+    Open this link and follow it:
 
-    <p>That is the whole of it. The installer picks every path for you (<code>~/rclone-manager</code>, with <code>backups</code>, <code>state</code>, <code>config</code> and <code>secrets</code> under it), generates the SSH key the engine will use, pins the exact image it was built against, and refuses before it changes anything if the machine cannot run it. Nothing needs deciding up front, and everything it chose can be changed afterwards.</p>
-    <p>That last line is a command rather than a result, and it is the one that matters. The installer does not print the enrolment link itself: the engine mints the token during startup and writes the notice to its own log, so the epilog prints the line that fetches it back out. Run it &mdash; every path in it is the one the install just chose:</p>
-    <pre><code><!-- BEGIN ENROL-COMMAND -->docker compose -p rclone-manager --env-file /home/you/rclone-manager/.env -f /home/you/rclone-manager/compose.yaml -f /home/you/rclone-manager/compose.image.yaml logs rclone-manager | grep enroll<!-- END ENROL-COMMAND --></code></pre>
+    <span class="io-wrap">retnd-web: no administrator account exists yet. Open <a class="tip-term" href="first-run.html#enrol">http://10.0.0.10:8080/enroll?token=<span class="tip-token">4zj7VCpcYLIeVNN1oZJZPaCErYXOc6s6</span></a> to create one (valid 30 minutes, single use).</span>
 
-    <p class="io-label">Output</p>
-    <div class="io">
-      <pre class="io-out"><code><!-- BEGIN ENROL-LOG-LINE -->rbm-web: no administrator account exists yet. Open
-<a class="tip-term" href="first-run.html#enrol">http://10.0.0.10:8080/enroll?token=<span class="tip-token">4zj7VCpcYLIeVNN1oZJZPaCErYXOc6s6</span></a>
-to create one (valid 30 minutes, single use).<!-- END ENROL-LOG-LINE --></code></pre>
+    If it lapses before you get to it, `enroll-link` issues another.<!-- END INSTALL-OUTPUT --></code></pre>
       <aside class="tip-bubble">
         <button type="button" class="tip-close" aria-label="Close this note">&times;</button>
         <span class="tip-heading">Attention &middot; this is the one-time link</span>
@@ -141,53 +162,55 @@ to create one (valid 30 minutes, single use).<!-- END ENROL-LOG-LINE --></code><
         <p><a href="first-run.html#enrol">Creating the administrator, screen by screen &rarr;</a></p>
       </aside>
     </div>
-    <p>The address in it is this machine's own rather than <code>localhost</code>, because the link is read from another machine on the same network: <code>localhost</code> over SSH on a laptop is the laptop, which is <a href="https://github.com/spdrman/rclone-manager/issues/688">what the installer used to print</a>. Open it, set an administrator password, and <a href="first-run.html">the first-run tutorial</a> picks up from there.</p>
 
+    <p>That is the whole of it. The installer picks every path for you (<code>~/retnd</code>, with <code>backups</code>, <code>state</code>, <code>config</code> and <code>secrets</code> under it), generates the SSH key the engine will use, pins the exact image it was built against, and refuses before it changes anything if the machine cannot run it. Nothing needs deciding up front, and everything it chose can be changed afterwards.</p>
+    <p>The last lines are the ones that matter, and they are output rather than something to run. The engine mints the enrolment token during startup and writes the notice to its own log, so the installer waits for that line and hands it over itself (<a href="https://github.com/retnd/retnd/issues/803">#803</a>): a fresh install ends with the link, and opening it is the next step. Nothing has to be fetched by hand, and if the notice had not been written by the time the installer stopped waiting &mdash; on a deployment already behaving oddly &mdash; the install prints the one command that reads it back out of the engine's log instead, with every path in it the one it just chose.</p>
+    <p>The address in the link is this machine's own rather than <code>localhost</code>, because the link is read from another machine on the same network: <code>localhost</code> over SSH on a laptop is the laptop, which is <a href="https://github.com/retnd/retnd/issues/688">what the installer used to print</a>. Open it, create the administrator &mdash; a username, a password, a recovery email address and the mail server to reach it through, which enrolment proves by sending a confirmation message before it creates anything &mdash; and <a href="first-run.html">the first-run tutorial</a> picks up from there. Have the SMTP details to hand before you open the link: <a href="first-run.html#enrol">the form will not finish without a working one</a>.</p>
 
     <div class="note ok">
       <span class="note-label">If the link has expired</span>
       <p>The token lasts 30 minutes and works once, and nothing re-issues it while the engine keeps running. One command mints a fresh one:</p>
       <pre><code>python3 install_docker_host.py enroll-link</code></pre>
       <p class="io-label">Output</p>
-      <pre class="io-out"><code><!-- BEGIN ENROLL-LINK-OUTPUT -->==&gt; Restarting rclone-manager, which is what mints a token
+      <pre class="io-out"><code><!-- BEGIN ENROLL-LINK-OUTPUT -->==&gt; Restarting retnd, which is what mints a token
 ==&gt; Waiting up to 90s for the new notice
 
-rbm-web: no administrator account exists yet. Open http://10.0.0.10:8080/enroll?token=jdurSlionp6jyoHTzP_5fHYfLy3Kk6tq to create one (valid 30 minutes, single use).
+retnd-web: no administrator account exists yet. Open http://10.0.0.10:8080/enroll?token=jdurSlionp6jyoHTzP_5fHYfLy3Kk6tq to create one (valid 30 minutes, single use).
 
     Valid 30 minutes, and it works once. Every link printed before this one is now dead,
     including any still in your scrollback.<!-- END ENROLL-LINK-OUTPUT --></code></pre>
-      <p>It reads back the <strong>newest</strong> notice rather than the first, because the container keeps its log across the restart and the earlier link is the one that restart just killed. On a deployment that already has an administrator it refuses instead, with its own exit code: enrolment is a one-time door and it closed when that account was created, so <a href="first-run.html#again">sign in</a>.</p>
+      <p>It reads back the <strong>newest</strong> notice rather than the first, because the container keeps its log across the restart and the earlier link is the one that restart just killed. On a deployment that already has an administrator it refuses instead, with its own exit code: enrolment is a one-time door and it closed when that account was created, so <a href="first-run.html#again">sign in</a>. Forgotten the password rather than lapsed a link? That is <a href="first-run.html#forgot">Forgot password</a> on the sign-in page, not this command: it mails a single-use reset link to the account's recovery address.</p>
     </div>
 
     <h3 id="install-cli-only" style="margin-top:2rem">Command line only, no web interface</h3>
     <p>Same two commands, one flag on the second one:</p>
-    <pre><code>curl -fsSLO https://raw.githubusercontent.com/spdrman/rclone-manager/main/scripts/install/install_docker_host.py</code></pre>
+    <pre><code>curl -fsSLO https://raw.githubusercontent.com/retnd/retnd/main/scripts/install/install_docker_host.py</code></pre>
     <pre><code>python3 install_docker_host.py install --cli-only</code></pre>
 
     <p class="io-label">Output</p>
     <pre class="io-out"><code><!-- BEGIN INSTALL-OUTPUT-CLI-ONLY -->==&gt; Installed. Nothing is running yet, and that is what --cli-only means here:
-    `rbm daemon` is refused rather than started without a config.yaml, and a CLI-only
+    `retnd daemon` is refused rather than started without a config.yaml, and a CLI-only
     install has no first-run wizard to write one. Creating the first backup set writes
     the first config.yaml with it:
-      /home/you/rclone-manager/bin/rbm backup-set create &lt;source&gt;/&lt;backup-set&gt; \
+      /home/you/retnd/bin/retnd backup-set create &lt;source&gt;/&lt;backup-set&gt; \
           --host HOST --user USER --remote-path /remote/path --local-path /backups/path \
-          --ssh-key-file /etc/rclone-manager/id_ed25519 --trust-host-key \
+          --ssh-key-file /etc/retnd/id_ed25519 --trust-host-key \
           --completion-strategy stable
 
     Then start the scheduler:
-      docker compose -p rclone-manager --env-file /home/you/rclone-manager/.env -f /home/you/rclone-manager/compose.yaml -f /home/you/rclone-manager/compose.image.yaml up -d --no-build rclone-manager
+      docker compose -p retnd --env-file /home/you/retnd/.env -f /home/you/retnd/compose.yaml -f /home/you/retnd/compose.image.yaml up -d --no-build retnd
 
-    CLI:     /home/you/rclone-manager/bin/rbm
-    Compose: docker compose -p rclone-manager --env-file /home/you/rclone-manager/.env -f /home/you/rclone-manager/compose.yaml -f /home/you/rclone-manager/compose.image.yaml<!-- END INSTALL-OUTPUT-CLI-ONLY --></code></pre>
+    CLI:     /home/you/retnd/bin/retnd
+    Compose: docker compose -p retnd --env-file /home/you/retnd/.env -f /home/you/retnd/compose.yaml -f /home/you/retnd/compose.image.yaml<!-- END INSTALL-OUTPUT-CLI-ONLY --></code></pre>
     <p>No enrolment link there, and nothing to click: a CLI-only deployment has no Web UI to enrol into.</p>
-    <p>That runs the engine as <code>rbm daemon</code> rather than <code>rbm-web serve</code>, never starts the <code>web-ui</code> container, and publishes no port on this host at all, so nothing in the deployment serves HTTP and the <code>rbm-web</code> binary is never executed. What you drive it with is the <code>rbm</code> wrapper the installer writes to <code>~/rclone-manager/bin/rbm</code>, which takes every command in <a href="#cli">the table below</a>.</p>
+    <p>That runs the engine as <code>retnd daemon</code> rather than <code>retnd-web serve</code>, never starts the <code>web-ui</code> container, and publishes no port on this host at all, so nothing in the deployment serves HTTP and the <code>retnd-web</code> binary is never executed. What you drive it with is the <code>retnd</code> wrapper the installer writes to <code>~/retnd/bin/retnd</code>, which takes every command in <a href="#cli">the table below</a>.</p>
     <p>There is no first-run wizard either, which is why a fresh CLI-only host stages everything, starts nothing, and prints the one command that writes the first configuration: creating the first backup set writes the first <code>config.yaml</code> along with it. Re-running the installer later with no flags keeps the deployment this shape, and <code>--no-cli-only</code> converts it to the full stack.</p>
 
     <p>If you would rather see what either of those would do before it does it, <code>python3 install_docker_host.py preflight</code> runs every check and installs nothing.</p>
 
     <h3 style="margin-top:2rem">What it sets up</h3>
     <p>There is one product here, not eleven. Every supported platform wraps the same multi-architecture image and the same Compose topology, and the differences between them are host paths and metadata formats.</p>
-    <p>Two services, one image. <code>rclone-manager</code> runs the engine, the scheduler, local authentication and <code>/api/v1</code> in one process, with no published port at all. <code>web-ui</code> serves the static interface and reverse-proxies the API to it, and it is the only service with a LAN-facing port. They meet on a private project-scoped bridge network, which is what makes the engine's isolation a topology rather than a convention.</p>
+    <p>Two services, one image. <code>retnd</code> runs the engine, the scheduler, local authentication and <code>/api/v1</code> in one process, with no published port at all. <code>web-ui</code> serves the static interface and reverse-proxies the API to it, and it is the only service with a LAN-facing port. They meet on a private project-scoped bridge network, which is what makes the engine's isolation a topology rather than a convention.</p>
     <div class="note warn">
       <span class="note-label">Only if you are writing the Compose file yourself</span>
       <p>The installer above already does this. If you are standing the stack up by hand instead: the runtime image is distroless and has no root step, and a bind mount does not chown its source, so create the host directories and chown them to the container's uid and gid before the first <code>docker compose up</code>, or the engine will not be able to write its own configuration, keys or journal.</p>
@@ -197,14 +220,20 @@ rbm-web: no administrator account exists yet. Open http://10.0.0.10:8080/enroll?
 
   <a href="first-run.html" class="clipping">
     <span class="clipping-tag">Tutorial</span>
-    <p>Setting one up for the first time means an enrolment link printed to a container log, an administrator account that is not your NAS login, and a six-step wizard whose answers become a <code>config.yaml</code> you will live with. The first-run walkthrough shows every screen, with an example for every field and a sentence on what that entry actually causes the product to do.</p>
+    <p>Setting one up for the first time means a one-time enrolment link the install hands you, an administrator account that is not your NAS login &mdash; with a recovery email address and the SMTP details to reach it, both proved by a confirmation message before the account exists &mdash; and an eight-step wizard whose answers become a <code>config.yaml</code> you will live with. The first-run walkthrough shows every screen, with an example for every field and a sentence on what that entry actually causes the product to do.</p>
     <span class="clipping-read">Walk the first run &rarr;</span>
   </a>
 
   <a href="reference.html" class="clipping">
     <span class="clipping-tag">Reference</span>
-    <p>Every screen of the web interface with a picture and a table of what each control does, every one of the twenty <code>rbm</code> commands, and every subcommand and flag of the installer with its default. The command table and the flag table are both checked against the code on every run of the gate, so a command or a flag that lands without a row fails the build rather than going quietly stale.</p>
+    <p>Every screen of the web interface with a picture and a table of what each control does, every one of the twenty-four <code>retnd</code> commands, and every subcommand and flag of the installer with its default. The command table and the flag table are both checked against the code on every run of the gate, so a command or a flag that lands without a row fails the build rather than going quietly stale.</p>
     <span class="clipping-read">Read the reference &rarr;</span>
+  </a>
+
+  <a href="workflows.html" class="clipping">
+    <span class="clipping-tag">Guide</span>
+    <p>Bash scripts around every backup: the five stages and the one order they run in, why a <code>.local.sh</code> hook executes outside the engine's container, why a <code>.remote.sh</code> hook needs a credential your SFTP account deliberately is not, the environment and secret model, the shell verification that refuses a save rather than a run, and what a crash leaves behind &mdash; a blocked backup set with two ways out and no dismiss.</p>
+    <span class="clipping-read">Read the workflows guide &rarr;</span>
   </a>
 
 
@@ -214,9 +243,9 @@ rbm-web: no administrator account exists yet. Open http://10.0.0.10:8080/enroll?
     <p>A backend is described by a manifest the build carries &mdash; data, not code &mdash; and the manifest is what decides which fields a destination has, which steps its connection test runs, and what the steps it skips say instead. Two are registered: <code>local_volume</code>, a directory on a disk this machine can see, and <code>s3</code>, a bucket on Amazon's service or anything that speaks its API. The drive backups already land on is an instance too, seeded on a fresh install as a declared destination called <code>local</code>, so it is a row in the same list with the same controls rather than an unnamed default the interface had no way to talk about. A deployment can hold two volumes and two buckets now, and the list can tell them apart.</p>
     <p>Two wizards come with it. <strong>Add a destination</strong> is three steps &mdash; choose a backend, name the instance, confirm &mdash; and writes nothing at all, which the confirm step says in as many words. The backends it offers come from <code>GET /api/v1/backends</code>, so there is no list of backend names anywhere in the page, and a backend this build understands with no manifest behind it is drawn and refused rather than quietly left out. <strong>Configure</strong> is the manifest-driven half: one renderer, not a form per backend, and nothing in the page knows what a local volume asks for. It fills in what the manifest declares, proves it, and only then writes. That order is enforced rather than advised &mdash; editing any field makes an earlier pass stale, the screen says so where the edit was made, and <strong>Save configuration</strong> stays out of reach until a check against the values now on screen has passed &mdash; and the consequence an operator can use is that no retention tier can be pointed at a destination nobody has proved.</p>
     <p>Handing the <strong>Default</strong> mark from one destination to another is its own confirmation, because only one of the two things it does is the thing that was clicked: the destination taking the mark stops being removable, and the one giving it up becomes removable. Nothing already written moves. Declaring a destination moves nothing either; backups arrive somewhere only once a retention tier names it, which stays a separate decision.</p>
-    <p>The first correction is <a href="https://github.com/spdrman/rclone-manager/issues/662">#662</a>, measured on 0.3.3 on the NAS this installer was proven on. A completed local copy could be recorded as zero bytes: whatever the backend reported for the read-back went into the journal and into the sidecar recovery manifest &mdash; the record a catalog rebuild trusts when the journal is gone &mdash; without ever being checked against the file. Reconciliation then found two journal fields disagreeing with each other and quarantined the intact file over it, without reading the file. And there was no way back out: <code>retry</code> and <code>fetch</code> looped, the artifact was re-discovered as already known, and the refusal named no verb that would resolve it. Commit now records the bytes it actually made durable, a transfer that reports less than its object does not carry the zero forward, a disagreement between two records is treated as a fault in the records rather than as a verdict about a file, and from a deployment already in that state some documented verb ends with the artifact at a durable restore point.</p>
+    <p>The first correction is <a href="https://github.com/retnd/retnd/issues/662">#662</a>, measured on 0.3.3 on the NAS this installer was proven on. A completed local copy could be recorded as zero bytes: whatever the backend reported for the read-back went into the journal and into the sidecar recovery manifest &mdash; the record a catalog rebuild trusts when the journal is gone &mdash; without ever being checked against the file. Reconciliation then found two journal fields disagreeing with each other and quarantined the intact file over it, without reading the file. And there was no way back out: <code>retry</code> and <code>fetch</code> looped, the artifact was re-discovered as already known, and the refusal named no verb that would resolve it. Commit now records the bytes it actually made durable, a transfer that reports less than its object does not carry the zero forward, a disagreement between two records is treated as a fault in the records rather than as a verdict about a file, and from a deployment already in that state some documented verb ends with the artifact at a durable restore point.</p>
     <p>The second is the surface that reported it. The activity feed keyed a run's severity on the destination it was writing to, so a real failure could read as ordinary; it keys on the transition now, and a FAILED backup has a control that reaches a recovery verb instead of a message recommending a command the same window called nonexistent.</p>
-    <p>The last piece is the first ten minutes. What the installer prints is transcribed from the installer on every run of the gate rather than written beside it (<a href="https://github.com/spdrman/rclone-manager/issues/714">#714</a>), so the output blocks above are the real ones; and the enrolment link names this machine's own address rather than <code>localhost</code>, which on a laptop reading the log over SSH is the laptop (<a href="https://github.com/spdrman/rclone-manager/issues/688">#688</a>). <code>enroll-link</code> reissues one when the thirty minutes have passed.</p>
+    <p>The last piece is the first ten minutes. What the installer prints is transcribed from the installer on every run of the gate rather than written beside it (<a href="https://github.com/retnd/retnd/issues/714">#714</a>), so the output blocks above are the real ones; and the enrolment link names this machine's own address rather than <code>localhost</code>, which on a laptop reading the log over SSH is the laptop (<a href="https://github.com/retnd/retnd/issues/688">#688</a>). <code>enroll-link</code> reissues one when the thirty minutes have passed.</p>
 
     <div class="cards">
       <a href="reference.html#web-destinations" class="clipping">
@@ -269,7 +298,7 @@ rbm-web: no administrator account exists yet. Open http://10.0.0.10:8080/enroll?
 
   <section>
     <h2 id="cli">The command line</h2>
-    <p>Everything the web interface does, and several things it does not, are reachable from <code>rbm</code>. Every command except <code>version</code> takes <code>--config</code>, defaulting to <code>/etc/backup-manager/config/config.yaml</code>, which is a file inside the config directory rather than a file mounted on its own; pass the directory and it resolves <code>config.yaml</code> inside it.</p>
+    <p>Everything the web interface does, and several things it does not, are reachable from <code>retnd</code>. Every command except <code>version</code> takes <code>--config</code>, defaulting to <code>/etc/retnd/config/config.yaml</code>, which is a file inside the config directory rather than a file mounted on its own; pass the directory and it resolves <code>config.yaml</code> inside it.</p>
     <div class="scroll-x">
       <table>
         <thead>
@@ -299,7 +328,7 @@ rbm-web: no administrator account exists yet. Open http://10.0.0.10:8080/enroll?
         </tbody>
       </table>
     </div>
-    <p>The <a href="https://github.com/spdrman/rclone-manager/blob/main/README.md">README</a>'s copy of this table is checked against the binary's own dispatch table on every run of the repository's gate, so it cannot quietly go stale. The copy above is a transcription of it and is not checked, so if the two ever disagree, the README is right.</p>
+    <p>The <a href="https://github.com/retnd/retnd/blob/main/README.md">README</a>'s copy of this table is checked against the binary's own dispatch table on every run of the repository's gate, so it cannot quietly go stale. The copy above is a transcription of it and is not checked, so if the two ever disagree, the README is right.</p>
     <p><a href="reference.html#cli">The reference page</a> carries the same table with the subcommands and the interesting flags filled in, plus where a configuration change is written and what each exit code means. That copy is checked.</p>
   </section>
 
@@ -308,18 +337,19 @@ rbm-web: no administrator account exists yet. Open http://10.0.0.10:8080/enroll?
     <p>This section exists because the README has one, and a documentation site that quietly drops the uncomfortable half is worse than no site.</p>
     <ul>
       <li><strong>Nothing destructive can be done over HTTP, in any deployment that exists.</strong> The API's destructive operations are behind a deployment-level gate, and the only implementation of that gate this repository ships is <code>NotYetImplementedGate</code>, whose <code>Passed()</code> returns false unconditionally (<code>apps/common/webhost/gate.go:114</code>). There is no flag, environment variable or constructor argument that makes it true. So every destructive route fails closed everywhere, by construction rather than by configuration, until issue #92 supplies a real gate.</li>
-      <li><strong>The 0.4.0 image is not on the registry.</strong> This release is cut and not pushed: <code>canonical.json</code> records <code>image.published: false</code> and the release manifest records a null digest per architecture, which are held together so neither can move alone. <code>0.3.3</code> is the newest tag that resolves, and it is signed. Until 0.4.0 is pushed, install it by building the image yourself or side-loading one.</li>
+      <li><strong>No workflow run can be started from a browser, so none of the ones that were tested was.</strong> The gate above is why: <code>run_backup_set</code> is a destructive operation, so every workflow run the end-to-end suite observed was one the <em>scheduler</em> started, and the hook-bypass an administrator is allowed in principle lives on that same refused route. Remote hooks are worse than untested-looking: they had never executed at all between the feature landing and issue #919 being found by that suite and fixed, because the engine handed the remote-exec channel a step id its own token rule refused, and the refusal was mislabelled as a lost connection while a token-less capability probe went on reporting the channel healthy. <a href="workflows.html#honest">The workflows guide</a> lists the rest, including the two things the feature explicitly does not guarantee.</li>
       <li><strong>No acceptance procedure has been run on real hardware.</strong> The procedures for TrueNAS, Unraid, OpenMediaVault, Synology and Proxmox VE are written, reviewed and specific, and nobody working on the repository has one of those machines to execute them on. Every one of those platforms is build-supported and uncertified.</li>
-      <li><strong>There is no restore execution.</strong> <code>rbm restore</code> asks a storage provider to make an archived copy readable again, which is a different thing. Getting a backup back onto a server is a documented manual procedure, and that procedure is the whole of it.</li>
+      <li><strong>There is no restore execution.</strong> <code>retnd restore</code> asks a storage provider to make an archived copy readable again, which is a different thing. Getting a backup back onto a server is a documented manual procedure, and that procedure is the whole of it.</li>
       <li><strong>There is no metrics endpoint.</strong> A Prometheus renderer exists in the tree and nothing imports it. No listener serves <code>/metrics</code>.</li>
       <li><strong>Every picture on this site comes from a mock.</strong> Every screenshot and every clip was recorded against the development server's in-memory fixture API, not against a running engine. The layout, the copy, the flow and the interaction are the real ones. The data is not, and each page says so.</li>
+      <li><strong>The rename is complete on this site and nowhere a store reviewer looks.</strong> This product was called <code>retnd</code> until <a href="https://github.com/retnd/retnd/issues/885">#885</a>. Everything with a picture on this site was re-recorded against the renamed interface through the capture scripts in <code>docs/site/tools/</code>: the 20 first-run and enrolment stills, the 15 reference screens, the 8 web-interface clips, the 2 SSH clips and the 10 workflow clips &mdash; 55 files, every one of them reproducible by re-running the script that made it. What was <em>not</em> re-captured, and cannot be here, is the store material: the screenshots each provider's listing shows are of the application running on that provider's own hardware, so every one that has ever been captured shows the old name, and every <code>Store screenshots</code> row in <a href="https://github.com/retnd/retnd/blob/main/docs/conformance/submission-preflight.md">the submission preflight</a> is recorded outstanding rather than passing. Substituting one of the pictures above would be substituting a mock into a store listing, which <code>docs/epic-checklist.md</code> §10 forbids and which is the one place on this site where "the data is not real" could not be written under the image. No provider store listing has been re-reviewed since the rename either: the listing copy, the icons and the release notes were rewritten in the tree, and whether each store accepts the listing under a new product name is an external decision nothing in the repository can record. The wordmark itself was re-fitted rather than re-lettered &mdash; six glyphs became four, so the optical spacing and the aspect ratio were rebuilt and the accent stayed on the trailing <code>d</code> &mdash; and the reasoning, including the 16-pixel favicon decision, is <a href="https://github.com/retnd/retnd/blob/main/docs/design/brand-assets.md">in the brand-asset manifest</a>. That manifest also records the two things about the art that are not proven: the lockup is a geometric construction rather than a designer's drawing, and the named human acceptance step &mdash; somebody looking at every asset and confirming none of them <em>depicts</em> the old name &mdash; has not been performed.</li>
     </ul>
   </section>
 
 </main>
 
 <footer>
-  <p>rclone-manager is Apache-2.0 licensed. <a href="https://github.com/spdrman/rclone-manager">View on GitHub</a></p>
+  <p>retnd is Apache-2.0 licensed. <a href="https://github.com/retnd/retnd">View on GitHub</a></p>
   <p>Not affiliated with the rclone project. rclone is embedded as a pinned Go library under its own licence.</p>
 </footer>
 

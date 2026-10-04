@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/spdrman/rclone-manager/core/internal/config"
-	"github.com/spdrman/rclone-manager/core/internal/mediumcheck"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/mediumcheck"
 )
 
 // Proving a storage medium works before a real backup finds out for an

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spdrman/rclone-manager/core/internal/alert"
+	"github.com/retnd/retnd/core/internal/alert"
 )
 
 // This file is this work package's own gate, in the same spirit as
@@ -150,21 +150,40 @@ func exportedNames(decl ast.Decl) []string {
 	return out
 }
 
-// TestKindsAreExactlyTheFourWorkPackage35Names pins the alert vocabulary
-// to §71's own list: stale backup, repeated failure, changed SSH host
-// key, critical storage pressure. A fifth kind is how "one proactive
-// mechanism for four conditions" quietly becomes the framework §71 rules
-// out, so it takes an edit here to add one.
-func TestKindsAreExactlyTheFourWorkPackage35Names(t *testing.T) {
+// TestKindsAreExactlyTheDeliberatelyChosenConditions pins the alert
+// vocabulary: §71's own list -- stale backup, repeated failure, changed
+// SSH host key, critical storage pressure -- plus EPIC K's two, a
+// repository whose maintenance is failing (#786) and a repository that
+// cannot take a backup at all (#789), plus EPIC L's three workflow
+// conditions (#813), and nothing else.
+//
+// A new kind is how "one proactive mechanism for a few specific
+// conditions" quietly becomes the framework §71 rules out, so it takes an
+// edit here to add one, and the justification belongs beside the constant
+// (see alert.MaintenanceFailed's and alert.RepositoryUnavailable's docs
+// for what that looks like).
+//
+// EPIC L adding three at once is the case this pin is most useful
+// against, and they earned it separately: a missing backup, a source
+// machine that may still be quiesced, and a backup set blocked pending
+// recovery are three different jobs for an operator, so collapsing them
+// would silence whichever one was not the headline. alert.WorkflowFailed's
+// doc is where that argument is made in full.
+func TestKindsAreExactlyTheDeliberatelyChosenConditions(t *testing.T) {
 	want := []alert.Kind{
 		alert.StaleBackup,
 		alert.RepeatedFailure,
 		alert.HostKeyChanged,
 		alert.CriticalStoragePressure,
+		alert.MaintenanceFailed,
+		alert.RepositoryUnavailable,
+		alert.WorkflowFailed,
+		alert.WorkflowCleanupFailed,
+		alert.WorkflowRecoveryRequired,
 	}
 
 	if len(alert.Kinds) != len(want) {
-		t.Fatalf("Kinds = %v, want exactly the four §71 conditions %v", alert.Kinds, want)
+		t.Fatalf("Kinds = %v, want exactly the chosen conditions %v", alert.Kinds, want)
 	}
 	for i := range want {
 		if alert.Kinds[i] != want[i] {
@@ -180,9 +199,9 @@ func TestKindsAreExactlyTheFourWorkPackage35Names(t *testing.T) {
 func TestAlertingNeverDeletes(t *testing.T) {
 	banned := map[string]string{
 		`"os"`: "the filesystem",
-		`"github.com/spdrman/rclone-manager/core/internal/retention"`: "retention",
-		`"github.com/spdrman/rclone-manager/core/internal/lifecycle"`: "the artifact lifecycle",
-		`"github.com/spdrman/rclone-manager/core/internal/state"`:     "the journal",
+		`"github.com/retnd/retnd/core/internal/retention"`: "retention",
+		`"github.com/retnd/retnd/core/internal/lifecycle"`: "the artifact lifecycle",
+		`"github.com/retnd/retnd/core/internal/state"`:     "the journal",
 	}
 
 	for path, file := range parseProductionSources(t, parser.ImportsOnly) {

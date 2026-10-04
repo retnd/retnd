@@ -15,7 +15,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/spdrman/rclone-manager/core/internal/config"
+	"github.com/retnd/retnd/core/envcompat"
+	"github.com/retnd/retnd/core/internal/config"
 )
 
 // Looking at the keys this deployment can reach (issue #592).
@@ -74,7 +75,8 @@ import (
 // authentication check into something an operator can fix.
 
 // sshDiscoveryDirEnv names an optional directory this deployment mounts
-// read-only for discovery to scan.
+// read-only for discovery to scan, and sshDiscoveryDirEnvLegacy is the
+// name it had before EPIC R (#885) renamed this product.
 //
 // It exists so that widening the search to an operator's own keys is a
 // MOUNT decision rather than a code one. The packaged engine is
@@ -84,18 +86,46 @@ import (
 // mounted in. Reading the directory from the environment means an
 // operator adds one line to .env and one mount to compose, and the scan
 // gains a location instead of gaining a way to name arbitrary paths.
-const sshDiscoveryDirEnv = "BACKUP_MANAGER_SSH_DISCOVERY_DIR"
+//
+// Both names are read for one release, through core/envcompat, because
+// this is the silent half of FR-37: an operator whose .env still says
+// BACKUP_MANAGER_SSH_DISCOVERY_DIR would otherwise get a scan that
+// quietly stopped looking where they told it to, and the symptom is a
+// key missing from a listing rather than an error. #895 deletes the old
+// name in the release after the one that ships this EPIC.
+const (
+	sshDiscoveryDirEnv       = "RETND_SSH_DISCOVERY_DIR"
+	sshDiscoveryDirEnvLegacy = "BACKUP_MANAGER_SSH_DISCOVERY_DIR"
+)
+
+// sshDiscoveryDirRename is the pair above as core/envcompat reads it: the
+// current name wins when both are set, and each legacy name that carries
+// a value produces one deprecation notice per process.
+var sshDiscoveryDirRename = envcompat.Rename{
+	Current: sshDiscoveryDirEnv,
+	Legacy:  []string{sshDiscoveryDirEnvLegacy},
+}
+
+// discoveryDirFromEnv is the directory either spelling names, or the
+// empty string if neither does. The value and not the name, because the
+// caller adds it to the scan as a path; the NAME the operator set is
+// what core/envcompat's notice reports, once per process.
+func discoveryDirFromEnv() string {
+	_, value, _ := envcompat.Which(sshDiscoveryDirRename)
+
+	return value
+}
 
 // sshDiscoveryMountDir is where the canonical compose file mounts the
 // installer's own generated key: install_docker_host.py writes
 // <prefix>/secrets/id_ed25519 when there is none and compose mounts it
-// read-only at /etc/backup-manager/id_ed25519.
+// read-only at /etc/retnd/id_ed25519.
 //
 // It is scanned as a directory rather than as that one file so a
 // deployment that mounts a second key beside it is described too, and it
 // is reported as searched even on a machine where it does not exist,
 // because "not mounted here" is an answer and silence is not.
-const sshDiscoveryMountDir = "/etc/backup-manager"
+const sshDiscoveryMountDir = "/etc/retnd"
 
 // ErrSSHKeyCandidateNotFound is returned by ImportSSHKeyCandidate when
 // the id does not resolve against a fresh scan of the fixed locations.
@@ -485,7 +515,7 @@ func discoverSSHKeyCandidates(configuredKeyFiles []string, stored []SSHKeyListin
 	}{
 		{sshDiscoveryMountDir, "mount"},
 		{homeSSHDir(), "home"},
-		{os.Getenv(sshDiscoveryDirEnv), "discovery-dir"},
+		{discoveryDirFromEnv(), "discovery-dir"},
 	} {
 		if dir.path == "" {
 			continue

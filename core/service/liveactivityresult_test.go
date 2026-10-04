@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/obs"
 )
 
 func TestLiveActivity_CarriesTheResultTheEngineStated(t *testing.T) {

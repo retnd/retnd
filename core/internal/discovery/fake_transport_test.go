@@ -18,7 +18,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/spdrman/rclone-manager/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // fakeTransport is a hand-rolled transport.Transport for tests that need

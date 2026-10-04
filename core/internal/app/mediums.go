@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/spdrman/rclone-manager/core/internal/backend"
-	"github.com/spdrman/rclone-manager/core/internal/config"
-	"github.com/spdrman/rclone-manager/core/internal/placement"
-	"github.com/spdrman/rclone-manager/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/backend"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/placement"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // The production placement.MediumResolver (EPIC E, FR-27 and FR-31; issue

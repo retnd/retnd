@@ -1,5 +1,5 @@
 // run_test.go pins the §9.3 orchestration contract this issue moves here
-// from apps/generic/cmd/backup-manager-web's former cmdServe: the HTTP
+// from apps/generic/cmd/retnd-web's former cmdServe: the HTTP
 // server and the background scheduler run as two independent goroutines
 // racing against one shared shutdown context, and neither one's own
 // failure is allowed to go unnoticed.
@@ -24,21 +24,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spdrman/rclone-manager/apps/common/webhost/serve"
+	"github.com/retnd/retnd/apps/common/webhost/serve"
 )
 
 // fakeScheduler is a serve.Scheduler test double whose RunOnSchedule
 // behavior a test controls directly, without a real
 // core/service.BackupService or its SQLite journal.
 type fakeScheduler struct {
-	pollInterval time.Duration
-	runFunc      func(ctx context.Context, interval time.Duration) error
+	runFunc func(ctx context.Context) error
 }
 
-func (f fakeScheduler) PollInterval() time.Duration { return f.pollInterval }
-
-func (f fakeScheduler) RunOnSchedule(ctx context.Context, interval time.Duration) error {
-	return f.runFunc(ctx, interval)
+func (f fakeScheduler) RunOnSchedule(ctx context.Context) error {
+	return f.runFunc(ctx)
 }
 
 const testShutdownGrace = 200 * time.Millisecond
@@ -54,8 +51,7 @@ func TestRunEngine_StopsCleanlyOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	scheduler := fakeScheduler{
-		pollInterval: time.Hour,
-		runFunc: func(ctx context.Context, _ time.Duration) error {
+		runFunc: func(ctx context.Context) error {
 			<-ctx.Done()
 			return nil
 		},
@@ -106,8 +102,7 @@ func TestRunEngine_NilSchedulerRunsHTTPServerOnly(t *testing.T) {
 func TestRunEngine_SchedulerErrorIsReportedPromptly(t *testing.T) {
 	wantErr := errors.New("scheduler exploded")
 	scheduler := fakeScheduler{
-		pollInterval: time.Hour,
-		runFunc: func(context.Context, time.Duration) error {
+		runFunc: func(context.Context) error {
 			return wantErr // fails immediately, independent of ctx
 		},
 	}
@@ -144,8 +139,7 @@ func TestRunEngine_SchedulerErrorIsReportedPromptly(t *testing.T) {
 // scheduler.
 func TestRunEngine_ServerErrorIsReported(t *testing.T) {
 	scheduler := fakeScheduler{
-		pollInterval: time.Hour,
-		runFunc: func(ctx context.Context, _ time.Duration) error {
+		runFunc: func(ctx context.Context) error {
 			<-ctx.Done()
 			return nil
 		},
@@ -188,8 +182,7 @@ func TestRunEngine_ServerErrorIsReported(t *testing.T) {
 func TestRunEngine_ServerErrorCancelsScheduler(t *testing.T) {
 	schedulerStopped := make(chan struct{})
 	scheduler := fakeScheduler{
-		pollInterval: time.Hour,
-		runFunc: func(ctx context.Context, _ time.Duration) error {
+		runFunc: func(ctx context.Context) error {
 			<-ctx.Done()
 			close(schedulerStopped)
 			return nil
@@ -231,7 +224,7 @@ func TestRunEngine_ServerErrorCancelsScheduler(t *testing.T) {
 // TestNewHTTPServer_SetsTimeouts is issue #119's review finding that
 // neither http.Server the generic Web host built set any request-level
 // timeout at all (the standard Go "Slowloris" gap) - moved here from
-// apps/generic/cmd/backup-manager-web's former newHTTPServer helper,
+// apps/generic/cmd/retnd-web's former newHTTPServer helper,
 // which every caller (serve and serve-ui) now gets from this shared
 // constructor instead of building its own.
 func TestNewHTTPServer_SetsTimeouts(t *testing.T) {

@@ -51,10 +51,10 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/spdrman/rclone-manager/core/internal/config"
-	"github.com/spdrman/rclone-manager/core/internal/mediumcheck"
-	"github.com/spdrman/rclone-manager/core/internal/transport"
-	"github.com/spdrman/rclone-manager/core/internal/transport/rclone"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/mediumcheck"
+	"github.com/retnd/retnd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/transport/rclone"
 )
 
 // ErrConfigAbsent is what Open returns when configPath does not exist at
@@ -138,7 +138,7 @@ func NewFirstRun(defaults FirstRunDefaults) (*FirstRun, error) {
 		return nil, fmt.Errorf("service: first run config path %q must be absolute", defaults.ConfigPath)
 	}
 	// Issue #196 made the packaged configuration mount a DIRECTORY, so
-	// `--config /etc/backup-manager/config` is a spelling an operator is
+	// `--config /etc/retnd/config` is a spelling an operator is
 	// actively invited to type (config.ResolvePath's own doc). Resolving
 	// it here, once, at the boundary where a deployment's answer becomes
 	// this type's, is what keeps everything derived from ConfigPath
@@ -326,6 +326,14 @@ func (f *FirstRun) CreateInitialConfig(ctx context.Context, req CreateBackupSetR
 		if !result.OK {
 			return BackupSet{}, fmt.Errorf("%w: %s", ErrConnectionNotProven, result.Message)
 		}
+		// Issue #852, on the first configuration too: the very first
+		// backup set this deployment writes must not claim it will
+		// delete from a source it has just been refused a write on.
+		// Same function as the configured path, so the first set an
+		// operator creates and the tenth are held to one rule.
+		if err := refuseDeleteOnUnwritableSource(result, req.ReadOnly); err != nil {
+			return BackupSet{}, err
+		}
 	}
 
 	sourceName := req.SourceName
@@ -416,7 +424,7 @@ func (f *FirstRun) CreateInitialConfig(ctx context.Context, req CreateBackupSetR
 	}
 	applyValidators()
 
-	return toServiceBackupSet(f.defaults.ConfigPath, sourceName, findBackupSet(cfg, sourceName, req.Name)), nil
+	return toServiceBackupSet(cfg, f.defaults.ConfigPath, sourceName, findBackupSet(cfg, sourceName, req.Name)), nil
 }
 
 // writeConfigPayload is the file-write half of the two create paths

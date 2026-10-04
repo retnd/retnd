@@ -14,8 +14,8 @@ package service
 import (
 	"testing"
 
-	"github.com/spdrman/rclone-manager/core/internal/app"
-	"github.com/spdrman/rclone-manager/core/internal/state"
+	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // TestARestoreOperationNeverCarriesAProgressReading is FR-34's "no

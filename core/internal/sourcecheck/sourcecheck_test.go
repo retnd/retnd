@@ -16,7 +16,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 
-	"github.com/spdrman/rclone-manager/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // The tests below drive Run against a REAL SSH server running in this
@@ -162,6 +162,12 @@ func depsFor(fingerprint string, trusted []TrustedKey, verify func(string, net.A
 		Trusted:     func(context.Context) ([]TrustedKey, error) { return trusted, nil },
 		Verify:      verify,
 		List:        func(context.Context) (int, error) { return entries, nil },
+		// A write probe that completes, so the default deps describe a
+		// source this manager may also delete from. writeprobe_test.go
+		// is where the other answers are stated; a nil here would make
+		// every test in this file assert against a SKIPPED seventh step
+		// for a reason none of them are about.
+		ProbeWrite: func(context.Context) error { return nil },
 	}
 }
 
@@ -337,7 +343,7 @@ func TestRun_UnreadableCredentialSkipsEverythingElse(t *testing.T) {
 	verified := false
 	deps := depsFor("", trustedKeysOf(hostKey), knownHostsVerifier(t, addr, hostKey), 4)
 	deps.Credentials = func(context.Context) (string, error) {
-		return "", errors.New("open /var/lib/backup-manager/keys/ssh_key_4: permission denied")
+		return "", errors.New("open /var/lib/retnd/keys/ssh_key_4: permission denied")
 	}
 	inner := deps.Verify
 	deps.Verify = func(hostname string, remote net.Addr, key ssh.PublicKey) error {
@@ -594,7 +600,7 @@ func TestRun_ResolveFailureIsNotANetworkFailure(t *testing.T) {
 // any of them may appear in the report.
 func TestRun_NoDetailCarriesTransportErrorText(t *testing.T) {
 	poison := []string{
-		"/var/lib/backup-manager/keys/ssh_key_4",
+		"/var/lib/retnd/keys/ssh_key_4",
 		"ssh: handshake failed: knownhosts.HostKeyCallback",
 		"dial tcp 203.0.113.24:1209: connect: connection refused",
 		"sftp: \"Permission denied\" (SSH_FX_PERMISSION_DENIED)",

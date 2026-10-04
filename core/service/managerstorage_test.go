@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/internal/capacity"
-	"github.com/spdrman/rclone-manager/core/internal/config"
+	"github.com/retnd/retnd/core/internal/capacity"
+	"github.com/retnd/retnd/core/internal/config"
 )
 
 // This file covers ManagerStorage, the one manager-wide storage reading

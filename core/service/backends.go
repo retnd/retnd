@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/spdrman/rclone-manager/core/internal/backend"
-	"github.com/spdrman/rclone-manager/core/internal/config"
-	"github.com/spdrman/rclone-manager/core/internal/transport/rclone"
+	"github.com/retnd/retnd/core/internal/backend"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/transport/rclone"
 )
 
 // This file is EPIC I's (#664) read-only half of the backend registry: the
@@ -95,6 +95,15 @@ type Backend struct {
 	// that the two sides of that subtraction are disjoint has to be able
 	// to read both.
 	RcloneBackend string
+
+	// Configurable is whether an instance of this backend can be
+	// authored today, resolved from the manifest's optional flag so a
+	// caller never has to know that absent means true. A false one is
+	// registered and served - its shape is real and an operator looking
+	// for it deserves to find it - and every layer that would store or
+	// dial an instance of it refuses it by name, which is why a surface
+	// that offered it anyway would offer nothing but a refusal.
+	Configurable bool
 
 	Fields []BackendField
 	Probe  []BackendProbeStep
@@ -188,6 +197,7 @@ func projectManifest(m backend.Manifest) Backend {
 		Summary:       m.Summary,
 		Role:          string(m.Role),
 		RcloneBackend: m.RcloneBackend,
+		Configurable:  m.IsConfigurable(),
 		Fields:        make([]BackendField, 0, len(m.Fields)),
 		Probe:         make([]BackendProbeStep, 0, len(m.Probe.Steps)),
 	}

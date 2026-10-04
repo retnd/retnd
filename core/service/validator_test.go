@@ -27,7 +27,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spdrman/rclone-manager/core/internal/config"
+	"github.com/retnd/retnd/core/internal/config"
 )
 
 // validatorTestDir is the materialisation directory every test in this
@@ -249,7 +249,7 @@ func TestMaterializeValidators_RepairsATamperedScript(t *testing.T) {
 	if strings.Contains(string(got), "exit 0") {
 		t.Fatalf("the tampered script was left in place:\n%s", got)
 	}
-	if !strings.Contains(string(got), "RCLONE-MANAGER-BACKUP-COMPLETE") {
+	if !strings.Contains(string(got), "RETND-BACKUP-COMPLETE") {
 		t.Fatalf("the repaired script is not the embedded trailer-marker script:\n%s", got)
 	}
 }
@@ -300,7 +300,7 @@ func TestMaterializeValidators_WritesUnderTheGivenDirectoryNotTMPDIR(t *testing.
 	}
 
 	t.Run("the check catches a TMPDIR-rooted path", func(t *testing.T) {
-		outside := filepath.Join(os.TempDir(), "rclone-manager-validators-control", "trailer-marker.sh")
+		outside := filepath.Join(os.TempDir(), "retnd-validators-control", "trailer-marker.sh")
 		rel, err := filepath.Rel(dir, outside)
 		escaped := err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
 		if !escaped {

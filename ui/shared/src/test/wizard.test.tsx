@@ -23,11 +23,22 @@ import { PlatformProvider } from "@shared/platform/PlatformContext";
 import { genericBridge } from "../../../../apps/generic/frontend/platform";
 import { ApiProvider } from "@shared/api/ApiContext";
 import { createMockApi } from "@shared/api/mock";
-import { BackupManagerError } from "@shared/api/contracts";
-import type { BackupManagerApi } from "@shared/api/contracts";
+import { RetndError } from "@shared/api/contracts";
+import type { RetndApi } from "@shared/api/contracts";
 import { graph, resetGraphForTests } from "@shared/state/graph";
 import { versionNode } from "@shared/state/appNodes";
 import { wizardHostKeyChangedNode } from "@shared/state/wizardNodes";
+import { acknowledgeRemoteDeletion, proveTheSource, railLabels, railStep, walkToReview } from "./wizardWalk";
+import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
+
+/** The step a sentence sends an operator to, as the sentence itself
+ *  names it: "…on the Connection test step" -> "Connection test". Only
+ *  a CAPITALISED name is a step name — "on the next step" is a relative
+ *  direction and names nothing that could go stale. */
+const NAMED_STEPS = (text: string): string[] =>
+  [...text.matchAll(/\b(?:on|to) (?:the |this )?(?:same )?([A-Z][A-Za-z ]*?) step\b/g)].map(
+    (m) => m[1]
+  );
 
 // Issue #146 (B2.7): the wizard now reads useApi() (step 2's import, step
 // 3's host-key probe, step 6's Save buttons all call through it), so
@@ -35,7 +46,7 @@ import { wizardHostKeyChangedNode } from "@shared/state/wizardNodes";
 // deterministic fixture ui/shared/e2e's own Playwright suite runs
 // against (playwright.config.ts's own comment), reused here for the
 // same reason.
-function renderWizard(readOnly = false, api: BackupManagerApi = createMockApi()) {
+function renderWizard(readOnly = false, api: RetndApi = createMockApi()) {
   return render(
     <MemoryRouter>
       <ApiProvider api={api}>
@@ -51,7 +62,7 @@ function renderWizard(readOnly = false, api: BackupManagerApi = createMockApi())
  *  (rather than a bare MemoryRouter) so navigate("/sets") on a
  *  successful save (issue #146) is observable — renderWizard alone has
  *  nowhere for that navigation to land. */
-function renderWizardWithRoutes(api: BackupManagerApi) {
+function renderWizardWithRoutes(api: RetndApi) {
   return render(
     <MemoryRouter initialEntries={["/sets/new"]}>
       <ApiProvider api={api}>
@@ -66,41 +77,15 @@ function renderWizardWithRoutes(api: BackupManagerApi) {
   );
 }
 
-/** Drives the wizard through Authentication (import a key), Verify
- *  server (wait for the probe, trust it), and on to Review — everything
- *  the Save buttons need to have a real sshKeyId/knownHostsLine to send
- *  (issue #146), EXCEPT acknowledgement, deliberately left to the
- *  caller: several tests below need to isolate "acknowledged" from the
- *  key-import/host-trust preconditions (M7, #146 review) rather than
- *  flip all three at once. completeWizardUpToReview (below) is this plus
- *  the acknowledgement click, for tests that just need every
- *  precondition met. */
-async function advanceToReviewReady() {
-  await userEvent.click(screen.getByRole("button", { name: "Authentication" }));
-  await userEvent.click(screen.getByRole("radio", { name: /Import key/ }));
-  await userEvent.type(screen.getByLabelText(/private key/i), "FAKE-TEST-KEY-MATERIAL-not-a-real-key-0123456789");
-  await userEvent.click(screen.getByRole("button", { name: "Import key" }));
-  await screen.findByText(/key imported/i);
-
-  await userEvent.click(screen.getByRole("button", { name: "Verify server" }));
-  await waitFor(() => expect(screen.getByRole("button", { name: "Trust host" })).toBeEnabled());
-  await userEvent.click(screen.getByRole("button", { name: "Trust host" }));
-
-  await userEvent.click(screen.getByRole("button", { name: "Review" }));
-  // Issue #624: the connection test is a save precondition now, on the
-  // same footing as the imported key and the trusted host above. It is
-  // here rather than in completeWizardUpToReview because the cases that
-  // isolate "acknowledged" have to have every OTHER precondition met, and
-  // this is one of them. Its own gate is exercised in
-  // wizard-connection-test.test.tsx.
-  await userEvent.click(screen.getByRole("button", { name: /^Test connection$/ }));
-  await waitFor(() => expect(screen.getByText(/This source has been proven/i)).toBeInTheDocument());
-}
-
-async function completeWizardUpToReview() {
-  await advanceToReviewReady();
-  await userEvent.click(screen.getByRole("checkbox", { name: /remote backup will be removed only after/i }));
-}
+/* The walk this file used to own lives in ./wizardWalk now, because the
+   suites that drive this wizard all needed the same one once #864 made
+   the rail refuse to skip a step: proveTheSource() does step 2's work
+   (import a key, wait for the probe, trust it, run the connection test)
+   and stops there, which is as far as the rail goes until that step is
+   finished; walkToReview() adds the deletion acknowledgement step 7
+   wants and ends on Review, where the save controls are. Cases that
+   isolate acknowledgement from the key-import/host-trust preconditions
+   (M7, #146 review) call the first one. */
 
 // wizard.hostKeyChanged lives on the shared causl graph (issue #98 —
 // state/wizardNodes.ts), not in this component's own useState, precisely
@@ -116,56 +101,203 @@ afterEach(() => {
 });
 
 describe("add backup set wizard", () => {
-  it("has six grouped steps, not a dozen screens", () => {
+  it("has eight grouped steps, not a dozen screens", () => {
     renderWizard();
-    expect(screen.getAllByRole("listitem").length).toBe(6);
+    // Eight since #788, which added the engine, the repository domain and
+    // the source-consistency questions the incremental engine needs and
+    // folded the credentials and the host key into one "Connection test".
+    // The assertion is about the same thing it always was: grouped steps
+    // rather than one screen per field.
+    expect(screen.getAllByRole("listitem").length).toBe(8);
+  });
+
+  // The gap this whole file had: every case above and below reaches a
+  // step by clicking the RAIL, which can jump anywhere, so none of them
+  // could see a footer that stops advancing early. It did — at step 6 of
+  // 8 — which meant an operator using the control the wizard puts under
+  // its own thumb could never reach the #852 read-only control on step 7
+  // or the Save on step 8.
+  it("walks Source to Review on Continue alone, and saves there", async () => {
+    const api = createMockApi();
+    const created = vi.spyOn(api, "createBackupSet");
+    renderWizardWithRoutes(api);
+
+    const advance = async () => userEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    // 1 -> 2, and the connection work the save preconditions need, done
+    // on the step that owns it rather than jumped to.
+    await advance();
+    expect(screen.getByRole("heading", { name: "Connection test" })).toBeTruthy();
+    await userEvent.click(screen.getByRole("radio", { name: /Import key/ }));
+    await userEvent.type(
+      screen.getByLabelText(/private key/i),
+      "FAKE-TEST-KEY-MATERIAL-not-a-real-key-0123456789"
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Import key" }));
+    await screen.findByText(/key imported/i);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Trust host" })).toBeEnabled());
+    await userEvent.click(screen.getByRole("button", { name: "Trust host" }));
+    await userEvent.click(screen.getByRole("button", { name: /^Test connection$/ }));
+    await waitFor(() => expect(screen.getByText(/This source has been proven/i)).toBeInTheDocument());
+
+    // 2 -> 3 -> 4 -> 5 -> 6, each announced by its own heading, so a
+    // Continue that silently stopped moving would fail here rather than
+    // at the end. Step 6 is titled for the engine chosen on step 3, and
+    // nothing here chooses one, so it is the artifact wording.
+    for (const title of ["Engine", "Repository domain", "Source consistency", "Completion and validation"]) {
+      await advance();
+      expect(screen.getByRole("heading", { name: title })).toBeTruthy();
+    }
+
+    // 6 -> 7: the step the footer could not reach at all, and the
+    // acknowledgement that lives on it.
+    await advance();
+    expect(screen.getByRole("heading", { name: "Storage, retention and holds" })).toBeTruthy();
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: /remote backup will be removed only after/i })
+    );
+
+    // 7 -> 8: Review, where the only Save in this flow is.
+    await advance();
+    expect(screen.getByRole("heading", { name: "Review" })).toBeTruthy();
+    expect(screen.getByText("Step 8 of 8")).toBeTruthy();
+    // The end of the rail, so Continue has nowhere left to go.
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("button", { name: /^Save & enable$/ }));
+    expect(await screen.findByText("SETS LIST PAGE")).toBeTruthy();
+    expect(created).toHaveBeenCalledTimes(1);
+  });
+
+  // A disabled Save owes a reason, and a reason that sends an operator
+  // to a step this wizard does not have is worse than none: #788 folded
+  // "Authentication" and "Verify server" into step 2, and these hints
+  // went on naming both.
+  //
+  // #864 refuses most of that chain earlier than the Save button — a
+  // flow with no key imported cannot reach Review at all now — so the
+  // hint an operator can still be shown there is the one for a fact
+  // that arrives while they are standing on it: a host key that changed
+  // under a trusted fingerprint. It has to name the step that resolves
+  // it, and nothing on the screen may name a step this rail does not
+  // have.
+  it("sends the operator to a step that is actually on the rail", async () => {
+    renderWizard();
+    await walkToReview();
+
+    act(() => {
+      graph.commit("test/wizard-host-key-changed", (tx) => tx.set(wizardHostKeyChangedNode, true));
+    });
+
+    expect(screen.getByText(/resolve that on the Connection test step/i)).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/Authentication step|Verify server step/);
+  });
+
+  // The other half of the same rule, on the surface the case above
+  // structurally cannot see (#923). The "generate" panel's banner is the
+  // refusal an operator meets on the STEP, before any Save, and it went
+  // on naming the "Authentication" step #788 deleted for as long as it
+  // did precisely because the case above never selects this radio: the
+  // banner is never rendered, so its sentence never enters
+  // document.body for that `not.toMatch` to fail against.
+  //
+  // What is asserted is the rule and not the wording: the step this copy
+  // names is pulled out of the sentence and looked up in the rail the
+  // wizard is drawing. A reintroduced "Authentication", or a relabelled
+  // rail that leaves this sentence behind, fails here.
+  it("refuses key generation by naming a step the rail actually draws", async () => {
+    renderWizard();
+    await userEvent.click(railStep("Connection test"));
+    await userEvent.click(screen.getByRole("radio", { name: /Generate dedicated SSH key/ }));
+
+    const banner = screen.getByText(/Generating a key on save/);
+    const named = NAMED_STEPS(banner.textContent ?? "");
+    // The refusal is only useful if it says where to go instead, so an
+    // empty list is a failure rather than a vacuous pass.
+    expect(named.length).toBeGreaterThan(0);
+    for (const step of named) expect(railLabels()).toContain(step);
+  });
+
+  // Same rule again, over the wizard's field help — the other operator-
+  // visible copy that names steps, and where #788 left three stale
+  // references nothing was checking (#923): hostname and port both sent
+  // an operator to "Verify server", and the username entry sent them to
+  // "Discovery" for a field that is two rows above it on Source now.
+  it("names only real steps in the wizard's own field help", () => {
+    renderWizard();
+    const labels = railLabels();
+
+    for (const [key, copy] of Object.entries(FIELD_HELP)) {
+      if (!key.startsWith("wizard")) continue;
+      for (const sentence of [copy.what, copy.effect, copy.example]) {
+        for (const step of NAMED_STEPS(sentence ?? "")) {
+          expect(labels, key + " names a step the rail does not have: " + step).toContain(step);
+        }
+      }
+    }
   });
 
   it("blocks saving until remote deletion is acknowledged", async () => {
     renderWizard();
-    // Every OTHER save precondition (imported key, trusted host) is
-    // satisfied first, so this isolates acknowledgement as the one
-    // variable under test — see M7 (#146 review) on why those two now
-    // also gate the button.
-    await advanceToReviewReady();
+    // Every OTHER save precondition (imported key, trusted host,
+    // connection proven) is satisfied first, so this isolates
+    // acknowledgement as the one variable under test — see M7 (#146
+    // review) on why those also gate the button.
+    await proveTheSource();
 
-    const save = screen.getByRole("button", { name: /Save, enable & run/ });
-    expect(save).toBeDisabled();
+    // Since #864 the acknowledgement is also what finishes step 7, so
+    // the refusal is visible a step earlier than the button: Review,
+    // where every save control in this flow lives, is out of reach
+    // while the remote-source handling question is unanswered.
+    await userEvent.click(railStep("Retention"));
+    expect(railStep("Review")).toBeDisabled();
 
     await userEvent.click(screen.getByRole("checkbox", { name: /remote backup will be removed only after/i }));
-    expect(save).toBeEnabled();
+    await userEvent.click(railStep("Review"));
+    expect(screen.getByRole("button", { name: /Save, enable & run/ })).toBeEnabled();
   });
 
   // M7 (#146 review): the wizard's own save-preconditions gap. Save used
-  // to stay clickable with no key imported and no host trusted -
+  // to stay clickable with no key imported and no host trusted —
   // clicking it fired handleSave, which rejected the request via its own
-  // ad hoc guard rather than the button ever refusing to be clicked.
-  it("keeps Save disabled without an imported key or a trusted host, even after acknowledging (M7, #146 review)", async () => {
+  // ad hoc guard rather than the button ever refusing to be clicked. M7
+  // made the button refuse; #864 makes the rail refuse first, so the
+  // combination this case was written about — nothing imported, nothing
+  // trusted, and the deletion acknowledged anyway — cannot be assembled
+  // at all: the step that takes the acknowledgement is not reachable,
+  // and neither is the one the Save buttons are on.
+  it("reaches neither the acknowledgement nor Save without an imported key and a trusted host (M7, #146 review)", async () => {
     renderWizard();
-    await userEvent.click(screen.getByRole("button", { name: "Review" }));
-    await userEvent.click(screen.getByRole("checkbox", { name: /remote backup will be removed only after/i }));
 
-    expect(screen.getByRole("button", { name: /Save, enable & run/ })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /^Save & enable$/ })).toBeDisabled();
+    await userEvent.click(railStep("Retention"));
+    expect(screen.getByRole("heading", { name: "Source" })).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: /remote backup will be removed only after/i })).toBeNull();
+
+    await userEvent.click(railStep("Review"));
+    expect(screen.queryByRole("button", { name: /Save, enable & run/ })).toBeNull();
+    expect(railStep("Retention")).toBeDisabled();
+    expect(railStep("Review")).toBeDisabled();
   });
 
   it("warns when stable-size completion is chosen", async () => {
     renderWizard();
-    await userEvent.click(screen.getByRole("button", { name: "Discovery" }));
+    await proveTheSource();
+    await userEvent.click(screen.getByRole("button", { name: "Verification" }));
     await userEvent.click(screen.getByRole("radio", { name: /Stable file size/ }));
     expect(screen.getByText(/infers completion and provides less assurance/)).toBeTruthy();
   });
 
   it("does not offer a native storage picker on a platform without one", async () => {
     renderWizard();
-    await userEvent.click(screen.getByRole("button", { name: "Storage & validation" }));
+    await proveTheSource();
+    await userEvent.click(screen.getByRole("button", { name: "Retention" }));
     expect(screen.getByRole("button", { name: "Validate path" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Browse volumes/ })).toBeNull();
   });
 
   it("never renders a private key", async () => {
     renderWizard();
-    await userEvent.click(screen.getByRole("button", { name: "Authentication" }));
+    await userEvent.click(screen.getByRole("button", { name: "Connection test" }));
     // Default key source is "Generate", whose panel (#299) says plainly
     // that this path can't be saved yet rather than showing a fixed
     // sample key, so this is the positive control that we're on the
@@ -182,7 +314,7 @@ describe("add backup set wizard", () => {
   describe("SSH key import (step 2)", () => {
     it("disables Import until a key is pasted, then clears the paste box and never re-displays it", async () => {
       renderWizard();
-      await userEvent.click(screen.getByRole("button", { name: "Authentication" }));
+      await userEvent.click(screen.getByRole("button", { name: "Connection test" }));
       await userEvent.click(screen.getByRole("radio", { name: /Import key/ }));
 
       const textarea = screen.getByLabelText(/private key/i);
@@ -208,7 +340,7 @@ describe("add backup set wizard", () => {
 
     it("guards the private-key textarea against cloud spellcheck / autofill leakage (M2, #98 PR #145 review)", async () => {
       renderWizard();
-      await userEvent.click(screen.getByRole("button", { name: "Authentication" }));
+      await userEvent.click(screen.getByRole("button", { name: "Connection test" }));
       await userEvent.click(screen.getByRole("radio", { name: /Import key/ }));
 
       const textarea = screen.getByLabelText(/private key/i);
@@ -220,7 +352,7 @@ describe("add backup set wizard", () => {
 
     it("does not claim a shape-validation step that doesn't run (M3, #98 PR #145 review)", async () => {
       renderWizard();
-      await userEvent.click(screen.getByRole("button", { name: "Authentication" }));
+      await userEvent.click(screen.getByRole("button", { name: "Connection test" }));
       await userEvent.click(screen.getByRole("radio", { name: /Import key/ }));
 
       const textarea = screen.getByLabelText(/private key/i);
@@ -239,7 +371,7 @@ describe("add backup set wizard", () => {
     // is one the server sent.
     it("offers the keys this deployment actually holds, with counts it did not invent", async () => {
       renderWizard();
-      await userEvent.click(screen.getByRole("button", { name: "Authentication" }));
+      await userEvent.click(screen.getByRole("button", { name: "Connection test" }));
       await userEvent.click(screen.getByRole("radio", { name: /Use managed key/ }));
 
       const listed = await createMockApi().listSSHKeys();
@@ -273,7 +405,10 @@ describe("add backup set wizard", () => {
       await userEvent.clear(hostField);
       await userEvent.type(hostField, "warehouse-nas.internal");
 
-      await userEvent.click(screen.getByRole("button", { name: "Review" }));
+      // The walk, not a jump: since #864 Review is only reachable once
+      // the steps before it are answered, which also means the summary
+      // is read for a source this wizard has actually proven.
+      await walkToReview();
       expect(screen.getByText("warehouse-nas.internal")).toBeTruthy();
       expect(screen.queryByText("prod-db-01.internal")).toBeNull();
     });
@@ -284,32 +419,32 @@ describe("add backup set wizard", () => {
       await userEvent.clear(hostField);
       await userEvent.type(hostField, "warehouse-nas.internal");
 
-      await userEvent.click(screen.getByRole("button", { name: "Authentication" }));
+      await userEvent.click(screen.getByRole("button", { name: "Connection test" }));
       await userEvent.click(screen.getByRole("button", { name: "Source" }));
       expect(screen.getByLabelText("Server hostname")).toHaveValue("warehouse-nas.internal");
     });
   });
 
-  describe("the review step reads step 2/4's real answers, not fixed example text (#98)", () => {
-    it("reflects the completion method chosen on step 4, surviving the trip to review", async () => {
+  describe("the review step reads step 2/6's real answers, not fixed example text (#98)", () => {
+    it("reflects the completion method chosen on step 6, surviving the trip to review", async () => {
       renderWizard();
-      await userEvent.click(screen.getByRole("button", { name: "Discovery" }));
+      await proveTheSource();
+      await userEvent.click(railStep("Verification"));
       await userEvent.click(screen.getByRole("radio", { name: /Atomic rename/ }));
 
-      await userEvent.click(screen.getByRole("button", { name: "Review" }));
+      await acknowledgeRemoteDeletion();
+      await userEvent.click(railStep("Review"));
       expect(screen.getByText(/atomic rename/i)).toBeTruthy();
       expect(screen.queryByText(/completion marker/i)).toBeNull();
     });
 
-    it("reflects a trust decision made on step 3, surviving the trip to review", async () => {
+    it("reflects a trust decision made on step 2, surviving the trip to review", async () => {
       renderWizard();
-      await userEvent.click(screen.getByRole("button", { name: "Verify server" }));
-      // Issue #146: "Trust host" stays disabled until the real (mocked)
-      // host-key probe resolves — see BackupSetWizardPage's probeHost.
-      await waitFor(() => expect(screen.getByRole("button", { name: "Trust host" })).toBeEnabled());
-      await userEvent.click(screen.getByRole("button", { name: "Trust host" }));
+      // proveTheSource clicks "Trust host" once the (mocked) host-key
+      // probe resolves — see BackupSetWizardPage's probeHost — and then
+      // runs the connection test the later steps wait on.
+      await walkToReview();
 
-      await userEvent.click(screen.getByRole("button", { name: "Review" }));
       expect(screen.queryByText(/not yet trusted/i)).toBeNull();
       expect(screen.getByText(/^trusted$/i)).toBeTruthy();
     });
@@ -319,7 +454,7 @@ describe("add backup set wizard", () => {
     it("resets host trust once the hostname changes after Trust host, but not while it still matches", async () => {
       renderWizard();
 
-      await userEvent.click(screen.getByRole("button", { name: "Verify server" }));
+      await userEvent.click(screen.getByRole("button", { name: "Connection test" }));
       await waitFor(() => expect(screen.getByRole("button", { name: "Trust host" })).toBeEnabled());
       await userEvent.click(screen.getByRole("button", { name: "Trust host" }));
       expect(screen.getByRole("button", { name: "Host trusted" })).toBeDisabled();
@@ -329,14 +464,14 @@ describe("add backup set wizard", () => {
       // either (same host:port already probed), so no wait is needed
       // here.
       await userEvent.click(screen.getByRole("button", { name: "Source" }));
-      await userEvent.click(screen.getByRole("button", { name: "Verify server" }));
+      await userEvent.click(screen.getByRole("button", { name: "Connection test" }));
       expect(screen.getByRole("button", { name: "Host trusted" })).toBeDisabled();
 
       await userEvent.click(screen.getByRole("button", { name: "Source" }));
       const hostField = screen.getByLabelText("Server hostname");
       await userEvent.clear(hostField);
       await userEvent.type(hostField, "a-different-server.internal");
-      await userEvent.click(screen.getByRole("button", { name: "Verify server" }));
+      await userEvent.click(screen.getByRole("button", { name: "Connection test" }));
 
       expect(screen.queryByRole("button", { name: "Host trusted" })).toBeNull();
       // A new host means a new probe: "Trust host" only becomes
@@ -348,17 +483,13 @@ describe("add backup set wizard", () => {
   describe("a changed host key blocks saving (WP 2.3 acceptance: 'changed host key blocks operation')", () => {
     it("disables both gated save actions the instant the host key changes, even though acknowledged is still checked", async () => {
       renderWizard();
-      // M7 (#146 review): the key-import/host-trust preconditions are
-      // satisfied first (advanceToReviewReady), same as the
-      // acknowledgement test above, so this isolates the host-key-change
-      // effect as the one variable under test.
-      await advanceToReviewReady();
-      await userEvent.click(screen.getByRole("checkbox", { name: /remote backup will be removed only after/i }));
+      // Every other precondition is satisfied first (walkToReview), same
+      // as the acknowledgement case above, so this isolates the
+      // host-key-change effect as the one variable under test.
+      await walkToReview();
 
-      const runNow = screen.getByRole("button", { name: /Save, enable & run/ });
-      const enable = screen.getByRole("button", { name: /^Save & enable$/ });
-      expect(runNow).toBeEnabled();
-      expect(enable).toBeEnabled();
+      expect(screen.getByRole("button", { name: /Save, enable & run/ })).toBeEnabled();
+      expect(screen.getByRole("button", { name: /^Save & enable$/ })).toBeEnabled();
 
       // Simulates the shared host-trust state changing while the wizard is
       // open on the review step — the same fact DashboardPage surfaces
@@ -368,8 +499,8 @@ describe("add backup set wizard", () => {
         graph.commit("test/wizard-host-key-changed", (tx) => tx.set(wizardHostKeyChangedNode, true));
       });
 
-      expect(runNow).toBeDisabled();
-      expect(enable).toBeDisabled();
+      expect(screen.getByRole("button", { name: /Save, enable & run/ })).toBeDisabled();
+      expect(screen.getByRole("button", { name: /^Save & enable$/ })).toBeDisabled();
       expect(screen.getAllByText(/host key changed/i).length).toBeGreaterThan(0);
     });
   });
@@ -396,8 +527,9 @@ describe("add backup set wizard", () => {
         );
       });
 
-      await userEvent.click(screen.getByRole("button", { name: "Review" }));
-      await userEvent.click(screen.getByRole("checkbox", { name: /remote backup will be removed only after/i }));
+      // Every precondition this wizard has of its own, met: the point of
+      // the case is that the app-wide refusal outranks all of them.
+      await walkToReview();
 
       expect(screen.getByRole("button", { name: /Save, enable & run/ })).toBeDisabled();
       expect(screen.getByRole("button", { name: /^Save & enable$/ })).toBeDisabled();
@@ -414,7 +546,7 @@ describe("add backup set wizard", () => {
       const spy = vi.spyOn(api, "createBackupSet");
       renderWizardWithRoutes(api);
 
-      await completeWizardUpToReview();
+      await walkToReview();
       await userEvent.click(screen.getByRole("button", { name: /^Save & enable$/ }));
 
       expect(await screen.findByText("SETS LIST PAGE")).toBeTruthy();
@@ -431,7 +563,7 @@ describe("add backup set wizard", () => {
       const spy = vi.spyOn(api, "createBackupSet");
       renderWizardWithRoutes(api);
 
-      await completeWizardUpToReview();
+      await walkToReview();
       await userEvent.click(screen.getByRole("button", { name: /Save, enable & run/ }));
 
       await screen.findByText("SETS LIST PAGE");
@@ -440,30 +572,21 @@ describe("add backup set wizard", () => {
       expect(req.runImmediately).toBe(true);
     });
 
-    it("Save disabled calls createBackupSet with disabled:true and needs no acknowledgement", async () => {
+    it("Save disabled calls createBackupSet with disabled:true", async () => {
       const api = createMockApi();
       const spy = vi.spyOn(api, "createBackupSet");
       renderWizardWithRoutes(api);
 
-      await userEvent.click(screen.getByRole("button", { name: "Authentication" }));
-      await userEvent.click(screen.getByRole("radio", { name: /Import key/ }));
-      await userEvent.type(screen.getByLabelText(/private key/i), "FAKE-TEST-KEY-MATERIAL-not-a-real-key-0123456789");
-      await userEvent.click(screen.getByRole("button", { name: "Import key" }));
-      await screen.findByText(/key imported/i);
-      await userEvent.click(screen.getByRole("button", { name: "Verify server" }));
-      await waitFor(() => expect(screen.getByRole("button", { name: "Trust host" })).toBeEnabled());
-      await userEvent.click(screen.getByRole("button", { name: "Trust host" }));
-      await userEvent.click(screen.getByRole("button", { name: "Review" }));
-      // The connection still has to be proven (issue #624). "Save
-      // disabled" waives the DELETION acknowledgement, which is the one
-      // thing a set that never runs cannot cost anybody; it does not
-      // waive knowing whether the source works, because a set saved off
-      // is turned on later with one click and nothing checks then.
-      await userEvent.click(screen.getByRole("button", { name: /^Test connection$/ }));
-      await waitFor(() => expect(screen.getByText(/This source has been proven/i)).toBeInTheDocument());
-      // Deliberately no acknowledgement checkbox click — this is the
-      // whole point of the "Save disabled" escape hatch.
-
+      // The connection still has to be proven (issue #624): a set saved
+      // off is turned on later with one click and nothing checks then.
+      // Since #864 the remote-source handling answer is asked for too,
+      // because it is what finishes the step it lives on — "Save
+      // disabled" is still not gated by the acknowledgement the way the
+      // two enabled saves are (it has no disabled condition of its own
+      // beyond an in-flight save), but the rail no longer walks past an
+      // unanswered step to reach it. The waiver that stays visible is
+      // the read-only one, in the case below.
+      await walkToReview();
       await userEvent.click(screen.getByRole("button", { name: "Save disabled" }));
 
       await screen.findByText("SETS LIST PAGE");
@@ -481,14 +604,16 @@ describe("add backup set wizard", () => {
       const spy = vi.spyOn(api, "createBackupSet");
       renderWizardWithRoutes(api);
 
-      await advanceToReviewReady();
+      await proveTheSource();
       // Deliberately no acknowledgement click — checking read-only is
       // this test's own escape hatch from it, the same claim the
       // "Save disabled" test above makes for its own button.
+      await userEvent.click(screen.getByRole("button", { name: "Retention" }));
       await userEvent.click(screen.getByRole("checkbox", { name: /read-only/i }));
+      await userEvent.click(screen.getByRole("button", { name: "Review" }));
 
       const save = screen.getByRole("button", { name: /^Save & enable$/ });
-      expect(save).toBeEnabled();
+      expect(screen.getByRole("button", { name: /Save, enable & run/ })).toBeEnabled();
       await userEvent.click(save);
 
       await screen.findByText("SETS LIST PAGE");
@@ -502,7 +627,7 @@ describe("add backup set wizard", () => {
       const spy = vi.spyOn(api, "createBackupSet");
       renderWizardWithRoutes(api);
 
-      await completeWizardUpToReview();
+      await walkToReview();
       await userEvent.click(screen.getByRole("button", { name: /^Save & enable$/ }));
 
       await screen.findByText("SETS LIST PAGE");
@@ -515,14 +640,16 @@ describe("add backup set wizard", () => {
       const spy = vi.spyOn(api, "createBackupSet");
       renderWizardWithRoutes(api);
 
-      await userEvent.click(screen.getByRole("button", { name: "Storage & validation" }));
+      await proveTheSource();
+      await userEvent.click(railStep("Verification"));
       const picker = await screen.findByLabelText(/application validation/i);
       // A real picklist, not the decorative toggle #98 shipped: the
       // options come from the backend's own registered catalog.
       await waitFor(() => expect(within(picker as HTMLSelectElement).getAllByRole("option").length).toBeGreaterThan(1));
       await userEvent.selectOptions(picker, "trailer-marker");
 
-      await completeWizardUpToReview();
+      await acknowledgeRemoteDeletion();
+      await userEvent.click(railStep("Review"));
       await userEvent.click(screen.getByRole("button", { name: /^Save & enable$/ }));
 
       await screen.findByText("SETS LIST PAGE");
@@ -539,7 +666,7 @@ describe("add backup set wizard", () => {
       const spy = vi.spyOn(api, "createBackupSet");
       renderWizardWithRoutes(api);
 
-      await completeWizardUpToReview();
+      await walkToReview();
       await userEvent.click(screen.getByRole("button", { name: /^Save & enable$/ }));
 
       await screen.findByText("SETS LIST PAGE");
@@ -549,11 +676,12 @@ describe("add backup set wizard", () => {
     it("says so when the validator catalog cannot be loaded, rather than showing an empty picklist (issue #162)", async () => {
       const api = createMockApi();
       vi.spyOn(api, "listValidators").mockRejectedValue(
-        new BackupManagerError({ code: "INTERNAL", message: "nope", correlationId: "cid_2" })
+        new RetndError({ code: "INTERNAL", message: "nope", correlationId: "cid_2" })
       );
       renderWizard(false, api);
+      await proveTheSource();
 
-      await userEvent.click(screen.getByRole("button", { name: "Storage & validation" }));
+      await userEvent.click(railStep("Verification"));
       expect(await screen.findByText(/could not load the available validators/i)).toBeTruthy();
     });
 
@@ -572,7 +700,7 @@ describe("add backup set wizard", () => {
       });
       renderWizardWithRoutes(api);
 
-      await completeWizardUpToReview();
+      await walkToReview();
       await userEvent.click(screen.getByRole("button", { name: /Save, enable & run/ }));
 
       expect(await screen.findByText(/Saved, but the run did not start/i)).toBeTruthy();
@@ -589,11 +717,11 @@ describe("add backup set wizard", () => {
     it("surfaces a failed save inline instead of navigating or silently doing nothing", async () => {
       const api = createMockApi();
       vi.spyOn(api, "createBackupSet").mockRejectedValue(
-        new BackupManagerError({ code: "INVALID_REQUEST", message: "remote_path is required", correlationId: "cid_1" })
+        new RetndError({ code: "INVALID_REQUEST", message: "remote_path is required", correlationId: "cid_1" })
       );
       renderWizardWithRoutes(api);
 
-      await completeWizardUpToReview();
+      await walkToReview();
       await userEvent.click(screen.getByRole("button", { name: /^Save & enable$/ }));
 
       expect(await screen.findByText("remote_path is required")).toBeTruthy();
@@ -609,7 +737,7 @@ describe("add backup set wizard", () => {
     it("offers a create-anyway decision, not a field error, when the id already has history somewhere else", async () => {
       const api = createMockApi();
       const create = vi.spyOn(api, "createBackupSet").mockRejectedValueOnce(
-        new BackupManagerError({
+        new RetndError({
           code: "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED",
           message: "3 artifact(s) are already on record for api/postgres-primary",
           correlationId: "cid_2"
@@ -617,7 +745,7 @@ describe("add backup set wizard", () => {
       );
       renderWizardWithRoutes(api);
 
-      await completeWizardUpToReview();
+      await walkToReview();
       await userEvent.click(screen.getByRole("button", { name: /^Save disabled$/ }));
 
       expect(await screen.findByText(/already on record for api\/postgres-primary/)).toBeTruthy();
@@ -645,7 +773,7 @@ describe("add backup set wizard", () => {
       const create = vi.spyOn(api, "createBackupSet");
       renderWizardWithRoutes(api);
 
-      await completeWizardUpToReview();
+      await walkToReview();
       await userEvent.click(screen.getByRole("button", { name: /^Save & enable$/ }));
 
       await waitFor(() => expect(create).toHaveBeenCalled());
@@ -655,23 +783,29 @@ describe("add backup set wizard", () => {
     // Before M7 (#146 review), this scenario was reachable by clicking
     // Save: the button stayed enabled with no key imported, and
     // handleSave's own ad hoc guard rejected the request after the
-    // click. Save is now structurally disabled for this same
-    // combination instead — proven here by confirming the button itself
-    // is disabled and createBackupSet is never called, rather than by
-    // clicking a button that no longer accepts clicks.
-    it("keeps Save disabled when the key source isn't the wired 'import' path, instead of allowing a doomed request", async () => {
+    // click. M7 made the button structurally disabled; #864 stops the
+    // flow before it, because "Generate" cannot satisfy the connection
+    // test either — the test needs a key id to dial with, so the step
+    // that proves the source can never be finished on this path and the
+    // rail never reaches the Save buttons at all.
+    it("never reaches Save on the key source that isn't the wired 'import' path, instead of allowing a doomed request", async () => {
       const api = createMockApi();
       const spy = vi.spyOn(api, "createBackupSet");
       renderWizardWithRoutes(api);
 
-      // Default keySource is "generate" — never touch Authentication.
-      await userEvent.click(screen.getByRole("button", { name: "Verify server" }));
+      // Default keySource is "generate" — no key is ever imported here.
+      await userEvent.click(railStep("Connection test"));
       await waitFor(() => expect(screen.getByRole("button", { name: "Trust host" })).toBeEnabled());
       await userEvent.click(screen.getByRole("button", { name: "Trust host" }));
-      await userEvent.click(screen.getByRole("button", { name: "Review" }));
-      await userEvent.click(screen.getByRole("checkbox", { name: /remote backup will be removed only after/i }));
 
-      expect(screen.getByRole("button", { name: /^Save & enable$/ })).toBeDisabled();
+      // Trusting a fingerprint is not proving a connection, and the one
+      // control that would prove it has nothing to dial with.
+      expect(screen.getByRole("button", { name: /^Test connection$/ })).toBeDisabled();
+      expect(railStep("Review")).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+
+      await userEvent.click(railStep("Review"));
+      expect(screen.queryByRole("button", { name: /^Save & enable$/ })).toBeNull();
       expect(spy).not.toHaveBeenCalled();
       expect(screen.queryByText("SETS LIST PAGE")).toBeNull();
     });

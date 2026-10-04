@@ -22,7 +22,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spdrman/rclone-manager/core/internal/config"
+	"github.com/retnd/retnd/core/internal/config"
 )
 
 // TestAConfigMountThatIsStillAFileSaysSo covers the upgrade path two

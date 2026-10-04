@@ -36,8 +36,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/spdrman/rclone-manager/core/internal/model"
-	"github.com/spdrman/rclone-manager/core/internal/state"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // ReinstatementLog is the one journal read ReinstatedArtifacts needs:

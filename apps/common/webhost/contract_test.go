@@ -20,9 +20,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/spdrman/rclone-manager/apps/common/platform/capabilities"
-	"github.com/spdrman/rclone-manager/core/apicontract"
-	"github.com/spdrman/rclone-manager/core/service"
+	"github.com/retnd/retnd/apps/common/platform/capabilities"
+	"github.com/retnd/retnd/core/apicontract"
+	"github.com/retnd/retnd/core/service"
 )
 
 // This file is the Go half of issue #166's drift gate: it holds the
@@ -186,13 +186,74 @@ var contractBindings = map[string]contractBinding{
 	// Issue #350's edit hold. The release has no response body at all
 	// (204), so it binds no response type; the contract declares no
 	// response schema for it either, which is what keeps the two in step.
-	"getBackupSetEditHold":      {nil, editHoldStateResponse{}, "/api/v1/backup-sets/src/set-1/edit-hold"},
-	"takeBackupSetEditHold":     {nil, editHoldResponse{}, "/api/v1/backup-sets/src/set-1/edit-hold"},
-	"releaseBackupSetEditHold":  {nil, nil, "/api/v1/backup-sets/src/set-1/edit-hold/release"},
-	"scanCatalog":               {nil, catalogReportResponse{}, "/api/v1/catalog/scan"},
-	"rebuildCatalog":            {nil, catalogReportResponse{}, "/api/v1/catalog/rebuild"},
+	"getBackupSetEditHold":     {nil, editHoldStateResponse{}, "/api/v1/backup-sets/src/set-1/edit-hold"},
+	"takeBackupSetEditHold":    {nil, editHoldResponse{}, "/api/v1/backup-sets/src/set-1/edit-hold"},
+	"releaseBackupSetEditHold": {nil, nil, "/api/v1/backup-sets/src/set-1/edit-hold/release"},
+	"scanCatalog":              {nil, catalogReportResponse{}, "/api/v1/catalog/scan"},
+	"rebuildCatalog":           {nil, catalogReportResponse{}, "/api/v1/catalog/rebuild"},
+	// EPIC K's snapshot and repository reads (#788). Every one of them
+	// spells its identity one parameter per segment, for the reason the
+	// backup-set reads above do, and the snapshot detail adds a third:
+	// a run id is one segment, so a route that says so lets chi answer a
+	// malformed one with a 404.
+	"listBackupSetSnapshots":        {nil, listSnapshotsResponse{}, "/api/v1/backup-sets/src/set-1/snapshots"},
+	"getBackupSetSnapshot":          {nil, snapshotDetailResponse{}, "/api/v1/backup-sets/src/set-1/snapshots/run-1"},
+	"listBackupSetSnapshotHolds":    {nil, listSnapshotHoldsResponse{}, "/api/v1/backup-sets/src/set-1/holds"},
+	"getBackupSetSnapshotRetention": {nil, snapshotRetentionResponse{}, "/api/v1/backup-sets/src/set-1/snapshot-retention"},
+	"listRepositories":              {nil, listRepositoriesResponse{}, "/api/v1/repositories"},
+	"getRepositoryMaintenance":      {nil, repositoryMaintenanceResponse{}, "/api/v1/repositories/vault/maintenance"},
+	"createRepositoryDomain":        {createRepositoryDomainRequest{}, repositoryHealthResponse{}, "/api/v1/repositories"},
+
+	// EPIC L's workflow surface (#813). Two shapes are shared by more
+	// than one operation on purpose, and both are worth reading as
+	// claims rather than as convenience: the env list is the answer to a
+	// read AND to both writes at either scope, because a set or an unset
+	// is only meaningful against what else is there; and the run detail
+	// is what a resume answers with, because what an operator needs
+	// after resuming is the row the next backup will be refused against
+	// rather than a bespoke "ok".
+	"getWorkflowSettings":    {nil, workflowSettingsResponse{}, "/api/v1/settings/workflow"},
+	"updateWorkflowSettings": {updateWorkflowSettingsRequest{}, workflowSettingsResponse{}, "/api/v1/settings/workflow"},
+	"listWorkflowEnvironment": {nil, listWorkflowEnvironmentResponse{},
+		"/api/v1/settings/workflow/environment"},
+	"setWorkflowEnvironment": {workflowEnvironmentVariableRequest{}, listWorkflowEnvironmentResponse{},
+		"/api/v1/settings/workflow/environment/PGPASSWORD"},
+	"unsetWorkflowEnvironment": {nil, listWorkflowEnvironmentResponse{},
+		"/api/v1/settings/workflow/environment/PGPASSWORD"},
+	"getBackupSetWorkflow": {nil, backupSetWorkflowResponse{}, "/api/v1/backup-sets/src/set-1/workflow"},
+	"updateBackupSetWorkflow": {updateBackupSetWorkflowRequest{}, backupSetWorkflowResponse{},
+		"/api/v1/backup-sets/src/set-1/workflow"},
+	"listBackupSetWorkflowEnvironment": {nil, listWorkflowEnvironmentResponse{},
+		"/api/v1/backup-sets/src/set-1/workflow/environment"},
+	"setBackupSetWorkflowEnvironment": {workflowEnvironmentVariableRequest{}, listWorkflowEnvironmentResponse{},
+		"/api/v1/backup-sets/src/set-1/workflow/environment/PGPASSWORD"},
+	"unsetBackupSetWorkflowEnvironment": {nil, listWorkflowEnvironmentResponse{},
+		"/api/v1/backup-sets/src/set-1/workflow/environment/PGPASSWORD"},
+	"getBackupSetWorkflowValidation": {nil, workflowValidationResponse{},
+		"/api/v1/backup-sets/src/set-1/workflow/validation"},
+	// Every parameter the list takes is a query parameter, so the url
+	// carries none: the route is reached at its bare path and a client
+	// that sends nothing gets this deployment's whole history, which is
+	// the reading an operator asking "what is stuck here" makes.
+	"listWorkflowRuns":     {nil, listWorkflowRunsResponse{}, "/api/v1/workflow-runs"},
+	"getWorkflowRun":       {nil, workflowRunResponse{}, "/api/v1/workflow-runs/run_1"},
+	"listWorkflowRunSteps": {nil, listWorkflowStepsResponse{}, "/api/v1/workflow-runs/run_1/steps"},
+	"getWorkflowStepLogs":  {nil, workflowStepLogPageResponse{}, "/api/v1/workflow-runs/run_1/steps/step_1/logs"},
+	"listWorkflowRecovery": {nil, workflowRecoveryResponse{}, "/api/v1/workflow-recovery"},
+	"resumeWorkflowCleanup": {nil, workflowRunResponse{},
+		"/api/v1/workflow-recovery/run_1/resume-cleanup"},
+	// The acknowledgement binds a request type and no response type: the
+	// reason is the only thing a caller can send, and a 204 leaves no
+	// resource to describe.
+	"acknowledgeWorkflowRecovery": {workflowAcknowledgementRequest{}, nil,
+		"/api/v1/workflow-recovery/run_1/acknowledge"},
 	"getRetentionErrorEnvelope": {nil, errorResponse{}, ""},
 	"getConfigRevisionStale":    {nil, configRevisionStaleResponse{}, ""},
+	// #906's save refusal, bound for its SHAPE the same way: it is the
+	// second structured error body in this package, and the fields a
+	// client draws the refusal from are exactly the ones that would
+	// drift if the contract and this struct stopped agreeing.
+	"getWorkflowScriptRejected": {nil, workflowScriptRejectedResponse{}, ""},
 }
 
 // nonRoutedBindings are the two entries above that describe a body shape
@@ -204,6 +265,7 @@ var contractBindings = map[string]contractBinding{
 var nonRoutedBindings = map[string]string{
 	"getRetentionErrorEnvelope": "ErrorResponse",
 	"getConfigRevisionStale":    "ConfigRevisionStaleResponse",
+	"getWorkflowScriptRejected": "WorkflowScriptRejectedResponse",
 }
 
 // contractEndpoints indexes the generated endpoint table by operation id.
@@ -707,6 +769,20 @@ func TestContract_TypedRefusalsAreDistinguishable(t *testing.T) {
 		// what the duplicate check below asserts.
 		{"reused idempotency key", allowingPlatform("alice"), alwaysPassGate{}, service.ErrIdempotencyKeyConflict, `{"action":"run_cycle","config_revision":"rev-1"}`, true, "idem-5", http.StatusConflict, "IDEMPOTENCY_KEY_CONFLICT"},
 		{"another run already in flight", allowingPlatform("alice"), alwaysPassGate{}, service.ErrOperationAlreadyRunning, `{"action":"run_cycle","config_revision":"rev-1"}`, true, "idem-6", http.StatusConflict, "OPERATION_ALREADY_RUNNING"},
+		// EPIC K's third 409 on this route (#788). A snapshot that
+		// cannot be held is the state an operator reaches by clicking a
+		// hold on a screen listing a restore point that has since been
+		// pruned or failed, which is exactly the shape of the two rows
+		// above: same status, different code, and a client that could
+		// not tell it from a reused key would offer "retry with a new
+		// key" for a snapshot that is never going to be holdable.
+		//
+		// It is driven through the action that produces it rather than
+		// through run_cycle, because the arm that maps it belongs to the
+		// four snapshot submissions and nothing else reaches it.
+		{"the snapshot cannot be held", allowingPlatform("alice"), alwaysPassGate{}, service.ErrSnapshotNotHoldable,
+			`{"action":"hold_snapshot","config_revision":"rev-1","snapshot_hold":{"backup_set_id":"production/uploads-tree","reason":"incident 4711"}}`,
+			true, "idem-7", http.StatusConflict, "SNAPSHOT_NOT_HOLDABLE"},
 	}
 
 	seen := map[string]string{}
@@ -714,6 +790,10 @@ func TestContract_TypedRefusalsAreDistinguishable(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			backend := newSyncFakeBackend()
 			backend.errOnSubmit = tc.backendErr
+			// The snapshot submissions read their refusal out of the
+			// fixture beside this one, so a row driving one of the four
+			// arms arms both rather than looking like a success.
+			snapshotsOf(backend).errOnSubmit = tc.backendErr
 			router := NewRouter(RouterConfig{
 				Platform: tc.platform, Backend: backend, Gate: tc.gate,
 				BinaryVersion: "test", Commit: "test",
@@ -1316,6 +1396,21 @@ func TestContract_APathBuiltFromTheContractReachesTheResourceItNames(t *testing.
 			},
 		},
 		{
+			// EPIC K's snapshot detail (#788): three parameters, so a
+			// client fills three segments, and the run id has to arrive
+			// as its own value rather than glued onto the set's name.
+			operation: "getBackupSetSnapshot",
+			identity:  "src/set-1/run-1",
+			arrange:   func(*backupSetFakeBackend) {},
+			reached: func(t *testing.T, b *backupSetFakeBackend, rec *httptest.ResponseRecorder) {
+				fx := snapshotsOf(b.syncFakeBackend)
+				if fx.lastReadSet != "src/set-1" || fx.lastReadRun != "run-1" {
+					t.Errorf("the snapshot read reached the backend for set %q run %q, want \"src/set-1\" and \"run-1\" (response %d %q)",
+						fx.lastReadSet, fx.lastReadRun, rec.Code, rec.Body.String())
+				}
+			},
+		},
+		{
 			operation: "reinstateArtifact",
 			identity:  artifactID,
 			csrf:      true,
@@ -1323,6 +1418,49 @@ func TestContract_APathBuiltFromTheContractReachesTheResourceItNames(t *testing.
 			reached: func(t *testing.T, b *backupSetFakeBackend, rec *httptest.ResponseRecorder) {
 				if got := b.lastReinstated; got != artifactID {
 					t.Errorf("the reinstatement reached the backend for %q, want %q (response %d %q)", got, artifactID, rec.Code, rec.Body.String())
+				}
+			},
+		},
+		{
+			// EPIC L's per-set environment write (#813): three
+			// parameters, and the third is not part of the resource's
+			// hierarchy the way a run id is -- it is the variable's own
+			// name, which arrives on the path precisely so a body cannot
+			// disagree with it. A handler that read the name out of the
+			// body, or one that glued the third segment onto the set's
+			// id, is what this drives.
+			operation: "setBackupSetWorkflowEnvironment",
+			identity:  "production/postgres/PGPASSWORD",
+			body:      `{"secret":{"file":"/etc/retnd/pg.pass"}}`,
+			csrf:      true,
+			arrange:   func(*backupSetFakeBackend) {},
+			reached: func(t *testing.T, b *backupSetFakeBackend, rec *httptest.ResponseRecorder) {
+				fx := workflowOf(b.syncFakeBackend)
+				if fx.lastEnvScope != setID || fx.lastEnvSet.Name != "PGPASSWORD" {
+					t.Errorf("the write reached the backend for scope %q variable %q, want %q and \"PGPASSWORD\" (response %d %q)",
+						fx.lastEnvScope, fx.lastEnvSet.Name, setID, rec.Code, rec.Body.String())
+				}
+				if fx.lastEnvSet.Secret.File != "/etc/retnd/pg.pass" {
+					t.Errorf("the secret reference reached the backend as %+v, want the file the request named", fx.lastEnvSet.Secret)
+				}
+			},
+		},
+		{
+			operation: "unsetBackupSetWorkflowEnvironment",
+			identity:  "production/postgres/PGPASSWORD",
+			csrf:      true,
+			arrange: func(b *backupSetFakeBackend) {
+				// Seeded, because the real service refuses an unset of a
+				// variable that is not there: without this the handler
+				// would be reached and answer 404, which is a pass for
+				// the wrong reason.
+				workflowOf(b.syncFakeBackend).env[setID] = []service.WorkflowEnvVar{{Name: "PGPASSWORD", Secret: service.WorkflowSecretRef{Env: "PGPASSWORD"}}}
+			},
+			reached: func(t *testing.T, b *backupSetFakeBackend, rec *httptest.ResponseRecorder) {
+				fx := workflowOf(b.syncFakeBackend)
+				if fx.lastEnvScope != setID || fx.lastEnvUnset != "PGPASSWORD" {
+					t.Errorf("the unset reached the backend for scope %q variable %q, want %q and \"PGPASSWORD\" (response %d %q)",
+						fx.lastEnvScope, fx.lastEnvUnset, setID, rec.Code, rec.Body.String())
 				}
 			},
 		},

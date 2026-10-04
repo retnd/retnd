@@ -1,7 +1,9 @@
 import type {
+  ActivityFeedPage,
+  ActivityQuery,
   AppSettings,
   BackendCatalog,
-  BackupManagerApi,
+  RetndApi,
   BackupSetRetention,
   CapacitySettings,
   CatalogScanPreview,
@@ -13,6 +15,7 @@ import type {
   ManagerStorage,
   MediumPreflight,
   MediumPreflightCheck,
+  RecoverySettings,
   StorageMedium,
   StorageMediumConfiguration,
   StorageMediumSpec,
@@ -25,10 +28,28 @@ import type {
   SSHKeyDiscovery,
   ConnectionCheck,
   UpdateSettingsRequest,
-  ValidatorCatalogEntry
+  ValidatorCatalogEntry,
+  BackupSetWorkflow,
+  WorkflowBlockingScript,
+  WorkflowEnvironment,
+  WorkflowEnvVariable,
+  WorkflowEnvVariableInput,
+  WorkflowRecoveryHold,
+  WorkflowRun,
+  WorkflowSettings,
+  WorkflowStepLogPage,
+  WorkflowStepLogRecord,
+  WorkflowValidation
 } from "./contracts";
-import { BackupManagerError, LOCAL_DESTINATION_ID } from "./contracts";
+import { RetndError, LOCAL_DESTINATION_ID } from "./contracts";
 import type { BackupArtifact, BackupSet, RetentionPlan } from "@shared/types/backup";
+import type {
+  RepositoryHealth,
+  RepositoryMaintenance,
+  Snapshot,
+  SnapshotHold,
+  SnapshotTransition
+} from "@shared/types/snapshot";
 import type {
   ActivityEvent,
   Operation,
@@ -63,7 +84,15 @@ export type Scenario =
   // fails, so the rest of both pages renders normally and what is
   // asserted is what the failing panel says rather than whether the page
   // came up at all.
-  | "activity-unreadable";
+  | "activity-unreadable"
+  // Issue #852: a source whose credentials can READ it and not write to
+  // it, which is a supported posture rather than a failure. The
+  // connection test answers ok:true with writable:false, so both the
+  // wizard and the per-set form have to disable their
+  // delete-from-source control and say why. It is its own scenario
+  // because the interesting state is a PASSING test with one answer
+  // inverted, and no other fixture here can produce that.
+  | "read-only-source";
 
 /** Reads the scenario out of the URL, falling back to the default for
  *  anything unrecognised. A closed allow-list rather than a cast, so a
@@ -73,7 +102,8 @@ export function scenarioFromLocation(): Scenario {
   const s = new URLSearchParams(window.location.search).get("scenario");
   const allowed: Scenario[] = [
     "default", "empty", "storage-critical", "catalog-recovery",
-    "version-mismatch", "first-run", "no-medium", "activity-unreadable"
+    "version-mismatch", "first-run", "no-medium", "activity-unreadable",
+    "read-only-source"
   ];
   return (allowed as string[]).includes(s ?? "") ? (s as Scenario) : "default";
 }
@@ -152,6 +182,9 @@ const SETS: BackupSet[] = [
     remoteFolder: "/backups/postgresql/", includePatterns: ["*.dump.zst"],
     excludePatterns: ["*.tmp", "*.part"], completionMethod: "completion-marker", stableForSeconds: 0,
     destination: "/data/backups/production/postgres/", retentionIsOverride: false,
+    // Issue #845: inherits the deployment's cadence, which is the
+    // ordinary case and the one the edit form has to draw as "inherit".
+    pollIntervalSeconds: null, effectivePollIntervalSeconds: 15 * 60,
     validations: ["transfer", "checksum", "application"],
     state: "healthy",
     stateNote: "Verified nightly dump; application validation passed 42 minutes ago.",
@@ -162,7 +195,20 @@ const SETS: BackupSet[] = [
     retainedCount: 32, retainedBytes: 421 * GB,
     trustedHostKeys: [{ algorithm: "ssh-ed25519", fingerprint: "SHA256:9kQ2mVv+Rt4hLc0pXeN1sJfB7yUwZaGdQ8oT3iKrEuM" }],
     trustedHostKeyRecordedAt: "2026-08-02T10:14:00+02:00",
-    sshKeyId: "key_a1b2c3"
+    sshKeyId: "key_a1b2c3",
+    // EPIC K (issue #788). The deployment these fixtures describe runs
+    // three incremental sets and one artifact set, which is the mix the
+    // UI has to tell apart on every list: an operator who runs both
+    // should never have to work out which kind they are looking at.
+    engine: "kopia",
+    incremental: {
+      repositoryDomain: "primary-nas",
+      sourceConsistency: "externally_quiesced",
+      verificationLevel: "content_sample",
+      verificationSamplePercent: 5,
+      verificationFullEverySeconds: 7 * 24 * 3600,
+      verificationRestoreDrillEverySeconds: 30 * 24 * 3600
+    }
   },
   {
     connectionUnverified: false,
@@ -171,6 +217,9 @@ const SETS: BackupSet[] = [
     remoteFolder: "/srv/backups/mysql/", includePatterns: ["*.sql.gz"],
     excludePatterns: ["*.part"], completionMethod: "atomic-rename", stableForSeconds: 0,
     destination: "/data/backups/production/billing/", retentionIsOverride: false,
+    // The one fixture that polls on its own cadence, so every surface
+    // that draws an override is exercised against a set that has one.
+    pollIntervalSeconds: 5 * 60, effectivePollIntervalSeconds: 5 * 60,
     validations: ["transfer", "checksum"],
     state: "stale",
     stateNote: "No verified backup received for 31 hours. Expected within 24 hours.",
@@ -188,6 +237,20 @@ const SETS: BackupSet[] = [
       { algorithm: "ssh-rsa", fingerprint: "SHA256:5dWnP1Hj+Kt6xRc9yMbE3sJf8UwZoGqT4iLrDuVeN2m" }
     ],
     trustedHostKeyRecordedAt: "2026-07-19T09:02:00+02:00",
+    // Shares primary-nas with the set above, which is what makes the
+    // domain's co-tenancy real on screen: two sets, one key, one
+    // maintenance owner, one blast radius.
+    engine: "kopia",
+    incremental: {
+      repositoryDomain: "primary-nas",
+      // The set that never froze anything, so the consistency copy's
+      // "live" branch is exercised too.
+      sourceConsistency: "live_best_effort",
+      verificationLevel: "structural",
+      verificationSamplePercent: null,
+      verificationFullEverySeconds: null,
+      verificationRestoreDrillEverySeconds: null
+    },
     // The same key as the set above, so the listing has a row that is
     // genuinely used by two sets: "used by nothing" and "used by four
     // sets" are the two ends of the column the wizard decides on.
@@ -201,6 +264,7 @@ const SETS: BackupSet[] = [
     excludePatterns: [], completionMethod: "stable-size", stableForSeconds: 300,
     destination: "/data/backups/production/auth/",
     retentionIsOverride: true,
+    pollIntervalSeconds: null, effectivePollIntervalSeconds: 15 * 60,
     validations: ["transfer", "checksum"],
     state: "failing",
     stateNote: "Halted — the SSH host key changed. Remote artifacts are untouched.",
@@ -214,7 +278,13 @@ const SETS: BackupSet[] = [
     // known_hosts an operator maintains, so there is no honest answer to
     // "when was this trusted" and the panel says so.
     trustedHostKeyRecordedAt: null,
-    sshKeyId: "key_d4e5f6"
+    sshKeyId: "key_d4e5f6",
+    // The one ARTIFACT set, and deliberately the failing one: the pages
+    // that ask about snapshots, reuse or held restore points have to be
+    // absent here rather than empty, and a set in trouble is where a
+    // surface is likeliest to render a field it does not have.
+    engine: "artifact",
+    incremental: null
   },
   {
     connectionUnverified: false,
@@ -224,6 +294,7 @@ const SETS: BackupSet[] = [
     excludePatterns: [], completionMethod: "completion-marker", stableForSeconds: 0,
     destination: "/data/backups/media/",
     retentionIsOverride: true,
+    pollIntervalSeconds: 6 * 60 * 60, effectivePollIntervalSeconds: 6 * 60 * 60,
     validations: ["transfer", "checksum"],
     state: "healthy", stateNote: "Weekly cold archive; checksum verification only.",
     // This fixture is the one read-only set (issue #282, #316): a cold
@@ -238,6 +309,18 @@ const SETS: BackupSet[] = [
     retainedCount: 31, retainedBytes: 3.4 * TB,
     trustedHostKeys: [{ algorithm: "ssh-ed25519", fingerprint: "SHA256:4cRnW2Yk+Qp8mLb6vTdF1sJe9UzXoGhS5iNrCuJeP3t" }],
     trustedHostKeyRecordedAt: "2026-05-11T14:20:00+02:00",
+    // The isolated off-site domain, and the read-only source (#282,
+    // #852): this fixture is what the delete-from-source control's
+    // disabled state is drawn against in dev mode.
+    engine: "kopia",
+    incremental: {
+      repositoryDomain: "offsite-b2",
+      sourceConsistency: "external_snapshot",
+      verificationLevel: "content_full",
+      verificationSamplePercent: null,
+      verificationFullEverySeconds: 24 * 3600,
+      verificationRestoreDrillEverySeconds: 0
+    },
     // The set on a key this deployment does not manage: a mounted or
     // hand-provisioned key.file resolves to no store id, and "" is the
     // honest answer rather than a blank where an id goes.
@@ -250,28 +333,49 @@ const SETS: BackupSet[] = [
 const PRISTINE_SETS: BackupSet[] = SETS.map((set) => ({
   ...set,
   includePatterns: [...set.includePatterns],
-  excludePatterns: [...set.excludePatterns]
+  excludePatterns: [...set.excludePatterns],
+  // The incremental block is copied too (issue #788), because
+  // updateBackupSet writes THROUGH it: a shared reference would mean the
+  // first test that saves a verification budget edits the pristine copy
+  // as well, and resetMockFixtures would restore the edit it was called
+  // to undo. Null stays null — an artifact set has no block to copy.
+  incremental: set.incremental === null ? null : { ...set.incremental }
 }));
 
 /**
- * Puts the fixture backup sets back exactly as this module declares them.
+ * Puts the fixture backup sets and repository domains back exactly as
+ * this module declares them.
  *
  * Call it in a test's afterEach when the test drives a mutating method
- * (createBackupSet, updateBackupSet). Without it, a suite's Nth test sees
- * whatever its predecessors wrote, which is not a hypothetical: the
- * inline-edit suite's "never send a hidden field" case first failed
- * because an earlier case in the same file had already switched the
- * fixture's completion method to the very value it was checking was
- * absent.
+ * (createBackupSet, updateBackupSet, createRepositoryDomain). Without
+ * it, a suite's Nth test sees whatever its predecessors wrote, which is
+ * not a hypothetical: the inline-edit suite's "never send a hidden
+ * field" case first failed because an earlier case in the same file had
+ * already switched the fixture's completion method to the very value it
+ * was checking was absent. createRepositoryDomain has the same reach --
+ * it PUSHES the declared domain onto the fleet fixture, so a second case
+ * declaring the same id meets a REPOSITORY_DOMAIN_EXISTS its own
+ * scenario never set up.
  *
  * The clone is deep enough for what these fixtures hold: the arrays are
- * arrays of strings, so copying them is what stops a patch that replaces
- * includePatterns leaking into the pristine copy.
+ * arrays of strings and the incremental block is flat, so copying those
+ * is what stops a patch that replaces includePatterns, or one that
+ * raises a verification level, leaking into the pristine copy.
  */
 export function resetMockFixtures(): void {
   SETS.length = 0;
   for (const set of PRISTINE_SETS) {
-    SETS.push({ ...set, includePatterns: [...set.includePatterns], excludePatterns: [...set.excludePatterns] });
+    SETS.push({
+      ...set,
+      includePatterns: [...set.includePatterns],
+      excludePatterns: [...set.excludePatterns],
+      incremental: set.incremental === null ? null : { ...set.incremental }
+    });
+  }
+
+  MOCK_REPOSITORIES.length = 0;
+  for (const repository of PRISTINE_REPOSITORIES) {
+    MOCK_REPOSITORIES.push({ ...repository, backupSets: [...repository.backupSets] });
   }
 }
 
@@ -327,7 +431,7 @@ const ARTIFACTS: BackupArtifact[] = [
       },
       {
         medium: "offsite_s3", mediumType: "s3",
-        location: "rclone-manager/production/postgres-primary/postgres-prod-20260828.dump.zst",
+        location: "retnd/production/postgres-primary/postgres-prod-20260828.dump.zst",
         sizeBytes: 15246903296, storageClass: "STANDARD_IA",
         verificationClass: "existence", verifiedAt: "2026-08-28T06:00:02+02:00",
         access: "immediate", status: "ACTIVE"
@@ -353,7 +457,7 @@ const ARTIFACTS: BackupArtifact[] = [
     placements: [
       {
         medium: "offsite_cold", mediumType: "s3",
-        location: "rclone-manager/production/billing-mysql/billing-20260827.sql.gz",
+        location: "retnd/production/billing-mysql/billing-20260827.sql.gz",
         sizeBytes: 3650722201, storageClass: "DEEP_ARCHIVE",
         verificationClass: null, verifiedAt: null,
         access: "requires_restore", status: "ACTIVE"
@@ -415,7 +519,7 @@ const ARTIFACTS: BackupArtifact[] = [
     placements: [
       {
         medium: "decommissioned_s3", mediumType: "",
-        location: "rclone-manager/production/billing-mysql/billing-20260824.sql.gz",
+        location: "retnd/production/billing-mysql/billing-20260824.sql.gz",
         sizeBytes: 3543348838, storageClass: "",
         verificationClass: "existence", verifiedAt: "2026-07-14T02:20:00+02:00",
         access: "unreachable", status: "ACTIVE"
@@ -657,7 +761,7 @@ const LIVE_ACTIVITY: SetActivity[] = [
  * every set, and this fixture is where that split is visible without a
  * running engine. It carries what the global terminal is for: the cycle's
  * own brackets, an error nothing could attribute, and the actions taken
- * in the browser with the `rbm` command each one is equivalent
+ * in the browser with the `retnd` command each one is equivalent
  * to. */
 const LIVE_DEPLOYMENT: DeploymentActivity = {
   unfinishedActions: [{ action: "cycle", actionId: "c_1", startedAt: "2026-08-29T02:01:11+02:00", sequence: 1 }],
@@ -676,7 +780,7 @@ const LIVE_DEPLOYMENT: DeploymentActivity = {
         actor: "admin",
         route: "PATCH /api/v1/backup-sets/{source}/{set}",
         status: "200",
-        command: "rbm backup-set patch production/auth-config --stale-after 48h"
+        command: "retnd backup-set patch production/auth-config --stale-after 48h"
       },
       "info",
       "deployment",
@@ -690,7 +794,7 @@ const LIVE_DEPLOYMENT: DeploymentActivity = {
         actor: "admin",
         route: "POST /api/v1/backup-sets/test-connection",
         status: "200",
-        command_gap: "no rbm equivalent yet",
+        command_gap: "no retnd equivalent yet",
         command_gap_detail: "there is no verb that tests a connection before a set exists"
       },
       "info",
@@ -720,6 +824,36 @@ const ACTIVITY: ActivityEvent[] = [
   { id: "ev_12", at: "2026-08-28T02:00:04+02:00", type: "transfer-started", severity: "info", setId: "production/billing-mysql", setName: "Billing MySQL", text: "Transfer started", detail: "3.4 GB", correlationId: "cid_71bc03" }
 ];
 
+/** What the service's own default limit is (service.DefaultActivityLimit).
+ *  Mirrored rather than imported: this module answers without a backend,
+ *  and the number is part of what it is imitating. */
+const DEFAULT_ACTIVITY_PAGE = 200;
+
+/**
+ * The fixture feed, cut into pages the way the service cuts the durable
+ * record (issue #730).
+ *
+ * It pages for real rather than answering every request with the whole
+ * array, because a mock that ignores the cursor makes "load older" look
+ * finished the moment it is written: the control would append the same
+ * twelve events again and nothing would say the cursor was never read.
+ *
+ * The cursor is an event id here and an ordering key on the wire, and
+ * both are opaque to every caller, which is the property that lets the
+ * two differ. A cursor this feed did not issue reads as no cursor at all,
+ * matching the service's own handling of a stale bookmark.
+ */
+function activityPageOf(all: ActivityEvent[], query?: ActivityQuery): ActivityFeedPage {
+  const limit = query?.limit && query.limit > 0 ? query.limit : DEFAULT_ACTIVITY_PAGE;
+  const from = query?.before ? all.findIndex((e) => e.id === query.before) + 1 : 0;
+  const events = all.slice(from, from + limit);
+  // A full page may have more behind it; a short one is the end of the
+  // record. Same rule, and the same "may", as the service's.
+  return events.length === limit && events.length > 0
+    ? { events, nextCursor: events[events.length - 1].id }
+    : { events };
+}
+
 const HEALTH: SystemHealth = {
   generatedAt: "2026-08-29T06:00:00+02:00",
   serviceRunning: true,
@@ -736,7 +870,6 @@ const HEALTH: SystemHealth = {
   // so this is not a permanently-resting zero the way it is for most
   // deployments (BackupSet.readOnlyRetainedCount's own doc).
   readOnlyRetainedCount: 3,
-  storageFreeBytes: 1.8 * TB, storageTotalBytes: 6.2 * TB,
   storageState: "nominal",
   storageReadingsUnavailable: 0
 };
@@ -749,8 +882,11 @@ const HEALTH: SystemHealth = {
  * exists to stop), so nothing here is computed FROM the other.
  *
  * "default" reports the disk itself (no cap configured, this product's
- * default): 6.2 TB total, 1.8 TB free, matching HEALTH's own numbers so
- * the two readings agree where they overlap. "empty" reports known:false
+ * default): 6.2 TB total, 1.8 TB free. It is the ONLY free-space reading
+ * in the app now (issue #842): HEALTH carries no byte counts at all,
+ * because every set in this fixture lives under /data/backups and a sum
+ * of their per-set readings would report that one disk four times over.
+ * "empty" reports known:false
  * with no_backup_root, which is the honest answer a configuration with no
  * backup sets actually gives — not a fabricated zero. "storage-critical"
  * keeps the disk denominator (a critically full volume, not a spent cap)
@@ -857,7 +993,7 @@ function mediumDisclosureRefusal(
   submitted: RetentionTierSetting[],
   inForce: RetentionTierSetting[],
   acknowledged: boolean
-): BackupManagerError | null {
+): RetndError | null {
   const introduced = submitted.filter((t) => {
     if (!t.medium) return false;
     const was = inForce.find((b) => b.name === t.name);
@@ -865,7 +1001,7 @@ function mediumDisclosureRefusal(
   });
   if (introduced.length === 0 || acknowledged) return null;
   const storage = defaultSettings().schema.storage;
-  return new BackupManagerError({
+  return new RetndError({
     code: "MEDIUM_DISCLOSURE_REQUIRED",
     message:
       "This write sends " + introduced.map((t) => t.name + " -> " + t.medium).join(", ") + ". " +
@@ -996,12 +1132,462 @@ const delay = <T,>(value: T, ms = 180): Promise<T> =>
  *  that branch untestable through the mock. */
 const notFound = <T,>(): Promise<T> =>
   Promise.reject(
-    new BackupManagerError({
+    new RetndError({
       code: "BACKUP_SET_NOT_FOUND",
       message: "no such backup set",
       correlationId: "cid_mock404"
     })
   );
+
+/**
+ * EPIC K's fixtures (issue #788): the snapshots, holds, repository
+ * domains and maintenance records the dev server and the browser suite
+ * render.
+ *
+ * They describe one coherent deployment rather than per-screen samples,
+ * because the WORKFLOW is what these screens get reviewed as: the domain
+ * a set was pointed at is the domain its snapshots are attributed to, and
+ * the snapshot a hold names is one the retention preview then refuses to
+ * delete.
+ *
+ * Three of them are deliberately awkward, and each exists to make a
+ * rendering path reachable without a real engine:
+ *
+ *   - `run-2026-09-12-1600` has NO reuse figure, no duration, no
+ *     directory count and no source_complete. That is the "not measured"
+ *     path, which every surface must draw as words rather than as a zero.
+ *   - `run-2026-09-12-1000` FAILED verification against a declared
+ *     frozen-image source, so it carries no achieved level at all and is
+ *     not a restore point.
+ *   - two runs are under holds, one of them under two, so "a snapshot
+ *     survives until the last hold is released" is something a reviewer
+ *     can see rather than something a comment claims.
+ */
+const MOCK_HOLDS: SnapshotHold[] = [
+  {
+    holdId: "hold_01J9Z4",
+    runId: "run-2026-09-12-2200",
+    backupSetId: "production/postgres-primary",
+    reason: "Kept for the 2026 Q3 audit",
+    placedAt: "2026-09-12T22:40:00+02:00",
+    placedBy: "backup-admin@example.com",
+    releasedAt: null,
+    releasedBy: null,
+    active: true
+  },
+  {
+    holdId: "hold_01J9Z5",
+    runId: "run-2026-09-12-1000",
+    backupSetId: "production/postgres-primary",
+    reason: "Under investigation: the source changed mid-run",
+    placedAt: "2026-09-12T11:05:00+02:00",
+    placedBy: "backup-admin@example.com",
+    releasedAt: null,
+    releasedBy: null,
+    active: true
+  },
+  {
+    holdId: "hold_01J9Z6",
+    runId: "run-2026-09-12-1000",
+    backupSetId: "production/postgres-primary",
+    reason: "Legal hold, matter 2026-114",
+    placedAt: "2026-09-12T12:00:00+02:00",
+    placedBy: "compliance@example.com",
+    releasedAt: null,
+    releasedBy: null,
+    active: true
+  }
+];
+
+const MOCK_SNAPSHOTS: Snapshot[] = [
+  {
+    runId: "run-2026-09-13-0400",
+    backupSetId: "production/postgres-primary",
+    snapshotId: "k7f3a91c22e8b40d",
+    operationId: "op_01J9Z4M2QK7T",
+    engine: "kopia",
+    phase: "SUCCESS",
+    repositoryDomain: "primary-nas",
+    consistencyMode: "externally_quiesced",
+    verificationLevel: "content_sample",
+    verificationLevelAchieved: "content_sample",
+    verificationStatus: "passed",
+    entriesScanned: 148_951,
+    files: 141_286,
+    directories: 7_665,
+    logicalBytes: 1_412 * GB,
+    sourceBytesRead: 1_412 * GB,
+    repositoryBytesWritten: 21 * GB,
+    contentReusedBytes: 1_391 * GB,
+    sourceComplete: true,
+    lastKnownGood: true,
+    reason: "",
+    startedAt: "2026-09-13T04:00:00+02:00",
+    completedAt: "2026-09-13T04:03:34+02:00",
+    durationSeconds: 214,
+    deleteRequestedAt: null,
+    holds: []
+  },
+  {
+    runId: "run-2026-09-12-2200",
+    backupSetId: "production/postgres-primary",
+    snapshotId: "a1c4e77b90d2f6e5",
+    operationId: "op_01J9Y8K1PJ4R",
+    engine: "kopia",
+    phase: "SUCCESS",
+    repositoryDomain: "primary-nas",
+    consistencyMode: "externally_quiesced",
+    verificationLevel: "content_sample",
+    // Asked for a sampled read and PROVED only the structure, which is
+    // the pair ADR 0014 exists for: both are shown, and the list badges
+    // what was achieved.
+    verificationLevelAchieved: "structural",
+    verificationStatus: "passed",
+    entriesScanned: 148_902,
+    files: 141_240,
+    directories: 7_662,
+    logicalBytes: 1_409 * GB,
+    sourceBytesRead: 1_409 * GB,
+    repositoryBytesWritten: 9 * GB,
+    contentReusedBytes: 1_400 * GB,
+    sourceComplete: true,
+    lastKnownGood: false,
+    reason: "",
+    startedAt: "2026-09-12T22:00:00+02:00",
+    completedAt: "2026-09-12T22:02:19+02:00",
+    durationSeconds: 139,
+    deleteRequestedAt: null,
+    holds: [MOCK_HOLDS[0]]
+  },
+  {
+    // The "not measured" run. Its counters are absent rather than zero:
+    // the engine committed a manifest and the process died before the
+    // accounting was written, which is the ordinary way this happens.
+    runId: "run-2026-09-12-1600",
+    backupSetId: "production/postgres-primary",
+    snapshotId: "2e97c604ba1d8f33",
+    operationId: null,
+    engine: "kopia",
+    phase: "MANIFEST_COMMITTED",
+    repositoryDomain: "primary-nas",
+    consistencyMode: "externally_quiesced",
+    verificationLevel: "content_sample",
+    verificationLevelAchieved: null,
+    verificationStatus: "unchecked",
+    entriesScanned: 148_880,
+    files: 141_221,
+    directories: null,
+    logicalBytes: 1_407 * GB,
+    sourceBytesRead: 1_407 * GB,
+    repositoryBytesWritten: 12 * GB,
+    contentReusedBytes: null,
+    sourceComplete: null,
+    lastKnownGood: false,
+    reason: "",
+    startedAt: "2026-09-12T16:00:00+02:00",
+    completedAt: "2026-09-12T16:02:00+02:00",
+    durationSeconds: null,
+    deleteRequestedAt: null,
+    holds: []
+  },
+  {
+    // The failure, and why it matters: the operator declared a frozen
+    // image and the walk saw the tree change under it. A failed
+    // verification writes NO achieved level, so this run cannot inherit
+    // the claim of the one before it.
+    runId: "run-2026-09-12-1000",
+    backupSetId: "production/postgres-primary",
+    snapshotId: "b83d15a0ce9f4721",
+    operationId: "op_01J9Y2C7HF9M",
+    engine: "kopia",
+    phase: "SUCCESS",
+    repositoryDomain: "primary-nas",
+    consistencyMode: "external_snapshot",
+    verificationLevel: "content_sample",
+    verificationLevelAchieved: null,
+    verificationStatus: "failed",
+    entriesScanned: 148_612,
+    files: 140_998,
+    directories: 7_614,
+    logicalBytes: 1_402 * GB,
+    sourceBytesRead: 1_402 * GB,
+    repositoryBytesWritten: 31 * GB,
+    contentReusedBytes: 1_371 * GB,
+    sourceComplete: false,
+    lastKnownGood: false,
+    reason:
+      "This set is declared as a frozen image, and 148 files changed while the walk was in progress. The snapshot is stored and is not a restore point.",
+    startedAt: "2026-09-12T10:00:00+02:00",
+    completedAt: "2026-09-12T10:04:51+02:00",
+    durationSeconds: 291,
+    deleteRequestedAt: null,
+    holds: [MOCK_HOLDS[1], MOCK_HOLDS[2]]
+  },
+  {
+    runId: "run-2026-09-12-0400",
+    backupSetId: "production/postgres-primary",
+    snapshotId: "5fa2091db7c3e864",
+    operationId: "op_01J9XW5TB2QD",
+    engine: "kopia",
+    phase: "SUCCESS",
+    repositoryDomain: "primary-nas",
+    consistencyMode: "externally_quiesced",
+    verificationLevel: "content_sample",
+    verificationLevelAchieved: "content_sample",
+    verificationStatus: "passed",
+    entriesScanned: 148_401,
+    files: 140_802,
+    directories: 7_599,
+    logicalBytes: 1_398 * GB,
+    sourceBytesRead: 1_398 * GB,
+    repositoryBytesWritten: 17 * GB,
+    contentReusedBytes: 1_381 * GB,
+    sourceComplete: true,
+    lastKnownGood: false,
+    reason: "",
+    startedAt: "2026-09-12T04:00:00+02:00",
+    completedAt: "2026-09-12T04:02:47+02:00",
+    durationSeconds: 167,
+    deleteRequestedAt: null,
+    holds: []
+  }
+];
+
+/** The transition log one run's detail read carries. It records TWO
+ *  verifications of one run, which is the case the log exists for: the
+ *  run row can say what a run is and never that it was checked twice
+ *  because a crash interrupted the first attempt. */
+const MOCK_TRANSITIONS: SnapshotTransition[] = [
+  { from: null, to: "PENDING", at: "2026-09-13T04:00:00+02:00", detail: "" },
+  { from: "PENDING", to: "SOURCE_SCAN", at: "2026-09-13T04:00:02+02:00", detail: "" },
+  {
+    from: "SOURCE_SCAN",
+    to: "SNAPSHOT_WRITE",
+    at: "2026-09-13T04:01:10+02:00",
+    detail: "148,951 entries scanned"
+  },
+  { from: "SNAPSHOT_WRITE", to: "MANIFEST_COMMITTED", at: "2026-09-13T04:02:58+02:00", detail: "" },
+  { from: "MANIFEST_COMMITTED", to: "VERIFICATION", at: "2026-09-13T04:03:00+02:00", detail: "" },
+  {
+    from: "VERIFICATION",
+    to: "VERIFICATION",
+    at: "2026-09-13T04:03:20+02:00",
+    detail: "restarted after the service was interrupted"
+  },
+  {
+    from: "VERIFICATION",
+    to: "CATALOG_COMMIT",
+    at: "2026-09-13T04:03:31+02:00",
+    detail: "7,065 of 141,286 files read and hash-checked"
+  },
+  { from: "CATALOG_COMMIT", to: "SUCCESS", at: "2026-09-13T04:03:34+02:00", detail: "" }
+];
+
+/**
+ * Three repository domains, each a different verdict: a healthy shared
+ * store, a shared off-site store that refused a write probe, and an
+ * isolated store another instance owns and has stopped maintaining.
+ *
+ * The verdicts are the ones the SERVICE would reach for these probes and
+ * not a shade chosen here (core/internal/app/repositoryhealth.go's
+ * decideRepositoryState): a store that cannot be written to cannot take
+ * a backup at all, so off-site is FAILING however readable it is, and
+ * the isolated one is DEGRADED because everything works and nothing is
+ * reclaiming. The fixture used to call the unwritable one DEGRADED,
+ * which is a state no deployment could ever be in and a screen nobody
+ * could ever see.
+ *
+ * The off-site one carries a NEGATIVE clock skew, which is the dangerous
+ * direction — it would date a new snapshot before one already stored —
+ * and the only way to see that the sign is rendered rather than dropped.
+ */
+const MOCK_REPOSITORIES: RepositoryHealth[] = [
+  {
+    domain: "primary-nas",
+    mayShare: true,
+    state: "HEALTHY",
+    reachable: true,
+    readable: true,
+    writable: true,
+    credentialsValid: true,
+    clockSane: true,
+    clockSkewSeconds: 2,
+    maintenanceOverdue: false,
+    lastMaintenanceAt: "2026-09-08T02:00:00+02:00",
+    lastMaintenanceResult: "full maintenance completed",
+    lastSnapshotAt: "2026-09-13T04:03:34+02:00",
+    lastSnapshotStatus: "SUCCESS",
+    lastVerificationAt: "2026-09-13T04:03:31+02:00",
+    lastVerificationStatus: "passed",
+    backupSets: ["production/postgres-primary", "production/billing-mysql"],
+    detail: "Two backup sets deduplicate against each other here."
+  },
+  {
+    domain: "offsite-b2",
+    mayShare: true,
+    state: "FAILING",
+    reachable: true,
+    readable: true,
+    // Readable and NOT writable, which is exactly why the health panel
+    // reports each probe separately: snapshots here can still be
+    // restored, and no new one can be written.
+    writable: false,
+    credentialsValid: true,
+    clockSane: false,
+    clockSkewSeconds: -184,
+    maintenanceOverdue: true,
+    lastMaintenanceAt: "2026-08-30T02:00:00+02:00",
+    lastMaintenanceResult: "quick maintenance completed",
+    lastSnapshotAt: "2026-09-13T01:12:00+02:00",
+    lastSnapshotStatus: "SUCCESS",
+    lastVerificationAt: "2026-09-11T03:20:00+02:00",
+    lastVerificationStatus: "passed",
+    backupSets: ["media/weekly-archive"],
+    detail:
+      "The bucket refused a write probe, and full maintenance has not run inside its window for 14 days."
+  },
+  {
+    domain: "vault-isolated",
+    mayShare: false,
+    state: "DEGRADED",
+    reachable: true,
+    readable: true,
+    writable: true,
+    credentialsValid: true,
+    clockSane: true,
+    // Not measured, which is not the same as a perfectly synchronised
+    // clock and must not render as one.
+    clockSkewSeconds: null,
+    // Overdue, and that is the whole of what is wrong with it: every
+    // probe passes and no restore point is affected, which is what
+    // DEGRADED means and why the maintenance screen says an overdue
+    // domain costs storage rather than backups. Its owner is another
+    // instance, so this is also the domain nothing on this deployment
+    // can fix.
+    maintenanceOverdue: true,
+    lastMaintenanceAt: "2026-08-29T03:00:00+02:00",
+    lastMaintenanceResult: "full maintenance completed by nas-02",
+    lastSnapshotAt: "2026-09-12T23:40:00+02:00",
+    lastSnapshotStatus: "SUCCESS",
+    lastVerificationAt: "2026-09-12T23:44:00+02:00",
+    lastVerificationStatus: "passed",
+    backupSets: [],
+    detail:
+      "Isolated: one backup set only. A second set pointed here is refused. Full maintenance has not run inside its window since nas-02 last claimed it."
+  }
+];
+
+/** A copy of MOCK_REPOSITORIES as declared, for the same reason
+ *  PRISTINE_SETS exists: createRepositoryDomain writes into the array the
+ *  fleet read serves. */
+const PRISTINE_REPOSITORIES: RepositoryHealth[] = MOCK_REPOSITORIES.map((repository) => ({
+  ...repository,
+  backupSets: [...repository.backupSets]
+}));
+
+const MOCK_MAINTENANCE: Record<string, RepositoryMaintenance> = {
+  "primary-nas": {
+    domain: "primary-nas",
+    owner: "nas-01",
+    lastQuickAt: "2026-09-13T04:05:00+02:00",
+    lastFullAt: "2026-09-08T02:00:00+02:00",
+    nextEligibleAt: "2026-09-15T02:00:00+02:00",
+    due: false,
+    dueMode: "full",
+    dueReason: "",
+    overdue: false,
+    runs: 214,
+    failures: 0,
+    reclaimedBytes: 41 * GB,
+    failing: false
+  },
+  "offsite-b2": {
+    domain: "offsite-b2",
+    owner: "nas-01",
+    lastQuickAt: "2026-09-12T04:10:00+02:00",
+    lastFullAt: "2026-08-30T02:00:00+02:00",
+    nextEligibleAt: "2026-09-13T02:00:00+02:00",
+    due: true,
+    dueMode: "full",
+    dueReason: "full maintenance has not run inside its 7-day window",
+    overdue: true,
+    runs: 96,
+    failures: 2,
+    reclaimedBytes: 0,
+    failing: false
+  },
+  // The domain this instance does NOT own, which is what decides whether
+  // anything on its card can be pressed: "press it and find out" is how
+  // two instances end up compacting one store at once.
+  "vault-isolated": {
+    domain: "vault-isolated",
+    owner: "nas-02",
+    lastQuickAt: "2026-09-12T23:50:00+02:00",
+    lastFullAt: "2026-08-29T03:00:00+02:00",
+    nextEligibleAt: "2026-09-13T03:00:00+02:00",
+    // Due AND overdue, matching this domain's health record: quick
+    // passes are still running, the full window has been missed, and the
+    // instance that owns it is the only one that can do anything about
+    // that.
+    due: true,
+    dueMode: "full",
+    dueReason: "full maintenance has not run inside its 7-day window",
+    overdue: true,
+    runs: 58,
+    failures: 0,
+    reclaimedBytes: 7 * GB,
+    failing: false
+  }
+};
+
+
+/**
+ * The refusal an incremental read owes for a set that stores artifacts
+ * (issue #788), or null when the set really is incremental.
+ *
+ * Three of the reads and all four of the actions need it, and they need
+ * the same refusal: BACKUP_SET_NOT_INCREMENTAL is what the real service
+ * answers, and a fixture that served an empty snapshot list instead would
+ * let a page ship that shows an artifact set an empty "Snapshots" table
+ * rather than saying the set can never have one.
+ */
+function incrementalSet(source: string, set: string): Promise<never> | null {
+  const found = SETS.find((s) => s.id === source + "/" + set);
+  if (!found) return notFound<never>();
+  if (found.engine === "kopia") return null;
+  return Promise.reject(
+    new RetndError({
+      code: "BACKUP_SET_NOT_INCREMENTAL",
+      message: "this backup set stores whole artifacts and has no snapshots",
+      correlationId: "cid_mock409"
+    })
+  );
+}
+
+/** The same check for the four actions, which are handed a composite id
+ *  rather than the two halves. */
+function snapshotActionRefusal(backupSetId: string): Promise<never> | null {
+  const [source, ...rest] = backupSetId.split("/");
+  return incrementalSet(source, rest.join("/"));
+}
+
+/** The durable record a hold or a release produces: finished by the time
+ *  it is answered, because neither is long-running. It is still an
+ *  operation, and the reason is the retry rather than the duration. */
+function mockSnapshotActionOperation(label: string, backupSetId: string): Operation {
+  return {
+    id: "op_mock_" + label.replace(/ /g, "_") + "_" + Date.now(),
+    setId: backupSetId,
+    setName: backupSetId,
+    kind: "retention",
+    label,
+    status: "completed",
+    progress: null,
+    nonDestructive: false,
+    startedAt: new Date().toISOString(),
+    cycle: null
+  };
+}
 
 /** Issue #146 (B2.7): a deterministic in-memory stand-in for the real
  *  create-backup-set/import/probe/test-connection endpoints, mirroring
@@ -1033,7 +1619,7 @@ const MOCK_SSH_KEYS: SSHKeyListing[] = [
     id: "key_a1b2c3",
     algorithm: "ssh-ed25519",
     fingerprint: "SHA256:OXUNyuDKC3sZFPEN+h0jMyxuTR4rlrjOxaY5ttH/kZI",
-    publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAImocksharedkey rclone-manager",
+    publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAImocksharedkey retnd",
     importedAt: "2026-03-11T09:00:00+02:00",
     passphraseProtected: false,
     usedBy: []
@@ -1042,7 +1628,7 @@ const MOCK_SSH_KEYS: SSHKeyListing[] = [
     id: "key_d4e5f6",
     algorithm: "ssh-ed25519",
     fingerprint: "SHA256:3anIqszP1Gm9GDNcq51b5ndeWt5yAF/7t1uS6/0HQbE",
-    publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAImockunusedkey rclone-manager",
+    publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAImockunusedkey retnd",
     importedAt: "2026-08-02T11:30:00+02:00",
     passphraseProtected: false,
     usedBy: []
@@ -1051,7 +1637,7 @@ const MOCK_SSH_KEYS: SSHKeyListing[] = [
     id: "key_g7h8i9",
     algorithm: "ssh-rsa",
     fingerprint: "SHA256:cDBzeNvm6cSIbi8xmhwQ/SkONr9ZNoVv5NlA1hx8GmE",
-    publicKey: "ssh-rsa AAAAB3NzaC1yc2EAAAADmockprotectedkey rclone-manager",
+    publicKey: "ssh-rsa AAAAB3NzaC1yc2EAAAADmockprotectedkey retnd",
     importedAt: "2025-11-27T16:45:00+01:00",
     passphraseProtected: true,
     usedBy: []
@@ -1084,7 +1670,7 @@ function mockKeyUsage(keyId: string): string[] {
  *  render site that prints "0 ms" beside a green row look correct here
  *  and wrong in production.
  */
-function mockPassingChecks(user: string): ConnectionCheck[] {
+function mockPassingChecks(user: string, writable = true): ConnectionCheck[] {
   const addr = SETS[0].host + ":" + SETS[0].port;
   return [
     {
@@ -1111,7 +1697,27 @@ function mockPassingChecks(user: string): ConnectionCheck[] {
       durationMs: 18
     },
     { step: "authenticate", outcome: "passed", detail: "the server accepted publickey for " + user },
-    { step: "list", outcome: "passed", detail: SETS[0].remoteFolder + " listed, 41 entries" }
+    { step: "list", outcome: "passed", detail: SETS[0].remoteFolder + " listed, 41 entries" },
+    // Issue #852's seventh step, and it PASSES in both directions: the
+    // step ran and answered, and only its answer differs. A fixture that
+    // marked the read-only case as `failed` would let a page that
+    // renders a red row for a perfectly good read-only source look
+    // correct here.
+    writable
+      ? {
+          step: "write_probe",
+          outcome: "passed",
+          detail:
+            "a probe file was created under " + SETS[0].remoteFolder +
+            " and removed again, so these credentials may write and delete there and delete-from-source can be enabled"
+        }
+      : {
+          step: "write_probe",
+          outcome: "passed",
+          detail:
+            "these credentials may read " + SETS[0].remoteFolder +
+            " but not write to it, so this source is read-only: retnd will never delete from it, and delete-from-source cannot be enabled until the account is granted write permission there"
+        }
   ];
 }
 
@@ -1152,6 +1758,11 @@ function mockBackupSetFromCreateRequest(req: CreateBackupSetRequest): BackupSet 
     // the deployment's, which is what a set with no retention block in
     // config.yaml means.
     retentionIsOverride: false,
+    // A newly created set has no cadence of its own either: it follows
+    // the deployment's, exactly as a set with no poll_interval key in
+    // config.yaml does.
+    pollIntervalSeconds: null,
+    effectivePollIntervalSeconds: 15 * 60,
     validations: ["transfer"],
     state: "healthy",
     stateNote: "Created just now; no runs yet.",
@@ -1166,7 +1777,24 @@ function mockBackupSetFromCreateRequest(req: CreateBackupSetRequest): BackupSet 
     retainedBytes: 0,
     trustedHostKeys: [{ algorithm: "ssh-ed25519", fingerprint: mockProbedFingerprint }],
     trustedHostKeyRecordedAt: new Date().toISOString(),
-    sshKeyId: req.sshKeyId
+    sshKeyId: req.sshKeyId,
+    // Whatever the wizard chose, echoed back the way a real create does:
+    // the engine decides whether there is an incremental block at all,
+    // and the four editable settings are carried through so the detail
+    // page a save lands on shows what was actually asked for.
+    engine: req.engine ?? "artifact",
+    incremental:
+      req.engine === "kopia"
+        ? {
+            repositoryDomain: req.repositoryDomain ?? null,
+            sourceConsistency: req.sourceConsistency ?? null,
+            verificationLevel: req.verificationLevel ?? null,
+            verificationSamplePercent: req.verificationSamplePercent ?? null,
+            verificationFullEverySeconds: req.verificationFullEverySeconds ?? null,
+            verificationRestoreDrillEverySeconds:
+              req.verificationRestoreDrillEverySeconds ?? null
+          }
+        : null
   };
 }
 
@@ -1196,9 +1824,15 @@ const VALIDATORS: ValidatorCatalogEntry[] = [
  * fields and no help text renders green here and wrong against the real
  * registry.
  *
- * `unregistered` carries sftp because the engine's transport layer asks
- * for it (FR-4's RequiredBackends) and no manifest declares it, which is
- * exactly the "understood, not registered" row #668's picker dims.
+ * `unregistered` is empty, and that is only half the answer after #731:
+ * it is RequiredBackends minus the transports a manifest claims,
+ * computed on the server (core/service.RegisteredBackends), and sftp
+ * was the last one on it. The other half is the sftp row below, which
+ * is registered and reports `configurable: false` — the shape is real,
+ * and nothing behind it can store or dial an instance yet. The field
+ * stays in the shape because the subtraction is what the "understood,
+ * not registered" row #668's picker dims reads, and the next backend
+ * FR-4 links for a source will land on it again.
  */
 const BACKEND_CATALOG: BackendCatalog = {
   registered: [
@@ -1208,6 +1842,7 @@ const BACKEND_CATALOG: BackendCatalog = {
       summary:
         "A directory on a disk this NAS can see. A second internal drive, a USB disk, or an already-mounted network share.",
       role: "local_volume",
+      configurable: true,
       fields: [
         {
           id: "path",
@@ -1264,6 +1899,7 @@ const BACKEND_CATALOG: BackendCatalog = {
       summary:
         "Amazon S3, or any service that speaks its API: MinIO, Ceph, Backblaze B2, Wasabi, a private gateway.",
       role: "object_store",
+      configurable: true,
       fields: [
         {
           id: "bucket",
@@ -1341,9 +1977,103 @@ const BACKEND_CATALOG: BackendCatalog = {
           { step: "delete", run: true }
         ]
       }
+    },
+    {
+      id: "sftp",
+      label: "SSH server (SFTP)",
+      summary:
+        "A directory on another machine, reached over SSH. The same protocol a backup source is read over, pointed the other way: a second NAS, a VPS, or a friend's box in another building.",
+      role: "remote_filesystem",
+      // Registered, described, searchable, and not authorable: no layer
+      // behind this fixture can store or dial an sftp instance yet
+      // (#235). The picker renders it disabled, which is the answer
+      // somebody who came looking for SFTP came for.
+      configurable: false,
+      fields: [
+        {
+          id: "host",
+          label: "Host",
+          help: "A hostname or an address. Nothing else belongs here: the port, the user and the directory each have their own field, and a URL pasted into this box is refused rather than half-understood.",
+          kind: "string",
+          required: true,
+          pattern: "^[^\\s/]+$"
+        },
+        {
+          id: "port",
+          label: "Port",
+          help: "Leave empty for SSH's own port, 22. A port this product holds no opinion about beyond it being a port.",
+          kind: "string",
+          required: false,
+          pattern: "^([1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5])$"
+        },
+        {
+          id: "user",
+          label: "User",
+          help: "The account on the far host. Give it write access to the directory below and nothing else: this product only ever writes, reads back and deletes its own artifacts.",
+          kind: "string",
+          required: true,
+          pattern: "^[^\\s/]+$"
+        },
+        {
+          id: "known_hosts",
+          label: "known_hosts file",
+          help: "An absolute path to a known_hosts file on THIS machine, holding the far host's public key. It is required, and it is required for a reason: left unset, the SSH client accepts any key from any server that answers, which turns a destination into somewhere a backup can be delivered to whoever is listening (FR-6).",
+          kind: "path",
+          required: true
+        },
+        {
+          id: "path",
+          label: "Directory",
+          help: "An absolute path on the far host that the user above can write to. It has to exist: a directory this product created itself would look exactly the same as one created on the wrong volume, so the connection test writes a file into this one and reads it back.",
+          kind: "path",
+          required: true
+        },
+        {
+          id: "prefix",
+          label: "Subdirectory",
+          help: "A namespace inside the directory, so one destination can hold more than this product's artifacts. Leave empty to write at the top.",
+          kind: "key_prefix",
+          required: false
+        },
+        {
+          id: "upload_verification",
+          label: "How a copy is proven",
+          kind: "enum",
+          required: false,
+          unsetMeans: "readback",
+          values: [
+            { value: "readback", label: "Download the copy again and re-hash it" },
+            { value: "attested", label: "Believe the destination's own full-object digest" }
+          ]
+        },
+        {
+          id: "credentials",
+          label: "SSH private key",
+          help: "Stored once, in a file only this service can read. It is never shown again and never leaves this host in a response. An SSH key is the only thing this product authenticates with, for a source or for a destination, so there is no other box to fill in here.",
+          kind: "credential",
+          required: true
+        }
+      ],
+      probe: {
+        steps: [
+          { step: "credentials", run: true },
+          { step: "reach", run: true },
+          { step: "deliverable", run: true },
+          { step: "write", run: true },
+          { step: "read_back", run: true },
+          {
+            step: "storage_class",
+            run: false,
+            reason:
+              "a directory on an SSH server has no storage classes, so there is nothing here that could have landed in a different one than the configuration asked for."
+          },
+          { step: "verification", run: true },
+          { step: "delete", run: true }
+        ]
+      }
     }
   ],
-  unregistered: [{ transport: "sftp" }],
+  unregistered: [],
   // config.StorageMediumIDPattern, which is RetentionTierNamePattern
   // itself rather than a second copy of the same expression.
   instanceIdPattern: "^[a-z][a-z0-9_]*$",
@@ -1398,6 +2128,9 @@ function defaultSettings(): AppSettings {
       protectLastKnownGood: true
     },
     capacity: defaultCapacitySettings(),
+    // Issue #845's deployment-wide cadence, at the product default an
+    // unedited config.yaml carries.
+    service: { pollIntervalSeconds: 15 * 60 },
     // The local hard drive leads, then a second local volume, then two
     // buckets, one of them an archive class. Four rows and two backends,
     // which is what makes this fixture able to show the thing EPIC I
@@ -1453,6 +2186,10 @@ function defaultSettings(): AppSettings {
       }
     ],
     schema: {
+      // The floor core/internal/config enforces on both scopes of the
+      // poll interval. Served rather than written into the form, so a
+      // fixture cannot advertise a bound the engine does not apply.
+      service: { minPollIntervalSeconds: 60 },
       // The words come from core/internal/placement in a real deployment.
       // They are reproduced here because this is a mock of the SERVER, and
       // a mock that served different words would hide exactly the drift
@@ -1527,7 +2264,7 @@ function defaultSettings(): AppSettings {
  * is why nothing caught what the pages do with the refusals they really
  * get.
  */
-const SERVED_WHILE_UNCONFIGURED: ReadonlySet<keyof BackupManagerApi> = new Set([
+const SERVED_WHILE_UNCONFIGURED: ReadonlySet<keyof RetndApi> = new Set([
   "getVersion",
   "getFirstRunStatus",
   "completeFirstRun",
@@ -1546,11 +2283,23 @@ const SERVED_WHILE_UNCONFIGURED: ReadonlySet<keyof BackupManagerApi> = new Set([
   "login",
   "enrollAdministrator",
   "rotatePassword",
+  // Issue #830's recovery routes sit in the same package as the sign-in
+  // routes around them and are mounted by it, so they are not gated on
+  // configuration either: somebody has to be able to ask for a reset link, and to
+  // fix the SMTP endpoint that link goes out over, on an instance that
+  // has never been configured at all.
+  "requestPasswordReset",
+  "resetPassword",
+  "verifyRecoveryEmail",
+  "resendRecoveryEmailVerification",
+  "getRecoverySettings",
+  "updateRecoverySettings",
+  "sendRecoveryTestEmail",
   "logout"
 ]);
 
-function notConfigured(): BackupManagerError {
-  return new BackupManagerError({
+function notConfigured(): RetndError {
+  return new RetndError({
     code: "NOT_CONFIGURED",
     message:
       "this instance has not been configured yet; complete the setup flow at /api/v1/system/first-run first",
@@ -1562,19 +2311,1378 @@ function notConfigured(): BackupManagerError {
  *  refuses while `isConfigured()` is false, and stops refusing the moment
  *  setup writes a configuration, exactly as the real router's own
  *  configured/unconfigured split does on the next request. */
-function refusingWhileUnconfigured(api: BackupManagerApi, isConfigured: () => boolean): BackupManagerApi {
+function refusingWhileUnconfigured(api: RetndApi, isConfigured: () => boolean): RetndApi {
   const wrapped = { ...api } as Record<string, unknown>;
-  for (const key of Object.keys(api) as (keyof BackupManagerApi)[]) {
+  for (const key of Object.keys(api) as (keyof RetndApi)[]) {
     if (SERVED_WHILE_UNCONFIGURED.has(key)) continue;
     const original = api[key] as (...args: unknown[]) => unknown;
     wrapped[key] = (...args: unknown[]) =>
       isConfigured() ? original(...args) : Promise.reject(notConfigured());
   }
-  return wrapped as unknown as BackupManagerApi;
+  return wrapped as unknown as RetndApi;
 }
 
 /**
- * A whole BackupManagerApi, in memory, for one scenario.
+ * EPIC L's workflow fixtures (issue #814).
+ *
+ * # Why the interesting ones are failures
+ *
+ * A workflow that ran cleanly is the case every screen already draws
+ * correctly by accident. What these screens exist for is the four states
+ * an operator has to act on, and a fixture set without them is a fixture
+ * set no page's hard branches are ever rendered against:
+ *
+ *   - a SUCCEEDED backup beside a FAILED workflow, which is the whole
+ *     reason the three statuses stay three;
+ *   - a step killed on its timeout whose exit was never confirmed, which
+ *     means a script may still be running on a machine this product
+ *     cannot reach;
+ *   - a run held in recovery_required, which BLOCKS its backup set's Run
+ *     control until somebody resumes the cleanup or acknowledges it;
+ *   - a run whose hooks were bypassed, so a green workflow verdict does
+ *     not mean hooks ran.
+ *
+ * # Why two of the four sets have no workflow configuration at all
+ *
+ * Because that is the majority case in a real deployment and it is the
+ * one this UI wave can most easily break: a set with no hooks must show
+ * no new panel, no empty table and no findings. Leaving every fixture set
+ * configured would mean the quiet path never renders in dev.
+ */
+const WORKFLOW_SET = "production/postgres-primary";
+const WORKFLOW_HELD_SET = WORKFLOW_SET;
+const WORKFLOW_SFTP_SET = "production/billing-mysql";
+/** A set whose hooks are all local, used for the runner-unavailable and
+ *  unreachable-source reports. */
+const WORKFLOW_LOCAL_SET = "production/auth-config";
+
+/** The deployment's execution connections, as the settings read reports
+ *  them. Two, because the picker's whole point is that a set's own source
+ *  connection may not be one of them. */
+const WORKFLOW_EXEC_CONNECTIONS = ["postgres-exec", "billing-exec"];
+
+/**
+ * Every script name here is NAME.local.sh or NAME.remote.sh, and a
+ * name's suffix agrees with its step's target.
+ *
+ * That is not cosmetic. core/internal/workflow/script.go REFUSES a plain
+ * *.sh outright — "this product will not choose for you: a hook that
+ * quiesces a database has to run on the machine holding the database, and
+ * guessing wrong is silent" — so a fixture carrying `10-flush-cache.sh`
+ * is a fixture of a run the engine could never have planned, and every
+ * screen and test built against it is built against a shape production
+ * never produces.
+ */
+
+/**
+ * The flagship: a SUCCEEDED backup beside a FAILED cleanup.
+ *
+ * Every status here is one the engine can actually reach together. The
+ * before stages all succeeded, so the backup ran and succeeded; one
+ * "after" hook was signalled on its timeout and never confirmed, which
+ * makes `cleanupBad` true, which is what turns cleanup FAILED and
+ * workflow FAILED (workflowrun/engine.go's finalCleanupStatus and
+ * finish). The unfinished obligation is why this run is holding its
+ * backup set.
+ *
+ * The remaining "after" step is SKIPPED rather than pending: the channel
+ * the previous step was using never came back, so nothing after it on
+ * that connection was attempted.
+ */
+const WORKFLOW_RUN_FAILED: WorkflowRun = {
+  runId: "wfr_2f91a4",
+  backupSetId: WORKFLOW_SET,
+  state: "recovery_required",
+  backupStatus: "success",
+  workflowStatus: "failed",
+  cleanupStatus: "failed",
+  recoveryState: "required",
+  bypassed: false,
+  startedAt: "2026-09-12T02:14:03Z",
+  finishedAt: "2026-09-12T02:16:41Z",
+  durationMs: 158_000,
+  scriptCount: 6,
+  failedStep: "step_quiesce",
+  failedScript: "40-quiesce-remote.remote.sh",
+  steps: [
+    {
+      stepId: "step_notify_start",
+      scriptName: "10-notify-start.local.sh",
+      phase: "before",
+      scope: "global",
+      order: 1,
+      target: "local",
+      state: "success",
+      exitCode: 0,
+      durationMs: 420,
+      startedAt: "2026-09-12T02:14:03Z",
+      finishedAt: "2026-09-12T02:14:04Z",
+      timeoutMs: 300_000,
+      terminationConfirmed: true
+    },
+    {
+      stepId: "step_flush",
+      scriptName: "10-flush-cache.remote.sh",
+      phase: "before",
+      scope: "set",
+      order: 1,
+      target: "remote",
+      executionConnectionRef: "postgres-exec",
+      state: "success",
+      exitCode: 0,
+      durationMs: 2_800,
+      startedAt: "2026-09-12T02:14:05Z",
+      finishedAt: "2026-09-12T02:14:08Z",
+      timeoutMs: 120_000,
+      terminationConfirmed: true
+    },
+    {
+      stepId: "step_freeze",
+      scriptName: "20-freeze-db.local.sh",
+      phase: "before",
+      scope: "set",
+      order: 2,
+      target: "local",
+      state: "success",
+      exitCode: 0,
+      durationMs: 6_200,
+      startedAt: "2026-09-12T02:14:08Z",
+      finishedAt: "2026-09-12T02:14:14Z",
+      timeoutMs: 120_000,
+      terminationConfirmed: true
+    },
+    {
+      stepId: "step_quiesce",
+      scriptName: "40-quiesce-remote.remote.sh",
+      phase: "after",
+      scope: "set",
+      order: 1,
+      target: "remote",
+      executionConnectionRef: "postgres-exec",
+      // The state the page has to say out loud: signalled on its bound,
+      // and the channel closed before the process reported an exit, so
+      // this product cannot claim the script stopped.
+      state: "timed_out",
+      exitCode: null,
+      durationMs: 120_000,
+      startedAt: "2026-09-12T02:14:20Z",
+      finishedAt: "2026-09-12T02:16:20Z",
+      timeoutMs: 120_000,
+      terminationConfirmed: false
+    },
+    {
+      stepId: "step_release",
+      scriptName: "50-release-lock.remote.sh",
+      phase: "after",
+      scope: "set",
+      order: 2,
+      target: "remote",
+      executionConnectionRef: "postgres-exec",
+      // Never ran, so there is no exit code and no duration. Both are
+      // absent rather than zero: "skipped" and "succeeded instantly" are
+      // the pair of facts this shape must never confuse.
+      state: "skipped",
+      exitCode: null,
+      timeoutMs: 120_000
+    },
+    {
+      stepId: "step_notify_end",
+      scriptName: "90-notify-end.local.sh",
+      phase: "after",
+      scope: "global",
+      order: 1,
+      target: "local",
+      state: "success",
+      exitCode: 0,
+      durationMs: 380,
+      startedAt: "2026-09-12T02:16:40Z",
+      finishedAt: "2026-09-12T02:16:41Z",
+      timeoutMs: 300_000,
+      terminationConfirmed: true
+    }
+  ]
+};
+
+/**
+ * A BEFORE-stage failure, and the status combination it forces.
+ *
+ * The backup is SKIPPED and never "failed": nothing was attempted
+ * (workflowrun/engine.go's skipBackup says so in as many words). The set
+ * scope WAS entered, so its "after" hooks are eligible and they ran, which
+ * is what makes cleanup SUCCESS on a run whose workflow FAILED — the
+ * opposite pairing to the flagship above, and the reason both fixtures
+ * exist.
+ */
+const WORKFLOW_RUN_BEFORE_FAILED: WorkflowRun = {
+  runId: "wfr_7b03d9",
+  backupSetId: WORKFLOW_SFTP_SET,
+  state: "failed",
+  backupStatus: "skipped",
+  workflowStatus: "failed",
+  cleanupStatus: "success",
+  recoveryState: "none",
+  bypassed: false,
+  startedAt: "2026-09-12T01:02:00Z",
+  finishedAt: "2026-09-12T01:05:12Z",
+  durationMs: 192_000,
+  scriptCount: 3,
+  failedStep: "step_bf_freeze",
+  failedScript: "10-freeze.local.sh",
+  steps: [
+    {
+      stepId: "step_bf_freeze",
+      scriptName: "10-freeze.local.sh",
+      phase: "before",
+      scope: "set",
+      order: 1,
+      target: "local",
+      state: "failed",
+      exitCode: 1,
+      durationMs: 1_900,
+      startedAt: "2026-09-12T01:02:00Z",
+      finishedAt: "2026-09-12T01:02:02Z",
+      timeoutMs: 300_000,
+      terminationConfirmed: true
+    },
+    {
+      stepId: "step_bf_thaw",
+      scriptName: "10-thaw-db.local.sh",
+      phase: "after",
+      scope: "set",
+      order: 1,
+      target: "local",
+      state: "success",
+      exitCode: 0,
+      durationMs: 4_100,
+      startedAt: "2026-09-12T01:05:08Z",
+      finishedAt: "2026-09-12T01:05:12Z",
+      timeoutMs: 300_000,
+      terminationConfirmed: true
+    },
+    {
+      stepId: "step_bf_notify",
+      scriptName: "90-notify-end.local.sh",
+      phase: "after",
+      scope: "global",
+      order: 1,
+      target: "local",
+      state: "success",
+      exitCode: 0,
+      durationMs: 360,
+      startedAt: "2026-09-12T01:05:12Z",
+      finishedAt: "2026-09-12T01:05:12Z",
+      timeoutMs: 300_000,
+      terminationConfirmed: true
+    }
+  ]
+};
+
+/**
+ * The one an operator watches: canceled mid-pass, with its "after" hooks
+ * running so the source is not left quiesced.
+ *
+ * No finish time and no duration, because it has neither yet.
+ */
+const WORKFLOW_RUN_LIVE: WorkflowRun = {
+  runId: "wfr_a91f07",
+  backupSetId: WORKFLOW_SET,
+  state: "cleanup_running",
+  backupStatus: "skipped",
+  workflowStatus: "running",
+  cleanupStatus: "running",
+  recoveryState: "none",
+  bypassed: false,
+  // Relative to when this fixture was loaded, because it is the LIVE
+  // one: a fixed start time makes a running step's elapsed figure grow
+  // without bound, and every surface that reads it then renders a number
+  // that describes the fixture's age rather than a run.
+  startedAt: new Date(Date.now() - 291_000).toISOString(),
+  finishedAt: null,
+  durationMs: null,
+  scriptCount: 4,
+  steps: [
+    {
+      stepId: "step_live_notify",
+      scriptName: "10-notify-start.local.sh",
+      phase: "before",
+      scope: "global",
+      order: 1,
+      target: "local",
+      state: "success",
+      exitCode: 0,
+      durationMs: 400,
+      startedAt: new Date(Date.now() - 291_000).toISOString(),
+      finishedAt: new Date(Date.now() - 290_600).toISOString(),
+      timeoutMs: 300_000,
+      terminationConfirmed: true
+    },
+    {
+      stepId: "step_live_thaw",
+      scriptName: "10-thaw-db.local.sh",
+      phase: "after",
+      scope: "set",
+      order: 1,
+      target: "local",
+      state: "running",
+      exitCode: null,
+      startedAt: new Date(Date.now() - 19_000).toISOString(),
+      timeoutMs: 120_000
+    },
+    {
+      stepId: "step_live_unmount",
+      scriptName: "20-unmount-scratch.local.sh",
+      phase: "after",
+      scope: "set",
+      order: 2,
+      target: "local",
+      state: "pending",
+      exitCode: null,
+      timeoutMs: 120_000
+    },
+    {
+      stepId: "step_live_notify_end",
+      scriptName: "90-notify-end.local.sh",
+      phase: "after",
+      scope: "global",
+      order: 1,
+      target: "local",
+      state: "pending",
+      exitCode: null,
+      timeoutMs: 300_000
+    }
+  ]
+};
+
+/** The bypassed one. Its workflow AND cleanup statuses are "skipped" —
+ *  which is what the engine writes for a bypassed run, because no scope
+ *  was entered at all — and never "success": a green verdict here would
+ *  say hooks ran and passed. */
+const WORKFLOW_RUN_BYPASSED: WorkflowRun = {
+  runId: "wfr_5c40b2",
+  backupSetId: WORKFLOW_SET,
+  state: "skipped",
+  backupStatus: "success",
+  workflowStatus: "skipped",
+  cleanupStatus: "skipped",
+  recoveryState: "none",
+  bypassed: true,
+  startedAt: "2026-09-11T02:14:00Z",
+  finishedAt: "2026-09-11T02:14:51Z",
+  durationMs: 51_000,
+  scriptCount: 6,
+  steps: []
+};
+
+/** A FAILED backup whose hooks all did their job: cleanup succeeded, and
+ *  the workflow verdict is failed anyway because the engine folds a
+ *  failed backup into it (engine.go's finish). The pairing the flagship
+ *  inverts. */
+const WORKFLOW_RUN_BACKUP_FAILED: WorkflowRun = {
+  runId: "wfr_c17e88",
+  backupSetId: WORKFLOW_SET,
+  state: "failed",
+  backupStatus: "failed",
+  workflowStatus: "failed",
+  cleanupStatus: "success",
+  recoveryState: "none",
+  bypassed: false,
+  startedAt: "2026-09-10T02:14:00Z",
+  finishedAt: "2026-09-10T02:19:22Z",
+  durationMs: 322_000,
+  scriptCount: 4,
+  steps: [
+    {
+      stepId: "step_bkf_freeze",
+      scriptName: "20-freeze-db.local.sh",
+      phase: "before",
+      scope: "set",
+      order: 1,
+      target: "local",
+      state: "success",
+      exitCode: 0,
+      durationMs: 5_900,
+      startedAt: "2026-09-10T02:14:00Z",
+      finishedAt: "2026-09-10T02:14:06Z",
+      timeoutMs: 120_000,
+      terminationConfirmed: true
+    },
+    {
+      stepId: "step_bkf_thaw",
+      scriptName: "10-thaw-db.local.sh",
+      phase: "after",
+      scope: "set",
+      order: 1,
+      target: "local",
+      state: "success",
+      exitCode: 0,
+      durationMs: 4_400,
+      startedAt: "2026-09-10T02:19:17Z",
+      finishedAt: "2026-09-10T02:19:22Z",
+      timeoutMs: 120_000,
+      terminationConfirmed: true
+    }
+  ]
+};
+
+/** A hold that was settled by RESUMING the cleanup: the owed hooks ran,
+ *  so the cleanup verdict is success and the run is recovered. */
+const WORKFLOW_RUN_RESUMED: WorkflowRun = {
+  runId: "wfr_9a1c40",
+  backupSetId: WORKFLOW_SFTP_SET,
+  state: "recovered",
+  backupStatus: "success",
+  workflowStatus: "failed",
+  cleanupStatus: "success",
+  recoveryState: "resolved",
+  bypassed: false,
+  startedAt: "2026-09-09T01:02:00Z",
+  finishedAt: "2026-09-09T01:40:11Z",
+  durationMs: 2_291_000,
+  scriptCount: 3,
+  steps: [
+    {
+      stepId: "step_rs_thaw",
+      scriptName: "10-thaw-db.local.sh",
+      phase: "after",
+      scope: "set",
+      order: 1,
+      target: "local",
+      state: "success",
+      exitCode: 0,
+      durationMs: 3_900,
+      startedAt: "2026-09-09T01:40:07Z",
+      finishedAt: "2026-09-09T01:40:11Z",
+      timeoutMs: 300_000,
+      terminationConfirmed: true
+    }
+  ]
+};
+
+/** A hold that was settled by ACKNOWLEDGEMENT: somebody took
+ *  responsibility for it by hand, so the cleanup verdict stays FAILED and
+ *  the run is recovered anyway. The pair of them is how a history row
+ *  says which way a hold was settled — a resume leaves cleanup success, an
+ *  acknowledgement does not touch it. */
+const WORKFLOW_RUN_ACKNOWLEDGED: WorkflowRun = {
+  runId: "wfr_44b2e1",
+  backupSetId: WORKFLOW_SFTP_SET,
+  state: "recovered",
+  backupStatus: "success",
+  workflowStatus: "failed",
+  cleanupStatus: "failed",
+  recoveryState: "resolved",
+  bypassed: false,
+  startedAt: "2026-09-08T01:02:00Z",
+  finishedAt: "2026-09-08T01:06:40Z",
+  durationMs: 280_000,
+  scriptCount: 3,
+  failedStep: "step_ack_thaw",
+  failedScript: "10-thaw-db.remote.sh",
+  steps: [
+    {
+      stepId: "step_ack_thaw",
+      scriptName: "10-thaw-db.remote.sh",
+      phase: "after",
+      scope: "set",
+      order: 1,
+      target: "remote",
+      executionConnectionRef: "billing-exec",
+      state: "interrupted",
+      exitCode: null,
+      durationMs: 4_100,
+      startedAt: "2026-09-08T01:06:36Z",
+      finishedAt: "2026-09-08T01:06:40Z",
+      timeoutMs: 300_000,
+      terminationConfirmed: false
+    }
+  ]
+};
+
+const WORKFLOW_RUNS: WorkflowRun[] = [
+  WORKFLOW_RUN_LIVE,
+  WORKFLOW_RUN_FAILED,
+  WORKFLOW_RUN_BEFORE_FAILED,
+  WORKFLOW_RUN_BYPASSED,
+  WORKFLOW_RUN_BACKUP_FAILED,
+  WORKFLOW_RUN_RESUMED,
+  WORKFLOW_RUN_ACKNOWLEDGED
+];
+
+/**
+ * One step's captured output.
+ *
+ * Keyed by step so the terminal reads a different log per selection
+ * rather than one shared script, and every page carries `complete` for a
+ * finished step: a follower stops on that flag and not on an empty page,
+ * because the sequence counter is per RUN and a page filtered to one step
+ * can legitimately be empty while the run's counter has moved.
+ *
+ * The failing step's last line is on stderr, and the timed-out step's log
+ * simply stops after a TRUNCATION record — there is no "killed" line,
+ * because the process never got to write one, which is exactly why the
+ * page has to say so itself. That truncation record is also the variant a
+ * terminal has to render differently: a marker the ENGINE wrote, not
+ * something the script said.
+ */
+const WORKFLOW_STEP_LOGS: Record<string, WorkflowStepLogRecord[]> = {
+  step_notify_start: [
+    { seq: 1, stream: "stdout", at: "2026-09-12T02:14:03Z", text: "notifying ops channel", kind: "output" },
+    { seq: 2, stream: "stdout", at: "2026-09-12T02:14:04Z", text: "posted", kind: "output" }
+  ],
+  step_flush: [
+    { seq: 3, stream: "stdout", at: "2026-09-12T02:14:05Z", text: "flushing page cache on postgres-primary", kind: "output" },
+    { seq: 4, stream: "stdout", at: "2026-09-12T02:14:08Z", text: "flushed 1.2 GiB", kind: "output" }
+  ],
+  step_freeze: [
+    { seq: 5, stream: "stdout", at: "2026-09-12T02:14:08Z", text: "requesting checkpoint", kind: "output" },
+    { seq: 6, stream: "stdout", at: "2026-09-12T02:14:11Z", text: "checkpoint complete", kind: "output" },
+    { seq: 7, stream: "stdout", at: "2026-09-12T02:14:14Z", text: "backup label written", kind: "output" }
+  ],
+  step_quiesce: [
+    { seq: 8, stream: "stdout", at: "2026-09-12T02:14:20Z", text: "quiescing replica set", kind: "output" },
+    { seq: 9, stream: "stderr", at: "2026-09-12T02:15:02Z", text: "waiting for writers to drain", kind: "output" },
+    {
+      seq: 10,
+      stream: "stdout",
+      at: "2026-09-12T02:15:40Z",
+      // The engine's own marker: this step produced more output than the
+      // journal keeps for one step, so some of it is gone. A terminal
+      // renders it as a statement about the LOG and never as a line the
+      // script printed.
+      kind: "truncated",
+      text: "output above this point was dropped: this step exceeded the per-step capture limit"
+    }
+  ],
+  step_notify_end: [
+    { seq: 11, stream: "stdout", at: "2026-09-12T02:16:40Z", text: "posted run summary", kind: "output" }
+  ],
+  step_bf_freeze: [
+    { seq: 2, stream: "stdout", at: "2026-09-12T01:02:00Z", text: "freezing billing-mysql", kind: "output" },
+    { seq: 3, stream: "stderr", at: "2026-09-12T01:02:02Z", text: "mysql: FLUSH TABLES WITH READ LOCK timed out", kind: "output" }
+  ],
+  step_live_thaw: [
+    { seq: 2, stream: "stdout", at: new Date(Date.now() - 19_000).toISOString(), text: "thawing postgres-primary", kind: "output" }
+  ]
+};
+
+/** The deployment-wide environment. One literal and one secret-backed
+ *  entry, because a fixture with only literals never renders the case the
+ *  whole editor is built around: a value no read can ever show. */
+function defaultWorkflowEnvironment(): WorkflowEnvVariable[] {
+  return [
+    { name: "PGHOST", value: "postgres-primary.internal", hasValue: true },
+    { name: "PGPASSWORD", hasValue: false, secret: { file: "/etc/retnd/secrets/pg" } }
+  ];
+}
+
+/** One set's own layer: an override of a deployment value, and a
+ *  deliberately EMPTY literal, which is a different configuration from a
+ *  variable that has no literal at all. */
+function defaultSetWorkflowEnvironment(): WorkflowEnvVariable[] {
+  return [
+    { name: "PGHOST", value: "postgres-replica.internal", hasValue: true },
+    { name: "DUMP_LEVEL", value: "", hasValue: true }
+  ];
+}
+
+function defaultWorkflowSettings(): WorkflowSettings {
+  return {
+    configured: true,
+    root: "/etc/retnd/workflows",
+    beforeDir: "/etc/retnd/workflows/before",
+    afterDir: "/etc/retnd/workflows/after",
+    scriptTimeoutSeconds: 300,
+    scriptTimeoutConfigured: true,
+    maxScriptSizeBytes: 65_536,
+    environment: defaultWorkflowEnvironment(),
+    execConnections: [...WORKFLOW_EXEC_CONNECTIONS],
+    runner: {
+      configured: true,
+      socket: "/run/retnd/hooks.sock",
+      tokenFile: "/etc/retnd/hooks.token"
+    }
+  };
+}
+
+/** The three sets that configure hooks, and what each pins. The SFTP-only
+ *  set INHERITS its timeout, so a surface that cannot tell a pinned bound
+ *  from an inherited one has something to get wrong, and it names its own
+ *  source connection as its execution connection — which is a real
+ *  spelling (remoteexec.Resolve accepts "source/set") and the case the
+ *  capability probe refuses. */
+function defaultSetWorkflows(): Map<string, BackupSetWorkflow> {
+  return new Map([
+    [
+      WORKFLOW_SET,
+      {
+        backupSetId: WORKFLOW_SET,
+        configured: true,
+        beforeDir: "/srv/hooks/postgres-primary/before",
+        afterDir: "/srv/hooks/postgres-primary/after",
+        scriptTimeoutSeconds: 120,
+        effectiveScriptTimeoutSeconds: 120,
+        remoteExecConnectionRef: "postgres-exec",
+        environment: defaultSetWorkflowEnvironment(),
+        resolvedEnvironmentNames: ["PGHOST", "PGPASSWORD", "DUMP_LEVEL"],
+        stages: [
+          { scope: "global", phase: "before", dir: "/etc/retnd/workflows/before" },
+          { scope: "set", phase: "before", dir: "/srv/hooks/postgres-primary/before" },
+          { scope: "set", phase: "after", dir: "/srv/hooks/postgres-primary/after" },
+          { scope: "global", phase: "after", dir: "/etc/retnd/workflows/after" }
+        ]
+      }
+    ],
+    [
+      WORKFLOW_SFTP_SET,
+      {
+        backupSetId: WORKFLOW_SFTP_SET,
+        configured: true,
+        beforeDir: "/srv/hooks/billing-mysql/before",
+        afterDir: "/srv/hooks/billing-mysql/after",
+        // Pins nothing, so it follows the deployment's 300s.
+        effectiveScriptTimeoutSeconds: 300,
+        // Its own source connection, by the "source/set" spelling the
+        // engine resolves. The connection RESOLVES; what it cannot do is
+        // execute, which is what the capability probe reports.
+        remoteExecConnectionRef: WORKFLOW_SFTP_SET,
+        environment: [],
+        resolvedEnvironmentNames: ["PGHOST", "PGPASSWORD"],
+        stages: [
+          { scope: "set", phase: "before", dir: "/srv/hooks/billing-mysql/before" },
+          { scope: "set", phase: "after", dir: "/srv/hooks/billing-mysql/after" }
+        ]
+      }
+    ],
+    [
+      WORKFLOW_LOCAL_SET,
+      {
+        backupSetId: WORKFLOW_LOCAL_SET,
+        configured: true,
+        beforeDir: "/srv/hooks/auth-config/before",
+        afterDir: "",
+        effectiveScriptTimeoutSeconds: 300,
+        remoteExecConnectionRef: "",
+        environment: [],
+        resolvedEnvironmentNames: ["PGHOST", "PGPASSWORD"],
+        stages: [{ scope: "set", phase: "before", dir: "/srv/hooks/auth-config/before" }]
+      }
+    ]
+  ]);
+}
+
+/** A set with no workflow block at all: every field empty, `configured`
+ *  false. This is what the majority of sets answer, and the shape the
+ *  quiet path is rendered against. */
+function unconfiguredSetWorkflow(backupSetId: string): BackupSetWorkflow {
+  return {
+    backupSetId,
+    configured: false,
+    beforeDir: "",
+    afterDir: "",
+    effectiveScriptTimeoutSeconds: 300,
+    remoteExecConnectionRef: "",
+    environment: [],
+    resolvedEnvironmentNames: [],
+    stages: []
+  };
+}
+
+/**
+ * One set's validation report, and three of them are adversarial on
+ * purpose.
+ *
+ * The SFTP-only set is the sharp one, and it is shaped the way the real
+ * validator shapes it (core/service/workflowpreflight.go): the connection
+ * RESOLVES, so `exec_connection` is ok; `exec_capability` is the check
+ * that FAILS, because the probe is what discovers that the far side will
+ * not open an exec channel; and `remote_bash_syntax` is then SKIPPED with
+ * the validator's own sentence, since nothing on that connection could
+ * parse a script. A report that put the error on `exec_connection` and
+ * skipped the capability would be describing a refusal the engine does
+ * not produce.
+ *
+ * The local-only set is the runner-unavailable variant: `runner_health`
+ * fails and `local_bash_syntax` is skipped with "not examined: the runner
+ * did not answer", which is the pair probeRunner emits. It also carries
+ * an SSH-level capability failure, which is a different sentence from the
+ * SFTP-only one and the other half of what a client has to render: a
+ * connection that could not be opened at all.
+ */
+function workflowValidationFor(backupSetId: string): WorkflowValidation {
+  if (backupSetId === WORKFLOW_SFTP_SET) {
+    return {
+      backupSetId,
+      configured: true,
+      root: "/srv/hooks/billing-mysql",
+      stages: [
+        { scope: "set", phase: "before", dir: "/srv/hooks/billing-mysql/before" },
+        { scope: "set", phase: "after", dir: "/srv/hooks/billing-mysql/after" }
+      ],
+      scripts: [
+        {
+          stepId: "step_sftp_freeze",
+          scriptName: "before/10-freeze.remote.sh",
+          phase: "before",
+          scope: "set",
+          order: 1,
+          target: "remote",
+          executionConnectionRef: WORKFLOW_SFTP_SET,
+          sha256: "3f9c1a77b4e05d2286aa4f1c9de0b7318c5ad4419e6f0b2c7d8e91a0f3b6c245",
+          sizeBytes: 1_408,
+          timeoutMs: 300_000,
+          // Examined, parses, and carries the finding that is a warning
+          // rather than a refusal: an unquoted operand in `[ ... ]`.
+          lint: {
+            examined: true,
+            parsed: true,
+            parseErrorExcerpt: { lines: [] },
+            findings: [
+              {
+                code: "BSH005",
+                severity: "warning",
+                line: 11,
+                col: 9,
+                message:
+                  "this variable expansion is not quoted inside `[ ... ]`. When it is empty the " +
+                  "test sees one operand fewer than it was written for and fails with a syntax " +
+                  "error rather than a false -- which is the case the condition is usually there " +
+                  "to handle. Put it in double quotes, or use `[[ ... ]]`, which does not split",
+                // Column 9 of line 11 is the `$`, which is what makes the
+                // caret in the panel worth drawing: the position alone
+                // does not say WHICH expansion on a line with two.
+                excerpt: {
+                  lines: [
+                    { number: 10, text: "# only freeze when the caller named a database", truncated: false },
+                    { number: 11, text: "if [ -n $DB_NAME ]; then", truncated: false },
+                    { number: 12, text: "  mysql -e 'FLUSH TABLES WITH READ LOCK'", truncated: false }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          stepId: "step_sftp_thaw",
+          scriptName: "after/10-thaw-db.remote.sh",
+          phase: "after",
+          scope: "set",
+          order: 1,
+          target: "remote",
+          executionConnectionRef: WORKFLOW_SFTP_SET,
+          sha256: "b70c1d5546e2a0f9c3812d7b5eaf4019c26d83bb7f1ea4c095d2386af17c0e9b",
+          sizeBytes: 2_944,
+          timeoutMs: 300_000,
+          lint: { examined: true, parsed: true, parseErrorExcerpt: { lines: [] }, findings: [] }
+        }
+      ],
+      findings: [
+        {
+          check: "exec_connection",
+          severity: "ok",
+          detail:
+            "this set's own source connection resolved: backup-admin@billing-mysql.internal:22",
+          scope: "set"
+        },
+        {
+          check: "exec_capability",
+          severity: "error",
+          detail:
+            "backup-admin@billing-mysql.internal refused an exec channel: this account is " +
+            "restricted to SFTP, so it can move bytes and cannot run a command. Name an " +
+            "execution connection whose probe passes, or rename these hooks NAME.local.sh.",
+          scope: "set"
+        },
+        {
+          check: "remote_bash_syntax",
+          severity: "skipped",
+          detail:
+            "not examined: this connection cannot run a command, so nothing on it could parse a script",
+          scope: "set"
+        },
+        {
+          check: "runner_health",
+          severity: "ok",
+          detail: "the host workflow runner answered: version 0.4.1, bash 5.2.15, running as retnd-hooks"
+        },
+        { check: "script_hash", severity: "ok", detail: "2 scripts captured and hashed" }
+      ],
+      // A backup set whose backups are fine and whose hooks are not.
+      validForBackup: true,
+      workflowValid: false
+    };
+  }
+
+  if (backupSetId === WORKFLOW_LOCAL_SET) {
+    return {
+      backupSetId,
+      configured: true,
+      root: "/srv/hooks/auth-config",
+      stages: [{ scope: "set", phase: "before", dir: "/srv/hooks/auth-config/before" }],
+      scripts: [
+        {
+          stepId: "step_auth_dump",
+          scriptName: "before/10-dump-config.local.sh",
+          phase: "before",
+          scope: "set",
+          order: 1,
+          target: "local",
+          sha256: "7a1c9e02b8d4f36150ae82c7f9d0b4318c5ad4419e6f0b2c7d8e91a0f3b6c245",
+          sizeBytes: 512,
+          timeoutMs: 300_000,
+          // The PARSE-ERROR state: examined, and not a shell program.
+          // Nothing in it would run, and a save pointed at this stage
+          // directory is refused.
+          lint: {
+            examined: true,
+            parsed: false,
+            parseError: "unexpected EOF while looking for matching `\"'",
+            parseErrorLine: 18,
+            parseErrorCol: 24,
+            // Column 24 of line 18 is the quote nothing closes. A parse
+            // error is the one verdict whose excerpt an operator cannot
+            // get any other way from this product: the file has no
+            // findings, because no rule ran on a tree that does not exist.
+            parseErrorExcerpt: {
+              lines: [
+                { number: 17, text: "  # move the rendered config into place", truncated: false },
+                { number: 18, text: "  mv \"$STAGE/auth.yml\" \"$OUT_DIR", truncated: false },
+                { number: 19, text: "fi", truncated: false }
+              ]
+            },
+            findings: []
+          }
+        },
+        {
+          stepId: "step_auth_sync",
+          scriptName: "before/20-sync-remote.remote.sh",
+          phase: "before",
+          scope: "set",
+          order: 2,
+          target: "remote",
+          executionConnectionRef: "postgres-exec",
+          sha256: "e38b5510c7a92f04186de3b5f0c1a4429d6ba8317f2e0c5948da1b60e39c7f12",
+          sizeBytes: 744,
+          timeoutMs: 300_000,
+          lint: {
+            examined: true,
+            parsed: true,
+            parseErrorExcerpt: { lines: [] },
+            findings: [
+              {
+                code: "BSH004",
+                severity: "warning",
+                line: 6,
+                col: 1,
+                message:
+                  "this script uses `set -e` and a pipeline, without `set -o pipefail`. A " +
+                  "pipeline's exit status is its LAST command's, so a failure earlier in this " +
+                  "pipeline -- the dump, not the compressor -- leaves `set -e` with nothing to " +
+                  "trip on: the script continues and the hook reports success. Write " +
+                  "`set -euo pipefail`, or check ${PIPESTATUS[@]}",
+                excerpt: {
+                  lines: [
+                    { number: 5, text: "# push the config to the standby", truncated: false },
+                    { number: 6, text: "pg_dump \"$DB\" | gzip -9 > \"$OUT\"", truncated: false },
+                    { number: 7, text: "echo done", truncated: false }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      ],
+      findings: [
+        {
+          check: "runner_health",
+          severity: "error",
+          detail:
+            "the host workflow runner did not answer on /run/retnd/hooks.sock: dial unix: " +
+            "connect: connection refused. A NAME.local.sh hook has nothing to run on until it does.",
+          scope: "set"
+        },
+        {
+          check: "local_bash_syntax",
+          severity: "skipped",
+          detail: "not examined: the runner did not answer",
+          scope: "set"
+        },
+        {
+          check: "exec_capability",
+          severity: "error",
+          detail:
+            "postgres-exec did not open a connection: dial tcp 10.0.4.11:22: i/o timeout",
+          scope: "set"
+        },
+        {
+          check: "remote_bash_syntax",
+          severity: "skipped",
+          detail:
+            "not examined: this connection cannot run a command, so nothing on it could parse a script",
+          scope: "set"
+        }
+      ],
+      validForBackup: true,
+      workflowValid: false
+    };
+  }
+
+  return {
+    backupSetId,
+    configured: true,
+    root: "/srv/hooks/postgres-primary",
+    stages: [
+      { scope: "global", phase: "before", dir: "/etc/retnd/workflows/before" },
+      { scope: "set", phase: "before", dir: "/srv/hooks/postgres-primary/before" },
+      { scope: "set", phase: "after", dir: "/srv/hooks/postgres-primary/after" },
+      { scope: "global", phase: "after", dir: "/etc/retnd/workflows/after" }
+    ],
+    scripts: [
+      {
+        stepId: "step_flush",
+        scriptName: "before/10-flush-cache.remote.sh",
+        phase: "before",
+        scope: "set",
+        order: 1,
+        target: "remote",
+        executionConnectionRef: "postgres-exec",
+        sha256: "4f21ab9c6d0e5b7382c1af94de0b73186c5ad4419e6f0b2c7d8e91a0f3b6c245",
+        sizeBytes: 1_402,
+        timeoutMs: 120_000,
+        // The rich one: all four severities at once, which is the only
+        // fixture that proves the panel groups them rather than printing
+        // them in arrival order. BSH003 is the ERROR, and it is the
+        // finding that refuses a save.
+        lint: {
+          examined: true,
+          parsed: true,
+          parseErrorExcerpt: { lines: [] },
+          findings: [
+            {
+              code: "BSH001",
+              severity: "info",
+              line: 14,
+              col: 12,
+              message:
+                "this variable expansion is not quoted, so the shell splits its value on " +
+                "whitespace and expands any glob characters in it before the command sees it: a " +
+                "path with a space in it becomes two arguments, and one with a `*` becomes " +
+                "whatever that matched. Put it in double quotes",
+              // The TRUNCATED line lives here, on the line after the one
+              // the finding is about: a real hook has a 300-character
+              // comment in it somewhere, and the panel has to be
+              // developable against one rather than against four tidy
+              // lines that all fit.
+              excerpt: {
+                lines: [
+                  { number: 13, text: "# ship it while the source is still frozen", truncated: false },
+                  { number: 14, text: "  rsync -a $dest \"$REMOTE_HOST:/srv/\"", truncated: false },
+                  {
+                    number: 15,
+                    text:
+                      "  # NOTE: keep this in step with the retention job, which expects the " +
+                      "same layout under /srv and will silently skip anything it does not",
+                    truncated: true
+                  }
+                ]
+              }
+            },
+            {
+              code: "BSH003",
+              severity: "error",
+              line: 12,
+              col: 8,
+              message:
+                "this recursive, forced delete targets /var whenever the expansion in it is " +
+                "empty, because an unset or empty variable leaves the literal path behind. That " +
+                "is a root-level directory. Write ${NAME:?} so the script fails instead, give " +
+                "the expansion a default, or put `set -u` at the top of the script",
+              excerpt: {
+                lines: [
+                  { number: 11, text: "# clear anything the last run left behind", truncated: false },
+                  { number: 12, text: "rm -rf \"$STAGING/var\"", truncated: false },
+                  { number: 13, text: "# ship it while the source is still frozen", truncated: false }
+                ]
+              }
+            },
+            {
+              code: "BSH006",
+              severity: "style",
+              line: 1,
+              col: 1,
+              message:
+                "this script has no #! interpreter line. This product runs a hook by handing " +
+                "its bytes to bash, so this changes nothing about how it runs here; it changes " +
+                "what happens when somebody runs the file by hand to test it. Start the file " +
+                "with #!/usr/bin/env bash",
+              // Line 1 has no line before it, which is the shape a
+              // surface has to survive: the excerpt is the reported line
+              // with one either side WHERE THERE IS ONE.
+              excerpt: {
+                lines: [
+                  {
+                    number: 1,
+                    text: "# 10-flush-cache.remote.sh -- flush the application cache",
+                    truncated: false
+                  },
+                  { number: 2, text: "set -e", truncated: false }
+                ]
+              }
+            },
+            {
+              code: "BSH002",
+              severity: "warning",
+              line: 9,
+              col: 1,
+              message:
+                "this cd does not check whether it worked, and nothing in this script does " +
+                "either. When it fails -- the directory is gone, the mount is not there -- the " +
+                "commands after it run in the directory the script was already in, against the " +
+                "wrong tree. Write `cd ... || exit 1`, or put `set -e` at the top of the script",
+              excerpt: {
+                lines: [
+                  { number: 8, text: "# everything below runs inside the staging tree", truncated: false },
+                  { number: 9, text: "cd \"$STAGING\"", truncated: false },
+                  { number: 10, text: "", truncated: false }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        stepId: "step_freeze",
+        scriptName: "before/20-freeze-db.local.sh",
+        phase: "before",
+        scope: "set",
+        order: 2,
+        target: "local",
+        sha256: "b70c1d5546e2a0f9c3812d7b5eaf40119c26d83bb7f1ea4c095d2386af17c0e9",
+        sizeBytes: 2_902,
+        timeoutMs: 120_000,
+        // The CLEAN one. Read, parsed, nothing reported.
+        lint: { examined: true, parsed: true, parseErrorExcerpt: { lines: [] }, findings: [] }
+      },
+      {
+        stepId: "step_quiesce",
+        scriptName: "after/40-quiesce-remote.remote.sh",
+        phase: "after",
+        scope: "set",
+        order: 1,
+        target: "remote",
+        executionConnectionRef: "postgres-exec",
+        sha256: "0ce41f7a2b9d8c6540e31a7f5bc2d0498a6e13cf7205bd9e4a1c86f30d7b2e51",
+        sizeBytes: 884,
+        timeoutMs: 120_000,
+        // The NOT-EXAMINED one, which is never a pass: the verification
+        // reads a bounded number of bytes, and this hook is past it.
+        lint: {
+          examined: false,
+          notExaminedReason:
+            "this script is 4.1 MB, larger than the 1 MB the shell verification reads. Nothing " +
+            "looked at its contents",
+          parsed: false,
+          // Nothing read these bytes, so there is no line to show. An
+          // excerpt here would be this product quoting a file it never
+          // opened.
+          parseErrorExcerpt: { lines: [] },
+          findings: []
+        }
+      },
+      {
+        // The PARSE-ERROR state, on a GLOBAL hook: this set's stages
+        // include the deployment's own after directory, and a broken
+        // script there is the case worth being able to see, because it
+        // breaks every backup set rather than this one.
+        stepId: "step_global_notify",
+        scriptName: "after/90-notify.remote.sh",
+        phase: "after",
+        scope: "global",
+        order: 2,
+        target: "remote",
+        executionConnectionRef: "postgres-exec",
+        sha256: "c41d7e05a9b3f2860d5e1a7c4b03f9812d6ba8317f2e0c5948da1b60e39c7f12",
+        sizeBytes: 612,
+        timeoutMs: 120_000,
+        lint: {
+          examined: true,
+          parsed: false,
+          parseError: "unexpected EOF while looking for matching `\"'",
+          parseErrorLine: 18,
+          parseErrorCol: 24,
+          parseErrorExcerpt: {
+            lines: [
+              { number: 17, text: "  if [ -n \"$HOOK_URL\" ]; then", truncated: false },
+              { number: 18, text: "    curl -fsSL -X POST \"$HOOK_URL", truncated: false },
+              { number: 19, text: "  fi", truncated: false }
+            ]
+          },
+          findings: []
+        }
+      }
+    ],
+    findings: [
+      {
+        check: "exec_connection",
+        severity: "ok",
+        detail: "postgres-exec resolved: hooks@postgres-primary.internal:22",
+        scope: "set"
+      },
+      {
+        check: "exec_capability",
+        severity: "ok",
+        detail:
+          "hooks@postgres-primary.internal accepted an exec channel and proved it runs the bytes " +
+          "it is sent rather than a program of its own",
+        scope: "set"
+      },
+      // The two syntax checks, as checkScriptLint emits them (#906): one
+      // pass line per target whose every examined script was clean, and
+      // one line per script that was not. The local target has exactly
+      // one hook and it is clean; the remote target has an error, a
+      // refusal and a script nothing read, so it gets no pass line at
+      // all.
+      {
+        check: "local_bash_syntax",
+        severity: "ok",
+        detail:
+          "1 script(s) parse, and this product's own shell rules report nothing about them. " +
+          "Nothing was executed: the bytes were parsed and walked in this process"
+      },
+      {
+        check: "remote_bash_syntax",
+        severity: "error",
+        detail:
+          "before/10-flush-cache.remote.sh does not pass retnd's shell rules: BSH003 at 12:8 " +
+          "(error) this recursive, forced delete targets /var whenever the expansion in it is " +
+          "empty, because an unset or empty variable leaves the literal path behind. That is a " +
+          "root-level directory. Write ${NAME:?} so the script fails instead, give the expansion " +
+          "a default, or put `set -u` at the top of the script (and 3 more finding(s) on this " +
+          "script)",
+        scope: "set",
+        phase: "before",
+        target: "remote",
+        script: "before/10-flush-cache.remote.sh"
+      },
+      {
+        check: "remote_bash_syntax",
+        severity: "skipped",
+        detail:
+          "this script is 4.1 MB, larger than the 1 MB the shell verification reads. Nothing " +
+          "looked at its contents",
+        scope: "set",
+        phase: "after",
+        target: "remote",
+        script: "after/40-quiesce-remote.remote.sh"
+      },
+      {
+        check: "remote_bash_syntax",
+        severity: "error",
+        detail:
+          "after/90-notify.remote.sh is not a shell program: at line 18, column 24, unexpected " +
+          "EOF while looking for matching `\"'. A run would refuse it, and this product's own " +
+          "parser answered without needing a shell, a runner or the source host",
+        scope: "global",
+        phase: "after",
+        target: "remote",
+        script: "after/90-notify.remote.sh"
+      },
+      {
+        check: "environment_conflicts",
+        severity: "warning",
+        detail: "PGHOST is set at both scopes; this set's value wins"
+      },
+      {
+        check: "runner_health",
+        severity: "ok",
+        detail: "the host workflow runner answered: version 0.4.1, bash 5.2.15, running as retnd-hooks"
+      }
+    ],
+    validForBackup: true,
+    // FALSE, because two of this set's hooks carry an error-severity
+    // finding: core/service settles the verdict from the findings list
+    // and an error anywhere in it makes the hooks invalid. A fixture
+    // pairing a green hook verdict with a BSH003 would be modelling a
+    // report the engine cannot produce.
+    workflowValid: false
+  };
+}
+
+/**
+ * The mock's KNOWN-BROKEN stage directory (#906).
+ *
+ * Point either workflow patch — the deployment-wide one or a set's — at
+ * this path and the write is refused with the same 409
+ * WORKFLOW_SCRIPT_REJECTED the service answers, carrying the same
+ * structured blocking list. Any other directory saves.
+ *
+ * A magic path is a blunt instrument and it is the right one here. The
+ * real gate reads the scripts in the directory the write points at, and a
+ * mock that answers from memory has no directory to read; the
+ * alternative is a mock that can NEVER show the refusal, which means the
+ * refusal banner is a surface nobody can develop or demonstrate against
+ * without a running engine. The CLI shows this refusal and the web UI has
+ * to show the same one, so both need a way to produce it.
+ */
+const WORKFLOW_BROKEN_DIR = "/srv/hooks/known-broken";
+
+/**
+ * The refusal, shaped exactly as the 409 arrives: the service's own
+ * multi-line sentence in `message`, and the blocking half — a parse
+ * error, and the error-severity findings — as structured fields.
+ *
+ * TWO scripts, because one of each is what a client has to render: a file
+ * that is not a shell program at all, and a file that parses and holds
+ * the one finding this product refuses a save over. The warnings those
+ * scripts also carry are deliberately NOT here: a refusal that listed
+ * them would read as though the warnings had refused it.
+ *
+ * The second one carries a `backupSetId`, which is the case #906's review
+ * found nothing could draw: a deployment-wide write re-resolves every
+ * backup set's stage directories, so the gate visits them and a refusal
+ * can be about a set the operator was not editing. A mock that only ever
+ * produced global-stage refusals would leave that banner line
+ * undevelopable.
+ *
+ * Both carry the excerpt the real service now sends — the reported line
+ * with one either side, from the bytes it read and hashed.
+ */
+function workflowScriptRefusal(dir: string, scope: "global" | "set", phase: "before" | "after"): RetndError {
+  const blocking: WorkflowBlockingScript[] = [
+    {
+      scriptName: "10-quiesce.remote.sh",
+      dir,
+      scope,
+      phase,
+      parseError: "unexpected EOF while looking for matching `\"'",
+      parseErrorLine: 18,
+      parseErrorCol: 24,
+      parseErrorExcerpt: {
+        lines: [
+          { number: 17, text: "  # quiesce before anything else touches the volume", truncated: false },
+          { number: 18, text: "  mysql -e \"FLUSH TABLES WITH READ LOCK", truncated: false },
+          { number: 19, text: "fi", truncated: false }
+        ]
+      },
+      findings: []
+    },
+    {
+      scriptName: "20-prune-cache.local.sh",
+      dir,
+      scope,
+      phase,
+      backupSetId: WORKFLOW_SFTP_SET,
+      parseErrorExcerpt: { lines: [] },
+      findings: [
+        {
+          code: "BSH003",
+          severity: "error",
+          line: 12,
+          col: 8,
+          message:
+            "this recursive, forced delete targets /var whenever the expansion in it is empty, " +
+            "because an unset or empty variable leaves the literal path behind. That is a " +
+            "root-level directory. Write ${NAME:?} so the script fails instead, give the " +
+            "expansion a default, or put `set -u` at the top of the script",
+          excerpt: {
+            lines: [
+              { number: 11, text: "# clear anything the last run left behind", truncated: false },
+              { number: 12, text: "rm -rf \"$STAGING/var\"", truncated: false },
+              { number: 13, text: "mkdir -p \"$STAGING/var\"", truncated: false }
+            ]
+          }
+        }
+      ]
+    }
+  ];
+  return new RetndError({
+    code: "WORKFLOW_SCRIPT_REJECTED",
+    message:
+      "this configuration was not saved: 2 hook scripts it points at would not run.\n" +
+      dir +
+      "/10-quiesce.remote.sh does not parse: unexpected EOF while looking for matching `\"' " +
+      "at 18:24.\n" +
+      dir +
+      "/20-prune-cache.local.sh: BSH003 at 12:8: this recursive, forced delete targets /var " +
+      "whenever the expansion in it is empty.",
+    correlationId: "cid_mockwfscript409",
+    status: 409,
+    origin: "service",
+    blockingScripts: blocking
+  });
+}
+
+/** The one outstanding hold: the reason WORKFLOW_HELD_SET is refusing to
+ *  run at all. It is the flagship run's own unfinished cleanup. */
+const WORKFLOW_HOLDS: WorkflowRecoveryHold[] = [
+  {
+    runId: WORKFLOW_RUN_FAILED.runId,
+    backupSetId: WORKFLOW_HELD_SET,
+    scope: "set",
+    enteredAt: "2026-09-12T02:16:41Z",
+    spoolRef: "/var/lib/retnd/workflow-spool/wfr_2f91a4"
+  }
+];
+
+function workflowRunNotFound(): RetndError {
+  return new RetndError({
+    code: "WORKFLOW_RUN_NOT_FOUND",
+    message: "this deployment has no workflow run with that id",
+    correlationId: "cid_mockwfr404"
+  });
+}
+
+/**
+ * A PUT of one environment entry, at whichever scope, answering with the
+ * whole list.
+ *
+ * One function for both scopes because core/service has one method for
+ * both and the API has one pair of shapes: a second copy here would be a
+ * second place the secret-reference rule has to be kept. The entry
+ * REPLACES any existing one of the same name rather than merging with it,
+ * which is what a PUT means and is the half that matters: an operator
+ * moving a variable from a literal to a secret reference must not end up
+ * with both, since the service refuses that as a contradiction.
+ */
+function mockEnvSet(
+  scopes: Map<string, WorkflowEnvVariable[]>,
+  scope: string,
+  name: string,
+  entry: WorkflowEnvVariableInput
+): WorkflowEnvironment {
+  const variables = scopes.get(scope) ?? [];
+  const written: WorkflowEnvVariable = {
+    name,
+    value: entry.value,
+    // A literal was named, even an empty one. `hasValue` is what tells a
+    // deliberately empty variable from one whose value comes from a
+    // reference, so it follows the presence of the field and not its
+    // truthiness.
+    hasValue: entry.value !== undefined,
+    secret: entry.secret
+  };
+  const next = variables.filter((v) => v.name !== name);
+  next.push(written);
+  next.sort((a, b) => a.name.localeCompare(b.name));
+  scopes.set(scope, next);
+  return { backupSetId: scope, variables: structuredClone(next) };
+}
+
+/** The DELETE, answering with what is left — which is the reason it
+ *  answers with a list at all: an operator clearing a credential needs to
+ *  see what remains. Unsetting a name that is not there is a success, the
+ *  same way the real route treats it. */
+function mockEnvUnset(
+  scopes: Map<string, WorkflowEnvVariable[]>,
+  scope: string,
+  name: string
+): WorkflowEnvironment {
+  const next = (scopes.get(scope) ?? []).filter((v) => v.name !== name);
+  scopes.set(scope, next);
+  return { backupSetId: scope, variables: structuredClone(next) };
+}
+
+/**
+ * A whole RetndApi, in memory, for one scenario.
  *
  * This is a second implementation of the contract rather than a bag of
  * canned responses, and quite a lot rests on it: the dev server, the
@@ -1589,7 +3697,7 @@ function refusingWhileUnconfigured(api: BackupManagerApi, isConfigured: () => bo
  * Each instance is independent. Tests that want to read a fixture without
  * disturbing the one under test build a second mock rather than sharing.
  */
-export function createMockApi(scenario: Scenario = "default"): BackupManagerApi {
+export function createMockApi(scenario: Scenario = "default"): RetndApi {
   const empty = scenario === "empty";
   // Every deployment written before storage mediums existed, which is the
   // compatibility case FR-35 pins: no medium declared anywhere, so every
@@ -1600,6 +3708,10 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
   const noMedium = scenario === "no-medium";
   // Issue #598. One call fails, and it fails the way the NAS did.
   const activityUnreadable = scenario === "activity-unreadable";
+  // Issue #852. One flag, read by both modes of the connection test, so
+  // the wizard's candidate check and the detail page's saved check
+  // cannot disagree about a source in the same fixture.
+  const sourceIsWritable = scenario !== "read-only-source";
   // Every previewRetention call advances this backup set's "inventory" by
   // one tick and issues a plan captured against it. applyRetention only
   // ever honors the plan_id from the LATEST tick — anything older is,
@@ -1663,8 +3775,54 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
   // fixture that stored it would be the one place in this codebase where
   // an S3 secret sits at rest.
   let importedCredentialCount = 0;
+  // Issue #830: the recovery block this instance currently holds. Held
+  // per mock instance, like `settings` above, so a PATCH is visible to the
+  // next GET and a write in one test cannot be seen by the next.
+  //
+  // Configured and confirmed, because that is the state nearly every
+  // screen is rendered against and the one a dev server should start in.
+  // The unconfigured-endpoint state (`smtp: null`, which a headlessly
+  // provisioned administrator really is in) is reachable by writing null
+  // here from a test's own spy rather than by a scenario, since no page
+  // navigates INTO it.
+  const recovery: RecoverySettings = {
+    recoveryEmail: "backup-admin@example.com",
+    recoveryEmailConfirmed: true,
+    // Verified, for the reason the block above is confirmed: it is the
+    // state nearly every screen is rendered against. The PROVISIONAL
+    // state (#830 §§8-9) is reached the way the real service reaches it,
+    // by verifyRecoveryEmail below flipping it, or by a test writing
+    // false here through its own spy - no scenario navigates into it,
+    // because no page can put an account back into it.
+    recoveryEmailVerified: true,
+    verificationDeadline: "",
+    smtp: {
+      host: "smtp.example.net",
+      port: 587,
+      security: "starttls",
+      username: "backup-admin@example.com",
+      from: "retnd@example.net",
+      passwordSet: true
+    }
+  };
 
-  const api: BackupManagerApi = {
+  // EPIC L's state, per mock instance for the reason `settings` and
+  // `recovery` above are: a write has to be visible to the next read,
+  // which is what the real backend's hot reload does, and a write in one
+  // test must not be visible to the next.
+  const workflowSettings = defaultWorkflowSettings();
+  const setWorkflows = defaultSetWorkflows();
+  const workflowEnv = new Map<string, WorkflowEnvVariable[]>([
+    ["", workflowSettings.environment],
+    [WORKFLOW_SET, defaultSetWorkflowEnvironment()]
+  ]);
+  const workflowRuns = WORKFLOW_RUNS.map((run) => structuredClone(run));
+  // The holds, mutable: resuming or acknowledging one REMOVES it, which
+  // is the whole observable effect of both actions and the thing the Run
+  // control's gate reads.
+  let workflowHolds = WORKFLOW_HOLDS.map((hold) => structuredClone(hold));
+
+  const api: RetndApi = {
     getVersion: () =>
       delay(
         scenario === "version-mismatch"
@@ -1677,7 +3835,7 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
     completeFirstRun: (req: CreateBackupSetRequest): Promise<FirstRunResult> => {
       if (configured)
         return Promise.reject(
-          new BackupManagerError({
+          new RetndError({
             code: "unknown",
             message: "This instance is already configured.",
             correlationId: "cid_mock409"
@@ -1711,7 +3869,7 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
         empty
           ? { ...HEALTH, backupHealth: "healthy", backupHealthReason: "No backup sets configured yet.", setsHealthy: 0, setsStale: 0, setsFailing: 0, retainedCount: 0, retainedBytes: 0, quarantinedCount: 0, readOnlyRetainedCount: 0 }
           : scenario === "storage-critical"
-            ? { ...HEALTH, storageState: "critical", storageFreeBytes: 0.28 * TB, backupHealth: "failing", backupHealthReason: "Storage is critically low; ingestion has been paused to protect existing backups." }
+            ? { ...HEALTH, storageState: "critical", backupHealth: "failing", backupHealthReason: "Storage is critically low; ingestion has been paused to protect existing backups." }
             : HEALTH
       ),
 
@@ -1732,7 +3890,7 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
       // is built to show (found while wiring #97's error-state test).
       if (!found)
         return Promise.reject(
-          new BackupManagerError({
+          new RetndError({
             code: "unknown", message: "That backup set no longer exists.", correlationId: "cid_mock404"
           })
         );
@@ -1748,7 +3906,7 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
       SETS.some((s) => s.id === backupSetId)
         ? delay(undefined)
         : Promise.reject(
-            new BackupManagerError({
+            new RetndError({
               code: "BACKUP_SET_NOT_FOUND",
               message: "no such backup set",
               correlationId: "cid_mock404"
@@ -1773,7 +3931,8 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
     // answered {ok: true} alone would let a surface that renders nothing
     // at all look exactly like one that renders the steps, which is
     // precisely the state 0.3.2 shipped in.
-    testConnection: () => delay({ ok: true, checks: mockPassingChecks(SETS[0].username) }),
+    testConnection: () =>
+      delay({ ok: true, writable: sourceIsWritable, checks: mockPassingChecks(SETS[0].username, sourceIsWritable) }),
     // Both APPLY to the SETS fixture rather than resolving and leaving it
     // alone, for the reason updateBackupSet's own comment below gives:
     // a mock that answers "fine" without changing anything makes every
@@ -1806,7 +3965,7 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
       const found = SETS.find((s) => s.source === source && s.set === set);
       if (!found)
         return Promise.reject(
-          new BackupManagerError({
+          new RetndError({
             code: "unknown", message: "That backup set no longer exists.", correlationId: "cid_mock404"
           })
         );
@@ -1817,6 +3976,38 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
       if (patch.destination !== undefined) found.destination = patch.destination;
       if (patch.includePatterns !== undefined) found.includePatterns = [...patch.includePatterns];
       if (patch.completionMethod !== undefined) found.completionMethod = patch.completionMethod;
+      if (patch.stableForSeconds !== undefined) found.stableForSeconds = patch.stableForSeconds;
+      if (patch.pollIntervalSeconds !== undefined) {
+        // Zero is the request that returns this set to the deployment's
+        // cadence, which is why it is applied as null rather than stored
+        // (issue #845). The effective value follows, since with no
+        // override the set polls at whatever the deployment does.
+        found.pollIntervalSeconds = patch.pollIntervalSeconds === 0 ? null : patch.pollIntervalSeconds;
+        found.effectivePollIntervalSeconds = found.pollIntervalSeconds ?? 15 * 60;
+      }
+      // EPIC K's four editable incremental settings (issue #788),
+      // applied for the reason every field above is: a configuration
+      // card that sent the wrong field, or sent one it should have left
+      // alone, has to be visible in the dev server and in the browser
+      // suite rather than echoed back as though it had worked. An
+      // artifact set has no block to write them into and is left alone —
+      // the real service refuses that patch with
+      // BACKUP_SET_NOT_INCREMENTAL, and a mock that invented a block
+      // would make a page that sends one look correct.
+      if (found.incremental) {
+        const incremental = found.incremental;
+        if (patch.sourceConsistency !== undefined) incremental.sourceConsistency = patch.sourceConsistency;
+        if (patch.verificationLevel !== undefined) incremental.verificationLevel = patch.verificationLevel;
+        if (patch.verificationSamplePercent !== undefined) {
+          incremental.verificationSamplePercent = patch.verificationSamplePercent;
+        }
+        if (patch.verificationFullEverySeconds !== undefined) {
+          incremental.verificationFullEverySeconds = patch.verificationFullEverySeconds;
+        }
+        if (patch.verificationRestoreDrillEverySeconds !== undefined) {
+          incremental.verificationRestoreDrillEverySeconds = patch.verificationRestoreDrillEverySeconds;
+        }
+      }
       return delay({ ...found });
     },
 
@@ -1890,7 +4081,7 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
     probeHostKey: (): Promise<HostKeyProbeResult> =>
       delay({ algorithm: "ssh-ed25519", fingerprint: mockProbedFingerprint, knownHostsLine: "mock-host.internal ssh-ed25519 AAAAC3NzaC1lZDI1NTE5mock" }),
     testCandidateConnection: (params): Promise<ConnectionTestOutcome> =>
-      delay({ ok: true, checks: mockPassingChecks(params.user) }),
+      delay({ ok: true, writable: sourceIsWritable, checks: mockPassingChecks(params.user, sourceIsWritable) }),
     // Issue #592's two reads. Both answer the way a packaged install
     // does, which means the scan reports a location it found nothing in:
     // the page has to be exercised against "I looked here and there was
@@ -1900,17 +4091,17 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
     listSSHKeyCandidates: (): Promise<SSHKeyDiscovery> =>
       delay({
         locations: [
-          { path: "/etc/backup-manager", kind: "mount", found: 1 },
-          { path: "/home/backup-manager/.ssh", kind: "home", found: 0, problem: "this location is not present in this deployment" }
+          { path: "/etc/retnd", kind: "mount", found: 1 },
+          { path: "/home/retnd/.ssh", kind: "home", found: 0, problem: "this location is not present in this deployment" }
         ],
         candidates: [
           {
             id: "cand_mock_installer",
-            path: "/etc/backup-manager/id_ed25519",
-            location: "/etc/backup-manager",
+            path: "/etc/retnd/id_ed25519",
+            location: "/etc/retnd",
             algorithm: "ssh-ed25519",
             fingerprint: mockCandidateFingerprint,
-            publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAImockinstallerkey rclone-manager",
+            publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAImockinstallerkey retnd",
             mode: "0600",
             inStore: false,
             selectable: true
@@ -1934,7 +4125,7 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
       return found
         ? delay(found)
         : delay(null).then(() => {
-            throw new BackupManagerError({
+            throw new RetndError({
               code: "ARTIFACT_NOT_FOUND",
               message: "no backup with id " + id,
               correlationId: "cid_mock404"
@@ -1942,11 +4133,344 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
           });
     },
 
+    // EPIC K's reads (issue #788). Every one of them refuses for a set
+    // this fixture does not have, and the two per-set snapshot reads
+    // refuse for an ARTIFACT set with the contract's own
+    // BACKUP_SET_NOT_INCREMENTAL — which is the refusal the real service
+    // answers and the one a page has to be able to reach in dev mode,
+    // because "this set has no snapshots" and "this set can never have
+    // snapshots" are different screens.
+    listSnapshots: (source, set) =>
+      incrementalSet(source, set) ?? delay(MOCK_SNAPSHOTS.filter((s) => s.backupSetId === source + "/" + set)),
+    getSnapshot: (source, set, runId) => {
+      const refusal = incrementalSet(source, set);
+      if (refusal) return refusal;
+      const snapshot = MOCK_SNAPSHOTS.find(
+        (s) => s.backupSetId === source + "/" + set && s.runId === runId
+      );
+      if (!snapshot)
+        return Promise.reject(
+          new RetndError({
+            code: "SNAPSHOT_NOT_FOUND",
+            message: "no snapshot run " + runId + " in this backup set",
+            correlationId: "cid_mock404"
+          })
+        );
+      // The transition log belongs to the newest run in this fixture;
+      // every other run answers with the two edges every run has, rather
+      // than with a log borrowed from a different snapshot.
+      return delay({
+        snapshot,
+        transitions:
+          snapshot.runId === MOCK_SNAPSHOTS[0].runId
+            ? MOCK_TRANSITIONS
+            : [
+                { from: null, to: "PENDING", at: snapshot.startedAt, detail: "" },
+                {
+                  from: "PENDING",
+                  to: snapshot.phase,
+                  at: snapshot.completedAt ?? snapshot.startedAt,
+                  detail: snapshot.reason
+                }
+              ]
+      });
+    },
+    listSnapshotHolds: (source, set) =>
+      incrementalSet(source, set) ??
+      delay(MOCK_HOLDS.filter((h) => h.backupSetId === source + "/" + set && h.active)),
+    getSnapshotRetention: (source, set) => {
+      const refusal = incrementalSet(source, set);
+      if (refusal) return refusal;
+      const mine = MOCK_SNAPSHOTS.filter((s) => s.backupSetId === source + "/" + set);
+      // Oldest first, which is the order the real preview answers in and
+      // the order the screen reads: the snapshots nearest expiry are the
+      // ones a verdict is interesting about.
+      const oldestFirst = [...mine].reverse();
+      return delay({
+        generatedAt: new Date().toISOString(),
+        verdicts: oldestFirst.map((snapshot, index) => {
+          const holds = MOCK_HOLDS.filter((h) => h.runId === snapshot.runId && h.active);
+          if (holds.length > 0)
+            return {
+              runId: snapshot.runId,
+              snapshotId: snapshot.snapshotId,
+              // REFUSE, not KEEP: this snapshot WAS a delete candidate
+              // and a hold stopped it, which is the one of the three
+              // verdicts that needs somebody to look at it.
+              action: "REFUSE" as const,
+              startedAt: snapshot.startedAt,
+              tiers: [],
+              holds,
+              reason: "held: retention may not delete this snapshot while a hold is in force",
+              holdReason: holds[0].reason
+            };
+          if (snapshot.lastKnownGood)
+            return {
+              runId: snapshot.runId,
+              snapshotId: snapshot.snapshotId,
+              action: "KEEP" as const,
+              startedAt: snapshot.startedAt,
+              // Last-known-good protection carries no placement to name,
+              // so `selectedBy` is null and the badge is drawn bare.
+              tiers: [{ tier: "last-known-good", selectedBy: null }],
+              holds: [],
+              reason: "protected: this set's newest verified restore point",
+              holdReason: null
+            };
+          if (index === 0)
+            return {
+              runId: snapshot.runId,
+              snapshotId: snapshot.snapshotId,
+              action: "DELETE" as const,
+              startedAt: snapshot.startedAt,
+              tiers: [],
+              holds: [],
+              reason: "no tier selects this snapshot, and every safety check passed",
+              holdReason: null
+            };
+          return {
+            runId: snapshot.runId,
+            snapshotId: snapshot.snapshotId,
+            action: "KEEP" as const,
+            startedAt: snapshot.startedAt,
+            tiers: [{ tier: index === 1 ? "weekly" : "daily", selectedBy: snapshot.startedAt }],
+            holds: [],
+            reason: "selected by the deployment's retention chain",
+            holdReason: null
+          };
+        })
+      });
+    },
+    listRepositories: () =>
+      delay(
+        empty
+          ? { generatedAt: new Date().toISOString(), repositories: [] }
+          : { generatedAt: new Date().toISOString(), repositories: MOCK_REPOSITORIES }
+      ),
+    getRepositoryMaintenance: (domain) => {
+      const record = MOCK_MAINTENANCE[domain];
+      if (!record)
+        return Promise.reject(
+          new RetndError({
+            code: "REPOSITORY_DOMAIN_NOT_FOUND",
+            message: "no repository domain " + domain + " is declared",
+            correlationId: "cid_mock404"
+          })
+        );
+      return delay(record);
+    },
+    // Issue #862. The mock DECLARES the domain into the fixture the fleet
+    // read serves, because that is what the real route does and it is
+    // what the screen after the create shows: a mock that resolved with a
+    // detached object would let the wizard ship without ever proving the
+    // domain turns up on the list it navigates to.
+    //
+    // The two objects below are deliberately DIFFERENT, and that is the
+    // whole fidelity of this fixture. The 201 is built from the
+    // declaration: the real route opens no storage and resolves no
+    // passphrase reference, so every access boolean is false because
+    // nothing was measured, and the verdict is DEGRADED rather than a
+    // green row nobody took a reading for. The fleet ROW is what
+    // GET /repositories then probes and reports, which for a domain
+    // nothing has run into is reachable and NOT readable: the storage
+    // answers and holds no repository (kopia's ErrRepositoryNotFound;
+    // core/internal/app/repositoryhealth.go). Reporting it unreachable —
+    // which this fixture did — sends an operator to check a mount that
+    // is fine.
+    createRepositoryDomain: (req) => {
+      if (MOCK_REPOSITORIES.some((repo) => repo.domain === req.domain))
+        return Promise.reject(
+          new RetndError({
+            code: "REPOSITORY_DOMAIN_EXISTS",
+            message: "this deployment already declares a repository domain of that id: " + req.domain,
+            correlationId: "cid_mock409"
+          })
+        );
+
+      const unprobed = {
+        domain: req.domain,
+        mayShare: req.isolation === "shared",
+        writable: false,
+        credentialsValid: false,
+        clockSane: true,
+        clockSkewSeconds: null,
+        maintenanceOverdue: false,
+        lastMaintenanceAt: null,
+        lastMaintenanceResult: "",
+        lastSnapshotAt: null,
+        lastSnapshotStatus: "",
+        lastVerificationAt: null,
+        lastVerificationStatus: "",
+        backupSets: []
+      };
+
+      const declared: RepositoryHealth = {
+        ...unprobed,
+        state: "DEGRADED",
+        reachable: false,
+        readable: false,
+        detail:
+          "this repository domain is declared and its store has not been created yet: it is written by the first backup run that stores a snapshot here, so nothing above is a reading of storage"
+      };
+
+      MOCK_REPOSITORIES.push({
+        ...unprobed,
+        state: "FAILING",
+        reachable: true,
+        readable: false,
+        detail:
+          "the storage answered and holds no repository, which is what an empty or wrongly-mounted location looks like; nothing has been created here, deliberately"
+      });
+
+      return delay(declared);
+    },
+
+    getOperation: (id) => {
+      const found = OPERATIONS.find((op) => op.id === id);
+      if (!found)
+        return Promise.reject(
+          new RetndError({
+            code: "unknown",
+            message: "no operation " + id,
+            correlationId: "cid_mock404"
+          })
+        );
+      return delay(found);
+    },
+
+    // EPIC K's four mutating acts. Each one PUSHES a durable operation
+    // onto the fixture's own list, because that is what the real route
+    // does and what the screens then watch: a mock that resolved with a
+    // detached object would let a page ship with no watching path at all.
+    //
+    // The restore is the one that advances: it lands as `running` with a
+    // live reading, so the progress surface has something to draw, and
+    // `completeMockOperation` is what a test uses to finish it.
+    restoreSnapshot: (req) => {
+      const refusal = snapshotActionRefusal(req.backupSetId);
+      if (refusal) return refusal;
+      const operation: Operation = {
+        id: "op_mock_restore_" + (OPERATIONS.length + 1),
+        setId: req.backupSetId,
+        setName: req.backupSetId,
+        kind: "transfer",
+        label: "restore snapshot",
+        status: "running",
+        progress: {
+          observedAt: new Date().toISOString(),
+          sequence: 1,
+          stage: "transferring",
+          backupSetId: req.backupSetId,
+          backupSetsDone: 0,
+          backupSetsTotal: 1,
+          artifact: req.sourcePath ?? "the whole snapshot",
+          artifactsDone: 0,
+          bytesDone: 32 * GB,
+          bytesTotal: 84 * GB,
+          bytesPerSecond: 210 * 1024 * 1024
+        },
+        nonDestructive: false,
+        startedAt: new Date().toISOString(),
+        cycle: null
+      };
+      OPERATIONS.unshift(operation);
+      return delay({ operation, snapshots: [] });
+    },
+    verifySnapshot: (req) => {
+      const refusal = snapshotActionRefusal(req.backupSetId);
+      if (refusal) return refusal;
+      const operation: Operation = {
+        id: "op_mock_verify_" + (OPERATIONS.length + 1),
+        setId: req.backupSetId,
+        setName: req.backupSetId,
+        kind: "validation",
+        label: "verify snapshot",
+        status: "running",
+        progress: {
+          observedAt: new Date().toISOString(),
+          sequence: 1,
+          stage: "verifying",
+          backupSetId: req.backupSetId,
+          backupSetsDone: 0,
+          backupSetsTotal: 1,
+          artifact: req.runId ?? "the newest snapshot",
+          artifactsDone: 0,
+          bytesDone: undefined,
+          bytesTotal: undefined,
+          bytesPerSecond: undefined
+        },
+        // A verification reads and proves; it writes nothing anywhere,
+        // which is exactly what this flag is for.
+        nonDestructive: true,
+        startedAt: new Date().toISOString(),
+        cycle: null
+      };
+      OPERATIONS.unshift(operation);
+      return delay({ operation, snapshots: [] });
+    },
+    holdSnapshot: (req) => {
+      const refusal = snapshotActionRefusal(req.backupSetId);
+      if (refusal) return refusal;
+      const snapshot = MOCK_SNAPSHOTS.find(
+        (s) => s.backupSetId === req.backupSetId && s.runId === req.runId
+      );
+      if (!snapshot)
+        return Promise.reject(
+          new RetndError({
+            code: "SNAPSHOT_NOT_FOUND",
+            message: "no snapshot run " + req.runId + " in this backup set",
+            correlationId: "cid_mock404"
+          })
+        );
+      const hold: SnapshotHold = {
+        holdId: "hold_mock_" + (MOCK_HOLDS.length + 1),
+        runId: req.runId,
+        backupSetId: req.backupSetId,
+        reason: req.reason,
+        placedAt: new Date().toISOString(),
+        placedBy: "backup-admin@example.com",
+        releasedAt: null,
+        releasedBy: null,
+        active: true
+      };
+      MOCK_HOLDS.push(hold);
+      // The fixture's snapshot rows carry their own holds, so the list
+      // and the retention preview agree with the holds table without a
+      // second read.
+      snapshot.holds = [...snapshot.holds, hold];
+      return delay({
+        operation: mockSnapshotActionOperation("hold snapshot", req.backupSetId),
+        snapshots: [snapshot]
+      });
+    },
+    releaseSnapshotHold: (req) => {
+      const refusal = snapshotActionRefusal(req.backupSetId);
+      if (refusal) return refusal;
+      const hold = MOCK_HOLDS.find((h) => h.holdId === req.holdId && h.active);
+      if (!hold)
+        return Promise.reject(
+          new RetndError({
+            code: "SNAPSHOT_HOLD_NOT_FOUND",
+            message: "no unreleased hold " + req.holdId,
+            correlationId: "cid_mock404"
+          })
+        );
+      hold.active = false;
+      hold.releasedAt = new Date().toISOString();
+      hold.releasedBy = "backup-admin@example.com";
+      const snapshot = MOCK_SNAPSHOTS.find((s) => s.runId === hold.runId);
+      if (snapshot) snapshot.holds = snapshot.holds.filter((h) => h.active);
+      return delay({
+        operation: mockSnapshotActionOperation("release snapshot hold", req.backupSetId),
+        snapshots: snapshot ? [snapshot] : []
+      });
+    },
+
     listOperations: () => delay(empty ? [] : OPERATIONS),
-    listActivity: () =>
+    listActivity: (query) =>
       activityUnreadable
         ? delay(null).then(() => {
-            // Thrown, not rejected with a BackupManagerError: the whole
+            // Thrown, not rejected with a RetndError: the whole
             // point of #598's scenario is a failure this frontend has no
             // type for, reproduced exactly. `request()` would have
             // labelled this a RequestFailure; a mock cannot go through
@@ -1954,7 +4478,7 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
             // the classifier has to cope with the harder case.
             throw new SyntaxError("Unexpected token '<', \"<!doctype \"... is not valid JSON");
           })
-        : delay(empty ? [] : ACTIVITY),
+        : delay(activityPageOf(empty ? [] : ACTIVITY, query)),
     getLiveActivity: (options) =>
       delay({
         observedAt: "2026-08-29T02:01:20+02:00",
@@ -2007,7 +4531,7 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
     setBackupSetRetention: (source, set, policy) => {
       if (policy.tiers && policy.tiers.length === 0)
         return Promise.reject(
-          new BackupManagerError({
+          new RetndError({
             code: "INVALID_REQUEST",
             message:
               'retention.tiers must name at least one tier; an empty chain is not "keep nothing", it reinstates the default daily/weekly/monthly policy.',
@@ -2044,7 +4568,7 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
       // for a stale retention plan.
       const current = retentionPlan(retentionOverrides, source, set, retentionTick, !noMedium);
       if (planId !== current.planId)
-        return Promise.reject(new BackupManagerError({
+        return Promise.reject(new RetndError({
           // The literal code apps/common/webhost/handlers_retention.go
           // writes for this refusal, not a fixture-only spelling: a mock
           // that invents its own vocabulary lets every test pass against
@@ -2082,8 +4606,10 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
           c.warningFreeBytes === undefined &&
           c.criticalFreeBytes === undefined &&
           c.safetyMarginBytes === undefined);
-      if (retentionNamesNothing && capacityNamesNothing)
-        return Promise.reject(new BackupManagerError({
+      const sv = req.service;
+      const serviceNamesNothing = sv === undefined || sv.pollIntervalSeconds === undefined;
+      if (retentionNamesNothing && capacityNamesNothing && serviceNamesNothing)
+        return Promise.reject(new RetndError({
           code: "INVALID_REQUEST",
           message: "a settings write must name at least one setting to change",
           correlationId: "cid_mocksettings400"
@@ -2092,8 +4618,12 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
       // the OTHER section carries a real change: quietly dropping half a
       // request is how a settings page reports success for an edit that
       // never happened.
-      if ((r !== undefined && retentionNamesNothing) || (c !== undefined && capacityNamesNothing))
-        return Promise.reject(new BackupManagerError({
+      if (
+        (r !== undefined && retentionNamesNothing) ||
+        (c !== undefined && capacityNamesNothing) ||
+        (sv !== undefined && serviceNamesNothing)
+      )
+        return Promise.reject(new RetndError({
           code: "INVALID_REQUEST",
           message: "a settings section was sent with no field in it; omit the section instead of sending an empty one",
           correlationId: "cid_mocksettings400"
@@ -2118,7 +4648,7 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
             // reinstates the default policy, so it is refused rather than
             // applied. A fixture that accepted it would let a UI ship an
             // affordance the real backend rejects.
-            return Promise.reject(new BackupManagerError({
+            return Promise.reject(new RetndError({
               code: "INVALID_REQUEST",
               message:
                 "retention.tiers must name at least one tier; an empty chain is not \"keep nothing\", it reinstates the default daily/weekly/monthly policy.",
@@ -2142,25 +4672,25 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
         const safetyMarginBytes = c.safetyMarginBytes ?? settings.capacity.safetyMarginBytes;
 
         if (capBytes < 0)
-          return Promise.reject(new BackupManagerError({
+          return Promise.reject(new RetndError({
             code: "INVALID_REQUEST",
             message: "capacity.cap_bytes must not be negative; use 0 for no cap",
             correlationId: "cid_mocksettings400"
           }));
         if (warningFreeBytes < 0 || criticalFreeBytes < 0 || safetyMarginBytes < 0)
-          return Promise.reject(new BackupManagerError({
+          return Promise.reject(new RetndError({
             code: "INVALID_REQUEST",
             message: "capacity thresholds must not be negative",
             correlationId: "cid_mocksettings400"
           }));
         if (warningFreeBytes < criticalFreeBytes)
-          return Promise.reject(new BackupManagerError({
+          return Promise.reject(new RetndError({
             code: "INVALID_REQUEST",
             message: "capacity.warning_free_bytes must be at or above capacity.critical_free_bytes",
             correlationId: "cid_mocksettings400"
           }));
         if (capBytes > 0 && criticalFreeBytes > 0 && capBytes <= criticalFreeBytes)
-          return Promise.reject(new BackupManagerError({
+          return Promise.reject(new RetndError({
             code: "INVALID_REQUEST",
             message: "capacity.cap_bytes must be above capacity.critical_free_bytes",
             correlationId: "cid_mocksettings400"
@@ -2170,6 +4700,20 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
         if (c.warningFreeBytes !== undefined) settings.capacity.warningFreeBytes = c.warningFreeBytes;
         if (c.criticalFreeBytes !== undefined) settings.capacity.criticalFreeBytes = c.criticalFreeBytes;
         if (c.safetyMarginBytes !== undefined) settings.capacity.safetyMarginBytes = c.safetyMarginBytes;
+      }
+
+      if (sv?.pollIntervalSeconds !== undefined) {
+        // config.MinPollInterval, applied here for the reason the
+        // capacity rules above are: a fixture that accepted an interval
+        // the server refuses would let a form ship a Save that can only
+        // fail on a real deployment.
+        if (sv.pollIntervalSeconds < settings.schema.service.minPollIntervalSeconds)
+          return Promise.reject(new RetndError({
+            code: "INVALID_REQUEST",
+            message: "poll_interval: must be at least 1m0s",
+            correlationId: "cid_mocksettings400"
+          }));
+        settings.service.pollIntervalSeconds = sv.pollIntervalSeconds;
       }
 
       return delay(structuredClone(settings));
@@ -2183,7 +4727,7 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
     preflightStorageMedium: (mediumId: string) => {
       const medium = settings.mediums.find((m) => m.id === mediumId);
       if (!medium)
-        return Promise.reject(new BackupManagerError({
+        return Promise.reject(new RetndError({
           code: "MEDIUM_NOT_FOUND",
           message: "this configuration declares no storage medium with that id",
           correlationId: "cid_mockpreflight404"
@@ -2203,7 +4747,7 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
     // A read-only fixture would render every one of those as a pass.
     importStorageCredentials: (accessKeyId, secretAccessKey) => {
       if (!accessKeyId || !secretAccessKey)
-        return Promise.reject(new BackupManagerError({
+        return Promise.reject(new RetndError({
           code: "INVALID_REQUEST",
           message: "access_key_id and secret_access_key are both required",
           correlationId: "cid_mockcreds400"
@@ -2277,7 +4821,7 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
 
     createStorageMedium: (spec) => {
       if (settings.mediums.some((m) => m.id === spec.id))
-        return Promise.reject(new BackupManagerError({
+        return Promise.reject(new RetndError({
           code: "MEDIUM_EXISTS",
           message: `service: storage medium already declared: ${spec.id}`,
           correlationId: "cid_mockmedium409"
@@ -2377,7 +4921,7 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
       const at = settings.mediums.findIndex((m) => m.id === mediumId);
       if (at < 0) return Promise.reject(mediumNotFound());
       if (mediumId === "offsite_s3")
-        return Promise.reject(new BackupManagerError({
+        return Promise.reject(new RetndError({
           code: "MEDIUM_IN_USE",
           message:
             'service: storage medium still holds copies: 148 copies on storage medium "offsite_s3", across ' +
@@ -2396,7 +4940,7 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
       // refusing it by name would teach a rule the engine no longer has,
       // and would do it on the surface developers look at first.
       if (settings.mediums[at].isDefault)
-        return Promise.reject(new BackupManagerError({
+        return Promise.reject(new RetndError({
           code: "MEDIUM_IS_DEFAULT",
           message:
             "service: storage medium is this deployment's default destination: " + mediumId +
@@ -2435,20 +4979,311 @@ export function createMockApi(scenario: Scenario = "default"): BackupManagerApi 
     rebuildCatalog: () => delay(undefined, 600),
 
     login: () => delay(undefined),
+    // Issue #830: enrolment now also proves a mail endpoint, and this
+    // fixture accepts whatever it is handed. The refusal an operator
+    // actually hits, SMTP_SEND_FAILED, is reachable through a spy in the
+    // suites that exercise it: a fixture that guessed which endpoints are
+    // reachable would be inventing a mail server.
     enrollAdministrator: () => delay(undefined),
+
+    // Answers for every username, at the same speed, as the real endpoint
+    // does: it is the one operation in this contract whose entire point is
+    // that the answer carries no information (see requestPasswordReset's
+    // own doc). A fixture that rejected for an unknown username would be
+    // modelling the enumeration this endpoint exists to prevent.
+    requestPasswordReset: () => delay(undefined),
+    resetPassword: (token) =>
+      // One sentinel token is dead here, the same shape the rotation
+      // fixture below uses for a wrong current password: without it the
+      // expired-link path has nothing to exercise against a fixture that
+      // has never issued a real token.
+      token === "expired-reset-token"
+        ? Promise.reject(new RetndError({
+            code: "RESET_TOKEN_INVALID",
+            message: "this reset link has expired or has already been used",
+            correlationId: "cid_mockreset401"
+          }))
+        : delay(undefined),
+
+    // Mirrors apps/common/auth/local's handleVerifyEmail: one sentinel
+    // token is "expired" (the same shape resetPassword above uses for
+    // its own dead link, and for the same reason - a fixture that never
+    // issued a real token has nothing else for that path to exercise),
+    // everything else verifies the address and clears the deadline.
+    verifyRecoveryEmail: (token) =>
+      token === "expired-verify-token"
+        ? Promise.reject(new RetndError({
+            code: "VERIFY_TOKEN_INVALID",
+            message: "this verification link has expired or has already been used",
+            correlationId: "cid_mockverify401"
+          }))
+        : delay(undefined).then(() => {
+            recovery.recoveryEmailVerified = true;
+            recovery.verificationDeadline = "";
+          }),
+
+    // The resend changes nothing but the link that is outstanding, which
+    // this fixture has no way to hold: what a caller can observe is that
+    // it resolves, and the real service's own tests are what prove the
+    // previous link stops working.
+    resendRecoveryEmailVerification: () => delay(undefined, 400),
+
+    getRecoverySettings: () => delay(structuredClone(recovery)),
+    updateRecoverySettings: (update) => {
+      // Mirrors apps/common/auth/local's handleUpdateRecovery, which
+      // re-checks the administrator's password before it resolves,
+      // sends or writes anything (#830 security review): one sentinel
+      // value is "wrong" here, the same shape rotatePassword below
+      // uses, so the refused-re-authentication path has something to
+      // exercise against a fixture with no real stored password.
+      if (update.currentPassword === "wrong-current-password") {
+        return Promise.reject(new RetndError({
+          code: "UNAUTHENTICATED",
+          message: "current password is incorrect",
+          correlationId: "cid_mockrecovery401"
+        }));
+      }
+      if (update.smtp) {
+        recovery.smtp = {
+          host: update.smtp.host,
+          port: update.smtp.port,
+          security: update.smtp.security,
+          username: update.smtp.username,
+          from: update.smtp.from,
+          // The write-only rule, modelled rather than described: a blank
+          // password keeps whatever is stored, so this flag can only ever
+          // go from false to true here, and never back to false because
+          // somebody saved a port change.
+          passwordSet: update.smtp.password !== "" || (recovery.smtp?.passwordSet ?? false)
+        };
+      }
+      if (update.recoveryEmail !== undefined && update.recoveryEmail !== recovery.recoveryEmail) {
+        recovery.recoveryEmail = update.recoveryEmail;
+        // The real handler mails the verification link as part of the
+        // update and refuses the whole request if it cannot, so an
+        // address that comes back from a SUCCESSFUL update has been sent
+        // to - and is NOT yet verified, because nobody has opened that
+        // link (#830 §8). The deadline stays empty: an established
+        // administrator editing its address is never given a lapse
+        // window, only a nudge.
+        recovery.recoveryEmailConfirmed = true;
+        recovery.recoveryEmailVerified = false;
+      }
+      return delay(structuredClone(recovery), 400);
+    },
+    sendRecoveryTestEmail: () => delay(undefined, 500),
+
     rotatePassword: (currentPassword) =>
       // Mirrors apps/common/auth/local's handleRotatePassword: only this
       // one sentinel current-password value is ever "wrong" here, so the
       // rejected-rotation UI path has something to exercise against a
       // dev-fixture backend that otherwise has no real stored password.
       currentPassword === "wrong-current-password"
-        ? Promise.reject(new BackupManagerError({
+        ? Promise.reject(new RetndError({
             code: "UNAUTHENTICATED",
             message: "Current password is incorrect.",
             correlationId: "cid_mockpw401"
           }))
         : delay(undefined),
-    logout: () => delay(undefined)
+    logout: () => delay(undefined),
+
+    // EPIC L (issue #814). Reads answer from the fixtures above; the two
+    // recovery actions and the five writes mutate this instance, so a
+    // screen that resumes a cleanup sees the hold go and the Run control
+    // come back rather than having to be told it worked.
+    workflowRuns: (query) =>
+      delay(
+        workflowRuns
+          .filter((run) => !query?.backupSetId || run.backupSetId === query.backupSetId)
+          .slice(0, query?.limit && query.limit > 0 ? query.limit : undefined)
+          .map((run) => structuredClone(run))
+      ),
+    workflowRun: (runId) => {
+      const run = workflowRuns.find((r) => r.runId === runId);
+      return run ? delay(structuredClone(run)) : Promise.reject(workflowRunNotFound());
+    },
+    workflowSteps: (runId) => {
+      const run = workflowRuns.find((r) => r.runId === runId);
+      return run ? delay(structuredClone(run.steps)) : Promise.reject(workflowRunNotFound());
+    },
+    // `after` is honoured rather than ignored, because that is the one
+    // behaviour a follower depends on: a fixture that re-sent every
+    // record on each poll would let a terminal that never advanced its
+    // cursor look correct. `complete` follows the step's own state, so a
+    // running step keeps a follower polling and a finished one stops it.
+    workflowStepLogs: (runId, stepId, options) => {
+      const run = workflowRuns.find((r) => r.runId === runId);
+      if (!run) return Promise.reject(workflowRunNotFound());
+      const step = run.steps.find((s) => s.stepId === stepId);
+      if (!step) {
+        return Promise.reject(new RetndError({
+          code: "WORKFLOW_STEP_NOT_FOUND",
+          message: "this workflow run has no step with that id",
+          correlationId: "cid_mockwfs404"
+        }));
+      }
+      const all = WORKFLOW_STEP_LOGS[stepId] ?? [];
+      const after = options?.after ?? 0;
+      const records = all.filter((rec) => rec.seq > after);
+      const page: WorkflowStepLogPage = {
+        records: structuredClone(records),
+        // The cursor is the last sequence ANSWERED, so an empty page
+        // leaves the follower's cursor where it was rather than rewinding
+        // it to zero.
+        cursor: records.length > 0 ? records[records.length - 1].seq : after,
+        complete: step.state !== "running" && step.state !== "pending",
+        // The page-level flag follows the RECORDS: a step whose capture
+        // hit its limit carries a `truncated` record, and the flag is
+        // what tells a follower the log it is reading is incomplete
+        // whether or not the marker itself is on this page.
+        truncated: all.some((rec) => rec.kind === "truncated")
+      };
+      return delay(page);
+    },
+
+    workflowRecovery: () => delay(workflowHolds.map((hold) => structuredClone(hold))),
+    // Resuming runs the owed hooks and clears the hold, which is what
+    // the real action does when the cleanup completes. The run's own row
+    // moves with it: its state becomes "recovered" and its cleanup
+    // status "success", while its BACKUP and WORKFLOW verdicts are left
+    // exactly as they were — a resumed cleanup does not retroactively
+    // make a failed workflow succeed.
+    resumeWorkflowCleanup: (runId) => {
+      const run = workflowRuns.find((r) => r.runId === runId);
+      if (!run) return Promise.reject(workflowRunNotFound());
+      run.state = "recovered";
+      run.cleanupStatus = "success";
+      run.recoveryState = "resolved";
+      workflowHolds = workflowHolds.filter((hold) => hold.runId !== runId);
+      return delay(structuredClone(run), 600);
+    },
+    // The reason is required by the service, so it is required here: a
+    // fixture that accepted an empty one would let a dialog ship without
+    // the field the record exists for.
+    acknowledgeWorkflowRecovery: (runId, reason) => {
+      const run = workflowRuns.find((r) => r.runId === runId);
+      if (!run) return Promise.reject(workflowRunNotFound());
+      if (reason.trim() === "") {
+        return Promise.reject(new RetndError({
+          code: "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED",
+          message: "an acknowledgement has to say what was done about this run",
+          correlationId: "cid_mockwfack400"
+        }));
+      }
+      run.state = "recovered";
+      run.recoveryState = "resolved";
+      workflowHolds = workflowHolds.filter((hold) => hold.runId !== runId);
+      return delay(undefined, 400);
+    },
+
+    getWorkflowSettings: () => delay(structuredClone(workflowSettings)),
+    patchWorkflowSettings: (patch) => {
+      // The save GATE, before anything is written. A write that points a
+      // stage directory at the known-broken fixture is refused whole:
+      // the service verifies every script the write would make live and
+      // either takes the configuration or does not, so a mock that
+      // applied the other fields and then refused would model a
+      // half-saved block that cannot happen.
+      if (patch.beforeDir === WORKFLOW_BROKEN_DIR) {
+        return Promise.reject(workflowScriptRefusal(patch.beforeDir, "global", "before"));
+      }
+      if (patch.afterDir === WORKFLOW_BROKEN_DIR) {
+        return Promise.reject(workflowScriptRefusal(patch.afterDir, "global", "after"));
+      }
+      // An absent key leaves the value alone and an empty string clears
+      // it, which for a stage directory DISABLES that stage. Modelled
+      // rather than described, because a form that could not express the
+      // difference would silently stop hooks running.
+      if (patch.root !== undefined) workflowSettings.root = patch.root;
+      if (patch.beforeDir !== undefined) workflowSettings.beforeDir = patch.beforeDir;
+      if (patch.afterDir !== undefined) workflowSettings.afterDir = patch.afterDir;
+      if (patch.scriptTimeoutSeconds !== undefined) {
+        workflowSettings.scriptTimeoutSeconds = patch.scriptTimeoutSeconds;
+        workflowSettings.scriptTimeoutConfigured = patch.scriptTimeoutSeconds > 0;
+      }
+      if (patch.maxScriptSizeBytes !== undefined) {
+        workflowSettings.maxScriptSizeBytes = patch.maxScriptSizeBytes;
+      }
+      return delay(structuredClone(workflowSettings), 400);
+    },
+
+    listWorkflowEnvironment: () =>
+      delay({ backupSetId: "", variables: structuredClone(workflowEnv.get("") ?? []) }),
+    setWorkflowEnvironment: (name, entry) =>
+      delay(mockEnvSet(workflowEnv, "", name, entry), 300),
+    unsetWorkflowEnvironment: (name) => delay(mockEnvUnset(workflowEnv, "", name), 300),
+
+    getBackupSetWorkflow: (source, set) => {
+      const id = source + "/" + set;
+      return delay(structuredClone(setWorkflows.get(id) ?? unconfiguredSetWorkflow(id)));
+    },
+    // A patch against a set with no block CREATES one carrying only the
+    // fields named, and nothing else: a set given a before_dir must not
+    // silently acquire a pinned timeout copied from today's deployment
+    // value, because that is how a set stops following a later change to
+    // it.
+    patchBackupSetWorkflow: (source, set, patch) => {
+      if (patch.beforeDir === WORKFLOW_BROKEN_DIR) {
+        return Promise.reject(workflowScriptRefusal(patch.beforeDir, "set", "before"));
+      }
+      if (patch.afterDir === WORKFLOW_BROKEN_DIR) {
+        return Promise.reject(workflowScriptRefusal(patch.afterDir, "set", "after"));
+      }
+      const id = source + "/" + set;
+      const current = setWorkflows.get(id) ?? unconfiguredSetWorkflow(id);
+      const next: BackupSetWorkflow = {
+        ...current,
+        configured: true,
+        beforeDir: patch.beforeDir ?? current.beforeDir,
+        afterDir: patch.afterDir ?? current.afterDir,
+        scriptTimeoutSeconds:
+          patch.scriptTimeoutSeconds === undefined
+            ? current.scriptTimeoutSeconds
+            : patch.scriptTimeoutSeconds > 0
+              ? patch.scriptTimeoutSeconds
+              : undefined,
+        remoteExecConnectionRef: patch.remoteExecConnectionRef ?? current.remoteExecConnectionRef
+      };
+      next.effectiveScriptTimeoutSeconds =
+        next.scriptTimeoutSeconds ?? workflowSettings.scriptTimeoutSeconds;
+      setWorkflows.set(id, next);
+      return delay(structuredClone(next), 400);
+    },
+
+    listBackupSetWorkflowEnvironment: (source, set) => {
+      const id = source + "/" + set;
+      return delay({ backupSetId: id, variables: structuredClone(workflowEnv.get(id) ?? []) });
+    },
+    setBackupSetWorkflowEnvironment: (source, set, name, entry) =>
+      delay(mockEnvSet(workflowEnv, source + "/" + set, name, entry), 300),
+    unsetBackupSetWorkflowEnvironment: (source, set, name) =>
+      delay(mockEnvUnset(workflowEnv, source + "/" + set, name), 300),
+
+    getBackupSetWorkflowValidation: (source, set) => {
+      const id = source + "/" + set;
+      const configured = setWorkflows.get(id)?.configured === true;
+      return delay(
+        configured
+          ? workflowValidationFor(id)
+          : {
+              // An unconfigured set is valid for BACKUP and has no
+              // workflow verdict to give, which is the two-verdict split
+              // in its quietest form.
+              backupSetId: id,
+              configured: false,
+              root: "",
+              stages: [],
+              scripts: [],
+              findings: [],
+              validForBackup: true,
+              workflowValid: false
+            },
+        // Slower than the reads beside it on purpose: this one hashes
+        // every script and opens two connections in a real deployment,
+        // so a screen that polled it would be visibly wrong here too.
+        700
+      );
+    }
   };
 
   return refusingWhileUnconfigured(api, () => configured);
@@ -2774,8 +5609,8 @@ function mediumConfigured(
   };
 }
 
-function mediumNotFound(): BackupManagerError {
-  return new BackupManagerError({
+function mediumNotFound(): RetndError {
+  return new RetndError({
     code: "MEDIUM_NOT_FOUND",
     message: "this configuration declares no storage medium with that id",
     correlationId: "cid_mockmedium404"

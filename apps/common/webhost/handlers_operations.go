@@ -9,7 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/spdrman/rclone-manager/core/service"
+	"github.com/retnd/retnd/core/service"
 )
 
 // POST /api/v1/operations and its two reads.
@@ -61,6 +61,17 @@ type submitOperationRequest struct {
 	// has confused two operations.
 	BackupSetID string `json:"backup_set_id,omitempty"`
 
+	// SkipWorkflowScripts is EPIC L's --skip-workflow-scripts (#813):
+	// take the backup and run none of this set's workflow hooks. It is
+	// run_backup_set's parameter, so refuseForeignParameters refuses it
+	// on every other action exactly as it refuses BackupSetID above.
+	//
+	// A flat bool rather than an object for BackupSetID's reason: it is
+	// one field, and the durable operation row records it beside the set
+	// id as what was ASKED FOR, which is how a bypass that was requested
+	// and then refused stays visible at all.
+	SkipWorkflowScripts bool `json:"skip_workflow_scripts,omitempty"`
+
 	// Restore carries the restore_placement action's own parameters, and
 	// is nil for every other action.
 	//
@@ -70,6 +81,16 @@ type submitOperationRequest struct {
 	// operations, and a server that quietly ignores the extra fields
 	// teaches a client that they are optional.
 	Restore *restoreOperationRequest `json:"restore,omitempty"`
+
+	// The incremental engine's four parameter objects (#788), each nil
+	// for every action but its own and each refused outright when it
+	// arrives with the wrong action, for the reason Restore above is:
+	// a server that ignores fields it did not expect teaches clients
+	// those fields are optional.
+	SnapshotRestore     *snapshotRestoreOperationRequest     `json:"snapshot_restore,omitempty"`
+	SnapshotVerify      *snapshotVerifyOperationRequest      `json:"snapshot_verify,omitempty"`
+	SnapshotHold        *snapshotHoldOperationRequest        `json:"snapshot_hold,omitempty"`
+	SnapshotHoldRelease *snapshotHoldReleaseOperationRequest `json:"snapshot_hold_release,omitempty"`
 }
 
 // restoreOperationRequest is POST /api/v1/operations' body when the action
@@ -139,6 +160,17 @@ type operationResponse struct {
 	// Restore is present only on a restore_placement operation, for the
 	// same reason and in the same shape.
 	Restore *operationRestoreResponse `json:"restore,omitempty"`
+
+	// Snapshots is what the incremental engine stored for this
+	// operation, one entry per backup set it ran, and absent for an
+	// operation that took none -- which is every operation in every
+	// deployment that has not opted into EPIC K's engine.
+	//
+	// It is here rather than only under the backup set because an
+	// operation is what a client polled: a surface that submitted a run
+	// and then had to guess which of the set's snapshots belonged to it
+	// would attribute the wrong one every time two runs overlapped.
+	Snapshots []snapshotResponse `json:"snapshots,omitempty"`
 }
 
 // cycleOutcomeResponse is issue #361's two counts on the wire, the ones
@@ -265,6 +297,9 @@ func toOperationResponse(op service.Operation) operationResponse {
 			BytesPerSecond:   p.BytesPerSecond,
 		}
 	}
+	for _, s := range op.Snapshots {
+		resp.Snapshots = append(resp.Snapshots, toSnapshotResponse(s))
+	}
 	return resp
 }
 
@@ -298,39 +333,40 @@ func (h *handlers) submitOperation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "malformed JSON body")
 		return
 	}
+	if err := refuseForeignParameters(w, body); err != nil {
+		return
+	}
 	switch body.Action {
 	case service.ActionRunBackupSet:
 		h.submitRunBackupSet(w, r, idempotencyKey, body)
 		return
 	case service.ActionRunCycle:
-		if body.BackupSetID != "" {
-			// A run_cycle is deployment-wide by definition, so a body
-			// naming one set is asking for the other action. Refused
-			// rather than ignored: a server that drops the field teaches
-			// a client it is decorative, and the operator who sent it
-			// believes one set ran when every set did.
-			writeError(w, http.StatusBadRequest, "INVALID_REQUEST",
-				fmt.Sprintf("a %q submission named a backup set; %q is the action that runs one set",
-					service.ActionRunCycle, service.ActionRunBackupSet))
-			return
-		}
-		if body.Restore != nil {
-			// A run_cycle carrying restore parameters is a request that
-			// has confused two operations. Ignoring the extra object
-			// would teach the client that it is decorative, and the same
-			// client will later send a restore and be surprised that
-			// nothing was restored.
-			writeError(w, http.StatusBadRequest, "INVALID_REQUEST",
-				fmt.Sprintf("a %q submission carried restore parameters, which it has no use for", service.ActionRunCycle))
-			return
-		}
+		// Nothing to check here any more: refuseForeignParameters above
+		// already refuses a run_cycle carrying a backup_set_id, together
+		// with every other action that does not own the field. The check
+		// used to live here and covered run_cycle alone, which is how a
+		// snapshot action carrying one was served with it ignored.
 	case service.ActionRestorePlacement:
 		h.submitRestore(w, r, idempotencyKey, body)
 		return
+	case service.ActionRestoreSnapshot:
+		h.submitSnapshotRestore(w, r, idempotencyKey, body)
+		return
+	case service.ActionVerifySnapshot:
+		h.submitSnapshotVerify(w, r, idempotencyKey, body)
+		return
+	case service.ActionHoldSnapshot:
+		h.submitSnapshotHold(w, r, idempotencyKey, body)
+		return
+	case service.ActionReleaseSnapshotHold:
+		h.submitSnapshotHoldRelease(w, r, idempotencyKey, body)
+		return
 	default:
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST",
-			fmt.Sprintf("unsupported action %q; this release supports %q, %q and %q",
-				body.Action, service.ActionRunCycle, service.ActionRunBackupSet, service.ActionRestorePlacement))
+			fmt.Sprintf("unsupported action %q; this release supports %q, %q, %q, %q, %q, %q and %q",
+				body.Action, service.ActionRunCycle, service.ActionRunBackupSet, service.ActionRestorePlacement,
+				service.ActionRestoreSnapshot, service.ActionVerifySnapshot, service.ActionHoldSnapshot,
+				service.ActionReleaseSnapshotHold))
 		return
 	}
 
@@ -480,10 +516,39 @@ func (h *handlers) submitRunBackupSet(w http.ResponseWriter, r *http.Request, id
 	}
 
 	op, err := h.backend.SubmitRunBackupSet(r.Context(), service.RunBackupSetRequest{
-		IdempotencyKey: idempotencyKey,
-		Actor:          actorFromContext(r.Context()),
-		ConfigRevision: body.ConfigRevision,
-		BackupSetID:    body.BackupSetID,
+		IdempotencyKey:      idempotencyKey,
+		Actor:               actorFromContext(r.Context()),
+		ConfigRevision:      body.ConfigRevision,
+		BackupSetID:         body.BackupSetID,
+		SkipWorkflowScripts: body.SkipWorkflowScripts,
+
+		// Administrator is this surface's statement that the caller may
+		// take an administrator action, and over HTTP that statement has
+		// exactly one honest basis: this route is behind
+		// requireDestructiveGate, which is middleware, so the only way
+		// this handler body runs at all is that the gate PASSED
+		// (router.go, gate.go). The gate is a deployment-wide
+		// attestation that this instance's trusted-proxy identity check
+		// is real (§13.3, #789), which is the same boundary
+		// core/service's workflowRunOptions names as the HTTP
+		// administrator boundary.
+		//
+		// So it is true rather than derived from the body, and it is
+		// derived from the FACT of having reached here rather than from
+		// asking the gate again: a second read would be a second answer
+		// that can disagree with the one the middleware acted on, and
+		// this handler cannot run under a gate that did not pass.
+		// gate_redteam_test.go walks the route table and proves that
+		// middleware is still there, which is what keeps this claim
+		// honest; without the gate in front of this route the sentence
+		// above would be false and a bypass would be authorized by
+		// nothing.
+		//
+		// The consequence is that ErrWorkflowBypassNotAuthorized is
+		// unreachable through this route today. It is still mapped
+		// (writeRunBackupSetError), because a 500 for it would be the
+		// wrong answer the day this stops being true.
+		Administrator: true,
 	})
 	if err != nil {
 		h.writeRunBackupSetError(w, r, err, h.backend.ConfigRevision())
@@ -514,6 +579,22 @@ func (h *handlers) writeRunBackupSetError(w http.ResponseWriter, r *http.Request
 		// "leave edit mode", and an operator sent to the wrong one waits
 		// forever.
 		writeError(w, http.StatusConflict, "BACKUP_SET_HELD_FOR_EDITING", err.Error())
+	case errors.Is(err, service.ErrWorkflowBypassNotAuthorized):
+		// 403 DESTRUCTIVE_OPERATIONS_DISABLED, which is the code this
+		// operation already declares for that status, and it is the
+		// precise answer rather than a convenient reuse: over HTTP the
+		// administrator boundary a bypass needs IS the destructive gate
+		// (core/service's workflowRunOptions says so), so "this caller
+		// is not established as an administrator" and "this deployment
+		// has not turned destructive operations on" are one fact with
+		// one remedy. A code of its own would tell an operator to go
+		// looking for a permission model this product does not have.
+		//
+		// Unreachable today, because reaching this handler at all means
+		// the gate passed (submitRunBackupSet's Administrator field).
+		// Mapped anyway, so the day that stops being true the refusal is
+		// a 403 an operator can act on rather than a 500.
+		writeError(w, http.StatusForbidden, "DESTRUCTIVE_OPERATIONS_DISABLED", err.Error())
 	case errors.Is(err, service.ErrBackupSetNotFound):
 		writeError(w, http.StatusNotFound, "BACKUP_SET_NOT_FOUND", "no such backup set")
 	case errors.Is(err, service.ErrInvalidRequest):

@@ -2,7 +2,7 @@ package obs
 
 import (
 	"context"
-	"github.com/spdrman/rclone-manager/core/cliecho"
+	"github.com/retnd/retnd/core/cliecho"
 	"log/slog"
 	"time"
 )
@@ -190,7 +190,7 @@ const (
 
 	// EventAPIAction records one action somebody took through the
 	// /api/v1 surface: what was asked, by whom, what came back, and the
-	// `backup-manager` command that would have done the same thing
+	// `retnd` command that would have done the same thing
 	// (issue #599).
 	//
 	// It is the one event in this catalog that is not emitted by the
@@ -207,6 +207,88 @@ const (
 	// to go on.
 	EventAPIAction = "api_action"
 
+	// EventSnapshotPhase records one incremental (EPIC K) snapshot run
+	// moving from one durable phase to another: the snapshot engine's
+	// half of what EventLifecycleTransition says about an artifact.
+	//
+	// It is a second event rather than a reuse of that one because the
+	// two name different things and a reader routing on either must not
+	// have to guess which it got: a lifecycle transition is about one
+	// FILE and carries an artifact id, and this is about one PASS over a
+	// whole source tree and carries a backup set, a run id and a phase
+	// vocabulary of its own (internal/state's SnapshotPhase).
+	EventSnapshotPhase = "snapshot_phase"
+
+	// EventSnapshotStats records what one finished snapshot run
+	// measured, and exists to keep four numbers apart that a single
+	// "bytes" field would collapse: entries SCANNED, bytes READ off the
+	// source, bytes WRITTEN to the repository, and bytes the repository
+	// did not have to store again.
+	//
+	// EPIC K names that collapse as the thing never to do -- reporting a
+	// 100 GB tree as 100 GB uploaded -- and a log line with one byte
+	// count is the easiest place in the product to do it by accident.
+	EventSnapshotStats = "snapshot_stats"
+
+	// EventWorkflowRunStart and EventWorkflowRunEnd bracket one EPIC L
+	// workflow run: the five-stage lifecycle internal/workflowrun drives
+	// around a backup set's backup (#811), whether or not that set
+	// actually has hook scripts to run.
+	//
+	// Two events and one action id, exactly as cycle_start and cycle_end
+	// are, and for the reason action.go's own doc gives: a run that
+	// announced itself and never reported an outcome is the state an
+	// operator most needs named, and it is only detectable when the two
+	// halves are tied by something other than the habit of spelling one
+	// _start and the other _end.
+	//
+	// The completion carries the THREE statuses separately -- the
+	// backup's, the cleanup's and the workflow's -- because #810 and
+	// #811 make them three independent facts and a reader that collapsed
+	// them would lose the two combinations that matter most: a backup
+	// that succeeded behind a cleanup that did not, and a backup that
+	// never ran because a "before" hook refused.
+	EventWorkflowRunStart = "workflow_run_start"
+	EventWorkflowRunEnd   = "workflow_run_end"
+
+	// EventWorkflowStepStart and EventWorkflowStepEnd bracket one hook
+	// script inside such a run.
+	//
+	// They exist so that a workflow that is RUNNING is visible, rather
+	// than a run being a single pair of lines around a silence that can
+	// last as long as the step timeout allows. That silence is the whole
+	// operator complaint EPIC L's observability bullet is about: a
+	// database quiesce hook holding a backup window open looks identical,
+	// from every surface, to a daemon that has hung.
+	//
+	// What they carry is the step's IDENTITY and its shape -- run, set,
+	// step id, script name, scope, phase, target -- and never its output.
+	// A hook's stdout is a durable, redacted, bounded, per-step log
+	// (internal/workflow.StepLog) with a stream and a truncation marker
+	// of its own; copying arbitrary script output into the event stream
+	// would put unbounded, unstructured bytes into every log collector
+	// and live feed in the deployment, from the one place in this product
+	// that runs code somebody else wrote.
+	EventWorkflowStepStart = "workflow_step_start"
+	EventWorkflowStepEnd   = "workflow_step_end"
+
+	// EventWorkflowBypassed records that a run's hook scripts were
+	// deliberately skipped: L6's --skip-workflow-scripts (#813).
+	//
+	// Its own event rather than a field on the run's pair, and emitted at
+	// LevelWarn, because the requirement is that a bypass is HIGHLY
+	// VISIBLE and the failure mode it guards against is silence: a
+	// deployment where somebody put the flag in a cron line months ago,
+	// where the hooks are still configured, and where everybody still
+	// believes a database is being quiesced before the nightly dump. A
+	// boolean on an info-level line is exactly as invisible as that.
+	//
+	// It names the actor, because a bypass is a decision a person made
+	// and an audit's first question is who. It names no credential and
+	// no script: what was skipped is every hook the plan declared, and
+	// the run row records each of them.
+	EventWorkflowBypassed = "workflow_bypassed"
+
 	// EventError is the catch-all for an error that does not already have
 	// a more specific event above attached to it (for example, a failure
 	// reading config, or an unexpected panic recovered at the top of a
@@ -217,11 +299,11 @@ const (
 )
 
 // Startup logs EventStartup: binaryVersion and commit are normally the
-// values cmd/backup-manager's main.go already sets via -ldflags (default
+// values cmd/retnd's main.go already sets via -ldflags (default
 // "dev" / "none" in a non-release build), and goVersion is typically
 // runtime.Version(). None of these are secret; they exist to make "which
 // build is this" answerable from a log line alone, without shelling into
-// the host to run `rbm version`.
+// the host to run `retnd version`.
 func (l *Logger) Startup(ctx context.Context, binaryVersion, commit, goVersion string) {
 	l.emit(ctx, LevelInfo, EventStartup, cliecho.Binary+" starting",
 		slog.String("version", binaryVersion),
@@ -457,6 +539,65 @@ func (l *Logger) Retention(ctx context.Context, artifact, backupSet, tier, decis
 	)
 }
 
+// SnapshotPhase logs EventSnapshotPhase for one incremental snapshot run
+// changing phase.
+//
+// runID is this manager's own run identifier and snapshotID is the
+// engine's opaque manifest id, empty until a manifest exists. Neither is
+// a path and neither is a secret: a snapshot's identity in a repository
+// is a digest, which is what makes this line safe to ship to a log
+// collector for a deployment whose source paths are sensitive (#295).
+//
+// reason is the run's own sentence, and it is passed through the same
+// redaction the rest of this logger applies rather than being trusted:
+// it is assembled out of errors from the transport and the engine, by
+// code that was not written to a redaction contract.
+func (l *Logger) SnapshotPhase(ctx context.Context, backupSet, runID, snapshotID, from, to, reason string, failed bool) {
+	result := ResultInfo
+	msg := "snapshot run phase"
+
+	if failed {
+		result = ResultError
+		msg = "snapshot run failed"
+	}
+
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventSnapshotPhase, msg,
+		slog.String("backup_set", backupSet),
+		slog.String("run", runID),
+		slog.String("snapshot", snapshotID),
+		slog.String("from", from),
+		slog.String("to", to),
+		slog.String("reason", reason),
+	)
+}
+
+// SnapshotStats logs EventSnapshotStats: what one snapshot run measured,
+// in the four numbers that must never be presented as one.
+//
+// entriesScanned and logicalBytes are what the source said it holds;
+// sourceBytesRead is what this run actually pulled off it;
+// repositoryBytesWritten is what actually landed in storage; and
+// contentReusedBytes is the difference the deduplication did. A surface
+// showing logicalBytes where a reader expects "uploaded" reports a
+// deduplicated repository as growing by the whole source every night,
+// which is the claim EPIC K forbids and the reason these are five
+// separate fields on one line rather than a total.
+func (l *Logger) SnapshotStats(
+	ctx context.Context,
+	backupSet, runID string,
+	entriesScanned, logicalBytes, sourceBytesRead, repositoryBytesWritten, contentReusedBytes int64,
+) {
+	l.emitMarked(ctx, LevelInfo, mark{result: ResultInfo}, EventSnapshotStats, "snapshot run measurements",
+		slog.String("backup_set", backupSet),
+		slog.String("run", runID),
+		slog.Int64("entries_scanned", entriesScanned),
+		slog.Int64("logical_bytes", logicalBytes),
+		slog.Int64("source_bytes_read", sourceBytesRead),
+		slog.Int64("repository_bytes_written", repositoryBytesWritten),
+		slog.Int64("content_reused_bytes", contentReusedBytes),
+	)
+}
+
 // RetentionHold logs EventRetentionHold: a retention pass over backupSet
 // refused every deletion in it, because the restore point FR-19 reports as
 // protected has no confirmed readable copy (FR-30, issue #602). reason is
@@ -526,9 +667,10 @@ func (l *Logger) StaleBackup(ctx context.Context, backupSet string, age, thresho
 
 // Alert logs EventAlert: one proactive notification that internal/alert
 // just delivered. kind is the alert's own typed kind (STALE_BACKUP,
-// REPEATED_FAILURE, HOST_KEY_CHANGED, CRITICAL_STORAGE_PRESSURE),
-// backupSet is what it was about, and detail is the operator-facing text
-// that actually went out.
+// REPEATED_FAILURE, HOST_KEY_CHANGED, CRITICAL_STORAGE_PRESSURE,
+// MAINTENANCE_FAILED), backupSet is what it was about -- a repository
+// domain for the maintenance kind -- and detail is the operator-facing
+// text that actually went out.
 //
 // This always logs at LevelWarn: every condition §71 alerts on is, by
 // definition, something already wrong. It is deliberately not LevelError,
@@ -589,5 +731,158 @@ func (l *Logger) Error(ctx context.Context, op string, err error) {
 	l.emitMarked(ctx, LevelError, mark{result: ResultError}, EventError, "error",
 		slog.String("op", op),
 		slog.String("error", err.Error()),
+	)
+}
+
+// WorkflowRunStart logs EventWorkflowRunStart: one workflow run
+// beginning, over backupSet, with scripts hook scripts planned.
+//
+// runID is the ACTION id both halves carry, for CycleStart's reason: it
+// is what lets a reader pair a run with its completion and notice one
+// that announced itself and went quiet. bypassed says the run's hooks are
+// deliberately being skipped (L6's --skip-workflow-scripts), and it is on
+// the START line as well as the completion on purpose -- an operator
+// watching a feed needs to see that a run is not going to run anybody's
+// hooks at the moment it starts, not five minutes later.
+func (l *Logger) WorkflowRunStart(ctx context.Context, runID, backupSet string, scripts int, bypassed bool) {
+	l.emitMarked(ctx, LevelInfo, mark{action: ActionWorkflowRun, actionID: runID},
+		EventWorkflowRunStart, "workflow run starting",
+		slog.String("run_id", runID),
+		slog.String("backup_set", backupSet),
+		slog.Int("scripts", scripts),
+		slog.Bool("bypassed", bypassed),
+	)
+}
+
+// WorkflowRunEnd logs EventWorkflowRunEnd for the run runID started.
+//
+// The three statuses are separate fields and stay separate: they are
+// internal/workflow's own vocabulary (StatusSuccess, StatusFailed,
+// StatusSkipped, StatusRunning, StatusUnknown) passed through as strings,
+// so this package keeps its standing property of importing no domain
+// package to log about one.
+//
+// result is the CALLER's, exactly as LifecycleTransition's failed bool
+// is, and for the identical reason: how a run's three statuses combine
+// into one verdict is a product decision internal/workflowrun already
+// makes once (a failed "after" hook fails the run even when the backup
+// succeeded), and a second opinion here would be a second answer.
+//
+// failedStep is the first step that broke the run, or "". It is a step
+// id and a script name is carried beside it -- neither is a path, and
+// neither is a hook's output.
+func (l *Logger) WorkflowRunEnd(
+	ctx context.Context,
+	runID, backupSet string,
+	scripts int,
+	duration time.Duration,
+	backupStatus, cleanupStatus, workflowStatus, failedStep string,
+	bypassed bool,
+	result Result,
+) {
+	attrs := []slog.Attr{
+		slog.String("run_id", runID),
+		slog.String("backup_set", backupSet),
+		slog.Int("scripts", scripts),
+		slog.Duration("duration", duration),
+		slog.String("backup_status", backupStatus),
+		slog.String("cleanup_status", cleanupStatus),
+		slog.String("workflow_status", workflowStatus),
+		slog.Bool("bypassed", bypassed),
+	}
+	if failedStep != "" {
+		attrs = append(attrs, slog.String("failed_step", failedStep))
+	}
+	l.emitMarked(ctx, result.Level(), mark{result: result, action: ActionWorkflowRun, actionID: runID},
+		EventWorkflowRunEnd, "workflow run finished", attrs...)
+}
+
+// WorkflowStepStart logs EventWorkflowStepStart: one hook script about to
+// be dispatched.
+//
+// It carries the run's id and the backup set so the line lands in that
+// set's live feed beside the run that owns it (service/liveactivity.go
+// buckets on backup_set), and the step's shape -- scope, phase, target --
+// because "which of the four stages is this" is the first question an
+// operator asks of a run that is taking too long.
+//
+// It states no result. A start has not gone any way yet, which is the
+// distinction Result's own doc draws between an absent verdict and a
+// neutral one.
+func (l *Logger) WorkflowStepStart(ctx context.Context, runID, backupSet, stepID, scriptName, scope, phase, target string) {
+	l.emitMarked(ctx, LevelInfo, mark{action: ActionWorkflowStep, actionID: stepID},
+		EventWorkflowStepStart, "workflow step starting",
+		slog.String("run_id", runID),
+		slog.String("backup_set", backupSet),
+		slog.String("step_id", stepID),
+		slog.String("script", scriptName),
+		slog.String("scope", scope),
+		slog.String("phase", phase),
+		slog.String("target", target),
+	)
+}
+
+// WorkflowStepEnd logs EventWorkflowStepEnd for the step stepID started.
+//
+// state is internal/workflow's own terminal step state (success, failed,
+// timed_out, canceled, skipped, interrupted) and disposition is what the
+// executing adapter observed (exited, timed_out, canceled,
+// transport_lost, not_attempted, signaled). Both, because they answer
+// different questions and #810 forbids collapsing them: transport loss is
+// never reported as a known exit code, so "this step failed" and "nobody
+// saw how it ended" have to stay tellable apart.
+//
+// exitCode is nil unless a process really exited and this product
+// observed the status, which is the same rule the journal enforces.
+//
+// Nothing here is a hook's output. See EventWorkflowStepEnd's own doc.
+func (l *Logger) WorkflowStepEnd(
+	ctx context.Context,
+	runID, backupSet, stepID, scriptName, scope, phase, target, state, disposition string,
+	exitCode *int,
+	duration time.Duration,
+	result Result,
+) {
+	attrs := []slog.Attr{
+		slog.String("run_id", runID),
+		slog.String("backup_set", backupSet),
+		slog.String("step_id", stepID),
+		slog.String("script", scriptName),
+		slog.String("scope", scope),
+		slog.String("phase", phase),
+		slog.String("target", target),
+		slog.String("state", state),
+		slog.String("disposition", disposition),
+		slog.Duration("duration", duration),
+	}
+	if exitCode != nil {
+		attrs = append(attrs, slog.Int("exit_code", *exitCode))
+	}
+	l.emitMarked(ctx, result.Level(), mark{result: result, action: ActionWorkflowStep, actionID: stepID},
+		EventWorkflowStepEnd, "workflow step finished", attrs...)
+}
+
+// WorkflowBypassed logs EventWorkflowBypassed: an operator's deliberate
+// decision that this run will not execute the hook scripts its backup set
+// configures.
+//
+// LevelWarn and ResultWarn, deliberately, and neither is an error. The
+// bypass is a legitimate administrator action -- it exists so a backup
+// can be taken when a hook is broken -- so calling it an error would put
+// a false failure in front of somebody who did the right thing. What it
+// is NOT is routine, and warn is the level that says so: it is the
+// severity `activity --follow --severity warn` shows, which is where an
+// operator looks to find out what is unusual about a deployment.
+//
+// scripts is how many hooks were skipped, because "the bypass had no
+// effect, this set has no hooks" and "the bypass skipped six scripts" are
+// very different lines to find in an audit.
+func (l *Logger) WorkflowBypassed(ctx context.Context, runID, backupSet, actor string, scripts int) {
+	l.emitMarked(ctx, LevelWarn, mark{result: ResultWarn, action: ActionWorkflowRun, actionID: runID},
+		EventWorkflowBypassed, "workflow scripts were deliberately skipped for this run",
+		slog.String("run_id", runID),
+		slog.String("backup_set", backupSet),
+		slog.String("actor", actor),
+		slog.Int("scripts", scripts),
 	)
 }

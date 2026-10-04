@@ -25,8 +25,10 @@ import { RetentionBadges, RetentionPolicyBadge } from "@shared/components/Retent
 import { LifecycleTimeline } from "@shared/components/LifecycleTimeline";
 import { PlacementList } from "@shared/components/PlacementList";
 import { ErrorState } from "@shared/components/EmptyState";
+import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
+import type { TooltipId } from "@shared/tooltips/tooltips";
 import { bytes, stamp } from "@shared/utilities/format";
-import { BackupManagerError, RequestFailure } from "@shared/api/contracts";
+import { RetndError, RequestFailure } from "@shared/api/contracts";
 import type { ApiErrorCode } from "@shared/api/contracts";
 import type { ArtifactRetentionPolicy, BackupArtifact } from "@shared/types/backup";
 
@@ -127,7 +129,7 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
         // Accepted, not recovered, and the difference is measurable: the
         // CLI's `retry` exits 0 and prints "re-entering the pipeline" for
         // a backup whose very next cycle lands FAILED again on the same
-        // FR-12 collision (measured in a container against a real rbm).
+        // FR-12 collision (measured in a container against a real retnd).
         // The verb's success says the row moved to DISCOVERED and nothing
         // about what happens next, so this sentence must not read as "it
         // is fixed", and the page goes and looks rather than asserting an
@@ -174,24 +176,26 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 14, alignItems: "start" }}>
         <section className="card">
-          <div className="card__header"><h2 className="eyebrow">Artifact</h2></div>
+          <div className="card__header">
+            <InfoTooltip id="backups.detail.artifact-card"><h2 className="eyebrow">Artifact</h2></InfoTooltip>
+          </div>
           <dl
             style={{
               margin: 0, padding: "15px 18px", display: "grid",
               gridTemplateColumns: "150px 1fr", gap: "11px 14px", fontSize: "var(--text-sm)"
             }}
           >
-            <Row label="Artifact ID" value={a.id} mono />
-            <Row label="Backup set" value={a.setName} />
-            <Row label="Remote original" value={a.remoteOriginalPath} mono />
+            <Row label="Artifact ID" value={a.id} mono tip="backups.detail.id" />
+            <Row label="Backup set" value={a.setName} tip="backups.detail.set" />
+            <Row label="Remote original" value={a.remoteOriginalPath} mono tip="backups.detail.remote-original" />
             {/* The ingestion landing path, labelled as what it is. It is not
                 evidence that a readable file is sitting there, and the Copies
                 card below is what answers "where are the bytes". */}
-            <Row label="Ingestion path" value={a.localPath} mono />
-            <Row label="Producer timestamp" value={stamp(a.producedAt)} mono />
-            <Row label="Received timestamp" value={stamp(a.receivedAt)} mono />
-            <Row label="Size" value={bytes(a.sizeBytes) + " \u00b7 " + a.sizeBytes + " B"} mono />
-            <Row label="Checksum" value={a.checksumAlgorithm + ":" + a.checksum} mono />
+            <Row label="Ingestion path" value={a.localPath} mono tip="backups.detail.ingestion-path" />
+            <Row label="Producer timestamp" value={stamp(a.producedAt)} mono tip="backups.detail.produced-at" />
+            <Row label="Received timestamp" value={stamp(a.receivedAt)} mono tip="backups.detail.received-at" />
+            <Row label="Size" value={bytes(a.sizeBytes) + " \u00b7 " + a.sizeBytes + " B"} mono tip="backups.detail.size" />
+            <Row label="Checksum" value={a.checksumAlgorithm + ":" + a.checksum} mono tip="backups.detail.checksum" />
             {/* The verdict, and separately what to do about it. They were
                 one ternary and it printed "Failed" for a backup whose
                 validation had never run, which is the #662 artifact
@@ -200,22 +204,25 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
                 row labelled "Validation result" that reports a failure
                 nothing measured is the same class of untruth as the card
                 below not rendering at all. */}
-            <Row label="Validation result" value={validationResultSentence(a, stuck)} />
-            <Row label="Retention classes" value={a.retentionClasses.join(", ") || "unclassified"} />
+            <Row label="Validation result" value={validationResultSentence(a, stuck)} tip="backups.detail.validation" />
+            <Row label="Retention classes" value={a.retentionClasses.join(", ") || "unclassified"} tip="backups.detail.retention-classes" />
             {/* Spelled out in the field list as well as badged in the
                 header, because this row is the sentence an operator can
                 act on: it says what happens to the file, and what to do
                 if that is not what they want. */}
-            <Row label="Retention policy" value={retentionPolicySentence(a.retentionPolicy)} />
+            <Row label="Retention policy" value={retentionPolicySentence(a.retentionPolicy)} tip="backups.detail.retention-policy" />
             <Row
               label="Remote source removed"
               value={a.remoteSourceRemovedAt ? stamp(a.remoteSourceRemovedAt) + " (after commit)" : "No — original retained"}
+              tip="backups.detail.remote-removed"
             />
           </dl>
         </section>
 
         <section className="card">
-          <div className="card__header"><h2 className="eyebrow">Lifecycle</h2></div>
+          <div className="card__header">
+            <InfoTooltip id="backups.detail.lifecycle-card"><h2 className="eyebrow">Lifecycle</h2></InfoTooltip>
+          </div>
           <LifecycleTimeline artifact={a} />
           <p style={{ margin: 0, padding: "0 22px 20px", fontSize: "var(--text-sm)", color: "var(--text-3)", maxWidth: "60ch" }}>
             Remote deletion is a lifecycle consequence of a proven NAS copy — never
@@ -230,16 +237,20 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
           has been told to intervene and never told with what. */}
       {stuck ? (
         <section className="card" style={{ marginTop: 14 }}>
-          <div className="card__header"><h2 className="eyebrow">Recovery</h2></div>
+          <div className="card__header">
+            <InfoTooltip id="backups.detail.recovery-card"><h2 className="eyebrow">Recovery</h2></InfoTooltip>
+          </div>
           <div style={{ padding: "15px 18px", display: "grid", gap: 10, fontSize: "var(--text-sm)" }}>
             <p style={{ margin: 0, color: "var(--text-2)", maxWidth: "72ch" }}>
               This backup failed an attempt and is not quarantined, so no cycle will attempt it again on its own
               and the Quarantine page will not list it. Re-attempting it is the way back.
             </p>
             <span style={{ display: "flex", gap: 7 }}>
-              <button className="btn btn--sm" disabled={readOnly || retrying} onClick={retryIngestion}>
-                {retrying ? "Retrying…" : "Retry ingestion"}
-              </button>
+              <InfoTooltip id="backups.detail.retry">
+                <button className="btn btn--sm" disabled={readOnly || retrying} onClick={retryIngestion}>
+                  {retrying ? "Retrying…" : "Retry ingestion"}
+                </button>
+              </InfoTooltip>
             </span>
             {recovery ? (
               <p
@@ -298,7 +309,7 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
  * the card above.
  */
 function retryRefusalSentence(e: unknown): string {
-  if (e instanceof BackupManagerError) {
+  if (e instanceof RetndError) {
     const step = RETRY_REFUSAL_NEXT_STEP[e.api.code] ?? "";
     return [e.api.message, step, correlationSuffix(e.api.correlationId)].filter((part) => part !== "").join(" ");
   }
@@ -393,16 +404,26 @@ function retentionPolicySentence(policy: ArtifactRetentionPolicy): string {
     default:
       return (
         "This server did not say, so this page cannot tell you whether anything will ever delete this" +
-        " backup. Updating Backup Manager restores the answer; the rbm unconfigured command" +
+        " backup. Updating retnd restores the answer; the retnd unconfigured command" +
         " has it in the meantime."
       );
   }
 }
 
-function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+/** One field of the artifact card. `tip` is the registry entry explaining
+ *  what the field IS, which every field here wants: these labels are the
+ *  engine's vocabulary, and a checksum algorithm or an ingestion path is
+ *  not self-describing to somebody meeting it for the first time (#834).
+ *  The icon sits beside the label rather than inside it, and the label
+ *  keeps an element of its own, so the term a reader searches for is
+ *  still exactly the term on screen. */
+function Row({ label, value, mono, tip }: { label: string; value: string; mono?: boolean; tip: TooltipId }) {
   return (
     <>
-      <dt style={{ color: "var(--text-2)" }}>{label}</dt>
+      <dt style={{ color: "var(--text-2)" }}>
+        <span>{label}</span>
+        <InfoTooltip id={tip} />
+      </dt>
       <dd
         className={mono ? "mono" : undefined}
         style={{ margin: 0, wordBreak: "break-all" }}

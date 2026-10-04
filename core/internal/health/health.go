@@ -31,7 +31,7 @@
 //     field name out of habit.
 //
 // Report exists only to bundle one ProcessHealth with every configured
-// backup set's BackupSetHealth so a renderer (the `rbm status`
+// backup set's BackupSetHealth so a renderer (the `retnd status`
 // CLI, or an optional HTTP handler, both separate issues) can print both
 // halves from one already-computed value, without recomputing anything and
 // without either half leaking into the other's answer.
@@ -91,7 +91,7 @@ package health
 import (
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/internal/model"
+	"github.com/retnd/retnd/core/internal/model"
 )
 
 // State is one of the four backup-set health states FR-24 names. See the
@@ -213,6 +213,13 @@ type BackupSetInputs struct {
 	// runs on every report and its empty result is a confirmation that ran
 	// rather than a question nobody asked.
 	RetentionHoldReason string
+
+	// Snapshot is the incremental engine's measurements for this set, or
+	// nil for an artifact set and for an incremental set that has never
+	// run. The caller reads it off the snapshot catalog
+	// (internal/state's snapshot runs); this package computes none of
+	// it, exactly as it computes none of the four facts above.
+	Snapshot *SnapshotHealth
 }
 
 // TransferInProgress names one artifact currently in the TRANSFERRING
@@ -272,7 +279,7 @@ type BackupSetHealth struct {
 	// operator got. Issue #662's session opens with it, and with a count
 	// of three, over a set whose objects all read "(already known)": the
 	// report said intervention was needed and then said nothing about on
-	// what, so the operator had to go hunting through `rbm artifacts` to
+	// what, so the operator had to go hunting through `retnd artifacts` to
 	// find out which three, before they could type anything. This
 	// manager knows, so it says.
 	//
@@ -280,7 +287,7 @@ type BackupSetHealth struct {
 	// hasStuckFailure is what decideState reads, and this is the display
 	// half, exactly like Failures and CurrentTransfers beside it.
 	//
-	// It reaches `rbm status` only. core/service's toServiceBackupSetHealth
+	// It reaches `retnd status` only. core/service's toServiceBackupSetHealth
 	// does not copy it into the API's BackupSetHealth, so it is absent
 	// from the contract and from every Web UI surface built on it; a
 	// caller checking this expecting an HTTP-served answer will not find
@@ -429,6 +436,110 @@ type BackupSetHealth struct {
 	// lasts, next to the state, where the thing to do about it can be
 	// said in a sentence (reconcile the set, FR-17).
 	RetentionHoldReason string
+
+	// Snapshot is the incremental engine's half of this set's health, and
+	// nil for every artifact set.
+	//
+	// A pointer, so absent and empty stay different answers: a row of
+	// zeroes beside an artifact set would read as an incremental engine
+	// that ran and stored nothing, which is a claim about a pipeline that
+	// set never runs.
+	//
+	// Nothing in here reaches decideState. What an incremental set's
+	// verdict is made of is a question with its own answer (#784's
+	// verification policy and #785's retention decide when an unverified
+	// or unprotected snapshot is a degraded set), and inventing that
+	// answer here -- from four byte counts -- would be a verdict built
+	// out of throughput.
+	Snapshot *SnapshotHealth
+}
+
+// SnapshotHealth is what this set's newest snapshot run measured, in the
+// four numbers EPIC K requires to be reported separately.
+//
+// The separation is the entire content of this type. A single "bytes
+// backed up" figure cannot distinguish a 100 GB tree that was scanned,
+// read and deduplicated down to 200 MB of new content from 100 GB of
+// fresh upload, and reporting the first as the second is the specific
+// misrepresentation EPIC K names. So a surface gets four fields and can
+// render all four, and there is deliberately no total.
+type SnapshotHealth struct {
+	// RunID and SnapshotID identify the newest run and what it stored.
+	// SnapshotID is empty for a run that never committed a manifest.
+	RunID      string
+	SnapshotID string
+
+	// Phase is the newest run's durable phase (internal/state's
+	// SnapshotPhase vocabulary), so a set whose last pass failed says so
+	// rather than reporting its measurements as though they were a
+	// restore point.
+	Phase string
+
+	// EntriesScanned is how many source entries the run considered.
+	EntriesScanned int64
+
+	// LogicalBytes is the size of the tree as the source described it.
+	LogicalBytes int64
+
+	// SourceBytesRead is what the run actually pulled off the source.
+	SourceBytesRead int64
+
+	// RepositoryBytesWritten is what actually landed in the repository.
+	RepositoryBytesWritten int64
+
+	// ContentReusedBytes is what the repository did not have to store
+	// again.
+	ContentReusedBytes int64
+
+	// Measured is false when the run's counters were never taken, which
+	// is the state of a snapshot adopted by crash reconciliation: the
+	// manifest exists and the process that would have counted the bytes
+	// died. A surface renders that as "not measured", never as zero.
+	Measured bool
+
+	// VerificationStatus is whether a verification ran and what it
+	// concluded ("", "pending", "passed", "failed").
+	//
+	// VerificationLevel is the level the SET IS CONFIGURED FOR -- what
+	// the operator asked for -- and VerificationAchieved is the level the
+	// newest run actually PROVED, empty when nothing was proven. They are
+	// three fields because they are three claims, for the reason the
+	// catalog keeps three columns: a set configured for a restore drill
+	// whose run only verified content must read as exactly that, and a
+	// report carrying the configured level alone asserts a verification
+	// nobody performed.
+	VerificationStatus   string
+	VerificationLevel    string
+	VerificationAchieved string
+
+	// LastKnownGoodAt is when the set's last-known-good snapshot
+	// completed, nil when it has none: no successful run yet, or every
+	// successful run's snapshot has since gone from the repository.
+	LastKnownGoodAt *time.Time
+
+	// Files is how many files the newest run's snapshot holds, and
+	// Duration is how long that run took. Both are zero when the run has
+	// not finished or nobody measured it, which Measured above already
+	// distinguishes for the counters beside them; Duration is
+	// additionally zero for a run still in flight, because a duration
+	// for something unfinished is a measurement of now rather than of
+	// the run.
+	Files    int64
+	Duration time.Duration
+
+	// VerificationFailed is whether the newest run's verification
+	// concluded that the snapshot could not be proven readable.
+	//
+	// A separate field from VerificationStatus, which carries four
+	// values, because a scrape needs one number it can alert on and
+	// string-matching a status in a dashboard query is how an alert
+	// silently stops firing when a fifth value is added.
+	VerificationFailed bool
+
+	// UnfinishedRuns is how many of this set's runs are in a
+	// non-terminal phase, which after a clean cycle is zero and after a
+	// crash is what reconciliation will decide about on the next one.
+	UnfinishedRuns int
 }
 
 // Report bundles one ProcessHealth with every configured backup set's
@@ -439,12 +550,38 @@ type Report struct {
 	Process     ProcessHealth
 	BackupSets  []BackupSetHealth
 	GeneratedAt time.Time
+
+	// Workflow is FR-24's workflow half (workflow.go): whether this
+	// deployment can run hooks at all, and whether an interrupted run
+	// is waiting for a person.
+	//
+	// It is a field the caller assigns rather than a fourth parameter
+	// on NewReport, and that is a deliberate choice against the more
+	// obvious one. A positional parameter would have forced every
+	// existing call site and every existing test to pass something for
+	// a section almost none of them have anything to say about -- and
+	// what they would pass is the zero value, which is exactly what
+	// they already get. Worse, the next section to land would face the
+	// same decision and either grow the signature again or start an
+	// options struct beside a constructor that already takes three
+	// positional arguments. So the constructor keeps meaning "the two
+	// halves FR-24 was written about", and a caller that has probed a
+	// runner sets this one field on the result.
+	//
+	// The zero value reads "this deployment runs no workflows", so a
+	// caller that never sets it is not reporting a broken workflow
+	// subsystem; it is reporting the absence of one. See
+	// WorkflowHealth's own doc.
+	Workflow WorkflowHealth
 }
 
 // NewReport bundles an already-computed ProcessHealth and set of
 // BackupSetHealth values into one Report. It performs no computation of its
 // own; every BackupSetHealth in sets should already come from
 // ComputeBackupSetHealth.
+//
+// It does not take the workflow half: see Report.Workflow for why that
+// section is assigned rather than passed.
 func NewReport(process ProcessHealth, sets []BackupSetHealth, now time.Time) Report {
 	return Report{Process: process, BackupSets: sets, GeneratedAt: now}
 }

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spdrman/rclone-manager/core/apicontract"
+	"github.com/retnd/retnd/core/apicontract"
 )
 
 // The three read operations issue #544 routes, and the one piece of

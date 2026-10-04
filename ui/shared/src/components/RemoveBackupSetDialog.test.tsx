@@ -53,6 +53,8 @@ const SET: BackupSet = {
   stableForSeconds: 0,
   destination: "/data/backups/production/postgres/",
   retentionIsOverride: false,
+  pollIntervalSeconds: null,
+  effectivePollIntervalSeconds: 900,
   validations: ["transfer", "checksum"],
   state: "healthy",
   stateNote: "Verified nightly dump.",
@@ -67,7 +69,12 @@ const SET: BackupSet = {
   retainedBytes: null,
   trustedHostKeys: [],
   trustedHostKeyRecordedAt: null,
-  sshKeyId: "key_a1b2c3"
+  sshKeyId: "key_a1b2c3",
+  // EPIC K (issue #788): this fixture is an artifact set, which is
+  // what every set in this suite was before the incremental engine
+  // existed, so `incremental` is null rather than an empty block.
+  engine: "artifact",
+  incremental: null
 };
 
 function open(set: BackupSet) {

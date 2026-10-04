@@ -131,7 +131,7 @@ var destructiveGateExemptRoutes = map[string]bool{
 	//
 	// What it writes is an object of its own: a fixed, tiny body at a
 	// randomly generated key under a reserved key segment
-	// (.rclone-manager-preflight) that no configured artifact can produce,
+	// (.retnd-preflight) that no configured artifact can produce,
 	// because transport.MediumKey composes an artifact's key out of a
 	// source, a backup set and an artifact name and config lets none of
 	// the three carry a separator. The only object it deletes is that same
@@ -240,6 +240,19 @@ var destructiveGateExemptRoutes = map[string]bool{
 	// the files are still there afterwards). The gate's own routes are
 	// run_immediately and retention apply, and this is neither.
 	"DELETE /api/v1/backup-sets/{source}/{set}": true,
+
+	// Issue #862: declaring a repository domain. The same tier as POST
+	// /backup-sets, and narrower: what it writes is ONE entry in
+	// config.yaml naming a boundary, an isolation posture and a
+	// passphrase REFERENCE. It opens no storage and creates no
+	// repository -- the store is realized lazily by the first backup run
+	// that puts a snapshot in it -- so there is no backup datum anywhere
+	// in its blast radius, which is what the gate stands in front of. It
+	// cannot even overwrite a declaration that exists: a duplicate id is
+	// refused with REPOSITORY_DOMAIN_EXISTS and the file is left alone
+	// (core/service's
+	// TestCreateRepositoryDomain_RefusesADuplicateIdAndWritesNothing).
+	"POST /api/v1/repositories": true,
 
 	// Issue #176 (B3.x): the setup submission of an instance that has no
 	// configuration yet. Gating it would be self-defeating in the literal
@@ -355,6 +368,58 @@ var destructiveGateExemptRoutes = map[string]bool{
 	// for exactly that (BackupSetRetention.deployment).
 	"PUT /api/v1/backup-sets/{source}/{set}/retention":    true,
 	"DELETE /api/v1/backup-sets/{source}/{set}/retention": true,
+
+	// EPIC L's workflow surface (#813). Eight mutating routes, exempt
+	// under three separate arguments, so they are listed with the
+	// argument rather than as one block.
+	// TestEveryWorkflowWriteIsReachableWithTheDestructiveGateClosed
+	// (handlers_workflow_test.go) drives every one of them through a
+	// closed gate, so each entry below is a test and not only a comment.
+	//
+	// The six configuration writes -- the deployment-wide patch, the
+	// per-set patch, and the two env writes at each scope -- are §50's
+	// "state-changing but non-destructive" bucket, the tier PATCH
+	// /api/v1/settings and PATCH /api/v1/backup-sets/{source}/{set} are
+	// already exempt under. Each rewrites one block of config.yaml and
+	// hot-reloads; none opens storage, moves a journal row or can reach
+	// a backup datum. The case worth naming, because it is the nearest
+	// any of them comes to being dangerous, is that clearing a stage
+	// directory DISABLES hooks an operator may believe are running --
+	// which is a configuration change with a visible answer in the
+	// response, exactly the class disabling a backup set is, and not a
+	// deletion of anything.
+	//
+	// POST .../resume-cleanup is the one that deserves the argument
+	// rather than the citation, because it EXECUTES operator-written
+	// code. Three things make it exempt and they hold together. What it
+	// runs is not today's configuration: every script comes out of that
+	// run's own retained spool and is re-verified against the sha256
+	// recorded when the run was planned, so nothing a caller sends and
+	// nothing anybody edited since decides what executes. What it runs
+	// is the cleanup that is already OWED, and the alternative is a
+	// source machine left quiesced, mounted or paused -- a worse state
+	// than any this route can produce, so gating it would mean an
+	// operator who has not turned destructive operations on cannot
+	// unwind a hook that stopped their database. And it cannot reach
+	// backup data at all: it runs "after" hooks and moves a journal row,
+	// deleting no artifact, no snapshot and no remote object, which is
+	// the class this list guards. core/internal/workflowrun pins the
+	// first of those directly (ResumeCleanup re-verifies every script's
+	// hash before executing it and refuses on a mismatch).
+	//
+	// POST .../acknowledge is the quietest write here: it executes
+	// nothing whatever. It writes a recovery record and unblocks the set,
+	// and core/service refuses it while any cleanup obligation is still
+	// unsettled, so it is an acknowledgement of work somebody did rather
+	// than a way to dismiss work nobody did.
+	"PATCH /api/v1/settings/workflow":                                       true,
+	"PUT /api/v1/settings/workflow/environment/{name}":                      true,
+	"DELETE /api/v1/settings/workflow/environment/{name}":                   true,
+	"PATCH /api/v1/backup-sets/{source}/{set}/workflow":                     true,
+	"PUT /api/v1/backup-sets/{source}/{set}/workflow/environment/{name}":    true,
+	"DELETE /api/v1/backup-sets/{source}/{set}/workflow/environment/{name}": true,
+	"POST /api/v1/workflow-recovery/{run}/resume-cleanup":                   true,
+	"POST /api/v1/workflow-recovery/{run}/acknowledge":                      true,
 }
 
 // TestEveryMutatingAPIRouteRefusesARequestWithNoCSRFPair walks the route

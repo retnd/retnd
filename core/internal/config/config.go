@@ -30,7 +30,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/spdrman/rclone-manager/core/internal/model"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/secretref"
+	"github.com/retnd/retnd/core/internal/workflow"
 )
 
 // Config is the manager's whole runtime configuration (FR-5).
@@ -114,9 +116,61 @@ type Config struct {
 	// intention.
 	MaxMovesPerCycle *int `yaml:"max_moves_per_cycle,omitempty"`
 
+	// RepositoryDomains declares the repository security boundaries an
+	// incremental backup set may store its snapshots in (EPIC K, #780).
+	//
+	// It sits at the top level for the reason StorageMediums does: a
+	// domain is a boundary, not a policy, and a backup set NAMES one. A
+	// declared domain that no set references yet is a legal, staged
+	// configuration, because declaring the boundary before pointing a set
+	// at it is how an operator builds one up; the alternative would mean a
+	// domain can only be added in the same edit as the set that uses it.
+	//
+	// Nothing here says where a repository's bytes live or how it is
+	// unlocked. That is #781's, and it belongs beside the engine adapter
+	// rather than in a list whose job is to make the SHARING boundary
+	// explicit.
+	//
+	// omitempty for StorageMediums' round-trip reason: core/service
+	// re-marshals the whole Config on every settings save, and a config
+	// file that never heard of repository domains must not come back from
+	// one carrying "repository_domains: []", which an older binary then
+	// refuses outright under Load's KnownFields(true). FR-35 makes that a
+	// gate rather than an intention.
+	RepositoryDomains []RepositoryDomainConfig `yaml:"repository_domains,omitempty"`
+
 	Alerts        Alerts        `yaml:"alerts"`
 	Capacity      Capacity      `yaml:"capacity,omitempty"`
 	KeyEncryption KeyEncryption `yaml:"key_encryption,omitempty"`
+
+	// IncrementalEngine is EPIC K's production feature gate (#789): does
+	// this deployment run the incremental engine at all.
+	//
+	// omitempty, for the round-trip reason every block above states:
+	// core/service re-marshals the whole Config on every settings save,
+	// and a config file that never heard of the incremental engine must
+	// not come back from one carrying an "incremental_engine: {}" an
+	// older binary refuses outright under Load's KnownFields(true). It is
+	// load-bearing here in particular, because the gate's default is off
+	// and a zero block is therefore indistinguishable from silence: see
+	// incrementalengine.go.
+	IncrementalEngine IncrementalEngine `yaml:"incremental_engine,omitempty"`
+
+	// Workflows is EPIC L's scripted-workflow configuration (#807,
+	// #808): the approved root hook scripts live in, the
+	// deployment-wide stages, the environment every hook gets, and the
+	// bounds one hook runs under. See workflows.go, which carries the
+	// argument for the shape and for the split between what this
+	// package can refuse and what only a run start can.
+	//
+	// omitempty, for the round-trip reason every block above states:
+	// core/service re-marshals the whole Config on every settings save,
+	// and a config file that never heard of workflows must not come
+	// back from one carrying a "workflows: {}" an older binary refuses
+	// outright under Load's KnownFields(true). Absent means this
+	// deployment runs no workflows, which is every configuration
+	// written before EPIC L.
+	Workflows Workflows `yaml:"workflows,omitempty"`
 }
 
 // KeyEncryption names an optional, config-wide way to obtain the key
@@ -392,6 +446,77 @@ type State struct {
 	Database string `yaml:"database"`
 }
 
+// RepositoryDomainConfig is one declared repository security boundary
+// (EPIC K, #780): the shared encryption, credential, corruption,
+// maintenance, deduplication and administrative-trust boundary that every
+// backup set stored in it necessarily shares.
+//
+// The name carries the Config suffix because the resolved, validated value
+// is model.RepositoryDomain, and this is the file's spelling of it, on the
+// same discipline BackupSet.ReadOnlyConfig follows: the schema type is
+// what YAML may say, the model type is what the rest of the program reads.
+type RepositoryDomainConfig struct {
+	// ID is how a backup set names this domain. It is validated through
+	// model.NewRepositoryDomainID rather than here, so the rules that
+	// decide what may become a repository's name live in one place.
+	ID string `yaml:"id"`
+
+	// Description is the operator's own sentence about what this domain
+	// holds. It is never interpreted. It exists because a list of five
+	// domain ids with no prose is a list nobody reviews, and reviewing it
+	// is how an isolation mistake gets caught before an audit does.
+	Description string `yaml:"description,omitempty"`
+
+	// Isolation is "shared" or "isolated", and it is REQUIRED: a domain
+	// that does not state its co-tenancy is not an explicit boundary, and
+	// neither default is acceptable. Defaulting to shared would make an
+	// isolation boundary a belief rather than a rule; defaulting to
+	// isolated would silently forgo the deduplication that is the reason
+	// to run this engine. See model.ParseRepositoryIsolation.
+	Isolation string `yaml:"isolation"`
+
+	// Passphrase names where this repository's encryption passphrase
+	// comes from: a file, an environment variable, or a command whose
+	// stdout is the secret. It is REQUIRED for a domain a backup set
+	// actually references, and its three sources are the ones
+	// KeyEncryption and Key.Passphrase already offer, spelled the same
+	// way, because "how does a secret reach this process" is one
+	// question this file answers once.
+	//
+	// There is no field to paste a passphrase into, and there will not
+	// be. A repository's passphrase is the only thing standing between
+	// its storage and everything this product holds; a key that could be
+	// typed into config.yaml would be a key sitting in the clear beside
+	// the hostnames it protects, which is the exposure #298 exists to
+	// close for the SSH key.
+	//
+	// It is declared per DOMAIN rather than per backup set on purpose. A
+	// domain IS the encryption boundary (model.RepositoryDomain), so two
+	// sets sharing a domain necessarily share its passphrase, and a
+	// per-set key would be a per-set promise the storage cannot keep.
+	//
+	// A domain no set references may omit it: declaring the boundary
+	// before pointing anything at it is how an operator builds one up,
+	// and a passphrase for a repository nothing will open is a secret
+	// with no purpose yet. The requirement is enforced where the
+	// reference is (validateEngineReferences).
+	Passphrase Passphrase `yaml:"passphrase,omitempty"`
+
+	// PassphraseRef is the resolved, engine-facing form of Passphrase:
+	// the reference the repository adapter takes
+	// (backupengine.RepositoryLocation.Passphrase). It is filled in by
+	// Validate, on the same before/after-Validate discipline the fields
+	// above follow, so nothing outside this package rebuilds a secret
+	// reference out of three strings.
+	PassphraseRef secretref.Ref `yaml:"-"`
+
+	// Domain is the fully-resolved boundary, filled in by Validate on the
+	// same before/after-Validate discipline BackupSet.ID follows. It stays
+	// the zero value until Validate succeeds, and every consumer reads it
+	// rather than re-deriving a domain from the strings above.
+	Domain model.RepositoryDomain `yaml:"-"`
+}
+
 // Source is one origin of backup sets, e.g. "production" or "staging". It
 // exists as a grouping level because a backup set's identity (FR-7) is
 // source-plus-set, not the set name alone: two different sources are
@@ -429,10 +554,222 @@ type BackupSet struct {
 	// succeeds.
 	ID model.BackupSetID `yaml:"-"`
 
-	Remote     Remote     `yaml:"remote"`
-	RemotePath string     `yaml:"remote_path"`
-	LocalPath  string     `yaml:"local_path"`
-	Include    []string   `yaml:"include"`
+	// EngineConfig is which machinery produces this set's restore points
+	// (EPIC K, #780): "artifact" or "kopia".
+	//
+	// OMISSION IS NOT A CHOICE THIS KEY MAKES, it is the only thing every
+	// configuration written before EPIC K says, and it means the artifact
+	// engine. Validate resolves it through model.ResolveBackupEngine, in
+	// one place, and an unrecognised value is refused rather than
+	// defaulted in either direction: reading a typo as the artifact engine
+	// would silently ignore an operator who asked for snapshots, and
+	// reading it as the incremental engine would silently change what a
+	// run does to a source tree.
+	//
+	// Like ReadOnlyConfig, this field is never read directly outside
+	// Validate. Every other consumer reads the resolved Engine field.
+	//
+	// omitempty, like every other key this schema has gained, so a
+	// deployment that runs only artifact sets never writes a file an older
+	// build cannot parse (Load's KnownFields(true); see RetentionConfig's
+	// own note on that one-way door).
+	EngineConfig string `yaml:"engine,omitempty"`
+
+	// UUID is this backup set's DURABLE identifier: the one thing about it
+	// that no rename changes. It is required for an incremental set and
+	// refused for an artifact set, which is the only honest pair of rules
+	// available, and the asymmetry is worth stating.
+	//
+	// Required, because the snapshot lineage hangs off it. A set's
+	// configured identity is source-plus-name (FR-7) and both halves are
+	// editable in the UI; if the lineage hung off them, renaming a set
+	// would orphan every snapshot it had ever taken -- the next run would
+	// find no predecessor, re-read the whole source and store a second
+	// full copy. It is also not DERIVED from the name, because deriving it
+	// would be that same bug with extra steps.
+	//
+	// Refused for an artifact set, because nothing reads it there: FR-8's
+	// artifacts are identified by set plus remote basename
+	// (model.ArtifactID), and a key that cannot ever be acted on is
+	// refused rather than ignored, exactly as a local remote carrying
+	// sftp fields is (validateRemote).
+	UUID string `yaml:"uuid,omitempty"`
+
+	// RepositoryDomainConfig names the repository security boundary this
+	// set's snapshots are stored in: one of Config.RepositoryDomains'
+	// ids.
+	//
+	// It is required for an incremental set and has no default, because a
+	// default is exactly the decision EPIC K says must be intentional. A
+	// set that silently landed in some "default" repository would be
+	// deduplicating against, sharing an encryption key with, sharing a
+	// credential with and sharing a corruption fate with whatever else
+	// happened to be there.
+	//
+	// Validate resolves it into the Repository field below.
+	RepositoryDomainConfig string `yaml:"repository_domain,omitempty"`
+
+	// ConsistencyConfig is what the operator has arranged around this
+	// source while a run reads it: one of model.ConsistencyModes()
+	// (live_best_effort, externally_quiesced, external_snapshot). It is
+	// the vocabulary ADR 0009 established, not a second one.
+	//
+	// Omission resolves to model.ModeLiveBestEffort, the weakest claim,
+	// because inferring quiescence or a frozen image from silence would
+	// let a run report a point-in-time snapshot that never existed.
+	ConsistencyConfig string `yaml:"source_consistency,omitempty"`
+
+	// VerificationLevelConfig is how far this set's restore points are
+	// verified: one of model.VerificationLevels() (structural,
+	// content_sample, content_full, restore_drill).
+	//
+	// Omission resolves to model.DefaultVerificationLevel (structural),
+	// the rung that costs nothing beyond the repository's own metadata.
+	// Every stronger rung spends a deployment's I/O budget on a cadence,
+	// which is not this product's decision to make by default.
+	//
+	// This is not Validation/Revalidation above, and the two must not be
+	// confused: those are FR-11's artifact validation, run against a
+	// durable COPY of one file. This is a statement about how hard a
+	// snapshot in a repository has been looked at.
+	VerificationLevelConfig string `yaml:"verification_level,omitempty"`
+
+	// VerificationSamplePercentConfig is how much of a snapshot's file
+	// content a SAMPLED verification reads, 1 to 100. Omission resolves
+	// to backupengine.DefaultVerifySamplePercent.
+	//
+	// It is a percentage of files rather than of bytes because damage
+	// arrives per file: a byte-proportional sample spends its whole
+	// budget inside the largest file and never looks at the others. The
+	// sample is a fixed stride, so a stated percentage is read every
+	// time rather than on average.
+	VerificationSamplePercentConfig int `yaml:"verification_sample_percent,omitempty"`
+
+	// VerificationFullEvery is how often this set's restore points get a
+	// FULL content read regardless of the level above, and
+	// VerificationRestoreDrillEvery is how often one gets an actual
+	// restore drill.
+	//
+	// They are cadences rather than levels because the deep rungs cost
+	// a deployment's I/O budget and its backup window, and the honest
+	// shape of "prove it properly sometimes" is a period, not a level
+	// somebody sets and then turns off again when the nightly window
+	// overruns. Omission means never, which is the only safe default:
+	// nobody should acquire a nightly full read, or a nightly restore of
+	// their entire source, by leaving a key out.
+	//
+	// A cadence only ever raises what a run proves. It cannot lower the
+	// configured level, and a run still has to prove that level to
+	// become a restore point.
+	VerificationFullEvery         Duration `yaml:"verification_full_every,omitempty"`
+	VerificationRestoreDrillEvery Duration `yaml:"verification_restore_drill_every,omitempty"`
+
+	// SourceMountPrefix is the leading part of RemotePath that is how
+	// THIS DEPLOYMENT reaches the source rather than part of the source's
+	// own identity: a container bind mount, an install prefix, or the
+	// temporary directory an externally-provided snapshot is mounted under
+	// for the duration of one run.
+	//
+	// It exists so that moving any of those does not fork the snapshot
+	// lineage (see model.SourceRoot). Empty is the ordinary case and means
+	// "the whole path is the source's own", which is right for an sftp
+	// source whose path is absolute on the far side and does not move when
+	// anything on this side does.
+	//
+	// It is declared rather than detected because nothing on this side can
+	// tell which leading segments of /srv/snap-47/data/pg are the mount:
+	// that is a fact about the operator's arrangement, exactly like
+	// ConsistencyConfig, and a heuristic here would be a guess deciding
+	// whether a deployment keeps its backup history.
+	SourceMountPrefix string `yaml:"source_mount_prefix,omitempty"`
+
+	// Engine is the fully-resolved engine this set runs, filled in by
+	// Validate from EngineConfig on the same before/after-Validate
+	// discipline ID and ReadOnly follow. An unvalidated BackupSet reads ""
+	// here regardless of what YAML said; a validated one always names an
+	// engine.
+	Engine model.BackupEngine `yaml:"-"`
+
+	// Repository is the fully-resolved reference to this set's repository
+	// domain, carrying both the domain and this set's own identity so that
+	// co-tenancy can be checked (model.RepositoryDomain.MayShare). It is
+	// the zero value for an artifact set, which has no repository.
+	Repository model.RepositoryRef `yaml:"-"`
+
+	// Consistency and VerificationLevel are the resolved forms of the two
+	// keys above. They are the zero value for an artifact set: resolving
+	// either one for an engine that reads neither would record a claim
+	// nobody made.
+	Consistency       model.ConsistencyMode   `yaml:"-"`
+	VerificationLevel model.VerificationLevel `yaml:"-"`
+
+	// SourceIdentity is this set's stable source identity
+	// (model.NewSourceIdentity): the value that lets a run days later
+	// recognise the same source and reuse its previous snapshot. It is
+	// deliberately computed from the durable identifier, the endpoint and
+	// the source's own path only -- never from LocalPath, the set's name,
+	// or the mount prefix -- so that none of those moving forks a lineage.
+	//
+	// Zero for an artifact set, which has no snapshot lineage.
+	SourceIdentity model.SourceIdentity `yaml:"-"`
+
+	Remote     Remote   `yaml:"remote"`
+	RemotePath string   `yaml:"remote_path"`
+	LocalPath  string   `yaml:"local_path"`
+	Include    []string `yaml:"include"`
+
+	// ExcludePaths names directories, relative to RemotePath, that
+	// discovery must never walk into: issue #737's "recurse into
+	// uploads/, never into uploads/tiles/".
+	//
+	// It is a PATH list, and Include is a BASENAME pattern list, and the
+	// two are deliberately not one field. FR-5's include patterns are
+	// validated as filenames (validate.go refuses any "/" in one) because
+	// they are matched against a candidate's basename wherever it turned
+	// up in the tree, which is also why they can say nothing whatsoever
+	// about WHERE to look: a pattern that matched only some directories
+	// would need a vocabulary the include field does not have, and giving
+	// it one would change what every pattern already written means. So
+	// this is additive and separate rather than an extension of that
+	// field, and it is scoped the way a path is: anchored at RemotePath,
+	// naming one place in the tree and not every directory that happens
+	// to share a basename.
+	//
+	// The reason it exists at all is cost, not tidiness. Discovery's
+	// listing is fully recursive by design (see the rclone adapter's List:
+	// an artifact in a subdirectory that went missing from a listing is
+	// the protection-dies-quietly failure this product exists to prevent),
+	// and a backup set aimed at a directory an application also writes its
+	// own cache under therefore walks the cache too. The deployment that
+	// reported #737 had 65k files across 1.6k subdirectories under one
+	// such cache, which over a remote with no native recursive listing is
+	// 1.6k round trips per poll for artifacts nobody could ever want, and
+	// a discovery pass that did not finish. An entry here is turned into
+	// an rclone directory filter, so the walk is PRUNED rather than
+	// walked-then-discarded; a filter that only cleaned up the result set
+	// would return the same answer in the same unusable time.
+	//
+	// Each entry is a literal directory path, not a pattern, and it is
+	// root-anchored under RemotePath: "tiles" names RemotePath/tiles and
+	// nothing else. An optional leading or trailing "/" is tolerated and
+	// ignored, because "tiles", "tiles/" and "/tiles" are three ways
+	// people write one directory; that slash does NOT make the value
+	// filesystem-absolute, and no entry can name anything outside
+	// RemotePath. Validate refuses "."/".." traversal, a backslash,
+	// leading or trailing whitespace on the entry or any of its
+	// segments, and glob metacharacters: rclone's filter syntax would
+	// give the metacharacters meaning, and a field named for paths that
+	// silently accepted half a pattern language is exactly the kind of
+	// ambiguity an operator discovers by having excluded the wrong
+	// thing. These are paths, and they are not FR-5's basename include
+	// patterns: the two fields do not share a syntax.
+	//
+	// omitempty, like every other key this schema has gained, so a
+	// deployment that excludes nothing never writes a file an older build
+	// cannot parse (Load's KnownFields(true); see RetentionConfig's own
+	// note on that one-way door).
+	ExcludePaths []string `yaml:"exclude_paths,omitempty"`
+
 	Completion Completion `yaml:"completion"`
 	StaleAfter Duration   `yaml:"stale_after"`
 
@@ -519,7 +856,7 @@ type BackupSet struct {
 	// a *Config has to remember: any mutation of the top-level Retention
 	// has to be followed by Validate (or ResolveBackupSetRetention), or
 	// every set goes on deciding under the policy that was in force when
-	// it was last resolved. cmd/backup-manager's retention override flags
+	// it was last resolved. cmd/retnd's retention override flags
 	// are the live instance of this, and were a silent no-op until they
 	// re-resolved.
 	Retention Retention `yaml:"-"`
@@ -589,6 +926,75 @@ type BackupSet struct {
 	// build cannot parse (Load's KnownFields(true); see RetentionConfig's
 	// own note on that one-way door).
 	ConnectionUnverified bool `yaml:"connection_unverified,omitempty"`
+
+	// PollInterval is issue #845's per-set override of the deployment's
+	// own poll_interval: "check THIS source this often, whatever cadence
+	// the rest of the deployment runs at".
+	//
+	// nil means inherit, and inherit is not the same as a copy of
+	// today's global value: a set that says nothing here follows
+	// Config.PollInterval wherever an operator later moves it. That is
+	// what makes the global control worth having, and it is why this is
+	// a pointer rather than a Duration whose zero would have to stand in
+	// for "not said" -- the same reason ReadOnlyConfig and
+	// RetentionConfig are pointers.
+	//
+	// Unlike those two this field is read directly rather than resolved
+	// into a second one by Validate. A resolved copy would be a snapshot
+	// of the global taken at load time, and the whole point of the
+	// inheritance is that it tracks. Config.EffectivePollInterval is the
+	// one place the two scopes are combined, so no caller decides it
+	// twice.
+	//
+	// The floor (MinPollInterval) applies to this value exactly as it
+	// applies to the global one: a typo here would hammer one operator's
+	// source rather than all of them, which is not a reason to accept it.
+	//
+	// omitempty, like every other key this schema has gained, so a
+	// deployment that overrides nothing never writes a file an older
+	// build cannot parse (Load's KnownFields(true); see RetentionConfig's
+	// own note on that one-way door).
+	PollInterval *Duration `yaml:"poll_interval,omitempty"`
+
+	// Workflow is this set's own scripted-workflow configuration (EPIC
+	// L, #808): its hook directories, its script timeout, and the
+	// connection its remote hooks run over.
+	//
+	// A POINTER, unlike Config.Workflows, because a set that says
+	// nothing and a set that writes "workflow: {}" are different
+	// operator statements: the first runs no per-set hooks, and the
+	// second is a block that configures no directory, which
+	// validateBackupSetWorkflow refuses in words rather than accepting
+	// as an elaborate way of writing nothing.
+	//
+	// omitempty, like every other key this schema has gained, so a
+	// deployment that configures no workflow never writes a file an
+	// older build cannot parse (Load's KnownFields(true); see
+	// RetentionConfig's own note on that one-way door).
+	Workflow *SetWorkflow `yaml:"workflow,omitempty"`
+
+	// Environment is this set's own workflow environment, which wins
+	// over the deployment-wide one and loses to the RETND_* built-ins
+	// (workflow.Resolve). It sits beside Workflow rather than inside it
+	// because an environment is a property of the BACKUP SET, not of its
+	// hook directories: #811's cleanup stage and #810's remote execution
+	// both read it, and neither is a stage an operator configured a
+	// directory for.
+	Environment []EnvironmentVariable `yaml:"environment,omitempty"`
+
+	// WorkflowEnvironment is the fully-merged environment this set's
+	// hooks run with: the sanitized baseline, then the deployment's
+	// entries, then this set's own. Validate fills it in during phase 2,
+	// on the same before/after-Validate discipline ID and Domain
+	// follow, so nothing downstream merges three layers itself and gets
+	// the precedence wrong in one of two places.
+	//
+	// It is the ZERO Environment for a set that runs no hooks, which is
+	// not the same as the baseline: #808's first acceptance criterion is
+	// that a set with no workflow configuration behaves exactly as it
+	// did before this package had workflows at all, and "it has an
+	// environment now" would not be that.
+	WorkflowEnvironment workflow.Environment `yaml:"-"`
 
 	Validation   Validation   `yaml:"validation"`
 	Revalidation Revalidation `yaml:"revalidation"`
@@ -765,6 +1171,24 @@ type Passphrase struct {
 // predates #269.
 func (p Passphrase) isZero() bool {
 	return p.File == "" && p.Env == "" && len(p.Command) == 0
+}
+
+// secretRef is this passphrase as the engine-facing reference
+// (secretref.Ref): the same three sources, in the vocabulary the packages
+// that actually resolve a secret speak.
+//
+// It is a conversion and not a second declaration. The reason it exists
+// at all is that internal/secretref must not import this package (it is
+// below config, and is used by the repository adapter, which is below it
+// too), so the translation has to happen on this side -- once, here,
+// rather than at each caller assembling three fields and getting the
+// Command case wrong.
+//
+// It does not validate. Exactly-one-source is secretref.Ref.Validate's
+// rule and the validator reports it with the config path in the sentence,
+// which a conversion returning an error here could not do.
+func (p Passphrase) secretRef() secretref.Ref {
+	return secretref.Ref{File: p.File, Env: p.Env, Command: p.Command}
 }
 
 // Completion selects how a backup set decides a remote artifact is finished
@@ -1187,7 +1611,7 @@ type RetentionTier struct {
 	// used to record as inert and defer to #239 "when retention starts
 	// planning on it". #239 landed and it stopped being inert: an
 	// override replaced the file's chain with an all-local one, so
-	// `rbm retention --tier` previewed placement against local
+	// `retnd retention --tier` previewed placement against local
 	// beside a deployment sending monthly to S3, and printed it no less
 	// confidently. `--tier-medium NAME=MEDIUM_ID` answers it (issue #595,
 	// retention_flags.go): a repeatable flag rather than a fifth
@@ -1580,7 +2004,7 @@ type StorageMedium struct {
 	//
 	// A bucket name carrying a "/" is refused, because that is one
 	// specific mistake worth catching in words an operator can act on:
-	// "nas-backups/rclone-manager" is a bucket and a prefix written into
+	// "nas-backups/retnd" is a bucket and a prefix written into
 	// one field, and the refusal says so rather than letting the backend
 	// report a bucket name it cannot resolve.
 	Bucket string `yaml:"bucket"`
@@ -1759,7 +2183,7 @@ type MediumCredentials struct {
 	// holds is a secret it cannot log.
 	//
 	// The file belongs under this manager's private state directory
-	// (/var/lib/backup-manager), never under the backup root: the backup
+	// (/var/lib/retnd), never under the backup root: the backup
 	// root is what a NAS deployment exports over SMB or AFP, and #298 was
 	// filed over precisely that exposure for the SSH key. This package
 	// does not enforce that placement, the same way it does not enforce it
@@ -1795,7 +2219,7 @@ const DefaultFileName = "config.yaml"
 // DefaultFileName inside it; anything else is returned unchanged.
 //
 // It exists because #196 made the packaged mount a directory, so
-// `--config /etc/backup-manager/config` is now the natural thing for an
+// `--config /etc/retnd/config` is now the natural thing for an
 // operator to type. Without this, that spelling fails with "is a
 // directory" from deep inside the YAML reader, which says nothing about
 // what to do instead.

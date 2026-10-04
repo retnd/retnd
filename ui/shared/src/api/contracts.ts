@@ -1,6 +1,6 @@
 /**
  * The interface between this frontend and any backend that can serve it:
- * `BackupManagerApi` at the bottom of the file, and every request and
+ * `RetndApi` at the bottom of the file, and every request and
  * response type its methods name.
  *
  * Two implementations satisfy it, `httpApi` in client.ts and the fixtures
@@ -20,7 +20,15 @@
  * alone cannot say "the server rejects this combination".
  */
 import { API_ERROR_CODES as GENERATED_API_ERROR_CODES } from "./generated/contract";
-import type { ApiErrorCode, WireConnectionCheck, WireMediumPreflightCheck } from "./generated/contract";
+import type {
+  ApiErrorCode,
+  WireConnectionCheck,
+  WireMediumPreflightCheck,
+  WireRecoverySettingsResponse,
+  WireRecoverySettingsUpdate,
+  WireSmtpSettings,
+  WireSmtpSettingsView
+} from "./generated/contract";
 import type { BackupArtifact, BackupSet, CompletionMethod, RetentionPlan } from "@shared/types/backup";
 import type {
   ActivityEvent,
@@ -29,6 +37,25 @@ import type {
   VersionInfo
 } from "@shared/types/operation";
 import type { LiveActivity } from "@shared/types/activity";
+// EPIC K's incremental vocabulary (issue #788). Declared in
+// types/snapshot.ts beside types/backup.ts rather than here, because a
+// snapshot is a domain object this UI renders and not a property of the
+// transport: the pages import it from there, and this file is only where
+// the CALLS that produce one are declared.
+import type {
+  BackupEngine,
+  CreateRepositoryDomainRequest,
+  RepositoryFleet,
+  RepositoryHealth,
+  RepositoryMaintenance,
+  RestoreConflictPolicy,
+  Snapshot,
+  SnapshotDetail,
+  SnapshotHold,
+  SnapshotRetentionPreview,
+  SourceConsistency,
+  VerificationLevel
+} from "@shared/types/snapshot";
 
 /**
  * Every error code this frontend's backends can actually put on the wire,
@@ -82,6 +109,46 @@ export function toApiErrorCode(value: unknown): ApiErrorCode {
     : "unknown";
 }
 
+/**
+ * WHERE a failure came from, which is a different question from what it
+ * says (#795's review).
+ *
+ * The frontend used to answer it by looking at two things that cannot
+ * answer it. `code === "unknown"` was read as "no typed envelope", but it
+ * is also what `toApiErrorCode` returns for a code this BUNDLE has never
+ * heard of, so a service one version newer that refused with a typed
+ * 503 was misread as a proxy that could not reach it — and lost its own
+ * actionable message in the process. And a 502/503/504 status was read as
+ * "the proxy in front of the service", which a service is perfectly
+ * entitled to answer with itself.
+ *
+ * So provenance is RECORDED where it is known, by the code holding the
+ * response, and never re-derived downstream. api/failure.ts is the only
+ * reader, and it is what decides which sentence an operator gets.
+ */
+export type FailureOrigin =
+  /** A typed error envelope was parsed off the response: the service
+   *  looked at the request and refused it, in its own words, whatever
+   *  status that arrived on and whether or not this bundle recognises the
+   *  code. */
+  | "service"
+  /** Something in FRONT of the service answered on its behalf, and said
+   *  so: serve-ui's reverse proxy could not reach the engine and marked
+   *  the response (webhost/serve's ProxyErrorHeader). Nothing in it came
+   *  from the service. */
+  | "gateway"
+  /** `fetch` rejected. Nothing arrived at all, so there is no status and
+   *  no correlation id anywhere. */
+  | "no-response"
+  /** A response arrived and its body could not be read. */
+  | "unreadable-body"
+  /** A response arrived with no typed envelope and no marker, or the
+   *  failure came from neither the service nor the transport (a mapper
+   *  throwing on a response that was fine). Provenance is genuinely not
+   *  established, and the surfaces that name a hop do not name one on
+   *  this. */
+  | "unknown";
+
 /** A refusal, as the service states it. `message` is already written for
  *  an operator rather than for a log, which is why the default path in
  *  api/failure.ts shows it verbatim: a reason nobody anticipated still
@@ -100,6 +167,18 @@ export interface ApiError {
    *  so a literal one buys an operator a panel to open with a string in it
    *  that appears in no log anywhere. Optional so "no id" is expressible. */
   correlationId?: string;
+  /** The HTTP status the refusal arrived with, and ABSENT when no
+   *  response arrived at all. Carried for the Advanced details panel and
+   *  for the one classification that still needs it: an untyped refusal
+   *  from a build of serve-ui too old to mark its own proxy errors.
+   *  Never rendered on its own — api/failure.ts is the only reader. */
+  status?: number;
+  /** Which machine this refusal came out of, decided at the one place
+   *  that can know and never re-derived from the status or the code
+   *  (#795's review). ABSENT where nothing established it: an ApiError
+   *  built by hand, by a mock, or by a page out of its own state. Absent
+   *  is read as "not established", so no surface names a hop on it. */
+  origin?: FailureOrigin;
   /** The technical facts behind this failure, for the Advanced details
    *  panel and the copy button beside it: an exception's own name and
    *  message, the request path, the response status and content type where
@@ -107,15 +186,37 @@ export interface ApiError {
    *  (§37). Absent when the service named its own reason, which is already
    *  in `message` and says more than a class name would. */
   detail?: string;
+  /**
+   * The hook scripts that REFUSED a workflow configuration write, present
+   * only on a WORKFLOW_SCRIPT_REJECTED refusal (#906).
+   *
+   * A structured field rather than something a surface digs out of
+   * `message`, for exactly the reason CONFIG_REVISION_STALE carries the
+   * current revision as one. The refusal's sentence names each script,
+   * its stage directory and each blocking finding as
+   * `CODE at line:col: message`, because a terminal has nothing else to
+   * print — but that sentence is PROSE, and the contract explicitly does
+   * not promise to keep its wording stable. A panel that parsed "at 4:1"
+   * back out of it would be a screen whose findings list breaks when
+   * somebody rewrites a sentence, which is the defect this field exists
+   * to make impossible.
+   *
+   * Absent on every other refusal, and absent on a
+   * WORKFLOW_SCRIPT_REJECTED from an engine too old to send the list:
+   * `workflowScriptRefusalOf` answers an empty array there and the
+   * banner falls back to the message, so an older engine still produces
+   * a readable refusal rather than an empty panel.
+   */
+  blockingScripts?: WorkflowBlockingScript[];
 }
 
 /** The typed envelope, thrown. It extends Error so an unprepared caller
  *  still gets something with a readable message, and carries `api` so a
  *  prepared one can branch on the code and quote the correlation id. */
-export class BackupManagerError extends Error {
+export class RetndError extends Error {
   constructor(readonly api: ApiError) {
     super(api.message);
-    this.name = "BackupManagerError";
+    this.name = "RetndError";
   }
 }
 
@@ -264,6 +365,12 @@ export interface BackupSetPatch {
    *  actually kept. */
   stableForSeconds?: number;
   staleAfterSeconds?: number;
+  /** How often this set's source is checked, in seconds (issue #845).
+   *  Omit the key to leave it alone; an explicit 0 means "inherit the
+   *  deployment default again", which is unambiguous because the server
+   *  refuses anything under `schema.service.minPollIntervalSeconds`, so
+   *  zero is a value no caller could be asking for. */
+  pollIntervalSeconds?: number;
   /** The id of a key POST /ssh-keys has already imported, replacing the
    *  one this set authenticates with. A reference, never key material.
    *  An id no import produced is refused with SSH_KEY_NOT_FOUND. */
@@ -298,6 +405,32 @@ export interface BackupSetPatch {
    *  refusal re-sends the body that was refused rather than re-reading the
    *  form (BackupSetDetailPage's `refusal` state). */
   acknowledgeHostKeyChange?: boolean;
+  /**
+   * EPIC K's editable incremental settings (issue #788).
+   *
+   * Four of the set's incremental fields are editable and two are not,
+   * and the split is not arbitrary: `engine` and `repositoryDomain` are
+   * create-only, because a set's history belongs to its engine and lives
+   * in the domain it was written to, so changing either would leave
+   * everything already collected behind and start a second, unrelated
+   * lineage. UpdateBackupSetRequest carries no field for either, so this
+   * type cannot offer one.
+   *
+   * What IS editable is the verification budget and the arrangement the
+   * operator has made on the source. Both are statements about how hard
+   * future runs are checked, not about where anything is stored, so
+   * changing them costs nothing already taken.
+   */
+  sourceConsistency?: SourceConsistency;
+  verificationLevel?: VerificationLevel;
+  /** The share of files a `content_sample` verification reads, 1..100.
+   *  Meaningless at the other three levels and simply ignored there. */
+  verificationSamplePercent?: number;
+  /** How often a run reads EVERY file regardless of the level above, in
+   *  seconds. 0 is "never raise the level on a cadence". */
+  verificationFullEverySeconds?: number;
+  /** How often a run performs a restore drill, in seconds. 0 is "never". */
+  verificationRestoreDrillEverySeconds?: number;
 }
 
 /** What a run cycle is doing for one backup set right now: the content of
@@ -379,6 +512,34 @@ export interface CreateBackupSetRequest {
    *  nothing. Sent only when the caller actually set it, so an ordinary
    *  create is never a pre-acknowledged one. */
   acknowledgeRepoint?: boolean;
+  /**
+   * EPIC K (issue #788): which engine this set runs, and the four
+   * answers only the incremental one has.
+   *
+   * `engine` is omitted for an artifact set rather than sent as
+   * "artifact", because omitted is what every create before this field
+   * existed meant and the service's own default is the same word. The
+   * four incremental fields are sent only for `engine: "kopia"`: a
+   * repository domain on an artifact set is a field the service would
+   * have to either refuse or ignore, and both are worse than not sending
+   * it.
+   *
+   * This is the ONE moment `engine` and `repositoryDomain` can be
+   * chosen. Neither is on UpdateBackupSetRequest, which is why the
+   * wizard says so out loud rather than letting an operator discover it
+   * when the edit form has no field for it.
+   */
+  engine?: BackupEngine;
+  /** The encrypted store this set's snapshots live in. A domain nothing
+   *  declares yet is created with the deployment's own defaults; joining
+   *  one that exists shares its key, its credential, its maintenance and
+   *  its blast radius with every other set in it. */
+  repositoryDomain?: string;
+  sourceConsistency?: SourceConsistency;
+  verificationLevel?: VerificationLevel;
+  verificationSamplePercent?: number;
+  verificationFullEverySeconds?: number;
+  verificationRestoreDrillEverySeconds?: number;
 }
 
 /** What a submitted run_cycle operation looks like from
@@ -411,7 +572,7 @@ export interface RestoreCopyRequest {
   configRevision: string;
   /** One key per LOGICAL restore, reused on every retry of it. POST
    *  /operations declares the header required and refuses without one;
-   *  see BackupManagerApi.runCycle for why the key belongs to the
+   *  see RetndApi.runCycle for why the key belongs to the
    *  submission rather than to the attempt. */
   idempotencyKey: string;
 }
@@ -606,6 +767,27 @@ export interface ConnectionTestOutcome {
    * here depends on which request was sent.
    */
   checks: ConnectionCheck[];
+
+  /**
+   * Issue #852: whether these credentials may WRITE to the source,
+   * proven by the `write_probe` step creating a file under the remote
+   * path and removing it again.
+   *
+   * It is what the wizard and the per-set form enable or disable their
+   * "delete from source after backup" control on, which is why it is
+   * read as a field and never derived from the write_probe row's
+   * sentence.
+   *
+   * Independent of `ok`: a read-only source is a perfectly fine
+   * connection that simply cannot be deleted from, and a surface that
+   * treated this as a failure would be refusing a supported (and often
+   * recommended) posture.
+   *
+   * False against an engine that predates the field, which is the safe
+   * direction: the control stays disabled rather than offering a
+   * deletion nobody proved was possible.
+   */
+  writable: boolean;
 }
 
 /**
@@ -991,7 +1173,7 @@ export const BACKEND_FIELD_KINDS: readonly BackendFieldKind[] = [
  * What a backend IS to this engine, as opposed to which rclone backend it
  * dials. Closed in the engine, for BackendFieldKind's reason.
  */
-export type BackendRole = "object_store" | "local_volume";
+export type BackendRole = "object_store" | "local_volume" | "remote_filesystem";
 
 /** One choice an `enum`-kind field offers: the value that is stored, and
  *  the words to render for it. */
@@ -1059,6 +1241,16 @@ export interface BackendManifest {
   label: string;
   summary: string;
   role: BackendRole;
+  /** Whether an instance of this backend can be authored today.
+   *
+   *  False is a backend this build registers, describes and serves, and
+   *  cannot yet store or dial: `sftp` (#731) is the first one. Render it
+   *  and refuse it — somebody who came looking for it deserves the real
+   *  shape and the reason rather than silence — and never submit it: the
+   *  configure step has nowhere to save what it would collect, so
+   *  offering it collects eight values and fails on the last screen.
+   *  Tracked in #235. */
+  configurable: boolean;
   fields: BackendManifestField[];
   probe: { steps: BackendProbeStep[] };
 }
@@ -1389,15 +1581,41 @@ export interface UpdateCapacitySettings {
  *  settings so a form can enforce the server's rules without holding a
  *  second copy of them, which is the rule the retention and capacity
  *  cards are both written to. */
+export interface ServiceSettings {
+  /** The deployment-wide DEFAULT cadence a backup source is checked for
+   *  new backup files at. A backup set may override it for itself
+   *  (BackupSet.pollIntervalSeconds), so this is never a claim about any
+   *  particular set. */
+  pollIntervalSeconds: number;
+}
+
+/** The rule the service-behaviour settings are validated against, served
+ *  with them so a form enforces the server's floor rather than a second
+ *  copy of it that drifts. */
+export interface ServiceSchema {
+  /** The floor under BOTH scopes: the deployment default and any per-set
+   *  override. A shorter interval is refused wherever it was written. */
+  minPollIntervalSeconds: number;
+}
+
+/** A PARTIAL service-behaviour update: only the fields named here
+ *  change. */
+export interface UpdateServiceSettings {
+  pollIntervalSeconds?: number;
+}
+
 export interface AppSettings {
   retention: RetentionSettings;
   capacity: CapacitySettings;
+  /** How this manager behaves, as opposed to what it keeps (issue
+   *  #845). */
+  service: ServiceSettings;
   /** Every storage medium the configuration declares, in declaration
    *  order. Empty for every deployment that has configured none, which is
    *  the case the Medium column and the medium picker both disappear
    *  for. */
   mediums: StorageMedium[];
-  schema: { retention: RetentionSchema; storage: StorageSchema };
+  schema: { retention: RetentionSchema; storage: StorageSchema; service: ServiceSchema };
 }
 
 /** A PARTIAL update: only the fields named here change, everything else
@@ -1419,6 +1637,7 @@ export interface UpdateRetentionSettings {
 export interface UpdateSettingsRequest {
   retention?: UpdateRetentionSettings;
   capacity?: UpdateCapacitySettings;
+  service?: UpdateServiceSettings;
   /** The operator's acknowledgment of `schema.storage.mediumDisclosure`,
    *  required by the backend on a write that first sends a tier's backups
    *  to a non-local medium (FR-27).
@@ -1531,7 +1750,7 @@ export interface FirstRunResult {
   restartRequired: boolean;
 }
 
-/** The outcome of {@link BackupManagerApi.reinstate}. */
+/** The outcome of {@link RetndApi.reinstate}. */
 export interface ArtifactReinstatement {
   /** Whether the backup was actually returned to a trusted state. */
   reinstated: boolean;
@@ -1543,6 +1762,784 @@ export interface ArtifactReinstatement {
   state: string;
   /** What was checked and what it found, already a sentence. */
   reason: string;
+}
+
+/** Which slice of the durable activity feed to read (issue #730). */
+export interface ActivityQuery {
+  /** How many events to ask for. The service has a default and a
+   *  maximum of its own, so this is a request rather than a promise; a
+   *  caller that sends nothing gets the default. */
+  limit?: number;
+  /** A `nextCursor` from an earlier page, which asks for the events
+   *  OLDER than that page ended at. Opaque: it is the service's own
+   *  ordering key and nothing here may parse it. */
+  before?: string;
+}
+
+/** One page of {@link RetndApi.listActivity}. */
+export interface ActivityFeedPage {
+  /** The page itself, newest first. */
+  events: ActivityEvent[];
+  /** Where to continue from, absent when this page reached the end of
+   *  the record. Absent is what a surface must test to decide whether to
+   *  offer "load older" at all: offering it for a record that has ended
+   *  is a control that does nothing. */
+  nextCursor?: string;
+}
+
+/**
+ * Issue #830: how an administrator gets back in, and the mail endpoint
+ * that is the only thing able to carry them there.
+ *
+ * Every shape below is DERIVED from the generated wire schema rather than
+ * restated beside it, because the three of them differ in exactly one
+ * field each and a hand-written copy would let those differences drift:
+ * a write carries the SMTP password, a read never does and reports only
+ * whether one is stored, and an update carries whichever half is being
+ * changed. That asymmetry is the whole security property of the block
+ * (the runtime keeps the password in a mode-0600 file of its own and has
+ * no response schema anywhere that could serialise it back), so it is
+ * expressed in the types rather than left to a comment.
+ */
+/** Which protection the submission connection runs under. Closed in the
+ *  contract, so a picker over it cannot offer a value the server refuses. */
+export type SmtpSecurity = WireSmtpSettings["security"];
+
+/** An SMTP endpoint as an operator TYPED it, password included.
+ *
+ *  `password` is required here and optional on the wire, which is the one
+ *  difference worth having: a form always holds a string for it, and ""
+ *  is a real value with a defined meaning — "keep whatever is stored" on
+ *  an update. client.ts is where that meaning is applied (it omits the
+ *  field entirely rather than sending an empty one, which would read as a
+ *  request to authenticate with no password). */
+export type SmtpSettingsInput = Required<WireSmtpSettings>;
+
+/** The same endpoint as a READ answers it. The password is absent
+ *  structurally, not blanked, and `passwordSet` is the only thing said
+ *  about it — which is what a settings form has to render instead of a
+ *  masked value it could never round-trip. */
+export type SmtpSettingsView = WireSmtpSettingsView;
+
+/** What GET /auth/recovery answers, and what a PATCH answers with once it
+ *  has applied.
+ *
+ *  Two members are NORMALISED out of the wire shape, where both are
+ *  optional members that the contract simply omits when the fact does
+ *  not exist. `smtp` is null on a deployment whose administrator was
+ *  provisioned headlessly (`auth create-admin` leaves recovery
+ *  optional). That is a state a settings page must REPORT rather than
+ *  hide: an account with no endpoint configured has no way back at all,
+ *  and rendering an empty form over it would look like one that is
+ *  simply not filled in yet. `verificationDeadline` is "" when this
+ *  account cannot lapse. Both are total here so that every surface tests
+ *  one thing instead of each inventing its own handling of `undefined`.
+ *
+ *  `recoveryEmailConfirmed` is separate from the address for the same
+ *  reason: an address that has been typed and an address a message has
+ *  actually reached are different facts, and only the second one means
+ *  recovery works.
+ *
+ *  `recoveryEmailVerified` is a THIRD fact and the strongest one (#830
+ *  §8): a mail server accepting a message proves the endpoint works, and
+ *  a redeemed link proves somebody can READ the mailbox. Until it is
+ *  true, `verificationDeadline` is the RFC3339 instant at which a
+ *  provisional administrator is DELETED and enrollment reopens. */
+export type RecoverySettings = Omit<WireRecoverySettingsResponse, "smtp" | "verificationDeadline"> & {
+  smtp: SmtpSettingsView | null;
+  verificationDeadline: string;
+};
+
+/** A PARTIAL recovery update: only the halves named here are touched.
+ *  Sending neither is refused by the service, since a request that
+ *  changes nothing is a request that has lost its subject.
+ *
+ *  `currentPassword` is REQUIRED and is not a formality. The recovery
+ *  address and the SMTP endpoint decide where a password reset link is
+ *  delivered, so a caller who holds a live session but does not know the
+ *  password must not be able to repoint them - that is a stolen cookie
+ *  turning into a permanent account takeover through forgot-password.
+ *  The service re-checks it before it resolves, sends or writes
+ *  anything, and refuses with UNAUTHENTICATED exactly as POST
+ *  /auth/password does.
+ *
+ *  A changed address, and a changed ENDPOINT, are each proven by sending
+ *  over the endpoint the SAME request establishes, and the whole update
+ *  is refused with SMTP_SEND_FAILED when that send fails - so this call
+ *  cannot leave an account holding a recovery address nothing has ever
+ *  been delivered to, nor an endpoint nothing has ever been delivered
+ *  through. */
+export type RecoverySettingsUpdate = Omit<WireRecoverySettingsUpdate, "smtp"> & {
+  smtp?: SmtpSettingsInput;
+};
+
+/**
+ * EPIC K's four mutating acts (issue #788), as submissions to POST
+ * /operations rather than routes of their own.
+ *
+ * Every one carries the same two tokens the run actions carry, and for
+ * the same reasons: `idempotencyKey` describes the RETRY (one key per
+ * logical submission, re-sent unchanged when an operator presses the
+ * button again), and `configRevision` is the revision the caller is
+ * displaying, so a screen that has been open while somebody edited the
+ * configuration is refused rather than acting against a setup nobody
+ * looking at it has seen.
+ *
+ * A hold is neither long-running nor expensive and is still an operation,
+ * which is the point: the durability is about the retry, not the
+ * duration.
+ */
+export interface SnapshotRestoreRequest {
+  /** The full "source/set" id, the one every surface in this product
+   *  prints. */
+  backupSetId: string;
+  /** The engine's manifest id. Omitted asks for this set's newest
+   *  known-good restore point, which is the only default that cannot
+   *  hand somebody a snapshot that failed its verification. */
+  snapshotId?: string;
+  /** A path INSIDE the snapshot, or omitted for the whole tree. */
+  sourcePath?: string;
+  /** Where the tree is written. A directory this deployment can reach —
+   *  never the original server, so a restore can never be the thing that
+   *  damages the source. */
+  targetPath: string;
+  /** Defaults to "refuse" server-side. The UI sends it explicitly
+   *  anyway, because the control that chooses it is the one place an
+   *  operator can ask for an overwrite and the request should say what
+   *  was asked for. */
+  conflict?: RestoreConflictPolicy;
+  configRevision: string;
+  idempotencyKey: string;
+}
+
+/** Prove, now, that a restore point is restorable, at a stated depth.
+ *  Records nothing onto the snapshot row: what a RUN proved is what that
+ *  run proved, and an on-demand check months later is a different claim
+ *  about a different moment, reported on the operation that performed
+ *  it. */
+export interface SnapshotVerifyRequest {
+  backupSetId: string;
+  /** Omitted verifies the newest snapshot. */
+  runId?: string;
+  /** Omitted verifies at the set's configured level. */
+  level?: VerificationLevel;
+  samplePercent?: number;
+  configRevision: string;
+  idempotencyKey: string;
+}
+
+/** Stop retention deleting one named snapshot until somebody releases the
+ *  hold. The reason is required by the service and by the product: a hold
+ *  nobody can attribute is one nobody dares release. */
+export interface SnapshotHoldRequest {
+  backupSetId: string;
+  runId: string;
+  reason: string;
+  configRevision: string;
+  idempotencyKey: string;
+}
+
+/** End one hold, by its id. Releasing deletes nothing; it returns the
+ *  snapshot to whatever the retention policy already said about it. */
+export interface SnapshotHoldReleaseRequest {
+  backupSetId: string;
+  holdId: string;
+  configRevision: string;
+  idempotencyKey: string;
+}
+
+/**
+ * What a snapshot action answers with: the durable operation, and the
+ * snapshots it is about.
+ *
+ * Both halves, because both are used. The operation is what the screen
+ * then WATCHES (a restore and a verify run for minutes), and the
+ * snapshots are what a hold or a release changed, so a dialog can close
+ * onto the new truth rather than onto a re-read that may not have landed
+ * yet.
+ */
+export interface SnapshotOperationResult {
+  operation: Operation;
+  snapshots: Snapshot[];
+}
+
+/**
+ * EPIC L's workflow vocabulary (issue #814), mapped off
+ * generated/contract.ts.
+ *
+ * # Why these are hand types at all
+ *
+ * The wire shapes are generated and every field on them is optional,
+ * because that is what an OpenAPI document without required-field
+ * annotations produces. A page cannot render `state?: string | undefined`
+ * into a badge without deciding what an absent state means, and deciding
+ * that in every component is how two screens end up drawing the same run
+ * differently. So the mapping happens once, in client.ts, onto the closed
+ * unions below.
+ *
+ * # The one rule that governs every shape here
+ *
+ * A secret is a LOCATION and never a value. `WorkflowSecretReference`
+ * carries a file path, a variable NAME or an argv, and there is no field
+ * anywhere below a resolved secret could be written into or read out of.
+ * That is the type rather than a convention: the engine resolves a
+ * reference at the moment a hook is about to run and nothing carries the
+ * result back, so no response this client can receive has one to leak.
+ * The consequence reads as a gap and is not one: no surface in this UI
+ * can show an operator the value of a secret variable, ever.
+ */
+
+/** One step's outcome. The eight the engine writes, and nothing else: a
+ *  state this build cannot read is mapped to "interrupted" rather than to
+ *  a confident verdict, because of the eight that is the one that says
+ *  "somebody should look at this". */
+export type WorkflowStepState =
+  | "pending"
+  | "running"
+  | "success"
+  | "failed"
+  | "timed_out"
+  | "canceled"
+  | "skipped"
+  | "interrupted";
+
+/** One RUN's own state, which is the step vocabulary plus the four a run
+ *  can be in that no single step can: held for recovery, running its
+ *  cleanup, having failed that cleanup, and having been recovered. */
+export type WorkflowRunState =
+  | WorkflowStepState
+  | "recovery_required"
+  | "cleanup_running"
+  | "cleanup_failed"
+  | "recovered";
+
+/** One of the three verdicts a run carries. They stay three and none is
+ *  derived from the others: "the backup succeeded and the cleanup did
+ *  not" is the single most operationally important thing this feature can
+ *  report, because it means a machine may be sitting quiesced with a good
+ *  backup beside it, and a surface that collapsed them would make exactly
+ *  that case unsayable. */
+export type WorkflowStatus = "unknown" | "running" | "success" | "failed" | "skipped";
+
+/** Whether this run is holding its backup set, and how far out of the
+ *  hold it has got. */
+export type WorkflowRecoveryState = "none" | "required" | "in_progress" | "resolved";
+
+/** Which of the five stages a step belongs to: the scope that configured
+ *  it, and which side of the backup it runs on. */
+export type WorkflowScope = "global" | "set";
+export type WorkflowPhase = "before" | "after";
+
+/**
+ * One step of one workflow run: one hook script, executed once.
+ *
+ * `target` is the field every surface's wording hangs off. "local" means
+ * the machine retnd is installed on, executed by the Host Workflow
+ * Runner — never the engine container, which has no shell for a hook and
+ * did not grow one. "remote" means the source host, over the execution
+ * connection named by `executionConnectionRef`.
+ *
+ * `scriptSha256` is optional and is usually absent, which is honest
+ * rather than incomplete: the run-step shape L6 serves carries no hash,
+ * so a row describing last night's run has no recorded hash to print. The
+ * validation report's hash describes the script on disk NOW, and
+ * rendering that as the run's would be a claim about what executed that
+ * nothing supports.
+ */
+export interface WorkflowStepSummary {
+  stepId: string;
+  scriptName: string;
+  phase: WorkflowPhase;
+  scope: WorkflowScope;
+  order: number;
+  target: "local" | "remote";
+  /** The execution connection a remote step ran over, as configured.
+   *  Absent on a local step, which has no connection at all. */
+  executionConnectionRef?: string;
+  /** The host a remote step ran on, when the client can name one.
+   *  Derived from the connection reference; the wire carries no separate
+   *  host field, so this is frequently undefined and the connection
+   *  reference is the identity a surface prints. */
+  remoteHost?: string;
+  state: WorkflowStepState;
+  /** null when the step produced no exit code: it never ran, or it was
+   *  signalled and the channel closed before the process reported one.
+   *  Distinct from 0, which is a real success. */
+  exitCode?: number | null;
+  durationMs?: number;
+  startedAt?: string;
+  finishedAt?: string;
+  timeoutMs?: number;
+  /**
+   * Whether this product SAW this step stop.
+   *
+   * False on a step that was killed on its timeout and whose exit was
+   * never confirmed, which is the state that has to be said out loud: the
+   * script may still be running on the machine it was sent to, and
+   * nothing in this product can end it. Absent means the engine reported
+   * nothing, which is not the same as "confirmed".
+   */
+  terminationConfirmed?: boolean;
+  scriptSha256?: string;
+}
+
+/**
+ * One workflow run: one backup set's pass, wrapped in the five-stage hook
+ * lifecycle.
+ *
+ * `steps` is empty on a list read and populated on a detail read, which
+ * is the server's shape rather than this client's: a client following a
+ * running workflow polls the STEPS, because the run's own row moves once
+ * at the start and once at the end and the steps are what change in
+ * between.
+ */
+export interface WorkflowRun {
+  runId: string;
+  backupSetId: string;
+  state: WorkflowRunState;
+  backupStatus: WorkflowStatus;
+  workflowStatus: WorkflowStatus;
+  cleanupStatus: WorkflowStatus;
+  recoveryState: WorkflowRecoveryState;
+  /** Whether this run was asked to skip its hooks. Prominent on every
+   *  surface that draws a run: a green workflow verdict on a run that
+   *  never executed a hook is a different fact from one that ran them
+   *  all. */
+  bypassed: boolean;
+  startedAt: string | null;
+  finishedAt: string | null;
+  durationMs: number | null;
+  scriptCount: number;
+  /** The step and script that ended the workflow, when one did. Both,
+   *  because the id is what a link needs and the basename is what an
+   *  operator reads. */
+  failedStep?: string;
+  failedScript?: string;
+  steps: WorkflowStepSummary[];
+}
+
+/** Which slice of the run journal to read. Both fields are advisory: the
+ *  engine answers with its own defaults for anything absent, and a
+ *  backup set id it does not configure is NOT refused — a run outlives
+ *  the configuration that produced it, so "this set is gone and here is
+ *  what it did" is a real answer. */
+export interface WorkflowRunQuery {
+  backupSetId?: string;
+  limit?: number;
+}
+
+/** One captured record of one step's output. `kind` tells an ordinary
+ *  line from the engine's own note that output was dropped, which a
+ *  terminal renders differently: a truncation marker is not something the
+ *  script said. */
+export interface WorkflowStepLogRecord {
+  seq: number;
+  stream: "stdout" | "stderr";
+  at: string;
+  text: string;
+  kind?: "output" | "truncated";
+}
+
+/**
+ * One page of one step's captured output.
+ *
+ * A cursor read and not a stream: the follower sends the last sequence it
+ * PROCESSED and gets what is newer, so resume after a dropped connection
+ * is the ordinary read with the cursor the follower already had. That is
+ * also what makes authorization on replay structural — every page is one
+ * ordinary authenticated request — rather than something somebody has to
+ * remember.
+ *
+ * `complete` and not an empty page is what tells a follower it may stop:
+ * the sequence counter is per RUN, so a page filtered to one step can
+ * legitimately be empty while the run's counter has moved.
+ */
+export interface WorkflowStepLogPage {
+  records: WorkflowStepLogRecord[];
+  cursor: number;
+  complete: boolean;
+  truncated: boolean;
+}
+
+/** How a follower asks for the next page. `wait` asks the service to hold
+ *  briefly for new output rather than answering empty; it is CLAMPED
+ *  server-side, because an unbounded wait is a held-open response wearing
+ *  a different name. */
+export interface WorkflowStepLogOptions {
+  after?: number;
+  wait?: boolean;
+  limit?: number;
+}
+
+/** One reason a backup set is refusing to run: a workflow run whose
+ *  cleanup this product could not finish, and whose "after" hooks may
+ *  therefore never have run. */
+export interface WorkflowRecoveryHold {
+  runId: string;
+  backupSetId: string;
+  scope: WorkflowScope;
+  enteredAt: string;
+  /** Where the run's retained scripts are. Shown because a resume
+   *  executes from it, re-verified against the hash recorded when that
+   *  run was planned. */
+  spoolRef: string;
+}
+
+/** Where one workflow environment value comes from, when it is not a
+ *  literal. Exactly one of the three is set, and none of them is a value:
+ *  see this block's own doc. */
+export interface WorkflowSecretReference {
+  file?: string;
+  env?: string;
+  command?: string[];
+}
+
+/** One configured environment entry, as every read of either scope
+ *  reports it.
+ *
+ *  `value` and `hasValue` are two fields rather than one nullable string
+ *  because the difference is real and a surface renders it: an empty
+ *  literal is a deliberately empty variable, which operators write, and
+ *  no literal at all is a variable whose value comes from a reference. */
+export interface WorkflowEnvVariable {
+  name: string;
+  value?: string;
+  hasValue: boolean;
+  secret?: WorkflowSecretReference;
+}
+
+/** A PUT of one entry. The NAME is not here: it is the path segment, so a
+ *  body that could name a second variable cannot exist. Exactly one of
+ *  the two is meaningful — a literal and a reference at once is refused
+ *  as a contradiction. */
+export interface WorkflowEnvVariableInput {
+  value?: string;
+  secret?: WorkflowSecretReference;
+}
+
+/** One scope's configured environment, after a read or a write. The
+ *  writes answer with the whole list rather than the entry they touched,
+ *  because a set or an unset is only meaningful against what else is
+ *  there. */
+export interface WorkflowEnvironment {
+  backupSetId: string;
+  variables: WorkflowEnvVariable[];
+}
+
+/** One scope-and-phase pair that has a directory. A run executes five
+ *  stages in a fixed order; these are the ones a configuration actually
+ *  gives a directory to. */
+export interface WorkflowStage {
+  scope: WorkflowScope;
+  phase: WorkflowPhase;
+  dir: string;
+}
+
+/** How this process reaches the Host Workflow Runner: the component that
+ *  executes a `.local.sh` hook on the machine retnd is installed on.
+ *  Reported and never writable, because the two paths differ between a
+ *  container and a bare-metal install of the same deployment — a
+ *  deployment-shape fact the installer writes, like the SSH key and the
+ *  state database. */
+export interface WorkflowRunnerStatus {
+  configured: boolean;
+  socket: string;
+  tokenFile: string;
+}
+
+/** The deployment-wide workflow configuration, RESOLVED: the timeout a
+ *  hook will actually get, the stages that will actually run, the
+ *  environment a hook will actually see. That is why this read exists
+ *  rather than a client re-reading config.yaml — the file's whole point
+ *  is that it omits what is inherited or defaulted. */
+export interface WorkflowSettings {
+  configured: boolean;
+  root: string;
+  beforeDir: string;
+  afterDir: string;
+  scriptTimeoutSeconds: number;
+  /** Whether that timeout is a configured value or the product's own
+   *  default. A form that could not tell them apart would write today's
+   *  default into the file and stop following a later change to it. */
+  scriptTimeoutConfigured: boolean;
+  maxScriptSizeBytes: number;
+  environment: WorkflowEnvVariable[];
+  /** Every connection this deployment declares that a hook could execute
+   *  over. The picker's options; capability is proven per set by
+   *  validation, not asserted here. */
+  execConnections: string[];
+  runner: WorkflowRunnerStatus;
+}
+
+/** A PARTIAL write of the deployment-wide block. An absent field is
+ *  "leave this alone" and an empty string is "clear this", which are
+ *  different requests — clearing a stage directory DISABLES that stage,
+ *  so it has to be expressible. */
+export interface WorkflowSettingsPatch {
+  root?: string;
+  beforeDir?: string;
+  afterDir?: string;
+  scriptTimeoutSeconds?: number;
+  maxScriptSizeBytes?: number;
+}
+
+/** One backup set's workflow configuration, resolved against the
+ *  deployment's. Both halves of every inherited value are reported —
+ *  what this set PINS and what a hook will actually get — because an
+ *  operator changing the deployment default needs to know which sets are
+ *  pinned and which will follow. */
+export interface BackupSetWorkflow {
+  backupSetId: string;
+  configured: boolean;
+  beforeDir: string;
+  afterDir: string;
+  /** What this set pins, or undefined when it inherits. */
+  scriptTimeoutSeconds?: number;
+  /** What a hook will actually get, pinned or inherited. */
+  effectiveScriptTimeoutSeconds: number;
+  remoteExecConnectionRef: string;
+  environment: WorkflowEnvVariable[];
+  /** Every variable name a hook for this set will see, from both scopes
+   *  and the built-ins, as the engine resolved them. */
+  resolvedEnvironmentNames: string[];
+  stages: WorkflowStage[];
+}
+
+/** A PARTIAL write of one set's block, with the same absent/empty rule
+ *  the deployment-wide patch keeps. A patch against a set with no
+ *  workflow block creates one carrying only the fields named, so a set
+ *  given a before_dir does not silently acquire a pinned timeout copied
+ *  from today's deployment value. */
+export interface BackupSetWorkflowPatch {
+  beforeDir?: string;
+  afterDir?: string;
+  scriptTimeoutSeconds?: number;
+  remoteExecConnectionRef?: string;
+}
+
+/** One validation check's answer. `severity` has four values and
+ *  "skipped" earns its place: a deployment with no remote hooks has
+ *  nothing to say about its exec capability, and reporting that as OK
+ *  would be this product claiming it proved something it never looked
+ *  at. */
+export interface WorkflowFinding {
+  check: string;
+  severity: "ok" | "skipped" | "warning" | "error";
+  detail: string;
+  phase?: string;
+  scope?: string;
+  script?: string;
+  target?: string;
+}
+
+/**
+ * A few of one hook script's OWN lines, carried beside a position that
+ * names one of them: the reported line with one line either side (#906).
+ *
+ * # Why a report of somebody's script carries part of it at all
+ *
+ * A position on its own is not a finding, it is a lookup. "BSH003 at
+ * 24:10" tells an operator to go and open the file, and the file is on
+ * the machine the hook runs on — which for a `*.remote.sh` hook is NOT
+ * the machine this browser is on, and is quite often a source host behind
+ * a jump host that somebody has to be on a VPN to reach. The operator who
+ * has just had a save refused is exactly the operator who cannot afford
+ * that errand, so the report carries the line it is talking about and the
+ * surface draws a caret under the column, which is the whole of what the
+ * lookup would have produced.
+ *
+ * # Why this is safe to render, which a field holding somebody's script
+ * has to answer before it is allowed to exist
+ *
+ *   - it arrives INERT. The service produces it from the same bytes the
+ *     verification read and hashed, with control characters already
+ *     removed and each line already bounded. No surface sanitizes it
+ *     again and no surface may assume it needs to: two sanitizers on one
+ *     value is how they drift and how one of them quietly stops being the
+ *     safe one. A tab arrives as a single space, deliberately, so the
+ *     reported COLUMN still counts to the same place — which is what
+ *     makes a caret drawable under it at all.
+ *   - it is the script's own text and never a resolved value. Nothing on
+ *     the path that produces it resolves an environment variable or a
+ *     secret reference, so `$PGPASSWORD` in a hook reaches this field as
+ *     the eleven characters somebody typed. That is the point rather than
+ *     a limitation: the finding is about the text, and this product has
+ *     no read anywhere that carries a resolved secret.
+ *   - it comes from the bytes that were HASHED, not from a later re-read.
+ *     An excerpt fetched afterwards could disagree with the position
+ *     beside it — somebody edits the hook between the check and the
+ *     render — and a caret under the wrong line is worse than no caret.
+ *
+ * An excerpt with no lines is the ordinary absent case, not an error: an
+ * engine that predates this field, or a finding the service chose to
+ * carry no source for. A surface draws nothing extra for it rather than
+ * an empty box.
+ */
+export interface WorkflowSourceExcerpt {
+  lines: WorkflowSourceLine[];
+}
+
+/**
+ * One line of a hook script, as an editor would number it.
+ *
+ * `truncated` is carried per line rather than left to a surface to infer
+ * from a length, because the two are not the same statement: a surface
+ * that cut at its own bound would be showing an operator a line their
+ * file does not contain, with a caret under a column of it that is no
+ * longer where the rule fired. The service cuts, and says it cut.
+ */
+export interface WorkflowSourceLine {
+  number: number;
+  text: string;
+  truncated: boolean;
+}
+
+/**
+ * One thing retnd's OWN shell rules reported about one hook script
+ * (#906).
+ *
+ * These are this product's checks, carrying its own BSH codes, and they
+ * are NOT ShellCheck: ShellCheck is GPL-3.0 and this product is
+ * Apache-2.0, so the analysis is implemented against a Go shell parser's
+ * syntax tree rather than shipped as somebody else's tool. No copy on any
+ * surface may name ShellCheck, and no code here may imply the set is a
+ * general shell linter's: it is deliberately small and conservative, and
+ * an operator who wants a general linter should run one.
+ *
+ * `line` and `col` are 1-based positions in the script's own text, which
+ * is why they are rendered as `line:col` everywhere rather than prettied
+ * up: that is the form an editor jumps to.
+ */
+export interface WorkflowLintFinding {
+  code: string;
+  severity: "error" | "warning" | "info" | "style";
+  line: number;
+  col: number;
+  message: string;
+  /** The reported line with one line either side, or no lines at all
+   *  when the service carried none. A surface draws the caret under
+   *  `col` of the line numbered `line`: the text is column-aligned by
+   *  construction, which is why it may be. */
+  excerpt: WorkflowSourceExcerpt;
+}
+
+/**
+ * What the shell verification established about one hook script's exact
+ * bytes, without running any of them.
+ *
+ * THREE states, kept distinguishable on purpose, because collapsing any
+ * pair of them is a lie a surface then repeats:
+ *
+ *   - examined and parsed: `examined` and `parsed`, findings possibly
+ *     empty, which is the only state that may be drawn as clean;
+ *   - examined and refused: `examined` with `parsed` false, and a
+ *     `parseError` with its position. The file is not a shell program, so
+ *     nothing in it would run;
+ *   - NOT examined: `examined` false with a `notExaminedReason` — a
+ *     script larger than the verification reads. This is never a pass. A
+ *     green tick for a check nobody ran would be this product claiming it
+ *     proved something it never looked at, which is the same rule
+ *     WorkflowFinding's "skipped" severity exists for.
+ *
+ * Both booleans default FALSE when the service sent neither, for the
+ * reason the two validation verdicts do: a verdict this build did not
+ * receive has not passed.
+ */
+export interface WorkflowScriptLint {
+  examined: boolean;
+  notExaminedReason?: string;
+  parsed: boolean;
+  parseError?: string;
+  parseErrorLine?: number;
+  parseErrorCol?: number;
+  /** The line the parser gave up on, with one either side. Its own
+   *  field and not a finding's, because a parse error is not a finding:
+   *  it is the statement that the file is not a shell program, and the
+   *  findings list beside it is empty for that reason. */
+  parseErrorExcerpt: WorkflowSourceExcerpt;
+  findings: WorkflowLintFinding[];
+}
+
+/**
+ * One hook script that refused a workflow configuration write, and why.
+ *
+ * Only the BLOCKING half is carried — a parse error, or the
+ * error-severity findings — because a refusal that also listed the
+ * warnings would read as though the warnings had refused it. They did
+ * not: `warning`, `info` and `style` are reported and save fine, and
+ * that distinction is the whole reason the gate is usable at all.
+ *
+ * `dir` is the stage directory the write pointed at, which is the fact an
+ * operator needs to find the file: the script name alone does not say
+ * which of the four stage directories it came out of.
+ */
+export interface WorkflowBlockingScript {
+  scriptName: string;
+  dir: string;
+  scope: string;
+  phase: string;
+  parseError?: string;
+  parseErrorLine?: number;
+  parseErrorCol?: number;
+  parseErrorExcerpt: WorkflowSourceExcerpt;
+  /** Which backup set's stage directory this script came out of, when
+   *  the refusal is about a set at all — a global stage belongs to no
+   *  set and carries none.
+   *
+   *  It exists because a deployment-wide write can be refused over a set
+   *  the operator was not editing: changing `root` re-resolves EVERY
+   *  set's stage directories under the new root, so the gate verifies
+   *  every set's stages and may come back holding a script from one of
+   *  them. "20-dump.remote.sh in before" on its own would not say whose,
+   *  and an operator who had just edited one field would go looking in
+   *  the wrong set's directory. */
+  backupSetId?: string;
+  findings: WorkflowLintFinding[];
+}
+
+/** One hook this backup set would run, as validation found it on disk.
+ *  Nothing here was executed. Two different things look at a script and
+ *  neither runs it: `lint` below is retnd's own in-process shell
+ *  verification, which parses the exact bytes with a Go shell parser and
+ *  applies this product's BSH rules to the syntax tree, and the
+ *  capability half of validation hands the script to `bash -n` on the
+ *  target, which parses and never runs. */
+export interface WorkflowValidatedScript {
+  stepId: string;
+  scriptName: string;
+  phase: WorkflowPhase;
+  scope: WorkflowScope;
+  order: number;
+  target: "local" | "remote";
+  executionConnectionRef?: string;
+  sha256: string;
+  sizeBytes: number;
+  timeoutMs: number;
+  /** What retnd's own shell verification established about these
+   *  bytes. Always present on a script the report carries, including in
+   *  its not-examined form, because "nothing looked at this" is an
+   *  answer a surface has to be able to draw. */
+  lint: WorkflowScriptLint;
+}
+
+/** Everything this product can establish about one backup set's hooks
+ *  WITHOUT running any of them.
+ *
+ *  Two verdicts rather than one, and that is the shape rather than an
+ *  oversight: a set whose source connects, whose destination is writable
+ *  and whose retention is sound, with a hook directory nobody has created
+ *  yet, is valid for backup and invalid for workflows — the normal case
+ *  during setup, and reporting it as a broken backup set would tell an
+ *  operator their backups are failing when they are not. */
+export interface WorkflowValidation {
+  backupSetId: string;
+  configured: boolean;
+  root: string;
+  stages: WorkflowStage[];
+  scripts: WorkflowValidatedScript[];
+  findings: WorkflowFinding[];
+  validForBackup: boolean;
+  workflowValid: boolean;
 }
 
 /**
@@ -1560,7 +2557,7 @@ export interface ArtifactReinstatement {
  * a write rather than fresh reads. Those are the things a caller gets
  * wrong, and none of them are visible in the types.
  */
-export interface BackupManagerApi {
+export interface RetndApi {
   getVersion(): Promise<VersionInfo>;
   getHealth(): Promise<SystemHealth>;
 
@@ -1618,7 +2615,7 @@ export interface BackupManagerApi {
    * one (issue #597, EPIC G's G1.4).
    *
    * `backupSetId` is the full "source/backup-set" id, which is the id
-   * every surface in this product prints and the one `rbm
+   * every surface in this product prints and the one `retnd
    * fetch --backup-set` has taken since #569.
    *
    * It shares runCycle's route, gate and single-flight lock, so a per-set
@@ -1765,8 +2762,9 @@ export interface BackupManagerApi {
    *  already found are different acts; both answer with the same
    *  `SSHKeyImportResult`. */
   importSSHKeyCandidate(candidateId: string): Promise<SSHKeyImportResult>;
-  /** The wizard's "Verify server" step (#98 step 3): fetches a real
-   *  fingerprint for host:port, trusting nothing yet. */
+  /** The wizard's "Connection test" step (#98's step 3 "Verify server",
+   *  folded into step 2 by #788): fetches a real fingerprint for
+   *  host:port, trusting nothing yet. */
   probeHostKey(host: string, port: number): Promise<HostKeyProbeResult>;
   /** A pre-save reachability/auth check, run before createBackupSet —
    *  distinct from testConnection(id) above, which checks an ALREADY
@@ -1787,7 +2785,17 @@ export interface BackupManagerApi {
   getArtifact(id: string): Promise<BackupArtifact>;
 
   listOperations(): Promise<Operation[]>;
-  listActivity(): Promise<ActivityEvent[]>;
+  /**
+   * One page of the durable lifecycle record, newest first (issue #730).
+   *
+   * A page rather than "the feed" because the record is append-only and
+   * nothing prunes it: a deployment that has been running a year holds
+   * more events than any screen can render, and a caller that asked for
+   * all of them would make the page that opens on the worst deployment
+   * the slowest one. Read the first page with a `limit`, then follow
+   * `nextCursor` for what is behind it.
+   */
+  listActivity(query?: ActivityQuery): Promise<ActivityFeedPage>;
 
   /**
    * What every configured backup set is doing right now, plus a bounded
@@ -1890,6 +2898,109 @@ export interface BackupManagerApi {
     policy: RetentionOverride
   ): Promise<BackupSetRetention>;
   clearBackupSetRetention(source: string, set: string): Promise<BackupSetRetention>;
+
+  /**
+   * EPIC K's five incremental reads (issue #788), all of them read-only
+   * and none of them cached.
+   *
+   * The three per-set reads are sub-resources of the backup set because
+   * that is what they are: a snapshot belongs to exactly one set, its
+   * identity is only meaningful inside that set's lineage, and every one
+   * of these is refused with BACKUP_SET_NOT_INCREMENTAL for a set that
+   * stores artifacts instead. A surface therefore has to know which
+   * engine a set runs BEFORE it asks — which is why BackupSet.engine is
+   * on the list read, not only here.
+   *
+   * `source` and `set` are passed apart rather than as a joined id for
+   * the reason every other route in this interface takes them apart: the
+   * two halves are URL-encoded independently, and a set name containing
+   * a slash cannot survive being rejoined.
+   */
+  listSnapshots(source: string, set: string): Promise<Snapshot[]>;
+  /** One run by its `runId` — never by manifest id, which a failed run
+   *  does not have. Carries the transition log, which the list
+   *  deliberately does not: it is unbounded per run and nothing on a list
+   *  renders it. Refuses with SNAPSHOT_NOT_FOUND for a run this set never
+   *  had. */
+  getSnapshot(source: string, set: string, runId: string): Promise<SnapshotDetail>;
+  /** Every unreleased hold in this set's snapshot lineage. */
+  listSnapshotHolds(source: string, set: string): Promise<SnapshotHold[]>;
+  /** What snapshot retention would decide right now, oldest first. A
+   *  PREVIEW that changes nothing.
+   *
+   *  Not `previewRetention`, and the two must never be confused: that one
+   *  is FR-18's artifact retention plan, which can be APPLIED by plan id.
+   *  This one is the incremental pruner's own per-snapshot verdict and
+   *  has no apply route at all — snapshots are expired by the engine's
+   *  own pass, and the only operator control over one is a hold. */
+  getSnapshotRetention(source: string, set: string): Promise<SnapshotRetentionPreview>;
+  /** Every repository domain this deployment declares, with its health.
+   *  Deliberately uncached: a cached repository verdict keeps reporting
+   *  green after the storage under it has gone away, which is the one
+   *  moment the answer matters. */
+  listRepositories(): Promise<RepositoryFleet>;
+  /** One domain's maintenance state. Opens no storage at all — the
+   *  ownership record is a file this deployment writes beside its own
+   *  state — which is what makes it answerable in the case an operator
+   *  asks in: the repository is usually the thing that is not answering.
+   *  Refuses with REPOSITORY_DOMAIN_NOT_FOUND for a domain nothing
+   *  declares. */
+  getRepositoryMaintenance(domain: string): Promise<RepositoryMaintenance>;
+  /**
+   * Declare a repository domain (issue #862).
+   *
+   * It persists a DECLARATION and creates no store: the repository is
+   * written the first time a backup set puts a snapshot in the domain.
+   * The health that resolves is built from that declaration and is NOT a
+   * probe -- the route opens no storage and resolves no passphrase
+   * reference -- so every access boolean is false because nothing was
+   * measured, the verdict is DEGRADED, and a screen must not render
+   * either as a failed create. `listRepositories` probes from then on,
+   * where a domain nothing has run into yet is reachable and not
+   * readable: the storage answers and holds no repository.
+   *
+   * The passphrase crosses as a REFERENCE. There is no field for the
+   * secret and there will not be one.
+   *
+   * Rejects with INCREMENTAL_ENGINE_DISABLED when this deployment does
+   * not run the incremental engine, which is a state a screen has to
+   * EXPLAIN rather than retry; with REPOSITORY_DOMAIN_EXISTS for an id
+   * this deployment already declares; and with
+   * REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE when the declaration would
+   * claim a repository another instance maintains (ADR 0017).
+   */
+  createRepositoryDomain(req: CreateRepositoryDomainRequest): Promise<RepositoryHealth>;
+
+  /**
+   * One durable operation by id, for watching work that outlives the
+   * request.
+   *
+   * The list read beside it (`listOperations`) is what the app-wide poll
+   * owns; this is the narrow one a restore or a verify screen polls while
+   * it is on screen, because a page watching one operation should not
+   * have to re-read every operation in the deployment to find it.
+   */
+  getOperation(id: string): Promise<Operation>;
+
+  /**
+   * EPIC K's four mutating acts (issue #788). Every one is a submission
+   * to POST /operations with its own parameter object, so every one is
+   * durable, idempotency-keyed and revision-checked — and the CLI submits
+   * exactly the same four, which is what keeps CLI/Web parity honest
+   * rather than aspirational.
+   *
+   * Refusals are typed and each sends an operator somewhere different:
+   * SNAPSHOT_NOT_FOUND (the run is gone or was never here),
+   * SNAPSHOT_HOLD_NOT_FOUND (somebody else released it),
+   * BACKUP_SET_NOT_INCREMENTAL (an artifact set has no snapshots at all),
+   * plus the four this route has always answered —
+   * CONFIG_REVISION_STALE, IDEMPOTENCY_KEY_CONFLICT,
+   * DESTRUCTIVE_OPERATIONS_DISABLED and OPERATION_ALREADY_RUNNING.
+   */
+  restoreSnapshot(req: SnapshotRestoreRequest): Promise<SnapshotOperationResult>;
+  verifySnapshot(req: SnapshotVerifyRequest): Promise<SnapshotOperationResult>;
+  holdSnapshot(req: SnapshotHoldRequest): Promise<SnapshotOperationResult>;
+  releaseSnapshotHold(req: SnapshotHoldReleaseRequest): Promise<SnapshotOperationResult>;
 
   /** Issue #140 (B3.7): the settings surface. getSettings reads the
    *  policy in effect plus the schema it is validated against;
@@ -2044,10 +3155,211 @@ export interface BackupManagerApi {
   rebuildCatalog(): Promise<void>;
 
   login(username: string, password: string): Promise<void>;
-  enrollAdministrator(username: string, password: string): Promise<void>;
+  /**
+   * Issue #830: creating the administrator, which now also establishes
+   * the only way back into it.
+   *
+   * The recovery address and the SMTP endpoint are parameters rather than
+   * an optional block because the service requires both: an
+   * administrator with no proven way to reach its owner is an account
+   * that is permanently lost the first time a password is forgotten, and
+   * enrolment is the last moment at which somebody who can still sign in
+   * is present to fix the mail configuration.
+   *
+   * The runtime SENDS a confirmation message before it writes anything
+   * and refuses the whole enrolment with SMTP_SEND_FAILED if that send
+   * does not succeed. Nothing is created in that case and the single-use
+   * enrolment token is NOT spent, so the same link works again once the
+   * fields are corrected — which is what the page has to say, because
+   * "the account could not be created" over a dead link and over a
+   * typo'd SMTP port are the same sentence with opposite next steps.
+   */
+  enrollAdministrator(
+    username: string,
+    password: string,
+    recoveryEmail: string,
+    smtp: SmtpSettingsInput
+  ): Promise<void>;
+
+  /**
+   * Ask for a reset link, by username (issue #830).
+   *
+   * Resolves for every input. An unenrolled deployment, a username that
+   * is not the administrator's, an administrator with no recovery
+   * address and an SMTP endpoint that refused the message all answer 204,
+   * and the service answers BEFORE any mail is attempted so the response
+   * time does not vary either. A caller therefore cannot report whether
+   * anything was sent, and must not imply that it can: the invariant is
+   * that this endpoint enumerates nothing.
+   */
+  requestPasswordReset(username: string): Promise<void>;
+
+  /**
+   * Redeem a reset token and set the password (issue #830).
+   *
+   * The token is single-use and expires, and redeeming it revokes every
+   * live session and issues no new one. So a successful call leaves this
+   * browser signed OUT, whatever it was before, and the only honest place
+   * to send the operator afterwards is the sign-in screen.
+   *
+   * RESET_TOKEN_INVALID covers expired, already-used and never-issued
+   * alike, deliberately: all three are recovered by asking for another
+   * link.
+   */
+  resetPassword(token: string, newPassword: string): Promise<void>;
+
+  /**
+   * Redeem the single-use link mailed to the recovery address (issue
+   * #830 §8), which is what makes a PROVISIONAL administrator permanent.
+   *
+   * Unauthenticated, like the two reset calls above and for the same
+   * reason: the link is opened from a mail client that may never have
+   * signed into this deployment.
+   *
+   * VERIFY_TOKEN_INVALID covers expired, already-used, never-issued and
+   * "there is no administrator any more" alike, deliberately: they are
+   * all recovered the same way, by signing in and asking for another
+   * link (or by enrolling again), and distinguishing them would let an
+   * unauthenticated caller probe the account's state.
+   */
+  verifyRecoveryEmail(token: string): Promise<void>;
+
+  /** Mail a FRESH verification link to the stored recovery address
+   *  (issue #830 §9's re-send option). Authenticated, because it makes
+   *  the service send to an address the caller does not choose, and it
+   *  never moves the verification deadline - the new link carries the
+   *  same one the old link did. Refusing with SMTP_SEND_FAILED is the
+   *  honest answer when the mail server is the thing that is broken. */
+  resendRecoveryEmailVerification(): Promise<void>;
+
+  /** The recovery block as it stands (issue #830). Authenticated, and
+   *  never carries the SMTP password: see SmtpSettingsView. */
+  getRecoverySettings(): Promise<RecoverySettings>;
+
+  /** Change the recovery address, the SMTP endpoint, or both. Answers
+   *  with the block as it now stands, so a caller re-renders from the
+   *  service's own answer rather than from what it hoped it wrote —
+   *  which matters here because `recoveryEmailConfirmed` is decided by a
+   *  message actually being delivered, not by the request succeeding. */
+  updateRecoverySettings(update: RecoverySettingsUpdate): Promise<RecoverySettings>;
+
+  /** Send a message to the stored recovery address over the stored
+   *  endpoint, changing nothing (issue #830). It exists because the only
+   *  way to know a mail configuration works is to use it, and the moment
+   *  an operator needs it to work is the one moment they cannot find out
+   *  by trying. A refusal carries the server's own SMTP error. */
+  sendRecoveryTestEmail(): Promise<void>;
   /** apps/common/auth/local's POST /password (issue #128). Requires an
    *  already-authenticated session; rotates the stored password hash and
    *  revokes every other live session for this administrator. */
   rotatePassword(currentPassword: string, newPassword: string): Promise<void>;
   logout(): Promise<void>;
+
+  /**
+   * EPIC L's workflow surface (issue #814), against the routes L6 landed.
+   *
+   * Four reads for what a run DID, three writes for a run that is stuck,
+   * and the configuration either side of it. The split is the API's own
+   * and it is worth keeping in mind when calling them: the run and its
+   * steps are separate reads because a client following a live workflow
+   * polls the steps, and the validation is a separate read again because
+   * it costs real work — it captures and hashes every script, opens a
+   * socket to the Host Workflow Runner and an SSH connection to the
+   * source — so nothing may poll it on a timer.
+   */
+  /** Every recorded run, newest first, optionally narrowed to one backup
+   *  set. A set id this deployment no longer configures is answered
+   *  rather than refused: a run outlives the configuration that produced
+   *  it. */
+  workflowRuns(query?: WorkflowRunQuery): Promise<WorkflowRun[]>;
+  /** One run, with its steps. */
+  workflowRun(runId: string): Promise<WorkflowRun>;
+  /** One run's steps, in plan order. The read a live page polls. */
+  workflowSteps(runId: string): Promise<WorkflowStepSummary[]>;
+  /**
+   * One page of one step's captured output, from `after` onwards.
+   *
+   * The cursor read the step terminal follows: send the last sequence
+   * PROCESSED and get what is newer, which makes resume after a dropped
+   * connection the ordinary call rather than a special case. `complete`
+   * — never an empty page — is what says a follower may stop.
+   */
+  workflowStepLogs(
+    runId: string,
+    stepId: string,
+    options?: WorkflowStepLogOptions
+  ): Promise<WorkflowStepLogPage>;
+
+  /** Every outstanding recovery hold in this deployment. An empty list is
+   *  the ordinary state; a non-empty one is the reason a backup set has
+   *  stopped backing up, answered from the engine's own hold set rather
+   *  than guessed at from the run list. */
+  workflowRecovery(): Promise<WorkflowRecoveryHold[]>;
+  /**
+   * Run the "after" hooks a held run still owes, from that run's own
+   * retained spool.
+   *
+   * Nothing a caller sends and nothing an operator edited since decides
+   * what executes: every script comes out of the spool and is
+   * re-verified against the sha256 recorded when that run was planned,
+   * and the request names a run id and nothing else. Answers with the
+   * run as it now stands.
+   */
+  resumeWorkflowCleanup(runId: string): Promise<WorkflowRun>;
+  /**
+   * Take responsibility, by hand, for a run this product could not
+   * account for, and unblock its backup set.
+   *
+   * The reason is required by the service and by the product: there is
+   * deliberately no "clear this" and no "ignore this", because a run in
+   * recovery may have left a source machine quiesced, mounted or paused.
+   * The actor is read from the session and never sent, since an
+   * acknowledgement whose actor the caller could choose would answer
+   * "who unblocked this" with whatever name the caller typed.
+   */
+  acknowledgeWorkflowRecovery(runId: string, reason: string): Promise<void>;
+
+  /** The deployment-wide workflow block, resolved. */
+  getWorkflowSettings(): Promise<WorkflowSettings>;
+  /** A sparse write of it. Answers with the block as it now stands, so a
+   *  form re-renders from what was persisted rather than from what it
+   *  hoped it had written. */
+  patchWorkflowSettings(patch: WorkflowSettingsPatch): Promise<WorkflowSettings>;
+
+  /** The deployment-wide environment, and its two writes. Every one of
+   *  the three answers with the whole list, because a set or an unset is
+   *  only meaningful against what else is there. */
+  listWorkflowEnvironment(): Promise<WorkflowEnvironment>;
+  setWorkflowEnvironment(name: string, entry: WorkflowEnvVariableInput): Promise<WorkflowEnvironment>;
+  unsetWorkflowEnvironment(name: string): Promise<WorkflowEnvironment>;
+
+  /** One backup set's block, resolved against the deployment's, and its
+   *  sparse write. */
+  getBackupSetWorkflow(source: string, set: string): Promise<BackupSetWorkflow>;
+  patchBackupSetWorkflow(
+    source: string,
+    set: string,
+    patch: BackupSetWorkflowPatch
+  ): Promise<BackupSetWorkflow>;
+
+  /** One backup set's own environment layer, and its two writes. The same
+   *  three operations as the deployment scope, on the narrower list. */
+  listBackupSetWorkflowEnvironment(source: string, set: string): Promise<WorkflowEnvironment>;
+  setBackupSetWorkflowEnvironment(
+    source: string,
+    set: string,
+    name: string,
+    entry: WorkflowEnvVariableInput
+  ): Promise<WorkflowEnvironment>;
+  unsetBackupSetWorkflowEnvironment(
+    source: string,
+    set: string,
+    name: string
+  ): Promise<WorkflowEnvironment>;
+
+  /** Everything establishable about one set's hooks without running any
+   *  of them. Never polled: it hashes every script and opens both a
+   *  runner socket and an SSH connection, so a dashboard on a timer here
+   *  would be probing an operator's source host on a timer. */
+  getBackupSetWorkflowValidation(source: string, set: string): Promise<WorkflowValidation>;
 }

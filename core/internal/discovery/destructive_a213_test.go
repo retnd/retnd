@@ -15,8 +15,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/spdrman/rclone-manager/core/internal/config"
-	"github.com/spdrman/rclone-manager/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // TestDiscover_AbsoluteAndControlCharacterPathsAreRejectedNotIngested rounds

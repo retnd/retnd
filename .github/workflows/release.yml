@@ -611,7 +611,119 @@ jobs:
       # DRY_RUN=1 runs every guard and stops before the push, so a
       # dispatch with publish left false still exercises the refusals
       # against the real tree rather than only against fixtures.
+      #
+      # This step is also where FR-39's mirror window is enforced, and it
+      # is worth knowing here because nothing in this file names a
+      # package: the GHCR path comes from
+      # distribution/packaging/canonical.json's image block, and guard 7
+      # inside publish_image.py refuses a run that would push only the
+      # current package path while that block still declares a retained
+      # one (image.mirror). A release that reached ghcr.io under the new
+      # name and silently stopped pushing the old one would 404 every
+      # existing `docker pull`, because a PACKAGE path gets none of the
+      # redirects a transferred repository does. The window closes with
+      # #895, which deletes image.mirror and guard 7 together.
       - name: Publish
         env:
           DRY_RUN: ${{ needs.decide.outputs.publish == 'true' && '0' || '1' }}
         run: bash scripts/release/publish-image.sh
+
+  # A release is not complete when the push returns. The registry is the
+  # authority for the index and platform digests, and main must record those
+  # facts together with image.published=true, the installer pin and regenerated
+  # provenance. This job performs that whole transition after the publish job
+  # has pushed, signed and attested every declared package path.
+  #
+  # It merges the published release commit with --no-commit, reads the image
+  # back from GHCR, records the resulting immutable identities, runs the
+  # consistency guards, then creates one merge commit containing both the
+  # release ancestry and its post-publish metadata. A conflict or inconsistent
+  # registry response fails rather than guessing. Re-running a completed
+  # workflow is harmless: when the published SHA is already in main and the
+  # generated files are unchanged, there is nothing to commit or push.
+  merge-back-to-main:
+    name: merge release into main, now that it has published
+    needs: [decide, publish]
+    if: needs.decide.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Merge the published source without committing yet
+        env:
+          PUBLISHED_SHA: ${{ github.sha }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git merge-base --is-ancestor "$PUBLISHED_SHA" HEAD; then
+            echo "Published commit is already reachable from main; regenerating metadata to prove this retry is a no-op."
+          else
+            git merge --no-ff --no-commit "$PUBLISHED_SHA"
+          fi
+
+      - name: Read the published image reference
+        id: image
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          from pathlib import Path
+          image = json.loads(Path("distribution/packaging/canonical.json").read_text())["image"]
+          print(f"tag={image['tag']}")
+          print(f"reference={image['reference']}")
+          PY
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Record what GHCR holds
+        env:
+          REFERENCE: ${{ steps.image.outputs.reference }}
+        run: |
+          index_digest="$(docker buildx imagetools inspect "$REFERENCE" --format '{{.Manifest.Digest}}')"
+          docker buildx imagetools inspect "$REFERENCE" --raw > "$RUNNER_TEMP/release-index.json"
+          python3 scripts/release/record-published-release.py \
+            --index-digest "$index_digest" \
+            --index-manifest "$RUNNER_TEMP/release-index.json"
+          {
+            echo "### Published registry identity"
+            echo
+            echo "\`$REFERENCE@$index_digest\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: |
+            core/go.sum
+            distribution/go.sum
+
+      - name: Regenerate and verify published release records
+        run: |
+          (cd distribution && go run ./cmd/provenance -write)
+          (cd distribution && go test ./packaging -count=1)
+          (cd distribution && go run ./cmd/provenance)
+          python3 scripts/install/test_install_docker_host.py
+          bash scripts/release/check-published-provenance.sh
+          sha256sum -c provenance/checksums.txt
+
+      - name: Commit the release and registry facts to main
+        env:
+          TAG: ${{ steps.image.outputs.tag }}
+        run: |
+          git add -A
+          if git diff --cached --quiet && [ ! -f .git/MERGE_HEAD ]; then
+            echo "main already records release ${TAG}; nothing to push."
+            exit 0
+          fi
+          git commit \
+            -m "Merge release into main after publishing ${TAG}" \
+            -m "Automated by .github/workflows/release.yml after reading the index and platform digests back from GHCR, updating the installer pin, and regenerating the provenance bundle."
+          git push origin HEAD:main

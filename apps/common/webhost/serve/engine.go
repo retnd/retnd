@@ -4,9 +4,10 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/spdrman/rclone-manager/apps/common/platform/capabilities"
-	"github.com/spdrman/rclone-manager/apps/common/platform/profile"
-	"github.com/spdrman/rclone-manager/apps/common/webhost"
+	"github.com/retnd/retnd/apps/common/platform/capabilities"
+	"github.com/retnd/retnd/apps/common/platform/profile"
+	"github.com/retnd/retnd/apps/common/webhost"
+	"github.com/retnd/retnd/core/legacypath"
 )
 
 // The engine half of the two-container split: the process that holds the
@@ -65,12 +66,24 @@ type EngineConfig struct {
 	// with whatever Authenticator/AuthRoutes it actually wired up (a
 	// caller using apps/common/auth/local should always pass its
 	// Service's own TrustForwardedHeaders() here, exactly as
-	// apps/generic/cmd/backup-manager-web does).
+	// apps/generic/cmd/retnd-web does).
 	TrustForwardedHeaders bool
 
 	// Backend is the core/service.BackupService adapter (or a test
 	// double) every apps/common/webhost handler ultimately calls into.
 	Backend webhost.BackupServiceClient
+
+	// AdoptedPaths is FR-38's list of this deployment's locations that
+	// are being served from a pre-rename path, forwarded to
+	// webhost.NewRouter unchanged so GET /api/v1/system/version can
+	// report it.
+	//
+	// The host resolves this ONCE, before it opens or announces
+	// anything, and hands the answer down: see core/legacypath for why
+	// the decision cannot be re-derived later by anything that wants to
+	// stay in step with the journal that is actually open. Nil on every
+	// deployment whose paths are the ones this release resolves.
+	AdoptedPaths []legacypath.Adoption
 
 	// Gate decides whether POST /api/v1/operations may run; nil means
 	// webhost.NewRouter's own NotYetImplementedGate default.

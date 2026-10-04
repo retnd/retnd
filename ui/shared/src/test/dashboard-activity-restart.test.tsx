@@ -23,7 +23,7 @@ import { MemoryRouter } from "react-router-dom";
 import { DashboardActivity, feedRestarted, mergeActivity } from "@shared/pages/DashboardActivity";
 import { ApiProvider } from "@shared/api/ApiContext";
 import { createMockApi } from "@shared/api/mock";
-import type { BackupManagerApi } from "@shared/api/contracts";
+import type { RetndApi } from "@shared/api/contracts";
 import type { BackupSet } from "@shared/types/backup";
 import type { LiveActivity, SetActivity, SetActivityEvent } from "@shared/types/activity";
 
@@ -43,6 +43,8 @@ const SET: BackupSet = {
   stableForSeconds: 0,
   destination: "/data/backups/production/postgres/",
   retentionIsOverride: false,
+  pollIntervalSeconds: null,
+  effectivePollIntervalSeconds: 900,
   validations: ["transfer", "checksum"],
   state: "healthy",
   stateNote: "Verified nightly dump.",
@@ -57,7 +59,12 @@ const SET: BackupSet = {
   retainedBytes: 421 * 1024 ** 3,
   trustedHostKeys: [{ algorithm: "ssh-ed25519", fingerprint: "SHA256:test-fingerprint" }],
   trustedHostKeyRecordedAt: "2026-08-02T10:14:00+02:00",
-  sshKeyId: "key_a1b2c3"
+  sshKeyId: "key_a1b2c3",
+  // EPIC K (issue #788): this fixture is an artifact set, which is
+  // what every set in this suite was before the incremental engine
+  // existed, so `incremental` is null rather than an empty block.
+  engine: "artifact",
+  incremental: null
 };
 
 function line(sequence: number, message: string): SetActivityEvent {
@@ -125,7 +132,7 @@ describe("noticing that the service restarted", () => {
       .mockResolvedValueOnce(before)
       .mockResolvedValueOnce(afterRestart)
       .mockResolvedValue(caughtUp);
-    const api: BackupManagerApi = { ...createMockApi(), getLiveActivity };
+    const api: RetndApi = { ...createMockApi(), getLiveActivity };
     render(
       <MemoryRouter>
         <ApiProvider api={api}>

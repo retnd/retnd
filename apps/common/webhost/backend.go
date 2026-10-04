@@ -3,7 +3,7 @@ package webhost
 import (
 	"context"
 
-	"github.com/spdrman/rclone-manager/core/service"
+	"github.com/retnd/retnd/core/service"
 )
 
 // The seam between this package and core/.
@@ -301,7 +301,7 @@ type BackupServiceClient interface {
 
 	// ListArtifacts and GetArtifact back GET /api/v1/backups, GET
 	// /api/v1/backups/{id} and GET /api/v1/quarantine (issue #211):
-	// read-only reads of the FR-9 journal `rbm artifacts`
+	// read-only reads of the FR-9 journal `retnd artifacts`
 	// already prints.
 	ListArtifacts(ctx context.Context, filter service.ArtifactFilter) ([]service.Artifact, error)
 	GetArtifact(ctx context.Context, id string) (service.Artifact, error)
@@ -393,8 +393,10 @@ type BackupServiceClient interface {
 	ConfigureStorageMedium(ctx context.Context, id string, cfg service.StorageMediumConfiguration) (service.StorageMediumSummary, error)
 
 	// ListActivity backs GET /api/v1/activity: a read of the durable,
-	// append-only lifecycle record, not a second event stream.
-	ListActivity(ctx context.Context, limit int) ([]service.ActivityEvent, error)
+	// append-only lifecycle record, not a second event stream. before is
+	// the caller's cursor into it and the second return value is where
+	// the page handed back ended, empty when there is no page behind it.
+	ListActivity(ctx context.Context, limit int, before string) ([]service.ActivityEvent, string, error)
 
 	// LiveActivity backs GET /api/v1/activity/live (issue #573): what
 	// each backup set is doing right now, plus a bounded tail of the
@@ -412,7 +414,7 @@ type BackupServiceClient interface {
 
 	// Health backs GET /api/v1/system/health: FR-24's backup-freshness
 	// verdict for every configured backup set, the same computation
-	// `rbm status` prints. Deliberately not the same question
+	// `retnd status` prints. Deliberately not the same question
 	// as /health/ready, which is about this process rather than about
 	// whether backups are landing.
 	Health(ctx context.Context) (service.HealthReport, error)
@@ -424,6 +426,118 @@ type BackupServiceClient interface {
 	// the real pass exactly.
 	ScanCatalog(ctx context.Context) (service.CatalogReport, error)
 	RebuildCatalog(ctx context.Context) (service.CatalogReport, error)
+
+	// EPIC K's snapshot surface (#788): the four reads that hang off a
+	// backup set, all read-only per §50.
+	//
+	// ListSnapshots and GetSnapshot back GET .../snapshots and GET
+	// .../snapshots/{run}: what the incremental engine stored, in this
+	// product's own vocabulary. ListSnapshotHolds backs GET .../holds,
+	// and SnapshotRetention backs GET .../snapshot-retention, which is a
+	// PREVIEW and deletes nothing -- the snapshot deletion pass is the
+	// engine's own and is not reachable from this package at all.
+	//
+	// Every one of them refuses a backup set that stores artifacts
+	// rather than snapshots, which is why they are not folded into the
+	// artifact reads beside them.
+	ListSnapshots(ctx context.Context, id string) ([]service.Snapshot, error)
+	GetSnapshot(ctx context.Context, id, runID string) (service.SnapshotDetail, error)
+	ListSnapshotHolds(ctx context.Context, id string) ([]service.SnapshotHold, error)
+	SnapshotRetention(ctx context.Context, id string) (service.SnapshotRetentionPreview, error)
+
+	// ListRepositories and RepositoryMaintenanceState back GET
+	// /api/v1/repositories and GET
+	// /api/v1/repositories/{domain}/maintenance (#788). Read-only, and
+	// the first is the expensive one: it opens every declared repository
+	// to prove it is readable and writable, which is why it is its own
+	// route rather than a block on the health read a dashboard polls.
+	ListRepositories(ctx context.Context) (service.RepositoryHealthReport, error)
+	RepositoryMaintenanceState(ctx context.Context, domain string) (service.RepositoryMaintenance, error)
+
+	// CreateRepositoryDomain backs POST /api/v1/repositories (#862): the
+	// write this surface did not have. It persists a DECLARATION into
+	// config.yaml and creates no store -- the repository is realized by
+	// the first backup run that stores a snapshot in it -- and answers
+	// with the domain as the read above reports it, so a client is never
+	// shown a create's own idea of a repository's health.
+	CreateRepositoryDomain(ctx context.Context, req service.CreateRepositoryDomainRequest) (service.RepositoryHealth, error)
+
+	// The four durable actions EPIC K puts on POST /api/v1/operations
+	// (#788), beside SubmitRestorePlacement above.
+	//
+	// A hold is not long-running and is still an operation: the reason
+	// is the retry rather than the duration, and the idempotency key on
+	// that route is the mechanism this deployment already has for making
+	// a resubmitted request do one thing rather than two. See
+	// core/service.SubmitSnapshotHold.
+	SubmitSnapshotRestore(ctx context.Context, req service.SnapshotRestoreRequest) (service.Operation, error)
+	SubmitSnapshotVerify(ctx context.Context, req service.SnapshotVerifyRequest) (service.Operation, error)
+	SubmitSnapshotHold(ctx context.Context, req service.SnapshotHoldRequest) (service.Operation, error)
+	SubmitSnapshotHoldRelease(ctx context.Context, req service.SnapshotHoldReleaseRequest) (service.Operation, error)
+
+	// EPIC L's workflow surface (#813). Five groups, and which of them
+	// are read-only is the fact that decides the tier of the route in
+	// front of each -- so it is stated here rather than left to be
+	// inferred from a signature.
+	//
+	// The configuration reads and writes. WorkflowSettings and
+	// BackupSetWorkflow report the RESOLVED configuration -- the timeout
+	// a hook will actually get, the stages that will actually run --
+	// which a re-reading of config.yaml cannot, because that file's
+	// whole point is that it omits what it inherits. The two updates are
+	// §50's "state-changing but non-destructive" bucket, the tier
+	// UpdateSettings sits in: they rewrite one block of config.yaml and
+	// hot-reload, and nothing reachable from them touches a backup
+	// datum.
+	WorkflowSettings(ctx context.Context) (service.WorkflowSettings, error)
+	UpdateWorkflowSettings(ctx context.Context, req service.UpdateWorkflowSettingsRequest) (service.WorkflowSettings, error)
+	BackupSetWorkflow(ctx context.Context, id string) (service.BackupSetWorkflow, error)
+	UpdateBackupSetWorkflow(ctx context.Context, id string, req service.UpdateBackupSetWorkflowRequest) (service.BackupSetWorkflow, error)
+
+	// The environment, at either scope: an empty id is the
+	// deployment-wide layer. Three methods rather than a sparse update,
+	// for the reason the per-set retention sub-resource has three: "take
+	// this entry away" cannot be a value on a request where an absent
+	// field already means "leave this alone".
+	//
+	// Every one of them carries a secret as a LOCATION and never a
+	// value, which is core/service's own type-level guarantee rather
+	// than this package's care: nothing on this path resolves a
+	// reference, so there is no resolved secret here to leak.
+	ListWorkflowEnv(ctx context.Context, backupSetID string) ([]service.WorkflowEnvVar, error)
+	SetWorkflowEnv(ctx context.Context, backupSetID string, v service.WorkflowEnvVar) ([]service.WorkflowEnvVar, error)
+	UnsetWorkflowEnv(ctx context.Context, backupSetID, name string) ([]service.WorkflowEnvVar, error)
+
+	// ValidateWorkflow is read-only in the strongest sense this product
+	// has: it never executes a hook body, so the only things it can
+	// cause to run are `bash -n`, which parses, and core/service's own
+	// fixed remote capability probe. It is still expensive -- it
+	// captures and hashes every script and opens two network
+	// connections -- which is why the route in front of it is separate
+	// from the configuration read a dashboard would poll.
+	ValidateWorkflow(ctx context.Context, id string) (service.WorkflowValidation, error)
+
+	// The run reads, all read-only. WorkflowStepLogs is the one with a
+	// protocol: the caller owns its cursor and may ask for a BOUNDED
+	// wait, which is what makes a tail cheap without a held-open
+	// response. See handlers_workflowruns.go for why that shape is also
+	// what makes replay-time authorization structural.
+	WorkflowRuns(ctx context.Context, backupSetID string, limit int) ([]service.WorkflowRunDetail, error)
+	WorkflowRun(ctx context.Context, runID string) (service.WorkflowRunDetail, error)
+	WorkflowSteps(ctx context.Context, runID string) ([]service.WorkflowStepDetail, error)
+	WorkflowStepLogs(ctx context.Context, req service.WorkflowStepLogRequest) (service.WorkflowStepLogPage, error)
+
+	// Recovery: one read and the only two honest exits from an
+	// interrupted run. ResumeWorkflowCleanup EXECUTES the "after" hooks
+	// that are owed, out of the run's own captured bytes rather than
+	// out of today's configuration, and AcknowledgeWorkflowRecovery
+	// records that a person dealt with it by hand. Both are
+	// state-changing and neither can delete a backup datum; the route
+	// docs carry the argument for why the resume in particular is not
+	// behind the destructive gate.
+	WorkflowRecovery(ctx context.Context) ([]service.WorkflowRecoveryHold, error)
+	ResumeWorkflowCleanup(ctx context.Context, runID string) (service.WorkflowRunDetail, error)
+	AcknowledgeWorkflowRecovery(ctx context.Context, runID string, ack service.WorkflowAcknowledgement) error
 }
 
 var _ BackupServiceClient = (*service.BackupService)(nil)

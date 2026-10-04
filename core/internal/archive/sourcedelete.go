@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/spdrman/rclone-manager/core/internal/state"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // ErrNoRetrievableCopy is the refusal that keeps this EPIC's central

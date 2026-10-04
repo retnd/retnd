@@ -41,6 +41,8 @@ import { EmptyState, ErrorState } from "@shared/components/EmptyState";
 import { RunControlNotice } from "@shared/components/RunControlNotice";
 import { useRunControls } from "@shared/hooks/useRunControls";
 import { isNotConfigured } from "@shared/api/failure";
+import { useHoverTitle } from "@shared/hooks/useTooltips";
+import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { bytes } from "@shared/utilities/format";
 import { backupSetPath } from "@shared/utilities/routes";
 
@@ -113,7 +115,10 @@ export function DashboardPage({
   // for a cycle nobody has measured yet is the loudest possible wrong
   // answer.
   const lastCycle = operations.data?.find((op) => op.cycle !== null) ?? null;
-  const activity = useAsync(() => api.listActivity(), [api]);
+  // This panel shows the newest few events and never pages: it takes the
+  // service's own default page and keeps the events out of it. The
+  // Activity page is where a reader goes to walk further back (#730).
+  const activity = useAsync(() => api.listActivity().then((page) => page.events), [api]);
   // See the Recent activity panel below: a fetch that failed has to say so
   // rather than draw an empty list, and a Try again that failed the same
   // way has to leave evidence it ran (#598).
@@ -124,19 +129,24 @@ export function DashboardPage({
   // why summing that list cannot answer it), and it is the one this
   // panel is meant to show.
   const storage = useAsync(() => api.getStorage(), [api]);
+  // #829: hover copy is a tooltip, and goes with the rest of them when
+  // they are off. Above the early returns below, where hooks belong.
+  const hoverTitle = useHoverTitle();
 
   // #275: an instance with no configuration refuses every read here, and
   // that is not a fault to report, it is a setup step nobody has taken.
   if (isNotConfigured(health.error))
     return (
       <>
-        <PageHeader title="Dashboard" subtitle="Not configured yet" />
+        <PageHeader title="Dashboard" subtitle="Not configured yet" tip="nav.dashboard" />
         <EmptyState
           title="Nothing is being backed up yet"
           action={
-            <button className="btn btn--primary" onClick={() => navigate("/sets/new")}>
-              Add backup set
-            </button>
+            <InfoTooltip id="dashboard.add-set">
+              <button className="btn btn--primary" onClick={() => navigate("/sets/new")}>
+                Add backup set
+              </button>
+            </InfoTooltip>
           }
         >
           This instance has no configuration. Adding your first backup set is what writes
@@ -160,16 +170,18 @@ export function DashboardPage({
   if (sets.data && sets.data.length === 0)
     return (
       <>
-        <PageHeader title="Dashboard" subtitle="No backup sets configured" />
+        <PageHeader title="Dashboard" subtitle="No backup sets configured" tip="nav.dashboard" />
         <EmptyState
           title="No backup sets yet"
           action={
-            <button className="btn btn--primary" onClick={() => navigate("/sets/new")}>
-              Add backup set
-            </button>
+            <InfoTooltip id="dashboard.add-set">
+              <button className="btn btn--primary" onClick={() => navigate("/sets/new")}>
+                Add backup set
+              </button>
+            </InfoTooltip>
           }
         >
-          Connect Backup Manager to your first server to begin collecting and
+          Connect retnd to your first server to begin collecting and
           retaining verified backups.
         </EmptyState>
       </>
@@ -179,10 +191,15 @@ export function DashboardPage({
     <>
       <PageHeader
         title="Dashboard"
+        tip="nav.dashboard"
         subtitle={
-          sets.data
-            ? sets.data.length + " backup sets \u00b7 polling every 30s"
-            : "Loading…"
+          <InfoTooltip id="dashboard.polling">
+            <span>
+              {sets.data
+                ? sets.data.length + " backup sets \u00b7 polling every 30s"
+                : "Loading…"}
+            </span>
+          </InfoTooltip>
         }
         actions={
           <>
@@ -194,14 +211,16 @@ export function DashboardPage({
             <button
               className="btn"
               disabled={readOnly || run.busy}
-              title="Runs one pass over every enabled backup set."
+              title={hoverTitle("Runs one pass over every enabled backup set.")}
               onClick={run.runAll}
             >
               Run all enabled sets
             </button>
-            <button className="btn btn--primary" disabled={readOnly} onClick={() => navigate("/sets/new")}>
-              Add backup set
-            </button>
+            <InfoTooltip id="dashboard.add-set" alignEnd>
+              <button className="btn btn--primary" disabled={readOnly} onClick={() => navigate("/sets/new")}>
+                Add backup set
+              </button>
+            </InfoTooltip>
           </>
         }
       />
@@ -220,12 +239,14 @@ export function DashboardPage({
           set={haltedSet}
           actions={
             haltedSet.haltReason && HALT_ACTION_LABEL[haltedSet.haltReason] ? (
-              <button
-                className="btn btn--sm"
-                onClick={() => navigate(backupSetPath(haltedSet.source, haltedSet.set))}
-              >
-                {HALT_ACTION_LABEL[haltedSet.haltReason]}
-              </button>
+              <InfoTooltip id="dashboard.halt-review" alignEnd>
+                <button
+                  className="btn btn--sm"
+                  onClick={() => navigate(backupSetPath(haltedSet.source, haltedSet.set))}
+                >
+                  {HALT_ACTION_LABEL[haltedSet.haltReason]}
+                </button>
+              </InfoTooltip>
             ) : null
           }
         />
@@ -237,21 +258,25 @@ export function DashboardPage({
         <section className="card" aria-label="Key metrics">
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(196px, 1fr))" }}>
             <MetricCard
+              tip="dashboard.metric.sets"
               label="Backup sets"
               value={String(h.setsHealthy)}
               detail={h.setsStale + " stale \u00b7 " + h.setsFailing + " failing"}
             />
             <MetricCard
+              tip="dashboard.metric.attention"
               label="Degraded or stale"
               value={String(h.setsDegraded + h.setsStale)}
               detail="sets needing attention"
             />
             <MetricCard
+              tip="dashboard.metric.quarantine"
               label="Quarantine"
               value={String(h.quarantinedCount)}
               detail="need review"
             />
             <MetricCard
+              tip="dashboard.metric.storage"
               label="Storage"
               value={
                 storage.data
@@ -263,7 +288,7 @@ export function DashboardPage({
             >
               <div style={{ marginTop: 8 }}>
                 {storage.data ? (
-                  <StorageGauge storage={storage.data} />
+                  <StorageGauge storage={storage.data} tip="dashboard.storage.gauge" />
                 ) : storage.error ? (
                   <Banner
                     tone="danger"
@@ -303,10 +328,14 @@ export function DashboardPage({
 
       <section className="card" aria-label="Active operations">
         <div className="card__header">
-          <h2 className="eyebrow">Active operations</h2>
-          <span style={{ fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
-            {active ? active.length + " running" : "…"}
-          </span>
+          <InfoTooltip id="dashboard.operations">
+            <h2 className="eyebrow">Active operations</h2>
+          </InfoTooltip>
+          <InfoTooltip id="dashboard.operations.count" alignEnd>
+            <span style={{ fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
+              {active ? active.length + " running" : "…"}
+            </span>
+          </InfoTooltip>
         </div>
         <div style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
           {/* operations.data is null until the first fetch resolves — that is
@@ -347,7 +376,11 @@ export function DashboardPage({
                   ))}
                 </div>
               )
-              : <p style={{ margin: 0, fontSize: 13, color: "var(--text-3)" }}>Nothing running right now.</p>}
+              : (
+                <InfoTooltip id="dashboard.operations.idle" block>
+                  <p style={{ margin: 0, fontSize: 13, color: "var(--text-3)" }}>Nothing running right now.</p>
+                </InfoTooltip>
+              )}
         </div>
       </section>
 
@@ -359,14 +392,18 @@ export function DashboardPage({
 
       <section className="card" aria-label="Recent activity">
         <div className="card__header">
-          <h2 className="eyebrow">Recent activity</h2>
-          <button
-            className="btn btn--quiet"
-            style={{ height: "auto", padding: 0, border: "none", background: "none", color: "var(--accent)", fontSize: "var(--text-sm)" }}
-            onClick={() => navigate("/activity")}
-          >
-            View all
-          </button>
+          <InfoTooltip id="dashboard.recent-activity">
+            <h2 className="eyebrow">Recent activity</h2>
+          </InfoTooltip>
+          <InfoTooltip id="dashboard.activity.view-all" alignEnd>
+            <button
+              className="btn btn--quiet"
+              style={{ height: "auto", padding: 0, border: "none", background: "none", color: "var(--accent)", fontSize: "var(--text-sm)" }}
+              onClick={() => navigate("/activity")}
+            >
+              View all
+            </button>
+          </InfoTooltip>
         </div>
         <div style={{ padding: "14px 18px" }}>
           {/* Issue #598. This panel used to render `activity.data ?? []`
@@ -430,45 +467,61 @@ function LastCycleOutcome({ outcome }: { outcome: CycleOutcome }) {
         className="card__header"
         style={barren || barrenMoves ? { borderBottomColor: "var(--warn)" } : undefined}
       >
-        <h2 className="eyebrow">Last run cycle</h2>
+        <InfoTooltip id="dashboard.cycle">
+          <h2 className="eyebrow">Last run cycle</h2>
+        </InfoTooltip>
         {barren ? (
-          <StatusBadge tone="warn" icon="warning">Nothing got through</StatusBadge>
+          <InfoTooltip id="dashboard.cycle.barren" alignEnd>
+            <StatusBadge tone="warn" icon="warning">Nothing got through</StatusBadge>
+          </InfoTooltip>
         ) : barrenMoves ? (
           // A cycle can back everything up perfectly and put none of it
           // where the chain says it belongs, and this is the badge for
           // exactly that: the backups happened, the moves did not.
-          <StatusBadge tone="warn" icon="warning">Nothing moved</StatusBadge>
+          <InfoTooltip id="dashboard.cycle.moves-barren" alignEnd>
+            <StatusBadge tone="warn" icon="warning">Nothing moved</StatusBadge>
+          </InfoTooltip>
         ) : short ? (
-          <StatusBadge tone="warn" icon="warning">Some did not get through</StatusBadge>
+          <InfoTooltip id="dashboard.cycle.short" alignEnd>
+            <StatusBadge tone="warn" icon="warning">Some did not get through</StatusBadge>
+          </InfoTooltip>
         ) : (
-          <StatusBadge tone="ok" icon="status-active">All through</StatusBadge>
+          <InfoTooltip id="dashboard.cycle.all-through" alignEnd>
+            <StatusBadge tone="ok" icon="status-active">All through</StatusBadge>
+          </InfoTooltip>
         )}
       </div>
       <div style={{ padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", gap: 28, alignItems: "flex-end", flexWrap: "wrap" }}>
-          <div>
-            <div className="mono" style={{ fontSize: "var(--text-2xl)", fontWeight: 500 }}>
-              {outcome.artifactsWalked}
+          <InfoTooltip id="dashboard.cycle.walked">
+            <div>
+              <div className="mono" style={{ fontSize: "var(--text-2xl)", fontWeight: 500 }}>
+                {outcome.artifactsWalked}
+              </div>
+              <div className="eyebrow">walked</div>
             </div>
-            <div className="eyebrow">walked</div>
-          </div>
-          <div>
-            <div
-              className="mono"
-              style={{
-                fontSize: "var(--text-2xl)", fontWeight: 500,
-                color: barren || short ? "var(--warn)" : "var(--ok)"
-              }}
-            >
-              {outcome.artifactsThrough}
+          </InfoTooltip>
+          <InfoTooltip id="dashboard.cycle.through">
+            <div>
+              <div
+                className="mono"
+                style={{
+                  fontSize: "var(--text-2xl)", fontWeight: 500,
+                  color: barren || short ? "var(--warn)" : "var(--ok)"
+                }}
+              >
+                {outcome.artifactsThrough}
+              </div>
+              <div className="eyebrow">got through</div>
             </div>
-            <div className="eyebrow">got through</div>
-          </div>
-          <div style={{ marginLeft: "auto", textAlign: "right" }}>
-            <div className="mono" style={{ fontSize: "var(--text-sm)", color: "var(--text-3)" }}>
-              {outcome.backupSetsProcessed + (outcome.backupSetsProcessed === 1 ? " backup set" : " backup sets")}
+          </InfoTooltip>
+          <InfoTooltip id="dashboard.cycle.sets" alignEnd style={{ marginLeft: "auto" }}>
+            <div style={{ textAlign: "right" }}>
+              <div className="mono" style={{ fontSize: "var(--text-sm)", color: "var(--text-3)" }}>
+                {outcome.backupSetsProcessed + (outcome.backupSetsProcessed === 1 ? " backup set" : " backup sets")}
+              </div>
             </div>
-          </div>
+          </InfoTooltip>
         </div>
         <p style={{ margin: 0, fontSize: "var(--text-sm)", color: "var(--text-2)", maxWidth: "72ch" }}>
           {barren
@@ -480,21 +533,23 @@ function LastCycleOutcome({ outcome }: { outcome: CycleOutcome }) {
               : "Every backup this cycle had a reason to touch ended it with its bytes on durable storage."}
         </p>
         {moves !== null && (
-          <p
-            style={{
-              margin: 0, fontSize: "var(--text-sm)", maxWidth: "72ch",
-              color: barrenMoves || shortMoves ? "var(--warn)" : "var(--text-2)"
-            }}
-          >
-            {barrenMoves
-              ? moves.attempted + " backups were due to move to the medium their retention tier names, and none arrived. " +
-                "They are still on the medium they were on, and nothing was deleted."
-              : shortMoves
-                ? moves.attempted + " backups were due to move to the medium their retention tier names, and " +
-                  moves.landed + " of them arrived."
-                : moves.attempted + " backups were due to move to the medium their retention tier names, and all " +
-                  moves.landed + " arrived."}
-          </p>
+          <InfoTooltip id="dashboard.cycle.moves" block>
+            <p
+              style={{
+                margin: 0, fontSize: "var(--text-sm)", maxWidth: "72ch",
+                color: barrenMoves || shortMoves ? "var(--warn)" : "var(--text-2)"
+              }}
+            >
+              {barrenMoves
+                ? moves.attempted + " backups were due to move to the medium their retention tier names, and none arrived. " +
+                  "They are still on the medium they were on, and nothing was deleted."
+                : shortMoves
+                  ? moves.attempted + " backups were due to move to the medium their retention tier names, and " +
+                    moves.landed + " of them arrived."
+                  : moves.attempted + " backups were due to move to the medium their retention tier names, and all " +
+                    moves.landed + " arrived."}
+            </p>
+          </InfoTooltip>
         )}
       </div>
     </section>

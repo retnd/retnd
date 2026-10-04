@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spdrman/rclone-manager/core/service"
+	"github.com/retnd/retnd/core/service"
 )
 
 // Creating a backup set, including the branch where creating it also

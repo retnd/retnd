@@ -4,6 +4,10 @@ Issue #258. This is the policy the rest of the release path is built on, so it i
 worth reading before `.github/workflows/release.yml` or
 `scripts/release/publish-image.sh`, both of which assume it.
 
+For the ordered maintainer checklist, commands, automated post-publish recording
+and failure handling, use [`release-workflow.md`](release-workflow.md). This document
+defines the branch policy that checklist must preserve.
+
 ## What it is
 
 `release` is the publish branch. A push to it runs the release pipeline, and that
@@ -104,7 +108,7 @@ Like the two rules above it, that is a repository setting rather than a file, so
 is applied by hand and this is the whole of it:
 
 ```
-gh api -X PUT repos/spdrman/rclone-manager/rulesets/21971099 \
+gh api -X PUT repos/retnd/retnd/rulesets/21971099 \
   --input ruleset.json   # the existing rules, plus:
                          # {"type": "required_status_checks",
                          #  "parameters": {
@@ -217,10 +221,11 @@ check starts failing, loudly, on the next run rather than months later.
    a backup. Merging is what publishes, and the release run asks for that same green
    check a second time before it pushes anything, so a merge that got here some other
    way stops there rather than shipping.
-7. Record the digests the run prints into the manifest, flip `image.published` to
-   true, regenerate the bundle again and land it on `main`. The manifest test refuses
-   a published flag without digests and digests without the flag, so the two cannot
-   move separately.
+7. Observe `.github/workflows/release.yml` through `merge-back-to-main`. After
+   the push, that job reads the registry digests back, records them in the
+   manifest, flips `image.published` to true, updates the installer's carried
+   digest, regenerates and verifies the bundle, and lands one merge commit on
+   `main`. There is no manual post-publish metadata pull request.
 
 ## The first cut, and why it was different
 

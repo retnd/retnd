@@ -33,11 +33,13 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/spdrman/rclone-manager/apps/common/auth/local"
-	"github.com/spdrman/rclone-manager/apps/common/platform/profile"
-	"github.com/spdrman/rclone-manager/apps/common/webhost/serve"
-	"github.com/spdrman/rclone-manager/core/service"
+	"github.com/retnd/retnd/apps/common/auth/local"
+	"github.com/retnd/retnd/apps/common/email/emailtest"
+	"github.com/retnd/retnd/apps/common/platform/profile"
+	"github.com/retnd/retnd/apps/common/webhost/serve"
+	"github.com/retnd/retnd/core/service"
 )
 
 // verdict is the shape both surfaces have to agree on: which artifact,
@@ -57,18 +59,18 @@ func repoRoot(t *testing.T) string {
 }
 
 // buildCLI builds core's own executable, the one the container image
-// carries as /backup-manager.
+// carries as /retnd.
 func buildCLI(t *testing.T, root string) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "backup-manager")
+	bin := filepath.Join(t.TempDir(), "retnd")
 	if runtime.GOOS == "windows" {
 		bin += ".exe"
 	}
-	cmd := exec.Command("go", "build", "-o", bin, "./cmd/backup-manager")
+	cmd := exec.Command("go", "build", "-o", bin, "./cmd/retnd")
 	cmd.Dir = filepath.Join(root, "core")
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build backup-manager: %v\n%s", err, out)
+		t.Fatalf("build retnd: %v\n%s", err, out)
 	}
 	return bin
 }
@@ -115,7 +117,7 @@ func writeFixture(t *testing.T) (dir, configPath string) {
 	return dir, configPath
 }
 
-// cliVerdictRe parses one line of `rbm retention --dry-run`.
+// cliVerdictRe parses one line of `retnd retention --dry-run`.
 var cliVerdictRe = regexp.MustCompile(`^\s+(KEEP|DELETE)\s+(\S+)\s+tiers=`)
 
 func cliRetentionVerdicts(t *testing.T, bin, configPath string) []verdict {
@@ -123,7 +125,7 @@ func cliRetentionVerdicts(t *testing.T, bin, configPath string) []verdict {
 	cmd := exec.Command(bin, "retention", "--dry-run", "--config", configPath)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("rbm retention --dry-run: %v\n%s", err, out)
+		t.Fatalf("retnd retention --dry-run: %v\n%s", err, out)
 	}
 	var got []verdict
 	for _, line := range strings.Split(string(out), "\n") {
@@ -250,9 +252,17 @@ func enroll(t *testing.T, authSvc *local.Service, client *http.Client, base stri
 	}
 	token := strings.Fields(notice.String()[i+len(marker):])[0]
 
+	// Enrollment sends a confirmation message and refuses if the send
+	// fails (#830), so it needs somewhere to send: an in-process SMTP
+	// sink on 127.0.0.1, started and stopped by this test
+	// (apps/common/email/emailtest). Never a real mail service.
+	sink := emailtest.Start(t)
+
 	// Generated nowhere near disk: this password exists for the length of
 	// this request and is never written, logged or asserted on.
-	payload := []byte(`{"username":"cliapi","password":"correct-horse-battery-staple"}`)
+	payload := []byte(fmt.Sprintf(
+		`{"username":"cliapi","password":"correct-horse-battery-staple","recoveryEmail":"cliapi@example.test","smtp":{"host":%q,"port":%d,"security":"none","username":"","from":"retnd@example.test"}}`,
+		sink.Host(), sink.Port()))
 	req, err := http.NewRequest(http.MethodPost, base+"/api/v1/auth/enroll", bytes.NewReader(payload))
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
@@ -270,6 +280,7 @@ func enroll(t *testing.T, authSvc *local.Service, client *http.Client, base stri
 		b, _ := io.ReadAll(resp.Body)
 		t.Fatalf("enroll returned %d: %s", resp.StatusCode, b)
 	}
+	sink.WaitForMessage(t, "retnd: verify your recovery email", 10*time.Second)
 }
 
 func normalise(in []verdict) []verdict {
@@ -306,7 +317,7 @@ func TestCLIAndAPIAgreeOnEveryRetentionVerdict(t *testing.T) {
 	// in first.
 	fetch := exec.Command(bin, "fetch", "--source", "production", "--backup-set", "pg", "--config", configPath)
 	if out, err := fetch.CombinedOutput(); err != nil {
-		t.Fatalf("rbm fetch: %v\n%s", err, out)
+		t.Fatalf("retnd fetch: %v\n%s", err, out)
 	}
 
 	// Sequential, not parallel: the state journal takes an exclusive

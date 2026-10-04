@@ -62,7 +62,7 @@ type platformFixture struct {
 	engineService string
 	uiService     string
 	// uiHealthcheck says how this platform stops the Web UI container
-	// from running the image's baked-in `/rbm status`
+	// from running the image's baked-in `/retnd status`
 	// healthcheck, which needs a config file and a state database that
 	// container does not have (WP4.3 calls this out by name).
 	uiHealthcheck uiHealthcheckStrategy
@@ -132,8 +132,8 @@ type composeProfile struct {
 type uiHealthcheckStrategy int
 
 const (
-	// overrideHealthcheck: the profile replaces the test with
-	// `/rbm-web healthcheck`.
+	// overrideHealthcheck: the profile replaces the test with the
+	// canonical `healthcheck` command.
 	overrideHealthcheck uiHealthcheckStrategy = iota
 	// disableHealthcheck: the profile turns it off. Unraid's only seam is
 	// `docker run --health-cmd`, which is shell form, and the distroless
@@ -155,7 +155,7 @@ func allPlatforms() []platformFixture {
 			name: "truenas",
 			requiredFiles: []string{
 				"README.md",
-				"compose/backup-manager.yaml",
+				"compose/retnd.yaml",
 				"catalog/app.yaml",
 				"catalog/questions.yaml",
 				"catalog/ix_values.yaml",
@@ -163,7 +163,7 @@ func allPlatforms() []platformFixture {
 			},
 			services: func(t *testing.T) []Service {
 				t.Helper()
-				svcs, err := ReadCompose(filepath.Join(PlatformDir("truenas"), "compose", "backup-manager.yaml"), nil)
+				svcs, err := ReadCompose(filepath.Join(PlatformDir("truenas"), "compose", "retnd.yaml"), nil)
 				if err != nil {
 					t.Fatalf("read TrueNAS custom-app compose: %v", err)
 				}
@@ -177,23 +177,23 @@ func allPlatforms() []platformFixture {
 				// here puts it through every per-platform rule below.
 				return append(svcs, renderedTrueNASCatalog(t)...)
 			},
-			engineService: "backup-manager",
-			uiService:     "backup-manager-ui",
+			engineService: "retnd",
+			uiService:     "web-ui",
 			uiHealthcheck: overrideHealthcheck,
 			hardening:     composeHardening,
 			composeProfiles: []composeProfile{
-				{compose: "compose/backup-manager.yaml"},
+				{compose: "compose/retnd.yaml"},
 			},
 			acceptance:       "truenas-provider-acceptance.md",
 			docSubstitutions: map[string]string{"/mnt/POOL": "/mnt/tank"},
 			runtimeArtifacts: func(t *testing.T) []derivationArtifact {
 				t.Helper()
-				svcs, err := ReadCompose(filepath.Join(PlatformDir("truenas"), "compose", "backup-manager.yaml"), nil)
+				svcs, err := ReadCompose(filepath.Join(PlatformDir("truenas"), "compose", "retnd.yaml"), nil)
 				if err != nil {
 					t.Fatalf("read TrueNAS custom-app compose: %v", err)
 				}
 				return []derivationArtifact{
-					{"compose/backup-manager.yaml", svcs},
+					{"compose/retnd.yaml", svcs},
 					{"catalog/templates/docker-compose.yaml (rendered)", renderedTrueNASCatalog(t)},
 				}
 			},
@@ -202,13 +202,13 @@ func allPlatforms() []platformFixture {
 			name: "unraid",
 			requiredFiles: []string{
 				"README.md",
-				"template/backup-manager.xml",
-				"template/backup-manager-ui.xml",
+				"template/retnd.xml",
+				"template/retnd-ui.xml",
 			},
 			services: func(t *testing.T) []Service {
 				t.Helper()
 				var out []Service
-				for _, f := range []string{"backup-manager.xml", "backup-manager-ui.xml"} {
+				for _, f := range []string{"retnd.xml", "retnd-ui.xml"} {
 					tpl, err := ReadUnraidTemplate(filepath.Join(PlatformDir("unraid"), "template", f))
 					if err != nil {
 						t.Fatalf("read Unraid template %s: %v", f, err)
@@ -217,8 +217,8 @@ func allPlatforms() []platformFixture {
 				}
 				return out
 			},
-			engineService:    "backup-manager",
-			uiService:        "backup-manager-ui",
+			engineService:    "retnd",
+			uiService:        "retnd-ui",
 			uiHealthcheck:    disableHealthcheck,
 			hardening:        extraParamsHardening,
 			acceptance:       "unraid-provider-acceptance.md",
@@ -226,7 +226,7 @@ func allPlatforms() []platformFixture {
 			runtimeArtifacts: func(t *testing.T) []derivationArtifact {
 				t.Helper()
 				var out []Service
-				for _, f := range []string{"backup-manager.xml", "backup-manager-ui.xml"} {
+				for _, f := range []string{"retnd.xml", "retnd-ui.xml"} {
 					tpl, err := ReadUnraidTemplate(filepath.Join(PlatformDir("unraid"), "template", f))
 					if err != nil {
 						t.Fatalf("read Unraid template %s: %v", f, err)
@@ -237,39 +237,39 @@ func allPlatforms() []platformFixture {
 				// container, and the deployable runtime is the pair. A
 				// per-template artifact would report every template as
 				// missing the other role.
-				return []derivationArtifact{{"template/backup-manager{,-ui}.xml", out}}
+				return []derivationArtifact{{"template/retnd{,-ui}.xml", out}}
 			},
 		},
 		{
 			name: "openmediavault",
 			requiredFiles: []string{
 				"README.md",
-				"compose/backup-manager.yml",
-				"compose/backup-manager.env",
+				"compose/retnd.yml",
+				"compose/retnd.env",
 			},
 			services: func(t *testing.T) []Service {
 				t.Helper()
 				dir := filepath.Join(PlatformDir("openmediavault"), "compose")
-				env, err := ReadEnvFile(filepath.Join(dir, "backup-manager.env"))
+				env, err := ReadEnvFile(filepath.Join(dir, "retnd.env"))
 				if err != nil {
 					t.Fatalf("read OMV env file: %v", err)
 				}
-				svcs, err := ReadCompose(filepath.Join(dir, "backup-manager.yml"), env)
+				svcs, err := ReadCompose(filepath.Join(dir, "retnd.yml"), env)
 				if err != nil {
 					t.Fatalf("read OMV compose: %v", err)
 				}
 				return svcs
 			},
-			engineService: "backup-manager",
-			uiService:     "backup-manager-ui",
+			engineService: "retnd",
+			uiService:     "web-ui",
 			uiHealthcheck: overrideHealthcheck,
 			hardening:     composeHardening,
 			composeProfiles: []composeProfile{
-				{compose: "compose/backup-manager.yml", env: "compose/backup-manager.env"},
+				{compose: "compose/retnd.yml", env: "compose/retnd.env"},
 			},
 			acceptance:       "openmediavault-provider-acceptance.md",
 			docSubstitutions: map[string]string{"$DISK": "/srv/dev-disk-by-uuid"},
-			runtimeArtifacts: composeArtifact("openmediavault", "compose/backup-manager.yml", "compose/backup-manager.env"),
+			runtimeArtifacts: composeArtifact("openmediavault", "compose/retnd.yml", "compose/retnd.env"),
 		},
 		{
 			// WP4.5. Proxmox VE has no app store to package into, so
@@ -282,36 +282,36 @@ func allPlatforms() []platformFixture {
 			name: "proxmox",
 			requiredFiles: []string{
 				"README.md",
-				"compose/backup-manager.yml",
-				"compose/backup-manager.env",
+				"compose/retnd.yml",
+				"compose/retnd.env",
 			},
 			services: func(t *testing.T) []Service {
 				t.Helper()
 				dir := filepath.Join(PlatformDir("proxmox"), "compose")
-				env, err := ReadEnvFile(filepath.Join(dir, "backup-manager.env"))
+				env, err := ReadEnvFile(filepath.Join(dir, "retnd.env"))
 				if err != nil {
 					t.Fatalf("read Proxmox env file: %v", err)
 				}
-				svcs, err := ReadCompose(filepath.Join(dir, "backup-manager.yml"), env)
+				svcs, err := ReadCompose(filepath.Join(dir, "retnd.yml"), env)
 				if err != nil {
 					t.Fatalf("read Proxmox compose: %v", err)
 				}
 				return svcs
 			},
-			engineService: "backup-manager",
-			uiService:     "backup-manager-ui",
+			engineService: "retnd",
+			uiService:     "web-ui",
 			uiHealthcheck: overrideHealthcheck,
 			hardening:     composeHardening,
 			composeProfiles: []composeProfile{
-				{compose: "compose/backup-manager.yml", env: "compose/backup-manager.env"},
+				{compose: "compose/retnd.yml", env: "compose/retnd.env"},
 			},
 			acceptance: "proxmox-ve-deployment.md",
 			// Every path the Proxmox procedure names is literal: the
-			// share root is /mnt/backup-manager inside the guest, and
+			// share root is /mnt/retnd inside the guest, and
 			// the profile derives the rest from it, so there is no
 			// machine-specific placeholder to expand.
 			docSubstitutions: map[string]string{},
-			runtimeArtifacts: composeArtifact("proxmox", "compose/backup-manager.yml", "compose/backup-manager.env"),
+			runtimeArtifacts: composeArtifact("proxmox", "compose/retnd.yml", "compose/retnd.env"),
 		},
 		{
 			// Issue #169. Synology's Container Manager project: the path
@@ -328,28 +328,28 @@ func allPlatforms() []platformFixture {
 			name: "synology",
 			requiredFiles: []string{
 				"README.md",
-				"compose/backup-manager.yml",
-				"compose/backup-manager.env",
+				"compose/retnd.yml",
+				"compose/retnd.env",
 			},
 			services: func(t *testing.T) []Service {
 				t.Helper()
 				dir := filepath.Join(PlatformDir("synology"), "compose")
-				env, err := ReadEnvFile(filepath.Join(dir, "backup-manager.env"))
+				env, err := ReadEnvFile(filepath.Join(dir, "retnd.env"))
 				if err != nil {
 					t.Fatalf("read Synology env file: %v", err)
 				}
-				svcs, err := ReadCompose(filepath.Join(dir, "backup-manager.yml"), env)
+				svcs, err := ReadCompose(filepath.Join(dir, "retnd.yml"), env)
 				if err != nil {
 					t.Fatalf("read Synology Container Manager compose: %v", err)
 				}
 				return svcs
 			},
-			engineService: "backup-manager",
-			uiService:     "backup-manager-ui",
+			engineService: "retnd",
+			uiService:     "web-ui",
 			uiHealthcheck: overrideHealthcheck,
 			hardening:     composeHardening,
 			composeProfiles: []composeProfile{
-				{compose: "compose/backup-manager.yml", env: "compose/backup-manager.env"},
+				{compose: "compose/retnd.yml", env: "compose/retnd.env"},
 			},
 			acceptance:       "synology-dsm-package-lifecycle.md",
 			docSubstitutions: map[string]string{},
@@ -357,7 +357,7 @@ func allPlatforms() []platformFixture {
 			// own doc for why the roots are named here rather than the
 			// platform skipped.
 			scanRoots:        []string{"compose", "frontend"},
-			runtimeArtifacts: composeArtifact("synology", "compose/backup-manager.yml", "compose/backup-manager.env"),
+			runtimeArtifacts: composeArtifact("synology", "compose/retnd.yml", "compose/retnd.env"),
 		},
 		{
 			// Issue #170. Portainer deploys the product as a stack, from
@@ -378,20 +378,20 @@ func allPlatforms() []platformFixture {
 				"README.md",
 				"templates.json",
 				"logo.svg",
-				"compose/backup-manager.yml",
-				"compose/backup-manager.env",
+				"compose/retnd.yml",
+				"compose/retnd.env",
 			},
-			services:      composeServices("portainer", "compose/backup-manager.yml", "compose/backup-manager.env"),
-			engineService: "backup-manager",
-			uiService:     "backup-manager-ui",
+			services:      composeServices("portainer", "compose/retnd.yml", "compose/retnd.env"),
+			engineService: "retnd",
+			uiService:     "web-ui",
 			uiHealthcheck: overrideHealthcheck,
 			hardening:     composeHardening,
 			composeProfiles: []composeProfile{
-				{compose: "compose/backup-manager.yml", env: "compose/backup-manager.env"},
+				{compose: "compose/retnd.yml", env: "compose/retnd.env"},
 			},
 			acceptance:       "portainer-stack-deployment.md",
 			docSubstitutions: map[string]string{},
-			runtimeArtifacts: composeArtifact("portainer", "compose/backup-manager.yml", "compose/backup-manager.env"),
+			runtimeArtifacts: composeArtifact("portainer", "compose/retnd.yml", "compose/retnd.env"),
 		},
 		{
 			// Issue #170. CasaOS installs from one compose file carrying
@@ -403,19 +403,19 @@ func allPlatforms() []platformFixture {
 			requiredFiles: []string{
 				"README.md",
 				"icon.svg",
-				"compose/backup-manager.yml",
+				"compose/retnd.yml",
 			},
-			services:      composeServices("casaos", "compose/backup-manager.yml", ""),
-			engineService: "backup-manager",
-			uiService:     "backup-manager-ui",
+			services:      composeServices("casaos", "compose/retnd.yml", ""),
+			engineService: "retnd",
+			uiService:     "web-ui",
 			uiHealthcheck: overrideHealthcheck,
 			hardening:     composeHardening,
 			composeProfiles: []composeProfile{
-				{compose: "compose/backup-manager.yml"},
+				{compose: "compose/retnd.yml"},
 			},
 			acceptance:       "casaos-app-store-install.md",
 			docSubstitutions: map[string]string{},
-			runtimeArtifacts: composeArtifact("casaos", "compose/backup-manager.yml", ""),
+			runtimeArtifacts: composeArtifact("casaos", "compose/retnd.yml", ""),
 		},
 		{
 			// Issue #170. ZimaOS reads the same x-casaos block CasaOS
@@ -427,19 +427,19 @@ func allPlatforms() []platformFixture {
 			requiredFiles: []string{
 				"README.md",
 				"icon.svg",
-				"compose/backup-manager.yml",
+				"compose/retnd.yml",
 			},
-			services:      composeServices("zimaos", "compose/backup-manager.yml", ""),
-			engineService: "backup-manager",
-			uiService:     "backup-manager-ui",
+			services:      composeServices("zimaos", "compose/retnd.yml", ""),
+			engineService: "retnd",
+			uiService:     "web-ui",
 			uiHealthcheck: overrideHealthcheck,
 			hardening:     composeHardening,
 			composeProfiles: []composeProfile{
-				{compose: "compose/backup-manager.yml"},
+				{compose: "compose/retnd.yml"},
 			},
 			acceptance:       "zimaos-app-store-install.md",
 			docSubstitutions: map[string]string{},
-			runtimeArtifacts: composeArtifact("zimaos", "compose/backup-manager.yml", ""),
+			runtimeArtifacts: composeArtifact("zimaos", "compose/retnd.yml", ""),
 		},
 	}
 }
@@ -574,17 +574,25 @@ func TestArchitectureParityAndRecordedBinaryHashes(t *testing.T) {
 	for _, a := range manifest.Architectures {
 		built = append(built, a.Architecture)
 		for _, binary := range c.Binaries {
-			// The manifest's own key for this binary, which is not the
-			// path any more (the 0.3.3 CLI rename): the image carries
-			// /rbm and /rbm-web, the manifest still records
-			// backup-manager and backup-manager-web, and
-			// manifestBinaryKey is the single place those two are
-			// bridged. Reading the path here instead would report every
-			// binary missing on every architecture.
-			name := manifestBinaryKey(binary)
-			if a.BinarySHA256[name] == "" {
-				t.Errorf("release manifest records no SHA-256 for %s (canonical binary %s) on %s, but the packages ship an image claiming to contain it",
-					name, binary, a.Architecture)
+			// The manifest's own key for this binary, which is not simply
+			// the path: #890 renamed the files the image carries to
+			// /retnd and /retnd-web, while an entry recorded for an
+			// already-published release keeps the keys it went out under
+			// (0.4.0's say retnd and retnd-web). manifestBinaryKeys
+			// is the single place the two spellings are bridged, and it
+			// prefers the new one. Reading the path here instead would
+			// report every binary missing on every architecture for as
+			// long as the overlap release lasts.
+			recorded := ""
+			for _, key := range manifestBinaryKeys(binary) {
+				if h := a.BinarySHA256[key]; h != "" {
+					recorded = h
+					break
+				}
+			}
+			if recorded == "" {
+				t.Errorf("release manifest records no SHA-256 under any of %q (canonical binary %s) on %s, but the packages ship an image claiming to contain it",
+					manifestBinaryKeys(binary), binary, a.Architecture)
 			}
 		}
 	}
@@ -829,7 +837,7 @@ func TestOnlyTheWebUIContainerPublishesAPort(t *testing.T) {
 
 // TestTheWebUIContainerDoesNotRunTheImageHealthcheck is WP4.3's own
 // warning made executable: the canonical image bakes in
-// `HEALTHCHECK /rbm status`, which needs a config file and a
+// `HEALTHCHECK /retnd status`, which needs a config file and a
 // state database the Web UI container does not have, so every profile has
 // to override or disable it.
 func TestTheWebUIContainerDoesNotRunTheImageHealthcheck(t *testing.T) {
@@ -846,12 +854,12 @@ func TestTheWebUIContainerDoesNotRunTheImageHealthcheck(t *testing.T) {
 					if svc.HealthcheckDisabled {
 						t.Error("the Web UI service disables its healthcheck; this profile can express an override, so it should")
 					}
-					if !healthcheckMatches(svc.HealthcheckTest, c.Commands.Healthcheck) {
+					if !healthcheckMatches(c, svc.HealthcheckTest, c.Commands.Healthcheck) {
 						t.Errorf("the Web UI service's healthcheck is %v, want one running %v", svc.HealthcheckTest, c.Commands.Healthcheck)
 					}
 				case disableHealthcheck:
 					if !svc.HealthcheckDisabled {
-						t.Errorf("the Web UI template does not disable the image healthcheck (ExtraParams = %q); left inherited, `/rbm status` fails forever in a container with no config and no state database",
+						t.Errorf("the Web UI template does not disable the image healthcheck (ExtraParams = %q); left inherited, `/retnd status` fails forever in a container with no config and no state database",
 							svc.ExtraParams)
 					}
 				}
@@ -924,12 +932,13 @@ func TestEachContainerRunsItsCanonicalCommand(t *testing.T) {
 				default:
 					continue
 				}
-				// runsCanonicalCommand, not string equality: since #167
-				// the canonical commands may carry a `--profile=` flag.
-				// The binary and every positional argument still have to
-				// match exactly; see that helper for what it does and
-				// does not allow.
-				if !runsCanonicalCommand(svc.Command, want) {
+				// Canonical.RunsCommand, not string equality: since #167
+				// the canonical commands may carry a `--profile=` flag,
+				// and since #890 the image answers to one pre-rename
+				// entrypoint as well. The binary and every positional
+				// argument still have to match exactly; see that method
+				// for what it does and does not allow.
+				if !c.RunsCommand(svc.Command, want) {
 					t.Errorf("service %q (%s) runs %v, want %v", svc.Name, svc.Source, svc.Command, want)
 				}
 			}
@@ -958,8 +967,8 @@ func TestEveryPlatformUsesLocalAuthOnly(t *testing.T) {
 				if err != nil {
 					t.Fatalf("read bridge: %v", err)
 				}
-				if !strings.Contains(string(bridge), `mode: "`+c.AuthMode+`"`) {
-					t.Errorf("the frontend bridge does not report auth mode %q", c.AuthMode)
+				if ok, why := BridgeReportsAuthMode(string(bridge), c.AuthMode); !ok {
+					t.Errorf("the frontend bridge does not report auth mode %q: %s", c.AuthMode, why)
 				}
 				if strings.Contains(string(bridge), "nativeAuth: true") {
 					t.Error("the frontend bridge claims native auth; only UGOS has a native session adapter")
@@ -977,6 +986,64 @@ func TestEveryPlatformUsesLocalAuthOnly(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestTheAuthModeCheckFollowsTheSharedReaderRatherThanTrustingIt is the
+// falsification for the delegated half of the auth-mode line, and it
+// exists because issue #795 already broke this check once by moving a
+// literal.
+//
+// Six bridges used to spell `mode: "local-account"` themselves; #795
+// collapsed the six copies into one shared module and the grep that
+// read them stayed pointed at the bridge files, so the gate reported
+// six providers with the wrong auth mode while the product's auth mode
+// had not moved. Following the delegation fixes that, and it is only an
+// improvement if the thing at the end of the delegation is read rather
+// than assumed -- which is what the last three cases watch fail.
+func TestTheAuthModeCheckFollowsTheSharedReaderRatherThanTrustingIt(t *testing.T) {
+	const delegating = `import { readLocalAccountSession } from "@shared/platform/localSession";
+export const bridge = { getAuthContext: readLocalAccountSession };`
+
+	t.Run("a bridge that spells the mode itself", func(t *testing.T) {
+		if ok, why := BridgeReportsAuthMode(`{ mode: "native-session" }`, "native-session"); !ok {
+			t.Errorf("want reported, got %q", why)
+		}
+	})
+
+	t.Run("a bridge that delegates to the real shared reader", func(t *testing.T) {
+		if ok, why := BridgeReportsAuthMode(delegating, "local-account"); !ok {
+			t.Errorf("ui/shared's reader reports local-account and this refused it: %s", why)
+		}
+	})
+
+	t.Run("a bridge that reads its own session", func(t *testing.T) {
+		own := `export const bridge = { async getAuthContext() { return { authenticated: false }; } };`
+		if ok, _ := BridgeReportsAuthMode(own, "local-account"); ok {
+			t.Error("a bridge that neither reports the mode nor delegates was accepted")
+		}
+	})
+
+	t.Run("a bridge that imports the reader and wires something else", func(t *testing.T) {
+		half := `import { readLocalAccountSession } from "@shared/platform/localSession";
+export const bridge = { getAuthContext: readVendorSession };`
+		if ok, _ := BridgeReportsAuthMode(half, "local-account"); ok {
+			t.Error("an unused import counted as delegation, so the bridge's own reader went unread")
+		}
+	})
+
+	t.Run("a shared reader that grew a mode of its own", func(t *testing.T) {
+		grown := `const SIGNED_OUT = { mode: "local-account" };
+const VENDOR = { mode: "native-session" };`
+		if ok, _ := sharedReaderReportsAuthMode(grown, "local-account"); ok {
+			t.Error("a shared reader that also reports a native session was accepted, which would make every delegating provider's cell a claim nobody checked")
+		}
+	})
+
+	t.Run("a shared reader that reports nothing", func(t *testing.T) {
+		if ok, _ := sharedReaderReportsAuthMode("export async function readLocalAccountSession() {}", "local-account"); ok {
+			t.Error("a shared reader with no auth mode at all was accepted")
+		}
+	})
 }
 
 // TestEveryVariableAProfileDeclaresIsActuallyRead is the guard for a knob
@@ -1176,7 +1243,7 @@ func TestUnraidWebUIJSONAgreesWithTheTemplate(t *testing.T) {
 		t.Fatalf("parse webui.json: %v", err)
 	}
 
-	tpl, err := ReadUnraidTemplate(filepath.Join(PlatformDir("unraid"), "template", "backup-manager-ui.xml"))
+	tpl, err := ReadUnraidTemplate(filepath.Join(PlatformDir("unraid"), "template", "retnd-ui.xml"))
 	if err != nil {
 		t.Fatalf("read Unraid UI template: %v", err)
 	}
@@ -1277,17 +1344,32 @@ func TestTrueNASCatalogDefaultsArePinnedToCanonical(t *testing.T) {
 // helpers
 // ---------------------------------------------------------------------
 
-func healthcheckMatches(test, want []string) bool {
+// healthcheckMatches reports whether test runs one of the spellings of
+// want the canonical image answers to. Every argument of the wanted
+// command has to appear, in one string or spread over several, which is
+// what lets a template's single `--health-cmd` line and a compose list
+// answer the same question.
+//
+// Spellings rather than the one canonical argv because of #890's
+// one-release entrypoint overlap: see Canonical.CommandSpellings.
+func healthcheckMatches(c Canonical, test, want []string) bool {
 	if len(test) == 0 {
 		return false
 	}
 	joined := strings.Join(test, " ")
-	for _, arg := range want {
-		if !strings.Contains(joined, arg) {
-			return false
+	for _, spelling := range c.CommandSpellings(want) {
+		ok := true
+		for _, arg := range spelling {
+			if !strings.Contains(joined, arg) {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return true
 		}
 	}
-	return true
+	return false
 }
 
 func containsString(haystack []string, needle string) bool {

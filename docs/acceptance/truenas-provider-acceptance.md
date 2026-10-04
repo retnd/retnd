@@ -26,8 +26,8 @@ reach.
 | Term | Meaning here |
 | --- | --- |
 | `POOL` | The ZFS pool you install into. The package's defaults assume `tank`; substitute yours everywhere. |
-| Engine container | `/rbm-web serve`: API, scheduler, local authentication. No published port. |
-| Web UI container | `/rbm-web serve-ui`: static UI plus reverse proxy. The only published port. |
+| Engine container | `/retnd-web serve`: API, scheduler, local authentication. No published port. |
+| Web UI container | `/retnd-web serve-ui`: static UI plus reverse proxy. The only published port. |
 | Canonical image | The single OCI reference in `distribution/packaging/canonical.json`. |
 
 ---
@@ -36,14 +36,12 @@ reach.
 
 ### 0.1 Make the canonical image resolvable
 
-`ghcr.io/spdrman/backup-manager:0.4.0` is cut but not pushed yet:
-`distribution/packaging/canonical.json` records `image.published: false`, and
-`container/release-manifest.json` carries a `registry_digest` of `null` per
-architecture. So the reference does not resolve from the registry today, and the
-steps below are how you make it resolve, by pushing a build to a registry this host
-can reach or building elsewhere and loading it. The previous release,
-`ghcr.io/spdrman/backup-manager:0.3.3`, stays published and signed if you would
-rather run that, so pick one:
+The canonical reference is `ghcr.io/retnd/retnd:0.5.0`.
+`distribution/packaging/canonical.json` and
+`container/release-manifest.json` jointly record whether it has been published:
+`image.published: true` requires an index digest and one registry digest per
+architecture. If those records still say `false` and `null`, the reference does
+not resolve yet, so pick one:
 
 **Option A, your own registry.** Build and push both architectures, then override
 the image reference at install time:
@@ -54,7 +52,7 @@ docker buildx build \
   --build-arg VERSION="$(git describe --tags --always)" \
   --build-arg COMMIT="$(git rev-parse HEAD)" \
   -f container/Dockerfile \
-  -t <your-registry>/backup-manager:<version> \
+  -t <your-registry>/retnd:<version> \
   --push .
 ```
 
@@ -62,10 +60,10 @@ docker buildx build \
 
 ```bash
 docker buildx build --platform=linux/amd64 -f container/Dockerfile \
-  -t backup-manager:<version> --load .
-docker save backup-manager:<version> | gzip > backup-manager.tar.gz
-scp backup-manager.tar.gz root@<truenas>:/mnt/POOL/
-ssh root@<truenas> 'gunzip -c /mnt/POOL/backup-manager.tar.gz | docker load'
+  -t retnd:<version> --load .
+docker save retnd:<version> | gzip > retnd.tar.gz
+scp retnd.tar.gz root@<truenas>:/mnt/POOL/
+ssh root@<truenas> 'gunzip -c /mnt/POOL/retnd.tar.gz | docker load'
 ```
 
 Record which option you used and the exact reference in the evidence table. If you
@@ -82,18 +80,18 @@ The package's host-path defaults come from `distribution/packaging/canonical.jso
 declares. Create them as datasets, not directories, so snapshots and quotas work:
 
 ```bash
-zfs create -p POOL/backup-manager/state
-zfs create -p POOL/backup-manager/backups
-zfs create -p POOL/backup-manager/config
-zfs create -p POOL/backup-manager/secrets
+zfs create -p POOL/retnd/state
+zfs create -p POOL/retnd/backups
+zfs create -p POOL/retnd/config
+zfs create -p POOL/retnd/secrets
 ```
 
 Then confirm all four are actually mounted before you install anything:
 
 ```bash
-zfs list -o name,mountpoint -r POOL/backup-manager
+zfs list -o name,mountpoint -r POOL/retnd
 for d in state backups config secrets; do
-  mountpoint -q "/mnt/POOL/backup-manager/$d" || echo "NOT MOUNTED: $d"
+  mountpoint -q "/mnt/POOL/retnd/$d" || echo "NOT MOUNTED: $d"
 done
 ```
 
@@ -117,9 +115,9 @@ Pick the uid/gid the app will run as and set it now. TrueNAS's own `apps` accoun
 is `568:568` and is the conventional choice:
 
 ```bash
-chown 568:568 /mnt/POOL/backup-manager \
-  /mnt/POOL/backup-manager/{state,backups,config,secrets}
-chmod 700 /mnt/POOL/backup-manager/secrets
+chown 568:568 /mnt/POOL/retnd \
+  /mnt/POOL/retnd/{state,backups,config,secrets}
+chmod 700 /mnt/POOL/retnd/secrets
 ```
 
 The mountpoints are chowned, not the trees beneath them. On a first install that
@@ -148,11 +146,11 @@ Nothing in this app needs that, so nothing here does it.
 > packaging fix for three things.
 >
 > Nothing else here survives that fix: once the mount is writable, the key is
-> pasted into the setup flow's Authentication step, the host key is probed and
-> confirmed on its Verify server step, and no `config.yaml` is written by hand
+> pasted into the setup flow's Connection test step, the host key is probed and
+> confirmed on that same step, and no `config.yaml` is written by hand
 > at all.
 
-`/rbm-web serve` starts without a `config.yaml` and serves the
+`/retnd-web serve` starts without a `config.yaml` and serves the
 first-run setup flow instead (#176), but a config file that EXISTS and does not
 validate is still a hard startup failure. Given the read-only mount above,
 create all three before the first start.
@@ -162,21 +160,21 @@ now a writable directory the application owns, so the container can create and r
 `config.yaml` itself, and an empty directory is a legitimate state rather than a broken
 deployment. Two things nonetheless keep this step here. The directory itself must exist
 and be owned by `PUID:PGID` before the first start, because a bind mount does not create
-or chown its source. And `/rbm-web serve` still refuses to start without a
+or chown its source. And `/retnd-web serve` still refuses to start without a
 valid config: removing that refusal, and serving a first-run flow instead, is #176's
 work and is not merged. Once it is, everything below except creating and owning the
 directory becomes optional.
 
 
 ```bash
-ssh-keygen -t ed25519 -N '' -f /mnt/POOL/backup-manager/secrets/id_ed25519
-ssh-keyscan -t ed25519 <your-sftp-host> > /mnt/POOL/backup-manager/secrets/known_hosts
-chmod 600 /mnt/POOL/backup-manager/secrets/id_ed25519
-chown 568:568 /mnt/POOL/backup-manager/secrets/*
+ssh-keygen -t ed25519 -N '' -f /mnt/POOL/retnd/secrets/id_ed25519
+ssh-keyscan -t ed25519 <your-sftp-host> > /mnt/POOL/retnd/secrets/known_hosts
+chmod 600 /mnt/POOL/retnd/secrets/id_ed25519
+chown 568:568 /mnt/POOL/retnd/secrets/*
 ```
 
 Verify the host key fingerprint out of band before you trust it. Then write
-`/mnt/POOL/backup-manager/config/config.yaml`; the container-side paths in it are
+`/mnt/POOL/retnd/config/config.yaml`; the container-side paths in it are
 fixed by the package and must not be changed (see
 `apps/truenas/README.md` for the annotated example, and
 `scripts/deploy/deploy_generic.py`'s `render_config_yaml` for the authoritative
@@ -186,7 +184,7 @@ shape).
 
 - [ ] Key pair generated, mode 0600, owned by `PUID:PGID`
 - [ ] `known_hosts` pinned, fingerprint verified out of band
-- [ ] `/mnt/POOL/backup-manager/config` exists and is **writable** by `PUID:PGID`
+- [ ] `/mnt/POOL/retnd/config` exists and is **writable** by `PUID:PGID`
 - [ ] `config.yaml` written inside it and readable by `PUID:PGID`
 
 ---
@@ -195,12 +193,12 @@ shape).
 
 1. In the TrueNAS Web UI go to **Apps → Discover Apps → Custom App**.
 2. Choose **Install via YAML**.
-3. Paste the whole of `apps/truenas/compose/backup-manager.yaml`.
+3. Paste the whole of `apps/truenas/compose/retnd.yaml`.
 4. Substitute, at the top of the pasted YAML only:
    - the image reference from step 0.1, if you did not push to the recorded one;
    - `POOL` in each host path;
    - `PUID`/`PGID` from step 0.3.
-5. Name the app `backup-manager`.
+5. Name the app `retnd`.
 6. Install.
 
 Record: how long the install took, and the full text of any warning TrueNAS showed.
@@ -208,13 +206,13 @@ Record: how long the install took, and the full text of any warning TrueNAS show
 - [ ] Install completed without error
 - [ ] TrueNAS shows the app, and both containers reach **running**
 - [ ] The engine container reaches Docker health **healthy** (it declares the
-      liveness probe, `/rbm-web healthcheck --url
+      liveness probe, `/retnd-web healthcheck --url
       http://127.0.0.1:8080/health/live`, and NOT the image's own
-      `HEALTHCHECK`, `/rbm status`. The Web UI will not start until
+      `HEALTHCHECK`, `/retnd status`. The Web UI will not start until
       this reports healthy, and `status` is the backup-freshness verdict, which
       is non-zero on a fresh install that has backed nothing up)
 - [ ] The Web UI container reaches Docker health **healthy** (it overrides that
-      healthcheck with `/rbm-web healthcheck`, because it has no config
+      healthcheck with `/retnd-web healthcheck`, because it has no config
       file and no state database of its own to report on)
 
 If the Web UI container is unhealthy while the engine is healthy, the override did
@@ -226,7 +224,7 @@ changing anything.
 
 ## Step 2 — Web portal link
 
-1. Open **Apps → Installed → backup-manager**.
+1. Open **Apps → Installed → retnd**.
 2. Click the **Web Portal** button.
 
 - [ ] The portal button exists and is not greyed out
@@ -250,20 +248,36 @@ package ships no credential of its own.
    ```
 
 2. Open it. It should present the enrollment screen, not a login screen.
-3. Enrol an administrator with a password you generate now. Do not reuse a
-   TrueNAS account password, and do not write it into this repository.
-4. Log out. Log back in.
-5. Open the enrollment link a second time.
+3. Fill the form: a password you generate now — do not reuse a TrueNAS account
+   password, and do not write it into this repository — plus the recovery email
+   address and the SMTP details the same form asks for. Use a mail account you
+   control, and keep that password out of this repository too.
+4. Submit it once with a deliberately wrong SMTP port. It should fail with
+   `SMTP_SEND_FAILED`, create no account, and leave the same link usable.
+5. Correct the port and submit again. A confirmation message should arrive at the
+   recovery address, and the account should exist only now.
+6. Log out. Log back in.
+7. Open the enrollment link a second time.
+8. Sign out and use **Forgot password**: first with a username that does not
+   exist, then with the administrator's. Both should answer the same way; only the
+   second should produce mail. Follow the link and set a new password.
 
 - [ ] No account exists before enrollment (the UI offers enrollment, not login)
 - [ ] The enrollment token appears only in the container log, never in any file
       under `apps/truenas/`
+- [ ] A confirmation message reaches the recovery address, and the failed attempt
+      created no account and did not consume the link
 - [ ] Enrollment succeeds
 - [ ] Logout then login succeeds
 - [ ] The enrollment link is refused the second time (single-use)
+- [ ] Forgot password is indistinguishable between a real and an invented username,
+      and the reset link works once, expires, and signs every session out when
+      spent
 - [ ] `GET /api/v1/system/capabilities` reports `nativeAuth: false`
-- [ ] `/mnt/POOL/backup-manager/state/local-auth.json` exists and contains an
-      Argon2id hash, never a plaintext password
+- [ ] `/mnt/POOL/retnd/state/local-auth.json` exists and contains an
+      Argon2id hash, never a plaintext password, and holds the recovery address
+      and SMTP settings with the SMTP password as a secret reference rather than
+      a value: `grep` it for the password you typed and find nothing
 
 ---
 
@@ -274,9 +288,9 @@ package ships no credential of its own.
 2. Then, on the NAS:
 
 ```bash
-ls -la /mnt/POOL/backup-manager/backups
-ls -la /mnt/POOL/backup-manager/state
-grep -rIl 'PRIVATE KEY' /mnt/POOL/backup-manager/backups || echo "clean"
+ls -la /mnt/POOL/retnd/backups
+ls -la /mnt/POOL/retnd/state
+grep -rIl 'PRIVATE KEY' /mnt/POOL/retnd/backups || echo "clean"
 ```
 
 Then record a baseline for the removal check at the end of this procedure. The
@@ -288,13 +302,13 @@ hash and a full file listing **outside** the backup root, where whatever might
 damage that tree cannot reach the evidence:
 
 ```bash
-mkdir -p /root/backup-manager-acceptance
-head -c 8M /dev/urandom > /mnt/POOL/backup-manager/backups/canary.bin
-sha256sum /mnt/POOL/backup-manager/backups/canary.bin | tee /root/backup-manager-acceptance/canary.sha256
-find /mnt/POOL/backup-manager/backups -type f -printf '%p %s\n' | sort > /root/backup-manager-acceptance/backup-root.before
+mkdir -p /root/retnd-acceptance
+head -c 8M /dev/urandom > /mnt/POOL/retnd/backups/canary.bin
+sha256sum /mnt/POOL/retnd/backups/canary.bin | tee /root/retnd-acceptance/canary.sha256
+find /mnt/POOL/retnd/backups -type f -printf '%p %s\n' | sort > /root/retnd-acceptance/backup-root.before
 ```
 
-Keep `/root/backup-manager-acceptance` off the repository: the listing names your own backup
+Keep `/root/retnd-acceptance` off the repository: the listing names your own backup
 sets. Record only that it was taken, and the canary's hash, in the evidence table.
 
 - [ ] At least one completed artifact is under the backups dataset
@@ -323,7 +337,7 @@ already has real state from step 4.
    find <backups dataset> -type f -printf '%p %s\n' | sort > /tmp/before-update.txt
    ```
 3. Push or side-load a newer image tag.
-4. In TrueNAS, **Apps → Installed → backup-manager → Edit**, change the image tag,
+4. In TrueNAS, **Apps → Installed → retnd → Edit**, change the image tag,
    and save. TrueNAS recreates both containers.
 5. Compare afterwards:
    ```bash
@@ -334,7 +348,8 @@ already has real state from step 4.
 - [ ] Update completes and both containers return to healthy
 - [ ] `diff` of the retained-artifact listing is empty: the update moved no
       backup data
-- [ ] The administrator account still exists (no re-enrollment prompt)
+- [ ] The administrator account still exists (no re-enrollment prompt), with its
+      recovery address and SMTP settings intact
 - [ ] The session cookie may be invalidated by the restart; logging back in with
       the same password works
 - [ ] Every backup set from step 4 is still configured
@@ -358,7 +373,7 @@ Then let TrueNAS restart the app (or **Stop** then **Start** it in the UI).
 - [ ] Both containers come back healthy
 - [ ] Retained backup data survives untouched
 - [ ] The catalog survives (same artifact list, same backup sets)
-- [ ] The administrator account survives
+- [ ] The administrator account survives, recovery address and SMTP settings included
 
 ---
 
@@ -369,7 +384,7 @@ storage step, because after the delete there is nothing left to compare against,
 "the dataset looks fine" is not a result, and any deletion the comparison turns
 up is a release blocker rather than a finding to triage.
 
-1. **Apps → Installed → backup-manager → Delete**.
+1. **Apps → Installed → retnd → Delete**.
 2. When TrueNAS asks, do **not** tick anything that deletes the app's datasets.
 
 - [ ] Both containers are gone
@@ -378,9 +393,9 @@ Check the backup root against the baseline recorded in the storage step, before
 looking at anything else:
 
 ```bash
-sha256sum -c /root/backup-manager-acceptance/canary.sha256
-find /mnt/POOL/backup-manager/backups -type f -printf '%p %s\n' | sort > /root/backup-manager-acceptance/backup-root.after
-diff /root/backup-manager-acceptance/backup-root.before /root/backup-manager-acceptance/backup-root.after
+sha256sum -c /root/retnd-acceptance/canary.sha256
+find /mnt/POOL/retnd/backups -type f -printf '%p %s\n' | sort > /root/retnd-acceptance/backup-root.after
+diff /root/retnd-acceptance/backup-root.before /root/retnd-acceptance/backup-root.after
 ```
 
 - [ ] `sha256sum -c` reports the canary `OK`
@@ -406,11 +421,11 @@ catalog. Nothing on a developer laptop can run TrueNAS's own catalog validator, 
 that check lives here.
 
 1. Clone the TrueNAS apps repository.
-2. Copy `apps/truenas/catalog/` in as `ix-dev/community/backup-manager/`.
+2. Copy `apps/truenas/catalog/` in as `ix-dev/community/retnd/`.
 3. Run that repository's own validation and render tooling.
 
 - [ ] The catalog validator accepts the app
-- [ ] The rendered compose matches `apps/truenas/compose/backup-manager.yaml`
+- [ ] The rendered compose matches `apps/truenas/compose/retnd.yaml`
       apart from values the questions supply
 - [ ] Every question in `questions.yaml` is consumed by the template, and every
       template variable is answered by a question
@@ -418,6 +433,58 @@ that check lives here.
       custom-app YAML
 
 ---
+
+## Step 9 — Local workflow hooks are unavailable on TrueNAS
+
+A workflow step whose target is `local` does not run in the engine container, and since
+issue #865 it does not run on a host shell either: it runs in an **ephemeral Docker
+container** launched by the **Host Workflow Runner**, a small version-pinned process
+systemd supervises as `retnd-workflow-runner.service`
+(`docs/adr/0020-host-workflow-runner.md`, `docs/runtime-contract.md`).
+
+TrueNAS's host is vendor-managed: applications run under the middleware's own container
+runtime, a third-party systemd unit is unsupported and does not survive a system
+update, and there is no supported way to add an account to the Docker socket's group.
+Provisioning the runner anyway would be exactly the host-management-plane modification
+§4A/§75 forbids this product — the same rule this procedure's removal step already
+holds the app to.
+
+**Local workflow hooks are unavailable on this platform.** That is a refusal with a
+named mechanism rather than a gap, and it is worth being precise about which
+mechanism, because two plausible ones are not it:
+
+- the **capability contract** answers `unavailable` for this platform, with this
+  reason and the alternative below
+  (`apps/common/platform/capabilities`, `LocalHooks`);
+- the **engine** refuses a `NAME.local.sh` step outright when a deployment has no
+  host workflow runner behind it — *"this deployment has no host workflow runner,
+  and a NAME.local.sh has nowhere to run"*
+  (`core/internal/workflowrun/engine.go`). A hook is refused, never skipped, so a
+  run cannot report success with the hook quietly missing;
+- and **this procedure installs no `retnd-workflow-runner.service`**, grants no
+  group and fetches no hook image.
+
+What does **not** happen, so that nobody goes looking for it:
+`scripts/install/install_docker_host.py` has no platform gate. It refuses (exit 12)
+when a deployment has hook scripts and the runner's account cannot reach a Docker
+daemon, and on a host with no systemd it merely stages the unit file for an operator
+to install by hand. Neither of those is a refusal on this platform's grounds. The
+answer here is the contract's, and the enforcement is the engine's.
+
+**What works instead:** a remote workflow step. A step with a remote target runs over
+SSH (`docs/adr/0021-remote-ssh-exec.md`) against a machine you do
+administer, and needs no Docker and no host unit on this NAS. The engine's own side
+of this is unchanged either way: the shipped package asks for no Docker socket, no
+`group_add` and no `DOCKER_HOST`.
+
+- [ ] No `retnd-workflow-runner.service` exists on this host, and nothing in this
+      procedure created one
+- [ ] No account was added to a Docker socket group for this product, and the shipped
+      containers mount no socket and declare no `group_add`
+- [ ] A workflow configured with a `local` hook is refused with a message naming the
+      missing container runtime, and the refusal text is recorded — not a run that
+      reported success with the hook skipped
+
 
 ## Evidence (§68)
 

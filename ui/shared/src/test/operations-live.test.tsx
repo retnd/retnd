@@ -43,6 +43,8 @@ const SET: BackupSet = {
   completionMethod: "completion-marker", stableForSeconds: 0,
   destination: "/data/backups/production/postgres/",
   retentionIsOverride: false,
+  pollIntervalSeconds: null,
+  effectivePollIntervalSeconds: 900,
   validations: ["transfer", "checksum"],
   state: "healthy",
   stateNote: "Verified nightly dump.",
@@ -57,7 +59,12 @@ const SET: BackupSet = {
   retainedBytes: 421 * 1024 ** 3,
   trustedHostKeys: [{ algorithm: "ssh-ed25519", fingerprint: "SHA256:test-fingerprint" }],
   trustedHostKeyRecordedAt: "2026-08-02T10:14:00+02:00",
-  sshKeyId: "key_a1b2c3"
+  sshKeyId: "key_a1b2c3",
+  // EPIC K (issue #788): this fixture is an artifact set, which is
+  // what every set in this suite was before the incremental engine
+  // existed, so `incremental` is null rather than an empty block.
+  engine: "artifact",
+  incremental: null
 };
 
 const HEALTH: SystemHealth = {
@@ -74,8 +81,6 @@ const HEALTH: SystemHealth = {
   setsFailing: 0,
   quarantinedCount: 0,
   readOnlyRetainedCount: 0,
-  storageFreeBytes: 1.8e12,
-  storageTotalBytes: 6.2e12,
   storageState: "nominal",
   storageReadingsUnavailable: 0
 };
@@ -131,7 +136,7 @@ describe("operationsNode: live progress without a per-page re-fetch", () => {
     // delay (unlike the mock's own 180ms `delay()`) so its pending promise
     // settles before this test ends instead of firing a setState warning
     // after cleanup has already unmounted the tree.
-    const api = { ...createMockApi(), listOperations, listActivity: () => Promise.resolve([]) };
+    const api = { ...createMockApi(), listOperations, listActivity: () => Promise.resolve({ events: [] }) };
 
     render(
       <MemoryRouter>
@@ -178,7 +183,7 @@ describe("operationsNode: live progress without a per-page re-fetch", () => {
     // fetch happened to succeed; wiring both through the shared node makes
     // that irrelevant.
     const listOperations = vi.fn(() => Promise.reject(new Error("must not be called")));
-    const api = { ...createMockApi(), listOperations, listActivity: () => Promise.resolve([]) };
+    const api = { ...createMockApi(), listOperations, listActivity: () => Promise.resolve({ events: [] }) };
 
     act(() => {
       graph.commit("test/seed-operation", (tx) =>
@@ -214,10 +219,10 @@ describe("operationsNode: live progress without a per-page re-fetch", () => {
    *  running" / "idle" copy a genuinely healthy zero-operations state
    *  shows — indistinguishable from "we don't actually know". */
   it("surfaces an operationsNode fetch failure as an inline notice, on both pages, instead of a confident empty state", async () => {
-    const api = { ...createMockApi(), listActivity: () => Promise.resolve([]) };
+    const api = { ...createMockApi(), listActivity: () => Promise.resolve({ events: [] }) };
     const opsError = {
       code: "unknown" as const,
-      message: "Backup Manager could not complete that request.",
+      message: "retnd could not complete that request.",
       correlationId: "test-correlation-id"
     };
 
@@ -250,7 +255,7 @@ describe("operationsNode: live progress without a per-page re-fetch", () => {
     // operationsNode is left at its untouched initial state
     // ({data: null, error: null, loading: true}) — exactly what a fresh
     // mount looks like before App.tsx's first fetch has resolved.
-    const api = { ...createMockApi(), listActivity: () => Promise.resolve([]) };
+    const api = { ...createMockApi(), listActivity: () => Promise.resolve({ events: [] }) };
 
     render(
       <MemoryRouter>

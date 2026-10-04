@@ -36,8 +36,8 @@ prove the check can actually see it go.
 | `timezone` | engine | `TZ`, because retention is evaluated against calendar boundaries |
 | `private-state-mount` | engine | `/data/state` |
 | `backup-data-mount` | engine | `/data/backups` |
-| `configuration-mount` | engine | `/etc/backup-manager/config`, a writable directory holding `config.yaml` (issue #196) |
-| `secret-file-mount` | engine | `/etc/backup-manager/id_ed25519`, read-only |
+| `configuration-mount` | engine | `/etc/retnd/config`, a writable directory holding `config.yaml` (issue #196) |
+| `secret-file-mount` | engine | `/etc/retnd/id_ed25519`, read-only |
 | `resource-expectations` | document | `x-canonical-runtime.resources` |
 | `supported-architectures` | document | `x-canonical-runtime.architectures` |
 | `digest-policy` | document | `x-canonical-runtime.digest_policy` |
@@ -47,9 +47,14 @@ prove the check can actually see it go.
 ### The two mounts that must never contain one another
 
 `/data/state` holds the lifecycle journal, the local-authentication
-administrator record and nothing an operator would ever hand to somebody else.
+administrator record — with the account's recovery email address, whether that
+address has been verified, the deadline an unverified one lapses at, the hash
+(never the value) of the outstanding verification token, its SMTP settings and
+the reference standing in for the SMTP password — and nothing an operator would
+ever hand to somebody else.
 `/data/backups` is a share people are given access to. Putting either inside
-the other puts the state database and the Argon2id password hash into a
+the other puts the state database, the Argon2id password hash and the
+administrator's own contact details into a
 directory whose whole purpose is to be shared, so
 `TestPrivateStateAndBackupDataAreSeparateMounts` checks containment both ways,
 and checks that its own containment helper is not vacuous.
@@ -87,16 +92,162 @@ cannot introduce one: the prohibition rules run against every registered
 artifact, and `TestEveryComposeArtifactInTheTreeIsRegistered` fails when a
 compose file exists in the tree that nothing registered.
 
+## Local hook scripts, and why they do not touch this contract
+
+EPIC L (#809) gives a backup set hook scripts, and a `.local.sh` hook means
+"run this on the machine retnd is installed on". The engine cannot run one:
+this image is distroless and has no shell, the container is read-only and
+non-root, and every capability is dropped. That is not an obstacle to work
+around — it is the contract above.
+
+There are four ways to satisfy "run a script on the host", and three of them
+are this contract deleted:
+
+- add a shell to the image;
+- mount the Docker socket, or add `CAP_SYS_ADMIN` and use `nsenter`;
+- bind-mount the host root read-write and chroot into it;
+- run a **separate, version-matched, unprivileged process on the host** and let
+  the engine ask it, over one Unix-domain socket, with a narrow vocabulary.
+
+retnd does the fourth. The engine gains exactly three bind mounts and nothing
+else:
+
+```text
+${WORKFLOWS_DIR:-./workflows}:/workflows:ro    the hook scripts, READ-ONLY
+${RUNTIME_DIR:-./run}:/data/run                the runner's socket directory,
+                                               and nothing but the socket
+${RUNNER_TOKEN_FILE:-./secrets/workflow-runner.token}:/etc/retnd/workflow-runner.token:ro
+                                               the runner's credential, ONE
+                                               read-only FILE
+```
+
+The credential mount is the third, and without it the other two buy nothing:
+the runner authenticates every connection, and the engine reads the token from
+the path `workflows.runner.token_file` names **as the engine sees it**. The
+installer writes that token into `<prefix>/secrets`, which nothing else here
+mounts, so the configuration a Docker Compose deployment documents is:
+
+```yaml
+workflows:
+  runner:
+    socket: /data/run/workflow-runner.sock
+    token_file: /etc/retnd/workflow-runner.token
+```
+
+It is a single **file**, mounted read-only, exactly like the SSH key and
+`known_hosts` and for the same two reasons: nothing in this container writes
+it, and the rest of the secrets area — the repository passphrase, every
+storage-medium credential — is not this container's business. It adds no
+capability, no group, no socket and no host-root path, and the rootfs stays
+read-only, so the prohibition list below is unaffected.
+
+The scripts are read-only because the engine reads each one once, hashes it and
+copies it into its own private spool under `/data/state`, and never opens the
+original again (`core/internal/workflow`), so write access would buy nothing and
+would let a compromised engine edit what the host is about to execute. The
+runtime directory is writable because connecting to a Unix socket is a write.
+
+That is also why it holds the socket and nothing else. A read-write mount makes
+everything under it writable by this container, and the runner's per-step
+working directories are the paths it creates and later removes recursively —
+so they live in `<prefix>/workspace` on the host, which nothing here mounts
+(ADR 0020, Decision 6a).
+
+Neither mount uses `:?`, so a deployment whose `.env` predates EPIC L still
+starts.
+
+What is on the other end of that socket is deliberately not a shell. It is
+`retnd workflow-runner serve`, built from the same commit as the engine and
+extracted from the same image by the installer, and it:
+
+- listens on a Unix socket only — there is no TCP listener and no address to
+  configure — with the socket 0600 inside a 0700 directory;
+- additionally requires an installation-scoped credential from retnd's
+  secrets area on every connection;
+- refuses an engine whose version is not exactly its own;
+- accepts four operations (`syntax-check`, `execute`, `cancel`, `status`) and
+  **captured script bytes, never a path**, re-checking size and SHA-256 against
+  what the engine's plan recorded;
+- refuses to run as root, runs each script in an **ephemeral Docker container**
+  with a private 0700 working directory on the host, and stops and removes that
+  container when the engine's connection — the lease — goes away.
+
+### The runner holds Docker access; this container never does (#865)
+
+A local hook does not run on the host's shell either. Since #865 the runner
+launches one ephemeral container per hook:
+
+```text
+docker create --name retnd-hook-<run>-<step>-<16 hex>
+           --label retnd.workflow-hook=1 (plus run, step and instance labels)
+           --network none --security-opt no-new-privileges --cap-drop ALL
+           --read-only --tmpfs /tmp --pids-limit 512 --user <uid>:<gid>
+           --platform <the daemon's own> --entrypoint <bash in the image>
+           --env NAME ... (names only; values travel over the daemon socket)
+           -v <per-step work dir>:<itself> -v <captured script>:<itself>:ro
+           <hook image> --noprofile --norc <the script>
+docker start --attach <that name>        the hook runs; two streams come back
+docker inspect <that name>               the hook's own exit status
+docker rm --force --volumes <that name>  and the proof it is gone
+```
+
+The lifecycle is explicit rather than one `docker run`, and there is no
+`--rm`: the container's name and labels exist on the daemon's side before any
+process does, so a cancel mid-launch has something to address, and the hook's
+exit status is read off the DAEMON — the client reports 125 both for "the
+container could not be created" and for a hook that ended in `exit 125`.
+Termination reconciles by the per-launch label, so a container the daemon
+finished creating after the client was gone is still found and killed, and
+every call on that path is bounded: a daemon that stops answering costs the
+runner certainty (`unconfirmed`, which also keeps the working directory), never
+its ability to return.
+
+No Docker socket is mounted into a hook container, under any name — the runner
+refuses a configured `--hook-mount` that names one, or that names a directory
+the socket is IN. A hook reaches nothing else on the host unless an operator
+declared it with `--hook-mount PATH[:ro|:rw]`, read-only by default; the ENGINE
+cannot ask for a mount, because the protocol between them has no field that can
+hold a path. `--hook-network host` and `--hook-network container:<id>` are
+refused: both put the hook inside a namespace somebody else owns.
+
+This does move one privilege onto the host: the runner needs to reach the
+Docker daemon, which on a NAS is root-equivalent. That is the trade #865 makes
+deliberately, and the containment is that the privilege belongs to the small
+version-pinned process that launches hook containers and to nothing else:
+
+- the unit adds `SupplementaryGroups=<the socket's group>` and that same
+  socket to `ReadWritePaths`, plus the connection the install itself used —
+  `Environment="DOCKER_HOST=..."` (or `DOCKER_CONTEXT`), `DOCKER_CONFIG` where
+  set, and `--docker <absolute path>` on `ExecStart`, because systemd inherits
+  none of the installer's environment and the runner does not search `PATH`.
+  Without them an install can succeed against one daemon and the runner refuse
+  to serve against another;
+- **this container gains nothing.** No socket, no `group_add`, no capability,
+  no `DOCKER_HOST`. It still has no shell and still cannot exec.
+
+The capability is PROVEN at the runner's startup — docker present, daemon
+reachable, hook image present for this platform, and a probe container that
+emits the runner's own marker — and a host that cannot do all four refuses to
+serve local hooks. There is no fall back to running a hook on the host's own
+shell: a fallback would make every property above conditional on a daemon
+nobody checked.
+
+The prohibition list above is unchanged and still passes against the canonical
+definition and every derived artifact: no privileged container, no Docker
+socket, no host namespace, no added capability, no unbounded host mount, no
+shell in the image. `docs/adr/0020-host-workflow-runner.md` carries the full
+argument.
+
 ## Runtime profiles
 
 A runtime profile is how one executable changes host-dependent behaviour
 without becoming a second build.
 
 ```
-rbm-web serve    --profile=generic
-rbm-web serve    --profile=ugos --trusted-upstream=172.19.0.2/32
-rbm-web serve-ui --profile=ugos --trusted-gateway=10.1.2.3/32 \
-                            --ui-root=/usr/share/backup-manager/ui
+retnd-web serve    --profile=generic
+retnd-web serve    --profile=ugos --trusted-upstream=172.19.0.2/32
+retnd-web serve-ui --profile=ugos --trusted-gateway=10.1.2.3/32 \
+                            --ui-root=/usr/share/retnd/ui
 ```
 
 Seven profiles exist: `generic`, `ugos`, and the five issue #169 added when it
@@ -373,7 +524,7 @@ had changed, for three work packages, with every suite green.
 The engine's check is a liveness question. Every adapter's web UI declares
 `depends_on: <engine>: condition: service_healthy`, so whatever it asks stands
 between an operator and the only LAN-facing container in the deployment.
-`rbm status` is FR-24's verdict and exits non-zero on a fresh
+`retnd status` is FR-24's verdict and exits non-zero on a fresh
 install by design, which made "install the app" and "reach the app" mutually
 exclusive on all nine adapters.
 
@@ -408,7 +559,7 @@ One mount is redeclared, and the host side of it does not move either:
 | | Phase 4 | Converted adapter |
 |---|---|---|
 | host path | `<appdata>/config/config.yaml` | `<appdata>/config` |
-| container path | `/etc/backup-manager/config.yaml` | `/etc/backup-manager/config` |
+| container path | `/etc/retnd/config.yaml` | `/etc/retnd/config` |
 | mode | `ro` | writable |
 
 The file an operator already has stays exactly where it is; what the adapter
@@ -423,7 +574,7 @@ saying per platform rather than once:
 | platform | what carries the old answer | what stops it |
 |---|---|---|
 | generic, OpenMediaVault, Proxmox | an env file the operator edits | `CONFIG_FILE` became `CONFIG_DIR`, a fail-closed `${VAR:?}` reference, so an unconverted file stops the deployment with a message |
-| Synology (Container Manager) | `backup-manager.env` | the same, `${APPDATA:?...}/config` |
+| Synology (Container Manager) | `retnd.env` | the same, `${APPDATA:?...}/config` |
 | TrueNAS (catalog) | the platform, not a file | the question was renamed `config` to `configDir`, so an upgrade has no stored answer to carry forward and the wizard asks again |
 | Unraid | the operator's own template copy | nothing automatic: a changed `<Config>` Target does not retire a mapping already in the user template, so the old read-only file mapping has to be deleted by hand |
 | Synology (`.spk`) | the package's own layout | the package installs the directory itself |
@@ -432,9 +583,10 @@ The `${VAR:?}` claim only ever covered the first three rows. There is no
 `${VAR:?}` anywhere in a TrueNAS catalog answer or an Unraid template, and
 saying otherwise made a fail-closed guarantee out of a property those two
 platforms do not have. On TrueNAS the failure it hid was concrete: an upgrade
-that kept a Phase 4 answer of `<pool>/backup-manager/config/config.yaml` bind
-mounts that FILE at `/etc/backup-manager/config`, `--config` resolves to
-`/etc/backup-manager/config/config.yaml` inside it, and the engine crash-loops
+that kept a Phase 4 answer of `<pool>/retnd/config/config.yaml` bind
+mounts that FILE at the container's configuration mount — `/etc/retnd/config`
+as it was spelled then, `/etc/retnd/config` since issue #890 — `--config`
+resolves to `config.yaml` inside it, and the engine crash-loops
 on ENOTDIR with a message naming neither the mount nor the migration.
 
 Two things close that. The TrueNAS question carries a new identifier, so there
@@ -444,6 +596,38 @@ names issue #196 and points here, instead of reporting "not a directory".
 Unraid gets the same message, which is the only thing that can help there,
 because retiring an operator's existing mapping is not something a template
 can do.
+
+## Migrating across the #890 rename
+
+Issue #890 (R1.5, EPIC R #885) moves the deployment's own identity. It is the
+second compat-breaking generation change this document records, so it gets the
+same two tables as the configuration mount above: what moved, and what carries
+an old answer into the new world.
+
+Data does not move. `/data/state` and `/data/backups` carry no brand and are
+untouched, so an existing installation keeps its journal, its retained
+artifacts and its enrolled administrator across the change.
+
+| | before #890 | after #890 |
+|---|---|---|
+| container config path | `/etc/retnd/config` | `/etc/retnd/config` |
+| container key material | `/etc/retnd/id_ed25519`, `/etc/retnd/known_hosts` | `/etc/retnd/id_ed25519`, `/etc/retnd/known_hosts` |
+| container runner token | `/etc/retnd/workflow-runner.token` | `/etc/retnd/workflow-runner.token` |
+| image entrypoints | `/retnd`, `/retnd-web` | `/retnd`, `/retnd-web`, plus `/retnd-web` as a real hardlink for one release |
+| image `HEALTHCHECK` | `/retnd status` | `/retnd status` |
+| engine compose service | `retnd` | `retnd`; `web-ui` never named the product and does not move |
+| compose project name | implicit, from the directory | explicit `name: retnd`, so the default containers are `retnd-retnd-1` and `retnd-web-ui-1` |
+| systemd units | `retnd-bridge.service`, `retnd-bridge.timer`, `retnd-workflow-runner.service` | `retnd-bridge.service`, `retnd-bridge.timer`, `retnd-workflow-runner.service` |
+| `/data/state`, `/data/backups` | unchanged | unchanged |
+| image reference | `ghcr.io/retnd/retnd` | unchanged by this issue; #895 moves it, and pushes the old package path alongside the new one for one release because a GHCR package path is not covered by GitHub's transfer redirects |
+
+| what carries the old answer | what stops it |
+|---|---|
+| an operator's pinned copy of a previously published `compose.yaml`, which this repository cannot edit | nothing has to: the image carries `/retnd-web` as a real hardlink to `/retnd-web` — one inode, two names, no second copy of the binary and no shell wrapper, because the runtime image is distroless — so an unedited pinned file still starts. Kept for exactly one release and removed by #895. There is deliberately no `/retnd` beside it, because no compose file this project has ever shipped named `/retnd` in a `command:` or a `healthcheck:` |
+| a host directory bind-mounted at the old container path | FR-38's state-adoption preflight in `core/service`. For any resolved path with a path segment that is exactly `retnd` it also resolves the `retnd` counterpart, and ADOPTS the legacy location with a warning on every start rather than handing a first-run wizard to a deployment with years of journal in it. It refuses to start only on ambiguity — both populated, different device and inode — and names both paths when it does |
+| a provider adapter's own `command:`, service names and file names | issue #891 moved them as one cut: all eleven adapters name `retnd`, the `retnd` compose project and `retnd-retnd-1`/`retnd-web-ui-1`. Their HOST paths deliberately did not move — those are the operator's own directories, and §6 of `docs/EPIC-R-rename-retnd-to-retnd.md` cuts renaming them. The packaging gates still accept both entrypoint spellings from one place, `distribution/packaging/renameoverlap.go`, rather than each gate deciding for itself, because an operator's pinned copy of a provider file still says `/retnd-web`; `distribution/packaging/canonical.json`'s `retainedBinaries` is the data behind it and #895 deletes both |
+| the `binary_sha256` keys of an already-published release in `container/release-manifest.json` | nothing rewrites them. They record the SHA-256 of bytes that were built and pushed before the rename, which is evidence rather than a label, so every consumer accepts both spellings across the overlap release, new spelling first |
+| a pre-#196 single-file configuration mount, under either spelling | `distribution/packaging`'s `legacy-config-file-mount` rule, which derives the pre-rename spellings of both file shapes rather than hardcoding them, and refuses the mount with the three write paths it breaks named |
 
 ## Digest policy
 
@@ -515,7 +699,7 @@ second proxy would double a cost that is already about half the read.
 ## Performance evidence for this change
 
 All seven metrics EPIC B #81's performance contract names, measured with
-`python3 scripts/rcmtools/perf/capture_baseline.py --repeat 5` on the designated benchmark host
+`python3 scripts/bdtools/perf/capture_baseline.py --repeat 5` on the designated benchmark host
 `darwin-arm64-mac17-2`, workload `phase6-baseline-v1`, and compared against
 #165's committed baseline with `scripts/perf/check-baseline.sh --compare`.
 Nothing was re-baselined.
@@ -549,7 +733,7 @@ the two-service topology leaking into the direct path.
 
 **`image_size_bytes` grew by 65,536 bytes.** That is the profile table, the
 gateway authenticator and the bundle resolver compiled into
-`/rbm-web`. It is 0.15% of the image against a 5% budget, and it is
+`/retnd-web`. It is 0.15% of the image against a 5% budget, and it is
 real growth rather than noise: #165 recorded that two independent builds of the
 same commit produced byte-identical image sizes, so there is no noise here to
 hide in and no reason to describe 64 KiB as anything but 64 KiB.
@@ -570,7 +754,7 @@ working with no change. What is new is additive:
 | `--profile=${RUNTIME_PROFILE:-generic}` on both commands | none; `generic` is what the previous build did |
 | `TZ: ${TZ:-UTC}` | none; UTC is what the image defaulted to |
 | `stop_grace_period` | the engine now gets 30s instead of Docker's 10s default, so a shutdown during a journal write is less likely to be killed mid-write |
-| explicit `healthcheck` on the engine | the engine's compose healthcheck is now `/health/live` rather than the image's `rbm status`, so a DEGRADED or unconfigured instance no longer keeps `web-ui` from starting. Backup freshness stays the image's own HEALTHCHECK, the alerts block, and `docker compose exec rclone-manager /rbm status` |
+| explicit `healthcheck` on the engine | the engine's compose healthcheck is now `/health/live` rather than the image's own freshness verdict, so a DEGRADED or unconfigured instance no longer keeps `web-ui` from starting. Backup freshness stays the image's own HEALTHCHECK, the alerts block, and `docker compose exec retnd /retnd status` (that command was `docker compose exec retnd /retnd status` before issue #890 moved the service name and the entrypoints) |
 | `UI_DIR` / `UI_ROOT` on `web-ui` | none when unset, which is the default |
 | `x-canonical-runtime` | none at runtime; compose ignores unknown `x-` keys |
 

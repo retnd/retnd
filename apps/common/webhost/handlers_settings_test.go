@@ -7,7 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spdrman/rclone-manager/core/service"
+	"github.com/retnd/retnd/apps/common/csrf"
+	"github.com/retnd/retnd/core/service"
 )
 
 // The read and the partial write of the settings surface.
@@ -452,8 +453,8 @@ func TestPatchSettings_MissingCSRFTokenReturns403(t *testing.T) {
 		{
 			name: "a cookie whose value the header does not echo",
 			prepare: func(r *http.Request) {
-				r.AddCookie(&http.Cookie{Name: "bm_csrf", Value: testCSRFToken})
-				r.Header.Set("X-CSRF-Token", "not-the-cookie-value")
+				r.AddCookie(&http.Cookie{Name: csrf.CookieName, Value: testCSRFToken})
+				r.Header.Set(csrf.HeaderName, "not-the-cookie-value")
 			},
 			wantCode: "CSRF_TOKEN_MISMATCH",
 		},

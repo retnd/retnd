@@ -24,15 +24,15 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { BackupSetDetailPage } from "@shared/pages/BackupSetDetailPage";
 import { ApiProvider } from "@shared/api/ApiContext";
-import { BackupManagerError } from "@shared/api/contracts";
-import type { BackupManagerApi } from "@shared/api/contracts";
+import { RetndError } from "@shared/api/contracts";
+import type { RetndApi } from "@shared/api/contracts";
 import { createMockApi } from "@shared/api/mock";
 import { resetGraphForTests } from "@shared/state/graph";
 import { clearBrowserNoticesForTests } from "@shared/state/browserNotices";
 import { backupSetPath } from "@shared/utilities/routes";
 import type { LiveActivity, SetActivity, SetActivityEvent } from "@shared/types/activity";
 
-function renderDetail(source: string, set: string, api: BackupManagerApi) {
+function renderDetail(source: string, set: string, api: RetndApi) {
   return render(
     <MemoryRouter initialEntries={[backupSetPath(source, set)]}>
       <ApiProvider api={api}>
@@ -249,7 +249,14 @@ describe("Test connection says what it actually did", () => {
       // checks is [] and not absent: the shape is one array on both
       // modes of this route now, so a stub that left it off would be a
       // shape no engine answers with.
-      return { ok: false, message: "the key this server offers is not the one this backup set trusts", checks: [] };
+      return {
+        ok: false,
+        message: "the key this server offers is not the one this backup set trusts",
+        // A check that stopped early proved nothing about writing
+        // (issue #852), which is what false means here.
+        writable: false,
+        checks: []
+      };
     });
 
     renderDetail(target.source, target.set, api);
@@ -285,7 +292,7 @@ describe("Test connection says what it actually did", () => {
     const target = await firstSet();
     const api = createMockApi();
     const live = vi.spyOn(api, "getLiveActivity").mockResolvedValue(reading(target.id));
-    vi.spyOn(api, "testConnection").mockResolvedValue({ ok: true, checks: [] });
+    vi.spyOn(api, "testConnection").mockResolvedValue({ ok: true, writable: true, checks: [] });
 
     renderDetail(target.source, target.set, api);
     await screen.findByLabelText("Activity for " + target.name);
@@ -309,7 +316,7 @@ describe("Test connection says what it actually did", () => {
     // handler runs, so the engine's own event stream knows nothing about
     // it. There is nothing on the server that could have logged this.
     vi.spyOn(api, "testConnection").mockRejectedValue(
-      new BackupManagerError({
+      new RetndError({
         code: "CSRF_TOKEN_MISMATCH",
         message: "This request could not be verified.",
         correlationId: "cid_596"
@@ -337,7 +344,7 @@ describe("Test connection says what it actually did", () => {
     const target = await firstSet();
     const api = createMockApi();
     vi.spyOn(api, "getLiveActivity").mockResolvedValue(reading(target.id));
-    vi.spyOn(api, "testConnection").mockResolvedValue({ ok: true, checks: [] });
+    vi.spyOn(api, "testConnection").mockResolvedValue({ ok: true, writable: true, checks: [] });
 
     renderDetail(target.source, target.set, api);
     await screen.findByLabelText("Activity for " + target.name);

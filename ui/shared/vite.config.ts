@@ -38,6 +38,10 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: "./src/test/setup.ts",
+    // Whole-page tests through real CSS and a 180ms-per-call mock: see
+    // src/test/setup.ts for why neither testing-library's one-second
+    // wait nor vitest's five-second test limit is the right ceiling.
+    testTimeout: 20_000,
     // Process real stylesheets instead of stubbing them to an empty
     // module, so a test that imports one is asserting against the CSS this
     // project actually ships. It is off by default in vitest, and that
@@ -49,7 +53,7 @@ export default defineConfig({
     css: true,
     // e2e/ used to hold the Playwright suite, and this exclusion kept
     // `vitest run` from collecting its specs. The suite left in #158: it
-    // is Suite B of spdrman/rclone-manager-tests now, and rclone-manager's
+    // is Suite B of retnd/retnd-tests now, and retnd's
     // own gate runs it from there on every commit (#197). The pattern
     // stays because nothing costs less than an exclusion for a directory
     // that does not exist, and because it is the one line that would have

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Reference: every screen, command and flag &mdash; rclone-manager</title>
-  <meta name="description" content="What every part of rclone-manager does: each screen of the web interface, every rbm command, and every flag of install_docker_host.py.">
+  <title>Reference: every screen, command and flag &mdash; retnd</title>
+  <meta name="description" content="What every part of retnd does: each screen of the web interface, every retnd command, and every flag of install_docker_host.py.">
   <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
   <link rel="icon" type="image/x-icon" href="assets/favicon.ico">
   <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
@@ -23,8 +23,8 @@
 <header class="topbar" id="topbar">
   <div class="topbar-content">
     <a class="topbar-brand" href="index.html">
-      <img src="assets/logo-mark-light.svg" alt="rclone-manager mark: a broken ring standing for a transfer cycle in progress">
-      <h1 class="brand-name">rclone<span class="brand-dash">-</span>manager</h1>
+      <img src="assets/logo-mark-light.svg" alt="retnd mark: a broken ring standing for a transfer cycle in progress">
+      <h1 class="brand-name">retn<span class="brand-dash">d</span></h1>
     </a>
   </div>
 
@@ -50,6 +50,10 @@
         <span class="nav-label nav-label-full">The web interface</span>
         <span class="nav-label nav-label-short">Web UI</span>
       </a>
+      <a href="workflows.html" class="nav-item">
+        <span class="nav-label nav-label-full">Scripted workflows</span>
+        <span class="nav-label nav-label-short">Workflows</span>
+      </a>
       <a href="ssh.html" class="nav-item">
         <span class="nav-label nav-label-full">SSH &amp; connections</span>
         <span class="nav-label nav-label-short">SSH</span>
@@ -60,23 +64,23 @@
         <span class="nav-label nav-label-short">Ref</span>
       </a>
 
-      <a href="https://github.com/spdrman/rclone-manager" target="_blank" rel="noopener" class="nav-item nav-item-github" aria-label="GitHub repository">
+      <a href="https://github.com/retnd/retnd" target="_blank" rel="noopener" class="nav-item nav-item-github" aria-label="GitHub repository">
         <svg class="nav-icon nav-icon-github" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
           <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
         </svg>
         <span class="nav-label nav-label-full">GitHub</span>
       </a>
 
-      <a href="https://github.com/spdrman/rclone-manager/blob/main/docs/deployment.md" target="_blank" rel="noopener" class="nav-item">
+      <a href="https://github.com/retnd/retnd/blob/main/docs/deployment.md" target="_blank" rel="noopener" class="nav-item">
         <span class="nav-label nav-label-full">Deployment</span>
         <span class="nav-label nav-label-short">Deploy</span>
       </a>
 
-      <a href="https://github.com/spdrman/rclone-manager/blob/main/docs/ssh-setup.md" target="_blank" rel="noopener" class="nav-item">
+      <a href="https://github.com/retnd/retnd/blob/main/docs/ssh-setup.md" target="_blank" rel="noopener" class="nav-item">
         <span class="nav-label nav-label-full">SSH setup</span>
       </a>
 
-      <a href="https://github.com/spdrman/rclone-manager/issues" target="_blank" rel="noopener" class="nav-item">
+      <a href="https://github.com/retnd/retnd/issues" target="_blank" rel="noopener" class="nav-item">
         <span class="nav-label nav-label-full">Issues</span>
       </a>
 
@@ -102,17 +106,29 @@
   <section>
     <span class="step-eyebrow">Reference</span>
     <h1>Every screen, every command, every flag</h1>
-    <p>This page is the whole surface in one place: the nine screens of the web interface, the three destination surfaces that live inside one of them, and the terminal docked under them all; the twenty commands of the <code>rbm</code> command line; and every subcommand and flag of the installer. <a href="first-run.html">The first-run tutorial</a> walks the one path a new install takes; this one does not walk anything, it enumerates.</p>
+    <p>This page is the whole surface in one place: every screen of the web interface, the three destination surfaces that live inside one of them, and the terminal docked under them all; the twenty-four commands of the <code>retnd</code> command line; and every subcommand and flag of the installer. <a href="first-run.html">The first-run tutorial</a> walks the one path a new install takes; this one does not walk anything, it enumerates. <a href="workflows.html">Scripted workflows</a> have a guide of their own, because the hook lifecycle needs prose around its pictures rather than a table of controls.</p>
 
     <div class="toc">
       <ol>
         <li><a href="#web">The web interface</a></li>
         <li><a href="#web-dashboard">Dashboard</a></li>
         <li><a href="#web-sets">Backup sets</a></li>
+        <li><a href="#web-set-detail">Backup set detail</a></li>
         <li><a href="#web-backups">Backups</a></li>
+        <li><a href="#web-backup-detail">Backup detail</a></li>
+        <li><a href="#web-workflow-run">Workflow run</a></li>
+        <li><a href="#web-snapshots">Snapshots</a></li>
+        <li><a href="#web-snapshot-detail">Snapshot detail</a></li>
+        <li><a href="#web-snapshot-restore">Restore from a snapshot</a></li>
+        <li><a href="#web-snapshot-retention">Snapshot retention and holds</a></li>
         <li><a href="#web-activity">Activity</a></li>
         <li><a href="#web-quarantine">Quarantine</a></li>
         <li><a href="#web-settings">Settings</a></li>
+        <li><a href="#web-backup-defaults">Backup defaults</a></li>
+        <li><a href="#web-repositories">Repository domains</a></li>
+        <li><a href="#web-repository-new">Define a repository domain</a></li>
+        <li><a href="#web-repository-health">Repository health</a></li>
+        <li><a href="#web-repository-maintenance">Repository maintenance</a></li>
         <li><a href="#web-destinations">Storage destinations</a></li>
         <li><a href="#web-destination-add">Adding a destination</a></li>
         <li><a href="#web-destination-configure">Configuring a destination</a></li>
@@ -123,7 +139,7 @@
         <li><a href="#cli-modes">Where a change is written</a></li>
         <li><a href="#cli-exits">Exit codes</a></li>
         <li><a href="#installer">install_docker_host.py</a></li>
-        <li><a href="#installer-commands">Its seven subcommands</a></li>
+        <li><a href="#installer-commands">Its eight subcommands</a></li>
         <li><a href="#installer-flags">Every flag</a></li>
         <li><a href="#installer-exits">Its exit codes</a></li>
       </ol>
@@ -132,13 +148,13 @@
 
   <section>
     <h2 id="web">The web interface</h2>
-    <p>Six items in the sidebar, one screen behind each, two detail screens you reach by opening a row on the list above them, a catalog-recovery screen reached from the footer, and a terminal docked to the bottom of all of them. The top bar carries the service badge (running, and which version), a light/dark toggle and Sign out. The sidebar footer says which platform the deployment thinks it is on, which is the thing to check first when a NAS-specific feature is missing.</p>
+    <p>Seven items in the sidebar &mdash; Dashboard, Backup sets, Backups, Activity, Quarantine, Repositories, Settings &mdash; one screen behind each, detail screens you reach by opening a row on the list above them, the four incremental-engine screens a snapshot-taking backup set adds to its own page, a catalog-recovery screen reached from the footer, and a terminal docked to the bottom of all of them. The top bar carries the service badge (running, and which version), a light/dark toggle and Sign out. The sidebar footer says which platform the deployment thinks it is on, which is the thing to check first when a NAS-specific feature is missing.</p>
     <p>Three of the surfaces below have no route of their own: the storage destinations list and the two wizards that add and configure one all live inside <a href="#web-settings">Settings</a>. They are enumerated separately anyway, because each is a screenful of controls that write configuration, and a reader looking one up should not have to find it inside a table row about a card.</p>
-    <p>Nearly everything on these screens is reachable from <a href="#cli">the command line</a> as well, and several screens say so in place: a control that changes configuration prints the <code>rbm</code> command that does the same thing, right underneath itself. Where the command cannot carry a field the screen is about to save, the screen prints the command <em>and</em> names the fields it leaves out, rather than printing a line that quietly configures less than was asked for.</p>
+    <p>Nearly everything on these screens is reachable from <a href="#cli">the command line</a> as well, and several screens say so in place: a control that changes configuration prints the <code>retnd</code> command that does the same thing, right underneath itself. Where the command cannot carry a field the screen is about to save, the screen prints the command <em>and</em> names the fields it leaves out, rather than printing a line that quietly configures less than was asked for.</p>
 
     <h3 id="web-dashboard">Dashboard</h3>
     <figure>
-      <img src="screens/ref-01-dashboard.png" alt="The rclone-manager dashboard: a red security warning about a changed SSH host key, a BACKUPS DEGRADED summary with status pills and freshness figures, four count cards, an active-operations panel with a transfer at 59 per cent, a per-set activity list with expandable logs, and a recent-activity list" loading="lazy">
+      <img src="screens/ref-01-dashboard.png" alt="The retnd dashboard: a red security warning about a changed SSH host key, a BACKUPS DEGRADED summary with status pills and freshness figures, four count cards, an active-operations panel with a transfer at 59 per cent, a per-set activity list with expandable logs, and a recent-activity list" loading="lazy">
       <figcaption>One screen answering &ldquo;is anything wrong, and is anything happening&rdquo;. The picture is long because the page is: a real deployment scrolls this far too.</figcaption>
     </figure>
     <div class="scroll-x">
@@ -173,7 +189,7 @@
           <tr><td><strong>Retained</strong></td><td>32 &middot; 421.0 GB</td><td>How many copies this set is keeping and what they cost.</td></tr>
           <tr><td><strong>Expected every</strong></td><td>24h</td><td>What makes it stale when it is exceeded.</td></tr>
           <tr><td><strong>Open</strong></td><td>a button</td><td>Goes to <a href="#web-set-detail">the set's own screen</a>: its artifacts, its retention card, its live activity.</td></tr>
-          <tr><td><strong>Test connection</strong></td><td>a button</td><td>Resolve, connect, check the host key, offer the key, authenticate, list the folder. Six named outcomes, and the same check <code>rbm backup-set test-connection</code> runs.</td></tr>
+          <tr><td><strong>Test connection</strong></td><td>a button</td><td>Resolve, connect, check the host key, offer the key, authenticate, list the folder. Six named outcomes, and the same check <code>retnd backup-set test-connection</code> runs.</td></tr>
           <tr><td><strong>Disable</strong></td><td>a button</td><td>Stops the scheduler running it. Keeps the configuration and every retained copy.</td></tr>
           <tr><td><strong>Remove&hellip;</strong></td><td>a button</td><td>Configuration only. The backups it collected stay on storage and stay listed under Backups, and creating the set again with the same id takes them back.</td></tr>
         </tbody>
@@ -191,7 +207,7 @@
         <tbody>
           <tr><td><strong>Run this backup set</strong></td><td>Runs one pass over this set only.</td><td>A real transfer cycle. Unavailable while the set is disabled, because a sweep would not have visited it either.</td></tr>
           <tr><td><strong>Run all enabled sets</strong></td><td>The same deployment-wide run the Dashboard and Backup sets list offer.</td><td>A cycle over every enabled set, not only this one &mdash; the label says so because this button sits on one set's own page.</td></tr>
-          <tr><td><strong>Test connection</strong></td><td>Resolve, connect, check the host key, authenticate, list the folder.</td><td>Nothing is written. The six-step trace lands in <a href="#web-terminal">the docked terminal</a>, where a refusal is written too rather than silently swallowed.</td></tr>
+          <tr><td><strong>Test connection</strong></td><td>Resolve, connect, check the host key, authenticate, list the folder, and prove whether these credentials may write there.</td><td>Nothing is kept. The seven-step trace lands in <a href="#web-terminal">the docked terminal</a>, where a refusal is written too rather than silently swallowed. The seventh step creates one uniquely named probe file under the remote path and removes it again; both answers pass, because a read-only source is a posture rather than a fault, and what the answer decides is whether <em>delete from source</em> may be enabled at all.</td></tr>
           <tr><td><strong>Edit</strong></td><td>Opens edit mode, one field at a time.</td><td>Nothing yet. Each field keeps its own <strong>Save</strong>, which writes that one field immediately rather than waiting for the rest of the form.</td></tr>
           <tr><td><strong>Save anyway</strong> / <strong>Leave it as it was</strong></td><td>Answers a refusal a per-field save came back with (an unproven host key, a completion-method change mid-transfer).</td><td><strong>Save anyway</strong> writes the same patch again over the refusal. <strong>Leave it as it was</strong> writes nothing and returns the field to what it was.</td></tr>
           <tr><td><strong>SAVE ALL &amp; EXIT EDIT</strong></td><td>Writes every field changed since Edit was pressed and returns to view mode.</td><td>One write per changed field. Anything not touched this session is left alone.</td></tr>
@@ -204,6 +220,24 @@
       <span class="note-label">Editing a set that is mid-transfer</span>
       <p>Pressing <strong>Edit</strong> on a set with a backup in flight stops it first and says so on screen: the confirmation reads &ldquo;Stop it to edit this backup set?&rdquo;, and the interrupted backup stays incomplete rather than counting as a finished one. The next cycle after edit mode closes picks it up again.</p>
     </div>
+
+    <h3 id="web-snapshots">Snapshots</h3>
+    <p>Only on a backup set running <a href="https://github.com/retnd/retnd/blob/main/docs/incremental-engine.md">the incremental engine</a>, reached from the set's own page. Every snapshot run this set has on record, newest first, with the phase it reached and the verification level a check actually <em>achieved</em>. Only a run at <code>SUCCESS</code> is a restore point.</p>
+    <p>Each row carries five separate measurements and no total: entries scanned, logical size, read from source, written to repository, and reused. A single &ldquo;backed up&rdquo; figure would report a 100&nbsp;GB tree deduplicated down to 200&nbsp;MB of new content as a 100&nbsp;GB upload every night. A counter nobody took prints <strong>not measured</strong> and never <code>0</code>, because &ldquo;reused 0 bytes&rdquo; sends somebody hunting a fault in a backup that is working. Row actions open <a href="#web-snapshot-detail">the inspector</a>, <a href="#web-snapshot-restore">Restore</a>, and the hold controls on <a href="#web-snapshot-retention">Snapshot retention</a>. The equivalent command is <code>retnd snapshot list &lt;source&gt;/&lt;set&gt;</code>.</p>
+
+    <h3 id="web-snapshot-detail">Snapshot detail</h3>
+    <p>One run in full: the five measurements as a metric strip, the repository domain it was stored in, the source-consistency mode that was in force <em>when the pass ran</em> rather than the one configured now, the verification level asked for beside the level achieved, and the transition log that says how the run reached the phase it is in. A failed verification carries no achieved level at all. <code>retnd snapshot show &lt;source&gt;/&lt;set&gt; &lt;run-id&gt;</code>.</p>
+
+    <h3 id="web-snapshot-restore">Restore from a snapshot</h3>
+    <p>Reads a restore point this deployment holds and writes a tree onto a disk it can reach. Which snapshot (the set's last known good by default), optionally one path inside it, the local directory to write into &mdash; required, and never invented, because an engine that chose the disk would fill it &mdash; and what to do when the destination already holds something: <strong>refuse</strong> (the default, which stops rather than replacing anything), <strong>skip</strong>, or <strong>overwrite</strong>. It submits one durable operation and then watches it.</p>
+    <div class="note danger">
+      <span class="note-label">This is not the <code>restore</code> command</span>
+      <p><a href="#cli-commands"><code>retnd restore</code></a> asks a storage provider to make an <em>archived object</em> readable again, over hours and at a cost, and writes nothing anywhere. This screen, and <code>retnd snapshot restore</code>, read a snapshot and write files. The two are never folded together.</p>
+    </div>
+
+    <h3 id="web-snapshot-retention">Snapshot retention and holds</h3>
+    <p>What snapshot retention would decide about each of this set's snapshots right now, oldest first, and it deletes nothing: <strong>KEEP</strong> names every tier that selected the snapshot, <strong>DELETE</strong> means nothing did and every safety check passed, and <strong>REFUSE</strong> means it was a delete candidate and something stopped it &mdash; the only one of the three that needs somebody to look at it. The same GFS chain that retains artifacts decides this; there is no second policy.</p>
+    <p><strong>Place a hold</strong> stops retention deleting one snapshot until somebody releases it, and a reason is required: a hold nobody explained is one nobody dares release, which makes it permanent by accident. A hold names who placed it and why, and separately who released it and when. <strong>Release this hold</strong> deletes nothing &mdash; it returns the snapshot to whatever the policy already said about it. <code>retnd snapshot retention</code>, <code>snapshot hold</code>, <code>snapshot holds</code>, <code>snapshot unhold</code>.</p>
 
 
     <h3 id="web-backups">Backups</h3>
@@ -219,7 +253,7 @@
           <tr><td><strong>Retention</strong></td><td>Daily, Weekly, Protected</td><td>Which tiers keep this copy. <strong>Protected</strong> is FR-19's newest known-good, which no tier may delete.</td></tr>
           <tr><td><strong>Nothing will delete this</strong></td><td>a warning chip</td><td>The set's configuration was removed, so no policy selects the copy. It occupies space for ever until the set is recreated or the file is removed by hand.</td></tr>
           <tr><td><strong>Medium</strong></td><td><code>local, offsite_s3</code></td><td>Where the copies are. <strong>No copy yet</strong> means the tier that should hold one has not moved it.</td></tr>
-          <tr><td><strong>Needs a restore</strong></td><td>a warning chip</td><td>The copy is in an archival storage class and cannot be read until the provider is asked to make it readable. That is <code>rbm restore</code>, it is billed, and it takes hours.</td></tr>
+          <tr><td><strong>Needs a restore</strong></td><td>a warning chip</td><td>The copy is in an archival storage class and cannot be read until the provider is asked to make it readable. That is <code>retnd restore</code>, it is billed, and it takes hours.</td></tr>
           <tr><td><strong>Preview retention</strong></td><td>a button</td><td>What the current policy would delete, as a reviewed plan, before anything is deleted.</td></tr>
         </tbody>
       </table>
@@ -241,13 +275,19 @@
       <p>This screen answers &ldquo;is this backup safe, and where is it&rdquo;, and every one of those answers is something the engine already decided. Restoring a backup into an application is a documented manual procedure this product deliberately does not carry out, so there is no download and no restore button to be missing.</p>
     </div>
 
+    <h3 id="web-workflow-run">Workflow run</h3>
+    <p>Reached from the <strong>Workflow</strong> panel on <a href="#web-set-detail">a backup set</a>, at <code>/workflow-runs/{run}</code>. One run of the hook lifecycle wrapped around one backup: all five stages in execution order, including the ones that had no directory to run, because &ldquo;the global after stage did not run&rdquo; and &ldquo;this deployment has no global after directory&rdquo; are opposite facts when a database has been left quiesced.</p>
+    <p><strong>Three statuses, side by side, none derived from the others</strong> &mdash; backup, workflow and cleanup &mdash; since &ldquo;the backup succeeded and the cleanup did not&rdquo; means a machine may still be sitting quiesced with a good backup beside it. A failed workflow names the script that ended it. A run whose hooks were bypassed reports its workflow status as skipped and says so, rather than showing a verdict for scripts nothing executed. Each step carries a read-only terminal of exactly what that hook printed, streamed by cursor while the run is live. A step killed on its timeout whose exit was never confirmed is called out at the top of the page, because the consequence is a process that may still be running on a machine this product cannot reach. The equivalent commands are <code>retnd workflow run show</code>, <code>workflow run steps</code> and <code>workflow run log --step</code>.</p>
+    <p>A run left needing recovery keeps the set refused and offers exactly the two ways out the API has: resume the cleanup from that run's own retained spool, or acknowledge it in words that are recorded. There is no dismiss.</p>
+    <p>This page enumerates the screen. What the five stages mean, what a <code>.local.sh</code> hook is for, which credential a <code>.remote.sh</code> hook needs, how the environment is built and what the six <code>BSH</code> rules refuse a save over are on <a href="workflows.html">the scripted workflows guide</a>, with clips of each of these surfaces in motion.</p>
+
     <h3 id="web-activity">Activity</h3>
     <figure>
       <img src="screens/ref-04-activity.png" alt="The Activity screen: a timeline of events with timestamps, severity icons, an event name, a detail phrase and the backup set each belongs to, filtered by backup set and severity" loading="lazy">
       <figcaption>The durable transition log, newest first, across every set. Two filters: which set, and which severity.</figcaption>
     </figure>
     <p>Each row is one recorded lifecycle transition: discovered, transferred, verified, committed, remote deleted, retention completed, host key changed, storage warning, configuration updated. The severity icon is the thing to scan: an error is a halt or a failure, a warning is a state that will become one, and information is the pipeline doing its job.</p>
-    <p>This is the same feed <code>rbm activity</code> prints, and it is durable: it survives a restart, which is what separates it from <a href="#web-terminal">the docked terminal</a> below.</p>
+    <p>This is the same feed <code>retnd activity</code> prints, and it is durable: it survives a restart, which is what separates it from <a href="#web-terminal">the docked terminal</a> below.</p>
 
     <h3 id="web-quarantine">Quarantine</h3>
     <figure>
@@ -268,8 +308,8 @@
 
     <h3 id="web-settings">Settings</h3>
     <figure>
-      <img src="screens/ref-06-settings.png" alt="The Settings screen: storage capacity thresholds, a retention policy with three tiers each naming a destination and echoing the equivalent rbm command, a storage destinations list with local marked Default, notifications, an administrator password form, and a catalog recovery card, beside platform and system information panels" loading="lazy">
-      <figcaption>Six cards down the left, two information panels on the right. This is the longest screen in the product and the only one that writes to <code>config.yaml</code> outside the wizard.</figcaption>
+      <img src="screens/ref-06-settings.png" alt="The Settings screen: storage capacity thresholds, a retention policy with three tiers each naming a destination and echoing the equivalent retnd command, a storage destinations list with local marked Default, notifications, an administrator password form, and a catalog recovery card, beside platform and system information panels" loading="lazy">
+      <figcaption>Six cards down the left in this capture, two information panels on the right. The account-recovery card <a href="https://github.com/retnd/retnd/issues/830">#830</a> adds is not in it, and is in the table below. This is the longest screen in the product and the only one that writes to <code>config.yaml</code> outside the wizard.</figcaption>
     </figure>
     <div class="scroll-x">
       <table class="fields">
@@ -280,7 +320,8 @@
           <tr><td><strong>Protect the newest known-good</strong></td><td>A checkbox</td><td>FR-19. With it on, no tier may delete the newest verified backup of a set.</td></tr>
           <tr><td><strong>Storage destinations</strong></td><td>Where copies can go</td><td>Every destination is an instance of a registered backend, so there can be more than one of any of them &mdash; two local volumes and two buckets is an ordinary list. It has <a href="#web-destinations">a section of its own below</a>, because five of its controls change configuration and each one costs something different.</td></tr>
           <tr><td><strong>Notifications</strong></td><td>Where alerts go</td><td>Native NAS notifications where the platform has them, webhooks where it does not. The card says which of the two this deployment got.</td></tr>
-          <tr><td><strong>Administrator password</strong></td><td>The local account's password</td><td>Current, new, confirm. This account is not the NAS login and never was.</td></tr>
+          <tr><td><strong>Administrator password</strong></td><td>The local account's password</td><td>Current, new, confirm. This account is not the NAS login and never was. This is rotation, not recovery: a password nobody knows is reset from <strong>Forgot password?</strong> on the sign-in page, which mails a single-use link to the address in the card below.</td></tr>
+          <tr><td><strong>Account recovery</strong></td><td>The recovery email address, and the SMTP server the account's own mail is submitted through</td><td><strong>SMTP host</strong>, <strong>Port</strong>, <strong>Security</strong> (STARTTLS, TLS or none), <strong>SMTP username</strong>, <strong>SMTP password</strong>, <strong>From address</strong> and <strong>Administrator password</strong>. The SMTP password is write-only: the card reports that one is stored rather than what it is, and <strong>Save recovery settings</strong> with that field left blank keeps the stored one. Saving asks for the <em>administrator's own</em> password, because whoever controls the recovery address and the mail server controls where a password reset link is delivered, so a signed-in browser alone is not enough to repoint either. <strong>Send test email</strong> proves the path without changing anything and asks for nothing, since it changes nothing. Changing the address &mdash; or the mail server &mdash; sends a fresh message over the endpoint being saved and refuses the whole save if it cannot be delivered, rather than trusting what was typed.</td></tr>
           <tr><td><strong>Catalog recovery</strong></td><td>A link to the screen below</td><td>It appears here because it is the only destructive-sounding thing that is not destructive.</td></tr>
           <tr><td><strong>Platform</strong></td><td>What the deployment thinks it is</td><td>The integration, the authentication source, the deployment shape, and which capabilities the platform grants. Check here first when a NAS feature is missing.</td></tr>
           <tr><td><strong>System information</strong></td><td>Versions</td><td>Service version, API contract, backup engine, Go toolchain, configuration revision, platform adapter, build commit.</td></tr>
@@ -289,12 +330,33 @@
     </div>
     <div class="note ok">
       <span class="note-label">The same thing from a terminal</span>
-      <p>Under every retention tier and every destination, this screen prints the <code>rbm</code> command that does what the control above it does: <code>rbm settings patch --tier-medium monthly=offsite_s3</code>, <code>rbm medium test-connection offsite_s3</code>, <code>rbm medium remove offsite_s3</code>. They are there to be copied, and they are the reason the two surfaces cannot drift: the button and the command are the same call.</p>
+      <p>Under every retention tier and every destination, this screen prints the <code>retnd</code> command that does what the control above it does: <code>retnd settings patch --tier-medium monthly=offsite_s3</code>, <code>retnd medium test-connection offsite_s3</code>, <code>retnd medium remove offsite_s3</code>. They are there to be copied, and they are the reason the two surfaces cannot drift: the button and the command are the same call.</p>
     </div>
+
+    <h3 id="web-backup-defaults">Backup defaults</h3>
+    <p>Reached from <a href="#web-settings">Settings</a>. What a new backup set starts with &mdash; engine, repository domain, source-consistency mode, verification level and sample size, the two verification cadences, poll interval &mdash; so a fleet is not configured one wizard at a time. These are the answers <strong>Add backup set</strong> opens with; they are defaults for the <em>next</em> set and change nothing about a set that already exists.</p>
+    <p>It also lists who maintains each repository domain. Ownership is shown and not transferable from here: there is no API route that moves maintenance ownership in this build, and the card says so rather than offering a control that would fail.</p>
+
+    <h3 id="web-repositories">Repository domains</h3>
+    <p>A <strong>repository domain</strong> is a security boundary, not a folder: one encrypted store, one passphrase, one deduplication span, one maintenance owner, one corruption fate. A backup set running <a href="https://github.com/retnd/retnd/blob/main/docs/incremental-engine.md">the incremental engine</a> names exactly one, and two sets sharing a domain share all six of those things &mdash; which is where the storage saving comes from, and why the choice is never defaulted.</p>
+    <p>This screen lists every domain the configuration declares, whether it is <code>shared</code> or <code>isolated</code>, which backup sets store snapshots in it, and its health. <code>retnd repository health</code> is the same answer at a terminal.</p>
+
+    <h3 id="web-repository-new">Define a repository domain</h3>
+    <p>The form that declares one. <code>POST /repositories</code> persists the domain &mdash; its id, its description, its sharing rule and a REFERENCE to the passphrase that opens it &mdash; into <code>config.yaml</code>, atomically, and the deployment hot-reloads, so the domain is nameable by a backup set immediately and without a restart. <code>retnd repository create &lt;domain&gt; --isolation shared|isolated --passphrase-file F</code> is the same write from a terminal, and it is the surface that also takes <code>--passphrase-command</code>, which is a program and its arguments rather than a single box.</p>
+    <p><strong>Declaring is not creating.</strong> What is written is the declaration; the encrypted store itself is created by the first backup run that stores a snapshot in the domain, which is the lifecycle a domain named on the <strong>Add backup set</strong> wizard's repository step already had. So the create opens no storage and resolves no passphrase &mdash; the passphrase box takes a path or a variable name, and the secret never travels over this API &mdash; and the new domain shows on the fleet list as answering but holding no repository yet, rather than as a green row nobody measured. A deployment that does not run <a href="https://github.com/retnd/retnd/blob/main/docs/incremental-engine.md">the incremental engine</a> refuses the write with <code>INCREMENTAL_ENGINE_DISABLED</code>, and the screen prints that refusal's own sentence, which names the configuration key that answers it.</p>
+    <p>The sharing choice is the decision the screen exists for: picking <strong>Shared</strong> or <strong>Isolated</strong> states what each answer commits every set in the domain to, and the request always names one, because the API refuses a declaration that does not. Stating it here rather than in a help page is deliberate &mdash; co-tenancy is named where the decision is made. The maintenance-ownership answer is a gate on this one write and records nothing: <q>this instance</q> is refused if a maintenance record already names somebody else, and ownership itself still moves only by transfer (ADR 0017).</p>
+
+    <h3 id="web-repository-health">Repository health</h3>
+    <p>Each domain's own verdict, which is a different question from any backup set's: a set can be perfectly fresh while the repository holding its snapshots is unwritable, out of maintenance, or reached by a process whose clock has drifted far enough to mis-order manifests. Every probe is reported separately rather than reduced to one boolean, because the remedies are different &mdash; unreachable is a mount, unwritable is a permission, invalid credentials is a passphrase, and overdue maintenance is a schedule.</p>
+    <p>The verdict uses the same three words a backup set uses, so one dashboard carries one severity scale. <strong>FAILING</strong> is reserved for a repository that cannot take a backup at all; overdue maintenance, a drifted clock and a failed verification are <strong>DEGRADED</strong>. Clock skew is signed, and the sign is the message: behind the history already stored is the direction that dates a new snapshot before an older one. <code>retnd repository health</code> prints the same rows and exits non-zero when any repository is failing.</p>
+
+    <h3 id="web-repository-maintenance">Repository maintenance</h3>
+    <p>Compaction and reclamation, per domain. Retention deleting a snapshot frees nothing on its own &mdash; the content behind the manifest stays in the store's packs until maintenance collects it &mdash; and <strong>full</strong> maintenance is what actually reclaims storage, so a domain with recent quick runs and no full run is growing.</p>
+    <p>Ownership is a first-class column, because exactly one instance may maintain a domain: two processes rewriting one store's indexes concurrently is how a repository loses content it still references. A domain another instance owns has its actions disabled with the reason in the card, since &ldquo;press it and find out&rdquo; is how that happens. <code>retnd repository maintenance &lt;domain&gt;</code> answers the same question at a terminal, and opens nothing, so it still answers while the repository itself is unreachable.</p>
 
     <h3 id="web-destinations">Storage destinations</h3>
     <figure>
-      <img src="screens/ref-11-destinations.png" alt="The Storage destinations card: four destinations in a column. local, marked Default, with Test connection live and Make default and Remove dimmed above two paragraphs explaining why. usb_shelf, described as local_volume at /mnt/usb-shelf/artifacts, with all four controls live. offsite_s3 and offsite_cold, both s3, the second carrying a reads-need-a-restore chip. Each row prints the rbm commands its live controls are equivalent to, and an Add a destination button closes the card" loading="lazy">
+      <img src="screens/ref-11-destinations.png" alt="The Storage destinations card: four destinations in a column. local, marked Default, with Test connection live and Make default and Remove dimmed above two paragraphs explaining why. usb_shelf, described as local_volume at /mnt/usb-shelf/artifacts, with all four controls live. offsite_s3 and offsite_cold, both s3, the second carrying a reads-need-a-restore chip. Each row prints the retnd commands its live controls are equivalent to, and an Add a destination button closes the card" loading="lazy">
       <figcaption>Four destinations, two backends. That is the whole of what changed: a destination is an <em>instance</em> of a registered backend rather than one of a fixed pair, so a deployment can hold two local volumes and two buckets and the list can tell them apart.</figcaption>
     </figure>
     <p>A backend is described by a manifest the build carries &mdash; data, not code &mdash; and the manifest is what decides which fields a destination has, and which steps its connection test runs. Two are registered: <code>local_volume</code>, a directory on a disk this machine can see, and <code>s3</code>, a bucket on Amazon's service or anything that speaks its API. The drive backups already land on is an instance too, called <code>local</code>, and the only thing still special about it is that its location comes from the deployment's backup root rather than from a field, so it has no <strong>Edit</strong>.</p>
@@ -321,7 +383,7 @@
       <p><strong>Edit</strong> predates the manifest and has not been moved onto it. It asks a bucket's questions whatever the destination is, it offers no directory field, and it submits the destination as an <code>s3</code> one &mdash; so on an instance of <code>local_volume</code> it is the wrong form, and saving through it would name a backend the destination is not. The manifest-driven form is reached by <a href="#web-destination-add">adding a destination</a> and by nothing else. A local volume that needs a different directory is worth declaring again under a new name rather than edited here: nothing already stored moves either way, and <strong>Remove</strong> on the old declaration deletes no copy.</p>
     </div>
     <figure>
-      <img src="screens/ref-15-default-transfer.png" alt="The confirmation dialog for handing over the default: an eyebrow reading Two things change, the question Make usb_shelf the default destination, a paragraph saying usb_shelf becomes the default and cannot be removed while it carries the mark, a paragraph saying local stops being the default and becomes removable, a paragraph saying nothing already written moves, the equivalent rbm medium default command, and Cancel beside Make usb_shelf the default" loading="lazy">
+      <img src="screens/ref-15-default-transfer.png" alt="The confirmation dialog for handing over the default: an eyebrow reading Two things change, the question Make usb_shelf the default destination, a paragraph saying usb_shelf becomes the default and cannot be removed while it carries the mark, a paragraph saying local stops being the default and becomes removable, a paragraph saying nothing already written moves, the equivalent retnd medium default command, and Cancel beside Make usb_shelf the default" loading="lazy">
       <figcaption>Not a consent gate: there is no typed phrase, because nothing is destroyed. It exists because only one of the two things it does is the thing the operator clicked.</figcaption>
     </figure>
 
@@ -367,7 +429,7 @@
       </table>
     </div>
     <figure>
-      <img src="screens/ref-14-probe-steps.png" alt="The configure wizard's test step: a paragraph saying a real object is written and read back and removed and that reachable is not the same as writable, a round trip figure of 0.7s, then nine rows. credentials skipped with the manifest's reason that a local destination reads no credential, reach passed naming the directory, deliverable passed, write passed, read_back passed, storage_class skipped with the manifest's reason that a filesystem has no storage classes, verification passed, delete passed, and space passed reporting 1.4 TB available. Below them the equivalent rbm medium test-connection command and Back, Test connection again and Next: review" loading="lazy">
+      <img src="screens/ref-14-probe-steps.png" alt="The configure wizard's test step: a paragraph saying a real object is written and read back and removed and that reachable is not the same as writable, a round trip figure of 0.7s, then nine rows. credentials skipped with the manifest's reason that a local destination reads no credential, reach passed naming the directory, deliverable passed, write passed, read_back passed, storage_class skipped with the manifest's reason that a filesystem has no storage classes, verification passed, delete passed, and space passed reporting 1.4 TB available. Below them the equivalent retnd medium test-connection command and Back, Test connection again and Next: review" loading="lazy">
       <figcaption>The probe as a step list, in the manifest's declared order. A refusal with no step named throws away the part an operator can act on, so every step is a row before the first request is sent.</figcaption>
     </figure>
     <p>Eight steps are a closed vocabulary the engine and the manifests share, and a manifest declares for each one whether this backend runs it and, when it does not, the sentence saying why. So the skipped rows and their reasons are on screen from the start: an operator learns that a local volume reads no credential rather than wondering why nothing checked their key. The drive on this machine and a declared local volume both add a ninth answer, <code>space</code>, which is the one failure a bucket cannot have.</p>
@@ -393,26 +455,26 @@
       <img src="screens/ref-07-catalog-recovery.png" alt="The Catalog recovery screen: a card headed Existing backup data detected, a green reassurance that no files will be deleted moved or modified, and a Scan backup storage button" loading="lazy">
       <figcaption>Rebuilding the catalog from the backups themselves, when the state database is lost or corrupted.</figcaption>
     </figure>
-    <p>Every backup this manager commits gets a sidecar recovery manifest written beside it, and this screen is what those are for. <strong>Scan backup storage</strong> reads file metadata and checksums, reports how many artifacts it found and how many need review, and writes nothing. Artifacts it cannot make sense of go to <a href="#web-quarantine">Quarantine</a>, not to a delete. The command line spells it <code>rbm catalog rebuild</code>, and <code>--dry-run</code> is the same read-only pass.</p>
+    <p>Every backup this manager commits gets a sidecar recovery manifest written beside it, and this screen is what those are for. <strong>Scan backup storage</strong> reads file metadata and checksums, reports how many artifacts it found and how many need review, and writes nothing. Artifacts it cannot make sense of go to <a href="#web-quarantine">Quarantine</a>, not to a delete. The command line spells it <code>retnd catalog rebuild</code>, and <code>--dry-run</code> is the same read-only pass.</p>
 
     <h3 id="web-terminal">The docked terminal</h3>
     <figure>
-      <img src="screens/ref-08-terminal.png" alt="The docked terminal expanded: filter chips for Everything, Engine, each backup set and This browser, an error and warning count, Copy and Save .txt buttons, and a log showing engine lines, an admin action, and the rbm command that action is equivalent to" loading="lazy">
+      <img src="screens/ref-08-terminal.png" alt="The docked terminal expanded: filter chips for Everything, Engine, each backup set and This browser, an error and warning count, Copy and Save .txt buttons, and a log showing engine lines, an admin action, and the retnd command that action is equivalent to" loading="lazy">
       <figcaption>Docked to the bottom of every screen. Collapsed it is one line; expanded it is the live feed and everything this browser has done.</figcaption>
     </figure>
-    <p>Two feeds in one panel, and the chips choose between them. <strong>Engine</strong> and the per-set chips are the serving process's own live output. <strong>This browser</strong> is what you have done in this tab, including the <code>rbm</code> command each action was equivalent to: the <code>$ rbm backup-set patch production/auth-config --stale-after 48h</code> line in the picture is the echo of somebody editing a set in the interface a moment earlier.</p>
+    <p>Two feeds in one panel, and the chips choose between them. <strong>Engine</strong> and the per-set chips are the serving process's own live output. <strong>This browser</strong> is what you have done in this tab, including the <code>retnd</code> command each action was equivalent to: the <code>$ retnd backup-set patch production/auth-config --stale-after 48h</code> line in the picture is the echo of somebody editing a set in the interface a moment earlier.</p>
     <p>It is live, not durable. It starts again when the serving process restarts, and it says so when that happens. For history that survives, read <a href="#web-activity">Activity</a>. <strong>Copy</strong> and <strong>Save .txt</strong> take what is on screen, filter and all.</p>
   </section>
 
   <section>
     <h2 id="cli">The command line</h2>
-    <p>The engine and the command line are two binaries in one image. <code>rbm-web</code> serves the API and the interface; <code>rbm</code> is what an operator types. Almost everything the interface does is here, and several things it does not: retention previews with per-run overrides, artifact-level validation with a full re-download, catalog rebuilds, and the storage-destination verbs. The exception runs the other way and is named under <code>medium</code> below: a destination on a local volume can be declared from the browser and not from here.</p>
+    <p>The engine and the command line are two binaries in one image. <code>retnd-web</code> serves the API and the interface; <code>retnd</code> is what an operator types. Almost everything the interface does is here, and several things it does not: retention previews with per-run overrides, artifact-level validation with a full re-download, catalog rebuilds, and the storage-destination verbs. The exception runs the other way and is named under <code>medium</code> below: a destination on a local volume can be declared from the browser and not from here.</p>
     <p>On the standard deployment it is reached through the engine container:</p>
-    <pre><code>docker compose exec rclone-manager /rbm status</code></pre>
-    <p>On a <a href="index.html#install-cli-only">CLI-only install</a> the installer writes a wrapper and you type <code>~/rclone-manager/bin/rbm status</code> instead. Every command except <code>version</code> takes <code>--config</code>, which defaults to <code>/etc/backup-manager/config/config.yaml</code> and also accepts the directory, because that is what packaging mounts.</p>
+    <pre><code>docker compose exec retnd /retnd status</code></pre>
+    <p>On a <a href="index.html#install-cli-only">CLI-only install</a> the installer writes a wrapper and you type <code>~/retnd/bin/retnd status</code> instead. Every command except <code>version</code> takes <code>--config</code>, which defaults to <code>/etc/retnd/config/config.yaml</code> and also accepts the directory, because that is what packaging mounts.</p>
 
     <h3 id="cli-commands">Every command</h3>
-    <p>Twenty of them. This table is checked against the binary's own dispatch table on every run of the repository's gate, so a command that is added, removed or renamed and not reflected here fails the build rather than going quietly stale.</p>
+    <p>Twenty-four of them. This table is checked against the binary's own dispatch table on every run of the repository's gate, so a command that is added, removed or renamed and not reflected here fails the build rather than going quietly stale.</p>
     <div class="scroll-x">
       <!-- BEGIN CLI-COMMANDS -->
       <table>
@@ -423,28 +485,38 @@
           <tr><td><code>check</code></td><td>Validate the configuration and the state database, then exit.</td></tr>
           <tr><td><code>status</code></td><td>Report process and backup-set health, exiting non-zero unless every set is healthy.</td></tr>
           <tr><td><code>sources</code></td><td>List the configured sources and their backup sets.</td></tr>
-          <tr><td><code>backup-set</code></td><td>The configuration verbs for one set: <code>create</code>, <code>patch</code>, <code>remove</code>, <code>test-connection</code>, <code>retention</code>, <code>edit-hold</code>. A create or patch proves the connection before it writes anything, and <code>--no-verify</code> writes it anyway and leaves the set marked unverified until a test passes.</td></tr>
+          <tr><td><code>backup-set</code></td><td>The configuration verbs for one set: <code>create</code>, <code>patch</code>, <code>remove</code>, <code>test-connection</code>, <code>retention</code>, <code>edit-hold</code>, plus the two toggles <code>enabled &lt;on|off&gt;</code> and <code>read-only &lt;on|off&gt;</code>, which change after creation what <code>--disabled</code> and <code>--read-only</code> can only say at it. A create or patch proves the connection before it writes anything, and <code>--no-verify</code> writes it anyway and leaves the set marked unverified until a test passes. <code>read-only on</code> is never refused; <code>read-only off</code> is refused when the source itself was proven unwritable.</td></tr>
           <tr><td><code>artifacts</code></td><td>List journal artifacts, filtered by source and set, or print one artifact's full detail including the reason recorded for a failure.</td></tr>
           <tr><td><code>activity</code></td><td>List recorded lifecycle events, newest first. <code>--follow</code> streams the live feed instead, which is a different feed rather than a mode of the same one, so it needs a route to the serving process and refuses without one.</td></tr>
           <tr><td><code>fetch</code></td><td>Run one backup set's cycle on demand.</td></tr>
           <tr><td><code>retention</code></td><td>Preview retention decisions for the deployment or for one set, with per-run policy overrides that apply to the preview only. <code>retention apply</code> is the one that deletes, against a plan it prints first, and it requires <code>--acknowledge</code>.</td></tr>
           <tr><td><code>reconcile</code></td><td>Reconcile the journal against what is actually on disk, for every backup set.</td></tr>
-          <tr><td><code>validate</code></td><td>Re-check one artifact's durable copy wherever it is. <code>--content</code> downloads a copy from a storage medium and re-hashes it, which costs egress, so it is asked for rather than assumed.</td></tr>
+          <tr><td><code>validate</code></td><td>Re-check one artifact's durable copy wherever it is. <code>--content</code> downloads a copy from a storage medium and re-hashes it, which costs egress, so it is asked for rather than assumed. <code>validate workflow &lt;source/set&gt;</code> is the other subject: everything this product can establish about a backup set's hooks without running one, and it prints per script whether the bytes are a shell program &mdash; parsed in this process, so the verdict arrives even when no runner or source host is reachable &mdash; followed by any findings this product's own shell rules reported, each with its <code>BSH</code> code, its <code>line:col</code> and what to write instead. Those are retnd's rules and not ShellCheck's. A parse error or an <code>error</code>-severity finding also REFUSES a workflow save, on the API and on <code>settings workflow patch</code> and <code>backup-set workflow patch</code> alike; <code>warning</code>, <code>info</code> and <code>style</code> are reported and never block. Nothing executes a hook body.</td></tr>
           <tr><td><code>catalog</code></td><td><code>catalog rebuild</code> reconstructs a lost or corrupted state database from the sidecar recovery manifests.</td></tr>
           <tr><td><code>quarantine</code></td><td>Act on one quarantined artifact: <code>revalidate</code> re-checks it, <code>retry</code> re-enters it at DISCOVERED, <code>reinstate</code> trusts it in place and permanently forfeits deleting its remote original.</td></tr>
           <tr><td><code>retry</code></td><td>Put one FAILED artifact back into the pipeline. Failed is not quarantined, so it is its own verb, and nothing does it automatically.</td></tr>
           <tr><td><code>unconfigured</code></td><td>List the backup sets the journal remembers and the configuration no longer names, and what they still occupy. <code>unconfigured clear</code> ends those rows and removes the <code>.partial</code> residue a removal stranded, never a retained backup.</td></tr>
           <tr><td><code>medium</code></td><td>The storage-destination verbs: <code>list</code>, <code>show</code>, <code>add</code>, <code>edit</code>, <code>remove</code>, <code>default</code>, <code>test-connection</code> (also spelled <code>preflight</code>) and <code>import-credentials</code>. Credentials are taken on standard input and never as a flag. Its field flags are the ones a bucket has: <code>--type</code> takes <code>s3</code>, and there is no <code>--path</code>, so an instance of the <code>local_volume</code> backend cannot be declared here &mdash; <a href="#web-destination-configure">the configure wizard</a> is the only surface that can, and it prints its equivalent command with the missing fields named rather than a line that would write something else.</td></tr>
           <tr><td><code>restore</code></td><td>Ask the storage provider to make one archived copy readable again. It is billed and takes hours, so <code>--acknowledge</code> is required; <code>--days</code> defaults to 7 and is bounded to 30.</td></tr>
+          <tr><td><code>snapshot</code></td><td>The incremental engine's restore points: <code>list</code>, <code>show</code>, <code>holds</code>, <code>retention</code>, <code>verify</code>, <code>restore</code>, <code>hold</code>, <code>unhold</code>. Five separate measurements per run and deliberately no total, and <code>not measured</code> is a real answer rather than a zero. <code>verify</code> exits non-zero when it finds damage; <code>restore</code> writes a tree into a local directory and defaults <code>--conflict</code> to <code>refuse</code>; <code>hold</code> requires <code>--reason</code>.</td></tr>
+          <tr><td><code>repository</code></td><td><code>health</code> reports every declared repository domain's own verdict &mdash; reachable, readable, writable, whether the declared passphrase opens it, whether the clock can be trusted, whether maintenance is overdue &mdash; and exits non-zero when one is failing. <code>maintenance &lt;domain&gt;</code> reports who owns maintenance, when it last ran quick and full, and whether it is overdue; it opens nothing, so it answers while the repository is unreachable.</td></tr>
           <tr><td><code>settings</code></td><td>Report the live retention and capacity settings, or change one in place with <code>settings patch</code>, including pointing a single retention tier at a destination.</td></tr>
+          <tr><td><code>workflow-runner</code></td><td>The host-side half of EPIC L, which executes a <code>NAME.local.sh</code> hook on the machine retnd is installed on because the engine's own container is distroless, read-only and non-root and must stay that way. <code>workflow-runner serve</code> is the long-lived process the installer supervises; it listens on one Unix socket (never a TCP port), requires an installation-scoped credential on every connection, refuses an engine whose version is not exactly its own, refuses to run as root, and accepts four operations &mdash; <code>syntax-check</code>, <code>execute</code>, <code>cancel</code> and <code>status</code> &mdash; over captured script bytes rather than a path. <code>workflow-runner status</code> asks a running one what it is. It takes host paths rather than container ones, as <code>--runtime-dir</code> (the socket directory, normally <code>&lt;prefix&gt;/run</code>, and the only one the engine's container mounts), <code>--workspace-dir</code> (the per-step working directories, mounted into no container) and <code>--secrets-dir</code> (this installation's runner credential). <code>--config</code> is accepted but carries only the configured bound on a script's size, so a deployment with no config.yaml yet still starts under the documented default.</td></tr>
+          <tr><td><code>workflow</code></td><td>EPIC L's hook lifecycle, read and acted on: <code>workflow run list</code>, <code>show</code>, <code>steps</code> and <code>log</code> (with <code>--step</code>, <code>--cursor</code> and <code>--follow</code>) report what a run executed and what each hook printed, and <code>workflow recovery show</code>, <code>resume-cleanup</code> and <code>acknowledge</code> deal with a run whose cleanup was interrupted &mdash; a backup set stays refused until one of the last two is done, and <code>acknowledge</code> requires <code>--reason</code>. Beside a serving engine the recovery verbs and <code>run log</code> are handed to that process when <code>RETND_API_URL</code> says where it is, because the refusals live in its memory as well as in the journal. The configuration lives under the other commands: <code>settings workflow</code> (and <code>settings workflow env</code>) for the deployment, <code>backup-set workflow</code> (and <code>backup-set workflow env</code>) for one set, and <code>validate workflow &lt;source/backup-set&gt;</code> reports all fifteen checks &mdash; directories, script names, ordering, hashes, custody, timeouts, the host runner, <code>bash -n</code> on every script, the execution connection and its exec capability &mdash; without executing a hook. <code>fetch --skip-workflow-scripts</code> is refused rather than ignored: a bypass is an administrator action the serving engine records.</td></tr>
           <tr><td><code>version</code></td><td>Report the binary, Go and embedded rclone versions.</td></tr>
         </tbody>
       </table>
       <!-- END CLI-COMMANDS -->
     </div>
     <div class="note danger">
-      <span class="note-label">There is no restore command</span>
-      <p><code>restore</code> above asks a storage provider to thaw an archived object so it can be read. It does not restore a backup into an application. Recovering data is a documented manual procedure and this product deliberately does not carry it out.</p>
+      <span class="note-label">Two different things are called restore</span>
+      <p><code>restore</code> above asks a storage provider to thaw an <em>archived object</em> so it can be read: it is billed, it takes hours, and it writes nothing anywhere. <code>snapshot restore</code> is the other one, and it only exists for a backup set on the incremental engine: it reads a restore point out of a repository and writes a tree into a local directory you name.</p>
+      <p>Neither one restores an <em>artifact</em> backup into an application. A retained artifact is a file on storage; putting its contents back is a documented manual procedure and this product deliberately does not carry it out. See <a href="https://github.com/retnd/retnd/blob/main/docs/recovery.md">docs/recovery.md</a>.</p>
+    </div>
+    <div class="note warn">
+      <span class="note-label">The incremental engine is off until you turn it on</span>
+      <p><code>snapshot</code> and <code>repository</code>, and any backup set whose <code>engine</code> is <code>kopia</code>, are gated on one setting that defaults to <strong>off</strong>: <code>incremental_engine.enabled: true</code> in <code>config.yaml</code>, or <code>RETND_INCREMENTAL_ENGINE=1</code> in the environment, which overrides the file in both directions. With it off, those verbs refuse with one sentence naming both ways to enable it, and exit <code>1</code>; over the API it is <code>409 INCREMENTAL_ENGINE_DISABLED</code>.</p>
+      <p>Turning it off never stops a daemon: a configuration that declares incremental sets still loads and still backs up every <code>artifact</code> set on schedule. Artifact backup sets are unaffected by this setting in either position, and <strong>nothing ever converts one engine to the other</strong>. See <a href="https://github.com/retnd/retnd/blob/main/docs/incremental-engine.md">docs/incremental-engine.md</a>.</p>
     </div>
 
     <h3 id="cli-modes">Where a change is written, and how you know</h3>
@@ -459,7 +531,7 @@
         </tbody>
       </table>
     </div>
-    <p>The route is three environment variables, never flags, because a password on a command line is in every process listing on the host: <code>BACKUP_MANAGER_API_URL</code> is the engine's address (its own listener from inside its container, or the published Web UI port from a shell on the host), and <code>BACKUP_MANAGER_API_USERNAME</code> and <code>BACKUP_MANAGER_API_PASSWORD</code> are the administrator credentials the interface takes. They are held for the one invocation and written nowhere.</p>
+    <p>The route is three environment variables, never flags, because a password on a command line is in every process listing on the host: <code>RETND_API_URL</code> is the engine's address (its own listener from inside its container, or the published Web UI port from a shell on the host), and <code>RETND_API_USERNAME</code> and <code>RETND_API_PASSWORD</code> are the administrator credentials the interface takes. They are held for the one invocation and written nowhere.</p>
     <p>Reads never refuse for want of a route. <code>status</code>, <code>sources</code>, <code>artifacts</code> and <code>retention</code> announce which world the answer is about instead: <code>mode: engine-attached</code> is a serving process holding the same configuration and asked the same question, <code>mode: direct</code> is nothing serving, and <code>mode: unconfirmed</code> is an answer read out of <code>config.yaml</code> that could not be checked against the serving process and can disagree with it.</p>
 
     <h3 id="cli-exits">Exit codes</h3>
@@ -479,11 +551,11 @@
   <section>
     <h2 id="installer">install_docker_host.py</h2>
     <p>One file, no checkout, nothing outside the Python standard library. Copy it to the machine on its own and run it: it carries the canonical Compose definition inside itself, generated from <code>container/compose.yaml</code> and held to it byte for byte by a test, so there is nothing to clone on the host.</p>
-    <pre><code>curl -fsSLO https://raw.githubusercontent.com/spdrman/rclone-manager/main/scripts/install/install_docker_host.py
+    <pre><code>curl -fsSLO https://raw.githubusercontent.com/retnd/retnd/main/scripts/install/install_docker_host.py
 python3 install_docker_host.py install</code></pre>
     <p>Every flag below has a default that works, which is what makes that second line the whole command. <a href="index.html#install">The install section on the home page</a> is the short version of this.</p>
 
-    <h3 id="installer-commands">Its seven subcommands</h3>
+    <h3 id="installer-commands">Its eight subcommands</h3>
     <p>This table is checked against the parser's own subcommand list, and so is that number, because a count in a heading is the part that stays wrong after the missing row has been added.</p>
     <div class="scroll-x">
       <!-- BEGIN INSTALLER-COMMANDS -->
@@ -493,10 +565,11 @@ python3 install_docker_host.py install</code></pre>
           <tr><td><code>preflight</code></td><td>Runs every prerequisite check and exits.</td><td>Nothing. It is a dry run of <code>install</code>, and it declares the same flags so the run it rehearses is the run you get.</td></tr>
           <tr><td><code>install</code></td><td>Stages the deployment, brings it up, and proves it works, or refuses and says which prerequisite stopped it.</td><td>Creates directories, generates an SSH keypair if there is none, writes <code>compose.yaml</code>, <code>compose.image.yaml</code> and <code>.env</code>, and starts containers.</td></tr>
           <tr><td><code>status</code></td><td>Reports what is here and whether bridge networking still works.</td><td>Read-only.</td></tr>
-          <tr><td><code>enroll-link</code></td><td>Mints a fresh enrolment link and prints it, by restarting the engine, which is what issues a token. Refuses with its own exit code on a deployment that already has an administrator: enrolment is a one-time door.</td><td>Restarts the engine container and reads its log. Nothing on disk.</td></tr>
+          <tr><td><code>enroll-link</code></td><td>Mints a fresh enrolment link and prints it, by restarting the engine, which is what issues a token. Refuses with its own exit code on a deployment that already has an administrator: enrolment is a one-time door. A forgotten password is not what this is for &mdash; that is <strong>Forgot password?</strong> on the sign-in page, which mails a reset link to the account's recovery address.</td><td>Restarts the engine container and reads its log. Nothing on disk.</td></tr>
           <tr><td><code>uninstall</code></td><td>Takes the stack down and removes the deployment files.</td><td>Never the backups, the state or the configuration.</td></tr>
           <tr><td><code>network-doctor</code></td><td>Diagnoses Docker bridge networking by measurement and repairs it.</td><td>Firewall rules, escalating through sudo, and with <code>--fix-network persist</code> a systemd unit and timer.</td></tr>
           <tr><td><code>network-undo</code></td><td>Removes every rule and unit <code>network-doctor</code> installed.</td><td>Only what carries this installer's own comment marker.</td></tr>
+          <tr><td><code>migrate-identity</code></td><td>Moves an already-installed deployment onto the current container paths and systemd unit names, as one transaction: the compose mounts, the absolute paths persisted in its own <code>config.yaml</code>, and the units, together.</td><td>Takes the stack down, restages the deployment files, rewrites <code>config.yaml</code> in place, renames the units and brings it back up. On any failure it restores <code>config.yaml</code> and starts the deployment again on what it had before. The previous container paths stay mounted for one release, so rolling the image back still finds its configuration.</td></tr>
         </tbody>
       </table>
       <!-- END INSTALLER-COMMANDS -->
@@ -510,7 +583,7 @@ python3 install_docker_host.py install</code></pre>
         <thead><tr><th>Flag</th><th>On</th><th>What it does, and what it defaults to</th></tr></thead>
         <tbody>
           <tr><td colspan="3"><strong>layout</strong> &mdash; the five flags every subcommand takes</td></tr>
-          <tr><td><code>--prefix</code></td><td>all six</td><td>Where the deployment files and the default data directories live. Defaults to <code>rclone-manager</code> under the invoking user's home.</td></tr>
+          <tr><td><code>--prefix</code></td><td>all six</td><td>Where the deployment files and the default data directories live. Defaults to <code>retnd</code> under the invoking user's home.</td></tr>
           <tr><td><code>--backup-dir</code></td><td>all six</td><td>Host directory completed artifacts land in. Defaults to <code>&lt;prefix&gt;/backups</code>.</td></tr>
           <tr><td><code>--state-dir</code></td><td>all six</td><td>Host directory for the SQLite lifecycle journal. Defaults to <code>&lt;prefix&gt;/state</code>.</td></tr>
           <tr><td><code>--config-dir</code></td><td>all six</td><td>Host directory holding <code>config.yaml</code>. Defaults to <code>&lt;prefix&gt;/config</code>, and may be empty: a fresh install serves a first-run flow rather than refusing to start.</td></tr>
@@ -528,8 +601,8 @@ python3 install_docker_host.py install</code></pre>
           <tr><td><code>--no-pull</code></td><td>preflight, install</td><td>Refuse rather than pull if the image is not already here.</td></tr>
           <tr><td><code>--compose-file</code></td><td>preflight, install</td><td>The canonical runtime definition to copy. Not a template: it is copied verbatim. Defaults to the copy embedded in this installer.</td></tr>
           <tr><td><code>--listen-port</code></td><td>preflight, install</td><td>Host port the Web UI is published on. The engine publishes nothing. Defaults to 8080.</td></tr>
-          <tr><td><code>--public-base-url</code></td><td>preflight, install</td><td>The externally reachable base URL the one-time enrolment link is built from. Defaults to this machine's own LAN address and the listen port, because that link is opened from another machine; a host with no default route falls back to its hostname.</td></tr>
-          <tr><td><code>--cli-only</code></td><td>preflight, install</td><td>Install the command line and nothing else: the engine runs <code>rbm daemon</code> instead of <code>rbm-web serve</code>, no <code>web-ui</code> container is started, no port is published, and an <code>rbm</code> wrapper is written to <code>&lt;prefix&gt;/bin/rbm</code>. A fresh CLI-only install starts nothing and prints the command that writes the first configuration.</td></tr>
+          <tr><td><code>--public-base-url</code></td><td>preflight, install</td><td>The externally reachable base URL the one-time enrolment link is built from, and the password-reset links later mailed to the account's recovery address. Defaults to this machine's own LAN address and the listen port, because those links are opened from another machine; a host with no default route falls back to its hostname. Worth getting right for the reset link in particular: unlike the enrolment notice, nobody is reading a log to notice that it points at <code>localhost</code>.</td></tr>
+          <tr><td><code>--cli-only</code></td><td>preflight, install</td><td>Install the command line and nothing else: the engine runs <code>retnd daemon</code> instead of <code>retnd-web serve</code>, no <code>web-ui</code> container is started, no port is published, and a <code>retnd</code> wrapper is written to <code>&lt;prefix&gt;/bin/retnd</code>. A fresh CLI-only install starts nothing and prints the command that writes the first configuration.</td></tr>
           <tr><td><code>--no-cli-only</code></td><td>preflight, install</td><td>Convert a CLI-only deployment back to the full stack.</td></tr>
           <tr><td><code>--profile</code></td><td>preflight, install</td><td>Runtime profile, from the canonical definition's own declared list. Defaults to <code>generic</code>.</td></tr>
           <tr><td><code>--timezone</code></td><td>preflight, install</td><td>TZ for both containers. Retention's calendar boundaries depend on it. Defaults to this host's <code>/etc/timezone</code>, else UTC.</td></tr>
@@ -567,7 +640,7 @@ python3 install_docker_host.py install</code></pre>
           <tr><td><code>30</code>, <code>31</code></td><td>The stack failed to start, or it started and did not reach the state that counts as installed. Both leave it up on purpose, so the logs are still there to read.</td></tr>
           <tr><td><code>40</code>&ndash;<code>46</code></td><td>The bridge-networking repair: no terminal for sudo, the wrong password, sudo not permitted, networking broken, still broken after a repair, undiagnosed, or persistence installed but unverified.</td></tr>
           <tr><td><code>50</code>&ndash;<code>52</code></td><td>The release: a conflict between <code>--release</code> and <code>--image</code>, the registry unreachable, or a release too old to carry the binaries this deployment runs.</td></tr>
-          <tr><td><code>53</code></td><td><code>enroll-link</code> on a deployment that already has an administrator. Its own code rather than a generic refusal because the answer is not to try again: enrolment closed permanently the first time somebody walked through it, so a script retrying this would loop for ever.</td></tr>
+          <tr><td><code>53</code></td><td><code>enroll-link</code> on a deployment that already has an administrator. Its own code rather than a generic refusal because the answer is not to try again: enrolment closed permanently the first time somebody walked through it, so a script retrying this would loop for ever. If what was actually lost is the password, the answer is <strong>Forgot password?</strong> in the interface, not this command.</td></tr>
         </tbody>
       </table>
     </div>
@@ -577,7 +650,7 @@ python3 install_docker_host.py install</code></pre>
 
 
 <footer>
-  <p>rclone-manager is Apache-2.0 licensed. <a href="https://github.com/spdrman/rclone-manager">View on GitHub</a></p>
+  <p>retnd is Apache-2.0 licensed. <a href="https://github.com/retnd/retnd">View on GitHub</a></p>
   <p>Screenshots taken against the development fixture API. No screenshot on this page is evidence about a running engine.</p>
 </footer>
 

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/service"
+	"github.com/retnd/retnd/core/service"
 )
 
 // The two reads the SSH surface never had (issue #592).

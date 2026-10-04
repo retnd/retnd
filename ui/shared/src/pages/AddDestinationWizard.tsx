@@ -33,15 +33,25 @@
  * for. See destinationInstanceName.ts, which is also where the argument
  * about never echoing what was typed lives.
  *
- * # The wider catalogue is shown, dimmed
+ * # The wider catalogue is shown, dimmed, and there are two kinds of it
  *
  * Backends the engine understands and no manifest declares are rendered
  * and cannot be chosen. Hiding them answers an operator worse: somebody
  * who came here for SFTP learns nothing from a menu that never mentions
  * it and asks again next month, whereas a row saying the shape is
- * understood and is not registered is a real answer. They carry no radio,
- * so there is nothing to submit, and the server would refuse an id no
- * manifest declares in any case.
+ * understood and is not registered is a real answer. They carry no
+ * radio, so there is nothing to submit, and the server would refuse an
+ * id no manifest declares in any case.
+ *
+ * A REGISTERED backend can be dimmed too, and that is #731's row: a
+ * manifest reporting `configurable: false` is a backend this build
+ * describes in full and cannot yet store or dial. It is rendered with
+ * its label, its summary and the reason, and its radio is disabled, so
+ * it is findable and unchoosable. Offering it instead would be worse
+ * than either: the wizard would collect a name, the configure step
+ * would collect eight values and a credential, and the save would be
+ * refused by the schema — a dead end an operator walks the whole length
+ * of before finding out. Tracked in #235.
  *
  * # Nothing is written here, and why that is not what the issue says
  *
@@ -75,6 +85,7 @@ import { useAsync } from "@shared/hooks/useAsync";
 import { ErrorState } from "@shared/components/EmptyState";
 import { refuseInstanceName } from "@shared/pages/destinationInstanceName";
 import type { InstanceNameRefusal } from "@shared/pages/destinationInstanceName";
+import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 
 export function AddDestinationWizard({
   existing,
@@ -112,7 +123,12 @@ export function AddDestinationWizard({
   // did something wrong before they did anything at all.
   const [touched, setTouched] = useState(false);
 
-  const chosen = catalog.data?.registered.find((b) => b.id === backendId);
+  // Only a CONFIGURABLE backend can be the chosen one. Steps 2 and 3
+  // render nothing without it and onConfirmed is unreachable, so a
+  // preview backend cannot be submitted even if something set the id
+  // behind the disabled row's back: the check is here, once, rather
+  // than repeated as a guard on every button that leads onward.
+  const chosen = catalog.data?.registered.find((b) => b.id === backendId && b.configurable);
 
   const existingIds = useMemo(() => existing.map((m) => m.id), [existing]);
 
@@ -143,9 +159,13 @@ export function AddDestinationWizard({
         <span style={{ fontSize: "var(--text-xs)", color: "var(--text-3)" }}>
           {step === 3 ? "what will be written, before anything is" : "nothing is written by these steps"}
         </span>
-        <span style={{ marginLeft: "auto", fontSize: "var(--text-xs)", color: "var(--text-3)" }}>
-          Step {step} of 3
-        </span>
+        {/* The auto margin moves to the host, which is the flex item
+            now: left on the child it would no longer push anything. */}
+        <InfoTooltip id="wizard.destination.step" alignEnd style={{ marginLeft: "auto" }}>
+          <span style={{ fontSize: "var(--text-xs)", color: "var(--text-3)" }}>
+            {"Step " + step + " of 3"}
+          </span>
+        </InfoTooltip>
       </div>
 
       {/* There is no failure banner here, and that is not an omission:
@@ -245,6 +265,11 @@ function ChooseBackendPane({
   const unregistered = catalog.unregistered.filter(
     (u) => needle === "" || u.transport.toLowerCase().includes(needle)
   );
+  // What "chosen" is allowed to mean here. A row that cannot be
+  // configured cannot be the answer, so the button that leads onward
+  // reads this rather than "something is selected": disabling the radio
+  // is what an operator SEES, and this is what the wizard obeys.
+  const chosenIsConfigurable = catalog.registered.some((b) => b.id === chosenId && b.configurable);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -272,14 +297,22 @@ function ChooseBackendPane({
         {registered.map((b) => (
           <li key={b.id}>
             <label
+              // A registered backend this build cannot yet save is
+              // shown and refused, exactly like the unregistered rows
+              // below and for the same reason: the row is the answer
+              // somebody came looking for. What it may not do is lead
+              // anywhere — the radio is disabled, so there is nothing
+              // to choose and nothing to submit.
+              aria-disabled={b.configurable ? undefined : "true"}
               style={{
                 display: "flex",
                 gap: 10,
                 alignItems: "flex-start",
-                border: "1px solid var(--border)",
+                border: b.configurable ? "1px solid var(--border)" : "1px dashed var(--border)",
                 borderRadius: "var(--radius-lg)",
                 padding: 10,
-                cursor: "pointer"
+                cursor: b.configurable ? "pointer" : "not-allowed",
+                color: b.configurable ? undefined : "var(--text-3)"
               }}
             >
               <input
@@ -287,12 +320,29 @@ function ChooseBackendPane({
                 name="backend"
                 value={b.id}
                 checked={chosenId === b.id}
-                onChange={() => onChoose(b.id)}
+                disabled={!b.configurable}
+                onChange={() => {
+                  // Guarded rather than trusted to the disabled
+                  // attribute: a change event that reaches a row this
+                  // build cannot save must choose nothing, however it
+                  // was produced.
+                  if (b.configurable) {
+                    onChoose(b.id);
+                  }
+                }}
                 style={{ marginTop: 3 }}
               />
               <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 <strong style={{ fontSize: 13 }}>{b.label}</strong>
-                <span style={{ fontSize: 12, color: "var(--text-2)" }}>{b.summary}</span>
+                <span style={{ fontSize: 12, color: b.configurable ? "var(--text-2)" : "inherit" }}>
+                  {b.summary}
+                </span>
+                {b.configurable ? null : (
+                  <span style={{ fontSize: 12 }}>
+                    Not yet configurable — tracked in #235. This build describes the shape and cannot save
+                    one, so there is nothing here to fill in yet.
+                  </span>
+                )}
                 <span style={{ fontSize: "var(--text-xs)", color: "var(--text-3)" }}>
                   {/* The manifest id, because it is what the command line
                       and the configuration file both spell, and an
@@ -348,12 +398,16 @@ function ChooseBackendPane({
       ) : null}
 
       <div style={{ display: "flex", gap: 8 }}>
-        <button className="btn" type="button" onClick={onCancel}>
-          Cancel
-        </button>
-        <button className="btn btn--primary" type="button" disabled={chosenId === ""} onClick={onNext}>
-          Next: name this instance
-        </button>
+        <InfoTooltip id="wizard.destination.cancel">
+          <button className="btn" type="button" onClick={onCancel}>
+            Cancel
+          </button>
+        </InfoTooltip>
+        <InfoTooltip id="wizard.destination.next-name">
+          <button className="btn btn--primary" type="button" disabled={!chosenIsConfigurable} onClick={onNext}>
+            Next: name this instance
+          </button>
+        </InfoTooltip>
       </div>
     </div>
   );
@@ -428,35 +482,41 @@ function NameInstancePane({
             : `Instances of ${backend.label} that already exist:`}
         </span>
         {siblings.length > 0 ? (
-          <ul
-            role="list"
-            aria-label={`Instances of ${backend.label} that already exist`}
-            style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", gap: 8, flexWrap: "wrap" }}
-          >
-            {siblings.map((m) => (
-              <li
-                key={m.id}
-                style={{
-                  fontSize: 12,
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--radius-md)",
-                  padding: "2px 8px"
-                }}
-              >
-                {m.id}
-              </li>
-            ))}
-          </ul>
+          <InfoTooltip id="wizard.destination.existing-names" block>
+            <ul
+              role="list"
+              aria-label={`Instances of ${backend.label} that already exist`}
+              style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", gap: 8, flexWrap: "wrap" }}
+            >
+              {siblings.map((m) => (
+                <li
+                  key={m.id}
+                  style={{
+                    fontSize: 12,
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--radius-md)",
+                    padding: "2px 8px"
+                  }}
+                >
+                  {m.id}
+                </li>
+              ))}
+            </ul>
+          </InfoTooltip>
         ) : null}
       </div>
 
       <div style={{ display: "flex", gap: 8 }}>
-        <button className="btn" type="button" onClick={onBack}>
-          Back
-        </button>
-        <button className="btn btn--primary" type="button" disabled={refusal !== null} onClick={onNext}>
-          Next: confirm
-        </button>
+        <InfoTooltip id="wizard.destination.back">
+          <button className="btn" type="button" onClick={onBack}>
+            Back
+          </button>
+        </InfoTooltip>
+        <InfoTooltip id="wizard.destination.next-confirm">
+          <button className="btn btn--primary" type="button" disabled={refusal !== null} onClick={onNext}>
+            Next: confirm
+          </button>
+        </InfoTooltip>
       </div>
     </div>
   );
@@ -486,24 +546,26 @@ function ConfirmPane({
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <dl
-        style={{
-          margin: 0,
-          display: "grid",
-          gridTemplateColumns: "auto 1fr",
-          gap: "4px 12px",
-          fontSize: 13
-        }}
-      >
-        <dt style={{ color: "var(--text-2)" }}>Backend</dt>
-        <dd style={{ margin: 0 }}>
-          {backend.label} <span style={{ color: "var(--text-3)" }}>({backend.id})</span>
-        </dd>
-        <dt style={{ color: "var(--text-2)" }}>Name</dt>
-        <dd style={{ margin: 0 }}>{name}</dd>
-        <dt style={{ color: "var(--text-2)" }}>Values</dt>
-        <dd style={{ margin: 0, color: "var(--text-3)" }}>not asked for yet</dd>
-      </dl>
+      <InfoTooltip id="wizard.destination.summary" block>
+        <dl
+          style={{
+            margin: 0,
+            display: "grid",
+            gridTemplateColumns: "auto 1fr",
+            gap: "4px 12px",
+            fontSize: 13
+          }}
+        >
+          <dt style={{ color: "var(--text-2)" }}>Backend</dt>
+          <dd style={{ margin: 0 }}>
+            {backend.label} <span style={{ color: "var(--text-3)" }}>({backend.id})</span>
+          </dd>
+          <dt style={{ color: "var(--text-2)" }}>Name</dt>
+          <dd style={{ margin: 0 }}>{name}</dd>
+          <dt style={{ color: "var(--text-2)" }}>Values</dt>
+          <dd style={{ margin: 0, color: "var(--text-3)" }}>not asked for yet</dd>
+        </dl>
+      </InfoTooltip>
 
       <p style={{ margin: 0, fontSize: 13, color: "var(--text-2)", maxWidth: "74ch" }}>
         Nothing has been written yet. Configuring it comes next, and this destination is written once, after a
@@ -522,7 +584,7 @@ function ConfirmPane({
 
       {/* EPIC G's rule is that what an operator can DO names its
           equivalent command. These steps do nothing: they collect two
-          answers and hand them on, and there is no `rbm` invocation that
+          answers and hand them on, and there is no `retnd` invocation that
           declares a destination carrying no values (see
           storageDestinationCommands.ts, which is where the `declareCommand`
           that used to be printed here was deleted and why). So the gap is
@@ -532,18 +594,22 @@ function ConfirmPane({
         <span style={{ fontSize: "var(--text-xs)", color: "var(--text-3)" }}>Equivalent command</span>
         <span style={{ fontSize: 12, color: "var(--text-2)", maxWidth: "74ch" }}>
           These steps run none. On a terminal a destination is declared in one act, by{" "}
-          <code className="mono">rbm medium add</code> carrying the values below — so the command this flow
+          <code className="mono">retnd medium add</code> carrying the values below — so the command this flow
           is equivalent to is printed by the configure step, which is the step that writes.
         </span>
       </div>
 
       <div style={{ display: "flex", gap: 8 }}>
-        <button className="btn" type="button" onClick={onBack}>
-          Back
-        </button>
-        <button className="btn btn--primary" type="button" onClick={onConfirm}>
-          Next: configure it
-        </button>
+        <InfoTooltip id="wizard.destination.back">
+          <button className="btn" type="button" onClick={onBack}>
+            Back
+          </button>
+        </InfoTooltip>
+        <InfoTooltip id="wizard.destination.next-configure">
+          <button className="btn btn--primary" type="button" onClick={onConfirm}>
+            Next: configure it
+          </button>
+        </InfoTooltip>
       </div>
     </div>
   );

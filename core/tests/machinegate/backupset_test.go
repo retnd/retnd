@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/spdrman/rclone-manager/core/service"
-	"github.com/spdrman/rclone-manager/core/tests/machines"
+	"github.com/retnd/retnd/core/service"
+	"github.com/retnd/retnd/core/tests/machines"
 )
 
 // Creating a backup set the way the wizard does, against a real server,

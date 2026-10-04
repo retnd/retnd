@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spdrman/rclone-manager/core/apicontract"
-	"github.com/spdrman/rclone-manager/core/internal/backend"
+	"github.com/retnd/retnd/core/apicontract"
+	"github.com/retnd/retnd/core/internal/backend"
 )
 
 // The mechanical form of "a command never carries a key, a password or a
@@ -173,6 +173,69 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 	// The rest.
 	"--medium": "the id of the destination a restore reads from",
 	"--note":   "the operator's own note on a retry, which they wrote and can read back",
+
+	// EPIC K's snapshot verbs (#788). Every one of these is a value the
+	// operator themselves supplied and has to be able to retype: a
+	// restore that landed somewhere they cannot name is a restore they
+	// cannot find, and the durable operation row already records the
+	// destination for exactly that reason.
+	"--to":       "the directory a snapshot restore writes into, which the operator named and has to be able to find afterwards",
+	"--snapshot": "the engine's opaque manifest id, which is neither a path nor a secret",
+	"--path":     "one path INSIDE the snapshot, which is a path in the operator's own source tree and is what they asked to get back",
+	"--conflict": "one of three words deciding what happens to a file already at the destination",
+
+	// EPIC K's incremental sets (#788). Each of these is a word from a
+	// closed vocabulary or a name the operator declared themselves, and
+	// a set reproduced without them is a different set: --engine decides
+	// whether a run copies files or writes snapshots, and
+	// --repository-domain names the storage boundary the operator chose
+	// for that history. None of them can carry a credential, because
+	// none of them is a free string the operator fills with anything but
+	// a name they already published to their own team.
+	"--engine":             "which engine the set runs on, one of two words config.Validate takes",
+	"--repository-domain":  "the storage boundary the operator declared for this set's snapshots, which they named and have to name again",
+	"--source-consistency": "what the source promises about files changing under a snapshot, one of three words",
+	"--verification-level": "how much of each snapshot is read back afterwards, one of four words",
+
+	// Issue #862's repository-domain declaration. The id is the operand
+	// below; these are the rest of the declaration, and each one is
+	// either a word from a closed vocabulary or a REFERENCE the operator
+	// wrote themselves.
+	//
+	// --passphrase-file and --passphrase-env are the same claim
+	// --credentials-file and --credentials-env make one noun over: a
+	// path on the operator's own host, and the NAME of an environment
+	// variable, never a value. --passphrase-command is deliberately NOT
+	// here, because its words are the caller's and it is printed as a
+	// placeholder instead.
+	"--isolation":       "shared or isolated, the co-tenancy posture the operator chose and the one thing a domain cannot be created without",
+	"--description":     "the operator's own sentence about what a domain holds, which they wrote and have to be able to retype",
+	"--location":        "where the domain is stored, which is a directory on the operator's own deployment and is the value the request named",
+	"--owner":           "this or another-instance, which decides whether the declaration may be a maintenance claim (ADR 0017)",
+	"--passphrase-file": "a PATH to the file holding a repository's passphrase, never its contents",
+	"--passphrase-env":  "the NAME of an environment variable the passphrase is read from, never its value",
+
+	// EPIC L's workflow configuration (#813). Every one of these is a
+	// PATH the operator chose, a NAME they published, or a sentence they
+	// wrote, and each is something the line is useless without: a
+	// workflow patch echoed without its directories is a command that
+	// disables nothing and changes nothing.
+	//
+	// The two fields on this surface that carry a VALUE rather than a
+	// location -- --value, the literal an environment variable is set
+	// to, and --secret-command, whose words are the caller's -- are
+	// deliberately NOT here. Both are printed as placeholders instead,
+	// for the reason --credentials-command is: nothing this package can
+	// inspect tells `--value production` from `--value hunter2`, and the
+	// whole point of configuring a credential as a REFERENCE is that it
+	// does not belong in that field. See workflowEnvSetFlags.
+	"--root":            "the approved tree hook scripts live under, which is a directory on the operator's own deployment and the one thing workflows cannot be configured without",
+	"--before-dir":      "the stage directory that runs before a backup, relative to that root; an empty value is a real request and clears it, which is why it is printed rather than skipped",
+	"--after-dir":       "the stage directory that runs after a backup, on the same terms as --before-dir",
+	"--exec-connection": "the NAME of a declared remote execution connection, never its host, user or credentials -- the declaration those live in is not on this surface at all",
+	"--secret-file":     "a PATH to a file holding a workflow variable's value, never its contents",
+	"--secret-env":      "the NAME of an environment variable the value is read from, never its value",
+	"--reason":          "the operator's own sentence about how they dealt with an interrupted workflow run; it is the whole point of the record, and it reaches a durable audit row either way",
 }
 
 // operandsThatNameTheSubject is the same list for the positional argument
@@ -189,6 +252,7 @@ var operandsThatNameTheSubject = map[string]string{
 	"POST /operations":                  "the artifact id a restore names",
 	"POST /storage-mediums":             "the destination's own id",
 	"POST /storage-mediums/preflight":   "the candidate destination's id",
+	"POST /repositories":                "the repository domain's own id",
 }
 
 // A credential in an endpoint URL, which is the leak the name-based test

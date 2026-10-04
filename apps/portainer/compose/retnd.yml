@@ -1,0 +1,225 @@
+# Portainer stack definition for retnd (issue #170, B6.6).
+#
+# Portainer deploys this file as a STACK, either from the App Template in
+# ../templates.json or pasted into Custom Templates. There is no Portainer
+# plugin, no Portainer agent, no Portainer API dependency and no second
+# application server: Portainer's whole integration surface for a
+# third-party application is a compose file plus the environment values it
+# reads, so that is the whole adapter.
+#
+# The one thing worth saying out loud. Portainer itself holds
+# /var/run/docker.sock, because managing containers is what Portainer is.
+# Nothing below inherits that. This stack mounts no socket, needs no
+# capability a plain non-root process does not already have, and would run
+# identically if it had been started by `docker compose up` with Portainer
+# uninstalled. distribution/compose fails the build if any of that changes.
+#
+# Every runtime field here is DERIVED from container/compose.yaml at
+# runtime contract 1.2.0, and distribution/packaging/derive.go names the
+# field if one drifts. It is also held to the canonical stack semantically,
+# service for service, by TestEveryNewAdapterIsSemanticallyEquivalentToTheCanonicalStack.
+# The compose project name, stated rather than inherited (issue #891,
+# following container/compose.yaml). Compose defaults the project name to
+# the directory this file happens to sit in, and the project name is the
+# prefix of every default container name. With this line the containers
+# are `retnd-retnd-1` and `retnd-web-ui-1` here exactly as they are in the
+# canonical definition, so `docker ps` on a Portainer host reads the same as
+# `docker ps` on a generic Docker host and the documented names are true
+# of both.
+name: retnd
+
+services:
+  # The engine: local authentication, the versioned /api/v1 API and the
+  # scheduler, one process sharing one shutdown context. Holds the state
+  # database and the credentials, and publishes no port at all.
+  retnd:
+    image: ${IMAGE:-ghcr.io/retnd/retnd:0.5.0}
+    command: ["/retnd-web", "serve", "--profile=generic"]
+
+    user: "${PUID:-1000}:${PGID:-1000}"
+    read_only: true
+    privileged: false
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=64m,mode=1777,uid=${PUID:-1000},gid=${PGID:-1000}
+
+    environment:
+      TMPDIR: "/tmp"
+      # Retention is evaluated against calendar boundaries, so the
+      # timezone is not cosmetic: left at the image's UTC default, the day
+      # an operator thinks a restore point belongs to and the day
+      # retention assigns it to differ for most of the world.
+      TZ: "${TZ:-UTC}"
+      # How loud both containers are (issue #730). Unset is `info`,
+      # exactly what this stack has always emitted; `debug` adds the
+      # per-request diagnostics - the engine's record of what it
+      # served and the Web UI's trace of what the engine answered -
+      # and the two containers' lines name the same correlation id, so
+      # this belongs on both or neither. RETND_DEBUG=1 is the same
+      # switch as the shortcut, and wins if both are set; RM_DEBUG=1
+      # is its deprecated old name (issue #794). Derived from
+      # container/compose.yaml; see docs/deployment.md.
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      LISTEN_ADDR: ":8080"
+      PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-http://localhost:8080}"
+      # Safe here specifically because this container joins only the
+      # private network below, created and destroyed with the stack, whose
+      # only other member is the Web UI container. Never set this on the
+      # Web UI container, which is the edge.
+      TRUST_FORWARDED_HEADERS: "true"
+      # Declared, and declared EMPTY. The canonical engine reads this
+      # variable (container/compose.yaml), so leaving it out here would
+      # be a default nobody chose rather than a decision. Empty is the
+      # decision: it is the peer set a gateway runtime profile trusts a
+      # provider-native identity header from, this adapter selects
+      # `--profile=generic`, and generic has no authentication gateway
+      # at all - `serve` exits 2 rather than start if this is set to
+      # anything on a profile with no gateway to trust. Empty and unset
+      # behave identically in the binary, so this costs nothing and says
+      # which of the two it is.
+      TRUSTED_UPSTREAM_CIDRS: ""
+
+    # Every host path uses the ":?" form, never a ":-" default, exactly as
+    # container/compose.yaml does. Portainer renders the App Template's
+    # env list into a form, and a form field an operator clears has to
+    # stop the deployment rather than silently bind-mount a directory
+    # Docker creates on the OS disk.
+    #
+    # The Host Workflow Runner's three paths are held to that same rule,
+    # and the template offers all three as form fields with defaults, so
+    # a deployment through Portainer always has them. They do NOT default
+    # here the way container/compose.yaml's do: that file's .env is
+    # generated by scripts/install/install_docker_host.py and had to keep
+    # starting installs that predate EPIC L, and this one is a form an
+    # operator fills in. A field somebody clears has to stop the stack.
+    #
+    # They are here because step 9 of
+    # docs/acceptance/portainer-stack-deployment.md tells the
+    # administrator local hooks are AVAILABLE — Portainer runs on an
+    # ordinary Docker host, and the runner installs onto that host with
+    # scripts/install/install_docker_host.py — and without these three
+    # the engine has no socket to dial, no credential to present and no
+    # scripts to read, so an installed and active runner would still
+    # refuse every `NAME.local.sh` step (issue #921).
+    #
+    # Note what is still absent, on the platform where it matters most:
+    # Portainer holds the Docker socket because that is what Portainer
+    # is, and none of these three passes any of it on. The runner holds
+    # the socket's group on the host; this container gains nothing
+    # (docs/runtime-contract.md).
+    volumes:
+      - ${STATE_DIR:?set STATE_DIR to the host directory for the SQLite state directory}:/data/state
+      - ${BACKUP_DIR:?set BACKUP_DIR to the host directory retained artifacts land in}:/data/backups
+      - ${CONFIG_DIR:?set CONFIG_DIR to the host directory holding config.yaml}:/etc/retnd/config
+      - ${KEY_FILE:?set KEY_FILE to the SFTP private key}:/etc/retnd/id_ed25519:ro
+      - ${KNOWN_HOSTS_FILE:?set KNOWN_HOSTS_FILE to the pinned known_hosts file}:/etc/retnd/known_hosts:ro
+      # The hook scripts, READ-ONLY: the engine executes what it reads
+      # here, so a writable mount would be one compromised process away
+      # from running anything on this host.
+      - ${WORKFLOWS_DIR:?set WORKFLOWS_DIR to the host directory holding the workflow hook scripts}:/workflows:ro
+      # The runner's socket directory, and the only directory this
+      # container writes for it: the engine dials
+      # /data/run/workflow-runner.sock, which the runner creates.
+      - ${RUNTIME_DIR:?set RUNTIME_DIR to the host directory the workflow runner's socket appears in}:/data/run
+      # The runner's credential, one FILE and read-only, exactly like the
+      # SSH key and known_hosts above.
+      - ${RUNNER_TOKEN_FILE:?set RUNNER_TOKEN_FILE to the workflow runner's token file}:/etc/retnd/workflow-runner.token:ro
+
+    # The start gate, and a liveness question rather than a health
+    # verdict (issue #206). The Web UI below declares
+    # `depends_on: retnd: condition: service_healthy`, so
+    # whatever this asks stands between an operator and the only
+    # container with a published port. `/retnd status` is
+    # FR-24's backup-freshness verdict and exits non-zero on any
+    # DEGRADED, STALE or FAILING set, and on a fresh install, which has
+    # backed nothing up yet: gating the Web UI on it means a stack an
+    # operator just deployed from the App Template never gets a page at
+    # all.
+    #
+    # Declared here rather than inherited from the image, because the
+    # image's own HEALTHCHECK is deliberately the freshness verdict: it
+    # is the right default for a plain `docker run` and for the headless
+    # `daemon` command, which serves no HTTP and so has no liveness
+    # endpoint to ask. Backup freshness is not lost - read it with
+    # `docker compose exec retnd /retnd status`, or let the
+    # alerts block deliver it.
+    #
+    # Derived from container/compose.yaml, never authored here.
+    healthcheck:
+      test: ["CMD", "/retnd-web", "healthcheck", "--url", "http://127.0.0.1:8080/health/live"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+
+    restart: unless-stopped
+    # The grace period the runtime shuts down inside, declared rather
+    # than left at Docker's own 10s default: the engine finishes the
+    # transfer or the delete it is in the middle of, and a default is not
+    # a contract.
+    stop_grace_period: 30s
+    networks:
+      - internal
+
+  # The Web UI: the shared static bundle plus a reverse proxy to the
+  # engine. The only container with a published port, and the only URL an
+  # operator ever opens. Portainer's "Published ports" link on the stack
+  # view points at this one.
+  web-ui:
+    image: ${IMAGE:-ghcr.io/retnd/retnd:0.5.0}
+    command: ["/retnd-web", "serve-ui", "--profile=generic"]
+
+    depends_on:
+      retnd:
+        condition: service_healthy
+
+    user: "${PUID:-1000}:${PGID:-1000}"
+    read_only: true
+    privileged: false
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=16m,mode=1777,uid=${PUID:-1000},gid=${PGID:-1000}
+
+    environment:
+      TMPDIR: "/tmp"
+      # The same switch as the engine's above, and it has to carry the
+      # same value: at `debug` this container adds its reverse-proxy
+      # trace, which is half of each request's story without the
+      # engine's own line for it.
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      LISTEN_ADDR: ":8080"
+      UPSTREAM_ADDR: "http://retnd:8080"
+
+    # Neither UI_DIR nor UI_ROOT, on purpose: this adapter serves the
+    # bundle compiled into the binary. apps/portainer/README.md has the
+    # measurement behind that decision.
+
+    # No volumes at all: this container never reads config.yaml, the SSH
+    # key, known_hosts, or either data directory.
+
+    healthcheck:
+      test: ["CMD", "/retnd-web", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+
+    restart: unless-stopped
+    # Shorter than the engine's: this container holds no state and no
+    # transfer to finish, so there is nothing for a long grace period to
+    # protect.
+    stop_grace_period: 15s
+    networks:
+      - internal
+
+networks:
+  internal:
