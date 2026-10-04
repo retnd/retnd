@@ -235,15 +235,17 @@ func (c *Client) runProbe(ctx context.Context) (map[string]string, error) {
 	if err != nil {
 		// A refusal can be finished before the payload is. A server that
 		// answers an exec request with a banner and exits (an internal-sftp
-		// account) never reads what it was sent, so the payload write can
-		// fail on the refusal's own ending, and runOnce then reports the
-		// write and hands back the status the server gave. That status with
-		// no marker is the answer, and it is classified as the refusal it
-		// is. Everything else keeps failing: with the marker, or with no
-		// status at all, a failed write means the probe ran over a prefix
-		// of its payload, which proves nothing about the script.
-		if errors.Is(err, ErrTransportLoss) && exit != 0 && !strings.Contains(stdout.String(), probeMarker) {
-			return nil, c.capabilityRefusal(exit, stdout.String(), stderr.String())
+		// account), or runs its own program and exits 0 (a forced command),
+		// never reads what it was sent, so the payload write can fail on
+		// the refusal's own ending, and runOnce then reports the write
+		// along with the status the server gave. That status with no marker
+		// is the answer, and it is classified as the refusal it is.
+		// Everything else keeps failing: with the marker, or with no status
+		// at all, a failed write means the probe ran over a prefix of its
+		// payload, which proves nothing about the script.
+		var answered *answeredWriteError
+		if errors.As(err, &answered) && !strings.Contains(stdout.String(), probeMarker) {
+			return nil, c.capabilityRefusal(answered.status, stdout.String(), stderr.String())
 		}
 
 		return nil, err
