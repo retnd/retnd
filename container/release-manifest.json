@@ -11,7 +11,7 @@
         "retnd-web": "43310f86a3a25ba9b9b64a99b89c2446fe50c7b9b9c11a270274e0d2c77b7319"
       },
       "local_image_id_sha256": "38b6ebd7c6fbfdecfbc630bef77a6cb8c1ff0700f914295ad57e4ad38c3f9496",
-      "registry_digest": null
+      "registry_digest": "sha256:335451480e47e4ab00d5167a09834cec1d2ecfacb499478d7c8fd3504b93c36d"
     },
     {
       "architecture": "arm64",
@@ -20,8 +20,8 @@
         "retnd-web": "f460cdb7d0bfea283e2c7ccef93eb33ea3aa4eb318024f3e40fde1935a395d2f"
       },
       "local_image_id_sha256": "5d0cc7e47b55d29eeeb6f6cb0ca8af743be43e1ecbba7e0c16ad15e031018833",
-      "registry_digest": null
+      "registry_digest": "sha256:60309e216b1f6652cc2735eff7f071acc548b8061529d306e5f81f210d406203"
     }
   ],
-  "index_digest": null
+  "index_digest": "sha256:40168d9fd9855e17bbfdba5b4163d6fafabee80918ff45dda6b72d4ec501f6d3"
 }

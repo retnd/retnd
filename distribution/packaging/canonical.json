@@ -13,27 +13,11 @@
     "repository": "retnd/retnd",
     "tag": "0.5.1",
     "reference": "ghcr.io/retnd/retnd:0.5.1",
-    "published": false,
+    "published": true,
     "note": [
-      "published:false. 0.5.1 is cut but not pushed: container/release-manifest.json carries a",
-      "registry_digest of null per architecture and a null index_digest, and this flag says the",
-      "same thing from the other side. That file and this flag move together:",
-      "TestReleaseManifestRegistryDigestTracksTheCanonicalPublishFlag refuses a published flag",
-      "with no digest and a digest with no flag, because either one alone is a half-truth. The",
-      "release workflow does the push, and the digests are recorded back here afterwards.",
-      "0.5.0 is the newest release that IS published and signed, so anyone who wants a",
-      "release rather than a cut one has 0.5.0; earlier published releases remain on the registry.",
-      "This line names a version and therefore goes stale on its own, which it already did",
-      "twice: it said 0.3.0 through the whole of 0.3.1 and 0.3.2, and it went on saying 0.3.2",
-      "after 0.3.3 was pushed. The durable answer is the git history of this file, where each",
-      "`Record <version>'s registry digests` commit is one real push, and",
-      "`docker buildx imagetools inspect ghcr.io/retnd/retnd:<version>` asks the",
-      "registry directly.",
-      "This reference is the one string every provider package must carry, so pointing the",
-      "project at a different registry stays a one-line change here rather than an edit in four",
-      "metadata formats. Every acceptance procedure in docs/acceptance/ keeps its step 0 for a",
-      "deployment that cannot reach ghcr.io (push to your own registry, or docker save/load),",
-      "and every profile keeps the reference substitutable."
+      "published:true. 0.5.1 was published by .github/workflows/release.yml from the append-only release branch.",
+      "container/release-manifest.json records the index digest and each linux architecture digest read back from GHCR after the push.",
+      "The installer carries the same immutable index digest; distribution/packaging tests refuse any disagreement among these three records."
     ]
   },
   "architectures": [
