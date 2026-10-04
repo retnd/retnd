@@ -40,6 +40,9 @@ import {
 import type { SetEditSnapshot } from "@shared/state/backupSetDetailNodes";
 import { PageHeader } from "@shared/components/PageHeader";
 import { HealthBadge } from "@shared/components/StatusBadge";
+import { EngineBadge, VerificationBadge } from "@shared/components/EngineBadge";
+import { MetricCard } from "@shared/components/MetricCard";
+import { useAsync } from "@shared/hooks/useAsync";
 import { FingerprintDisplay } from "@shared/components/FingerprintDisplay";
 import { ActivityTimeline } from "@shared/components/ActivityTimeline";
 import { Icon } from "@shared/design-system/icons";
@@ -48,6 +51,12 @@ import { useActivityFeed } from "./useActivityFeed";
 import { emitBrowserNotice } from "@shared/state/browserNotices";
 import { WarningBanner } from "@shared/components/WarningBanner";
 import { HaltBanner } from "@shared/components/HaltBanner";
+// EPIC L (issue #814): this set's hooks, and the hold that stops it
+// running at all. The hold is read here rather than inside the card,
+// because it gates a control in the page header — the per-set Run —
+// and a card cannot disable a button it does not own.
+import { WorkflowRecoveryBanner, useWorkflowHold } from "@shared/components/WorkflowRecoveryBanner";
+import { BackupSetWorkflowCard } from "@shared/pages/BackupSetWorkflowCard";
 import { ConfirmationDialog } from "@shared/components/ConfirmationDialog";
 import { RemoveBackupSetDialog } from "@shared/components/RemoveBackupSetDialog";
 import { SSHAuthWizard } from "@shared/components/SSHAuthWizard";
@@ -55,13 +64,24 @@ import { HelpField } from "@shared/components/FieldHelp";
 import { ErrorState } from "@shared/components/EmptyState";
 import { RunControlNotice } from "@shared/components/RunControlNotice";
 import { useRunControls } from "@shared/hooks/useRunControls";
+import { useHoverTitle } from "@shared/hooks/useTooltips";
+import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
+// Issue #788 promoted this page's own Cell/Row out into components/ so
+// EPIC K's nine new screens could reuse them rather than copy them a
+// third time (docs/design/788-incremental-ui-mockup.md). The shapes are
+// unchanged, including the accessible-name gap this page's decision
+// recorded — see Definitions.tsx.
+import { Cell, Row } from "@shared/components/Definitions";
+import { BackupSetConfigurationCard } from "@shared/pages/BackupSetConfigurationCard";
+import type { TooltipId } from "@shared/tooltips/tooltips";
 import { RetentionPreviewDialog } from "./RetentionPreviewDialog";
 import { BackupSetRetentionCard } from "./BackupSetRetentionCard";
 import { EDIT_FIELDS, readEditFields, visibleEditFields, withCompanions } from "./backupSetEditFields";
 import type { EditField, EditFieldKey } from "./backupSetEditFields";
 import type { BackupSetPatch, RunningWork } from "@shared/api/contracts";
 import { apiErrorOf, describeFailure } from "@shared/api/failure";
-import { bytes, clock, relativeAge } from "@shared/utilities/format";
+import { bytes, clock, duration, measured, relativeAge } from "@shared/utilities/format";
+import { snapshotRetentionPath, snapshotsPath } from "@shared/utilities/routes";
 
 /**
  * How often an open edit form renews its hold (issue #350).
@@ -90,12 +110,21 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   const setId = source && setName ? source + "/" + setName : "";
   const api = useApi();
   const navigate = useNavigate();
+  // #829: the two run controls' hover copy is tooltip text like any
+  // other, so it goes when the operator has turned tooltips off. Resolved
+  // here, above this page's early returns, because that is where a hook
+  // can be called.
+  const hoverTitle = useHoverTitle();
   // B2.2 (#97) — graph-backed, not page-local useAsync state: an edit
   // form opened against `set.data` needs a value with a real commit
   // history behind it to check staleness against (see
   // state/backupSetDetailNodes.ts's captureSetEditSnapshot/isSetEditStale).
   const set = useResource(currentSetDetailNode, () => api.getSet(setId), [api, setId]);
-  const activity = useResource(currentSetActivityNode, () => api.listActivity(), [api]);
+  // One page of the deployment-wide feed, narrowed to this set below.
+  // Deliberately the service's default page with no cursor: this panel is
+  // "what happened here lately", and a reader following the record
+  // further back goes to the Activity page, which pages (#730).
+  const activity = useResource(currentSetActivityNode, () => api.listActivity().then((page) => page.events), [api]);
   // Issue #597. Both run controls on this page go through one hook: it
   // owns the idempotency key, refuses before sending when the
   // configuration revision has not loaded, and turns whatever comes back
@@ -112,6 +141,11 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   // longer holds a version of its own. Taking one here as well would be a
   // second answer to the same question.
   const run = useRunControls({ kind: "set", id: setId });
+  // EPIC L (#814). One read of the deployment's hold set, filtered to
+  // this set, because that is the route the API offers and the holds are
+  // what the next run is actually refused against — a run row's own
+  // recovery_state would only be a prediction of that refusal.
+  const workflowHold = useWorkflowHold(setId);
   // The live feed for THIS set, narrowed by the `backup_set` the route
   // already takes (issue #596). It is held here rather than inside the
   // panel because the Test Connection button below asks it for a fresh
@@ -121,6 +155,17 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   // timer next fires.
   const activityFeed = useActivityFeed(setId);
   const [testing, setTesting] = useState(false);
+  // Issue #852: what the last connection test said about WRITING to this
+  // source, or null when no test has answered in this session.
+  //
+  // Three states rather than a boolean, because "not proven yet" is not
+  // "read-only": a page that disabled the delete-from-source control
+  // before anything had been checked would hide a control an operator
+  // may well be entitled to use. So null leaves it as it was, false
+  // disables it, and a refusal from the server sets false too (see
+  // toggleReadOnly), which is how an operator who never pressed Test
+  // connection still gets the explanation rather than a silent no-op.
+  const [sourceWritable, setSourceWritable] = useState<boolean | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
   // Issue #592. The SSH surface used to be two boxes in the edit list
@@ -309,10 +354,14 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   const runConnectionTest = async () => {
     setTesting(true);
     try {
-      await api.testConnection(s.id);
+      const result = await api.testConnection(s.id);
+      // The steps are not rendered here (see above); this one field is
+      // KEPT, because it is not a step, it is what the set may be
+      // configured to do next (issue #852).
+      setSourceWritable(result.writable);
       activityFeed.refresh();
     } catch (e) {
-      const failure = describeFailure(e, "Backup Manager could not test this backup set's connection.");
+      const failure = describeFailure(e, "retnd could not test this backup set's connection.");
       emitBrowserNotice({
         outcome: apiErrorOf(e) === null ? "unreachable" : "refused",
         code: apiErrorOf(e)?.code ?? "unknown",
@@ -325,6 +374,42 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
       setTesting(false);
     }
   };
+
+  /**
+   * Turns this set's read-only declaration on or off, and keeps what the
+   * server says about it (issue #852).
+   *
+   * The refusal it can now get is ErrSourceNotWritable, answered as 409
+   * BACKUP_SET_SOURCE_NOT_WRITABLE when withdrawing read-only against a
+   * source these credentials cannot write to. It is recorded on this
+   * set's terminal like every other browser-side outcome AND remembered,
+   * so the control it came from disables itself with the explanation
+   * instead of inviting the same refusal again.
+   */
+  const toggleReadOnly = async () => {
+    try {
+      await api.setReadOnly(s.source, s.set, !s.readOnly);
+      set.reload();
+    } catch (e) {
+      const code = apiErrorOf(e)?.code ?? null;
+      if (code === "BACKUP_SET_SOURCE_NOT_WRITABLE") setSourceWritable(false);
+      const failure = describeFailure(e, "retnd could not change this backup set's read-only status.");
+      emitBrowserNotice({
+        outcome: code === null ? "unreachable" : "refused",
+        code: code ?? "unknown",
+        message: failure.message,
+        ...(failure.remediation ? { remediation: failure.remediation } : {}),
+        ...(failure.correlationId ? { correlationId: failure.correlationId } : {}),
+        backupSetIds: [s.id]
+      });
+    }
+  };
+
+  // Issue #852: only the direction that ENABLES deleting from the source
+  // is blocked, and only on proof. A set that is not read-only is
+  // already deleting from its source, and taking that control away would
+  // strand it in a posture it could not leave.
+  const deleteFromSourceBlocked = s.readOnly && sourceWritable === false;
 
   // visibleEditFields, not EDIT_FIELDS: a conditional box that is not on
   // screen (the stable-size window, when another completion method is
@@ -348,7 +433,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
       const hold = await api.takeEditHold(source, setName);
       setStopped(hold.stopped);
     } catch (e) {
-      setEnterError(describeFailure(e, "Backup Manager could not pause this backup set for editing.").message);
+      setEnterError(describeFailure(e, "retnd could not pause this backup set for editing.").message);
       return;
     }
     const loaded = readEditFields(s);
@@ -376,7 +461,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
       // race the hold exists to prevent, and doing it silently would be
       // worse than saying so.
       setEnterError(
-        describeFailure(e, "Backup Manager could not check whether a backup is running for this set.").message
+        describeFailure(e, "retnd could not check whether a backup is running for this set.").message
       );
       return;
     }
@@ -494,7 +579,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
       // an explanation is added. Dropping back to view mode here would
       // discard the operator's work and show them the old value as
       // though nothing had happened.
-      const message = describeFailure(e, "Backup Manager could not save this change.").message;
+      const message = describeFailure(e, "retnd could not save this change.").message;
       const kind = REFUSALS_NEEDING_AN_ANSWER[apiErrorOf(e)?.code ?? ""];
       if (kind) {
         // Not a field error. The service is not saying the value is
@@ -608,16 +693,29 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     <>
       <PageHeader
         back={{ label: "Backup sets", onClick: () => requestExit("backup-sets") }}
+        tip="sets.detail.page"
         title={
           <span style={{ display: "inline-flex", alignItems: "center", gap: 11 }}>
             {s.name}
-            <HealthBadge state={s.state} />
+            <InfoTooltip id="sets.detail.health">
+              <HealthBadge state={s.state} />
+            </InfoTooltip>
+            {/* EPIC K (#788): which engine runs this set, beside its
+                name rather than three cards down in the configuration
+                panel. Everything below reads differently depending on
+                this answer — a snapshot history or an artifact chain, a
+                repository domain or a completion method — so it belongs
+                where a reader arrives, not where it happens to be
+                configured. */}
+            <EngineBadge engine={s.engine} />
           </span>
         }
         subtitle={
-          <span className="mono">
-            {s.host + ":" + s.port + " \u00b7 " + s.remoteFolder}
-          </span>
+          <InfoTooltip id="sets.detail.endpoint">
+            <span className="mono">
+              {s.host + ":" + s.port + " \u00b7 " + s.remoteFolder}
+            </span>
+          </InfoTooltip>
         }
         actions={
           <>
@@ -635,7 +733,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
                 cycle (FR-6), which is core's job and not a reason to
                 take the fleet's run away from the operator (#231). */}
             {/* The per-set run this page has never had (#597). The
-                engine half has existed since FR-1 behind `rbm
+                engine half has existed since FR-1 behind `retnd
                 fetch --backup-set`; what was missing was a way to reach
                 it in the serving process, so the work takes the engine's
                 own single-flight lock and lands in its feeds instead of
@@ -645,14 +743,38 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
                 disabled set, and offering a control here that contradicts
                 that would need explaining every time. An operator who
                 means it can still run the command the notice prints. */}
+            {/* EPIC L (#814): unavailable while a workflow run is held
+                for this set. The engine refuses the next run of a held
+                set outright, so leaving this pressable would be offering
+                a control that answers 409 every time — which reads as
+                broken rather than as refused. The banner below is the
+                only way out, and it offers both of them.
+
+                Also unavailable while the hold list has not been read
+                yet: the gate is "no hold has been reported", and before
+                the first answer nothing has been reported either way, so
+                drawing this as available would be guessing. */}
             <button
               className="btn btn--primary"
-              disabled={readOnly || run.busy || !s.enabled}
-              title={
-                s.enabled
-                  ? "Runs one pass over this backup set only."
-                  : "This backup set is disabled, so a run would not visit it."
+              disabled={
+                readOnly ||
+                run.busy ||
+                !s.enabled ||
+                workflowHold.hold !== null ||
+                workflowHold.loading ||
+                workflowHold.error !== null
               }
+              title={hoverTitle(
+                workflowHold.hold
+                  ? "A workflow run for this set is held for recovery, so the engine will refuse a run until it is settled."
+                  : workflowHold.loading
+                    ? "Checking whether a workflow run is holding this backup set."
+                    : workflowHold.error !== null
+                      ? "Whether a workflow run is holding this set could not be read, so a run is not offered."
+                      : s.enabled
+                        ? "Runs one pass over this backup set only."
+                        : "This backup set is disabled, so a run would not visit it."
+              )}
               onClick={() => run.runBackupSet(s.id)}
             >
               Run this backup set
@@ -660,7 +782,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
             <button
               className="btn"
               disabled={readOnly || run.busy}
-              title="Runs one pass over every enabled backup set, not only this one."
+              title={hoverTitle("Runs one pass over every enabled backup set, not only this one.")}
               onClick={run.runAll}
             >
               Run all enabled sets
@@ -676,13 +798,15 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
                 picks them up), and a refusal that never reached the
                 engine at all is written into that same terminal from
                 here rather than being swallowed. */}
-            <button
-              className="btn"
-              disabled={readOnly || testing}
-              onClick={() => void runConnectionTest()}
-            >
-              {testing ? "Testing\u2026" : "Test connection"}
-            </button>
+            <InfoTooltip id="sets.detail.test-connection">
+              <button
+                className="btn"
+                disabled={readOnly || testing}
+                onClick={() => void runConnectionTest()}
+              >
+                {testing ? "Testing\u2026" : "Test connection"}
+              </button>
+            </InfoTooltip>
             {/* Issue #350: Edit is a mode, so this one button is both the
                 way in and the way out. Read-only keeps it unavailable
                 exactly as it always has. */}
@@ -696,15 +820,19 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
               // unsaved" and then re-sends something already saved is
               // lying about its scope, which is the thing this issue is
               // about.
-              <button
-                className="btn btn--primary"
-                disabled={savingFields.length > 0}
-                onClick={() => void saveAllAndExit()}
-              >
-                SAVE ALL &amp; EXIT EDIT
-              </button>
+              <InfoTooltip id="sets.detail.save-all">
+                <button
+                  className="btn btn--primary"
+                  disabled={savingFields.length > 0}
+                  onClick={() => void saveAllAndExit()}
+                >
+                  SAVE ALL &amp; EXIT EDIT
+                </button>
+              </InfoTooltip>
             ) : (
-              <button className="btn" disabled={readOnly} onClick={() => void onEditPressed()}>Edit</button>
+              <InfoTooltip id="sets.detail.edit">
+                <button className="btn" disabled={readOnly} onClick={() => void onEditPressed()}>Edit</button>
+              </InfoTooltip>
             )}
             {/* Issue #591: the way out that writes nothing. Caution tier
                 rather than primary, beside the exit that saves, and
@@ -720,15 +848,39 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
                 point of this control, so it waits the moment out rather
                 than printing something false. */}
             {editing ? (
-              <button
-                className="btn btn--caution"
-                disabled={savingFields.length > 0}
-                onClick={() => requestExit("edit-mode")}
-              >
-                CANCEL &amp; EXIT EDIT MODE
-              </button>
+              <InfoTooltip id="sets.detail.cancel-edit">
+                <button
+                  className="btn btn--caution"
+                  disabled={savingFields.length > 0}
+                  onClick={() => requestExit("edit-mode")}
+                >
+                  CANCEL &amp; EXIT EDIT MODE
+                </button>
+              </InfoTooltip>
             ) : null}
-            <button className="btn" disabled={readOnly} onClick={() => setPreviewOpen(true)}>Preview retention</button>
+            {/* EPIC K's per-set screens (issue #788), and only for the
+                engine that has them: every incremental read is refused
+                outright for an artifact set
+                (BACKUP_SET_NOT_INCREMENTAL), so offering the link here
+                would be offering a page that can only explain itself.
+                The set's own engine is on the list read, which is why
+                this needs no probe of its own. */}
+            {s.engine === "kopia" ? (
+              <>
+                <button className="btn" onClick={() => navigate(snapshotsPath(s.source, s.set))}>
+                  Snapshots
+                </button>
+                <button
+                  className="btn"
+                  onClick={() => navigate(snapshotRetentionPath(s.source, s.set))}
+                >
+                  Snapshot retention
+                </button>
+              </>
+            ) : null}
+            <InfoTooltip id="sets.detail.preview-retention" alignEnd>
+              <button className="btn" disabled={readOnly} onClick={() => setPreviewOpen(true)}>Preview retention</button>
+            </InfoTooltip>
           </>
         }
       />
@@ -748,6 +900,35 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
           manager will not offer to perform (§77 invariant 5). */}
       <HaltBanner set={s} />
 
+      {/* EPIC L (#814). Above the panels, beside HaltBanner, because it
+          is a fact about the whole set and because it is the only thing
+          on screen explaining why the per-set Run control is
+          unavailable. A held set keeps every read on this page: an
+          operator diagnosing a hold needs the configuration, the
+          validation and the run that caused it. */}
+      {workflowHold.hold ? (
+        <div style={{ marginBottom: 14 }}>
+          <WorkflowRecoveryBanner
+            hold={workflowHold.hold}
+            readOnly={readOnly}
+            onSettled={workflowHold.reload}
+          />
+        </div>
+      ) : workflowHold.error ? (
+        <div style={{ marginBottom: 14 }}>
+          {/* An unreadable hold list is said out loud rather than
+              treated as "no holds": the second reading would offer a Run
+              the engine is about to refuse. */}
+          <WarningBanner
+            tone="warn"
+            title="Whether a workflow run is holding this backup set could not be read"
+            dismissKey={workflowHold.error}
+          >
+            {"Running this set is unavailable until that read succeeds (" + workflowHold.error + ")."}
+          </WarningBanner>
+        </div>
+      ) : null}
+
       {/* Issue #624: a backup set nobody ever proved, said out loud.
           This is what stops `--no-verify` being a hole rather than an
           escape hatch: the sentence the command printed was read once, by
@@ -766,9 +947,11 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
             tone="warn"
             title="This connection has never been proven"
             actions={
-              <button className="btn btn--sm" disabled={readOnly || testing} onClick={() => void runConnectionTest()}>
-                {testing ? "Testing\u2026" : "Test connection"}
-              </button>
+              <InfoTooltip id="sets.detail.test-connection" alignEnd>
+                <button className="btn btn--sm" disabled={readOnly || testing} onClick={() => void runConnectionTest()}>
+                  {testing ? "Testing\u2026" : "Test connection"}
+                </button>
+              </InfoTooltip>
             }
           >
             This backup set was created without a connection test, so nothing has shown
@@ -792,7 +975,9 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
             tone="warn"
             title="This backup set changed since you opened edit mode"
             actions={
-              <button className="btn btn--sm" onClick={reloadLatestValues}>Reload latest values</button>
+              <InfoTooltip id="sets.detail.reload-values" alignEnd>
+                <button className="btn btn--sm" onClick={reloadLatestValues}>Reload latest values</button>
+              </InfoTooltip>
             }
           >
             Someone (or something) else saved a change to this set first. Nothing from
@@ -808,16 +993,20 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
             title={REFUSAL_TITLE[refusal.kind]}
             actions={
               <>
-                <button
-                  className="btn btn--sm btn--primary"
-                  disabled={savingFields.length > 0}
-                  onClick={() => void confirmRefusal()}
-                >
-                  Save anyway
-                </button>
-                <button className="btn btn--sm" onClick={() => setRefusal(null)}>
-                  Leave it as it was
-                </button>
+                <InfoTooltip id="sets.detail.save-anyway">
+                  <button
+                    className="btn btn--sm btn--primary"
+                    disabled={savingFields.length > 0}
+                    onClick={() => void confirmRefusal()}
+                  >
+                    Save anyway
+                  </button>
+                </InfoTooltip>
+                <InfoTooltip id="sets.detail.leave-as-was" alignEnd>
+                  <button className="btn btn--sm" onClick={() => setRefusal(null)}>
+                    Leave it as it was
+                  </button>
+                </InfoTooltip>
               </>
             }
           >
@@ -829,12 +1018,22 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
       {editing && stopped ? (
         <div style={{ marginBottom: 14 }}>
           <WarningBanner tone="info" title="A backup was stopped for this edit">
-            {"Backup Manager stopped " +
+            {"retnd stopped " +
               (stopped.artifact || "the cycle") +
               " at the " + stopped.stage + " stage. It stays incomplete rather than counting as a finished backup, and the next cycle after you leave edit mode picks it up again."}
           </WarningBanner>
         </div>
       ) : null}
+
+      {/* EPIC K (#788), design screen 6: what this set's engine last
+          actually did. Only for the incremental engine, and not as a
+          courtesy — an artifact set has no snapshot history at all and
+          every incremental read is refused for one
+          (BACKUP_SET_NOT_INCREMENTAL), so asking would be asking a
+          question with only an error for an answer. The artifact
+          treatment of the same question is the backup chain and the
+          completion method already on this page. */}
+      {s.engine === "kopia" ? <NewestSnapshotStrip source={s.source} set={s.set} /> : null}
 
       <div
         style={{
@@ -843,7 +1042,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
         }}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
-          <Section title="Overview">
+          <Section title="Overview" tip="sets.detail.overview">
             <dl
               style={{
                 margin: 0, display: "grid",
@@ -851,14 +1050,15 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
                 gap: "15px 18px", fontSize: 13
               }}
             >
-              <Cell label="Newest known-good" value={relativeAge(s.newestKnownGoodAt)} mono />
-              <Cell label="Last successful run" value={relativeAge(s.lastRunAt)} mono />
+              <Cell label="Newest known-good" value={relativeAge(s.newestKnownGoodAt)} mono tip="sets.detail.newest-known-good" />
+              <Cell label="Last successful run" value={relativeAge(s.lastRunAt)} mono tip="sets.detail.last-run" />
               {/* "Not reported", not "0 \u00b7 0 B" and not "every 0h". Both
                   of these were literals in api/client.ts on every real
                   deployment, and a zero here is a claim about how much a
                   set is keeping. */}
               <Cell
                 label="Retained"
+                tip="sets.detail.retained"
                 value={
                   s.retainedCount === null || s.retainedBytes === null
                     ? "Not reported"
@@ -868,10 +1068,11 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
               />
               <Cell
                 label="Expected cadence"
+                tip="sets.detail.expected-cadence"
                 value={s.expectedIntervalHours === null ? "Not reported" : "every " + s.expectedIntervalHours + "h"}
                 mono
               />
-              <Cell label="State" value={s.stateNote} />
+              <Cell label="State" value={s.stateNote} tip="sets.detail.state" />
               {/* This cell was labelled "Remote cleanup" and read
                   `s.enabled`, which are two different facts. `enabled` is
                   config.BackupSet.Disabled inverted, and that field's own
@@ -888,6 +1089,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
               <Cell
                 label="Collection"
                 value={s.enabled ? "Enabled" : "Disabled \u2014 skipped by every run"}
+                tip="sets.detail.collection"
               />
               {/* Issue #282/#316: the axis that decides whether the
                   source original is deleted after a commit, which is
@@ -901,6 +1103,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
                   this exact figure. */}
               <Cell
                 label="Read-only source"
+                tip="sets.detail.read-only"
                 value={
                   s.readOnly
                     ? s.readOnlyRetainedCount > 0
@@ -912,14 +1115,27 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
             </dl>
           </Section>
 
+          {/* EPIC K (issue #788). What this set is configured to DO,
+              drawn for the engine it runs: an incremental set's
+              repository domain, consistency declaration and verification
+              budget, or an artifact set's completion and validation. It
+              sits above the inline edit list rather than inside it
+              because two of its fields are create-only and the rest are
+              closed questions with consequences, which is a card of
+              radio choices and not a row of text boxes. */}
+          <Section title="Configuration" tip="sets.detail.configuration">
+            <BackupSetConfigurationCard set={s} readOnly={readOnly} onSaved={set.reload} />
+          </Section>
+
           {editing && draft && baseline ? (
-            <Section title="Edit this backup set">
+            <Section title="Edit this backup set" tip="sets.detail.edit-section">
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                 {visibleEditFields(draft).map((field) => (
                   <EditRow
                     key={field.key}
                     field={field}
                     value={draft[field.key]}
+                    placeholder={field.placeholder?.(s)}
                     dirty={draft[field.key] !== baseline[field.key]}
                     saving={savingFields.includes(field.key)}
                     error={fieldErrors[field.key]}
@@ -940,7 +1156,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
             </Section>
           ) : null}
 
-          <Section title="Connection">
+          <Section title="Connection" tip="sets.detail.connection">
             {/* Every value in here is one the service read out of this
                 set's own known_hosts. It used to be one literal and one
                 empty string: the algorithm was "ssh-ed25519" written into
@@ -954,6 +1170,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
               host={s.host + ":" + s.port}
               keys={s.trustedHostKeys}
               trustedAt={s.trustedHostKeyRecordedAt}
+              tip="sets.detail.host-keys"
             />
             <p style={{ margin: "12px 0 0", fontSize: "var(--text-sm)", color: "var(--text-3)" }}>
               The private key never leaves this NAS and is never displayed.
@@ -966,24 +1183,29 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
                 refusal, and proves the whole path before it writes
                 anything. */}
             <div style={{ marginTop: 12 }}>
-              <button className="btn btn--sm" onClick={() => setSSHWizardOpen(true)}>
-                Change SSH authentication
-              </button>
-              <p style={{ margin: "8px 0 0", fontSize: "var(--text-sm)", color: "var(--text-3)" }}>
-                {s.sshKeyId === ""
-                  ? "This set uses a key this deployment does not manage, so there is no key id to show. The wizard can point it at one this deployment holds."
-                  : "Authenticating with key " + s.sshKeyId + "."}
-              </p>
+              <InfoTooltip id="sets.detail.change-ssh">
+                <button className="btn btn--sm" onClick={() => setSSHWizardOpen(true)}>
+                  Change SSH authentication
+                </button>
+              </InfoTooltip>
+              <InfoTooltip id="sets.detail.ssh-key" block>
+                <p style={{ margin: "8px 0 0", fontSize: "var(--text-sm)", color: "var(--text-3)" }}>
+                  {s.sshKeyId === ""
+                    ? "This set uses a key this deployment does not manage, so there is no key id to show. The wizard can point it at one this deployment holds."
+                    : "Authenticating with key " + s.sshKeyId + "."}
+                </p>
+              </InfoTooltip>
             </div>
           </Section>
 
-          <Section title="Backup discovery">
+          <Section title="Backup discovery" tip="sets.detail.discovery">
             <dl style={{ margin: 0, display: "grid", gridTemplateColumns: "172px 1fr", gap: "11px 16px", fontSize: 13 }}>
-              <Row label="Remote folder" value={s.remoteFolder} mono />
-              <Row label="Include" value={s.includePatterns.join(", ") || "\u2014"} mono />
-              <Row label="Exclude" value={s.excludePatterns.join(", ") || "\u2014"} mono />
+              <Row label="Remote folder" value={s.remoteFolder} mono tip="sets.detail.remote-folder" />
+              <Row label="Include" value={s.includePatterns.join(", ") || "\u2014"} mono tip="sets.detail.include" />
+              <Row label="Exclude" value={s.excludePatterns.join(", ") || "\u2014"} mono tip="sets.detail.exclude" />
               <Row
                 label="Completion method"
+                tip="sets.detail.completion-method"
                 value={
                   <>
                     {methodLabel}
@@ -1002,7 +1224,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
             ) : null}
           </Section>
 
-          <Section title="Activity">
+          <Section title="Activity" tip="sets.detail.activity">
             {/* Two feeds, side by side, because neither can be built from
                 the other (types/activity.ts argues this at length). The
                 panel is the bounded in-memory tail that knows a transfer
@@ -1014,6 +1236,13 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
               <ActivityTimeline events={events} dense />
             </div>
           </Section>
+
+          {/* EPIC L (#814). Below Activity rather than above it: an
+              operator arriving here is usually asking what this set did,
+              and the hooks either side of that are the next question,
+              not the first one. A set with no hooks configured anywhere
+              renders one sentence here and nothing else. */}
+          <BackupSetWorkflowCard source={s.source} set={s.set} readOnly={readOnly} />
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
@@ -1023,7 +1252,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
               names which policy retains this set, shows the chain that
               policy actually is, and carries the three operations that
               change it. */}
-          <Section title="Retention">
+          <Section title="Retention" tip="sets.detail.retention">
             <BackupSetRetentionCard
               source={s.source}
               set={s.set}
@@ -1032,7 +1261,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
             />
           </Section>
 
-          <Section title="Validation">
+          <Section title="Validation" tip="sets.detail.validation">
             <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 10, fontSize: 13 }}>
               {(["transfer", "checksum", "application"] as const).map((v) => {
                 const on = s.validations.includes(v);
@@ -1045,10 +1274,12 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
                     <span aria-hidden="true" style={{ color: on ? "var(--ok)" : "var(--text-3)" }}>
                       {on ? <Icon name="success" /> : "\u2013"}
                     </span>
-                    <span>
-                      {v === "transfer" ? "Transfer verification" : v === "checksum" ? "Checksum verification (SHA-256)" : "Application validation"}
-                      {on ? null : <span style={{ color: "var(--text-3)" }}> — not enabled</span>}
-                    </span>
+                    <InfoTooltip id={VALIDATION_TIPS[v]}>
+                      <span>
+                        {v === "transfer" ? "Transfer verification" : v === "checksum" ? "Checksum verification (SHA-256)" : "Application validation"}
+                        {on ? null : <span style={{ color: "var(--text-3)" }}> — not enabled</span>}
+                      </span>
+                    </InfoTooltip>
                   </li>
                 );
               })}
@@ -1056,11 +1287,13 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
           </Section>
 
           {/* Caution and destructive actions live apart from ordinary ones (§11, §35). */}
-          <Section title="Set management">
+          <Section title="Set management" tip="sets.detail.management">
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <button className="btn btn--caution" disabled={readOnly} onClick={() => api.setEnabled(s.source, s.set, !s.enabled).then(set.reload)}>
-                {s.enabled ? "Disable backup set" : "Enable backup set"}
-              </button>
+              <InfoTooltip id="sets.detail.toggle-enabled" block>
+                <button className="btn btn--caution" disabled={readOnly} onClick={() => api.setEnabled(s.source, s.set, !s.enabled).then(set.reload)}>
+                  {s.enabled ? "Disable backup set" : "Enable backup set"}
+                </button>
+              </InfoTooltip>
               {/* Issue #316: the read-only counterpart to the
                   enable/disable toggle above, following the same
                   CRUD-parity shape (a dedicated toggle route, not a
@@ -1070,19 +1303,44 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
                   (core/service.SetBackupSetReadOnly's own doc) — so it
                   sits in the caution tier beside Disable, not the
                   destructive one below. */}
-              <button
-                className="btn btn--caution"
-                disabled={readOnly}
-                onClick={() => api.setReadOnly(s.source, s.set, !s.readOnly).then(set.reload)}
+              {/* Issue #852: withdrawing read-only is the direction that
+                  asks this deployment to DELETE from the source, so it
+                  is unavailable when the connection test has proven
+                  these credentials cannot write there. Disabled with the
+                  reason in a tooltip, rather than left pressable to be
+                  refused by the server: a control that answers 409 every
+                  time is a control that reads as broken. Declaring
+                  read-only is never blocked. */}
+              <InfoTooltip
+                id={deleteFromSourceBlocked ? "source.read-only-credentials" : "sets.detail.toggle-read-only"}
+                block
               >
-                {s.readOnly ? "Allow remote deletion again" : "Declare source read-only"}
-              </button>
-              <button className="btn btn--destructive" disabled={readOnly} onClick={() => setPreviewOpen(true)}>
-                Apply retention now…
-              </button>
-              <button className="btn btn--destructive" disabled={readOnly} onClick={() => setRemoveOpen(true)}>
-                Remove set configuration…
-              </button>
+                <button
+                  className="btn btn--caution"
+                  disabled={readOnly || deleteFromSourceBlocked}
+                  aria-describedby={deleteFromSourceBlocked ? "set-read-only-forced" : undefined}
+                  onClick={() => void toggleReadOnly()}
+                >
+                  {s.readOnly ? "Allow remote deletion again" : "Declare source read-only"}
+                </button>
+              </InfoTooltip>
+              {deleteFromSourceBlocked ? (
+                <p id="set-read-only-forced" style={{ margin: 0, fontSize: "var(--text-sm)", color: "var(--text-3)" }}>
+                  These SSH credentials are read-only on the source, so retnd cannot delete
+                  there. Grant the account write permission on the source to enable deleting
+                  the original after backup.
+                </p>
+              ) : null}
+              <InfoTooltip id="sets.detail.apply-retention" block>
+                <button className="btn btn--destructive" disabled={readOnly} onClick={() => setPreviewOpen(true)}>
+                  Apply retention now…
+                </button>
+              </InfoTooltip>
+              <InfoTooltip id="sets.detail.remove" block>
+                <button className="btn btn--destructive" disabled={readOnly} onClick={() => setRemoveOpen(true)}>
+                  Remove set configuration…
+                </button>
+              </InfoTooltip>
               <p style={{ margin: 0, fontSize: "var(--text-sm)", color: "var(--text-3)" }}>
                 Removing configuration never deletes retained backups from NAS storage.
               </p>
@@ -1111,7 +1369,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
         }}
       >
         <p style={{ margin: 0 }}>
-          {"Backup Manager is " +
+          {"retnd is " +
             (warnAbout?.stage ?? "") +
             (warnAbout?.artifact ? " " + warnAbout.artifact : " this set's current cycle") +
             " right now. Editing this set stops it, and holds the schedule until you leave edit mode."}
@@ -1183,6 +1441,126 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
 }
 
 /**
+ * The newest snapshot this incremental set holds, as the five figures
+ * EPIC K is about (design screen 6).
+ *
+ * # Why the figures and not a sentence
+ *
+ * "Last run: 4 hours ago" is what an artifact set can say, and it is all
+ * this page said for an incremental one. The incremental engine's whole
+ * claim is the relationship between them — a tree of this logical size
+ * cost that much storage because the repository already held the rest —
+ * and a single total would report a deduplicating repository as growing
+ * by the size of the source every night. Four byte counts, never one, in
+ * the same words the snapshot list and the inspector use.
+ *
+ * # Absent is not zero
+ *
+ * Every counter here is nullable on the wire and goes through
+ * `measured()`, for the reason types/snapshot.ts argues at length: a run
+ * adopted by crash reconciliation has counters nobody took, and "reused
+ * 0 bytes" is a measurement describing a repository that deduplicated
+ * nothing.
+ *
+ * # It has its own read, and its own failure
+ *
+ * The set comes off the shared graph; the snapshots do not, because this
+ * is the only surface on this page that wants them. A refused read says
+ * so in one quiet line rather than through an ErrorState: the set's own
+ * page is still worth reading when its snapshot history is not
+ * available, and a red panel here would report the sub-read as the
+ * page's condition.
+ */
+function NewestSnapshotStrip({ source, set }: { source: string; set: string }) {
+  const api = useApi();
+  const navigate = useNavigate();
+  const snapshots = useAsync(() => api.listSnapshots(source, set), [api, source, set]);
+
+  if (snapshots.error)
+    return (
+      <section className="card" aria-label="Newest snapshot">
+        <div className="card__body">
+          <p style={{ margin: 0, fontSize: "var(--text-sm)", color: "var(--text-3)" }}>
+            {"This set's snapshot history could not be read: " + snapshots.error.message}
+          </p>
+        </div>
+      </section>
+    );
+
+  const newest = snapshots.data?.[0] ?? null;
+  if (newest === null)
+    return snapshots.data === null ? null : (
+      <section className="card" aria-label="Newest snapshot">
+        <div className="card__body">
+          <p style={{ margin: 0, fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
+            {"No snapshot yet. A run that commits a manifest is what puts one here, and its " +
+              "figures then say what the repository actually stored."}
+          </p>
+        </div>
+      </section>
+    );
+
+  return (
+    <section className="card" aria-label="Newest snapshot" style={{ marginBottom: 14 }}>
+      <div
+        className="card__header"
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
+      >
+        <h2 className="eyebrow">
+          {"Newest snapshot \u00b7 " + relativeAge(newest.startedAt)}
+        </h2>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <VerificationBadge
+            status={newest.verificationStatus}
+            achieved={newest.verificationLevelAchieved}
+          />
+          <button className="btn btn--sm" onClick={() => navigate(snapshotsPath(source, set))}>
+            All snapshots
+          </button>
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(196px, 1fr))" }}>
+        <MetricCard
+          label="Entries scanned"
+          value={measured(newest.entriesScanned, (n) => n.toLocaleString())}
+          detail={measured(newest.files, (n) => n.toLocaleString() + " files")}
+        />
+        <MetricCard
+          label="Logical size"
+          value={measured(newest.logicalBytes, bytes)}
+          detail="the tree as described"
+        />
+        <MetricCard
+          label="Read from source"
+          value={measured(newest.sourceBytesRead, bytes)}
+          detail="every byte the source offered"
+        />
+        <MetricCard
+          label="Written to repository"
+          value={measured(newest.repositoryBytesWritten, bytes)}
+          detail="after deduplication"
+        />
+        <MetricCard
+          label="Reused"
+          tip="snapshots.reused"
+          value={measured(newest.contentReusedBytes, bytes)}
+          detail={
+            newest.contentReusedBytes === null
+              ? "not accounted for on this run"
+              : "content the repository already held"
+          }
+        />
+        <MetricCard
+          label="Duration"
+          value={measured(newest.durationSeconds, duration)}
+          detail={newest.repositoryDomain === null ? "" : "domain " + newest.repositoryDomain}
+        />
+      </div>
+    </section>
+  );
+}
+
+/**
  * One editable box with its own Save.
  *
  * The Save button is a SIBLING of HelpField, never a child of it, and
@@ -1195,6 +1573,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
 function EditRow({
   field,
   value,
+  placeholder,
   dirty,
   saving,
   error,
@@ -1203,6 +1582,9 @@ function EditRow({
 }: {
   field: EditField;
   value: string;
+  /** What an empty box means, for the one field where empty is a
+   *  request rather than a missing value; see EditField.placeholder. */
+  placeholder?: string;
   dirty: boolean;
   saving: boolean;
   error?: string;
@@ -1231,6 +1613,7 @@ function EditRow({
                   className="input"
                   type={field.control === "number" ? "number" : "text"}
                   aria-describedby={helpId}
+                  placeholder={placeholder}
                   value={value}
                   onChange={(e) => onChange(e.target.value)}
                 />
@@ -1240,14 +1623,16 @@ function EditRow({
         </div>
         {/* The accessible name names the box, so a screen reader (and a
             test) can tell seven Saves apart. */}
-        <button
-          className="btn btn--sm"
-          aria-label={"Save " + field.label.toLowerCase()}
-          disabled={!dirty || saving}
-          onClick={onSave}
-        >
-          {saving ? "Saving\u2026" : "Save"}
-        </button>
+        <InfoTooltip id="sets.detail.save-field" alignEnd>
+          <button
+            className="btn btn--sm"
+            aria-label={"Save " + field.label.toLowerCase()}
+            disabled={!dirty || saving}
+            onClick={onSave}
+          >
+            {saving ? "Saving\u2026" : "Save"}
+          </button>
+        </InfoTooltip>
       </div>
       {error ? (
         <p role="alert" style={{ margin: "6px 0 0", fontSize: "var(--text-sm)", color: "var(--danger)" }}>
@@ -1542,55 +1927,31 @@ function clearKeys(
   return next;
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+/** One card on this page, with the explanation of what the card is on
+ *  its own heading. The host WRAPS the <h2> rather than sitting inside
+ *  it: a tooltip inside a heading joins the pop-up's copy to the
+ *  heading's accessible name, so the card would be called "Overview
+ *  Explain Overview…" by everything that reads by role. */
+function Section({ title, children, tip }: { title: string; children: React.ReactNode; tip?: TooltipId }) {
+  const heading = <h2 className="eyebrow">{title}</h2>;
   return (
     <section className="card">
       <div className="card__header">
-        <h2 className="eyebrow">{title}</h2>
+        {tip ? <InfoTooltip id={tip}>{heading}</InfoTooltip> : heading}
       </div>
       <div className="card__body">{children}</div>
     </section>
   );
 }
 
-/**
- * The two label-and-value patterns this page states its facts in.
- *
- * Cell is a boxed summary tile; Row is a two-column grid whose dt and dd
- * are direct grid children, so it returns a fragment and must not wrap
- * them in anything.
- *
- * Neither gives its dt or its dd an accessible name, and that is a known
- * gap rather than an oversight. `<dt>` is role `term` and `<dd>` is role
- * `definition`, and both take their name from the author rather than from
- * their content, so every row here is unreachable by anything navigating
- * by role and every value is announced with nothing attached to it. The
- * fix is one line in each of these two functions (an id on the dt, an
- * aria-labelledby on the dd) and it was written, measured and taken back
- * out: four of this page's read-only labels are also the labels of its
- * inline EDIT fields (Host, User, Remote folder, Completion method), so
- * naming the values puts two elements with the same accessible name on
- * the page whenever edit mode is open. That is ambiguous for anything
- * looking a control up by its label, and deciding whether a read-only
- * value and an editable field may share a name is a decision about
- * backupSetEditFields.ts rather than about this file. See the pull
- * request that recorded it.
- */
-function Cell({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div>
-      <dt className="eyebrow" style={{ fontSize: 10.5, letterSpacing: "0.06em" }}>{label}</dt>
-      <dd style={{ margin: "4px 0 0", fontFamily: mono ? "var(--font-mono)" : undefined }}>{value}</dd>
-    </div>
-  );
-}
+/** Which explanation each validation stage carries. Three ids rather
+ *  than one, because "the bytes arrived" and "the application can read
+ *  what arrived" are different assurances and an operator deciding which
+ *  to turn on is choosing between exactly those. */
+const VALIDATION_TIPS: Record<"transfer" | "checksum" | "application", TooltipId> = {
+  transfer: "sets.detail.validation.transfer",
+  checksum: "sets.detail.validation.checksum",
+  application: "sets.detail.validation.application"
+};
 
-function Row({ label, value, mono }: { label: string; value: ReactNode; mono?: boolean }) {
-  return (
-    <>
-      <dt style={{ color: "var(--text-2)" }}>{label}</dt>
-      <dd className={mono ? "mono" : undefined} style={{ margin: 0 }}>{value}</dd>
-    </>
-  );
-}
 

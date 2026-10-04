@@ -3,6 +3,7 @@ package packaging
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -46,10 +47,10 @@ type newAdapter struct {
 
 func newAdapters() []newAdapter {
 	return []newAdapter{
-		{id: "portainer", compose: "compose/backup-manager.yml", env: "compose/backup-manager.env", acceptance: "docs/acceptance/portainer-stack-deployment.md"},
+		{id: "portainer", compose: "compose/retnd.yml", env: "compose/retnd.env", acceptance: "docs/acceptance/portainer-stack-deployment.md"},
 		{id: "dockge", acceptance: "docs/acceptance/dockge-stack-import.md"},
-		{id: "casaos", compose: "compose/backup-manager.yml", acceptance: "docs/acceptance/casaos-app-store-install.md"},
-		{id: "zimaos", compose: "compose/backup-manager.yml", acceptance: "docs/acceptance/zimaos-app-store-install.md"},
+		{id: "casaos", compose: "compose/retnd.yml", acceptance: "docs/acceptance/casaos-app-store-install.md"},
+		{id: "zimaos", compose: "compose/retnd.yml", acceptance: "docs/acceptance/zimaos-app-store-install.md"},
 	}
 }
 
@@ -136,10 +137,74 @@ func TestEveryNewAdapterIsSemanticallyEquivalentToTheCanonicalStack(t *testing.T
 			if len(drift) > 0 {
 				t.Fatalf("could not reduce this adapter to roles:\n%s", FormatDrift(drift))
 			}
-			if d := CheckStackEquivalence(got, want); len(d) > 0 {
+			if d := c.CheckStackEquivalence(got, want); len(d) > 0 {
 				t.Errorf("this adapter's runtime is not the canonical runtime:\n%s", FormatDivergence(d))
 			}
 		})
+	}
+}
+
+// TestAHostPlaneMountIsOptionalToCarryAndNotOptionalToCarryCorrectly is
+// the control for the one asymmetry in equivalentMounts. Both halves
+// matter and only one of them is the exemption: an adapter that mounts
+// nothing for the workflow runner is equivalent, and an adapter that
+// mounts its script directory WRITABLE is not, because the engine
+// executes what it reads out of there.
+//
+// Without the second half the exemption reads as "the workflow mounts
+// are not compared", which would let a store profile hand the container
+// a writable /workflows and pass a gate whose whole job is to notice.
+//
+// ZimaOS is the fixture, and which adapter this reads is load-bearing:
+// it has to be one that really carries none of the three. CasaOS was,
+// until #921 gave it all three — CasaOS can host a runner and ZimaOS,
+// an appliance OS with no host session, cannot, which is why ZimaOS
+// declares `localHooks: unavailable` and carries nothing. That makes it
+// the one store adapter for which "mounts nothing for the runner" is
+// still the shipped truth rather than a defect.
+func TestAHostPlaneMountIsOptionalToCarryAndNotOptionalToCarryCorrectly(t *testing.T) {
+	c := MustLoad()
+	want := canonicalRuntime(t, c)
+
+	workflows, ok := c.ContainerPaths.ByRole("workflows")
+	if !ok || workflows == "" {
+		t.Fatal("canonical.json declares no container path for the workflows role, so this control has nothing to mount")
+	}
+	if !slices.Contains(HostPlaneRoles, "workflows") {
+		t.Fatal(`"workflows" is not a host-plane role any more, so the exemption this control guards is not the one under test`)
+	}
+
+	base, drift := ReduceToRoles("zimaos", newAdapter{id: "zimaos", compose: "compose/retnd.yml"}.services(t), c)
+	if len(drift) > 0 {
+		t.Fatalf("could not reduce the fixture adapter to roles: %s", FormatDrift(drift))
+	}
+	if mountModes(base.Engine)[workflows] != "" {
+		t.Fatalf("this fixture already mounts %s, so the carries-nothing half below proves nothing", workflows)
+	}
+	if d := c.CheckStackEquivalence(base, want); len(d) > 0 {
+		t.Errorf("an adapter that carries no workflow-runner mount is still the canonical runtime, and this reported:\n%s", FormatDivergence(d))
+	}
+
+	writable := AdapterRuntime{Platform: base.Platform, Others: base.Others}
+	engine := copyService(*base.Engine)
+	webUI := copyService(*base.WebUI)
+	engine.Mounts = append(engine.Mounts, Mount{
+		Role:          "workflows",
+		HostPath:      "/srv/retnd/workflows",
+		ContainerPath: workflows,
+		ReadOnly:      false,
+	})
+	writable.Engine, writable.WebUI = &engine, &webUI
+
+	found := c.CheckStackEquivalence(writable, want)
+	named := false
+	for _, d := range found {
+		if d.Property == PropContainerMounts && strings.Contains(d.Detail, workflows) {
+			named = true
+		}
+	}
+	if !named {
+		t.Errorf("an adapter that mounts %s writable against a read-only canonical mount was not reported:\n%s", workflows, FormatDivergence(found))
 	}
 }
 
@@ -166,13 +231,13 @@ func mutateForEquivalence(a AdapterRuntime, property string) (AdapterRuntime, st
 
 	switch property {
 	case PropRoleSet:
-		out.Others = append(out.Others, Service{Name: "backup-manager-sidecar", Command: []string{"/rbm", "daemon"}})
+		out.Others = append(out.Others, Service{Name: "retnd-sidecar", Command: []string{"/retnd", "daemon"}})
 		return out, "added a third container", true
 	case PropCommand:
 		if out.WebUI == nil {
 			return out, "", false
 		}
-		out.WebUI.Command = append([]string{"/rbm-web", "serve"}, out.WebUI.Command[2:]...)
+		out.WebUI.Command = append([]string{"/retnd-web", "serve"}, out.WebUI.Command[2:]...)
 		return out, "made the Web UI run the engine command", true
 	case PropContainerMounts:
 		if out.Engine == nil || len(out.Engine.Mounts) == 0 {
@@ -190,7 +255,7 @@ func mutateForEquivalence(a AdapterRuntime, property string) (AdapterRuntime, st
 		if out.WebUI == nil {
 			return out, "", false
 		}
-		out.WebUI.HealthcheckTest = []string{"CMD", "/rbm", "status"}
+		out.WebUI.HealthcheckTest = []string{"CMD", "/retnd", "status"}
 		return out, "gave the Web UI the engine's health check, which needs a state database it does not have", true
 	case PropEngineEnvironment:
 		if out.Engine == nil {
@@ -230,7 +295,7 @@ func TestTheEquivalenceCheckFailsOnADeliberateMismatch(t *testing.T) {
 		if len(drift) > 0 {
 			t.Fatalf("%s: could not reduce to roles: %s", a.id, FormatDrift(drift))
 		}
-		if d := CheckStackEquivalence(base, want); len(d) > 0 {
+		if d := c.CheckStackEquivalence(base, want); len(d) > 0 {
 			t.Fatalf("%s already diverges before any mutation, so no control below proves anything:\n%s", a.id, FormatDivergence(d))
 		}
 
@@ -240,7 +305,7 @@ func TestTheEquivalenceCheckFailsOnADeliberateMismatch(t *testing.T) {
 				if !ok {
 					t.Fatalf("no mutation is defined for %q, so nobody has watched that comparison fail", property.ID)
 				}
-				found := CheckStackEquivalence(mutated, want)
+				found := c.CheckStackEquivalence(mutated, want)
 				if len(found) == 0 {
 					t.Fatalf("%s and the equivalence check still passed", what)
 				}
@@ -256,7 +321,7 @@ func TestTheEquivalenceCheckFailsOnADeliberateMismatch(t *testing.T) {
 
 				// And the mutation stayed inside the copy: the real
 				// adapter still passes afterwards.
-				if d := CheckStackEquivalence(base, want); len(d) > 0 {
+				if d := c.CheckStackEquivalence(base, want); len(d) > 0 {
 					t.Errorf("the mutation reached the shared runtime, so every later comparison is against a broken adapter:\n%s", FormatDivergence(d))
 				}
 			})
@@ -281,7 +346,7 @@ func TestEveryEquivalencePropertyIsCompared(t *testing.T) {
 			t.Errorf("EquivalenceProperties declares %q and no mutation breaks it", property.ID)
 			continue
 		}
-		for _, d := range CheckStackEquivalence(mutated, want) {
+		for _, d := range c.CheckStackEquivalence(mutated, want) {
 			seen[d.Property] = true
 		}
 		if strings.TrimSpace(property.Why) == "" {
@@ -431,13 +496,13 @@ func TestNoNewAdapterWiresAuthenticationOfItsOwn(t *testing.T) {
 func TestThePortainerTemplateIsAStackTemplateAndNotAPlugin(t *testing.T) {
 	const (
 		root      = "apps/portainer"
-		stackfile = "apps/portainer/compose/backup-manager.yml"
+		stackfile = "apps/portainer/compose/retnd.yml"
 	)
 	tpl, err := ReadPortainerTemplates(Path(filepath.Join(root, "templates.json")))
 	if err != nil {
 		t.Fatalf("read the App Template: %v", err)
 	}
-	env, err := ReadEnvFile(Path(filepath.Join(root, "compose", "backup-manager.env")))
+	env, err := ReadEnvFile(Path(filepath.Join(root, "compose", "retnd.env")))
 	if err != nil {
 		t.Fatalf("read the env file: %v", err)
 	}
@@ -483,26 +548,26 @@ func TestThePortainerTemplateIsAStackTemplateAndNotAPlugin(t *testing.T) {
 // that currently satisfies all of them, and a rule nobody has watched
 // fail is a comment.
 func TestThePortainerTemplateCheckFailsOnEveryWayItCanBeWrong(t *testing.T) {
-	const stackfile = "apps/portainer/compose/backup-manager.yml"
+	const stackfile = "apps/portainer/compose/retnd.yml"
 	good := PortainerTemplates{
 		Version: "3",
 		Templates: []PortainerTemplate{{
 			Type:        3,
-			Title:       "Backup Manager",
-			Name:        "backup-manager",
+			Title:       "Backupd",
+			Name:        "retnd",
 			Description: "d",
 			Logo:        "https://example.invalid/logo.svg",
 			Platform:    "linux",
 			Categories:  []string{"backup"},
 			Env: []PortainerEnv{
-				{Name: "STATE_DIR", Label: "state", Default: "/opt/backup-manager/state"},
+				{Name: "STATE_DIR", Label: "state", Default: "/opt/retnd/state"},
 			},
 		}},
 	}
 	good.Templates[0].Repository.URL = "https://example.invalid/repo"
 	good.Templates[0].Repository.Stackfile = stackfile
 	vars := []string{"STATE_DIR"}
-	env := map[string]string{"STATE_DIR": "/opt/backup-manager/state"}
+	env := map[string]string{"STATE_DIR": "/opt/retnd/state"}
 
 	if v := CheckPortainerTemplate("fixture", good, vars, env, stackfile); len(v) > 0 {
 		t.Fatalf("the clean fixture already fails, so no control below means anything:\n%s", format(v))
@@ -549,7 +614,7 @@ func TestThePortainerTemplateCheckFailsOnEveryWayItCanBeWrong(t *testing.T) {
 			RulePortainerTemplate, "the stack reads it nowhere"},
 		{"defaults a variable to something the env file does not",
 			mutate(func(t *PortainerTemplates) { t.Templates[0].Env[0].Default = "/somewhere/else" }),
-			RulePortainerTemplate, "compose/backup-manager.env declares"},
+			RulePortainerTemplate, "compose/retnd.env declares"},
 		{"never offers a variable the stack needs",
 			mutate(func(t *PortainerTemplates) { t.Templates[0].Env = nil }),
 			RulePortainerTemplate, "never offers it"},
@@ -854,7 +919,7 @@ func TestCasaOSAndZimaOSStoreMetadataDescribesTheStackBesideIt(t *testing.T) {
 
 	for _, id := range []string{"casaos", "zimaos"} {
 		t.Run(id, func(t *testing.T) {
-			path := filepath.Join(PlatformDir(id), "compose", "backup-manager.yml")
+			path := filepath.Join(PlatformDir(id), "compose", "retnd.yml")
 			md, err := ReadCasaOSMetadata(path)
 			if err != nil {
 				t.Fatalf("read x-casaos: %v", err)
@@ -867,7 +932,7 @@ func TestCasaOSAndZimaOSStoreMetadataDescribesTheStackBesideIt(t *testing.T) {
 			if len(drift) > 0 {
 				t.Fatalf("could not reduce this adapter to roles:\n%s", FormatDrift(drift))
 			}
-			if v := CheckCasaOSMetadata(id+"/compose/backup-manager.yml", md, rt, c); len(v) > 0 {
+			if v := CheckCasaOSMetadata(id+"/compose/retnd.yml", md, rt, c); len(v) > 0 {
 				t.Errorf("the store metadata does not describe the services beside it:\n%s", format(v))
 			}
 		})
@@ -879,7 +944,7 @@ func TestCasaOSAndZimaOSStoreMetadataDescribesTheStackBesideIt(t *testing.T) {
 // fixture, so every branch runs against the shape actually shipped.
 func TestTheStoreMetadataCheckFailsOnADeliberateMismatch(t *testing.T) {
 	c := MustLoad()
-	path := filepath.Join(PlatformDir("casaos"), "compose", "backup-manager.yml")
+	path := filepath.Join(PlatformDir("casaos"), "compose", "retnd.yml")
 	base, err := ReadCasaOSMetadata(path)
 	if err != nil {
 		t.Fatal(err)
@@ -990,7 +1055,7 @@ func TestStoreMetadataStaysInTheDistributionAdapter(t *testing.T) {
 	// The control. A clean result over two large trees is exactly the
 	// shape that hides a scanner walking nothing.
 	fixture := t.TempDir()
-	write(t, filepath.Join(fixture, "ok.go"), "package p\n\nconst Name = \"backup-manager\"\n")
+	write(t, filepath.Join(fixture, "ok.go"), "package p\n\nconst Name = \"retnd\"\n")
 	if v, err := ScanForStoreMetadataLeak(fixture); err != nil || len(v) > 0 {
 		t.Fatalf("a clean fixture reported %v (err %v)", v, err)
 	}

@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/spdrman/rclone-manager/apps/common/platform/capabilities"
+	"github.com/retnd/retnd/apps/common/platform/capabilities"
 )
 
 // The two middlewares every mutating route in this package passes through,

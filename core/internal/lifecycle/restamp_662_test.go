@@ -43,9 +43,9 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/spdrman/rclone-manager/core/internal/recovery"
-	"github.com/spdrman/rclone-manager/core/internal/state"
-	"github.com/spdrman/rclone-manager/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/recovery"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // TestIssue662_ConvergedCommitRefusesToRestampTheManifestFromADamagedFile

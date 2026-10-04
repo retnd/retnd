@@ -18,9 +18,9 @@
 // recomputing ConfigRevision — so the change is visible to every other
 // method on this BackupService (ListBackupSets, GetBackupSet,
 // SubmitRunCycle) immediately, without an operator restarting the
-// process, and visible to `rbm sources`/any other CLI
+// process, and visible to `retnd sources`/any other CLI
 // invocation the next time one runs, since that command already reads
-// the same file fresh on every invocation (core/cmd/backup-manager/
+// the same file fresh on every invocation (core/cmd/retnd/
 // sources.go).
 //
 // This was previously out of core/service's scope by design (see
@@ -41,11 +41,12 @@ import (
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 
-	"github.com/spdrman/rclone-manager/core/internal/config"
-	"github.com/spdrman/rclone-manager/core/internal/obs"
-	"github.com/spdrman/rclone-manager/core/internal/sourcecheck"
-	"github.com/spdrman/rclone-manager/core/internal/transport"
-	"github.com/spdrman/rclone-manager/core/internal/transport/rclone"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/sourcecheck"
+	"github.com/retnd/retnd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/transport/rclone"
 )
 
 // defaultSourceName groups every backup set created through the API under
@@ -201,6 +202,27 @@ type BackupSet struct {
 	// say that rather than render a blank where a fingerprint goes: an
 	// empty fingerprint under a confident "Algorithm" heading is the
 	// defect this field exists to end.
+	// EPIC K's engine seam, read back (#788).
+	//
+	// Engine is always reported and always the RESOLVED value: a
+	// configuration that omits the key reads "artifact" here rather than
+	// empty, because a client that had to know the default would be a
+	// second place the default is decided.
+	//
+	// Everything below it is empty or zero for an artifact set, which
+	// has no repository, no lineage and no verification budget.
+	// Resolving any of them for an engine that reads none would report a
+	// claim nobody made.
+	Engine                        string
+	UUID                          string
+	RepositoryDomain              string
+	SourceConsistency             string
+	VerificationLevel             string
+	VerificationSamplePercent     int
+	VerificationFullEvery         time.Duration
+	VerificationRestoreDrillEvery time.Duration
+	SourceMountPrefix             string
+
 	TrustedHostKeys []TrustedHostKey
 
 	// TrustedHostKeyRecordedAt is when THIS deployment last wrote that
@@ -243,6 +265,25 @@ type BackupSet struct {
 	// override, on demand. What a LIST needs is which of the two policies
 	// is in force, which is exactly this bool.
 	RetentionIsOverride bool
+
+	// PollInterval is this backup set's own override of the deployment's
+	// poll cadence (issue #845, config.BackupSet.PollInterval), and nil
+	// when the set inherits.
+	//
+	// Nil is a real answer and has to be rendered as one: an edit form
+	// showing the deployment's number in the box would turn the next
+	// save into an explicit override, permanently detaching that set
+	// from a default it was tracking. That is the same trap
+	// CapacitySettings.BackupRootConfigured exists to avoid, so this
+	// reports the OVERRIDE, and EffectivePollInterval below reports what
+	// is actually in force.
+	PollInterval *time.Duration
+
+	// EffectivePollInterval is how often this set is actually polled:
+	// its own override, or the deployment's default when it has none.
+	// Resolved here so no surface has to combine the two itself and
+	// none can combine them differently (config.EffectivePollInterval).
+	EffectivePollInterval time.Duration
 }
 
 // CreateBackupSetRequest is what a caller submits to persist one new
@@ -365,6 +406,49 @@ type CreateBackupSetRequest struct {
 	// caller gets by not mentioning it, is the one that checks.
 	SkipConnectionCheck bool
 
+	// EPIC K's engine seam on the create path (#788).
+	//
+	// Engine is "artifact", "kopia" or empty, and empty means artifact:
+	// that is what every request written before this field existed
+	// means, and reading a typo as either engine would silently either
+	// ignore an operator who asked for snapshots or change what a run
+	// does to a source tree. config.Validate parses it; nothing here
+	// does.
+	Engine string
+
+	// UUID is the durable identifier the snapshot lineage hangs off.
+	// Empty on an incremental create mints one, because a caller has
+	// nothing sensible to put here and a lineage key an operator typed
+	// is a lineage key an operator can mistype. It is refused for an
+	// artifact set by config.Validate, which is where that rule already
+	// lives.
+	UUID string
+
+	// RepositoryDomain names the declared boundary this set's snapshots
+	// are stored in. Required for an incremental set and it has no
+	// default, because a default is exactly the decision that must be
+	// intentional.
+	RepositoryDomain string
+
+	// SourceConsistency, VerificationLevel, VerificationSamplePercent
+	// and the two cadences are this set's verification budget, all
+	// optional and all resolved by config.Validate to the same defaults
+	// a hand-edited config.yaml gets. Zero on the two durations means
+	// never, which is the only safe default: nobody should acquire a
+	// nightly full read, or a nightly restore of their whole source, by
+	// leaving a field out.
+	SourceConsistency             string
+	VerificationLevel             string
+	VerificationSamplePercent     int
+	VerificationFullEvery         time.Duration
+	VerificationRestoreDrillEvery time.Duration
+
+	// SourceMountPrefix is the leading part of RemotePath that is how
+	// THIS deployment reaches the source rather than part of the
+	// source's own identity, so that moving a bind mount does not fork
+	// the snapshot lineage.
+	SourceMountPrefix string
+
 	// AcknowledgeRepoint confirms that the caller means to create this
 	// backup set somewhere other than where the history already on its id
 	// came from. It is not a field of the backup set and nothing persists
@@ -402,7 +486,7 @@ func (b *BackupService) ListBackupSets(_ context.Context) ([]BackupSet, error) {
 	var out []BackupSet
 	for _, src := range st.inner.Config.Sources {
 		for _, bs := range src.BackupSets {
-			out = append(out, toServiceBackupSet(b.configPath, src.Name, bs))
+			out = append(out, toServiceBackupSet(st.inner.Config, b.configPath, src.Name, bs))
 		}
 	}
 	return out, nil
@@ -416,7 +500,7 @@ func (b *BackupService) GetBackupSet(_ context.Context, id string) (BackupSet, e
 	for _, src := range st.inner.Config.Sources {
 		for _, bs := range src.BackupSets {
 			if src.Name+"/"+bs.Name == id {
-				return toServiceBackupSet(b.configPath, src.Name, bs), nil
+				return toServiceBackupSet(st.inner.Config, b.configPath, src.Name, bs), nil
 			}
 		}
 	}
@@ -484,6 +568,23 @@ func newBackupSetFor(configPath, sourceName, keyFile string, req CreateBackupSet
 		// (omitempty), which is what keeps absence meaning what it meant
 		// in every configuration written before this field existed.
 		ConnectionUnverified: req.SkipConnectionCheck,
+
+		// EPIC K's keys, written verbatim as the caller spelled them and
+		// resolved by cfg.Validate right after this function returns --
+		// the same one-parser discipline EngineConfig's own doc sets
+		// out. An artifact create leaves every one of them empty, which
+		// is what every configuration written before EPIC K says and
+		// what keeps this file loadable by a build that predates it
+		// (omitempty on every key).
+		EngineConfig:                    req.Engine,
+		UUID:                            req.UUID,
+		RepositoryDomainConfig:          req.RepositoryDomain,
+		ConsistencyConfig:               req.SourceConsistency,
+		VerificationLevelConfig:         req.VerificationLevel,
+		VerificationSamplePercentConfig: req.VerificationSamplePercent,
+		VerificationFullEvery:           config.Duration(req.VerificationFullEvery),
+		VerificationRestoreDrillEvery:   config.Duration(req.VerificationRestoreDrillEvery),
+		SourceMountPrefix:               req.SourceMountPrefix,
 	}
 	// A pointer to a fresh local, never &req.ReadOnly: req is this
 	// function's own by-value parameter, so its address is safe to persist
@@ -500,6 +601,21 @@ func newBackupSetFor(configPath, sourceName, keyFile string, req CreateBackupSet
 	newSet.ReadOnlyConfig = &readOnly
 	if req.CompletionStrategy == "stable" {
 		newSet.Completion.StableFor = config.Duration(req.StableFor)
+	}
+
+	// EPIC K's lineage key, minted here when an incremental create did
+	// not carry one.
+	//
+	// Minted rather than required, because there is nothing useful a
+	// caller can put here: the value's only job is to be stable across
+	// every rename the set will ever have, and a wizard field for it
+	// would be a field an operator can retype differently. Minted only
+	// for the incremental engine, because config.Validate REFUSES a uuid
+	// on an artifact set -- a key nothing can act on is refused rather
+	// than ignored -- so writing one unconditionally would make every
+	// artifact create fail validation.
+	if newSet.EngineConfig == string(model.EngineKopia) && newSet.UUID == "" {
+		newSet.UUID = uuid.New().String()
 	}
 
 	knownHostsPath, err := writeKnownHostsIn(configPath, sourceName, req.Name, req.KnownHostsLine)
@@ -571,6 +687,15 @@ func (b *BackupService) CreateBackupSet(ctx context.Context, req CreateBackupSet
 			// text.
 			return CreateBackupSetResult{}, fmt.Errorf("%w: %s", ErrConnectionNotProven, result.Message)
 		}
+		// Issue #852: the same check that just proved the connection
+		// also proved whether these credentials may WRITE there, and a
+		// set created with delete-from-source enabled against a source
+		// that refused the write probe is refused here rather than
+		// written and discovered later. The check has already run, so
+		// this costs nothing beyond reading its answer.
+		if err := refuseDeleteOnUnwritableSource(result, req.ReadOnly); err != nil {
+			return CreateBackupSetResult{}, err
+		}
 	}
 
 	sourceName := req.SourceName
@@ -582,8 +707,8 @@ func (b *BackupService) CreateBackupSet(ctx context.Context, req CreateBackupSet
 	defer b.configMu.Unlock()
 
 	// Re-read from disk, not b.state.Load().inner.Config: this is the same "always
-	// read fresh" discipline `rbm sources` already uses
-	// (core/cmd/backup-manager/sources.go), and it is what makes this
+	// read fresh" discipline `retnd sources` already uses
+	// (core/cmd/retnd/sources.go), and it is what makes this
 	// method safe even if configPath was edited by hand (or by a second
 	// process) since this BackupService last loaded it — the write below
 	// is always based on the file's actual current content, never a
@@ -591,6 +716,26 @@ func (b *BackupService) CreateBackupSet(ctx context.Context, req CreateBackupSet
 	cfg, err := config.Load(b.configPath)
 	if err != nil {
 		return CreateBackupSetResult{}, fmt.Errorf("service: re-reading configuration: %w", err)
+	}
+
+	// EPIC K's production gate (#789): a set running the incremental
+	// engine is not created into a deployment that does not run it.
+	//
+	// Read from the file this method just re-read, not from the
+	// in-memory configuration, for the reason that read exists: the gate
+	// this write has to respect is the one in the revision the write is
+	// based on. It is asked before newBackupSetFor for the reason the
+	// acknowledgement below is -- that function writes this set's
+	// known_hosts file, and a refusal must leave nothing behind.
+	//
+	// Only a create is gated. Editing and deleting an existing
+	// incremental set stay available with the engine switched off (see
+	// incrementalgate.go): an operator must be able to get rid of a set
+	// they cannot run.
+	if engine, _ := model.ResolveBackupEngine(req.Engine); engine == model.EngineKopia {
+		if err := refuseGatedIncrementalEngine(cfg); err != nil {
+			return CreateBackupSetResult{}, err
+		}
 	}
 
 	// Asked before newBackupSetFor, because that function writes this
@@ -703,7 +848,7 @@ func (b *BackupService) CreateBackupSet(ctx context.Context, req CreateBackupSet
 	// (adoptConfig, and edithold.go for why the hold was there).
 	newRevision := b.adoptConfig(cfg)
 
-	created := toServiceBackupSet(b.configPath, sourceName, findBackupSet(cfg, sourceName, req.Name))
+	created := toServiceBackupSet(cfg, b.configPath, sourceName, findBackupSet(cfg, sourceName, req.Name))
 	result := CreateBackupSetResult{Set: created}
 
 	// Issue #391: the adoption. A backup set is identified by its source
@@ -861,8 +1006,26 @@ func validateCreateRequest(req CreateBackupSetRequest) error {
 		problems = append(problems, "known_hosts_line is required (probe and trust the host key first)")
 	}
 	problems = appendProblem(problems, requiredFieldProblem("remote_path", req.RemotePath))
-	problems = appendProblem(problems, requiredFieldProblem("local_path", req.LocalPath))
-	problems = append(problems, completionProblems(req.CompletionStrategy, req.StableFor)...)
+	// EPIC K (#788). local_path and a completion strategy are the
+	// ARTIFACT pipeline's own fields: one names where a finished file is
+	// copied to, the other names the rule that decides a file is
+	// finished, and an incremental set has neither because there is no
+	// file to recognise or copy. config.Validate REFUSES both on a
+	// kopia set, so requiring them here is not a stricter version of the
+	// same rule, it is the opposite one: every incremental create was
+	// refused for omitting exactly what it would then have been refused
+	// for carrying, which made an incremental set impossible to create
+	// through this service at all.
+	//
+	// Anything that is not the incremental engine is checked as an
+	// artifact create, a misspelled engine included: that request is
+	// refused by name a moment later, by the one parser that decides
+	// what an engine is (model.ResolveBackupEngine, through
+	// config.Validate), rather than by a second opinion here.
+	if engine, _ := model.ResolveBackupEngine(req.Engine); engine != model.EngineKopia {
+		problems = appendProblem(problems, requiredFieldProblem("local_path", req.LocalPath))
+		problems = append(problems, completionProblems(req.CompletionStrategy, req.StableFor)...)
+	}
 	problems = appendProblem(problems, validatorIDProblem(req.ValidatorID))
 	return joinProblems(problems)
 }
@@ -894,6 +1057,19 @@ func completionProblems(strategy string, stableFor time.Duration) []string {
 	return problems
 }
 
+// pollIntervalOverride is bs's own poll interval as a *time.Duration, or
+// nil when it inherits the deployment's. It exists so this package never
+// hands out a pointer into a config.BackupSet a caller could write
+// through, which is the same reason nothing here returns bs.Include
+// without copying it.
+func pollIntervalOverride(bs config.BackupSet) *time.Duration {
+	if bs.PollInterval == nil {
+		return nil
+	}
+	d := bs.PollInterval.Duration()
+	return &d
+}
+
 func validatorIDProblem(id ValidatorID) string {
 	if id != "" && !isRegisteredValidator(id) {
 		// Deliberately does not echo the value back. An unregistered id is
@@ -906,12 +1082,17 @@ func validatorIDProblem(id ValidatorID) string {
 	return ""
 }
 
+// It takes cfg because two of the fields it reports are not properties
+// of the set alone: a poll interval a set does not override is the
+// deployment's, and resolving that anywhere but here would be a second
+// place the two scopes could be combined differently (issue #845).
+//
 // It takes configPath because the trusted host key is a FILE, and reading
 // it here rather than at each caller is what stops one read surface
 // reporting a set's real anchor while another reports nothing. Every
 // caller has a config path; the ones that do not have a BackupService
 // (firstrun.go) have the path they just wrote.
-func toServiceBackupSet(configPath, sourceName string, bs config.BackupSet) BackupSet {
+func toServiceBackupSet(cfg *config.Config, configPath, sourceName string, bs config.BackupSet) BackupSet {
 	trusted, recordedAt := trustedHostKeysFor(configPath, bs)
 	return BackupSet{
 		ID:                 sourceName + "/" + bs.Name,
@@ -944,11 +1125,33 @@ func toServiceBackupSet(configPath, sourceName string, bs config.BackupSet) Back
 		// point of pinning it is that a later edit to the deployment's
 		// policy will not move it.
 		RetentionIsOverride: bs.RetentionIsOverride(),
+		// The override and what it resolves to, both reported, for the
+		// reason BackupSet.PollInterval's own doc gives: a surface that
+		// could only see the effective number would have to write it
+		// back to save anything else, silently pinning a set to today's
+		// deployment default.
+		PollInterval:          pollIntervalOverride(bs),
+		EffectivePollInterval: cfg.EffectivePollInterval(bs),
 		// Read straight off the configuration rather than derived from
 		// anything: whether a connection was ever proven is not something
 		// a set's own history can answer, so it is only ever what somebody
 		// wrote (issue #624).
 		ConnectionUnverified: bs.ConnectionUnverified,
+
+		// EPIC K's engine seam. bs.Engine and the three resolved fields
+		// beside it, never the raw *Config strings: every bs reaching
+		// here has been through cfg.Validate, which is the one place the
+		// engine vocabulary is parsed, and reading the raw keys would be
+		// a second parser that disagrees with it about a typo.
+		Engine:                        string(bs.Engine),
+		UUID:                          bs.UUID,
+		RepositoryDomain:              bs.Repository.Domain.String(),
+		SourceConsistency:             string(bs.Consistency),
+		VerificationLevel:             string(bs.VerificationLevel),
+		VerificationSamplePercent:     bs.VerificationSamplePercentConfig,
+		VerificationFullEvery:         bs.VerificationFullEvery.Duration(),
+		VerificationRestoreDrillEvery: bs.VerificationRestoreDrillEvery.Duration(),
+		SourceMountPrefix:             bs.SourceMountPrefix,
 
 		TrustedHostKeys:          trusted,
 		TrustedHostKeyRecordedAt: recordedAt,
@@ -1214,6 +1417,23 @@ type ConnectionTestResult struct {
 	// OK keeps meaning exactly what it meant, so a client reading only
 	// ok and message keeps working.
 	Checks []ConnectionCheck
+
+	// Writable is issue #852's answer: whether a real write-and-remove
+	// round trip under the remote path succeeded (the write_probe step).
+	//
+	// It is a top-level field beside OK rather than something a caller
+	// derives from the checks, because every consumer is making a
+	// decision with it and not rendering it: the UI disables its
+	// "delete from source after backup" control on it, and this package
+	// refuses a create or an edit that enables delete-from-source
+	// against a source where it is false (ErrSourceNotWritable).
+	//
+	// False whenever nothing was proven — a check that stopped early, a
+	// probe that was skipped, a transport that cannot ask — for the
+	// reason sourcecheck.Report.Writable gives: nothing may enable a
+	// delete on an absence of evidence. OK and Writable are therefore
+	// independent: a read-only source is a perfectly OK connection.
+	Writable bool
 }
 
 // ConnectionCheck is one step of a connection test, as the wire carries
@@ -1298,7 +1518,7 @@ func testConnectionVia(ctx context.Context, tr transport.Transport, configPath s
 		return ConnectionTestResult{}, err
 	}
 
-	tmp, err := os.CreateTemp("", "backup-manager-test-connection-known-hosts-*")
+	tmp, err := os.CreateTemp("", "retnd-test-connection-known-hosts-*")
 	if err != nil {
 		return ConnectionTestResult{}, fmt.Errorf("service: preparing connection test: %w", err)
 	}
@@ -1391,6 +1611,14 @@ func testConnectionVia(ctx context.Context, tr transport.Transport, configPath s
 			}
 			return len(entries), nil
 		},
+		// The same write probe the persisted mode runs, over the same
+		// candidate source (issue #852). The wizard needs this answer
+		// BEFORE the set exists: it is what decides whether its "delete
+		// from source after backup" control is offered at all, and a
+		// create that asked for a delete against a source proven
+		// non-writable is refused by CreateBackupSet on the strength of
+		// this very result.
+		ProbeWrite: sourceWriteProbeVia(tr, src),
 	}
 
 	// Not %w-wrapped, and not returned as a Go error at all: a failed

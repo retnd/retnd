@@ -1,6 +1,6 @@
 # Privacy policy
 
-Backup Manager, `com.iasbuilt.rclonemanager`. This is the privacy disclosure
+retnd, `com.iasbuilt.retnd`. This is the privacy disclosure
 §73 Work Package 5.2 and §45.5 require, and it is the content the `privacy`
 link in `distribution/packaging/compliance.json` resolves to.
 
@@ -10,7 +10,7 @@ by a test or a grep, the check is named.
 
 ## What leaves the machine
 
-Nothing that Backup Manager itself originates.
+Nothing that retnd itself originates.
 
 The app sends no telemetry, no analytics, no crash reports, no usage counters
 and no licence or activation call. There is no cloud account, no vendor
@@ -21,14 +21,18 @@ for one.
 
 The one HTTP client the shipped binaries construct talks to `127.0.0.1`: it is
 the container health check asking the local process whether it is healthy
-(`apps/generic/cmd/backup-manager-web`). It never leaves the container.
+(`apps/generic/cmd/retnd-web`). It never leaves the container.
 
 The app does open outbound network connections, and it opens exactly the ones
-the operator configured: SFTP sessions to the hosts named in the operator's own
-backup sets, made by the pinned rclone packages compiled into
-`/rbm`. Those connections carry the operator's own data to the
-operator's own destination. No third party is in that path, and the app adds no
-destination of its own.
+the operator configured. There are two kinds. SFTP sessions to the hosts named
+in the operator's own backup sets, made by the pinned rclone packages compiled
+into `/retnd`; and, if the operator configured account recovery,
+SMTP submissions to the mail server they nominated, carrying account mail
+— enrollment confirmation, a password-reset link, a test message — to the
+recovery address they nominated. Those connections carry the operator's own data
+to the operator's own destination. No third party is in that path, and the app
+adds no destination of its own: it has no mail relay, and it cannot send anything
+anywhere until the operator supplies a server to send it through.
 
 ## What the app stores, and where
 
@@ -39,7 +43,7 @@ through creating them.
 
 - **Backup set configuration**: source paths, destination hosts and paths,
   schedules and retention policy. Stored in the config file
-  (`/etc/backup-manager/config.yaml` inside the container).
+  (`/etc/retnd/config.yaml` inside the container).
 - **SSH private key and known-hosts file**: the credential material for the
   SFTP destinations. Mounted read-only, never copied elsewhere by the app, and
   never written to a log. The host-key policy is strict: an unknown or changed
@@ -50,12 +54,25 @@ through creating them.
 - **One local account**: a username and a password hash for the web UI, and
   session material for a signed-in browser. The password is stored hashed, not
   recoverable, and the hash never leaves the machine.
+- **The account's recovery details**: the email address the operator nominated
+  for password recovery, stored as given because a recovery address has to be
+  usable rather than merely checkable, and the SMTP settings used to reach it
+  — server, port, transport security, sender address and, if the server wants
+  one, an account name. The SMTP **password** is not among them: the account
+  record holds a reference to it in the same form the app uses for every other
+  secret, so the value is resolved when a message is sent and is never written
+  into the record, returned by the API or printed in a log. Both live beside the
+  account in the state directory, and both are editable in Settings.
 
 ## Personal data
 
-Backup Manager collects no personal data about the person using it. It has no
-user profile, no contact field, no identifier that follows anyone between
-installations, and no analytics identity.
+retnd collects no personal data about the person using it. It has no user
+profile, no identifier that follows anyone between installations, and no
+analytics identity. It has exactly one contact field, added in #830: the
+recovery email address the operator types into the enrollment form for their own
+benefit. It exists to deliver a password-reset link to the person who installed
+the app, it is used for nothing else, and it is sent nowhere except to the mail
+server that same operator nominated.
 
 Personal data can nonetheless pass through the app, because the operator may
 choose to back up files that contain some. In that case the app is a transport
@@ -65,7 +82,8 @@ what the operator's retention policy says to retain. Deciding what data is in
 scope, and for how long, stays with the operator.
 
 The two categories of data the app itself creates about a person are the local
-account described above and the operator-visible run history, and both live
+account described above — including the recovery address and SMTP settings the
+operator supplied with it — and the operator-visible run history, and both live
 only in the paths listed above.
 
 ## Logs
@@ -78,7 +96,7 @@ claim that decays silently.
 ## Deleting everything
 
 Removing the app and deleting the state, config and secrets directories the
-platform's acceptance procedure created removes everything Backup Manager
+platform's acceptance procedure created removes everything retnd
 stored. There is nothing held anywhere else, so there is no deletion request to
 make of anybody and nobody to make it to.
 

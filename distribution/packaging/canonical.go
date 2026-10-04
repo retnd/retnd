@@ -60,7 +60,7 @@ type Image struct {
 
 // ContainerPaths are the mount points inside the container. Identical for
 // every provider, because they are baked into the binaries' own defaults
-// (apps/generic/cmd/backup-manager-web's defaultConfigPath and
+// (apps/generic/cmd/retnd-web's defaultConfigPath and
 // defaultAuthStorePath) rather than chosen per platform.
 type ContainerPaths struct {
 	State   string `json:"state"`
@@ -75,6 +75,22 @@ type ContainerPaths struct {
 	Config     string `json:"config"`
 	SSHKey     string `json:"sshKey"`
 	KnownHosts string `json:"knownHosts"`
+
+	// Runtime, Workflows and RunnerToken are the workflow runner's three
+	// container paths, and they are declared here so that a mount of any
+	// of them is a path the canonical image KNOWS about. They are not
+	// roles every platform maps, which is the difference HostPlaneRoles
+	// below exists to hold.
+	//
+	// Runtime holds the runner's Unix socket and is the only directory the
+	// engine's container mounts from the host plane. Workflows holds the
+	// scripts, read-only: the engine reads them, and a process that could
+	// rewrite one could run anything it liked on the host. RunnerToken is
+	// the installation-scoped credential the engine presents on that
+	// socket (#877), read-only for the same reason the SSH key is.
+	Runtime     string `json:"runtime"`
+	Workflows   string `json:"workflows"`
+	RunnerToken string `json:"runnerToken"`
 }
 
 // HostPaths are the platform's own default locations on the NAS
@@ -282,13 +298,23 @@ type Canonical struct {
 	// Profiles are the runtime profiles the canonical definition declares
 	// and the executable implements. An adapter may select one of these
 	// and nothing else.
-	Profiles       []string       `json:"profiles"`
-	Healthchecks   Healthchecks   `json:"healthchecks"`
-	ListenPort     int            `json:"listenPort"`
-	AuthMode       string         `json:"authMode"`
-	Commands       Commands       `json:"commands"`
-	Binaries       []string       `json:"binaries"`
-	ContainerPaths ContainerPaths `json:"containerPaths"`
+	Profiles     []string     `json:"profiles"`
+	Healthchecks Healthchecks `json:"healthchecks"`
+	ListenPort   int          `json:"listenPort"`
+	AuthMode     string       `json:"authMode"`
+	Commands     Commands     `json:"commands"`
+	Binaries     []string     `json:"binaries"`
+	// RetainedBinaries maps a pre-rename entrypoint the image still
+	// answers to onto the binary it is a hardlink of. Issue #890's
+	// one-release overlap; renameoverlap.go is the only reader and #895
+	// removes both.
+	//
+	// Separate from Binaries because the two answer different questions:
+	// Binaries is what the image CONTAINS, so it is what
+	// container/release-manifest.json has to record a SHA-256 for, and a
+	// hardlink has no hash of its own.
+	RetainedBinaries map[string]string `json:"retainedBinaries"`
+	ContainerPaths   ContainerPaths    `json:"containerPaths"`
 	// ConfigFileName is the file the engine reads inside the config
 	// directory.
 	ConfigFileName         string   `json:"configFileName"`
@@ -300,8 +326,13 @@ type Canonical struct {
 	// mode nobody decided ends up read-only in production and writable in
 	// every test fixture, which is exactly the shape #196 was filed
 	// about.
-	WritableContainerPaths []string            `json:"writableContainerPaths"`
-	Platforms              map[string]Platform `json:"platforms"`
+	WritableContainerPaths []string `json:"writableContainerPaths"`
+	// WorkflowRunner is the host-side Host Workflow Runner contract
+	// (issue #877): a prerequisite no packaged artifact carries, pinned
+	// here so the manifests are part of the same pin as the runner and
+	// the installer rather than a fifth independent copy of it.
+	WorkflowRunner WorkflowRunnerContract `json:"workflowRunner"`
+	Platforms      map[string]Platform    `json:"platforms"`
 }
 
 // ConfigFilePath is where config.yaml lands inside the container: the
@@ -388,6 +419,12 @@ func (c ContainerPaths) ByRole(role string) (string, bool) {
 		return c.SSHKey, true
 	case "knownHosts":
 		return c.KnownHosts, true
+	case "runtime":
+		return c.Runtime, true
+	case "workflows":
+		return c.Workflows, true
+	case "runnerToken":
+		return c.RunnerToken, true
 	}
 	return "", false
 }
@@ -412,6 +449,36 @@ func (h HostPaths) ByRole(role string) (string, bool) {
 // Roles is the fixed set of storage roles every platform maps, in a stable
 // order so table-driven tests report deterministically.
 var Roles = []string{"state", "backups", "config", "sshKey", "knownHosts"}
+
+// HostPlaneRoles are container paths the canonical image knows about and
+// does NOT require of every platform.
+//
+// The distinction is the point of this list, and collapsing it back into
+// Roles breaks the product in one direction or the other. These three
+// paths belong to the workflow runner, which is a host-plane feature: the
+// canonical compose stack mounts them, and a NAS store profile that never
+// deploys a runner has no business being told it is missing storage. Put
+// them in Roles and every one of those profiles fails for not mounting a
+// directory it has no use for. Leave them out of the contract altogether,
+// which is where they were until this list existed, and the reverse
+// happens: roleForContainerPath cannot name them, CheckRequiredMounts
+// reads each one as "a mount the binaries never read", and the two
+// profiles that DO deploy the canonical stack fail instead.
+//
+// So: known, and optional. A profile that mounts one is held to the write
+// mode canonical.json declares for it; a profile that mounts neither is
+// never asked about it.
+var HostPlaneRoles = []string{"runtime", "workflows", "runnerToken"}
+
+// KnownRoles is every role the canonical image recognises, required or
+// not. Anything deciding "is this container path one of ours" reads this;
+// anything deciding "must this platform mount it" reads Roles.
+func KnownRoles() []string {
+	out := make([]string, 0, len(Roles)+len(HostPlaneRoles))
+	out = append(out, Roles...)
+	out = append(out, HostPlaneRoles...)
+	return out
+}
 
 // Contains reports whether child is parent or sits underneath it, treating
 // both as cleaned absolute-style POSIX paths. It is deliberately textual:

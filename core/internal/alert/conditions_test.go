@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/internal/alert"
-	"github.com/spdrman/rclone-manager/core/internal/capacity"
-	"github.com/spdrman/rclone-manager/core/internal/health"
-	"github.com/spdrman/rclone-manager/core/internal/model"
-	"github.com/spdrman/rclone-manager/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/alert"
+	"github.com/retnd/retnd/core/internal/capacity"
+	"github.com/retnd/retnd/core/internal/health"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // conditions.go turns verdicts other packages already reached into the four

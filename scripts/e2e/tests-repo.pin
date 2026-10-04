@@ -1,6 +1,6 @@
-# The rclone-manager-tests commit this repository's gate runs its browser
+# The retnd-tests commit this repository's gate runs its browser
 # e2e suite and its CLI smoke slice from. Moved by
-# scripts/rcmtools/e2e/bump_tests_pin.py, and the commit that moves it is itself
+# scripts/bdtools/e2e/bump_tests_pin.py, and the commit that moves it is itself
 # gated against the new pin, so a bad bump cannot land unnoticed.
 #
 # Why this repository pins that one, and that one pins a build of this one:
@@ -10,12 +10,12 @@
 # cannot silently change what those suites certify. Each is one line, in one
 # file, reviewable on its own.
 #
-# At a794c38, read off rclone-manager-tests' merged main rather than a branch
+# At a794c38, read off retnd-tests' merged main rather than a branch
 # head, because a squash rewrites the head and the pin then names a commit in
 # no history. It is exactly two commits past the sha this line held before, and
 # both are #431's, so nothing unrelated arrives with the bump.
 #
-# Those are rclone-manager-tests#32 and rclone-manager-tests#33, which between
+# Those are retnd-tests#32 and retnd-tests#33, which between
 # them retire the two retention cases that recorded this binary's old note
 # about FR-20 being unimplemented and replace them with one that asserts the
 # note that replaces it. They are the specs half of #431; the product half is
@@ -24,8 +24,8 @@
 # staging two of its files, and that repository's own lockstep test caught it
 # on main.
 #
-# It has moved once since, to 6520d0a, which is rclone-manager-tests#34: the
-# archive case that follows rclone-manager#442 refusing a retention tier bound
+# It has moved once since, to 6520d0a, which is retnd-tests#34: the
+# archive case that follows retnd#442 refusing a retention tier bound
 # to an archive storage class at load. The two paragraphs above are about the
 # bump that carried #431's specs and not about where this line points today,
 # which is worth saying rather than leaving them to read as current. A pin
@@ -46,13 +46,13 @@
 # tree and that spec goes red; the gate catches it, which is the pin doing its
 # job rather than a problem with it.
 #
-# It runs the other way too, and that half has no automation. rclone-manager-
+# It runs the other way too, and that half has no automation. retnd-
 # tests carries its own build-under-test.json naming a commit of THIS
 # repository, and a spec landed ahead of its feature cannot go green over there
 # until somebody moves it. Both of those commits are in that position right
 # now: they need that file moved to #465's own merge commit.
 #
-# Moved to b3fe0f8, which is rclone-manager-tests#36, and read off that
+# Moved to b3fe0f8, which is retnd-tests#36, and read off that
 # repository's merged main rather than off the branch, for the reason the
 # paragraph about a794c38 above already gives. EPIC #536 gave every
 # configuration read and write a "mode:" line on stderr saying which world
@@ -76,7 +76,7 @@
 # whatever commit this branch merges as, or #536's specs cannot go green
 # over there.
 #
-# Moved to 0673850, rclone-manager-tests#40, off their merged main again. #555
+# Moved to 0673850, retnd-tests#40, off their merged main again. #555
 # gives a read a third way to refuse, the engine at the address this host was
 # given turning out to serve a different deployment, so the banner says three
 # cases and g5 still pinned the sentence that said two. That is the pin
@@ -87,10 +87,10 @@
 # row is not a command.
 #
 # Verified before the bump rather than after: a stamped build of this branch
-# through RM_MODE=local runs the whole of Suite A green, 72 of 72. Their
+# through RETND_MODE=local runs the whole of Suite A green, 72 of 72. Their
 # build-under-test.json names 1bed795 and still has to move to this branch's
 # merge commit by hand, which is the half of the lockstep with no automation.
-# Moved to 90c3bb1, rclone-manager-tests#46, read off their merged main and
+# Moved to 90c3bb1, retnd-tests#46, read off their merged main and
 # not off the branch, for the reason the paragraph about a794c38 above
 # already gives. It is the specs half of #598: ten Suite B cases driving a
 # failing Activity page, and four Suite A cases plus a usage line for the
@@ -106,14 +106,14 @@
 # main, so `global/g3-usage-lists-every-command` cannot see it.
 #
 # Verified before the bump rather than after, the way the note above asks:
-# a stamped build of this branch through RM_MODE=local runs Suite A green,
+# a stamped build of this branch through RETND_MODE=local runs Suite A green,
 # 76 of 76, and Suite B green against this branch's ui/shared, 198 of 198
 # across the generic and small-window projects. The control matters as much
 # as the pass: the same Suite B file run against a clean checkout of main
 # fails 7 and passes 3, which is what makes it a test of the product rather
 # than of the component.
 #
-# Moved again, to 41b0721, rclone-manager-tests#48, off their merged main.
+# Moved again, to 41b0721, retnd-tests#48, off their merged main.
 # That one is the black-box half of the two CLI surfaces this branch adds
 # beyond the durable activity read: `activity --follow` and `backup-set
 # edit-hold`, both pinned by their REFUSAL rather than their happy path.
@@ -129,13 +129,13 @@
 # implicit.
 #
 # Verified before the bump, again: a stamped build of this branch through
-# RM_MODE=local runs Suite A green, 78 of 78.
+# RETND_MODE=local runs Suite A green, 78 of 78.
 #
 # Still outstanding on their side, and still with no automation: their
 # build-under-test.json names 1bed795 of this repository and has to move to
 # whatever commit this branch merges as.
 #
-# Moved to e7bf7a9, rclone-manager-tests#51 and #53, off their merged main
+# Moved to e7bf7a9, retnd-tests#51 and #53, off their merged main
 # and not off the branch, for the reason the paragraph about a794c38 above already
 # gives. This one runs the other way round from most of the bumps above:
 # their specs did not land ahead of a feature, they were pinning the old
@@ -173,7 +173,7 @@
 #
 # Verified before the bump rather than after, the way the notes above ask.
 # All five fail against this repository's main at 51f5f4f2 and pass against
-# this branch, checked by pointing RM_UI_DIR at each checkout in turn, so
+# this branch, checked by pointing RETND_UI_DIR at each checkout in turn, so
 # they are a test of the product and not of the component. #53's assertion
 # is checked both ways round too: that button is enabled under the default
 # scenario and disabled under version-mismatch, so it is not trivially
@@ -187,7 +187,7 @@
 # That is the same manual half the paragraphs above keep flagging, and it
 # is not something a bump on this side can close.
 #
-# Moved to 82fee27, rclone-manager-tests#62, read off their merged main and not
+# Moved to 82fee27, retnd-tests#62, read off their merged main and not
 # off the branch, for the reason the paragraph about a794c38 above already
 # gives. This is the specs half of #622: seventeen Suite B cases and seventeen
 # Suite A ones covering the local hard drive entry, the default marker and the
@@ -209,10 +209,10 @@
 # gate red: theirs was red against the old pin until this line moved, and ours
 # was red the moment #622 put a picker on a form their spec said had none.
 #
-# Moved to bfbe51e, rclone-manager-tests#64, read off their merged main and not
+# Moved to bfbe51e, retnd-tests#64, read off their merged main and not
 # off the branch, for the reason the paragraph about a794c38 above already
 # gives. This is the specs half of the CLI rename: the command an operator types
-# is `rbm` now, and 41 of that suite's cases asserted the old name in a
+# is `retnd` now, and 41 of that suite's cases asserted the old name in a
 # diagnostic prefix or a usage banner. They assert the new one.
 #
 # The bump has to ride with the product change rather than follow it, because
@@ -223,22 +223,22 @@
 #
 # It also brings two cases the old suite could not express. `invoke_as` runs the
 # argv under test through a second filename for the same binary, so g6 reaches
-# `version` under `backup-manager` and g7 reaches an unknown command under it,
-# and both require the output to say `rbm`. What that proves is that the binary
+# `version` under `retnd` and g7 reaches an unknown command under it,
+# and both require the output to say `retnd`. What that proves is that the binary
 # does not care which name reached it. What it does NOT prove, and their case
 # doc says so, is that the shipped image carries both names: the `go` builder
 # makes no image, so that half belongs to container/Dockerfile, where
-# apps/generic/tests/dockercli runs /rbm inside the built image.
+# apps/generic/tests/dockercli runs /retnd inside the built image.
 #
 # Their harness needed one fix that is worth knowing about here, because this
 # repository caused it. `docker cp` copies a symlink AS a symlink, and the new
-# image ships /rbm with /rbm as a link to it, so extraction was
+# image ships /retnd with /retnd as a link to it, so extraction was
 # landing a four-byte dangling link and exec'ing it. They pass `-L` now, which
 # is a no-op against a pre-rename image. The same defect was in this
 # repository's own release scripts and is fixed on the image branch.
-TESTS_REPO_URL=https://github.com/spdrman/rclone-manager-tests.git
+TESTS_REPO_URL=https://github.com/retnd/retnd-tests.git
 #
-# Moved to 1b79f8d, rclone-manager-tests#60, off their merged main and not
+# Moved to 1b79f8d, retnd-tests#60, off their merged main and not
 # off the branch, for the reason the paragraph about a794c38 above already
 # gives. It is the specs half of #624: the add-backup-set wizard will not
 # save a source nobody has proven.
@@ -257,7 +257,7 @@ TESTS_REPO_URL=https://github.com/spdrman/rclone-manager-tests.git
 # half that matters: it makes them a test of the product rather than of the
 # component.
 #
-# The bump also carries b5af4c7, rclone-manager-tests#58, which is #617 and
+# The bump also carries b5af4c7, retnd-tests#58, which is #617 and
 # #618's specs. Their product half is already on main here (#619), and this
 # branch is rebased onto it, so those arrive green rather than ahead of the
 # feature they describe.
@@ -267,21 +267,21 @@ TESTS_REPO_URL=https://github.com/spdrman/rclone-manager-tests.git
 # #624, so #60's three cases are red over there until it moves to whatever
 # commit this branch merges as. That is the same manual half every paragraph
 # above keeps flagging.
-TESTS_REPO_SHA=8d6e1abc1fa36826200ba578bc014d6a817f6e80
+TESTS_REPO_SHA=c75e4dd0026dbff43ccae77433989d8976f36ae7
 #
-# Moved to bccd71c, rclone-manager-tests#65, off their merged main and not
+# Moved to bccd71c, retnd-tests#65, off their merged main and not
 # off the branch, for the reason the paragraph about a794c38 above already
 # gives. It is #687's OPEN item: "suite/web-ui-real-backend is pushed and
 # green on the rig but nothing points at it." Suite B now drives a real
-# deployment over RM_BASE_URL instead of starting ui/shared's own Vite
-# dev server over a mock through RM_UI_DIR, which #65 retires along with
+# deployment over RETND_BASE_URL instead of starting ui/shared's own Vite
+# dev server over a mock through RETND_UI_DIR, which #65 retires along with
 # the fixture-driven suite it drove.
 #
 # The product half rides with it, in this same branch:
 # scripts/e2e/run-tests-repo-gate.sh now stands the deployment up with
 # scripts/e2e/three-machine-web-ui.sh and hands the checkout to it with
-# --suite, instead of picking a free port and exporting RM_UI_DIR. Either
-# half alone leaves the gate red: RM_UI_DIR is gone over there, and
+# --suite, instead of picking a free port and exporting RETND_UI_DIR. Either
+# half alone leaves the gate red: RETND_UI_DIR is gone over there, and
 # nothing here called the rig before this bump.
 #
 # Verified before the bump, the way the notes above ask: 191 passed, 69
@@ -290,14 +290,14 @@ TESTS_REPO_SHA=8d6e1abc1fa36826200ba578bc014d6a817f6e80
 # on a backup silently lands on the Dashboard), exit 0, run through
 # scripts/e2e/three-machine-web-ui.sh against this branch. Not yet filed
 # as its own issue on this side; recorded in this bump's PR instead
-# (rclone-manager-tests' findings/DISC-010.md has the full analysis and
+# (retnd-tests' findings/DISC-010.md has the full analysis and
 # a proposed fix).
 #
 # Moved to 8d6e1ab, read off their merged main and not off a branch, for the
 # reason the paragraph about a794c38 above already gives. It carries two of
 # their PRs at once.
 #
-# rclone-manager-tests#66 deletes the eight expectedToFailOnDISC010()
+# retnd-tests#66 deletes the eight expectedToFailOnDISC010()
 # markers from backups.spec.ts, now that #677 fixed the route those cases
 # were failing on. They were wrapped in test.fail(), so this bump is the
 # first time they are RUN rather than required to fail: 191 passed, 69
@@ -305,7 +305,7 @@ TESTS_REPO_SHA=8d6e1abc1fa36826200ba578bc014d6a817f6e80
 # scripts/e2e/three-machine-web-ui.sh against this branch. DISC-010 is
 # closed as a finding on both sides.
 #
-# rclone-manager-tests#67 retargets medium/remove-refuses-the-local-hard-
+# retnd-tests#67 retargets medium/remove-refuses-the-local-hard-
 # drive. It pinned "local is the drive this deployment's backups land on"
 # and "cannot be un-declared", the local-specific refusal #670 deleted when
 # it made local a declared destination, so it had been red against main
@@ -319,8 +319,287 @@ TESTS_REPO_SHA=8d6e1abc1fa36826200ba578bc014d6a817f6e80
 #
 # Still outstanding on their side, and still with no automation: their
 # build-under-test.json names 87a9dc7 of this repository, which predates
-# the `rbm` rename (#64), so roughly forty of their Suite A cases fail over
-# there with `expected "rbm: " … but it was "backup-manager: …"`. Their
+# the `retnd` rename (#64), so roughly forty of their Suite A cases fail over
+# there with `expected "retnd: " … but it was "retnd: …"`. Their
 # hook is red on main for that reason alone. It is the manual half of the
 # lockstep every paragraph above keeps flagging, and no bump on this side
 # can close it.
+#
+# ---------------------------------------------------------------------
+#
+# 5ff2ef5 is EPIC L's browser evidence: retnd-tests' feat/816-workflow-
+# e2e, carrying suites/web-ui's four workflow-*.spec.ts files and the
+# Suite C equivalence rows for every mutating workflow route. It is a
+# BRANCH HEAD rather than a merged main commit, which every paragraph
+# above would normally refuse, and the reason is lockstep: the rig those
+# specs need did not exist until this commit of THIS repository, so their
+# branch cannot be merged against a main that cannot run it and this one
+# cannot be proved against a pin that predates it. #816 lands both halves
+# together, and their merge is the follow-up.
+#
+# What this pin buys, run through scripts/e2e/three-machine-web-ui.sh
+# against a real stack on the machine this was written on: a Host
+# Workflow Runner in its own container (the product's own binary, the
+# host's Docker socket, non-root, socket and credential in volumes the
+# engine mounts the way container/compose.yaml does), an exec host whose
+# `hookuser` account genuinely runs a NAME.remote.sh, the VPS's
+# internal-sftp-forced account genuinely refusing one, and twelve
+# scenario backup sets whose hooks produce the states #816 is about --
+# including the two the epic exists for: `backup=skipped workflow=failed`
+# for a failing before hook, and `backup=success workflow=failed
+# cleanup=failed` for a failing after hook.
+#
+# And what it does NOT buy, stated here because a reader of this file is
+# the person who will next be surprised by it:
+#
+#   27 cases in suites/web-ui are RED, and they are red at
+#   d04314490 too. That was measured rather than assumed: the same rig,
+#   with --no-workflows so none of #816's fixture is in play, was run
+#   against both this sha and the previous one, and the two failure lists
+#   are identical -- sixteen wizard cases, four backup-sets, three
+#   quarantine-activity, and one each in auth, dashboard,
+#   provider-treatment and safety-invariants. They are product/suite
+#   drift on their main, tracked in #913, and no bump on this side closes
+#   them. This bump does not make the gate redder; it does not make it
+#   green either.
+#
+#   And the run cases in workflow-run.spec.ts and workflow-terminal.spec.ts
+#   cannot pass on ANY deployment this repository can build today, for a
+#   reason that is not the suite's fault and not the rig's: POST
+#   /api/v1/operations run_backup_set is refused 403
+#   DESTRUCTIVE_OPERATIONS_DISABLED, because apps/common/webhost's only
+#   DestructiveGate implementation is NotYetImplementedGate and its own
+#   doc says there is deliberately no flag that can make it report true
+#   until #92 is done. So a browser cannot start a backup on a real
+#   deployment at all, and the specs that press "Run this backup set"
+#   fail waiting for a run the engine was never going to be allowed to
+#   start. The runs those cases want DO happen -- the scheduler makes
+#   them on its own timer, which is what the evidence above was read from
+#   -- so the fix is for those cases to observe a scheduled run rather
+#   than to ask for one, and that is a change on their side. It is
+#   written up in #816 rather than worked around here, because a rig that
+#   opened that gate would be a rig proving something no operator can do.
+#
+# ---------------------------------------------------------------------
+#
+# b9d3c40 is the sha #816 was proved against, and it is the first pin in
+# this file with NO workflow case blocked behind an issue number.
+#
+# What moved between 5ff2ef5 and here was not the suite drifting: it was
+# four defects the rig found in a browser, each of which had to be fixed
+# in the product before the case that found it could assert rather than
+# skip.
+#
+#   #916  the step log terminal measured 1178px in a 940px window and
+#         the page scrolled sideways, with wrapping ON. Two halves: the
+#         terminal was not capped at its column, and the run page's step
+#         rows were a `repeat(auto-fit, minmax(130px, 1fr))` grid whose
+#         min-content width was 130px times the facts a step carries --
+#         about 1170px -- which the shell's `overflow: auto` main took
+#         rather than clipped.
+#   #917  coming back to a step re-read its log from the engine even
+#         though the viewer still held the whole page, so the bounded
+#         cache was an optimisation of memory alone.
+#   #919  no remote hook had run since L2/L3. The engine passed the
+#         step id as remoteexec's token, step ids carry a tilde, the
+#         token rule refuses one before a session opens, and the
+#         refusal was reported as transport_lost -- while the
+#         token-less capability preflight said the connection was fine.
+#         Fixed in #920.
+#   and the validation spool this PR fixes, which reported every set
+#   with a NAME.local.sh hook as having invalid hooks.
+#
+# Every one of those needed a real runner, a real exec-capable sshd and
+# a real browser at once. That is the whole argument for this file
+# existing, and it is the first time the argument has been paid back
+# four times in one bump.
+#
+# Still red, and still not this pin's business: the 28 product/suite
+# drift cases tracked in #913, which are red at every pin this file has
+# ever named, including the one before this.
+#
+# 859be963 is the sha #816 merged on, and the last thing to move in it
+# was the recovery pair becoming one case: "a crashed run is held, and
+# both ways out of the hold work". Two cases each crashing the engine
+# meant two waits for the slowest set in the deployment, and the second
+# one starved -- a set with an unsettled hold is a set the scheduler
+# will not run again, so the case that needed a live hook to crash into
+# never got one. One crash, both settlements asserted against the one
+# hold, is not a weaker claim: it is the same two exits from the same
+# hold, proved against a run that was genuinely interrupted rather than
+# against two that had to be manufactured in sequence.
+#
+# The other thing this pin records is worth more than the diff. Its
+# remote-hook case requires the host the SCRIPT printed to appear in the
+# executor the PRODUCT names, and when it went red it quoted both:
+#
+#   the hook printed that it ran on "exechost" and the product says it
+#   executed on "Remote · exec-host", so one of them is describing a
+#   different machine
+#
+# That was a fixture defect wearing a product defect's clothes -- two
+# names for one machine, in this repository's rig, at a moment when the
+# obvious reading was that remote execution was still broken. An
+# assertion that had only checked for "some hostname" would have passed
+# and proved nothing; one that compared against a literal would have
+# failed without saying why. The evidence was in the failure text, and
+# that is the argument for assertions that print what they saw.
+#
+# c30523ca is what #816 merged on, and the last thing to move was the
+# interaction nobody had thought about: taking the Host Workflow Runner
+# away is not scoped to a backup set.
+#
+# One case stops the runner to prove the validation report names it as
+# the reason. It names e2e/workflow-happy, so it reads like a
+# set-scoped act, and it is not: the runner is the facility every
+# NAME.local.sh hook executes through, so the outage interrupts
+# whichever set the scheduler happened to be mid-hook on. At this rig's
+# cadence -- measured at a run per set every ~77s, twelve cycles in
+# eight minutes -- that is very often the crash-fixture set, whose
+# before hook deliberately holds for forty-five seconds. The
+# interrupted run then owes a cleanup nobody settled, which is a HOLD,
+# and a held set is correctly never scheduled again. Twenty-five
+# minutes later the case that needs a live hook to crash into waited
+# five scheduler intervals for a run that could not come, and reported
+# it as the scheduler not running the set -- which was true, and whose
+# cause was four files away.
+#
+# Both halves are fixed at the source rather than waited out: the
+# outage settles what it caused across EVERY set and prints which ones
+# it cleared, and the crash case clears any hold on its own set before
+# it starts. Acknowledge, not resume, in both: a resume EXECUTES the
+# owed hooks, and nothing in a cleanup path should be deciding what a
+# hook does to a source machine.
+#
+# No assertion was relaxed and no budget grew, which is the only reason
+# this pin is worth having: what changed is the arrangement, not the
+# claim.
+#
+# 0b691c59 is the last move, and it is a WHEN rather than a what. The
+# run before this one proved the shape from both ends: the deployment
+# was asked for its facts on connect and answered "0 recovery hold(s)",
+# and the same suite's reporter ended the run with "still holding 2
+# workflow run(s) for recovery: e2e/workflow-crash,
+# e2e/workflow-crash" -- two rows being one interrupted run held at
+# both scopes, global and set, which is exactly what this rig produces
+# by hand. So the hold was real, and every attempt to settle it had
+# looked for it BEFORE it existed: an interrupted run does not raise
+# its hold until it finalises, which is after the case that caused the
+# outage has moved on and after a clear that ran once at another case's
+# entry.
+#
+# Both ends now settle at a moment the hold can actually be found: the
+# crash case acknowledges any hold on its own set on a callback while
+# it waits, so a hold appearing mid-wait is a legitimate starting state
+# rather than a race it lost, and the runner-outage case settles
+# deployment-wide at its file's end, by which time the run it
+# interrupted has finalised. Nothing waits longer and no assertion
+# moved.
+#
+# The reason this is worth a paragraph rather than a line: every red in
+# this sequence was diagnosed from a message a suite printed about what
+# it saw -- the executor names that disagreed, the hold count at
+# connect, the hold list at exit. None of it came from a debugger, and
+# none of it would have existed if the assertions had been written to
+# be easy to satisfy.
+#
+# ---------------------------------------------------------------------
+#
+# e5eeb5ab is the rename, and it is the first bump in this file whose two
+# halves could not have landed apart at all. EPIC R (#885) renames this
+# product from `retnd` to `retnd`, and those suites assert on the CLI's
+# own name, its usage block, its diagnostics and the paths it prints --
+# so their expectations move with the binary. Measured over there before
+# the merge: the PRE-sweep suite is 44 of 97 RED against a stamped build
+# of the renamed tree, and the SWEPT suite is 59 of 97 RED against a
+# build of the pin this line held two bumps ago. Either half alone is a
+# red gate, which is what this file has been saying about every bump
+# since a794c38 and is finally true in both directions at once.
+#
+# The `RM_*` environment contract went with it. Those 23 token-and-path
+# pairs were another repository's interface and had been on
+# check-brand-drift.sh's `preexisting` list since #794 for exactly that
+# reason: renaming them here alone breaks the gate, and renaming them
+# there alone breaks it too. They are `RETND_*` on both sides as of this
+# bump, a straight prefix swap with NO read-compat alias, because the
+# only writers are scripts/bdtools/e2e/run_tests_repo_gate.py and
+# scripts/e2e/three-machine-web-ui.sh and the only reader is that
+# harness -- a compat window would protect nobody and leave an undated
+# shim, which is what FR-43 refuses. The `preexisting` entries are
+# deleted rather than moved to `aliases`.
+#
+# ONE THING THIS BUMP DID THAT A NORMAL ONE DOES NOT, and it is the part
+# worth reading if this file's history ever has to be reconstructed. The
+# sha this line held before, 0b691c5, was a BRANCH HEAD of their
+# feat/816-workflow-e2e and was never on their main -- the "follow-up
+# merge" the paragraph above about 5ff2ef5 flagged as owed and nobody
+# came back to. So the rename could not simply be branched off their
+# main: a rename branched off main alone would have produced a pin with
+# the rename and WITHOUT EPIC L's 3,596 lines of browser evidence, and
+# the loss would have looked like a clean forward bump. That merge landed
+# first, as retnd-tests#84, and deliberately as a MERGE rather than a
+# squash so 0b691c5 stays a reachable ancestor and this file's own
+# history still resolves. ced2cb3 therefore carries both.
+#
+# Verified at e5eeb5ab on a clean checkout: scripts/gate-local.sh green
+# end to end -- source mode built ./cmd/retnd and ./cmd/retnd-web from
+# 72c940e9 and the identity handshake agreed (rclone v1.75.1, go
+# go1.27.1), Suite A ran 97 of 97 with no failures, both `tsc --noEmit`
+# checks clean, Suite B 65 of 65 unit tests. Which it was not before:
+# tools/getbuild's TestParseVersionIgnoresAnUnrelatedFirstWord was red on
+# their main for a reason that had nothing to do with any pin, and was
+# fixed in the same PR.
+#
+# The sha is e5eeb5ab rather than ced2cb3, the rename's own merge, and the
+# difference between the two is README.md alone -- 25 insertions, 6
+# deletions, `git diff --name-status` returning exactly `M README.md`, so
+# it cannot move the gate either way. It is the one to pin because that
+# README is where the tests repository enumerates FR-43's allowlist, and
+# docs/conformance/epic-r-matrix.md cites it: a pin naming the tree whose
+# README listed five of the eight surviving-old-name categories would
+# have the matrix cite an allowlist the pinned sha does not contain,
+# which is the same defect as a matrix row citing a suite that does not
+# exist.
+#
+# The one-sided-bump control, watched rather than described, because that
+# is this file's whole reason for existing: restoring the pin to 87a9dc7
+# while the tree is renamed makes their `make build` fail with
+# `core/cmd/retnd: directory not found`, since 87a9dc7's build-under-test
+# names a tree whose command directory still carried this product's
+# SECOND name, two renames back. A
+# stale pin therefore yields NO run rather than a wrong one, which is the
+# better of the two failure modes and not one anybody designed.
+#
+# Their build-under-test.json names 72c940e9 of this repository, which is
+# this tree's main as the rename was proved against and predates the
+# commit this bump lands in. That is the manual half every paragraph
+# above flags, and this time it is deliberate rather than owed: what
+# changes on this side after 72c940e9 is provenance records, the
+# brand-drift guard's lists and the conformance matrix, none of which any
+# of those suites observes. Nothing over there is red for it.
+#
+# Moved to c75e4dd, which is retnd-tests#87, and it is the other half of
+# FR-41's cutover. That repository's `go.mod` still declared its module
+# under the retired organisation while it was being fetched from
+# `github.com/retnd/retnd-tests`, which is the same mismatch R1.3 (#888)
+# closed on this side and which #895's own matrix row R2.18 claims of
+# BOTH trees; #87 sweeps the module path, its thirteen import paths,
+# getbuild's live clone URL, the `ghcr.io` path in four files and every
+# absolute repository link, and leaves exactly one category standing --
+# the issue and pull-request links that record where work was TRACKED,
+# which a transfer preserves by number and redirects by URL, so rewriting
+# them would falsify that record.
+#
+# It cannot move the gate either way and that is checkable rather than
+# asserted: `git diff --stat` over #87 is 17 files, 28 insertions, 28
+# deletions, all of them a coordinate string, and `go build ./...` and
+# `go vet ./...` pass over there. No suite expectation, fixture, case
+# YAML or harness assertion changed, and their own allowlist grep still
+# returns 55 lines across 15 files.
+#
+# Their build-under-test.json still names 72c940e9 of this repository, for
+# the reason the paragraph above already gives and one more: what has
+# changed here since is provenance records, the brand-drift guard's lists,
+# the conformance matrix and the coordinate sweep, and no suite over there
+# observes any of them. The manual half is deliberate again rather than
+# owed.

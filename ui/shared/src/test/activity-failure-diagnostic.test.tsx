@@ -1,10 +1,10 @@
 /**
  * Issue #598. The Activity page failing on a real NAS with nothing but
- * "Backup Manager could not complete that request." and "correlation id
+ * "retnd could not complete that request." and "correlation id
  * unavailable" under it.
  *
  * Every case here drives the same shape: `listActivity` rejects with an
- * exception that is NOT a `BackupManagerError`, which is what a dropped
+ * exception that is NOT a `RetndError`, which is what a dropped
  * connection, a truncated body and a mapper that threw all look like from
  * a page's side. What is asserted is never that the page failed. It is
  * that what reaches the operator names something: the exception's own
@@ -66,6 +66,8 @@ const SET: BackupSet = {
   stableForSeconds: 0,
   destination: "/data/backups/production/postgres/",
   retentionIsOverride: false,
+  pollIntervalSeconds: null,
+  effectivePollIntervalSeconds: 900,
   validations: ["transfer", "checksum"],
   state: "healthy",
   stateNote: "Verified nightly dump.",
@@ -80,7 +82,12 @@ const SET: BackupSet = {
   retainedBytes: 421 * 1024 ** 3,
   trustedHostKeys: [{ algorithm: "ssh-ed25519", fingerprint: "SHA256:test-fingerprint" }],
   trustedHostKeyRecordedAt: "2026-08-02T10:14:00+02:00",
-  sshKeyId: "key_fixture_1"
+  sshKeyId: "key_fixture_1",
+  // EPIC K (issue #788): this fixture is an artifact set, which is
+  // what every set in this suite was before the incremental engine
+  // existed, so `incremental` is null rather than an empty block.
+  engine: "artifact",
+  incremental: null
 };
 
 const SETS: AsyncState<BackupSet[]> = {
@@ -179,9 +186,9 @@ describe("the Activity page says what actually failed", () => {
   });
 
   it("still keeps a typed refusal's own message and correlation id", async () => {
-    const { BackupManagerError } = await import("@shared/api/contracts");
+    const { RetndError } = await import("@shared/api/contracts");
     renderActivity(
-      new BackupManagerError({ code: "INTERNAL", message: "failed to list activity", correlationId: "cid_real42" })
+      new RetndError({ code: "INTERNAL", message: "failed to list activity", correlationId: "cid_real42" })
     );
     await act(async () => {});
 
@@ -210,7 +217,7 @@ describe("the dashboard's Recent activity panel does not swallow the same failur
 
   it("draws no alert at all when the feed simply has nothing in it", async () => {
     const api = createMockApi();
-    vi.spyOn(api, "listActivity").mockResolvedValue([]);
+    vi.spyOn(api, "listActivity").mockResolvedValue({ events: [] });
     render(
       <MemoryRouter>
         <ApiProvider api={api}>

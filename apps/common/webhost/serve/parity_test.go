@@ -23,10 +23,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/spdrman/rclone-manager/apps/common/auth/local"
-	"github.com/spdrman/rclone-manager/apps/common/platform/profile"
-	"github.com/spdrman/rclone-manager/apps/common/webhost/serve"
-	"github.com/spdrman/rclone-manager/core/service"
+	"github.com/retnd/retnd/apps/common/auth/local"
+	"github.com/retnd/retnd/apps/common/platform/profile"
+	"github.com/retnd/retnd/apps/common/webhost/serve"
+	"github.com/retnd/retnd/core/service"
 )
 
 // gatewayIdentityHeader is the header the synthetic trusted gateway sets.

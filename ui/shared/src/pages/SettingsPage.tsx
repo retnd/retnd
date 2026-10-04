@@ -20,9 +20,11 @@ import { useId, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import { usePlatform } from "@shared/platform/PlatformContext";
+import type { RecoverySettings } from "@shared/api/contracts";
+import { useAsync } from "@shared/hooks/useAsync";
 import { notificationCopy } from "@shared/platform/capabilities";
 import { useCausl } from "@shared/state/graph";
-import { configuredNode, versionNode } from "@shared/state/appNodes";
+import { configuredNode, publishRecoverySettings, versionNode } from "@shared/state/appNodes";
 import { Banner } from "@shared/components/Banner";
 import { PageHeader } from "@shared/components/PageHeader";
 import { PlatformBadge } from "@shared/components/PlatformBadge";
@@ -31,10 +33,25 @@ import { apiErrorOf, describeFailure } from "@shared/api/failure";
 import type { OperatorFailure } from "@shared/api/failure";
 import { RetentionPolicyCard } from "@shared/pages/RetentionPolicyCard";
 import { CapacityCard } from "@shared/pages/CapacityCard";
+import { ServiceBehaviourCard } from "@shared/pages/ServiceBehaviourCard";
 import { StorageDestinationsCard } from "@shared/pages/StorageDestinationsCard";
+import { WorkflowSettingsCard } from "@shared/pages/WorkflowSettingsCard";
 import { HelpField } from "@shared/components/FieldHelp";
 import { PasswordInput } from "@shared/components/PasswordInput";
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
+import {
+  DEFAULT_SMTP,
+  RecoveryAttention,
+  SmtpFields,
+  looksLikeEmail,
+  smtpFieldsComplete,
+  smtpInput
+} from "@shared/components/RecoveryFields";
+import type { SmtpFieldValues } from "@shared/components/RecoveryFields";
+import { useTooltipsEnabled } from "@shared/hooks/useTooltips";
+import { setTooltipsEnabled } from "@shared/state/tooltipNodes";
+import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
+import type { TooltipId } from "@shared/tooltips/tooltips";
 
 export function SettingsPage({ readOnly }: { readOnly: boolean }) {
   const navigate = useNavigate();
@@ -45,6 +62,11 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
   // which version is current.
   const version = useCausl(versionNode);
   const configured = useCausl(configuredNode);
+  // #829's toggle reads the PREFERENCE, not `useTooltipsVisible()`: a
+  // checkbox has to show what is stored, and a surface that suppressed
+  // tooltips locally would otherwise draw this control as "off" while the
+  // stored answer was on.
+  const tooltipsEnabled = useTooltipsEnabled();
 
   // The two cards below read the same destinations twice, from two
   // endpoints, into two independent fetches: the destinations card lists
@@ -64,20 +86,50 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
     <>
       <PageHeader
         title="Settings"
+        tip="nav.settings"
         subtitle="Service behaviour, platform integration and build information"
       />
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.3fr) minmax(0, 1fr)", gap: 14, alignItems: "start" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          {/* Issue #299: this used to be a "Service" card holding two
-              decorative controls, "Polling interval" (15/30/60 SECONDS)
-              and "Log level" — both `defaultValue`, no `onChange`, nothing
-              saved. Removed rather than wired: the real `poll_interval`
-              config key is a duration (minutes, defaults to 15m) so this
-              control was even answering the wrong unit, and there is no
-              log-level concept anywhere in config.Config to wire the
-              second one to. `poll_interval` is still real and still
-              editable — just directly in config.yaml, not here. */}
+          {/* Issue #845. A "Service" card stood here once (#299) holding
+              two decorative controls — a "Polling interval" picklist in
+              the wrong unit (15/30/60 SECONDS against a config key that
+              is a duration in minutes) and a "Log level" with no config
+              key behind it at all. Both were removed rather than wired,
+              and the note left here said poll_interval was still only
+              editable in config.yaml. It is not: this card is the real
+              thing, in the real unit, and the engine reads its cadence
+              from the running configuration on every wake. There is
+              still no log-level concept in config.Config, so the second
+              control has not come back. */}
+          <ServiceBehaviourCard readOnly={readOnly} />
+
+          {/* EPIC K (issue #788). A card that LINKS rather than a second
+              copy of the controls: the retention chain and the polling
+              cadence are edited on this page, and the defaults screen
+              reports them beside the answers a new set starts from and
+              the maintenance ownership table. Two editors for one value
+              is how two screens end up disagreeing about what is
+              configured. */}
+          <section className="card">
+            <div className="card__header">
+              <InfoTooltip id="settings.backup-defaults">
+                <h2 className="eyebrow">Backup defaults</h2>
+              </InfoTooltip>
+            </div>
+            <div className="card__body" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <p style={{ margin: 0, fontSize: 13, color: "var(--text-2)", maxWidth: "74ch" }}>
+                What a new backup set starts with, the retention chain every set without an
+                override is kept by, and who maintains each repository domain.
+              </p>
+              <div>
+                <button className="btn" onClick={() => navigate("/settings/backup-defaults")}>
+                  Open backup defaults
+                </button>
+              </div>
+            </div>
+          </section>
 
           {/* Issue #286: the storage cap and its two FR-21 thresholds
               used to sit here as three decorative controls that saved
@@ -109,8 +161,21 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
             onChanged={() => setDestinationsRevision((n) => n + 1)}
           />
 
+          {/* EPIC L (issue #814). Beside the destinations card rather
+              than on a page of its own: a hook directory is deployment
+              policy in the same sense a retention chain is, and an
+              operator who has just declared where backups go is in the
+              right place to say what runs either side of one. The
+              per-set half lives on each backup set's own page, because
+              what a set pins is a fact about that set. */}
+          <WorkflowSettingsCard readOnly={readOnly} />
+
           <section className="card">
-            <div className="card__header"><h2 className="eyebrow">Notifications</h2></div>
+            <div className="card__header">
+              <InfoTooltip id="settings.notifications">
+                <h2 className="eyebrow">Notifications</h2>
+              </InfoTooltip>
+            </div>
             <div className="card__body" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {/* Honest capability copy — never present a fallback as native (§22). */}
               <Banner tone="info" style={{ fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
@@ -130,25 +195,82 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
             </div>
           </section>
 
+          {/* Issue #829. Deliberately NOT disabled by `readOnly`: §38
+              disables management actions because this build and the
+              service disagree about the /api/v1 contract, and this
+              preference is not a management action. It is stored in this
+              browser, it is never sent anywhere, and the dialog that
+              offers the opt-out points every operator who takes it at
+              exactly this control — a version mismatch leaving it
+              unusable would mean an operator who turned tooltips off
+              having no way to turn them back on. */}
+          <section className="card">
+            <div className="card__header">
+              <InfoTooltip id="settings.interface">
+                <h2 className="eyebrow">Interface</h2>
+              </InfoTooltip>
+            </div>
+            <div className="card__body" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <InfoTooltip id="settings.tooltips-toggle" block>
+                <label
+                  style={{
+                    display: "flex", alignItems: "center", gap: 10, padding: "11px 13px",
+                    border: "1px solid var(--border)", borderRadius: 7, fontSize: 13,
+                    cursor: "pointer"
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={tooltipsEnabled}
+                    style={{ accentColor: "var(--accent)" }}
+                    onChange={(e) => setTooltipsEnabled(e.target.checked)}
+                  />
+                  <span style={{ flex: 1 }}>Show tooltips on hover</span>
+                  <span className="mono" style={{ fontSize: "var(--text-xs)", color: "var(--text-3)" }}>
+                    {tooltipsEnabled ? "on" : "off"}
+                  </span>
+                </label>
+              </InfoTooltip>
+              <p style={{ margin: 0, fontSize: 13, color: "var(--text-2)", maxWidth: "74ch" }}>
+                Tooltips explain what a field does and what it changes. With this off,
+                no tooltip appears on hover anywhere in this interface. The setting is
+                stored in this browser only, so it does not affect anyone else using
+                this instance.
+              </p>
+            </div>
+          </section>
+
           <ChangePasswordCard readOnly={readOnly} />
+
+          {/* Issue #830. Beside the password card deliberately: the two
+              are one subject from an operator's side, since the recovery
+              endpoint below is what stands in for the password above when
+              it is lost. */}
+          <AccountRecoveryCard readOnly={readOnly} />
 
           {/* #275: on an instance with no configuration there is no
               storage location, so there is nothing this card could
               truthfully claim was found in one. */}
           {configured === false ? null : (
             <section className="card" style={{ borderColor: "var(--warn)" }}>
-              <div className="card__header"><h2 className="eyebrow">Catalog recovery</h2></div>
+              <div className="card__header">
+                <InfoTooltip id="settings.catalog-recovery">
+                  <h2 className="eyebrow">Catalog recovery</h2>
+                </InfoTooltip>
+              </div>
               <div className="card__body" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 <div style={{ fontSize: 13.5, fontWeight: 600 }}>Existing backup data detected</div>
                 <p style={{ margin: 0, fontSize: 13, color: "var(--text-2)", maxWidth: "74ch" }}>
                   Backup files were found in the configured storage location, but they are
-                  not currently present in the Backup Manager catalog. Scanning is
+                  not currently present in the retnd catalog. Scanning is
                   read-only — no files will be deleted.
                 </p>
                 <div>
-                  <button className="btn btn--primary" disabled={readOnly} onClick={() => navigate("/catalog-recovery")}>
-                    Scan backup storage
-                  </button>
+                  <InfoTooltip id="settings.catalog-scan">
+                    <button className="btn btn--primary" disabled={readOnly} onClick={() => navigate("/catalog-recovery")}>
+                      Scan backup storage
+                    </button>
+                  </InfoTooltip>
                 </div>
               </div>
             </section>
@@ -157,41 +279,61 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <section className="card">
-            <div className="card__header"><h2 className="eyebrow">Platform</h2></div>
+            <div className="card__header">
+              <InfoTooltip id="settings.platform">
+                <h2 className="eyebrow">Platform</h2>
+              </InfoTooltip>
+            </div>
             <div className="card__body">
               <PlatformBadge />
-              <div className="eyebrow" style={{ fontSize: 10.5, margin: "16px 0 8px" }}>Capabilities</div>
+              <InfoTooltip id="settings.capabilities" block>
+                <div className="eyebrow" style={{ fontSize: 10.5, margin: "16px 0 8px" }}>Capabilities</div>
+              </InfoTooltip>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {capabilityCopy.map((c) => (
-                  <div key={c.label} style={{ display: "flex", alignItems: "center", gap: 9, fontSize: "var(--text-sm)" }}>
-                    <span
-                      aria-hidden="true"
-                      style={{ width: 12, textAlign: "center", color: c.supported ? "var(--ok)" : "var(--text-3)" }}
-                    >
-                      {c.supported ? "\u2713" : "\u2013"}
-                    </span>
-                    <span style={{ flex: 1 }}>{c.label}</span>
-                    <span className="mono" style={{ fontSize: "var(--text-xs)", color: "var(--text-3)" }}>
-                      {c.detail}
-                    </span>
-                  </div>
+                  <InfoTooltip key={c.label} id="settings.capability" block>
+                    <div style={{ display: "flex", alignItems: "center", gap: 9, fontSize: "var(--text-sm)" }}>
+                      <span
+                        aria-hidden="true"
+                        style={{ width: 12, textAlign: "center", color: c.supported ? "var(--ok)" : "var(--text-3)" }}
+                      >
+                        {c.supported ? "\u2713" : "\u2013"}
+                      </span>
+                      <span style={{ flex: 1 }}>{c.label}</span>
+                      <span className="mono" style={{ fontSize: "var(--text-xs)", color: "var(--text-3)" }}>
+                        {c.detail}
+                      </span>
+                    </div>
+                  </InfoTooltip>
                 ))}
               </div>
             </div>
           </section>
 
           <section className="card">
-            <div className="card__header"><h2 className="eyebrow">System information</h2></div>
+            <div className="card__header">
+              <InfoTooltip id="settings.system-information">
+                <h2 className="eyebrow">System information</h2>
+              </InfoTooltip>
+            </div>
             <div className="card__body">
               {version.data ? (
                 <dl style={{ margin: 0, display: "grid", gridTemplateColumns: "1fr auto", gap: "10px 14px", fontSize: "var(--text-sm)" }}>
-                  <Row label="Service version" value={version.data.service} />
-                  <Row label="API contract" value={version.data.api} />
-                  <Row label="Backup engine" value={version.data.engine} />
-                  <Row label="Go toolchain" value={version.data.goVersion} />
-                  <Row label="Configuration revision" value={version.data.configRevision} />
-                  <Row label="Platform adapter" value={bridge.deployment.adapterVersion} />
-                  <Row label="Build commit" value={version.data.buildCommit} />
+                  <Row label="Service version" tip="settings.version.service" value={version.data.service} />
+                  <Row label="API contract" tip="settings.version.api" value={version.data.api} />
+                  <Row label="Backup engine" tip="settings.version.engine" value={version.data.engine} />
+                  <Row label="Go toolchain" tip="settings.version.go" value={version.data.goVersion} />
+                  <Row
+                    label="Configuration revision"
+                    tip="settings.version.config-revision"
+                    value={version.data.configRevision}
+                  />
+                  <Row
+                    label="Platform adapter"
+                    tip="settings.version.adapter"
+                    value={bridge.deployment.adapterVersion}
+                  />
+                  <Row label="Build commit" tip="settings.version.build-commit" value={version.data.buildCommit} />
                 </dl>
               ) : version.error ? (
                 // versionNode's one fetch is owned by App.tsx, not this page,
@@ -219,10 +361,22 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+/** One row of the build-information list.
+ *
+ *  `tip` is required rather than optional (issue #834): every one of these
+ *  values is a version string or a hash, which is exactly the kind of
+ *  thing an operator is asked to quote and given no way to interpret. A
+ *  row that cannot say what its own value means should not be here. */
+function Row({ label, tip, value }: { label: string; tip: TooltipId; value: string }) {
   return (
     <>
-      <dt style={{ color: "var(--text-2)" }}>{label}</dt>
+      <dt style={{ color: "var(--text-2)" }}>
+        {/* The term keeps an element of its own, so something on the page
+            still reads exactly "Build commit" for anything looking for it,
+            and the icon beside it stays out of that text. */}
+        <span>{label}</span>
+        <InfoTooltip id={tip} />
+      </dt>
       <dd className="mono" style={{ margin: 0 }}>{value}</dd>
     </>
   );
@@ -295,7 +449,11 @@ function ChangePasswordCard({ readOnly }: { readOnly: boolean }) {
 
   return (
     <section className="card">
-      <div className="card__header"><h2 className="eyebrow">Administrator password</h2></div>
+      <div className="card__header">
+        <InfoTooltip id="settings.password">
+          <h2 className="eyebrow">Administrator password</h2>
+        </InfoTooltip>
+      </div>
       <div className="card__body">
         <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <HelpField label="Current password" help={FIELD_HELP.currentPassword}>
@@ -367,17 +525,336 @@ function ChangePasswordCard({ readOnly }: { readOnly: boolean }) {
             />
           ) : null}
           <div>
-            <button
-              className="btn btn--primary"
-              type="submit"
-              disabled={!valid || busy || readOnly}
-              style={{ height: 40 }}
-            >
-              {busy ? "Changing…" : "Change password"}
-            </button>
+            <InfoTooltip id="settings.change-password">
+              <button
+                className="btn btn--primary"
+                type="submit"
+                disabled={!valid || busy || readOnly}
+                style={{ height: 40 }}
+              >
+                {busy ? "Changing…" : "Change password"}
+              </button>
+            </InfoTooltip>
           </div>
         </form>
       </div>
     </section>
   );
+}
+
+/**
+ * Issue #830: the account's way back in, after enrolment has set it up.
+ *
+ * The card exists because a mail endpoint that worked on the day it was
+ * configured is not a mail endpoint that works: providers withdraw
+ * credentials, ports change, a relay is decommissioned, and the moment
+ * this is needed is the one moment nobody can find out by trying. So it
+ * offers both halves — edit the configuration, and prove it still sends —
+ * rather than only the first.
+ *
+ * Two properties of the write are worth knowing before reading the
+ * handler. A blank SMTP password means KEEP the stored one, because no
+ * read of this configuration can ever return a password to prefill the
+ * field with (SmtpSettingsView), so blank is the only thing an unedited
+ * field could be. And a changed recovery address is re-verified by the
+ * service as part of the same request: it sends a confirmation over the
+ * endpoint this request establishes and refuses the whole update if that
+ * send fails, so `recoveryEmailConfirmed` coming back true is a message
+ * having been delivered rather than a request having succeeded.
+ */
+function AccountRecoveryCard({ readOnly }: { readOnly: boolean }) {
+  const api = useApi();
+  const recovery = useAsync<RecoverySettings>(() => api.getRecoverySettings(), [api]);
+
+  return (
+    <section className="card">
+      <div className="card__header"><h2 className="eyebrow">Account recovery</h2></div>
+      <div className="card__body">
+        {recovery.error ? (
+          <ErrorState
+            message={recovery.error.message}
+            remediation="The recovery settings could not be read, so they cannot be edited here yet."
+            correlationId={recovery.error.correlationId}
+            onRetry={recovery.reload}
+          />
+        ) : recovery.data ? (
+          <RecoveryEditor loaded={recovery.data} readOnly={readOnly} />
+        ) : (
+          <p style={{ margin: 0, fontSize: 13, color: "var(--text-3)" }}>
+            Loading recovery settings…
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** A refusal from either recovery write, in the words that separate them.
+ *  `sendFailed` is what was NOT done when the mail server refused, and it
+ *  differs between the two callers: a failed save changed nothing, while a
+ *  failed test was never going to change anything. Quoting the server's
+ *  own message is the point of both — "connection refused" and "535
+ *  authentication failed" are the two different problems this card
+ *  exists to surface, and no sentence written here could tell them
+ *  apart. */
+function describeRecoveryFailure(
+  e: unknown,
+  { fallback, sendFailed }: { fallback: string; sendFailed: string }
+): OperatorFailure {
+  const api = apiErrorOf(e);
+  if (api?.code === "SMTP_SEND_FAILED") {
+    return {
+      message: sendFailed,
+      remediation: "The mail server said: " + api.message,
+      correlationId: api.correlationId
+    };
+  }
+  if (api?.code === "INVALID_EMAIL") {
+    return {
+      message: "That address was not accepted as an email address.",
+      remediation:
+        "retnd checks the recovery address and the From address against the mail standard rather than against a rough pattern. Check both for a missing domain, a stray space or a trailing comma.",
+      correlationId: api.correlationId
+    };
+  }
+  if (api?.code === "UNAUTHENTICATED") {
+    // The one refusal on this card that is not about mail. It covers a
+    // wrong password and a session that has since lapsed, because the
+    // service deliberately does not distinguish them, and saying so is
+    // more useful than picking one.
+    return {
+      message: "That password was not accepted, so nothing was changed.",
+      remediation:
+        "Re-type the administrator password. If it is definitely right, the session has expired instead — sign in again and repeat the change.",
+      correlationId: api.correlationId
+    };
+  }
+  return describeFailure(e, fallback);
+}
+
+function RecoveryEditor({ loaded, readOnly }: { loaded: RecoverySettings; readOnly: boolean }) {
+  const api = useApi();
+  // What the service last told us it holds. Replaced by the answer to a
+  // save rather than by a guess at it, which is what makes the confirmed
+  // badge below report a delivered message instead of a successful
+  // request.
+  const [current, setCurrent] = useState(loaded);
+  const [email, setEmail] = useState(loaded.recoveryEmail);
+  const [smtp, setSmtp] = useState<SmtpFieldValues>(() => smtpFieldsOf(loaded.smtp));
+  // The re-authentication this write requires (#830 security review).
+  // Held here rather than in the SMTP block because it is not part of
+  // the configuration at all: it proves who is changing it, and it is
+  // cleared the moment the change lands.
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [saved, setSaved] = useState<string | null>(null);
+  const [tested, setTested] = useState<string | null>(null);
+  const [failure, setFailure] = useState<OperatorFailure | null>(null);
+
+  const badEmailId = useId();
+  const badEmail = email.length > 0 && !looksLikeEmail(email);
+  const valid = looksLikeEmail(email) && smtpFieldsComplete(smtp) && password.length > 0;
+
+  const save = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!valid || readOnly) return;
+    const addressChanged = email.trim() !== current.recoveryEmail;
+    setSaving(true);
+    setFailure(null);
+    setSaved(null);
+    setTested(null);
+    api
+      .updateRecoverySettings({ currentPassword: password, recoveryEmail: email.trim(), smtp: smtpInput(smtp) })
+      .then((next) => {
+        // Re-rendered from the answer, including the password field, which
+        // goes back to blank: whatever was typed is stored now and there
+        // is nothing to show in its place.
+        setCurrent(next);
+        setEmail(next.recoveryEmail);
+        setSmtp(smtpFieldsOf(next.smtp));
+        // The administrator's own password is not kept for a second
+        // save: it is a credential, this form has no reason to hold one
+        // after the write it authorised, and re-typing it is the point
+        // of asking.
+        setPassword("");
+        // And published, because this answer is also what the unverified
+        // banner above every page is drawn from (#830 §§8-9). A changed
+        // address comes back UNVERIFIED - a verification link was just
+        // mailed to it and nobody has opened it - so without this the
+        // banner would keep reporting the previous address's proof until
+        // the next full page load.
+        publishRecoverySettings(next);
+        setSaved(
+          addressChanged
+            ? "Saved. A verification link has been delivered to " + next.recoveryEmail + "."
+            : "Saved."
+        );
+      })
+      .catch((e: unknown) =>
+        setFailure(
+          describeRecoveryFailure(e, {
+            fallback: "The recovery settings were not saved.",
+            sendFailed: "The confirmation email could not be sent, so nothing was saved."
+          })
+        )
+      )
+      .finally(() => setSaving(false));
+  };
+
+  const sendTest = () => {
+    if (readOnly) return;
+    setTesting(true);
+    setFailure(null);
+    setSaved(null);
+    setTested(null);
+    api
+      .sendRecoveryTestEmail()
+      .then(() => setTested("Test message sent to " + current.recoveryEmail + "."))
+      .catch((e: unknown) =>
+        setFailure(
+          describeRecoveryFailure(e, {
+            fallback: "The test message could not be sent.",
+            sendFailed: "The mail server refused the test message, so recovery mail would not arrive either."
+          })
+        )
+      )
+      .finally(() => setTesting(false));
+  };
+
+  return (
+    <form onSubmit={save} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <RecoveryAttention />
+      {current.smtp === null ? (
+        // A real state, not an empty form: `auth create-admin` leaves
+        // recovery optional, so a headlessly provisioned administrator has
+        // no endpoint at all and no way back until one is filled in here.
+        <Banner tone="warn" dismissible={false} style={{ fontSize: "var(--text-sm)" }}>
+          No SMTP endpoint is configured on this instance, so no reset link can
+          be sent. Until one is saved below, a forgotten password is recovered
+          at the host or not at all.
+        </Banner>
+      ) : null}
+      <HelpField label="Recovery email" help={FIELD_HELP.recoveryEmail}>
+        {/* Named by its label id rather than by the label's text, the same
+            way the wizard's copy of this field is: the validation message
+            below sits inside the label and would otherwise be swept into
+            the field's own name. */}
+        {(helpId, field) => (
+          <>
+            <input
+              className="input input--mono"
+              type="email"
+              aria-labelledby={field.id}
+              aria-describedby={badEmail ? helpId + " " + badEmailId : helpId}
+              autoComplete="email"
+              disabled={readOnly}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+            {badEmail ? (
+              <span id={badEmailId} style={{ fontSize: "var(--text-sm)", color: "var(--danger)" }}>
+                Enter an email address, such as ops@example.com.
+              </span>
+            ) : null}
+          </>
+        )}
+      </HelpField>
+      {/* Typed and reachable are different facts, and only the second one
+          means recovery works, so the card reports which it has. */}
+      <p style={{ margin: 0, fontSize: 13, color: "var(--text-2)" }}>
+        {current.recoveryEmailConfirmed
+          ? "A confirmation message has been delivered to " + current.recoveryEmail + ", so this address is known to be reachable."
+          : "No message has reached " + (current.recoveryEmail || "this address") + " yet, so it is not known to be reachable. Saving sends a confirmation to it."}
+      </p>
+      <SmtpFields
+        values={smtp}
+        onChange={(patch) => setSmtp((currentValues) => ({ ...currentValues, ...patch }))}
+        disabled={readOnly}
+        passwordAutoComplete="off"
+        passwordNote={
+          <span style={{ fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
+            {current.smtp?.passwordSet
+              ? "A password is stored. Leave this blank to keep it, or type a new one to replace it."
+              : "No password is stored for this endpoint yet."}
+          </span>
+        }
+      />
+      {/* Last, immediately above the button it authorises, and only on
+          the save path: the test send changes nothing and is not gated
+          by it. Whoever controls this address and this endpoint controls
+          where a password reset link is delivered, so this write asks
+          for the password itself rather than accepting a session cookie
+          - the same re-authentication the password-change card above
+          performs, for a change of the same weight. */}
+      <HelpField label="Administrator password" help={FIELD_HELP.recoveryCurrentPassword}>
+        {(helpId, field) => (
+          <PasswordInput
+            label={field.label}
+            labelledBy={field.id}
+            autoComplete="current-password"
+            describedBy={helpId}
+            value={password}
+            onChange={setPassword}
+            disabled={readOnly}
+            required
+          />
+        )}
+      </HelpField>
+      {saved ? (
+        <Banner tone="ok" style={{ fontSize: "var(--text-sm)" }}>{saved}</Banner>
+      ) : null}
+      {tested ? (
+        <Banner tone="ok" style={{ fontSize: "var(--text-sm)" }}>{tested}</Banner>
+      ) : null}
+      {failure ? (
+        <ErrorState
+          message={failure.message}
+          remediation={failure.remediation}
+          correlationId={failure.correlationId}
+          detail={failure.detail}
+        />
+      ) : null}
+      <div style={{ display: "flex", gap: 10 }}>
+        <button
+          className="btn btn--primary"
+          type="submit"
+          disabled={!valid || saving || readOnly}
+          style={{ height: 40 }}
+        >
+          {saving ? "Saving…" : "Save recovery settings"}
+        </button>
+        {/* Sends over what is STORED, not over what is in the form, which
+            is why it is a plain button rather than a second submit: a test
+            that quietly saved the fields first would report on a
+            configuration the operator had not agreed to keep. */}
+        <button
+          className="btn"
+          type="button"
+          onClick={sendTest}
+          disabled={testing || readOnly || current.smtp === null}
+          style={{ height: 40 }}
+        >
+          {testing ? "Sending…" : "Send test email"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/** The stored endpoint as this form holds it: every field except the
+ *  password, which no read returns and which therefore starts blank,
+ *  meaning "keep whatever is stored". An instance with no endpoint gets
+ *  the same defaults the enrolment wizard starts from. */
+function smtpFieldsOf(view: RecoverySettings["smtp"]): SmtpFieldValues {
+  if (view === null) return DEFAULT_SMTP;
+  return {
+    host: view.host,
+    port: String(view.port),
+    security: view.security,
+    username: view.username,
+    password: "",
+    from: view.from
+  };
 }

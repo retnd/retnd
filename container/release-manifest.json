@@ -1,27 +1,27 @@
 {
-  "version": "0.4.0",
-  "commit": "77427012c8f6b23faa01713d59c0df8ba3bf1657",
-  "generated_at": "2026-09-10T07:54:41Z",
-  "note": "Regenerate with scripts/release/record-release-hashes.sh, and only at a commit that is ALREADY on main. A commit recorded from a feature branch stops existing the moment that branch is squash merged, and the manifest is then pinned to a SHA nobody can check out: that is issue #174, which is why the script now refuses to record a commit that is not an ancestor of origin/main and why distribution/packaging's release-manifest-integrity check re-asks the same question on every run. binary_sha256 is hashed from the two binaries extracted out of the built image, so it is real evidence of what was compiled. registry_digest is the digest ghcr.io assigns ghcr.io/spdrman/backup-manager on push (docker buildx build --push prints it, docker buildx imagetools inspect reads it back).",
+  "version": "0.5.0",
+  "commit": "8461c3e8b01e822f37fde35a26966faca9817f08",
+  "generated_at": "2026-10-03T18:09:28Z",
+  "note": "Regenerate with scripts/release/record-release-hashes.sh, and only at a commit that is ALREADY on main. A commit recorded from a feature branch stops existing the moment that branch is squash merged, and the manifest is then pinned to a SHA nobody can check out: that is issue #174, which is why the script now refuses to record a commit that is not an ancestor of origin/main and why distribution/packaging's release-manifest-integrity check re-asks the same question on every run. binary_sha256 is hashed from the two binaries extracted out of the built image, so it is real evidence of what was compiled. registry_digest is the digest ghcr.io assigns ghcr.io/retnd/retnd on push (docker buildx build --push prints it, docker buildx imagetools inspect reads it back). binary_sha256 keys match the two executable paths in the image: retnd and retnd-web. A manifest that already records a published release is historical evidence and must not be rewritten merely to rename a key; a new semantic version records the names its image actually carries.",
   "architectures": [
     {
       "architecture": "amd64",
       "binary_sha256": {
-        "rbm": "90fc987c74515e1c53083836e45c23919c4a437f8e1e8fdfc05f5136198e4975",
-        "rbm-web": "90180bf71b929e27d6cb4aeb23c0eafb7303c151c07af30d7c22d964fef3c0c1"
+        "retnd": "609b6eb2456d9efbc92a877224f67a37a3da4b9bd1eb951427de330147a0454a",
+        "retnd-web": "0306f32540207c8c1929171cb1b7588b42824f930b36cada20a1e4df89877480"
       },
-      "local_image_id_sha256": "c0e45ba266a338d07063dbda5e0704649e0ed77d9ec473f492c24f14e7d46ef4",
-      "registry_digest": "sha256:6e2bffd8ba3dc864c317b9fc1ac8d3c38ed5cc5bbb4327ae53c253f48ffd4888"
+      "local_image_id_sha256": "9d685f81d778cf21e150edf6685c714fa873d471528c5143cb090b470386a85a",
+      "registry_digest": null
     },
     {
       "architecture": "arm64",
       "binary_sha256": {
-        "rbm": "5418896e1028bc3d5d20c7c4dec88ea8a61fafa694e78725b3b46325343e9fcb",
-        "rbm-web": "cc3bd1a7be26b67315de8d6edfa5927c80348f9e149bb74e34664d8867163cbb"
+        "retnd": "63fa78ce5cbf9d1cb8afd904c87b35a3fd8f2a35a078fa5353c0c915c659ad7f",
+        "retnd-web": "b46880e086579cae50402106582bbeda17a39a25e5c01b7a1abec3304bf8f4cc"
       },
-      "local_image_id_sha256": "a0ec8ec8c19b7f9d339522977efd754e41b6d3f3d455092e55976acb3522131e",
-      "registry_digest": "sha256:6aa825ef1abb9540ae6f4b668eeb822216eacd9f146efde709563d64242fd794"
+      "local_image_id_sha256": "68f2f624e5984ba2aec144291c233d74941b60888aeaf5400dc61a30bf426cf6",
+      "registry_digest": null
     }
   ],
-  "index_digest": "sha256:f490abb3c2148eb47849597baff0bee820f70c8d7f3e2b90ad9c7205d901fcac"
+  "index_digest": null
 }

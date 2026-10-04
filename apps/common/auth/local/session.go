@@ -33,7 +33,22 @@ import (
 // SessionCookieName is the HTTP-only session cookie this package issues
 // on a successful login or enrollment, and reads on every subsequent
 // authenticated request (via sessionAuthenticator, authenticator.go).
-const SessionCookieName = "bm_session"
+const SessionCookieName = "retnd_session"
+
+// Session cookies are written only under SessionCookieName. Reads also
+// accept the earlier bm_session name until its compatibility window closes;
+// accepting it prevents an in-place upgrade from signing out every browser.
+const EarlierSessionCookieName = "bm_session"
+
+// sessionCookieNames are accepted in precedence order. Package-level so a
+// read does not allocate to iterate it.
+var sessionCookieNames = []string{SessionCookieName, EarlierSessionCookieName}
+
+// LegacySessionCookieNames returns the deprecated names a read accepts.
+// A function avoids exposing a mutable package-level slice.
+func LegacySessionCookieNames() []string {
+	return []string{EarlierSessionCookieName}
+}
 
 // sessionTTL is a fixed lifetime from creation, not a sliding one: simple
 // to reason about, and 24h is generous for a single-administrator admin
@@ -92,27 +107,59 @@ func (m *sessionManager) create(username string) (token string, expiresAt time.T
 // invalid, so this map cannot grow without bound across a long-running
 // process.
 func (m *sessionManager) lookup(token string) (string, bool) {
+	rec, ok := m.live(token)
+
+	return rec.username, ok
+}
+
+// live is lookup with the record, for the one caller that needs the
+// EXPIRY as well as the username: reissueRenamedSessionCookie, which
+// re-writes an existing session's cookie under the current name and must
+// not extend its lifetime while doing so. Nothing else may use this to
+// refresh a credential -- a read that silently extended a session is the
+// property authenticator.go's own doc promises this package does not
+// have.
+func (m *sessionManager) live(token string) (sessionRecord, bool) {
 	if token == "" {
-		return "", false
+		return sessionRecord{}, false
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	rec, ok := m.byTok[token]
 	if !ok {
-		return "", false
+		return sessionRecord{}, false
 	}
 	if m.now().After(rec.expiresAt) {
 		delete(m.byTok, token)
-		return "", false
+
+		return sessionRecord{}, false
 	}
-	return rec.username, true
+
+	return rec, true
 }
 
 // revoke invalidates token immediately, regardless of its expiry.
 func (m *sessionManager) revoke(token string) {
 	m.mu.Lock()
 	delete(m.byTok, token)
+	m.mu.Unlock()
+}
+
+// revokeAll invalidates every live session, leaving none behind.
+//
+// It is rotateSession's other half, for the one case where nobody should
+// be left signed in: a password reset performed from an emailed link
+// (#830). rotateSession keeps ONE session alive because the operator
+// performing a rotation is already authenticated and must not be logged
+// out by their own action; a reset is the opposite situation, because the
+// caller has proved only that they can read the recovery mailbox, and the
+// whole reason a reset is being performed is that control of the account
+// may have been lost. So every session goes, including the one that made
+// the request, and the new password is what gets somebody back in.
+func (m *sessionManager) revokeAll() {
+	m.mu.Lock()
+	m.byTok = map[string]sessionRecord{}
 	m.mu.Unlock()
 }
 
@@ -153,13 +200,61 @@ func (m *sessionManager) rotateSession(username string) (token string, expiresAt
 // (the HTTP handlers in handler.go use this); sessionAuthenticator
 // (authenticator.go) reads the same cookie out of a raw header string
 // instead, since capabilities.AuthRequest carries only headers, not a
-// *http.Request.
+// *http.Request - and funnels back through here so both read paths
+// accept exactly the same set of names.
+//
+// Accepted names are checked newest first. An empty value counts as absent:
+// that is what a cleared cookie a client keeps echoing back looks like, and
+// it must not shadow the deprecated name.
 func tokenFromRequest(r *http.Request) string {
-	c, err := r.Cookie(SessionCookieName)
-	if err != nil {
-		return ""
+	for _, name := range sessionCookieNames {
+		if c, err := r.Cookie(name); err == nil && c.Value != "" {
+			return c.Value
+		}
 	}
-	return c.Value
+	return ""
+}
+
+// reissueRenamedSessionCookie writes a recognised session's cookie back
+// under the CURRENT name when the request presented it under a
+// deprecated one, and does nothing otherwise.
+//
+// This is the second half of the cookie rename, and it is what keeps the
+// window from being indefinite in practice. Accepting the old name on a
+// read (tokenFromRequest) is what stops an upgrade signing every browser
+// out; re-issuing on that same read is what makes the old name
+// disappear from the wire on the caller's very next request, rather than
+// whenever a jar happens to turn over. apps/common/csrf's EnsureCookie
+// carries #794's old token forward for the same reason, and this is that
+// mechanism on the session half.
+//
+// It re-issues the SAME token with the SAME expiry: this is a rename of
+// a credential's container, not a refresh of the credential. A read that
+// extended a session would be exactly the property authenticator.go
+// promises this package does not have, and it would do it on every
+// request.
+//
+// An unrecognised token is not re-issued. A cookie naming a session this
+// process does not have (a restart, a revocation, a forgery) is not a
+// credential to preserve, and writing it back under a fresh name would
+// hand a caller a cookie that looks issued and authenticates nothing.
+func reissueRenamedSessionCookie(sessions *sessionManager, trustForwarded bool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if current, err := r.Cookie(SessionCookieName); err == nil && current.Value != "" {
+				next.ServeHTTP(w, r)
+
+				return
+			}
+
+			token := tokenFromRequest(r)
+			if rec, ok := sessions.live(token); ok {
+				setSessionCookie(w, r, token, rec.expiresAt, trustForwarded)
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // setSessionCookie writes token as this package's session cookie:

@@ -89,6 +89,23 @@ jobs:
         working-directory: core
         run: go vet ./...
 
+      # Docker is a PREREQUISITE of this job, not an optional extra, and
+      # this step is where that is declared. core/'s ./tests/... hold the
+      # Docker-backed suites -- the MinIO S3 verification ladder, the SFTP
+      # source fixtures, the crash matrix -- and every one of them reaches
+      # its container through core/tests/machines, which fails rather than
+      # skips when a run has declared a daemon (machines.dockerIsRequired,
+      # keyed on the CI=true that this runner sets).
+      #
+      # Without this step the same job would still fail, one suite at a
+      # time and several minutes in, with a message about a daemon rather
+      # than about the runner. Probing here costs a second and names the
+      # cause. What must NEVER come back is the third option: those suites
+      # skipping while this job prints ok, which is #456 and is what the
+      # #784 review found still open on the remote side.
+      - name: Docker preflight
+        run: docker info
+
       - name: Test
         working-directory: core
         # -race, the same as scripts/ci-local.sh's own step for this
@@ -97,7 +114,15 @@ jobs:
         # pull request, but the script's whole claim is that it mirrors
         # this file job for job, and a mirror that runs a weaker check
         # than the thing it mirrors is worse than no mirror.
-        run: go test -race ./...
+        #
+        # -timeout 45m, because go test's default of 10m is per PACKAGE
+        # binary and core/internal/backupengine/kopia alone (a 2 GiB
+        # bounded-memory stream, a 200,000-entry namespace stored and
+        # verified, each under the race detector) outlasts it on a hosted
+        # runner while every one of its tests is passing. The timeout is
+        # a hang detector here, not a performance budget; the budgets are
+        # asserted by the tests themselves.
+        run: go test -race -timeout 45m ./...
 
   apps-common-build-vet-test:
     name: apps/common build, vet, test
@@ -320,7 +345,7 @@ jobs:
       # resulting binary, since the runner's architecture usually does not
       # match the target's.
       #
-      # It builds ./... rather than just ./cmd/backup-manager on purpose. The
+      # It builds ./... rather than just ./cmd/retnd on purpose. The
       # narrower form only compiles what the binary transitively imports, so a
       # package nobody has wired up yet is never cross-compiled at all, and an
       # architecture-specific mistake in it sits undetected until the day it
@@ -459,6 +484,57 @@ jobs:
       # needing one tool, not this workflow taking on the linting the local
       # gate does.
 
+  brand-drift:
+    name: no new RM_/BM_/bm_/rbm_/retnd/retndproject/rclone[-_ ]manager/retnd identifier (#794, #887)
+    runs-on: ubuntu-latest
+    # Its own job rather than a step inside somebody else's, for the same
+    # reason the gofmt sweep above has one: it is not a module's question.
+    # It reads every tracked file in the repository, source in six
+    # languages plus compose files, workflow files and documentation.
+    #
+    # No toolchain at all: two `git grep` sweeps and three fixed lists. About
+    # six seconds for the guard and its mutation self-test together, which is
+    # why the self-test runs here too -- a guard whose only evidence is that
+    # it passes on the tree it ships with has proven nothing.
+    #
+    # This project is on its third name (the first product name -> retnd ->
+    # retnd -> retnd, EPIC R #885) and every previous rename left runtime
+    # identifiers behind. #794 renamed the first two brands' prefixes and
+    # #887 pointed the guard at the `retnd` family, the `retndproject`
+    # organisation and the two earlier brand words the org-wide grep found
+    # still live; this is what stops a fourth rename from finding a fresh
+    # crop. FR-41's cutover (#895) took the organisation token off the
+    # `pending` list by moving the coordinates; what is left on it is the
+    # retired product name in prose and in host-side paths, which section 6
+    # of the spec cut deliberately.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: no old-brand identifier outside the allowlist
+        run: bash scripts/rename/check-brand-drift.sh
+
+      - name: the guard can actually fail (mutation self-test)
+        run: bash scripts/rename/selftest.sh
+
+      # FR-44 (#893): the half of the same claim `git grep` structurally
+      # cannot reach. The guard above passes -I, so it never opens a
+      # raster, and it cannot read a letter that has become an SVG
+      # `<path>` -- a favicon carrying the old name is invisible to it.
+      # These two cover what can be covered: no text node in any source
+      # SVG, and docs/design/brand-assets.md held to the filesystem in
+      # both directions. The rest of FR-44 is a human looking at the
+      # pictures, recorded as outstanding in that manifest and as PARTIAL
+      # on row R2.14 of docs/conformance/epic-r-matrix.md.
+      - name: no source SVG carries a text node, and the one pinned <title> reads the product name
+        run: bash scripts/brand/check-svg-text.sh
+
+      - name: every brand asset has a manifest row and every row a file
+        run: bash scripts/brand/check-brand-assets.sh
+
+      - name: those two can actually fail (mutation self-test)
+        run: bash scripts/brand/selftest.sh
+
   api-contract:
     name: /api/v1 contract drift (#166)
     runs-on: ubuntu-latest
@@ -559,6 +635,9 @@ jobs:
       - name: the release-manifest generator still refuses what #174 needs it to
         run: bash scripts/tests/record-release-hashes-guards.test.sh
 
+      - name: published registry facts update every release record atomically
+        run: bash scripts/tests/record-published-release.test.sh
+
       - name: core/app imports neither platform, distribution nor a NAS SDK (static check)
         run: bash scripts/architecture/check-core-dependency-rule.sh
 
@@ -622,6 +701,92 @@ jobs:
 
       - name: the proof's own verdict is still a number nothing else produces (#551)
         run: bash scripts/tests/two-machine-exit-status.test.sh
+
+      # `provenance/**` records artifacts that have been PUSHED, and FR-43's
+      # word for how it changes is "forward". This is the check behind that
+      # sentence (#895, R2.5, row R2.8): four facts about a published
+      # release -- the flag, the recorded build version, the architectures
+      # and the per-architecture registry digests -- and a refusal if any of
+      # them is restated. It belongs in this job rather than in one of its
+      # own for the reason the job's header gives: it is seconds of Python
+      # over one `git show`, and it fails in the dangerous direction, with
+      # this project's compliance record quietly describing an artifact
+      # nobody can fetch.
+      #
+      # The baseline is the merge base with `main`, and `actions/checkout`
+      # fetches one commit, so the fetch below is what makes this step a
+      # real comparison here rather than a tree compared against itself.
+      # Without it the step is vacuously green in CI and only the
+      # pre-commit path is doing any work.
+      - name: Fetch main, so a published provenance record has a baseline
+        run: git fetch --no-tags --depth=200 origin main:refs/remotes/origin/main
+
+      - name: no published release's provenance record has been restated (#895)
+        run: bash scripts/release/check-published-provenance.sh
+
+      - name: and that guard can actually fail (mutation self-test)
+        run: bash scripts/tests/published-provenance-guards.test.sh
+
+  workflow-gate:
+    name: EPIC L workflow security, adversarial and performance gate (#812)
+    runs-on: ubuntu-latest
+    # A job of its own, and the reason is not coverage: core's own job
+    # already runs every test here as part of `go test -race ./...`. Two
+    # things are different.
+    #
+    # The benchmarks. `go test` does not run a benchmark, so the seven
+    # scale scenarios #812 asks for would compile and never execute, which
+    # is how a benchmark rots into a function nobody has called in a year.
+    # They run at -benchtime 1x here, which is seconds, and what that
+    # proves is that they still work -- the NUMBERS belong on the
+    # benchmark host (docs/perf/epic-l-workflows.md says why they are not
+    # gated on a shared runner).
+    #
+    # And the name. When this gate fails, the reason a reader needs first
+    # is "the workflow gate refused something", not "one of nine hundred
+    # core tests went red". #812's whole framing is that a failure here
+    # blocks the release of the feature, and a check run that says so is
+    # worth one extra runner.
+    #
+    # No Docker preflight: every suite below reaches a fake client or a
+    # fixture SSH server on purpose. The claims that need a real daemon
+    # live in core/tests/containerhooks, which core-build-vet-test runs
+    # after its own `docker info`.
+    env:
+      GOWORK: "off"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.0"
+          cache: true
+          cache-dependency-path: core/go.sum
+
+      # The adversarial refusal, injection, cancellation, redaction,
+      # recovery and log-bound suites, in the packages they exercise.
+      - name: the workflow packages' own adversarial suites
+        working-directory: core
+        run: go test ./internal/workflow/ ./internal/workflowexec/ ./internal/workflowrun/ ./internal/hostrunner/ ./internal/remoteexec/
+
+      # The traceability guard: every finding in #807's consensus table
+      # maps to a test that exists, every row carries a falsification, and
+      # the guard itself has been watched to fail.
+      - name: every consensus finding still maps to a test that exists
+        working-directory: core
+        run: go test ./tests/workflowgate/ -v
+
+      - name: the seven scale benchmarks still run
+        working-directory: core
+        run: go test ./internal/workflowrun/ -run '^$' -bench . -benchtime 1x
+
+      # The container contract, asked with local hooks enabled. A separate
+      # module, so a separate step rather than a separate job.
+      - name: the engine container contract still holds with local hooks enabled
+        working-directory: distribution
+        run: go test ./compose/
 
   two-machine-e2e:
     name: two machines, one temporary network, one real backup (#356)
@@ -765,9 +930,11 @@ jobs:
       - frontend
       - provider-conformance
       - gofmt
+      - brand-drift
       - api-contract
       - dependency-rules
       - gate-guards
+      - workflow-gate
       - two-machine-e2e
     runs-on: ubuntu-latest
     steps:

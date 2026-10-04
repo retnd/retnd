@@ -5,7 +5,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/spdrman/rclone-manager/core/apicontract"
+	"github.com/retnd/retnd/core/apicontract"
 )
 
 // Signing in, which is the whole of this package's claim to be one

@@ -95,8 +95,9 @@ function settingsFixture(over: { mediums?: StorageMedium[] } = {}): AppSettings 
       capBytes: 0, warningFreeBytes: 0, criticalFreeBytes: 0, safetyMarginBytes: 0,
       backupRoot: "/srv/backups", backupRootConfigured: false
     },
+    service: { pollIntervalSeconds: 900 },
     mediums: over.mediums ?? [LOCAL, OFFSITE],
-    schema: { retention: SCHEMA, storage: STORAGE }
+    schema: { retention: SCHEMA, storage: STORAGE, service: { minPollIntervalSeconds: 60 } }
   };
 }
 
@@ -408,7 +409,7 @@ describe("picking a destination under a retention tier (#622)", () => {
     // line an operator pastes has to be the line that works.
     expect(
       tier(2).getByText(
-        "rbm settings patch --tier-medium monthly=offsite_s3 --acknowledge-medium-disclosure"
+        "retnd settings patch --tier-medium monthly=offsite_s3 --acknowledge-medium-disclosure"
       )
     ).toBeTruthy();
   });
@@ -544,7 +545,13 @@ describe("the storage destinations card (#622)", () => {
     await waitFor(() => expect(card().getByText("offsite_s3")).toBeTruthy());
     const remove = row("offsite_s3").getByRole("button", { name: "Remove" });
     expect(remove).toBeDisabled();
-    const said = document.getElementById(remove.getAttribute("aria-describedby") ?? "")?.textContent ?? "";
+    // An id LIST since #834: the control is described by the refusal and
+    // by the tooltip saying what Remove does, and a screen reader reads
+    // both.
+    const said = (remove.getAttribute("aria-describedby") ?? "")
+      .split(/\s+/)
+      .map((id) => document.getElementById(id)?.textContent ?? "")
+      .join(" ");
     expect(said).toMatch(/cannot be removed while it carries the mark/i);
   });
 
@@ -605,7 +612,7 @@ describe("the storage destinations card (#622)", () => {
     fireEvent.click(row("offsite_s3").getByRole("button", { name: "Test connection" }));
     await waitFor(() => expect(preflightStorageMedium).toHaveBeenCalledWith("offsite_s3"));
 
-    expect(row("offsite_s3").getByText("rbm medium test-connection offsite_s3")).toBeTruthy();
+    expect(row("offsite_s3").getByText("retnd medium test-connection offsite_s3")).toBeTruthy();
   });
 
   // Issue #636. A destination declared with --no-verify and one checked

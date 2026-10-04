@@ -3,14 +3,14 @@
 // contract).
 //
 // Five of the contract's seven metrics are properties of the running
-// process and are measured here, against the real `backup-manager-web
+// process and are measured here, against the real `retnd-web
 // serve` binary over real HTTP, never against an in-process httptest
 // handler: idle RSS, startup-to-healthy time, /api/v1 read latency,
 // configuration write latency, and idle CPU. The remaining two live
 // elsewhere because they are not properties of this process:
 // core/tests/perfbaseline measures transfer throughput through the
 // transport adapter (which is core's, not this app's), and
-// python3 scripts/rcmtools/perf/capture_baseline.py measures the OCI image size by
+// python3 scripts/bdtools/perf/capture_baseline.py measures the OCI image size by
 // building it.
 //
 // Image size is now also ENFORCED somewhere none of the above is, and the
@@ -28,7 +28,7 @@
 //
 // This is a harness, not a gate. It is skipped unless PERF_BASELINE=1, so
 // an ordinary `go test ./...` (and every CI job that runs one) never pays
-// for it and never goes red on a noisy number. python3 scripts/rcmtools/perf/capture_baseline.py
+// for it and never goes red on a noisy number. python3 scripts/bdtools/perf/capture_baseline.py
 // is the supported way to run it; docs/perf/README.md defines the host,
 // the workload and the threshold the recorded numbers are compared
 // against.
@@ -65,6 +65,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/retnd/retnd/apps/common/email/emailtest"
 )
 
 // The workload constants below ARE the workload definition. Changing any
@@ -108,7 +110,7 @@ const (
 	startupTimeout = 60 * time.Second
 )
 
-// runtimeRecord is the JSON this harness prints. python3 scripts/rcmtools/perf/capture_baseline.py
+// runtimeRecord is the JSON this harness prints. python3 scripts/bdtools/perf/capture_baseline.py
 // merges it with the other two harnesses' records into one baseline file.
 type runtimeRecord struct {
 	Workload             string  `json:"workload"`
@@ -154,7 +156,7 @@ type latencySet struct {
 
 func TestCaptureRuntimeBaseline(t *testing.T) {
 	if os.Getenv("PERF_BASELINE") != "1" {
-		t.Skip("perf baseline harness: set PERF_BASELINE=1 to run it (python3 scripts/rcmtools/perf/capture_baseline.py does)")
+		t.Skip("perf baseline harness: set PERF_BASELINE=1 to run it (python3 scripts/bdtools/perf/capture_baseline.py does)")
 	}
 
 	repoRoot := repoRoot(t)
@@ -368,7 +370,7 @@ func round3(v float64) float64 {
 }
 
 const (
-	csrfCookie = "bm_csrf"
+	csrfCookie = "retnd_csrf"
 	csrfHeader = "X-CSRF-Token"
 )
 
@@ -433,7 +435,18 @@ func enroll(t *testing.T, c *http.Client, base, bootstrapToken string) {
 	}
 	password := base64.RawURLEncoding.EncodeToString(raw)
 
-	body := fmt.Sprintf(`{"username":"perf","password":%q}`, password)
+	// Enrollment sends a confirmation message over the SMTP endpoint the
+	// request names and refuses if that send fails (#830), so this
+	// harness starts an in-process SMTP sink on 127.0.0.1 for it
+	// (apps/common/email/emailtest) and points enrollment at that. It is
+	// created and torn down inside this test process: no mail service, no
+	// container, and nothing here writes a credential to disk - the
+	// property this package's own doc comment claims.
+	sink := emailtest.Start(t)
+
+	body := fmt.Sprintf(
+		`{"username":"perf","password":%q,"recoveryEmail":"perf@example.test","smtp":{"host":%q,"port":%d,"security":"none","username":"","from":"retnd@example.test"}}`,
+		password, sink.Host(), sink.Port())
 	req, err := http.NewRequest(http.MethodPost, base+"/api/v1/auth/enroll", strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("new request: %v", err)
@@ -451,6 +464,7 @@ func enroll(t *testing.T, c *http.Client, base, bootstrapToken string) {
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("enroll: status %d: %s", resp.StatusCode, payload)
 	}
+	sink.WaitForMessage(t, "retnd: verify your recovery email", 10*time.Second)
 }
 
 var bootstrapTokenRE = regexp.MustCompile(`Enrollment bootstrap token: (\S+)`)
@@ -572,12 +586,12 @@ func repoRoot(t *testing.T) string {
 // per-module jobs do.
 func buildEngine(t *testing.T, repoRoot string) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "backup-manager-web")
-	cmd := exec.Command("go", "build", "-o", bin, "./cmd/backup-manager-web")
+	bin := filepath.Join(t.TempDir(), "retnd-web")
+	cmd := exec.Command("go", "build", "-o", bin, "./cmd/retnd-web")
 	cmd.Dir = filepath.Join(repoRoot, "apps", "generic")
 	cmd.Env = append(os.Environ(), "GOWORK=off")
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build backup-manager-web: %v\n%s", err, out)
+		t.Fatalf("build retnd-web: %v\n%s", err, out)
 	}
 	return bin
 }

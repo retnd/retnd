@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useApi } from "@shared/api/ApiContext";
-import { BackupManagerError } from "@shared/api/contracts";
+import { RetndError } from "@shared/api/contracts";
 import type {
   ApiError,
   AppSettings,
@@ -32,6 +32,7 @@ import {
   WEEKDAYS
 } from "./retentionChain";
 import type { TierDraft } from "./retentionChain";
+import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 
 /**
  * B3.7 (#140) — the retention policy form, the write half of what #111
@@ -108,7 +109,9 @@ export function RetentionPolicyCard({
   return (
     <section className="card">
       <div className="card__header">
-        <h2 className="eyebrow">Retention policy</h2>
+        <InfoTooltip id="retention.policy-card" block>
+          <h2 className="eyebrow">Retention policy</h2>
+        </InfoTooltip>
       </div>
       <div className="card__body">
         {isNotConfigured(settings.error) ? (
@@ -269,11 +272,11 @@ function RetentionPolicyEditor({
       })
       .catch((e: unknown) => {
         setSaveError(
-          e instanceof BackupManagerError
+          e instanceof RetndError
             ? e.api
             : {
                 code: "unknown",
-                message: "Backup Manager could not save the retention policy.",
+                message: "retnd could not save the retention policy.",
                 correlationId: "unavailable"
               }
         );
@@ -357,36 +360,40 @@ function RetentionPolicyEditor({
       </div>
 
       <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>
-        <button
-          className="btn btn--sm"
-          type="button"
-          disabled={readOnly}
-          onClick={() => {
-            setSaved(false);
-            // A new tier starts on the DEFAULT destination, which is the
-            // whole of what "default" governs (#622). It says nothing
-            // about where anything already is: the tiers above it keep
-            // whatever they named, and this one is the only thing the
-            // mark decides.
-            setTiers((current) => [
-              ...current,
-              toDraft({ name: "", granularity: "day", keep: 1, medium: defaultDestinationId(mediums) })
-            ]);
-          }}
-        >
-          Add tier
-        </button>
-        <button
-          className="btn btn--sm"
-          type="button"
-          disabled={readOnly}
-          onClick={() => {
-            setSaved(false);
-            setTiers(defaultChain(schema));
-          }}
-        >
-          Restore default chain
-        </button>
+        <InfoTooltip id="retention.add-tier">
+          <button
+            className="btn btn--sm"
+            type="button"
+            disabled={readOnly}
+            onClick={() => {
+              setSaved(false);
+              // A new tier starts on the DEFAULT destination, which is the
+              // whole of what "default" governs (#622). It says nothing
+              // about where anything already is: the tiers above it keep
+              // whatever they named, and this one is the only thing the
+              // mark decides.
+              setTiers((current) => [
+                ...current,
+                toDraft({ name: "", granularity: "day", keep: 1, medium: defaultDestinationId(mediums) })
+              ]);
+            }}
+          >
+            Add tier
+          </button>
+        </InfoTooltip>
+        <InfoTooltip id="retention.restore-default-chain">
+          <button
+            className="btn btn--sm"
+            type="button"
+            disabled={readOnly}
+            onClick={() => {
+              setSaved(false);
+              setTiers(defaultChain(schema));
+            }}
+          >
+            Restore default chain
+          </button>
+        </InfoTooltip>
       </div>
 
       <p style={{ margin: 0, fontSize: "var(--text-sm)", color: "var(--text-3)", maxWidth: "78ch" }}>
@@ -428,7 +435,7 @@ function RetentionPolicyEditor({
       {!protect ? (
         <WarningBanner tone="danger" title="Last-known-good protection is off">
           With this off, the newest known-good backup can be deleted by a retention pass purely
-          because of its age. Backup Manager treats that as a materially more dangerous
+          because of its age. retnd treats that as a materially more dangerous
           configuration.
         </WarningBanner>
       ) : null}
@@ -466,15 +473,17 @@ function RetentionPolicyEditor({
       ) : null}
 
       <div>
-        <button
-          className="btn btn--primary"
-          type="button"
-          style={{ height: 40 }}
-          disabled={readOnly || invalid || !dirty || busy || (needsDisclosure && !acknowledged)}
-          onClick={onSave}
-        >
-          {busy ? "Saving…" : "Save retention policy"}
-        </button>
+        <InfoTooltip id="retention.save-policy">
+          <button
+            className="btn btn--primary"
+            type="button"
+            style={{ height: 40 }}
+            disabled={readOnly || invalid || !dirty || busy || (needsDisclosure && !acknowledged)}
+            onClick={onSave}
+          >
+            {busy ? "Saving…" : "Save retention policy"}
+          </button>
+        </InfoTooltip>
       </div>
 
       <ConfirmationDialog

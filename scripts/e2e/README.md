@@ -2,7 +2,7 @@
 
 The Playwright suite used to live in `ui/shared/e2e/`. It does not any
 more: issue #158 moved it to
-[`spdrman/rclone-manager-tests`](https://github.com/spdrman/rclone-manager-tests)
+[`retnd/retnd-tests`](https://github.com/retnd/retnd-tests)
 as Suite B, so it tests this product the way an operator meets it, from
 outside, with nothing but a browser and a built artefact.
 
@@ -18,16 +18,16 @@ through four merges and was dismissed twice as an ordering flake.
 
 `scripts/ci-local.sh` runs `run-tests-repo-gate.sh` on every non-FAST run,
 which is every commit through `.husky/pre-commit`. That file is a four-line
-bash shim that execs `scripts/rcmtools/e2e/run_tests_repo_gate.py`, which is
+bash shim that execs `scripts/bdtools/e2e/run_tests_repo_gate.py`, which is
 the gate (#672); it stays a file at that path because
 `scripts/tests/ci-local-gate.test.sh` fabricates a stand-in gate there inside a
 sandbox tree, and `ci-local.sh` keeps calling the shim so that stand-in is the
 thing that runs. The step:
 
-1. clones `rclone-manager-tests` at the sha in `tests-repo.pin` into
-   `${XDG_CACHE_HOME:-$HOME/.cache}/rclone-manager-tests-gate/<sha>`, once
+1. clones `retnd-tests` at the sha in `tests-repo.pin` into
+   `${XDG_CACHE_HOME:-$HOME/.cache}/retnd-tests-gate/<sha>`, once
    per pin;
-2. builds `backup-manager` from **this working tree** and runs that
+2. builds `retnd` from **this working tree** and runs that
    repository's CLI smoke slice against it, 55 black-box cases in about
    eleven seconds. That is a signal this repository has never had: nothing
    here exercised the CLI black-box on a per-commit basis at all;
@@ -58,8 +58,8 @@ merge evidence and says so.
 ## Moving the pin
 
 ```sh
-python3 scripts/rcmtools/e2e/bump_tests_pin.py              # the pinned branch's tip
-python3 scripts/rcmtools/e2e/bump_tests_pin.py <full sha>   # an exact commit
+python3 scripts/bdtools/e2e/bump_tests_pin.py              # the pinned branch's tip
+python3 scripts/bdtools/e2e/bump_tests_pin.py <full sha>   # an exact commit
 ```
 
 The bump carries no proof of its own, deliberately. The commit that lands
@@ -86,7 +86,7 @@ change there and the pin bump in the same PR.
   machine with a downloadable trace, not as a gate: nothing triggers it.
   `ci.yml` is the one workflow here that does trigger on its own, on a
   pull request into `release` (#575), and Suite B is not in it.
-- **`rclone-manager-tests` pins a build of this repository**, in its own
+- **`retnd-tests` pins a build of this repository**, in its own
   `build-under-test.json`. The two pins point opposite ways on purpose. A
   new test cannot break in-flight work here until someone bumps this one,
   and a release here cannot silently change what those suites certify.
@@ -170,7 +170,7 @@ down on success, on failure and on interrupt.
 
 ## Both drivers' `--help` is a pinned block, not a line range
 
-`two-machine-backup.sh` and `scripts/rcmtools/e2e/run_machine_tier.py` print
+`two-machine-backup.sh` and `scripts/bdtools/e2e/run_machine_tier.py` print
 their `--help` from the header block between `# HELP-START` and `# HELP-END`
 near the top of each file.
 That used to be a range of line numbers, `sed -n '2,110p' "$0"`, so the help an
@@ -185,3 +185,135 @@ against `scripts/tests/testdata/*.help.txt` on every gate run, the way
 `core/tests/compat` pins the CLI under FR-35 clause 4, so a reword fails until
 somebody updates the golden on purpose. It also proves the property that used to
 be missing: a comment added above the block leaves the rendered help unchanged.
+
+## Reproducing #730 (the Activity fetch that throws)
+
+`retnd#730` is the Activity page's `fetch(/api/v1/activity)`
+throwing `TypeError: Failed to fetch` on a real 0.4.0 NAS, while `curl` to
+the same route answers cleanly. The client request is byte-for-byte the
+same relative, same-origin GET every other page makes (`ui/shared/src/api/
+client.ts`, `BASE = "/api/v1"`, `credentials: "same-origin"`), so a
+same-origin *relative* fetch cannot be failing on CORS or mixed content.
+What the operator's browser has and this plain-HTTP rig did not is a front
+reverse proxy terminating TLS and speaking **HTTP/2** — browsers only
+negotiate h2 over TLS, so the default rig drives the whole stack over
+HTTP/1.1 and never exercises that transport.
+
+`--front-proxy-tls` adds that missing hop:
+
+```
+browser --TLS/HTTP2--> nginx (proxy-machine) --HTTP/1.1--> serve-ui --> serve
+```
+
+Run it against the real published 0.4.0 image (the artefact #730 was seen
+on), rather than a build from this tree:
+
+```sh
+docker pull ghcr.io/retnd/retnd:0.4.0
+scripts/e2e/three-machine-web-ui.sh \
+  --image ghcr.io/retnd/retnd:0.4.0 \
+  --front-proxy-tls
+# optionally enlarge the authenticated /api/v1/activity payload:
+RETND_SEED_CYCLES=8 scripts/e2e/three-machine-web-ui.sh \
+  --image ghcr.io/retnd/retnd:0.4.0 --front-proxy-tls
+```
+
+The built-in `web-ui-smoke.mjs` client counts a failed request or an
+uncaught rejection on the Activity page as a failure, which is exactly
+#730's shape; `--suite ../retnd-tests/suites/web-ui` runs the full
+Suite B, whose `real-path.spec.ts` asserts `getByRole("alert")` is absent
+on `/activity`. Either goes **red** if #730 reproduces over this transport.
+
+It is a genuine experiment, not a guaranteed repro. The proxy
+(`proxy-machine.Dockerfile`, `proxy.nginx.conf`) is a deliberately ordinary
+operator front door, not one built to trip the bug. If an ordinary h2 front
+proxy in front of the real 0.4.0 image turns the Activity page red, the
+fault is in what serve-ui / the engine put on the wire for that one route;
+if it stays green even here, the trigger is more specific to the operator's
+own front end (their proxy build, TLS stack, or browser), and the rig has
+narrowed it either way.
+
+## Reproducing #795 (the Activity page that shows nothing)
+
+`retnd#795` is the other half of the same page failing, and unlike #730 it
+is not an experiment: the cause was known before the rig was asked to
+reproduce it. The web-ui container could not resolve the engine —
+`dial tcp: lookup retnd: no such host` — so `serve-ui` answered
+every `/api/v1` call itself, 502 with no body on it, and the Activity page
+put nothing useful on screen.
+
+`--break-engine` produces that from the four containers this rig already
+stands up:
+
+```sh
+scripts/e2e/three-machine-web-ui.sh --break-engine
+scripts/e2e/three-machine-web-ui.sh --break-engine \
+  --suite ../retnd-tests/suites/web-ui
+```
+
+**The engine is left running when the stack is handed over**, and that is the
+design rather than an omission. `serve-ui` proxies all of `/api/v1`,
+`/auth/session` included, so a stack that starts broken never gets a browser
+past the login page: the Activity page is never reached and a suite's own
+sign-in fixture fails in setup instead of asserting anything. The reported
+NAS failed the other way round — a loaded, signed-in app whose engine went
+away underneath it — so the break happens mid-session, when the suite asks
+for it.
+
+The client container has no Docker socket, deliberately: a browser that can
+stop containers is not the browser under test. So the capability is held by a
+watcher on the host and exposed as files in the directory named by
+`RETND_ENGINE_CONTROL` (inside the already-mounted `/artifacts`):
+
+| file | written by | meaning |
+| --- | --- | --- |
+| `stop` | the suite | stop the engine container; `serve-ui` stays up |
+| `stopped` | the watcher | Docker reports the container not running |
+| `stop-failed` | the watcher | it does not, and this file says why |
+| `start` | the suite | start it again |
+| `started` | the watcher | `docker start` succeeded **and** the engine's own healthcheck has passed |
+| `start-failed` | the watcher | one of those two did not, and this file says why |
+
+Exactly one ack appears per request, and a **success ack is only ever written
+for a state the watcher verified**. That is the whole contract, because the
+suite across the repository boundary reads these files as proof: a discarded
+`docker stop` failure would read there as "the engine is unreachable" and run
+the outage assertions against a healthy engine, and a start whose healthcheck
+timed out would read as "healthy" and run the recovery assertions against an
+engine that never came back — both then reported as product defects. A failure
+ack carries a one-line reason (written atomically, so a reader never sees half
+of it) and the suite quotes it instead of inferring a rig fault from its own
+timeout.
+
+A request file is removed as it is picked up, so one request is never
+acknowledged by the leavings of the last, and `start` against an engine that
+is already running is a no-op that still acknowledges. `RETND_ENGINE_UNREACHABLE=1`
+is set alongside it, and a suite branches on that: assert the failure surface
+when it is set, assert the healthy feed when it is not, so a banner that never
+goes away fails the default run.
+
+`--break-engine` is **not combinable with `--keep-up`**. The watcher is a
+background process of the script, and the `--keep-up` exit stops it, so the
+kept-up stack has nobody acking; the two variables are therefore left off the
+printed command on purpose and the by-hand equivalent is printed instead.
+Re-run without `--keep-up` to drive the engine-unreachable cases.
+
+The break is **rehearsed before the stack is handed over**. The engine is
+stopped, `/api/v1/activity` is asked for from the edge network and has to come
+back `502` with an `X-Correlation-Id` on it, and the engine is started again
+and has to answer `401` as before. A mode that cannot demonstrate the fault it
+exists to produce fails there, rather than handing a suite a healthy stack to
+pass against.
+
+The built-in `web-ui-smoke.mjs` drives the whole window when
+`RETND_ENGINE_UNREACHABLE=1`: the Activity page has to surface an alert rather
+than a blank page or an empty feed, in the wording for a service that did not
+answer rather than one whose answer could not be read, with no literal
+`correlation id unavailable` anywhere on it, a Try again that really
+re-issues, the dashboard's Recent activity panel saying the same thing, and
+recovery once the engine is back. Recovery is followed through the session
+transition the restart causes rather than assumed: the engine holds its
+sessions in its own process, so the app may land on the sign-in form, and the
+check signs in again and then requires a real feed (or the healthy empty
+state) with no error alert. An uncaught exception is never excused by the
+outage window, unlike the 502s and failed requests the window asked for.

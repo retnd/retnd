@@ -30,13 +30,13 @@
 // request and Vite's own dev server replies with the SPA's index.html. The
 // app reads that as "not authenticated", forever, and the login page is
 // the only screen anyone can reach. Stubbing the one route is the same fix
-// `rclone-manager-tests`' Suite B applies in its own fixtures, for the
+// `retnd-tests`' Suite B applies in its own fixtures, for the
 // same reason.
 //
 // # Why Playwright is borrowed rather than installed
 //
 // Issue #158 moved the browser suite out of `ui/shared` into
-// `spdrman/rclone-manager-tests`, and adding a Playwright dependency back
+// `retnd/retnd-tests`, and adding a Playwright dependency back
 // here would undo that. So this resolves `playwright-core` out of the
 // checkout `scripts/e2e/run-tests-repo-gate.sh` already maintains, keyed
 // by the sha in `scripts/e2e/tests-repo.pin`. That file is read, never
@@ -92,17 +92,39 @@ export const SCALE = 2;
  *  as eight months. */
 export const FROZEN_TIME = new Date("2026-08-29T06:15:00+02:00");
 
-/** Never a real host, never a real port, never real key material, never a
- *  real credential. The SSH port in particular is deliberately
- *  uncommitted in this project, so the pictures carry a placeholder that
- *  cannot be mistaken for one. */
+/** Never a real host, never real key material, never a credential, and
+ *  never a port, an address or a path taken from any deployment. The
+ *  same rule covers the recovery mail block #830 added to enrolment:
+ *  `example.com` is reserved by RFC 2606, so nothing here can reach a
+ *  mailbox or a submission service even if a capture were pointed at a
+ *  real engine by mistake, and the SMTP password stays empty because the
+ *  mock asks for no credential and a placeholder in a password field is
+ *  the one kind of placeholder that gets copied into production.
+ *
+ *  The SSH port used to be the unusable string `<your-ssh-port>`, on the
+ *  reasoning that this project commits no port. Issue #864 made that
+ *  reasoning produce a broken script rather than a careful one: the
+ *  wizard's first step is now gated on `isPort()`, so a value that is not
+ *  a port leaves the rail locked on step 1 and every wizard picture after
+ *  it unreachable. A photographed placeholder for that field has to be
+ *  port-SHAPED. 22 is the one number that can be: it is the SSH default,
+ *  it is what the product's own field help offers as this field's example
+ *  (`fieldHelpCopy.ts`, `wizardSshPort.example`), so the picture agrees
+ *  with the tooltip beside it, and it says nothing about any deployment.
+ *  Do not "improve" it into a realistic non-default port: that is the one
+ *  edit that would put a real-looking port in frame.
+ */
 export const EXAMPLE = {
   token: "EXAMPLE-TOKEN-not-a-real-one",
   adminUser: "nas-admin",
   adminPassword: "correct-horse-battery-staple",
+  recoveryEmail: "nas-admin@example.com",
+  smtpHost: "smtp.example.com",
+  smtpPort: "587",
+  smtpFrom: "retnd@example.com",
   setName: "api-server-nightly",
   host: "api-server.example.net",
-  port: "<your-ssh-port>",
+  port: "22",
   user: "backup-agent",
   remoteFolder: "/var/backups/",
   include: "*.tar.zst",
@@ -146,7 +168,7 @@ const PLAYWRIGHT_MIN = [1, 45];
 function playwrightCandidates() {
   const cacheRoot = resolve(
     process.env.XDG_CACHE_HOME ?? resolve(process.env.HOME ?? "", ".cache"),
-    "rclone-manager-tests-gate"
+    "retnd-tests-gate"
   );
   const pinned = readPin();
   const out = [{ why: "the pinned gate checkout " + pinned.slice(0, 12), dir: resolve(cacheRoot, pinned, "suites/web-ui") }];
@@ -421,15 +443,68 @@ export async function settle(page, ms = 250) {
  * page as a rendering fault rather than as a short form. Taller-than-
  * viewport screens fall through to a full-page capture instead of being
  * cut off.
+ *
+ * # Why it shoots twice and compares
+ *
+ * The frozen clock settles every rendered TIME, and it does not settle
+ * every rendered PIXEL. This app polls: `usePolling` holds an interval
+ * per resource and `src/api/mock.ts` answers each read after a 180ms
+ * `delay`, so at any instant a screen can have a read in flight. The
+ * fixture behind that read never changes, but whether its answer has
+ * landed by the time the shutter opens depends on wall clock, and that
+ * was measured rather than theorised: two back-to-back re-records of an
+ * untouched tree produced 53 identical files out of 55 and two that
+ * differed, and a third run reproduced neither -- the signature of a
+ * race rather than of a moving fixture.
+ *
+ * So a still is not one screenshot, it is the first frame that agrees
+ * with the frame before it. Shot into memory, compared, and written only
+ * once two consecutive captures are byte-identical. That is what makes
+ * "a re-record with no UI change produces a byte-identical file" a
+ * property of this harness rather than of how busy the machine was.
+ *
+ * If it never stabilises the run FAILS rather than writing the last
+ * frame: a screen that will not hold still for 250ms is a screen with an
+ * animation or a spinner in it, and a picture of one is a picture nobody
+ * can re-take.
  */
-export async function shot(page, name, clipSel, { pad = 28, log = true } = {}) {
+export async function shot(page, name, clipSel, { pad = 28, log = true, tries = 6 } = {}) {
   await settle(page);
   const clip = await clipRect(page, clipSel, pad);
-  const file = resolve(SCREENS, name + ".png");
-  mkdirSync(SCREENS, { recursive: true });
-  await page.screenshot({ path: file, animations: "disabled", ...(clip ? { clip } : { fullPage: true }) });
+  await writeStable(page, name, () =>
+    page.screenshot({ animations: "disabled", ...(clip ? { clip } : { fullPage: true }) }), tries);
   if (log) console.log("  " + name + ".png");
   return name;
+}
+
+/**
+ * The stabilising shutter itself, so a capture that photographs a
+ * LOCATOR rather than the page gets the same property.
+ *
+ * `take` returns a PNG buffer and is called until two consecutive calls
+ * produce the same bytes; the agreed bytes are what lands on disk. Every
+ * still on this site goes through here, and the reason is in `shot`'s
+ * comment above.
+ */
+export async function writeStable(page, name, take, tries = 6) {
+  mkdirSync(SCREENS, { recursive: true });
+  const file = resolve(SCREENS, name + ".png");
+
+  let previous = await take();
+  for (let attempt = 1; attempt <= tries; attempt++) {
+    await page.waitForTimeout(250);
+    const current = await take();
+    if (current.equals(previous)) {
+      writeFileSync(file, current);
+      return name;
+    }
+    previous = current;
+  }
+  throw new Error(
+    name + " never held still: " + tries + " consecutive 250ms captures all differed.\n" +
+      "Something on that screen is animating or polling into view. Wait for the thing itself " +
+      "(a locator, a piece of text) before the shutter rather than letting this retry around it."
+  );
 }
 
 async function clipRect(page, clipSel, pad) {
@@ -752,13 +827,14 @@ export class Clip {
     writeFileSync(listFile, list.join("\n") + "\n");
 
     const out = resolve(SCREENS, this.name + ".gif");
+    const bin = ffmpeg();
     const filter =
       "scale=" + this.width + ":-2:flags=lanczos,split[a][b];" +
       "[a]palettegen=max_colors=" + this.colors + ":stats_mode=diff[p];" +
       "[b][p]paletteuse=dither=none:diff_mode=rectangle";
 
     const r = spawnSync(
-      FFMPEG,
+      bin,
       [
         "-y", "-hide_banner", "-loglevel", "error",
         "-f", "concat", "-safe", "0", "-i", listFile,
@@ -771,7 +847,7 @@ export class Clip {
     );
     if (r.error) {
       throw new Error(
-        "could not run ffmpeg at " + FFMPEG + ". Set FFMPEG to its path and re-run.\n" + r.error.message
+        "could not run ffmpeg at " + bin + ". Set FFMPEG to its path and re-run.\n" + r.error.message
       );
     }
     if (r.status !== 0) throw new Error("ffmpeg failed on " + this.name);

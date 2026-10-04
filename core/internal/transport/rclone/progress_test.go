@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/internal/transport"
-	"github.com/spdrman/rclone-manager/core/tests/bwlimit"
+	"github.com/retnd/retnd/core/internal/transport"
+	"github.com/retnd/retnd/core/tests/bwlimit"
 )
 
 // This file is where the progress numbers are actually proved, against a

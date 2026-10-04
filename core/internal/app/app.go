@@ -20,7 +20,7 @@
 // lifecycle, discovery, reconciliation, retention, capacity and health
 // exactly as the EPIC's cycle order requires (reconcile, then discover,
 // then per-artifact transfer/verify/commit/delete, then a retention
-// preview), and it does so in one place so that cmd/backup-manager's `run`
+// preview), and it does so in one place so that cmd/retnd's `run`
 // and `daemon` subcommands, and every other CLI command that needs a
 // use case (`status`, `fetch`, `retention`, `reconcile`, `validate`, ...),
 // call the exact same Service methods. A future HTTP API is meant to be
@@ -47,15 +47,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/internal/alert"
-	"github.com/spdrman/rclone-manager/core/internal/capacity"
-	"github.com/spdrman/rclone-manager/core/internal/config"
-	"github.com/spdrman/rclone-manager/core/internal/lifecycle"
-	"github.com/spdrman/rclone-manager/core/internal/model"
-	"github.com/spdrman/rclone-manager/core/internal/obs"
-	"github.com/spdrman/rclone-manager/core/internal/state"
-	"github.com/spdrman/rclone-manager/core/internal/transport"
-	"github.com/spdrman/rclone-manager/core/internal/transport/retry"
+	"github.com/retnd/retnd/core/internal/alert"
+	"github.com/retnd/retnd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/backupengine/kopia"
+	"github.com/retnd/retnd/core/internal/capacity"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/transport/retry"
 )
 
 // Journal is the slice of internal/state.Journal every use case in this
@@ -222,10 +224,30 @@ type Service struct {
 	// this unset is always safe, just silent.
 	Logger *obs.Logger
 
+	// Workflow wraps one backup set's pass in EPIC L's five-stage
+	// lifecycle (workflow.go). Nil is every deployment that configures
+	// no hook scripts, and every use of this package written before EPIC
+	// L: the pass runs exactly as it always has.
+	//
+	// It is set by core/service, which is the layer that has the journal,
+	// the host-runner client, the remote-exec dialer and the
+	// deployment-wide lock table the real lifecycle needs.
+	Workflow WorkflowLifecycle
+
 	// Now is injectable so a test can control every clock reading this
 	// package makes (cycle timestamps, retention's "as of" instant, health's
 	// "as of" instant). Nil means time.Now.
 	Now func() time.Time
+
+	// newTimer is the Daemon loop's sleep, injectable for Now's reason
+	// and only useful beside it: the schedule this loop keeps is measured
+	// in minutes and hours, and a test that had to wait them out could
+	// not assert on it at all. Nil means a real time.NewTimer.
+	//
+	// It returns the fire channel and a stop function rather than a
+	// *time.Timer so a test can grant a sleep instantly instead of
+	// pretending to be one.
+	newTimer func(d time.Duration) (<-chan time.Time, func() bool)
 
 	// Capacity is FR-21's thresholds, consulted before every transfer
 	// begins (see pipeline.go's admitCapacity).
@@ -272,22 +294,55 @@ type Service struct {
 	// wrong once.
 	MediumStore transport.MediumStore
 
+	// Repositories is EPIC K's backup-engine boundary: how this manager
+	// opens the repository an incremental backup set's snapshots live in
+	// (internal/backupengine, adapter in backupengine/kopia).
+	//
+	// Nil means no incremental engine is wired, and a set configured for
+	// one is then REFUSED rather than skipped (ErrNoIncrementalEngine).
+	// That direction is the whole reason this is a field with a nil case
+	// rather than a required constructor argument: every read-only use
+	// case in this package, and every test double of a Service, is built
+	// without one, and none of them may become a path that silently does
+	// nothing to an incremental set.
+	//
+	// New assigns it for every Service it builds; a Service constructed
+	// as a struct literal (which is every test double in this package)
+	// leaves it nil and gets the refusal.
+	Repositories backupengine.Engine
+
 	// The only mutable state on a Service, and the only reason it needs a
 	// lock at all.
 	//
 	// A cycle is sequential and every field above is written once at
-	// construction, so nothing else here is contended. These two are,
+	// construction, so nothing else here is contended. These are,
 	// because Daemon runs its alerting pass on a goroutine beside the
 	// cycle loop (daemon.go): that pass builds a health report, which
 	// reads lastPollAt and lastRetentionAt for every backup set, while the
 	// cycle is writing them for the set it is on.
 	//
-	// Both are in memory and nothing persists them, which is why a
-	// short-lived `status` process reports them as unknown rather than
-	// inventing a value; BuildHealthReport's doc carries the consequence
-	// and the follow-up it needs.
-	mu            sync.Mutex
-	lastPoll      map[model.BackupSetID]time.Time
+	// lastPoll and lastRetention are in memory and nothing persists them,
+	// which is why a short-lived `status` process reports them as unknown
+	// rather than inventing a value; BuildHealthReport's doc carries the
+	// consequence and the follow-up it needs.
+	mu       sync.Mutex
+	lastPoll map[model.BackupSetID]time.Time
+
+	// schedule is when a pass over each backup set last STARTED (issue
+	// #845), which is what the per-set poll cadence is measured from.
+	// Distinct from lastPoll, which is when discovery last SUCCEEDED; see
+	// pollschedule.go for why a schedule keyed on success would retry a
+	// broken source hardest.
+	//
+	// It is a pointer to an object with its own lock, and s.mu guards
+	// only the pointer. A configuration reload hands the SAME schedule to
+	// the Service it builds (AdoptPollSchedule), because a schedule that
+	// restarted there would send the next wake at every source in the
+	// deployment for no reason but a settings save. That sharing is why
+	// this one is not a plain map beside the two above: they describe
+	// what happened, and this decides what happens next.
+	schedule *pollSchedule
+
 	lastRetention map[model.BackupSetID]time.Time
 }
 
@@ -295,7 +350,7 @@ type Service struct {
 // Logger may be left nil by the caller afterward for read-only use cases
 // that do not need them; New itself never rejects a nil value here, since
 // which fields a given CLI command actually needs is that command's own
-// business (see cmd/backup-manager).
+// business (see cmd/retnd).
 //
 // # Issue #295's redaction wiring
 //
@@ -340,16 +395,43 @@ func New(cfg *config.Config, journal Journal, tr transport.Transport, logger *ob
 	if ms, ok := tr.(transport.MediumStore); ok {
 		s.MediumStore = ms
 	}
+	// EPIC K's engine, wired for every Service this constructor builds
+	// (#783). The adapter holds nothing but a clock and touches no
+	// storage until a repository is opened, so there is no cost to a
+	// process that never runs an incremental set -- and the alternative,
+	// assigning it at each call site, is a call site that forgets: a
+	// configuration reload that dropped it would turn every incremental
+	// set into a refusal until the next restart.
+	//
+	// It is wired HERE rather than in core/service because the adapter
+	// package may not be imported from there: core/service is one of the
+	// product surfaces the embedded engine's shape is kept out of, and
+	// backupengine/boundary_test.go enforces it.
+	s.Repositories = kopia.New()
+
 	return s
 }
 
 // sensitiveEndpoints collects the obs.Endpoint for every configured Remote
 // that opted into issue #295's redaction (config.Remote.Sensitive), across
-// every Source and BackupSet cfg carries. This is the one place that
-// translation happens, mirroring sourceFor just below: internal/obs must
-// not import internal/config (see redact.go's own containment argument),
-// so this package, which already imports both, is where the two
-// vocabularies meet.
+// every Source and BackupSet cfg carries and across every declared
+// workflow EXECUTION connection. This is the one place that translation
+// happens, mirroring sourceFor just below: internal/obs must not import
+// internal/config (see redact.go's own containment argument), so this
+// package, which already imports both, is where the two vocabularies meet.
+//
+// The execution connections are here for the reason #295 gave for the
+// transfer ones, and it applies with nothing changed: an exec connection
+// carries a whole Remote, including sensitive_endpoint, and the failures it
+// produces name the endpoint -- internal/remoteexec's dial and channel
+// errors say "user@host:port", and its audit line says so on every step. A
+// deployment that marked an endpoint sensitive and then ran a hook over it
+// would have redacted the transfers and published the same host:port
+// through the hook, which is the leak moved rather than closed.
+//
+// An exec connection resolved from a backup set ("source/set") needs no
+// entry of its own: it IS that set's remote, and the loop below has
+// already collected it.
 func sensitiveEndpoints(cfg *config.Config) []obs.Endpoint {
 	if cfg == nil {
 		return nil
@@ -363,6 +445,13 @@ func sensitiveEndpoints(cfg *config.Config) []obs.Endpoint {
 			}
 			out = append(out, obs.Endpoint{Host: r.Host, Port: r.Port, User: r.User})
 		}
+	}
+	for _, conn := range cfg.Workflows.ExecConnections {
+		r := conn.Remote
+		if !r.Sensitive {
+			continue
+		}
+		out = append(out, obs.Endpoint{Host: r.Host, Port: r.Port, User: r.User})
 	}
 	return out
 }
@@ -476,6 +565,12 @@ func sourceFor(cfg *config.Config, src config.Source, bs config.BackupSet) trans
 		KeyEncryptionCommand: cfg.KeyEncryption.Command,
 		KnownHosts:           r.KnownHosts,
 		Root:                 bs.RemotePath,
+		// #737's path-scoped exclude. It comes from the SET rather than
+		// the remote, like Root does and for the same reason: what to
+		// skip is a property of the tree this set is pointed at, not of
+		// the host it is reached through, and two sets on one host can
+		// name different ones.
+		ExcludePaths: bs.ExcludePaths,
 	}
 }
 

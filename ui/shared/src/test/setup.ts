@@ -2,7 +2,7 @@
 // (toBeDisabled, toBeEnabled). Without it those assertions do not exist
 // and tsc rejects them.
 import "@testing-library/jest-dom/vitest";
-import "@testing-library/react";
+import { configure } from "@testing-library/react";
 
 // jsdom, as vitest configures it here, ships no Storage implementation:
 // `window.localStorage` is undefined, not an empty store. Nothing noticed
@@ -22,8 +22,8 @@ function storageIsUsable(): boolean {
     // present and unusable. Use it, and believe the answer.
     const probe = window.localStorage;
     if (!probe) return false;
-    probe.setItem("backup-manager.storage-probe", "1");
-    probe.removeItem("backup-manager.storage-probe");
+    probe.setItem("retnd.storage-probe", "1");
+    probe.removeItem("retnd.storage-probe");
     return true;
   } catch {
     return false;
@@ -44,3 +44,16 @@ if (typeof window !== "undefined" && !storageIsUsable()) {
   };
   Object.defineProperty(window, "localStorage", { value: storage, configurable: true });
 }
+
+// Testing Library's findBy*/waitFor give up after 1000ms by default, and
+// vitest fails a test after 5000ms. Both numbers are tuned for a unit of
+// a few elements. This suite renders whole pages through real stylesheets
+// (`css: true`) against a mock whose every call takes 180ms, and entering
+// edit mode alone is two of those calls in sequence before the page
+// re-renders; on a loaded or hosted runner that overran one second while
+// every assertion about the outcome was true, which showed up as
+// "Unable to find role=button SAVE ALL & EXIT EDIT" and as five-second
+// timeouts that did not reproduce on a quiet machine. A larger ceiling
+// does not make a passing test slower and does not make a broken one
+// pass: an element that never appears still fails, just later.
+configure({ asyncUtilTimeout: 5000 });

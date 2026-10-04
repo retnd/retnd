@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/spdrman/rclone-manager/core/internal/capacity"
-	"github.com/spdrman/rclone-manager/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/capacity"
+	"github.com/retnd/retnd/core/internal/lifecycle"
 )
 
 // FR-21's second input, and the two opposite failure policies it is read

@@ -9,9 +9,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/spdrman/rclone-manager/core/apicontract"
-	"github.com/spdrman/rclone-manager/core/internal/app"
-	"github.com/spdrman/rclone-manager/core/internal/state"
+	"github.com/retnd/retnd/core/apicontract"
+	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // This file is the durable half of the operation model (§14): a caller
@@ -200,6 +200,15 @@ type Operation struct {
 	// alongside the durable fields above it.
 	Progress *OperationProgress
 
+	// Snapshots is what the incremental engine stored for this
+	// operation, one entry per backup set it ran, and nil for an
+	// operation that took no snapshots -- which is every operation in
+	// every deployment that has not opted into EPIC K's engine.
+	//
+	// Nil rather than an empty slice, and derived per read rather than
+	// stored: see core/service/operationsnapshot.go, which argues both.
+	Snapshots []Snapshot
+
 	// Cycle is what a FINISHED run cycle actually got done, read back off
 	// the summary this package recorded when it completed the operation.
 	// Nil for every other action, for a run cycle that has not finished,
@@ -372,6 +381,14 @@ func (b *BackupService) SubmitRunCycle(ctx context.Context, req RunCycleRequest)
 	if req.ConfigRevision == "" {
 		return Operation{}, fmt.Errorf("%w: run_cycle request requires a configuration revision", ErrInvalidRequest)
 	}
+	// Fail closed on EPIC L's reconciliation (#813). A process that could
+	// not work out which backup sets are blocked by an interrupted run
+	// must not start one, and the refusal is here rather than deeper in
+	// so that no durable operation row is created for a run that is not
+	// going to happen.
+	if err := b.WorkflowReconcileGate(); err != nil {
+		return Operation{}, err
+	}
 	// One atomic read up front: st.revision is what this whole call
 	// checks against and records, so it must be the exact same value
 	// throughout, not re-read (and possibly changed by a concurrent
@@ -458,6 +475,13 @@ func (b *BackupService) GetOperation(ctx context.Context, id string) (Operation,
 		// be one round trip per row on a page nobody is watching.
 		op = b.deriveRestore(ctx, op)
 	}
+
+	// EPIC K's half of the same read (#783): what this operation's
+	// snapshot runs stored, as the catalog says NOW rather than as the
+	// operation's result text said when it finished. Like deriveRestore
+	// above, it is deliberately not done by ListOperations.
+	op = b.deriveSnapshots(ctx, op)
+
 	return op, nil
 }
 
@@ -585,10 +609,18 @@ func (b *BackupService) executeRunCycle(operationID string) {
 	b.activity.beginCycle()
 	defer b.activity.endCycle()
 
+	// The operation id travels with the cycle so that the snapshot runs
+	// it performs are attributable to the request that asked for them,
+	// which is what lets GET /operations/{id} answer "what did my run
+	// store" (see operationsnapshot.go). A scheduled cycle carries none
+	// and its runs record an empty operation id, which says the schedule
+	// did it.
 	report := runCycle(b.state.Load().inner,
-		app.WithBackupSetHolds(
-			app.WithProgressObserver(b.ctx, progressFanout{live, b.cycleWatch, b.activity}),
-			b.holds))
+		app.WithOperation(
+			app.WithBackupSetHolds(
+				app.WithProgressObserver(b.ctx, progressFanout{live, b.cycleWatch, b.activity}),
+				b.holds),
+			operationID))
 
 	// SystemicFailure, not Err != nil: a set whose pass was stopped
 	// because an operator entered edit mode (issue #350's hold) carries
@@ -639,7 +671,7 @@ var runCycle = func(inner *app.Service, ctx context.Context) app.CycleReport {
 // operation failure. That decision is defensible and this issue is not the
 // place to overturn it. What it does mean is that a cycle which backed
 // nothing up finishes here looking exactly like one that backed
-// everything up, which is the same lie `rbm run` was telling
+// everything up, which is the same lie `retnd run` was telling
 // its cron job, told to whoever is reading the Web UI instead. These two
 // numbers are what tell the two apart, in the same terms the CLI now
 // prints and exits on: how many artifacts the cycle had a reason to

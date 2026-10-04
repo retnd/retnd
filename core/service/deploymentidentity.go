@@ -18,7 +18,7 @@ import (
 // computed from the file it loaded, and refuses when they disagree
 // (readmode.go, #544). A routed WRITE compared nothing at all, so a
 // `backup-set create` typed at one deployment with another deployment's
-// address in $BACKUP_MANAGER_API_URL landed in the other one, with the
+// address in $RETND_API_URL landed in the other one, with the
 // near deployment's config.yaml untouched and both surfaces reporting
 // success. That is the wrong way round: a read that goes astray shows an
 // operator something confusing, a write that goes astray changes a
@@ -64,14 +64,14 @@ import (
 // reads, and gets "" when there is nothing to read.
 //
 // That split is structural rather than a convention, and it has to be.
-// The mint used to sit in runStartupSequence, which every `backup-manager`
-// subcommand goes through, so a `rbm status` on a deployment
+// The mint used to sit in runStartupSequence, which every `retnd`
+// subcommand goes through, so a `retnd status` on a deployment
 // whose identity file was missing (restore only the .db, which the
 // restore section below names as supported) MINTED one. On a host where
 // the engine was still up holding the old identity, that one read command
 // renamed the deployment, and every routed write afterwards refused
 // against its own engine while telling the operator to go and check
-// $BACKUP_MANAGER_API_URL. deploymentcheck.go promises the near side is
+// $RETND_API_URL. deploymentcheck.go promises the near side is
 // never minted by the command doing the comparing; putting the mint
 // behind the serving announcement is what makes that promise something
 // the code shape holds rather than something a caller remembers.

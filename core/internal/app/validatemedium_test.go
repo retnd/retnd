@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/internal/config"
-	"github.com/spdrman/rclone-manager/core/internal/lifecycle"
-	"github.com/spdrman/rclone-manager/core/internal/state"
-	"github.com/spdrman/rclone-manager/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // Issue #435: `validate <id>` against an artifact whose only ACTIVE
@@ -250,7 +250,7 @@ func moveToMedium(t *testing.T, f committedFixture, store *validateMedium, class
 	}
 
 	const content = "payload for validate"
-	key := "rclone-manager/production/pg/" + f.artifact.Name
+	key := "retnd/production/pg/" + f.artifact.Name
 	size := int64(len(content))
 	for _, p := range []state.PlacementUpdate{
 		{Medium: state.MediumLocal, Location: local.Location, Status: state.PlacementGone},
@@ -276,7 +276,7 @@ func moveToMedium(t *testing.T, f committedFixture, store *validateMedium, class
 		Type:         config.StorageMediumTypeS3,
 		Region:       "us-east-1",
 		Bucket:       "nas-backups",
-		Prefix:       "rclone-manager",
+		Prefix:       "retnd",
 		StorageClass: class,
 	}}
 
@@ -592,7 +592,7 @@ func TestValidateArtifact_QuarantinesOnlyWhenNoVerifiedCopyRemains(t *testing.T)
 	const second = "warm_offsite"
 	size := int64(len(f.content))
 	p := state.PlacementUpdate{
-		Medium: second, Location: "rclone-manager/second/" + f.artifact.Name, Size: &size,
+		Medium: second, Location: "retnd/second/" + f.artifact.Name, Size: &size,
 		Hash: f.hash, HashAlg: "sha256",
 		VerificationClass: state.VerificationContent, Status: state.PlacementActive,
 	}
@@ -632,7 +632,7 @@ func TestValidateArtifact_OneUnreachableCopyDoesNotHideBehindAPass(t *testing.T)
 	const second = "warm_offsite"
 	size := int64(len(f.content))
 	p := state.PlacementUpdate{
-		Medium: second, Location: "rclone-manager/second/" + f.artifact.Name, Size: &size,
+		Medium: second, Location: "retnd/second/" + f.artifact.Name, Size: &size,
 		Hash: f.hash, HashAlg: "sha256",
 		VerificationClass: state.VerificationContent, Status: state.PlacementActive,
 	}
@@ -788,7 +788,7 @@ func addSecondMediumPlacement(t *testing.T, f movedFixture, id string, declare b
 	ctx := context.Background()
 	size := int64(len(f.content))
 	p := state.PlacementUpdate{
-		Medium: id, Location: "rclone-manager/second/" + f.artifact.Name, Size: &size,
+		Medium: id, Location: "retnd/second/" + f.artifact.Name, Size: &size,
 		Hash: f.hash, HashAlg: "sha256",
 		VerificationClass: state.VerificationContent, Status: state.PlacementActive,
 	}

@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strconv"
 
-	"github.com/spdrman/rclone-manager/core/apicontract"
+	"github.com/retnd/retnd/core/apicontract"
 )
 
 // The typed calls.
@@ -28,12 +28,12 @@ import (
 // this client works against it, and nothing here has watched that claim
 // fail. Adding one is three lines and a contract id.
 //
-// setBackupSetEnabled and setBackupSetReadOnly used to be here and are
-// gone, under that same rule rather than in spite of it. No command calls
-// either: this CLI has no enable/disable verb at all, and --read-only is a
-// field of a create rather than a verb of its own, so both were wrappers
-// nothing had ever driven against the routes they name. #543 is where they
-// would have acquired a caller and did not.
+// setBackupSetEnabled and setBackupSetReadOnly were absent under that
+// same rule and have a caller now (#788). `backup-set enabled` and
+// `backup-set read-only` are the two post-creation toggles a terminal
+// could not reach at all, and both rewrite config.yaml, so beside a
+// serving engine they were refused with nothing on the other side of the
+// refusal. These are that other side.
 
 // ListBackupSets is GET /backup-sets: the configuration the ENGINE holds,
 // which is the whole reason a CLI would ask over HTTP rather than read the
@@ -130,6 +130,28 @@ func (c *Client) UpdateBackupSet(ctx context.Context, source, set string, req ap
 // RemoveBackupSet is DELETE /backup-sets/{source}/{set}.
 func (c *Client) RemoveBackupSet(ctx context.Context, source, set string) error {
 	return c.call(ctx, "removeBackupSet", []string{source, set}, nil, nil)
+}
+
+// SetBackupSetEnabled is POST /backup-sets/{source}/{set}/enabled, and
+// SetBackupSetReadOnly is POST /backup-sets/{source}/{set}/read-only.
+//
+// Both answer with the WHOLE backup set rather than with an
+// acknowledgement, which is what lets the command print the posture the
+// engine actually holds instead of the one it asked for. That
+// distinction is the verb's own rule (backupsettoggle.go): a write that
+// was coerced and a write that did exactly what was asked are different
+// outcomes, and a caller that echoed its own request would report the
+// second for both.
+func (c *Client) SetBackupSetEnabled(ctx context.Context, source, set string, req apicontract.SetEnabledRequest) (apicontract.BackupSet, error) {
+	var out apicontract.BackupSet
+	err := c.call(ctx, "setBackupSetEnabled", []string{source, set}, req, &out)
+	return out, err
+}
+
+func (c *Client) SetBackupSetReadOnly(ctx context.Context, source, set string, req apicontract.SetReadOnlyRequest) (apicontract.BackupSet, error) {
+	var out apicontract.BackupSet
+	err := c.call(ctx, "setBackupSetReadOnly", []string{source, set}, req, &out)
+	return out, err
 }
 
 // GetBackupSetRetention is GET /backup-sets/{source}/{set}/retention.
@@ -240,7 +262,7 @@ func (c *Client) GetArtifact(ctx context.Context, source, set, name string) (api
 // It issues a plan_id and deletes nothing. FR-20's deletion runs through
 // applyRetention, which refuses unless the plan it re-derives still
 // fingerprints as the one that id was issued for, and this package
-// deliberately has no method for that: `rbm retention` is a
+// deliberately has no method for that: `retnd retention` is a
 // preview in both its modes (retention.go's own doc) and a CLI apply would
 // be a second authorisation path beside the one an administrator reviews.
 func (c *Client) PreviewRetention(ctx context.Context, source, set string) (apicontract.RetentionPlan, error) {
@@ -250,11 +272,11 @@ func (c *Client) PreviewRetention(ctx context.Context, source, set string) (apic
 }
 
 // The storage-destination surface (G2.2, issue #594), which is what makes
-// `rbm medium add|edit|remove|import-credentials` work beside a
+// `retnd medium add|edit|remove|import-credentials` work beside a
 // running engine instead of being refused.
 //
 // They are here under this file's own rule and not in spite of it: each
-// one has a command that drives it (core/cmd/backup-manager/medium.go),
+// one has a command that drives it (core/cmd/retnd/medium.go),
 // so none of them is an untested wrapper claiming this client works
 // against a route nothing calls.
 
@@ -362,6 +384,24 @@ func (c *Client) SetDefaultStorageMedium(ctx context.Context, id string) (apicon
 	return out, err
 }
 
+// CreateRepositoryDomain is POST /repositories (issue #862): declare a
+// repository security boundary.
+//
+// It answers with the domain's HEALTH rather than with an echo of the
+// declaration, because that is the shape the route answers with -- but
+// NOT a probe: declaring opens no storage and resolves no passphrase
+// reference, so what comes back is built from the declaration (the id,
+// the co-tenancy posture, DEGRADED, and a detail saying the store is
+// written by the first backup run into the domain) with every access
+// boolean false because nothing was measured. GET /repositories is what
+// probes, and a domain nothing has run into yet reads there as reachable
+// and not yet readable.
+func (c *Client) CreateRepositoryDomain(ctx context.Context, req apicontract.CreateRepositoryDomainRequest) (apicontract.RepositoryHealth, error) {
+	var out apicontract.RepositoryHealth
+	err := c.call(ctx, "createRepositoryDomain", nil, req, &out)
+	return out, err
+}
+
 // ListActivity is GET /activity: the deployment-wide lifecycle feed, newest
 // first.
 //
@@ -398,7 +438,7 @@ func (c *Client) ListActivity(ctx context.Context, limit int) (apicontract.ListA
 // and survives a restart; this one is a bounded in-memory tail of the
 // SERVING PROCESS's own event stream, so it exists only where that process
 // does. A caller with no route to it has nothing to read, which is why
-// `rbm activity --follow` refuses rather than falling back to
+// `retnd activity --follow` refuses rather than falling back to
 // the journal: the two feeds answer different questions and quietly
 // swapping one for the other would be this repository's own recurring
 // defect, two surfaces telling an operator different things.
@@ -471,4 +511,111 @@ func (c *Client) GetBackupSetEditHold(ctx context.Context, source, set string) (
 // from a terminal.
 func (c *Client) ReleaseBackupSetEditHold(ctx context.Context, source, set string) error {
 	return c.call(ctx, "releaseBackupSetEditHold", []string{source, set}, nil, nil)
+}
+
+// EPIC L's four routed workflow operations (#813), and the reason they
+// are four rather than eighteen.
+//
+// This file's rule is that a method exists because a command drives it,
+// and for the workflow surface the line between what a terminal can
+// answer on its own and what only a serving engine can is sharp. A CLI
+// process opens the configuration and the journal, so it answers the
+// configuration reads, the run reads and `validate workflow` in its own
+// process, and its configuration WRITES go through the same
+// *BackupService door every other configuration write does. Those
+// therefore have no wrapper here, deliberately, and adding one would be
+// a claim that this client works against a route nothing calls.
+//
+// These four are the ones that structurally cannot be answered anywhere
+// but in the process that holds the workflow engine. core/service reports
+// ErrWorkflowsNotWired for every one of them when there is no engine, and
+// a CLI process never builds one: the step-log tail needs the engine's
+// broker to wait on, the recovery holds are the engine's own set, and a
+// resume or an acknowledgement is a state transition the engine owns. So
+// beside a serving engine these have to travel over HTTP, which is what
+// this client is for.
+
+// WorkflowStepLogs is GET /workflow-runs/{run}/steps/{step}/logs: one
+// page of one step's captured output, from a cursor.
+//
+// The cursor is the CALLER's, which is the whole protocol: `after` is the
+// last sequence this caller PROCESSED, and the page's own cursor is what
+// to send next time. That makes resume after a dropped connection the
+// ordinary read rather than a special case, and it makes every page a
+// separately authenticated request -- so a session that has expired is
+// refused on the next page instead of a stream outliving its
+// authorization.
+//
+// waitSeconds asks the engine to hold the request briefly for output
+// newer than the cursor, which is what keeps a follow of a quiet hook
+// from being a poll loop choosing between latency and load. It is
+// BOUNDED: the engine clamps it to its own ceiling, so a caller asking
+// for an hour gets an answer in seconds. Zero never waits.
+//
+// after is uint64 because the sequence is: it is run-monotonic, never
+// negative and never zero for a real record, so a signed cursor would
+// have a range of values that cannot name a position.
+func (c *Client) WorkflowStepLogs(ctx context.Context, runID, stepID string, after uint64, limit, waitSeconds int) (apicontract.WorkflowStepLogPage, error) {
+	query := url.Values{}
+	if after > 0 {
+		query.Set("after", strconv.FormatUint(after, 10))
+	}
+	if limit > 0 {
+		query.Set("limit", strconv.Itoa(limit))
+	}
+	if waitSeconds > 0 {
+		query.Set("wait", strconv.Itoa(waitSeconds))
+	}
+	if len(query) == 0 {
+		// No query at all rather than three empty parameters, matching
+		// ListActivity's own handling: the route reads an absent value as
+		// its own default, and sending "after=0" would be naming a
+		// position rather than declining to.
+		query = nil
+	}
+
+	var out apicontract.WorkflowStepLogPage
+	err := c.callQuery(ctx, "getWorkflowStepLogs", []string{runID, stepID}, query, nil, &out)
+	return out, err
+}
+
+// WorkflowRecovery is GET /workflow-recovery: every run whose cleanup
+// this deployment could not finish, and which is therefore holding its
+// backup set.
+//
+// It asks the ENGINE rather than reading the journal for rows that look
+// blocking, because the holds are what the next run will actually be
+// refused against, and a second derivation of "is this set blocked" would
+// be a second answer that can disagree with the one the scheduler acts
+// on.
+func (c *Client) WorkflowRecovery(ctx context.Context) (apicontract.WorkflowRecoveryResponse, error) {
+	var out apicontract.WorkflowRecoveryResponse
+	err := c.call(ctx, "listWorkflowRecovery", nil, nil, &out)
+	return out, err
+}
+
+// ResumeWorkflowCleanup is POST
+// /workflow-recovery/{run}/resume-cleanup: run the "after" hooks an
+// interrupted run still owes, out of that run's own captured bytes.
+//
+// It answers with the run as the journal holds it AFTERWARDS, which is
+// what a caller has to print: a resume that left the run still blocked
+// has to say so from the row the next backup will be refused against,
+// rather than from this call's own idea of how it went.
+func (c *Client) ResumeWorkflowCleanup(ctx context.Context, runID string) (apicontract.WorkflowRun, error) {
+	var out apicontract.WorkflowRun
+	err := c.call(ctx, "resumeWorkflowCleanup", []string{runID}, nil, &out)
+	return out, err
+}
+
+// AcknowledgeWorkflowRecovery is POST
+// /workflow-recovery/{run}/acknowledge: record that a person dealt with
+// an interrupted run by hand, and unblock its backup set.
+//
+// The request carries a reason and nothing else. The ACTOR is the
+// engine's answer rather than this caller's claim -- it comes from the
+// authenticated session on the far side -- which is what makes the record
+// worth having six months later.
+func (c *Client) AcknowledgeWorkflowRecovery(ctx context.Context, runID string, req apicontract.WorkflowAcknowledgementRequest) error {
+	return c.call(ctx, "acknowledgeWorkflowRecovery", []string{runID}, req, nil)
 }

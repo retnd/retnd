@@ -9,7 +9,11 @@
 // delete decision away from the lifecycle manager (FR-11).
 package transport
 
-import "context"
+import (
+	"context"
+	"errors"
+	"io"
+)
 
 // HashAlgorithm names a checksum the manager may ask a backend for.
 type HashAlgorithm string
@@ -120,6 +124,25 @@ type Source struct {
 	MaxConnections int
 
 	Root string
+
+	// ExcludePaths names directories, relative to Root, that List must
+	// never walk into: issue #737's per-backup-set exclude
+	// (config.BackupSet.ExcludePaths, which carries the whole argument
+	// for why this is a path list and FR-5's include patterns are a
+	// basename-pattern list).
+	//
+	// It reaches the transport rather than being applied to List's answer
+	// by the caller because the cost is the walk, not the slice. A backup
+	// set aimed at a directory an application also caches under (65k
+	// files across 1.6k subdirectories, in the deployment that reported
+	// it) is 1.6k directory reads per poll against a remote with no
+	// native recursive listing, and a caller filtering the result has
+	// already paid all of them. Only the thing doing the walking can
+	// decline to descend.
+	//
+	// Empty, which is every Source built before #737 existed, means the
+	// full unconditional recursion List has always done.
+	ExcludePaths []string
 }
 
 // RemoteArtifact is the identity of a remote object at a point in time.
@@ -134,6 +157,20 @@ type RemoteArtifact struct {
 	Hash    string
 	HashAlg HashAlgorithm
 	ID      string // backend-specific stable identifier, empty when unavailable
+
+	// Kind is what the source said is at this path, for the callers that
+	// may not guess: a backup source adapter has to decide whether to
+	// open a thing before it opens it, and opening a FIFO because it was
+	// assumed to be a file is a read that never returns.
+	//
+	// EntryKindUnknown is the zero value and is what every path into this
+	// type that does not answer the question produces, including
+	// transport/rclone's own listing: rclone's fs.Object is an object,
+	// and the local backend it wraps skips everything that is not one.
+	// Unknown is therefore an honest "nobody said", never "regular", and
+	// a consumer that needs the answer refuses rather than assuming it.
+	// LocalEnumerator answers it for every entry it yields.
+	Kind EntryKind
 }
 
 // TransferResult reports what a copy actually did.
@@ -177,4 +214,116 @@ type Transport interface {
 	CopyToLocal(ctx context.Context, source Source, remotePath, localPartialPath string) (TransferResult, error)
 	RemoteHash(ctx context.Context, source Source, remotePath string, algorithm HashAlgorithm) (string, error)
 	DeleteRemote(ctx context.Context, source Source, remotePath string) error
+}
+
+// SourceWriteProbe proves, by doing it, that the credentials a Source
+// carries may both WRITE and REMOVE under that source's root (issue
+// #852).
+//
+// It exists because FR-16's delete-from-source is the one thing this
+// product does to somebody else's machine, and until this existed the
+// only proof that it could was the first cycle that tried. A source
+// account with read-only access is a perfectly ordinary, supported and
+// frequently recommended posture (docs/ssh-setup.md's hardened account is
+// one keystroke away from being one), so "this source cannot be deleted
+// from" has to be a fact the product can establish in advance and
+// configure around, rather than a failure an operator discovers from a
+// prune that silently changes nothing every cycle for a month.
+//
+// It is a separate interface rather than a sixth method on Transport for
+// the reason SourceSession is one: a caller type-asserts for it, so a
+// transport that cannot prove this says so by not having the method,
+// which is a compile-time answer rather than a runtime ErrUnsupported.
+// Nothing on the cycle path may depend on it; the connection check is its
+// one caller.
+type SourceWriteProbe interface {
+	// ProbeSourceWrite creates a uniquely named probe object under the
+	// source's root, removes it again and confirms it is gone.
+	//
+	// A nil error means, and only means, that a full write-and-remove
+	// round trip completed: the credentials may create and destroy
+	// objects there. Any error means the source is NOT proven writable,
+	// which the caller reports as a read-only posture and never as a
+	// broken connection.
+	//
+	// An error wrapping ErrProbeNotRemoved is the one shape a caller has
+	// to tell apart: the write landed and the removal did not, so there
+	// may be a probe object left behind for somebody to clean up.
+	ProbeSourceWrite(ctx context.Context, source Source) error
+}
+
+// ProbeObjectPrefix is the fixed name prefix every object written by
+// SourceWriteProbe carries.
+//
+// It is exported because two things need it. An operator whose probe
+// could not be removed needs a name to look for, and this repository's own
+// discovery needs to recognise its own litter: internal/discovery skips a
+// basename carrying this prefix (isOwnWriteProbe), which is what keeps a
+// leftover probe from being taken for an artifact.
+//
+// That skip is the rule, and the dotfile is not. This comment used to say
+// the leading dot meant an FR-8 include pattern could not match it, and
+// that is false twice over: a backup set that configures no include
+// patterns matches everything, and path.Match gives a dot no special
+// meaning, so "*" matches one too. What the dot does buy is the smaller
+// thing it is kept for -- an operator's plain directory listing does not
+// show one -- and the name says what it is, so whoever finds one knows
+// immediately that deleting it is safe. internal/mediumcheck's probePrefix
+// is the same decision on the medium side.
+const ProbeObjectPrefix = ".retnd-write-probe-"
+
+// ErrProbeNotRemoved marks the one write-probe outcome that leaves
+// something behind: the probe object was created and could not then be
+// removed (or its absence could not be confirmed).
+//
+// A sentinel rather than a wording, because a caller has to branch on it:
+// the operator-facing sentence for "you cannot write here" and the one for
+// "you can write here, cannot delete, and there is now a file of mine on
+// your machine" are different sentences, and the second one has to be
+// said out loud.
+var ErrProbeNotRemoved = errors.New("transport: the write probe could not be removed")
+
+// SourceSession is one conversation with one backup source, held open for
+// as long as the caller is reading that source.
+//
+// It exists because the per-operation shape of Transport is the wrong unit
+// for a backup run. Every method above builds its backend connection from
+// the Source it is handed and releases it on the way out, which is the
+// right trade when a call is the whole operation: no cached connection
+// means no caller's bandwidth limit or timeout leaking into another
+// caller's transfer through an Fs that captured it once (see
+// transport/rclone's shutdownFs). A backup run is not one operation. It
+// opens and stats every object under a source root, so the same discipline
+// costs a full SSH handshake - key exchange, publickey authentication,
+// subsystem start - twice per file, and a run over ten thousand small
+// objects spends its window dialing.
+//
+// A session is the same discipline at the right scope. It is opened by ONE
+// caller for ONE source, holds whatever the backend needs for the duration,
+// and is closed by the caller that opened it; nothing is shared between
+// runs and nothing outlives the run that asked for it, so the settings a
+// session captures are that run's own.
+//
+// It is a separate interface rather than more methods on Transport because
+// it is a capability: a caller type-asserts for it, and a transport that
+// cannot hold a conversation open says so by not having the method, which
+// is a compile-time answer rather than a runtime ErrUnsupported.
+type SourceSession interface {
+	// OpenStream opens one object for a single forward read. The reader
+	// is the caller's to close, and closing it does NOT close the
+	// session: the session outlives every stream taken from it.
+	OpenStream(ctx context.Context, remotePath string) (io.ReadCloser, error)
+
+	// StatSource reports what the source says about one object from its
+	// METADATA alone. It never reads the object's bytes, which is the
+	// distinction Transport.Stat does not make (see transport/rclone's
+	// StatSource for the measured reason that matters on a backup
+	// source).
+	StatSource(ctx context.Context, remotePath string) (RemoteArtifact, error)
+
+	// Close releases everything the session holds. It is safe to call
+	// twice, and it is the caller's obligation exactly once: a session
+	// that is not closed is an open connection for as long as the
+	// process lives.
+	Close() error
 }

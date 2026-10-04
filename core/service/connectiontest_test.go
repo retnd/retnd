@@ -27,9 +27,9 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 
-	"github.com/spdrman/rclone-manager/core/internal/config"
-	"github.com/spdrman/rclone-manager/core/internal/obs"
-	"github.com/spdrman/rclone-manager/core/internal/sourcecheck"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/sourcecheck"
 )
 
 // sshFixture is one real SSH server plus the client key it accepts and
@@ -410,6 +410,9 @@ func requireHostKeyRefused(t *testing.T, res ConnectionTestResult) {
 		"host_key":     "failed",
 		"authenticate": "skipped",
 		"list":         "skipped",
+		// Nothing is written to a source whose identity did not check
+		// out, so the seventh step never runs either (issue #852).
+		"write_probe": "skipped",
 	}
 	got := stepOutcomes(res.Checks)
 	if len(got) != len(want) {

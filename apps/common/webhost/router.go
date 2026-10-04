@@ -5,10 +5,13 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/spdrman/rclone-manager/apps/common/platform/capabilities"
+	"github.com/retnd/retnd/apps/common/platform/capabilities"
+	"github.com/retnd/retnd/core/envcompat"
+	"github.com/retnd/retnd/core/legacypath"
 )
 
 // The route table, which is where this package's security tiering
@@ -65,6 +68,23 @@ type RouterConfig struct {
 	// completed, so GET /api/v1/system/first-run keeps answering and a
 	// POST to it keeps refusing with 409 rather than 404.
 	FirstRun FirstRunClient
+
+	// AdoptedPaths is FR-38's list of this deployment's locations that
+	// are being served from a pre-rename path (core/legacypath), as the
+	// runtime decided them at startup. GET /api/v1/system/version
+	// reports it, which is the third of the three surfaces FR-38
+	// requires the adopted path on.
+	//
+	// It is a value passed in rather than something this package can
+	// work out, and that is the correct direction: the decision is taken
+	// once, before anything is opened or announced, by the process that
+	// owns the paths. A router that re-derived it would be a second
+	// opinion formed after the fact, and could disagree with the journal
+	// that is actually open.
+	//
+	// Nil on every normal deployment, which is what an empty response
+	// array means.
+	AdoptedPaths []legacypath.Adoption
 
 	// OnConfigured, when non-nil, is called by POST
 	// /api/v1/system/first-run once the first configuration is durably
@@ -123,8 +143,85 @@ func (l stdoutLogger) Event(ctx context.Context, level slog.Level, event, msg st
 	l.base.LogAttrs(ctx, level, msg, append([]slog.Attr{slog.String("event", event)}, attrs...)...)
 }
 
+// NewStdoutLogger is the package default Logger, exported so a sibling
+// surface that is not built by NewRouter (apps/common/webhost/serve's
+// UI host, which has its own config struct) writes through the same
+// seam and the same shape rather than inventing a second one.
+func NewStdoutLogger() Logger { return newStdoutLogger() }
+
 func newStdoutLogger() Logger {
-	return stdoutLogger{base: slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))}
+	return stdoutLogger{base: slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: envLogLevel()}))}
+}
+
+// DebugEnabled reports whether this process was started with diagnostics
+// on. It exists so a sibling package building its own surface
+// (apps/common/webhost/serve) reads the same environment in the same
+// way rather than growing a second answer to "are we in debug".
+func DebugEnabled() bool { return envLogLevel() == slog.LevelDebug }
+
+// envLogLevel is the one place this process decides how loud it is, and
+// the default is unchanged: INFO, exactly what this handler emitted
+// before there was anything to configure. An operator diagnosing a
+// report we cannot reproduce (issue #730: a browser that gets no HTTP
+// response at all while curl gets a clean 401) sets LOG_LEVEL=debug, or
+// RETND_DEBUG=1 as the shortcut, and gets the debug events this
+// package and serve/ui.go emit; nobody who sets neither sees one extra
+// line.
+//
+// RETND_DEBUG wins over LOG_LEVEL because it is the shortcut an
+// operator is told to set over a phone call, and an unparseable
+// LOG_LEVEL falls back to INFO rather than refusing to start: a typo in
+// a diagnostic knob must never take a backup host down.
+//
+// Two DEPRECATED spellings are still read, each under a name this
+// project used before (EPIC R, #885, FR-37): BACKUPD_DEBUG, the name
+// this shortcut had until the rename to retnd, and RM_DEBUG,
+// the first product name's (#794). Both are still honoured so an upgrade does
+// not silently turn a diagnosing operator's logs back off, and
+// core/envcompat ranks them behind the current name and prints one
+// deprecation notice per name per process.
+//
+// core/internal/obs.LevelFromEnv is the other reader of these same
+// variables, with the same precedence and the same fallback, and it is
+// what the ENGINE builds its sink from. Two readers rather than one
+// shared helper because apps/ may import core/ and never the reverse,
+// and core/internal is unreachable from here by construction. They have
+// to agree: a deployment where the two containers answered "how loud am
+// I" differently is the half of #730 where an operator got the proxy
+// trace and nothing from the process it describes. That includes the
+// deprecated aliases: an operator who upgrades one container before the
+// other must not end up with one of them silently quiet. The one thing
+// the two readers DO share is core/envcompat, which both can import and
+// which is what keeps "one notice per name per process" true when
+// `serve` runs both readers in a single process.
+func envLogLevel() slog.Level {
+	if debugShortcutEnv() {
+		return slog.LevelDebug
+	}
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("LOG_LEVEL"))) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
+
+// debugShortcutEnv reports whether the one-variable debug shortcut is
+// set, under its own name or under either deprecated alias. Only the
+// documented "1" counts, under every name: a knob whose typos mean
+// something is a knob that surprises the operator reading it back. The
+// engine's core/internal/obs.debugShortcut is the same two lines over
+// the same envcompat.Rename, for the import-direction reason
+// envLogLevel's own doc gives.
+func debugShortcutEnv() bool {
+	return envcompat.Any(envcompat.Rename{
+		Current: "RETND_DEBUG",
+		Legacy:  []string{"BACKUPD_DEBUG", "RM_DEBUG"},
+	}, "1")
 }
 
 // handlers bundles what the HTTP methods in handlers_system.go and
@@ -154,9 +251,18 @@ type handlers struct {
 	firstRun     FirstRunClient
 	onConfigured func(context.Context) error
 
+	// adoptedPaths is RouterConfig.AdoptedPaths, carried unchanged.
+	adoptedPaths []legacypath.Adoption
+
 	// logger is RouterConfig.Logger, resolved: never nil after NewRouter,
 	// so internalError (refusal.go) has nothing to branch on.
 	logger Logger
+
+	// debug is envLogLevel() == slog.LevelDebug, resolved once here
+	// rather than per request. It gates the diagnostic events a handler
+	// emits in addition to its normal work (issue #730), so a default
+	// INFO deployment does not even pay for building their attributes.
+	debug bool
 }
 
 // NewRouter builds the /api/v1 HTTP surface plus /health/live and
@@ -199,7 +305,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		gate:          gate,
 		firstRun:      cfg.FirstRun,
 		onConfigured:  cfg.OnConfigured,
+		adoptedPaths:  cfg.AdoptedPaths,
 		logger:        logger,
+		debug:         envLogLevel() == slog.LevelDebug,
 	}
 
 	// An instance with a first-run surface and no backend has no
@@ -214,6 +322,14 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	}
 
 	r := chi.NewRouter()
+
+	// Outermost, and over the health probes as well as /api/v1: the id
+	// this mints is on every response this router produces, and the
+	// clock it starts is the only place a later hop can read how long
+	// the request has been in this process (requestscope.go). Registered
+	// before any route below, which is chi's own requirement for a
+	// root-level Use.
+	r.Use(RequestScope)
 
 	r.Get("/health/live", healthLive)
 	r.Get("/health/ready", h.healthReady)
@@ -254,6 +370,27 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// answer "should traffic come here" and say nothing about whether
 		// backups are landing (failure-safety invariant 14). Read-only.
 		r.Get("/system/health", h.systemHealth)
+		// EPIC K's repository surface (#788), read-only (§50). It sits
+		// beside the health read above rather than under /backup-sets
+		// because a repository domain is a deployment-level declaration
+		// several backup sets may share: hanging it off one of them
+		// would make a shared boundary look like that set's property.
+		//
+		// The list is the expensive one -- it opens every declared
+		// repository to prove it is readable and writable -- and that is
+		// exactly why it is a separate route from /system/health, which
+		// a dashboard polls.
+		r.Get("/repositories", h.listRepositories)
+		r.Get("/repositories/{domain}/maintenance", h.getRepositoryMaintenance)
+		// Issue #862's write, on the same path and in the same tier as
+		// POST /backup-sets: CSRF, no destructive gate. Declaring a
+		// repository domain writes one entry into config.yaml through
+		// the same *BackupService door every other configuration write
+		// goes through; it opens no storage and creates no repository,
+		// which is realized lazily by the first run that stores a
+		// snapshot in it. The claim is recorded in
+		// destructiveGateExemptRoutes (router_test.go) with the rest.
+		r.With(requireCSRF).Post("/repositories", h.createRepositoryDomain)
 
 		r.With(requireCSRF, requireDestructiveGate(gate)).Post("/operations", h.submitOperation)
 		r.Get("/operations/{id}", h.getOperation)
@@ -403,6 +540,64 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Get("/backup-sets/{source}/{set}/edit-hold", h.getBackupSetEditHold)
 		r.With(requireCSRF).Post("/backup-sets/{source}/{set}/edit-hold", h.takeBackupSetEditHold)
 		r.With(requireCSRF).Post("/backup-sets/{source}/{set}/edit-hold/release", h.releaseBackupSetEditHold)
+		// EPIC K's snapshot surface (#788), read-only every one of them
+		// (§50): no CSRF and no destructive gate. They are registered
+		// ahead of the "/backup-sets/*" catch-all below for the reason
+		// the edit hold above is -- two named segments plus a static
+		// tail, which chi's node ordering matches first -- and the
+		// snapshot detail adds a third named segment rather than a
+		// wildcard, so a run id carrying a slash is answered by the
+		// router with a 404 instead of by a handler having to interpret
+		// one.
+		//
+		// There is no mutating route here on purpose. Holding a
+		// snapshot, releasing a hold, verifying one and restoring one
+		// are durable, idempotency-keyed, revision-checked acts, so they
+		// are actions on POST /operations and not four more routes: this
+		// deployment has one answer to how long work begins, and a
+		// second would drift.
+		r.Get("/backup-sets/{source}/{set}/snapshots", h.listBackupSetSnapshots)
+		r.Get("/backup-sets/{source}/{set}/snapshots/{run}", h.getBackupSetSnapshot)
+		r.Get("/backup-sets/{source}/{set}/holds", h.listBackupSetSnapshotHolds)
+		r.Get("/backup-sets/{source}/{set}/snapshot-retention", h.getBackupSetSnapshotRetention)
+		// EPIC L's per-set workflow surface (#813), registered ahead of
+		// the catch-all below in exactly the shape the snapshot reads
+		// above are: two named segments plus a static tail, which chi's
+		// trie matches before a wildcard sibling, and a third named
+		// segment for the environment variable's own name rather than a
+		// wildcard, so a name carrying a slash is answered by the router
+		// with a 404 instead of by a handler having to interpret one.
+		//
+		// The reads carry neither CSRF nor the gate. The writes carry
+		// CSRF and not the destructive gate, which is the tier PATCH
+		// /settings and PATCH /backup-sets/{source}/{set} sit in: each
+		// one rewrites a block of config.yaml and hot-reloads, and
+		// nothing reachable from any of them touches, moves or deletes a
+		// byte of backup data. The claims are recorded on
+		// destructiveGateExemptRoutes (router_test.go) with the rest.
+		//
+		// The environment is a sub-resource with three methods rather
+		// than a field on the workflow block, for issue #333's reason
+		// one noun over: "take this variable away" cannot be spelled as
+		// a value on a PATCH where an absent field already means "leave
+		// this alone". PUT rather than PATCH on the entry itself,
+		// because a variable is a name and ONE source and a merge would
+		// make changing a literal into a secret reference inexpressible.
+		//
+		// The validation read is separate from the configuration read
+		// beside it on purpose. It captures and hashes every hook script
+		// and opens a socket to the host runner and an SSH connection to
+		// the source, so folding it into the configuration read would
+		// mean a dashboard polling a workflow block was probing an
+		// operator's source host on a timer. It executes no hook body,
+		// which is what makes it safe to expose as a read at all (see
+		// handlers_workflowconfig.go).
+		r.Get("/backup-sets/{source}/{set}/workflow", h.getBackupSetWorkflow)
+		r.With(requireCSRF).Patch("/backup-sets/{source}/{set}/workflow", h.updateBackupSetWorkflow)
+		r.Get("/backup-sets/{source}/{set}/workflow/environment", h.listBackupSetWorkflowEnvironment)
+		r.With(requireCSRF).Put("/backup-sets/{source}/{set}/workflow/environment/{name}", h.setBackupSetWorkflowEnvironment)
+		r.With(requireCSRF).Delete("/backup-sets/{source}/{set}/workflow/environment/{name}", h.unsetBackupSetWorkflowEnvironment)
+		r.Get("/backup-sets/{source}/{set}/workflow/validation", h.getBackupSetWorkflowValidation)
 		r.Get("/backup-sets/*", h.getBackupSet)
 
 		// Issue #211: the backups this deployment actually holds, and the
@@ -502,7 +697,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(requireCSRF).Put("/storage-mediums/{id}/configuration", h.configureStorageMedium)
 
 		// Issue #211: FR-9 catalog recovery, the API expression of
-		// `rbm catalog rebuild` and its --dry-run. Rebuild only
+		// `retnd catalog rebuild` and its --dry-run. Rebuild only
 		// ever adds records whose recovery manifests are already on disk
 		// and never removes or overwrites one, so it carries CSRF but not
 		// the destructive gate; see handlers_catalog.go for the argument
@@ -639,6 +834,73 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// "/backup-sets/*" catch-all above.
 		r.Get("/settings", h.getSettings)
 		r.With(requireCSRF).Patch("/settings", h.updateSettings)
+
+		// EPIC L's deployment-wide workflow configuration (#813), as a
+		// sub-resource of /settings rather than a block on the shape
+		// above. Two reasons, and the first is structural: the
+		// environment is a COLLECTION with its own identities, and a
+		// PATCH cannot express "remove this entry" where an absent field
+		// already means "leave this alone". Once the environment is a
+		// sub-resource the rest of the block belongs beside it, so a
+		// client reads one path to find out how this deployment runs
+		// hooks instead of filtering a settings response. The second is
+		// cost: nothing here is wanted by the settings page's own poll.
+		//
+		// Same tier as PATCH /settings immediately above, on the same
+		// argument: these writes edit configuration and hot-reload, and
+		// no branch of any of them reaches a backup datum. The one worth
+		// naming out loud is that clearing a stage directory DISABLES
+		// hooks an operator may believe are running -- which is a
+		// configuration change with a visible answer in the response,
+		// the same class as disabling a backup set, and not a deletion.
+		//
+		// Static paths, so the "/backup-sets/*" catch-all above cannot
+		// shadow them, and the variable's name is a named segment rather
+		// than a wildcard for the reason the per-set routes' is.
+		r.Get("/settings/workflow", h.getWorkflowSettings)
+		r.With(requireCSRF).Patch("/settings/workflow", h.updateWorkflowSettings)
+		r.Get("/settings/workflow/environment", h.listWorkflowEnvironment)
+		r.With(requireCSRF).Put("/settings/workflow/environment/{name}", h.setWorkflowEnvironment)
+		r.With(requireCSRF).Delete("/settings/workflow/environment/{name}", h.unsetWorkflowEnvironment)
+
+		// EPIC L's workflow runs and recovery (#813).
+		//
+		// Top-level rather than under /backup-sets, because of the reads
+		// an operator actually makes: a run that is holding a set is
+		// found by asking what is stuck in this DEPLOYMENT, and a run
+		// outlives the configuration that produced it, so a set whose
+		// configuration has been removed still has runs worth seeing.
+		// Hanging them off a set would make both unspellable. The
+		// per-set question is the `backup_set` filter on the list.
+		//
+		// The four reads are read-only (§50). The log read is the one
+		// with a protocol rather than just a path: it is a cursor poll,
+		// for the transport reason GET /activity/live is, and that shape
+		// is also what makes its authorization airtight -- every page,
+		// including every resume after a dropped connection, is one
+		// ordinary request through this group's authMiddleware, so there
+		// is no long-lived subscription holding an authorization
+		// decision taken minutes ago. handlers_workflowruns.go carries
+		// the full argument and the test that drives both halves of it.
+		//
+		// The two recovery writes carry CSRF and not the destructive
+		// gate. The resume is the one that deserves the argument, since
+		// it EXECUTES operator-written code: what it runs comes out of
+		// the run's own spool and is re-verified against the sha256
+		// recorded when that run was planned, it is the cleanup that is
+		// already owed to a source machine that may be sitting quiesced,
+		// and it deletes no artifact, snapshot or remote object. Gating
+		// it would mean an operator who has not turned destructive
+		// operations on cannot unwind a hook that stopped their
+		// database. Both claims are on destructiveGateExemptRoutes
+		// (router_test.go) and in the handlers' own docs.
+		r.Get("/workflow-runs", h.listWorkflowRuns)
+		r.Get("/workflow-runs/{run}", h.getWorkflowRun)
+		r.Get("/workflow-runs/{run}/steps", h.listWorkflowRunSteps)
+		r.Get("/workflow-runs/{run}/steps/{step}/logs", h.getWorkflowStepLogs)
+		r.Get("/workflow-recovery", h.listWorkflowRecovery)
+		r.With(requireCSRF).Post("/workflow-recovery/{run}/resume-cleanup", h.resumeWorkflowCleanup)
+		r.With(requireCSRF).Post("/workflow-recovery/{run}/acknowledge", h.acknowledgeWorkflowRecovery)
 	})
 
 	return r

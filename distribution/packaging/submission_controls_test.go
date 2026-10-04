@@ -87,20 +87,20 @@ func TestEachHardRuleFiresOnTheShapeItIsAbout(t *testing.T) {
 			rule: CheckNoFloatingTag,
 			path: "fixture/compose.yaml",
 			trips: []string{
-				"    image: ghcr.io/spdrman/backup-manager:latest\n",
-				"    image: ghcr.io/spdrman/backup-manager\n",
-				"    image: ghcr.io/spdrman/backup-manager:${TAG:-latest}\n",
-				"<Repository>ghcr.io/spdrman/backup-manager</Repository>",
-				"  reference: ghcr.io/spdrman/backup-manager:LATEST\n",
+				"    image: ghcr.io/retnd/retnd:latest\n",
+				"    image: ghcr.io/retnd/retnd\n",
+				"    image: ghcr.io/retnd/retnd:${TAG:-latest}\n",
+				"<Repository>ghcr.io/retnd/retnd</Repository>",
+				"  reference: ghcr.io/retnd/retnd:LATEST\n",
 			},
 			clean: []string{
-				"    image: ghcr.io/spdrman/backup-manager:1.0.0\n",
-				"    image: backup-manager:${VERSION:-dev}\n",
-				"    image: ghcr.io/spdrman/backup-manager@sha256:" + strings.Repeat("a", 64) + "\n",
-				"    image: registry.invalid:5000/spdrman/backup-manager:1.0.0\n",
-				"<Repository>ghcr.io/spdrman/backup-manager:1.0.0</Repository>",
+				"    image: ghcr.io/retnd/retnd:1.0.0\n",
+				"    image: retnd:${VERSION:-dev}\n",
+				"    image: ghcr.io/retnd/retnd@sha256:" + strings.Repeat("a", 64) + "\n",
+				"    image: registry.invalid:5000/retnd/retnd:1.0.0\n",
+				"<Repository>ghcr.io/retnd/retnd:1.0.0</Repository>",
 				"# never deploy the latest tag\n",
-				"image:\n  reference: ghcr.io/spdrman/backup-manager:1.0.0\n",
+				"image:\n  reference: ghcr.io/retnd/retnd:1.0.0\n",
 			},
 		},
 		{
@@ -133,7 +133,7 @@ func TestEachHardRuleFiresOnTheShapeItIsAbout(t *testing.T) {
 			path: "fixture/compose.yaml",
 			trips: []string{
 				"      TELEMETRY_ENABLED: \"true\"\n",
-				"      BACKUP_MANAGER_ANALYTICS: on\n",
+				"      RETND_ANALYTICS: on\n",
 				"      SENTRY_DSN: https://key@sentry.invalid/1\n",
 				"      REPORT_URL: https://metrics.example.invalid/v1/ingest\n",
 				"      USAGE_STATS: 1\n",
@@ -149,10 +149,10 @@ func TestEachHardRuleFiresOnTheShapeItIsAbout(t *testing.T) {
 				"      USAGE_STATS: none\n",
 				"# There is no telemetry in this release, so there is nothing to disable.\n",
 				"      PUBLIC_BASE_URL: http://localhost:8080\n",
-				"      UPSTREAM_ADDR: http://backup-manager:8080\n",
+				"      UPSTREAM_ADDR: http://retnd:8080\n",
 				"      PUBLIC_BASE_URL: http://tower.local:8080\n",
-				"  home: https://github.com/spdrman/rclone-manager\n",
-				"  icon: https://raw.githubusercontent.com/spdrman/rclone-manager/main/docs/submission/icon.svg\n",
+				"  home: https://github.com/retnd/retnd\n",
+				"  icon: https://raw.githubusercontent.com/retnd/retnd/main/docs/submission/icon.svg\n",
 				"      ENGINE: http://192.168.1.20:8080\n",
 				"      ENGINE: http://127.0.0.1:8080\n",
 				"      ENGINE: http://10.7.0.4:8080\n",
@@ -201,7 +201,7 @@ func TestSelfUpdateFetchRuleOnlyReadsExecutedFiles(t *testing.T) {
 	for _, path := range []string{
 		"catalog/app.yaml",
 		"README.md",
-		"template/backup-manager.xml",
+		"template/retnd.xml",
 	} {
 		if v := CheckNoSelfUpdate(path, body); len(v) > 0 {
 			t.Errorf("%s is read, not executed, so a mention must not be a finding: %s", path, oneLine(v))
@@ -228,9 +228,21 @@ func TestMutatingARealPackagedFileTripsTheHardRules(t *testing.T) {
 		body string
 	}{
 		{CheckNoSelfUpdate, "no-self-update", "\npull_policy: always\n"},
-		{CheckNoFloatingTag, "no-floating-tag", "\n    image: ghcr.io/spdrman/backup-manager:latest\n"},
+		{CheckNoFloatingTag, "no-floating-tag", "\n    image: ghcr.io/retnd/retnd:latest\n"},
 		{CheckNoPrivilegedMode, "no-privileged-mode", "\n    privileged: true\n"},
 		{CheckNoMandatoryTelemetry, "no-mandatory-telemetry", "\n      TELEMETRY_ENDPOINT: https://collector.example.invalid/ingest\n"},
+		// Three rows for one rule, because there are three real
+		// spellings of "this container may talk to the Docker daemon"
+		// and they live in different formats: a Compose key, the
+		// docker-run flag an Unraid template passes through
+		// ExtraParams, and a client environment variable that needs no
+		// mount and no group at all. A fixture proves the rule can
+		// fire; these prove it fires on the shapes this repository's
+		// own packages take, which is the same gap `\bpassword`
+		// missing ADMIN_PASSWORD left open.
+		{CheckNoContainerDockerAccess, "no-container-docker-access (compose group_add)", "\n    group_add:\n      - docker\n"},
+		{CheckNoContainerDockerAccess, "no-container-docker-access (template ExtraParams)", "\n  <ExtraParams>--group-add docker</ExtraParams>\n"},
+		{CheckNoContainerDockerAccess, "no-container-docker-access (daemon env)", "\n      DOCKER_HOST: tcp://127.0.0.1:2375\n"},
 	}
 
 	for id, sp := range s.Providers {
@@ -294,15 +306,15 @@ func TestImageTagUnderstandsEveryFloatingForm(t *testing.T) {
 		ref  string
 		kind tagKind
 	}{
-		{"ghcr.io/spdrman/backup-manager:1.0.0", tagPinned},
-		{"ghcr.io/spdrman/backup-manager@sha256:" + strings.Repeat("b", 64), tagPinned},
-		{"registry.invalid:5000/spdrman/backup-manager:1.0.0", tagPinned},
-		{"backup-manager:${VERSION:-dev}", tagVariable},
-		{"ghcr.io/spdrman/backup-manager", tagAbsent},
-		{"registry.invalid:5000/spdrman/backup-manager", tagAbsent},
-		{"ghcr.io/spdrman/backup-manager:latest", tagLatest},
-		{"ghcr.io/spdrman/backup-manager:LATEST", tagLatest},
-		{"backup-manager:${VERSION:-latest}", tagFloatingDefault},
+		{"ghcr.io/retnd/retnd:1.0.0", tagPinned},
+		{"ghcr.io/retnd/retnd@sha256:" + strings.Repeat("b", 64), tagPinned},
+		{"registry.invalid:5000/retnd/retnd:1.0.0", tagPinned},
+		{"retnd:${VERSION:-dev}", tagVariable},
+		{"ghcr.io/retnd/retnd", tagAbsent},
+		{"registry.invalid:5000/retnd/retnd", tagAbsent},
+		{"ghcr.io/retnd/retnd:latest", tagLatest},
+		{"ghcr.io/retnd/retnd:LATEST", tagLatest},
+		{"retnd:${VERSION:-latest}", tagFloatingDefault},
 	}
 	for _, tc := range cases {
 		if _, got := ImageTag(tc.ref); got != tc.kind {
@@ -322,9 +334,9 @@ func TestImageTagUnderstandsEveryFloatingForm(t *testing.T) {
 // about the fixture.
 const canonicalCompose = `
 services:
-  backup-manager:
-    image: ghcr.io/spdrman/backup-manager:0.4.0
-    command: ["/rbm-web", "serve"]
+  retnd:
+    image: ghcr.io/retnd/retnd:0.5.0
+    command: ["/retnd-web", "serve"]
     user: "568:568"
     read_only: true
     privileged: false
@@ -336,12 +348,12 @@ services:
     volumes:
       - "/host/state:/data/state"
       - "/host/backups:/data/backups"
-      - "/host/config:/etc/backup-manager/config"
-      - "/host/id_ed25519:/etc/backup-manager/id_ed25519:ro"
-      - "/host/known_hosts:/etc/backup-manager/known_hosts:ro"
-  backup-manager-ui:
-    image: ghcr.io/spdrman/backup-manager:0.4.0
-    command: ["/rbm-web", "serve-ui"]
+      - "/host/config:/etc/retnd/config"
+      - "/host/id_ed25519:/etc/retnd/id_ed25519:ro"
+      - "/host/known_hosts:/etc/retnd/known_hosts:ro"
+  retnd-ui:
+    image: ghcr.io/retnd/retnd:0.5.0
+    command: ["/retnd-web", "serve-ui"]
     user: "568:568"
     read_only: true
     privileged: false
@@ -350,9 +362,9 @@ services:
     tmpfs: ["/tmp:size=16m"]
     environment:
       LISTEN_ADDR: ":8080"
-      UPSTREAM_ADDR: "http://backup-manager:8080"
+      UPSTREAM_ADDR: "http://retnd:8080"
     healthcheck:
-      test: ["CMD", "/rbm-web", "healthcheck"]
+      test: ["CMD", "/retnd-web", "healthcheck"]
     ports:
       - "8080:8080"
 `
@@ -391,7 +403,7 @@ func TestEveryDriftElementFailsOnADeliberateMismatch(t *testing.T) {
 		{
 			capability: "drift-image-reference",
 			provider:   "truenas",
-			mutate:     func(s string) string { return strings.ReplaceAll(s, "backup-manager:0.4.0", "backup-manager:9.9.9") },
+			mutate:     func(s string) string { return strings.ReplaceAll(s, "retnd:0.5.0", "retnd:9.9.9") },
 			wants:      "9.9.9",
 		},
 		{
@@ -416,7 +428,7 @@ func TestEveryDriftElementFailsOnADeliberateMismatch(t *testing.T) {
 			capability: "drift-health-check",
 			provider:   "truenas",
 			mutate: func(s string) string {
-				return strings.Replace(s, `["CMD", "/rbm-web", "healthcheck"]`, `["CMD", "true"]`, 1)
+				return strings.Replace(s, `["CMD", "/retnd-web", "healthcheck"]`, `["CMD", "true"]`, 1)
 			},
 			wants: "healthcheck",
 		},
@@ -565,7 +577,7 @@ func TestDelegatedDriftElementsDoNotLaunderANonDecision(t *testing.T) {
 // ---------------------------------------------------------------------
 
 func TestMaterialRulesRefuseADraft(t *testing.T) {
-	const good = `Backup Manager pulls backup artifacts off a remote SFTP source on a schedule,
+	const good = `Backupd pulls backup artifacts off a remote SFTP source on a schedule,
 verifies each one against the hash the source published, and retains them under a
 retention policy the administrator confirms before anything is deleted. It runs on the
 NAS, stores everything on the NAS, and talks to nothing except the sources an
@@ -592,7 +604,7 @@ administrator configured.`
 }
 
 func TestStoreIconRuleRefusesAnInAppMark(t *testing.T) {
-	const good = `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><title>Backup Manager</title><rect width="256" height="256" fill="#1f3a5f"/></svg>`
+	const good = `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><title>Backupd</title><rect width="256" height="256" fill="#1f3a5f"/></svg>`
 	if v := CheckStoreIcon("icon.svg", good, 256); len(v) > 0 {
 		t.Fatalf("a listing icon must be accepted: %s", oneLine(v))
 	}
@@ -1083,7 +1095,7 @@ func TestTelemetryRuleReadsAddressLiteralsAsHosts(t *testing.T) {
 	// packages are full of.
 	local := []string{
 		"http://localhost:8080",
-		"http://backup-manager:8080",
+		"http://retnd:8080",
 		"http://tower.local:8080",
 		"http://127.0.0.1:8080",
 		"http://[::1]:8080",
@@ -1111,7 +1123,7 @@ func TestTelemetryRuleReadsAddressLiteralsAsHosts(t *testing.T) {
 		"[2001:db8::1]":                    true,
 		"::ffff:203.0.113.9":               true,
 		"localhost":                        false,
-		"backup-manager":                   false,
+		"retnd":                            false,
 		"tower.local":                      false,
 		"127.0.0.1":                        false,
 		"::1":                              false,

@@ -34,7 +34,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/spdrman/rclone-manager/core/internal/model"
+	"github.com/retnd/retnd/core/internal/model"
 )
 
 // validConfig returns a Config that Validate accepts as-is. Individual
@@ -44,7 +44,7 @@ func validConfig() Config {
 	return Config{
 		PollInterval: Duration(15 * time.Minute),
 		State: State{
-			Database: "/var/lib/backup-manager/state.db",
+			Database: "/var/lib/retnd/state.db",
 		},
 		Sources: []Source{
 			{
@@ -58,7 +58,7 @@ func validConfig() Config {
 							Port:       22,
 							User:       "backup",
 							KeyFile:    "/run/secrets/backup_ssh_key",
-							KnownHosts: "/etc/backup-manager/known_hosts",
+							KnownHosts: "/etc/retnd/known_hosts",
 						},
 						RemotePath: "/backups/postgres",
 						LocalPath:  "/backups/production/postgres",
@@ -489,11 +489,11 @@ func TestKeyExactlyOneSourceRequired(t *testing.T) {
 		cfg := validConfig()
 		r := &cfg.Sources[0].BackupSets[0].Remote
 		r.KeyFile = ""
-		r.Key = Key{File: "/etc/backup-manager/id_ed25519"}
+		r.Key = Key{File: "/etc/retnd/id_ed25519"}
 		if err := cfg.Validate(); err != nil {
 			t.Fatalf("Validate: %v", err)
 		}
-		if r.KeyFile != "/etc/backup-manager/id_ed25519" {
+		if r.KeyFile != "/etc/retnd/id_ed25519" {
 			t.Fatalf("KeyFile = %q, want it normalized to match Key.File", r.KeyFile)
 		}
 	})
@@ -512,7 +512,7 @@ func TestKeyExactlyOneSourceRequired(t *testing.T) {
 		cfg := validConfig()
 		r := &cfg.Sources[0].BackupSets[0].Remote
 		r.KeyFile = ""
-		r.Key = Key{Command: []string{"/usr/local/bin/op", "read", "op://infra/backup-manager/private-key"}}
+		r.Key = Key{Command: []string{"/usr/local/bin/op", "read", "op://infra/retnd/private-key"}}
 		if err := cfg.Validate(); err != nil {
 			t.Fatalf("Validate: %v", err)
 		}
@@ -568,7 +568,7 @@ func TestKeyCommandExecutableMustBeAbsolute(t *testing.T) {
 	cfg := validConfig()
 	r := &cfg.Sources[0].BackupSets[0].Remote
 	r.KeyFile = ""
-	r.Key = Key{Command: []string{"op", "read", "op://infra/backup-manager/private-key"}}
+	r.Key = Key{Command: []string{"op", "read", "op://infra/retnd/private-key"}}
 	err := cfg.Validate()
 	if err == nil {
 		t.Fatal("a relative key.command executable was accepted")
@@ -619,7 +619,7 @@ func TestKeyPassphraseExactlyOneSourceAllowed(t *testing.T) {
 
 	t.Run("command alone is accepted", func(t *testing.T) {
 		cfg := validConfig()
-		cfg.Sources[0].BackupSets[0].Remote.Key.Passphrase = Passphrase{Command: []string{"/usr/local/bin/op", "read", "op://infra/backup-manager/private-key-passphrase"}}
+		cfg.Sources[0].BackupSets[0].Remote.Key.Passphrase = Passphrase{Command: []string{"/usr/local/bin/op", "read", "op://infra/retnd/private-key-passphrase"}}
 		if err := cfg.Validate(); err != nil {
 			t.Fatalf("Validate: %v", err)
 		}
@@ -645,7 +645,7 @@ func TestKeyPassphraseExactlyOneSourceAllowed(t *testing.T) {
 
 func TestKeyPassphraseCommandExecutableMustBeAbsolute(t *testing.T) {
 	cfg := validConfig()
-	cfg.Sources[0].BackupSets[0].Remote.Key.Passphrase = Passphrase{Command: []string{"op", "read", "op://infra/backup-manager/private-key-passphrase"}}
+	cfg.Sources[0].BackupSets[0].Remote.Key.Passphrase = Passphrase{Command: []string{"op", "read", "op://infra/retnd/private-key-passphrase"}}
 	err := cfg.Validate()
 	if err == nil {
 		t.Fatal("a relative key.passphrase.command executable was accepted")
@@ -685,7 +685,7 @@ func TestKeyEncryptionOptional(t *testing.T) {
 func TestKeyEncryptionExactlyOneSourceEnforced(t *testing.T) {
 	t.Run("file alone is accepted", func(t *testing.T) {
 		cfg := validConfig()
-		cfg.KeyEncryption = KeyEncryption{File: "/etc/backup-manager/key.dek"}
+		cfg.KeyEncryption = KeyEncryption{File: "/etc/retnd/key.dek"}
 		if err := cfg.Validate(); err != nil {
 			t.Fatalf("Validate: %v", err)
 		}
@@ -701,7 +701,7 @@ func TestKeyEncryptionExactlyOneSourceEnforced(t *testing.T) {
 
 	t.Run("command alone is accepted", func(t *testing.T) {
 		cfg := validConfig()
-		cfg.KeyEncryption = KeyEncryption{Command: []string{"/usr/local/bin/op", "read", "op://infra/backup-manager/dek"}}
+		cfg.KeyEncryption = KeyEncryption{Command: []string{"/usr/local/bin/op", "read", "op://infra/retnd/dek"}}
 		if err := cfg.Validate(); err != nil {
 			t.Fatalf("Validate: %v", err)
 		}
@@ -711,8 +711,8 @@ func TestKeyEncryptionExactlyOneSourceEnforced(t *testing.T) {
 		name string
 		ke   KeyEncryption
 	}{
-		{"file and env", KeyEncryption{File: "/etc/backup-manager/key.dek", Env: "BACKUP_KEY_DEK"}},
-		{"file and command", KeyEncryption{File: "/etc/backup-manager/key.dek", Command: []string{"/usr/local/bin/op", "read", "x"}}},
+		{"file and env", KeyEncryption{File: "/etc/retnd/key.dek", Env: "BACKUP_KEY_DEK"}},
+		{"file and command", KeyEncryption{File: "/etc/retnd/key.dek", Command: []string{"/usr/local/bin/op", "read", "x"}}},
 		{"env and command", KeyEncryption{Env: "BACKUP_KEY_DEK", Command: []string{"/usr/local/bin/op", "read", "x"}}},
 	} {
 		t.Run(tc.name+" together rejected", func(t *testing.T) {
@@ -727,7 +727,7 @@ func TestKeyEncryptionExactlyOneSourceEnforced(t *testing.T) {
 
 func TestKeyEncryptionCommandExecutableMustBeAbsolute(t *testing.T) {
 	cfg := validConfig()
-	cfg.KeyEncryption = KeyEncryption{Command: []string{"op", "read", "op://infra/backup-manager/dek"}}
+	cfg.KeyEncryption = KeyEncryption{Command: []string{"op", "read", "op://infra/retnd/dek"}}
 	err := cfg.Validate()
 	if err == nil {
 		t.Fatal("a relative key_encryption.command executable was accepted")
@@ -756,7 +756,7 @@ func TestKeyValidateIsIdempotent(t *testing.T) {
 		key  Key
 	}{
 		{"deprecated key_file alone", Key{}},
-		{"key.file", Key{File: "/etc/backup-manager/id_ed25519"}},
+		{"key.file", Key{File: "/etc/retnd/id_ed25519"}},
 		{"key.env", Key{Env: "BACKUP_SSH_KEY"}},
 		{"key.command", Key{Command: []string{"/usr/local/bin/op", "read", "x"}}},
 	} {
@@ -1214,6 +1214,86 @@ func TestIncludePatternValidation(t *testing.T) {
 		cfg.Sources[0].BackupSets[0].Include = nil
 		if err := cfg.Validate(); err != nil {
 			t.Fatalf("an absent include list was rejected: %v", err)
+		}
+	})
+}
+
+// --- exclude_paths (issue #737) ---
+
+// exclude_paths is the other half of a pair that is easy to read as one
+// setting and is deliberately two: include is a basename PATTERN, applied
+// to whatever discovery walked, and exclude_paths is a PATH, applied to
+// the walk itself. The rules are therefore almost each other's opposite,
+// and this is where that is pinned from both sides: a "/" is the whole
+// point of one field and a rejection in the other.
+func TestExcludePathValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		path string
+		ok   bool
+	}{
+		{"a subdirectory", "tiles", true},
+		{"a nested subdirectory", "uploads/tiles", true},
+		{"a trailing slash", "uploads/tiles/", true},
+		{"a leading slash, meaning the same directory", "/uploads/tiles", true},
+		{"empty", "", false},
+		{"a backslash", `uploads\tiles`, false},
+		{"parent traversal", "uploads/../../etc", false},
+		{"a bare parent", "..", false},
+		{"a current-directory segment", "uploads/./tiles", false},
+		{"a glob pattern, which this field is not", "uploads/*", false},
+		{"a character class, which this field is not", "uploads/[ab]", false},
+		{"a trailing space, which would filter nothing", "tiles ", false},
+		{"a leading space, which would filter nothing", " tiles", false},
+		{"a space inside a nested segment", "uploads/ tiles", false},
+		{"all whitespace", "  ", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := validConfig()
+			cfg.Sources[0].BackupSets[0].ExcludePaths = []string{tc.path}
+			err := cfg.Validate()
+			if tc.ok && err != nil {
+				t.Fatalf("exclude_paths %q was rejected: %v", tc.path, err)
+			}
+			if !tc.ok {
+				if err == nil {
+					t.Fatalf("exclude_paths %q was accepted", tc.path)
+				}
+				if !strings.Contains(err.Error(), "exclude_paths") {
+					t.Errorf("the refusal of exclude_paths %q does not name the field, so an operator cannot find it: %v", tc.path, err)
+				}
+			}
+		})
+	}
+
+	t.Run("no exclude_paths is accepted", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Sources[0].BackupSets[0].ExcludePaths = nil
+		if err := cfg.Validate(); err != nil {
+			t.Fatalf("an absent exclude_paths list was rejected: %v", err)
+		}
+	})
+
+	// The two fields are independent: a set may carry a basename include
+	// and a path exclude at once, which is the configuration #737 is
+	// about ("*.pdf, but never walk into tiles/").
+	t.Run("a basename include and a path exclude together", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Sources[0].BackupSets[0].Include = []string{"*.pdf"}
+		cfg.Sources[0].BackupSets[0].ExcludePaths = []string{"tiles"}
+		if err := cfg.Validate(); err != nil {
+			t.Fatalf("include plus exclude_paths was rejected: %v", err)
+		}
+	})
+
+	// And the include rule is untouched by any of this: a path is still
+	// not a legal include pattern, whatever exclude_paths now accepts.
+	t.Run("a path is still not an include pattern", func(t *testing.T) {
+		cfg := validConfig()
+		cfg.Sources[0].BackupSets[0].Include = []string{"tiles/*.webp"}
+		cfg.Sources[0].BackupSets[0].ExcludePaths = []string{"tiles"}
+		if err := cfg.Validate(); err == nil {
+			t.Fatal("an include pattern containing \"/\" was accepted; exclude_paths is where a path belongs, and include is still basename-only")
 		}
 	})
 }

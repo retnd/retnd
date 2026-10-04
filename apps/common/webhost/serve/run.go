@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/cliecho"
+	"github.com/retnd/retnd/core/cliecho"
 )
 
 // The process lifecycle: one HTTP server, optionally one scheduler, and
@@ -69,9 +69,14 @@ func NewHTTPServer(addr string, handler http.Handler) *http.Server {
 // RunEngine needs to drive the background scheduler loop alongside the
 // HTTP server, sharing one process shutdown context (§9.3).
 // *service.BackupService satisfies this directly; no adapter needed.
+// It carries one method, not two. RunOnSchedule used to be handed the
+// interval a second method reported, and since issue #845 there is no
+// single interval to hand: a backup set may poll on its own cadence, so
+// the schedule is a property of the whole configuration and the scheduler
+// is the only thing that can read it. FirstRunEngine below already
+// ignored the argument for a version of the same reason.
 type Scheduler interface {
-	PollInterval() time.Duration
-	RunOnSchedule(ctx context.Context, interval time.Duration) error
+	RunOnSchedule(ctx context.Context) error
 }
 
 // DefaultShutdownGrace bounds how long RunEngine waits for the HTTP
@@ -101,7 +106,7 @@ const DefaultShutdownGrace = 10 * time.Second
 // still safe: schedCtx, not ctx, is what stops the scheduler here. The
 // scheduler's own failure gets the exact same treatment, symmetrically:
 // this used to be missing (moved here from
-// apps/generic/cmd/backup-manager-web's former cmdServe, which only raced
+// apps/generic/cmd/retnd-web's former cmdServe, which only raced
 // ctx.Done() against the HTTP listener's own error channel - a scheduler
 // that failed on its own, independent of ctx cancellation or a listener
 // failure, was invisible until some other event eventually triggered
@@ -115,7 +120,7 @@ const DefaultShutdownGrace = 10 * time.Second
 // didn't stop within shutdownGrace") that don't themselves change
 // RunEngine's returned error - pass io.Discard to ignore them, or a real
 // writer (a caller's os.Stderr) to surface them the way
-// apps/generic/cmd/backup-manager-web's former cmdServe did.
+// apps/generic/cmd/retnd-web's former cmdServe did.
 func RunEngine(ctx context.Context, httpServer *http.Server, scheduler Scheduler, shutdownGrace time.Duration, warnings io.Writer) error {
 	serverErrCh := make(chan error, 1)
 	go func() { serverErrCh <- httpServer.ListenAndServe() }()
@@ -133,7 +138,7 @@ func RunEngine(ctx context.Context, httpServer *http.Server, scheduler Scheduler
 	var schedulerErrCh chan error
 	if scheduler != nil {
 		schedulerErrCh = make(chan error, 1)
-		go func() { schedulerErrCh <- scheduler.RunOnSchedule(schedCtx, scheduler.PollInterval()) }()
+		go func() { schedulerErrCh <- scheduler.RunOnSchedule(schedCtx) }()
 	}
 
 	var exitErr error

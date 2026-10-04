@@ -1,7 +1,7 @@
-# Backup Manager on CasaOS
+# retnd on CasaOS
 
 CasaOS installs a third-party application from one `docker-compose.yml` carrying
-an `x-casaos` block, so [`compose/backup-manager.yml`](compose/backup-manager.yml)
+an `x-casaos` block, so [`compose/retnd.yml`](compose/retnd.yml)
 is both the runtime definition and the store submission. There is nothing else
 in this directory but an icon and this page.
 
@@ -40,13 +40,13 @@ is distroless, with no shell and no root step, so nothing inside the container
 can create or chown them for you:
 
 ```
-mkdir -p /DATA/AppData/backup-manager/state /DATA/AppData/backup-manager/config \
-         /DATA/AppData/backup-manager/secrets /DATA/Backups/backup-manager
-chown 1000:1000 /DATA/AppData/backup-manager/state /DATA/AppData/backup-manager/config \
-                /DATA/AppData/backup-manager/secrets /DATA/Backups/backup-manager
+mkdir -p /DATA/AppData/retnd/state /DATA/AppData/retnd/config \
+         /DATA/AppData/retnd/secrets /DATA/Backups/retnd
+chown 1000:1000 /DATA/AppData/retnd/state /DATA/AppData/retnd/config \
+                /DATA/AppData/retnd/secrets /DATA/Backups/retnd
 ```
 
-Put the SFTP private key at `/DATA/AppData/backup-manager/secrets/id_ed25519`
+Put the SFTP private key at `/DATA/AppData/retnd/secrets/id_ed25519`
 (mode 0600) and the pinned host key next to it as `known_hosts`. Neither is ever
 baked into the image or into any file in this repository.
 
@@ -64,11 +64,11 @@ is ticked.
 
 | Host path | Container path | Holds |
 | --- | --- | --- |
-| `/DATA/AppData/backup-manager/state` | `/data/state` | the catalogue and the local administrator record. Private. |
-| `/DATA/Backups/backup-manager` | `/data/backups` | retained artifacts, and nothing else. |
-| `/DATA/AppData/backup-manager/config` | `/etc/backup-manager/config` | `config.yaml`, writable, plus `ssh_keys/` and `known_hosts.d/`. |
-| `/DATA/AppData/backup-manager/secrets/id_ed25519` | `/etc/backup-manager/id_ed25519` | the SFTP private key, read-only. |
-| `/DATA/AppData/backup-manager/secrets/known_hosts` | `/etc/backup-manager/known_hosts` | the pinned host key, read-only. |
+| `/DATA/AppData/retnd/state` | `/data/state` | the catalogue and the local administrator record. Private. |
+| `/DATA/Backups/retnd` | `/data/backups` | retained artifacts, and nothing else. |
+| `/DATA/AppData/retnd/config` | `/etc/retnd/config` | `config.yaml`, writable, plus `ssh_keys/` and `known_hosts.d/`. |
+| `/DATA/AppData/retnd/secrets/id_ed25519` | `/etc/retnd/id_ed25519` | the SFTP private key, read-only. |
+| `/DATA/AppData/retnd/secrets/known_hosts` | `/etc/retnd/known_hosts` | the pinned host key, read-only. |
 
 Private state and the backup root are separate security domains and neither is
 inside the other, which is why the backup root is under `/DATA` and not under

@@ -29,18 +29,18 @@ Portainer CE packaging, so nothing here is a migration from an earlier one.
 
 ### 0.2 Make the canonical image resolvable
 
-`ghcr.io/spdrman/backup-manager:0.4.0` is cut but not pushed yet:
-`distribution/packaging/canonical.json` records `image.published: false`, and
-`container/release-manifest.json` carries a `registry_digest` of `null` per
-architecture. So the reference does not resolve from the registry today, and the
-steps below are how you make it resolve, by pushing a build to a registry this host
-can reach or building elsewhere and loading it. The previous release,
-`ghcr.io/spdrman/backup-manager:0.3.3`, stays published and signed if you would
-rather run that:
+The canonical reference is `ghcr.io/retnd/retnd:0.5.0`.
+`distribution/packaging/canonical.json` and
+`container/release-manifest.json` jointly record whether it has been published:
+`image.published: true` requires an index digest and one registry digest per
+architecture. If those records still say `false` and `null`, the reference does
+not resolve yet; push a build to a registry this host can reach or build
+elsewhere and load it. Once they record the published digests, the host can
+pull the canonical reference directly:
 
 ```bash
-docker buildx build --platform=linux/amd64,linux/arm64 -f container/Dockerfile -t backup-manager:acceptance .
-docker save backup-manager:acceptance | ssh admin@<host> 'docker load'
+docker buildx build --platform=linux/amd64,linux/arm64 -f container/Dockerfile -t retnd:acceptance .
+docker save retnd:acceptance | ssh admin@<host> 'docker load'
 ```
 
 - [ ] The image is resolvable on the host, and the exact reference used is recorded
@@ -48,8 +48,8 @@ docker save backup-manager:acceptance | ssh admin@<host> 'docker load'
 ### 0.3 Create the host paths
 
 ```bash
-mkdir -p /opt/backup-manager/state /opt/backup-manager/backups \
-         /opt/backup-manager/config /opt/backup-manager/secrets
+mkdir -p /opt/retnd/state /opt/retnd/backups \
+         /opt/retnd/config /opt/retnd/secrets
 ```
 
 The runtime image is distroless: no shell, no root step, nothing inside the
@@ -61,11 +61,11 @@ following `docs/ssh-setup.md`. Never commit either, and never paste a private ke
 into the evidence table.
 
 ```bash
-ssh-keygen -t ed25519 -N "" -f /opt/backup-manager/secrets/id_ed25519
-ssh-keyscan -t ed25519 <sftp-host> > /opt/backup-manager/secrets/known_hosts
+ssh-keygen -t ed25519 -N "" -f /opt/retnd/secrets/id_ed25519
+ssh-keyscan -t ed25519 <sftp-host> > /opt/retnd/secrets/known_hosts
 ```
 
-**Recurse only over what this step created.** `/opt/backup-manager/backups` is the retained
+**Recurse only over what this step created.** `/opt/retnd/backups` is the retained
 backup store: on a reinstall it already holds data this procedure did not write,
 and a recursive ownership change across it rewrites all of it with nothing to
 restore it from. So the private trees are chowned recursively and the backup root
@@ -74,15 +74,15 @@ fails the build if any procedure in this directory recurses over a backup root o
 a parent of one.
 
 ```bash
-chown -R 1000:1000 /opt/backup-manager/state /opt/backup-manager/config /opt/backup-manager/secrets
-chown 1000:1000 /opt/backup-manager/backups
-chmod 600 /opt/backup-manager/secrets/id_ed25519
+chown -R 1000:1000 /opt/retnd/state /opt/retnd/config /opt/retnd/secrets
+chown 1000:1000 /opt/retnd/backups
+chmod 600 /opt/retnd/secrets/id_ed25519
 ```
 
 - [ ] All four paths exist and are owned by the app's uid and gid
 - [ ] The recursive ownership change touched only state, config and secrets
 - [ ] It ran **after** the key and `known_hosts` were created
-- [ ] `/opt/backup-manager/config` is writable by the app's uid and gid
+- [ ] `/opt/retnd/config` is writable by the app's uid and gid
 - [ ] Key material lives only on this host, redacted everywhere else
 
 ---
@@ -91,9 +91,9 @@ chmod 600 /opt/backup-manager/secrets/id_ed25519
 
 The engine's start gate is a liveness question, not a backup-freshness verdict
 (issue #206). It declares
-`["CMD", "/rbm-web", "healthcheck", "--url", "http://127.0.0.1:8080/health/live"]`,
-derived from `container/compose.yaml`, and `backup-manager-ui` waits on that with
-`condition: service_healthy`. `/rbm status` is still FR-24's freshness
+`["CMD", "/retnd-web", "healthcheck", "--url", "http://127.0.0.1:8080/health/live"]`,
+derived from `container/compose.yaml`, and `web-ui` waits on that with
+`condition: service_healthy`. `/retnd status` is still FR-24's freshness
 verdict and still the image's own baked-in `HEALTHCHECK`, and it exits non-zero on a
 fresh install by design, which is exactly why nothing waits on it any more. So a
 **fresh install reaches the web UI**: an empty configuration directory is a legitimate
@@ -109,16 +109,16 @@ a hard startup failure rather than a first-run wizard, so an invalid one is wors
 none at all. Either finish setup in the browser and skip the file, or write it here.
 
 **If you take the file route, take it before Deploy.** Every field Portainer shows is
-one environment variable of `apps/portainer/compose/backup-manager.env`, and the stack
+one environment variable of `apps/portainer/compose/retnd.env`, and the stack
 deploys as soon as you press Deploy, so a hand-written `config.yaml` has to be on the
 host before that press or it is not the file the engine reads on its first start. Write
 it over SSH on the host running the Docker engine, not inside the Portainer container.
 Skip this block entirely to use the first-run flow instead.
 
 ```bash
-$EDITOR /opt/backup-manager/config/config.yaml
-chown 1000:1000 /opt/backup-manager/config/config.yaml
-chmod 600 /opt/backup-manager/config/config.yaml
+$EDITOR /opt/retnd/config/config.yaml
+chown 1000:1000 /opt/retnd/config/config.yaml
+chmod 600 /opt/retnd/config/config.yaml
 ```
 
 The container-side paths in it are fixed by this package and must not be changed:
@@ -129,7 +129,7 @@ annotated example is this same file with another platform's host paths, and
 **Never commit the config or paste one into the evidence table:** it names the SFTP
 host and user.
 
-- [ ] Either `config.yaml` is written into `/opt/backup-manager/config` **before** the install
+- [ ] Either `config.yaml` is written into `/opt/retnd/config` **before** the install
       and is valid, or that directory is left empty and the first-run flow writes it.
       A file that exists and does not validate is the one state that refuses the start,
       so record which of the two routes this run took
@@ -144,20 +144,20 @@ host and user.
 1. In Portainer, **Settings, App Templates**, set the templates URL to this
    repository's `apps/portainer/templates.json`, and save. On a host that cannot
    reach the repository, use **Custom Templates, Add** and paste
-   `apps/portainer/compose/backup-manager.yml` instead.
-2. **App Templates**, pick Backup Manager, and fill the form. Every field is one
-   variable of `apps/portainer/compose/backup-manager.env` and the defaults are
+   `apps/portainer/compose/retnd.yml` instead.
+2. **App Templates**, pick retnd, and fill the form. Every field is one
+   variable of `apps/portainer/compose/retnd.env` and the defaults are
    the same defaults.
 3. Deploy the stack.
 
 - [ ] The template appeared in Portainer's App Templates list
 - [ ] Every environment field Portainer showed matches a variable the stack reads
 - [ ] The stack deployed and both containers reach `running`
-- [ ] `backup-manager` reports healthy (it declares the liveness probe
-      `/rbm-web healthcheck --url http://127.0.0.1:8080/health/live`,
-      not the image's own `/rbm status`: the web UI waits on this, and
+- [ ] `retnd` reports healthy (it declares the liveness probe
+      `/retnd-web healthcheck --url http://127.0.0.1:8080/health/live`,
+      not the image's own `/retnd status`: the web UI waits on this, and
       the backup-freshness verdict is non-zero on a fresh install)
-- [ ] `backup-manager-ui` reports healthy, having overridden the image's own healthcheck
+- [ ] `web-ui` reports healthy, having overridden the image's own healthcheck
 - [ ] No Portainer agent was installed, and no Portainer extension or plugin was added
 
 ## Step 2 — Web UI
@@ -173,17 +173,31 @@ host and user.
 ## Step 3 — Authentication
 
 - [ ] First start printed a one-time enrollment link (keep it out of the evidence table)
-- [ ] Enrollment sets an administrator password, stored as an Argon2id hash
+- [ ] Enrollment asked for a recovery email address and the SMTP details to reach it,
+      beside the username and password. Use a mail account you control and keep the
+      SMTP password out of the evidence table; record the host and port only
+- [ ] The confirmation message arrived at the recovery address, and it arrived
+      **before** any account existed. Provoke the failure once, with a deliberately
+      wrong port: the API answers `SMTP_SEND_FAILED` and no administrator is created
+- [ ] That failure did not consume the link. The same URL completed the enrollment
+      once the SMTP details were corrected
+- [ ] Enrollment sets an administrator password, stored as an Argon2id hash, with the
+      recovery address beside it in the same record and the SMTP password held as a
+      secret reference rather than a value
 - [ ] The enrollment link is single-use and is rejected the second time
+- [ ] Forgot password answers identically for the administrator's username and for a
+      name that does not exist, and mails a single-use reset link to the recovery
+      address; completing the reset sets the new password and signs out the session
+      that asked
 - [ ] An unauthenticated request to `/api/v1/` is refused
 - [ ] The UI reports auth mode `local-account`, and no platform identity is trusted
 
 ## Step 4 — Storage mapping and backup-root containment
 
-- [ ] Private state lands under `/opt/backup-manager/state`
-- [ ] Retained artifacts land under `/opt/backup-manager/backups`
+- [ ] Private state lands under `/opt/retnd/state`
+- [ ] Retained artifacts land under `/opt/retnd/backups`
 - [ ] No SSH private key, `known_hosts`, config file or authentication record
-      exists anywhere under `/opt/backup-manager/backups`
+      exists anywhere under `/opt/retnd/backups`
 - [ ] The key and `known_hosts` are mounted read-only, and a write attempt from
       inside the container fails
 - [ ] The configuration directory is mounted **writable**: creating a backup set
@@ -197,7 +211,7 @@ Portainer itself has the Docker socket. This product must not, and this is where
 that is decided against the running containers rather than against the file.
 
 ```bash
-docker inspect backup-manager backup-manager-ui \
+docker inspect retnd-retnd-1 retnd-web-ui-1 \
   --format '{{.Name}} priv={{.HostConfig.Privileged}} net={{.HostConfig.NetworkMode}} pid={{.HostConfig.PidMode}} caps={{.HostConfig.CapAdd}} binds={{.HostConfig.Binds}}'
 ```
 
@@ -218,21 +232,23 @@ Capture a baseline before the pull and compare after it, so "everything
 survived" is a diff rather than an impression:
 
 ```bash
-sha256sum /opt/backup-manager/state/state.db | tee /root/portainer-before-update.sha256
-find /opt/backup-manager/backups -type f -printf '%p %s\n' | sort > /root/portainer-before-update.txt
+sha256sum /opt/retnd/state/state.db | tee /root/portainer-before-update.sha256
+find /opt/retnd/backups -type f -printf '%p %s\n' | sort > /root/portainer-before-update.txt
 ```
 
 Then, in Portainer, open the stack and use **Update the stack** with
 "Re-pull image" enabled, or run the equivalent on the host.
 
 ```bash
-find /opt/backup-manager/backups -type f -printf '%p %s\n' | sort > /root/portainer-after-update.txt
+find /opt/retnd/backups -type f -printf '%p %s\n' | sort > /root/portainer-after-update.txt
 diff /root/portainer-before-update.txt /root/portainer-after-update.txt
 ```
 
 - [ ] The update pulled a new image and recreated both containers
 - [ ] `diff` of the retained-artifact listing is empty: the update moved no backup data
-- [ ] Backup sets, schedules, retained artifacts and the administrator account all persist
+- [ ] Backup sets, schedules, retained artifacts and the administrator account all persist,
+      the account's recovery address and SMTP settings with it (a test send from
+      Settings still succeeds after the update)
 - [ ] No re-enrollment was required
 - [ ] The new image version is reported in the UI
 
@@ -243,9 +259,9 @@ looking. **Capture the baseline first and write it outside the tree you are
 about to test**, so whatever damages the tree cannot damage the evidence:
 
 ```bash
-dd if=/dev/urandom of=/opt/backup-manager/backups/acceptance-canary.bin bs=1M count=8
-sha256sum /opt/backup-manager/backups/acceptance-canary.bin | tee /root/portainer-canary.sha256
-find /opt/backup-manager/backups -type f -printf '%p %s\n' | sort > /root/portainer-before-remove.txt
+dd if=/dev/urandom of=/opt/retnd/backups/acceptance-canary.bin bs=1M count=8
+sha256sum /opt/retnd/backups/acceptance-canary.bin | tee /root/portainer-canary.sha256
+find /opt/retnd/backups -type f -printf '%p %s\n' | sort > /root/portainer-before-remove.txt
 ```
 
 Now remove the stack in Portainer: open it and press **Delete this stack**.
@@ -257,7 +273,7 @@ Then verify against the baseline, before inspecting anything else:
 
 ```bash
 sha256sum -c /root/portainer-canary.sha256
-find /opt/backup-manager/backups -type f -printf '%p %s\n' | sort > /root/portainer-after-remove.txt
+find /opt/retnd/backups -type f -printf '%p %s\n' | sort > /root/portainer-after-remove.txt
 diff /root/portainer-before-remove.txt /root/portainer-after-remove.txt
 ```
 
@@ -265,7 +281,7 @@ diff /root/portainer-before-remove.txt /root/portainer-after-remove.txt
       artifact is untouched, byte for byte
 - [ ] Deleting the stack with volume removal enabled deleted no
       retained artifact either: the same `sha256sum -c` and `diff` are still clean
-- [ ] `/opt/backup-manager/state` still holds the catalogue, so a reinstall
+- [ ] `/opt/retnd/state` still holds the catalogue, so a reinstall
       pointed at the same paths comes back with the same backup sets
 - [ ] Removing this adapter removes no core behaviour: the same image runs
       unchanged under `container/compose.yaml` on a plain Docker host
@@ -288,7 +304,7 @@ ls /etc/systemd/system > /root/portainer-baseline-units.txt 2>/dev/null || true
 
 ## Step 9 — Destructive-safety re-check
 
-- [ ] A backup set configured with a root outside `/opt/backup-manager/backups` is refused
+- [ ] A backup set configured with a root outside `/opt/retnd/backups` is refused
 - [ ] A symlink inside the backup root that points outside it is not followed into a delete
 - [ ] A retention apply deletes only artifacts under the backup root
 - [ ] Nothing under the private state, config or secrets paths is ever a delete target
@@ -306,6 +322,74 @@ cd distribution && GOWORK=off go test ./packaging/ -count=1 -run TestCrossProvid
       stale and must be corrected rather than the check
 
 ---
+
+## Step 11 — Local workflow hooks, and the Docker prerequisite
+
+A workflow step whose target is `local` does not run in the engine container, and since
+issue #865 it does not run on a host shell either: it runs in an **ephemeral Docker
+container** launched by the **Host Workflow Runner**, a small version-pinned process
+systemd supervises as `retnd-workflow-runner.service`
+(`docs/adr/0020-host-workflow-runner.md`, `docs/runtime-contract.md`).
+
+Portainer runs on an ordinary Docker host, so local hooks are **available** — but the
+runner is installed **on that host**, with `scripts/install/install_docker_host.py`, and
+not through Portainer. Portainer deploys a stack; it has no way to install a systemd
+unit or grant a supplementary group, and the stack it deploys must not ask for either.
+Step 5 already proves the engine holds no Docker socket, and this is the reason that
+step matters more since #865: the socket is the one thing a local hook needs and the
+one thing the shipped containers must never have.
+
+Three prerequisites, all three re-proved by the runner's own startup probe, and any one
+of them missing is a refusal rather than a hook that quietly does not run:
+
+- **a daemon the runner's account can reach.** That is one supplementary group:
+  `sudo usermod -aG docker <the runner's account>`, or whatever group owns the socket
+  here — the installer reads the group off the socket rather than assuming `docker`. The
+  unit gets `SupplementaryGroups=` and that socket in `ReadWritePaths`; nothing else
+  does. The membership is root-equivalent on this host, which is exactly why it belongs
+  to the runner and to nothing else: **the engine container gains nothing** — no socket,
+  no `group_add`, no `DOCKER_HOST`, and `distribution/packaging`'s preflight fails the
+  build if any shipped package asks for one;
+- **the hook image, already on the host.** `--hook-image` defaults to the pinned
+  `bash:5.2.37-alpine3.21`, `install` fetches it, and `WORKFLOW_RUNNER_HOOK_IMAGE` in the
+  deployment's `.env` names a different one. The runner never pulls: an image that is not
+  there is a refusal, not a download;
+- **a non-root account.** The runner refuses to run as root, so a root deployment gets no
+  runner and is told so.
+
+`python3 scripts/install/install_docker_host.py preflight` refuses with exit 12, and the
+refusal carries the `usermod -aG` line, when this deployment has hook scripts and the
+runner's account cannot reach the daemon. A deployment with an empty workflows
+directory is held to none of it, and `WORKFLOW_RUNNER=off` in the `.env` says so
+explicitly.
+
+And a fourth prerequisite, on THIS side of the socket, which was missing until
+issue #921: the engine has to be able to see the runner. The stack mounts three
+paths for it, all three offered as form fields with these defaults, and an
+operator who installs the runner somewhere else gets a refusal at the first hook
+rather than a hook that runs:
+
+| Form field | In the container | Why |
+|---|---|---|
+| `WORKFLOWS_DIR` (`/opt/retnd/workflows`) | `/workflows` (read-only) | the hook scripts the engine reads |
+| `RUNTIME_DIR` (`/opt/retnd/run`) | `/data/run` | where the runner's socket appears |
+| `RUNNER_TOKEN_FILE` (`/opt/retnd/secrets/workflow-runner.token`) | `/etc/retnd/workflow-runner.token` (read-only) | the credential the engine presents |
+
+So install the runner with `--workflows-dir` and `--runtime-dir` pointed at the
+first two, and its token written to the third. None of the three hands this
+stack any part of the Docker socket Portainer itself holds — which is the whole
+point of the runner being a host unit and not a container in this stack.
+
+- [ ] `systemctl is-active retnd-workflow-runner.service` reports `active`, and the
+      account it runs as is recorded in the evidence table
+- [ ] That account is in the Docker socket's group (`id <account>`), and the engine
+      container is **not**: `docker inspect` shows no socket mount, no `group_add` and no
+      `DOCKER_HOST` on either shipped service
+- [ ] The hook image is present on the host (`docker image inspect <the reference>`), and
+      the reference the unit was installed with is recorded
+- [ ] A workflow with one `local` hook runs, and its container is gone afterwards
+      (`docker ps -a --filter label=retnd.workflow-hook=1` is empty)
+
 
 ## Evidence (section 68)
 

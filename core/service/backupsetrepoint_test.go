@@ -25,7 +25,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/internal/config"
+	"github.com/retnd/retnd/core/internal/config"
 )
 
 // runOneCycleForHistory drives one real cycle so the fixture set has

@@ -17,8 +17,8 @@ re-derives their SHA-256 against `container/release-manifest.json`.
 
 | SPK | INFO `arch` | Go target | DSM platforms | Status |
 |---|---|---|---|---|
-| `BackupManager-x86_64-<version>.spk` | `x86_64` | `linux/amd64` | apollolake, avoton, braswell, broadwell, broadwellnk, broadwellntb, broadwellntbap, bromolow, cedarview, coffeelake, denverton, geminilake, grantley, kvmx64, purley, skylaked, v1000 | build-supported, **uncertified** |
-| `BackupManager-armv8-<version>.spk` | `armv8` | `linux/arm64` | rtd1296, armada37xx, rtd1619, rtd1619b | build-supported, **uncertified** |
+| `Backupd-x86_64-<version>.spk` | `x86_64` | `linux/amd64` | apollolake, avoton, braswell, broadwell, broadwellnk, broadwellntb, broadwellntbap, bromolow, cedarview, coffeelake, denverton, geminilake, grantley, kvmx64, purley, skylaked, v1000 | build-supported, **uncertified** |
+| `Backupd-armv8-<version>.spk` | `armv8` | `linux/arm64` | rtd1296, armada37xx, rtd1619, rtd1619b | build-supported, **uncertified** |
 
 Family names and members come from Synology's Appendix A platform/arch
 mapping table, and are pinned in `spk/arch.go` so the table above and the
@@ -45,13 +45,17 @@ across an upgrade lives there.
 The release binaries are the two executables inside the canonical OCI
 image, and they are extracted exactly the way
 `scripts/release/record-release-hashes.sh` extracts them to produce the
-manifest in the first place:
+manifest in the first place. The image's two real files are `/retnd` and
+`/retnd-web` (issue #890 renamed them; `/retnd-web` is a hardlink beside
+the second one for one release and there is no `/retnd` at all), and
+the local names below are the ones `spkctl build` looks for, which the
+package keeps unchanged:
 
 ```sh
 mkdir -p release/amd64
-cid=$(docker create --platform linux/amd64 backup-manager:<version> /rbm version)
-docker cp "${cid}:/rbm"     release/amd64/backup-manager
-docker cp "${cid}:/rbm-web" release/amd64/backup-manager-web
+cid=$(docker create --platform linux/amd64 retnd:<version> /retnd version)
+docker cp "${cid}:/retnd"     release/amd64/retnd
+docker cp "${cid}:/retnd-web" release/amd64/retnd-web
 docker rm "${cid}"
 ```
 
@@ -71,7 +75,7 @@ go run ./cmd/spkctl build --arch amd64 --version 0.1.0-1 \
     --binaries ../../release/amd64 \
     --ui-bundle ../../ui/shared/dist-bundles/synology \
     --out ../../dist
-go run ./cmd/spkctl verify --spk ../../dist/BackupManager-x86_64-0.1.0-1.spk \
+go run ./cmd/spkctl verify --spk ../../dist/Backupd-x86_64-0.1.0-1.spk \
     --manifest ../../container/release-manifest.json
 ```
 
@@ -98,7 +102,7 @@ Since issue #169 there are two, and neither replaces the other.
 |---|---|---|
 | What it installs | the two native release binaries | the canonical OCI image, two containers |
 | Where it appears | Package Center, with a DSM desktop launcher | Container Manager → Project |
-| State lives in | `/var/packages/BackupManager/{etc,var}` | host paths you choose under `/volume1` |
+| State lives in | `/var/packages/Backupd/{etc,var}` | host paths you choose under `/volume1` |
 | Engine isolation | loopback bind, enforced by `start-stop-status` | a compose project network, enforced by topology |
 | Trusts forwarded headers | no, because any local process can reach loopback | yes, because only the Web UI container can reach the engine |
 | Needs Container Manager installed | no | yes |
@@ -111,10 +115,10 @@ there. The Container Manager path is also the one EPIC B's support table
 names for Synology; the `.spk` predates it and is not being retired, which
 is a product decision and not this issue's to make.
 
-`compose/backup-manager.yml` and `compose/backup-manager.env` are the
+`compose/retnd.yml` and `compose/retnd.env` are the
 project. Container Manager → Project → Create → "Create docker-compose.yml"
 takes the first, and the environment field takes the second. Read
-`compose/backup-manager.env` before pasting: two paths in it are yours to
+`compose/retnd.env` before pasting: two paths in it are yours to
 set, and the compose file refuses to start rather than inventing either.
 The two installs can run side by side while you compare them, because the
 `.spk` publishes 8477 and the project defaults to 8080.
@@ -130,24 +134,26 @@ Package Center catalogue is a separate exercise with its own review.
 
 ## What runs, and where
 
-Two processes, both the same unmodified `backup-manager-web` release
+Two processes, both the same unmodified `retnd-web` release
 binary, differing only in their command - the same "one artifact, vary
 command" split `container/compose.yaml` already ships for the generic
 Docker app:
 
 | Process | Command | Listener |
 |---|---|---|
-| engine | `rbm-web serve` | `127.0.0.1:8478`, loopback only |
-| web UI | `rbm-web serve-ui` | `:8477`, the only LAN-facing port |
+| engine | `retnd-web serve` | `127.0.0.1:8478`, loopback only |
+| web UI | `retnd-web serve-ui` | `:8477`, the only LAN-facing port |
 
-The command an operator types on a Docker host is `rbm-web` since 0.3.3,
-and these two lines are deliberately not that. A `.spk` installs native
-binaries under its own package FHS, and this package names them the way
-`container/release-manifest.json` records them, so what DSM starts really
-is `${SYNOPKG_PKGDEST}/bin/backup-manager-web`. The release ARTIFACT kept
-its name; only the CLI was renamed. Extracting the binaries out of the
-image above reads them at `/rbm` and `/rbm-web` for that same reason: in
-the image those are the real files and the old names are symlinks.
+The command an operator types on a Docker host is `retnd-web` since issue
+#890, and these two lines are deliberately not that. A `.spk` installs
+native binaries under its own package FHS, and this package names them
+the way `container/release-manifest.json` recorded them for the release
+it ships, so what DSM starts really is
+`${SYNOPKG_PKGDEST}/bin/retnd-web`. The package's own artifact names
+are not the CLI's: only the command was renamed, twice, and the `.spk`
+layout has followed neither rename. Extracting the binaries out of the
+image above therefore reads `/retnd` and `/retnd-web`, the image's two
+real files, and writes them out under the names this package expects.
 
 Authentication is the reusable `local-auth` from the generic Web host.
 There is no DSM-specific auth path anywhere in this directory. Native DSM
@@ -164,10 +170,10 @@ here is not attributable to one verified peer.
 
 | Path | Holds | Upgrade | Uninstall |
 |---|---|---|---|
-| `/var/packages/BackupManager/target` | the two binaries, the DSM UI files, the config seed | replaced | removed |
-| `/var/packages/BackupManager/etc` | `config.yaml`, and the SSH key/known_hosts you put there | kept | kept |
-| `/var/packages/BackupManager/var` | SQLite journal, `local-auth.json`, logs, pid files | kept | kept |
-| `/volume?/rbm` | backup data (a DSM shared folder) | kept | kept |
+| `/var/packages/Backupd/target` | the two binaries, the DSM UI files, the config seed | replaced | removed |
+| `/var/packages/Backupd/etc` | `config.yaml`, and the SSH key/known_hosts you put there | kept | kept |
+| `/var/packages/Backupd/var` | SQLite journal, `local-auth.json`, logs, pid files | kept | kept |
+| `/volume?/retnd` | backup data (a DSM shared folder) | kept | kept |
 
 Both daemons' logs live under `var/log`, on the DSM system volume, and
 `var/` survives every upgrade and reboot. `common.sh` caps each at

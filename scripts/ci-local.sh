@@ -60,8 +60,8 @@
 # and gets the same answer: the browser e2e step refuses and names the
 # install command, and CI_LOCAL_SKIP_E2E=1 is the out-loud opt-out that
 # ledgers. See scripts/e2e/run-tests-repo-gate.sh and the gate it execs,
-# scripts/rcmtools/e2e/run_tests_repo_gate.py, which is where that
-# suite now runs from (#158 moved it to spdrman/rclone-manager-tests, #197
+# scripts/bdtools/e2e/run_tests_repo_gate.py, which is where that
+# suite now runs from (#158 moved it to retnd/retnd-tests, #197
 # is why it runs at all).
 #
 # The two-machine end-to-end backup proof (#356) is the fourth, with one
@@ -200,7 +200,7 @@ gate_warn_resource_saver
 gate_start_docker_sentinel
 
 if [ "$FAST" = "1" ]; then
-  gate_note_skip "core/ ./tests/... (the Docker-backed crash matrix, the SFTP integration tests, the MinIO integration tests and the composed conformance scenario), the cross-compiles, the upk-proof and ui/shared production builds, the apps/common/tests cross-provider conformance suite, the browser e2e suite and CLI smoke slice from rclone-manager-tests, the repository-structure dependency rules and this gate's own self-test (CI_LOCAL_FAST=1)"
+  gate_note_skip "core/ ./tests/... (the Docker-backed crash matrix, the SFTP integration tests, the MinIO integration tests and the composed conformance scenario), the cross-compiles, the upk-proof and ui/shared production builds, the apps/common/tests cross-provider conformance suite, the browser e2e suite and CLI smoke slice from retnd-tests, the repository-structure dependency rules and this gate's own self-test (CI_LOCAL_FAST=1)"
 fi
 
 # The mutation-anchor check (#458), added under separate work. An anchor here
@@ -241,6 +241,64 @@ fi
 # stayed unformatted for its whole life with every gate step green.
 gate_step "every tracked Go file is gofmt-clean, including the ones outside every module (#417)"
 bash scripts/format/check-gofmt.sh
+
+# No new old-brand identifier, over every tracked source file (#794, #887).
+# This project is on its third name, and both previous ones left runtime
+# identifiers behind: the first product name's RM_ and RCLONE_MANAGER_ environment
+# variables and retnd's bm_ cookies and BACKUP_MANAGER_ variables.
+# #794 renamed some of them to BACKUPD_ / retnd_, and EPIC R (#885) is
+# renaming the whole `retnd` family to `retnd`; #887 pointed this guard at
+# it. The rename is a one-off edit; this step is what makes it stay done. The
+# way the old prefixes spread in the first place was somebody copying the
+# line above the one they were writing, and nothing anywhere looked.
+#
+# Two `git grep` sweeps and three fixed lists, so it costs about two seconds
+# and belongs up here with the anchors and gofmt sweeps rather than behind
+# twenty minutes of Go suites. It runs in FAST mode too, for the same
+# reason those two do: it is seconds, and a mid-refactor edit is exactly
+# what introduces the thing it looks for.
+#
+# The guard is RED until EPIC R finishes, by design, and green here only
+# because every surviving occurrence is on its `pending` list (FR-40): the
+# list going empty is the epic's completion signal, and each sub-issue
+# deletes its own entries.
+#
+# The self-test next to it plants each of the eleven patterns in a throwaway
+# repository and requires the guard to go red, and plants the lookalikes it
+# must NOT catch -- CONFIRM_DELETE, rclone's own ibm_signer.go, and the nine
+# `BackupD[a-zA-Z]` identifiers whose 50 occurrences a case-insensitive
+# `retnd` pattern would flag -- and requires it to stay green. A guard
+# whose only evidence is that it passes on the one tree anybody runs it
+# against has proven nothing (#160's shape again), and it is under five
+# seconds, so it runs here rather than nowhere.
+#
+# FR-44's two brand checks (#893) run in THIS step rather than one of their
+# own, because they are the same claim from the side `git grep` cannot
+# reach. The guard above greps tracked source and passes -I, so it never
+# opens a raster and it cannot read a letter that has become an SVG
+# `<path>`; a favicon saying the old name is invisible to it by
+# construction. So `check-svg-text.sh` refuses a text node in any source
+# SVG -- `<text>`, `<tspan>`, `<title>`, `<desc>`, the four places a name
+# can hide inside a picture -- with one path-pinned exception, the store
+# icon whose `<title>` distribution/packaging's CheckStoreIcon requires,
+# where the element is allowed and its TEXT is checked instead. And
+# `check-brand-assets.sh` holds
+# `docs/design/brand-assets.md` to the filesystem in both directions, so an
+# asset cannot be missed by being forgotten. Both are `git grep`-shaped and
+# take under a second between them.
+#
+# Neither is a claim that the art is right, and the manifest says so: the
+# rest of FR-44 is a human looking at the pictures, recorded as outstanding
+# in that file and as PARTIAL on row R2.14 of
+# docs/conformance/epic-r-matrix.md. scripts/brand/selftest.sh is the proof
+# these two can still fail, and it plants exactly the two violations FR-44
+# names.
+gate_step "no new RM_/BM_/bm_/rbm_/retnd/retndproject/rclone[-_ ]manager/retnd identifier, no brand asset unaccounted for or carrying a text node, and all three of those guards can still fail (#794, #887, #893)"
+bash scripts/rename/check-brand-drift.sh
+bash scripts/rename/selftest.sh
+bash scripts/brand/check-svg-text.sh
+bash scripts/brand/check-brand-assets.sh
+bash scripts/brand/selftest.sh
 
 # What `go doc` prints for every package, against a recorded baseline
 # (#526). A comment adjacent to `package` IS the package doc, and go/doc
@@ -299,7 +357,7 @@ bash scripts/tests/e2e-help.test.sh
 #
 # Nothing in this repository linted Python before #672: the gate ran gofmt,
 # go vet, golangci-lint and eslint, and for Python it ran one unittest suite
-# and stopped. The step landed scoped to scripts/rcmtools alone so that a new
+# and stopped. The step landed scoped to scripts/bdtools alone so that a new
 # rule would not turn up first as somebody else's untouched file going red.
 # It is wider now, and the two halves widened by different amounts because
 # the trial runs said different things.
@@ -319,7 +377,7 @@ bash scripts/tests/e2e-help.test.sh
 #
 # --config / --config-file explicitly, for both tools. ruff would otherwise
 # discover the configuration by walking up from each file, which finds it for
-# scripts/rcmtools and finds nothing for scripts/install -- and silently
+# scripts/bdtools and finds nothing for scripts/install -- and silently
 # linting half the tree at ruff's 88-column defaults is the failure this
 # change exists to avoid.
 #
@@ -333,7 +391,7 @@ bash scripts/tests/e2e-help.test.sh
 # its place.
 gate_step "scripts: ruff over every Python file, mypy --strict over the typed subset (#672)"
 if command -v ruff >/dev/null 2>&1; then
-  ruff check --config scripts/rcmtools/pyproject.toml scripts
+  ruff check --config scripts/bdtools/pyproject.toml scripts
 else
   gate_note_skip "ruff over scripts (#672): ruff is not on PATH. Install it (pipx install ruff) and re-run."
 fi
@@ -345,10 +403,10 @@ fi
 # whichever python3 the developer happened to have. `pipx install mypy` and
 # an activated virtualenv both put the binary on PATH.
 if command -v mypy >/dev/null 2>&1; then
-  mypy --strict --config-file scripts/rcmtools/pyproject.toml \
-    scripts/rcmtools scripts/deploy scripts/install/embed_compose.py
+  mypy --strict --config-file scripts/bdtools/pyproject.toml \
+    scripts/bdtools scripts/deploy scripts/install/embed_compose.py
 else
-  gate_note_skip "mypy --strict over scripts/rcmtools, scripts/deploy and scripts/install/embed_compose.py (#672): mypy is not on PATH. Install it (pipx install mypy) and re-run."
+  gate_note_skip "mypy --strict over scripts/bdtools, scripts/deploy and scripts/install/embed_compose.py (#672): mypy is not on PATH. Install it (pipx install mypy) and re-run."
 fi
 
 # The two-machine proof's exit statuses, which are this gate's own ledger
@@ -415,23 +473,25 @@ gate_step "core/ golangci-lint"
 
 if [ "$FAST" = "1" ]; then
   gate_docker_step "core/ go test -race ./internal/... (CI_LOCAL_FAST=1: skipping ./tests/... Docker suites)"
-  (cd core && GOWORK=off go test -race ./internal/...)
+  (cd core && GOWORK=off go test -race -timeout 45m ./internal/...)
 else
-  # tests/crashmatrix, tests/sftpintegration and tests/miniointegration
+  # tests/crashmatrix, tests/sftpintegration, tests/sshexecintegration,
+  # tests/miniointegration and tests/containerhooks
   # run separately, under cmd/gotestwatch instead of `go test`'s own
-  # default -timeout (10m per package). All three drive real Docker work
+  # default -timeout (10m per package). All of them drive real Docker work
   # through a real subprocess (tests/crashmatrix's own harness, a real
-  # rclone transfer against the SFTP fixture container, or a real S3
-  # round trip against the MinIO one), so their wall-clock time tracks
-  # real machine load rather than a fixed budget; issue #256 is a real
-  # gate run hitting go test's fixed 10m default under load. On a machine
-  # that has to PULL a fixture image first, the pull alone can eat most
-  # of that budget. gotestwatch bounds them with a no-progress window
+  # rclone transfer against the SFTP fixture container, a real S3
+  # round trip against the MinIO one, or -- for tests/containerhooks --
+  # an ephemeral container per workflow hook), so their wall-clock time
+  # tracks real machine load rather than a fixed budget; issue #256 is a
+  # real gate run hitting go test's fixed 10m default under load. On a
+  # machine that has to PULL a fixture image first, the pull alone can eat
+  # most of that budget. gotestwatch bounds them with a no-progress window
   # derived from this run's own measured pace instead (issue #247's
   # reasoning, one layer out; see core/cmd/gotestwatch/doc.go), so there
   # is no fixed number to outgrow.
-  gate_docker_step "core/ go test -race ./... (excluding tests/crashmatrix + tests/sftpintegration + tests/miniointegration + tests/conformance + tests/machinegate and cmd/gotestwatch, all run next)"
-  (cd core && GOWORK=off go test -race $(GOWORK=off go list ./... | grep -vE '/(tests/(crashmatrix|sftpintegration|miniointegration|conformance|machinegate)|cmd/gotestwatch)$'))
+  gate_docker_step "core/ go test -race ./... (excluding tests/crashmatrix + tests/sftpintegration + tests/sshexecintegration + tests/miniointegration + tests/conformance + tests/machinegate + tests/containerhooks and cmd/gotestwatch, all run next)"
+  (cd core && GOWORK=off go test -race -timeout 45m $(GOWORK=off go list ./... | grep -vE '/(tests/(crashmatrix|sftpintegration|sshexecintegration|miniointegration|conformance|machinegate|containerhooks)|cmd/gotestwatch)$'))
 
   # cmd/gotestwatch is compiled and run rather than handed to `go test`,
   # and the reason is the same three-outcome honesty this gate is built on
@@ -467,8 +527,8 @@ else
       ;;
   esac
 
-  gate_docker_step "core/ tests/crashmatrix + tests/sftpintegration + tests/miniointegration + tests/conformance + tests/machinegate under gotestwatch, -race (issue #256: no fixed go test -timeout)"
-  (cd core && GOWORK=off go run ./cmd/gotestwatch -race -count=1 ./tests/crashmatrix/... ./tests/sftpintegration/... ./tests/miniointegration/... ./tests/conformance/... ./tests/machinegate/...)
+  gate_docker_step "core/ tests/crashmatrix + tests/sftpintegration + tests/sshexecintegration + tests/miniointegration + tests/conformance + tests/machinegate + tests/containerhooks under gotestwatch, -race (issue #256: no fixed go test -timeout)"
+  (cd core && GOWORK=off go run ./cmd/gotestwatch -race -count=1 ./tests/crashmatrix/... ./tests/sftpintegration/... ./tests/sshexecintegration/... ./tests/miniointegration/... ./tests/conformance/... ./tests/machinegate/... ./tests/containerhooks/...)
 fi
 
 gate_step "apps/common go build, vet, test -race"
@@ -613,10 +673,10 @@ fi
 # and was dismissed twice as an ordering flake.
 #
 # The suite itself no longer lives in this repository; it is Suite B of
-# spdrman/rclone-manager-tests, pinned by scripts/e2e/tests-repo.pin. What
+# retnd/retnd-tests, pinned by scripts/e2e/tests-repo.pin. What
 # it runs against is not the pin's own build, it is THIS working tree's
 # ui/shared, on a port the harness picks and proves free. The same step
-# also runs that repository's CLI smoke slice against a backup-manager
+# also runs that repository's CLI smoke slice against a retnd
 # built from this tree, which is a black-box signal this repository has
 # never had at all.
 #
@@ -626,9 +686,9 @@ fi
 # INCOMPLETE and says which check it left out.
 if [ "$FAST" != "1" ]; then
   if [ "${CI_LOCAL_SKIP_E2E:-0}" = "1" ]; then
-    gate_note_skip "the browser e2e suite and the CLI smoke slice from rclone-manager-tests, which are the only automated execution either of them gets (CI_LOCAL_SKIP_E2E=1)"
+    gate_note_skip "the browser e2e suite and the CLI smoke slice from retnd-tests, which are the only automated execution either of them gets (CI_LOCAL_SKIP_E2E=1)"
   else
-    gate_step "browser e2e + CLI smoke, from rclone-manager-tests at the pinned sha (#197)"
+    gate_step "browser e2e + CLI smoke, from retnd-tests at the pinned sha (#197)"
     bash scripts/e2e/run-tests-repo-gate.sh
   fi
 fi
@@ -702,7 +762,7 @@ bash scripts/architecture/check-ui-shared-provider-imports.sh
 # TestTheInstallerStillTravelsAlone is in there too, and it is the reason
 # this step matters to #672 rather than only to #262. The installer is
 # copied to a NAS on its own and may import only the standard library, so
-# it is the one script domain that can never become an rcmtools module.
+# it is the one script domain that can never become an bdtools module.
 # That claim had no test behind it until this change; now a repo-relative
 # import in install_docker_host.py fails here.
 gate_step "installer prerequisite refusals (#262)"
@@ -774,9 +834,38 @@ bash scripts/api/check-client-paths.sh
 gate_step "the /api/v1 contract gates can actually fail (mutation self-test)"
 bash scripts/api/selftest.sh
 
+# No already-published provenance record is rewritten (#895, R2.8, FR-43).
+#
+# `provenance/**` records artifacts that have been PUSHED, and the epic's
+# own words for it are "regenerated forward, never rewritten". Nothing
+# checked that. distribution/packaging's TestComplianceArtifactsMatchThisTree
+# asks the opposite question -- whether the checked-in bytes are what this
+# tree generates -- and is green against a bundle that quietly restates the
+# registry digest of a release that shipped six months ago.
+#
+# Four fields for a version whose record says `published`: the flag itself,
+# the recorded build version, the architectures, and the per-architecture
+# registry digests. Deliberately NOT the derived digests of NOTICE, the
+# licence inventory, the SBOM and the checksum manifest, which track the
+# tree and moved in most of the commits that have ever touched that file;
+# and deliberately not `imageReference` or `signing.identity`, because
+# FR-41 moves the registry path and re-issues the identity at the cutover
+# and a guard that froze them would refuse the change it was written for.
+# The self-test in the non-FAST block below holds both of those exclusions
+# as controls, so neither can be tightened by accident into a guard nobody
+# can land the cutover past.
+#
+# One `git show` and one JSON compare, so it belongs up here with the
+# other seconds-long sweeps rather than behind the Go suites.
+gate_step "no published release's provenance record has been restated (#895, R2.8)"
+bash scripts/release/check-published-provenance.sh
+
 if [ "$FAST" != "1" ]; then
   gate_step "release-manifest generator guards (#174)"
   bash scripts/tests/record-release-hashes-guards.test.sh
+
+  gate_step "post-publish registry metadata recorder"
+  bash scripts/tests/record-published-release.test.sh
 
   # The publish script is the one step in this repository that does
   # something irreversible, and it runs once, on the day it matters. Its
@@ -786,6 +875,18 @@ if [ "$FAST" != "1" ]; then
   # before the first Docker command (#88).
   gate_step "image-publish guards (#88)"
   bash scripts/tests/publish-image-guards.test.sh
+
+  # And the proof the guard above can still go red (#895, R2.8). Row R2.8
+  # of docs/conformance/epic-r-matrix.md will not take a check that has
+  # never been watched to fire, and this one is an assertion that
+  # something never happens, which is the shape that rots silently. Nine
+  # cases in throwaway repositories: four refusals, each asserting its own
+  # message rather than only the exit code, and five controls -- an
+  # untouched record, the four derived digests moving, FR-41's image
+  # reference and signing identity moving, a release being cut, and a
+  # record that was never published freezing nothing.
+  gate_step "the published-provenance guard can actually fail (mutation self-test, #895)"
+  bash scripts/tests/published-provenance-guards.test.sh
 
   # The self-test runs this very script against synthetic checkouts, so
   # without a marker the recursion terminates only by whatever the fixture
@@ -848,7 +949,7 @@ if [ "$FAST" != "1" ]; then
   # for the wrong reason. This runs each cell against a real planted
   # violation in a copy of the tree, including the two the EPIC E spec's own
   # section 4 table names by hand. It costs a few minutes because every
-  # mutant builds core/ and backup-manager and runs a real capture; that is
+  # mutant builds core/ and retnd and runs a real capture; that is
   # the price of the corpus meaning anything.
   gate_step "the FR-35 compatibility cells can actually fail (mutation self-test, #242)"
   bash scripts/compat/selftest.sh

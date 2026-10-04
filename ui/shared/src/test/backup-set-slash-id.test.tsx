@@ -6,7 +6,7 @@ import { App } from "@shared/App";
 import { ApiProvider } from "@shared/api/ApiContext";
 import { PlatformProvider } from "@shared/platform/PlatformContext";
 import { createMockApi } from "@shared/api/mock";
-import type { BackupManagerApi } from "@shared/api/contracts";
+import type { RetndApi } from "@shared/api/contracts";
 import type { AuthContext, PlatformBridge } from "@shared/types/platform";
 import { genericBridge } from "../../../../apps/generic/frontend/platform";
 import { resetGraphForTests } from "@shared/state/graph";
@@ -26,7 +26,7 @@ import type { BackupSet } from "@shared/types/backup";
 const AUTHENTICATED: AuthContext = { authenticated: true, username: "bm-admin", mode: "local-account" };
 const bridge: PlatformBridge = { ...genericBridge, getAuthContext: () => Promise.resolve(AUTHENTICATED) };
 
-function renderApp(api: BackupManagerApi, route = "/") {
+function renderApp(api: RetndApi, route = "/") {
   return render(
     <MemoryRouter initialEntries={[route]}>
       <ApiProvider api={api}>
@@ -66,6 +66,8 @@ function slashIdSet(overrides: Partial<BackupSet> = {}): BackupSet {
     stableForSeconds: 0,
     destination: "/data/backups/production/api-server/",
     retentionIsOverride: false,
+    pollIntervalSeconds: null,
+    effectivePollIntervalSeconds: 900,
     connectionUnverified: false,
     validations: ["transfer"],
     state: "healthy",
@@ -80,13 +82,18 @@ function slashIdSet(overrides: Partial<BackupSet> = {}): BackupSet {
     trustedHostKeys: [{ algorithm: "ssh-ed25519", fingerprint: "SHA256:test-fingerprint" }],
     trustedHostKeyRecordedAt: "2026-08-02T10:14:00Z",
     sshKeyId: "key_a1b2c3",
+    // EPIC K (issue #788): this fixture is an artifact set, which is
+    // what every set in this suite was before the incremental engine
+    // existed, so `incremental` is null rather than an empty block.
+    engine: "artifact",
+    incremental: null,
     readOnly: false,
     readOnlyRetainedCount: 0,
     ...overrides
   };
 }
 
-function apiWithSets(sets: BackupSet[]): BackupManagerApi {
+function apiWithSets(sets: BackupSet[]): RetndApi {
   const api = createMockApi();
   vi.spyOn(api, "listSets").mockResolvedValue(sets);
   vi.spyOn(api, "getSet").mockImplementation((id) => {

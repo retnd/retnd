@@ -46,8 +46,8 @@ import (
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 
-	"github.com/spdrman/rclone-manager/core/internal/config"
-	"github.com/spdrman/rclone-manager/core/internal/sourcecheck"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/sourcecheck"
 )
 
 // testFixtureEd25519Key is a throwaway, unencrypted ed25519 private key
@@ -160,7 +160,7 @@ func TestCreateBackupSet_PersistsAndIsImmediatelyVisible(t *testing.T) {
 	// The config file on disk, not just this process's in-memory copy,
 	// must carry the new set — a second process (the CLI's `sources`
 	// command, or this same process restarting) reads it fresh from
-	// disk with no other coordination (core/cmd/backup-manager/
+	// disk with no other coordination (core/cmd/retnd/
 	// sources.go), so if only the in-memory copy changed, that promise
 	// would be false.
 	raw, err := os.ReadFile(configPath)
@@ -717,7 +717,7 @@ func TestConnection_MigratesImportedKeyToAtRestEncryptionWhenConfigured(t *testi
 		t.Fatalf("reading imported key file: %v", err)
 	}
 
-	const envName = "RCLONE_MANAGER_TEST_TESTCONNECTION_MIGRATION_DEK"
+	const envName = "RETND_TEST_TESTCONNECTION_MIGRATION_DEK"
 	t.Setenv(envName, "test-connection-level-dek")
 	svc.state.Load().inner.Config.KeyEncryption = config.KeyEncryption{Env: envName}
 

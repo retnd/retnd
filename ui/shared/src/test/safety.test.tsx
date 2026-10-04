@@ -40,7 +40,6 @@ const health: SystemHealth = {
   oldestSetFreshnessHours: 31,
   setsHealthy: 5, setsDegraded: 0, setsStale: 1, setsFailing: 0, quarantinedCount: 0,
   readOnlyRetainedCount: 0,
-  storageFreeBytes: 1_800_000_000_000, storageTotalBytes: 6_200_000_000_000,
   storageState: "nominal", storageReadingsUnavailable: 0
 };
 
@@ -177,7 +176,7 @@ describe("private key handling", () => {
  */
 describe("storage pressure (\u00a756)", () => {
   // httpApi, not createMockApi: the mock and the real client both satisfy
-  // BackupManagerApi, but TypeScript's structural typing lets the real
+  // RetndApi, but TypeScript's structural typing lets the real
   // client carry a method the mock does not, and a scan of the mock's key
   // set would never see it. httpApi is the surface a browser can actually
   // reach, so it is the one worth scanning.

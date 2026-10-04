@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/internal/model"
+	"github.com/retnd/retnd/core/internal/model"
 )
 
 // This file is the durable half of FR-30's move journal: one row in

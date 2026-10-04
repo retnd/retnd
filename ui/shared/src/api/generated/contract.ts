@@ -16,16 +16,20 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "bb45f33fb55cfb08530f2ea09af19ce89036701e9e94ee04a2102ea09164da12";
+export const CONTRACT_SHA256 = "f8cc9c340ef96db68d0ba4cc31405c45a542d5a736c2ba763373a5db61dca57d";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
   "UNAUTHENTICATED",
   "RATE_LIMITED",
   "INVALID_REQUEST",
+  "INVALID_EMAIL",
   "ENROLLMENT_CLOSED",
   "BOOTSTRAP_TOKEN_INVALID",
+  "RESET_TOKEN_INVALID",
+  "VERIFY_TOKEN_INVALID",
   "INTERNAL_ERROR",
+  "SMTP_SEND_FAILED",
   "CSRF_TOKEN_MISSING",
   "CSRF_TOKEN_MISMATCH",
   "RETENTION_PLAN_STALE",
@@ -62,7 +66,23 @@ export const WIRE_ERROR_CODES = [
   "STORAGE_CREDENTIAL_NOT_FOUND",
   "SSH_KEY_CANDIDATE_NOT_FOUND",
   "BACKUP_SET_CONNECTION_NOT_PROVEN",
+  "BACKUP_SET_SOURCE_NOT_WRITABLE",
   "MEDIUM_CONNECTION_NOT_PROVEN",
+  "SNAPSHOT_NOT_FOUND",
+  "SNAPSHOT_HOLD_NOT_FOUND",
+  "SNAPSHOT_NOT_HOLDABLE",
+  "REPOSITORY_DOMAIN_NOT_FOUND",
+  "BACKUP_SET_NOT_INCREMENTAL",
+  "INCREMENTAL_ENGINE_DISABLED",
+  "REPOSITORY_DOMAIN_EXISTS",
+  "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE",
+  "WORKFLOWS_NOT_CONFIGURED",
+  "WORKFLOW_SCRIPT_REJECTED",
+  "WORKFLOW_ENV_NOT_FOUND",
+  "WORKFLOW_RUN_NOT_FOUND",
+  "WORKFLOW_STEP_NOT_FOUND",
+  "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED",
+  "WORKFLOW_ENGINE_UNAVAILABLE",
 ] as const;
 
 /** This UI's own presentation vocabulary. No endpoint emits these;
@@ -98,9 +118,13 @@ export const API_ERROR_CODES = [
   "UNAUTHENTICATED",
   "RATE_LIMITED",
   "INVALID_REQUEST",
+  "INVALID_EMAIL",
   "ENROLLMENT_CLOSED",
   "BOOTSTRAP_TOKEN_INVALID",
+  "RESET_TOKEN_INVALID",
+  "VERIFY_TOKEN_INVALID",
   "INTERNAL_ERROR",
+  "SMTP_SEND_FAILED",
   "CSRF_TOKEN_MISSING",
   "CSRF_TOKEN_MISMATCH",
   "RETENTION_PLAN_STALE",
@@ -137,7 +161,23 @@ export const API_ERROR_CODES = [
   "STORAGE_CREDENTIAL_NOT_FOUND",
   "SSH_KEY_CANDIDATE_NOT_FOUND",
   "BACKUP_SET_CONNECTION_NOT_PROVEN",
+  "BACKUP_SET_SOURCE_NOT_WRITABLE",
   "MEDIUM_CONNECTION_NOT_PROVEN",
+  "SNAPSHOT_NOT_FOUND",
+  "SNAPSHOT_HOLD_NOT_FOUND",
+  "SNAPSHOT_NOT_HOLDABLE",
+  "REPOSITORY_DOMAIN_NOT_FOUND",
+  "BACKUP_SET_NOT_INCREMENTAL",
+  "INCREMENTAL_ENGINE_DISABLED",
+  "REPOSITORY_DOMAIN_EXISTS",
+  "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE",
+  "WORKFLOWS_NOT_CONFIGURED",
+  "WORKFLOW_SCRIPT_REJECTED",
+  "WORKFLOW_ENV_NOT_FOUND",
+  "WORKFLOW_RUN_NOT_FOUND",
+  "WORKFLOW_STEP_NOT_FOUND",
+  "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED",
+  "WORKFLOW_ENGINE_UNAVAILABLE",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -145,14 +185,14 @@ export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 /** Codes grouped by the refusal they represent, so a caller can assert
  *  the RIGHT refusal rather than any refusal. */
 export const API_ERROR_CLASSES = {
-  "authentication": ["UNAUTHENTICATED", "BOOTSTRAP_TOKEN_INVALID"],
+  "authentication": ["UNAUTHENTICATED", "BOOTSTRAP_TOKEN_INVALID", "RESET_TOKEN_INVALID", "VERIFY_TOKEN_INVALID"],
   "authorization": ["ENROLLMENT_CLOSED", "DESTRUCTIVE_OPERATIONS_DISABLED", "CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
-  "conflict": ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "IDEMPOTENCY_KEY_CONFLICT", "CONFIG_REVISION_STALE", "ALREADY_CONFIGURED", "ARTIFACT_NOT_QUARANTINED", "ARTIFACT_IRRECOVERABLE", "REINSTATEMENT_REFUSED", "BACKUP_SET_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED", "ARTIFACT_NOT_FAILED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "MEDIUM_IS_DEFAULT", "MEDIUM_CONNECTION_NOT_PROVEN"],
+  "conflict": ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "IDEMPOTENCY_KEY_CONFLICT", "CONFIG_REVISION_STALE", "ALREADY_CONFIGURED", "ARTIFACT_NOT_QUARANTINED", "ARTIFACT_IRRECOVERABLE", "REINSTATEMENT_REFUSED", "BACKUP_SET_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED", "ARTIFACT_NOT_FAILED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE", "MEDIUM_IS_DEFAULT", "MEDIUM_CONNECTION_NOT_PROVEN", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED", "REPOSITORY_DOMAIN_EXISTS", "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE", "WORKFLOWS_NOT_CONFIGURED", "WORKFLOW_SCRIPT_REJECTED"],
   "internal": ["INTERNAL", "INTERNAL_ERROR"],
-  "not-found": ["BACKUP_SET_NOT_FOUND", "OPERATION_NOT_FOUND", "RETENTION_PLAN_NOT_FOUND", "ARTIFACT_NOT_FOUND", "MEDIUM_NOT_FOUND"],
+  "not-found": ["BACKUP_SET_NOT_FOUND", "OPERATION_NOT_FOUND", "RETENTION_PLAN_NOT_FOUND", "ARTIFACT_NOT_FOUND", "MEDIUM_NOT_FOUND", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_HOLD_NOT_FOUND", "REPOSITORY_DOMAIN_NOT_FOUND", "WORKFLOW_ENV_NOT_FOUND", "WORKFLOW_RUN_NOT_FOUND", "WORKFLOW_STEP_NOT_FOUND"],
   "throttling": ["RATE_LIMITED"],
-  "unavailable": ["NOT_CONFIGURED"],
-  "validation": ["INVALID_REQUEST", "SSH_KEY_NOT_FOUND", "HOST_KEY_PROBE_FAILED", "MEDIUM_DISCLOSURE_REQUIRED"],
+  "unavailable": ["NOT_CONFIGURED", "SMTP_SEND_FAILED", "WORKFLOW_ENGINE_UNAVAILABLE"],
+  "validation": ["INVALID_REQUEST", "INVALID_EMAIL", "SSH_KEY_NOT_FOUND", "HOST_KEY_PROBE_FAILED", "MEDIUM_DISCLOSURE_REQUIRED", "BACKUP_SET_NOT_INCREMENTAL", "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED"],
 } as const satisfies Record<string, readonly ApiErrorCode[]>;
 
 /** The platform-capability set GET /system/capabilities reports, as wire
@@ -232,15 +272,33 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     idempotencyKey: "none",
     destructiveGate: false,
     concurrency: "",
-    requestSchema: "CredentialsRequest",
+    requestSchema: "EnrollRequest",
     responseSchema: "",
     successStatus: 204,
     errorCodes: {
-      400: ["INVALID_REQUEST"],
+      400: ["INVALID_REQUEST", "INVALID_EMAIL"],
       401: ["BOOTSTRAP_TOKEN_INVALID"],
       403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "ENROLLMENT_CLOSED"],
       429: ["RATE_LIMITED"],
       500: ["INTERNAL_ERROR"],
+      502: ["SMTP_SEND_FAILED"],
+    }
+  },
+  {
+    id: "requestPasswordReset",
+    method: "POST",
+    path: "/auth/forgot-password",
+    authenticated: false,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "ForgotPasswordRequest",
+    responseSchema: "",
+    successStatus: 204,
+    errorCodes: {
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      429: ["RATE_LIMITED"],
     }
   },
   {
@@ -300,6 +358,83 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "getRecoverySettings",
+    method: "GET",
+    path: "/auth/recovery",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "RecoverySettingsResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      500: ["INTERNAL_ERROR"],
+    }
+  },
+  {
+    id: "updateRecoverySettings",
+    method: "PATCH",
+    path: "/auth/recovery",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "RecoverySettingsUpdate",
+    responseSchema: "RecoverySettingsResponse",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST", "INVALID_EMAIL"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      500: ["INTERNAL_ERROR"],
+      502: ["SMTP_SEND_FAILED"],
+    }
+  },
+  {
+    id: "sendRecoveryTestEmail",
+    method: "POST",
+    path: "/auth/recovery/test",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "",
+    successStatus: 204,
+    errorCodes: {
+      400: ["INVALID_REQUEST", "INVALID_EMAIL"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      500: ["INTERNAL_ERROR"],
+      502: ["SMTP_SEND_FAILED"],
+    }
+  },
+  {
+    id: "resetPassword",
+    method: "POST",
+    path: "/auth/reset-password",
+    authenticated: false,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "ResetPasswordRequest",
+    responseSchema: "",
+    successStatus: 204,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["RESET_TOKEN_INVALID"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      429: ["RATE_LIMITED"],
+      500: ["INTERNAL_ERROR"],
+    }
+  },
+  {
     id: "getSession",
     method: "GET",
     path: "/auth/session",
@@ -313,6 +448,47 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     successStatus: 200,
     errorCodes: {
       401: ["UNAUTHENTICATED"],
+    }
+  },
+  {
+    id: "verifyRecoveryEmail",
+    method: "POST",
+    path: "/auth/verify-email",
+    authenticated: false,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "VerifyEmailRequest",
+    responseSchema: "",
+    successStatus: 204,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["VERIFY_TOKEN_INVALID"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      429: ["RATE_LIMITED"],
+      500: ["INTERNAL_ERROR"],
+    }
+  },
+  {
+    id: "resendRecoveryEmailVerification",
+    method: "POST",
+    path: "/auth/verify-email/resend",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "",
+    successStatus: 204,
+    errorCodes: {
+      400: ["INVALID_REQUEST", "INVALID_EMAIL"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      429: ["RATE_LIMITED"],
+      500: ["INTERNAL_ERROR"],
+      502: ["SMTP_SEND_FAILED"],
     }
   },
   {
@@ -366,7 +542,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       400: ["INVALID_REQUEST", "SSH_KEY_NOT_FOUND"],
       401: ["UNAUTHENTICATED"],
       403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED"],
-      409: ["BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_CONNECTION_NOT_PROVEN"],
+      409: ["BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE", "INCREMENTAL_ENGINE_DISABLED"],
       500: ["INTERNAL"],
       503: ["NOT_CONFIGURED"],
     }
@@ -446,7 +622,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       401: ["UNAUTHENTICATED"],
       403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
       404: ["BACKUP_SET_NOT_FOUND"],
-      409: ["BACKUP_SET_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED", "BACKUP_SET_CONNECTION_NOT_PROVEN"],
+      409: ["BACKUP_SET_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE"],
       500: ["INTERNAL"],
     }
   },
@@ -527,6 +703,27 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "listBackupSetSnapshotHolds",
+    method: "GET",
+    path: "/backup-sets/{source}/{set}/holds",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ListSnapshotHoldsResponse",
+    successStatus: 200,
+    errorCodes: {
+      400: ["BACKUP_SET_NOT_INCREMENTAL"],
+      401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      409: ["INCREMENTAL_ENGINE_DISABLED"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
     id: "setBackupSetReadOnly",
     method: "POST",
     path: "/backup-sets/{source}/{set}/read-only",
@@ -543,6 +740,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       401: ["UNAUTHENTICATED"],
       403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
       404: ["BACKUP_SET_NOT_FOUND"],
+      409: ["BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE"],
       500: ["INTERNAL"],
     }
   },
@@ -647,6 +845,189 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       404: ["BACKUP_SET_NOT_FOUND"],
       500: ["INTERNAL"],
       503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "getBackupSetSnapshotRetention",
+    method: "GET",
+    path: "/backup-sets/{source}/{set}/snapshot-retention",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "SnapshotRetentionResponse",
+    successStatus: 200,
+    errorCodes: {
+      400: ["BACKUP_SET_NOT_INCREMENTAL"],
+      401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      409: ["INCREMENTAL_ENGINE_DISABLED"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "listBackupSetSnapshots",
+    method: "GET",
+    path: "/backup-sets/{source}/{set}/snapshots",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ListSnapshotsResponse",
+    successStatus: 200,
+    errorCodes: {
+      400: ["BACKUP_SET_NOT_INCREMENTAL"],
+      401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      409: ["INCREMENTAL_ENGINE_DISABLED"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "getBackupSetSnapshot",
+    method: "GET",
+    path: "/backup-sets/{source}/{set}/snapshots/{run}",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "SnapshotResponse",
+    successStatus: 200,
+    errorCodes: {
+      400: ["BACKUP_SET_NOT_INCREMENTAL"],
+      401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND", "SNAPSHOT_NOT_FOUND"],
+      409: ["INCREMENTAL_ENGINE_DISABLED"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "getBackupSetWorkflow",
+    method: "GET",
+    path: "/backup-sets/{source}/{set}/workflow",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "BackupSetWorkflowResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "updateBackupSetWorkflow",
+    method: "PATCH",
+    path: "/backup-sets/{source}/{set}/workflow",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "UpdateBackupSetWorkflowRequest",
+    responseSchema: "BackupSetWorkflowResponse",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      409: ["WORKFLOW_SCRIPT_REJECTED", "WORKFLOWS_NOT_CONFIGURED"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "listBackupSetWorkflowEnvironment",
+    method: "GET",
+    path: "/backup-sets/{source}/{set}/workflow/environment",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ListWorkflowEnvironmentResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "unsetBackupSetWorkflowEnvironment",
+    method: "DELETE",
+    path: "/backup-sets/{source}/{set}/workflow/environment/{name}",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ListWorkflowEnvironmentResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND", "WORKFLOW_ENV_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "setBackupSetWorkflowEnvironment",
+    method: "PUT",
+    path: "/backup-sets/{source}/{set}/workflow/environment/{name}",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "WorkflowEnvironmentVariableRequest",
+    responseSchema: "ListWorkflowEnvironmentResponse",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "getBackupSetWorkflowValidation",
+    method: "GET",
+    path: "/backup-sets/{source}/{set}/workflow/validation",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "WorkflowValidationResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED", "WORKFLOW_ENGINE_UNAVAILABLE"],
     }
   },
   {
@@ -771,11 +1152,11 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     responseSchema: "Operation",
     successStatus: 202,
     errorCodes: {
-      400: ["INVALID_REQUEST"],
+      400: ["INVALID_REQUEST", "BACKUP_SET_NOT_INCREMENTAL"],
       401: ["UNAUTHENTICATED"],
       403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED"],
-      404: ["BACKUP_SET_NOT_FOUND", "ARTIFACT_NOT_FOUND", "COPY_NOT_FOUND"],
-      409: ["CONFIG_REVISION_STALE", "IDEMPOTENCY_KEY_CONFLICT", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "RESTORE_REFUSED"],
+      404: ["BACKUP_SET_NOT_FOUND", "ARTIFACT_NOT_FOUND", "COPY_NOT_FOUND", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_HOLD_NOT_FOUND"],
+      409: ["CONFIG_REVISION_STALE", "IDEMPOTENCY_KEY_CONFLICT", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "RESTORE_REFUSED", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED"],
       500: ["INTERNAL"],
       503: ["RESTORE_UNAVAILABLE"],
     }
@@ -877,6 +1258,65 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "listRepositories",
+    method: "GET",
+    path: "/repositories",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ListRepositoriesResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      409: ["INCREMENTAL_ENGINE_DISABLED"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "createRepositoryDomain",
+    method: "POST",
+    path: "/repositories",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "CreateRepositoryDomainRequest",
+    responseSchema: "RepositoryHealth",
+    successStatus: 201,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      409: ["REPOSITORY_DOMAIN_EXISTS", "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE", "INCREMENTAL_ENGINE_DISABLED"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "getRepositoryMaintenance",
+    method: "GET",
+    path: "/repositories/{domain}/maintenance",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "RepositoryMaintenance",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["REPOSITORY_DOMAIN_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
     id: "getSettings",
     method: "GET",
     path: "/settings",
@@ -908,6 +1348,103 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     successStatus: 200,
     errorCodes: {
       400: ["INVALID_REQUEST", "MEDIUM_DISCLOSURE_REQUIRED"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "getWorkflowSettings",
+    method: "GET",
+    path: "/settings/workflow",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "WorkflowSettingsResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "updateWorkflowSettings",
+    method: "PATCH",
+    path: "/settings/workflow",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "UpdateWorkflowSettingsRequest",
+    responseSchema: "WorkflowSettingsResponse",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      409: ["WORKFLOW_SCRIPT_REJECTED"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "listWorkflowEnvironment",
+    method: "GET",
+    path: "/settings/workflow/environment",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ListWorkflowEnvironmentResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "unsetWorkflowEnvironment",
+    method: "DELETE",
+    path: "/settings/workflow/environment/{name}",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ListWorkflowEnvironmentResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["WORKFLOW_ENV_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "setWorkflowEnvironment",
+    method: "PUT",
+    path: "/settings/workflow/environment/{name}",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "WorkflowEnvironmentVariableRequest",
+    responseSchema: "ListWorkflowEnvironmentResponse",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
       403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
       500: ["INTERNAL"],
@@ -1302,7 +1839,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       400: ["INVALID_REQUEST", "SSH_KEY_NOT_FOUND"],
       401: ["UNAUTHENTICATED"],
       403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
-      409: ["ALREADY_CONFIGURED", "BACKUP_SET_CONNECTION_NOT_PROVEN"],
+      409: ["ALREADY_CONFIGURED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE"],
       500: ["INTERNAL"],
     }
   },
@@ -1374,6 +1911,142 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       500: ["INTERNAL"],
     }
   },
+  {
+    id: "listWorkflowRecovery",
+    method: "GET",
+    path: "/workflow-recovery",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "WorkflowRecoveryResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED", "WORKFLOW_ENGINE_UNAVAILABLE"],
+    }
+  },
+  {
+    id: "acknowledgeWorkflowRecovery",
+    method: "POST",
+    path: "/workflow-recovery/{run}/acknowledge",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "WorkflowAcknowledgementRequest",
+    responseSchema: "",
+    successStatus: 204,
+    errorCodes: {
+      400: ["INVALID_REQUEST", "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["WORKFLOW_RUN_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED", "WORKFLOW_ENGINE_UNAVAILABLE"],
+    }
+  },
+  {
+    id: "resumeWorkflowCleanup",
+    method: "POST",
+    path: "/workflow-recovery/{run}/resume-cleanup",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "WorkflowRun",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["WORKFLOW_RUN_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED", "WORKFLOW_ENGINE_UNAVAILABLE"],
+    }
+  },
+  {
+    id: "listWorkflowRuns",
+    method: "GET",
+    path: "/workflow-runs",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ListWorkflowRunsResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED", "WORKFLOW_ENGINE_UNAVAILABLE"],
+    }
+  },
+  {
+    id: "getWorkflowRun",
+    method: "GET",
+    path: "/workflow-runs/{run}",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "WorkflowRun",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["WORKFLOW_RUN_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED", "WORKFLOW_ENGINE_UNAVAILABLE"],
+    }
+  },
+  {
+    id: "listWorkflowRunSteps",
+    method: "GET",
+    path: "/workflow-runs/{run}/steps",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ListWorkflowStepsResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["WORKFLOW_RUN_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED", "WORKFLOW_ENGINE_UNAVAILABLE"],
+    }
+  },
+  {
+    id: "getWorkflowStepLogs",
+    method: "GET",
+    path: "/workflow-runs/{run}/steps/{step}/logs",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "WorkflowStepLogPage",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      404: ["WORKFLOW_RUN_NOT_FOUND", "WORKFLOW_STEP_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED", "WORKFLOW_ENGINE_UNAVAILABLE"],
+    }
+  },
 ];
 
 /** One recorded lifecycle moment: a backup moved from one state to
@@ -1389,6 +2062,18 @@ export interface WireActivityEvent {
   set_name: string;
   source_name: string;
   to: string;
+}
+
+/** One of this deployment's locations that is being served from a
+ *  pre-rename path, and the renamed path it would otherwise have
+ *  used. A location is adopted only when the renamed path holds
+ *  nothing and the pre-rename path holds the data; two populated
+ *  locations that are different directories make the runtime refuse
+ *  to start instead, and are therefore never reported here. */
+export interface WireAdoptedPath {
+  renamed: string;
+  serving: string;
+  what: string;
 }
 
 /** POST /backup-sets/{source}/{set}/retention/apply. */
@@ -1473,11 +2158,12 @@ export interface WireBackendEnumValue {
  *  carries a label and a summary for a picker and says nothing about
  *  any particular destination. */
 export interface WireBackendManifest {
+  configurable: boolean;
   fields: WireBackendManifestField[];
   id: string;
   label: string;
   probe: WireBackendProbe;
-  role: "object_store" | "local_volume";
+  role: "object_store" | "local_volume" | "remote_filesystem";
   summary: string;
 }
 
@@ -1525,15 +2211,21 @@ export interface WireBackupSet {
   completion_strategy: "rename" | "marker" | "stable";
   connection_unverified?: boolean;
   disabled: boolean;
+  effective_poll_interval_seconds: number;
+  engine: "artifact" | "kopia";
   host: string;
   id: string;
   include: string[];
   local_path: string;
   name: string;
+  poll_interval_seconds: number | null;
   port: number;
   read_only: boolean;
   remote_path: string;
+  repository_domain?: string;
   retention_is_override: boolean;
+  source_consistency?: string;
+  source_mount_prefix?: string;
   source_name: string;
   ssh_key_id: string;
   stable_for_seconds: number;
@@ -1541,7 +2233,12 @@ export interface WireBackupSet {
   trusted_host_key_recorded_at?: string;
   trusted_host_keys?: WireTrustedHostKey[];
   user: string;
+  uuid?: string;
   validator_id: string;
+  verification_full_every_seconds?: number;
+  verification_level?: string;
+  verification_restore_drill_every_seconds?: number;
+  verification_sample_percent?: number;
 }
 
 /** POST /backup-sets/{source}/{set}/edit-hold. The lease just taken
@@ -1633,6 +2330,7 @@ export interface WireBackupSetRetention {
 export interface WireBackupSetSpec {
   completion_strategy: "rename" | "marker" | "stable";
   disabled?: boolean;
+  engine?: "artifact" | "kopia";
   host: string;
   include?: string[];
   known_hosts_line: string;
@@ -1641,13 +2339,39 @@ export interface WireBackupSetSpec {
   port: number;
   read_only?: boolean;
   remote_path: string;
+  repository_domain?: string;
   skip_connection_check?: boolean;
+  source_consistency?: "live_best_effort" | "externally_quiesced" | "external_snapshot";
+  source_mount_prefix?: string;
   source_name?: string;
   ssh_key_id: string;
   stable_for_seconds?: number;
   stale_after_seconds?: number;
   user: string;
+  uuid?: string;
   validator_id?: string;
+  verification_full_every_seconds?: number;
+  verification_level?: "structural" | "content_sample" | "content_full" | "restore_drill";
+  verification_restore_drill_every_seconds?: number;
+  verification_sample_percent?: number;
+}
+
+/** One backup set's workflow configuration, resolved against the
+ *  deployment's. Both halves of every inherited value are reported --
+ *  what this set pins and what a hook will actually get -- because an
+ *  operator changing the deployment default needs to know which sets
+ *  are pinned and which will follow. */
+export interface WireBackupSetWorkflowResponse {
+  after_dir?: string;
+  backup_set_id?: string;
+  before_dir?: string;
+  configured?: boolean;
+  effective_script_timeout_seconds?: number;
+  environment?: WireWorkflowEnvironmentVariable[];
+  remote_exec_connection_ref?: string;
+  resolved_environment_names?: string[];
+  script_timeout_seconds?: number;
+  stages?: WireWorkflowStage[];
 }
 
 /** GET /system/capabilities. The API expression of the
@@ -1734,7 +2458,7 @@ export interface WireConnectionCheck {
   detail: string;
   duration_ms?: number;
   outcome: "passed" | "failed" | "skipped";
-  step: "credentials" | "resolve" | "connect" | "host_key" | "authenticate" | "list";
+  step: "credentials" | "resolve" | "connect" | "host_key" | "authenticate" | "list" | "write_probe";
 }
 
 /** POST /backup-sets. The backup-set spec, plus the two things only a
@@ -1751,6 +2475,28 @@ export interface WireCreateBackupSetRequest extends WireBackupSetSpec {
 export interface WireCreateBackupSetResponse extends WireBackupSet {
   operation?: WireOperation;
   run_error?: string;
+}
+
+/** POST /repositories: declare a repository domain. What this
+ *  persists is a DECLARATION -- an id, a co-tenancy posture and the
+ *  reference the passphrase is resolved from -- and it creates no
+ *  store: the repository itself is realized lazily by the first
+ *  backup run that stores a snapshot in it, exactly as a domain named
+ *  on the add-backup-set wizard's repository step already is. Nothing
+ *  here is proven against storage, and nothing here reads it: this
+ *  route opens no repository and resolves no passphrase reference, so
+ *  the domain it answers with is described from the declaration
+ *  alone. Once declared, the domain is probed by GET /repositories,
+ *  where one nothing has run into yet answers `reachable` true and
+ *  `readable` false -- the storage answers and holds no repository,
+ *  which is the truth about it rather than a failure of it. */
+export interface WireCreateRepositoryDomainRequest {
+  description?: string;
+  id: string;
+  isolation: "shared" | "isolated";
+  location?: string;
+  maintenance_owner?: "this" | "another-instance";
+  passphrase: WireRepositoryPassphraseReference;
 }
 
 /** POST /auth/login and POST /auth/enroll. camelCase, unlike every
@@ -1792,6 +2538,25 @@ export interface WireCycleOutcome {
   moves?: WireCycleMoveOutcome;
 }
 
+/** POST /auth/enroll. The credentials, plus the two things issue #830
+ *  makes part of creating the administrator: the address account
+ *  recovery mails to, and the SMTP endpoint it goes out over. Both
+ *  are required, because an administrator with no proven way to reach
+ *  its owner is an account that is permanently lost the first time a
+ *  password is forgotten, and enrollment is the last moment at which
+ *  somebody who can still sign in is present to fix the mail
+ *  configuration. The runtime SENDS a confirmation message to
+ *  `recoveryEmail` over `smtp` before it writes anything, and refuses
+ *  the whole enrollment with SMTP_SEND_FAILED if that send does not
+ *  succeed - leaving the single-use enrollment token unspent, so the
+ *  same link can be used again once the configuration is fixed. */
+export interface WireEnrollRequest {
+  password: string;
+  recoveryEmail: string;
+  smtp: WireSmtpSettings;
+  username: string;
+}
+
 /** The nested error body every operation outside /auth returns. code
  *  is stable and machine-readable; message is human-readable and MAY
  *  change without notice. */
@@ -1812,6 +2577,16 @@ export interface WireErrorResponse {
  *  NOT_CONFIGURED needs to know which screen to show, not why. */
 export interface WireFirstRunStatusResponse {
   configured: boolean;
+}
+
+/** POST /auth/forgot-password. One field, and the answer never varies
+ *  with it: that operation answers 204 for an unenrolled deployment,
+ *  for a username that is not the administrator's, for an
+ *  administrator with no recovery address, and for an SMTP endpoint
+ *  that refused the message alike. It answers BEFORE any mail is
+ *  attempted, so the response time does not vary either. */
+export interface WireForgotPasswordRequest {
+  username: string;
 }
 
 /** GET /system/health. Every configured backup set's freshness
@@ -1888,6 +2663,7 @@ export interface WireImportStorageCredentialsResponse {
 /** GET /activity, newest first. */
 export interface WireListActivityResponse {
   events: WireActivityEvent[];
+  next_cursor?: string;
 }
 
 /** GET /backups and GET /quarantine. An object with one array field,
@@ -1923,6 +2699,15 @@ export interface WireListOperationsResponse {
   operations: WireOperation[];
 }
 
+/** GET /repositories: every repository domain this deployment
+ *  declares, with its health. Nothing is cached, for the reason the
+ *  backup-set health read is not: a cached repository verdict keeps
+ *  reporting green after the storage under it has gone away. */
+export interface WireListRepositoriesResponse {
+  generated_at: string;
+  repositories: WireRepositoryHealth[];
+}
+
 /** GET /ssh/key-candidates. The locations travel beside the
  *  candidates, in one response, so a client cannot render one without
  *  the other. */
@@ -1937,6 +2722,17 @@ export interface WireListSSHKeyCandidatesResponse {
  *  would tell anybody. */
 export interface WireListSSHKeysResponse {
   keys: WireSSHKey[];
+}
+
+/** GET /backup-sets/{source}/{set}/holds: every unreleased hold in
+ *  this backup set's snapshot lineage. */
+export interface WireListSnapshotHoldsResponse {
+  holds: WireSnapshotHold[];
+}
+
+/** GET /backup-sets/{source}/{set}/snapshots, newest first. */
+export interface WireListSnapshotsResponse {
+  snapshots: WireSnapshot[];
 }
 
 /** Every declared storage destination, in declaration order. An
@@ -1958,6 +2754,32 @@ export interface WireListStorageStatusResponse {
  *  would be an arbitrary-command surface. */
 export interface WireListValidatorsResponse {
   validators: WireValidator[];
+}
+
+/** One scope's configured workflow environment, after a read or a
+ *  write. The write operations answer with the whole list rather than
+ *  with the one entry they touched, because a set/unset is only
+ *  meaningful against what else is there: an operator clearing a
+ *  credential needs to see what is left, and the entry they just
+ *  wrote is in the answer either way. */
+export interface WireListWorkflowEnvironmentResponse {
+  backup_set_id?: string;
+  variables?: WireWorkflowEnvironmentVariable[];
+}
+
+/** A page of workflow runs, newest first. */
+export interface WireListWorkflowRunsResponse {
+  runs?: WireWorkflowRun[];
+}
+
+/** One run's steps, in plan order. Its own operation rather than a
+ *  field on the run detail because a client following a running
+ *  workflow polls the steps and not the run: the run's own row moves
+ *  once at the start and once at the end, and the steps are what
+ *  change in between. */
+export interface WireListWorkflowStepsResponse {
+  run_id?: string;
+  steps?: WireWorkflowStep[];
 }
 
 /** One action that started and has not reported an outcome. It is
@@ -2206,6 +3028,7 @@ export interface WireOperation {
   progress?: WireOperationProgress;
   restore?: WireOperationRestore;
   result?: string;
+  snapshots?: WireSnapshot[];
   started_at?: string;
   status: string;
 }
@@ -2280,6 +3103,120 @@ export interface WirePlacement {
   storage_class?: string;
   verification_class?: "content" | "attested" | "existence";
   verified_at?: string;
+}
+
+/** GET /auth/recovery and PATCH /auth/recovery: the recovery address,
+ *  the two proofs about it, the deadline an unverified one lapses at,
+ *  and the SMTP endpoint without its password. `smtp` is ABSENT on a
+ *  deployment whose administrator was provisioned headlessly (`auth
+ *  create-admin` leaves recovery optional), which is a state a
+ *  settings page has to report rather than hide - absent rather than
+ *  null, the same optional-member convention every other response in
+ *  this contract uses for a fact that does not exist yet. */
+export interface WireRecoverySettingsResponse {
+  recoveryEmail: string;
+  recoveryEmailConfirmed: boolean;
+  recoveryEmailVerified: boolean;
+  smtp?: WireSmtpSettingsView;
+  verificationDeadline?: string;
+}
+
+/** PATCH /auth/recovery. `currentPassword` is required on every call,
+ *  and at least one of `recoveryEmail`/`smtp` has to be named: a
+ *  request may change the recovery address, the SMTP endpoint, or
+ *  both. A changed address is re-verified by sending a confirmation
+ *  over the endpoint this same request establishes, and a changed
+ *  SMTP endpoint is proven the same way, with the whole update
+ *  refused with SMTP_SEND_FAILED if that send fails - so a settings
+ *  page cannot leave the account with a recovery address nothing has
+ *  ever been delivered to, nor claim a confirmed address over an
+ *  endpoint nothing has ever been delivered through. */
+export interface WireRecoverySettingsUpdate {
+  currentPassword: string;
+  recoveryEmail?: string;
+  smtp?: WireSmtpSettings;
+}
+
+/** One repository domain's own health, which is a different question
+ *  from any backup set's. A set can be perfectly fresh while the
+ *  repository holding its snapshots is unwritable, out of
+ *  maintenance, or reachable only by a process whose clock has
+ *  drifted far enough to mis-order manifests -- and none of those
+ *  show up in a freshness verdict. Every probe here is reported
+ *  separately rather than reduced to one boolean, because the
+ *  remedies are different: unreachable is a mount, unwritable is a
+ *  permission, invalid credentials is a passphrase, and overdue
+ *  maintenance is a schedule. */
+export interface WireRepositoryHealth {
+  backup_sets?: string[];
+  clock_sane: boolean;
+  clock_skew_seconds: number | null;
+  credentials_valid: boolean;
+  detail?: string;
+  domain: string;
+  last_maintenance_at?: string;
+  last_maintenance_result?: string;
+  last_snapshot_at?: string;
+  last_snapshot_status?: string;
+  last_verification_at?: string;
+  last_verification_status?: string;
+  maintenance_overdue: boolean;
+  may_share: boolean;
+  reachable: boolean;
+  readable: boolean;
+  state: string;
+  writable: boolean;
+}
+
+/** GET /repositories/{domain}/maintenance: who owns this repository's
+ *  maintenance, when it last ran and when it is next eligible.
+ *  Ownership is the load-bearing part: several deployments may share
+ *  one repository, exactly one of them may run maintenance on it, and
+ *  an operator looking at a repository that is not being maintained
+ *  needs to know whether that is because nobody owns it or because
+ *  the owner is somebody else. */
+export interface WireRepositoryMaintenance {
+  domain: string;
+  due: boolean;
+  due_mode?: string;
+  due_reason?: string;
+  failing: boolean;
+  failures: number;
+  last_full_at?: string;
+  last_quick_at?: string;
+  next_eligible_at?: string;
+  overdue: boolean;
+  owner: string;
+  reclaimed_bytes: number;
+  runs: number;
+}
+
+/** Where one repository domain's encryption passphrase comes from: a
+ *  file on the manager's host, the NAME of an environment variable,
+ *  or an argv array whose stdout is the secret. Exactly one of the
+ *  three, and none of them is the passphrase itself. There is
+ *  deliberately no field to paste one into and there will not be: a
+ *  repository's passphrase is the only thing standing between its
+ *  storage and everything this product holds, and a secret that could
+ *  be typed into a request body is one that ends up in an access log,
+ *  a terminal transcript and config.yaml in the clear. This is the
+ *  same three-source shape config.yaml's own
+ *  repository_domains[].passphrase spells, because "how does a secret
+ *  reach this process" is one question this product answers once. */
+export interface WireRepositoryPassphraseReference {
+  command?: string[];
+  env?: string;
+  file?: string;
+}
+
+/** POST /auth/reset-password: the token out of the emailed link, and
+ *  the password to set. The token is single-use and expires;
+ *  redeeming it revokes every live session and issues no new one, so
+ *  whoever set the password proves they know it by signing in with
+ *  it. */
+export interface WireResetPasswordRequest {
+  newPassword: string;
+  token: string;
 }
 
 /** The restore_placement action's own parameters. Present only when
@@ -2488,6 +3425,19 @@ export interface WireSSHKeyDiscoveryLocation {
   problem?: string;
 }
 
+/** The rules the service-behaviour settings are validated against,
+ *  served so a form does not keep its own copy of a bound the engine
+ *  enforces. */
+export interface WireServiceSchema {
+  min_poll_interval_seconds: number;
+}
+
+/** How this manager behaves, as opposed to what it keeps: the
+ *  service-behaviour settings. */
+export interface WireServiceSettings {
+  poll_interval_seconds: number;
+}
+
 /** GET /auth/session. */
 export interface WireSessionResponse {
   username: string;
@@ -2516,12 +3466,206 @@ export interface WireSettingsResponse {
   mediums: WireStorageMediumSummary[];
   retention: WireRetentionSettings;
   schema: WireSettingsSchema;
+  service: WireServiceSettings;
 }
 
 /** The schema half of the settings response. */
 export interface WireSettingsSchema {
   retention: WireRetentionSchema;
+  service: WireServiceSchema;
   storage: WireStorageSchema;
+}
+
+/** One SMTP submission endpoint an operator typed in: where to
+ *  connect, how the connection is protected, who to authenticate as,
+ *  and what address the mail is from. camelCase like the rest of
+ *  /auth. `password` is writeOnly and appears in NO response schema
+ *  anywhere in this contract: the runtime stores it as an opaque
+ *  reference to a mode-0600 file of its own and reports only whether
+ *  one is set (SmtpSettingsView.passwordSet). On an update, an absent
+ *  or empty `password` means "keep the stored one", which is what
+ *  lets a port or a from-address be corrected by somebody who does
+ *  not have the provider's API key in front of them. */
+export interface WireSmtpSettings {
+  from: string;
+  host: string;
+  password?: string;
+  port: number;
+  security: "starttls" | "tls" | "none";
+  username: string;
+}
+
+/** SmtpSettings as a READ answers it: every field except the
+ *  password, plus `passwordSet`. The password is absent structurally
+ *  rather than blanked, so this shape has no field for a buggy
+ *  handler to serialise material into. */
+export interface WireSmtpSettingsView {
+  from: string;
+  host: string;
+  passwordSet: boolean;
+  port: number;
+  security: "starttls" | "tls" | "none";
+  username: string;
+}
+
+/** One snapshot run: what the incremental engine did on one pass over
+ *  one backup set's source, and what it proved about the result. This
+ *  is the record the operator surfaces render for a Kopia run, and
+ *  its shape is the whole reason EPIC K refuses a single "bytes
+ *  backed up" figure: entries_scanned, logical_bytes,
+ *  source_bytes_read, repository_bytes_written and
+ *  content_reused_bytes are five different measurements of one pass,
+ *  and collapsing them reports a 100 GB tree deduplicated down to 200
+ *  MB of new content as a 100 GB upload. A run is identified by
+ *  run_id, which exists from the moment the pass starts; snapshot_id
+ *  is the engine's manifest id and exists only once a manifest was
+ *  committed, so a failed run has the first and not the second. */
+export interface WireSnapshot {
+  backup_set_id: string;
+  completed_at?: string;
+  consistency_mode: string;
+  content_reused_bytes: number | null;
+  delete_requested_at?: string;
+  directories: number | null;
+  duration_seconds: number | null;
+  engine: string;
+  entries_scanned: number | null;
+  files: number | null;
+  holds?: WireSnapshotHold[];
+  last_known_good: boolean;
+  logical_bytes: number | null;
+  operation_id?: string;
+  phase: string;
+  reason?: string;
+  repository_bytes_written: number | null;
+  repository_domain: string;
+  run_id: string;
+  snapshot_id?: string;
+  source_bytes_read: number | null;
+  source_complete: boolean | null;
+  started_at: string;
+  verification_level: string;
+  verification_level_achieved?: string;
+  verification_status?: string;
+}
+
+/** One hold: a durable statement that a named snapshot must not be
+ *  deleted, whoever's retention policy says otherwise, until somebody
+ *  releases it. A hold is the mechanism an investigation, a legal
+ *  request or a suspected corruption uses, so it names who placed it
+ *  and why: a hold nobody can attribute is one nobody dares release. */
+export interface WireSnapshotHold {
+  active: boolean;
+  backup_set_id: string;
+  hold_id: string;
+  placed_at: string;
+  placed_by: string;
+  reason: string;
+  released_at?: string;
+  released_by?: string;
+  run_id: string;
+}
+
+/** POST /operations' parameters when the action is
+ *  release_snapshot_hold: end one hold, by its id. Releasing does not
+ *  delete anything; it returns the snapshot to whatever the retention
+ *  policy already said about it. */
+export interface WireSnapshotHoldReleaseRequest {
+  backup_set_id: string;
+  hold_id: string;
+}
+
+/** POST /operations' parameters when the action is hold_snapshot:
+ *  stop retention deleting one named snapshot until somebody releases
+ *  the hold. */
+export interface WireSnapshotHoldRequest {
+  backup_set_id: string;
+  reason: string;
+  run_id?: string;
+}
+
+/** GET /backup-sets/{source}/{set}/snapshots/{run}: one run, plus the
+ *  transition log that says how it got where it is. The log is on the
+ *  detail read and not on the list because it is unbounded per run
+ *  and nothing on a list renders it. */
+export interface WireSnapshotResponse {
+  snapshot: WireSnapshot;
+  transitions: WireSnapshotTransition[];
+}
+
+/** POST /operations' parameters when the action is restore_snapshot:
+ *  read a restore point this deployment holds and write a tree onto a
+ *  disk it can reach. It is a different act from restore_placement
+ *  and the two are never folded together -- that one asks a storage
+ *  provider to make an archived object readable again, over hours, at
+ *  a cost, and writes nothing anywhere. */
+export interface WireSnapshotRestoreRequest {
+  backup_set_id: string;
+  conflict?: "refuse" | "skip" | "overwrite";
+  snapshot_id?: string;
+  source_path?: string;
+  target_path: string;
+}
+
+/** GET /backup-sets/{source}/{set}/snapshot-retention: what this
+ *  set's snapshot retention would decide right now, oldest snapshot
+ *  first. It is a PREVIEW and changes nothing. This is not
+ *  /backup-sets/{source}/{set}/retention, and the two must not be
+ *  confused: that one is FR-18's artifact retention policy, and this
+ *  one is the per-snapshot verdict the incremental engine's own
+ *  pruner would reach. */
+export interface WireSnapshotRetentionResponse {
+  generated_at: string;
+  verdicts: WireSnapshotRetentionVerdict[];
+}
+
+/** One reason a snapshot survived: which tier selected it, and what
+ *  about the snapshot the tier selected it for. */
+export interface WireSnapshotRetentionTier {
+  selected_by?: string;
+  tier: string;
+}
+
+/** What snapshot retention would do about one snapshot, and why.
+ *  Three actions and never two: KEEP means something selects it,
+ *  DELETE means nothing does and every safety check passed, and
+ *  REFUSE means it was a delete candidate and something stopped it.
+ *  Folding REFUSE into KEEP would hide the only one of the three that
+ *  needs somebody to look at it. */
+export interface WireSnapshotRetentionVerdict {
+  action: string;
+  hold_reason?: string;
+  holds?: WireSnapshotHold[];
+  reason: string;
+  run_id: string;
+  snapshot_id?: string;
+  started_at: string;
+  tiers?: WireSnapshotRetentionTier[];
+}
+
+/** One edge of the snapshot state machine, as it actually happened.
+ *  The run record is overwritten by every advance, so it can say what
+ *  a run IS and never how it got there: a run verified twice because
+ *  a crash interrupted the first attempt reads identically on the row
+ *  to one verified once, and this log is what tells them apart. */
+export interface WireSnapshotTransition {
+  at: string;
+  detail?: string;
+  from?: string;
+  to: string;
+}
+
+/** POST /operations' parameters when the action is verify_snapshot:
+ *  prove, now, that a restore point is actually restorable, at a
+ *  stated depth. It records nothing onto the snapshot row -- what a
+ *  RUN proved is what that run proved, and an on-demand check months
+ *  later is a different claim about a different moment, reported on
+ *  the operation that performed it. */
+export interface WireSnapshotVerifyRequest {
+  backup_set_id: string;
+  level?: string;
+  run_id?: string;
+  sample_percent?: number;
 }
 
 /** Where one storage medium's credentials come from. Exactly one of
@@ -2632,12 +3776,27 @@ export interface WireStorageStatus {
  *  field: it is a property of the retry, not of the operation. action
  *  selects which of the parameter objects below is read;
  *  restore_placement reads restore, run_backup_set reads
- *  backup_set_id, and run_cycle reads neither. */
+ *  backup_set_id, restore_snapshot reads snapshot_restore,
+ *  verify_snapshot reads snapshot_verify, hold_snapshot reads
+ *  snapshot_hold, release_snapshot_hold reads snapshot_hold_release,
+ *  and run_cycle reads none of them. A body naming another action's
+ *  parameters is refused rather than ignored: a server that ignores
+ *  fields it did not expect teaches clients those fields are
+ *  optional, and the next reader of that client cannot tell which
+ *  operation was meant. Every mutating incremental-backup action this
+ *  product has is on this one route, which is what makes each of them
+ *  durable, idempotency-keyed and revision-checked without a second
+ *  answer to how long work begins. */
 export interface WireSubmitOperationRequest {
   action: string;
   backup_set_id?: string;
   config_revision: string;
   restore?: WireRestoreOperationRequest;
+  skip_workflow_scripts?: boolean;
+  snapshot_hold?: WireSnapshotHoldRequest;
+  snapshot_hold_release?: WireSnapshotHoldReleaseRequest;
+  snapshot_restore?: WireSnapshotRestoreRequest;
+  snapshot_verify?: WireSnapshotVerifyRequest;
 }
 
 /** POST /backup-sets/test-connection. A reachability and
@@ -2658,17 +3817,19 @@ export interface WireTestConnectionRequest {
   user?: string;
 }
 
-/** The outcome of a connection test, as a verdict and as the six
- *  steps that produced it. `ok` and `message` mean exactly what they
- *  have always meant, so a client reading only those keeps working;
+/** The outcome of a connection test, as a verdict and as the steps
+ *  that produced it. `ok` and `message` mean exactly what they have
+ *  always meant, so a client reading only those keeps working;
  *  `checks` is what the test actually DID, one entry per step and
- *  always all of them, in the order they run. Both modes of this
- *  endpoint answer the same six steps: a caller no longer has to
+ *  always all of them, in the order they run; `writable` is whether
+ *  these credentials may write to the source at all. Both modes of
+ *  this endpoint answer the same steps: a caller no longer has to
  *  remember which request it sent to know what shape comes back. */
 export interface WireTestConnectionResponse {
   checks?: WireConnectionCheck[];
   message?: string;
   ok: boolean;
+  writable: boolean;
 }
 
 /** ONE host key a backup set actually pins, named the way an operator
@@ -2716,14 +3877,34 @@ export interface WireUpdateBackupSetRequest {
   include?: string[];
   known_hosts_line?: string;
   local_path?: string;
+  poll_interval_seconds?: number;
   port?: number;
   remote_path?: string;
   skip_connection_check?: boolean;
+  source_consistency?: "live_best_effort" | "externally_quiesced" | "external_snapshot";
   ssh_key_id?: string;
   stable_for_seconds?: number;
   stale_after_seconds?: number;
   user?: string;
   validator_id?: string;
+  verification_full_every_seconds?: number;
+  verification_level?: "structural" | "content_sample" | "content_full" | "restore_drill";
+  verification_restore_drill_every_seconds?: number;
+  verification_sample_percent?: number;
+}
+
+/** PATCH one backup set's workflow block. Every field is nullable for
+ *  the reason the deployment-wide patch's are: an absent field and a
+ *  cleared one are different requests. A patch against a set that has
+ *  no workflow block creates one, carrying only the fields the
+ *  request named -- so a set given a before_dir does not silently
+ *  acquire a pinned timeout copied from today's deployment value,
+ *  which would make it stop following a later change to that value. */
+export interface WireUpdateBackupSetWorkflowRequest {
+  after_dir?: string;
+  before_dir?: string;
+  remote_exec_connection_ref?: string;
+  script_timeout_seconds?: number;
 }
 
 /** A PARTIAL capacity update. An omitted field is left exactly as the
@@ -2747,12 +3928,34 @@ export interface WireUpdateRetentionSettings {
   week_starts_on?: string;
 }
 
+/** A PARTIAL service-behaviour update. An omitted field is left
+ *  exactly as the running configuration has it. */
+export interface WireUpdateServiceSettings {
+  poll_interval_seconds?: number;
+}
+
 /** PATCH /settings. An enumerated request type, never a configuration
  *  passthrough. */
 export interface WireUpdateSettingsRequest {
   acknowledge_medium_disclosure?: boolean;
   capacity?: WireUpdateCapacitySettings;
   retention?: WireUpdateRetentionSettings;
+  service?: WireUpdateServiceSettings;
+}
+
+/** PATCH the deployment-wide workflow block. Every field is nullable
+ *  because this is a PATCH: "the caller did not mention this" and
+ *  "the caller wants this cleared" are different requests, and a
+ *  plain string can only say one of them. Clearing a stage directory
+ *  is a real operation -- it disables that stage -- so it has to be
+ *  expressible. A body that names nothing at all is refused rather
+ *  than answered 200 for a write that changed nothing. */
+export interface WireUpdateWorkflowSettingsRequest {
+  after_dir?: string;
+  before_dir?: string;
+  max_script_size_bytes?: number;
+  root?: string;
+  script_timeout_seconds?: number;
 }
 
 /** One registered application validator. An id and a sentence, and
@@ -2775,9 +3978,20 @@ export interface WireVerificationClassInfo {
   requires: string;
 }
 
+/** POST /auth/verify-email: the token out of the emailed verification
+ *  link, and nothing else. The token names the account by itself, so
+ *  there is deliberately no username or address field - one would be
+ *  a second thing to check and a way to ask whether an address is the
+ *  administrator's. The token is single-use and expires; redeeming it
+ *  makes a provisional administrator permanent. */
+export interface WireVerifyEmailRequest {
+  token: string;
+}
+
 /** GET /system/version. Nothing here names an implementation: no
  *  rclone, no SQLite, no filesystem path. */
 export interface WireVersionResponse {
+  adopted_paths: WireAdoptedPath[];
   api_version: string;
   commit: string;
   config_revision: string;
@@ -2787,5 +4001,334 @@ export interface WireVersionResponse {
   engine_version: string;
   go_version: string;
   ready: boolean;
+}
+
+/** Take responsibility, by hand, for a workflow run this product
+ *  could not account for, and unblock its backup set. There is
+ *  deliberately no "clear this" and no "ignore this": a run in
+ *  recovery may have left a source machine quiesced, mounted or
+ *  paused right now, so the only two honest exits are to RUN the
+ *  cleanup that is owed (resume-cleanup) or for a person to state, in
+ *  words that are recorded, that they have dealt with it themselves. */
+export interface WireWorkflowAcknowledgementRequest {
+  reason: string;
+}
+
+/** One configured workflow environment entry, as every read of either
+ *  scope reports it. */
+export interface WireWorkflowEnvironmentVariable {
+  has_value?: boolean;
+  name?: string;
+  secret?: WireWorkflowSecretReference;
+  value?: string;
+}
+
+/** PUT one workflow environment entry, at the deployment scope or at
+ *  one backup set's. The variable's NAME is the last path segment and
+ *  is deliberately not a field here: a body that could name a second
+ *  variable would be a request whose path and body can disagree, and
+ *  the engine would then have to decide which one the operator meant.
+ *  Exactly one of `value` and one spelling of `secret` must be
+ *  present. A write REPLACES the entry of that name rather than
+ *  merging with it, because a merge would make "change this from a
+ *  literal to a secret" inexpressible: the literal would survive
+ *  beside the reference, which the configuration validator then
+ *  refuses as a contradiction. */
+export interface WireWorkflowEnvironmentVariableRequest {
+  secret?: WireWorkflowSecretReference;
+  value?: string;
+}
+
+/** One validation check's answer about one backup set's hooks. */
+export interface WireWorkflowFinding {
+  check?: string;
+  detail?: string;
+  phase?: string;
+  scope?: string;
+  script?: string;
+  severity?: "ok" | "skipped" | "warning" | "error";
+  target?: string;
+}
+
+/** One thing retnd's own shell rules reported about one hook script.
+ *  These are this product's own checks, carrying its own BSH codes,
+ *  and they are NOT ShellCheck: ShellCheck is GPL-3.0 and this
+ *  product is Apache-2.0, so the analysis is implemented here against
+ *  a Go shell parser's syntax tree rather than shipped as somebody
+ *  else's tool. The set is deliberately small and conservative; an
+ *  operator who wants a general shell linter should run one. */
+export interface WireWorkflowLintFinding {
+  code?: string;
+  col?: number;
+  excerpt?: WireWorkflowSourceExcerpt;
+  line?: number;
+  message?: string;
+  severity?: "error" | "warning" | "info" | "style";
+}
+
+/** One reason a backup set is refusing to run: a workflow run whose
+ *  cleanup this product could not finish, and whose "after" hooks may
+ *  therefore never have run. */
+export interface WireWorkflowRecoveryHold {
+  backup_set_id?: string;
+  entered_at?: string;
+  run_id?: string;
+  scope?: "global" | "set";
+  spool_ref?: string;
+}
+
+/** Every outstanding recovery hold in this deployment, sorted. An
+ *  empty list is a deployment where no backup set is being held,
+ *  which is the ordinary state. */
+export interface WireWorkflowRecoveryResponse {
+  holds?: WireWorkflowRecoveryHold[];
+}
+
+/** One hook script that refused a workflow configuration write, and
+ *  why. Only the BLOCKING half is here -- a parse error, or the
+ *  error-severity findings -- because a refusal that also listed the
+ *  warnings would read as though they had refused it. */
+export interface WireWorkflowRefusedScript {
+  backup_set_id?: string;
+  dir?: string;
+  findings?: WireWorkflowLintFinding[];
+  parse_error?: string;
+  parse_error_col?: number;
+  parse_error_excerpt?: WireWorkflowSourceExcerpt;
+  parse_error_line?: number;
+  phase?: "before" | "after";
+  scope?: "global" | "set";
+  script_name?: string;
+}
+
+/** One workflow run: one backup set's pass, wrapped in the five-stage
+ *  hook lifecycle. The three statuses stay three, and none of them is
+ *  derived from the others. That is the whole reason the journal has
+ *  three columns: "the backup succeeded and the cleanup did not" is
+ *  the single most operationally important thing this feature can
+ *  report -- it means a machine may be sitting quiesced with a good
+ *  backup beside it -- and any surface that collapsed the three into
+ *  one verdict would make exactly that case unsayable. */
+export interface WireWorkflowRun {
+  backup_set_id?: string;
+  backup_status?: "unknown" | "running" | "success" | "failed" | "skipped";
+  bypassed?: boolean;
+  cleanup_status?: "unknown" | "running" | "success" | "failed" | "skipped";
+  duration_ms?: number;
+  failed_script?: string;
+  failed_step?: string;
+  finished_at?: string;
+  recovery_state?: "none" | "required" | "in_progress" | "resolved";
+  run_id?: string;
+  script_count?: number;
+  started_at?: string;
+  state?: "pending" | "running" | "success" | "failed" | "timed_out" | "canceled" | "skipped" | "interrupted" | "recovery_required" | "cleanup_running" | "cleanup_failed" | "recovered";
+  steps?: WireWorkflowStep[];
+  workflow_status?: "unknown" | "running" | "success" | "failed" | "skipped";
+}
+
+/** How THIS PROCESS reaches the Host Workflow Runner, the component
+ *  that executes a `.local.sh` hook on the machine retnd is installed
+ *  on. Reported and not writable here: the two paths differ between a
+ *  container and a bare-metal install of the same deployment, so they
+ *  are a deployment-shape fact the installer writes rather than a
+ *  policy an operator tunes, exactly like the SSH key, the
+ *  known_hosts file and the state database. */
+export interface WireWorkflowRunnerSettings {
+  configured?: boolean;
+  socket?: string;
+  token_file?: string;
+}
+
+/** What retnd's own shell verification established about one hook
+ *  script's exact bytes, without running any of them. Three states,
+ *  kept distinguishable on purpose: examined and parsed, examined and
+ *  refused (a parse error with its position), and NOT EXAMINED, which
+ *  is a script larger than the verification reads. A client that
+ *  folded the third into either of the others would report either a
+ *  pass nobody proved or a fault nobody found. */
+export interface WireWorkflowScriptLint {
+  examined?: boolean;
+  findings?: WireWorkflowLintFinding[];
+  not_examined_reason?: string;
+  parse_error?: string;
+  parse_error_col?: number;
+  parse_error_excerpt?: WireWorkflowSourceExcerpt;
+  parse_error_line?: number;
+  parsed?: boolean;
+}
+
+/** The WORKFLOW_SCRIPT_REJECTED 409 body. It carries the blocking
+ *  scripts and their findings as structured fields, for the reason
+ *  CONFIG_REVISION_STALE carries the current revision as one: a
+ *  client that had to parse a position out of the message would be
+ *  parsing prose this contract explicitly does not promise to keep
+ *  stable. The message says the same thing in one string, for a
+ *  terminal. */
+export interface WireWorkflowScriptRejectedResponse {
+  blocking_scripts: WireWorkflowRefusedScript[];
+  error: WireErrorBody;
+}
+
+/** Where a workflow environment variable's value comes from, when it
+ *  is not a literal. It is a LOCATION and never a value, on every
+ *  surface and in both directions: exactly one of the three is set,
+ *  and there is no field here -- and deliberately no field anywhere
+ *  on this contract -- that a resolved secret could be written into
+ *  or read out of. The engine resolves a reference at the moment a
+ *  hook is about to run and nothing carries the result back. The
+ *  consequence is worth stating because it looks like a gap: no read
+ *  on this API can show an operator the value of a secret variable,
+ *  ever. It shows the name and where the value comes from, because a
+ *  surface that could print it would be a surface an attacker holding
+ *  one session could read every credential in the deployment from. It
+ *  is the same file/env/command triple a repository passphrase and a
+ *  storage destination's credentials already use, spelled the same
+ *  way. */
+export interface WireWorkflowSecretReference {
+  command?: string[];
+  env?: string;
+  file?: string;
+}
+
+/** The deployment-wide workflow configuration, RESOLVED: the timeout
+ *  a hook will actually get, the stages that will actually run, the
+ *  environment a hook will actually see. That is why this read exists
+ *  rather than a client re-reading config.yaml: the file's whole
+ *  point is that it omits what is inherited or defaulted, so a
+ *  re-serialization of it cannot answer what a run will do. */
+export interface WireWorkflowSettingsResponse {
+  after_dir?: string;
+  before_dir?: string;
+  configured?: boolean;
+  environment?: WireWorkflowEnvironmentVariable[];
+  exec_connections?: string[];
+  max_script_size_bytes?: number;
+  root?: string;
+  runner?: WireWorkflowRunnerSettings;
+  script_timeout_configured?: boolean;
+  script_timeout_seconds?: number;
+}
+
+/** A few of a hook script's own lines, carried beside a position that
+ *  names one of them: the reported line with one line either side. It
+ *  exists because a position on its own is a lookup somebody has to
+ *  perform on a machine they may not be on -- "BSH003 at 24:10" sends
+ *  an operator to a NAS over SSH to read one line. The lines come
+ *  from the bytes this validation READ AND HASHED rather than from a
+ *  later re-read, so they cannot disagree with the position beside
+ *  them. They are the script's own text and never a resolved secret:
+ *  nothing on the path that produces them resolves one. */
+export interface WireWorkflowSourceExcerpt {
+  lines?: WireWorkflowSourceLine[];
+}
+
+/** One line of a hook script, as an editor would number it. The text
+ *  arrives with control characters removed and its length bounded, at
+ *  the point it is produced rather than at each surface that draws
+ *  it: a hook is arbitrary text and this text reaches a browser and a
+ *  terminal. */
+export interface WireWorkflowSourceLine {
+  number?: number;
+  text?: string;
+  truncated?: boolean;
+}
+
+/** One scope-and-phase pair that has a directory. A run executes five
+ *  stages in a fixed order, and these are the ones this configuration
+ *  actually gives a directory to. */
+export interface WireWorkflowStage {
+  dir?: string;
+  phase?: "before" | "after";
+  scope?: "global" | "set";
+}
+
+/** One step of one workflow run: one hook script, executed once. */
+export interface WireWorkflowStep {
+  duration_ms?: number;
+  execution_connection_ref?: string;
+  exit_code?: number | null;
+  finished_at?: string;
+  order?: number;
+  phase?: "before" | "after";
+  scope?: "global" | "set";
+  script_name?: string;
+  started_at?: string;
+  state?: "pending" | "running" | "success" | "failed" | "timed_out" | "canceled" | "skipped" | "interrupted";
+  step_id?: string;
+  target?: "local" | "remote";
+  termination_confirmed?: boolean;
+  timeout_ms?: number;
+}
+
+/** One page of one step's captured output. It is a cursor read and
+ *  not a stream, and that decision is about where this product runs:
+ *  a held-open response is at the mercy of every buffering proxy and
+ *  idle timeout between here and the client, and a design that only
+ *  works when nothing in the path buffers is not a design. The
+ *  follower sends the last sequence it PROCESSED and gets what is
+ *  newer, so resume after a dropped connection is not a special case
+ *  at all -- it is the ordinary read, with the cursor the follower
+ *  already had. Each page is one ordinary authenticated request,
+ *  which is also what makes authorization on replay structural rather
+ *  than something somebody has to remember. */
+export interface WireWorkflowStepLogPage {
+  complete?: boolean;
+  cursor?: number;
+  records?: WireWorkflowStepLogRecord[];
+  run_id?: string;
+  step_id?: string;
+  step_state?: "pending" | "running" | "success" | "failed" | "timed_out" | "canceled" | "skipped" | "interrupted";
+  truncated?: boolean;
+}
+
+/** One captured record of one step's output. */
+export interface WireWorkflowStepLogRecord {
+  at?: string;
+  kind?: "output" | "truncated";
+  seq?: number;
+  step_id?: string;
+  stream?: "stdout" | "stderr";
+  text?: string;
+}
+
+/** One hook this backup set would run, as validation found it on
+ *  disk, with what retnd's own shell verification established about
+ *  its bytes. Nothing here was executed: the syntax verdict and the
+ *  findings come from parsing and walking the bytes in this process,
+ *  and the only things validation ever hands an interpreter are `bash
+ *  -n`, which parses and never runs, and this product's own fixed
+ *  remote capability probe. */
+export interface WireWorkflowValidatedScript {
+  execution_connection_ref?: string;
+  lint?: WireWorkflowScriptLint;
+  order?: number;
+  phase?: "before" | "after";
+  scope?: "global" | "set";
+  script_name?: string;
+  sha256?: string;
+  size_bytes?: number;
+  step_id?: string;
+  target?: "local" | "remote";
+  timeout_ms?: number;
+}
+
+/** Everything this product can establish about one backup set's hooks
+ *  WITHOUT running any of them. Two verdicts rather than one, and
+ *  that is the shape rather than an oversight: a backup set whose
+ *  source connects, whose destination is writable and whose retention
+ *  is sound, with a hook directory somebody has not created yet, is
+ *  valid for backup and invalid for workflows -- which is the normal
+ *  case during setup, and reporting it as a broken backup set would
+ *  tell an operator their backups are failing when they are not. */
+export interface WireWorkflowValidationResponse {
+  backup_set_id?: string;
+  configured?: boolean;
+  findings?: WireWorkflowFinding[];
+  root?: string;
+  scripts?: WireWorkflowValidatedScript[];
+  stages?: WireWorkflowStage[];
+  valid_for_backup?: boolean;
+  workflow_valid?: boolean;
 }
 

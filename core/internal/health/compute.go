@@ -3,9 +3,9 @@ package health
 import (
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/internal/lifecycle"
-	"github.com/spdrman/rclone-manager/core/internal/model"
-	"github.com/spdrman/rclone-manager/core/internal/state"
+	"github.com/retnd/retnd/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // This file is where FR-24's verdict is actually reached, and its shape is
@@ -363,5 +363,12 @@ func ComputeBackupSetHealth(set model.BackupSetID, records []state.Record, reins
 		// whose retention is held is not thereby a set whose backups are
 		// degraded.
 		RetentionHoldReason: in.RetentionHoldReason,
+
+		// The sixth, and the only one that is absent rather than empty
+		// for most deployments: an artifact set has no snapshot run to
+		// report, and a zeroed block would read as one that stored
+		// nothing. Like the five above it, nothing in it reaches
+		// decideState; see BackupSetHealth.Snapshot.
+		Snapshot: in.Snapshot,
 	}
 }

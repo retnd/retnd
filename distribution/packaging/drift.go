@@ -86,7 +86,7 @@ func CheckHealthCheck(svc Service, c Canonical) []Violation {
 	if len(svc.HealthcheckTest) == 0 {
 		// Inheriting the image's own HEALTHCHECK. Legitimate, and only
 		// for a service that actually has what that command needs: the
-		// baked-in check is `/rbm status`, which reads the
+		// baked-in check is `/retnd status`, which reads the
 		// config file and the state database.
 		if !mountsRole(svc, "state") && !mountsRole(svc, "config") {
 			add(fmt.Sprintf("service %s declares no healthcheck, so it inherits the image's own `%s`, which reads the config file and the state database; this service mounts neither, so the check can only ever report unhealthy",
@@ -95,9 +95,25 @@ func CheckHealthCheck(svc Service, c Canonical) []Violation {
 		return out
 	}
 
-	want := append([]string{"CMD"}, c.Commands.Healthcheck...)
+	// Every spelling of the canonical command the image answers to, not
+	// just the canonical one: #890 moved the entrypoint names and #891
+	// moved all eleven adapters' healthcheck tests. No adapter in this
+	// tree spells it the old way now; an operator's own pinned copy of one
+	// still does, and for one release `/retnd-web healthcheck` and the
+	// contract's `/retnd-web healthcheck` are the same inode
+	// (renameoverlap.go).
 	got := svc.HealthcheckTest
-	if !startsWithStrings(got, want) {
+	var want []string
+	matched := false
+	for _, spelling := range c.CommandSpellings(c.Commands.Healthcheck) {
+		want = append([]string{"CMD"}, spelling...)
+		if startsWithStrings(got, want) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		want = append([]string{"CMD"}, c.Commands.Healthcheck...)
 		add(fmt.Sprintf("service %s declares healthcheck %v, and the canonical contract's is %v (extra arguments to that command are allowed, a different command is not); a health command the canonical image does not ship reports unhealthy forever, and one weaker than the canonical command reports healthy through the failure it exists to catch",
 			backquote(svc.Name), got, want))
 	}
@@ -304,6 +320,28 @@ func CheckRequiredMounts(svc Service, c Canonical) []Violation {
 		}
 		if readOnly[m.ContainerPath] && !m.ReadOnly {
 			add(fmt.Sprintf("service %s mounts %s writable, and canonical.json declares it read-only; a writable known_hosts or private key is one compromised process away from being repinned to an attacker's host",
+				backquote(svc.Name), backquote(m.ContainerPath)))
+		}
+		if !readOnly[m.ContainerPath] && m.ReadOnly {
+			add(fmt.Sprintf("service %s mounts %s read-only, and the canonical contract needs it writable", backquote(svc.Name), backquote(m.ContainerPath)))
+		}
+	}
+
+	// The host-plane paths, which are optional to mount and not optional to
+	// mount CORRECTLY. Nothing here asks why a profile does not carry them:
+	// a NAS store profile deploys no workflow runner and is right not to.
+	// A profile that does carry one is held to the same write mode as any
+	// other declared path, and the workflows directory is the one that
+	// matters: the engine reads scripts out of it, so a writable mount is a
+	// process one compromise away from running anything it likes on the
+	// host that the container was specifically built not to reach.
+	for _, role := range HostPlaneRoles {
+		m, ok := byRole[role]
+		if !ok {
+			continue
+		}
+		if readOnly[m.ContainerPath] && !m.ReadOnly {
+			add(fmt.Sprintf("service %s mounts %s writable, and canonical.json declares it read-only; the engine executes what it reads out of that directory, so a process that can rewrite it can run anything on the host",
 				backquote(svc.Name), backquote(m.ContainerPath)))
 		}
 		if !readOnly[m.ContainerPath] && m.ReadOnly {

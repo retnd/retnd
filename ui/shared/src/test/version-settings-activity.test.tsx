@@ -53,6 +53,8 @@ const SET: BackupSet = {
   completionMethod: "completion-marker", stableForSeconds: 0,
   destination: "/data/backups/production/postgres/",
   retentionIsOverride: false,
+  pollIntervalSeconds: null,
+  effectivePollIntervalSeconds: 900,
   validations: ["transfer", "checksum"],
   state: "healthy",
   stateNote: "Verified nightly dump.",
@@ -67,7 +69,12 @@ const SET: BackupSet = {
   retainedBytes: 421 * 1024 ** 3,
   trustedHostKeys: [{ algorithm: "ssh-ed25519", fingerprint: "SHA256:test-fingerprint" }],
   trustedHostKeyRecordedAt: "2026-08-02T10:14:00+02:00",
-  sshKeyId: "key_a1b2c3"
+  sshKeyId: "key_a1b2c3",
+  // EPIC K (issue #788): this fixture is an artifact set, which is
+  // what every set in this suite was before the incremental engine
+  // existed, so `incremental` is null rather than an empty block.
+  engine: "artifact",
+  incremental: null
 };
 
 const SET_2: BackupSet = { ...SET, id: "set_test_2", name: "Billing MySQL" };
@@ -195,7 +202,7 @@ describe("SettingsPage reads the shared version node", () => {
     const api = createMockApi();
     const versionError = {
       code: "unknown" as const,
-      message: "Backup Manager could not complete that request.",
+      message: "retnd could not complete that request.",
       correlationId: "test-correlation-id"
     };
 
@@ -226,8 +233,15 @@ describe("SettingsPage reads the shared version node", () => {
  *  no save — see fieldHelpCopy.ts's module doc for why each was removed
  *  rather than wired) and a "Webhook notifications" row presenting
  *  "https://hooks.internal/bm" as a live delivery target config.Alerts'
- *  own doc says is deliberately not configurable. All three are gone
- *  from the page now, not merely unwired. */
+ *  own doc says is deliberately not configurable.
+ *
+ *  The polling interval came back in issue #845, as a real control over
+ *  a real write path ("Service behaviour", ServiceBehaviourCard), and
+ *  the case that asserted its absence went with it: it had stopped being
+ *  true and only still passed because it asked for the old label. What
+ *  that control does now is pinned by poll-interval-settings.test.tsx,
+ *  behaviourally. The webhook row below is still gone, and still worth
+ *  a case. */
 describe("SettingsPage no longer renders the controls #299 removed", () => {
   afterEach(() => {
     cleanup();
@@ -252,16 +266,6 @@ describe("SettingsPage no longer renders the controls #299 removed", () => {
     await act(async () => {});
   }
 
-  it("has no Service card, and no Polling interval or Log level control", async () => {
-    await renderSettingsPage();
-
-    expect(screen.queryByText("Service")).toBeNull();
-    expect(screen.queryByText("Polling interval")).toBeNull();
-    expect(screen.queryByText("Log level")).toBeNull();
-    expect(screen.queryByText("15 seconds")).toBeNull();
-    expect(screen.queryByText("debug")).toBeNull();
-  });
-
   it("has no Webhook notifications checkbox row, and states no fake delivery URL anywhere on the page", async () => {
     await renderSettingsPage();
 
@@ -284,7 +288,7 @@ describe("ActivityPage no longer renders the Time range control #299 removed", (
   });
 
   it("has no Time range control", async () => {
-    const api = { ...createMockApi(), listActivity: () => Promise.resolve([]) };
+    const api = { ...createMockApi(), listActivity: () => Promise.resolve({ events: [] }) };
 
     render(
       <MemoryRouter>
@@ -319,7 +323,7 @@ describe("ActivityPage reads the shared sets node", () => {
     const listSets = vi.fn(() =>
       Promise.reject(new Error("ActivityPage must not fetch its own sets list — it reads setsNode"))
     );
-    const api = { ...createMockApi(), listSets, listActivity: () => Promise.resolve([]) };
+    const api = { ...createMockApi(), listSets, listActivity: () => Promise.resolve({ events: [] }) };
 
     act(() => {
       graph.commit("test/seed-sets", (tx) =>
@@ -343,7 +347,7 @@ describe("ActivityPage reads the shared sets node", () => {
 
   it("updates the backup-set filter options when setsNode changes, with no new fetch from the page", async () => {
     const listSets = vi.fn(() => Promise.reject(new Error("must not be called")));
-    const api = { ...createMockApi(), listSets, listActivity: () => Promise.resolve([]) };
+    const api = { ...createMockApi(), listSets, listActivity: () => Promise.resolve({ events: [] }) };
 
     render(
       <MemoryRouter>

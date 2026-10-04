@@ -18,9 +18,12 @@
 //     internal/transport/rclone/ssh.go's refusal already produces (FR-6,
 //     FR-22).
 //
-// conditions.go is the whole of that translation, and it is three small
-// functions with no state. If a fifth signal ever needs alerting, the
-// place to compute it is the package that owns the fact, not here.
+// conditions.go is the whole of that translation for the backup-set
+// conditions, and it is three small functions with no state. A signal
+// this package did not already know about is computed by the package
+// that owns the fact, not here: EPIC K's repository maintenance failure
+// (Kind MaintenanceFailed) is built by internal/repomaintenance out of
+// the ownership record it writes, and arrives as an ordinary Condition.
 //
 // # An alert is a notification and nothing else
 //
@@ -98,14 +101,23 @@ import (
 	"sync"
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/obs"
 )
 
-// Kind is one of the four conditions §71's Work Package 3.5 names. There
-// are exactly four, and mechanism_test.go pins that: a fifth kind is how
-// "one proactive mechanism for four conditions" quietly becomes the
-// framework §71 rules out, so adding one is a deliberate edit with a test
-// to update, not something that can drift in.
+// Kind is one alertable condition. Four of them are the ones §71's Work
+// Package 3.5 names; the fifth and sixth are EPIC K's, a repository whose
+// maintenance is failing (#786) and a repository that cannot take a
+// backup at all (#789); the seventh, eighth and ninth are EPIC L's
+// workflow hooks (#813), where one run can go wrong in two unrelated
+// ways at once and a third way nobody watched.
+//
+// mechanism_test.go pins the whole list, and that pin is the point: a new
+// kind is how "one proactive mechanism for a few specific conditions"
+// quietly becomes the notification framework §71 rules out, so adding one
+// is a deliberate edit with a test to update rather than something that
+// drifts in. What justified the fifth and sixth is in MaintenanceFailed's
+// and RepositoryUnavailable's own docs; what justified EPIC L's three is
+// in WorkflowFailed's.
 type Kind string
 
 const (
@@ -133,12 +145,171 @@ const (
 	// internal/capacity's own Thresholds doc for why that level is worth
 	// surfacing but is never a refusal.
 	CriticalStoragePressure Kind = "CRITICAL_STORAGE_PRESSURE"
+
+	// MaintenanceFailed is EPIC K's repository maintenance failure
+	// (#786): the repository domain this product owns maintenance for
+	// could not be maintained, as recorded in its own ownership record.
+	//
+	// # Why this is a condition and the four above were the whole list
+	//
+	// It is about a REPOSITORY DOMAIN rather than a backup set, which is
+	// the first reason none of the four fit: Scope here is a
+	// model.RepositoryDomainID, and reporting it as a failing backup set
+	// would name the wrong thing to fix and would collide with that
+	// set's own conditions in the de-duplication key.
+	//
+	// It also behaves the way this package's model needs a condition to
+	// behave, which is what ruled the reinstated-remote signal out in
+	// conditions.go: it is true while maintenance keeps failing, it
+	// resolves the moment a maintenance window succeeds, and a genuine
+	// recurrence alerts again.
+	//
+	// And it needs a human. Maintenance is the only thing that reclaims
+	// storage from deleted snapshots, so a repository whose maintenance
+	// is failing grows until it fills the volume it lives on -- and the
+	// condition that eventually fires then, CriticalStoragePressure, is
+	// about the destination filesystem and arrives far too late to be
+	// the first notice.
+	//
+	// What it must never suggest is that the repository is damaged. A
+	// failed maintenance changes no manifest and deletes no snapshot;
+	// see internal/repomaintenance.AlertConditions, which is where the
+	// sentence an operator reads is composed.
+	MaintenanceFailed Kind = "MAINTENANCE_FAILED"
+
+	// RepositoryUnavailable is EPIC K's repository outage (#789): the
+	// store an incremental backup set's snapshots live in cannot take a
+	// backup at all -- its storage does not answer, it holds no
+	// repository, its declared passphrase does not open it, or it opened
+	// read-only. internal/app's own probe decides which
+	// (health.RepositoryHealth), and health.Failing is exactly that
+	// verdict; the Detail says which of them it was.
+	//
+	// # Why the four probes did not already alert, and why staleness is
+	// not enough
+	//
+	// #788 argued deliberately that an unreachable repository should
+	// raise nothing, because the backup sets inside it go stale and
+	// StaleBackup already says the thing an operator must act on. That
+	// argument has a hole, and #789's production gate is where it had to
+	// be closed.
+	//
+	// StaleBackup fires when no known-good restore point exists inside
+	// stale_after, which is a window measured in DAYS on a normal
+	// deployment. RepeatedFailure would be the fast arm, and its count
+	// arm counts artifacts sitting in FAILED -- a population an
+	// incremental set never produces, because it stores snapshots and
+	// not artifacts. So the fast signal for "every backup into this
+	// repository is failing right now" did not exist, and an operator
+	// who typed the wrong passphrase reference learned about it a day
+	// later, from an alert about freshness that names neither the
+	// repository nor the secret.
+	//
+	// It also passes the three tests MaintenanceFailed's doc sets for a
+	// new kind. It is about a REPOSITORY DOMAIN, so Scope is a
+	// model.RepositoryDomainID and one alert covers every set inside it
+	// rather than n alerts naming the wrong subject. It behaves the way
+	// this package needs: true while the repository is unusable, resolved
+	// the moment a probe opens it again, and a recurrence alerts again.
+	// And it needs a human now -- a wrong credential, an unplugged NAS
+	// and a read-only mount are all things no retry fixes.
+	//
+	// One kind rather than one per probe. "Unreachable", "no repository
+	// here", "credentials refused" and "read-only" are four causes of
+	// one outage with one consequence, they are distinguished by the
+	// Detail an operator reads, and four kinds would quadruple this
+	// vocabulary to say what one sentence already says.
+	RepositoryUnavailable Kind = "REPOSITORY_UNAVAILABLE"
+
+	// WorkflowFailed is EPIC L's failed workflow run (#813): a run in
+	// which the BACKUP did not happen, either because a "before" hook
+	// refused it or because the backup itself failed.
+	//
+	// # Why EPIC L is three kinds and not one
+	//
+	// MaintenanceFailed's doc sets the bar for a new kind: it must need
+	// a human, it must be able to resolve, and it must name the right
+	// subject. All three of EPIC L's clear it. What forces three rather
+	// than one is that their REMEDIES are not the same work done with
+	// more or less urgency; they are different jobs, and folding them
+	// together loses one of them entirely.
+	//
+	// This kind says "you have no backup from tonight". The remedy is
+	// to read why the hook or the backup refused and re-run it, and
+	// nothing is left waiting on the source machine.
+	//
+	// WorkflowCleanupFailed says "a machine may still be quiesced", and
+	// it is true whether or not the backup succeeded. Folding it into
+	// this kind is exactly how the run that backed up perfectly and
+	// left a production database frozen in backup mode becomes silent:
+	// nothing "failed", so nothing would be reported. That is the
+	// failure mode this split exists to prevent.
+	//
+	// WorkflowRecoveryRequired says "nobody knows which of the two
+	// above is true", because this process never saw the run end. It
+	// also differs in a way neither of the others does: it is BLOCKING,
+	// so it is a notification about a backup set that will not try
+	// again until a person acts.
+	//
+	// Scope for all three is a model.BackupSetID, so they share the
+	// namespace StaleBackup and RepeatedFailure already use, and one
+	// backup set's workflow conditions de-duplicate against themselves
+	// rather than against another set's.
+	WorkflowFailed Kind = "WORKFLOW_FAILED"
+
+	// WorkflowCleanupFailed is EPIC L's cleanup failure (#813): a run
+	// whose "after" hooks did not succeed, so whatever a "before" hook
+	// did to the source machine may still be in force -- a database
+	// still quiesced, a snapshot still held, a filesystem still
+	// mounted.
+	//
+	// It is deliberately independent of whether the backup worked. The
+	// operator's question here is not "do I have a restore point", it
+	// is "is somebody else's production server still in the state my
+	// backup put it in", and the answer does not change because the
+	// dump completed. See WorkflowFailed's doc for the full argument.
+	//
+	// It resolves the way this package needs a condition to resolve: a
+	// later run of the same set whose cleanup succeeds stops producing
+	// it, so the next failure alerts again.
+	WorkflowCleanupFailed Kind = "WORKFLOW_CLEANUP_FAILED"
+
+	// WorkflowRecoveryRequired is EPIC L's blocked backup set (#813): a
+	// run this process never saw the end of, whose cleanup scope cannot
+	// be accounted for, and which is holding the backup set closed
+	// until an operator resumes the cleanup or acknowledges it.
+	//
+	// It is not WorkflowCleanupFailed with a different word. A failed
+	// cleanup is a finished run with a known verdict; this is the
+	// absence of a verdict, and the two remedies differ accordingly --
+	// one is "go and check that machine", the other is "run the
+	// outstanding cleanup, or tell the manager you have dealt with it,
+	// because until you do this set takes no further backups". Reading
+	// the second as the first would tell an operator to inspect a
+	// machine while quietly not mentioning that their backups have
+	// stopped.
+	//
+	// It is also the one condition here that is not about a single
+	// finished run: internal/workflowrun holds one per interrupted
+	// scope, and an operator acts per backup set, so
+	// WorkflowRecoveryConditions folds a set's holds into one.
+	WorkflowRecoveryRequired Kind = "WORKFLOW_RECOVERY_REQUIRED"
 )
 
-// Kinds is every Kind this package can produce, in the order §71 lists
-// them. It exists so a test (and a reader) can see the whole vocabulary
-// in one place.
-var Kinds = []Kind{StaleBackup, RepeatedFailure, HostKeyChanged, CriticalStoragePressure}
+// Kinds is every Kind this package can produce: §71's four in the order
+// it lists them, then EPIC K's two, then EPIC L's three. It exists so a
+// test (and a reader) can see the whole vocabulary in one place.
+var Kinds = []Kind{
+	StaleBackup,
+	RepeatedFailure,
+	HostKeyChanged,
+	CriticalStoragePressure,
+	MaintenanceFailed,
+	RepositoryUnavailable,
+	WorkflowFailed,
+	WorkflowCleanupFailed,
+	WorkflowRecoveryRequired,
+}
 
 func (k Kind) String() string { return string(k) }
 
@@ -154,24 +325,39 @@ func (k Kind) title() string {
 		return "SSH host key changed"
 	case CriticalStoragePressure:
 		return "Storage is critically low"
+	case MaintenanceFailed:
+		return "Repository maintenance is failing"
+	case RepositoryUnavailable:
+		return "Repository is unavailable"
+	case WorkflowFailed:
+		return "Backup did not run"
+	case WorkflowCleanupFailed:
+		return "Workflow cleanup failed"
+	case WorkflowRecoveryRequired:
+		return "Backup set is blocked pending recovery"
 	default:
-		return "Backup manager alert"
+		return "retnd alert"
 	}
 }
 
-// Condition is one currently-true, alertable fact about one backup set.
-// It is a plain value with no behaviour: conditions.go builds them from
-// signals other packages computed, and Dispatcher decides which of them
-// are new.
+// Condition is one currently-true, alertable fact about one backup set or
+// one repository domain. It is a plain value with no behaviour:
+// conditions.go builds the backup-set ones from signals other packages
+// computed, the package that owns a fact builds its own (see
+// MaintenanceFailed), and Dispatcher decides which of them are new.
 type Condition struct {
-	// Kind is which of §71's four conditions this is.
+	// Kind is which condition this is.
 	Kind Kind
 
-	// Scope is what the condition is about: the backup set's
-	// model.BackupSetID rendered as a string, in every case this package
-	// produces today. It is half of the de-duplication key, so two backup
-	// sets in the same condition are two separate alerts rather than one
-	// suppressing the other.
+	// Scope is what the condition is about, rendered as a string: a
+	// model.BackupSetID for every condition conditions.go builds, and a
+	// model.RepositoryDomainID for MaintenanceFailed. It is half of the
+	// de-duplication key, so two subjects in the same condition are two
+	// separate alerts rather than one suppressing the other.
+	//
+	// The two namespaces share one key space, and that is safe rather
+	// than lucky: the Kind is the other half of the key, and no Kind is
+	// produced for both a backup set and a repository domain.
 	Scope string
 
 	// Detail is the human-readable explanation delivered as the alert's
@@ -187,11 +373,11 @@ type Condition struct {
 // Dispatcher "I could not evaluate this condition on this pass", which is
 // neither observing it nor resolving it (see Observe).
 type Subject struct {
-	// Kind is which of §71's four conditions this is about.
+	// Kind is which condition this is about.
 	Kind Kind
 
-	// Scope is the backup set it is about, exactly as Condition.Scope
-	// renders it.
+	// Scope is the backup set, or the repository domain, it is about,
+	// exactly as Condition.Scope renders it.
 	Scope string
 }
 

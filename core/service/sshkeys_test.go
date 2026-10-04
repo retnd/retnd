@@ -39,6 +39,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -56,7 +57,7 @@ func throwawayKeyPair(t *testing.T) (privatePEM []byte, publicLine string, finge
 	if err != nil {
 		t.Fatalf("generating a throwaway ed25519 key: %v", err)
 	}
-	block, err := ssh.MarshalPrivateKey(priv, "rclone-manager test fixture")
+	block, err := ssh.MarshalPrivateKey(priv, "retnd test fixture")
 	if err != nil {
 		t.Fatalf("marshalling the throwaway private key: %v", err)
 	}
@@ -271,7 +272,7 @@ func TestListSSHKeys_MarksAPassphraseProtectedKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generating a throwaway ed25519 key: %v", err)
 	}
-	block, err := ssh.MarshalPrivateKeyWithPassphrase(priv, "rclone-manager test fixture", []byte("not-a-real-passphrase"))
+	block, err := ssh.MarshalPrivateKeyWithPassphrase(priv, "retnd test fixture", []byte("not-a-real-passphrase"))
 	if err != nil {
 		t.Fatalf("marshalling an encrypted throwaway key: %v", err)
 	}
@@ -410,6 +411,109 @@ func TestDiscoverSSHKeyCandidates_NamesEveryLocationItSearched(t *testing.T) {
 	if !slicesContains(named, sshDiscoveryMountDir) {
 		t.Errorf("the searched locations %v do not include %q. On a packaged install that is where the installer's own key is mounted, and a scan that silently skips a location it could not read is the empty-list defect wearing a different coat", named, sshDiscoveryMountDir)
 	}
+}
+
+// TestDiscoverSSHKeyCandidates_ScansThePathComposeActuallyMountsTheKeyAt
+// is the regression for a rename that moved a mount and left the scan
+// behind (#895, and #890 is where it happened).
+//
+// `container/compose.yaml` mounts the operator's SFTP private key at
+// `/etc/retnd/id_ed25519`. R1.5 renamed the container-internal paths and
+// updated that mount, and `sshDiscoveryMountDir` kept pointing at
+// `/etc/retnd` with a doc comment that described the NEW path -- so the
+// constant and the sentence above it disagreed, and the location a
+// packaged install actually keeps its key in was scanned on no
+// deployment at all. Nothing caught it: the test above asserts the mount
+// location is REPORTED, which it was, under a path nothing mounts.
+//
+// So this asserts the pair rather than the constant: whatever
+// `sshDiscoveryMountDir` is, it is the directory holding the file
+// compose mounts, read out of compose itself. A future rename that moves
+// one and not the other fails here instead of shipping a wizard whose
+// managed-key panel is empty on every packaged install.
+func TestDiscoverSSHKeyCandidates_ScansThePathComposeActuallyMountsTheKeyAt(t *testing.T) {
+	blob, err := os.ReadFile(filepath.Join("..", "..", "container", "compose.yaml"))
+	if err != nil {
+		t.Fatalf("cannot read the canonical compose file: %v", err)
+	}
+
+	// The mount is written `${SSH_KEY_FILE:?...}:/etc/retnd/id_ed25519:ro`,
+	// so the container-side path is what follows the last `:`-separated
+	// host spec. Matched as a whole path rather than by substring: a
+	// substring search for the constant would pass against a compose file
+	// that had moved the key to a subdirectory of it.
+	mount := regexp.MustCompile(`:(/[^:\s]*)/id_ed25519:ro`).FindSubmatch(blob)
+	if mount == nil {
+		t.Fatalf("container/compose.yaml no longer mounts an id_ed25519 read-only, so this test cannot tell where the packaged key lives; if that mount moved, move the constant and this pattern together")
+	}
+	if got := string(mount[1]); got != sshDiscoveryMountDir {
+		t.Errorf("compose mounts the deployment's key in %q and the scan looks in %q, so on a packaged install the wizard's managed-key panel is empty and nothing says why", got, sshDiscoveryMountDir)
+	}
+}
+
+// TestDiscoverSSHKeyCandidates_ReadsTheDiscoveryDirUnderEitherName is the
+// silent half of FR-37 for this variable: `RETND_SSH_DISCOVERY_DIR` is
+// the name now, and an operator whose `.env` still says
+// `BACKUP_MANAGER_SSH_DISCOVERY_DIR` gets a scan that keeps looking where
+// they told it to for one more release. The failure this prevents has no
+// error message: the directory simply stops being one of the locations,
+// and the symptom is a key missing from a list.
+func TestDiscoverSSHKeyCandidates_ReadsTheDiscoveryDirUnderEitherName(t *testing.T) {
+	t.Run("the retired name alone is still read", func(t *testing.T) {
+		svc, _ := openTestService(t)
+		legacy := t.TempDir()
+		t.Setenv("HOME", t.TempDir())
+		t.Setenv(sshDiscoveryDirEnvLegacy, legacy)
+
+		pem, line, fingerprint := throwawayKeyPair(t)
+		if err := os.WriteFile(filepath.Join(legacy, "id_ed25519"), pem, 0o600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(legacy, "id_ed25519.pub"), []byte(line+"\n"), 0o644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+
+		found, err := svc.DiscoverSSHKeyCandidates(context.Background())
+		if err != nil {
+			t.Fatalf("DiscoverSSHKeyCandidates: %v", err)
+		}
+		for _, c := range found.Candidates {
+			if c.Path == filepath.Join(legacy, "id_ed25519") {
+				if c.Fingerprint != fingerprint {
+					t.Errorf("fingerprint = %q, want %q", c.Fingerprint, fingerprint)
+				}
+
+				return
+			}
+		}
+		t.Errorf("a key in the directory named by %s was not discovered, so an operator who has not yet renamed the variable is told they have no keys: %+v",
+			sshDiscoveryDirEnvLegacy, found.Locations)
+	})
+
+	t.Run("the current name wins when both are set", func(t *testing.T) {
+		svc, _ := openTestService(t)
+		current, legacy := t.TempDir(), t.TempDir()
+		t.Setenv("HOME", t.TempDir())
+		t.Setenv(sshDiscoveryDirEnv, current)
+		t.Setenv(sshDiscoveryDirEnvLegacy, legacy)
+
+		found, err := svc.DiscoverSSHKeyCandidates(context.Background())
+		if err != nil {
+			t.Fatalf("DiscoverSSHKeyCandidates: %v", err)
+		}
+
+		var named []string
+		for _, l := range found.Locations {
+			named = append(named, l.Path)
+		}
+		if !slicesContains(named, current) {
+			t.Errorf("the searched locations %v do not include the directory %s names", named, sshDiscoveryDirEnv)
+		}
+		if slicesContains(named, legacy) {
+			t.Errorf("the searched locations %v include the directory %s names while the current name is also set; an operator who has added the new line to .env and not removed the old one must get the directory they just wrote",
+				named, sshDiscoveryDirEnvLegacy)
+		}
+	})
 }
 
 // TestImportSSHKeyCandidate_TakesAnOpaqueIDAndNeverAPath is the traversal

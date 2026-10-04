@@ -4,12 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/spdrman/rclone-manager/core/service"
+	"github.com/retnd/retnd/core/service"
 )
 
 // Backup-set CRUD: create, list, read, update, remove, and the two
@@ -98,6 +99,30 @@ type backupSetSpec struct {
 	// repository's own could simply omit (PR #628 review). Omitted or
 	// false checks, which is what every create should do.
 	SkipConnectionCheck bool `json:"skip_connection_check"`
+
+	// EPIC K's engine seam on the way in (#788).
+	//
+	// engine is "artifact", "kopia", or absent, and absent means
+	// artifact -- which is what every request written before this field
+	// existed means. Everything below it is read only for the
+	// incremental engine and refused for an artifact set, by the same
+	// config.Validate a hand-edited config.yaml goes through: nothing in
+	// this package decides what a valid engine configuration is, for the
+	// reason setBackupSetRetention gives about the same question.
+	//
+	// uuid is optional on the way in and the service mints one: its only
+	// job is to be stable across every rename this set will ever have,
+	// and a value an operator types is a value an operator can retype
+	// differently.
+	Engine                               string `json:"engine,omitempty"`
+	UUID                                 string `json:"uuid,omitempty"`
+	RepositoryDomain                     string `json:"repository_domain,omitempty"`
+	SourceConsistency                    string `json:"source_consistency,omitempty"`
+	VerificationLevel                    string `json:"verification_level,omitempty"`
+	VerificationSamplePercent            int    `json:"verification_sample_percent,omitempty"`
+	VerificationFullEverySeconds         int64  `json:"verification_full_every_seconds,omitempty"`
+	VerificationRestoreDrillEverySeconds int64  `json:"verification_restore_drill_every_seconds,omitempty"`
+	SourceMountPrefix                    string `json:"source_mount_prefix,omitempty"`
 }
 
 // backupSetRequest is POST /api/v1/backup-sets' request body: the spec
@@ -200,6 +225,24 @@ type backupSetResponse struct {
 	// /backup-sets/{source}/{set}/retention, which serves it on demand
 	// alongside the deployment's own.
 	RetentionIsOverride bool `json:"retention_is_override"`
+
+	// PollIntervalSeconds is this set's own poll-interval override
+	// (issue #845), and NULL when the set inherits the deployment's.
+	//
+	// Null is a real answer and a form has to render it as one: filling
+	// the box with the deployment's number would make the next save an
+	// explicit override, permanently detaching this set from a default
+	// it was tracking. That is capacity's backup_root_configured
+	// problem in a different field.
+	PollIntervalSeconds *int `json:"poll_interval_seconds"`
+
+	// EffectivePollIntervalSeconds is how often this set is actually
+	// polled: its override, or the deployment's default. Served beside
+	// the override so a form can label the inherit option with the real
+	// number without a second request, and resolved by the engine so no
+	// client combines the two scopes itself.
+	EffectivePollIntervalSeconds int `json:"effective_poll_interval_seconds"`
+
 	// TrustedHostKeys is what this set's known_hosts actually pins for its
 	// own address (service.BackupSet.TrustedHostKeys). Omitted, not sent
 	// as an empty list, and the difference is the whole point: absent
@@ -229,6 +272,29 @@ type backupSetResponse struct {
 	// screen, which is what made --no-verify a hole rather than an escape
 	// hatch.
 	ConnectionUnverified bool `json:"connection_unverified,omitempty"`
+
+	// EPIC K's engine seam, read back (#788).
+	//
+	// engine is never omitted and is always the RESOLVED value: a
+	// configuration that says nothing reads "artifact" here rather than
+	// empty, because a client that had to know the default would be a
+	// second place the default is decided. This is the field a surface
+	// draws "Artifact" or "Incremental" from, which is EPIC K's own
+	// acceptance criterion.
+	//
+	// Everything below it is omitted for an artifact set, which has no
+	// repository, no lineage and no verification budget. Absent is the
+	// honest answer there, and a zero would read as a configured budget
+	// of none.
+	Engine                               string `json:"engine"`
+	UUID                                 string `json:"uuid,omitempty"`
+	RepositoryDomain                     string `json:"repository_domain,omitempty"`
+	SourceConsistency                    string `json:"source_consistency,omitempty"`
+	VerificationLevel                    string `json:"verification_level,omitempty"`
+	VerificationSamplePercent            int    `json:"verification_sample_percent,omitempty"`
+	VerificationFullEverySeconds         int64  `json:"verification_full_every_seconds,omitempty"`
+	VerificationRestoreDrillEverySeconds int64  `json:"verification_restore_drill_every_seconds,omitempty"`
+	SourceMountPrefix                    string `json:"source_mount_prefix,omitempty"`
 }
 
 // trustedHostKeyResponse is one pinned host key on the wire: the algorithm
@@ -267,9 +333,22 @@ func toBackupSetResponse(bs service.BackupSet) backupSetResponse {
 		ReadOnly:            bs.ReadOnly,
 		RetentionIsOverride: bs.RetentionIsOverride,
 
+		PollIntervalSeconds:          secondsPointerFromDuration(bs.PollInterval),
+		EffectivePollIntervalSeconds: int(bs.EffectivePollInterval / time.Second),
+
 		TrustedHostKeys:          trusted,
 		TrustedHostKeyRecordedAt: recordedAt,
 		ConnectionUnverified:     bs.ConnectionUnverified,
+
+		Engine:                               bs.Engine,
+		UUID:                                 bs.UUID,
+		RepositoryDomain:                     bs.RepositoryDomain,
+		SourceConsistency:                    bs.SourceConsistency,
+		VerificationLevel:                    bs.VerificationLevel,
+		VerificationSamplePercent:            bs.VerificationSamplePercent,
+		VerificationFullEverySeconds:         int64(bs.VerificationFullEvery / time.Second),
+		VerificationRestoreDrillEverySeconds: int64(bs.VerificationRestoreDrillEvery / time.Second),
+		SourceMountPrefix:                    bs.SourceMountPrefix,
 	}
 }
 
@@ -376,9 +455,20 @@ func (h *handlers) createBackupSet(w http.ResponseWriter, r *http.Request) {
 		Disabled:            body.Disabled,
 		ReadOnly:            body.ReadOnly,
 		SkipConnectionCheck: body.SkipConnectionCheck,
-		RunImmediately:      runImmediately,
-		AcknowledgeRepoint:  body.AcknowledgeRepoint,
-		Actor:               actorFromContext(r.Context()),
+
+		Engine:                        body.Engine,
+		UUID:                          body.UUID,
+		RepositoryDomain:              body.RepositoryDomain,
+		SourceConsistency:             body.SourceConsistency,
+		VerificationLevel:             body.VerificationLevel,
+		VerificationSamplePercent:     body.VerificationSamplePercent,
+		VerificationFullEvery:         time.Duration(body.VerificationFullEverySeconds) * time.Second,
+		VerificationRestoreDrillEvery: time.Duration(body.VerificationRestoreDrillEverySeconds) * time.Second,
+		SourceMountPrefix:             body.SourceMountPrefix,
+
+		RunImmediately:     runImmediately,
+		AcknowledgeRepoint: body.AcknowledgeRepoint,
+		Actor:              actorFromContext(r.Context()),
 	}
 
 	result, err := h.backend.CreateBackupSet(r.Context(), req)
@@ -525,6 +615,35 @@ func (h *handlers) writeBackupSetError(w http.ResponseWriter, r *http.Request, e
 		// internal/sourcecheck's own sentences and the caller's own
 		// values, never from a transport error's text (issue #624).
 		writeError(w, http.StatusConflict, "BACKUP_SET_CONNECTION_NOT_PROVEN", err.Error())
+	case errors.Is(err, service.ErrSourceNotWritable):
+		// 409 and its own code, next to ErrConnectionNotProven rather
+		// than folded into it, because the two offer an operator
+		// different things (issue #852). That one says "the source is
+		// not answering, fix it or save unproven"; this one says "the
+		// source answered, and these credentials cannot write there, so
+		// this set cannot delete from it" — and what it offers is "save
+		// it read-only" or "grant write permission on the source". A
+		// client that could not tell them apart would offer the wrong
+		// way out, and `skip_connection_check` is NOT a way out of this
+		// one.
+		//
+		// Safe to echo, on the same terms: core/service builds this
+		// message from its own text alone.
+		writeError(w, http.StatusConflict, "BACKUP_SET_SOURCE_NOT_WRITABLE", err.Error())
+	case errors.Is(err, service.ErrIncrementalEngineDisabled):
+		// EPIC K's production feature gate (#789). 409 and its own code,
+		// for the reason above taken one step further out: the request is
+		// well formed and the DEPLOYMENT is configured not to run the
+		// engine this set names. What it offers an operator is "enable
+		// incremental_engine.enabled and try again" or "create an
+		// artifact set instead", and a client that rendered
+		// INVALID_REQUEST here would send them hunting a typo in a
+		// request that was right.
+		//
+		// Safe to echo: the message is core/internal/config's own
+		// sentence, naming the config key and the environment variable
+		// and nothing about this deployment's storage.
+		writeError(w, http.StatusConflict, "INCREMENTAL_ENGINE_DISABLED", err.Error())
 	case errors.Is(err, service.ErrRepointNotAcknowledged):
 		// 409 rather than 400, because this is not a malformed request:
 		// it is a well-formed one whose consequences the caller has to
@@ -640,6 +759,14 @@ type setReadOnlyRequest struct {
 // manager already retained under it, so neither direction is the
 // "delete a byte of backup data" requireDestructiveGate exists to gate.
 //
+// Since issue #852 the OFF direction runs a real connection check first
+// and answers 409 BACKUP_SET_SOURCE_NOT_WRITABLE when the source's own
+// credentials cannot write there: "delete from the source after backup"
+// is a promise this deployment has to be able to keep. So this route can
+// now make an outbound SSH connection in one direction, which is the same
+// side effect POST /backup-sets already has and the reason both carry
+// requireCSRF.
+//
 // The id is read from two named segments, like setBackupSetEnabled
 // beside it, for the identical reason: a backup set id is always exactly
 // source/name, a fixed arity, and this route needs a literal
@@ -726,6 +853,14 @@ type updateBackupSetRequest struct {
 	StableForSeconds   *int    `json:"stable_for_seconds"`
 	StaleAfterSeconds  *int    `json:"stale_after_seconds"`
 
+	// PollIntervalSeconds changes how often this set's source is checked
+	// (issue #845). Absent leaves it alone, like every field here; an
+	// explicit 0 is the spelling of "inherit the deployment's interval
+	// again", which is unambiguous because the engine's floor
+	// (schema.service.min_poll_interval_seconds) makes zero a value no
+	// caller could be asking for.
+	PollIntervalSeconds *int `json:"poll_interval_seconds"`
+
 	ValidatorID *string `json:"validator_id"`
 
 	// SSHKeyID and KnownHostsLine are issue #572's two: the key this set
@@ -759,6 +894,16 @@ type updateBackupSetRequest struct {
 	// connection_unverified until a test passes. Not a pointer, for the
 	// reason the two acknowledgements above are not.
 	SkipConnectionCheck bool `json:"skip_connection_check"`
+
+	// EPIC K's editable verification budget (#788). Five fields and no
+	// more: engine, uuid and repository_domain are create-only, because
+	// changing any of them is a migration rather than an edit. See
+	// core/service's own note above UpdateBackupSetRequest.isEmpty.
+	SourceConsistency                    *string `json:"source_consistency,omitempty"`
+	VerificationLevel                    *string `json:"verification_level,omitempty"`
+	VerificationSamplePercent            *int    `json:"verification_sample_percent,omitempty"`
+	VerificationFullEverySeconds         *int64  `json:"verification_full_every_seconds,omitempty"`
+	VerificationRestoreDrillEverySeconds *int64  `json:"verification_restore_drill_every_seconds,omitempty"`
 }
 
 // updateBackupSet is PATCH /api/v1/backup-sets/{source}/{set} (issue
@@ -794,6 +939,12 @@ func (h *handlers) updateBackupSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	pollInterval, err := checkedSecondsPointerToDuration(body.PollIntervalSeconds, "poll_interval_seconds")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
+		return
+	}
+
 	req := service.UpdateBackupSetRequest{
 		Host:               body.Host,
 		Port:               body.Port,
@@ -804,12 +955,19 @@ func (h *handlers) updateBackupSet(w http.ResponseWriter, r *http.Request) {
 		CompletionStrategy: body.CompletionStrategy,
 		StableFor:          secondsPointerToDuration(body.StableForSeconds),
 		StaleAfter:         secondsPointerToDuration(body.StaleAfterSeconds),
+		PollInterval:       pollInterval,
 		SSHKeyID:           body.SSHKeyID,
 		KnownHostsLine:     body.KnownHostsLine,
 
 		AcknowledgeRepoint:       body.AcknowledgeRepoint,
 		AcknowledgeHostKeyChange: body.AcknowledgeHostKeyChange,
 		SkipConnectionCheck:      body.SkipConnectionCheck,
+
+		SourceConsistency:             body.SourceConsistency,
+		VerificationLevel:             body.VerificationLevel,
+		VerificationSamplePercent:     body.VerificationSamplePercent,
+		VerificationFullEvery:         secondsPointerToDurationFromInt64(body.VerificationFullEverySeconds),
+		VerificationRestoreDrillEvery: secondsPointerToDurationFromInt64(body.VerificationRestoreDrillEverySeconds),
 	}
 	if body.ValidatorID != nil {
 		id := service.ValidatorID(*body.ValidatorID)
@@ -829,6 +987,18 @@ func (h *handlers) updateBackupSet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toBackupSetResponse(updated))
 }
 
+// secondsPointerFromDuration is the read direction of
+// secondsPointerToDuration: a duration a backup set may not have at all
+// becomes a nullable number, so "this set inherits" stays distinguishable
+// from "this set polls at the same interval the deployment does".
+func secondsPointerFromDuration(d *time.Duration) *int {
+	if d == nil {
+		return nil
+	}
+	s := int(*d / time.Second)
+	return &s
+}
+
 // secondsPointerToDuration is secondsToDuration for a field that has to
 // keep telling "absent" apart from "zero". It returns nil for nil, so a
 // body that never mentioned stable_for_seconds reaches core/service as a
@@ -839,5 +1009,50 @@ func secondsPointerToDuration(s *int) *time.Duration {
 		return nil
 	}
 	d := secondsToDuration(*s)
+	return &d
+}
+
+// maxDurationSeconds is the largest whole number of seconds a
+// time.Duration can carry: it is nanoseconds in an int64, so anything
+// above this overflows.
+const maxDurationSeconds = int64(math.MaxInt64 / int64(time.Second))
+
+// checkedSecondsPointerToDuration is secondsPointerToDuration for a field
+// where the multiplication itself can lie.
+//
+// A JSON body may carry any number the decoder accepts, and seconds ×
+// 1e9 wraps silently: 2^55 seconds lands on exactly zero, and zero is
+// not a rejected value on a poll interval -- it is the spelling of
+// "inherit the deployment's interval again", so the largest number a
+// client can send would quietly CLEAR an operator's override and be
+// answered 200. Other values wrap to short, entirely plausible cadences,
+// which is the same failure pointed at the operator's sources.
+//
+// So the bound is checked before the multiply, and the refusal names the
+// number rather than the internal type: an operator who typed too many
+// zeroes needs to see that, not "invalid request".
+func checkedSecondsPointerToDuration(s *int, field string) (*time.Duration, error) {
+	if s == nil {
+		return nil, nil
+	}
+	if int64(*s) > maxDurationSeconds || int64(*s) < -maxDurationSeconds {
+		return nil, fmt.Errorf("%s is %d seconds, which is longer than this engine can express as an interval (at most %d seconds)", field, *s, maxDurationSeconds)
+	}
+	d := secondsToDuration(*s)
+	return &d, nil
+}
+
+// secondsPointerToDurationFromInt64 is secondsPointerToDuration for a
+// cadence, which is spelled int64 on the wire because a verification
+// cadence is measured in weeks and an int32 of seconds runs out at
+// sixty-eight years. nil stays nil, which is "leave this alone"; zero is
+// a real value here and means never.
+func secondsPointerToDurationFromInt64(v *int64) *time.Duration {
+	if v == nil {
+		return nil
+	}
+
+	d := time.Duration(*v) * time.Second
+
 	return &d
 }

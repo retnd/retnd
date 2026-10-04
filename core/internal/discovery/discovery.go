@@ -75,11 +75,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/internal/config"
-	"github.com/spdrman/rclone-manager/core/internal/lifecycle"
-	"github.com/spdrman/rclone-manager/core/internal/model"
-	"github.com/spdrman/rclone-manager/core/internal/state"
-	"github.com/spdrman/rclone-manager/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // Deps is what Discover needs from the rest of the manager. It mirrors
@@ -322,6 +322,13 @@ func Discover(ctx context.Context, deps Deps, source transport.Source, set confi
 		if isProducerTempName(base) {
 			// Still being written under a recognized in-progress name.
 			// Expected and routine, not a discovery gap.
+			continue
+		}
+		if isOwnWriteProbe(base) {
+			// This deployment's own write probe, left behind because its
+			// removal failed. Not a candidate in any strategy: see
+			// isOwnWriteProbe for why it reaches this loop at all and
+			// why it is skipped silently rather than reported.
 			continue
 		}
 		if !includeMatches(set.Include, base) {

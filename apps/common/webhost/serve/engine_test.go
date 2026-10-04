@@ -32,11 +32,12 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/spdrman/rclone-manager/apps/common/auth/local"
-	"github.com/spdrman/rclone-manager/apps/common/platform/capabilities"
-	"github.com/spdrman/rclone-manager/apps/common/platform/profile"
-	"github.com/spdrman/rclone-manager/apps/common/webhost/serve"
-	"github.com/spdrman/rclone-manager/core/service"
+	"github.com/retnd/retnd/apps/common/auth/local"
+	"github.com/retnd/retnd/apps/common/email/emailtest"
+	"github.com/retnd/retnd/apps/common/platform/capabilities"
+	"github.com/retnd/retnd/apps/common/platform/profile"
+	"github.com/retnd/retnd/apps/common/webhost/serve"
+	"github.com/retnd/retnd/core/service"
 )
 
 // testPlatformAdapter is a minimal capabilities.PlatformAdapter built only
@@ -64,7 +65,7 @@ func (a testPlatformAdapter) PlatformInfo(_ context.Context) (capabilities.Platf
 	return capabilities.PlatformInfo{ID: capabilities.PlatformGeneric, Name: "test"}, nil
 }
 
-// writeTestConfig mirrors core/cmd/backup-manager/main_test.go's own
+// writeTestConfig mirrors core/cmd/retnd/main_test.go's own
 // writeTestConfig: a minimal, valid config against real temp directories,
 // needing no network and no Docker.
 func writeTestConfig(t *testing.T) string {
@@ -201,12 +202,32 @@ func csrfToken(t *testing.T, client *http.Client, base string) string {
 // (either the engine directly or the UI host's proxy - both must behave
 // identically), leaving client holding a real, live session cookie
 // afterward.
+//
+// The SMTP block and the recovery address are not decoration: since
+// issue #830 that route sends a confirmation message and refuses the
+// enrollment if the send fails, so a harness that wants a session has to
+// give the engine somewhere to send. That somewhere is an in-process sink
+// on 127.0.0.1 (apps/common/email/emailtest), started and stopped by this
+// test - never a real mail service, and no container needed for an engine
+// that is running in this same process.
 func enrollAndLogIn(t *testing.T, h *engineHarness, client *http.Client, base string) {
 	t.Helper()
 	csrf := csrfToken(t, client, base)
 	token := h.bootstrapToken(t)
+	sink := emailtest.Start(t)
 
-	body, _ := json.Marshal(map[string]string{"username": "bm-admin", "password": "correct-horse-battery"})
+	body, _ := json.Marshal(map[string]any{
+		"username":      "bm-admin",
+		"password":      "correct-horse-battery",
+		"recoveryEmail": "admin@example.test",
+		"smtp": map[string]any{
+			"host":     sink.Host(),
+			"port":     sink.Port(),
+			"security": "none",
+			"username": "",
+			"from":     "retnd@example.test",
+		},
+	})
 	req, err := http.NewRequest(http.MethodPost, base+"/api/v1/auth/enroll", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
@@ -224,6 +245,10 @@ func enrollAndLogIn(t *testing.T, h *engineHarness, client *http.Client, base st
 		b, _ := io.ReadAll(resp.Body)
 		t.Fatalf("enroll status = %d, want %d; body=%s", resp.StatusCode, http.StatusNoContent, b)
 	}
+	// Asserted rather than assumed: a 204 already implies the send
+	// succeeded, and this proves the message that succeeded is the
+	// verification message and that it reached the sink.
+	sink.WaitForMessage(t, "retnd: verify your recovery email", 10*time.Second)
 }
 
 // TestEngine_UnauthenticatedDestructiveRequestIsRefused proves the
@@ -334,6 +359,39 @@ func TestEngine_NoAuthRoutesMeansNoUnauthenticatedAuthEndpoint(t *testing.T) {
 	}
 }
 
+// TestEngine_EveryResponseCarriesExactlyOneCorrelationId is issue #730's
+// review, medium finding 3, at the composition it actually has to hold
+// for.
+//
+// The engine is three surfaces behind one mux - the auth routes, the
+// /api/v1 router and the mux's own 404 - and an id that exists on some
+// of them is an id an operator cannot be told to quote. Exactly one
+// value is the other half: webhost.RequestScope wraps the whole
+// composition AND the API router installs it for a provider that builds
+// a route table directly, so a second mint would give one request two
+// names and put whichever lost the race in the log.
+func TestEngine_EveryResponseCarriesExactlyOneCorrelationId(t *testing.T) {
+	h := newEngineHarness(t)
+
+	for _, target := range []string{
+		"/health/live",
+		"/api/v1/system/version", // 401: no session on this client
+		"/api/v1/auth/login",     // the auth surface, mounted separately
+		"/not-a-route-at-all",    // the mux's own refusal
+	} {
+		res, err := http.Get(h.server.URL + target)
+		if err != nil {
+			t.Fatalf("GET %s: %v", target, err)
+		}
+		ids := res.Header.Values("X-Correlation-Id")
+		res.Body.Close()
+
+		if len(ids) != 1 || ids[0] == "" {
+			t.Errorf("GET %s answered %d with X-Correlation-Id %v, want exactly one non-empty value", target, res.StatusCode, ids)
+		}
+	}
+}
+
 // uiHarness wraps an engineHarness with a real NewUI httptest.Server
 // proxying to it, modelling the real two-container topology: engine has
 // no published port and the UI host proxies through.
@@ -353,7 +411,7 @@ func newUIHarness(t *testing.T) *uiHarness {
 	}
 
 	staticFS := fstest.MapFS{
-		"index.html": &fstest.MapFile{Data: []byte("<html><body>generic backup-manager UI shell</body></html>")},
+		"index.html": &fstest.MapFile{Data: []byte("<html><body>generic retnd UI shell</body></html>")},
 	}
 
 	ui := httptest.NewServer(serve.NewUI(serve.UIConfig{Upstream: upstream, StaticFS: staticFS}))
@@ -432,7 +490,7 @@ func TestUI_StaticUIServedForNonAPIRoute(t *testing.T) {
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("GET %s status = %d, want %d", path, resp.StatusCode, http.StatusOK)
 		}
-		if !strings.Contains(string(body), "generic backup-manager UI shell") {
+		if !strings.Contains(string(body), "generic retnd UI shell") {
 			t.Errorf("GET %s body = %q, want it to contain the static index.html content (SPA fallback)", path, body)
 		}
 	}

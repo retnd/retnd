@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spdrman/rclone-manager/core/apicontract"
+	"github.com/retnd/retnd/core/apicontract"
 )
 
 // The corpus two tests in this package are driven with: one request body
@@ -83,11 +83,12 @@ func bodyVariants(schema string, body []byte) [][]byte {
 		if err := json.Unmarshal(body, &decoded); err != nil {
 			return [][]byte{body}
 		}
-		out := make([][]byte, 0, 3)
+		out := make([][]byte, 0, 4)
 		for _, action := range []string{
 			apicontract.ActionRunCycle,
 			apicontract.ActionRunBackupSet,
 			apicontract.ActionRestorePlacement,
+			apicontract.ActionRestoreSnapshot,
 		} {
 			decoded["action"] = action
 			encoded, err := json.Marshal(decoded)

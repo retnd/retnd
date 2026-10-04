@@ -35,7 +35,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/spdrman/rclone-manager/core/internal/config"
+	"github.com/retnd/retnd/core/internal/config"
 )
 
 // The fixture writeTestConfigFile writes: one source, one backup set,
@@ -567,12 +567,26 @@ func writeRichTestConfigFile(t *testing.T) string {
 		"        remote_path: " + remoteDir + "\n" +
 		"        local_path: " + filepath.Join(dir, "local") + "\n" +
 		"        include:\n          - \"*.dump\"\n" +
+		// Issue #737's path-scoped exclude, set here for the same reason
+		// every other field is: the whole-struct comparison below proves
+		// nothing about a field that is absent on both sides, and an
+		// update that silently dropped an operator's exclude_paths would
+		// put a discovery pass that was finishing back to walking a 65k
+		// file cache every poll.
+		"        exclude_paths:\n          - tiles\n" +
 		"        completion:\n" +
 		"          strategy: stable\n" +
 		"          stable_for: 90s\n" +
 		"          delete_safety_delay: 30s\n" +
 		"        stale_after: 24h\n" +
 		"        read_only: true\n" +
+		// EPIC K's engine key, written out explicitly. An artifact set
+		// means the same thing whether it says so or leaves the key out,
+		// which is exactly why the fixture says so: an applier that
+		// dropped an operator's `engine: artifact` on an unrelated edit
+		// would be silently rewriting which engine a set declares, and a
+		// fixture that omitted the key could not tell.
+		"        engine: artifact\n" +
 		// Issue #624's mark, set so the whole-struct comparison in
 		// TestUpdateBackupSet_WritesOnlyTheFieldsTheRequestNames means
 		// something about it: a field left at its zero value on both
@@ -580,11 +594,38 @@ func writeRichTestConfigFile(t *testing.T) string {
 		// is the exact hollowing this fixture's own control exists to
 		// catch.
 		"        connection_unverified: true\n" +
+		// Issue #845's per-set poll interval, set for the same reason:
+		// an applier that dropped an operator's override on an unrelated
+		// edit would silently move that set back onto the deployment's
+		// cadence, and a fixture that omitted the key could not tell.
+		"        poll_interval: 5m\n" +
+		// EPIC L's per-set workflow block and environment (#808), set
+		// for the reason every field above is: an applier that dropped
+		// an operator's hook directories on an unrelated edit would
+		// silently stop running the scripts that quiesce their
+		// database, and a fixture that omitted the keys could not tell.
+		"        workflow:\n" +
+		"          before_dir: db-before\n" +
+		"          after_dir: db-after\n" +
+		"          script_timeout: 45s\n" +
+		"          remote_exec_connection_ref: production/postgres-primary\n" +
+		"        environment:\n" +
+		"          - name: PGDATABASE\n            value: orders\n" +
 		"        validation:\n          hash: sha256\n          validator_id: trailer-marker\n" +
 		"        retention:\n" +
 		"          daily_days: 90\n" +
 		"          weekly_months: 24\n" +
 		"          monthly_months: 60\n" +
+		// The deployment-wide half of EPIC L. A per-set workflow block
+		// is refused without a declared root (the root is the approved
+		// tree every hook must live inside), so this is what makes the
+		// per-set keys above a legal configuration rather than a
+		// fixture that cannot load.
+		"workflows:\n" +
+		"  root: /workflows\n" +
+		"  global:\n" +
+		"    before_dir: global-before\n" +
+		"    after_dir: global-after\n" +
 		"retention:\n" +
 		"  timezone: UTC\n" +
 		"  week_starts_on: monday\n" +
@@ -683,6 +724,13 @@ var exemptFromIsolationFixture = map[string]string{
 	"Disabled":     "a bool whose zero value IS its ordinary state (an enabled set), so \"non-zero\" cannot be required of it. UpdateBackupSetRequest cannot reach it either: enabling and disabling is POST /enabled's own route",
 	"Revalidation": "issue #315's re-check schedule, which no update-path request field can reach and which config.Validate does not require",
 
+	// EPIC L (#808). The merged environment a hook actually runs with,
+	// filled in by Validate from three layers and carrying yaml:"-", so
+	// it is never on disk to compare -- the same footing as Retention
+	// and ReadOnly above. The two keys it is merged FROM, `workflow` and
+	// `environment`, are both written out by the fixture.
+	"WorkflowEnvironment": "the RESOLVED environment, merged by Validate from the sanitized baseline, the deployment block and the set's own, and carrying yaml:\"-\", so it is never on disk to compare",
+
 	// One level down, and every one of these is a field that CANNOT be
 	// set alongside what the fixture already sets, rather than one nobody
 	// got round to.
@@ -693,6 +741,34 @@ var exemptFromIsolationFixture = map[string]string{
 	"Remote.Key.Passphrase.Command": "the third of those three, refused alongside File for the same reason",
 	"Completion.ManifestMarker":     "issue #291's marker filename, used only by the \"marker\" strategy and refused by Validate alongside \"stable\", which is the strategy this fixture uses so that stable_for (a field the update path CAN set) is exercised instead",
 	"Validation.Command":            "the RESOLVED validator command, this deployment's own materialized script path. newBackupSetFor's doc is explicit that a config.yaml holding a stale copy of it fails every artifact in the set after the next restart, so a fixture that wrote one would be pinning the thing the applier deliberately clears",
+
+	// EPIC K's engine seam (#780). This fixture is an ARTIFACT set --
+	// which is what the update path can create and edit; incremental
+	// sets reach service in #783 -- and config.Validate refuses every
+	// one of these keys on a set running the artifact engine, because a
+	// key nothing will ever read is dead configuration. So they cannot be
+	// set alongside what the fixture already sets, which is the same
+	// shape as the mutually-exclusive entries above. The one key an
+	// artifact set CAN carry, `engine` itself, the fixture writes out.
+	"UUID":                    "the durable identifier a snapshot lineage hangs off, refused by Validate on an artifact set (nothing reads it there); it is required and exercised for an incremental set",
+	"RepositoryDomainConfig":  "the repository domain a snapshot is stored in, refused by Validate on an artifact set, which has no repository",
+	"ConsistencyConfig":       "ADR 0009's source-consistency mode, refused by Validate on an artifact set, whose unit of work is a completed file rather than a source tree being read live",
+	"VerificationLevelConfig": "how far a SNAPSHOT is verified, refused by Validate on an artifact set; FR-11's validation/revalidation of a durable copy is what this fixture exercises instead",
+
+	// #784's verification budget: the sample size and the two cadences.
+	// All three describe how deeply a SNAPSHOT is proven, so Validate
+	// refuses them on an artifact set for the same reason it refuses
+	// verification_level above -- a key nothing will ever read is dead
+	// configuration.
+	"VerificationSamplePercentConfig": "how much of a snapshot's file list a sampled verification reads, refused by Validate on an artifact set alongside verification_level",
+	"VerificationFullEvery":           "how often a snapshot gets a full content read regardless of its configured level, refused by Validate on an artifact set alongside verification_level",
+	"VerificationRestoreDrillEvery":   "how often a snapshot gets an actual restore drill, refused by Validate on an artifact set alongside verification_level",
+	"SourceMountPrefix":               "the part of remote_path that is this deployment's mount rather than the source's own identity; it only feeds a source identity, so Validate refuses it on an artifact set",
+	"Engine":                          "the RESOLVED engine, filled in by Validate from the `engine` key the fixture does set, on the same footing as Retention and ReadOnly above",
+	"Repository":                      "the RESOLVED repository reference, carrying yaml:\"-\" and zero for an artifact set, so it is never on disk to compare",
+	"Consistency":                     "the RESOLVED consistency mode, filled in by Validate for an incremental set only",
+	"VerificationLevel":               "the RESOLVED verification level, filled in by Validate for an incremental set only",
+	"SourceIdentity":                  "the RESOLVED source identity, computed by Validate for an incremental set only; an artifact set has no snapshot lineage to keep stable",
 }
 
 // TestUpdateBackupSetIsolationFixtureExercisesEveryField is a control on

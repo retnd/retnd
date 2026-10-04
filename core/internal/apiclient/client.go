@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/apicontract"
+	"github.com/retnd/retnd/core/apicontract"
 )
 
 // The three names on the wire that the generated binding does not carry.
@@ -35,10 +35,19 @@ import (
 // comparison covers it and so a reader can see the whole credential set in
 // one place.
 const (
-	sessionCookieName = "bm_session"
-	csrfCookieName    = "bm_csrf"
+	sessionCookieName = "retnd_session"
+	csrfCookieName    = "retnd_csrf"
 	csrfHeaderName    = "X-CSRF-Token"
 )
+
+// This client reads only the current names, with no legacy fallback, and
+// that asymmetry with the server (which reads the two deprecated names
+// for one release after #794 and EPIC R's #885) is deliberate rather
+// than an omission. The compat window exists for credentials already in
+// a jar that outlives the upgrade; this client's jar is per-process and
+// per-invocation, so every token it ever compares was issued by the
+// engine it is talking to, in the same run, under the current name. A
+// fallback here would only add a name nothing can produce.
 
 // defaultTimeout bounds one request, not one command. Every operation this
 // package reaches is a configuration read or write against a local
@@ -57,10 +66,17 @@ const defaultTimeout = 30 * time.Second
 // The BINARY's own version is deliberately not read here. internal/app
 // reads build info to answer `version`, and its doc is explicit that a
 // second reader of it would be a second answer to a question that has one.
-// A caller that already knows its build (cmd/backup-manager does, from
+// A caller that already knows its build (cmd/retnd does, from
 // -ldflags) says so through Config.UserAgent, and this is what stands in
 // until one does.
-const defaultUserAgent = "backup-manager-cli (api " + apicontract.Version + ")"
+//
+// This name is a HARD CUT at the rename: there is no
+// `retnd-cli` fallback, because a User-Agent is read by log filters
+// and audit queries rather than by this product, and a client that sent
+// two names would make both of those wrong. It is called out in
+// CHANGELOG.md's [Unreleased] entry for exactly that reason -- somebody
+// downstream may be matching on it.
+const defaultUserAgent = "retnd-cli (api " + apicontract.Version + ")"
 
 // maxResponseBytes caps what is read from one response. The largest thing
 // on this API is a backup-set or artifact listing, and the cap exists so
@@ -126,7 +142,7 @@ type Config struct {
 	// #543's claim is that a command run through this route leaves the
 	// same audit trail as the Web UI, and a log line reading
 	// "Go-http-client/1.1" names no product, no version and no surface. A
-	// caller that knows its own build (cmd/backup-manager does, from
+	// caller that knows its own build (cmd/retnd does, from
 	// -ldflags) should say so here.
 	UserAgent string
 }

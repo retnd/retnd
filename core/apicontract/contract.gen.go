@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "bb45f33fb55cfb08530f2ea09af19ce89036701e9e94ee04a2102ea09164da12"
+const ContractSHA256 = "f8cc9c340ef96db68d0ba4cc31405c45a542d5a736c2ba763373a5db61dca57d"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -60,9 +60,13 @@ const (
 	ErrorCodeUnauthenticated                        ErrorCode = "UNAUTHENTICATED"
 	ErrorCodeRateLimited                            ErrorCode = "RATE_LIMITED"
 	ErrorCodeInvalidRequest                         ErrorCode = "INVALID_REQUEST"
+	ErrorCodeInvalidEmail                           ErrorCode = "INVALID_EMAIL"
 	ErrorCodeEnrollmentClosed                       ErrorCode = "ENROLLMENT_CLOSED"
 	ErrorCodeBootstrapTokenInvalid                  ErrorCode = "BOOTSTRAP_TOKEN_INVALID"
+	ErrorCodeResetTokenInvalid                      ErrorCode = "RESET_TOKEN_INVALID"
+	ErrorCodeVerifyTokenInvalid                     ErrorCode = "VERIFY_TOKEN_INVALID"
 	ErrorCodeInternalError                          ErrorCode = "INTERNAL_ERROR"
+	ErrorCodeSmtpSendFailed                         ErrorCode = "SMTP_SEND_FAILED"
 	ErrorCodeCSRFTokenMissing                       ErrorCode = "CSRF_TOKEN_MISSING"
 	ErrorCodeCSRFTokenMismatch                      ErrorCode = "CSRF_TOKEN_MISMATCH"
 	ErrorCodeRetentionPlanStale                     ErrorCode = "RETENTION_PLAN_STALE"
@@ -99,7 +103,23 @@ const (
 	ErrorCodeStorageCredentialNotFound              ErrorCode = "STORAGE_CREDENTIAL_NOT_FOUND"
 	ErrorCodeSSHKeyCandidateNotFound                ErrorCode = "SSH_KEY_CANDIDATE_NOT_FOUND"
 	ErrorCodeBackupSetConnectionNotProven           ErrorCode = "BACKUP_SET_CONNECTION_NOT_PROVEN"
+	ErrorCodeBackupSetSourceNotWritable             ErrorCode = "BACKUP_SET_SOURCE_NOT_WRITABLE"
 	ErrorCodeMediumConnectionNotProven              ErrorCode = "MEDIUM_CONNECTION_NOT_PROVEN"
+	ErrorCodeSnapshotNotFound                       ErrorCode = "SNAPSHOT_NOT_FOUND"
+	ErrorCodeSnapshotHoldNotFound                   ErrorCode = "SNAPSHOT_HOLD_NOT_FOUND"
+	ErrorCodeSnapshotNotHoldable                    ErrorCode = "SNAPSHOT_NOT_HOLDABLE"
+	ErrorCodeRepositoryDomainNotFound               ErrorCode = "REPOSITORY_DOMAIN_NOT_FOUND"
+	ErrorCodeBackupSetNotIncremental                ErrorCode = "BACKUP_SET_NOT_INCREMENTAL"
+	ErrorCodeIncrementalEngineDisabled              ErrorCode = "INCREMENTAL_ENGINE_DISABLED"
+	ErrorCodeRepositoryDomainExists                 ErrorCode = "REPOSITORY_DOMAIN_EXISTS"
+	ErrorCodeRepositoryDomainMaintainedElsewhere    ErrorCode = "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE"
+	ErrorCodeWorkflowsNotConfigured                 ErrorCode = "WORKFLOWS_NOT_CONFIGURED"
+	ErrorCodeWorkflowScriptRejected                 ErrorCode = "WORKFLOW_SCRIPT_REJECTED"
+	ErrorCodeWorkflowEnvNotFound                    ErrorCode = "WORKFLOW_ENV_NOT_FOUND"
+	ErrorCodeWorkflowRunNotFound                    ErrorCode = "WORKFLOW_RUN_NOT_FOUND"
+	ErrorCodeWorkflowStepNotFound                   ErrorCode = "WORKFLOW_STEP_NOT_FOUND"
+	ErrorCodeWorkflowAcknowledgementReasonRequired  ErrorCode = "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED"
+	ErrorCodeWorkflowEngineUnavailable              ErrorCode = "WORKFLOW_ENGINE_UNAVAILABLE"
 )
 
 // WireErrorCodes is codes a server may put on the wire. Every one of these is emitted by real handler code, and apps/common/webhost's TestContract_EveryWireErrorCodeIsRegistered holds that both ways.
@@ -107,9 +127,13 @@ var WireErrorCodes = []ErrorCode{
 	ErrorCodeUnauthenticated,
 	ErrorCodeRateLimited,
 	ErrorCodeInvalidRequest,
+	ErrorCodeInvalidEmail,
 	ErrorCodeEnrollmentClosed,
 	ErrorCodeBootstrapTokenInvalid,
+	ErrorCodeResetTokenInvalid,
+	ErrorCodeVerifyTokenInvalid,
 	ErrorCodeInternalError,
+	ErrorCodeSmtpSendFailed,
 	ErrorCodeCSRFTokenMissing,
 	ErrorCodeCSRFTokenMismatch,
 	ErrorCodeRetentionPlanStale,
@@ -146,7 +170,23 @@ var WireErrorCodes = []ErrorCode{
 	ErrorCodeStorageCredentialNotFound,
 	ErrorCodeSSHKeyCandidateNotFound,
 	ErrorCodeBackupSetConnectionNotProven,
+	ErrorCodeBackupSetSourceNotWritable,
 	ErrorCodeMediumConnectionNotProven,
+	ErrorCodeSnapshotNotFound,
+	ErrorCodeSnapshotHoldNotFound,
+	ErrorCodeSnapshotNotHoldable,
+	ErrorCodeRepositoryDomainNotFound,
+	ErrorCodeBackupSetNotIncremental,
+	ErrorCodeIncrementalEngineDisabled,
+	ErrorCodeRepositoryDomainExists,
+	ErrorCodeRepositoryDomainMaintainedElsewhere,
+	ErrorCodeWorkflowsNotConfigured,
+	ErrorCodeWorkflowScriptRejected,
+	ErrorCodeWorkflowEnvNotFound,
+	ErrorCodeWorkflowRunNotFound,
+	ErrorCodeWorkflowStepNotFound,
+	ErrorCodeWorkflowAcknowledgementReasonRequired,
+	ErrorCodeWorkflowEngineUnavailable,
 }
 
 // UIErrorCodes is the shared UI's own presentation vocabulary. No endpoint emits these; they are registered here so there is one registry rather than a second hand-maintained list in ui/shared.
@@ -178,9 +218,13 @@ var ErrorCodes = []ErrorCode{
 	ErrorCodeUnauthenticated,
 	ErrorCodeRateLimited,
 	ErrorCodeInvalidRequest,
+	ErrorCodeInvalidEmail,
 	ErrorCodeEnrollmentClosed,
 	ErrorCodeBootstrapTokenInvalid,
+	ErrorCodeResetTokenInvalid,
+	ErrorCodeVerifyTokenInvalid,
 	ErrorCodeInternalError,
+	ErrorCodeSmtpSendFailed,
 	ErrorCodeCSRFTokenMissing,
 	ErrorCodeCSRFTokenMismatch,
 	ErrorCodeRetentionPlanStale,
@@ -217,20 +261,36 @@ var ErrorCodes = []ErrorCode{
 	ErrorCodeStorageCredentialNotFound,
 	ErrorCodeSSHKeyCandidateNotFound,
 	ErrorCodeBackupSetConnectionNotProven,
+	ErrorCodeBackupSetSourceNotWritable,
 	ErrorCodeMediumConnectionNotProven,
+	ErrorCodeSnapshotNotFound,
+	ErrorCodeSnapshotHoldNotFound,
+	ErrorCodeSnapshotNotHoldable,
+	ErrorCodeRepositoryDomainNotFound,
+	ErrorCodeBackupSetNotIncremental,
+	ErrorCodeIncrementalEngineDisabled,
+	ErrorCodeRepositoryDomainExists,
+	ErrorCodeRepositoryDomainMaintainedElsewhere,
+	ErrorCodeWorkflowsNotConfigured,
+	ErrorCodeWorkflowScriptRejected,
+	ErrorCodeWorkflowEnvNotFound,
+	ErrorCodeWorkflowRunNotFound,
+	ErrorCodeWorkflowStepNotFound,
+	ErrorCodeWorkflowAcknowledgementReasonRequired,
+	ErrorCodeWorkflowEngineUnavailable,
 }
 
 // ErrorClasses groups codes by the refusal they represent, so a caller (or
 // a red team) can assert the RIGHT refusal rather than any refusal.
 var ErrorClasses = map[string][]ErrorCode{
-	"authentication": {ErrorCodeUnauthenticated, ErrorCodeBootstrapTokenInvalid},
+	"authentication": {ErrorCodeUnauthenticated, ErrorCodeBootstrapTokenInvalid, ErrorCodeResetTokenInvalid, ErrorCodeVerifyTokenInvalid},
 	"authorization":  {ErrorCodeEnrollmentClosed, ErrorCodeDestructiveOperationsDisabled, ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
-	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven},
+	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected},
 	"internal":       {ErrorCodeInternal, ErrorCodeInternalError},
-	"not-found":      {ErrorCodeBackupSetNotFound, ErrorCodeOperationNotFound, ErrorCodeRetentionPlanNotFound, ErrorCodeArtifactNotFound, ErrorCodeMediumNotFound},
+	"not-found":      {ErrorCodeBackupSetNotFound, ErrorCodeOperationNotFound, ErrorCodeRetentionPlanNotFound, ErrorCodeArtifactNotFound, ErrorCodeMediumNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound, ErrorCodeRepositoryDomainNotFound, ErrorCodeWorkflowEnvNotFound, ErrorCodeWorkflowRunNotFound, ErrorCodeWorkflowStepNotFound},
 	"throttling":     {ErrorCodeRateLimited},
-	"unavailable":    {ErrorCodeNotConfigured},
-	"validation":     {ErrorCodeInvalidRequest, ErrorCodeSSHKeyNotFound, ErrorCodeHostKeyProbeFailed, ErrorCodeMediumDisclosureRequired},
+	"unavailable":    {ErrorCodeNotConfigured, ErrorCodeSmtpSendFailed, ErrorCodeWorkflowEngineUnavailable},
+	"validation":     {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail, ErrorCodeSSHKeyNotFound, ErrorCodeHostKeyProbeFailed, ErrorCodeMediumDisclosureRequired, ErrorCodeBackupSetNotIncremental, ErrorCodeWorkflowAcknowledgementReasonRequired},
 }
 
 // Endpoint is one operation of the contract, with the requirements a
@@ -279,13 +339,23 @@ var Endpoints = []Endpoint{
 	{
 		ID: "enrollAdministrator", Method: "POST", Path: "/auth/enroll",
 		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "CredentialsRequest", ResponseSchema: "", SuccessStatus: 204,
+		RequestSchema: "EnrollRequest", ResponseSchema: "", SuccessStatus: 204,
 		ErrorCodes: map[int][]ErrorCode{
-			400: {ErrorCodeInvalidRequest},
+			400: {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail},
 			401: {ErrorCodeBootstrapTokenInvalid},
 			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeEnrollmentClosed},
 			429: {ErrorCodeRateLimited},
 			500: {ErrorCodeInternalError},
+			502: {ErrorCodeSmtpSendFailed},
+		},
+	},
+	{
+		ID: "requestPasswordReset", Method: "POST", Path: "/auth/forgot-password",
+		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "ForgotPasswordRequest", ResponseSchema: "", SuccessStatus: 204,
+		ErrorCodes: map[int][]ErrorCode{
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			429: {ErrorCodeRateLimited},
 		},
 	},
 	{
@@ -321,11 +391,81 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "getRecoverySettings", Method: "GET", Path: "/auth/recovery",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "RecoverySettingsResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			500: {ErrorCodeInternalError},
+		},
+	},
+	{
+		ID: "updateRecoverySettings", Method: "PATCH", Path: "/auth/recovery",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "RecoverySettingsUpdate", ResponseSchema: "RecoverySettingsResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			500: {ErrorCodeInternalError},
+			502: {ErrorCodeSmtpSendFailed},
+		},
+	},
+	{
+		ID: "sendRecoveryTestEmail", Method: "POST", Path: "/auth/recovery/test",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "", SuccessStatus: 204,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			500: {ErrorCodeInternalError},
+			502: {ErrorCodeSmtpSendFailed},
+		},
+	},
+	{
+		ID: "resetPassword", Method: "POST", Path: "/auth/reset-password",
+		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "ResetPasswordRequest", ResponseSchema: "", SuccessStatus: 204,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeResetTokenInvalid},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			429: {ErrorCodeRateLimited},
+			500: {ErrorCodeInternalError},
+		},
+	},
+	{
 		ID: "getSession", Method: "GET", Path: "/auth/session",
 		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "SessionResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
+		},
+	},
+	{
+		ID: "verifyRecoveryEmail", Method: "POST", Path: "/auth/verify-email",
+		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "VerifyEmailRequest", ResponseSchema: "", SuccessStatus: 204,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeVerifyTokenInvalid},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			429: {ErrorCodeRateLimited},
+			500: {ErrorCodeInternalError},
+		},
+	},
+	{
+		ID: "resendRecoveryEmailVerification", Method: "POST", Path: "/auth/verify-email/resend",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "", SuccessStatus: 204,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			429: {ErrorCodeRateLimited},
+			500: {ErrorCodeInternalError},
+			502: {ErrorCodeSmtpSendFailed},
 		},
 	},
 	{
@@ -355,7 +495,7 @@ var Endpoints = []Endpoint{
 			400: {ErrorCodeInvalidRequest, ErrorCodeSSHKeyNotFound},
 			401: {ErrorCodeUnauthenticated},
 			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled},
-			409: {ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetConnectionNotProven},
+			409: {ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeIncrementalEngineDisabled},
 			500: {ErrorCodeInternal},
 			503: {ErrorCodeNotConfigured},
 		},
@@ -403,7 +543,7 @@ var Endpoints = []Endpoint{
 			401: {ErrorCodeUnauthenticated},
 			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
 			404: {ErrorCodeBackupSetNotFound},
-			409: {ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeBackupSetConnectionNotProven},
+			409: {ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable},
 			500: {ErrorCodeInternal},
 		},
 	},
@@ -452,6 +592,19 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "listBackupSetSnapshotHolds", Method: "GET", Path: "/backup-sets/{source}/{set}/holds",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ListSnapshotHoldsResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeBackupSetNotIncremental},
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound},
+			409: {ErrorCodeIncrementalEngineDisabled},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
 		ID: "setBackupSetReadOnly", Method: "POST", Path: "/backup-sets/{source}/{set}/read-only",
 		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "SetReadOnlyRequest", ResponseSchema: "BackupSet", SuccessStatus: 200,
@@ -460,6 +613,7 @@ var Endpoints = []Endpoint{
 			401: {ErrorCodeUnauthenticated},
 			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
 			404: {ErrorCodeBackupSetNotFound},
+			409: {ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable},
 			500: {ErrorCodeInternal},
 		},
 	},
@@ -524,6 +678,117 @@ var Endpoints = []Endpoint{
 			404: {ErrorCodeBackupSetNotFound},
 			500: {ErrorCodeInternal},
 			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "getBackupSetSnapshotRetention", Method: "GET", Path: "/backup-sets/{source}/{set}/snapshot-retention",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "SnapshotRetentionResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeBackupSetNotIncremental},
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound},
+			409: {ErrorCodeIncrementalEngineDisabled},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "listBackupSetSnapshots", Method: "GET", Path: "/backup-sets/{source}/{set}/snapshots",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ListSnapshotsResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeBackupSetNotIncremental},
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound},
+			409: {ErrorCodeIncrementalEngineDisabled},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "getBackupSetSnapshot", Method: "GET", Path: "/backup-sets/{source}/{set}/snapshots/{run}",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "SnapshotResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeBackupSetNotIncremental},
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound, ErrorCodeSnapshotNotFound},
+			409: {ErrorCodeIncrementalEngineDisabled},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "getBackupSetWorkflow", Method: "GET", Path: "/backup-sets/{source}/{set}/workflow",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "BackupSetWorkflowResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "updateBackupSetWorkflow", Method: "PATCH", Path: "/backup-sets/{source}/{set}/workflow",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "UpdateBackupSetWorkflowRequest", ResponseSchema: "BackupSetWorkflowResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound},
+			409: {ErrorCodeWorkflowScriptRejected, ErrorCodeWorkflowsNotConfigured},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "listBackupSetWorkflowEnvironment", Method: "GET", Path: "/backup-sets/{source}/{set}/workflow/environment",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ListWorkflowEnvironmentResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "unsetBackupSetWorkflowEnvironment", Method: "DELETE", Path: "/backup-sets/{source}/{set}/workflow/environment/{name}",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ListWorkflowEnvironmentResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound, ErrorCodeWorkflowEnvNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "setBackupSetWorkflowEnvironment", Method: "PUT", Path: "/backup-sets/{source}/{set}/workflow/environment/{name}",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "WorkflowEnvironmentVariableRequest", ResponseSchema: "ListWorkflowEnvironmentResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "getBackupSetWorkflowValidation", Method: "GET", Path: "/backup-sets/{source}/{set}/workflow/validation",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "WorkflowValidationResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured, ErrorCodeWorkflowEngineUnavailable},
 		},
 	},
 	{
@@ -592,11 +857,11 @@ var Endpoints = []Endpoint{
 		Authenticated: true, CSRFRequired: true, IdempotencyKey: "required", DestructiveGate: true, Concurrency: "config_revision",
 		RequestSchema: "SubmitOperationRequest", ResponseSchema: "Operation", SuccessStatus: 202,
 		ErrorCodes: map[int][]ErrorCode{
-			400: {ErrorCodeInvalidRequest},
+			400: {ErrorCodeInvalidRequest, ErrorCodeBackupSetNotIncremental},
 			401: {ErrorCodeUnauthenticated},
 			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled},
-			404: {ErrorCodeBackupSetNotFound, ErrorCodeArtifactNotFound, ErrorCodeCopyNotFound},
-			409: {ErrorCodeConfigRevisionStale, ErrorCodeIdempotencyKeyConflict, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeRestoreRefused},
+			404: {ErrorCodeBackupSetNotFound, ErrorCodeArtifactNotFound, ErrorCodeCopyNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound},
+			409: {ErrorCodeConfigRevisionStale, ErrorCodeIdempotencyKeyConflict, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeRestoreRefused, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled},
 			500: {ErrorCodeInternal},
 			503: {ErrorCodeRestoreUnavailable},
 		},
@@ -658,6 +923,41 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "listRepositories", Method: "GET", Path: "/repositories",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ListRepositoriesResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			409: {ErrorCodeIncrementalEngineDisabled},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "createRepositoryDomain", Method: "POST", Path: "/repositories",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "CreateRepositoryDomainRequest", ResponseSchema: "RepositoryHealth", SuccessStatus: 201,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			409: {ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeIncrementalEngineDisabled},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "getRepositoryMaintenance", Method: "GET", Path: "/repositories/{domain}/maintenance",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "RepositoryMaintenance", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeRepositoryDomainNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
 		ID: "getSettings", Method: "GET", Path: "/settings",
 		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "SettingsResponse", SuccessStatus: 200,
@@ -673,6 +973,63 @@ var Endpoints = []Endpoint{
 		RequestSchema: "UpdateSettingsRequest", ResponseSchema: "SettingsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeMediumDisclosureRequired},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "getWorkflowSettings", Method: "GET", Path: "/settings/workflow",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "WorkflowSettingsResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "updateWorkflowSettings", Method: "PATCH", Path: "/settings/workflow",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "UpdateWorkflowSettingsRequest", ResponseSchema: "WorkflowSettingsResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			409: {ErrorCodeWorkflowScriptRejected},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "listWorkflowEnvironment", Method: "GET", Path: "/settings/workflow/environment",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ListWorkflowEnvironmentResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "unsetWorkflowEnvironment", Method: "DELETE", Path: "/settings/workflow/environment/{name}",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ListWorkflowEnvironmentResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeWorkflowEnvNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "setWorkflowEnvironment", Method: "PUT", Path: "/settings/workflow/environment/{name}",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "WorkflowEnvironmentVariableRequest", ResponseSchema: "ListWorkflowEnvironmentResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
 			401: {ErrorCodeUnauthenticated},
 			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
 			500: {ErrorCodeInternal},
@@ -899,7 +1256,7 @@ var Endpoints = []Endpoint{
 			400: {ErrorCodeInvalidRequest, ErrorCodeSSHKeyNotFound},
 			401: {ErrorCodeUnauthenticated},
 			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
-			409: {ErrorCodeAlreadyConfigured, ErrorCodeBackupSetConnectionNotProven},
+			409: {ErrorCodeAlreadyConfigured, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable},
 			500: {ErrorCodeInternal},
 		},
 	},
@@ -939,6 +1296,86 @@ var Endpoints = []Endpoint{
 			500: {ErrorCodeInternal},
 		},
 	},
+	{
+		ID: "listWorkflowRecovery", Method: "GET", Path: "/workflow-recovery",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "WorkflowRecoveryResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured, ErrorCodeWorkflowEngineUnavailable},
+		},
+	},
+	{
+		ID: "acknowledgeWorkflowRecovery", Method: "POST", Path: "/workflow-recovery/{run}/acknowledge",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "WorkflowAcknowledgementRequest", ResponseSchema: "", SuccessStatus: 204,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest, ErrorCodeWorkflowAcknowledgementReasonRequired},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeWorkflowRunNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured, ErrorCodeWorkflowEngineUnavailable},
+		},
+	},
+	{
+		ID: "resumeWorkflowCleanup", Method: "POST", Path: "/workflow-recovery/{run}/resume-cleanup",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "WorkflowRun", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeWorkflowRunNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured, ErrorCodeWorkflowEngineUnavailable},
+		},
+	},
+	{
+		ID: "listWorkflowRuns", Method: "GET", Path: "/workflow-runs",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ListWorkflowRunsResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured, ErrorCodeWorkflowEngineUnavailable},
+		},
+	},
+	{
+		ID: "getWorkflowRun", Method: "GET", Path: "/workflow-runs/{run}",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "WorkflowRun", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeWorkflowRunNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured, ErrorCodeWorkflowEngineUnavailable},
+		},
+	},
+	{
+		ID: "listWorkflowRunSteps", Method: "GET", Path: "/workflow-runs/{run}/steps",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ListWorkflowStepsResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeWorkflowRunNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured, ErrorCodeWorkflowEngineUnavailable},
+		},
+	},
+	{
+		ID: "getWorkflowStepLogs", Method: "GET", Path: "/workflow-runs/{run}/steps/{step}/logs",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "WorkflowStepLogPage", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeWorkflowRunNotFound, ErrorCodeWorkflowStepNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured, ErrorCodeWorkflowEngineUnavailable},
+		},
+	},
 }
 
 // CapabilityFields is the platform-capability set GET /system/capabilities
@@ -965,6 +1402,18 @@ type ActivityEvent struct {
 	SetName      string `json:"set_name"`
 	SourceName   string `json:"source_name"`
 	To           string `json:"to"`
+}
+
+// AdoptedPath is one of this deployment's locations that is being served from a
+// pre-rename path, and the renamed path it would otherwise have
+// used. A location is adopted only when the renamed path holds
+// nothing and the pre-rename path holds the data; two populated
+// locations that are different directories make the runtime refuse
+// to start instead, and are therefore never reported here.
+type AdoptedPath struct {
+	Renamed string `json:"renamed"`
+	Serving string `json:"serving"`
+	What    string `json:"what"`
 }
 
 // ApplyRetentionRequest is POST /backup-sets/{source}/{set}/retention/apply.
@@ -1049,12 +1498,13 @@ type BackendEnumValue struct {
 // carries a label and a summary for a picker and says nothing about
 // any particular destination.
 type BackendManifest struct {
-	Fields  []BackendManifestField `json:"fields"`
-	ID      string                 `json:"id"`
-	Label   string                 `json:"label"`
-	Probe   BackendProbe           `json:"probe"`
-	Role    string                 `json:"role"`
-	Summary string                 `json:"summary"`
+	Configurable bool                   `json:"configurable"`
+	Fields       []BackendManifestField `json:"fields"`
+	ID           string                 `json:"id"`
+	Label        string                 `json:"label"`
+	Probe        BackendProbe           `json:"probe"`
+	Role         string                 `json:"role"`
+	Summary      string                 `json:"summary"`
 }
 
 // BackendManifestField is one thing an operator is asked for when they configure an instance
@@ -1098,26 +1548,37 @@ type BackendProbeStep struct {
 
 // BackupSet is A persisted backup set as the API reports it.
 type BackupSet struct {
-	CompletionStrategy       string           `json:"completion_strategy"`
-	ConnectionUnverified     bool             `json:"connection_unverified,omitempty"`
-	Disabled                 bool             `json:"disabled"`
-	Host                     string           `json:"host"`
-	ID                       string           `json:"id"`
-	Include                  []string         `json:"include"`
-	LocalPath                string           `json:"local_path"`
-	Name                     string           `json:"name"`
-	Port                     int              `json:"port"`
-	ReadOnly                 bool             `json:"read_only"`
-	RemotePath               string           `json:"remote_path"`
-	RetentionIsOverride      bool             `json:"retention_is_override"`
-	SourceName               string           `json:"source_name"`
-	SSHKeyID                 string           `json:"ssh_key_id"`
-	StableForSeconds         int              `json:"stable_for_seconds"`
-	StaleAfterSeconds        int              `json:"stale_after_seconds"`
-	TrustedHostKeyRecordedAt string           `json:"trusted_host_key_recorded_at,omitempty"`
-	TrustedHostKeys          []TrustedHostKey `json:"trusted_host_keys,omitempty"`
-	User                     string           `json:"user"`
-	ValidatorID              string           `json:"validator_id"`
+	CompletionStrategy                   string           `json:"completion_strategy"`
+	ConnectionUnverified                 bool             `json:"connection_unverified,omitempty"`
+	Disabled                             bool             `json:"disabled"`
+	EffectivePollIntervalSeconds         int              `json:"effective_poll_interval_seconds"`
+	Engine                               string           `json:"engine"`
+	Host                                 string           `json:"host"`
+	ID                                   string           `json:"id"`
+	Include                              []string         `json:"include"`
+	LocalPath                            string           `json:"local_path"`
+	Name                                 string           `json:"name"`
+	PollIntervalSeconds                  *int             `json:"poll_interval_seconds"`
+	Port                                 int              `json:"port"`
+	ReadOnly                             bool             `json:"read_only"`
+	RemotePath                           string           `json:"remote_path"`
+	RepositoryDomain                     string           `json:"repository_domain,omitempty"`
+	RetentionIsOverride                  bool             `json:"retention_is_override"`
+	SourceConsistency                    string           `json:"source_consistency,omitempty"`
+	SourceMountPrefix                    string           `json:"source_mount_prefix,omitempty"`
+	SourceName                           string           `json:"source_name"`
+	SSHKeyID                             string           `json:"ssh_key_id"`
+	StableForSeconds                     int              `json:"stable_for_seconds"`
+	StaleAfterSeconds                    int              `json:"stale_after_seconds"`
+	TrustedHostKeyRecordedAt             string           `json:"trusted_host_key_recorded_at,omitempty"`
+	TrustedHostKeys                      []TrustedHostKey `json:"trusted_host_keys,omitempty"`
+	User                                 string           `json:"user"`
+	Uuid                                 string           `json:"uuid,omitempty"`
+	ValidatorID                          string           `json:"validator_id"`
+	VerificationFullEverySeconds         int64            `json:"verification_full_every_seconds,omitempty"`
+	VerificationLevel                    string           `json:"verification_level,omitempty"`
+	VerificationRestoreDrillEverySeconds int64            `json:"verification_restore_drill_every_seconds,omitempty"`
+	VerificationSamplePercent            int              `json:"verification_sample_percent,omitempty"`
 }
 
 // BackupSetEditHold is POST /backup-sets/{source}/{set}/edit-hold. The lease just taken
@@ -1207,23 +1668,50 @@ type BackupSetRetention struct {
 // so the wizard that collects these answers can never be right about
 // one operation and wrong about the other.
 type BackupSetSpec struct {
-	CompletionStrategy  string   `json:"completion_strategy"`
-	Disabled            bool     `json:"disabled"`
-	Host                string   `json:"host"`
-	Include             []string `json:"include"`
-	KnownHostsLine      string   `json:"known_hosts_line"`
-	LocalPath           string   `json:"local_path"`
-	Name                string   `json:"name"`
-	Port                int      `json:"port"`
-	ReadOnly            bool     `json:"read_only"`
-	RemotePath          string   `json:"remote_path"`
-	SkipConnectionCheck bool     `json:"skip_connection_check"`
-	SourceName          string   `json:"source_name"`
-	SSHKeyID            string   `json:"ssh_key_id"`
-	StableForSeconds    int      `json:"stable_for_seconds"`
-	StaleAfterSeconds   int      `json:"stale_after_seconds"`
-	User                string   `json:"user"`
-	ValidatorID         string   `json:"validator_id"`
+	CompletionStrategy                   string   `json:"completion_strategy"`
+	Disabled                             bool     `json:"disabled"`
+	Engine                               string   `json:"engine,omitempty"`
+	Host                                 string   `json:"host"`
+	Include                              []string `json:"include"`
+	KnownHostsLine                       string   `json:"known_hosts_line"`
+	LocalPath                            string   `json:"local_path"`
+	Name                                 string   `json:"name"`
+	Port                                 int      `json:"port"`
+	ReadOnly                             bool     `json:"read_only"`
+	RemotePath                           string   `json:"remote_path"`
+	RepositoryDomain                     string   `json:"repository_domain,omitempty"`
+	SkipConnectionCheck                  bool     `json:"skip_connection_check"`
+	SourceConsistency                    string   `json:"source_consistency,omitempty"`
+	SourceMountPrefix                    string   `json:"source_mount_prefix,omitempty"`
+	SourceName                           string   `json:"source_name"`
+	SSHKeyID                             string   `json:"ssh_key_id"`
+	StableForSeconds                     int      `json:"stable_for_seconds"`
+	StaleAfterSeconds                    int      `json:"stale_after_seconds"`
+	User                                 string   `json:"user"`
+	Uuid                                 string   `json:"uuid,omitempty"`
+	ValidatorID                          string   `json:"validator_id"`
+	VerificationFullEverySeconds         int64    `json:"verification_full_every_seconds,omitempty"`
+	VerificationLevel                    string   `json:"verification_level,omitempty"`
+	VerificationRestoreDrillEverySeconds int64    `json:"verification_restore_drill_every_seconds,omitempty"`
+	VerificationSamplePercent            int      `json:"verification_sample_percent,omitempty"`
+}
+
+// BackupSetWorkflowResponse is one backup set's workflow configuration, resolved against the
+// deployment's. Both halves of every inherited value are reported --
+// what this set pins and what a hook will actually get -- because an
+// operator changing the deployment default needs to know which sets
+// are pinned and which will follow.
+type BackupSetWorkflowResponse struct {
+	AfterDir                      string                        `json:"after_dir"`
+	BackupSetID                   string                        `json:"backup_set_id"`
+	BeforeDir                     string                        `json:"before_dir"`
+	Configured                    bool                          `json:"configured"`
+	EffectiveScriptTimeoutSeconds int64                         `json:"effective_script_timeout_seconds"`
+	Environment                   []WorkflowEnvironmentVariable `json:"environment"`
+	RemoteExecConnectionRef       string                        `json:"remote_exec_connection_ref"`
+	ResolvedEnvironmentNames      []string                      `json:"resolved_environment_names"`
+	ScriptTimeoutSeconds          int64                         `json:"script_timeout_seconds"`
+	Stages                        []WorkflowStage               `json:"stages"`
 }
 
 // CapabilitiesResponse is GET /system/capabilities. The API expression of the
@@ -1331,6 +1819,28 @@ type CreateBackupSetResponse struct {
 	RunError  string     `json:"run_error,omitempty"`
 }
 
+// CreateRepositoryDomainRequest is POST /repositories: declare a repository domain. What this
+// persists is a DECLARATION -- an id, a co-tenancy posture and the
+// reference the passphrase is resolved from -- and it creates no
+// store: the repository itself is realized lazily by the first
+// backup run that stores a snapshot in it, exactly as a domain named
+// on the add-backup-set wizard's repository step already is. Nothing
+// here is proven against storage, and nothing here reads it: this
+// route opens no repository and resolves no passphrase reference, so
+// the domain it answers with is described from the declaration
+// alone. Once declared, the domain is probed by GET /repositories,
+// where one nothing has run into yet answers `reachable` true and
+// `readable` false -- the storage answers and holds no repository,
+// which is the truth about it rather than a failure of it.
+type CreateRepositoryDomainRequest struct {
+	Description      string                        `json:"description"`
+	ID               string                        `json:"id"`
+	Isolation        string                        `json:"isolation"`
+	Location         string                        `json:"location"`
+	MaintenanceOwner string                        `json:"maintenance_owner"`
+	Passphrase       RepositoryPassphraseReference `json:"passphrase"`
+}
+
 // CredentialsRequest is POST /auth/login and POST /auth/enroll. camelCase, unlike every
 // schema above: apps/common/auth/local predates the snake_case
 // convention the rest of /api/v1 uses. Recorded here as it is rather
@@ -1370,6 +1880,25 @@ type CycleOutcome struct {
 	Moves               *CycleMoveOutcome `json:"moves,omitempty"`
 }
 
+// EnrollRequest is POST /auth/enroll. The credentials, plus the two things issue #830
+// makes part of creating the administrator: the address account
+// recovery mails to, and the SMTP endpoint it goes out over. Both
+// are required, because an administrator with no proven way to reach
+// its owner is an account that is permanently lost the first time a
+// password is forgotten, and enrollment is the last moment at which
+// somebody who can still sign in is present to fix the mail
+// configuration. The runtime SENDS a confirmation message to
+// `recoveryEmail` over `smtp` before it writes anything, and refuses
+// the whole enrollment with SMTP_SEND_FAILED if that send does not
+// succeed - leaving the single-use enrollment token unspent, so the
+// same link can be used again once the configuration is fixed.
+type EnrollRequest struct {
+	Password      string       `json:"password"`
+	RecoveryEmail string       `json:"recoveryEmail"`
+	Smtp          SmtpSettings `json:"smtp"`
+	Username      string       `json:"username"`
+}
+
 // ErrorBody is the nested error body every operation outside /auth returns. code
 // is stable and machine-readable; message is human-readable and MAY
 // change without notice.
@@ -1390,6 +1919,16 @@ type ErrorResponse struct {
 // NOT_CONFIGURED needs to know which screen to show, not why.
 type FirstRunStatusResponse struct {
 	Configured bool `json:"configured"`
+}
+
+// ForgotPasswordRequest is POST /auth/forgot-password. One field, and the answer never varies
+// with it: that operation answers 204 for an unenrolled deployment,
+// for a username that is not the administrator's, for an
+// administrator with no recovery address, and for an SMTP endpoint
+// that refused the message alike. It answers BEFORE any mail is
+// attempted, so the response time does not vary either.
+type ForgotPasswordRequest struct {
+	Username string `json:"username"`
 }
 
 // HealthResponse is GET /system/health. Every configured backup set's freshness
@@ -1465,7 +2004,8 @@ type ImportStorageCredentialsResponse struct {
 
 // ListActivityResponse is GET /activity, newest first.
 type ListActivityResponse struct {
-	Events []ActivityEvent `json:"events"`
+	Events     []ActivityEvent `json:"events"`
+	NextCursor string          `json:"next_cursor,omitempty"`
 }
 
 // ListArtifactsResponse is GET /backups and GET /quarantine. An object with one array field,
@@ -1501,6 +2041,15 @@ type ListOperationsResponse struct {
 	Operations []Operation `json:"operations"`
 }
 
+// ListRepositoriesResponse is GET /repositories: every repository domain this deployment
+// declares, with its health. Nothing is cached, for the reason the
+// backup-set health read is not: a cached repository verdict keeps
+// reporting green after the storage under it has gone away.
+type ListRepositoriesResponse struct {
+	GeneratedAt  string             `json:"generated_at"`
+	Repositories []RepositoryHealth `json:"repositories"`
+}
+
 // ListSSHKeyCandidatesResponse is GET /ssh/key-candidates. The locations travel beside the
 // candidates, in one response, so a client cannot render one without
 // the other.
@@ -1515,6 +2064,17 @@ type ListSSHKeyCandidatesResponse struct {
 // would tell anybody.
 type ListSSHKeysResponse struct {
 	Keys []SSHKey `json:"keys"`
+}
+
+// ListSnapshotHoldsResponse is GET /backup-sets/{source}/{set}/holds: every unreleased hold in
+// this backup set's snapshot lineage.
+type ListSnapshotHoldsResponse struct {
+	Holds []SnapshotHold `json:"holds"`
+}
+
+// ListSnapshotsResponse is GET /backup-sets/{source}/{set}/snapshots, newest first.
+type ListSnapshotsResponse struct {
+	Snapshots []Snapshot `json:"snapshots"`
 }
 
 // ListStorageMediumsResponse is every declared storage destination, in declaration order. An
@@ -1536,6 +2096,32 @@ type ListStorageStatusResponse struct {
 // would be an arbitrary-command surface.
 type ListValidatorsResponse struct {
 	Validators []Validator `json:"validators"`
+}
+
+// ListWorkflowEnvironmentResponse is one scope's configured workflow environment, after a read or a
+// write. The write operations answer with the whole list rather than
+// with the one entry they touched, because a set/unset is only
+// meaningful against what else is there: an operator clearing a
+// credential needs to see what is left, and the entry they just
+// wrote is in the answer either way.
+type ListWorkflowEnvironmentResponse struct {
+	BackupSetID string                        `json:"backup_set_id"`
+	Variables   []WorkflowEnvironmentVariable `json:"variables"`
+}
+
+// ListWorkflowRunsResponse is A page of workflow runs, newest first.
+type ListWorkflowRunsResponse struct {
+	Runs []WorkflowRun `json:"runs"`
+}
+
+// ListWorkflowStepsResponse is one run's steps, in plan order. Its own operation rather than a
+// field on the run detail because a client following a running
+// workflow polls the steps and not the run: the run's own row moves
+// once at the start and once at the end, and the steps are what
+// change in between.
+type ListWorkflowStepsResponse struct {
+	RunID string         `json:"run_id"`
+	Steps []WorkflowStep `json:"steps"`
 }
 
 // LiveActivityAction is one action that started and has not reported an outcome. It is
@@ -1784,6 +2370,7 @@ type Operation struct {
 	Progress       *OperationProgress `json:"progress,omitempty"`
 	Restore        *OperationRestore  `json:"restore,omitempty"`
 	Result         string             `json:"result,omitempty"`
+	Snapshots      []Snapshot         `json:"snapshots,omitempty"`
 	StartedAt      string             `json:"started_at,omitempty"`
 	Status         string             `json:"status"`
 }
@@ -1858,6 +2445,120 @@ type Placement struct {
 	StorageClass      string `json:"storage_class,omitempty"`
 	VerificationClass string `json:"verification_class,omitempty"`
 	VerifiedAt        string `json:"verified_at,omitempty"`
+}
+
+// RecoverySettingsResponse is GET /auth/recovery and PATCH /auth/recovery: the recovery address,
+// the two proofs about it, the deadline an unverified one lapses at,
+// and the SMTP endpoint without its password. `smtp` is ABSENT on a
+// deployment whose administrator was provisioned headlessly (`auth
+// create-admin` leaves recovery optional), which is a state a
+// settings page has to report rather than hide - absent rather than
+// null, the same optional-member convention every other response in
+// this contract uses for a fact that does not exist yet.
+type RecoverySettingsResponse struct {
+	RecoveryEmail          string            `json:"recoveryEmail"`
+	RecoveryEmailConfirmed bool              `json:"recoveryEmailConfirmed"`
+	RecoveryEmailVerified  bool              `json:"recoveryEmailVerified"`
+	Smtp                   *SmtpSettingsView `json:"smtp,omitempty"`
+	VerificationDeadline   string            `json:"verificationDeadline,omitempty"`
+}
+
+// RecoverySettingsUpdate is PATCH /auth/recovery. `currentPassword` is required on every call,
+// and at least one of `recoveryEmail`/`smtp` has to be named: a
+// request may change the recovery address, the SMTP endpoint, or
+// both. A changed address is re-verified by sending a confirmation
+// over the endpoint this same request establishes, and a changed
+// SMTP endpoint is proven the same way, with the whole update
+// refused with SMTP_SEND_FAILED if that send fails - so a settings
+// page cannot leave the account with a recovery address nothing has
+// ever been delivered to, nor claim a confirmed address over an
+// endpoint nothing has ever been delivered through.
+type RecoverySettingsUpdate struct {
+	CurrentPassword string        `json:"currentPassword"`
+	RecoveryEmail   *string       `json:"recoveryEmail"`
+	Smtp            *SmtpSettings `json:"smtp"`
+}
+
+// RepositoryHealth is one repository domain's own health, which is a different question
+// from any backup set's. A set can be perfectly fresh while the
+// repository holding its snapshots is unwritable, out of
+// maintenance, or reachable only by a process whose clock has
+// drifted far enough to mis-order manifests -- and none of those
+// show up in a freshness verdict. Every probe here is reported
+// separately rather than reduced to one boolean, because the
+// remedies are different: unreachable is a mount, unwritable is a
+// permission, invalid credentials is a passphrase, and overdue
+// maintenance is a schedule.
+type RepositoryHealth struct {
+	BackupSets             []string `json:"backup_sets,omitempty"`
+	ClockSane              bool     `json:"clock_sane"`
+	ClockSkewSeconds       *int64   `json:"clock_skew_seconds"`
+	CredentialsValid       bool     `json:"credentials_valid"`
+	Detail                 string   `json:"detail,omitempty"`
+	Domain                 string   `json:"domain"`
+	LastMaintenanceAt      string   `json:"last_maintenance_at,omitempty"`
+	LastMaintenanceResult  string   `json:"last_maintenance_result,omitempty"`
+	LastSnapshotAt         string   `json:"last_snapshot_at,omitempty"`
+	LastSnapshotStatus     string   `json:"last_snapshot_status,omitempty"`
+	LastVerificationAt     string   `json:"last_verification_at,omitempty"`
+	LastVerificationStatus string   `json:"last_verification_status,omitempty"`
+	MaintenanceOverdue     bool     `json:"maintenance_overdue"`
+	MayShare               bool     `json:"may_share"`
+	Reachable              bool     `json:"reachable"`
+	Readable               bool     `json:"readable"`
+	State                  string   `json:"state"`
+	Writable               bool     `json:"writable"`
+}
+
+// RepositoryMaintenance is GET /repositories/{domain}/maintenance: who owns this repository's
+// maintenance, when it last ran and when it is next eligible.
+// Ownership is the load-bearing part: several deployments may share
+// one repository, exactly one of them may run maintenance on it, and
+// an operator looking at a repository that is not being maintained
+// needs to know whether that is because nobody owns it or because
+// the owner is somebody else.
+type RepositoryMaintenance struct {
+	Domain         string `json:"domain"`
+	Due            bool   `json:"due"`
+	DueMode        string `json:"due_mode,omitempty"`
+	DueReason      string `json:"due_reason,omitempty"`
+	Failing        bool   `json:"failing"`
+	Failures       int64  `json:"failures"`
+	LastFullAt     string `json:"last_full_at,omitempty"`
+	LastQuickAt    string `json:"last_quick_at,omitempty"`
+	NextEligibleAt string `json:"next_eligible_at,omitempty"`
+	Overdue        bool   `json:"overdue"`
+	Owner          string `json:"owner"`
+	ReclaimedBytes int64  `json:"reclaimed_bytes"`
+	Runs           int64  `json:"runs"`
+}
+
+// RepositoryPassphraseReference is where one repository domain's encryption passphrase comes from: a
+// file on the manager's host, the NAME of an environment variable,
+// or an argv array whose stdout is the secret. Exactly one of the
+// three, and none of them is the passphrase itself. There is
+// deliberately no field to paste one into and there will not be: a
+// repository's passphrase is the only thing standing between its
+// storage and everything this product holds, and a secret that could
+// be typed into a request body is one that ends up in an access log,
+// a terminal transcript and config.yaml in the clear. This is the
+// same three-source shape config.yaml's own
+// repository_domains[].passphrase spells, because "how does a secret
+// reach this process" is one question this product answers once.
+type RepositoryPassphraseReference struct {
+	Command []string `json:"command"`
+	Env     string   `json:"env"`
+	File    string   `json:"file"`
+}
+
+// ResetPasswordRequest is POST /auth/reset-password: the token out of the emailed link, and
+// the password to set. The token is single-use and expires;
+// redeeming it revokes every live session and issues no new one, so
+// whoever set the password proves they know it by signing in with
+// it.
+type ResetPasswordRequest struct {
+	NewPassword string `json:"newPassword"`
+	Token       string `json:"token"`
 }
 
 // RestoreOperationRequest is the restore_placement action's own parameters. Present only when
@@ -2066,6 +2767,19 @@ type SSHKeyDiscoveryLocation struct {
 	Problem string `json:"problem,omitempty"`
 }
 
+// ServiceSchema is the rules the service-behaviour settings are validated against,
+// served so a form does not keep its own copy of a bound the engine
+// enforces.
+type ServiceSchema struct {
+	MinPollIntervalSeconds int `json:"min_poll_interval_seconds"`
+}
+
+// ServiceSettings is how this manager behaves, as opposed to what it keeps: the
+// service-behaviour settings.
+type ServiceSettings struct {
+	PollIntervalSeconds int `json:"poll_interval_seconds"`
+}
+
 // SessionResponse is GET /auth/session.
 type SessionResponse struct {
 	Username string `json:"username"`
@@ -2094,12 +2808,206 @@ type SettingsResponse struct {
 	Mediums   []StorageMediumSummary `json:"mediums"`
 	Retention RetentionSettings      `json:"retention"`
 	Schema    SettingsSchema         `json:"schema"`
+	Service   ServiceSettings        `json:"service"`
 }
 
 // SettingsSchema is the schema half of the settings response.
 type SettingsSchema struct {
 	Retention RetentionSchema `json:"retention"`
+	Service   ServiceSchema   `json:"service"`
 	Storage   StorageSchema   `json:"storage"`
+}
+
+// SmtpSettings is one SMTP submission endpoint an operator typed in: where to
+// connect, how the connection is protected, who to authenticate as,
+// and what address the mail is from. camelCase like the rest of
+// /auth. `password` is writeOnly and appears in NO response schema
+// anywhere in this contract: the runtime stores it as an opaque
+// reference to a mode-0600 file of its own and reports only whether
+// one is set (SmtpSettingsView.passwordSet). On an update, an absent
+// or empty `password` means "keep the stored one", which is what
+// lets a port or a from-address be corrected by somebody who does
+// not have the provider's API key in front of them.
+type SmtpSettings struct {
+	From     string `json:"from"`
+	Host     string `json:"host"`
+	Password string `json:"password"`
+	Port     int    `json:"port"`
+	Security string `json:"security"`
+	Username string `json:"username"`
+}
+
+// SmtpSettingsView is smtpSettings as a READ answers it: every field except the
+// password, plus `passwordSet`. The password is absent structurally
+// rather than blanked, so this shape has no field for a buggy
+// handler to serialise material into.
+type SmtpSettingsView struct {
+	From        string `json:"from"`
+	Host        string `json:"host"`
+	PasswordSet bool   `json:"passwordSet"`
+	Port        int    `json:"port"`
+	Security    string `json:"security"`
+	Username    string `json:"username"`
+}
+
+// Snapshot is one snapshot run: what the incremental engine did on one pass over
+// one backup set's source, and what it proved about the result. This
+// is the record the operator surfaces render for a Kopia run, and
+// its shape is the whole reason EPIC K refuses a single "bytes
+// backed up" figure: entries_scanned, logical_bytes,
+// source_bytes_read, repository_bytes_written and
+// content_reused_bytes are five different measurements of one pass,
+// and collapsing them reports a 100 GB tree deduplicated down to 200
+// MB of new content as a 100 GB upload. A run is identified by
+// run_id, which exists from the moment the pass starts; snapshot_id
+// is the engine's manifest id and exists only once a manifest was
+// committed, so a failed run has the first and not the second.
+type Snapshot struct {
+	BackupSetID               string         `json:"backup_set_id"`
+	CompletedAt               string         `json:"completed_at,omitempty"`
+	ConsistencyMode           string         `json:"consistency_mode"`
+	ContentReusedBytes        *int64         `json:"content_reused_bytes"`
+	DeleteRequestedAt         string         `json:"delete_requested_at,omitempty"`
+	Directories               *int64         `json:"directories"`
+	DurationSeconds           *int64         `json:"duration_seconds"`
+	Engine                    string         `json:"engine"`
+	EntriesScanned            *int64         `json:"entries_scanned"`
+	Files                     *int64         `json:"files"`
+	Holds                     []SnapshotHold `json:"holds,omitempty"`
+	LastKnownGood             bool           `json:"last_known_good"`
+	LogicalBytes              *int64         `json:"logical_bytes"`
+	OperationID               string         `json:"operation_id,omitempty"`
+	Phase                     string         `json:"phase"`
+	Reason                    string         `json:"reason,omitempty"`
+	RepositoryBytesWritten    *int64         `json:"repository_bytes_written"`
+	RepositoryDomain          string         `json:"repository_domain"`
+	RunID                     string         `json:"run_id"`
+	SnapshotID                string         `json:"snapshot_id,omitempty"`
+	SourceBytesRead           *int64         `json:"source_bytes_read"`
+	SourceComplete            *bool          `json:"source_complete"`
+	StartedAt                 string         `json:"started_at"`
+	VerificationLevel         string         `json:"verification_level"`
+	VerificationLevelAchieved string         `json:"verification_level_achieved,omitempty"`
+	VerificationStatus        string         `json:"verification_status,omitempty"`
+}
+
+// SnapshotHold is one hold: a durable statement that a named snapshot must not be
+// deleted, whoever's retention policy says otherwise, until somebody
+// releases it. A hold is the mechanism an investigation, a legal
+// request or a suspected corruption uses, so it names who placed it
+// and why: a hold nobody can attribute is one nobody dares release.
+type SnapshotHold struct {
+	Active      bool   `json:"active"`
+	BackupSetID string `json:"backup_set_id"`
+	HoldID      string `json:"hold_id"`
+	PlacedAt    string `json:"placed_at"`
+	PlacedBy    string `json:"placed_by"`
+	Reason      string `json:"reason"`
+	ReleasedAt  string `json:"released_at,omitempty"`
+	ReleasedBy  string `json:"released_by,omitempty"`
+	RunID       string `json:"run_id"`
+}
+
+// SnapshotHoldReleaseRequest is POST /operations' parameters when the action is
+// release_snapshot_hold: end one hold, by its id. Releasing does not
+// delete anything; it returns the snapshot to whatever the retention
+// policy already said about it.
+type SnapshotHoldReleaseRequest struct {
+	BackupSetID string `json:"backup_set_id"`
+	HoldID      string `json:"hold_id"`
+}
+
+// SnapshotHoldRequest is POST /operations' parameters when the action is hold_snapshot:
+// stop retention deleting one named snapshot until somebody releases
+// the hold.
+type SnapshotHoldRequest struct {
+	BackupSetID string `json:"backup_set_id"`
+	Reason      string `json:"reason"`
+	RunID       string `json:"run_id,omitempty"`
+}
+
+// SnapshotResponse is GET /backup-sets/{source}/{set}/snapshots/{run}: one run, plus the
+// transition log that says how it got where it is. The log is on the
+// detail read and not on the list because it is unbounded per run
+// and nothing on a list renders it.
+type SnapshotResponse struct {
+	Snapshot    Snapshot             `json:"snapshot"`
+	Transitions []SnapshotTransition `json:"transitions"`
+}
+
+// SnapshotRestoreRequest is POST /operations' parameters when the action is restore_snapshot:
+// read a restore point this deployment holds and write a tree onto a
+// disk it can reach. It is a different act from restore_placement
+// and the two are never folded together -- that one asks a storage
+// provider to make an archived object readable again, over hours, at
+// a cost, and writes nothing anywhere.
+type SnapshotRestoreRequest struct {
+	BackupSetID string `json:"backup_set_id"`
+	Conflict    string `json:"conflict,omitempty"`
+	SnapshotID  string `json:"snapshot_id,omitempty"`
+	SourcePath  string `json:"source_path,omitempty"`
+	TargetPath  string `json:"target_path"`
+}
+
+// SnapshotRetentionResponse is GET /backup-sets/{source}/{set}/snapshot-retention: what this
+// set's snapshot retention would decide right now, oldest snapshot
+// first. It is a PREVIEW and changes nothing. This is not
+// /backup-sets/{source}/{set}/retention, and the two must not be
+// confused: that one is FR-18's artifact retention policy, and this
+// one is the per-snapshot verdict the incremental engine's own
+// pruner would reach.
+type SnapshotRetentionResponse struct {
+	GeneratedAt string                     `json:"generated_at"`
+	Verdicts    []SnapshotRetentionVerdict `json:"verdicts"`
+}
+
+// SnapshotRetentionTier is one reason a snapshot survived: which tier selected it, and what
+// about the snapshot the tier selected it for.
+type SnapshotRetentionTier struct {
+	SelectedBy string `json:"selected_by,omitempty"`
+	Tier       string `json:"tier"`
+}
+
+// SnapshotRetentionVerdict is what snapshot retention would do about one snapshot, and why.
+// Three actions and never two: KEEP means something selects it,
+// DELETE means nothing does and every safety check passed, and
+// REFUSE means it was a delete candidate and something stopped it.
+// Folding REFUSE into KEEP would hide the only one of the three that
+// needs somebody to look at it.
+type SnapshotRetentionVerdict struct {
+	Action     string                  `json:"action"`
+	HoldReason string                  `json:"hold_reason,omitempty"`
+	Holds      []SnapshotHold          `json:"holds,omitempty"`
+	Reason     string                  `json:"reason"`
+	RunID      string                  `json:"run_id"`
+	SnapshotID string                  `json:"snapshot_id,omitempty"`
+	StartedAt  string                  `json:"started_at"`
+	Tiers      []SnapshotRetentionTier `json:"tiers,omitempty"`
+}
+
+// SnapshotTransition is one edge of the snapshot state machine, as it actually happened.
+// The run record is overwritten by every advance, so it can say what
+// a run IS and never how it got there: a run verified twice because
+// a crash interrupted the first attempt reads identically on the row
+// to one verified once, and this log is what tells them apart.
+type SnapshotTransition struct {
+	At     string `json:"at"`
+	Detail string `json:"detail,omitempty"`
+	From   string `json:"from,omitempty"`
+	To     string `json:"to"`
+}
+
+// SnapshotVerifyRequest is POST /operations' parameters when the action is verify_snapshot:
+// prove, now, that a restore point is actually restorable, at a
+// stated depth. It records nothing onto the snapshot row -- what a
+// RUN proved is what that run proved, and an on-demand check months
+// later is a different claim about a different moment, reported on
+// the operation that performed it.
+type SnapshotVerifyRequest struct {
+	BackupSetID   string `json:"backup_set_id"`
+	Level         string `json:"level,omitempty"`
+	RunID         string `json:"run_id,omitempty"`
+	SamplePercent int    `json:"sample_percent,omitempty"`
 }
 
 // StorageMediumCredentialsReference is where one storage medium's credentials come from. Exactly one of
@@ -2210,12 +3118,27 @@ type StorageStatus struct {
 // field: it is a property of the retry, not of the operation. action
 // selects which of the parameter objects below is read;
 // restore_placement reads restore, run_backup_set reads
-// backup_set_id, and run_cycle reads neither.
+// backup_set_id, restore_snapshot reads snapshot_restore,
+// verify_snapshot reads snapshot_verify, hold_snapshot reads
+// snapshot_hold, release_snapshot_hold reads snapshot_hold_release,
+// and run_cycle reads none of them. A body naming another action's
+// parameters is refused rather than ignored: a server that ignores
+// fields it did not expect teaches clients those fields are
+// optional, and the next reader of that client cannot tell which
+// operation was meant. Every mutating incremental-backup action this
+// product has is on this one route, which is what makes each of them
+// durable, idempotency-keyed and revision-checked without a second
+// answer to how long work begins.
 type SubmitOperationRequest struct {
-	Action         string                   `json:"action"`
-	BackupSetID    string                   `json:"backup_set_id,omitempty"`
-	ConfigRevision string                   `json:"config_revision"`
-	Restore        *RestoreOperationRequest `json:"restore,omitempty"`
+	Action              string                      `json:"action"`
+	BackupSetID         string                      `json:"backup_set_id,omitempty"`
+	ConfigRevision      string                      `json:"config_revision"`
+	Restore             *RestoreOperationRequest    `json:"restore,omitempty"`
+	SkipWorkflowScripts bool                        `json:"skip_workflow_scripts,omitempty"`
+	SnapshotHold        *SnapshotHoldRequest        `json:"snapshot_hold,omitempty"`
+	SnapshotHoldRelease *SnapshotHoldReleaseRequest `json:"snapshot_hold_release,omitempty"`
+	SnapshotRestore     *SnapshotRestoreRequest     `json:"snapshot_restore,omitempty"`
+	SnapshotVerify      *SnapshotVerifyRequest      `json:"snapshot_verify,omitempty"`
 }
 
 // TestConnectionRequest is POST /backup-sets/test-connection. A reachability and
@@ -2236,17 +3159,19 @@ type TestConnectionRequest struct {
 	User           string `json:"user"`
 }
 
-// TestConnectionResponse is the outcome of a connection test, as a verdict and as the six
-// steps that produced it. `ok` and `message` mean exactly what they
-// have always meant, so a client reading only those keeps working;
+// TestConnectionResponse is the outcome of a connection test, as a verdict and as the steps
+// that produced it. `ok` and `message` mean exactly what they have
+// always meant, so a client reading only those keeps working;
 // `checks` is what the test actually DID, one entry per step and
-// always all of them, in the order they run. Both modes of this
-// endpoint answer the same six steps: a caller no longer has to
+// always all of them, in the order they run; `writable` is whether
+// these credentials may write to the source at all. Both modes of
+// this endpoint answer the same steps: a caller no longer has to
 // remember which request it sent to know what shape comes back.
 type TestConnectionResponse struct {
-	Checks  []ConnectionCheck `json:"checks,omitempty"`
-	Message string            `json:"message,omitempty"`
-	OK      bool              `json:"ok"`
+	Checks   []ConnectionCheck `json:"checks,omitempty"`
+	Message  string            `json:"message,omitempty"`
+	OK       bool              `json:"ok"`
+	Writable bool              `json:"writable"`
 }
 
 // TrustedHostKey is ONE host key a backup set actually pins, named the way an operator
@@ -2287,21 +3212,41 @@ type UnregisteredBackend struct {
 // here, and re-trusting a host is still a trust decision, which is
 // what acknowledge_host_key_change is for.
 type UpdateBackupSetRequest struct {
-	AcknowledgeHostKeyChange bool      `json:"acknowledge_host_key_change"`
-	AcknowledgeRepoint       bool      `json:"acknowledge_repoint"`
-	CompletionStrategy       *string   `json:"completion_strategy"`
-	Host                     *string   `json:"host"`
-	Include                  *[]string `json:"include"`
-	KnownHostsLine           *string   `json:"known_hosts_line"`
-	LocalPath                *string   `json:"local_path"`
-	Port                     *int      `json:"port"`
-	RemotePath               *string   `json:"remote_path"`
-	SkipConnectionCheck      bool      `json:"skip_connection_check"`
-	SSHKeyID                 *string   `json:"ssh_key_id"`
-	StableForSeconds         *int      `json:"stable_for_seconds"`
-	StaleAfterSeconds        *int      `json:"stale_after_seconds"`
-	User                     *string   `json:"user"`
-	ValidatorID              *string   `json:"validator_id"`
+	AcknowledgeHostKeyChange             bool      `json:"acknowledge_host_key_change"`
+	AcknowledgeRepoint                   bool      `json:"acknowledge_repoint"`
+	CompletionStrategy                   *string   `json:"completion_strategy"`
+	Host                                 *string   `json:"host"`
+	Include                              *[]string `json:"include"`
+	KnownHostsLine                       *string   `json:"known_hosts_line"`
+	LocalPath                            *string   `json:"local_path"`
+	PollIntervalSeconds                  *int      `json:"poll_interval_seconds"`
+	Port                                 *int      `json:"port"`
+	RemotePath                           *string   `json:"remote_path"`
+	SkipConnectionCheck                  bool      `json:"skip_connection_check"`
+	SourceConsistency                    *string   `json:"source_consistency,omitempty"`
+	SSHKeyID                             *string   `json:"ssh_key_id"`
+	StableForSeconds                     *int      `json:"stable_for_seconds"`
+	StaleAfterSeconds                    *int      `json:"stale_after_seconds"`
+	User                                 *string   `json:"user"`
+	ValidatorID                          *string   `json:"validator_id"`
+	VerificationFullEverySeconds         *int64    `json:"verification_full_every_seconds,omitempty"`
+	VerificationLevel                    *string   `json:"verification_level,omitempty"`
+	VerificationRestoreDrillEverySeconds *int64    `json:"verification_restore_drill_every_seconds,omitempty"`
+	VerificationSamplePercent            *int      `json:"verification_sample_percent,omitempty"`
+}
+
+// UpdateBackupSetWorkflowRequest is PATCH one backup set's workflow block. Every field is nullable for
+// the reason the deployment-wide patch's are: an absent field and a
+// cleared one are different requests. A patch against a set that has
+// no workflow block creates one, carrying only the fields the
+// request named -- so a set given a before_dir does not silently
+// acquire a pinned timeout copied from today's deployment value,
+// which would make it stop following a later change to that value.
+type UpdateBackupSetWorkflowRequest struct {
+	AfterDir                *string `json:"after_dir"`
+	BeforeDir               *string `json:"before_dir"`
+	RemoteExecConnectionRef *string `json:"remote_exec_connection_ref"`
+	ScriptTimeoutSeconds    *int64  `json:"script_timeout_seconds"`
 }
 
 // UpdateCapacitySettings is A PARTIAL capacity update. An omitted field is left exactly as the
@@ -2325,12 +3270,34 @@ type UpdateRetentionSettings struct {
 	WeekStartsOn         *string         `json:"week_starts_on"`
 }
 
+// UpdateServiceSettings is A PARTIAL service-behaviour update. An omitted field is left
+// exactly as the running configuration has it.
+type UpdateServiceSettings struct {
+	PollIntervalSeconds *int `json:"poll_interval_seconds"`
+}
+
 // UpdateSettingsRequest is PATCH /settings. An enumerated request type, never a configuration
 // passthrough.
 type UpdateSettingsRequest struct {
 	AcknowledgeMediumDisclosure bool                     `json:"acknowledge_medium_disclosure,omitempty"`
 	Capacity                    *UpdateCapacitySettings  `json:"capacity"`
 	Retention                   *UpdateRetentionSettings `json:"retention"`
+	Service                     *UpdateServiceSettings   `json:"service"`
+}
+
+// UpdateWorkflowSettingsRequest is PATCH the deployment-wide workflow block. Every field is nullable
+// because this is a PATCH: "the caller did not mention this" and
+// "the caller wants this cleared" are different requests, and a
+// plain string can only say one of them. Clearing a stage directory
+// is a real operation -- it disables that stage -- so it has to be
+// expressible. A body that names nothing at all is refused rather
+// than answered 200 for a write that changed nothing.
+type UpdateWorkflowSettingsRequest struct {
+	AfterDir             *string `json:"after_dir"`
+	BeforeDir            *string `json:"before_dir"`
+	MaxScriptSizeBytes   *int64  `json:"max_script_size_bytes"`
+	Root                 *string `json:"root"`
+	ScriptTimeoutSeconds *int64  `json:"script_timeout_seconds"`
 }
 
 // Validator is one registered application validator. An id and a sentence, and
@@ -2353,18 +3320,358 @@ type VerificationClassInfo struct {
 	Requires        string `json:"requires"`
 }
 
+// VerifyEmailRequest is POST /auth/verify-email: the token out of the emailed verification
+// link, and nothing else. The token names the account by itself, so
+// there is deliberately no username or address field - one would be
+// a second thing to check and a way to ask whether an address is the
+// administrator's. The token is single-use and expires; redeeming it
+// makes a provisional administrator permanent.
+type VerifyEmailRequest struct {
+	Token string `json:"token"`
+}
+
 // VersionResponse is GET /system/version. Nothing here names an implementation: no
 // rclone, no SQLite, no filesystem path.
 type VersionResponse struct {
-	APIVersion     string `json:"api_version"`
-	Commit         string `json:"commit"`
-	ConfigRevision string `json:"config_revision"`
-	Configured     bool   `json:"configured"`
-	CoreVersion    string `json:"core_version"`
-	DeploymentID   string `json:"deployment_id"`
-	EngineVersion  string `json:"engine_version"`
-	GoVersion      string `json:"go_version"`
-	Ready          bool   `json:"ready"`
+	AdoptedPaths   []AdoptedPath `json:"adopted_paths"`
+	APIVersion     string        `json:"api_version"`
+	Commit         string        `json:"commit"`
+	ConfigRevision string        `json:"config_revision"`
+	Configured     bool          `json:"configured"`
+	CoreVersion    string        `json:"core_version"`
+	DeploymentID   string        `json:"deployment_id"`
+	EngineVersion  string        `json:"engine_version"`
+	GoVersion      string        `json:"go_version"`
+	Ready          bool          `json:"ready"`
+}
+
+// WorkflowAcknowledgementRequest is take responsibility, by hand, for a workflow run this product
+// could not account for, and unblock its backup set. There is
+// deliberately no "clear this" and no "ignore this": a run in
+// recovery may have left a source machine quiesced, mounted or
+// paused right now, so the only two honest exits are to RUN the
+// cleanup that is owed (resume-cleanup) or for a person to state, in
+// words that are recorded, that they have dealt with it themselves.
+type WorkflowAcknowledgementRequest struct {
+	Reason string `json:"reason"`
+}
+
+// WorkflowEnvironmentVariable is one configured workflow environment entry, as every read of either
+// scope reports it.
+type WorkflowEnvironmentVariable struct {
+	HasValue bool                    `json:"has_value"`
+	Name     string                  `json:"name"`
+	Secret   WorkflowSecretReference `json:"secret"`
+	Value    string                  `json:"value"`
+}
+
+// WorkflowEnvironmentVariableRequest is PUT one workflow environment entry, at the deployment scope or at
+// one backup set's. The variable's NAME is the last path segment and
+// is deliberately not a field here: a body that could name a second
+// variable would be a request whose path and body can disagree, and
+// the engine would then have to decide which one the operator meant.
+// Exactly one of `value` and one spelling of `secret` must be
+// present. A write REPLACES the entry of that name rather than
+// merging with it, because a merge would make "change this from a
+// literal to a secret" inexpressible: the literal would survive
+// beside the reference, which the configuration validator then
+// refuses as a contradiction.
+type WorkflowEnvironmentVariableRequest struct {
+	Secret WorkflowSecretReference `json:"secret"`
+	Value  *string                 `json:"value"`
+}
+
+// WorkflowFinding is one validation check's answer about one backup set's hooks.
+type WorkflowFinding struct {
+	Check    string `json:"check"`
+	Detail   string `json:"detail"`
+	Phase    string `json:"phase"`
+	Scope    string `json:"scope"`
+	Script   string `json:"script"`
+	Severity string `json:"severity"`
+	Target   string `json:"target"`
+}
+
+// WorkflowLintFinding is one thing retnd's own shell rules reported about one hook script.
+// These are this product's own checks, carrying its own BSH codes,
+// and they are NOT ShellCheck: ShellCheck is GPL-3.0 and this
+// product is Apache-2.0, so the analysis is implemented here against
+// a Go shell parser's syntax tree rather than shipped as somebody
+// else's tool. The set is deliberately small and conservative; an
+// operator who wants a general shell linter should run one.
+type WorkflowLintFinding struct {
+	Code     string                `json:"code"`
+	Col      int                   `json:"col"`
+	Excerpt  WorkflowSourceExcerpt `json:"excerpt"`
+	Line     int                   `json:"line"`
+	Message  string                `json:"message"`
+	Severity string                `json:"severity"`
+}
+
+// WorkflowRecoveryHold is one reason a backup set is refusing to run: a workflow run whose
+// cleanup this product could not finish, and whose "after" hooks may
+// therefore never have run.
+type WorkflowRecoveryHold struct {
+	BackupSetID string `json:"backup_set_id"`
+	EnteredAt   string `json:"entered_at"`
+	RunID       string `json:"run_id"`
+	Scope       string `json:"scope"`
+	SpoolRef    string `json:"spool_ref"`
+}
+
+// WorkflowRecoveryResponse is every outstanding recovery hold in this deployment, sorted. An
+// empty list is a deployment where no backup set is being held,
+// which is the ordinary state.
+type WorkflowRecoveryResponse struct {
+	Holds []WorkflowRecoveryHold `json:"holds"`
+}
+
+// WorkflowRefusedScript is one hook script that refused a workflow configuration write, and
+// why. Only the BLOCKING half is here -- a parse error, or the
+// error-severity findings -- because a refusal that also listed the
+// warnings would read as though they had refused it.
+type WorkflowRefusedScript struct {
+	BackupSetID       string                `json:"backup_set_id"`
+	Dir               string                `json:"dir"`
+	Findings          []WorkflowLintFinding `json:"findings"`
+	ParseError        string                `json:"parse_error"`
+	ParseErrorCol     int                   `json:"parse_error_col"`
+	ParseErrorExcerpt WorkflowSourceExcerpt `json:"parse_error_excerpt"`
+	ParseErrorLine    int                   `json:"parse_error_line"`
+	Phase             string                `json:"phase"`
+	Scope             string                `json:"scope"`
+	ScriptName        string                `json:"script_name"`
+}
+
+// WorkflowRun is one workflow run: one backup set's pass, wrapped in the five-stage
+// hook lifecycle. The three statuses stay three, and none of them is
+// derived from the others. That is the whole reason the journal has
+// three columns: "the backup succeeded and the cleanup did not" is
+// the single most operationally important thing this feature can
+// report -- it means a machine may be sitting quiesced with a good
+// backup beside it -- and any surface that collapsed the three into
+// one verdict would make exactly that case unsayable.
+type WorkflowRun struct {
+	BackupSetID    string         `json:"backup_set_id"`
+	BackupStatus   string         `json:"backup_status"`
+	Bypassed       bool           `json:"bypassed"`
+	CleanupStatus  string         `json:"cleanup_status"`
+	DurationMs     int64          `json:"duration_ms"`
+	FailedScript   string         `json:"failed_script"`
+	FailedStep     string         `json:"failed_step"`
+	FinishedAt     string         `json:"finished_at"`
+	RecoveryState  string         `json:"recovery_state"`
+	RunID          string         `json:"run_id"`
+	ScriptCount    int            `json:"script_count"`
+	StartedAt      string         `json:"started_at"`
+	State          string         `json:"state"`
+	Steps          []WorkflowStep `json:"steps"`
+	WorkflowStatus string         `json:"workflow_status"`
+}
+
+// WorkflowRunnerSettings is how THIS PROCESS reaches the Host Workflow Runner, the component
+// that executes a `.local.sh` hook on the machine retnd is installed
+// on. Reported and not writable here: the two paths differ between a
+// container and a bare-metal install of the same deployment, so they
+// are a deployment-shape fact the installer writes rather than a
+// policy an operator tunes, exactly like the SSH key, the
+// known_hosts file and the state database.
+type WorkflowRunnerSettings struct {
+	Configured bool   `json:"configured"`
+	Socket     string `json:"socket"`
+	TokenFile  string `json:"token_file"`
+}
+
+// WorkflowScriptLint is what retnd's own shell verification established about one hook
+// script's exact bytes, without running any of them. Three states,
+// kept distinguishable on purpose: examined and parsed, examined and
+// refused (a parse error with its position), and NOT EXAMINED, which
+// is a script larger than the verification reads. A client that
+// folded the third into either of the others would report either a
+// pass nobody proved or a fault nobody found.
+type WorkflowScriptLint struct {
+	Examined          bool                  `json:"examined"`
+	Findings          []WorkflowLintFinding `json:"findings"`
+	NotExaminedReason string                `json:"not_examined_reason"`
+	ParseError        string                `json:"parse_error"`
+	ParseErrorCol     int                   `json:"parse_error_col"`
+	ParseErrorExcerpt WorkflowSourceExcerpt `json:"parse_error_excerpt"`
+	ParseErrorLine    int                   `json:"parse_error_line"`
+	Parsed            bool                  `json:"parsed"`
+}
+
+// WorkflowScriptRejectedResponse is the WORKFLOW_SCRIPT_REJECTED 409 body. It carries the blocking
+// scripts and their findings as structured fields, for the reason
+// CONFIG_REVISION_STALE carries the current revision as one: a
+// client that had to parse a position out of the message would be
+// parsing prose this contract explicitly does not promise to keep
+// stable. The message says the same thing in one string, for a
+// terminal.
+type WorkflowScriptRejectedResponse struct {
+	BlockingScripts []WorkflowRefusedScript `json:"blocking_scripts"`
+	Error           ErrorBody               `json:"error"`
+}
+
+// WorkflowSecretReference is where a workflow environment variable's value comes from, when it
+// is not a literal. It is a LOCATION and never a value, on every
+// surface and in both directions: exactly one of the three is set,
+// and there is no field here -- and deliberately no field anywhere
+// on this contract -- that a resolved secret could be written into
+// or read out of. The engine resolves a reference at the moment a
+// hook is about to run and nothing carries the result back. The
+// consequence is worth stating because it looks like a gap: no read
+// on this API can show an operator the value of a secret variable,
+// ever. It shows the name and where the value comes from, because a
+// surface that could print it would be a surface an attacker holding
+// one session could read every credential in the deployment from. It
+// is the same file/env/command triple a repository passphrase and a
+// storage destination's credentials already use, spelled the same
+// way.
+type WorkflowSecretReference struct {
+	Command []string `json:"command"`
+	Env     string   `json:"env"`
+	File    string   `json:"file"`
+}
+
+// WorkflowSettingsResponse is the deployment-wide workflow configuration, RESOLVED: the timeout
+// a hook will actually get, the stages that will actually run, the
+// environment a hook will actually see. That is why this read exists
+// rather than a client re-reading config.yaml: the file's whole
+// point is that it omits what is inherited or defaulted, so a
+// re-serialization of it cannot answer what a run will do.
+type WorkflowSettingsResponse struct {
+	AfterDir                string                        `json:"after_dir"`
+	BeforeDir               string                        `json:"before_dir"`
+	Configured              bool                          `json:"configured"`
+	Environment             []WorkflowEnvironmentVariable `json:"environment"`
+	ExecConnections         []string                      `json:"exec_connections"`
+	MaxScriptSizeBytes      int64                         `json:"max_script_size_bytes"`
+	Root                    string                        `json:"root"`
+	Runner                  WorkflowRunnerSettings        `json:"runner"`
+	ScriptTimeoutConfigured bool                          `json:"script_timeout_configured"`
+	ScriptTimeoutSeconds    int64                         `json:"script_timeout_seconds"`
+}
+
+// WorkflowSourceExcerpt is A few of a hook script's own lines, carried beside a position that
+// names one of them: the reported line with one line either side. It
+// exists because a position on its own is a lookup somebody has to
+// perform on a machine they may not be on -- "BSH003 at 24:10" sends
+// an operator to a NAS over SSH to read one line. The lines come
+// from the bytes this validation READ AND HASHED rather than from a
+// later re-read, so they cannot disagree with the position beside
+// them. They are the script's own text and never a resolved secret:
+// nothing on the path that produces them resolves one.
+type WorkflowSourceExcerpt struct {
+	Lines []WorkflowSourceLine `json:"lines"`
+}
+
+// WorkflowSourceLine is one line of a hook script, as an editor would number it. The text
+// arrives with control characters removed and its length bounded, at
+// the point it is produced rather than at each surface that draws
+// it: a hook is arbitrary text and this text reaches a browser and a
+// terminal.
+type WorkflowSourceLine struct {
+	Number    int    `json:"number"`
+	Text      string `json:"text"`
+	Truncated bool   `json:"truncated"`
+}
+
+// WorkflowStage is one scope-and-phase pair that has a directory. A run executes five
+// stages in a fixed order, and these are the ones this configuration
+// actually gives a directory to.
+type WorkflowStage struct {
+	Dir   string `json:"dir"`
+	Phase string `json:"phase"`
+	Scope string `json:"scope"`
+}
+
+// WorkflowStep is one step of one workflow run: one hook script, executed once.
+type WorkflowStep struct {
+	DurationMs             int64  `json:"duration_ms"`
+	ExecutionConnectionRef string `json:"execution_connection_ref"`
+	ExitCode               *int   `json:"exit_code"`
+	FinishedAt             string `json:"finished_at"`
+	Order                  int    `json:"order"`
+	Phase                  string `json:"phase"`
+	Scope                  string `json:"scope"`
+	ScriptName             string `json:"script_name"`
+	StartedAt              string `json:"started_at"`
+	State                  string `json:"state"`
+	StepID                 string `json:"step_id"`
+	Target                 string `json:"target"`
+	TerminationConfirmed   bool   `json:"termination_confirmed"`
+	TimeoutMs              int64  `json:"timeout_ms"`
+}
+
+// WorkflowStepLogPage is one page of one step's captured output. It is a cursor read and
+// not a stream, and that decision is about where this product runs:
+// a held-open response is at the mercy of every buffering proxy and
+// idle timeout between here and the client, and a design that only
+// works when nothing in the path buffers is not a design. The
+// follower sends the last sequence it PROCESSED and gets what is
+// newer, so resume after a dropped connection is not a special case
+// at all -- it is the ordinary read, with the cursor the follower
+// already had. Each page is one ordinary authenticated request,
+// which is also what makes authorization on replay structural rather
+// than something somebody has to remember.
+type WorkflowStepLogPage struct {
+	Complete  bool                    `json:"complete"`
+	Cursor    uint64                  `json:"cursor"`
+	Records   []WorkflowStepLogRecord `json:"records"`
+	RunID     string                  `json:"run_id"`
+	StepID    string                  `json:"step_id"`
+	StepState string                  `json:"step_state"`
+	Truncated bool                    `json:"truncated"`
+}
+
+// WorkflowStepLogRecord is one captured record of one step's output.
+type WorkflowStepLogRecord struct {
+	At     string `json:"at"`
+	Kind   string `json:"kind"`
+	Seq    uint64 `json:"seq"`
+	StepID string `json:"step_id"`
+	Stream string `json:"stream"`
+	Text   string `json:"text"`
+}
+
+// WorkflowValidatedScript is one hook this backup set would run, as validation found it on
+// disk, with what retnd's own shell verification established about
+// its bytes. Nothing here was executed: the syntax verdict and the
+// findings come from parsing and walking the bytes in this process,
+// and the only things validation ever hands an interpreter are `bash
+// -n`, which parses and never runs, and this product's own fixed
+// remote capability probe.
+type WorkflowValidatedScript struct {
+	ExecutionConnectionRef string             `json:"execution_connection_ref"`
+	Lint                   WorkflowScriptLint `json:"lint"`
+	Order                  int                `json:"order"`
+	Phase                  string             `json:"phase"`
+	Scope                  string             `json:"scope"`
+	ScriptName             string             `json:"script_name"`
+	Sha256                 string             `json:"sha256"`
+	SizeBytes              int64              `json:"size_bytes"`
+	StepID                 string             `json:"step_id"`
+	Target                 string             `json:"target"`
+	TimeoutMs              int64              `json:"timeout_ms"`
+}
+
+// WorkflowValidationResponse is everything this product can establish about one backup set's hooks
+// WITHOUT running any of them. Two verdicts rather than one, and
+// that is the shape rather than an oversight: a backup set whose
+// source connects, whose destination is writable and whose retention
+// is sound, with a hook directory somebody has not created yet, is
+// valid for backup and invalid for workflows -- which is the normal
+// case during setup, and reporting it as a broken backup set would
+// tell an operator their backups are failing when they are not.
+type WorkflowValidationResponse struct {
+	BackupSetID    string                    `json:"backup_set_id"`
+	Configured     bool                      `json:"configured"`
+	Findings       []WorkflowFinding         `json:"findings"`
+	Root           string                    `json:"root"`
+	Scripts        []WorkflowValidatedScript `json:"scripts"`
+	Stages         []WorkflowStage           `json:"stages"`
+	ValidForBackup bool                      `json:"valid_for_backup"`
+	WorkflowValid  bool                      `json:"workflow_valid"`
 }
 
 // SchemaTypes maps a contract schema name to a zero value of the generated
@@ -2372,109 +3679,167 @@ type VersionResponse struct {
 // through this map rather than through a hand-written lookup, so a schema
 // added to the contract cannot quietly go unchecked.
 var SchemaTypes = map[string]any{
-	"ActivityEvent":                     ActivityEvent{},
-	"ApplyRetentionRequest":             ApplyRetentionRequest{},
-	"Artifact":                          Artifact{},
-	"ArtifactCheckResponse":             ArtifactCheckResponse{},
-	"ArtifactReinstateResponse":         ArtifactReinstateResponse{},
-	"AuthErrorResponse":                 AuthErrorResponse{},
-	"BackendEnumValue":                  BackendEnumValue{},
-	"BackendManifest":                   BackendManifest{},
-	"BackendManifestField":              BackendManifestField{},
-	"BackendProbe":                      BackendProbe{},
-	"BackendProbeStep":                  BackendProbeStep{},
-	"BackupSet":                         BackupSet{},
-	"BackupSetEditHold":                 BackupSetEditHold{},
-	"BackupSetEditHoldState":            BackupSetEditHoldState{},
-	"BackupSetHealth":                   BackupSetHealth{},
-	"BackupSetRetention":                BackupSetRetention{},
-	"BackupSetSpec":                     BackupSetSpec{},
-	"CapabilitiesResponse":              CapabilitiesResponse{},
-	"CapacitySettings":                  CapacitySettings{},
-	"CatalogFailure":                    CatalogFailure{},
-	"CatalogReportResponse":             CatalogReportResponse{},
-	"CompleteFirstRunResponse":          CompleteFirstRunResponse{},
-	"ConfigRevisionStaleResponse":       ConfigRevisionStaleResponse{},
-	"ConnectionCheck":                   ConnectionCheck{},
-	"CreateBackupSetRequest":            CreateBackupSetRequest{},
-	"CreateBackupSetResponse":           CreateBackupSetResponse{},
-	"CredentialsRequest":                CredentialsRequest{},
-	"CycleMoveOutcome":                  CycleMoveOutcome{},
-	"CycleOutcome":                      CycleOutcome{},
-	"ErrorBody":                         ErrorBody{},
-	"ErrorResponse":                     ErrorResponse{},
-	"FirstRunStatusResponse":            FirstRunStatusResponse{},
-	"HealthResponse":                    HealthResponse{},
-	"HostKeyProbeRequest":               HostKeyProbeRequest{},
-	"HostKeyProbeResponse":              HostKeyProbeResponse{},
-	"ImportSSHKeyFromCandidateRequest":  ImportSSHKeyFromCandidateRequest{},
-	"ImportSSHKeyRequest":               ImportSSHKeyRequest{},
-	"ImportSSHKeyResponse":              ImportSSHKeyResponse{},
-	"ImportStorageCredentialsRequest":   ImportStorageCredentialsRequest{},
-	"ImportStorageCredentialsResponse":  ImportStorageCredentialsResponse{},
-	"ListActivityResponse":              ListActivityResponse{},
-	"ListArtifactsResponse":             ListArtifactsResponse{},
-	"ListBackendsResponse":              ListBackendsResponse{},
-	"ListBackupSetsResponse":            ListBackupSetsResponse{},
-	"ListOperationsResponse":            ListOperationsResponse{},
-	"ListSSHKeyCandidatesResponse":      ListSSHKeyCandidatesResponse{},
-	"ListSSHKeysResponse":               ListSSHKeysResponse{},
-	"ListStorageMediumsResponse":        ListStorageMediumsResponse{},
-	"ListStorageStatusResponse":         ListStorageStatusResponse{},
-	"ListValidatorsResponse":            ListValidatorsResponse{},
-	"LiveActivityAction":                LiveActivityAction{},
-	"LiveActivityDeployment":            LiveActivityDeployment{},
-	"LiveActivityEvent":                 LiveActivityEvent{},
-	"LiveActivityField":                 LiveActivityField{},
-	"LiveActivityResponse":              LiveActivityResponse{},
-	"LiveActivitySet":                   LiveActivitySet{},
-	"ManagerStorage":                    ManagerStorage{},
-	"MediumConfigurationRequest":        MediumConfigurationRequest{},
-	"MediumConfigurationResponse":       MediumConfigurationResponse{},
-	"MediumFieldValue":                  MediumFieldValue{},
-	"MediumPreflightCheck":              MediumPreflightCheck{},
-	"MediumPreflightResponse":           MediumPreflightResponse{},
-	"Operation":                         Operation{},
-	"OperationProgress":                 OperationProgress{},
-	"OperationRestore":                  OperationRestore{},
-	"Placement":                         Placement{},
-	"RestoreOperationRequest":           RestoreOperationRequest{},
-	"RetentionMove":                     RetentionMove{},
-	"RetentionOverride":                 RetentionOverride{},
-	"RetentionPlan":                     RetentionPlan{},
-	"RetentionSchema":                   RetentionSchema{},
-	"RetentionSettings":                 RetentionSettings{},
-	"RetentionTier":                     RetentionTier{},
-	"RetentionTierSelection":            RetentionTierSelection{},
-	"RetentionVerdict":                  RetentionVerdict{},
-	"RetryFailedRequest":                RetryFailedRequest{},
-	"RotatePasswordRequest":             RotatePasswordRequest{},
-	"RunningWork":                       RunningWork{},
-	"SSHKey":                            SSHKey{},
-	"SSHKeyCandidate":                   SSHKeyCandidate{},
-	"SSHKeyDiscoveryLocation":           SSHKeyDiscoveryLocation{},
-	"SessionResponse":                   SessionResponse{},
-	"SetEnabledRequest":                 SetEnabledRequest{},
-	"SetReadOnlyRequest":                SetReadOnlyRequest{},
-	"SettingsResponse":                  SettingsResponse{},
-	"SettingsSchema":                    SettingsSchema{},
-	"StorageMediumCredentialsReference": StorageMediumCredentialsReference{},
-	"StorageMediumRequest":              StorageMediumRequest{},
-	"StorageMediumSummary":              StorageMediumSummary{},
-	"StorageMediumUsageBySet":           StorageMediumUsageBySet{},
-	"StorageMediumUsageResponse":        StorageMediumUsageResponse{},
-	"StorageSchema":                     StorageSchema{},
-	"StorageStatus":                     StorageStatus{},
-	"SubmitOperationRequest":            SubmitOperationRequest{},
-	"TestConnectionRequest":             TestConnectionRequest{},
-	"TestConnectionResponse":            TestConnectionResponse{},
-	"TrustedHostKey":                    TrustedHostKey{},
-	"UnregisteredBackend":               UnregisteredBackend{},
-	"UpdateBackupSetRequest":            UpdateBackupSetRequest{},
-	"UpdateCapacitySettings":            UpdateCapacitySettings{},
-	"UpdateRetentionSettings":           UpdateRetentionSettings{},
-	"UpdateSettingsRequest":             UpdateSettingsRequest{},
-	"Validator":                         Validator{},
-	"VerificationClassInfo":             VerificationClassInfo{},
-	"VersionResponse":                   VersionResponse{},
+	"ActivityEvent":                      ActivityEvent{},
+	"AdoptedPath":                        AdoptedPath{},
+	"ApplyRetentionRequest":              ApplyRetentionRequest{},
+	"Artifact":                           Artifact{},
+	"ArtifactCheckResponse":              ArtifactCheckResponse{},
+	"ArtifactReinstateResponse":          ArtifactReinstateResponse{},
+	"AuthErrorResponse":                  AuthErrorResponse{},
+	"BackendEnumValue":                   BackendEnumValue{},
+	"BackendManifest":                    BackendManifest{},
+	"BackendManifestField":               BackendManifestField{},
+	"BackendProbe":                       BackendProbe{},
+	"BackendProbeStep":                   BackendProbeStep{},
+	"BackupSet":                          BackupSet{},
+	"BackupSetEditHold":                  BackupSetEditHold{},
+	"BackupSetEditHoldState":             BackupSetEditHoldState{},
+	"BackupSetHealth":                    BackupSetHealth{},
+	"BackupSetRetention":                 BackupSetRetention{},
+	"BackupSetSpec":                      BackupSetSpec{},
+	"BackupSetWorkflowResponse":          BackupSetWorkflowResponse{},
+	"CapabilitiesResponse":               CapabilitiesResponse{},
+	"CapacitySettings":                   CapacitySettings{},
+	"CatalogFailure":                     CatalogFailure{},
+	"CatalogReportResponse":              CatalogReportResponse{},
+	"CompleteFirstRunResponse":           CompleteFirstRunResponse{},
+	"ConfigRevisionStaleResponse":        ConfigRevisionStaleResponse{},
+	"ConnectionCheck":                    ConnectionCheck{},
+	"CreateBackupSetRequest":             CreateBackupSetRequest{},
+	"CreateBackupSetResponse":            CreateBackupSetResponse{},
+	"CreateRepositoryDomainRequest":      CreateRepositoryDomainRequest{},
+	"CredentialsRequest":                 CredentialsRequest{},
+	"CycleMoveOutcome":                   CycleMoveOutcome{},
+	"CycleOutcome":                       CycleOutcome{},
+	"EnrollRequest":                      EnrollRequest{},
+	"ErrorBody":                          ErrorBody{},
+	"ErrorResponse":                      ErrorResponse{},
+	"FirstRunStatusResponse":             FirstRunStatusResponse{},
+	"ForgotPasswordRequest":              ForgotPasswordRequest{},
+	"HealthResponse":                     HealthResponse{},
+	"HostKeyProbeRequest":                HostKeyProbeRequest{},
+	"HostKeyProbeResponse":               HostKeyProbeResponse{},
+	"ImportSSHKeyFromCandidateRequest":   ImportSSHKeyFromCandidateRequest{},
+	"ImportSSHKeyRequest":                ImportSSHKeyRequest{},
+	"ImportSSHKeyResponse":               ImportSSHKeyResponse{},
+	"ImportStorageCredentialsRequest":    ImportStorageCredentialsRequest{},
+	"ImportStorageCredentialsResponse":   ImportStorageCredentialsResponse{},
+	"ListActivityResponse":               ListActivityResponse{},
+	"ListArtifactsResponse":              ListArtifactsResponse{},
+	"ListBackendsResponse":               ListBackendsResponse{},
+	"ListBackupSetsResponse":             ListBackupSetsResponse{},
+	"ListOperationsResponse":             ListOperationsResponse{},
+	"ListRepositoriesResponse":           ListRepositoriesResponse{},
+	"ListSSHKeyCandidatesResponse":       ListSSHKeyCandidatesResponse{},
+	"ListSSHKeysResponse":                ListSSHKeysResponse{},
+	"ListSnapshotHoldsResponse":          ListSnapshotHoldsResponse{},
+	"ListSnapshotsResponse":              ListSnapshotsResponse{},
+	"ListStorageMediumsResponse":         ListStorageMediumsResponse{},
+	"ListStorageStatusResponse":          ListStorageStatusResponse{},
+	"ListValidatorsResponse":             ListValidatorsResponse{},
+	"ListWorkflowEnvironmentResponse":    ListWorkflowEnvironmentResponse{},
+	"ListWorkflowRunsResponse":           ListWorkflowRunsResponse{},
+	"ListWorkflowStepsResponse":          ListWorkflowStepsResponse{},
+	"LiveActivityAction":                 LiveActivityAction{},
+	"LiveActivityDeployment":             LiveActivityDeployment{},
+	"LiveActivityEvent":                  LiveActivityEvent{},
+	"LiveActivityField":                  LiveActivityField{},
+	"LiveActivityResponse":               LiveActivityResponse{},
+	"LiveActivitySet":                    LiveActivitySet{},
+	"ManagerStorage":                     ManagerStorage{},
+	"MediumConfigurationRequest":         MediumConfigurationRequest{},
+	"MediumConfigurationResponse":        MediumConfigurationResponse{},
+	"MediumFieldValue":                   MediumFieldValue{},
+	"MediumPreflightCheck":               MediumPreflightCheck{},
+	"MediumPreflightResponse":            MediumPreflightResponse{},
+	"Operation":                          Operation{},
+	"OperationProgress":                  OperationProgress{},
+	"OperationRestore":                   OperationRestore{},
+	"Placement":                          Placement{},
+	"RecoverySettingsResponse":           RecoverySettingsResponse{},
+	"RecoverySettingsUpdate":             RecoverySettingsUpdate{},
+	"RepositoryHealth":                   RepositoryHealth{},
+	"RepositoryMaintenance":              RepositoryMaintenance{},
+	"RepositoryPassphraseReference":      RepositoryPassphraseReference{},
+	"ResetPasswordRequest":               ResetPasswordRequest{},
+	"RestoreOperationRequest":            RestoreOperationRequest{},
+	"RetentionMove":                      RetentionMove{},
+	"RetentionOverride":                  RetentionOverride{},
+	"RetentionPlan":                      RetentionPlan{},
+	"RetentionSchema":                    RetentionSchema{},
+	"RetentionSettings":                  RetentionSettings{},
+	"RetentionTier":                      RetentionTier{},
+	"RetentionTierSelection":             RetentionTierSelection{},
+	"RetentionVerdict":                   RetentionVerdict{},
+	"RetryFailedRequest":                 RetryFailedRequest{},
+	"RotatePasswordRequest":              RotatePasswordRequest{},
+	"RunningWork":                        RunningWork{},
+	"SSHKey":                             SSHKey{},
+	"SSHKeyCandidate":                    SSHKeyCandidate{},
+	"SSHKeyDiscoveryLocation":            SSHKeyDiscoveryLocation{},
+	"ServiceSchema":                      ServiceSchema{},
+	"ServiceSettings":                    ServiceSettings{},
+	"SessionResponse":                    SessionResponse{},
+	"SetEnabledRequest":                  SetEnabledRequest{},
+	"SetReadOnlyRequest":                 SetReadOnlyRequest{},
+	"SettingsResponse":                   SettingsResponse{},
+	"SettingsSchema":                     SettingsSchema{},
+	"SmtpSettings":                       SmtpSettings{},
+	"SmtpSettingsView":                   SmtpSettingsView{},
+	"Snapshot":                           Snapshot{},
+	"SnapshotHold":                       SnapshotHold{},
+	"SnapshotHoldReleaseRequest":         SnapshotHoldReleaseRequest{},
+	"SnapshotHoldRequest":                SnapshotHoldRequest{},
+	"SnapshotResponse":                   SnapshotResponse{},
+	"SnapshotRestoreRequest":             SnapshotRestoreRequest{},
+	"SnapshotRetentionResponse":          SnapshotRetentionResponse{},
+	"SnapshotRetentionTier":              SnapshotRetentionTier{},
+	"SnapshotRetentionVerdict":           SnapshotRetentionVerdict{},
+	"SnapshotTransition":                 SnapshotTransition{},
+	"SnapshotVerifyRequest":              SnapshotVerifyRequest{},
+	"StorageMediumCredentialsReference":  StorageMediumCredentialsReference{},
+	"StorageMediumRequest":               StorageMediumRequest{},
+	"StorageMediumSummary":               StorageMediumSummary{},
+	"StorageMediumUsageBySet":            StorageMediumUsageBySet{},
+	"StorageMediumUsageResponse":         StorageMediumUsageResponse{},
+	"StorageSchema":                      StorageSchema{},
+	"StorageStatus":                      StorageStatus{},
+	"SubmitOperationRequest":             SubmitOperationRequest{},
+	"TestConnectionRequest":              TestConnectionRequest{},
+	"TestConnectionResponse":             TestConnectionResponse{},
+	"TrustedHostKey":                     TrustedHostKey{},
+	"UnregisteredBackend":                UnregisteredBackend{},
+	"UpdateBackupSetRequest":             UpdateBackupSetRequest{},
+	"UpdateBackupSetWorkflowRequest":     UpdateBackupSetWorkflowRequest{},
+	"UpdateCapacitySettings":             UpdateCapacitySettings{},
+	"UpdateRetentionSettings":            UpdateRetentionSettings{},
+	"UpdateServiceSettings":              UpdateServiceSettings{},
+	"UpdateSettingsRequest":              UpdateSettingsRequest{},
+	"UpdateWorkflowSettingsRequest":      UpdateWorkflowSettingsRequest{},
+	"Validator":                          Validator{},
+	"VerificationClassInfo":              VerificationClassInfo{},
+	"VerifyEmailRequest":                 VerifyEmailRequest{},
+	"VersionResponse":                    VersionResponse{},
+	"WorkflowAcknowledgementRequest":     WorkflowAcknowledgementRequest{},
+	"WorkflowEnvironmentVariable":        WorkflowEnvironmentVariable{},
+	"WorkflowEnvironmentVariableRequest": WorkflowEnvironmentVariableRequest{},
+	"WorkflowFinding":                    WorkflowFinding{},
+	"WorkflowLintFinding":                WorkflowLintFinding{},
+	"WorkflowRecoveryHold":               WorkflowRecoveryHold{},
+	"WorkflowRecoveryResponse":           WorkflowRecoveryResponse{},
+	"WorkflowRefusedScript":              WorkflowRefusedScript{},
+	"WorkflowRun":                        WorkflowRun{},
+	"WorkflowRunnerSettings":             WorkflowRunnerSettings{},
+	"WorkflowScriptLint":                 WorkflowScriptLint{},
+	"WorkflowScriptRejectedResponse":     WorkflowScriptRejectedResponse{},
+	"WorkflowSecretReference":            WorkflowSecretReference{},
+	"WorkflowSettingsResponse":           WorkflowSettingsResponse{},
+	"WorkflowSourceExcerpt":              WorkflowSourceExcerpt{},
+	"WorkflowSourceLine":                 WorkflowSourceLine{},
+	"WorkflowStage":                      WorkflowStage{},
+	"WorkflowStep":                       WorkflowStep{},
+	"WorkflowStepLogPage":                WorkflowStepLogPage{},
+	"WorkflowStepLogRecord":              WorkflowStepLogRecord{},
+	"WorkflowValidatedScript":            WorkflowValidatedScript{},
+	"WorkflowValidationResponse":         WorkflowValidationResponse{},
 }

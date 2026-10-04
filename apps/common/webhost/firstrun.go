@@ -43,8 +43,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/spdrman/rclone-manager/apps/common/platform/capabilities"
-	"github.com/spdrman/rclone-manager/core/service"
+	"github.com/retnd/retnd/apps/common/platform/capabilities"
+	"github.com/retnd/retnd/core/service"
 )
 
 // FirstRunClient is the seam this package talks to core/service.FirstRun
@@ -254,7 +254,24 @@ func (h *handlers) completeFirstRun(w http.ResponseWriter, r *http.Request) {
 		Disabled:            body.Disabled,
 		ReadOnly:            body.ReadOnly,
 		SkipConnectionCheck: body.SkipConnectionCheck,
-		Actor:               actorFromContext(r.Context()),
+
+		// EPIC K's engine seam (#788), carried here for the reason
+		// TestCompleteFirstRun_CarriesEveryFieldOfTheSpecItWasGiven
+		// exists: this request is assembled field by field, and a field
+		// added to the spec and not added here is a wizard answer that
+		// silently does not happen. An operator who chose the
+		// incremental engine on a fresh install and got an artifact set
+		// would find out at the first restore.
+		Engine:                        body.Engine,
+		UUID:                          body.UUID,
+		RepositoryDomain:              body.RepositoryDomain,
+		SourceConsistency:             body.SourceConsistency,
+		VerificationLevel:             body.VerificationLevel,
+		VerificationSamplePercent:     body.VerificationSamplePercent,
+		VerificationFullEvery:         time.Duration(body.VerificationFullEverySeconds) * time.Second,
+		VerificationRestoreDrillEvery: time.Duration(body.VerificationRestoreDrillEverySeconds) * time.Second,
+		SourceMountPrefix:             body.SourceMountPrefix,
+		Actor:                         actorFromContext(r.Context()),
 	})
 	if err != nil {
 		if errors.Is(err, service.ErrAlreadyConfigured) {
@@ -364,6 +381,12 @@ func writeNotConfigured(w http.ResponseWriter, r *http.Request) {
 // below, which answer 503 NOT_CONFIGURED.
 func newUnconfiguredRouter(h *handlers, platform capabilities.PlatformAdapter) http.Handler {
 	r := chi.NewRouter()
+
+	// The same edge as the configured table's (see NewRouter): a
+	// first-run instance is the one an operator is most likely to be
+	// diagnosing, so it is the last place a response should arrive
+	// without an id to quote.
+	r.Use(RequestScope)
 
 	r.Get("/health/live", healthLive)
 	r.Get("/health/ready", h.healthReady)

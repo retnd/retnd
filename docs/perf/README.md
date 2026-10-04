@@ -38,7 +38,7 @@ which costs one `docker image inspect`. See "Running it" at the bottom.
 |---|---|
 | `gate.json` | machine-readable: the designated host, the workload, which metrics must be recorded, and each gated metric's threshold |
 | `baselines/<host-id>.json` | one captured record per benchmark host |
-| `../../scripts/rcmtools/perf/capture_baseline.py` | the capture driver (`python3 scripts/rcmtools/perf/capture_baseline.py`) |
+| `../../scripts/bdtools/perf/capture_baseline.py` | the capture driver (`python3 scripts/bdtools/perf/capture_baseline.py`) |
 | `../../scripts/perf/check-baseline.sh` | the gate, in presence mode and compare mode |
 | `../../scripts/perf/selftest.sh` | the gate's own positive controls |
 
@@ -64,7 +64,7 @@ has to change.
 it cannot drift from what actually ran (see
 `apps/generic/tests/perfbaseline/runtime_test.go`):
 
-- the real `rbm-web serve` binary, built from `apps/generic` with
+- the real `retnd-web serve` binary, built from `apps/generic` with
   `GOWORK=off`, driven over real HTTP on loopback with one keep-alive
   connection, never an in-process `httptest` handler;
 - a configuration of **15 backup sets across 3 sources**, local remotes, with
@@ -219,22 +219,23 @@ The components, copied back out of both images with `docker create` plus
 
 | component | `8ad3100` | `186ba0c7` | delta |
 |---|---|---|---|
-| `backup-manager` | 19,792,032 | 31,391,904 | +11,599,872 |
-| `backup-manager-web` | 21,102,752 | 32,637,088 | +11,534,336 |
+| `retnd` | 19,792,032 | 31,391,904 | +11,599,872 |
+| `retnd-web` | 21,102,752 | 32,637,088 | +11,534,336 |
 | `/ui/bundles`, five adapter bundles | not carried | 3,503,996 | +3,503,996 |
 | `/licenses` | not carried | 57,300 | +57,300 |
 | distroless base layers | 2,113,978 | 2,113,978 | 0 |
 | **image** | **43,008,762** | **69,704,266** | **+26,695,504** |
 
 Both columns sum to their image exactly, so nothing is unattributed. Both
-commits predate 0.3.3, so the binaries carry the names they had then;
-0.3.3 renamed them to `/rbm` and `/rbm-web`.
+commits predate every rename this project has had, so the rows above are
+labelled with the two binaries' current names, `retnd` and `retnd-web`, rather
+than with the names the measured images actually carried.
 
 **9,502,720 bytes of each binary is rclone's S3 backend**, which #369 imported
 for EPIC E's MediumStore. Measured by building each command for `linux/arm64`
 with the Dockerfile's own flags and then again with that one blank import
-commented out: `backup-manager` goes 31,391,904 -> 21,889,184 and
-`backup-manager-web` goes 31,981,728 -> 22,479,008. Identical deltas, because it
+commented out: `retnd` goes 31,391,904 -> 21,889,184 and
+`retnd-web` goes 31,981,728 -> 22,479,008. Identical deltas, because it
 is the same dependency tree in both: the AWS SDK v2, the IBM COS SDK, Swift,
 go-openapi and the rest of what arrived in `core/go.mod` alongside it. So
 19,005,440 bytes, **71.2% of the whole move, is one shipped feature**.
@@ -256,7 +257,7 @@ is no duplicate to remove there.
 
 One real duplication, recorded rather than blessed: the seven IBM Plex woff2
 faces #632 added are byte-identical in all five bundles and embedded a sixth
-time in `backup-manager-web`. That is 139,744 bytes per copy and **558,976 bytes
+time in `retnd-web`. That is 139,744 bytes per copy and **558,976 bytes
 of pure redundancy** in `/ui/bundles`. It follows from a bundle being a
 self-contained document root, which is what `serve-ui --ui-root <root>/<profile>`
 resolves, so removing it needs a shared asset route and a change to every
@@ -401,13 +402,13 @@ tree, and there was no earlier commit that already contained it to capture from.
 
 ```sh
 # Capture (about six minutes; needs Docker for the image metric)
-python3 scripts/rcmtools/perf/capture_baseline.py --repeat 5
+python3 scripts/bdtools/perf/capture_baseline.py --repeat 5
 
 # Presence: is there a complete, checked-in baseline for the designated host?
 scripts/perf/check-baseline.sh
 
 # Regression: does a fresh capture beat the checked-in one?
-python3 scripts/rcmtools/perf/capture_baseline.py --repeat 5 --out /tmp/candidate.json
+python3 scripts/bdtools/perf/capture_baseline.py --repeat 5 --out /tmp/candidate.json
 scripts/perf/check-baseline.sh --compare /tmp/candidate.json
 
 # Positive controls for the gate itself
@@ -467,6 +468,17 @@ The harness reads it from a pipe and keeps it in memory, and the password it
 enrolls with is generated per run and never leaves memory either. No harness
 output carries anything but measurements, which is why the records are safe to
 commit.
+
+Enrollment needs a working mail path since #830 — the engine sends a confirmation
+message to the account's recovery address before it writes the record, and refuses
+the enrollment if that send fails — so the harness starts an in-process SMTP sink
+(`apps/common/email/emailtest`) on `127.0.0.1`, enrolls with a recovery address at
+that sink, and lets it capture the message. It is a listener in the test process,
+not a service and not a container: nothing is installed, no port is published, no
+mail leaves the machine, and a run needs no credential of any kind for it. That
+matters here for the same reason the rest of this section does, and for one more:
+a benchmark that depended on a mail service would be measuring that service's
+latency inside its own numbers.
 
 ## If a number moves
 

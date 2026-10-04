@@ -9,9 +9,10 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/spdrman/rclone-manager/core/apicontract"
-	"github.com/spdrman/rclone-manager/core/internal/app"
-	"github.com/spdrman/rclone-manager/core/internal/state"
+	"github.com/retnd/retnd/core/apicontract"
+	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // Running exactly one backup set on demand (issue #597, EPIC G's G1.4).
@@ -30,7 +31,7 @@ import (
 //
 // internal/app.Service.Fetch has been "an operator-triggered, on-demand
 // run of exactly one backup set's share of the same cycle RunCycle
-// performs" since FR-1, and `rbm fetch --backup-set` has
+// performs" since FR-1, and `retnd fetch --backup-set` has
 // called it all along. Nothing about the pipeline is new here: this is
 // the missing way to reach it from a serving process, so the work takes
 // the engine's single-flight lock, lands in the engine's journal and
@@ -50,7 +51,7 @@ import (
 //
 // RunCycle skips a disabled set because a sweep over everything must not
 // act on one an operator switched off. Naming that one set explicitly is
-// the opposite intent, and `rbm fetch --backup-set` has always
+// the opposite intent, and `retnd fetch --backup-set` has always
 // honoured it, so refusing here would make the two surfaces disagree
 // about the same request. The browser does not offer the control for a
 // disabled set; an operator who means it can still say so.
@@ -82,6 +83,29 @@ type RunBackupSetRequest struct {
 	Actor          string
 	ConfigRevision string
 	BackupSetID    string
+
+	// SkipWorkflowScripts is EPIC L's --skip-workflow-scripts (#813):
+	// take the backup and run none of this set's hook scripts.
+	//
+	// It exists for one situation and is shaped for it: a hook is broken
+	// at three in the morning and somebody needs tonight's backup. What
+	// it may NOT do is get taken by accident or by habit, so it is
+	// refused for a caller the surface has not established as an
+	// administrator, refused outright on a scheduled run, and refused --
+	// structurally, by the engine, before it is even looked at -- for a
+	// set with an unresolved interruption, because that set may have a
+	// machine sitting quiesced and skipping the cleanup is the last
+	// thing anybody should do to it.
+	//
+	// Every bypassed run is recorded twice: bypassed=1 on the durable run
+	// row, and a warn-level workflow_bypassed event naming the actor.
+	SkipWorkflowScripts bool
+
+	// Administrator is the surface's statement that this caller may take
+	// an administrator action. See workflowRunOptions.Administrator for
+	// what each surface has to do to establish it, and why it is a claim
+	// the surface makes rather than something this package infers.
+	Administrator bool
 }
 
 // runBackupSetParameters is what the durable row records about this
@@ -93,6 +117,15 @@ type RunBackupSetRequest struct {
 // the first if the two ever disagree.
 type runBackupSetParameters struct {
 	BackupSetID string `json:"backup_set_id"`
+
+	// SkipWorkflowScripts is recorded here as well as on the workflow
+	// run row, and the duplication is the point: the run row says what
+	// HAPPENED, and this says what was ASKED FOR. A bypass that was
+	// requested and then refused leaves no run row at all, so without
+	// this field the request would be invisible -- and "somebody keeps
+	// trying to skip the hooks" is precisely what an audit of this flag
+	// is for.
+	SkipWorkflowScripts bool `json:"skip_workflow_scripts,omitempty"`
 }
 
 // SubmitRunBackupSet persists and starts a per-set run, with exactly the
@@ -116,6 +149,13 @@ func (b *BackupService) SubmitRunBackupSet(ctx context.Context, req RunBackupSet
 	if req.BackupSetID == "" {
 		return Operation{}, fmt.Errorf("%w: %s request requires a backup set id", ErrInvalidRequest, ActionRunBackupSet)
 	}
+	// Fail closed on EPIC L's reconciliation (#813), for SubmitRunCycle's
+	// reason and before this call's own id checks for the same one: no
+	// durable row for a run this process has already decided it must not
+	// start.
+	if err := b.WorkflowReconcileGate(); err != nil {
+		return Operation{}, err
+	}
 	sourceName, setName, ok := splitBackupSetID(req.BackupSetID)
 	if !ok {
 		// A syntactically impossible id cannot name anything, and gets
@@ -138,9 +178,28 @@ func (b *BackupService) SubmitRunBackupSet(ctx context.Context, req RunBackupSet
 		return Operation{}, fmt.Errorf("%w: %s", ErrBackupSetHeldForEditing, req.BackupSetID)
 	}
 
-	parameters, err := json.Marshal(runBackupSetParameters{BackupSetID: req.BackupSetID})
+	opts := workflowRunOptions{
+		SkipScripts:   req.SkipWorkflowScripts,
+		Administrator: req.Administrator,
+		Actor:         req.Actor,
+	}
+	// Refused BEFORE the operation row exists, unlike every other
+	// refusal in the execution half. A bypass that was accepted, queued
+	// and then refused by the lifecycle would leave a durable row saying
+	// an administrator action was submitted, which is exactly the audit
+	// trail a bypass must not be able to produce without one having
+	// happened.
+	if err := b.authorizeBypass(opts); err != nil {
+		return Operation{}, err
+	}
+
+	parameters, err := json.Marshal(runBackupSetParameters{
+		BackupSetID:         req.BackupSetID,
+		SkipWorkflowScripts: req.SkipWorkflowScripts,
+	})
 	if err != nil {
-		// A struct of one string; Marshal cannot fail against it.
+		// A struct of one string and one bool; Marshal cannot fail
+		// against it.
 		parameters = []byte("{}")
 	}
 
@@ -177,13 +236,13 @@ func (b *BackupService) SubmitRunBackupSet(ctx context.Context, req RunBackupSet
 	}
 
 	b.wg.Add(1)
-	go b.executeRunBackupSet(outcome.Operation.OperationID, sourceName, setName)
+	go b.executeRunBackupSet(outcome.Operation.OperationID, sourceName, setName, opts)
 
 	return toOperation(outcome.Operation), nil
 }
 
-// configuresBackupSet reports whether the running configuration holds a
-// backup set with this source/name pair.
+// configuredBackupSet returns the backup set the running configuration
+// holds under this source/name pair.
 //
 // It reads the snapshot the caller already Load()ed rather than re-reading
 // config.yaml, because a run acts on the configuration this process is
@@ -191,9 +250,14 @@ func (b *BackupService) SubmitRunBackupSet(ctx context.Context, req RunBackupSet
 // on-disk re-read here would let a hand edit made since the last reload
 // decide whether a run is accepted, against a configuration the run would
 // then not use.
-func configuresBackupSet(inner *app.Service, sourceName, setName string) bool {
+//
+// The whole set rather than a bool, because the callers that need more
+// than existence -- a restore needs the engine, since a set that stores
+// artifacts has no snapshot to restore -- would otherwise walk the same
+// two loops a second time to find the thing this one already had in hand.
+func configuredBackupSet(inner *app.Service, sourceName, setName string) (config.BackupSet, bool) {
 	if inner == nil || inner.Config == nil {
-		return false
+		return config.BackupSet{}, false
 	}
 	for _, src := range inner.Config.Sources {
 		if src.Name != sourceName {
@@ -201,11 +265,19 @@ func configuresBackupSet(inner *app.Service, sourceName, setName string) bool {
 		}
 		for _, bs := range src.BackupSets {
 			if bs.Name == setName {
-				return true
+				return bs, true
 			}
 		}
 	}
-	return false
+	return config.BackupSet{}, false
+}
+
+// configuresBackupSet reports whether the running configuration holds a
+// backup set with this source/name pair.
+func configuresBackupSet(inner *app.Service, sourceName, setName string) bool {
+	_, ok := configuredBackupSet(inner, sourceName, setName)
+
+	return ok
 }
 
 // configuresBackupSetID is configuresBackupSet against an id spelled the
@@ -247,7 +319,7 @@ func (b *BackupService) configuresBackupSetID(id string) bool {
 // of that very set got no prompt at all, which is the two-writers race
 // #350 exists to warn about, arriving through the one door that did not
 // have the warning on it.
-func (b *BackupService) executeRunBackupSet(operationID, sourceName, setName string) {
+func (b *BackupService) executeRunBackupSet(operationID, sourceName, setName string, opts workflowRunOptions) {
 	defer b.wg.Done()
 	// The live reading, registered and torn down exactly as
 	// executeRunCycle does, so GET /api/v1/operations/{id} can answer
@@ -305,7 +377,7 @@ func (b *BackupService) executeRunBackupSet(operationID, sourceName, setName str
 	// live activity feed under this set's own id.
 	result, err := runBackupSetFetch(
 		b.state.Load().inner,
-		app.WithProgressObserver(b.ctx, progressFanout{live, b.cycleWatch, b.activity}),
+		withWorkflowRunOptions(app.WithProgressObserver(b.ctx, progressFanout{live, b.cycleWatch, b.activity}), opts),
 		sourceName, setName)
 	if err != nil {
 		// Not err.Error(): Fetch's errors come up from internal/app and

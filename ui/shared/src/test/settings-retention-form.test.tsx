@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { MemoryRouter } from "react-router-dom";
 import { SettingsPage } from "@shared/pages/SettingsPage";
 import { ApiProvider } from "@shared/api/ApiContext";
-import { BackupManagerError } from "@shared/api/contracts";
+import { RetndError } from "@shared/api/contracts";
 import type { AppSettings, UpdateSettingsRequest } from "@shared/api/contracts";
 import { createMockApi } from "@shared/api/mock";
 import { PlatformProvider } from "@shared/platform/PlatformContext";
@@ -108,8 +108,9 @@ function settingsFixture(
       ...overrides
     },
     capacity: defaultCapacityFixture(),
+    service: { pollIntervalSeconds: 900 },
     mediums,
-    schema: { retention: schema, storage: STORAGE_SCHEMA }
+    schema: { retention: schema, storage: STORAGE_SCHEMA, service: { minPollIntervalSeconds: 60 } }
   };
 }
 
@@ -514,7 +515,7 @@ describe("SettingsPage retention policy form", () => {
     const { updateSettings } = await renderSettings({
       updateSettings: () =>
         Promise.reject(
-          new BackupManagerError({
+          new RetndError({
             code: "INVALID_REQUEST",
             message: "retention.tiers[0]: keep must be a positive number of look-back units (got 0)",
             correlationId: "cid_test400"
@@ -557,7 +558,7 @@ describe("SettingsPage retention policy form", () => {
     // silently while the other renders as if nothing were wrong.
     const getSettings = vi.fn(() =>
       Promise.reject(
-        new BackupManagerError({
+        new RetndError({
           code: "INTERNAL",
           message: "failed to read settings",
           correlationId: "cid_test500"

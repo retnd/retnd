@@ -149,7 +149,7 @@ type Metadata struct {
 	// definition has no store to appear in.
 	StoreArtifacts []string `json:"storeArtifacts"`
 	// BinaryArtifacts maps a canonical binary path
-	// ("/rbm-web") to a checked-in file in this provider's
+	// ("/retnd-web") to a checked-in file in this provider's
 	// package that is supposed to BE those bytes. Empty for every
 	// provider that consumes the OCI image by reference, which is all of
 	// them today, and that is the point: core-binary-hash-parity cannot
@@ -257,8 +257,13 @@ type Provider struct {
 	ScanRoots []string `json:"scanRoots"`
 	// Acceptance is the §68 procedure, relative to the repository root,
 	// or empty when the provider has none.
-	Acceptance string          `json:"acceptance"`
-	Cells      map[string]Cell `json:"cells"`
+	Acceptance string `json:"acceptance"`
+	// WorkflowRunner is this provider's own statement about the Host
+	// Workflow Runner and the container-based local hooks that need it
+	// (issue #877). See workflowruntime.go for why it is a per-provider
+	// declaration rather than one repository-wide answer.
+	WorkflowRunner WorkflowRunner  `json:"workflowRunner"`
+	Cells          map[string]Cell `json:"cells"`
 }
 
 // The two declaration files this package resolves cells from. A cell's
@@ -764,6 +769,78 @@ func BridgeDeclaresCapability(bridgePath, key string) (bool, error) {
 	return bridgeCapabilityRe(key).Match(data), nil
 }
 
+// The delegation issue #795 introduced, and the reason this helper is
+// here rather than inline in two greps.
+//
+// Six provider bridges each held a byte-identical copy of the session
+// read, and every copy spelled `mode: "local-account"` itself. #795
+// collapsed them into one shared module, which took that literal out of
+// all six bridge files -- so a check that greps a bridge for it stopped
+// following the product and started reporting six FAIL cells about an
+// auth mode nothing had changed. The mode is still local-account; it is
+// read out of one file now instead of six.
+//
+// So the question this answers is the one the gate means: does this
+// provider's bridge report the canonical auth mode. A bridge answers it
+// either by spelling the mode itself (UGOS's native-session adapter
+// does) or by delegating to the shared reader.
+const (
+	sharedLocalSessionModule = "ui/shared/src/platform/localSession.ts"
+	localSessionReader       = "readLocalAccountSession"
+)
+
+var (
+	// authModeLiteralRe captures every auth mode a module reports.
+	authModeLiteralRe = regexp.MustCompile(`\bmode:\s*"([a-z-]+)"`)
+	// delegatesSessionRe is the bridge wiring the shared reader up as
+	// its own getAuthContext, which is what makes the shared module's
+	// answer this provider's answer.
+	delegatesSessionRe = regexp.MustCompile(`getAuthContext:\s*` + localSessionReader + `\b`)
+	// importsSessionRe is the other half: wiring a name that is not the
+	// shared module's is a bridge with a session reader of its own.
+	importsSessionRe = regexp.MustCompile(`import\s*\{[^}]*\b` + localSessionReader + `\b[^}]*\}\s*from\s*"@shared/platform/localSession"`)
+)
+
+// BridgeReportsAuthMode reports whether bridgeText reports want as its
+// auth mode, and says how it decided.
+//
+// The delegated case is followed rather than trusted: the shared module
+// has to exist, it has to report want, and it must not report anything
+// else. That last clause is the falsification. A shared reader that
+// grew a second mode -- a native-session path, a "mode: unknown"
+// fallback -- would make every delegating bridge's cell a claim nobody
+// checked, and it fails here instead.
+func BridgeReportsAuthMode(bridgeText, want string) (bool, string) {
+	if strings.Contains(bridgeText, `mode: "`+want+`"`) {
+		return true, "the bridge reports it directly"
+	}
+	if !delegatesSessionRe.MatchString(bridgeText) || !importsSessionRe.MatchString(bridgeText) {
+		return false, fmt.Sprintf("the bridge neither reports auth mode %q nor delegates to %s from %s", want, localSessionReader, sharedLocalSessionModule)
+	}
+	data, err := os.ReadFile(Path(sharedLocalSessionModule))
+	if err != nil {
+		return false, fmt.Sprintf("the bridge delegates to %s and %s cannot be read: %v", localSessionReader, sharedLocalSessionModule, err)
+	}
+	return sharedReaderReportsAuthMode(string(data), want)
+}
+
+// sharedReaderReportsAuthMode is the delegated half on its own, so the
+// one branch that cannot be reached by editing a bridge -- the shared
+// module reporting a mode of its own -- has a control that watches it
+// fail without rewriting a file six providers depend on.
+func sharedReaderReportsAuthMode(sharedText, want string) (bool, string) {
+	found := authModeLiteralRe.FindAllStringSubmatch(sharedText, -1)
+	if len(found) == 0 {
+		return false, fmt.Sprintf("the bridge delegates to %s and %s reports no auth mode at all", localSessionReader, sharedLocalSessionModule)
+	}
+	for _, m := range found {
+		if m[1] != want {
+			return false, fmt.Sprintf("%s reports auth mode %q, and this platform's is %q", sharedLocalSessionModule, m[1], want)
+		}
+	}
+	return true, fmt.Sprintf("delegates to %s, which reports %q and nothing else", localSessionReader, want)
+}
+
 // procedureLineRe matches the lines of an acceptance procedure that
 // represent a step an operator actually performs: a heading, or a
 // checklist box. Matching those rather than the whole document is what
@@ -826,7 +903,7 @@ func ImportsProviderRe(provider string) *regexp.Regexp {
 	// lines until it meets a provider path in a later comment, and the
 	// check then reports core as importing a provider because somebody
 	// wrote "this repository's" a few lines above the word. That is not
-	// hypothetical: it is how core/cmd/backup-manager/usagepins_test.go
+	// hypothetical: it is how core/cmd/retnd/usagepins_test.go
 	// first tripped this. An import path and a string literal both live
 	// on one line, so refusing to cross one costs nothing real.
 	return regexp.MustCompile(`["'][^"'\n]*apps/` + regexp.QuoteMeta(provider) + `/`)
@@ -844,7 +921,7 @@ func ImportsProviderRe(provider string) *regexp.Regexp {
 type ReleaseManifest struct {
 	Commit string `json:"commit"`
 	// Version is the VERSION build argument the recorded binaries were
-	// stamped with, which is what `/rbm version` answers. It
+	// stamped with, which is what `/retnd version` answers. It
 	// is NOT necessarily the semantic version the provider packages
 	// advertise: the generator defaults it to `git describe --tags
 	// --always`, and this repository has no tags, so today it is an
@@ -940,34 +1017,26 @@ func (m ReleaseManifest) ArchitectureSet() []string {
 	return out
 }
 
-// manifestBinaryKey turns a canonical binary path into the key
-// container/release-manifest.json records its SHA-256 under.
+// manifestBinaryKeys returns the manifest key for a canonical binary.
 //
-// The two are not the same string any more, and that is deliberate
-// rather than an oversight left over from the 0.3.3 CLI rename. What an
-// operator types became `rbm` and `rbm-web`, so canonical.json's
-// commands, every compose file and every adapter name /rbm and /rbm-web,
-// and scan.go checks a `command:`'s argv[0] against exactly that list.
-// The release ARTIFACT did not get renamed: the manifest's binary_sha256
-// keys, apps/synology/spk's payload members and the provenance inventory
-// all still say backup-manager and backup-manager-web, because they
-// identify a recorded build rather than a command, and re-keying a
-// record that already carries 0.3.3's hashes would invalidate evidence
-// to change a label.
-//
-// So one translation, in one place, rather than either half being made
-// to lie about the other. A path this map does not know is passed
-// through with its slash stripped, which is what the two callers did
-// before this existed: an unrecognised binary must fail the lookup and
-// be reported missing, never quietly resolve to one of these two.
-func manifestBinaryKey(binary string) string {
-	// The manifest keys each binary by its own name, so this is just the
-	// path with its leading slash removed. It used to translate, because
-	// 0.3.3 renamed the binaries while the release artefact kept the old
-	// keys; the keys moved with the rest of the cut, so there is nothing
-	// left to bridge and nothing here that can pair a hash with the wrong
-	// binary.
-	return strings.TrimPrefix(binary, "/")
+// The manifest now records only the current binary names. A path this
+// table does not know is passed through with its slash stripped so callers
+// report the unknown key as missing rather than resolving it to another
+// binary.
+func manifestBinaryKeys(binary string) []string {
+	return []string{strings.TrimPrefix(binary, "/")}
+}
+
+// recordedHash returns this architecture's recorded SHA-256 for a
+// canonical binary and the manifest key it was found under, or two empty
+// strings when no accepted spelling of the key carries one.
+func (a ReleaseArchitecture) recordedHash(binary string) (hash, key string) {
+	for _, k := range manifestBinaryKeys(binary) {
+		if h := a.BinarySHA256[k]; h != "" {
+			return h, k
+		}
+	}
+	return "", ""
 }
 
 // RecordsEveryBinary reports whether every canonical binary has a
@@ -982,8 +1051,8 @@ func (m ReleaseManifest) RecordsEveryBinary(binaries []string) (bool, string) {
 	}
 	for _, a := range m.Architectures {
 		for _, binary := range binaries {
-			if a.BinarySHA256[manifestBinaryKey(binary)] == "" {
-				return false, fmt.Sprintf("no SHA-256 recorded for %s (release-manifest key %q) on %s", binary, manifestBinaryKey(binary), a.Architecture)
+			if h, _ := a.recordedHash(binary); h == "" {
+				return false, fmt.Sprintf("no SHA-256 recorded for %s (release-manifest key, either of %q) on %s", binary, manifestBinaryKeys(binary), a.Architecture)
 			}
 		}
 	}
@@ -994,7 +1063,7 @@ func (m ReleaseManifest) RecordsEveryBinary(binaries []string) (bool, string) {
 func (m ReleaseManifest) HashesFor(binary string) map[string]string {
 	out := map[string]string{}
 	for _, a := range m.Architectures {
-		if h := a.BinarySHA256[manifestBinaryKey(binary)]; h != "" {
+		if h, _ := a.recordedHash(binary); h != "" {
 			out[a.Architecture] = h
 		}
 	}

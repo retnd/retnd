@@ -12,9 +12,9 @@ import (
 
 	"github.com/rclone/rclone/fs/asyncreader"
 
-	"github.com/spdrman/rclone-manager/core/internal/transport"
-	"github.com/spdrman/rclone-manager/core/internal/transport/rclone"
-	"github.com/spdrman/rclone-manager/core/tests/machines"
+	"github.com/retnd/retnd/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/transport/rclone"
+	"github.com/retnd/retnd/core/tests/machines"
 )
 
 // Whether a transfer already under way stops when its context is cancelled,

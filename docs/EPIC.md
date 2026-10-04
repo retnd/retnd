@@ -6,7 +6,7 @@ Implement a purpose-built backup lifecycle manager in its own
 repository:
 
 ``` text
-spdrman/rclone-manager
+retnd/retnd
 ```
 
 The manager will run on a UGREEN NAS and ingest backup artifacts that
@@ -51,7 +51,7 @@ Remote Server
 embedded rclone SFTP backend
     │
     ▼
-backup-manager
+retnd
     │
     ├── lifecycle journal (SQLite)
     ├── verification/validation
@@ -93,7 +93,7 @@ version**.
 Conceptually:
 
 ``` text
-backup-manager
+retnd
 │
 ├── cmd/
 ├── config/
@@ -288,7 +288,7 @@ go.mod
 go.sum
 
 cmd/
-  backup-manager/
+  retnd/
 
 internal/
   app/
@@ -323,7 +323,7 @@ container/
   compose.yaml
 ```
 
-This was originally scoped as `tools/backup-manager/` inside `iasbuilt/iac`.
+This was originally scoped as a `tools/` subdirectory inside `iasbuilt/iac`.
 The project now lives in its own repository, so the module root is the
 repository root. Nothing else in this specification depends on the
 location.
@@ -342,8 +342,8 @@ This boundary is mandatory to contain upstream API churn.
 The application SHALL support:
 
 ``` bash
-rbm run
-rbm daemon
+retnd run
+retnd daemon
 ```
 
 `run` performs one processing cycle and exits.
@@ -466,7 +466,7 @@ Configuration SHALL support at minimum:
 poll_interval: 15m
 
 state:
-  database: /var/lib/backup-manager/state.db
+  database: /var/lib/retnd/state.db
 
 sources:
   - id: production
@@ -480,7 +480,7 @@ sources:
           port: 22
           user: backup
           key_file: /run/secrets/backup_ssh_key
-          known_hosts: /etc/backup-manager/known_hosts
+          known_hosts: /etc/retnd/known_hosts
 
         remote_path: /backups/postgres
         local_path: /backups/production/postgres
@@ -684,11 +684,11 @@ remote:
   type: sftp
   host: cicd-pipeline.example
   user: backup
-  known_hosts: /etc/backup-manager/known_hosts
+  known_hosts: /etc/retnd/known_hosts
   key:
-    file: /etc/backup-manager/id_ed25519
+    file: /etc/retnd/id_ed25519
     # env: BACKUP_SSH_KEY
-    # command: ["op", "read", "op://infra/backup-manager/private-key"]
+    # command: ["op", "read", "op://infra/retnd/private-key"]
 ```
 
 `key_file` (a bare path, no `key:` block) keeps working unchanged as a
@@ -1452,7 +1452,7 @@ Before deletion:
 A dry-run is mandatory:
 
 ``` bash
-rbm retention --dry-run
+retnd retention --dry-run
 ```
 
 It SHALL explain every KEEP/DELETE decision.
@@ -1522,6 +1522,7 @@ Structured logs SHALL cover:
 -   retries;
 -   stale backups;
 -   disk pressure;
+-   workflow runs, workflow steps and workflow script bypasses;
 -   errors.
 
 Secrets MUST never be logged.
@@ -1564,7 +1565,7 @@ Expose at minimum:
 CLI:
 
 ``` bash
-rbm status
+retnd status
 ```
 
 Container health support is mandatory.
@@ -1663,7 +1664,7 @@ Preferred deployment:
 ``` text
 UGREEN NAS
 ┌─────────────────────────────────────────────────────┐
-│ backup-manager container                            │
+│ retnd container                            │
 │                                                     │
 │ Single Go executable                               │
 │  ├── manager logic                                 │
@@ -1706,30 +1707,30 @@ Builds SHOULD target the architecture used by the UGREEN NAS, with
 # CLI
 
 ``` bash
-rbm run
-rbm daemon
+retnd run
+retnd daemon
 
-rbm check
-rbm status
+retnd check
+retnd status
 
-rbm sources
-rbm artifacts
+retnd sources
+retnd artifacts
 
-rbm fetch --source production --backup-set postgres-primary --dry-run
+retnd fetch --source production --backup-set postgres-primary --dry-run
 
-rbm retention --dry-run
-rbm retention
+retnd retention --dry-run
+retnd retention
 
-rbm reconcile
-rbm validate <artifact-id>
+retnd reconcile
+retnd validate <artifact-id>
 
-rbm version
+retnd version
 ```
 
 `version` SHALL report both:
 
 ``` text
-rbm version
+retnd version
 embedded rclone version
 Go version
 build commit
@@ -1949,7 +1950,7 @@ Potential:
 
 # Acceptance Criteria
 
--   [ ] Tool lives in its own repository, `spdrman/rclone-manager`.
+-   [ ] Tool lives in its own repository, `retnd/retnd`.
 -   [ ] Implementation is Go.
 -   [ ] rclone is embedded as Go modules.
 -   [ ] rclone is not forked.
@@ -2079,7 +2080,7 @@ direct imports could still create significant maintenance cost.
 
 Using rclone `move` would combine transfer and deletion inside a generic
 operation and undermine the explicit distributed transaction required by
-the backup manager.
+retnd.
 
 There is also a TOCTOU risk if a producer replaces a file under the same
 remote pathname after discovery.
@@ -2173,7 +2174,7 @@ lifecycle management.
 rclone:
     move bytes reliably
 
-backup-manager:
+retnd:
     decide what those bytes mean,
     when they are safe,
     when the source may be destroyed,

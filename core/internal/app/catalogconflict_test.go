@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/internal/model"
-	"github.com/spdrman/rclone-manager/core/internal/recovery"
-	"github.com/spdrman/rclone-manager/core/internal/state"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/recovery"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // FR-32 at the recovery door: a sidecar is a proposal, and a disagreement is

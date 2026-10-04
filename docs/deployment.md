@@ -1,41 +1,84 @@
 # UGREEN container deployment
 
-This documents the container packaging for `core/cmd/backup-manager` (A3.9): what's in
+This documents the container packaging for `core/cmd/retnd` (A3.9): what's in
 `container/`, why it's shaped the way it is, and how I verified each requirement rather
 than just asserting it. It's meant to be read next to `container/Dockerfile` and
 `container/compose.yaml`, which carry the same reasoning inline as comments.
 
-## The command is `rbm`, and `backup-manager` is gone
+## The command is `retnd`, and `/retnd-web` survives for exactly one release
 
-0.3.3 renamed the command an operator types. The engine CLI is `rbm` and the web host is
-`rbm-web`, and inside the image those are the two real binaries at `/rbm` and `/rbm-web`.
-Everything in this file, in `container/compose.yaml` and in every adapter now names them.
+EPIC R (#885) renamed the product. The engine CLI is `retnd`, the web host is
+`retnd-web`, and inside the image those are the two real binaries at `/retnd` and
+`/retnd-web`. Everything in this file, in `container/compose.yaml` and in every adapter
+names them. This is the third name the command has had — `retnd` became `rbm`
+in 0.3.3, and `rbm` became `retnd` in 0.4.0 — and it is the first rename that ships a
+compatibility window, because by now the name is not only a printed word: it is in the
+image's entrypoints, the compose service and the container's own paths.
 
-It is a clean cut, not an alias. `container/Dockerfile` copies `/rbm` and `/rbm-web` into
-the runtime stage and creates nothing else: there is no link under the old name beside
-either binary, the image's own `HEALTHCHECK` is `["/rbm", "status"]`, and the distroless
-runtime has no shell to resolve a name through in any case. So an existing compose file,
-`docker run` line, `docker exec`, cron entry or wrapper script that spells
-`backup-manager` or `backup-manager-web` stops working the moment the tag moves, with
-`exec /backup-manager: no such file or directory` and a container that never comes up.
+**One name is aliased, deliberately.** `container/Dockerfile` creates `/retnd-web` in
+the runtime stage as a **real hardlink** to `/retnd-web`: one inode, two names, no second
+copy of a ~40 MB binary and no shell wrapper, because the distroless runtime has no shell
+to resolve a name through. So a compose file, `docker run` line or unit of yours that
+still spells `/retnd-web` starts on a new image instead of dying with
+`exec /retnd-web: no such file or directory`. It is a shim with a closing date: #895
+deletes the hardlink, so the window is one release.
 
-Upgrading is therefore a tag bump **plus** moving every one of those callers onto `rbm`
-and `rbm-web`. `container/Dockerfile` carries the reasoning under "THE BINARY NAMES",
-and `scripts/install/install_docker_host.py` refuses `--release` below 0.3.3 for the
-mirror-image reason: the compose definition it writes runs `/rbm-web`, which no image
-published before 0.3.3 contains.
+**Everything else about the names is a cut.** There is no `/retnd` beside `/retnd`. A
+caller that execs the engine binary by its old path stops working the moment the tag
+moves — loudly, at container start — and that asymmetry is the decision rather than an
+oversight: `/retnd-web` is the path operators pinned in their own compose files, and
+`/retnd` is the path this project's own files pinned. The image's own `HEALTHCHECK` is
+`["/retnd", "status"]`, and `scripts/install/install_docker_host.py` refuses a `--release`
+older than the images that contain `/retnd-web`, for the mirror-image reason: the compose
+definition it writes runs `/retnd-web`, which no image published before R1.5 (#890)
+contains.
 
-One thing to know if you script against the image rather than run it: the two binaries
-are real files rather than links, so `docker cp` needs no `-L`, and anything pulling
-them OUT of the image names `/rbm` and `/rbm-web`.
+One thing to know if you script against the image rather than run it: `/retnd` and
+`/retnd-web` are real files rather than links, so `docker cp` needs no `-L`, and anything
+pulling them OUT of the image names `/retnd` and `/retnd-web`.
 `scripts/release/record-release-hashes.sh` and
 `scripts/release/verify-manifest-parity.sh` both do.
 
-What did NOT change is everything that names the project rather than the command: the
-image reference `ghcr.io/spdrman/backup-manager`, the `rclone-manager` and `web-ui`
-compose service names, the container config directory `/etc/backup-manager`, and the
-binary names `container/release-manifest.json` records a SHA-256 under. Renaming any of
-those would move somebody's data or invalidate a release record for no gain.
+**What moved with the name, and what an upgraded deployment sees.** The compose service
+is `retnd` (the UI service is still `web-ui`, because it never named the product), the
+compose project is named `retnd`, so the default container names are `retnd-retnd-1` and
+`retnd-web-ui-1`, and the container configuration directory is `/etc/retnd`. A script of
+yours that named `retnd-retnd-1` in a `docker inspect` or `docker logs` line needs
+updating; nothing else about those containers changed. The two data mounts,
+`/data/state` and `/data/backups`, carry no brand and did not move, and **nothing renames
+a directory on your NAS**: everything on the left of a `:` in `container/compose.yaml` is
+a host path you chose. A deployment still mounted at the pre-rename container paths is
+**adopted** rather than handed a first-run wizard, and warns on every start until it is
+moved — [Upgrading a deployment installed before the
+rename](install.md#upgrading-a-deployment-installed-before-the-rename) is the whole
+procedure. In short, and in the three shapes an upgrade actually takes:
+
+- **Through the installer**, `install_docker_host.py migrate-identity` stops the stack,
+  restages it so the mounts become `/etc/retnd/...`, rewrites the absolute container
+  paths in the persisted `config.yaml`, renames the three systemd units and brings the
+  stack back up, restoring `config.yaml` byte for byte if anything after the rewrite
+  fails. It is idempotent, and a deployment that has already moved is told so.
+- **With an unedited compose file you pinned yourself**, nothing is required of you for
+  one release: the old image reference resolves through the mirror, the image carries
+  `/retnd-web`, and the engine adopts the state and configuration it finds at the
+  pre-rename paths, warning on every start with the compose line to change and the
+  command that changes it. `config.yaml` is byte-identical either way — the pre-rename
+  paths are compiled-in constants and not a new configuration key — so a rollback to the
+  previous build is supported for that same release.
+- **The one refusal** is two *different* populated directories, one at each container
+  path: the engine refuses to start and names both, because choosing a journal silently
+  is the worst option available. Keep the one this deployment should serve, move the
+  other aside, start again. One host directory mounted at both paths — what
+  `migrate-identity` writes for the rollback window — is one device and one inode, and
+  starts normally.
+
+Two things are deliberately NOT renamed. The image reference is still
+`ghcr.io/retnd/retnd` until the repository coordinates move (#895), because
+moving it inside the old organisation first would have cost every operator two compose
+edits for one rename. And `container/release-manifest.json`'s already-published entries
+keep their `retnd` and `retnd-web` digest keys: they record artifacts that really
+were published under those names, so rewriting them would falsify the release record.
+Its consumer accepts both spellings for the release range that spans the rename.
 
 ## The authoritative runtime contract lives next door
 
@@ -53,14 +96,14 @@ requirement was verified rather than asserted. The two are meant to be read toge
 
 ## Status
 
-`core/cmd/backup-manager` implements every execution mode this deployment shape was
+`core/cmd/retnd` implements every execution mode this deployment shape was
 originally packaged ahead of: `run`, `daemon`, `check`, `status`, `sources`, `artifacts`,
 `fetch`, `retention`, `reconcile`, `validate` and `version`. `container/compose.yaml`
-defaults to the real long-running process (`/rbm-web serve`, see "The generic
-Web host" below) and `container/Dockerfile`'s `HEALTHCHECK` tracks `rbm
+defaults to the real long-running process (`/retnd-web serve`, see "The generic
+Web host" below) and `container/Dockerfile`'s `HEALTHCHECK` tracks `retnd
 status`'s real exit code (HEALTHY vs DEGRADED/STALE/FAILING), not just process liveness
 (issue #82/B4.1). Headless-only deployment (no web listener at all) is still available
-by overriding `command` to `["/rbm", "daemon"]`.
+by overriding `command` to `["/retnd", "daemon"]`.
 
 ## rclone is compiled in, not shelled out to
 
@@ -68,7 +111,7 @@ The image contains no `rclone` binary anywhere, and I checked that directly agai
 built image rather than trusting the design:
 
 ```
-$ docker create --platform linux/arm64 backup-manager:0.0.0-a3.9 version
+$ docker create --platform linux/arm64 retnd:0.0.0-a3.9 version
 $ docker export <container-id> | tar -tv | grep -i rclone
 $ echo $?
 1
@@ -76,17 +119,17 @@ $ echo $?
 
 Exit 1 means zero matches, checked case-insensitively against the full file listing of
 the exported image filesystem (1447 entries: the distroless base's certs/tzdata/passwd
-plus exactly one executable, then called `/backup-manager` and renamed to `/rbm` by
-0.3.3). There's no file named `rclone`, no
+plus exactly one executable, the engine binary the builder stage produces; it is
+`/retnd` today and has been renamed with the product every time). There's no file named `rclone`, no
 `rclone` directory, nothing.
 
 The flip side, that rclone's packages are genuinely compiled into that one binary rather
 than the manager silently doing nothing useful, is also checked directly:
 
 ```
-$ strings backup-manager | grep -c 'rclone/rclone'
+$ strings retnd | grep -c 'rclone/rclone'
 2770
-$ strings backup-manager | grep 'rclone/rclone' | sort -u | head
+$ strings retnd | grep 'rclone/rclone' | sort -u | head
  github.com/rclone/rclone/fs/hash
  github.com/rclone/rclone/fs/list
  github.com/rclone/rclone/fs/walk
@@ -98,7 +141,7 @@ $ strings backup-manager | grep 'rclone/rclone' | sort -u | head
 2770 occurrences of `rclone/rclone` import paths inside a `stripped`, `statically
 linked` ELF binary. rclone is a Go module dependency (`core/go.mod` pins
 `github.com/rclone/rclone v1.75.0`), imported as packages by `core/internal/transport/rclone`,
-and compiled straight into `/rbm` by the builder stage. `CGO_ENABLED=0`
+and compiled straight into `/retnd` by the builder stage. `CGO_ENABLED=0`
 throughout means this holds without a C toolchain on either target architecture, which is
 also why `modernc.org/sqlite` (the state package's SQLite driver, pure Go, no cgo) was
 the only option that ever made sense here.
@@ -113,7 +156,7 @@ the only option that ever made sense here.
 - **`GOTOOLCHAIN=local`** so `go build` never reaches out to fetch a different toolchain
   mid-build if some future `core/go.mod` bump disagreed with the pinned builder image.
 - **`-trimpath`** strips the builder's absolute source paths from the binary. Checked
-  directly: `strings backup-manager | grep -E '/Users/rom|/src/'` returns nothing.
+  directly: `strings retnd | grep -E '/Users/rom|/src/'` returns nothing.
 - **`-buildvcs=false`** so the build doesn't stamp VCS state read off a `.git` directory
   that may or may not even be in the build context (`.dockerignore` excludes `.git`
   deliberately, for this exact reason).
@@ -148,9 +191,9 @@ Built and measured directly, both architectures:
 | linux/amd64   | yes   | yes, under QEMU emulation (no native amd64 host available here) | 18.5 MB |
 
 Both were built with `docker buildx build --platform linux/<arch> ...` from
-`container/Dockerfile`, and both ran `rbm version` successfully and printed
+`container/Dockerfile`, and both ran `retnd version` successfully and printed
 the expected version/commit/Go-version line. `docker compose build` (which does not
-cross-build; see below) plus `docker compose run --rm rclone-manager` was also exercised
+cross-build; see below) plus `docker compose run --rm retnd` was also exercised
 end to end on linux/amd64, with the full read-only-rootfs/tmpfs/non-root/bind-mount shape
 from `container/compose.yaml` in effect, not just a bare `docker run`.
 
@@ -163,7 +206,7 @@ docker buildx build \
   --build-arg VERSION=$(git describe --tags --always) \
   --build-arg COMMIT=$(git rev-parse HEAD) \
   -f container/Dockerfile \
-  -t <registry>/backup-manager:<version> \
+  -t <registry>/retnd:<version> \
   --push \
   .
 ```
@@ -226,7 +269,7 @@ This image has no shell and no root-then-drop-privileges init step (that would n
 `privileged`-adjacent capabilities this container deliberately doesn't have), so it
 cannot `chown` the mounted directories for you at startup. **Whatever `PUID`/`PGID` you
 set has to already own `STATE_DIR` and `BACKUP_DIR` on the host before the first start**,
-e.g. `chown -R 1000:1000 /volume1/backup-manager/state /volume1/backups` on the NAS
+e.g. `chown -R 1000:1000 /volume1/retnd/state /volume1/backups` on the NAS
 itself, matching whichever PUID/PGID you put in `.env`.
 
 One honest limitation: I built and ran all of this on macOS with Docker Desktop, whose
@@ -249,11 +292,11 @@ is owned by uid 65532 specifically, not by whatever `PUID` you set.
 
 - `/data/state` (writable): the SQLite journal directory, see above.
 - `/data/backups` (writable): the NAS backup volume/share completed artifacts land on.
-- `/etc/backup-manager/config` (writable): the DIRECTORY holding the manager's YAML
+- `/etc/retnd/config` (writable): the DIRECTORY holding the manager's YAML
   config (FR-5), and the two stores the engine creates beside it, `ssh_keys/` and
   `known_hosts.d/`.
-- `/etc/backup-manager/id_ed25519` (`:ro`): the SFTP client private key.
-- `/etc/backup-manager/known_hosts` (`:ro`): the pinned host keys (FR-6).
+- `/etc/retnd/id_ed25519` (`:ro`): the SFTP client private key.
+- `/etc/retnd/known_hosts` (`:ro`): the pinned host keys (FR-6).
 
 The configuration mount is a writable directory rather than a read-only single file,
 and that is issue #196 rather than a preference. Adding a backup set, saving settings
@@ -272,6 +315,66 @@ path. Nothing resembling a credential is ever written into `container/compose.ya
 `container/Dockerfile`, or `container/.env.example` itself; the actual key material only
 ever exists at the host path the operator points `SSH_KEY_FILE` to.
 
+## The incremental engine's gate, and where to set it in a container deployment
+
+The incremental (kopia) backup engine is off by default and gated on one
+setting, which can be given two ways. The environment wins over the file **in
+both directions**: `RETND_INCREMENTAL_ENGINE` set to `1`, `true`, `yes` or
+`on` enables the engine whatever the file says, `0`, `false`, `no` or `off`
+disables it whatever the file says, and unset or empty defers to the file. A
+value that is neither spelling is refused when the configuration is validated,
+naming the variable and the accepted spellings, so a typo does not resolve to
+"off".
+
+**On the standard container deployment, set it in `config.yaml`:**
+
+```yaml
+# on the /etc/retnd/config mount
+incremental_engine:
+  enabled: true
+```
+
+That is the place it belongs, and on this deployment shape it is the only
+place that works for the long-running processes. `container/compose.yaml`
+passes environment through an explicit `environment:` block — `TMPDIR`,
+`LOG_LEVEL`, `TZ` and the rest, each interpolated by name — and there is no
+catch-all, so a variable dropped into `container/.env` reaches nothing unless
+that file declares it. `RETND_INCREMENTAL_ENGINE` is not among them.
+
+Where the environment override is the right tool is a process you launch
+yourself, and it is worth knowing for exactly two situations — proving
+something without editing a deployment's configuration, and turning the engine
+off for one command:
+
+```bash
+# one command, inside the running engine container
+docker compose -p retnd ... exec -e RETND_INCREMENTAL_ENGINE=1 retnd /retnd repository health
+
+# a CLI-only install, or a systemd unit, where you own the environment
+RETND_INCREMENTAL_ENGINE=0 ~/retnd/bin/retnd run
+```
+
+The variable is read by the **engine** process, the one that runs the cycle,
+and not by the web host, so it only ever has to reach wherever `retnd`
+itself runs.
+
+There is no watcher and no SIGHUP reload, so a hand edit to `config.yaml` is
+read when a process starts; restart the engine container after making one.
+Turning the gate off never stops the daemon: a configuration that declares
+incremental backup sets still loads and still backs up every `artifact` set on
+schedule, and only the incremental ones refuse. See
+[`docs/incremental-engine.md`](incremental-engine.md) for what the gate does
+and does not cover, and
+[`docs/incremental-runbooks.md`](incremental-runbooks.md#runbook-4-the-engine-is-refusing-because-the-gate-is-off)
+for the refusal.
+
+One storage note for a deployment that enables it: a repository's bytes live
+under the `/data/backups` mount, in the reserved namespace
+`<backup_root>/.retnd/repositories/<domain>/`. That path must be on a
+filesystem the container can write to and that is not walked by anything else
+&mdash; exclude `.retnd` from any SMB/AFP share, scanner or backup-of-the-backup
+that covers the backup volume.
+
 ## No privileged mode
 
 `container/compose.yaml` never sets `privileged: true` (explicitly `privileged: false`),
@@ -282,26 +385,26 @@ non-root uid) needs any capability at all.
 ## Restart policy
 
 `restart: unless-stopped`: come back after a crash or a NAS reboot, stay down if an
-operator deliberately stops it. `command: ["/rbm-web", "serve"]` is a real
+operator deliberately stops it. `command: ["/retnd-web", "serve"]` is a real
 long-running process (the generic Web host's HTTP server plus the backup scheduler, see
 below), so this policy now does what it says rather than looping a container that exits
-immediately. For a one-shot check instead, use `docker compose run --rm rclone-manager
-/rbm version` (or `... check`), which bypasses `restart` entirely.
+immediately. For a one-shot check instead, use `docker compose run --rm retnd
+/retnd version` (or `... check`), which bypasses `restart` entirely.
 
 ## Health check
 
-`rbm status` (issue #26, FR-24) reports `HEALTHY`/`DEGRADED`/`STALE`/`FAILING`
+`retnd status` (issue #26, FR-24) reports `HEALTHY`/`DEGRADED`/`STALE`/`FAILING`
 per backup set and exits 0 only when every one of them is `HEALTHY`. `container/Dockerfile`'s
 `HEALTHCHECK` runs exactly that:
 
 ```
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD ["/rbm", "status"]
+    CMD ["/retnd", "status"]
 ```
 
 Verified directly (`apps/generic/tests/dockercli`), not just asserted: a container whose one
 backup set is `DEGRADED` (no artifact ever discovered for it) reports Docker health
-`unhealthy`, not `healthy`. Before this issue, `HEALTHCHECK` ran `rbm version`,
+`unhealthy`, not `healthy`. Before this issue, `HEALTHCHECK` ran `retnd version`,
 which exits 0 unconditionally and so reported `healthy` regardless of backup health — real
 (if minimal) process-liveness evidence, but not what FR-24's health states are for.
 
@@ -316,15 +419,15 @@ single pass and was gone by the time anybody looked. A deployment that declares 
 storage medium reports nothing new at all.
 
 `container/compose.yaml` deliberately overrides that for the engine service, and asks
-`/health/live` instead. The reason is `web-ui`'s `depends_on: rclone-manager: condition:
+`/health/live` instead. The reason is `web-ui`'s `depends_on: retnd: condition:
 service_healthy`: whatever the engine's healthcheck asks is what stands between an operator
-and the only LAN-facing listener, and `rbm status` exits non-zero on a `DEGRADED`
+and the only LAN-facing listener, and `retnd status` exits non-zero on a `DEGRADED`
 or `STALE` set and on an instance with no configuration at all. Gating startup on it means a
 stale backup set, or a fresh install, keeps the UI from ever coming up, which is the worst
 moment to lose the page you would fix it from. Backup freshness stays what it was built to
 be: the image's own `HEALTHCHECK` (so a plain `docker run` still reports it, and so does the
 headless `daemon` command, which serves no HTTP and has no liveness endpoint to ask), the
-alerts block, and `docker compose exec rclone-manager /rbm status`.
+alerts block, and `docker compose exec retnd /retnd status`.
 
 Every packaged adapter declares the same start gate, and has to (issue #206). The image's
 instruction and the canonical start gate are now deliberately different commands, so an
@@ -332,7 +435,7 @@ adapter that declares nothing for the engine inherits the freshness verdict rath
 gate: `distribution/packaging`'s derivation gate allows that only where nothing waits on the
 engine's health, which is the Unraid template and only that. `apps/generic/tests/dockercli`
 brings every derived runtime definition up on a real fresh install and requires the Web UI to
-serve, with `rbm status` non-zero inside the same stack as the control that makes
+serve, with `retnd status` non-zero inside the same stack as the control that makes
 the result mean something.
 
 ## Building and running it yourself
@@ -342,9 +445,9 @@ the result mean something.
 docker buildx build --platform linux/arm64 \
   --build-arg VERSION=$(git describe --tags --always) \
   --build-arg COMMIT=$(git rev-parse HEAD) \
-  -f container/Dockerfile -t backup-manager:dev --load .
+  -f container/Dockerfile -t retnd:dev --load .
 
-docker run --rm --platform linux/arm64 backup-manager:dev /rbm version
+docker run --rm --platform linux/arm64 retnd:dev /retnd version
 
 # The full deployment shape, via compose (starts the generic Web host —
 # see below — listening on LISTEN_PORT, default 8080):
@@ -353,7 +456,7 @@ docker compose -f container/compose.yaml build
 docker compose -f container/compose.yaml up -d
 
 # A one-shot check instead of the long-running Web host:
-docker compose -f container/compose.yaml run --rm rclone-manager /rbm check
+docker compose -f container/compose.yaml run --rm retnd /retnd check
 ```
 
 See "The generic Web host" below for what `serve` actually composes, and
@@ -363,9 +466,9 @@ also renders `config.yaml`/`.env` for you from a private key and a remote host.
 ## The generic Web host: two containers, one image
 
 The "generic Web App host" (issue #82/B4.1, docs/EPIC-B-multi-nas.md §9.2) is two
-separate Docker containers, both running the exact same `/rbm-web` binary
+separate Docker containers, both running the exact same `/retnd-web` binary
 from the exact same image - only `command:` differs, the same "one canonical image,
-vary command" principle already applied to `/rbm` vs. `/rbm-web`
+vary command" principle already applied to `/retnd` vs. `/retnd-web`
 themselves. No nginx or other new runtime dependency was introduced for the split: the
 UI-host container's reverse proxy is a plain `net/http/httputil.ReverseProxy`
 (`apps/common/webhost/serve.NewUI`).
@@ -379,17 +482,17 @@ UI-host container's reverse proxy is a plain `net/http/httputil.ReverseProxy`
                           │ static UI + proxy  │
                           └─────────┬──────────┘
                                     │ internal Docker network only
-                                    │ (http://rclone-manager:8080)
+                                    │ (http://retnd:8080)
                                     ▼
                           ┌───────────────────┐
-                          │  rclone-manager    │   no published port -
+                          │  retnd    │   no published port -
                           │ engine: core svc + │   reachable only from
                           │ scheduler + local  │   web-ui, over the
                           │ auth + /api/v1     │   `internal` network
                           └───────────────────┘
 ```
 
-**`rclone-manager`** (`/rbm-web serve`) is the engine: local authentication
+**`retnd`** (`/retnd-web serve`) is the engine: local authentication
 (`apps/common/auth/local`), the versioned `/api/v1` API (`apps/common/webhost`), and the
 backup scheduler (`core/service.BackupService.RunOnSchedule`, at the config file's own
 `poll_interval`) - one process sharing one `*service.BackupService` and one
@@ -402,16 +505,16 @@ port** - `container/compose.yaml` gives it no `ports:` entry at all, so it is re
 only from `web-ui`, over the `internal` bridge network compose.yaml defines for exactly
 this project (nothing external, nothing shared with any other container on the host).
 
-**`web-ui`** (`/rbm-web serve-ui`) serves the shared static UI (`ui/shared`'s
+**`web-ui`** (`/retnd-web serve-ui`) serves the shared static UI (`ui/shared`'s
 built bundle, embedded via `apps/generic/webui`'s `go:embed`, with an SPA fallback to
 `index.html` for any client-side route) and reverse-proxies `/api/v1/*` and `/health/*`
 unchanged (same path, method, body, and - critically - the browser's session/CSRF
-cookies) to `rclone-manager` over that same `internal` network, by its compose service
+cookies) to `retnd` over that same `internal` network, by its compose service
 name. This is the **only** container with a `ports:` entry - the one thing a browser or
 an operator's terminal is meant to reach directly.
 
 What this topology actually buys: even a full compromise of the UI-host process (the
-one facing the LAN) reaches `rclone-manager`'s API the exact same way a legitimate
+one facing the LAN) reaches `retnd`'s API the exact same way a legitimate
 browser would - it does not get a bind mount to `config.yaml`, the SSH key,
 `known_hosts`, or either data directory, because `web-ui` never has any of those
 mounted in the first place (see `container/compose.yaml`: it declares zero `volumes:`).
@@ -419,14 +522,14 @@ This is plain Docker Compose network topology, nothing more - no `internal: true
 network flag and no firewall rules block `web-ui`'s own outbound internet access, which
 would be a further hardening step beyond what this issue asked for.
 
-**First run.** With no administrator account yet, `rclone-manager` prints a one-time
+**First run.** With no administrator account yet, `retnd` prints a one-time
 enrollment link straight to its own container log:
 
 ```
-rbm-web: no administrator account exists yet. Open http://localhost:8080/enroll?token=... to create one (valid 30 minutes, single use).
+retnd-web: no administrator account exists yet. Open http://localhost:8080/enroll?token=... to create one (valid 30 minutes, single use).
 ```
 
-`rclone-manager` has no published port of its own (see above), so its own `--listen`
+`retnd` has no published port of its own (see above), so its own `--listen`
 address is never something an operator could actually open - printing a link against
 that address was a real bug fixed as part of issue #119's review: `--public-base-url`/
 `$PUBLIC_BASE_URL` tells `serve` what `web-ui`'s own externally-reachable address
@@ -444,7 +547,7 @@ DNS record somebody set up, nowhere else. On a host with no default route to rea
 address off, it falls back to the hostname. `compose.yaml` itself cannot do any of
 this, which is why its own default is still `localhost`: it has no way to ask the
 kernel anything. Leaving `PUBLIC_BASE_URL` unset entirely (outside of `compose.yaml`'s own default,
-e.g. when running `/rbm-web serve` directly) prints just the raw token
+e.g. when running `/retnd-web serve` directly) prints just the raw token
 instead of a clickable but wrong link.
 
 The token itself is required to complete `POST /api/v1/auth/enroll` — reaching the port
@@ -455,19 +558,81 @@ parameter, not a form field: neither `EnrollmentPage.tsx` nor the design canvas
 it off `window.location.search` and attaches it as the `X-Bootstrap-Token` header
 instead.
 
-**Trusting `web-ui`'s reverse proxy (`TRUST_FORWARDED_HEADERS`).** `rclone-manager`
+A *failed* enrollment does not spend it. The handler verifies the token, sends the
+confirmation mail described below, and only then consumes it and writes the record, so a
+rejected password, a malformed recovery address or an SMTP server that would not accept
+the message all leave the same link usable: correct the field and submit again. That is
+worth stating because it did not used to be true — a too-short password once burned the
+token and left the operator restarting the engine for a fresh one.
+
+**What enrollment asks for, and why it needs an SMTP server.** `POST
+/api/v1/auth/enroll` takes a `username` and a `password`, and beside them a
+`recoveryEmail` and the `smtp` block used to reach it: `host`, `port`, `security`
+(`starttls`, `tls` or `none`), `username`, `password` and `from`. The username is still
+the login identity; the recovery address is an additional field on the same
+administrator record. Before that record is written, the handler sends a confirmation
+message to the address over exactly those details, and a send that fails fails the
+enrollment: `SMTP_SEND_FAILED`, no account, enrollment still open. A malformed address
+is refused as `INVALID_EMAIL` before any connection is attempted. This is deliberate
+and it is the whole point of asking at enrollment rather than later — a recovery address
+nobody has ever delivered to is worth nothing on the day it is needed, and the day it is
+needed is the day nobody can sign in to fix it.
+
+`PUBLIC_BASE_URL` is therefore load-bearing twice over. The reset mail's link is built
+from the same value as the enrollment notice above, so a deployment left on
+`compose.yaml`'s default of `http://localhost:${LISTEN_PORT}` mails a link that resolves
+only on the NAS itself — which, unlike the enrollment notice, nobody is watching a log
+to notice.
+
+**Losing the password.** `POST /api/v1/auth/forgot-password` takes `{username}` and
+answers `204` every time, whether or not that name is the administrator's: an endpoint
+that answered differently would tell an unauthenticated caller the account's name. Where
+it does match and a confirmed recovery address exists, a single-use reset link valid for
+30 minutes is mailed to that address, and `POST /api/v1/auth/reset-password`
+`{token, newPassword}` spends it. The reset token lives in the process, like the
+bootstrap one, so a restart invalidates whatever links are outstanding. Completing a
+reset sets the new hash and revokes every live session, including the browser that asked:
+the answer to a successful reset is the sign-in page, not a session.
+
+**The SMTP password is a reference, not a value.** `state/local-auth.json` gains
+`recovery_email`, `recovery_email_confirmed_at` and an `smtp` object beside the existing
+`password_hash`, and that object's password is held in the project's secret-reference form
+(`core/internal/secretref`) rather than as the secret itself. Nothing reads it back out
+over the API: `GET /api/v1/auth/recovery` returns the SMTP block with no password field
+at all and a `passwordSet` boolean in its place, `PATCH` leaves the stored one alone when
+the field is omitted, and `POST /api/v1/auth/recovery/test` proves the credential by
+using it rather than by showing it. Same rule as the SSH key: the operator supplies it,
+the deployment holds it, and no response or log line ever carries it back.
+
+**Provisioning without a browser (`/retnd-web auth create-admin`).** The other way
+an administrator comes into existence is the subcommand an automated deployment runs
+instead of opening a link: `--username`, `--password-stdin`, `--auth-store`. Recovery is
+**optional** there — `--recovery-email`, `--smtp-host`, `--smtp-port`, `--smtp-security`,
+`--smtp-username`, `--smtp-password-stdin`, `--smtp-from` — and the two stdin secrets are
+read as two lines in that order: the account password first, the SMTP password second.
+Given an SMTP endpoint it sends the same confirmation message and fails the command if
+that send fails, exactly as the HTTP route does. Given none, it provisions the account
+and leaves recovery unconfigured, which is the deliberate difference: a provisioning run
+in a pipeline often has no mail credential to give, and refusing to create the account
+would make that pipeline unusable to no security benefit. The operator finishes it in
+Settings, and until they do, a forgotten password has no self-service route back. A
+deployment provisioned this way should treat `GET /api/v1/auth/recovery` returning no
+address as an open task rather than as a state to leave alone.
+
+**Trusting `web-ui`'s reverse proxy (`TRUST_FORWARDED_HEADERS`).** `retnd`
 only ever sees requests from `web-ui`'s own reverse proxy, over the `internal` network -
 every request's `RemoteAddr` is `web-ui`'s own container address, never the real
 external client's. Left uncorrected, that collapses per-IP rate limiting on
-`/api/v1/auth/login` and `/api/v1/auth/enroll` into one shared bucket for every client
-on the internet-facing side (an attacker-usable denial-of-service against the admin's
-own login), and permanently prevents the session/CSRF cookies' `Secure` flag from ever
+`/api/v1/auth/login`, `/api/v1/auth/enroll` and `/api/v1/auth/forgot-password` into one
+shared bucket for every client on the internet-facing side (an attacker-usable
+denial-of-service against the admin's own login), and permanently prevents the
+session/CSRF cookies' `Secure` flag from ever
 being `true`, regardless of TLS in front of `web-ui`'s published port (issue #119's
 review, findings 1 and 4). `container/compose.yaml` sets
-`TRUST_FORWARDED_HEADERS=true` for `rclone-manager` only, which makes it trust
+`TRUST_FORWARDED_HEADERS=true` for `retnd` only, which makes it trust
 `X-Forwarded-For`/`X-Forwarded-Proto` from its one caller instead of its own
 `RemoteAddr`/TLS state - safe specifically because network isolation guarantees
-`web-ui` is the only thing that can ever be `rclone-manager`'s direct TCP peer, and
+`web-ui` is the only thing that can ever be `retnd`'s direct TCP peer, and
 `apps/common/webhost/serve.NewUI`'s reverse proxy always sets both headers itself, derived
 from its own real connection to the browser, never copied from anything the browser
 sent. This is never set for `web-ui` itself: that container IS the actual
@@ -477,30 +642,30 @@ its published port.
 **Two binaries, one image, no `ENTRYPOINT`.** `apps/generic` is its own Go module — it
 has to be, since it imports `apps/common/webhost/serve` and `apps/common/auth/local`,
 and `core/`'s own module cannot depend on `apps/` in either direction (§7.1) — so
-`/rbm-web` is a second binary alongside the unchanged `/rbm`,
+`/retnd-web` is a second binary alongside the unchanged `/retnd`,
 not a new subcommand of it. `container/Dockerfile` sets no `ENTRYPOINT` for exactly
 this reason (a fixed `ENTRYPOINT` can only ever prefix one binary): every `command:` in
 `container/compose.yaml`, and every example above, names its binary by full path.
 
-**Healthchecks differ per container.** `rclone-manager` keeps the image's own baked-in
-`HEALTHCHECK` (`rbm status`, real backup-freshness evidence against the
+**Healthchecks differ per container.** `retnd` keeps the image's own baked-in
+`HEALTHCHECK` (`retnd status`, real backup-freshness evidence against the
 state database it actually holds). `web-ui` has neither a config file nor a state
 database, so `container/compose.yaml` overrides its `healthcheck:` to
-`/rbm-web healthcheck` instead - a plain HTTP GET against its own listener,
+`/retnd-web healthcheck` instead - a plain HTTP GET against its own listener,
 the only question that applies to a container whose entire job is "serve static files
 and proxy requests."
 
-**Headless mode is still just the other binary.** `/rbm daemon` (or `run`,
-`check`, ...) never binds a web listener at all — override `rclone-manager`'s `command`
-in `container/compose.yaml` to `["/rbm", "daemon"]` (and simply omit the
+**Headless mode is still just the other binary.** `/retnd daemon` (or `run`,
+`check`, ...) never binds a web listener at all — override `retnd`'s `command`
+in `container/compose.yaml` to `["/retnd", "daemon"]` (and simply omit the
 `web-ui` service, or stop it) for a deployment that should never expose the API/UI at
-all. `rbm status` works identically either way, since it is always a fresh,
+all. `retnd status` works identically either way, since it is always a fresh,
 read-only check against the shared state database file, independent of which binary is
-actually running as `rclone-manager`'s main process.
+actually running as `retnd`'s main process.
 
 ## Storage capacity, and capping what this manager may use
 
-By default backup manager measures the filesystem your backup root is on and reports
+By default retnd measures the filesystem your backup root is on and reports
 against the whole volume: no configuration, and useful from the moment setup finishes.
 If you would rather it stayed inside an allowance, set a cap:
 
@@ -559,7 +724,7 @@ see rather than something you have to suspect.
 
 ## Proactive alerting
 
-Backup manager can tell an administrator that something is wrong without anyone
+retnd can tell an administrator that something is wrong without anyone
 having to open the dashboard. It notifies on exactly four conditions
 (`docs/EPIC-B-multi-nas.md` §71): a **stale backup**, **repeated failure** on a backup
 set, a **changed SSH host key**, and **critical storage pressure**. That list is
@@ -583,7 +748,7 @@ notifies nobody, so turning this on is always a deliberate edit.
 notification capability, supplied by the provider app rather than by this file, which
 is why there is no URL, command or credential to get wrong. A platform that declares
 no native notification capability, and the generic Docker/Linux host is one, cannot
-deliver: `/rbm-web serve` prints `proactive alerting is off` at startup and
+deliver: `/retnd-web serve` prints `proactive alerting is off` at startup and
 carries on running backups normally. It never emulates delivery, so alerting is either
 visibly on or visibly off, never silently swallowed.
 
@@ -596,10 +761,136 @@ yourself. The connection stays refused until you do.
 clears and later comes back does alert again, so a recurrence is never lost behind a
 notification you already dismissed.
 
+## Metrics, and the one-release duplicate series
+
+`core/internal/metrics` renders FR-24's health report as Prometheus text exposition
+(version 0.0.4), and every series it emits is prefixed `retnd_`:
+`retnd_process_info`, `retnd_backup_set_state`, `retnd_workflow_runner_reachable`,
+`retnd_workflow_runs_total` and the rest. **Nothing in this build serves it yet** —
+there is no subcommand and no route wired to it (issues #25, #26) — so a deployment
+today has no scrape endpoint to point Prometheus at. This section is here because the
+names moved and because the move has one hazard worth reading before you write a query
+against them.
+
+Those series were `retnd_*` until EPIC R (#885) renamed the product. An alert rule
+whose series stopped existing does not fire, and a dashboard whose query matches nothing
+is blank; both look exactly like a healthy deployment, which is the failure mode this
+project will not ship. So **every gauge family is emitted a second time under the
+`retnd_` prefix for one release**, derived from the bytes of the first rendering so the
+two cannot disagree, with `DEPRECATED, renamed to retnd_…` in its own `# HELP` line —
+so a scrape carries its own deprecation notice.
+
+**The caveat: a query that reads both prefixes double-counts.** The duplicated samples
+are the same readings under two names, not two measurements, so
+`sum(retnd_backup_set_state) + sum(retnd_backup_set_state)` reports twice as many
+backup sets as exist, and so does any regex matcher loose enough to catch both names
+(`{__name__=~".*backup_set_state"}`). Point every rule, recording rule and dashboard at
+`retnd_*` only. The old names exist so that a rule you have **not** migrated keeps
+firing during the upgrade, not so that both can be read at once.
+
+**No counter is duplicated, and that is structural rather than remembered.** The
+duplication copies a family only when that family's own `# TYPE` line says `gauge`, so a
+counter cannot join the duplicated set by being added to a list. Summing `rate()` across
+two names of one counter doubles the rate, and nothing in the output would tell the
+operator who wrote that query — which is why `retnd_workflow_runs_total` and the other
+`_total` series exist under one name only.
+
+**The window is one release.** #895 deletes the duplication along with every other
+EPIC R shim, and `scripts/rename/check-brand-drift.sh`'s alias list is the ledger that
+says so: it reports an alias entry that has stopped matching anything, so the window
+closes because a gate noticed rather than because somebody remembered.
+
+## Turning on diagnostics
+
+Some faults only happen on a real deployment. Issue #730 is the example this
+section exists for: one NAS whose Activity page failed with `TypeError: Failed to
+fetch` — no HTTP response reaching JavaScript at all — while `curl` against the
+same route answered cleanly, and a rig built from the shipped image never
+reproduced it. Nothing in the default log said anything, because nothing had been
+asked to.
+
+There are **three** switches, and they are three because a request crosses three
+places that each know something the other two cannot see.
+
+**Both containers.** `LOG_LEVEL=debug` in `container/.env`, which
+`container/compose.yaml` passes to `retnd` and to `web-ui` alike:
+
+```
+# container/.env
+LOG_LEVEL=debug
+```
+
+```
+docker compose -f container/compose.yaml up -d
+docker compose -f container/compose.yaml logs -f
+```
+
+`RETND_DEBUG=1` is the same switch under a shorter name, kept because it is
+the one an operator can be given over a phone call; it wins if both are set. An
+unparseable value falls back to `info` rather than refusing to start — a typo in a
+diagnostic knob must never take a backup host down.
+
+`BACKUPD_DEBUG=1` and `RM_DEBUG=1` are that shortcut's two **deprecated** older
+spellings, one per name this project has had: `BACKUPD_DEBUG` from before the
+rename to `retnd` (EPIC R, issue #885) and `RM_DEBUG` from before the rename to
+`retnd` (issue #794). Both are still read, so a deployment upgraded without its
+compose file or its unit being re-derived does not go quiet in the middle of a
+diagnosis, and both are removed in the release after the one that renames this
+product. The current name wins when more than one is set, and the process prints
+one deprecation notice per deprecated name it read, on stderr, at start — not once
+per read, so a running deployment is not punished for an old compose file. Set
+`RETND_DEBUG` and delete the others.
+
+**Set it on both services or neither.** The engine records what it built and
+served; `web-ui` records what the engine answered, what framing the body arrived
+with, and how many bytes of it actually reached the browser. Every line on both
+sides names the same `correlation_id`, which is what lets the two accounts of one
+request be read as one story — and one container at `debug` gives you half of
+every story with nothing to join it to.
+
+What appears at `debug` that does not appear at `info`:
+
+| event | container | what it answers |
+| --- | --- | --- |
+| `activity_debug` | `retnd` | what the activity feed actually served: how many events, how many bytes, which cursor, and the forwarded headers it was asked under |
+| `proxy_upstream_headers` | `web-ui` | what the engine answered and with what framing — status, `Content-Length`, `Content-Encoding`, `Transfer-Encoding` |
+| `proxy_upstream_complete` | `web-ui` | what the body turned out to be: bytes actually copied against the length declared, whether the read ended at EOF, and any read or close error. A body that ends short of its declared length is logged at `warn` |
+
+Two events are recorded whatever the level, because a failure to answer the
+browser at all is not something an operator should have to have predicted:
+`proxy_error` (the reverse proxy could not produce a response — an unreachable
+engine, or one that accepted the connection and never replied) and `http_refusal`
+(the API returned a 500 and could say why in the log without saying it to the
+client).
+
+**The browser.** The page has its own half, and it is not an environment
+variable: the two containers cannot see what `fetch` threw, and a request that got
+no response carries nothing back to correlate with. Open the deployment with
+`?debug=1`:
+
+```
+http://your-nas.local:8080/activity?debug=1
+```
+
+That persists (it sets `rm-debug` in `localStorage`), so a reload or a navigation
+keeps logging; `?debug=0` clears it again, and so does
+`localStorage.removeItem('rm-debug')` in the browser console. Filter the console
+on `rm-debug` and every line this channel writes appears and nothing else. Each
+line carries an `attemptId` — the browser's own name for that one attempt, sent as
+`X-Client-Attempt-Id` — and the server writes the same value into its line for the
+request, which is how a console screenshot of a request that produced **no
+response at all** can still be matched to what the server did with it. Where a
+response did arrive, both sides also name the same `correlation_id`, which every
+response carries in `X-Correlation-Id`.
+
+**Turn it back off when you are done.** At `debug` both containers write a line
+per API request, and the browser writes one per `fetch`. That is a diagnostic
+posture, not an operating one.
+
 ## Release hashes
 
 `scripts/release/record-release-hashes.sh` builds `container/Dockerfile` for both
-`linux/amd64` and `linux/arm64`, extracts `/rbm` and `/rbm-web`
+`linux/amd64` and `linux/arm64`, extracts `/retnd` and `/retnd-web`
 from each built image, and writes their SHA-256 hashes (plus each build's local Docker
 image ID) to `container/release-manifest.json` — the Phase 4 TDD Gate's "binary
 SHA-256 and image/package digests," and §8's "release manifest SHALL prove core parity
@@ -647,13 +938,15 @@ field, and a second run from that same clean checkout reproduces its binary hash
 exactly. The SHA is not repeated here on purpose: it moves with every release, and a
 copy of it in prose is a copy that goes stale without anything noticing.
 
-**What this records about the registry**: nothing yet, for the version currently cut.
-`distribution/packaging/canonical.json` records `image.published: false` for
-`ghcr.io/spdrman/backup-manager:0.4.0`, and the manifest carries a `registry_digest` of
-`null` per architecture and a null `index_digest` to say the same thing from the other
-side. `TestReleaseManifestRegistryDigestTracksTheCanonicalPublishFlag` holds the two
-together in both directions: a published flag with no digest and a digest with no
-published flag are both half-truths.
+**What this records about the registry** depends on the release state.
+Before publication, `distribution/packaging/canonical.json` records
+`image.published: false` and the manifest carries a `registry_digest` of `null`
+per architecture plus a null `index_digest`. After the release workflow pushes
+the image, its `merge-back-to-main` job reads those digests from GHCR and
+commits them with `image.published: true`.
+`TestReleaseManifestRegistryDigestTracksTheCanonicalPublishFlag` holds the two
+together in both directions: a published flag with no digest and a digest with
+no published flag are both half-truths.
 
 They are filled in from a real push rather than from the push's own output. That is how
 `0.3.3` was recorded: `docker buildx imagetools inspect` read each architecture's digest

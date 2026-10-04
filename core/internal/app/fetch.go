@@ -4,10 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/spdrman/rclone-manager/core/internal/discovery"
-	"github.com/spdrman/rclone-manager/core/internal/model"
-	"github.com/spdrman/rclone-manager/core/internal/reconcile"
-	"github.com/spdrman/rclone-manager/core/internal/transport"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/discovery"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/reconcile"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // One backup set's share of a cycle, on an operator's word rather than a
@@ -61,7 +62,7 @@ type FetchPreviewEntry struct {
 	State string
 }
 
-// FetchResult is `rbm fetch`'s use case output: either a
+// FetchResult is `retnd fetch`'s use case output: either a
 // dry-run preview (Preview populated, everything else zero) or a real,
 // on-demand run of one specific backup set's whole cycle share
 // (Reconcile/Discovery populated, Preview nil).
@@ -104,7 +105,7 @@ type FetchResult struct {
 	Progress CycleProgress
 }
 
-// Fetch is `rbm fetch --source ... --backup-set ...`'s use
+// Fetch is `retnd fetch --source ... --backup-set ...`'s use
 // case: an operator-triggered, on-demand run of exactly one backup set's
 // share of the same cycle RunCycle performs for every configured backup
 // set (reconcile, then discover, then drive every in-flight artifact
@@ -136,14 +137,63 @@ func (s *Service) Fetch(ctx context.Context, sourceName, setName string, dryRun 
 	if err != nil {
 		return FetchResult{}, err
 	}
+
+	// EPIC K (#780): the same refusal processBackupSet makes, at the other
+	// entry point into this package's artifact pipeline.
+	//
+	// Fetch is not a shortcut into a cycle, it is a second, equal way in:
+	// it calls reconcileOne, discoverOne and processArtifacts itself, so a
+	// guard that only sat in the cycle's loop left `retnd fetch` (and
+	// the fetch action on the API, and the button in the web UI) walking an
+	// incremental set's source TREE and offering its files for deletion.
+	// One operator click, the outcome EPIC K forbids.
+	//
+	// It is refused BEFORE the --dry-run branch, which lists the remote and
+	// deletes nothing, because a preview that presented a source tree's
+	// files as artifact candidates would be answering a question nobody can
+	// act on -- and it would walk the tree to do it.
+	if err := unrunnableEngine(bs.Engine); err != nil {
+		// Returned unwrapped, unlike every other error below it. Those
+		// wrap because they have to say WHICH step failed; here no step
+		// ran, and "app: fetch: app: this build has no pipeline..." would
+		// stutter the package name at an operator to say less.
+		return FetchResult{Set: bs.ID}, err
+	}
+
 	source := sourceFor(s.Config, src, bs)
 
 	if dryRun {
 		return s.fetchDryRun(ctx, source, bs.ID)
 	}
 
+	// EPIC L (#813): the hooks wrap the pass, at BOTH entry points into
+	// this package's pipeline. See workflow.go for why the seam is here
+	// and what the lifecycle may decide.
+	//
+	// It is after the --dry-run branch on purpose. A dry run lists the
+	// remote and records nothing, so there is nothing for a "before" hook
+	// to prepare and nothing for an "after" hook to unwind, and running
+	// somebody's quiesce script to produce a preview would be the one
+	// thing --dry-run promises not to do. What a caller wanting to see
+	// the workflow a real run WOULD execute asks for instead is the
+	// resolved plan, which core/service reports without executing
+	// anything.
+	return s.fetchInWorkflow(ctx, bs, func(ctx context.Context) (FetchResult, error) {
+		return s.fetchPass(ctx, source, bs)
+	})
+}
+
+// fetchPass is one backup set's pass, as Fetch has always run it: the
+// reconcile, the discovery, and every in-flight artifact driven forward.
+//
+// Split out of Fetch so the workflow lifecycle has something to wrap. It
+// is deliberately the WHOLE pass and not part of it: a "before" hook
+// quiesces a database so that what this function reads is consistent, so
+// the hook has to be outside the reconcile as well as outside the
+// transfer.
+func (s *Service) fetchPass(ctx context.Context, source transport.Source, bs config.BackupSet) (FetchResult, error) {
 	// Live progress and the per-set feed, for a caller that installed an
-	// observer (progress.go). Nothing here changes what `backup-manager
+	// observer (progress.go). Nothing here changes what `retnd
 	// fetch` does in its own process: with no observer on ctx, beginCycle
 	// returns ctx unchanged and every call below is a nil-receiver no-op.
 	//

@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/spdrman/rclone-manager/core/apicontract"
+	"github.com/retnd/retnd/core/apicontract"
 )
 
 // The table: every route the /api/v1 router registers, and what an
@@ -26,9 +26,9 @@ import (
 // A `why` is also a claim about this binary, and claims go stale: five of
 // these said a verb did not exist while the same tree shipped it, and one
 // of the five quoted a usage() line that had been replaced by the flag it
-// was denying. core/cmd/backup-manager's TestNoGapClaimsAVerbThisBinaryShips
+// was denying. core/cmd/retnd's TestNoGapClaimsAVerbThisBinaryShips
 // reads every sentence here against the verb tables now. A sentence that
-// names a shipped verb on purpose, as a counterexample ("`backup-manager
+// names a shipped verb on purpose, as a counterexample ("`retnd
 // run` is not this"), says so with namesShippedVerbs, and a sentence that
 // names one by accident fails.
 //
@@ -40,7 +40,7 @@ import (
 // because each of them is written in two places: the builder that refuses
 // with it, and the entry that declares it so Gaps can report it. A
 // sentence that could differ between those two would be a sentence the
-// guard in core/cmd/backup-manager checks a copy of.
+// guard in core/cmd/retnd checks a copy of.
 const (
 	gapRunCycle = "`" + Binary + " run` starts a cycle in your own shell, not in this engine, so it is a different act against a different process"
 
@@ -140,7 +140,7 @@ var routes = map[string]entry{
 		// of the three and never was: the client sends restore_placement
 		// and run_backup_set, so NO real request matched that arm. Every
 		// restore and every per-set run fell through to a default whose
-		// sentence is about `rbm run`, a different verb for a
+		// sentence is about `retnd run`, a different verb for a
 		// different act, and the example body said "restore" too, so the
 		// dispatcher-driven parse test certified a branch production
 		// never reaches. A constant spelled in one place cannot be wrong
@@ -176,14 +176,54 @@ var routes = map[string]entry{
 				// somebody asking about one set to a verb about all of
 				// them.
 				return newCmd().refuse(gapRunBackupSet)
+			case apicontract.ActionRestoreSnapshot:
+				// The gap this arm used to print is closed (#788):
+				// `snapshot restore` is the verb, and it is deliberately
+				// NOT `restore`, which is the archived-copy retrieval on
+				// the arm above -- printing that one here would answer
+				// "get this file back out of last night's restore point"
+				// with a billed provider retrieval of a different object.
+				if req.SnapshotRestore == nil {
+					return nil
+				}
+				c := newCmd("snapshot", "restore", req.SnapshotRestore.BackupSetID).
+					flag("to", req.SnapshotRestore.TargetPath)
+				c.flagIfSet("snapshot", req.SnapshotRestore.SnapshotID)
+				c.flagIfSet("path", req.SnapshotRestore.SourcePath)
+				c.flagIfSet("conflict", req.SnapshotRestore.Conflict)
+				return c
+			case apicontract.ActionVerifySnapshot:
+				if req.SnapshotVerify == nil {
+					return nil
+				}
+				c := newCmd("snapshot", "verify", req.SnapshotVerify.BackupSetID)
+				c.flagIfSet("run", req.SnapshotVerify.RunID)
+				c.flagIfSet("level", req.SnapshotVerify.Level)
+				if req.SnapshotVerify.SamplePercent > 0 {
+					c.flag("sample-percent", itoa(req.SnapshotVerify.SamplePercent))
+				}
+				return c
+			case apicontract.ActionHoldSnapshot:
+				if req.SnapshotHold == nil {
+					return nil
+				}
+				c := newCmd("snapshot", "hold", req.SnapshotHold.BackupSetID).
+					flag("reason", req.SnapshotHold.Reason)
+				c.flagIfSet("run", req.SnapshotHold.RunID)
+				return c
+			case apicontract.ActionReleaseSnapshotHold:
+				if req.SnapshotHoldRelease == nil {
+					return nil
+				}
+				return newCmd("snapshot", "unhold", req.SnapshotHoldRelease.BackupSetID, req.SnapshotHoldRelease.HoldID)
 			default:
 				// The gap the issue names, and the one a lazier
-				// implementation gets wrong. `rbm run`
+				// implementation gets wrong. `retnd run`
 				// exists and is NOT this: usage() puts it among the
 				// commands that are "ordinary beside a running engine",
 				// so it opens the service in the operator's own process
 				// and runs a cycle there. This asks the SERVING engine
-				// to run one. Printing `rbm run` would print
+				// to run one. Printing `retnd run` would print
 				// a command that does something different to a
 				// different process.
 				return newCmd().refuse(gapRunCycle)
@@ -200,6 +240,10 @@ var routes = map[string]entry{
 			{Body: []byte(`{"action":"` + apicontract.ActionRestorePlacement + `","config_revision":"r1","restore":{"artifact_id":"api-server/var-backups/dump.tar","medium":"offsite_s3","window_days":7,"acknowledged":true}}`)},
 			{Body: []byte(`{"action":"` + apicontract.ActionRunBackupSet + `","config_revision":"r1","backup_set_id":"api-server/var-backups"}`)},
 			{Body: []byte(`{"action":"` + apicontract.ActionRunCycle + `","config_revision":"r1"}`)},
+			{Body: []byte(`{"action":"` + apicontract.ActionRestoreSnapshot + `","config_revision":"r1","snapshot_restore":{"backup_set_id":"api-server/var-backups","target_path":"/srv/restored","snapshot_id":"k1234","source_path":"var/lib/pg","conflict":"skip"}}`)},
+			{Body: []byte(`{"action":"` + apicontract.ActionVerifySnapshot + `","config_revision":"r1","snapshot_verify":{"backup_set_id":"api-server/var-backups","run_id":"run_1","level":"content_sample","sample_percent":10}}`)},
+			{Body: []byte(`{"action":"` + apicontract.ActionHoldSnapshot + `","config_revision":"r1","snapshot_hold":{"backup_set_id":"api-server/var-backups","run_id":"run_1","reason":"kept for the incident review"}}`)},
+			{Body: []byte(`{"action":"` + apicontract.ActionReleaseSnapshotHold + `","config_revision":"r1","snapshot_hold_release":{"backup_set_id":"api-server/var-backups","hold_id":"hold_1"}}`)},
 		},
 	},
 	key("GET", "/operations"): {
@@ -229,6 +273,12 @@ var routes = map[string]entry{
 		why: "there is no verb that creates a backup set from a request body",
 		examples: []Action{
 			{Body: []byte(`{"source_name":"api-server","name":"var-backups","host":"10.0.0.14","user":"backups","remote_path":"/var/backups","local_path":"/data/backups","ssh_key_id":"key_1","known_hosts_line":"10.0.0.14 ssh-ed25519 AAAAC3Nz","completion_strategy":"stable","stable_for_seconds":300,"run_immediately":true,"acknowledge_repoint":true}`)},
+			// The incremental shape (#788), which is the one the line
+			// used to get WRONG rather than incomplete: every flag below
+			// was dropped, so a kopia set into a declared repository
+			// domain printed a command that makes a whole-file artifact
+			// set under the same id.
+			{Body: []byte(`{"source_name":"api-server","name":"var-backups","host":"10.0.0.14","user":"backups","remote_path":"/var/backups","local_path":"/data/backups","ssh_key_id":"key_1","known_hosts_line":"10.0.0.14 ssh-ed25519 AAAAC3Nz","completion_strategy":"rename","engine":"kopia","repository_domain":"production-vault","source_consistency":"quiesced","verification_level":"sample","verification_sample_percent":10,"verification_full_every_seconds":604800,"verification_restore_drill_every_seconds":2592000}`)},
 		},
 	},
 	key("POST", "/backup-sets/test-connection"): {
@@ -297,13 +347,34 @@ var routes = map[string]entry{
 				c.flag("completion-strategy", *req.CompletionStrategy)
 			}
 			if req.StableForSeconds != nil {
-				c.flag("stable-for", seconds(*req.StableForSeconds))
+				c.flag("stable-for", seconds(int64(*req.StableForSeconds)))
 			}
 			if req.StaleAfterSeconds != nil {
-				c.flag("stale-after", seconds(*req.StaleAfterSeconds))
+				c.flag("stale-after", seconds(int64(*req.StaleAfterSeconds)))
 			}
 			if req.ValidatorID != nil {
 				c.flag("validator-id", *req.ValidatorID)
+			}
+			// EPIC K's editable verification budget (#788), with the
+			// nil/non-nil rule every pointer on this body keeps. An
+			// explicit zero cadence is "stop doing this", which is a
+			// request an operator makes when a nightly drill turns out
+			// to cost more than it is worth, so it is printed rather
+			// than skipped as if nothing had been said.
+			if req.SourceConsistency != nil {
+				c.flag("source-consistency", *req.SourceConsistency)
+			}
+			if req.VerificationLevel != nil {
+				c.flag("verification-level", *req.VerificationLevel)
+			}
+			if req.VerificationSamplePercent != nil {
+				c.flag("verification-sample-percent", itoa(*req.VerificationSamplePercent))
+			}
+			if req.VerificationFullEverySeconds != nil {
+				c.flag("verification-full-every", seconds(*req.VerificationFullEverySeconds))
+			}
+			if req.VerificationRestoreDrillEverySeconds != nil {
+				c.flag("verification-restore-drill-every", seconds(*req.VerificationRestoreDrillEverySeconds))
 			}
 			if req.SSHKeyID != nil {
 				c.flag("ssh-key-id", *req.SSHKeyID)
@@ -325,7 +396,7 @@ var routes = map[string]entry{
 				Body: []byte(`{"stale_after_seconds":172800}`)},
 			// The duration shapes, and they are examples rather than a
 			// unit test's table because this is the corpus the dispatcher
-			// is driven with in core/cmd/backup-manager: a shape no
+			// is driven with in core/cmd/retnd: a shape no
 			// example carries is a shape nothing parses end to end. These
 			// three are the ones the old renderer got wrong (a bare
 			// seconds value, a value whose last unit ends in a zero, and
@@ -338,23 +409,122 @@ var routes = map[string]entry{
 				Body: []byte(`{"stale_after_seconds":3610,"stable_for_seconds":90}`)},
 			{Params: map[string]string{"source": "api-server", "set": "var-backups"},
 				Body: []byte(`{"host":"10.0.0.15","port":2222,"user":"backups","remote_path":"/var/backups","local_path":"/data/backups","include":["*.gz","*.sql"],"completion_strategy":"stable","stable_for_seconds":300,"validator_id":"gzip","ssh_key_id":"key_2","known_hosts_line":"10.0.0.15 ssh-ed25519 AAAAC3Nz","acknowledge_repoint":true,"acknowledge_host_key_change":true}`)},
+			// EPIC K's verification budget (#788), in the corpus rather
+			// than only in a unit test for the reason the duration
+			// shapes above are: this is what core/cmd/retnd's
+			// dispatcher parses end to end, so a flag no example carries
+			// is a flag nothing proves the binary takes back.
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"},
+				Body: []byte(`{"source_consistency":"quiesced","verification_level":"sample","verification_sample_percent":10,"verification_full_every_seconds":604800,"verification_restore_drill_every_seconds":2592000}`)},
 		},
 	},
 	key("DELETE", "/backup-sets/{source}/{set}"): {
 		build:    func(a Action) *cmd { return newCmd("backup-set", "remove", setID(a)) },
 		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
 	},
+	// The two post-creation toggles (#788). Both were gaps until this
+	// issue, and the gap sentences said so honestly: --disabled and
+	// --read-only are in backupSetCreateOnlyFlags, so `backup-set patch`
+	// refuses them, and a set created disabled from a terminal could
+	// never be enabled from one again. Each now has a verb of its own,
+	// taking one word rather than a flag, because "on" and "off" read as
+	// instructions where a bare --read-only has no off and a
+	// --read-only=false is a spelling people get wrong under pressure.
 	key("POST", "/backup-sets/{source}/{set}/enabled"): {
-		// A real gap, and one this feature is how anybody noticed.
-		// --disabled is in backupSetCreateOnlyFlags, so `backup-set
-		// patch` refuses it: a set can be created disabled from a
-		// terminal and never enabled or disabled again from one.
-		why:               "`backup-set patch` refuses --disabled, which is a create-only flag, so there is no verb that enables or disables a set that already exists",
-		namesShippedVerbs: []string{"backup-set"},
+		build: func(a Action) *cmd {
+			var req apicontract.SetEnabledRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			return newCmd("backup-set", "enabled", setID(a), onOff(req.Enabled))
+		},
+		why: "there is no verb that enables or disables a set from a request body",
+		examples: []Action{
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}, Body: []byte(`{"enabled":true}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}, Body: []byte(`{"enabled":false}`)},
+		},
 	},
 	key("POST", "/backup-sets/{source}/{set}/read-only"): {
-		why:               "`backup-set patch` refuses --read-only, which is a create-only flag, so there is no verb that changes a set's read-only posture after it exists",
-		namesShippedVerbs: []string{"backup-set"},
+		build: func(a Action) *cmd {
+			var req apicontract.SetReadOnlyRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			return newCmd("backup-set", "read-only", setID(a), onOff(req.ReadOnly))
+		},
+		why: "there is no verb that changes a set's read-only posture from a request body",
+		examples: []Action{
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}, Body: []byte(`{"read_only":true}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}, Body: []byte(`{"read_only":false}`)},
+		},
+	},
+	// EPIC K's snapshot and repository reads (#788). Every one has a
+	// verb, which is the whole point of shipping the CLI and the API
+	// together: a screen an operator is reading can print the command
+	// that would have shown them the same thing.
+	key("GET", "/backup-sets/{source}/{set}/snapshots"): {
+		build:    func(a Action) *cmd { return newCmd("snapshot", "list", setID(a)) },
+		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
+	},
+	key("GET", "/backup-sets/{source}/{set}/snapshots/{run}"): {
+		build: func(a Action) *cmd {
+			return newCmd("snapshot", "show", setID(a), a.Params["run"])
+		},
+		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups", "run": "run_1"}}},
+	},
+	key("GET", "/backup-sets/{source}/{set}/holds"): {
+		build:    func(a Action) *cmd { return newCmd("snapshot", "holds", setID(a)) },
+		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
+	},
+	key("GET", "/backup-sets/{source}/{set}/snapshot-retention"): {
+		build:    func(a Action) *cmd { return newCmd("snapshot", "retention", setID(a)) },
+		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
+	},
+	key("GET", "/repositories"): {
+		build:    func(Action) *cmd { return newCmd("repository", "health") },
+		examples: []Action{{}},
+	},
+	key("POST", "/repositories"): {
+		// `repository create` writes the same declaration through the
+		// same door, so the line is the whole request: the id as the
+		// operand, the co-tenancy posture, and where the passphrase is
+		// read from.
+		//
+		// The passphrase's three spellings are echoed exactly as the
+		// storage destination's four credential spellings are, and for
+		// the same reasons: --passphrase-file is a PATH, --passphrase-env
+		// is a variable NAME, and --passphrase-command is named and never
+		// printed, because its words are the caller's and `printf %s
+		// hunter2` is a valid passphrase command and a secret on a
+		// command line.
+		build: func(a Action) *cmd {
+			var req apicontract.CreateRepositoryDomainRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("repository", "create", req.ID)
+			c.flagIfSet("isolation", req.Isolation)
+			c.flagIfSet("description", req.Description)
+			c.flagIfSet("location", req.Location)
+			c.flagIfSet("owner", req.MaintenanceOwner)
+			c.flagIfSet("passphrase-file", req.Passphrase.File)
+			c.flagIfSet("passphrase-env", req.Passphrase.Env)
+			if len(req.Passphrase.Command) > 0 {
+				c.placeholderFlag("passphrase-command", "the command that prints this repository's passphrase")
+			}
+			return c
+		},
+		why: "there is no verb that declares a repository domain from a request body",
+		examples: []Action{
+			{Body: []byte(`{"id":"offsite-b2","isolation":"isolated","description":"Second copy, off site","passphrase":{"file":"/etc/retnd/offsite-b2.passphrase"}}`)},
+			{Body: []byte(`{"id":"production","isolation":"shared","maintenance_owner":"another-instance","passphrase":{"env":"RETND_PRODUCTION_PASSPHRASE"}}`)},
+		},
+	},
+	key("GET", "/repositories/{domain}/maintenance"): {
+		build: func(a Action) *cmd {
+			return newCmd("repository", "maintenance", a.Params["domain"])
+		},
+		examples: []Action{{Params: map[string]string{"domain": "production-vault"}}},
 	},
 	key("GET", "/backup-sets/{source}/{set}/retention"): {
 		build:    func(a Action) *cmd { return newCmd("backup-set", "retention", setID(a)) },
@@ -555,13 +725,20 @@ var routes = map[string]entry{
 	key("GET", "/activity"): {
 		build: func(a Action) *cmd {
 			c := newCmd("activity")
-			// The one query parameter this route reads. The handler
-			// treats an absent, unparseable or non-positive value as the
-			// backend's own default, so a line that printed --limit 0
-			// would be naming a value the request did not make.
+			// The one query parameter this route reads that a command can
+			// say. The handler treats an absent, unparseable or
+			// non-positive value as the backend's own default, so a line
+			// that printed --limit 0 would be naming a value the request
+			// did not make.
 			if n := positiveQuery(a, "limit"); n > 0 {
 				c.flag("limit", itoa(n))
 			}
+			// `before` is deliberately not echoed, for the same reason
+			// `since` is not on the live route below: it is a browser's
+			// paging cursor into a record it is already partway through,
+			// there is no flag for it, and a command run at a terminal
+			// starts at the newest page. Printing one that named a cursor
+			// would be printing a flag this binary does not have.
 			return c
 		},
 		examples: []Action{{}, {Query: mustQuery("limit=50")}},
@@ -695,7 +872,7 @@ var routes = map[string]entry{
 			{Params: map[string]string{"id": "offsite_s3"},
 				Body: []byte(`{"region":"eu-west-1","storage_class":"GLACIER_IR"}`)},
 			{Params: map[string]string{"id": "offsite_s3"},
-				Body: []byte(`{"type":"s3","region":"eu-west-1","endpoint":"https://s3.eu-west-1.example.net","bucket":"acme-backups","prefix":"prod","storage_class":"STANDARD","upload_verification":"attested","credentials":{"file":"/etc/backup-manager/aws-credentials"}}`)},
+				Body: []byte(`{"type":"s3","region":"eu-west-1","endpoint":"https://s3.eu-west-1.example.net","bucket":"acme-backups","prefix":"prod","storage_class":"STANDARD","upload_verification":"attested","credentials":{"file":"/etc/retnd/aws-credentials"}}`)},
 		},
 	},
 	key("DELETE", "/storage-mediums/{id}"): {
@@ -717,7 +894,7 @@ var routes = map[string]entry{
 		},
 		why: "there is no verb that proves an undeclared storage destination from a request body",
 		examples: []Action{
-			{Body: []byte(`{"id":"offsite_s3","type":"s3","region":"eu-central-1","endpoint":"https://s3.eu-central-1.example.net","bucket":"acme-backups","prefix":"prod","storage_class":"STANDARD","upload_verification":"readback","credentials":{"env":"BACKUP_MANAGER_S3_CREDENTIALS"}}`)},
+			{Body: []byte(`{"id":"offsite_s3","type":"s3","region":"eu-central-1","endpoint":"https://s3.eu-central-1.example.net","bucket":"acme-backups","prefix":"prod","storage_class":"STANDARD","upload_verification":"readback","credentials":{"env":"RETND_S3_CREDENTIALS"}}`)},
 		},
 	},
 	key("POST", "/storage-mediums/{id}/preflight"): {
@@ -848,7 +1025,7 @@ var routes = map[string]entry{
 	// They stay gaps until those verbs exist. Printing a command this
 	// binary does not declare would be printing something an operator
 	// pastes and gets exit 2 from, which the dispatcher-driven parity
-	// test in core/cmd/backup-manager catches on purpose.
+	// test in core/cmd/retnd catches on purpose.
 	key("GET", "/ssh-keys"): {
 		why:               "there is no verb that lists the key store, which is why `backup-set patch --ssh-key-id ID` currently takes an id nothing will print for you. `" + Binary + " ssh-key list` would be it",
 		namesShippedVerbs: []string{"backup-set"},
@@ -929,6 +1106,333 @@ var routes = map[string]entry{
 			{Body: []byte(`{"retention":{"tiers":[{"name":"daily","granularity":"day","keep":7}]},"capacity":{"cap_bytes":1099511627776}}`)},
 		},
 	},
+
+	// ------------------------------------------------------- workflows ---
+	//
+	// EPIC L (#813). Every one of these is a real command rather than a
+	// gap, which is what shipping the two surfaces together is for: the
+	// browser screen an operator is reading can print the line that
+	// would have done the same thing from a terminal.
+	//
+	// # What these lines can and cannot carry
+	//
+	// The environment write is the one that needed a decision, and it is
+	// the same decision `medium add --credentials-command` and
+	// `repository create --passphrase-command` already made, applied one
+	// field wider. Three of the four value spellings name a LOCATION --
+	// a path on the operator's own host, the NAME of an environment
+	// variable, an argv -- and the fourth is the value itself.
+	//
+	// A location is printed. A VALUE never is, including the plain
+	// `--value` literal, and that is deliberate rather than cautious
+	// bookkeeping: this panel is copy-to-clipboard and exportable, the
+	// field is a free string whose content the operator chose, and
+	// nothing here can tell `--value production` from `--value hunter2`.
+	// The whole reason a secret variable is configured as a REFERENCE is
+	// that credentials do not belong in that field, and a line that
+	// printed it anyway would be a surface that leaks one the first time
+	// somebody ignores that advice. So both of the value-carrying flags
+	// are named with a placeholder and the line says it is not runnable
+	// as printed, exactly as a passphrase command's is.
+	key("GET", "/settings/workflow"): {
+		build:    func(Action) *cmd { return newCmd("settings", "workflow") },
+		examples: []Action{{}},
+	},
+	key("PATCH", "/settings/workflow"): {
+		build: func(a Action) *cmd {
+			var req apicontract.UpdateWorkflowSettingsRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("settings", "workflow", "patch")
+			if req.Root != nil {
+				c.flag("root", *req.Root)
+			}
+			// An empty string is a REQUEST here and not an absence: it
+			// clears the stage directory, which disables that stage. So
+			// these are printed on nil-ness rather than through
+			// flagIfSet, which would silently drop the one edit an
+			// operator most needs to see echoed back.
+			if req.BeforeDir != nil {
+				c.flag("before-dir", *req.BeforeDir)
+			}
+			if req.AfterDir != nil {
+				c.flag("after-dir", *req.AfterDir)
+			}
+			if req.ScriptTimeoutSeconds != nil {
+				c.flag("script-timeout", seconds(*req.ScriptTimeoutSeconds))
+			}
+			if req.MaxScriptSizeBytes != nil {
+				c.flag("max-script-size-bytes", itoa64(*req.MaxScriptSizeBytes))
+			}
+			return c
+		},
+		why: "there is no verb that patches the deployment's workflow configuration from a request body",
+		examples: []Action{
+			{Body: []byte(`{"root":"/workflows"}`)},
+			{Body: []byte(`{"before_dir":"before.d","after_dir":"after.d","script_timeout_seconds":300,"max_script_size_bytes":65536}`)},
+			// The clearing shapes, which are requests rather than
+			// omissions: an empty directory disables that stage and a
+			// zero timeout gives the bound back to the deployment
+			// default. They are examples rather than a unit test's table
+			// because this corpus is what core/cmd/retnd parses end to
+			// end, and a shape no example carries is a shape nothing
+			// proves the binary takes.
+			{Body: []byte(`{"before_dir":"","after_dir":"","script_timeout_seconds":0}`)},
+		},
+	},
+	key("GET", "/settings/workflow/environment"): {
+		build:    func(Action) *cmd { return newCmd("settings", "workflow", "env", "list") },
+		examples: []Action{{}},
+	},
+	key("PUT", "/settings/workflow/environment/{name}"): {
+		build: func(a Action) *cmd {
+			var req apicontract.WorkflowEnvironmentVariableRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			return workflowEnvSetFlags(newCmd("settings", "workflow", "env", "set", a.Params["name"]), req)
+		},
+		why:      "there is no verb that configures a workflow environment variable from a request body",
+		examples: workflowEnvSetExamples(map[string]string{"name": "PGPASSWORD"}),
+	},
+	key("DELETE", "/settings/workflow/environment/{name}"): {
+		build: func(a Action) *cmd {
+			return newCmd("settings", "workflow", "env", "unset", a.Params["name"])
+		},
+		examples: []Action{{Params: map[string]string{"name": "PGPASSWORD"}}},
+	},
+	key("GET", "/backup-sets/{source}/{set}/workflow"): {
+		build:    func(a Action) *cmd { return newCmd("backup-set", "workflow", setID(a)) },
+		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
+	},
+	key("PATCH", "/backup-sets/{source}/{set}/workflow"): {
+		build: func(a Action) *cmd {
+			var req apicontract.UpdateBackupSetWorkflowRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("backup-set", "workflow", "patch", setID(a))
+			if req.BeforeDir != nil {
+				c.flag("before-dir", *req.BeforeDir)
+			}
+			if req.AfterDir != nil {
+				c.flag("after-dir", *req.AfterDir)
+			}
+			if req.ScriptTimeoutSeconds != nil {
+				c.flag("script-timeout", seconds(*req.ScriptTimeoutSeconds))
+			}
+			// The wire spells this remote_exec_connection_ref, which is
+			// config.yaml's own key; the verb spells it
+			// --exec-connection. Two names for one thing is two things to
+			// an operator, and the one that goes on a command line has to
+			// be the one the binary declares.
+			if req.RemoteExecConnectionRef != nil {
+				c.flag("exec-connection", *req.RemoteExecConnectionRef)
+			}
+			return c
+		},
+		why: "there is no verb that patches a backup set's workflow configuration from a request body",
+		examples: []Action{
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"},
+				Body: []byte(`{"before_dir":"pg.before.d","script_timeout_seconds":90}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"},
+				Body: []byte(`{"before_dir":"","after_dir":"","script_timeout_seconds":0,"remote_exec_connection_ref":"pg-primary"}`)},
+		},
+	},
+	key("GET", "/backup-sets/{source}/{set}/workflow/environment"): {
+		build: func(a Action) *cmd {
+			return newCmd("backup-set", "workflow", "env", setID(a), "list")
+		},
+		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
+	},
+	key("PUT", "/backup-sets/{source}/{set}/workflow/environment/{name}"): {
+		build: func(a Action) *cmd {
+			var req apicontract.WorkflowEnvironmentVariableRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			return workflowEnvSetFlags(
+				newCmd("backup-set", "workflow", "env", setID(a), "set", a.Params["name"]), req)
+		},
+		why: "there is no verb that configures a backup set's workflow environment variable from a request body",
+		examples: workflowEnvSetExamples(map[string]string{
+			"source": "api-server", "set": "var-backups", "name": "PGPASSWORD",
+		}),
+	},
+	key("DELETE", "/backup-sets/{source}/{set}/workflow/environment/{name}"): {
+		build: func(a Action) *cmd {
+			return newCmd("backup-set", "workflow", "env", setID(a), "unset", a.Params["name"])
+		},
+		examples: []Action{{Params: map[string]string{
+			"source": "api-server", "set": "var-backups", "name": "PGPASSWORD",
+		}}},
+	},
+	key("GET", "/backup-sets/{source}/{set}/workflow/validation"): {
+		build:    func(a Action) *cmd { return newCmd("validate", "workflow", setID(a)) },
+		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
+	},
+	key("GET", "/workflow-runs"): {
+		build: func(a Action) *cmd {
+			c := newCmd("workflow", "run", "list")
+			if set := a.Query.Get("backup_set"); set != "" {
+				c.flag("backup-set", set)
+			}
+			if n := positiveQuery(a, "limit"); n > 0 {
+				c.flag("limit", itoa(n))
+			}
+			return c
+		},
+		examples: []Action{
+			{},
+			{Query: mustQuery("backup_set=api-server%2Fvar-backups&limit=25")},
+		},
+	},
+	key("GET", "/workflow-runs/{run}"): {
+		build:    func(a Action) *cmd { return newCmd("workflow", "run", "show", a.Params["run"]) },
+		examples: []Action{{Params: map[string]string{"run": "wfr_01HX"}}},
+	},
+	key("GET", "/workflow-runs/{run}/steps"): {
+		build:    func(a Action) *cmd { return newCmd("workflow", "run", "steps", a.Params["run"]) },
+		examples: []Action{{Params: map[string]string{"run": "wfr_01HX"}}},
+	},
+	key("GET", "/workflow-runs/{run}/steps/{step}/logs"): {
+		build: func(a Action) *cmd {
+			c := newCmd("workflow", "run", "log", a.Params["run"]).flag("step", a.Params["step"])
+			if n := positiveQuery(a, "limit"); n > 0 {
+				c.flag("limit", itoa(n))
+			}
+			// A request that asked to WAIT is a follower, and --follow is
+			// what a terminal does instead. The number of seconds is not
+			// echoed: the route's wait is one page's bound and the verb's
+			// follow is a loop, so printing a value would name a
+			// parameter the command does not have.
+			if positiveQuery(a, "wait") > 0 {
+				c.bare("follow")
+			}
+			// `after` is deliberately not echoed, for the reason
+			// `activity --follow` does not echo `since`: it is a
+			// browser's resume cursor into output it is already partway
+			// through, and a log read started at a terminal starts at the
+			// beginning or follows from now. The verb does take a
+			// --cursor, and printing the browser's would hand an operator
+			// a line that silently skips everything before it.
+			return c
+		},
+		examples: []Action{
+			{Params: map[string]string{"run": "wfr_01HX", "step": "s3"}},
+			{Params: map[string]string{"run": "wfr_01HX", "step": "s3"},
+				Query: mustQuery("after=42&limit=500&wait=5")},
+		},
+	},
+	key("GET", "/workflow-recovery"): {
+		build:    func(Action) *cmd { return newCmd("workflow", "recovery", "show") },
+		examples: []Action{{}},
+	},
+	key("POST", "/workflow-recovery/{run}/resume-cleanup"): {
+		build: func(a Action) *cmd {
+			return newCmd("workflow", "recovery", "resume-cleanup", a.Params["run"])
+		},
+		examples: []Action{{Params: map[string]string{"run": "wfr_01HX"}}},
+	},
+	key("POST", "/workflow-recovery/{run}/acknowledge"): {
+		build: func(a Action) *cmd {
+			var req apicontract.WorkflowAcknowledgementRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("workflow", "recovery", "acknowledge", a.Params["run"])
+			// flagIfSet, for backupSetCreateCommand's reason: an
+			// acknowledgement with no reason is REFUSED by the route, and
+			// the line has to be the command that was asked for rather
+			// than --reason followed by an empty string, which is a
+			// different request the verb refuses for a different reason.
+			// The actor is not on the line at all: the route takes it
+			// from the session and the verb takes it from the account
+			// running the binary, so there is nothing here to pass.
+			c.flagIfSet("reason", req.Reason)
+			return c
+		},
+		why: "there is no verb that acknowledges an interrupted workflow run from a request body",
+		examples: []Action{
+			{Params: map[string]string{"run": "wfr_01HX"},
+				Body: []byte(`{"reason":"unmounted the snapshot by hand and checked the database is writable"}`)},
+		},
+	},
+}
+
+// workflowEnvSetFlags puts one environment entry's value onto an `env
+// set` command line, shared by the deployment-wide route and the per-set
+// one because the two are the same operation on two lists and the verb
+// takes the same four flags for both.
+//
+// It prints every source the request NAMED rather than choosing one, and
+// on a real request that is exactly one flag: a variable is a name and
+// ONE source, and both the route and the verb refuse a body or a command
+// line naming two. So there is no precedence to express here, and
+// expressing one would be worse than useless -- a builder that picked a
+// winner would print a runnable command for a request the route had just
+// refused, which is the one thing an echoed line must never do. A body
+// that named nothing prints no value flag at all, for
+// backupSetCreateCommand's reason: the line has to be the command that
+// was asked for, and the verb refuses it the same way the route did.
+//
+// Two of the four are printed in full and two are placeholders, and the
+// line between them is whether the flag carries a LOCATION or a VALUE:
+//
+//   - --secret-file is a path on the operator's own host and
+//     --secret-env is the NAME of a variable in the engine's process.
+//     Both are references the operator wrote themselves and has to be
+//     able to retype, exactly as --credentials-file and --credentials-env
+//     are one noun over.
+//   - --secret-command is a program and its arguments, both the caller's
+//     words, and `printf %s hunter2` is a valid secret command. --value
+//     is the literal itself. Neither can be told apart from a credential
+//     by anything this package can inspect, so each is named and its
+//     content is not printed, which is what marks the line as not
+//     runnable as printed.
+//
+// The verb takes --secret-command once per argv word rather than as one
+// quoted string, so that an argv assembled from a command line cannot be
+// re-split by a quoting mistake on its way to exec. That is invisible
+// here, because the words never go on the line; it matters to the
+// operator who fills the placeholder in.
+func workflowEnvSetFlags(c *cmd, req apicontract.WorkflowEnvironmentVariableRequest) *cmd {
+	if req.Value != nil {
+		c.placeholderFlag("value", "the value this variable is set to")
+	}
+	c.flagIfSet("secret-file", req.Secret.File)
+	c.flagIfSet("secret-env", req.Secret.Env)
+	if len(req.Secret.Command) > 0 {
+		c.placeholderFlag("secret-command", "the command that prints this value, one --secret-command per word")
+	}
+
+	return c
+}
+
+// workflowEnvSetExamples is the corpus both `env set` routes are driven
+// with, one Action per value spelling.
+//
+// One helper because the two routes take the identical body and the
+// parse test is only ever as good as this list is wide: a spelling no
+// example carries is a spelling nothing proves the binary takes, which is
+// how a duration renderer that ate a digit from half its input space
+// stayed green (see seconds). The params differ between the two routes,
+// so they are handed in.
+func workflowEnvSetExamples(params map[string]string) []Action {
+	bodies := []string{
+		`{"value":"UTC"}`,
+		`{"value":""}`,
+		`{"secret":{"file":"/etc/retnd/pg.passphrase"}}`,
+		`{"secret":{"env":"RETND_PG_PASSWORD"}}`,
+		`{"secret":{"command":["vault","read","-field=password","secret/pg"]}}`,
+	}
+	out := make([]Action, 0, len(bodies))
+	for _, body := range bodies {
+		out = append(out, Action{Params: params, Body: []byte(body)})
+	}
+
+	return out
 }
 
 // backupSetCreateCommand is `backup-set create`, shared by POST
@@ -964,13 +1468,39 @@ func backupSetCreateCommand(spec apicontract.BackupSetSpec, runNow, acknowledgeR
 		c.flag("include", strings.Join(spec.Include, ","))
 	}
 	if spec.StableForSeconds > 0 {
-		c.flag("stable-for", seconds(spec.StableForSeconds))
+		c.flag("stable-for", seconds(int64(spec.StableForSeconds)))
 	}
 	if spec.StaleAfterSeconds > 0 {
-		c.flag("stale-after", seconds(spec.StaleAfterSeconds))
+		c.flag("stale-after", seconds(int64(spec.StaleAfterSeconds)))
 	}
 	if spec.ValidatorID != "" {
 		c.flag("validator-id", spec.ValidatorID)
+	}
+	// EPIC K (#788). What makes the set incremental, and then what it
+	// costs to prove. These are echoed for the reason every flag here
+	// is, with one extra edge: a line that dropped --engine would not be
+	// an incomplete reproduction of this set, it would be a working
+	// command that makes a DIFFERENT kind of set under the same id.
+	//
+	// The uuid is deliberately not echoed. It is the durable key a
+	// snapshot lineage hangs off, `backup-set create` has no flag for
+	// it, and it is minted by the service precisely so that nobody has
+	// to type one.
+	c.flagIfSet("engine", spec.Engine)
+	c.flagIfSet("repository-domain", spec.RepositoryDomain)
+	c.flagIfSet("source-consistency", spec.SourceConsistency)
+	c.flagIfSet("verification-level", spec.VerificationLevel)
+	if spec.VerificationSamplePercent > 0 {
+		c.flag("verification-sample-percent", itoa(spec.VerificationSamplePercent))
+	}
+	// Zero is this cadence's own default (never), so an absent field and
+	// a zero one are the same request and neither is worth a flag: the
+	// create verb's flags default to 0 too.
+	if spec.VerificationFullEverySeconds > 0 {
+		c.flag("verification-full-every", seconds(spec.VerificationFullEverySeconds))
+	}
+	if spec.VerificationRestoreDrillEverySeconds > 0 {
+		c.flag("verification-restore-drill-every", seconds(spec.VerificationRestoreDrillEverySeconds))
 	}
 	if spec.Disabled {
 		c.bare("disabled")
@@ -991,7 +1521,7 @@ func backupSetCreateCommand(spec apicontract.BackupSetSpec, runNow, acknowledgeR
 // command line, shared by add, edit and the candidate preflight.
 //
 // One helper for the three because both surfaces already treat them as
-// one: core/cmd/backup-manager declares a single flag set that all seven
+// one: core/cmd/retnd declares a single flag set that all seven
 // verbs read, and this API sends a single body shape to all three of
 // these routes, on the reasoning that what is proven and what is saved
 // must not be able to be different destinations.
@@ -1083,4 +1613,17 @@ func mustQuery(raw string) url.Values {
 		panic("cliecho: bad example query " + raw + ": " + err.Error())
 	}
 	return v
+}
+
+// onOff is the word the two backup-set toggles take.
+//
+// Two words and not true/false, 1/0 or yes/no: a toggle that accepts six
+// spellings is a toggle whose scripts each pick a different one, and the
+// verb itself refuses everything but these two.
+func onOff(v bool) string {
+	if v {
+		return "on"
+	}
+
+	return "off"
 }

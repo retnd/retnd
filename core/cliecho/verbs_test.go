@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spdrman/rclone-manager/core/apicontract"
+	"github.com/retnd/retnd/core/apicontract"
 )
 
 // A gap is a promise that a verb does not exist, and this tree ships five
@@ -15,7 +15,7 @@ import (
 // at an operator who could have run one.
 //
 // The mechanical guard against a gap outliving the thing it describes is
-// in core/cmd/backup-manager, which is the only package that can see the
+// in core/cmd/retnd, which is the only package that can see the
 // verb tables. This is the other half: the commands themselves, pinned
 // here where the builders are.
 func TestTheRoutesWhoseVerbsNowExistNameThem(t *testing.T) {
@@ -113,7 +113,7 @@ func TestTheRoutesWhoseVerbsNowExistNameThem(t *testing.T) {
 // one of the three values the contract defines and not one any client has
 // ever sent. So no real request matched that arm: every restore and every
 // per-set run fell through to a default whose sentence is about
-// `rbm run`, a different verb for a different act. The
+// `retnd run`, a different verb for a different act. The
 // example body said "restore" too, so the end-to-end parse test certified
 // a branch production never reaches.
 //
@@ -146,8 +146,41 @@ func TestOperationsReadsTheActionsTheContractDefines(t *testing.T) {
 		t.Errorf("%s printed the command %v; `"+Binary+" run` opens the service in the operator's own process and runs a cycle THERE", apicontract.ActionRunCycle, cycle.Command)
 	}
 
-	// And the examples drive all three, because an arm no example visits
+	// A snapshot restore is its own action too, and it now has its own
+	// verb (#788). The property worth pinning is not that a command
+	// appears, it is WHICH command: `restore` is a billed provider
+	// retrieval of a different object, so answering a "get this file
+	// back out of the restore point" request with it would send an
+	// operator to spend money on the wrong thing. This used to assert
+	// that the arm printed a GAP saying exactly that; the gap is closed,
+	// and the same mistake is now visible as the wrong verb rather than
+	// as the wrong sentence.
+	snapshot := Echo(Action{Method: "POST", Route: "/operations",
+		Body: []byte(`{"action":"` + apicontract.ActionRestoreSnapshot + `","config_revision":"r1","snapshot_restore":{"backup_set_id":"api-server/var-backups","target_path":"/tmp/restored"}}`)})
+	if len(snapshot.Command) < 2 || snapshot.Command[1] != "snapshot" || snapshot.Command[2] != "restore" {
+		t.Errorf("%s printed %v, want a `snapshot restore` line: `restore` alone is the archived-copy retrieval and is a different act against a different store",
+			apicontract.ActionRestoreSnapshot, snapshot.Command)
+	}
+	if snapshot.Shell() == restore.Shell() {
+		t.Errorf("%s and %s print the same command:\n  %s\nOne reads a restore point this deployment holds and the other buys a provider retrieval.",
+			apicontract.ActionRestoreSnapshot, apicontract.ActionRestorePlacement, snapshot.Shell())
+	}
+
+	// And the examples drive every arm, because an arm no example visits
 	// is an arm the dispatcher-driven parse test never sees.
+	contractActions := []string{
+		apicontract.ActionRunCycle,
+		apicontract.ActionRunBackupSet,
+		apicontract.ActionRestorePlacement,
+		apicontract.ActionRestoreSnapshot,
+		apicontract.ActionVerifySnapshot,
+		apicontract.ActionHoldSnapshot,
+		apicontract.ActionReleaseSnapshotHold,
+	}
+	defined := map[string]bool{}
+	for _, action := range contractActions {
+		defined[action] = true
+	}
 	seen := map[string]bool{}
 	for _, ex := range Examples() {
 		if ex.Method != "POST" || ex.Route != "/operations" {
@@ -160,21 +193,19 @@ func TestOperationsReadsTheActionsTheContractDefines(t *testing.T) {
 		}
 		seen[req.Action] = true
 	}
-	for _, action := range []string{apicontract.ActionRunCycle, apicontract.ActionRunBackupSet, apicontract.ActionRestorePlacement} {
+	for _, action := range contractActions {
 		if !seen[action] {
 			t.Errorf("no example carries action %q, so nothing drives that arm", action)
 		}
 	}
 	for action := range seen {
-		switch action {
-		case apicontract.ActionRunCycle, apicontract.ActionRunBackupSet, apicontract.ActionRestorePlacement:
-		default:
+		if !defined[action] {
 			t.Errorf("an example carries action %q, which the contract does not define; the last one of those certified a branch no client can reach", action)
 		}
 	}
 }
 
-// Gaps() is what the guard in core/cmd/backup-manager reads, and a
+// Gaps() is what the guard in core/cmd/retnd reads, and a
 // declared list is only worth what it covers. This is the coverage half:
 // every sentence Echo can actually produce has to be in it.
 func TestEveryGapSentenceEchoCanPrintIsDeclared(t *testing.T) {
@@ -195,7 +226,7 @@ func TestEveryGapSentenceEchoCanPrintIsDeclared(t *testing.T) {
 		}
 		seen++
 		if !declared[line.GapDetail] {
-			t.Errorf("%s %s prints a gap sentence Gaps() does not declare:\n  %s\nThe guard in core/cmd/backup-manager reads that list, so an undeclared sentence is one nothing checks against the verb tables.",
+			t.Errorf("%s %s prints a gap sentence Gaps() does not declare:\n  %s\nThe guard in core/cmd/retnd reads that list, so an undeclared sentence is one nothing checks against the verb tables.",
 				a.Method, a.Route, line.GapDetail)
 		}
 	}

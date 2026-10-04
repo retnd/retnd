@@ -1,24 +1,44 @@
 # Recovery and the restore procedure
 
 This is the page to read when a backup didn't arrive, an artifact looks wrong, or you're
-trying to figure out whether you can still get a file back. It assumes you've already read
-the README's [Status](../README.md#status-what-actually-runs-today) section; the short
-version repeated here because it changes every answer below: there is no `rbm
-status`, `restore`, `run` or `daemon` command yet (issues #25, #26). Everything in this
-document works directly against the SQLite journal and the NAS filesystem, because that's
-genuinely the only interface that exists today.
+trying to figure out whether you can still get a file back.
 
-None of that makes this document a placeholder for later. Restore was never going to be its
-own automated command: the design's answer to "how do I get a backup back" has always been
-"the journal tells you which local file is trustworthy, go get it," whether that journal was
-populated by a full daemon loop or, as today, by your own driver code or the test suite.
-This procedure is the permanent shape, not a workaround.
+It was written when this product had no operator commands at all, and it works entirely
+against the SQLite journal and the NAS filesystem. That is still the ground truth, and it
+is still the right thing to read at 3am when you do not trust a summary — but it is no
+longer the only interface. `retnd status`, `retnd sources`, `retnd artifacts`,
+`retnd activity`, `retnd validate`, `retnd retention`, `retnd quarantine`,
+`retnd retry` and `retnd catalog rebuild` all exist and answer most of the questions
+below without a SQL prompt; [the reference
+page](https://retnd.github.io/retnd/reference.html#cli-commands) has every one
+of them. Where a query below and a command disagree, the query is right about the journal
+and the command is right about what the serving process believes, and the difference itself
+is a finding.
+
+What has not changed, and is not a gap waiting to be filled: **restoring an artifact is
+not an automated command.** The design's answer to "how do I get a backup back" has always
+been "the journal tells you which local file is trustworthy, go and get it". That is the
+permanent shape rather than a workaround. (A backup set on the incremental engine is a
+different story and does have a restore verb — see the note below.)
 
 > **No terminal?** Everything below assumes a shell on the NAS. If you have only the web
 > interface, which is the normal case on a NAS appliance and the case every provider store
 > assumes, read [recovery without a terminal](recovery-without-a-terminal.md) instead. It
 > covers the same three failures this page starts with, through the interface, and it is
 > the page the submission bundle's support materials point a reviewer at.
+
+> **Is this backup set on the incremental engine?** This page is about
+> **artifacts**: whole files, one per backup, sitting on storage where the
+> journal says they are. A backup set whose `engine` is `kopia` has no
+> artifacts at all — it has snapshots inside an encrypted repository, and
+> nothing on this page applies to it. Read
+> [incremental-runbooks.md](incremental-runbooks.md) instead: it covers a
+> repository that will not open, a snapshot that verified and one that did
+> not, credential recovery, and getting data back out with `retnd snapshot
+> restore`. The set's `engine:` key in `config.yaml` says which engine it
+> runs, as does `engine` on `GET /api/v1/backup-sets/{source}/{set}` and the
+> badge on its page in the web interface. (`retnd sources` does not report
+> it.)
 
 ## The one fact everything else depends on
 
@@ -49,8 +69,7 @@ sqlite3 /path/to/state.db "
 "
 ```
 
-What `core/internal/health` would tell you if it were wired to anything (see the README's
-[Status and health](../README.md#status-and-health)):
+What `retnd status` reports, and what `core/internal/health` decides it from:
 
 - If the newest row across the whole set is `COMMITTED`, `REMOTE_DELETE_PENDING`,
   `COMPLETE` or `REMOTE_RETAINED`, and it's recent enough for your `stale_after` window,
@@ -108,12 +127,12 @@ sqlite3 /path/to/state.db "
 
 The `local_path` in that row is the file. It was fsynced and atomically promoted to that
 name by `core/internal/lifecycle/commit.go` before `COMMITTED` was ever recorded (see the
-README's [Durable commit](../README.md#durable-commit)), so treat it as trustworthy on the
+`core/internal/lifecycle/commit.go`'s own doc comment), so treat it as trustworthy on the
 strength of that alone; you don't need to re-verify it before copying it out, though
 re-running whatever validator the backup set's config names is never wrong if the stakes
 are high enough to justify the time.
 
-Copy it wherever the restore actually needs to happen. There is no `backup-manager restore`
+Copy it wherever the restore actually needs to happen. There is no `retnd restore`
 command to do this for you; a plain `cp`, `scp`, or whatever your restore target needs is
 the entire remaining procedure once you have the right path.
 
@@ -163,10 +182,9 @@ local copy had gone bad after the fact, while the remote side was still there or
 gone). Its one exit is back to `DISCOVERED`, meaning a fresh attempt has a real chance of
 succeeding.
 
-The design intends this to self-heal automatically the next time discovery and
-reconciliation run against this backup set. Today, with no daemon or scheduled runner (see
-[Status](../README.md#status-what-actually-runs-today)), that pass doesn't happen on its
-own. Your options, in order of how much you should trust the result:
+This self-heals the next time discovery and reconciliation run against this backup set,
+which `retnd daemon` does on the poll interval and `retnd reconcile` does on demand.
+On a deployment with nothing serving it, that pass does not happen on its own. Your options, in order of how much you should trust the result:
 
 1. If you or someone else has already wired a runner against these packages (calling
    `discovery.Discover`, `reconcile.Reconcile`, and the `core/internal/lifecycle` steps
@@ -194,8 +212,8 @@ sqlite3 /path/to/state.db "
 "
 ```
 
-If `remote_delete_error` is non-empty, this is very likely not a bug. Read the README's
-[TOCTOU protection on delete](../README.md#toctou-protection-on-delete): against the
+If `remote_delete_error` is non-empty, this is very likely not a bug. The reason is the TOCTOU protection on delete
+(`core/internal/model/identity.go`): against the
 shell-less SFTP account this project's own setup guide recommends, `CompareIdentity` can
 usually only reach `ConfidenceWeak` on the remote side, because there's no remote hash and
 usually no backend-stable identifier to check against, only size and modification time. A
@@ -212,7 +230,7 @@ That's a real operational consequence, not a cosmetic one:
   producer side, manual cleanup, a shorter retention window configured at the source), it
   will fill up on a long enough timeline, in every deployment that follows this project's
   own hardening advice. Monitor remote disk usage independently of this project; don't
-  assume `backup-manager` is freeing space on the source just because backups keep landing
+  assume `retnd` is freeing space on the source just because backups keep landing
   successfully on the NAS.
 - If you need remote pruning to actually happen in this deployment shape, the honest options
   are: relax the SFTP account's hardening to allow a remote hash command (trading delete-
@@ -225,8 +243,8 @@ That's a real operational consequence, not a cosmetic one:
 ## Step 6: retention decided this backup should be deleted, but it's still there
 
 That's expected, not a bug. A verdict and a deletion are two different things here, and
-nothing crosses between them on its own. The README's [Retention](../README.md#retention)
-section is the longer version:
+nothing crosses between them on its own. [`docs/storage-mediums.md`](storage-mediums.md) and `retnd retention` are the longer
+version:
 
 - `core/internal/retention.GFSDecide` only classifies artifacts into keep/not-kept-by-GFS. It
   contains no deletion code at all. A `Keep: false` verdict is a candidate, not an order.
@@ -239,11 +257,11 @@ section is the longer version:
   `ApplyRetentionPlan` deletes only against that `plan_id`, and only while the plan it
   re-derives still matches the one an administrator reviewed. No cycle, no daemon and no
   timer ever calls it, so local disk usage grows until somebody applies a plan.
-- `rbm retention` is a preview in both of its modes and deletes nothing, with or
+- `retnd retention` is a preview in both of its modes and deletes nothing, with or
   without `--dry-run`. That is not a gap waiting to be filled: a CLI that deleted backups
   without the `plan_id` confirmation the HTTP path insists on would be a second, weaker
   authorisation path to the same act (issue #431).
-- `rbm retention apply <source/backup-set> --acknowledge` is the terminal's own
+- `retnd retention apply <source/backup-set> --acknowledge` is the terminal's own
   way in (issue #602), and it is not that second path: it goes through the same
   `PreviewRetention`/`ApplyRetentionPlan` pair, prints the plan it is about to apply, and
   refuses with `RETENTION_PLAN_STALE` and zero deletions if the set moved in between.
@@ -255,7 +273,7 @@ be safe to remove"; applying them is somebody's deliberate act, through the API 
 that verb.
 
 One thing to know before reading a preview taken AFTER an apply: deleting a file does not
-change the journal, so `rbm retention` goes on listing a pruned artifact as
+change the journal, so `retnd retention` goes on listing a pruned artifact as
 `DELETE` (it reads FR-18/FR-19 classification and never looks at the disk), while the API's
 own preview reports `REFUSE` for it, because FR-20's checks stat the path and find nothing
 there. Both are describing the same backup set; only one of them has looked.
@@ -275,7 +293,7 @@ you.
 First, read why:
 
 ```
-rbm artifacts production/postgres/dump-2026-09-04.zst
+retnd artifacts production/postgres/dump-2026-09-04.zst
 ```
 
 The `reason` line is the literal sentence the manager recorded at the moment it gave up.
@@ -296,7 +314,7 @@ Three shapes come up most:
 Then put it back into the pipeline:
 
 ```
-backup-manager retry production/postgres/dump-2026-09-04.zst --note "the NAS came back"
+retnd retry production/postgres/dump-2026-09-04.zst --note "the NAS came back"
 ```
 
 That moves the row from `FAILED` to `DISCOVERED` and the next cycle picks it up like any
@@ -315,14 +333,217 @@ The one thing it refuses is a backup whose backup set is no longer in the config
 Sending it back to a set no cycle walks would leave it somewhere nothing picks up and no
 recovery path reaches. Create a backup set with the same source and name first.
 
+## Step 8: a backup set is refusing to run and says its workflow needs recovery
+
+This one is not about an artifact. Nothing in `artifacts` is wrong, and every query above
+will report the set as healthy right up to the moment its next backup does not happen.
+
+What you see is a refusal: a manual run of the set is refused, the scheduler stops visiting
+it, and a `WorkflowRecoveryRequired` condition is raised naming the set and the run. Any
+command that opens the data plane — `retnd fetch`, `retnd daemon` — says so once on the
+way up, before it does anything:
+
+```
+retnd: 2 workflow cleanup(s) from an interrupted run are outstanding; the affected backup sets refuse to run until each is resumed or acknowledged (`retnd workflow recovery show`)
+```
+
+`retnd status` will not tell you. It has no workflow section at all; it reports the set's
+artifacts, and they are fine. The command that answers is:
+
+```
+retnd workflow recovery show
+```
+
+One block per outstanding scope: the run id, the backup set, whether it is the global or the
+set-scoped half, when that scope was entered and how long ago that is by this host's clock,
+where the scripts a resume would execute are retained, and the two commands that end it.
+Beside a serving engine it asks that process, because the refusal a run will actually meet
+lives in that process's memory as well as in the journal; with nothing serving the
+deployment it reads the durable rows instead.
+
+**What it means.** A workflow run has five stages around the backup — global before, this
+set's before, the backup, this set's after, global after — and the "after" stages are the
+ones that put the machine back: thaw the database, unmount the snapshot, restart what was
+stopped. This product records that it has ENTERED a scope before it runs the first hook in
+that scope, and then the process died. On the next start, reconciliation found a step still
+sitting at `running`, whose exit status nobody observed and nobody ever will, and recorded
+it as `interrupted` rather than `failed`. Those are not the same finding: "this script
+reported failure" and "this script's outcome is unknown and its side effects may be
+half-applied" lead to different next moves, and `core/internal/workflow/states.go` keeps
+them apart deliberately. The run moved to `recovery_required`, its captured script bytes
+were retained instead of being reclaimed, the backup set was blocked, and **nothing was
+replayed**. No hook ran. That is the whole of what the restart did.
+
+So the source machine may be sitting quiesced right now, with a perfectly good backup beside
+it. That pairing — a healthy artifact and a machine that was never put back — is why this is
+a hold rather than a warning, and why no amount of waiting clears it.
+
+It is worth knowing what this is *not*. A cleanup that ran and failed is a different row and
+blocks nothing: the obligation was attempted and what happened is recorded, so it is
+discharged (`ObligationFailed` in `core/internal/workflow/obligation.go`), the run is
+`cleanup_failed`, and the set keeps running. That case still means the machine may not be
+back the way the workflow found it — it just means a person, not this product, is the only
+one who can decide that, and there is no hold to lift afterwards.
+
+**What to do.** There are exactly two exits and no third. There is no dismiss, no "ignore",
+and `--skip-workflow-scripts` is not a way past it: a run carrying that flag is refused for
+a blocked set exactly as an ordinary run is, and even where it does run it leaves the
+obligations exactly as it found them, which is what stops a flag from settling a recovery
+it knows nothing about (`core/internal/state/workflowlifecycle.go`).
+
+1. **Read the hold.** `retnd workflow recovery show`, above. If you want it out of the
+   journal instead — because nothing is serving the deployment, or because you do not trust
+   a summary:
+
+   ```bash
+   sqlite3 /path/to/state.db "
+     SELECT o.backup_set_id, o.run_id, o.scope, o.entered_at, r.script_spool_ref
+     FROM workflow_cleanup_obligations o
+     JOIN workflow_runs r ON r.run_id = o.run_id
+     WHERE o.state = 'recovery_required'
+     ORDER BY o.entered_at ASC;
+   "
+   ```
+
+   `entered_at` is the column to read first. It is when the scope was entered, which is the
+   nearest thing the journal has to "how long has this database been left quiesced". Oldest
+   first, for that reason.
+
+2. **Find out what was actually left half-done**, which is a question about the steps:
+
+   ```bash
+   sqlite3 /path/to/state.db "
+     SELECT step_order, step_id, scope, phase, target, script_name, state, started_at, exit_code
+     FROM workflow_steps
+     WHERE run_id = 'wfr_01HX...'
+     ORDER BY step_order ASC;
+   "
+   ```
+
+   The `interrupted` row is the script that was mid-flight. `exit_code` is NULL for it and
+   that is not a gap in the record: no process status ever reached this product, and NULL and
+   0 are emphatically different answers here. `pending` rows after it are hooks that never
+   started. `retnd workflow run log <run-id> --step <step-id>` prints whatever that script
+   managed to say before the process went away, which is usually the fastest way to find out
+   how far it got.
+
+3. **Resume the cleanup**, if the right answer is for this product to finish what it owes:
+
+   ```
+   retnd workflow recovery resume-cleanup wfr_01HX...
+   ```
+
+   It runs only the eligible "after" stages, out of that run's own captured bytes, each one
+   re-verified against the sha256 recorded when the plan was taken. The hooks are told
+   `RETND_RECOVERY=1` and `RETND_CLEANUP_REASON=interrupted_run`, so a script that wants
+   to be careful about a half-applied state can tell this apart from an ordinary unwind. It
+   exits non-zero if the run is still not settled afterwards, because then the backup set is
+   still blocked. Beside a serving engine it is handed to that process, and beside one this
+   command cannot reach it is refused rather than performed here — a resume in a second
+   process would write the journal and leave the serving engine still refusing the set it
+   just unblocked.
+
+4. **Or acknowledge it**, if you have already put the machine back by hand:
+
+   ```
+   retnd workflow recovery acknowledge wfr_01HX... --reason "thawed the database and unmounted /snap by hand"
+   ```
+
+   This executes nothing. It records that a person took responsibility, unblocks the set, and
+   the reason is required — a blank one is refused. That is not ceremony: the entire value of
+   an acknowledgement is answering, six months later, why a backup set was unblocked without
+   its cleanup ever having run. It is stored beside the run, with the actor the surface that
+   took it knows about, and you can read it back:
+
+   ```bash
+   sqlite3 /path/to/state.db "
+     SELECT run_id, scope, acknowledged_at, acknowledged_by, acknowledge_reason
+     FROM workflow_cleanup_obligations
+     WHERE state = 'manually_acknowledged'
+     ORDER BY acknowledged_at DESC;
+   "
+   ```
+
+The run's own row is the other half of the picture, and the two axes on it are separate on
+purpose — a run can be terminal with its recovery still outstanding, which is exactly the
+pair the spool must not be reclaimed under:
+
+```bash
+sqlite3 /path/to/state.db "
+  SELECT run_id, backup_set_id, state, recovery_state,
+         backup_status, workflow_status, cleanup_status,
+         started_at, finished_at, script_spool_ref
+  FROM workflow_runs
+  WHERE recovery_state IN ('required', 'in_progress');
+"
+```
+
+Mind the two spellings, because they are easy to misread as a typo: the run's `state` is
+`recovery_required`, and the `recovery_state` beside it is `required`. The schema is
+`core/migrations/0012_workflow_runs.sql` and `core/migrations/0013_workflow_lifecycle.sql`;
+every one of these vocabularies is plain TEXT with no CHECK constraint, enforced in Go on the
+write path, so a typo in a `WHERE` clause here gets you an empty result rather than an error.
+
+What a resume does not do, and what it cannot promise:
+
+- **It does not re-run the backup.** Only the "after" stages that are still owed.
+- **It does not read `/workflows`, and it does not pick up a config edit made while the
+  daemon was down.** Everything it executes comes out of that run's own spool, verified
+  against the hashes taken when the plan was made, with the environment the run was planned
+  with and its secret references re-resolved. Editing a hook script after the interruption
+  changes nothing about what a recovery executes. If the hook itself is what is broken, a
+  resume will faithfully run the broken one again; fix the machine by hand and acknowledge
+  instead.
+- **A resume that cannot account for everything lands back at `recovery_required`**, durably,
+  and the set stays blocked. It does not half-settle and it does not give up quietly.
+- **Two processes cannot unwind one run at once.** A scope moves to `in_progress` durably
+  before a hook runs, and a second caller that finds it there is refused.
+- **A hook that deliberately detached a child is outside the termination guarantee.**
+  `nohup`, `setsid`, a double fork: such a process is outside the group the reaper can reach,
+  so the step records termination as `unconfirmed` rather than claiming a clean stop, and the
+  per-step working directory is deliberately kept as the forensic record of what may still be
+  writing in there. See `docs/ssh-setup.md` and `docs/adr/0021-remote-ssh-exec.md`.
+
+The hard case this whole mechanism was built for is a power cut, or anything else that
+kills the host outright. It is worth spelling out end to end, because the sequence is not
+obvious from the outside:
+
+1. The machine comes back and `retnd` starts. Its first act on the data plane is the
+   workflow reconciliation, and a failure there ends the invocation rather than proceeding —
+   a process that cannot work out which sets are blocked must not take a backup over a
+   machine that may still be quiesced.
+2. Every run that was in flight is marked, its interrupted steps recorded as `interrupted`,
+   its unsettled scopes moved to `recovery_required`, its spool retained. Sets with an
+   outstanding scope are blocked; every other set runs normally. The startup line quoted at
+   the top of this step is printed once.
+3. Go and look at the source machines named by `retnd workflow recovery show` **before**
+   you clear anything. The journal can tell you which hooks never ran; it cannot tell you
+   what state the other end is actually in. A `df`, a `mount`, and whatever the "before" hook
+   does in reverse is the check.
+4. Clear each hold with one of the two exits above — resume if the scripts should finish the
+   job, acknowledge with a reason if you did it yourself. That is the only way recovery state
+   is ever cleared: nothing ages out, no restart settles anything, and a clean run of the set
+   cannot happen in the meantime because the set is refused.
+
+What this product does **not** promise is that the machine was put back. Power-loss cleanup
+is not guaranteed and cannot be: the hooks that would have un-quiesced the source were never
+going to run with the power off. What is guaranteed is that the fact is durable, that the set
+stops rather than taking a backup over a half-applied state, and that clearing it takes a
+person saying so. If the "after" hooks are load-bearing for your source — a database left in
+backup mode, a filesystem left frozen — the source's own startup is where that has to be made
+safe, not here.
+
 ## Quick reference
 
 | Symptom in the journal | Meaning | What to do |
 |---|---|---|
 | Newest row is `COMMITTED`/`REMOTE_DELETE_PENDING`/`COMPLETE`/`REMOTE_RETAINED`, recent | Healthy | Nothing |
 | No good row inside `stale_after` | Stale | Investigate why new backups aren't landing |
-| `FAILED`, no `next_retry_at` | The attempt did not finish and nothing will try again on its own | Read the reason, fix it, then `backup-manager retry <id>` (Step 7) |
+| `FAILED`, no `next_retry_at` | The attempt did not finish and nothing will try again on its own | Read the reason, fix it, then `retnd retry <id>` (Step 7) |
 | `QUARANTINED_LOST` anywhere | Irrecoverable loss | Restore from the next-newest good row; report the gap honestly |
 | Newest good row is `QUARANTINED` | Content suspect, source may still exist | Manual re-fetch or re-run reconciliation yourself |
 | `REMOTE_DELETE_PENDING` stuck, `remote_delete_error` set | Expected refusal under a hardened SFTP account | Monitor remote disk directly; this is not corrupting anything |
 | `Keep: false` from GFS but the file is still there | Expected; a verdict is not a deletion, and nothing applies one on a timer | Apply a retention plan through the API if the space is needed |
+| A `workflow_cleanup_obligations` row is `recovery_required` | An interrupted run's cleanup is unaccounted for, and that set is blocked | `retnd workflow recovery show`, then resume or acknowledge (Step 8) |
+| A `workflow_steps` row is `interrupted`, `exit_code` NULL | Nobody saw that script exit; its side effects may be half-applied | Look at the source machine before clearing anything (Step 8) |
+| Run is `cleanup_failed`, `recovery_state` is `none` | The cleanup ran and did not succeed; nothing is blocked and the machine may not be back | Read the step's log and put the machine back yourself; there is no hold to lift |

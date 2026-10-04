@@ -2,9 +2,28 @@
 *.exe
 *.test
 *.out
-/backup-manager
+/retnd
 /dist/
 /bin/
+
+# The two binaries `go build` drops beside their own main package, which
+# is what an ordinary `go build ./...` in core/ or apps/generic/ produces.
+# They are 64 MB each, they trip the large-file push warning, and a
+# committed one also breaks the image-size gate, because the Docker build
+# context carries it into the image. Named explicitly rather than caught
+# by a pattern: /retnd above only covers the repository root, and these
+# land one directory down.
+#
+# THE NAMES HERE ARE THE BUILD'S, NOT THE BRAND'S. R1.3 (#888) renamed
+# both commands and nothing swept this file, so from that day until #895
+# every pattern below named a binary this tree can no longer produce --
+# and `retnd` at the repository root, which it can, was ignored by
+# nothing. A 64 MB Mach-O binary was committed on exactly that path in
+# this epic and reached review; `git rm --cached retnd` took it back out.
+# An ignore rule that names yesterday's artifact is worse than no rule,
+# because the comment above it still reads as if the hole were covered.
+/core/retnd
+/apps/generic/retnd-web
 
 # SQLite journals produced by local runs
 *.db
@@ -91,7 +110,7 @@ __pycache__/
 # committed by an absent-minded `git add -A`.
 /docs/perf/baselines/selftest-tmp.json
 
-# Where scripts/rcmtools/e2e/run_tests_repo_gate.py builds the backup-manager it
+# Where scripts/bdtools/e2e/run_tests_repo_gate.py builds the retnd it
 # hands to the pinned CLI smoke slice. Inside the working tree on purpose:
 # the alternative is a scratch directory under /tmp that the gate would then
 # have to delete, and nothing this repository's tooling creates should need
@@ -134,3 +153,18 @@ go.work.sum
 # which is exactly when they are least likely to look at what `git add -A`
 # picked up. It has been committed once already.
 /core/harness
+
+# core/internal/workflow's custody fixtures. That suite cannot use
+# t.TempDir: on Linux it lands under /tmp, which is mode 1777, and the
+# package (rightly) refuses a hook directory or a script spool with a
+# world-writable ancestor whether or not the sticky bit is set. So the
+# fixtures are built under the package directory, whose ancestry is the
+# checkout's, and removed again by t.Cleanup. The name is hidden so the Go
+# tool and the format checks skip whatever an interrupted run leaves.
+/core/internal/workflow/.wf-custody-*
+
+# core/internal/workflowrun's fixtures, for exactly the same reason: that
+# suite snapshots a real workflow tree into a real spool through the same
+# custody walk, and it deliberately stops the process mid-run, so an
+# interrupted run leaves one behind more often than most.
+/core/internal/workflowrun/.wfrun-*

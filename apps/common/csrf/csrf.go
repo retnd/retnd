@@ -35,9 +35,37 @@ import (
 // the whole pattern requires client-side JavaScript to read the cookie
 // so it can echo it back as HeaderName.
 const (
-	CookieName = "bm_csrf"
+	CookieName = "retnd_csrf"
 	HeaderName = "X-CSRF-Token"
 )
+
+// EarlierCookieName remains readable for the older compatibility window.
+// EnsureCookie carries that token forward under CookieName, and Verify
+// accepts either name so an already-loaded client bundle does not fail its
+// next state-changing request.
+const EarlierCookieName = "bm_csrf"
+
+// cookieNames are accepted in precedence order. Package-level so a read does
+// not allocate to iterate it.
+var cookieNames = []string{CookieName, EarlierCookieName}
+
+// LegacyCookieNames returns the deprecated names a read accepts without
+// exposing a mutable package-level slice.
+func LegacyCookieNames() []string {
+	return []string{EarlierCookieName}
+}
+
+// readToken returns the double-submit token r carries under any accepted
+// name, or "" for none. An empty value counts as absent so a cleared
+// cookie cannot shadow a name further down the list.
+func readToken(r *http.Request) string {
+	for _, name := range cookieNames {
+		if c, err := r.Cookie(name); err == nil && c.Value != "" {
+			return c.Value
+		}
+	}
+	return ""
+}
 
 // ErrMissingCookie means the request carried no CSRF cookie at all (or an
 // empty one) - most commonly a client that never loaded a page from this
@@ -56,6 +84,11 @@ var ErrHeaderMismatch = errors.New("csrf: missing or mismatched header")
 // state-changing request a fresh browser session makes is what will need
 // to echo it.
 //
+// "Already carries one" spans both accepted names. A request carrying only
+// the deprecated name has that exact value re-issued under the current one.
+// Minting a different value would make the header and preferred cookie
+// disagree on every mutating request.
+//
 // secure decides the issued cookie's own Secure flag, given the request
 // that triggered issuance: a plain `func(r *http.Request) bool { return
 // r.TLS != nil }` for a handler that terminates TLS itself (or never
@@ -67,16 +100,12 @@ var ErrHeaderMismatch = errors.New("csrf: missing or mismatched header")
 func EnsureCookie(secure func(*http.Request) bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if _, err := r.Cookie(CookieName); err != nil {
-				if token, genErr := randomToken(32); genErr == nil {
-					http.SetCookie(w, &http.Cookie{
-						Name:     CookieName,
-						Value:    token,
-						Path:     "/",
-						Secure:   secure(r),
-						SameSite: http.SameSiteStrictMode,
-					})
+			if existing := readToken(r); existing == "" {
+				if fresh, genErr := randomToken(32); genErr == nil {
+					setCookie(w, r, fresh, secure)
 				}
+			} else if _, err := r.Cookie(CookieName); err != nil {
+				setCookie(w, r, existing, secure)
 			}
 			next.ServeHTTP(w, r)
 		})
@@ -84,23 +113,34 @@ func EnsureCookie(secure func(*http.Request) bool) func(http.Handler) http.Handl
 }
 
 // Verify reports whether r carries a valid double-submit CSRF token: its
-// HeaderName header matches its CookieName cookie, byte-for-byte, in
-// constant time. A non-nil return is always ErrMissingCookie or
-// ErrHeaderMismatch (check with errors.Is), letting each caller choose
-// its own error response shape/code for the two cases -
-// apps/common/auth/local and apps/common/webhost each have their own,
-// incompatible error body conventions, and this package doesn't referee
-// between them.
+// HeaderName header matches its CSRF cookie, byte-for-byte, in constant
+// time. Either accepted cookie name counts. A non-nil return is always
+// ErrMissingCookie or ErrHeaderMismatch (check with errors.Is), letting each
+// caller choose its own error response shape: apps/common/auth/local and
+// apps/common/webhost have incompatible body conventions, and this package
+// does not referee between them.
 func Verify(r *http.Request) error {
-	cookie, err := r.Cookie(CookieName)
-	if err != nil || cookie.Value == "" {
+	cookie := readToken(r)
+	if cookie == "" {
 		return ErrMissingCookie
 	}
 	header := r.Header.Get(HeaderName)
-	if header == "" || subtle.ConstantTimeCompare([]byte(header), []byte(cookie.Value)) != 1 {
+	if header == "" || subtle.ConstantTimeCompare([]byte(header), []byte(cookie)) != 1 {
 		return ErrHeaderMismatch
 	}
 	return nil
+}
+
+// setCookie writes value under the current CookieName. Not HttpOnly: the
+// double-submit pattern requires the page's own JavaScript to read it.
+func setCookie(w http.ResponseWriter, r *http.Request, value string, secure func(*http.Request) bool) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     CookieName,
+		Value:    value,
+		Path:     "/",
+		Secure:   secure(r),
+		SameSite: http.SameSiteStrictMode,
+	})
 }
 
 // randomToken returns n bytes of crypto/rand, base64url encoded. Callers

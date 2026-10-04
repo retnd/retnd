@@ -59,8 +59,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/internal/app"
-	"github.com/spdrman/rclone-manager/core/internal/config"
+	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/internal/config"
 )
 
 // editHoldLease is how long one hold lasts without being renewed. Short,

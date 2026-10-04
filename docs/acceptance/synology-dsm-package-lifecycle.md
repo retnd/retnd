@@ -24,8 +24,8 @@ core binaries:
 
 | SPK artifact | INFO `arch` | Go target | DSM platforms covered |
 |---|---|---|---|
-| `BackupManager-x86_64-<version>.spk` | `x86_64` | `linux/amd64` | apollolake, avoton, braswell, broadwell, broadwellnk, broadwellntb, broadwellntbap, bromolow, cedarview, coffeelake, denverton, geminilake, grantley, kvmx64, purley, skylaked, v1000 |
-| `BackupManager-armv8-<version>.spk` | `armv8` | `linux/arm64` | rtd1296, armada37xx, rtd1619, rtd1619b |
+| `Backupd-x86_64-<version>.spk` | `x86_64` | `linux/amd64` | apollolake, avoton, braswell, broadwell, broadwellnk, broadwellntb, broadwellntbap, bromolow, cedarview, coffeelake, denverton, geminilake, grantley, kvmx64, purley, skylaked, v1000 |
+| `Backupd-armv8-<version>.spk` | `armv8` | `linux/arm64` | rtd1296, armada37xx, rtd1619, rtd1619b |
 
 The `arch` family names and their member platforms come from Synology's
 own Appendix A platform/arch mapping table, not from inspection of a
@@ -129,13 +129,13 @@ A result on one architecture says nothing about the other.
 5. Confirm over SSH that the payload landed where the package framework
    says it should:
    ```sh
-   ls -l /var/packages/BackupManager/target/bin/
+   ls -l /var/packages/Backupd/target/bin/
    ```
-   Expect `backup-manager` and `backup-manager-web`, both executable.
+   Expect `retnd` and `retnd-web`, both executable.
 6. Confirm the packaged binaries are byte-identical to the release ones:
    ```sh
-   sha256sum /var/packages/BackupManager/target/bin/backup-manager \
-             /var/packages/BackupManager/target/bin/backup-manager-web
+   sha256sum /var/packages/Backupd/target/bin/retnd \
+             /var/packages/Backupd/target/bin/retnd-web
    ```
    Compare against `container/release-manifest.json` for this
    architecture. This is acceptance criterion "SPK contains the exact
@@ -147,11 +147,11 @@ A result on one architecture says nothing about the other.
    no `chown` anywhere, so this is the one assumption nothing in the
    repository can check for itself:
    ```sh
-   ls -ln /var/packages/BackupManager/var \
-          /var/packages/BackupManager/var/state \
-          /var/packages/BackupManager/var/log \
-          /var/packages/BackupManager/var/run
-   grep "Created package directories as uid" /var/log/packages/BackupManager.log
+   ls -ln /var/packages/Backupd/var \
+          /var/packages/Backupd/var/state \
+          /var/packages/Backupd/var/log \
+          /var/packages/Backupd/var/run
+   grep "Created package directories as uid" /var/log/packages/Backupd.log
    ```
    Record the owning uid and the mode of each. Whether that uid is the
    one the daemons run as is settled in step 2.7, and the two answers
@@ -163,7 +163,7 @@ A result on one architecture says nothing about the other.
    exact refusal text.
 
 **Failure to record, not work around:** if install fails on a
-`conf/resource` worker, capture `/var/log/packages/BackupManager.log` and
+`conf/resource` worker, capture `/var/log/packages/Backupd.log` and
 the DSM error verbatim before changing anything. That log names the
 worker, and it is the difference between "the resource spec is wrong" and
 "this model cannot host the package at all".
@@ -177,18 +177,18 @@ worker, and it is the difference between "the resource spec is wrong" and
    behavior of the generic Web host too, not something Synology-specific,
    and it is deliberately part of this procedure so nobody records it
    later as a Synology bug.
-3. Over SSH, edit `/var/packages/BackupManager/etc/config.yaml`: set
+3. Over SSH, edit `/var/packages/Backupd/etc/config.yaml`: set
    `state.database` (already seeded), and add one real source and backup
    set pointing at the shared folder DSM created for the package.
    Confirm that shared folder exists:
    ```sh
-   ls -ld /volume*/rbm
+   ls -ld /volume*/retnd
    ```
 4. Start the package again.
 5. Expect: Package Center shows Running.
 6. Read the one-time enrollment notice:
    ```sh
-   cat /var/packages/BackupManager/var/log/engine.log
+   cat /var/packages/Backupd/var/log/engine.log
    ```
    Expect a bootstrap token, and expect it to be a token only, never a
    password. Confirm the log contains no credential, no key material and
@@ -203,9 +203,9 @@ worker, and it is the difference between "the resource spec is wrong" and
 8. Record the uid the daemons actually run as, and whether they could
    write at all:
    ```sh
-   ps -eo user,pid,args | grep backup-manager-web
-   ls -ln /var/packages/BackupManager/var/log/engine.log \
-          /var/packages/BackupManager/var/run/engine.pid
+   ps -eo user,pid,args | grep retnd-web
+   ls -ln /var/packages/Backupd/var/log/engine.log \
+          /var/packages/Backupd/var/run/engine.pid
    ```
    Expect: both files exist and are owned by the uid in the `ps` output.
    If the engine "exited immediately" and `engine.log` does not exist,
@@ -216,8 +216,8 @@ worker, and it is the difference between "the resource spec is wrong" and
    ```sh
    sudo reboot
    # after it comes back, before touching anything else:
-   cat /var/packages/BackupManager/var/run/engine.pid
-   ps -eo pid,args | grep backup-manager-web
+   cat /var/packages/Backupd/var/run/engine.pid
+   ps -eo pid,args | grep retnd-web
    ```
    `var/` survives a reboot, so the pid file that comes back names the
    pid space that existed before it. Expect: Package Center shows the
@@ -238,12 +238,17 @@ the tester reached DSM with is otherwise invisible in the result, and
 this criterion is the one most likely to differ between the two.
 
 1. Log in to DSM as the administrator. Open the Main Menu.
-2. Expect: a "Backup Manager" entry with the package icon.
+2. Expect: a "Backupd" entry with the package icon.
 3. Click it.
 4. Expect: it opens the shared Web UI, served by the package's own UI
    host on port 8477, showing the local-auth login or enrollment screen.
-5. Complete enrollment with the token from step 2, choose an
-   administrator password, and log in.
+5. Complete enrollment with the token from step 2: an administrator
+   password, a recovery email address, and the SMTP details to reach it.
+   Use a mail account you control and keep its password out of the
+   evidence. Expect a confirmation message at that address before the
+   account exists, and expect a deliberately wrong SMTP port to be
+   refused with `SMTP_SEND_FAILED`, to create nothing, and to leave the
+   same token usable. Then log in.
 6. Expect: the shared UI loads and `GET /api/v1/system/capabilities`
    succeeds, and it reports the **Synology** bridge. Since issue #169 the
    package carries this provider's own UI bundle in its payload and
@@ -254,7 +259,7 @@ this criterion is the one most likely to differ between the two.
    passing `--ui-dir`; record which, because `serve-ui` fails closed on an
    unusable `--ui-dir` and a running package with the wrong bridge means
    something served the compiled-in bundle instead.
-7. Also open Package Center → Backup Manager → Open, and confirm it
+7. Also open Package Center → Backupd → Open, and confirm it
    reaches the same UI. Two documented routes exist (`dsmuidir` plus a
    `.url` desktop entry, and INFO's `adminport`/`adminurl`); record which
    ones actually worked, because that decides which one the package keeps.
@@ -272,10 +277,10 @@ this criterion is the one most likely to differ between the two.
 1. Before updating, capture the state that has to survive, into files you
    can hold the upgrade against afterwards rather than into your memory:
    ```sh
-   sha256sum /var/packages/BackupManager/var/state/backup-manager.db \
-             /var/packages/BackupManager/etc/config.yaml \
+   sha256sum /var/packages/Backupd/var/state/retnd.db \
+             /var/packages/Backupd/etc/config.yaml \
      | tee /tmp/before-upgrade.sha256
-   find /var/packages/BackupManager/var/state -type f | sort > /tmp/before-upgrade.txt
+   find /var/packages/Backupd/var/state -type f | sort > /tmp/before-upgrade.txt
    ```
    and, in the UI, note the logged-in session, the configured backup set,
    and at least one artifact row.
@@ -292,15 +297,16 @@ this criterion is the one most likely to differ between the two.
    re-reading it by eye:
    ```sh
    sha256sum -c /tmp/before-upgrade.sha256
-   find /var/packages/BackupManager/var/state -type f | sort > /tmp/after-upgrade.txt
+   find /var/packages/Backupd/var/state -type f | sort > /tmp/after-upgrade.txt
    diff /tmp/before-upgrade.txt /tmp/after-upgrade.txt
    ```
 6. Expect: every line of `sha256sum -c` says OK, the diff is empty, the
-   local-auth record still exists, and the enrolled administrator can
-   still log in without re-enrolling. `target/` is documented to be
-   replaced on upgrade and `var/`+`etc/` to persist; this step is what
-   proves the package actually put its state on the right side of that
-   line.
+   local-auth record still exists — with its recovery address and SMTP
+   settings, which a test send from Settings proves still work — and the
+   enrolled administrator can still log in without re-enrolling.
+   `target/` is documented to be replaced on upgrade and `var/`+`etc/` to
+   persist; this step is what proves the package actually put its state on
+   the right side of that line.
 7. Expect: the UI, after the upgrade, still shows the same backup set and
    the same artifact row.
 8. Confirm the new binaries are again byte-identical to the release
@@ -315,22 +321,22 @@ This is the destructive-safety step. Read it fully before starting.
 1. Put real, identifiable data in the backup share, outside the package's
    own footprint:
    ```sh
-   mkdir -p /volume1/backup-manager/acceptance
-   dd if=/dev/urandom of=/volume1/backup-manager/acceptance/canary.bin bs=1M count=8
-   sha256sum /volume1/backup-manager/acceptance/canary.bin | tee /tmp/canary.sha256
-   find /volume1/backup-manager -type f | sort > /tmp/before-uninstall.txt
+   mkdir -p /volume1/retnd/acceptance
+   dd if=/dev/urandom of=/volume1/retnd/acceptance/canary.bin bs=1M count=8
+   sha256sum /volume1/retnd/acceptance/canary.bin | tee /tmp/canary.sha256
+   find /volume1/retnd -type f | sort > /tmp/before-uninstall.txt
    ```
 2. Also record what exists outside the share that must survive:
    ```sh
-   ls -ld /volume*/ /volume1/@appstore/BackupManager \
-          /var/packages/BackupManager/etc /var/packages/BackupManager/var
+   ls -ld /volume*/ /volume1/@appstore/Backupd \
+          /var/packages/Backupd/etc /var/packages/Backupd/var
    ```
 3. Uninstall the package through Package Center.
 4. Expect: uninstall completes.
 5. Now check the canary FIRST, before anything else:
    ```sh
    sha256sum -c /tmp/canary.sha256
-   find /volume1/backup-manager -type f | sort > /tmp/after-uninstall.txt
+   find /volume1/retnd -type f | sort > /tmp/after-uninstall.txt
    diff /tmp/before-uninstall.txt /tmp/after-uninstall.txt
    ```
    Expect: the canary verifies, and the diff is empty. Synology documents
@@ -341,9 +347,9 @@ This is the destructive-safety step. Read it fully before starting.
    **Any deletion here is a release blocker, not a finding to triage.**
 6. Record what DSM removed on its own:
    ```sh
-   ls -ld /volume1/@appstore/BackupManager 2>&1
-   ls -ld /var/packages/BackupManager 2>&1
-   ls -l  /var/packages/BackupManager/var/state 2>&1
+   ls -ld /volume1/@appstore/Backupd 2>&1
+   ls -ld /var/packages/Backupd 2>&1
+   ls -l  /var/packages/Backupd/var/state 2>&1
    ```
    `target` is documented to go; `etc` and `var` are documented to stay.
    Record what actually happened for each, because a reinstall in step 6
@@ -363,13 +369,63 @@ This is the destructive-safety step. Read it fully before starting.
    about the enrollment path, not a Synology one.
 4. Uninstall again and confirm the canary from step 5 is still intact.
 
+## Local workflow hooks are unavailable on Synology DSM
+
+A workflow step whose target is `local` does not run in the engine container, and since
+issue #865 it does not run on a host shell either: it runs in an **ephemeral Docker
+container** launched by the **Host Workflow Runner**, a small version-pinned process
+systemd supervises as `retnd-workflow-runner.service`
+(`docs/adr/0020-host-workflow-runner.md`, `docs/runtime-contract.md`).
+
+A DSM package cannot install a systemd unit or grant a supplementary group, and
+Container Manager's socket is root-owned. That holds for both ways of installing this
+release on DSM — the `.spk` this procedure exercises and the Container Manager project
+beside it — so neither route can carry the runner, and neither tries.
+
+**Local workflow hooks are unavailable on this platform.** That is a refusal with a
+named mechanism rather than a gap, and it is worth being precise about which
+mechanism, because two plausible ones are not it:
+
+- the **capability contract** answers `unavailable` for this platform, with this
+  reason and the alternative below
+  (`apps/common/platform/capabilities`, `LocalHooks`);
+- the **engine** refuses a `NAME.local.sh` step outright when a deployment has no
+  host workflow runner behind it — *"this deployment has no host workflow runner,
+  and a NAME.local.sh has nowhere to run"*
+  (`core/internal/workflowrun/engine.go`). A hook is refused, never skipped, so a
+  run cannot report success with the hook quietly missing;
+- and **this procedure installs no `retnd-workflow-runner.service`**, grants no
+  group and fetches no hook image.
+
+What does **not** happen, so that nobody goes looking for it:
+`scripts/install/install_docker_host.py` has no platform gate. It refuses (exit 12)
+when a deployment has hook scripts and the runner's account cannot reach a Docker
+daemon, and on a host with no systemd it merely stages the unit file for an operator
+to install by hand. Neither of those is a refusal on this platform's grounds. The
+answer here is the contract's, and the enforcement is the engine's.
+
+**What works instead:** a remote workflow step. A step with a remote target runs over
+SSH (`docs/adr/0021-remote-ssh-exec.md`) against a machine you do
+administer, and needs no Docker and no host unit on this NAS. The engine's own side
+of this is unchanged either way: the shipped package asks for no Docker socket, no
+`group_add` and no `DOCKER_HOST`.
+
+- [ ] No `retnd-workflow-runner.service` exists on this host, and nothing in this
+      procedure created one
+- [ ] No account was added to a Docker socket group for this product, and the shipped
+      containers mount no socket and declare no `group_add`
+- [ ] A workflow configured with a `local` hook is refused with a message naming the
+      missing container runtime, and the refusal text is recorded — not a run that
+      reported success with the hook skipped
+
+
 ## Evidence to record
 
 - Package Center screenshots for install, upgrade, uninstall and the
   architecture-mismatch refusal in step 1.7, each with the DSM clock
   visible.
-- `/var/log/packages/BackupManager.log` for every lifecycle operation.
-- `/var/packages/BackupManager/var/log/engine.log` and `ui.log`.
+- `/var/log/packages/Backupd.log` for every lifecycle operation.
+- `/var/packages/Backupd/var/log/engine.log` and `ui.log`.
 - The `ls -ln` output from steps 1.7 and 2.8, and the `ps` line showing
   the daemons' uid.
 - Step 3 run from both an HTTP and an HTTPS DSM session, recorded
@@ -382,7 +438,8 @@ This is the destructive-safety step. Read it fully before starting.
   uninstall result, retained-backup safety, evidence location.
 
 Store the evidence with the issue this procedure is executed for. Do not
-store any credential, token, key or the enrollment token alongside it.
+store any credential, token, key, SMTP password or the enrollment token
+alongside it.
 
 ## Accept / reject
 

@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spdrman/rclone-manager/core/internal/archive"
-	"github.com/spdrman/rclone-manager/core/internal/config"
-	"github.com/spdrman/rclone-manager/core/internal/model"
-	"github.com/spdrman/rclone-manager/core/internal/placement"
-	"github.com/spdrman/rclone-manager/core/internal/state"
-	"github.com/spdrman/rclone-manager/core/internal/transport"
-	"github.com/spdrman/rclone-manager/core/tests/machines"
+	"github.com/retnd/retnd/core/internal/archive"
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/placement"
+	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
+	"github.com/retnd/retnd/core/tests/machines"
 )
 
 // This file is the honest half of #242's archive question, and it is
@@ -215,7 +215,7 @@ func TestAnArchiveClassCopyCannotSatisfyTheStandingInvariant(t *testing.T) {
 		State:    "COMPLETE",
 		Placements: []state.Placement{{
 			Medium:            mediumDeepFreeze,
-			Location:          "rclone-manager/production/postgres-primary/2024-06-15T02-00-00Z.dump",
+			Location:          "retnd/production/postgres-primary/2024-06-15T02-00-00Z.dump",
 			Status:            state.PlacementActive,
 			VerificationClass: state.VerificationExistence,
 		}},

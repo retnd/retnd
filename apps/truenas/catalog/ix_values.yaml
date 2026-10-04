@@ -2,19 +2,19 @@
 # fails the build if a question has no default here, or if this file
 # declares a value no question asks for.
 image:
-  reference: "ghcr.io/spdrman/backup-manager:0.4.0"
+  reference: "ghcr.io/retnd/retnd:0.5.0"
 
 storage:
   state:
-    hostPath: "/mnt/tank/backup-manager/state"
+    hostPath: "/mnt/tank/retnd/state"
   backups:
-    hostPath: "/mnt/tank/backup-manager/backups"
+    hostPath: "/mnt/tank/retnd/backups"
   configDir:
-    hostPath: "/mnt/tank/backup-manager/config"
+    hostPath: "/mnt/tank/retnd/config"
   sshKey:
-    hostPath: "/mnt/tank/backup-manager/secrets/id_ed25519"
+    hostPath: "/mnt/tank/retnd/secrets/id_ed25519"
   knownHosts:
-    hostPath: "/mnt/tank/backup-manager/secrets/known_hosts"
+    hostPath: "/mnt/tank/retnd/secrets/known_hosts"
 
 network:
   webPort: 8080

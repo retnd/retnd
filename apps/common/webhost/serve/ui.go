@@ -1,15 +1,20 @@
 package serve
 
 import (
+	"errors"
+	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/spdrman/rclone-manager/apps/common/auth/local"
-	"github.com/spdrman/rclone-manager/apps/common/platform/profile"
+	"github.com/retnd/retnd/apps/common/auth/local"
+	"github.com/retnd/retnd/apps/common/platform/profile"
+	"github.com/retnd/retnd/apps/common/webhost"
 )
 
 // The UI half of the two-container split: the only process with a
@@ -43,7 +48,7 @@ import (
 type UIConfig struct {
 	// Upstream is the engine's own base URL as reachable from the UI
 	// host - e.g. over an internal Docker network
-	// (http://rclone-manager:8080, the compose service name resolved
+	// (http://retnd:8080, the compose service name resolved
 	// through Docker's embedded DNS), never a published host port.
 	Upstream *url.URL
 
@@ -79,6 +84,21 @@ type UIConfig struct {
 	// use a short timeout instead of waiting out a multi-second one for
 	// real.
 	ProxyResponseHeaderTimeout time.Duration
+
+	// Logger is where this hop's own failures go (issue #730). Nil means
+	// the same stdout JSON default NewRouter uses, so a host that wired
+	// none still gets the one line that says the browser's request died
+	// HERE rather than at the engine — the distinction the reported
+	// symptom ("TypeError: Failed to fetch" in the browser, a clean 401
+	// from curl) cannot be made from the browser's side at all.
+	Logger webhost.Logger
+
+	// Debug turns on the per-request upstream trace below regardless of
+	// the environment. It only exists so a test can assert the trace
+	// without setting process-wide environment; a deployment turns it on
+	// with RETND_DEBUG=1 (or the deprecated RM_DEBUG=1) or
+	// LOG_LEVEL=debug, which webhost.DebugEnabled reads.
+	Debug bool
 }
 
 // # Which hop owns the strip
@@ -124,6 +144,39 @@ type UIConfig struct {
 // request).
 const defaultProxyResponseHeaderTimeout = 5 * time.Second
 
+// ProxyErrorHeader names the one fact only this container can state: the
+// refusal a browser is holding was written HERE, because the engine
+// behind this proxy could not be reached, and nothing in it came from the
+// service (#795).
+//
+// It exists because the frontend was inferring that from the status code,
+// and a status code cannot carry it. A bodyless 502 is what this proxy
+// writes when the engine is gone, and it is also what a service can
+// legitimately answer with a typed envelope of its own - so a client
+// reading topology out of "502" either misattributes the service's own
+// 502 to this hop or misses this hop's. One header, set at the one place
+// that knows, and the client stops guessing (api/failure.ts reads it).
+//
+// Response-only, and deleted from any upstream response by ModifyResponse
+// below: a marker that an upstream could set would be a marker that says
+// nothing.
+//
+// The rename to retnd (EPIC R, #885) is a HARD CUT here, with no alias
+// under the old name (FR-37). The producer is this file and the only
+// consumer is the bundle this same container serves
+// (ui/shared/src/api/transport.ts's PROXY_ERROR_HEADER): they ship in one
+// image and cannot be at different versions, so there is no deployment
+// in which one half reads a name the other half stopped writing.
+const (
+	ProxyErrorHeader = "X-Retnd-Proxy-Error"
+
+	// The one value, and the only one this proxy can honestly report:
+	// ErrorHandler fires when no response was produced at all, which for
+	// this topology means the engine was not reachable (or did not send
+	// headers within ProxyResponseHeaderTimeout).
+	ProxyErrorUpstreamUnreachable = "upstream-unreachable"
+)
+
 // NewUI composes cfg into the UI-host container's whole HTTP surface: the
 // shared static UI, plus a reverse proxy forwarding /health/* and
 // /api/v1/* to the engine unchanged (same path, same method, same body) -
@@ -163,6 +216,12 @@ func NewUI(cfg UIConfig) http.Handler {
 		timeout = defaultProxyResponseHeaderTimeout
 	}
 
+	logger := cfg.Logger
+	if logger == nil {
+		logger = webhost.NewStdoutLogger()
+	}
+	debug := cfg.Debug || webhost.DebugEnabled()
+
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.ResponseHeaderTimeout = timeout
 
@@ -179,8 +238,70 @@ func NewUI(cfg UIConfig) http.Handler {
 			// second place for the two to disagree about which peers
 			// are trusted.
 			pr.SetXForwarded()
+			// Issue #730. The engine logs every request under the id the
+			// edge minted (webhost.RequestScope), so forwarding it here
+			// is what makes the two containers of one deployment produce
+			// lines that can be joined: without it the proxy's record of
+			// a request and the engine's record of the same request name
+			// two different ids and an operator has to guess.
+			//
+			// The clock the ErrorHandler below reports from starts in
+			// that same middleware, which is why nothing here stashes a
+			// start time anymore: the context value it would have
+			// allocated per request - on a path that is overwhelmingly
+			// successful - is one the correlation id already pays for.
+			if id := webhost.CorrelationIDFrom(pr.In.Context()); id != "" {
+				pr.Out.Header.Set(webhost.CorrelationHeader, id)
+			}
 		},
-		Transport: transport,
+		Transport: &debugTransport{base: transport, logger: logger, debug: debug},
+		// Issue #730: a UGREEN deployment where the browser gets
+		// "TypeError: Failed to fetch" — no HTTP response at all — for
+		// /api/v1/activity while curl to the same route answers 401.
+		// Every way this proxy can fail to produce a response looks
+		// exactly like that from JavaScript, and before this there was
+		// no ErrorHandler, so net/http's default wrote a bare 502 to
+		// its own logger and this process said nothing.
+		//
+		// This one ALWAYS logs, at Warn, whatever the log level: a
+		// failure to answer the browser at all is not a debug-only
+		// event, and an operator who has to turn a knob on before the
+		// fault is recorded has already lost the occurrence that
+		// prompted them. It fires for an unreachable engine and for
+		// ResponseHeaderTimeout (above); a failure while streaming a
+		// body the upstream already started never reaches here, by
+		// httputil's design, since the status line is long gone.
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			attrs := []slog.Attr{
+				slog.String("method", r.Method),
+				slog.String("path", r.URL.Path),
+				slog.String("correlation_id", webhost.CorrelationIDFrom(r.Context())),
+				slog.String("client_attempt_id", webhost.ClientAttemptIDOf(r)),
+				slog.String("error", err.Error()),
+			}
+			// Appended only when the clock actually ran. Reporting zero
+			// for "nobody timed this" would claim an instant failure for
+			// exactly the request whose duration is the interesting part
+			// - "the engine refused instantly" and "we sat on
+			// ResponseHeaderTimeout for five seconds" are the two
+			// answers this line exists to tell apart.
+			if elapsed, ok := webhost.RequestElapsed(r.Context()); ok {
+				attrs = append(attrs, slog.Int64("elapsed_ms", elapsed.Milliseconds()))
+			}
+			logger.Event(r.Context(), slog.LevelWarn, "proxy_error", "reverse proxy could not answer", attrs...)
+			// The status net/http's own default ErrorHandler writes,
+			// unchanged: this exists to record the failure, not to
+			// change what a client sees.
+			//
+			// The marker beside it is the one thing that DOES change,
+			// and it is additive (#795's review): the browser holding
+			// this response can now be told, rather than having to
+			// infer from a status code, that nothing in it came from
+			// the service. Set BEFORE WriteHeader, which is the only
+			// place it can be set at all.
+			w.Header().Set(ProxyErrorHeader, ProxyErrorUpstreamUnreachable)
+			w.WriteHeader(http.StatusBadGateway)
+		},
 		// The engine sets the same browser response headers this
 		// container does, so without this an /api/v1 response would carry
 		// each of them twice once ReverseProxy has ADDED the upstream's
@@ -192,6 +313,22 @@ func NewUI(cfg UIConfig) http.Handler {
 			for _, h := range []string{"X-Frame-Options", "X-Content-Type-Options", "Referrer-Policy", "Content-Security-Policy"} {
 				res.Header.Del(h)
 			}
+			// Same rule, same reason, for the correlation id: this
+			// container already set it (webhost.RequestScope, below) and
+			// the engine echoed the value it was forwarded, so keeping
+			// the upstream's copy would mean two identical
+			// X-Correlation-Id headers on one response - ReverseProxy
+			// ADDS the upstream's headers to the ones already set here.
+			// One authority for what the browser is told.
+			res.Header.Del(webhost.CorrelationHeader)
+			// And the marker, which is the sharpest case of the same
+			// rule: it means "this refusal was written by the proxy in
+			// front of the service", so an upstream that set it would
+			// be making a claim about a hop it is not on. Only the
+			// ErrorHandler above may ever put this on a response, and
+			// a response that reached ModifyResponse came from the
+			// engine by definition.
+			res.Header.Del(ProxyErrorHeader)
 			return nil
 		},
 	}
@@ -207,13 +344,174 @@ func NewUI(cfg UIConfig) http.Handler {
 	// from just anyone hitting its published port the way the engine (on
 	// the OTHER side of this exact proxy) is allowed to trust headers
 	// THIS proxy itself sets.
-	// StripUntrustedIdentity is outermost, so the identity header is gone
-	// from r.Header before the proxy's Rewrite ever copies headers into
-	// the outbound request. It runs per request, so a pipelined follow-on
-	// is scrubbed exactly like the request in front of it.
-	return StripUntrustedIdentity(cfg.Gateway)(
-		SecurityHeaders(
-			local.EnsureCSRFCookie(false)(mux)))
+	// StripUntrustedIdentity runs before the proxy, so the identity
+	// header is gone from r.Header before the proxy's Rewrite ever
+	// copies headers into the outbound request. It runs per request, so
+	// a pipelined follow-on is scrubbed exactly like the request in
+	// front of it.
+	//
+	// webhost.RequestScope is outside it, and is the only thing that
+	// legitimately sits there: it mints this request's correlation id
+	// and starts its clock (issue #730), which every layer below then
+	// reads - the proxy's forwarded header, the ErrorHandler's
+	// elapsed_ms, the upstream trace - and which the response carries
+	// back whether the request was proxied, served from the static
+	// bundle, or refused. It touches no header the strip cares about.
+	return webhost.RequestScope(
+		StripUntrustedIdentity(cfg.Gateway)(
+			SecurityHeaders(
+				local.EnsureCSRFCookie(false)(mux))))
+}
+
+// debugTransport is the second half of issue #730's instrumentation: the
+// per-request record of what the engine actually answered, which is the
+// only place a response the BROWSER rejected can still be described.
+// Content-Encoding and Transfer-Encoding are in the attribute list for
+// exactly that reason — a body whose declared encoding does not match
+// its bytes, or a length that disagrees with what is sent, is refused by
+// the browser's HTTP stack before any of it reaches fetch(), producing
+// precisely the reported "TypeError: Failed to fetch" against a route
+// curl reads without complaint.
+//
+// It emits TWO events per traced request, and the split is the point.
+// proxy_upstream_headers is the status line and the framing the engine
+// DECLARED; proxy_upstream_complete is what the body turned out to be
+// once it had all been copied to the browser. A header-phase line on its
+// own cannot see the failure #730 looks like from JavaScript at all: a
+// Content-Length of 4 kB followed by 900 bytes and a dropped connection
+// produces a perfectly ordinary-looking first line, a browser that
+// refuses the response outright, and — before the completion event — no
+// record anywhere in this process that anything went wrong.
+//
+// Off by default and free when off: with debug false this is one
+// interface call straight through to the cloned *http.Transport, with no
+// clock read, no attribute slice built and no wrapper around the body.
+type debugTransport struct {
+	base   http.RoundTripper
+	logger webhost.Logger
+	debug  bool
+}
+
+func (d *debugTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if !d.debug {
+		return d.base.RoundTrip(req)
+	}
+
+	start := time.Now()
+	res, err := d.base.RoundTrip(req)
+	elapsed := time.Since(start).Milliseconds()
+
+	// Both events name them, so a trace of one request can be picked out
+	// of a log interleaving several, and so the proxy's two lines and
+	// the engine's own line for the same request all join up.
+	ids := []slog.Attr{
+		slog.String("correlation_id", webhost.CorrelationIDFrom(req.Context())),
+		slog.String("client_attempt_id", webhost.ClientAttemptIDOf(req)),
+	}
+
+	if err != nil {
+		// The ErrorHandler logs this one too, from one layer out. Two
+		// lines for one failure is the right trade for a diagnostic
+		// build: this one is the only place that can say the failure
+		// was in the transport rather than in ModifyResponse.
+		d.logger.Event(req.Context(), slog.LevelWarn, "proxy_error", "upstream round trip failed",
+			append(ids,
+				slog.String("method", req.Method),
+				slog.String("path", req.URL.Path),
+				slog.Int64("elapsed_ms", elapsed),
+				slog.String("error", err.Error()))...)
+		return res, err
+	}
+
+	d.logger.Event(req.Context(), slog.LevelDebug, "proxy_upstream_headers", "upstream response headers received",
+		append(ids,
+			slog.String("method", req.Method),
+			slog.String("path", req.URL.Path),
+			slog.Int("status", res.StatusCode),
+			slog.Int64("content_length", res.ContentLength),
+			slog.String("content_encoding", res.Header.Get("Content-Encoding")),
+			slog.String("transfer_encoding", strings.Join(res.TransferEncoding, ",")),
+			slog.Int64("elapsed_ms", elapsed))...)
+
+	if res.Body != nil {
+		ctx, method, path := req.Context(), req.Method, req.URL.Path
+		declared := res.ContentLength
+		res.Body = &observedBody{ReadCloser: res.Body, report: func(o *observedBody) {
+			level := slog.LevelDebug
+			// A body that ended in a read error, or short of what it
+			// declared, is the reported fault itself rather than a
+			// diagnostic detail - so it is reported at Warn even though
+			// only a debug deployment gets this far.
+			if o.readErr != "" || (declared >= 0 && o.read != declared) {
+				level = slog.LevelWarn
+			}
+			d.logger.Event(ctx, level, "proxy_upstream_complete", "upstream response body finished",
+				append(ids,
+					slog.String("method", method),
+					slog.String("path", path),
+					slog.Int64("content_length", declared),
+					slog.Int64("bytes_read", o.read),
+					slog.Bool("eof", o.eof),
+					slog.String("read_error", o.readErr),
+					slog.String("close_error", o.closeErr),
+					slog.Int64("elapsed_ms", time.Since(start).Milliseconds()))...)
+		}}
+	}
+	return res, nil
+}
+
+// observedBody is a transparent ReadCloser around the upstream body: it
+// changes nothing about what the browser receives, and counts what went
+// past.
+//
+// Transparency is the whole requirement. It buffers nothing (a copy of
+// every proxied body is a memory cost proportional to what a deployment
+// transfers), it alters no byte and no error, and it holds the reported
+// facts rather than deciding what they mean - which is why report takes
+// the observer itself instead of a widening argument list.
+//
+// Reported exactly once, from Close. httputil.ReverseProxy closes the
+// body it was given on every path it can take, including the ones where
+// copying to the client failed part way, so Close is the one moment that
+// exists for both a clean transfer and a truncated one. The sync.Once is
+// not decoration: a Close called twice must not double-report and make
+// one request look like two.
+type observedBody struct {
+	io.ReadCloser
+
+	read     int64
+	eof      bool
+	readErr  string
+	closeErr string
+
+	once   sync.Once
+	report func(*observedBody)
+}
+
+func (o *observedBody) Read(p []byte) (int, error) {
+	n, err := o.ReadCloser.Read(p)
+	o.read += int64(n)
+	switch {
+	case err == nil:
+	case errors.Is(err, io.EOF):
+		o.eof = true
+	default:
+		// First error only: an exhausted reader keeps returning the same
+		// one, and the first is the one that describes what happened.
+		if o.readErr == "" {
+			o.readErr = err.Error()
+		}
+	}
+	return n, err
+}
+
+func (o *observedBody) Close() error {
+	err := o.ReadCloser.Close()
+	if err != nil {
+		o.closeErr = err.Error()
+	}
+	o.once.Do(func() { o.report(o) })
+	return err
 }
 
 // staticHandler serves fsys, falling back to index.html for any path

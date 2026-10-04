@@ -1,5 +1,5 @@
 /**
- * The one BackupManagerApi implementation that talks to a running
+ * The one RetndApi implementation that talks to a running
  * service, and the wire-to-domain translation that lets everything above
  * it forget a wire exists.
  *
@@ -30,7 +30,12 @@
  * service saying something this build has never heard of should draw
  * nothing, not draw the wrong thing confidently.
  */
-import { BackupManagerError, RequestFailure, toApiErrorCode } from "./contracts";
+// Issue #730's diagnostics, opt-in and silent unless an operator turns
+// them on, and #795's shared transport: the attempt header, the two
+// non-refusal failure labels and the envelope-and-provenance reader that
+// platform/localSession.ts reads the session with as well.
+import { debugLog, isDebugEnabled } from "./debug";
+import { apiErrorFromResponse, nameAttempt, noResponse, refusal, unreadableBody } from "./transport";
 // The wire shapes below are GENERATED from api/v1/openapi.json, not
 // declared here. Before issue #166 this file carried its own hand-written
 // copy of every snake_case response body, transcribed from the Go
@@ -80,22 +85,54 @@ import type {
   WireStorageMediumUsageResponse,
   WireOperation,
   WirePlacement,
+  WireRecoverySettingsResponse,
+  WireRecoverySettingsUpdate,
   WireRetentionOverride,
   WireRetentionPlan,
   WireRetentionSettings,
+  WireListRepositoriesResponse,
+  WireListSnapshotHoldsResponse,
+  WireListSnapshotsResponse,
+  WireRepositoryHealth,
+  WireRepositoryMaintenance,
+  WireSnapshot,
+  WireSnapshotHold,
+  WireSnapshotResponse,
+  WireSnapshotRetentionResponse,
+  WireSnapshotRetentionVerdict,
+  WireSnapshotTransition,
   WireSSHKey,
   WireTestConnectionResponse,
   WireRetentionTier,
   WireRunningWork,
   WireSettingsResponse,
+  WireSmtpSettings,
   WireUpdateCapacitySettings,
+  WireUpdateWorkflowSettingsRequest,
+  WireUpdateBackupSetWorkflowRequest,
+  WireBackupSetWorkflowResponse,
+  WireListWorkflowEnvironmentResponse,
+  WireListWorkflowRunsResponse,
+  WireListWorkflowStepsResponse,
+  WireWorkflowEnvironmentVariable,
+  WireWorkflowEnvironmentVariableRequest,
+  WireWorkflowFinding,
+  WireWorkflowRecoveryResponse,
+  WireWorkflowRun,
+  WireWorkflowScriptLint,
+  WireWorkflowSettingsResponse,
+  WireWorkflowSourceExcerpt,
+  WireWorkflowStage,
+  WireWorkflowStep,
+  WireWorkflowStepLogPage,
+  WireWorkflowValidatedScript,
+  WireWorkflowValidationResponse,
   WireVersionResponse
 } from "./generated/contract";
 import type {
-  ApiError,
   AppSettings,
   BackendManifest,
-  BackupManagerApi,
+  RetndApi,
   BackupSetRetention,
   BackupSetPatch,
   CapacitySettings,
@@ -109,13 +146,39 @@ import type {
   CreatedBackupSet,
   ManagerStorage,
   MediumPreflight,
+  RecoverySettings,
+  RecoverySettingsUpdate,
   RetentionOverride,
   RetentionSettings,
   RetentionTierSetting,
   RunningWork,
   SSHKeyImportResult,
   SSHKeyListing,
-  UpdateSettingsRequest
+  SmtpSettingsInput,
+  SnapshotOperationResult,
+  UpdateSettingsRequest,
+  BackupSetWorkflow,
+  BackupSetWorkflowPatch,
+  WorkflowEnvironment,
+  WorkflowEnvVariable,
+  WorkflowEnvVariableInput,
+  WorkflowFinding,
+  WorkflowPhase,
+  WorkflowRun,
+  WorkflowRunState,
+  WorkflowScope,
+  WorkflowScriptLint,
+  WorkflowSettings,
+  WorkflowSettingsPatch,
+  WorkflowSourceExcerpt,
+  WorkflowSourceLine,
+  WorkflowStage,
+  WorkflowStatus,
+  WorkflowStepLogPage,
+  WorkflowStepState,
+  WorkflowStepSummary,
+  WorkflowValidatedScript,
+  WorkflowValidation
 } from "./contracts";
 import type {
   ArtifactRetentionPolicy,
@@ -128,6 +191,23 @@ import type {
   RetentionPlan,
   RetentionVerdictAction
 } from "@shared/types/backup";
+import type {
+  BackupEngine,
+  RepositoryFleet,
+  RepositoryHealth,
+  RepositoryMaintenance,
+  RepositoryState,
+  Snapshot,
+  SnapshotDetail,
+  SnapshotHold,
+  SnapshotRetentionAction,
+  SnapshotRetentionPreview,
+  SnapshotRetentionVerdict,
+  SnapshotTransition,
+  SnapshotVerificationStatus,
+  SourceConsistency,
+  VerificationLevel
+} from "@shared/types/snapshot";
 import type {
   ActivityEvent,
   ActivityEventType,
@@ -150,12 +230,16 @@ function readCookie(name: string): string {
 
 /**
  * apps/common/auth/local's double-submit CSRF cookie (backend doc:
- * apps/common/auth/local/csrf.go). Every response this service sends —
- * including the very first page load — carries a bm_csrf cookie; a
+ * apps/common/csrf/csrf.go). Every response this service sends —
+ * including the very first page load — carries a retnd_csrf cookie; a
  * state-changing request has to echo its value back as this header, or
  * the backend refuses it with 403 CSRF_TOKEN_MISMATCH.
+ * CSRF_LEGACY_COOKIE_NAMES contains the remaining read-compatibility name.
+ * The backend carries its token forward under the current name on the next
+ * response, while an already-loaded client can still echo the value it found.
  */
-const CSRF_COOKIE_NAME = "bm_csrf";
+const CSRF_COOKIE_NAME = "retnd_csrf";
+const CSRF_LEGACY_COOKIE_NAMES = ["bm_csrf"];
 const CSRF_HEADER_NAME = "X-CSRF-Token";
 
 /**
@@ -165,7 +249,7 @@ const CSRF_HEADER_NAME = "X-CSRF-Token";
  * no form field for it in EnrollmentPage.tsx — the design canvas
  * (docs/design/Backup Manager.dc.html) doesn't show one either — so it
  * travels as a URL query parameter instead, read here rather than
- * plumbed through BackupManagerApi.enrollAdministrator's own signature.
+ * plumbed through RetndApi.enrollAdministrator's own signature.
  */
 const BOOTSTRAP_TOKEN_HEADER = "X-Bootstrap-Token";
 
@@ -184,6 +268,21 @@ export function bootstrapTokenFromLocation(): string | null {
   return token === null || token === "" ? null : token;
 }
 
+/**
+ * The attempt header, the two non-refusal failure labels and the
+ * envelope-and-provenance reader all live in api/transport.ts now
+ * (#795's review): `/auth/session` is read by platform/localSession.ts
+ * rather than through `request()` — a 401 there is an answer, not a
+ * refusal — and it was doing all four of those things in its own second
+ * copy, minus the diagnostics. One implementation, two call sites, and
+ * the policy stays where it belongs at each of them.
+ *
+ * The fetch itself deliberately does NOT move: the CSRF, bootstrap-token
+ * and idempotency rules are this file's, and
+ * scripts/api/check-client-paths.sh requires the single `fetch()` here to
+ * read `fetch(BASE + path` literally so it can prove which URLs this
+ * bundle is able to request.
+ */
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     "content-type": "application/json",
@@ -195,7 +294,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // very first response has had a chance to set the cookie at all.
   const method = (init?.method ?? "GET").toUpperCase();
   if (method !== "GET" && method !== "HEAD") {
-    const csrf = readCookie(CSRF_COOKIE_NAME);
+    const csrf =
+      readCookie(CSRF_COOKIE_NAME) || CSRF_LEGACY_COOKIE_NAMES.map(readCookie).find(Boolean) || "";
     if (csrf) headers[CSRF_HEADER_NAME] = csrf;
   }
 
@@ -204,13 +304,40 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     if (bootstrapToken) headers[BOOTSTRAP_TOKEN_HEADER] = bootstrapToken;
   }
 
+  // Issue #730's review, in api/transport.ts: the one identifier that
+  // still exists for a request that gets NO response at all. There is no
+  // response to carry a correlation id back on, so the browser names the
+  // attempt itself and the server writes that name down (webhost's
+  // requestscope.go reads the header, bounded and validated).
+  const attemptId = nameAttempt(headers);
+
   // Issue #598. Everything from here down is the one place that can tell
   // this API's three failures apart, so it is the one place that labels
   // them. A `fetch` that rejects and a 2xx body that will not parse used
   // to escape as whatever the browser threw, and the callers above could
   // then only say something generic about them.
   let res: Response;
+  // Issue #730. The URL asked for and how long the attempt lasted are
+  // knowable only here, and a rejected `fetch` carries neither.
+  //
+  // The toggle is read ONCE per request rather than at each of the four
+  // lines below, and everything those lines need - the joined URL, the
+  // clock, the detail objects - is built only when it is on. This
+  // function is on the path of every API call this bundle makes, so a
+  // detail object built unconditionally is one built on every request of
+  // every deployment that never asked for a diagnostic.
+  const debug = isDebugEnabled();
+  const startedAt = debug ? performance.now() : 0;
+  if (debug) debugLog("request.start", { method, url: BASE + path, attemptId });
   try {
+    // `BASE + path` spelled out again here rather than passing `url`:
+    // scripts/api/check-client-paths.sh reduces every path expression in
+    // this file statically and then REFUSES to trust its own result
+    // unless the single fetch() in it literally reads `fetch(BASE +
+    // path`, because a fetch given anything else could be requesting a
+    // URL the gate never saw. `url` above reads identically at runtime
+    // and still failed that check, which is how #730's diagnostics
+    // commit turned a CI step red.
     res = await fetch(BASE + path, {
       credentials: "same-origin",
       ...init,
@@ -226,68 +353,41 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // deliberately does NOT claim nothing was changed: a request that got
     // no reply may still have been carried out with only the response
     // lost.
-    throw new RequestFailure({ kind: "no-response", path, cause });
+    //
+    // This is #730's exact site: one deployment's Activity page reaches
+    // here with `TypeError: Failed to fetch` while curl to the same route
+    // answers 401. The typed failure is all an operator sees; the debug
+    // line inside `noResponse` is everything the browser knew and could
+    // not put in it, and it is written only when diagnostics were asked
+    // for.
+    throw noResponse({
+      path,
+      url: BASE + path,
+      method,
+      attemptId,
+      cause,
+      startedAt: debug ? startedAt : undefined
+    });
   }
 
   if (!res.ok) {
-    // The service always returns a typed error envelope, but not always
-    // the SAME shape: apps/common/auth/local's own routes (login, enroll,
-    // password rotation, logout) answer flat — { code, message,
-    // correlationId } all at the top level (see client.test.ts's own
-    // ApiErrorCode coverage test for that package's exact vocabulary) —
-    // while apps/common/webhost's routes (issue #146's backup-sets/
-    // ssh-keys/ssh endpoints, and every future one built the same way)
-    // nest code/message under an "error" key and carry the correlation
-    // id only in the X-Correlation-Id response header, never the body
-    // (see that package's errors.go). Both are read here, rather than
-    // this file picking one shape and getting the other's errors back
-    // as silently-undefined fields.
-    let api: ApiError;
-    try {
-      const body = (await res.json()) as Record<string, unknown>;
-      const headerCorrelationId = res.headers.get("x-correlation-id") ?? undefined;
-      const nested = body.error;
-      if (nested && typeof nested === "object") {
-        const err = nested as Record<string, unknown>;
-        api = {
-          code: toApiErrorCode(err.code),
-          message: err.message as string,
-          correlationId: headerCorrelationId
-        };
-      } else {
-        api = {
-          code: toApiErrorCode(body.code),
-          message: body.message as string,
-          correlationId: (body.correlationId as string) ?? headerCorrelationId
-        };
-      }
-    } catch {
-      api = {
-        code: "unknown",
-        message: "The backup service returned an unexpected response.",
-        correlationId: res.headers.get("x-correlation-id") ?? undefined
-      };
-    }
-    throw new BackupManagerError(api);
+    // Both envelope shapes, the correlation id, the status and the
+    // PROVENANCE, read in api/transport.ts because the session reader
+    // needs exactly the same four facts off exactly the same kind of
+    // response (#795's review). The fallback sentence stays here: it is
+    // the one part that is about this call site, and it is the wording an
+    // operator sees for a refusal with nothing readable in it at all.
+    throw refusal(
+      await apiErrorFromResponse(res, "The backup service returned an unexpected response."),
+      { path, attemptId }
+    );
   }
 
   if (res.status === 204) return undefined as T;
   try {
     return (await res.json()) as T;
   } catch (cause) {
-    // The response arrived and this build could not read it. The status
-    // and the content type are what separate a proxy's HTML error page
-    // from a body that was cut off mid-transfer, and the correlation id is
-    // read here on the SUCCESS path as well as on a refusal (#598) so a
-    // body that fails to parse can still name the response it came from.
-    throw new RequestFailure({
-      kind: "unreadable-body",
-      path,
-      status: res.status,
-      contentType: res.headers.get("content-type") ?? undefined,
-      correlationId: res.headers.get("x-correlation-id") ?? undefined,
-      cause
-    });
+    throw unreadableBody({ path, res, attemptId, cause });
   }
 }
 
@@ -383,7 +483,24 @@ function wireBackupSetSpec(req: CreateBackupSetRequest): WireBackupSetSpec {
     stable_for_seconds: req.stableForSeconds,
     stale_after_seconds: req.staleAfterSeconds,
     disabled: req.disabled,
-    read_only: req.readOnly
+    read_only: req.readOnly,
+    // EPIC K (issue #788). `engine` travels on EVERY create: the wizard
+    // asks the question outright and sends the answer, including the
+    // artifact one, because a set's engine is the choice that cannot be
+    // undone and a request that left it to a server default would be
+    // relying on the default matching what the operator was shown.
+    //
+    // The four incremental settings are the other case, and `undefined`
+    // there is the honest shape: a repository domain on an artifact set
+    // is a field the service must either refuse or ignore, and the
+    // wizard does not collect one.
+    engine: req.engine,
+    repository_domain: req.repositoryDomain,
+    source_consistency: req.sourceConsistency,
+    verification_level: req.verificationLevel,
+    verification_sample_percent: req.verificationSamplePercent,
+    verification_full_every_seconds: req.verificationFullEverySeconds,
+    verification_restore_drill_every_seconds: req.verificationRestoreDrillEverySeconds
   };
 }
 
@@ -504,6 +621,9 @@ const COMPLETION_STRATEGY_TO_METHOD: Record<string, CompletionMethod> = {
  */
 function fromWireBackupSet(bs: WireBackupSet, health?: WireBackupSetHealth): BackupSet {
   const haltReason = health ? HALT_REASON[health.halt_reason ?? ""] : undefined;
+  // Read once, because two fields below depend on it: the engine, and
+  // whether there is an incremental block at all.
+  const engine: BackupEngine = bs.engine === "kopia" ? "kopia" : "artifact";
   return {
     id: bs.id,
     // BackupSet.source/BackupSet.set are model.BackupSetID's own two
@@ -534,6 +654,14 @@ function fromWireBackupSet(bs: WireBackupSet, health?: WireBackupSetHealth): Bac
     // (getBackupSetRetention) on the one page that can render a whole
     // chain.
     retentionIsOverride: bs.retention_is_override,
+    // Issue #845. The override is nullable on the wire and stays
+    // nullable here: null is "this set inherits", which the edit form
+    // has to draw differently from a set that happens to poll at the
+    // deployment's own interval. The effective number is read rather
+    // than derived, because the deployment default is not on this
+    // response and guessing it is what this pair exists to prevent.
+    pollIntervalSeconds: bs.poll_interval_seconds ?? null,
+    effectivePollIntervalSeconds: bs.effective_poll_interval_seconds,
     validations: [],
     state: health ? HEALTH_STATE[health.state] ?? "degraded" : "stale",
     stateNote: health
@@ -596,7 +724,30 @@ function fromWireBackupSet(bs: WireBackupSet, health?: WireBackupSetHealth): Bac
     // the `?? ""` covers a server that predates the field. Both arrive
     // here as "", and the render site says so rather than showing a blank
     // where an id goes.
-    sshKeyId: bs.ssh_key_id ?? ""
+    sshKeyId: bs.ssh_key_id ?? "",
+
+    // EPIC K (issue #788). `engine` is a required enum on the wire, so
+    // the fallback covers only a response from an engine that predates
+    // the field, where "artifact" is what every set actually was.
+    engine,
+    // One block, present only for the incremental engine. Keyed on the
+    // ENGINE rather than on whether any of the six fields arrived: a
+    // deployment that has not recorded a consistency mode yet still runs
+    // an incremental set, and deriving presence from the values would
+    // report that set as an artifact one.
+    incremental:
+      engine === "kopia"
+        ? {
+            repositoryDomain: bs.repository_domain || null,
+            sourceConsistency: consistencyOf(bs.source_consistency),
+            verificationLevel: verificationLevelOf(bs.verification_level),
+            verificationSamplePercent: counter(bs.verification_sample_percent),
+            verificationFullEverySeconds: counter(bs.verification_full_every_seconds),
+            verificationRestoreDrillEverySeconds: counter(
+              bs.verification_restore_drill_every_seconds
+            )
+          }
+        : null
   };
 }
 
@@ -650,6 +801,11 @@ function fromWireConnectionTestOutcome(r: WireTestConnectionResponse): Connectio
   return {
     ok: r.ok,
     ...(r.message ? { message: r.message } : {}),
+    // `?? false` rather than `r.writable`: an engine that predates issue
+    // #852 sends no field at all, and the safe reading of "nobody
+    // proved this source can be written to" is that the
+    // delete-from-source control stays unavailable.
+    writable: r.writable ?? false,
     checks: (r.checks ?? []).map((c) => ({
       step: c.step,
       outcome: c.outcome,
@@ -859,6 +1015,11 @@ function fromWireBackendManifest(m: WireBackendManifest): BackendManifest {
     label: m.label,
     summary: m.summary,
     role: m.role,
+    // `?? true` for the compatibility rule the contract states: a build
+    // too old to send this field has no unconfigurable backend to warn
+    // about, so silence means the ordinary answer rather than a
+    // catalogue this client refuses to offer anything from.
+    configurable: m.configurable ?? true,
     fields: (m.fields ?? []).map((f) => ({
       id: f.id,
       label: f.label,
@@ -999,6 +1160,7 @@ function fromWireSettingsResponse(body: WireSettingsResponse): AppSettings {
       protectLastKnownGood: body.retention.protect_last_known_good
     },
     capacity: fromWireCapacitySettings(body.capacity),
+    service: { pollIntervalSeconds: body.service.poll_interval_seconds },
     mediums: (body.mediums ?? []).map(fromWireStorageMedium),
     schema: {
       storage: {
@@ -1013,6 +1175,7 @@ function fromWireSettingsResponse(body: WireSettingsResponse): AppSettings {
         mediumDisclosure: body.schema.storage.medium_disclosure,
         retrievalDisclosure: body.schema.storage.retrieval_disclosure
       },
+      service: { minPollIntervalSeconds: body.schema.service.min_poll_interval_seconds },
       retention: {
         granularities: body.schema.retention.granularities,
         windowUnits: body.schema.retention.window_units,
@@ -1090,6 +1253,17 @@ function wireUpdateSettings(req: UpdateSettingsRequest) {
     body.capacity = capacity;
   }
 
+  if (req.service) {
+    const service: Record<string, unknown> = {};
+    // `!== undefined`, never truthiness: on this field zero is the
+    // request that clears an override, and dropping it would silently
+    // turn "inherit again" into "leave it alone".
+    if (req.service.pollIntervalSeconds !== undefined) {
+      service.poll_interval_seconds = req.service.pollIntervalSeconds;
+    }
+    body.service = service;
+  }
+
   // Sent only when it is true. It is a consent, not a setting, and a
   // literal `false` on every write would read as an operator repeatedly
   // declining something nobody asked them.
@@ -1110,6 +1284,213 @@ function laterOf(a: string | null, b: string | null): string | null {
   if (!a) return b;
   if (!b) return a;
   return Date.parse(a) >= Date.parse(b) ? a : b;
+}
+
+/**
+ * EPIC K's mappers (issue #788), and the one rule all of them follow:
+ * absence survives.
+ *
+ * Every counter on a snapshot is a nullable number on the wire, and
+ * `?? null` rather than `?? 0` is the whole point — see Snapshot's own
+ * doc (types/snapshot.ts). The temptation is real because five of the
+ * seven are byte counts and a zero renders perfectly well; what a zero
+ * renders is a LIE about a run nobody measured, and for
+ * content_reused_bytes it is the specific lie EPIC K's five figures exist
+ * to prevent.
+ *
+ * `?? null` is not the same as `|| null` here, deliberately: a genuine
+ * zero is a measurement (a run over an empty tree read no bytes) and must
+ * pass through as 0, which `||` would flatten into "not measured".
+ */
+const counter = (value: number | null | undefined): number | null => value ?? null;
+
+/** The wire's verification vocabulary, narrowed. Four levels and nothing
+ *  else; anything unrecognised (an engine newer than this build) becomes
+ *  null, which every surface draws as "not reported" rather than as a
+ *  confident level nobody proved. */
+const VERIFICATION_LEVELS: readonly string[] = [
+  "structural",
+  "content_sample",
+  "content_full",
+  "restore_drill"
+];
+
+function verificationLevelOf(value: string | undefined): VerificationLevel | null {
+  return value && VERIFICATION_LEVELS.includes(value) ? (value as VerificationLevel) : null;
+}
+
+const CONSISTENCY_MODES: readonly string[] = [
+  "live_best_effort",
+  "externally_quiesced",
+  "external_snapshot"
+];
+
+function consistencyOf(value: string | undefined): SourceConsistency | null {
+  return value && CONSISTENCY_MODES.includes(value) ? (value as SourceConsistency) : null;
+}
+
+/** "", "pending", "passed" or "failed" on the wire
+ *  (core/internal/state/snapshots.go). The first two are the same fact
+ *  for a reader — nothing has checked this snapshot — and collapsing them
+ *  onto one word is what keeps a surface from having to draw a fourth
+ *  state that means the same as the third. Anything unrecognised is
+ *  "unchecked" rather than "passed": a status this build cannot read is
+ *  not evidence of a pass. */
+function verificationStatusOf(value: string | undefined): SnapshotVerificationStatus {
+  return value === "passed" || value === "failed" ? value : "unchecked";
+}
+
+function fromWireSnapshotHold(h: WireSnapshotHold): SnapshotHold {
+  return {
+    holdId: h.hold_id,
+    runId: h.run_id,
+    backupSetId: h.backup_set_id,
+    reason: h.reason,
+    placedAt: h.placed_at,
+    placedBy: h.placed_by,
+    releasedAt: stampOrNull(h.released_at),
+    releasedBy: h.released_by ?? null,
+    active: h.active
+  };
+}
+
+/**
+ * One snapshot run.
+ *
+ * `snapshot_id` is omitted for a run whose manifest was never committed,
+ * so it arrives here as null and the surfaces say "no manifest" rather
+ * than drawing an empty monospace box. `repository_domain` is the same
+ * shape for a different reason: an artifact set has no domain at all.
+ */
+function fromWireSnapshot(s: WireSnapshot): Snapshot {
+  return {
+    runId: s.run_id,
+    backupSetId: s.backup_set_id,
+    snapshotId: s.snapshot_id || null,
+    operationId: s.operation_id || null,
+    engine: s.engine,
+    phase: s.phase,
+    repositoryDomain: s.repository_domain || null,
+    consistencyMode: consistencyOf(s.consistency_mode),
+    verificationLevel: verificationLevelOf(s.verification_level),
+    // Read, never inferred from the status: ADR 0014's achieved level is
+    // absent on a failure, and inventing "the level it was asked for"
+    // here would put a proof claim on a run that proved nothing.
+    verificationLevelAchieved: verificationLevelOf(s.verification_level_achieved),
+    verificationStatus: verificationStatusOf(s.verification_status),
+    entriesScanned: counter(s.entries_scanned),
+    files: counter(s.files),
+    directories: counter(s.directories),
+    logicalBytes: counter(s.logical_bytes),
+    sourceBytesRead: counter(s.source_bytes_read),
+    repositoryBytesWritten: counter(s.repository_bytes_written),
+    contentReusedBytes: counter(s.content_reused_bytes),
+    sourceComplete: s.source_complete ?? null,
+    lastKnownGood: s.last_known_good,
+    reason: s.reason ?? "",
+    startedAt: s.started_at,
+    completedAt: stampOrNull(s.completed_at),
+    durationSeconds: counter(s.duration_seconds),
+    deleteRequestedAt: stampOrNull(s.delete_requested_at),
+    holds: (s.holds ?? []).map(fromWireSnapshotHold)
+  };
+}
+
+function fromWireSnapshotDetail(r: WireSnapshotResponse): SnapshotDetail {
+  return {
+    snapshot: fromWireSnapshot(r.snapshot),
+    // The log is a plain field rename, so it is spelled here rather than
+    // in a mapper of its own: `from` is omitted for the first edge of a
+    // run's life (nothing precedes PENDING), and "" would read as a
+    // phase.
+    transitions: (r.transitions ?? []).map((t: WireSnapshotTransition): SnapshotTransition => ({
+      from: t.from || null,
+      to: t.to,
+      at: t.at,
+      detail: t.detail ?? ""
+    }))
+  };
+}
+
+/** KEEP, DELETE or REFUSE, and nothing else. An action this build does
+ *  not know becomes REFUSE rather than DELETE: of the three, REFUSE is
+ *  the one that says "somebody should look at this", which is exactly
+ *  right for a verdict a client cannot classify. */
+function retentionActionOf(value: string): SnapshotRetentionAction {
+  return value === "KEEP" || value === "DELETE" ? value : "REFUSE";
+}
+
+function fromWireSnapshotVerdict(v: WireSnapshotRetentionVerdict): SnapshotRetentionVerdict {
+  return {
+    runId: v.run_id,
+    snapshotId: v.snapshot_id || null,
+    action: retentionActionOf(v.action),
+    startedAt: v.started_at,
+    // selected_by stays absent rather than becoming "": last-known-good
+    // protection selects a snapshot with no placement to name, and
+    // RetentionTierBadges draws a tier with no selector bare instead of
+    // appending an empty parenthesis.
+    tiers: (v.tiers ?? []).map((t) => ({ tier: t.tier, selectedBy: t.selected_by || null })),
+    holds: (v.holds ?? []).map(fromWireSnapshotHold),
+    reason: v.reason,
+    holdReason: v.hold_reason || null
+  };
+}
+
+/** HEALTHY, DEGRADED or FAILING — the same three words a backup set's
+ *  health uses. An unrecognised state reports as DEGRADED rather than
+ *  HEALTHY: a verdict this build cannot read is not a clean bill. */
+function repositoryStateOf(value: string): RepositoryState {
+  return value === "HEALTHY" || value === "FAILING" ? value : "DEGRADED";
+}
+
+function fromWireRepositoryHealth(r: WireRepositoryHealth): RepositoryHealth {
+  return {
+    domain: r.domain,
+    mayShare: r.may_share,
+    state: repositoryStateOf(r.state),
+    reachable: r.reachable,
+    readable: r.readable,
+    writable: r.writable,
+    credentialsValid: r.credentials_valid,
+    clockSane: r.clock_sane,
+    // Signed and nullable, and `?? null` for the same reason every
+    // snapshot counter uses it: a skew of exactly 0 is a measurement of a
+    // perfectly synchronised clock, and "nobody measured" must not read
+    // as that.
+    clockSkewSeconds: r.clock_skew_seconds ?? null,
+    maintenanceOverdue: r.maintenance_overdue,
+    lastMaintenanceAt: stampOrNull(r.last_maintenance_at),
+    lastMaintenanceResult: r.last_maintenance_result ?? "",
+    lastSnapshotAt: stampOrNull(r.last_snapshot_at),
+    lastSnapshotStatus: r.last_snapshot_status ?? "",
+    lastVerificationAt: stampOrNull(r.last_verification_at),
+    lastVerificationStatus: r.last_verification_status ?? "",
+    backupSets: r.backup_sets ?? [],
+    detail: r.detail ?? ""
+  };
+}
+
+function fromWireRepositoryMaintenance(m: WireRepositoryMaintenance): RepositoryMaintenance {
+  return {
+    domain: m.domain,
+    // "" is a real answer and the surfaces render it as "nobody has
+    // claimed maintenance for this domain", which is a different
+    // situation from "another instance owns it" and has a different
+    // remedy.
+    owner: m.owner,
+    lastQuickAt: stampOrNull(m.last_quick_at),
+    lastFullAt: stampOrNull(m.last_full_at),
+    nextEligibleAt: stampOrNull(m.next_eligible_at),
+    due: m.due,
+    dueMode: m.due_mode ?? "",
+    dueReason: m.due_reason ?? "",
+    overdue: m.overdue,
+    runs: m.runs,
+    failures: m.failures,
+    reclaimedBytes: m.reclaimed_bytes,
+    failing: m.failing
+  };
 }
 
 function fromWireVersion(body: WireVersionResponse): VersionInfo {
@@ -1188,8 +1569,6 @@ function fromWireHealth(body: WireHealthResponse, now: number): SystemHealth {
   let lastCompleted: string | null = null;
   let quarantined = 0;
   let readOnlyRetained = 0;
-  let freeBytes = 0;
-  let totalBytes = 0;
   let unavailable = 0;
   let worstStorage = 0; // index into STORAGE_ORDER
   let oldestFreshnessHours: number | null = 0;
@@ -1201,12 +1580,13 @@ function fromWireHealth(body: WireHealthResponse, now: number): SystemHealth {
     quarantined += set.quarantined_count + set.quarantined_lost_count;
     readOnlyRetained += set.read_only_retained_count;
 
-    if (set.free_bytes_known) {
-      freeBytes += set.free_bytes ?? 0;
-      totalBytes += set.total_bytes ?? 0;
-    } else {
-      unavailable += 1;
-    }
+    // Counted, never summed (issue #842): a set's free_bytes describes
+    // the VOLUME its destination sits on, and nothing on the wire says
+    // which volume that is, so two sets under one mount report one
+    // reading twice. Adding them up produced "21.6 TB free" on a 13.9 TB
+    // disk. The deduped figure is GET /api/v1/system/storage's, which
+    // measures each volume once.
+    if (!set.free_bytes_known) unavailable += 1;
     worstStorage = Math.max(worstStorage, STORAGE_ORDER.indexOf(set.storage_level ?? "OK"));
 
     if (oldestFreshnessHours !== null) {
@@ -1238,8 +1618,6 @@ function fromWireHealth(body: WireHealthResponse, now: number): SystemHealth {
     setsFailing: counts.failing,
     quarantinedCount: quarantined,
     readOnlyRetainedCount: readOnlyRetained,
-    storageFreeBytes: freeBytes,
-    storageTotalBytes: totalBytes,
     storageState: STORAGE_STATE[STORAGE_ORDER[worstStorage]],
     storageReadingsUnavailable: unavailable
   };
@@ -1446,8 +1824,8 @@ type ActivityCaption = { type: ActivityEventType; severity: Severity; text: stri
  * is a true statement about a record that really is broken.
  *
  * The captions and severities are agreed verbatim with
- * core/cmd/backup-manager/activity.go's own table, which derives the
- * same severity for `rbm activity --severity`; "ok" and "info" are the
+ * core/cmd/retnd/activity.go's own table, which derives the
+ * same severity for `retnd activity --severity`; "ok" and "info" are the
  * one rank there, as they are to anyone filtering here. Issue #625 was
  * the last time those two drifted apart.
  *
@@ -1642,6 +2020,26 @@ function fromWireOperation(op: WireOperation): Operation {
 }
 
 /**
+ * What EPIC K's four actions answer with (issue #788).
+ *
+ * Both halves of the response, because both are read. The operation is
+ * the durable record a restore or a verify is then WATCHED by; the
+ * `snapshots` array is what a hold or a release actually changed, and a
+ * dialog closing onto it shows the new truth rather than the result of a
+ * re-read that may not have landed yet.
+ *
+ * Absent snapshots become [] rather than an error: a submission the
+ * service accepted is a success even on a build whose response carries
+ * no snapshot echo, and the caller's own re-read covers it.
+ */
+function fromWireSnapshotOperation(op: WireOperation): SnapshotOperationResult {
+  return {
+    operation: fromWireOperation(op),
+    snapshots: (op.snapshots ?? []).map(fromWireSnapshot)
+  };
+}
+
+/**
  * Maps one live reading.
  *
  * Every optional field passes through as-is, undefined included: the
@@ -1747,6 +2145,10 @@ function wireBackupSetPatch(patch: BackupSetPatch): Record<string, unknown> {
   put("completion_strategy", patch.completionMethod && COMPLETION_METHOD_TO_STRATEGY[patch.completionMethod]);
   put("stable_for_seconds", patch.stableForSeconds);
   put("stale_after_seconds", patch.staleAfterSeconds);
+  // Issue #845. `put` drops only `undefined`, which is exactly right
+  // here: an explicit 0 is the request that returns this set to the
+  // deployment's own cadence, and it has to reach the wire as a 0.
+  put("poll_interval_seconds", patch.pollIntervalSeconds);
   put("ssh_key_id", patch.sshKeyId);
   put("known_hosts_line", patch.knownHostsLine);
   // Both sent only when the caller actually set them, like every key
@@ -1754,6 +2156,21 @@ function wireBackupSetPatch(patch: BackupSetPatch): Record<string, unknown> {
   // a pre-granted re-trust.
   put("acknowledge_repoint", patch.acknowledgeRepoint);
   put("acknowledge_host_key_change", patch.acknowledgeHostKeyChange);
+  // EPIC K's four editable incremental settings (issue #788). `put`
+  // drops undefined, which is what keeps a per-box Save from clearing
+  // the boxes it was not about; an explicit 0 on either cadence is a
+  // real request ("never raise the level on a schedule") and reaches the
+  // wire as a 0.
+  //
+  // There is deliberately no engine and no repository_domain here.
+  // UpdateBackupSetRequest declares neither, because a set's history
+  // belongs to its engine and lives in the domain it was written to, and
+  // sending either would be asking for a refusal.
+  put("source_consistency", patch.sourceConsistency);
+  put("verification_level", patch.verificationLevel);
+  put("verification_sample_percent", patch.verificationSamplePercent);
+  put("verification_full_every_seconds", patch.verificationFullEverySeconds);
+  put("verification_restore_drill_every_seconds", patch.verificationRestoreDrillEverySeconds);
   return body;
 }
 
@@ -1853,6 +2270,498 @@ const quarantinedArtifactPath = (id: string) =>
 const retentionPath = (source: string, set: string) => backupSetPath(source, set) + "/retention";
 
 /**
+ * Issue #830's three mappings, and the one rule all of them exist for:
+ * an SMTP password travels in exactly one direction.
+ *
+ * `wireSmtpSettings` DROPS an empty password rather than sending `""`.
+ * Those are not the same request. An absent field means "keep the stored
+ * one", which is what lets somebody who does not have the provider's API
+ * key in front of them correct a port or a from-address; an empty string
+ * is a password, and would ask the server to authenticate with nothing.
+ * The enrolment call goes through the same helper even though nothing is
+ * stored yet, because the server's own validation rejects an endpoint
+ * with no password the same way either way, and one helper is one place
+ * for this rule to be right.
+ */
+function wireSmtpSettings(smtp: SmtpSettingsInput): WireSmtpSettings {
+  const body: WireSmtpSettings = {
+    host: smtp.host,
+    port: smtp.port,
+    security: smtp.security,
+    username: smtp.username,
+    from: smtp.from
+  };
+  if (smtp.password !== "") body.password = smtp.password;
+  return body;
+}
+
+/** A PATCH body carrying the re-authentication and only the halves the
+ *  caller actually named. Spreading the update straight through would
+ *  turn "I did not touch the address" into `recoveryEmail: undefined`,
+ *  which JSON.stringify drops silently today and would carry as null the
+ *  moment anything in front of it started serialising differently.
+ *
+ *  `currentPassword` is unconditional: the service refuses the whole
+ *  request without it (RecoverySettingsUpdate's own doc has the
+ *  escalation it closes), so omitting it here would only turn a missing
+ *  field into a 401 nobody could explain. */
+function wireRecoverySettingsUpdate(update: RecoverySettingsUpdate): WireRecoverySettingsUpdate {
+  const body: WireRecoverySettingsUpdate = { currentPassword: update.currentPassword };
+  if (update.recoveryEmail !== undefined) body.recoveryEmail = update.recoveryEmail;
+  if (update.smtp !== undefined) body.smtp = wireSmtpSettings(update.smtp);
+  return body;
+}
+
+/** The read, whose two interesting fields are the absences. `smtp` is
+ *  omitted for an administrator provisioned headlessly, and
+ *  `verificationDeadline` for an account that cannot lapse. Both are
+ *  normalised HERE - to null and to "" - so every surface tests one
+ *  thing for each instead of each inventing its own handling of an
+ *  optional member. */
+function fromWireRecoverySettings(r: WireRecoverySettingsResponse): RecoverySettings {
+  return {
+    recoveryEmail: r.recoveryEmail,
+    recoveryEmailConfirmed: r.recoveryEmailConfirmed,
+    // Issue #830 §§8-9. Two fields, one question each, and the banner
+    // needs both: whether the link has been OPENED, and by when it has
+    // to be.
+    recoveryEmailVerified: r.recoveryEmailVerified,
+    verificationDeadline: r.verificationDeadline ?? "",
+    smtp: r.smtp
+      ? {
+          host: r.smtp.host,
+          port: r.smtp.port,
+          security: r.smtp.security,
+          username: r.smtp.username,
+          from: r.smtp.from,
+          passwordSet: r.smtp.passwordSet
+        }
+      : null
+  };
+}
+
+/**
+ * EPIC L's mappers (issue #814), and the three rules all of them keep.
+ *
+ * A CLOSED union is narrowed and never cast. Every one of these fields is
+ * optional on the wire, and a state this build does not recognise is
+ * mapped to the value that says "somebody should look at this" rather
+ * than to a confident verdict: an unknown step state becomes
+ * "interrupted", an unknown run state becomes "interrupted", an unknown
+ * status becomes "unknown". A service newer than this build must not be
+ * able to make a screen claim success.
+ *
+ * A MISSING number stays missing. `exitCode` is `number | null` and
+ * `durationMs` is optional, because 0 is a real exit code and 0ms is a
+ * real duration: normalising an absent field to zero would turn "this
+ * never ran" into "this succeeded instantly", which is the one pair of
+ * facts a workflow surface must never confuse.
+ *
+ * A SECRET is a location. `fromWireEnvVariable` copies the reference
+ * field by field rather than spreading the wire object, so a field added
+ * to the generated type cannot arrive here unreviewed — a resolved value
+ * would have to be given a name in this function by somebody.
+ */
+
+const STEP_STATES: readonly string[] = [
+  "pending",
+  "running",
+  "success",
+  "failed",
+  "timed_out",
+  "canceled",
+  "skipped",
+  "interrupted"
+];
+
+const RUN_ONLY_STATES: readonly string[] = [
+  "recovery_required",
+  "cleanup_running",
+  "cleanup_failed",
+  "recovered"
+];
+
+function stepStateOf(value: string | undefined): WorkflowStepState {
+  return value && STEP_STATES.includes(value) ? (value as WorkflowStepState) : "interrupted";
+}
+
+function runStateOf(value: string | undefined): WorkflowRunState {
+  if (value && RUN_ONLY_STATES.includes(value)) return value as WorkflowRunState;
+  return stepStateOf(value);
+}
+
+/** "unknown" is a real value on this wire and is also the fallback, which
+ *  is the one place those two coincide honestly: a verdict this build
+ *  cannot read is a verdict nobody should draw as success or failure. */
+function workflowStatusOf(value: string | undefined): WorkflowStatus {
+  return value === "running" || value === "success" || value === "failed" || value === "skipped"
+    ? value
+    : "unknown";
+}
+
+const phaseOf = (value: string | undefined): WorkflowPhase => (value === "after" ? "after" : "before");
+const scopeOf = (value: string | undefined): WorkflowScope => (value === "global" ? "global" : "set");
+
+/**
+ * One step.
+ *
+ * `remoteHost` is derived and not read: the wire carries no host field,
+ * only the execution connection's reference, and a step's host is a
+ * property of that connection's configuration. So it is set only when the
+ * reference itself names one — a `user@host`-shaped reference — and left
+ * undefined otherwise, which every surface draws as the connection
+ * reference rather than as a hostname nobody reported.
+ */
+function fromWireWorkflowStep(s: WireWorkflowStep): WorkflowStepSummary {
+  const connection = s.execution_connection_ref || undefined;
+  const target = s.target === "remote" ? "remote" : "local";
+  return {
+    stepId: s.step_id ?? "",
+    scriptName: s.script_name ?? "",
+    phase: phaseOf(s.phase),
+    scope: scopeOf(s.scope),
+    order: s.order ?? 0,
+    target,
+    executionConnectionRef: connection,
+    remoteHost: target === "remote" ? hostOfConnectionRef(connection) : undefined,
+    state: stepStateOf(s.state),
+    // `?? null` and never `?? 0`: exit code 0 is a success and an absent
+    // one is a step that produced no code at all, which is what a
+    // signalled step whose channel closed looks like.
+    exitCode: s.exit_code ?? null,
+    durationMs: s.duration_ms,
+    startedAt: s.started_at || undefined,
+    finishedAt: s.finished_at || undefined,
+    timeoutMs: s.timeout_ms,
+    terminationConfirmed: s.termination_confirmed
+  };
+}
+
+/** The host half of a `user@host` execution connection reference, or
+ *  undefined for a reference that is an opaque name — which most are. A
+ *  guess dressed as a report is worse than the reference itself. */
+function hostOfConnectionRef(ref: string | undefined): string | undefined {
+  if (!ref) return undefined;
+  const at = ref.indexOf("@");
+  const host = at >= 0 ? ref.slice(at + 1) : "";
+  return host.includes(".") ? host : undefined;
+}
+
+function fromWireWorkflowRun(r: WireWorkflowRun): WorkflowRun {
+  return {
+    runId: r.run_id ?? "",
+    backupSetId: r.backup_set_id ?? "",
+    state: runStateOf(r.state),
+    backupStatus: workflowStatusOf(r.backup_status),
+    workflowStatus: workflowStatusOf(r.workflow_status),
+    cleanupStatus: workflowStatusOf(r.cleanup_status),
+    // Narrowed inline, and "none" is the fallback rather than a
+    // guess: a recovery state this build cannot read must not draw a
+    // hold that may not exist, and a hold that does exist is reported
+    // by workflowRecovery() as well, which is what the gate reads.
+    recoveryState:
+      r.recovery_state === "required" ||
+      r.recovery_state === "in_progress" ||
+      r.recovery_state === "resolved"
+        ? r.recovery_state
+        : "none",
+    bypassed: r.bypassed === true,
+    startedAt: stampOrNull(r.started_at),
+    finishedAt: stampOrNull(r.finished_at),
+    // null and not 0 for a run still going: a running run has no
+    // duration, and "0ms" beside a spinner is a number nobody measured.
+    durationMs: r.duration_ms ?? null,
+    scriptCount: r.script_count ?? 0,
+    failedStep: r.failed_step || undefined,
+    failedScript: r.failed_script || undefined,
+    steps: (r.steps ?? []).map(fromWireWorkflowStep)
+  };
+}
+
+function fromWireWorkflowStepLogPage(p: WireWorkflowStepLogPage): WorkflowStepLogPage {
+  return {
+    records: (p.records ?? []).map((rec) => ({
+      seq: rec.seq ?? 0,
+      stream: rec.stream === "stderr" ? "stderr" : "stdout",
+      at: rec.at ?? "",
+      text: rec.text ?? "",
+      kind: rec.kind
+    })),
+    cursor: p.cursor ?? 0,
+    // Both default FALSE, and that direction matters: a follower that
+    // read `complete` as true from a missing field would stop following a
+    // live step, and one that read `truncated` as true would print a
+    // "output was dropped" marker over a complete log.
+    complete: p.complete === true,
+    truncated: p.truncated === true
+  };
+}
+
+/** One environment entry. The secret is rebuilt field by field — see this
+ *  block's doc — and is left undefined when the wire carried no location
+ *  at all, so a plain literal does not acquire an empty reference. */
+function fromWireEnvVariable(v: WireWorkflowEnvironmentVariable): WorkflowEnvVariable {
+  const secret =
+    v.secret && (v.secret.file || v.secret.env || (v.secret.command ?? []).length > 0)
+      ? {
+          file: v.secret.file || undefined,
+          env: v.secret.env || undefined,
+          command: v.secret.command && v.secret.command.length > 0 ? [...v.secret.command] : undefined
+        }
+      : undefined;
+  return {
+    name: v.name ?? "",
+    // `value` is carried through EXACTLY, including "": an empty literal
+    // is a deliberately empty variable and `|| undefined` would turn it
+    // into a variable with no literal at all, which is a different
+    // configuration.
+    value: v.value,
+    hasValue: v.has_value === true,
+    secret
+  };
+}
+
+function fromWireEnvironment(r: WireListWorkflowEnvironmentResponse): WorkflowEnvironment {
+  return {
+    backupSetId: r.backup_set_id ?? "",
+    variables: (r.variables ?? []).map(fromWireEnvVariable)
+  };
+}
+
+/** The write direction. A caller that named neither a literal nor a
+ *  reference sends neither, which the service reads as "an empty
+ *  variable"; a caller that named both is refused server-side as the
+ *  contradiction it is, and this function does not paper over it. */
+function toWireEnvVariable(entry: WorkflowEnvVariableInput): WireWorkflowEnvironmentVariableRequest {
+  const body: WireWorkflowEnvironmentVariableRequest = {};
+  if (entry.value !== undefined) body.value = entry.value;
+  if (entry.secret) {
+    body.secret = {
+      file: entry.secret.file,
+      env: entry.secret.env,
+      command: entry.secret.command
+    };
+  }
+  return body;
+}
+
+function fromWireStage(s: WireWorkflowStage): WorkflowStage {
+  return { scope: scopeOf(s.scope), phase: phaseOf(s.phase), dir: s.dir ?? "" };
+}
+
+function fromWireWorkflowSettings(s: WireWorkflowSettingsResponse): WorkflowSettings {
+  return {
+    configured: s.configured === true,
+    root: s.root ?? "",
+    beforeDir: s.before_dir ?? "",
+    afterDir: s.after_dir ?? "",
+    scriptTimeoutSeconds: s.script_timeout_seconds ?? 0,
+    scriptTimeoutConfigured: s.script_timeout_configured === true,
+    maxScriptSizeBytes: s.max_script_size_bytes ?? 0,
+    environment: (s.environment ?? []).map(fromWireEnvVariable),
+    execConnections: [...(s.exec_connections ?? [])],
+    // Never null: a settings screen has to be able to say "the Host
+    // Workflow Runner is not answering", and an absent block is exactly
+    // that answer rather than a missing card.
+    runner: {
+      configured: s.runner?.configured === true,
+      socket: s.runner?.socket ?? "",
+      tokenFile: s.runner?.token_file ?? ""
+    }
+  };
+}
+
+function fromWireBackupSetWorkflow(s: WireBackupSetWorkflowResponse): BackupSetWorkflow {
+  return {
+    backupSetId: s.backup_set_id ?? "",
+    configured: s.configured === true,
+    beforeDir: s.before_dir ?? "",
+    afterDir: s.after_dir ?? "",
+    // Undefined rather than 0 when this set pins nothing: 0 would be
+    // rendered as a pinned bound of no seconds, and the whole point of
+    // reporting both halves is telling a pinned set from one that
+    // follows the deployment's value.
+    scriptTimeoutSeconds: s.script_timeout_seconds,
+    effectiveScriptTimeoutSeconds: s.effective_script_timeout_seconds ?? 0,
+    remoteExecConnectionRef: s.remote_exec_connection_ref ?? "",
+    environment: (s.environment ?? []).map(fromWireEnvVariable),
+    resolvedEnvironmentNames: [...(s.resolved_environment_names ?? [])],
+    stages: (s.stages ?? []).map(fromWireStage)
+  };
+}
+
+/** One finding. An unrecognised severity becomes "warning" rather than
+ *  "ok": a check whose verdict this build cannot read has not passed. */
+function fromWireFinding(f: WireWorkflowFinding): WorkflowFinding {
+  const severity =
+    f.severity === "ok" || f.severity === "skipped" || f.severity === "error" ? f.severity : "warning";
+  return {
+    check: f.check ?? "",
+    severity,
+    detail: f.detail ?? "",
+    phase: f.phase || undefined,
+    scope: f.scope || undefined,
+    script: f.script || undefined,
+    target: f.target || undefined
+  };
+}
+
+/**
+ * One source excerpt (#906), read the way every other field on this path
+ * is read: defensively, and never throwing.
+ *
+ * An excerpt is decoration on a finding an operator has already been
+ * shown. So the failure to avoid here is not a missing excerpt, which
+ * costs a few lines of context, but an exception raised while decoding
+ * one — that would turn a readable findings panel into "this page could
+ * not read the answer" over a field nothing depends on. Hence: a missing
+ * or non-object excerpt is an empty one, a `lines` that is not an array
+ * is an empty one, and an entry inside it that is not an object is
+ * dropped.
+ *
+ * A line whose number is not a positive integer is dropped rather than
+ * drawn with a 0 in the gutter, for the same reason the parse-error
+ * position below drops a zero: line 0 is not a place in a file, and a
+ * gutter claiming it is would put the caret-matching below onto a line
+ * that does not exist.
+ */
+function fromWireExcerpt(excerpt: WireWorkflowSourceExcerpt | undefined): WorkflowSourceExcerpt {
+  const raw = excerpt?.lines;
+  if (!Array.isArray(raw)) return { lines: [] };
+  const lines: WorkflowSourceLine[] = [];
+  for (const entry of raw) {
+    if (entry === null || typeof entry !== "object") continue;
+    const number = entry.number;
+    if (typeof number !== "number" || !Number.isFinite(number) || number <= 0) continue;
+    lines.push({ number, text: entry.text ?? "", truncated: entry.truncated === true });
+  }
+  return { lines };
+}
+
+/**
+ * One script's shell-verification result (#906).
+ *
+ * Every default here is the conservative direction, and each one is a
+ * claim this build must not make on a field it did not receive:
+ *
+ *   - `examined` and `parsed` default FALSE. An absent `examined` reads
+ *     as "nothing looked at this", which renders as "not examined" with
+ *     no reason rather than as a pass; an absent `parsed` reads as "this
+ *     build was not told it parses".
+ *   - the findings default to an EMPTY list, which is honest because the
+ *     list is only ever drawn beside the two booleans above: an
+ *     unexamined script with no findings renders as unexamined, not as
+ *     clean.
+ *   - a severity this build cannot read becomes "warning", exactly as
+ *     fromWireFinding does it and for the same reason — a finding whose
+ *     severity is unreadable has not been established as a mere note.
+ *     It deliberately does not become "error": an error is what refuses
+ *     a save, and inventing one would tell an operator their
+ *     configuration cannot be written when the service would write it.
+ *   - a position of 0 is dropped to undefined. Zero is not a place in a
+ *     file, and "line 0, column 0" is a link no editor can follow.
+ */
+function fromWireScriptLint(lint: WireWorkflowScriptLint | undefined): WorkflowScriptLint {
+  return {
+    examined: lint?.examined === true,
+    notExaminedReason: lint?.not_examined_reason || undefined,
+    parsed: lint?.parsed === true,
+    parseError: lint?.parse_error || undefined,
+    parseErrorLine: lint?.parse_error_line || undefined,
+    parseErrorCol: lint?.parse_error_col || undefined,
+    parseErrorExcerpt: fromWireExcerpt(lint?.parse_error_excerpt),
+    findings: (lint?.findings ?? []).map((f) => ({
+      code: f.code ?? "",
+      severity:
+        f.severity === "error" || f.severity === "info" || f.severity === "style"
+          ? f.severity
+          : "warning",
+      line: f.line ?? 0,
+      col: f.col ?? 0,
+      message: f.message ?? "",
+      excerpt: fromWireExcerpt(f.excerpt)
+    }))
+  };
+}
+
+function fromWireValidatedScript(s: WireWorkflowValidatedScript): WorkflowValidatedScript {
+  return {
+    stepId: s.step_id ?? "",
+    scriptName: s.script_name ?? "",
+    phase: phaseOf(s.phase),
+    scope: scopeOf(s.scope),
+    order: s.order ?? 0,
+    target: s.target === "remote" ? "remote" : "local",
+    executionConnectionRef: s.execution_connection_ref || undefined,
+    sha256: s.sha256 ?? "",
+    sizeBytes: s.size_bytes ?? 0,
+    timeoutMs: s.timeout_ms ?? 0,
+    lint: fromWireScriptLint(s.lint)
+  };
+}
+
+function fromWireValidation(v: WireWorkflowValidationResponse): WorkflowValidation {
+  return {
+    backupSetId: v.backup_set_id ?? "",
+    configured: v.configured === true,
+    root: v.root ?? "",
+    stages: (v.stages ?? []).map(fromWireStage),
+    scripts: (v.scripts ?? []).map(fromWireValidatedScript),
+    findings: (v.findings ?? []).map(fromWireFinding),
+    // Both default FALSE. A verdict this build did not receive is not a
+    // pass, and the two are kept apart for the reason the response keeps
+    // them apart: a set can be valid for backup and invalid for
+    // workflows, which is the ordinary state during setup.
+    validForBackup: v.valid_for_backup === true,
+    workflowValid: v.workflow_valid === true
+  };
+}
+
+/** A PATCH body carrying only the fields a caller named. An absent key is
+ *  "leave this alone" and an empty string is "clear this" — and clearing
+ *  a stage directory DISABLES that stage, so the two must not be
+ *  collapsed here. */
+function wireWorkflowSettingsPatch(patch: WorkflowSettingsPatch): WireUpdateWorkflowSettingsRequest {
+  const body: WireUpdateWorkflowSettingsRequest = {};
+  if (patch.root !== undefined) body.root = patch.root;
+  if (patch.beforeDir !== undefined) body.before_dir = patch.beforeDir;
+  if (patch.afterDir !== undefined) body.after_dir = patch.afterDir;
+  if (patch.scriptTimeoutSeconds !== undefined) body.script_timeout_seconds = patch.scriptTimeoutSeconds;
+  if (patch.maxScriptSizeBytes !== undefined) body.max_script_size_bytes = patch.maxScriptSizeBytes;
+  return body;
+}
+
+function wireBackupSetWorkflowPatch(patch: BackupSetWorkflowPatch): WireUpdateBackupSetWorkflowRequest {
+  const body: WireUpdateBackupSetWorkflowRequest = {};
+  if (patch.beforeDir !== undefined) body.before_dir = patch.beforeDir;
+  if (patch.afterDir !== undefined) body.after_dir = patch.afterDir;
+  if (patch.scriptTimeoutSeconds !== undefined) body.script_timeout_seconds = patch.scriptTimeoutSeconds;
+  if (patch.remoteExecConnectionRef !== undefined) {
+    body.remote_exec_connection_ref = patch.remoteExecConnectionRef;
+  }
+  return body;
+}
+
+/**
+ * How long a log follower asks the service to hold for new output.
+ *
+ * The service's own ceiling (core/service/workflowinspect.go's
+ * workflowLogWaitCeiling), because it clamps DOWN and never up: asking
+ * for less is asking for a faster poll and nothing else.
+ */
+const WORKFLOW_LOG_WAIT_SECONDS = 5;
+
+/** /workflow-runs/{run}, and the two paths under it. The run id is
+ *  opaque and single-segment (the engine mints it), so one encode is the
+ *  whole of it — unlike a backup set id, which is composite. */
+const workflowRunPath = (runId: string) => "/workflow-runs/" + encodeURIComponent(runId);
+
+const workflowRecoveryPath = (runId: string) => "/workflow-recovery/" + encodeURIComponent(runId);
+
+/** /backup-sets/{source}/{set}/workflow, and its three sub-paths. */
+const setWorkflowPath = (source: string, set: string) => backupSetPath(source, set) + "/workflow";
+
+/**
  * The contract, implemented against a running service.
  *
  * Every method is one request and one mapping, and the object is flat on
@@ -1861,7 +2770,7 @@ const retentionPath = (source: string, set: string) => backupSetPath(source, set
  * that has a reason carries it at the method rather than in a shared
  * helper that would hide the differences.
  */
-export const httpApi: BackupManagerApi = {
+export const httpApi: RetndApi = {
   getVersion: () => request<WireVersionResponse>("/system/version").then(fromWireVersion),
   // GET /system/health, NOT /health/ready. The two answer different
   // questions and only one of them is this one: /health/live and
@@ -1919,7 +2828,7 @@ export const httpApi: BackupManagerApi = {
   // revision-checked long work is started, and the durable row has always
   // had a backup set id column that run_cycle correctly leaves empty.
   //
-  // The engine half is not new either. `rbm fetch
+  // The engine half is not new either. `retnd fetch
   // --backup-set` has called internal/app.Service.Fetch since FR-1; what
   // was missing was a way to reach it in the SERVING process, so the work
   // takes the engine's single-flight lock and shows up in its feeds
@@ -2094,8 +3003,26 @@ export const httpApi: BackupManagerApi = {
 
   listOperations: () =>
     request<WireListOperationsResponse>("/operations").then((r) => r.operations.map(fromWireOperation)),
-  listActivity: () =>
-    request<WireListActivityResponse>("/activity").then((r) => r.events.map(fromWireActivityEvent)),
+  // Bounded by construction: a caller that names no limit still gets the
+  // service's default rather than the whole record, and the cursor it
+  // hands back is how the next page is asked for.
+  //
+  // Same always-present "?" and per-parameter trailing separator as
+  // getLiveActivity below, for the reason spelled out there: it is what
+  // keeps every branch of this expression a path whose query begins in
+  // the same place.
+  listActivity: (query) =>
+    request<WireListActivityResponse>(
+      "/activity?" +
+        (query?.limit ? "limit=" + query.limit + "&" : "") +
+        (query?.before ? "before=" + encodeURIComponent(query.before) : "")
+    ).then((r) => ({
+      events: r.events.map(fromWireActivityEvent),
+      // Absent stays absent: a client tests for the key to decide
+      // whether there is a page behind this one, and an empty string
+      // would answer that question wrongly in every truthy check.
+      ...(r.next_cursor ? { nextCursor: r.next_cursor } : {})
+    })),
   // Every parameter is optional and each one is appended with its own
   // trailing separator after a "?" that is always present. That is not
   // fussiness: it means every branch of this expression builds a path
@@ -2164,6 +3091,155 @@ export const httpApi: BackupManagerApi = {
     request<WireBackupSetRetention>(retentionPath(source, set), { method: "DELETE" }).then(
       fromWireBackupSetRetention
     ),
+
+  // EPIC K's reads (issue #788). Every one is a plain authenticated GET
+  // and every one is a sub-resource of something that already exists on
+  // this contract, which is the shape the epic requires: no /kopia
+  // namespace, and no raw vendor passthrough anywhere.
+  listSnapshots: (source, set) =>
+    request<WireListSnapshotsResponse>(backupSetPath(source, set) + "/snapshots").then((r) =>
+      (r.snapshots ?? []).map(fromWireSnapshot)
+    ),
+  // The run id is one segment and is encoded as one. It is never built
+  // by joining anything: a run id is opaque, and the route takes it
+  // whole.
+  getSnapshot: (source, set, runId) =>
+    request<WireSnapshotResponse>(
+      backupSetPath(source, set) + "/snapshots/" + encodeURIComponent(runId)
+    ).then(fromWireSnapshotDetail),
+  listSnapshotHolds: (source, set) =>
+    request<WireListSnapshotHoldsResponse>(backupSetPath(source, set) + "/holds").then((r) =>
+      (r.holds ?? []).map(fromWireSnapshotHold)
+    ),
+  // NOT retentionPath() + something. This is a route of its own
+  // (.../snapshot-retention) precisely so it cannot be confused with
+  // FR-18's artifact retention plan, which lives under .../retention and
+  // can be applied; see RetndApi.getSnapshotRetention.
+  getSnapshotRetention: (source, set) =>
+    request<WireSnapshotRetentionResponse>(backupSetPath(source, set) + "/snapshot-retention").then(
+      (r): SnapshotRetentionPreview => ({
+        generatedAt: r.generated_at,
+        verdicts: (r.verdicts ?? []).map(fromWireSnapshotVerdict)
+      })
+    ),
+  listRepositories: () =>
+    request<WireListRepositoriesResponse>("/repositories").then(
+      (r): RepositoryFleet => ({
+        generatedAt: r.generated_at,
+        repositories: (r.repositories ?? []).map(fromWireRepositoryHealth)
+      })
+    ),
+  getRepositoryMaintenance: (domain) =>
+    request<WireRepositoryMaintenance>(
+      "/repositories/" + encodeURIComponent(domain) + "/maintenance"
+    ).then(fromWireRepositoryMaintenance),
+  // Issue #862's write, beside the two reads it belongs with. The
+  // passphrase crosses as a reference and the created domain comes back
+  // through fromWireRepositoryHealth, so a screen renders a created
+  // domain with exactly the code that renders a listed one.
+  //
+  // Fields the request left empty are dropped rather than sent as "":
+  // location and maintenance_owner both have a meaning for absent (this
+  // deployment's own storage location, this deployment) and an empty
+  // string is how a form spells "I did not fill this in".
+  createRepositoryDomain: (req) =>
+    request<WireRepositoryHealth>("/repositories", {
+      method: "POST",
+      body: JSON.stringify({
+        id: req.domain,
+        isolation: req.isolation,
+        passphrase: {
+          file: req.passphrase.file ?? "",
+          env: req.passphrase.env ?? "",
+          command: req.passphrase.command ?? []
+        },
+        ...(req.description ? { description: req.description } : {}),
+        ...(req.location ? { location: req.location } : {}),
+        ...(req.maintenanceOwner ? { maintenance_owner: req.maintenanceOwner } : {})
+      })
+    }).then(fromWireRepositoryHealth),
+
+  // One operation by id, which is what a page watching a restore or a
+  // verify polls. It maps through the same fromWireOperation the list
+  // read uses, so a screen cannot end up with two different ideas of
+  // what "running" means.
+  getOperation: (id) =>
+    request<WireOperation>("/operations/" + encodeURIComponent(id)).then(fromWireOperation),
+
+  // EPIC K's four mutating acts, all on POST /operations, each with its
+  // own parameter object and every one carrying the idempotency header
+  // and the configuration revision. Written out four times rather than
+  // funnelled through one helper because the four bodies are genuinely
+  // different and a generic submitter would have to take the parameter
+  // object as `unknown` — which is exactly the typing this file exists
+  // to provide.
+  //
+  // Each reads the operation back rather than resolving with nothing:
+  // the restore and the verify are then watched by id, and the two hold
+  // actions answer with the snapshots they changed, so a dialog closes
+  // onto the new truth instead of onto a re-read that may not have
+  // landed yet.
+  restoreSnapshot: (req) =>
+    request<WireOperation>("/operations", {
+      method: "POST",
+      headers: { [IDEMPOTENCY_KEY_HEADER]: req.idempotencyKey },
+      body: JSON.stringify({
+        action: "restore_snapshot",
+        config_revision: req.configRevision,
+        snapshot_restore: {
+          backup_set_id: req.backupSetId,
+          target_path: req.targetPath,
+          // Omitted rather than sent empty. An absent snapshot_id asks
+          // for this set's newest known-good restore point, and "" would
+          // be a request to restore a snapshot with no id.
+          ...(req.snapshotId ? { snapshot_id: req.snapshotId } : {}),
+          ...(req.sourcePath ? { source_path: req.sourcePath } : {}),
+          ...(req.conflict ? { conflict: req.conflict } : {})
+        }
+      })
+    }).then(fromWireSnapshotOperation),
+  verifySnapshot: (req) =>
+    request<WireOperation>("/operations", {
+      method: "POST",
+      headers: { [IDEMPOTENCY_KEY_HEADER]: req.idempotencyKey },
+      body: JSON.stringify({
+        action: "verify_snapshot",
+        config_revision: req.configRevision,
+        snapshot_verify: {
+          backup_set_id: req.backupSetId,
+          ...(req.runId ? { run_id: req.runId } : {}),
+          ...(req.level ? { level: req.level } : {}),
+          ...(req.samplePercent ? { sample_percent: req.samplePercent } : {})
+        }
+      })
+    }).then(fromWireSnapshotOperation),
+  holdSnapshot: (req) =>
+    request<WireOperation>("/operations", {
+      method: "POST",
+      headers: { [IDEMPOTENCY_KEY_HEADER]: req.idempotencyKey },
+      body: JSON.stringify({
+        action: "hold_snapshot",
+        config_revision: req.configRevision,
+        snapshot_hold: {
+          backup_set_id: req.backupSetId,
+          run_id: req.runId,
+          reason: req.reason
+        }
+      })
+    }).then(fromWireSnapshotOperation),
+  releaseSnapshotHold: (req) =>
+    request<WireOperation>("/operations", {
+      method: "POST",
+      headers: { [IDEMPOTENCY_KEY_HEADER]: req.idempotencyKey },
+      body: JSON.stringify({
+        action: "release_snapshot_hold",
+        config_revision: req.configRevision,
+        snapshot_hold_release: {
+          backup_set_id: req.backupSetId,
+          hold_id: req.holdId
+        }
+      })
+    }).then(fromWireSnapshotOperation),
 
   getSettings: () => request<WireSettingsResponse>("/settings").then(fromWireSettingsResponse),
   // PATCH, not POST or PUT: this applies exactly the settings the body
@@ -2306,8 +3382,184 @@ export const httpApi: BackupManagerApi = {
   rebuildCatalog: () => post("/catalog/rebuild"),
 
   login: (username, password) => post("/auth/login", { username, password }),
-  enrollAdministrator: (username, password) => post("/auth/enroll", { username, password }),
+  enrollAdministrator: (username, password, recoveryEmail, smtp) =>
+    post("/auth/enroll", { username, password, recoveryEmail, smtp: wireSmtpSettings(smtp) }),
+
+  // Issue #830's three unauthenticated recovery calls. Every one of them
+  // resolves with nothing: the reset request answers 204 for every
+  // username by design (it must not enumerate), and redeeming a token
+  // revokes every session rather than issuing one, so there is no session
+  // body to read back either.
+  requestPasswordReset: (username) => post("/auth/forgot-password", { username }),
+  resetPassword: (token, newPassword) => post("/auth/reset-password", { token, newPassword }),
+
+  // Issue #830 §8. Unauthenticated by necessity, exactly like the two
+  // above: the link is opened out of a mail client, on whatever device
+  // happened to be holding the mailbox, and requiring a session would
+  // mean proving you hold the account in order to prove you can read its
+  // recovery address.
+  verifyRecoveryEmail: (token) => post("/auth/verify-email", { token }),
+
+  // The resend is the one that needs a session, because it makes the
+  // service SEND to an address the caller does not choose. No body: the
+  // address, the endpoint and the deadline are all already on the
+  // record, and a body would be a second place for one of them to be
+  // wrong.
+  resendRecoveryEmailVerification: () => post("/auth/verify-email/resend"),
+
+  getRecoverySettings: () =>
+    request<WireRecoverySettingsResponse>("/auth/recovery").then(fromWireRecoverySettings),
+
+  // PATCH rather than PUT because a request may carry either half: an
+  // operator correcting a port has not restated the recovery address, and
+  // a PUT would make the untouched half of the block travel on every save
+  // for no reason.
+  updateRecoverySettings: (update) =>
+    request<WireRecoverySettingsResponse>("/auth/recovery", {
+      method: "PATCH",
+      body: JSON.stringify(wireRecoverySettingsUpdate(update))
+    }).then(fromWireRecoverySettings),
+
+  sendRecoveryTestEmail: () => post("/auth/recovery/test"),
+
   rotatePassword: (currentPassword, newPassword) =>
     post("/auth/password", { currentPassword, newPassword }),
-  logout: () => post("/auth/logout")
+  logout: () => post("/auth/logout"),
+
+  // EPIC L's eighteen workflow operations (issue #814), against the
+  // routes L6 landed. Read them in the order the API declares them: the
+  // journal, the recovery actions, then the configuration either side.
+
+  // Both query parameters are advisory, which is why they are appended
+  // only when present rather than sent as zeros: the route reads an
+  // absent, unparseable or non-positive value as "use your own default",
+  // and blanking a panel an operator went to look at over a query string
+  // is the one thing these reads exist not to do.
+  workflowRuns: (query) => {
+    const params = new URLSearchParams();
+    if (query?.backupSetId) params.set("backup_set", query.backupSetId);
+    if (query?.limit !== undefined && query.limit > 0) params.set("limit", String(query.limit));
+    const search = params.toString();
+    return request<WireListWorkflowRunsResponse>("/workflow-runs" + (search ? "?" + search : "")).then(
+      (r) => (r.runs ?? []).map(fromWireWorkflowRun)
+    );
+  },
+  workflowRun: (runId) =>
+    request<WireWorkflowRun>(workflowRunPath(runId)).then(fromWireWorkflowRun),
+  // Its own read rather than re-reading the whole run, because that is
+  // what a client following a live workflow polls: the run's own row
+  // moves twice, at the start and at the end, and the steps are what
+  // change in between.
+  workflowSteps: (runId) =>
+    request<WireListWorkflowStepsResponse>(workflowRunPath(runId) + "/steps").then((r) =>
+      (r.steps ?? []).map(fromWireWorkflowStep)
+    ),
+  // `wait` is sent in SECONDS because that is what the route parses, and
+  // it is a boolean on this side deliberately: a follower only ever wants
+  // "hold briefly rather than answering empty", and the service decides
+  // how long that is.
+  //
+  // The number matters, though, and getting it wrong is silent. The
+  // service only ever CLAMPS DOWN (workflowLogWaitCeiling, 5s, in
+  // core/service/workflowinspect.go): it never raises a smaller value. A
+  // client that sent 1 would therefore turn a terminal following a quiet
+  // step into a one-second poll against a service willing to hold for
+  // five, which is five times the requests for the same output. So the
+  // ceiling itself is what is asked for, and the clamp is what keeps that
+  // honest if the service's own limit ever drops.
+  workflowStepLogs: (runId, stepId, options) => {
+    const params = new URLSearchParams();
+    if (options?.after !== undefined && options.after > 0) params.set("after", String(options.after));
+    if (options?.wait) params.set("wait", String(WORKFLOW_LOG_WAIT_SECONDS));
+    if (options?.limit !== undefined && options.limit > 0) params.set("limit", String(options.limit));
+    const search = params.toString();
+    return request<WireWorkflowStepLogPage>(
+      workflowRunPath(runId) + "/steps/" + encodeURIComponent(stepId) + "/logs" +
+        (search ? "?" + search : "")
+    ).then(fromWireWorkflowStepLogPage);
+  },
+
+  workflowRecovery: () =>
+    request<WireWorkflowRecoveryResponse>("/workflow-recovery").then((r) =>
+      (r.holds ?? []).map((h) => ({
+        runId: h.run_id ?? "",
+        backupSetId: h.backup_set_id ?? "",
+        scope: scopeOf(h.scope),
+        enteredAt: h.entered_at ?? "",
+        spoolRef: h.spool_ref ?? ""
+      }))
+    ),
+  // No body. The whole content of the request is which run, and that is
+  // in the path; the scripts come out of that run's own retained spool
+  // and are re-verified against the hash recorded when it was planned,
+  // so there is nothing a caller could usefully send.
+  resumeWorkflowCleanup: (runId) =>
+    request<WireWorkflowRun>(workflowRecoveryPath(runId) + "/resume-cleanup", {
+      method: "POST"
+    }).then(fromWireWorkflowRun),
+  // The reason is the only field, and the actor is deliberately not one:
+  // it is read from the authenticated session, because an
+  // acknowledgement records who took responsibility and a
+  // caller-supplied name would be a claim rather than an answer. Answers
+  // 204, so there is nothing to map.
+  acknowledgeWorkflowRecovery: (runId, reason) =>
+    post(workflowRecoveryPath(runId) + "/acknowledge", { reason }),
+
+  getWorkflowSettings: () =>
+    request<WireWorkflowSettingsResponse>("/settings/workflow").then(fromWireWorkflowSettings),
+  patchWorkflowSettings: (patch) =>
+    request<WireWorkflowSettingsResponse>("/settings/workflow", {
+      method: "PATCH",
+      body: JSON.stringify(wireWorkflowSettingsPatch(patch))
+    }).then(fromWireWorkflowSettings),
+
+  listWorkflowEnvironment: () =>
+    request<WireListWorkflowEnvironmentResponse>("/settings/workflow/environment").then(
+      fromWireEnvironment
+    ),
+  // PUT, with the NAME in the path: a body that could name a second
+  // variable would be a request whose path and body can disagree. Every
+  // one of these three answers with the whole list, which is the route's
+  // shape and not a convenience — an operator clearing a credential
+  // needs to see what is left.
+  setWorkflowEnvironment: (name, entry) =>
+    request<WireListWorkflowEnvironmentResponse>(
+      "/settings/workflow/environment/" + encodeURIComponent(name),
+      { method: "PUT", body: JSON.stringify(toWireEnvVariable(entry)) }
+    ).then(fromWireEnvironment),
+  unsetWorkflowEnvironment: (name) =>
+    request<WireListWorkflowEnvironmentResponse>(
+      "/settings/workflow/environment/" + encodeURIComponent(name),
+      { method: "DELETE" }
+    ).then(fromWireEnvironment),
+
+  getBackupSetWorkflow: (source, set) =>
+    request<WireBackupSetWorkflowResponse>(setWorkflowPath(source, set)).then(
+      fromWireBackupSetWorkflow
+    ),
+  patchBackupSetWorkflow: (source, set, patch) =>
+    request<WireBackupSetWorkflowResponse>(setWorkflowPath(source, set), {
+      method: "PATCH",
+      body: JSON.stringify(wireBackupSetWorkflowPatch(patch))
+    }).then(fromWireBackupSetWorkflow),
+
+  listBackupSetWorkflowEnvironment: (source, set) =>
+    request<WireListWorkflowEnvironmentResponse>(
+      setWorkflowPath(source, set) + "/environment"
+    ).then(fromWireEnvironment),
+  setBackupSetWorkflowEnvironment: (source, set, name, entry) =>
+    request<WireListWorkflowEnvironmentResponse>(
+      setWorkflowPath(source, set) + "/environment/" + encodeURIComponent(name),
+      { method: "PUT", body: JSON.stringify(toWireEnvVariable(entry)) }
+    ).then(fromWireEnvironment),
+  unsetBackupSetWorkflowEnvironment: (source, set, name) =>
+    request<WireListWorkflowEnvironmentResponse>(
+      setWorkflowPath(source, set) + "/environment/" + encodeURIComponent(name),
+      { method: "DELETE" }
+    ).then(fromWireEnvironment),
+
+  getBackupSetWorkflowValidation: (source, set) =>
+    request<WireWorkflowValidationResponse>(setWorkflowPath(source, set) + "/validation").then(
+      fromWireValidation
+    )
 };

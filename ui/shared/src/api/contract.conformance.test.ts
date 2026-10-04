@@ -263,6 +263,17 @@ describe("every request the shared client makes is a declared operation", () => 
     // is complete. The response above is deliberately thin: what is being
     // recorded is the REQUEST, and a mapper that throws on a thin body
     // has still already made its call.
+    // Issue #830's two write bodies both carry this block, and it is
+    // spelled once rather than twice so the two calls cannot drift into
+    // testing different shapes of the same schema.
+    const SMTP = {
+      host: "smtp.example.net",
+      port: 587,
+      security: "starttls" as const,
+      username: "retnd@example.com",
+      password: "smtp-secret",
+      from: "retnd@example.com"
+    };
     const calls: Array<[string, () => Promise<unknown>]> = [
       ["getVersion", () => httpApi.getVersion()],
       ["getHealth", () => httpApi.getHealth()],
@@ -355,6 +366,45 @@ describe("every request the shared client makes is a declared operation", () => 
       ["retryIngestion", () => httpApi.retryIngestion("src/set-1/a.tar.gz")],
       ["retryFailedIngestion", () => httpApi.retryFailedIngestion("src/set-1/a.tar.gz", "the NAS came back")],
       ["reinstate", () => httpApi.reinstate("src/set-1/a.tar.gz")],
+      // EPIC K's ten calls (issue #788): six reads, the operation read
+      // beside them, and the four snapshot actions. Every one is listed
+      // here for the reason restoreCopy's own comment gives — a client
+      // method nobody drives from this list is invisible to the whole
+      // file — and each of them is also the thing that deletes its own
+      // name from UNREACHED_SERVER_OPERATIONS below.
+      ["listSnapshots", () => httpApi.listSnapshots("src", "set-1")],
+      ["getSnapshot", () => httpApi.getSnapshot("src", "set-1", "run-1")],
+      ["listSnapshotHolds", () => httpApi.listSnapshotHolds("src", "set-1")],
+      ["getSnapshotRetention", () => httpApi.getSnapshotRetention("src", "set-1")],
+      ["listRepositories", () => httpApi.listRepositories()],
+      ["getRepositoryMaintenance", () => httpApi.getRepositoryMaintenance("primary-nas")],
+      // Issue #862's write, driven with the reference spelling a browser
+      // sends: a path, never the passphrase.
+      ["createRepositoryDomain", () => httpApi.createRepositoryDomain({
+        domain: "offsite-b2", isolation: "isolated",
+        passphrase: { file: "/etc/retnd/offsite-b2.passphrase" }
+      })],
+      ["getOperation", () => httpApi.getOperation("op_1")],
+      // The four actions all post to /operations, and the header
+      // assertion above is what proves each one sends its idempotency
+      // key: they are on the same route as run_cycle, which the contract
+      // marks idempotencyKey: "required".
+      ["restoreSnapshot", () => httpApi.restoreSnapshot({
+        backupSetId: "src/set-1", snapshotId: "snap-1", targetPath: "/data/restores/x",
+        conflict: "refuse", configRevision: "rev-1", idempotencyKey: "idem-restore-snapshot"
+      })],
+      ["verifySnapshot", () => httpApi.verifySnapshot({
+        backupSetId: "src/set-1", runId: "run-1", level: "content_sample",
+        configRevision: "rev-1", idempotencyKey: "idem-verify-snapshot"
+      })],
+      ["holdSnapshot", () => httpApi.holdSnapshot({
+        backupSetId: "src/set-1", runId: "run-1", reason: "audit",
+        configRevision: "rev-1", idempotencyKey: "idem-hold-snapshot"
+      })],
+      ["releaseSnapshotHold", () => httpApi.releaseSnapshotHold({
+        backupSetId: "src/set-1", holdId: "hold-1",
+        configRevision: "rev-1", idempotencyKey: "idem-release-hold"
+      })],
       ["previewRetention", () => httpApi.previewRetention("src", "set-1")],
       ["applyRetention", () => httpApi.applyRetention("src", "set-1", "plan-1")],
       ["getBackupSetRetention", () => httpApi.getBackupSetRetention("src", "set-1")],
@@ -405,9 +455,58 @@ describe("every request the shared client makes is a declared operation", () => 
       ["scanCatalog", () => httpApi.scanCatalog()],
       ["rebuildCatalog", () => httpApi.rebuildCatalog()],
       ["login", () => httpApi.login("u", "p")],
-      ["enrollAdministrator", () => httpApi.enrollAdministrator("u", "p")],
+      ["enrollAdministrator", () => httpApi.enrollAdministrator("u", "p", "ops@example.com", SMTP)],
+      ["requestPasswordReset", () => httpApi.requestPasswordReset("u")],
+      ["resetPassword", () => httpApi.resetPassword("tok", "hunter22222222")],
+      // Issue #830 §§8-9's two verification calls: the unauthenticated
+      // redemption of the mailed link, and the authenticated resend.
+      ["verifyRecoveryEmail", () => httpApi.verifyRecoveryEmail("tok")],
+      ["resendRecoveryEmailVerification", () => httpApi.resendRecoveryEmailVerification()],
+      ["getRecoverySettings", () => httpApi.getRecoverySettings()],
+      ["updateRecoverySettings", () => httpApi.updateRecoverySettings({ currentPassword: "correct-horse-battery", recoveryEmail: "ops@example.com", smtp: SMTP })],
+      ["sendRecoveryTestEmail", () => httpApi.sendRecoveryTestEmail()],
       ["rotatePassword", () => httpApi.rotatePassword("a", "b")],
-      ["logout", () => httpApi.logout()]
+      ["logout", () => httpApi.logout()],
+      // EPIC L's eighteen workflow operations (issue #814). Every one is
+      // listed here for the reason restoreCopy's own comment gives — a
+      // client method nobody drives from this list is invisible to the
+      // whole file — and each of them is also what deletes its own name
+      // from UNREACHED_SERVER_OPERATIONS below.
+      //
+      // The reads are driven WITH their query parameters, because those
+      // are the half a path assertion cannot see: `matcherFor` compares
+      // the path with the query string stripped, so a method that put a
+      // cursor in the path instead of the query would match nothing and
+      // be caught, which is the whole point of driving it.
+      ["workflowRuns", () => httpApi.workflowRuns({ backupSetId: "src/set-1", limit: 20 })],
+      ["workflowRun", () => httpApi.workflowRun("wfr_1")],
+      ["workflowSteps", () => httpApi.workflowSteps("wfr_1")],
+      ["workflowStepLogs", () =>
+        httpApi.workflowStepLogs("wfr_1", "step_1", { after: 12, wait: true, limit: 200 })],
+      ["workflowRecovery", () => httpApi.workflowRecovery()],
+      ["resumeWorkflowCleanup", () => httpApi.resumeWorkflowCleanup("wfr_1")],
+      ["acknowledgeWorkflowRecovery", () =>
+        httpApi.acknowledgeWorkflowRecovery("wfr_1", "thawed the database by hand")],
+      ["getWorkflowSettings", () => httpApi.getWorkflowSettings()],
+      ["patchWorkflowSettings", () => httpApi.patchWorkflowSettings({ scriptTimeoutSeconds: 300 })],
+      ["listWorkflowEnvironment", () => httpApi.listWorkflowEnvironment()],
+      // A LOCATION and never a value, in the one direction that could
+      // carry one: the write. A reference is what a browser sends, and
+      // the contract has no field a resolved secret could travel in.
+      ["setWorkflowEnvironment", () =>
+        httpApi.setWorkflowEnvironment("PGPASSWORD", { secret: { file: "/etc/retnd/secrets/pg" } })],
+      ["unsetWorkflowEnvironment", () => httpApi.unsetWorkflowEnvironment("PGPASSWORD")],
+      ["getBackupSetWorkflow", () => httpApi.getBackupSetWorkflow("src", "set-1")],
+      ["patchBackupSetWorkflow", () =>
+        httpApi.patchBackupSetWorkflow("src", "set-1", { beforeDir: "/srv/hooks/before" })],
+      ["listBackupSetWorkflowEnvironment", () =>
+        httpApi.listBackupSetWorkflowEnvironment("src", "set-1")],
+      ["setBackupSetWorkflowEnvironment", () =>
+        httpApi.setBackupSetWorkflowEnvironment("src", "set-1", "PGHOST", { value: "db.internal" })],
+      ["unsetBackupSetWorkflowEnvironment", () =>
+        httpApi.unsetBackupSetWorkflowEnvironment("src", "set-1", "PGHOST")],
+      ["getBackupSetWorkflowValidation", () =>
+        httpApi.getBackupSetWorkflowValidation("src", "set-1")]
     ];
     for (const [, call] of calls) {
       await call().catch(() => undefined);
@@ -541,7 +640,27 @@ describe("every request the shared client makes is a declared operation", () => 
    * Asserted EXACTLY, like its counterpart, so the list can only shrink.
    */
   const UNREACHED_SERVER_OPERATIONS = [
-    "getOperation",
+    // Two of these are read by something that is not this client:
+    // getSession is the platform bridge's own call
+    // (platform/localSession.ts, which reads the envelope itself rather
+    // than going through httpApi), and getSystemCapabilities is answered
+    // from the bridge's capability model rather than fetched.
+    //
+    // The seven that used to sit here left with #788's UI wave: the
+    // snapshot list, one snapshot, its holds, its retention verdicts,
+    // repository health, repository maintenance and the by-id operation
+    // read. Each was pinned rather than exempted precisely so that
+    // wiring it FORCED an edit here — which is what makes this list a
+    // gate that can only shrink.
+    //
+    // The eighteen that used to sit here were EPIC L's workflow surface
+    // (#813), whose API and CLI halves landed ahead of its UI wave. They
+    // left with #814's screens, which is the mechanism working end to
+    // end: adding a contract operation forced a line here on the commit
+    // that added it, and wiring a screen to one forced that line back
+    // out. They were never a standing permission — nothing in ui/shared
+    // could call them without this list shrinking, which is the property
+    // the exact assertion below enforces in both directions.
     "getSession",
     "getSystemCapabilities"
   ];

@@ -27,18 +27,18 @@ Dockge packaging, so nothing here is a migration from an earlier one.
 
 ### 0.2 Make the canonical image resolvable
 
-`ghcr.io/spdrman/backup-manager:0.4.0` is cut but not pushed yet:
-`distribution/packaging/canonical.json` records `image.published: false`, and
-`container/release-manifest.json` carries a `registry_digest` of `null` per
-architecture. So the reference does not resolve from the registry today, and the
-steps below are how you make it resolve, by pushing a build to a registry this host
-can reach or building elsewhere and loading it. The previous release,
-`ghcr.io/spdrman/backup-manager:0.3.3`, stays published and signed if you would
-rather run that:
+The canonical reference is `ghcr.io/retnd/retnd:0.5.0`.
+`distribution/packaging/canonical.json` and
+`container/release-manifest.json` jointly record whether it has been published:
+`image.published: true` requires an index digest and one registry digest per
+architecture. If those records still say `false` and `null`, the reference does
+not resolve yet; push a build to a registry this host can reach or build
+elsewhere and load it. Once they record the published digests, the host can
+pull the canonical reference directly:
 
 ```bash
-docker buildx build --platform=linux/amd64,linux/arm64 -f container/Dockerfile -t backup-manager:acceptance .
-docker save backup-manager:acceptance | ssh admin@<host> 'docker load'
+docker buildx build --platform=linux/amd64,linux/arm64 -f container/Dockerfile -t retnd:acceptance .
+docker save retnd:acceptance | ssh admin@<host> 'docker load'
 ```
 
 - [ ] The image is resolvable on the host, and the exact reference used is recorded
@@ -46,8 +46,8 @@ docker save backup-manager:acceptance | ssh admin@<host> 'docker load'
 ### 0.3 Create the host paths
 
 ```bash
-mkdir -p /volume1/backup-manager/state /volume1/backups \
-         /volume1/backup-manager/config /volume1/backup-manager/secrets
+mkdir -p /volume1/retnd/state /volume1/backups \
+         /volume1/retnd/config /volume1/retnd/secrets
 ```
 
 The runtime image is distroless: no shell, no root step, nothing inside the
@@ -59,8 +59,8 @@ following `docs/ssh-setup.md`. Never commit either, and never paste a private ke
 into the evidence table.
 
 ```bash
-ssh-keygen -t ed25519 -N "" -f /volume1/backup-manager/secrets/id_ed25519
-ssh-keyscan -t ed25519 <sftp-host> > /volume1/backup-manager/secrets/known_hosts
+ssh-keygen -t ed25519 -N "" -f /volume1/retnd/secrets/id_ed25519
+ssh-keyscan -t ed25519 <sftp-host> > /volume1/retnd/secrets/known_hosts
 ```
 
 **Recurse only over what this step created.** `/volume1/backups` is the retained
@@ -72,15 +72,15 @@ fails the build if any procedure in this directory recurses over a backup root o
 a parent of one.
 
 ```bash
-chown -R 1000:1000 /volume1/backup-manager/state /volume1/backup-manager/config /volume1/backup-manager/secrets
+chown -R 1000:1000 /volume1/retnd/state /volume1/retnd/config /volume1/retnd/secrets
 chown 1000:1000 /volume1/backups
-chmod 600 /volume1/backup-manager/secrets/id_ed25519
+chmod 600 /volume1/retnd/secrets/id_ed25519
 ```
 
 - [ ] All four paths exist and are owned by the app's uid and gid
 - [ ] The recursive ownership change touched only state, config and secrets
 - [ ] It ran **after** the key and `known_hosts` were created
-- [ ] `/volume1/backup-manager/config` is writable by the app's uid and gid
+- [ ] `/volume1/retnd/config` is writable by the app's uid and gid
 - [ ] Key material lives only on this host, redacted everywhere else
 
 ---
@@ -89,9 +89,9 @@ chmod 600 /volume1/backup-manager/secrets/id_ed25519
 
 The engine's start gate is a liveness question, not a backup-freshness verdict
 (issue #206). It declares
-`["CMD", "/rbm-web", "healthcheck", "--url", "http://127.0.0.1:8080/health/live"]`,
+`["CMD", "/retnd-web", "healthcheck", "--url", "http://127.0.0.1:8080/health/live"]`,
 derived from `container/compose.yaml`, and `web-ui` waits on that with
-`condition: service_healthy`. `/rbm status` is still FR-24's freshness
+`condition: service_healthy`. `/retnd status` is still FR-24's freshness
 verdict and still the image's own baked-in `HEALTHCHECK`, and it exits non-zero on a
 fresh install by design, which is exactly why nothing waits on it any more. So a
 **fresh install reaches the web UI**: an empty configuration directory is a legitimate
@@ -114,9 +114,9 @@ there, and do it before **Start**. Skip this block entirely to use the first-run
 instead.
 
 ```bash
-$EDITOR /volume1/backup-manager/config/config.yaml
-chown 1000:1000 /volume1/backup-manager/config/config.yaml
-chmod 600 /volume1/backup-manager/config/config.yaml
+$EDITOR /volume1/retnd/config/config.yaml
+chown 1000:1000 /volume1/retnd/config/config.yaml
+chmod 600 /volume1/retnd/config/config.yaml
 ```
 
 The container-side paths in it are fixed by this package and must not be changed:
@@ -127,7 +127,7 @@ annotated example is this same file with another platform's host paths, and
 **Never commit the config or paste one into the evidence table:** it names the SFTP
 host and user.
 
-- [ ] Either `config.yaml` is written into `/volume1/backup-manager/config` **before** the install
+- [ ] Either `config.yaml` is written into `/volume1/retnd/config` **before** the install
       and is valid, or that directory is left empty and the first-run flow writes it.
       A file that exists and does not validate is the one state that refuses the start,
       so record which of the two routes this run took
@@ -143,12 +143,12 @@ host and user.
    stack in unmodified:
 
    ```bash
-   mkdir -p /opt/stacks/backup-manager
-   cp container/compose.yaml /opt/stacks/backup-manager/compose.yaml
-   cp container/.env.example /opt/stacks/backup-manager/.env
+   mkdir -p /opt/stacks/retnd
+   cp container/compose.yaml /opt/stacks/retnd/compose.yaml
+   cp container/.env.example /opt/stacks/retnd/.env
    ```
 
-2. Edit only `/opt/stacks/backup-manager/.env`. Record every edit: the number of
+2. Edit only `/opt/stacks/retnd/.env`. Record every edit: the number of
    edits needed to `compose.yaml` itself is an acceptance result, and it must be
    the removal of the `build:` block and nothing else.
 3. In Dockge the stack appears on its own. Press **Start**.
@@ -159,9 +159,9 @@ host and user.
 - [ ] Dockge's own editor round-trips the file without reformatting it into
       something the canonical suite would reject
 - [ ] Both containers reach `running`, and Dockge's interactive log pane shows both
-- [ ] `rclone-manager` reports healthy (it declares the liveness probe
-      `/rbm-web healthcheck --url http://127.0.0.1:8080/health/live`,
-      not the image's own `/rbm status`: the web UI waits on this, and
+- [ ] `retnd` reports healthy (it declares the liveness probe
+      `/retnd-web healthcheck --url http://127.0.0.1:8080/health/live`,
+      not the image's own `/retnd status`: the web UI waits on this, and
       the backup-freshness verdict is non-zero on a fresh install)
 - [ ] `web-ui` reports healthy, having overridden the image's own healthcheck
 
@@ -178,14 +178,28 @@ host and user.
 ## Step 3 — Authentication
 
 - [ ] First start printed a one-time enrollment link (keep it out of the evidence table)
-- [ ] Enrollment sets an administrator password, stored as an Argon2id hash
+- [ ] Enrollment asked for a recovery email address and the SMTP details to reach it,
+      beside the username and password. Use a mail account you control and keep the
+      SMTP password out of the evidence table; record the host and port only
+- [ ] The confirmation message arrived at the recovery address, and it arrived
+      **before** any account existed. Provoke the failure once, with a deliberately
+      wrong port: the API answers `SMTP_SEND_FAILED` and no administrator is created
+- [ ] That failure did not consume the link. The same URL completed the enrollment
+      once the SMTP details were corrected
+- [ ] Enrollment sets an administrator password, stored as an Argon2id hash, with the
+      recovery address beside it in the same record and the SMTP password held as a
+      secret reference rather than a value
 - [ ] The enrollment link is single-use and is rejected the second time
+- [ ] Forgot password answers identically for the administrator's username and for a
+      name that does not exist, and mails a single-use reset link to the recovery
+      address; completing the reset sets the new password and signs out the session
+      that asked
 - [ ] An unauthenticated request to `/api/v1/` is refused
 - [ ] The UI reports auth mode `local-account`, and no platform identity is trusted
 
 ## Step 4 — Storage mapping and backup-root containment
 
-- [ ] Private state lands under `/volume1/backup-manager/state`
+- [ ] Private state lands under `/volume1/retnd/state`
 - [ ] Retained artifacts land under `/volume1/backups`
 - [ ] No SSH private key, `known_hosts`, config file or authentication record
       exists anywhere under `/volume1/backups`
@@ -207,7 +221,7 @@ whether compatibility held.
       uses host networking or the host PID namespace, and neither adds a capability:
 
       ```bash
-      docker inspect backup-manager-rclone-manager-1 backup-manager-web-ui-1 \
+      docker inspect retnd-retnd-1 retnd-web-ui-1 \
         --format '{{.Name}} priv={{.HostConfig.Privileged}} net={{.HostConfig.NetworkMode}} binds={{.HostConfig.Binds}}'
       ```
 - [ ] Stopping Dockge leaves the stack running and the web UI reachable
@@ -222,7 +236,7 @@ Capture a baseline before the pull and compare after it, so "everything
 survived" is a diff rather than an impression:
 
 ```bash
-sha256sum /volume1/backup-manager/state/state.db | tee /root/dockge-before-update.sha256
+sha256sum /volume1/retnd/state/state.db | tee /root/dockge-before-update.sha256
 find /volume1/backups -type f -printf '%p %s\n' | sort > /root/dockge-before-update.txt
 ```
 
@@ -235,7 +249,9 @@ diff /root/dockge-before-update.txt /root/dockge-after-update.txt
 
 - [ ] The update pulled a new image and recreated both containers
 - [ ] `diff` of the retained-artifact listing is empty: the update moved no backup data
-- [ ] Backup sets, schedules, retained artifacts and the administrator account all persist
+- [ ] Backup sets, schedules, retained artifacts and the administrator account all persist,
+      the account's recovery address and SMTP settings with it (a test send from
+      Settings still succeeds after the update)
 - [ ] No re-enrollment was required
 - [ ] The new image version is reported in the UI
 
@@ -267,7 +283,7 @@ diff /root/dockge-before-remove.txt /root/dockge-after-remove.txt
       artifact is untouched, byte for byte
 - [ ] Deleting the stack directory from `/opt/stacks` deleted no
       retained artifact either: the same `sha256sum -c` and `diff` are still clean
-- [ ] `/volume1/backup-manager/state` still holds the catalogue, so a reinstall
+- [ ] `/volume1/retnd/state` still holds the catalogue, so a reinstall
       pointed at the same paths comes back with the same backup sets
 - [ ] Removing this adapter removes no core behaviour: the same image runs
       unchanged under `container/compose.yaml` on a plain Docker host
@@ -307,6 +323,56 @@ cd distribution && GOWORK=off go test ./packaging/ -count=1 -run TestCrossProvid
       stale and must be corrected rather than the check
 
 ---
+
+## Step 11 — Local workflow hooks, and the Docker prerequisite
+
+A workflow step whose target is `local` does not run in the engine container, and since
+issue #865 it does not run on a host shell either: it runs in an **ephemeral Docker
+container** launched by the **Host Workflow Runner**, a small version-pinned process
+systemd supervises as `retnd-workflow-runner.service`
+(`docs/adr/0020-host-workflow-runner.md`, `docs/runtime-contract.md`).
+
+Dockge imports the canonical stack onto an ordinary Docker host, so local hooks are
+**available** — installed **on that host** with
+`scripts/install/install_docker_host.py`, not through Dockge. Dockge manages a compose
+directory; it installs no host unit and grants no group, and step 5's finding that no
+Dockge-specific code was needed holds here too: the runner is the same host-side unit
+every generic Docker deployment gets.
+
+Three prerequisites, all three re-proved by the runner's own startup probe, and any one
+of them missing is a refusal rather than a hook that quietly does not run:
+
+- **a daemon the runner's account can reach.** That is one supplementary group:
+  `sudo usermod -aG docker <the runner's account>`, or whatever group owns the socket
+  here — the installer reads the group off the socket rather than assuming `docker`. The
+  unit gets `SupplementaryGroups=` and that socket in `ReadWritePaths`; nothing else
+  does. The membership is root-equivalent on this host, which is exactly why it belongs
+  to the runner and to nothing else: **the engine container gains nothing** — no socket,
+  no `group_add`, no `DOCKER_HOST`, and `distribution/packaging`'s preflight fails the
+  build if any shipped package asks for one;
+- **the hook image, already on the host.** `--hook-image` defaults to the pinned
+  `bash:5.2.37-alpine3.21`, `install` fetches it, and `WORKFLOW_RUNNER_HOOK_IMAGE` in the
+  deployment's `.env` names a different one. The runner never pulls: an image that is not
+  there is a refusal, not a download;
+- **a non-root account.** The runner refuses to run as root, so a root deployment gets no
+  runner and is told so.
+
+`python3 scripts/install/install_docker_host.py preflight` refuses with exit 12, and the
+refusal carries the `usermod -aG` line, when this deployment has hook scripts and the
+runner's account cannot reach the daemon. A deployment with an empty workflows
+directory is held to none of it, and `WORKFLOW_RUNNER=off` in the `.env` says so
+explicitly.
+
+- [ ] `systemctl is-active retnd-workflow-runner.service` reports `active`, and the
+      account it runs as is recorded in the evidence table
+- [ ] That account is in the Docker socket's group (`id <account>`), and the engine
+      container is **not**: `docker inspect` shows no socket mount, no `group_add` and no
+      `DOCKER_HOST` on either shipped service
+- [ ] The hook image is present on the host (`docker image inspect <the reference>`), and
+      the reference the unit was installed with is recorded
+- [ ] A workflow with one `local` hook runs, and its container is gone afterwards
+      (`docker ps -a --filter label=retnd.workflow-hook=1` is empty)
+
 
 ## Evidence (section 68)
 

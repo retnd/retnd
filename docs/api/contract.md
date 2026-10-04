@@ -259,7 +259,24 @@ call.
   omitted);
 - a new response field (clients must ignore fields they do not know);
 - a new error code, provided existing codes keep their meaning and their status;
-- a new value in a capability set.
+- a new value in a capability set;
+- a new value in a RESPONSE enum, provided the existing values keep their
+  meaning. A response enum is what the server may say, not a closed set a
+  client may assume: `BackendManifest.role` gained `remote_filesystem`
+  under `v1` when #731 registered a backend that is a directory on
+  another host, and it will gain another the next time a shape appears
+  that none of the existing values honestly describes. A client MUST
+  preserve a value it does not recognise and render it as itself; one
+  that switches on the value needs a branch for the unknown case, and one
+  that maps an unfamiliar value onto a familiar one reports a thing as
+  something it is not. The schema still lists every value this build
+  serves, because a list that named none would tell a client nothing;
+  what is additive is adding to it.
+
+  A REQUEST enum is the other direction and is not covered by this: a
+  client sending a value the server does not know is refused, so a new
+  accepted request value is additive and a new value a client is
+  EXPECTED to send is not.
 
 **Breaking, and therefore `/api/v2` rather than a change here:**
 
@@ -422,7 +439,7 @@ alternative was to serve `"medium": "local"` everywhere, the way
 written before EPIC E holds every copy locally, so that spelling would have put
 a new key on every verdict of every response those deployments serve, to say
 the only thing that was ever true of them. Absence says the same thing and
-leaves them byte for byte as they were. `rbm retention` made the
+leaves them byte for byte as they were. `retnd retention` made the
 same call for the same reason (`mediumSuffix`), so the two operator surfaces
 now read alike instead of each having its own convention.
 
@@ -518,6 +535,202 @@ it. Giving the operation a standalone copy of the fifteen other fields would
 work and would go stale, since nothing would hold the two lists together. The
 shared base holds them together by construction: a field added to a backup set
 appears on both operations or on neither.
+
+## Recorded decision: the shapes #830's account-recovery routes declare
+
+#830 makes the local administrator account recoverable, which adds a field to
+enrollment and four operations beside it: `POST /auth/forgot-password`,
+`POST /auth/reset-password`, `GET`/`PATCH /auth/recovery` and
+`POST /auth/recovery/test`. Four shape questions had answers worth recording.
+
+**They are camelCase, like the rest of `/auth`.** `recoveryEmail`,
+`newPassword`, `passwordSet`. The convention split between `/auth` and
+everything else is recorded below as a defect to fix in its own issue, and the
+way to keep it one defect rather than two is to not open a snake_case island
+inside `/auth` while that issue is outstanding. The on-disk record is unaffected:
+`local-auth.json` is snake_case already (`password_hash`, `created_at`) and gains
+`recovery_email`, `recovery_email_confirmed_at` and an `smtp` object in the same
+style. Wire and file are different documents and always were.
+
+**The SMTP password is write-only, and absent rather than masked on read.**
+`GET /auth/recovery` declares an `smtp` object with `host`, `port`, `security`,
+`username`, `from` and a `passwordSet` boolean, and no password property at all.
+`PATCH` takes the same block with every field optional, and an omitted
+`smtp.password` keeps the stored one. Returning a masked string was the
+alternative and it is a trap: a form that round-trips what it was served would
+write the mask in as the new password, and the only way to stop it is for every
+client to special-case a sentinel value. A field that does not exist cannot be
+round-tripped by accident. `passwordSet` is there because a form still has to
+distinguish "no credential configured" from "one is configured and you cannot
+see it", and that is a fact about the deployment rather than a fragment of the
+secret.
+
+**`POST /auth/forgot-password` declares a `204` and no other success.** It takes
+`{username}` and answers the same way whether that name is the administrator's,
+is somebody's guess, or is empty of meaning entirely. A `404`, a different code
+or a body saying "sent" would each answer an unauthenticated caller's real
+question, which is what the account is called. The operator learns the outcome
+from their mailbox, which is the one channel that already proves who they are.
+
+**`GET /auth/session` keeps returning `{username}` alone.** The recovery address
+is read through `GET /auth/recovery` instead. The session probe is the one auth
+response a browser fetches before anything else is known to be authorised, and
+widening it to carry an email address puts a piece of operator contact data in
+the response that is hardest to reason about. Nothing renders it that cannot
+make a second call.
+
+`AuthErrorResponse` gains two codes rather than a shape: `INVALID_EMAIL` for an
+address that is not one, and `SMTP_SEND_FAILED` for a confirmation, reset or test
+message the configured server would not accept. The second one is why enrollment
+can now fail after passing validation, and the contract says so on the operation
+rather than leaving a client to discover a 502 it did not expect.
+
+## Recorded decision: EPIC K adds six reads and no mutating route
+
+The incremental engine's operator surface (#788) grows six **read** routes:
+
+| route | shape |
+|---|---|
+| `GET /backup-sets/{source}/{set}/snapshots` | `ListSnapshotsResponse` |
+| `GET /backup-sets/{source}/{set}/snapshots/{run}` | `SnapshotResponse` |
+| `GET /backup-sets/{source}/{set}/holds` | `ListSnapshotHoldsResponse` |
+| `GET /backup-sets/{source}/{set}/snapshot-retention` | `SnapshotRetentionResponse` |
+| `GET /repositories` | `ListRepositoriesResponse` |
+| `GET /repositories/{domain}/maintenance` | `RepositoryMaintenance` |
+
+and **no new mutating route at all** for any act on a snapshot. (#862 later
+added one route that writes CONFIGURATION, `POST /repositories`; see the
+record below for why that is the same rule rather than an exception to it.)
+Every mutating act is an `action` on `POST /operations`, with a single nested
+parameter object:
+
+| action | body field | schema | what it does |
+|---|---|---|---|
+| `restore_snapshot` | `snapshot_restore` | `SnapshotRestoreRequest` | read a restore point and write a tree onto a local disk |
+| `verify_snapshot` | `snapshot_verify` | `SnapshotVerifyRequest` | prove now, at a stated depth, that a restore point is readable |
+| `hold_snapshot` | `snapshot_hold` | `SnapshotHoldRequest` | stop retention deleting one snapshot |
+| `release_snapshot_hold` | `snapshot_hold_release` | `SnapshotHoldReleaseRequest` | end one hold by its id |
+
+A body naming another action's parameters is **refused rather than ignored**:
+a server that ignores fields it did not expect teaches clients those fields
+are optional, and the next reader of that client cannot tell which operation
+was meant.
+
+Three consequences, and each is the reason rather than a side effect.
+
+**Everything mutating is already durable, idempotency-keyed and
+revision-checked**, by the machinery `run_backup_set` and the retention apply
+already go through, instead of by a second answer that would drift from it.
+A hold is not long-running and is still an operation: what makes it one is
+the retry, not the duration — a client that does not know whether its hold
+landed must be able to ask the same question again with the same idempotency
+key and get the same answer, and "place a hold twice" is otherwise two holds.
+
+**CLI and Web parity becomes a property of the contract.** There is one
+mutating surface, so `retnd snapshot restore` and the Restore screen submit
+the same operation with the same parameters. A second route for the browser
+is how two surfaces stop agreeing.
+
+**No Kopia namespace and no raw passthrough.** There is no `/kopia` prefix,
+no route that forwards a vendor command, and no vendor word in an operator
+label. `engine: "kopia"` is the contract's spelling of a configured value and
+appears only as such.
+
+### `Snapshot` reports five measurements and refuses a total
+
+`entries_scanned`, `logical_bytes`, `source_bytes_read`,
+`repository_bytes_written` and `content_reused_bytes` are five fields
+measuring five different things about one pass, and the contract will not grow
+a sixth that adds them up: a "bytes backed up" figure reports a 100 GB tree
+deduplicated down to 200 MB of new content as a 100 GB upload. See
+[`docs/incremental-engine.md`](../incremental-engine.md#the-five-numbers-a-run-reports).
+
+All five are **nullable**, along with `source_complete`, `files`,
+`directories` and `duration_seconds`, and null means *nobody measured this* —
+the honest state of a run that died before its manifest was recorded and of a
+snapshot adopted by crash reconciliation. A client must render it as such and
+never as `0`. `required` carries them anyway, because absent and null are not
+the same fact: the field is always present and its value may be null.
+
+Two more shapes are deliberately doubled rather than derived:
+`verification_level` (asked for) beside `verification_level_achieved`
+(proven, absent when nothing was), and `SnapshotHold.released_at` beside
+`active` — a history renders the timestamp and a control renders the boolean.
+
+### `TestConnectionResponse.writable` is required, never omitted
+
+#852's answer is a **required** boolean. Absent and `false` must not be the
+same thing to a client, and a client that reads a missing field as "probably
+writable" would arm a control that deletes a producer's files. The refusing
+value is the one a missing answer resolves to, so the field is mandatory and
+the enforcement is structural.
+
+Setting `read_only = false` against a source the probe proved non-writable is
+**refused, never coerced**: `409` with `BACKUP_SET_SOURCE_NOT_WRITABLE`. The
+incremental engine's own gate is a different refusal with a different code:
+`409` `INCREMENTAL_ENGINE_DISABLED`, returned by every gated route when the
+deployment has not enabled the engine.
+
+### `snapshot-retention` is not `retention`
+
+`GET /backup-sets/{source}/{set}/snapshot-retention` and
+`GET /backup-sets/{source}/{set}/retention` are different resources and the
+names are as close as they are because the concepts are: the second is FR-18's
+artifact retention **policy** for the set, and the first is the incremental
+pruner's per-snapshot **verdict**. Nothing is cached on either, and neither
+deletes anything — as with the repository health read, a cached verdict keeps
+reporting green after the storage under it has gone away.
+
+## Recorded decision: #862 adds the one mutating repository route, and it declares only
+
+The record above stands for every act on a snapshot; `POST /repositories` is
+the exception it did not cover, and it is recorded here rather than by
+amending it. EPIC K's six reads described a noun no surface could create: a
+repository domain was declarable only by hand-editing `config.yaml`, so the
+*Define a repository domain* screen existed to explain why it could not save.
+
+| route | request | 201 |
+|---|---|---|
+| `POST /repositories` | `CreateRepositoryDomainRequest` | `RepositoryHealth` |
+
+**It is not an `action` on `POST /operations`, and that is the same rule
+rather than an exception to it.** The operations surface exists for acts on
+DATA — long-running, idempotency-keyed, revision-checked, restartable. This
+writes one `repository_domains:` entry into `config.yaml`, which is what
+`POST /backup-sets` and `POST /storage-mediums` do, through the same
+re-read-under-lock, validate, atomic-write, hot-reload door; routing a
+configuration write through the durable-operation machinery would give the
+product two doors onto one file.
+
+**It declares, and nothing more.** No store is created: the repository is
+realized by the first backup run that stores a snapshot in the domain, which
+is the lifecycle a domain named on the add-backup-set wizard already had. So
+the route opens no storage and resolves no passphrase reference — not even to
+describe what it wrote — and its `RepositoryHealth` body is built from the
+declaration: the id, the co-tenancy posture, `degraded`, and a detail saying
+the store is not written yet. Every access boolean is `false` because nothing
+was measured. `GET /repositories` probes from then on, where a domain nothing
+has run into yet answers `reachable` true and `readable` false.
+
+A probing read-back was the first shape of this and was removed in review:
+opening the store would have made a CSRF-checked, destructive-gate-EXEMPT
+route execute a caller-named `passphrase.command` and connect to storage at
+declaration time, under the configuration lock.
+
+**The passphrase is a reference in all three spellings and there is no field
+for the material** — `file`, `env` or `command`, exactly as `config.yaml`,
+the SSH key and `key_encryption` spell a secret. A body that could carry one
+would put it in an access log.
+
+**`maintenance_owner` is a gate on the write and is persisted nowhere.**
+ADR 0017 moves maintenance ownership by transfer only, so `this` is refused
+with `REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE` when a record for that id
+already names an owner, and `another-instance` declares the boundary without
+claiming it. Two more 409s, both well-formed requests refused for the state
+of the deployment: `REPOSITORY_DOMAIN_EXISTS` and
+`INCREMENTAL_ENGINE_DISABLED`.
+
+There is still no route that EDITS, REMOVES or TRANSFERS a domain.
 
 ## Migration record: what was removed and what replaced it
 

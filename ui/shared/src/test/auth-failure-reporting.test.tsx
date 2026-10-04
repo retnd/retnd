@@ -6,12 +6,12 @@ import { EnrollmentPage } from "@shared/auth/EnrollmentPage";
 import { LoginPage } from "@shared/auth/LoginPage";
 import { ApiProvider } from "@shared/api/ApiContext";
 import { createMockApi } from "@shared/api/mock";
-import { BackupManagerError } from "@shared/api/contracts";
+import { RetndError } from "@shared/api/contracts";
 import type { ApiErrorCode } from "@shared/api/contracts";
-import type { BackupManagerApi } from "@shared/api/contracts";
+import type { RetndApi } from "@shared/api/contracts";
 
 /**
- * Issue #274. An operator opened the enrolment link Backup Manager itself
+ * Issue #274. An operator opened the enrolment link retnd itself
  * printed, after the token had lapsed, and was told:
  *
  *     The administrator account could not be created.
@@ -31,15 +31,15 @@ import type { BackupManagerApi } from "@shared/api/contracts";
  *  whether the link carried one at all. */
 const A_LINK_WITH_A_TOKEN = "/enroll?token=placeholder-value-for-this-test";
 
-function apiRefusing(code: ApiErrorCode, message: string, correlationId: string): BackupManagerApi {
+function apiRefusing(code: ApiErrorCode, message: string, correlationId: string): RetndApi {
   const api = createMockApi();
-  const rejection = new BackupManagerError({ code, message, correlationId });
+  const rejection = new RetndError({ code, message, correlationId });
   vi.spyOn(api, "enrollAdministrator").mockRejectedValue(rejection);
   vi.spyOn(api, "login").mockRejectedValue(rejection);
   return api;
 }
 
-function renderEnrollment(api: BackupManagerApi) {
+function renderEnrollment(api: RetndApi) {
   return render(
     <MemoryRouter>
       <ApiProvider api={api}>
@@ -49,6 +49,12 @@ function renderEnrollment(api: BackupManagerApi) {
   );
 }
 
+/** Fills the whole form, which since #830 includes the recovery block:
+ *  the submit button stays disabled until a recovery address and a usable
+ *  SMTP endpoint are present, so a helper that filled only the
+ *  credentials would press a button that does nothing and every case
+ *  below would fail on the absence of a refusal rather than on its
+ *  wording. */
 async function enroll() {
   const username = screen.getByLabelText("Username");
   const password = screen.getByLabelText(/^Password/);
@@ -56,10 +62,13 @@ async function enroll() {
   await userEvent.type(username, "bm-admin");
   await userEvent.type(password, "a-long-enough-passphrase");
   await userEvent.type(confirm, "a-long-enough-passphrase");
+  await userEvent.type(screen.getByLabelText("Recovery email"), "ops@example.com");
+  await userEvent.type(screen.getByLabelText("SMTP host"), "smtp.example.net");
+  await userEvent.type(screen.getByLabelText("From address"), "retnd@example.com");
   await userEvent.click(screen.getByRole("button", { name: "Create administrator" }));
 }
 
-async function signIn(api: BackupManagerApi) {
+async function signIn(api: RetndApi) {
   render(
     <MemoryRouter>
       <ApiProvider api={api}>
@@ -104,7 +113,7 @@ describe("enrolment says why it refused", () => {
     );
     await enroll();
 
-    const remediation = await screen.findByText(/Restart Backup Manager/);
+    const remediation = await screen.findByText(/Restart retnd/);
     expect(remediation.textContent).toMatch(/log/i);
   });
 
@@ -139,7 +148,7 @@ describe("enrolment says why it refused", () => {
 
     await screen.findByText(/administrator account already exists on this instance/i);
     expect(screen.getByRole("link", { name: /sign in/i })).toBeInTheDocument();
-    expect(screen.queryByText(/Restart Backup Manager/)).toBeNull();
+    expect(screen.queryByText(/Restart retnd/)).toBeNull();
   });
 
   it("says to wait when the address is rate limited", async () => {

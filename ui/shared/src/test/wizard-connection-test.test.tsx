@@ -15,6 +15,16 @@
  * the same shape, against the same mock api the rest of this suite runs
  * on, so the gate is proven by driving the screen rather than by reading
  * the component.
+ *
+ * Issue #864 moved where the refusal is SEEN without changing what it
+ * refuses. The rail used to go anywhere, so an unproven source could be
+ * carried all the way to Review and met with a disabled Save; now the
+ * steps that read the test's verdict are not reachable until it has
+ * passed, so the flow stops at the step that can fix it. handleSave's own
+ * connectionProven guard, and the Save buttons' disabled state, are still
+ * underneath — a handler reachable by any other route must not save a set
+ * whose connection nothing proved — which is why these cases assert the
+ * rail AND the button rather than swapping one for the other.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
@@ -25,10 +35,11 @@ import { PlatformProvider } from "@shared/platform/PlatformContext";
 import { genericBridge } from "../../../../apps/generic/frontend/platform";
 import { ApiProvider } from "@shared/api/ApiContext";
 import { createMockApi } from "@shared/api/mock";
-import type { BackupManagerApi } from "@shared/api/contracts";
+import type { RetndApi } from "@shared/api/contracts";
 import { resetGraphForTests } from "@shared/state/graph";
+import { importAKeyAndTrustTheHost, railStep, walkToReview } from "./wizardWalk";
 
-function renderWizard(api: BackupManagerApi = createMockApi()) {
+function renderWizard(api: RetndApi = createMockApi()) {
   return render(
     <MemoryRouter>
       <ApiProvider api={api}>
@@ -40,23 +51,12 @@ function renderWizard(api: BackupManagerApi = createMockApi()) {
   );
 }
 
-/** Everything the Save buttons needed BEFORE this issue: a key imported,
- *  a host trusted, and remote deletion acknowledged. Deliberately stops
- *  short of the connection test, so each case below isolates that one
- *  precondition rather than flipping all four at once. */
-async function everythingExceptTheConnectionTest() {
-  await userEvent.click(screen.getByRole("button", { name: "Authentication" }));
-  await userEvent.click(screen.getByRole("radio", { name: /Import key/ }));
-  await userEvent.type(screen.getByLabelText(/private key/i), "FAKE-TEST-KEY-MATERIAL-not-a-real-key-0123456789");
-  await userEvent.click(screen.getByRole("button", { name: "Import key" }));
-  await screen.findByText(/key imported/i);
-
-  await userEvent.click(screen.getByRole("button", { name: "Verify server" }));
-  await waitFor(() => expect(screen.getByRole("button", { name: "Trust host" })).toBeEnabled());
-  await userEvent.click(screen.getByRole("button", { name: "Trust host" }));
-
-  await userEvent.click(screen.getByRole("button", { name: "Review" }));
-  await userEvent.click(screen.getByRole("checkbox", { name: /remote backup will be removed only after/i }));
+/** Presses the test on the step that owns it since #788 (the rail asks
+ *  for the connection SECOND, because the write probe's answer decides
+ *  what the later steps may offer). The caller is already on that step:
+ *  since #864 it is as far as the rail goes. */
+async function runTheConnectionTest() {
+  await userEvent.click(screen.getByRole("button", { name: /^Test connection$/ }));
 }
 
 afterEach(() => {
@@ -65,54 +65,63 @@ afterEach(() => {
 });
 
 describe("the wizard will not save an unproven connection", () => {
-  it("keeps Save disabled while every other precondition is met", async () => {
+  it("does not let an untested source reach the Save buttons at all", async () => {
     renderWizard();
-    await everythingExceptTheConnectionTest();
+    // Every OTHER precondition the Save buttons ever had: a key
+    // imported, a host key trusted. Deliberately stops short of the
+    // test, so this case isolates that one precondition rather than
+    // flipping several at once.
+    await importAKeyAndTrustTheHost();
 
-    expect(screen.getByRole("button", { name: "Save & enable" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Save, enable & run" })).toBeDisabled();
-    // The hint says which precondition, in the same words as the
-    // control that satisfies it. A disabled button with no reason is
-    // the shape an operator reads as "this app is broken". Matched on
-    // the whole sentence rather than on the control's name, which by
-    // design appears twice on this step.
-    expect(screen.getByText(/Test connection before saving/i)).toBeInTheDocument();
+    // Review is where this flow's Save buttons are, and the steps
+    // between here and there read the test's verdict (the write probe
+    // decides whether step 7 may offer to delete from the source), so
+    // neither is reachable yet.
+    expect(railStep("Retention")).toBeDisabled();
+    expect(railStep("Review")).toBeDisabled();
+    // And the step an operator is left on says what has not been proven,
+    // beside the button that proves it. A flow that stops without
+    // saying why is the shape somebody reads as "this app is broken".
+    expect(screen.getByText(/Nothing has been proven yet/i)).toBeInTheDocument();
   });
 
   it("enables Save once the connection test passes", async () => {
     renderWizard();
-    await everythingExceptTheConnectionTest();
+    await walkToReview();
 
-    await userEvent.click(screen.getByRole("button", { name: /^Test connection$/ }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Save & enable" })).toBeEnabled());
   });
 
-  it("leaves Save disabled when the connection test comes back not ok", async () => {
+  it("leaves the flow short of Save when the connection test comes back not ok", async () => {
     const api = createMockApi();
     vi.spyOn(api, "testCandidateConnection").mockResolvedValue({
       ok: false,
       message: "the remote path could not be listed",
+      writable: false,
       checks: [
         { step: "list", outcome: "failed", category: "remote_path", detail: "/backups/postgresql/ could not be listed" }
       ]
     });
     renderWizard(api);
-    await everythingExceptTheConnectionTest();
+    await importAKeyAndTrustTheHost();
 
-    await userEvent.click(screen.getByRole("button", { name: /^Test connection$/ }));
+    await runTheConnectionTest();
     // Twice on purpose: once as the failing step's own detail, once as
     // the banner that says what it means for saving.
     expect((await screen.findAllByText(/could not be listed/i)).length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "Save & enable" })).toBeDisabled();
+    // A test that RAN is not a test that passed, and only a pass opens
+    // the rest of the rail.
+    expect(railStep("Review")).toBeDisabled();
+    expect(railStep("Engine")).toBeDisabled();
   });
 
   it("checks the values on the form, not a default candidate", async () => {
     const api = createMockApi();
     const spy = vi.spyOn(api, "testCandidateConnection");
     renderWizard(api);
-    await everythingExceptTheConnectionTest();
+    await importAKeyAndTrustTheHost();
 
-    await userEvent.click(screen.getByRole("button", { name: /^Test connection$/ }));
+    await runTheConnectionTest();
     await waitFor(() => expect(spy).toHaveBeenCalled());
     // The known_hosts line the operator actually trusted, and the key
     // they actually imported. A check run against anything else would be
@@ -125,20 +134,21 @@ describe("the wizard will not save an unproven connection", () => {
 
   it("makes an edited host undo a passing test", async () => {
     renderWizard();
-    await everythingExceptTheConnectionTest();
-    await userEvent.click(screen.getByRole("button", { name: /^Test connection$/ }));
+    await walkToReview();
     await waitFor(() => expect(screen.getByRole("button", { name: "Save & enable" })).toBeEnabled());
 
     // Going back and pointing the wizard at a different machine has to
     // take the proof away with it, for exactly the reason trusting a
     // host does: a result that outlived the values it was about would be
     // a green tick standing for a connection nobody ever made.
-    await userEvent.click(screen.getByRole("button", { name: "Source" }));
+    await userEvent.click(railStep("Source"));
     const host = screen.getByLabelText(/host/i);
     await userEvent.clear(host);
     await userEvent.type(host, "other-machine.internal");
 
-    await userEvent.click(screen.getByRole("button", { name: "Review" }));
-    expect(screen.getByRole("button", { name: "Save & enable" })).toBeDisabled();
+    // The step is un-ticked and Review — with the Save buttons on it —
+    // is out of reach again until a test passes for this machine.
+    expect(railStep("Connection test")).toHaveAttribute("data-complete", "false");
+    expect(railStep("Review")).toBeDisabled();
   });
 });
