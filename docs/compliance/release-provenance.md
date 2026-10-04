@@ -317,7 +317,7 @@ ordered procedure is in
 binaries were stamped with, which is what `/retnd version` answers.
 `canonical.json`'s `image.tag` is the semantic version every provider package
 advertises. Those have to be the same string in a real release, and now they are:
-both record `0.5.0`, the tag cut for this release rather than the generator's
+both record `0.5.1`, the tag cut for this release rather than the generator's
 `git describe --tags --always` fallback that produced an abbreviated commit before
 this repository had any tags.
 

@@ -328,8 +328,8 @@ SOURCE_PORT_ENV_LEGACY = "RCLONE_MANAGER_SOURCE_PORT"
 # It proves exactly one version: this one. A release cut after this
 # installer was written has no digest here and cannot get one, which is
 # the reason the --image default is pinned rather than floating.
-CARRIED_RELEASE = "0.5.0"
-CARRIED_RELEASE_DIGEST = "sha256:58b1a1697b72c65231a34ca92719a861eeee116ef737f1db61352c178836aed2"
+CARRIED_RELEASE = "0.5.1"
+CARRIED_RELEASE_DIGEST = None
 
 # Where that release lives. Split into two halves rather than written as
 # one reference on purpose: the --image default is the one literal
@@ -7333,7 +7333,7 @@ def _add_install_prereq_groups(sp: argparse.ArgumentParser) -> None:
                               "test, so this installer needs no checkout on the host. Supply it to install "
                               "a locally modified runtime from a checkout; naming a path that does not "
                               "exist is still a refusal.")
-    runtime.add_argument("--image", default="ghcr.io/retnd/retnd:0.5.0",
+    runtime.add_argument("--image", default="ghcr.io/retnd/retnd:0.5.1",
                          action=_RecordsThatItWasSupplied,
                          help="Image reference both services run.")
     runtime.add_argument("--release", default=CARRIED_RELEASE,
@@ -7507,7 +7507,7 @@ def build_parser() -> argparse.ArgumentParser:
             "      --prefix /volume1/retnd \\\n"
             "      --ssh-key /volume1/retnd/secrets/id_ed25519 \\\n"
             "      --known-hosts /volume1/retnd/secrets/known_hosts \\\n"
-            "      --image ghcr.io/retnd/retnd:0.5.0\n"
+            "      --image ghcr.io/retnd/retnd:0.5.1\n"
         ),
     )
     _add_shared_groups(sp_install)
