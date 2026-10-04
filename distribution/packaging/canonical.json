@@ -34,27 +34,7 @@
       "metadata formats. Every acceptance procedure in docs/acceptance/ keeps its step 0 for a",
       "deployment that cannot reach ghcr.io (push to your own registry, or docker save/load),",
       "and every profile keeps the reference substitutable."
-    ],
-    "mirror": {
-      "reference": "ghcr.io/retndproject/retnd:0.5.0",
-      "retiredBy": 947,
-      "note": [
-        "FR-39: a GHCR package path is not covered by GitHub's transfer redirects, so the",
-        "old package path is pushed alongside the new one for exactly one release. FR-41's",
-        "cutover (#895) moved image.reference above to ghcr.io/retnd/retnd and left this",
-        "naming the retained path, which is the state guard 7 in",
-        "scripts/bdtools/release/publish_image.py calls 'the reference has moved': both are",
-        "pushed, same build, same digest. Removing this object is #947's job, together with",
-        "that guard, which refuses a run whose push set does not contain this reference.",
-        "MEASURED AT THE CUTOVER, and it is the reason this object is a formality rather",
-        "than a rescue: `gh api orgs/retndproject/packages?package_type=container`",
-        "answered an EMPTY list on 2026-09-15, so no image has ever actually been",
-        "published under the old package path and there is no existing `docker pull` of it",
-        "to strand. The declaration stays until #947 anyway, because the cost of keeping",
-        "it is one extra push and the cost of being wrong about that reading is an",
-        "operator's pinned pull 404ing with nothing to tell them why."
-      ]
-    }
+    ]
   },
   "architectures": [
     "amd64",

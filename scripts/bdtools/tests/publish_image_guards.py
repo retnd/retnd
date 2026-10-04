@@ -159,13 +159,9 @@ def new_repo(tmpdirs: list[str]) -> Path:
     (d / "core" / "main.go").write_text("package main\n")
     (d / "ui" / "marker").write_text("ui\n")
     (d / "container" / "Dockerfile").write_text("FROM scratch\n")
-    # The `image` block guards 1 and 7 read. `mirror` is not decoration
-    # here: guard 7 refuses a canonical.json that declares none, so a
-    # fixture without it would make every arm below fail for the
-    # fixture's reason rather than the guard's.
+    # The `image` block guard 1 reads.
     (d / "distribution" / "packaging" / "canonical.json").write_text(
-        '{ "image": { "reference": "ghcr.io/retnd/retnd:1.0.0", "published": false,'
-        ' "mirror": { "reference": "ghcr.io/retnd/retnd:1.0.0", "retiredBy": 947 } } }\n'
+        '{ "image": { "reference": "ghcr.io/retnd/retnd:1.0.0", "published": false } }\n'
     )
     (d / "container" / "release-manifest.json").write_text(
         '{ "version": "test", "commit": "0000000000000000000000000000000000000000" }\n'
@@ -174,13 +170,6 @@ def new_repo(tmpdirs: list[str]) -> Path:
     git(d, "add", "-A")
     git(d, "commit", "-qm", "base")
     return d
-
-
-def set_canonical_image(repo: Path, image_json: str) -> None:
-    """Replace the fixture's whole `image` block, so a guard-7 arm states
-    the release identity it is testing in one place rather than patching
-    a key into the default one."""
-    (repo / "distribution" / "packaging" / "canonical.json").write_text('{ "image": ' + image_json + " }\n")
 
 
 def pin_manifest_to_head(repo: Path) -> None:
@@ -503,52 +492,22 @@ def main() -> int:
         expect(rc, out, 0, "stopping before docker buildx build")
         refute(out, "SKIP_PROVENANCE_CHECK=1 removes the check")
 
-        # --- guard 7: the GHCR mirror window (FR-39, #890)
+        # --- the push set: image.reference and nothing else
         #
-        # A GHCR package path is not covered by GitHub's
-        # repository-transfer redirects, so the retained path is pushed
-        # alongside the new one for one release. The refusal that matters
-        # is the one that fires when a release run would push ONLY the new
-        # package name, which is what happens the moment somebody moves
-        # image.reference and drops image.mirror in the same edit.
-        current = "image.reference moved to the new package with no mirror declared"
+        # The GHCR mirror window (FR-39) used to add the retained package
+        # path to this set, and guard 7 required it. The retained
+        # organisation no longer exists, so that second push failed AFTER
+        # the canonical one had already landed, which left 0.5.0 in the
+        # registry unsigned. A release now pushes exactly the one reference
+        # canonical.json declares.
+        current = "a release publishes image.reference and no other package path"
         repo = new_repo(tmpdirs)
         pin_manifest_to_head(repo)
-        set_canonical_image(repo, '{ "reference": "ghcr.io/retnd/retnd:1.0.0", "published": false }')
-        rc, out = run_guards(repo, "SKIP_PROVENANCE_CHECK=1")
-        expect(rc, out, 2, "no image.mirror")
-        expect(rc, out, 2, "ghcr.io/retnd/retnd")
-        expect(rc, out, 2, "ghcr.io/retndproject/retnd")
-        expect(rc, out, 2, "#947")
-        refute(out, "every guard passed")
-
-        current = "the same move WITH the retained mirror publishes both package paths"
-        repo = new_repo(tmpdirs)
-        pin_manifest_to_head(repo)
-        set_canonical_image(
-            repo,
-            '{ "reference": "ghcr.io/retnd/retnd:1.0.0", "published": false,'
-            ' "mirror": { "reference": "ghcr.io/retndproject/retnd:1.0.0", "retiredBy": 947 } }',
-        )
         rc, out = run_guards(repo, "SKIP_PROVENANCE_CHECK=1")
         expect(rc, out, 0, "every guard passed")
-        expect(rc, out, 0, "Would publish ghcr.io/retnd/retnd:1.0.0, ghcr.io/retndproject/retnd:1.0.0")
-        refute(out, "no image.mirror")
-
-        # A mirror left behind on the previous tag pushes nothing to the
-        # retained path for THIS release, which is the same 404 arriving
-        # one release later.
-        current = "a mirror stranded on the previous tag"
-        repo = new_repo(tmpdirs)
-        pin_manifest_to_head(repo)
-        set_canonical_image(
-            repo,
-            '{ "reference": "ghcr.io/retnd/retnd:1.0.0", "published": false,'
-            ' "mirror": { "reference": "ghcr.io/retndproject/retnd:0.9.0", "retiredBy": 947 } }',
-        )
-        rc, out = run_guards(repo, "SKIP_PROVENANCE_CHECK=1")
-        expect(rc, out, 2, "never reaches ghcr.io/retndproject/retnd")
-        expect(rc, out, 2, "#947")
+        expect(rc, out, 0, "Would publish ghcr.io/retnd/retnd:1.0.0 for")
+        refute(out, "retndproject")
+        refute(out, "mirror")
 
         # --- the parity proof publish-image.sh runs before the push
         #

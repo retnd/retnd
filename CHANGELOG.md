@@ -1128,6 +1128,21 @@
   timeout is 45 minutes rather than 30, because that package alone took 22 of them
   on the hosted runner.
 
+- **The image is published under `ghcr.io/retnd/retnd` only** (#947). The release
+  workflow pushed `ghcr.io/retndproject/retnd` as well, a one-release mirror
+  that the repository transfer was meant to need. That organisation no longer
+  exists, so the second push failed with `denied: not_found: owner not found`
+  after the first had already landed, and the first 0.5.0 publish stopped
+  between the two with `ghcr.io/retnd/retnd:0.5.0` in the registry unsigned.
+  The cutover had measured that nothing was ever published under the old path,
+  so there was no existing `docker pull` for the mirror to keep alive. The mirror
+  declaration (`image.mirror` in `canonical.json`), its guard in
+  `scripts/bdtools/release/publish_image.py` and that guard's test arms are gone
+  together, as the declaration said they would be, and a release now pushes
+  `image.reference` and nothing else, with a test that holds it. The unsigned
+  0.5.0 tag was in a private package and was never recorded, and the corrected
+  release publishes it again, signed.
+
 - **An exec refusal is always reported as a refusal** (#1029). When a remote
   workflow hook is configured over an account whose server answers an exec
   request with "This service allows sftp connections only." and exits 1 (an

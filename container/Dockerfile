@@ -47,11 +47,10 @@
 # config directory use the same identity (container/compose.yaml).
 #
 # What #890 did NOT move is the image reference, and #895's cutover did:
-# it is `ghcr.io/retnd/retnd` now, with `ghcr.io/retndproject/retnd`
-# declared as a one-release mirror in
-# distribution/packaging/canonical.json. A registry path is not covered by
-# GitHub's repository-transfer redirects, so the two are published
-# together for one release and #947 closes that window.
+# it is `ghcr.io/retnd/retnd` now, and that is the only package this
+# repository publishes. A one-release mirror under the old organisation was
+# declared for a while; that organisation no longer exists and nothing was
+# ever published there, so the mirror is gone.
 
 # ---- core builder ---------------------------------------------------------
 # Pinned by digest, not just tag, so this stage resolves to the exact same
