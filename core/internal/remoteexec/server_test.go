@@ -338,6 +338,54 @@ func TestARunOnAForcedCommandAccountIsRefusedRatherThanReportedAsSuccess(t *test
 	}
 }
 
+// TestAnSFTPOnlyRefusalIsAnExecCapabilityRefusalHoweverTheWriteRaces is the
+// answer to a hosted failure that no single run reproduces.
+//
+// An internal-sftp account does not read the probe it is sent: it prints its
+// banner and exits 1, and the channel is closed under the client's payload
+// write. Whether that write lands before the close or after it is a race,
+// and when it lost, runOnce returned the write error and threw away the
+// status and banner the server had already given, so the SFTP-only refusal
+// was reported as ErrTransportLoss ("writing the execution envelope to the
+// exec channel: EOF"): a caller was told the connection was broken, and an
+// operator was told nothing about the capability that is missing.
+//
+// Many preflights, because the window is microseconds wide: each one is a
+// fresh session, and any one of them classifying the refusal as a lost
+// connection is the defect.
+func TestAnSFTPOnlyRefusalIsAnExecCapabilityRefusalHoweverTheWriteRaces(t *testing.T) {
+	sftpOnly := func(t *testing.T, s *fakeSession) {
+		t.Helper()
+		s.Print(t, "This service allows sftp connections only.\n")
+		s.Exit(1)
+	}
+	server := startFakeSSHD(t, sftpOnly)
+	client := connectTo(t, server)
+
+	const attempts = 400
+
+	lost := 0
+
+	for range attempts {
+		_, err := client.Preflight(t.Context(), []byte("printf 'the hook ran\\n'\n"))
+		if err == nil {
+			t.Fatal("an SFTP-only account passed the exec preflight")
+		}
+
+		if !errors.Is(err, ErrExecCapability) {
+			lost++
+
+			if lost == 1 {
+				t.Errorf("the refusal is not an ErrExecCapability, so a caller cannot tell it from a broken connection: %v", err)
+			}
+		}
+	}
+
+	if lost > 0 {
+		t.Errorf("%d of %d refusals were reported as something other than a capability refusal", lost, attempts)
+	}
+}
+
 // TestARunWithACapabilityForOtherBytesIsRefused is the other half of the
 // gate. A proof is about a specific script on a specific connection: the
 // syntax check that is part of it was run against those bytes, so honouring

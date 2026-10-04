@@ -677,6 +677,16 @@ func (c *Client) runOnce(ctx context.Context, timeout time.Duration, command str
 		// only worth having if the whole payload reached the far
 		// side, so here the write's verdict still fails the session.
 		if writeErr := drainWrite(session, writeDone); writeErr != nil {
+			// The far side's own status travels with the write error when
+			// it gave one. A caller for whom a refusal is an answer (the
+			// probe) can still read it; every other caller looks at the
+			// error first and is unchanged, because for them a payload that
+			// did not arrive whole is still a failed session.
+			var exitErr *ssh.ExitError
+			if errors.As(waitErr, &exitErr) && exitErr.Signal() == "" {
+				return exitErr.ExitStatus(), writeErr
+			}
+
 			return 0, writeErr
 		}
 		if waitErr == nil {
