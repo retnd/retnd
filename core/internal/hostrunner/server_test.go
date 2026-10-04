@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -359,6 +361,100 @@ func TestServer_CancelReachesAStepFromASecondConnection(t *testing.T) {
 
 	if err := client.Cancel(context.Background(), "run-cancel", "step-cancel"); !IsCode(err, CodeNotFound) {
 		t.Errorf("cancelling a step that is not running answered %v rather than not_found", err)
+	}
+}
+
+// holdFirstWrite is a connection whose first write stops until the test lets
+// it go, and says when it has been reached. It holds the server at the one
+// point a real scheduler only visits for microseconds: the step is over, and
+// its result is being written.
+type holdFirstWrite struct {
+	net.Conn
+	reached chan struct{}
+	proceed chan struct{}
+	once    sync.Once
+}
+
+func (h *holdFirstWrite) Write(p []byte) (int, error) {
+	h.once.Do(func() {
+		close(h.reached)
+		<-h.proceed
+	})
+
+	return h.Conn.Write(p)
+}
+
+// TestServer_AStepThatHasFinishedIsNotRunningWhileItsResultIsWritten is the
+// ordering behind the cancel test above, made deterministic.
+//
+// A client unblocks on the result frame, and the cancel it sends next can
+// arrive while the server is still inside that write. The step had already
+// reported, so cancelling it has to be answered not_found like any other step
+// this runner is not running, and not as a success. The server used to forget
+// a step only after the write (a deferred release), so that cancel was
+// answered success; a hosted run saw it once in about a thousand, which a
+// loop cannot reproduce on demand and this can.
+func TestServer_AStepThatHasFinishedIsNotRunningWhileItsResultIsWritten(t *testing.T) {
+	container, _ := fakeCapability(t, fakeDocker{})
+	server, err := NewServer(Config{
+		Layout:    testLayout(t),
+		Version:   "test-1.2.3",
+		Token:     []byte(testToken),
+		Container: container,
+		Grace:     200 * time.Millisecond,
+		EUID:      os.Geteuid(),
+		Username:  CurrentUsername(os.Geteuid()),
+	})
+	if err != nil {
+		t.Fatalf("preparing the runner: %v", err)
+	}
+
+	engine, runner := net.Pipe()
+	t.Cleanup(func() { engine.Close(); runner.Close() })
+
+	held := &holdFirstWrite{Conn: runner, reached: make(chan struct{}), proceed: make(chan struct{})}
+	finished := make(chan struct{})
+
+	go func() {
+		defer close(finished)
+		server.handleExecute(context.Background(), held, scriptRequest("run-held", "step-held", "true\n"))
+	}()
+
+	select {
+	case <-held.reached:
+	case <-time.After(20 * time.Second):
+		close(held.proceed)
+		t.Fatal("the step never reached the point of writing its result")
+	}
+
+	// The step is over and its result is mid-write. Cancel it from a second
+	// connection, which is how an engine does.
+	cancelEngine, cancelRunner := net.Pipe()
+	t.Cleanup(func() { cancelEngine.Close(); cancelRunner.Close() })
+
+	go server.handleCancel(cancelRunner, Request{Op: OpCancel, RunID: "run-held", StepID: "step-held"})
+
+	_ = cancelEngine.SetReadDeadline(time.Now().Add(10 * time.Second))
+	answer, readErr := ReadMessage(cancelEngine)
+
+	// Let the server finish before asserting, so a failure here does not
+	// leave the handler blocked on a pipe nobody reads.
+	close(held.proceed)
+	_ = engine.SetReadDeadline(time.Now().Add(10 * time.Second))
+	_, _ = ReadMessage(engine)
+
+	select {
+	case <-finished:
+	case <-time.After(20 * time.Second):
+		t.Error("the handler never returned after its result was read")
+	}
+
+	if readErr != nil {
+		t.Fatalf("reading the answer to the cancel: %v", readErr)
+	}
+
+	if answer.Kind != KindFailure || answer.Failure == nil || answer.Failure.Code != CodeNotFound {
+		t.Errorf("a cancel for a step that had already finished, sent while its result was being written, was answered %+v rather than not_found", answer)
 	}
 }
 

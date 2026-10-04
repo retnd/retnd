@@ -10,7 +10,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/retnd/retnd/core/internal/backupengine"
 	"github.com/retnd/retnd/core/internal/backupengine/kopia"
@@ -637,7 +636,7 @@ func TestAVerificationThatReadNothingIsNotAContentClaim(t *testing.T) {
 // small enough that creating them costs a couple of seconds.
 const unrelatedBlobCount = 60000
 
-// TestASampledVerificationCostsTheSnapshotAndNotTheRepository is the heap
+// TestASampledVerificationCostsTheSnapshotAndNotTheRepository is the memory
 // bound on every rung above structural.
 //
 // The first implementation called blob.ReadBlobMap before the walk, which
@@ -649,21 +648,20 @@ const unrelatedBlobCount = 60000
 //
 // The two halves of the fix are asserted separately: the report is
 // unchanged (the packs this snapshot references are still all proven
-// present, so the rung still finds a missing one), and the peak heap of
-// the same verification does not move when the repository around it grows
+// present, so the rung still finds a missing one), and the bytes the same
+// verification allocates do not move when the repository around it grows
 // by 60,000 blobs.
 func TestASampledVerificationCostsTheSnapshotAndNotTheRepository(t *testing.T) {
-	// Deliberately no t.Parallel: peakHeap samples process-wide
-	// HeapAlloc, so a sibling test's allocations would be measured as
-	// this one's.
+	// Deliberately no t.Parallel: allocation is read process-wide, so a
+	// sibling test's allocations would be measured as this one's.
 	f := newVerifyFixture(t)
 	req := backupengine.VerifyRequest{Level: model.LevelContentSample, SamplePercent: 100}
 
-	clean, cleanPeak := verifyHeapCost(t, f, req)
+	clean, cleanAlloc := verifyAllocCost(t, f, req)
 
 	writeUnrelatedBlobs(t, repoDir(t, f.loc), unrelatedBlobCount)
 
-	loaded, loadedPeak := verifyHeapCost(t, f, req)
+	loaded, loadedAlloc := verifyAllocCost(t, f, req)
 
 	if loaded.FilesVerified != clean.FilesVerified || loaded.BlobsChecked != clean.BlobsChecked {
 		t.Errorf("the same verification read %d file(s) and checked %d blob(s) beside 60,000 unrelated ones, and %d/%d without them; what a snapshot proves cannot depend on what else is in the repository",
@@ -680,36 +678,39 @@ func TestASampledVerificationCostsTheSnapshotAndNotTheRepository(t *testing.T) {
 
 	// 4 MiB is the budget for "did not notice", stated in absolute bytes
 	// because the thing it forbids is absolute: a map of 60,000 blob
-	// records is tens of megabytes of live heap, and the fixed cost of
-	// walking a twelve-file snapshot is the same in both passes.
+	// records is tens of megabytes, and the fixed cost of walking a
+	// twelve-file snapshot is the same in both passes.
 	const budget = 4 << 20
 
-	if growth := int64(loadedPeak) - int64(cleanPeak); growth > budget {
-		t.Errorf("the same verification peaked at %d bytes of heap in a repository holding 60,000 unrelated blobs and %d bytes without them, %d more: it is paying for the whole blob namespace (blob.ReadBlobMap) rather than for the snapshot",
-			loadedPeak, cleanPeak, growth)
+	if growth := int64(loadedAlloc) - int64(cleanAlloc); growth > budget {
+		t.Errorf("the same verification allocated %d bytes in a repository holding 60,000 unrelated blobs and %d bytes without them, %d more: it is paying for the whole blob namespace (blob.ReadBlobMap) rather than for the snapshot",
+			loadedAlloc, cleanAlloc, growth)
 	}
 }
 
-// verifyHeapCost runs the verification several times and reports it with the
-// LOWEST peak heap any run held above a freshly collected baseline.
+// verifyAllocCost runs the verification several times and reports the FEWEST
+// bytes any one run allocated.
 //
-// Two things make one reading of this number unreliable, and they are fixed
-// differently.
+// Allocation, and not a sampled heap peak, which is what this used to read.
+// The tree walker allocates a fixed ~25 MB for its already-seen set on EVERY
+// verification, small snapshot or large, and the same cost is in the clean
+// pass and the loaded one. A verification of a twelve-file snapshot can finish
+// between two ticks of any sampler, so whether the clean pass was seen at all
+// depended on the speed of the machine: the difference between the passes, the
+// number this test asserts on, read either ~0 or ~26 MB. It was one run in
+// ten locally and every run of the core-without-apps job on a hosted runner.
+// TotalAlloc is cumulative, so there is no tick to fall between: the fixed cost
+// is in both passes and cancels, and what is left is what the repository
+// around the snapshot added.
 //
-// Sampled every millisecond rather than every 20: the tree walker allocates a
-// fixed ~25 MB for its already-seen set on EVERY verification, small
-// snapshot or large, and that cost is the same in the clean pass and the
-// loaded one. A verification of a twelve-file snapshot can finish inside one
-// 20 ms tick, so whether the sampler saw that fixed cost at all was a coin
-// flip per pass, and the difference between the two passes -- the number this
-// test asserts on -- read either ~0 or ~26 MB.
+// It is also the stricter claim. A map of every blob that is built, walked and
+// dropped never shows in a peak a sampler misses, and that is exactly what
+// blob.ReadBlobMap does.
 //
-// The minimum of three runs rather than one: with the sampler fixed, one run
-// in ten still read ~9 MB of growth, which is where the collector happened to
-// be in its cycle. What this test exists to catch -- a map of 60,000 blob
-// records held live for the walk -- is in EVERY run, so it survives taking the
-// minimum; collector timing is in some of them, so it does not.
-func verifyHeapCost(t *testing.T, f *verifyFixture, req backupengine.VerifyRequest) (backupengine.VerifyReport, uint64) {
+// The lowest of three runs, so an allocation by some other goroutine during
+// one of them is not charged to the verification: what this test exists to
+// catch is in EVERY run.
+func verifyAllocCost(t *testing.T, f *verifyFixture, req backupengine.VerifyRequest) (backupengine.VerifyReport, uint64) {
 	t.Helper()
 
 	const runs = 3
@@ -722,25 +723,20 @@ func verifyHeapCost(t *testing.T, f *verifyFixture, req backupengine.VerifyReque
 	for i := range runs {
 		runtime.GC()
 
-		var base runtime.MemStats
+		var before, after runtime.MemStats
 
-		runtime.ReadMemStats(&base)
+		runtime.ReadMemStats(&before)
 
 		var err error
 
-		peak := peakHeapEvery(time.Millisecond, func() {
-			report, err = f.repo.Verify(context.Background(), f.snapshot.ID, req)
-		})
+		report, err = f.repo.Verify(context.Background(), f.snapshot.ID, req)
 		if err != nil {
 			t.Fatalf("%s Verify: %v (%v)", req.Level, err, report.Errors)
 		}
 
-		var cost uint64
-		if peak > base.HeapAlloc {
-			cost = peak - base.HeapAlloc
-		}
+		runtime.ReadMemStats(&after)
 
-		if i == 0 || cost < lowest {
+		if cost := after.TotalAlloc - before.TotalAlloc; i == 0 || cost < lowest {
 			lowest = cost
 		}
 	}

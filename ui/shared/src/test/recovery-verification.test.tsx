@@ -175,14 +175,19 @@ describe("the unverified-recovery banner", () => {
     vi.spyOn(api, "getRecoverySettings").mockResolvedValue(UNVERIFIED);
     renderBanner(api);
 
-    expect(await screen.findByText(/Unverified/)).toBeInTheDocument();
-    expect(screen.getByText("ops@example.com")).toBeInTheDocument();
-    // The machine-readable instant, asserted through the element rather
-    // than through a locale-formatted string: the rendered text depends
-    // on the test machine's locale and the guarantee does not.
-    const deadline = document.querySelector("time");
-    expect(deadline?.getAttribute("datetime")).toBe("2026-03-01T12:30:00Z");
-    expect(screen.getByText(/will be\s+removed/)).toBeInTheDocument();
+    // One retried block rather than a find followed by plain gets: the banner
+    // can re-render between the two (a hosted run saw findByText return an
+    // element that was detached by the next line), and each of these is true
+    // of the settled banner whichever render they land on.
+    await waitFor(() => {
+      expect(screen.getByText(/Unverified/)).toBeInTheDocument();
+      expect(screen.getByText("ops@example.com")).toBeInTheDocument();
+      // The machine-readable instant, asserted through the element rather
+      // than through a locale-formatted string: the rendered text depends
+      // on the test machine's locale and the guarantee does not.
+      expect(document.querySelector("time")?.getAttribute("datetime")).toBe("2026-03-01T12:30:00Z");
+      expect(screen.getByText(/will be\s+removed/)).toBeInTheDocument();
+    });
     // #620's opt-out: this is the banner whose consequence is that the
     // console stops having an administrator.
     expect(screen.queryByRole("button", { name: /dismiss/i })).toBeNull();
