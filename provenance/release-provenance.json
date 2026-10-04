@@ -18,8 +18,8 @@
   "imageReference": "ghcr.io/retnd/retnd:0.5.0",
   "releaseManifest": {
     "path": "container/release-manifest.json",
-    "sha256": "351f32a874c0b65ffe62728654ce045b711718482953a76d9033862af1c3bb51",
-    "commit": "5414c6f2711f88cb366f1244a2edce18821eef5f",
+    "sha256": "f9e00acca0f295e2c1e154e66964150ad4a0e04a34512c9da44a51f4eec1e6ee",
+    "commit": "eac3eb12778d1b132e6d00e9a4e1c89d0066fe59",
     "recordedBuildVersion": "0.5.0",
     "architectures": [
       "amd64",
@@ -51,12 +51,12 @@
   },
   "sbom": {
     "path": "provenance/sbom.spdx.json",
-    "sha256": "1354c067a6907f26bdf682a20c36c479d738158dc1aa6dc5d65a64cbf86b977a",
+    "sha256": "bbc1b3d3caa6e563c505f050513372a68cdf33871700ebd95d0e2848134d55ed",
     "format": "SPDX-2.3"
   },
   "checksums": {
     "path": "provenance/checksums.txt",
-    "sha256": "2da1cc3358048fcdac67dd46f82ca570480941e23eb92ffa64be199f6f72532b",
+    "sha256": "a9e4a03e655b9f45ef8aea053d309af8971dcee0d99041d980eb63512f63d5f0",
     "format": "sha256sum"
   },
   "artifacts": [
