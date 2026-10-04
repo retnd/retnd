@@ -1128,6 +1128,18 @@
   timeout is 45 minutes rather than 30, because that package alone took 22 of them
   on the hosted runner.
 
+- **An SFTP-only account's exec refusal is always reported as one** (#1029). When
+  a remote workflow hook is configured over an account whose server answers an
+  exec request with "This service allows sftp connections only." and exits, the
+  server never reads the probe it was sent, so the client's write of that probe
+  could fail on the refusal's own ending, and the refusal was reported as a lost
+  connection (`writing the execution envelope to the exec channel: EOF`) instead
+  of naming the missing capability. About half of the refusals took that path
+  against a fast server. The probe now reads the exit status the server already
+  gave and reports the refusal as the capability error it is; a write that fails
+  with no such answer, or with the probe's marker already printed, still fails the
+  session, because a probe that ran over a prefix of its payload proves nothing.
+
 - **The docs-site capture tooling works again, in four separate places** (#817).
   Nothing in this repository checks that the scripts which take the
   documentation site's screenshots and clips still run, and by the time EPIC L
