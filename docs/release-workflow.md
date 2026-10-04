@@ -33,7 +33,7 @@ registry is immutable by policy. A correction gets a new version.
 
 | File | Authority |
 | --- | --- |
-| `distribution/packaging/canonical.json` | Version, canonical image reference, optional mirror, architectures and published state |
+| `distribution/packaging/canonical.json` | Version, canonical image reference, architectures and published state |
 | `container/release-manifest.json` | Source commit, binary hashes, per-architecture registry digests and index digest |
 | `provenance/release-provenance.json` | Derived release, signing and compliance record |
 | `provenance/sbom.spdx.json` | SPDX SBOM distributed with the release |
@@ -67,7 +67,6 @@ Review `CHANGELOG.md`, then update the image block in
 - `image.tag` is `$VERSION`;
 - `image.reference` ends in `:$VERSION`;
 - `image.published` is `false`;
-- if `image.mirror` exists, its reference carries the same tag.
 
 Do not copy registry digests from the preceding release. A candidate has no
 registry identity until this candidate is pushed.
@@ -209,7 +208,6 @@ cosign verify \
 Also confirm:
 
 - every declared architecture appears in `imagetools inspect`;
-- every declared mirror resolves to the same release digest;
 - the compliance bundle workflow artifact contains `LICENSE`, `NOTICE`,
   `provenance/` and `container/release-manifest.json`;
 - the installer accepts the canonical tag and pins it to the recorded index
