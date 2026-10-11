@@ -416,7 +416,7 @@ func TestDefaultThawGoesThroughTheExistingRestoreOperationOncePerDay(t *testing.
 	}
 }
 
-func TestKopiaSetRefusesAndNamesSnapshotRestore(t *testing.T) {
+func TestAnIncrementalEngineSetRefusesAndNamesSnapshotRestore(t *testing.T) {
 	f := newRecoveryFixture(t, fixtureOpts{localCopy: true, engine: "kopia"})
 	_, err := f.b.MintRecovery(context.Background(), f.session(), RecoveryRequest{ArtifactID: f.artifact, Target: stagingTo("x")})
 	if err == nil {
