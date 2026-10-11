@@ -414,17 +414,19 @@ func TestAStageGivesBackItsReadSlotWhateverHappens(t *testing.T) {
 	data := sample(4096)
 
 	if s, err := e.Stage(context.Background(), goodSource(data), expectFor(data, OriginRemote)); err != nil {
-		t.Fatal(err)
+		t.Fatalf("the first stage on a free slot: %v", err)
 	} else {
 		_ = s.Discard()
 	}
 	if _, err := e.Stage(context.Background(), &bytesSource{data: data, flipAt: 9}, expectFor(data, OriginRemote)); !errors.Is(err, ErrIntegrity) {
-		t.Fatalf("%v", err)
+		t.Fatalf("a stage after a success should reach the copy and fail its verification, got %v (a read slot from the first is still held)", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := e.Stage(ctx, goodSource(data), expectFor(data, OriginRemote)); err == nil {
 		t.Fatal("a cancelled stage succeeded")
+	} else if errors.Is(err, budget.ErrOverBudget) {
+		t.Fatalf("a cancelled stage was refused by the budget instead of by its context: the slot is still held by an earlier one (%v)", err)
 	}
 	rel, err := e.Reads.Acquire("m")
 	if err != nil {
