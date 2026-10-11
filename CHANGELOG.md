@@ -104,9 +104,10 @@
   backup page and the dashboard: Stored (how many copies), Content verified (built
   from each copy's achieved verification class and time, so an existence check never
   reads as content verification) and Recovery tested. There is no roll-up. The
-  Recover artifact dialog mints a grant, then has the host read the whole copy and
-  match it to the recorded digest before a byte is sent; a browser download is handed
-  to the browser and the page does not claim the file arrived, while a staging or
+  Recover artifact dialog mints a grant, then has the host prepare the download with
+  one read against the recorded digest and then send it from where it lives, checking
+  each piece; a browser download is handed to the browser and the page does not claim
+  the file arrived, while a staging or
   destination recovery reports the digest the host placed. An archived copy is a
   restore request first (cost acknowledged, no price or time shown, because none is
   known) and a recovery once the provider has made it readable. Settings carries the
@@ -227,9 +228,10 @@
   backup page and the dashboard: Stored (how many copies), Content verified (built
   from each copy's achieved verification class and time, so an existence check never
   reads as content verification) and Recovery tested. There is no roll-up. The
-  Recover artifact dialog mints a grant, then has the host read the whole copy and
-  match it to the recorded digest before a byte is sent; a browser download is handed
-  to the browser and the page does not claim the file arrived, while a staging or
+  Recover artifact dialog mints a grant, then has the host prepare the download with
+  one read against the recorded digest and then send it from where it lives, checking
+  each piece; a browser download is handed to the browser and the page does not claim
+  the file arrived, while a staging or
   destination recovery reports the digest the host placed. An archived copy is a
   restore request first (cost acknowledged, no price or time shown, because none is
   known) and a recovery once the provider has made it readable. Settings carries the

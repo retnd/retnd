@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "7489b706898da4d1362a279b1ae4c18394d5ac512a227c203d465c8666f8fb46";
+export const CONTRACT_SHA256 = "4a16c4c2b79c105cc8ba38f49b190b434cf15b7259f5b09bb82aaa732b738cf2";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -3536,9 +3536,12 @@ export interface WireRecoverySettingsUpdate {
 /** Where one recovery writes its bytes. The set is closed: download
  *  streams to the caller that redeems the grant, staging places one
  *  file under the configured recovery staging root, storage uploads
- *  to another configured storage destination. Nothing is written
- *  anywhere until the whole copy has been read and has matched the
- *  SHA-256 the journal recorded. */
+ *  to another configured storage destination. A staging or storage
+ *  target is written only after the whole copy has been read and has
+ *  matched the SHA-256 the journal recorded. A download is not
+ *  staged: it is refused before its first byte unless a read of the
+ *  whole copy has matched that digest, and each chunk is checked
+ *  again as it is sent. */
 export interface WireRecoveryTarget {
   key?: string;
   kind: "download" | "staging" | "storage";
