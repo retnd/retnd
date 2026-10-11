@@ -736,7 +736,7 @@ MUTATIONS = [
         "a recovery test cadence that is a constant and not the setting",
         APP_RT_GO,
         "recoverytest.Config{Cadence: bs.Assurance.RecoveryTestInterval()}",
-        "recoverytest.Config{Cadence: 7 * 24 * time.Hour} // " + PLANT.rstrip(),
+        "recoverytest.Config{Cadence: 7 * 24 * time.Hour /* " + PLANT.rstrip() + " */}",
         "the cadence the operator wrote",
         APP_PKG,
         "TestRecoveryTest_UsesTheResolvedCadence",
@@ -753,8 +753,8 @@ MUTATIONS = [
     (
         "a named validator that is missing, run as another script",
         APP_RT_GO,
-        "\t\t\tif v.scriptFile != \"\" {\n\t\t\t\treturn false, v.missing()\n\t\t\t}\n\t\t\treturn false, nil",
-        "\t\t\t" + PLANT + "a missing named script reads as not configured.\n\t\t\treturn false, nil",
+        "\tif v.scriptFile != \"\" && !(res.Configured && len(res.Scripts) == 1 && res.Scripts[0].Name == v.scriptFile) {",
+        "\t" + PLANT + "an absent named script reads as not configured.\n\tif false {",
         "no directory but a declared validator",
         APP_PKG,
         "TestRecoveryTest_ANamedValidatorThatIsNotThereFailsClosed",
@@ -854,9 +854,9 @@ MUTATIONS = [
         RT_GO,
         "\tack := req.AcknowledgeCost && !req.Scheduled",
         "\t" + PLANT + "a scheduled test carries the yes.\n\tack := req.AcknowledgeCost",
-        "opened a chargeable object",
-        SERVICE_PKG,
-        "TestAScheduledRecoveryTestNeverPaysForAChargeableMedium",
+        "a scheduled test never pays",
+        RT_PKG,
+        "TestAScheduledTestOfAMediumCopyIsRefusedForCostAndNothingIsRead",
     ),
     (
         "a real recovery that says nothing about its stages",
@@ -888,8 +888,8 @@ MUTATIONS = [
     (
         "a configured read ceiling nothing reads",
         RECOVER_GO,
-        "\tlim.MaxConcurrentReads = smallerPositive(lim.MaxConcurrentReads, cfg.Assurance.MaxConcurrentFullReads)",
-        "\t_ = smallerPositive // " + PLANT.rstrip(),
+        "\tlim.MaxConcurrentReads = smallerPositive(lim.MaxConcurrentReads, explicit(a.MaxConcurrentFullReads, raw.MaxConcurrentFullReads, config.DefaultMaxConcurrentReads))",
+        "\t_ = explicit // " + PLANT.rstrip(),
         "effective read ceilings",
         SERVICE_PKG,
         "TestAssuranceHostKnobsReachTheEngine",
@@ -899,7 +899,7 @@ MUTATIONS = [
         RECOVER_GO,
         "\t\tif err := ValidateStagingRoot(root); err != nil {",
         "\t\t" + PLANT + "custody is not checked.\n\t\tif err := ValidateStagingRoot(root); err != nil && false {",
-        "entries were staged in a directory that failed custody",
+        "a world-writable staging root",
         SERVICE_PKG,
         "TestAStagingRootThatFailsCustody",
     ),
@@ -917,7 +917,7 @@ MUTATIONS = [
         ROUTER_GO,
         '\t\tr.With(requireCSRF).Post("/backup-sets/{source}/{set}/recovery-test", h.startRecoveryTest)',
         "\t\t_ = h.startRecoveryTest // " + PLANT.rstrip(),
-        "= 404",
+        "= 405",
         WEB_PKG,
         "TestAssuranceRoute_StartRecoveryTest",
     ),
@@ -1013,12 +1013,19 @@ def body(root: Path, dry_run: bool) -> int:
         tmp = Path(tmp_name)
         tracker = selftest_swap.AnchorTracker(dry_run=dry_run, root=root, tmp=tmp)
 
+        # RECOVERY_SELFTEST_ONLY=<substring> runs only the controls whose label
+        # contains it (and no negative controls), for re-running the control
+        # you just wrote. Unset, everything runs, and that is the gate.
+        only = os.environ.get("RECOVERY_SELFTEST_ONLY", "")
+
         print("==> negative controls: each slice is clean on the real tree")
-        for label, where, pattern in CLEAN_CONTROLS:
+        for label, where, pattern in ([] if only else CLEAN_CONTROLS):
             expect_passes(tracker, tally, f"{label} on an unmutated tree", root, where, pattern)
 
         for i, entry in enumerate(MUTATIONS):
             label, rel, old, new, needle, where, pattern = entry[:7]
+            if only and only not in label:
+                continue
             extras = entry[7] if len(entry) > 7 else []
             print()
             print(f"==> {label}")
