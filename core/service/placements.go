@@ -106,6 +106,25 @@ type Placement struct {
 	ScrubState         string
 	ScrubNextDueAt     time.Time
 	ScrubLastCheckedAt time.Time
+
+	// ScrubLastFailureAt, ScrubLastFailureReason and ScrubConsecutiveFailures
+	// are why a surface can say a copy FAILED instead of "never run": a failed
+	// scrub clears the copy's class and time, so without these the failure is
+	// invisible at this boundary (panel finding C8, #985). The reason is the
+	// journal's bounded, stripped text, the same one the scrub logged. They
+	// survive a later pass except the streak, which a pass resets to zero.
+	ScrubLastFailureAt       time.Time
+	ScrubLastFailureReason   string
+	ScrubConsecutiveFailures int
+
+	// RecoveryState is this copy's recovery-test claim, one of the
+	// state.Recovery* verdicts ("unknown" for a copy no test has evaluated),
+	// with when it was last tested and, for a failure, the journal's reason.
+	// A separate home from ScrubState because passing one says nothing about
+	// the other.
+	RecoveryState         string
+	RecoveryTestedAt      time.Time
+	RecoveryFailureReason string
 }
 
 // StorageMediumSummary is one configured storage medium, described with
@@ -419,6 +438,16 @@ func toServicePlacement(p state.Placement, idx mediumIndex) Placement {
 	if p.LastCheckedAt != nil {
 		out.ScrubLastCheckedAt = *p.LastCheckedAt
 	}
+	if p.LastFailureAt != nil {
+		out.ScrubLastFailureAt = *p.LastFailureAt
+	}
+	out.ScrubLastFailureReason = p.LastFailureReason
+	out.ScrubConsecutiveFailures = p.ConsecutiveFailures
+	out.RecoveryState = p.RecoveryState
+	if p.RecoveryTestedAt != nil {
+		out.RecoveryTestedAt = *p.RecoveryTestedAt
+	}
+	out.RecoveryFailureReason = p.RecoveryFailureReason
 	return out
 }
 
