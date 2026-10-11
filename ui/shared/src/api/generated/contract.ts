@@ -1227,7 +1227,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     concurrency: "",
     requestSchema: "RecoveryMintRequest",
     responseSchema: "RecoveryMintResponse",
-    successStatus: 201,
+    successStatus: 202,
     errorCodes: {
       400: ["INVALID_REQUEST", "RECOVERY_TARGET_INVALID"],
       401: ["UNAUTHENTICATED"],
@@ -1442,7 +1442,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     concurrency: "",
     requestSchema: "",
     responseSchema: "RecoveryResult",
-    successStatus: 206,
+    successStatus: 200,
     errorCodes: {
       401: ["UNAUTHENTICATED"],
       403: ["RECOVERY_GRANT_SESSION_ENDED"],
