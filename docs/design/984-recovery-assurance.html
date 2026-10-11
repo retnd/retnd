@@ -3,7 +3,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Recovery and assurance: three claims, five not-a-pass states, one recovery path (issue #984)</title>
 <style>
-/* Tokens copied from ui/shared/src/design-system/tokens.css. Nothing below declares a colour literal. */
+/* Tokens copied from ui/shared/src/design-system/tokens.css. Nothing below declares a colour literal.
+   The edge of a chip, button, segmented control, bar or readout is drawn with --text-3, as the shipped assurance CSS does
+   (ui/shared/src/assurance/assurance.css): --border-strong is 1.69:1 on the light surface and 1.81:1 on the dark one,
+   under the 3:1 a component edge needs, so it is kept for the decorative frames and card rules only. See the contrast table. */
 :root,.th-light{
   --space-1:4px;--space-2:8px;--space-3:12px;--space-4:16px;--space-5:20px;--space-6:24px;--space-8:32px;
   --radius-sm:4px;--radius-md:6px;--radius-lg:8px;--radius-xl:10px;--radius-pill:999px;
@@ -53,7 +56,7 @@ code{font-family:var(--font-mono);font-size:12px}
 .muted{color:var(--text-2);font-size:12.5px}
 .mono{font-family:var(--font-mono);font-size:12px}
 /* the claim chip: ink is always --text, the state is carried by glyph shape, border style and words */
-.claim{display:inline-flex;align-items:center;gap:6px;min-height:24px;padding:2px 9px;border-radius:var(--radius-md);font-size:12px;font-weight:600;color:var(--text);background:var(--surface);border:1.5px solid var(--border-strong);white-space:nowrap}
+.claim{display:inline-flex;align-items:center;gap:6px;min-height:24px;padding:2px 9px;border-radius:var(--radius-md);font-size:12px;font-weight:600;color:var(--text);background:var(--surface);border:1.5px solid var(--text-3);white-space:nowrap}
 .claim .g{font-weight:800;font-size:13px;width:14px;text-align:center}
 .claim .age{font-weight:500;color:var(--text-2)}
 .s-pass{border-style:solid;border-color:var(--ok);background:var(--ok-quiet)}.s-pass .g{color:var(--ok)}
@@ -61,31 +64,31 @@ code{font-family:var(--font-mono);font-size:12px}
 .s-overdue{border-style:solid;border-color:var(--warn);background:var(--warn-quiet)}.s-overdue .g{color:var(--text)}
 .s-cost{border-style:dotted;border-color:var(--warn);background:var(--warn-quiet)}.s-cost .g{color:var(--text)}
 .s-incomplete{border-style:double;border-width:4px;border-color:var(--danger);background:var(--surface)}.s-incomplete .g{color:var(--danger)}
-.s-never-cfg{border-style:dashed;border-color:var(--border-strong);background:var(--surface-3)}
-.s-never-run{border-style:solid;border-color:var(--border-strong);background:var(--surface)}
+.s-never-cfg{border-style:dashed;border-color:var(--text-3);background:var(--surface-3)}
+.s-never-run{border-style:solid;border-color:var(--text-3);background:var(--surface)}
 .s-unknown{border-style:dashed;border-color:var(--accent);background:var(--accent-quiet)}.s-unknown .g{color:var(--accent)}
 .s-requires{border-style:solid;border-width:1.5px;border-left-width:6px;border-color:var(--accent);background:var(--accent-quiet)}.s-requires .g{color:var(--accent)}
 .s-nocopy{border-style:solid;border-width:2px;border-color:var(--danger);background:var(--danger-quiet);text-decoration:underline wavy var(--danger)}
-.s-stored{border-style:solid;border-color:var(--border-strong);background:var(--surface-2)}
+.s-stored{border-style:solid;border-color:var(--text-3);background:var(--surface-2)}
 .claims{display:flex;flex-wrap:wrap;gap:var(--space-2)}
 .claimcol{display:flex;flex-direction:column;gap:2px}
 .claimcol .lab{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-2)}
 table.t{width:100%;border-collapse:collapse;font-size:12.5px}
 table.t th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-2);text-align:left;padding:6px 8px;border-bottom:1px solid var(--border)}
 table.t td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
-.btn{min-height:30px;padding:3px 12px;border:1px solid var(--border-strong);border-radius:var(--radius-md);background:var(--surface);color:var(--text);font:inherit;font-size:12.5px;cursor:pointer}
+.btn{min-height:30px;padding:3px 12px;border:1px solid var(--text-3);border-radius:var(--radius-md);background:var(--surface);color:var(--text);font:inherit;font-size:12.5px;cursor:pointer}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--surface)}
 .btn.danger{border-color:var(--danger);color:var(--danger)}
-.seg{display:inline-flex;border:1px solid var(--border-strong);border-radius:var(--radius-md);overflow:hidden}
-.seg span{padding:4px 12px;font-size:12.5px;border-right:1px solid var(--border-strong);background:var(--surface);color:var(--text)}
+.seg{display:inline-flex;border:1px solid var(--text-3);border-radius:var(--radius-md);overflow:hidden}
+.seg span{padding:4px 12px;font-size:12.5px;border-right:1px solid var(--text-3);background:var(--surface);color:var(--text)}
 .seg span:last-child{border-right:0}
 .seg .on{background:var(--accent);color:var(--surface);font-weight:600}
-.knob{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:baseline;padding:6px 8px;background:var(--surface-3);border-radius:var(--radius-md);border:1px dashed var(--border-strong)}
+.knob{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:baseline;padding:6px 8px;background:var(--surface-3);border-radius:var(--radius-md);border:1px dashed var(--text-3)}
 .knob b{font-family:var(--font-mono);font-size:12px}
 .lock{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text)}
 .notice{border:1px solid var(--warn);background:var(--warn-quiet);border-radius:var(--radius-md);padding:var(--space-3);color:var(--text)}
 .notice.blocking{border-width:2px}
-.bar{height:10px;border-radius:var(--radius-pill);background:var(--surface-3);border:1px solid var(--border-strong);overflow:hidden}
+.bar{height:10px;border-radius:var(--radius-pill);background:var(--surface-3);border:1px solid var(--text-3);overflow:hidden}
 .bar>i{display:block;height:100%;background:var(--accent)}
 .stages{display:flex;flex-direction:column;gap:4px;margin:0;padding:0;list-style:none;font-size:12.5px}
 .stages li{display:flex;gap:8px;align-items:baseline}
@@ -105,6 +108,16 @@ table.t td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
   <h1>Recovery and assurance: three claims, five not-a-pass states, one recovery path</h1>
   <p class="sub">Issue #984 (Q2.1), dated 2026-10-10. Parent epic #953, FR-72. Drawn against the screens that ship today (<code>docs/design/Backup Manager.dc.html</code> is the authority where this note and the build disagree) and in the token set from <code>ui/shared/src/design-system/tokens.css</code>. Every surface below is drawn four times: light, dark, and the narrow layout in each. This note writes no TypeScript. It records the decisions Q2.2 (#985) implements rather than reinterprets.</p>
   <p class="sub"><strong>Vocabulary.</strong> The labels are <em>Recover artifact</em>, <em>Export</em>, <em>Scrub</em> and <em>Recovery test</em>. The other word for getting data back already means two other things in this product (the archival thaw, and the repository extract), so it is not used as a label for anything here.</p>
+  <div class="notice" role="note" id="status">
+    <b>Status: a mock-up, superseded where the product differs.</b>
+    <p class="sub" style="color:var(--text)">This is a picture drawn on 2026-10-10 to settle decisions for Q2.2 (#985). It is not the product and it is not kept in step with it, so where the two disagree the product wins, and the build's own CSS and strings win over anything drawn here. Four owner decisions of 2026-10-11 (docs/EPIC-Q-recovery-and-assurance.md, section 9, "Owner decisions of 2026-10-11") change what this note shows or implies:</p>
+    <ol class="sub" style="color:var(--text)">
+      <li>The green "Verified" Validation column is retired (Q2.17, #1070). I never drew it here, but any older screenshot of the Backups list or the artifact page that shows it is superseded: the three claims are the only place those pages say "verified".</li>
+      <li>Activity events are durable (Q1.28, #1071). Section 5 says per-copy progress is live-only, which still holds, but the feed is no longer an in-memory ring that forgets on restart.</li>
+      <li>A download is streamed and never staged (Q1.24, Q1.25, Q1.27, #1072). The "Download memory budget" readout in section 4 and the staging wording on the browser path are superseded: memory is one 4 MiB chunk, and <code>web_download_memory_bytes</code> is not coming back. The "Staging path on the host" target, the staging root and the staging TTL describe the host-side target only. Resume is by a new grant with <code>Range</code> and <code>If-Range</code> on a stable <code>ETag</code>.</li>
+      <li>A download that cannot complete is refused before it starts (Q1.26, Q1.27, #1072). This note draws no such refusal, so the dialogs in section 3 are missing a state: a pre-flight failure shown before any byte is sent.</li>
+    </ol>
+  </div>
 </header>
 
 <section class="sec" id="claims">
@@ -200,6 +213,32 @@ table.t td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
     <p>Figures in the pictures (ages, sizes, the 12 hour thaw, the ceilings) are examples of what the named fields hold; the real defaults are Q1.4's to set and the thaw figures come from the provider response. No assurance report, no alert history, no per-set staging or concurrency control, no per-copy progress stored in the feed, no action for rebuilding the application itself, no combined health score, and no estimate of recovery time for a non-archived copy (nothing computes one). Where a number is not computable, the row is missing rather than showing a placeholder.</p>
   </div>
 </section>
+
+<section class="sec" id="contrast">
+  <h2>10. Measured contrast</h2>
+  <div class="reason">
+    <p>I computed these from the token values in the style block above (the same values as <code>ui/shared/src/design-system/tokens.css</code>), converting the <code>oklch()</code> tokens to sRGB and applying the WCAG 2.x relative-luminance formula. Text needs 4.5:1, a component edge or graphic needs 3:1. Every pair below is one the picture actually draws.</p>
+    <table class="t">
+      <tr><th>Pair</th><th>Light</th><th>Dark</th><th>Needs</th></tr>
+      <tr><td>--text on --surface (chip ink, body)</td><td>17.45</td><td>14.53</td><td>4.5</td></tr>
+      <tr><td>--text on --surface-3 (the Not configured fill)</td><td>15.29</td><td>12.73</td><td>4.5</td></tr>
+      <tr><td>--text on ok, warn, danger and accent quiet fills (worst)</td><td>15.00</td><td>11.68</td><td>4.5</td></tr>
+      <tr><td>--text-2 on --surface (labels, ages)</td><td>6.64</td><td>6.89</td><td>4.5</td></tr>
+      <tr><td>--text-2 on the quiet fills (worst)</td><td>5.71</td><td>5.54</td><td>4.5</td></tr>
+      <tr><td>--text-2 on --surface-3 (readouts)</td><td>5.82</td><td>6.04</td><td>4.5</td></tr>
+      <tr><td>--surface on --accent (primary button, selected segment)</td><td>5.51</td><td>6.36</td><td>4.5</td></tr>
+      <tr><td>--danger on --surface (danger button text)</td><td>5.95</td><td>5.50</td><td>4.5</td></tr>
+      <tr><td>terminal text, info, ok, warn, danger on --term-bg (worst)</td><td>6.90</td><td>6.90</td><td>4.5</td></tr>
+      <tr><td>chip edge --text-3 on --surface (never run, stored, Not configured outer edge)</td><td>3.35</td><td>3.85</td><td>3</td></tr>
+      <tr><td>chip edge --ok, --warn, --danger, --accent on --surface (worst)</td><td>4.76</td><td>5.50</td><td>3</td></tr>
+      <tr><td>glyph --ok, --danger, --accent on its own quiet fill (worst)</td><td>4.64</td><td>4.55</td><td>3</td></tr>
+      <tr><td>chip edge --text-3 on --surface-3, the Not configured fill</td><td>2.93</td><td>3.37</td><td>3</td></tr>
+    </table>
+    <p><strong>What I changed.</strong> The first version drew the edge of the neutral chips, the buttons, the segmented control, the bar and the readouts with <code>--border-strong</code>, which is 1.69:1 on the light surface and 1.81:1 on the dark one, so those edges failed the 3:1 a component boundary needs. The shipped assurance CSS already uses <code>--text-3</code> for them, with a comment saying why, so the picture now matches it. <code>--border-strong</code> stays on the outer theme frames, the card rules and the two documentation labels in section 8, which are not controls. <code>--text-3</code> is still never used for text: it is 3.35:1 and 3.85:1 on the surface.</p>
+    <p><strong>What still fails, said plainly.</strong> The Not configured chip draws a <code>--text-3</code> dashed edge on a <code>--surface-3</code> fill, and that pair is 2.93:1 in the light theme. Against the surface the chip sits on, the edge is 3.35:1, so it passes if you measure a component against its surroundings and fails if you measure it against its own fill. I kept it because the shipped CSS draws it the same way and this note should not invent a different build; the state is also carried by the dashed edge, the dash glyph and the words "Not configured", so nothing depends on that edge alone. In the dark theme the same pair is 3.37:1. The terminal timestamp colour <code>--term-time</code> is 3.79:1 on <code>--term-bg</code>, and no element in this picture uses it.</p>
+    <p>I checked the table twice. The table itself comes from a script run in a Node container against the token values (that run is what showed the 1.69:1 and 1.81:1 edges before the change). Then I rendered this file in Chromium (Playwright 1.60.0, 1280 px wide) and read the computed colour of every text node against its effective background, and of every chip, button, segmented control, bar, readout and input edge against the surface around it and against its own fill. Result: 436 text nodes in each theme frame, lowest 4.61:1 in light (a check glyph on its quiet fill) and 4.53:1 in dark (a cross glyph), none under 4.5:1; 229 text nodes outside the frames (the page headings, the status note and the reasoning text), lowest 5.93:1; every component edge is at least 3.35:1 in light and 3.85:1 in dark against the surface it sits on. The only edges under 3:1 are the ones named above, measured against their own fill. I did not run an automated accessibility scanner, and I did not check forced-colours mode.</p>
+  </div>
+</section>
 </div>
 
 <script>
@@ -258,11 +297,11 @@ const S={
  settings(){return `
   <div class="card"><h3>Assurance (all backup sets)</h3><div class="body">
    <div>By default every set is scrubbed on a schedule, using only reads that cost nothing, and gets a recovery test with its validator when one is configured. A scheduled pass never thaws an archive and never reads across a paid link.</div>
-   <div class="row"><span>Scrub every</span><input class="mono" value="7d" style="width:70px;background:var(--surface);color:var(--text);border:1px solid var(--border-strong);border-radius:4px;padding:3px 6px"><span class="muted">default</span></div>
+   <div class="row"><span>Scrub every</span><input class="mono" value="7d" style="width:70px;background:var(--surface);color:var(--text);border:1px solid var(--text-3);border-radius:4px;padding:3px 6px"><span class="muted">default</span></div>
    <div class="knob"><span class="lock">Deployment-wide</span><span>Recovery staging root</span><b>/data/recover-staging</b></div>
    <div class="knob"><span class="lock">Deployment-wide</span><span>Staging TTL</span><b>24h</b></div>
    <div class="knob"><span class="lock">Deployment-wide</span><span>Concurrency ceilings</span><b>1 full read, 1 per destination</b></div>
-   <div class="knob"><span class="lock">Deployment-wide</span><span>Download memory budget</span><b>64 MiB</b></div>
+   <div class="knob"><span class="lock">Deployment-wide</span><span>Download memory budget</span><b>64 MiB</b><span class="muted">Superseded: a download is streamed in 4 MiB chunks, so this readout is gone.</span></div>
    <div class="muted">These four belong to the host. They have no per-set control.</div>
    <div class="row"><span class="grow"></span><button class="btn primary">Save</button></div>
   </div></div>
