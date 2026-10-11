@@ -132,7 +132,16 @@ type entry struct {
 	open     int
 	closedAt time.Time // non-zero once spent; the entry stays as a tombstone
 	attached any
+
+	// served is the byte ranges requests have delivered whole, kept sorted
+	// and merged, so a download is complete when it is the single span
+	// [0, size). Order and overlap do not matter: a client that asks for
+	// the tail first, or runs several connections, still finishes.
+	served []span
 }
+
+// span is the half-open byte range [from, to).
+type span struct{ from, to int64 }
 
 func (e *entry) closed() bool { return !e.closedAt.IsZero() }
 
@@ -328,6 +337,65 @@ func (g *Grants) Revert(token string) {
 	if e.open == 0 && e.attached == nil {
 		e.redeemed = false
 	}
+}
+
+// Served records that the inclusive byte range [start, end] of a copy of
+// size bytes was delivered in full, and reports whether the ranges delivered
+// so far cover the whole copy. Only then is a download finished: a tail
+// range, or any other part, leaves the grant open for the rest.
+//
+// A zero-length copy is complete as soon as it is served at all.
+func (g *Grants) Served(token string, start, end, size int64) (complete bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	e, ok := g.live[digest(token)]
+	if !ok || e.closed() {
+		return false
+	}
+	if size <= 0 {
+		return true
+	}
+	if start < 0 {
+		start = 0
+	}
+	if end >= size {
+		end = size - 1
+	}
+	if end < start {
+		return false
+	}
+	e.served = mergeSpan(e.served, span{start, end + 1})
+	return len(e.served) == 1 && e.served[0].from == 0 && e.served[0].to >= size
+}
+
+// mergeSpan inserts s into the sorted, disjoint list, joining anything it
+// overlaps or touches.
+func mergeSpan(list []span, s span) []span {
+	out := make([]span, 0, len(list)+1)
+	placed := false
+	for _, x := range list {
+		switch {
+		case x.to < s.from:
+			out = append(out, x)
+		case s.to < x.from:
+			if !placed {
+				out = append(out, s)
+				placed = true
+			}
+			out = append(out, x)
+		default:
+			if x.from < s.from {
+				s.from = x.from
+			}
+			if x.to > s.to {
+				s.to = x.to
+			}
+		}
+	}
+	if !placed {
+		out = append(out, s)
+	}
+	return out
 }
 
 // Attach stores a value with a redeemed grant.

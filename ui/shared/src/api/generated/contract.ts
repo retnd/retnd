@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "4820a82337f714625603292a986d770766dbf4ea5be4513126d4a5781c563292";
+export const CONTRACT_SHA256 = "68d56a3694d028c6be42cce803757f5ccd814686154e5d6e96e440af0389eca3";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -870,6 +870,28 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       404: ["BACKUP_SET_NOT_FOUND"],
       409: ["BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE"],
       500: ["INTERNAL"],
+    }
+  },
+  {
+    id: "startRecoveryTest",
+    method: "POST",
+    path: "/backup-sets/{source}/{set}/recovery-test",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "StartRecoveryTestRequest",
+    responseSchema: "RecoveryTestStarted",
+    successStatus: 202,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND", "ARTIFACT_NOT_FOUND"],
+      409: ["OPERATION_ALREADY_RUNNING"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
     }
   },
   {
@@ -3485,6 +3507,15 @@ export interface WireRecoveryTarget {
   path?: string;
 }
 
+/** A recovery test is under way. operation_id is carried by its
+ *  recovery_test_start, recovery_stage and recovery_test_end lines on
+ *  the activity feed, which is how a client follows it; the verdict
+ *  is the copy's recovery claim once it ends. */
+export interface WireRecoveryTestStarted {
+  backup_set_id: string;
+  operation_id: string;
+}
+
 /** One repository domain's own health, which is a different question
  *  from any backup set's. A set can be perfectly fresh while the
  *  repository holding its snapshots is unwritable, out of
@@ -4014,6 +4045,16 @@ export interface WireSnapshotVerifyRequest {
   level?: string;
   run_id?: string;
   sample_percent?: number;
+}
+
+/** POST /backup-sets/{source}/{set}/recovery-test. Starts a recovery
+ *  test now. An empty body tests the newest known good copy and
+ *  acknowledges no cost: a copy that costs money to read (a download
+ *  from a billed object store, or an archived object) is refused,
+ *  recorded as refused_for_cost, and nothing is read. */
+export interface WireStartRecoveryTestRequest {
+  acknowledged?: boolean;
+  artifact_id?: string;
 }
 
 /** Where one storage medium's credentials come from. Exactly one of

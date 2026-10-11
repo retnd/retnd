@@ -2926,13 +2926,11 @@ function defaultAssuranceSettings(): AssuranceSettings {
     stagingTtlSeconds: 24 * 3600,
     maxConcurrentFullReads: 2,
     maxPerDestination: 1,
-    webDownloadMemoryBytes: 64 * 1024 * 1024,
     hostKnobs: [
       ["staging_root", "the one staging filesystem this process writes to"],
       ["staging_ttl", "the sweep of that one staging root"],
       ["max_concurrent_full_reads", "the one process that runs the reads"],
-      ["max_per_destination", "the one process that runs the reads"],
-      ["web_download_memory_bytes", "the one HTTP process that serves downloads"]
+      ["max_per_destination", "the one process that runs the reads"]
     ].map(([name, why]) => ({
       name,
       value: "",

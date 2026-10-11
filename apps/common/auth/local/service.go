@@ -426,3 +426,17 @@ func (s *Service) PrintBootstrapNotice(w io.Writer, baseURL string) error {
 	}
 	return err
 }
+
+// OnSessionEnd registers fn to be told, with the user name and the expiry
+// the authenticator reported for it (Authenticator sets
+// AuthContext.SessionExpiresAt from the same value), whenever a session is
+// ended on purpose: logout, a password rotation, a reset. The host uses it
+// to revoke what was granted in that session, such as a recovery download.
+//
+// It is a setter and not a Config field because the host builds this
+// Service before the backup service it needs to tell exists. fn runs on the
+// request's goroutine after the session is already gone, so it must not
+// block; it may be replaced, and nil clears it.
+func (s *Service) OnSessionEnd(fn func(username string, expiresAt time.Time)) {
+	s.sessions.setOnEnd(fn)
+}

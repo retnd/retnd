@@ -308,6 +308,11 @@ type Service struct {
 	// means the system temporary directory.
 	RecoveryStagingRoot string
 
+	// RecoveryTickBound is how long one RecoveryTestTick may keep starting
+	// tests. Zero is DefaultRecoveryTickBound and a negative value is no
+	// bound.
+	RecoveryTickBound time.Duration
+
 	// Stages runs the operator's scripts for a purpose that is not a backup
 	// (stage.go). Nil means this process cannot, which every notification
 	// and every recovery test validator reads as "not configured".

@@ -663,6 +663,20 @@ func checkArtifact(ctx context.Context, deps Deps, cfg config.Revalidation, opts
 		return finding, bytes, nil
 	}
 
+	// A failed copy is not a lost artifact while another ACTIVE copy of it
+	// is verified: FR-31 quarantines an artifact "only when no other ACTIVE
+	// verified placement remains", and runChecks only ever reads one copy
+	// (the local one when there is one), so without this rule a rotted
+	// local file beside a good offsite copy sent the artifact to
+	// QUARANTINED_LOST and the set to FAILING while every byte was still
+	// recoverable. The failed copy is already recorded as failed above and
+	// its streak is what degrades the set's health; the artifact's
+	// lifecycle is left alone.
+	if other, ok := otherVerifiedCopy(rec, res.copies); ok {
+		finding.Reason = fmt.Sprintf("%s; the artifact was not quarantined because its copy on %q is still ACTIVE and verified", res.reason, other)
+		return finding, bytes, nil
+	}
+
 	// A failed recheck: route through the exact same edges reconcile.go
 	// already established for "the durable local copy was found invalid
 	// after the fact" (see machine.go and this package's own doc). Only
@@ -687,6 +701,29 @@ func checkArtifact(ctx context.Context, deps Deps, cfg config.Revalidation, opts
 	}
 	finding.To = lifecycle.State(out.Record.State)
 	return finding, bytes, nil
+}
+
+// otherVerifiedCopy reports an ACTIVE copy of rec, not among the ones this
+// pass found failing, whose recorded verification class is a claim about the
+// bytes (content or attested). An existence class says an object of the right
+// size was there and nothing more, so it is not enough to keep an artifact
+// alive when its read copy has rotted.
+func otherVerifiedCopy(rec state.Record, copies []copyOutcome) (string, bool) {
+	failed := map[string]bool{}
+	for _, c := range copies {
+		if c.verdict == state.ScrubFailed {
+			failed[c.medium] = true
+		}
+	}
+	for _, p := range rec.Placements {
+		if p.Status != state.PlacementActive || failed[p.Medium] {
+			continue
+		}
+		if p.VerificationClass == state.VerificationContent || p.VerificationClass == state.VerificationAttested {
+			return p.Medium, true
+		}
+	}
+	return "", false
 }
 
 func copyResults(cs []copyOutcome) []CopyResult {
@@ -714,6 +751,14 @@ func recordCopies(ctx context.Context, deps Deps, cfg config.Revalidation, rec s
 			continue
 		}
 		prior := byMedium[c.medium]
+		// The identity of the bytes this pass read, taken from the record
+		// the pass started from. If the copy was rewritten meanwhile the
+		// verdict is about bytes that are gone and is not written.
+		var expect *state.CopyIdentity
+		if _, known := byMedium[c.medium]; known {
+			id := prior.Identity()
+			expect = &id
+		}
 		var next time.Time
 		switch c.verdict {
 		case state.ScrubFailed, state.ScrubCouldNotComplete:
@@ -728,9 +773,15 @@ func recordCopies(ctx context.Context, deps Deps, cfg config.Revalidation, rec s
 		err := deps.Journal.RecordCopyScrub(wctx, state.CopyScrub{
 			Artifact: rec.Artifact, Medium: c.medium, Verdict: c.verdict, Class: string(c.class),
 			Reason: c.reason, At: finished, NextDue: next, BytesRead: c.bytesRead,
-			Duration: finished.Sub(started),
+			Duration: finished.Sub(started), Expect: expect,
 		})
 		cancel()
+		if errors.Is(err, state.ErrCopyChanged) {
+			// Rewritten to different bytes while it was being read. The
+			// new bytes are unchecked and owed a check, and the rewrite
+			// already cleared the lease and every claim.
+			continue
+		}
 		if errors.Is(err, state.ErrPlacementRetired) {
 			// Retention retired the copy while it was being read. There is
 			// no copy left to hold the verdict, and inventing one would be

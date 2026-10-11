@@ -34,7 +34,12 @@ with audit rather than authority:
 
 - a grant is bound to the session that minted it (the actor and the instant that
   authentication lapses), is single-use, lives minutes, and is revoked when the
-  session ends;
+  session ends. The local sign-in reports that instant, and a logout, a password
+  rotation or a reset tells the recovery engine, which revokes the session's
+  grants and removes what they staged. A trusted-gateway deployment has no
+  session of its own: the gateway reports no lapse, so there the binding is the
+  actor for as long as the gateway vouches for them, a sign-out at the gateway
+  never reaches this process, and the grant's own short lifetime is the bound;
 - every mint, every served byte range and every refusal writes one row to the
   action log naming the actor, the artifact, the copy, the target and the
   outcome (`TestEveryMintAndEveryServedRangeWritesOneRow...`);
@@ -74,11 +79,14 @@ with audit rather than authority:
 
 ## Where a copy rests while it is being verified
 
-In a private file under the recovery staging root, beside the state directory
-(`<state dir>/recovery`), created with mode 0600 inside a directory of mode
-0700. It is as sensitive as the artifact itself: it is the artifact. It exists
+In a private file under the recovery staging root, which is
+`assurance.staging_root` and sits beside the state directory unless the
+operator says otherwise (`<state dir>/recovery-staging`), created with mode 0600
+inside a directory of mode 0700. A recovery test stages in the same directory.
+It is as sensitive as the artifact itself: it is the artifact. It exists
 from the start of a recovery to its end (a download) or until the operator
-collects it (a `staging` target, kept for seven days and then swept). If the
+collects it (a `staging` target, kept for `assurance.staging_ttl`, a day unless
+changed, and then swept). If the
 backup is encrypted at rest by the operator's own tooling, the staged copy is
 whatever that tooling produced. This product does not decrypt anything.
 

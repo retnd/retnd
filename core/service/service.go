@@ -103,6 +103,14 @@ type BackupService struct {
 	// used, so a process that never recovers anything creates nothing.
 	recovery recoveryHost
 
+	// recoveryTests is the single-flight table for operator-started
+	// recovery tests (recoverytest.go).
+	recoveryTests recoveryTestRuns
+
+	// testRecoverer stages the copy a recovery test reads. One for the life
+	// of the process, so its record of what it staged survives a hot reload.
+	testRecoverer *engineRecoverer
+
 	// activity is the live, in-memory feed of what each backup set is
 	// doing right now (issue #573, liveactivity.go). It is wired as the
 	// logger's obs.Sink in New below, so it follows every event this
@@ -330,6 +338,10 @@ func New(cfg *config.Config, journal *state.Journal, tr transport.Transport, log
 	// it needs no reconciliation: it runs scripts that are not backups, so
 	// there is no quiesced machine for a startup pass to account for.
 	inner.Stages = b
+	// The recovery test stages a copy through the recovery engine, so a
+	// copy on a storage medium can be tested at all.
+	b.testRecoverer = newEngineRecoverer(b)
+	inner.Recoverer = b.testRecoverer
 	b.state.Store(&configState{inner: inner, revision: computeConfigRevision(cfg)})
 
 	// EPIC L's engine, built here and switched on later. It is
