@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -268,5 +270,67 @@ func TestAssuranceRoute_APatchWritesOnlyWhatItNamed(t *testing.T) {
 		if strings.Contains(s, leaked) {
 			t.Errorf("the write froze %s into the file:\n%s", leaked, s)
 		}
+	}
+}
+
+// The browser and the terminal refuse the same thing with the same sentence
+// and the same class of failure: the route answers 400 INVALID_REQUEST and
+// the CLI exits 1 (the ordinary failure) printing the same validator text.
+// Both go through core/service, so the sentence is generated once.
+func TestAssuranceRoute_TheCLIAndTheRouteRefuseTheSameInputTheSameWay(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		args []string
+		want string
+	}{
+		{"cadence under the floor", `{"scrub_cadence_seconds":60}`, []string{"settings", "assurance", "patch", "--scrub-cadence", "1m"}, "below the floor"},
+		{"required with no validator", `{"recovery_test_mode":"required"}`, []string{"settings", "assurance", "patch", "--recovery-test-mode", "required"}, "needs a validator"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			routeCfg := writeAssuranceRouteConfig(t)
+			router, closeRouter := gatedBoundaryRouter(t, routeCfg)
+			defer closeRouter()
+			code, body := call(t, router, http.MethodPatch, "/api/v1/settings/assurance", tc.body)
+			if code != http.StatusBadRequest || !strings.Contains(body, tc.want) {
+				t.Fatalf("route = %d %s, want 400 containing %q", code, body, tc.want)
+			}
+
+			cliCfg := writeAssuranceRouteConfig(t)
+			cmd := exec.Command(backupManagerCLI(t), append(tc.args, "--config", cliCfg)...)
+			out, err := cmd.CombinedOutput()
+			exit := 0
+			if ee, ok := err.(*exec.ExitError); ok {
+				exit = ee.ExitCode()
+			}
+			if exit != 1 || !strings.Contains(string(out), tc.want) {
+				t.Errorf("cli exit %d: %s, want exit 1 containing %q", exit, out, tc.want)
+			}
+		})
+	}
+}
+
+// A write through the route is what the terminal then reads, and the JSON a
+// script gets from either is the same body.
+func TestAssuranceRoute_TheCLIReadsWhatTheRouteWroteAndPrintsTheSameBody(t *testing.T) {
+	configPath := writeAssuranceRouteConfig(t)
+	router, closeRouter := gatedBoundaryRouter(t, configPath)
+	code, routeBody := call(t, router, http.MethodPatch, "/api/v1/settings/assurance", `{"scrub_cadence_seconds":43200}`)
+	closeRouter()
+	if code != http.StatusOK {
+		t.Fatalf("PATCH = %d: %s", code, routeBody)
+	}
+	cli := runCLI(t, "settings", "assurance", "--json", "--config", configPath)
+	var a, b any
+	if err := json.Unmarshal([]byte(routeBody), &a); err != nil {
+		t.Fatal(err)
+	}
+	// The CLI may print startup events before the object on a write, never on a read.
+	if err := json.Unmarshal([]byte(cli), &b); err != nil {
+		t.Fatalf("cli output is not one JSON object: %v\n%s", err, cli)
+	}
+	if !reflect.DeepEqual(a, b) {
+		t.Errorf("the route and the CLI disagree:\nroute %s\ncli   %s", routeBody, cli)
 	}
 }
