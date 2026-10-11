@@ -2,9 +2,13 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/retnd/retnd/core/internal/config"
@@ -258,6 +262,54 @@ func effectiveScrubCadence(resolved time.Duration) time.Duration {
 	return resolved
 }
 
+// ValidateStagingRoot is the custody check on assurance.staging_root. The
+// recovery engine creates and removes files under it, so a settings write
+// can no longer point it just anywhere it can be written to: the path must be
+// absolute and already clean, must not be a symbolic link or a file, and an
+// existing directory must not be writable by anyone but its owner. A path
+// that does not exist yet is accepted when the nearest ancestor that does is
+// a directory, and the engine creates it 0700.
+//
+// Only the last component is held to the symlink rule. A mount point the
+// operator declared is routinely a link higher up (a NAS volume), the same
+// asymmetry the workflow root documents, and what the engine writes through
+// is the directory itself. An empty path is the default and always valid.
+func ValidateStagingRoot(p string) error {
+	if p == "" {
+		return nil
+	}
+	if !filepath.IsAbs(p) || filepath.Clean(p) != p {
+		return fmt.Errorf("%q must be an absolute, clean path (no .. and no trailing slash)", p)
+	}
+	info, err := os.Lstat(p)
+	switch {
+	case err == nil:
+		switch {
+		case info.Mode()&os.ModeSymlink != 0:
+			return fmt.Errorf("%q is a symbolic link, and recovered copies are not staged through one", p)
+		case !info.IsDir():
+			return fmt.Errorf("%q exists and is not a directory", p)
+		case info.Mode().Perm()&0o022 != 0:
+			return fmt.Errorf("%q has permissions %04o, which lets another account swap a staged copy; use chmod go-w", p, info.Mode().Perm())
+		}
+		return nil
+	case !errors.Is(err, os.ErrNotExist) && !errors.Is(err, syscall.ENOTDIR):
+		return fmt.Errorf("%q cannot be examined", p)
+	}
+	for dir := filepath.Dir(p); ; dir = filepath.Dir(dir) {
+		ai, aerr := os.Stat(dir)
+		if aerr == nil {
+			if !ai.IsDir() {
+				return fmt.Errorf("%q is under %q, which is not a directory", p, dir)
+			}
+			return nil
+		}
+		if dir == filepath.Dir(dir) {
+			return fmt.Errorf("%q has no existing ancestor", p)
+		}
+	}
+}
+
 // scrubEligibleStates are the lifecycle states with a durable local copy to
 // re-read, the same four internal/revalidate treats as known good.
 var scrubEligibleStates = map[string]bool{
@@ -347,6 +399,9 @@ func (b *BackupService) UpdateAssuranceSettings(_ context.Context, req UpdateAss
 	}
 	if req.StagingRoot != nil {
 		blk.StagingRoot = strings.TrimSpace(*req.StagingRoot)
+		if err := ValidateStagingRoot(blk.StagingRoot); err != nil {
+			return AssuranceSettings{}, fmt.Errorf("%w: assurance.staging_root: %v", ErrInvalidRequest, err)
+		}
 	}
 	if req.StagingTTL != nil {
 		blk.StagingTTL = config.Duration(*req.StagingTTL)

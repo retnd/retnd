@@ -206,6 +206,12 @@ func TestAssurance_InvalidInputsAreRefusedWithTheirOwnSentence(t *testing.T) {
 		{"negative concurrency", func(c *Config) {
 			c.AssuranceBlock = &AssuranceBlock{MaxConcurrentFullReads: -1}
 		}, "max_concurrent_full_reads"},
+		{"a per-destination ceiling above the global one", func(c *Config) {
+			c.AssuranceBlock = &AssuranceBlock{MaxConcurrentFullReads: 2, MaxPerDestination: 3}
+		}, "max_per_destination"},
+		{"a per-destination ceiling above the default global one", func(c *Config) {
+			c.AssuranceBlock = &AssuranceBlock{MaxPerDestination: DefaultMaxConcurrentReads + 1}
+		}, "max_per_destination"},
 		{"relative staging root", func(c *Config) {
 			c.AssuranceBlock = &AssuranceBlock{StagingRoot: "staging"}
 		}, "staging_root"},
