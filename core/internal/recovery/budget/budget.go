@@ -4,11 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"sync"
-	"time"
-
-	"github.com/retnd/retnd/core/internal/placement"
 )
 
 // Name identifies one budget. The names are stable: they appear in
@@ -30,42 +26,27 @@ const (
 	// refusal.
 	StagingReserve Name = "staging_reserve"
 
-	// TickWork bounds the copies considered, and so started, in one
-	// scheduler pass. A thousand simultaneously-due copies must spread over
-	// passes, not stampede.
-	TickWork Name = "tick_work"
-
-	// ValidatorOutput bounds the bytes captured from one validator run, with
-	// a truncation marker. It is EPIC L's bound, reused rather than redone.
-	ValidatorOutput Name = "validator_output"
-
 	// DownloadStreams bounds browser downloads in progress, the concurrent
 	// ceiling on the new byte-streaming machinery in the web process.
 	DownloadStreams Name = "download_streams"
-
-	// ScheduledEgress is the egress an unattended pass may cause: none. It
-	// is zero by construction, not by a number: a scheduled pass never thaws
-	// and never downloads, and the strongest class it may reach on a medium
-	// is placement.Existence.
-	ScheduledEgress Name = "scheduled_egress"
 )
 
 // All lists every budget, in the order they are documented.
-var All = []Name{ConcurrentReads, DestinationReads, StagingReserve, TickWork, ValidatorOutput, DownloadStreams, ScheduledEgress}
+var All = []Name{ConcurrentReads, DestinationReads, StagingReserve, DownloadStreams}
 
 // exitCodes gives each budget the exit code a CLI refusal carries. They sit
 // above the four codes the usage text publishes (0 to 3) and in the same
 // 10 to 40 block `retnd recover` uses, and StagingReserve deliberately
 // shares its number with recovery's below-reserve refusal because they are
-// the same refusal.
+// the same refusal. 34, 35 and 37 are not used: they belonged to three budgets
+// (work per scheduler pass, captured validator output, scheduled egress) that
+// nothing in the product read, and an exit code nothing emits is a promise
+// nobody keeps.
 var exitCodes = map[Name]int{
 	StagingReserve:   18,
 	ConcurrentReads:  32,
 	DestinationReads: 33,
-	TickWork:         34,
-	ValidatorOutput:  35,
 	DownloadStreams:  36,
-	ScheduledEgress:  37,
 }
 
 // ExitCode is the exit code a refusal of budget n carries.
@@ -96,8 +77,6 @@ func (r *Refusal) Error() string {
 		return fmt.Sprintf("budget: %d downloads are already in progress, which is the most this process streams at once; try again when one finishes", r.Limit)
 	case StagingReserve:
 		return fmt.Sprintf("budget: staging this would take the staging disk below its %d byte free-space reserve", r.Limit)
-	case TickWork:
-		return fmt.Sprintf("budget: a pass considers at most %d copies; the rest wait for the next one", r.Limit)
 	}
 	return fmt.Sprintf("budget: %s is over its limit of %d", r.Budget, r.Limit)
 }
@@ -111,20 +90,25 @@ type Limits struct {
 	MaxConcurrentReads     int
 	MaxReadsPerDestination int
 	StagingReserveBytes    int64
-	MaxCopiesPerTick       int
-	ValidatorOutputBytes   int64
 	MaxDownloadStreams     int
 }
 
 // The defaults. Each one is sized for the smallest host this product runs on
 // (a home NAS with a handful of spinning disks), and all of them can be
 // raised by a host that has more.
+//
+// The two read ceilings are the same numbers as the operator-facing defaults
+// of assurance.max_concurrent_full_reads and assurance.max_per_destination
+// (config.DefaultMaxConcurrentReads and config.DefaultMaxPerDestination,
+// #1052), because the settings card names them and an engine that ran at 4
+// and 2 while the card said 2 and 1 would be telling the operator something
+// untrue. They are kept equal here by hand only until #1052 is on the same
+// tree: from then on these two constants are deleted and Defaults imports
+// those, so there is one place the number is written.
 const (
-	DefaultMaxConcurrentReads     = 4
-	DefaultMaxReadsPerDestination = 2
+	DefaultMaxConcurrentReads     = 2
+	DefaultMaxReadsPerDestination = 1
 	DefaultStagingReserveBytes    = 1 << 30 // 1 GiB
-	DefaultMaxCopiesPerTick       = 50
-	DefaultValidatorOutputBytes   = 256 << 10 // EPIC L's workflowrun.DefaultStepOutputBytes; a test holds them equal
 	DefaultMaxDownloadStreams     = 4
 )
 
@@ -134,8 +118,6 @@ func Defaults() Limits {
 		MaxConcurrentReads:     DefaultMaxConcurrentReads,
 		MaxReadsPerDestination: DefaultMaxReadsPerDestination,
 		StagingReserveBytes:    DefaultStagingReserveBytes,
-		MaxCopiesPerTick:       DefaultMaxCopiesPerTick,
-		ValidatorOutputBytes:   DefaultValidatorOutputBytes,
 		MaxDownloadStreams:     DefaultMaxDownloadStreams,
 	}
 }
@@ -154,12 +136,6 @@ func (l Limits) WithDefaults() Limits {
 	if l.StagingReserveBytes == 0 {
 		l.StagingReserveBytes = d.StagingReserveBytes
 	}
-	if l.MaxCopiesPerTick == 0 {
-		l.MaxCopiesPerTick = d.MaxCopiesPerTick
-	}
-	if l.ValidatorOutputBytes == 0 {
-		l.ValidatorOutputBytes = d.ValidatorOutputBytes
-	}
 	if l.MaxDownloadStreams == 0 {
 		l.MaxDownloadStreams = d.MaxDownloadStreams
 	}
@@ -177,21 +153,11 @@ func (l Limits) Validate() error {
 		return fmt.Errorf("budget: the per-destination limit (%d) is above the global one (%d), so it could never bind", l.MaxReadsPerDestination, l.MaxConcurrentReads)
 	case l.StagingReserveBytes < 0:
 		return fmt.Errorf("budget: the staging reserve cannot be negative, got %d", l.StagingReserveBytes)
-	case l.MaxCopiesPerTick < 1:
-		return fmt.Errorf("budget: a pass must be allowed at least 1 copy, got %d", l.MaxCopiesPerTick)
-	case l.ValidatorOutputBytes < 1:
-		return fmt.Errorf("budget: the validator output bound must be at least 1 byte, got %d", l.ValidatorOutputBytes)
 	case l.MaxDownloadStreams < 1:
 		return fmt.Errorf("budget: the download ceiling must be at least 1, got %d", l.MaxDownloadStreams)
 	}
 	return nil
 }
-
-// ScheduledCeiling is the strongest verification class an unattended pass
-// may reach on a medium. It is what makes ScheduledEgress zero: the class
-// costs no egress, and Content (a full download) is never reachable without
-// an operator asking.
-func ScheduledCeiling() placement.Class { return placement.Existence }
 
 // Gate is a counting limiter. Acquire refuses when it is full, which is a
 // refusal at the moment of spend: a caller that waited would be a queue with
@@ -340,33 +306,4 @@ func (r *Reads) Peaks() (global int, perDestination map[string]int) {
 		perDestination[d] = g.Peak()
 	}
 	return r.global.Peak(), perDestination
-}
-
-// Candidate is one copy that is due for work.
-type Candidate struct {
-	ID          string
-	Destination string
-	Due         time.Time
-}
-
-// SelectTick picks the copies one scheduler pass will consider: the oldest
-// due first, at most MaxCopiesPerTick of them, and everything else is
-// deferred to a later pass. The order is stable (due time, then id), so two
-// runs over the same set agree and nothing due starves behind a newer copy.
-func SelectTick(due []Candidate, l Limits) (considered, deferred []Candidate) {
-	ordered := append([]Candidate(nil), due...)
-	sort.SliceStable(ordered, func(i, j int) bool {
-		if !ordered[i].Due.Equal(ordered[j].Due) {
-			return ordered[i].Due.Before(ordered[j].Due)
-		}
-		return ordered[i].ID < ordered[j].ID
-	})
-	n := l.MaxCopiesPerTick
-	if n < 0 {
-		n = 0
-	}
-	if len(ordered) <= n {
-		return ordered, nil
-	}
-	return ordered[:n], ordered[n:]
 }

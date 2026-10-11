@@ -79,11 +79,11 @@ change these ceilings exist to catch.
 
 The day a catalog is rebuilt, or a scheduler is switched on for a fleet that
 never had one, every copy is due at the same instant. The simulation of that day is
-`core/internal/recovery/budget/scale_test.go`: the real selection
-(`budget.SelectTick`), the real read limiter and the real verifying engine, a
-scheduler that waits for a slot rather than being refused (its work per pass is
-already bounded), and the peaks read off the limiter rather than asserted from
-outside. Most of the fleet is on one destination on purpose, so the
+`core/internal/recovery/budget/scale_test.go`: the real read limiter and the
+real verifying engine, a simulated scheduler that hands them 50 copies at a
+time and waits for a slot rather than being refused (the pass size is the
+test's own, because no product code bounds a pass), and the peaks read off the
+limiter rather than asserted from outside. Most of the fleet is on one destination on purpose, so the
 per-destination ceiling has something to hold.
 
 ```
@@ -96,11 +96,10 @@ RECOVERY_BUDGET_COPIES=1200 RECOVERY_BUDGET_BYTES=1048576 \
 |---|---|---|
 | copies due at once | 1200, 1 MiB each (1.2 GiB read, hashed and staged) | |
 | passes to finish them | 24 | 24 (1200 copies at 50 a pass) |
-| most copies considered in one pass | 50 | 50 |
-| most full reads running at once | 4 | 4 |
-| most full reads of one destination at once | 2 | 2 |
+| most full reads running at once | 2 | 2 |
+| most full reads of one destination at once | 1 | 1 |
 | refusals | 0 | |
-| wall clock | 4.6 s | |
+| wall clock | 0.7 s | |
 
 Run on the host above, linux/amd64, 28 threads, under a docker container with
 the usual neighbours. The wall clock is for scale only: a copy here is read
