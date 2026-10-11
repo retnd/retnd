@@ -130,6 +130,11 @@ type Placement struct {
 
 	CreatedAt time.Time
 	UpdatedAt time.Time
+
+	// The per-copy assurance record (migration 0016, EPIC Q). Nothing in
+	// it is a claim until a scrub or a recovery test wrote it: the zero
+	// value of every field is the one that cannot look good.
+	Assurance
 }
 
 // IsLocal reports whether this placement is the local one.
@@ -275,7 +280,8 @@ func (r Record) ActiveMediumPlacements() []Placement {
 // than calling scanPlacement.
 const placementColumns = `
 	medium, location, size_bytes, hash, hash_alg,
-	verification_class, verified_at, status, created_at, updated_at`
+	verification_class, verified_at, status, created_at, updated_at,
+	` + assuranceColumns
 
 // loadPlacements reads the placements for one artifact row.
 func loadPlacements(ctx context.Context, q querier, artifactRowID int64) ([]Placement, error) {
@@ -347,19 +353,14 @@ func loadPlacementsFor(ctx context.Context, q querier, artifactWhere string, arg
 	defer rows.Close()
 
 	for rows.Next() {
-		var artifactRowID int64
 		var (
-			medium, location, hash, hashAlg string
-			verificationClass, status       string
-			size                            sql.NullInt64
-			verifiedAt                      sql.NullString
-			createdAt, updatedAt            string
+			artifactRowID int64
+			f             placementFields
 		)
-		if err := rows.Scan(&artifactRowID, &medium, &location, &size, &hash, &hashAlg,
-			&verificationClass, &verifiedAt, &status, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(append([]any{&artifactRowID}, f.dests()...)...); err != nil {
 			return nil, fmt.Errorf("state: scan placement: %w", err)
 		}
-		p, err := buildPlacement(medium, location, size, hash, hashAlg, verificationClass, verifiedAt, status, createdAt, updatedAt)
+		p, err := f.build()
 		if err != nil {
 			return nil, err
 		}
@@ -372,56 +373,75 @@ func loadPlacementsFor(ctx context.Context, q querier, artifactWhere string, arg
 }
 
 func scanPlacement(row scanRow) (Placement, error) {
-	var (
-		medium, location, hash, hashAlg string
-		verificationClass, status       string
-		size                            sql.NullInt64
-		verifiedAt                      sql.NullString
-		createdAt, updatedAt            string
-	)
-	if err := row.Scan(&medium, &location, &size, &hash, &hashAlg,
-		&verificationClass, &verifiedAt, &status, &createdAt, &updatedAt); err != nil {
+	var f placementFields
+	if err := row.Scan(f.dests()...); err != nil {
 		return Placement{}, fmt.Errorf("state: scan placement: %w", err)
 	}
-	return buildPlacement(medium, location, size, hash, hashAlg, verificationClass, verifiedAt, status, createdAt, updatedAt)
+	return f.build()
 }
 
-// buildPlacement is the one place a stored placement becomes a Placement,
-// shared by both readers so the nullable columns are interpreted the same
-// way whichever query produced them.
+// placementFields is one stored placement exactly as the driver hands it
+// back, before the nullable columns are interpreted.
+//
+// It is a struct, and not a long parameter list, because migration 0016
+// took the record from ten columns to over thirty, and a positional list
+// that long is where two readers disagree by one column and hand a failure
+// count back as a byte count. dests and build are the only places that
+// know the order, and placementColumns (with assuranceColumns) is the third,
+// kept beside them.
+type placementFields struct {
+	medium, location, hash, hashAlg string
+	verificationClass, status       string
+	size                            sql.NullInt64
+	verifiedAt                      sql.NullString
+	createdAt, updatedAt            string
+	assurance                       assuranceFields
+}
+
+func (f *placementFields) dests() []any {
+	return append([]any{
+		&f.medium, &f.location, &f.size, &f.hash, &f.hashAlg,
+		&f.verificationClass, &f.verifiedAt, &f.status, &f.createdAt, &f.updatedAt,
+	}, f.assurance.dests()...)
+}
+
+// build is the one place a stored placement becomes a Placement, shared by
+// both readers so the nullable columns are interpreted the same way
+// whichever query produced them.
 //
 // A stored timestamp that will not parse fails the read rather than
 // becoming a zero time. verified_at in particular is what FR-31 answers
 // "when was this copy last proven" with, and a zero there is not a missing
 // answer, it is a very old one.
-func buildPlacement(
-	medium, location string, size sql.NullInt64, hash, hashAlg string,
-	verificationClass string, verifiedAt sql.NullString, status string,
-	createdAt, updatedAt string,
-) (Placement, error) {
-	created, err := parseTime(createdAt)
+func (f *placementFields) build() (Placement, error) {
+	created, err := parseTime(f.createdAt)
 	if err != nil {
-		return Placement{}, fmt.Errorf("state: stored placement created_at %q is invalid: %w", createdAt, err)
+		return Placement{}, fmt.Errorf("state: stored placement created_at %q is invalid: %w", f.createdAt, err)
 	}
-	updated, err := parseTime(updatedAt)
+	updated, err := parseTime(f.updatedAt)
 	if err != nil {
-		return Placement{}, fmt.Errorf("state: stored placement updated_at %q is invalid: %w", updatedAt, err)
+		return Placement{}, fmt.Errorf("state: stored placement updated_at %q is invalid: %w", f.updatedAt, err)
 	}
-	verified, err := scanOptionalTime(verifiedAt)
+	verified, err := scanOptionalTime(f.verifiedAt)
 	if err != nil {
 		return Placement{}, fmt.Errorf("state: stored placement verified_at is invalid: %w", err)
 	}
+	assurance, err := f.assurance.build()
+	if err != nil {
+		return Placement{}, err
+	}
 	return Placement{
-		Medium:            medium,
-		Location:          location,
-		Size:              scanOptionalInt64(size),
-		Hash:              hash,
-		HashAlg:           hashAlg,
-		VerificationClass: verificationClass,
+		Medium:            f.medium,
+		Location:          f.location,
+		Size:              scanOptionalInt64(f.size),
+		Hash:              f.hash,
+		HashAlg:           f.hashAlg,
+		VerificationClass: f.verificationClass,
 		VerifiedAt:        verified,
-		Status:            status,
+		Status:            f.status,
 		CreatedAt:         created,
 		UpdatedAt:         updated,
+		Assurance:         assurance,
 	}, nil
 }
 
@@ -448,8 +468,8 @@ func upsertPlacement(ctx context.Context, tx *sql.Tx, artifactRowID int64, p Pla
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO placements (
 			artifact_id, medium, location, size_bytes, hash, hash_alg,
-			verification_class, verified_at, status, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			verification_class, verified_at, content_verified_at, status, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (artifact_id, medium) DO UPDATE SET
 			location           = excluded.location,
 			size_bytes         = excluded.size_bytes,
@@ -457,13 +477,28 @@ func upsertPlacement(ctx context.Context, tx *sql.Tx, artifactRowID int64, p Pla
 			hash_alg           = excluded.hash_alg,
 			verification_class = excluded.verification_class,
 			verified_at        = excluded.verified_at,
+			content_verified_at = CASE
+				WHEN excluded.verification_class = 'content' AND excluded.verified_at IS NOT NULL
+				THEN excluded.verified_at ELSE content_verified_at END,
 			status             = excluded.status,
 			updated_at         = excluded.updated_at`,
 		artifactRowID, p.Medium, p.Location, optionalInt64(p.Size), p.Hash, p.HashAlg,
-		p.VerificationClass, optionalTimeText(p.VerifiedAt), status, stamp, stamp,
+		p.VerificationClass, optionalTimeText(p.VerifiedAt), contentVerifiedAt(p), status, stamp, stamp,
 	)
 	if err != nil {
 		return fmt.Errorf("state: recording the %s placement: %w", p.Medium, err)
 	}
 	return nil
+}
+
+// contentVerifiedAt is the content age a placement write carries: the
+// verification time when, and only when, the class being written is
+// content. Ingestion's own verification (FR-13) read the bytes, so a
+// freshly committed copy genuinely is content verified at that moment; an
+// attested or existence write is not, whatever its verified_at says.
+func contentVerifiedAt(p PlacementUpdate) any {
+	if p.VerificationClass != VerificationContent || p.VerifiedAt == nil {
+		return nil
+	}
+	return formatTime(*p.VerifiedAt)
 }

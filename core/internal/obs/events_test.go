@@ -62,6 +62,8 @@ func TestEventNamesAreStable(t *testing.T) {
 		{"EventWorkflowStepStart", EventWorkflowStepStart, "workflow_step_start"},
 		{"EventWorkflowStepEnd", EventWorkflowStepEnd, "workflow_step_end"},
 		{"EventWorkflowBypassed", EventWorkflowBypassed, "workflow_bypassed"},
+		{"EventScrubPass", EventScrubPass, "scrub_pass"},
+		{"EventScrubFailure", EventScrubFailure, "scrub_failure"},
 		{"EventError", EventError, "error"},
 	}
 	seen := make(map[string]string, len(cases))
@@ -414,5 +416,55 @@ func TestAlertEvent(t *testing.T) {
 	}
 	if got["detail"] != "Backup set production/postgres-primary is STALE." {
 		t.Errorf("detail = %v, want the delivered message", got["detail"])
+	}
+}
+
+func TestScrubPassEvent(t *testing.T) {
+	l, buf := newRecorder(t)
+	l.ScrubPass(context.Background(), ScrubPassCounts{
+		Trigger: "schedule", Scope: "all-due", Selected: 1000, Checked: 990, Passed: 980,
+		Failed: 4, CouldNotComplete: 6, RequiresRestore: 0, SkippedHeld: 7, SkippedLeased: 3, BytesRead: 1 << 30,
+	})
+	line := decodeLines(t, buf)[0]
+	if line["event"] != EventScrubPass {
+		t.Fatalf("event = %v", line["event"])
+	}
+	// A pass with failures completed, and found something worth attention:
+	// warn, not error. The scrub did its job.
+	if line["result"] != string(ResultWarn) || line["level"] != "WARN" {
+		t.Errorf("a pass with failures logged outcome=%v level=%v, want warn", line["result"], line["level"])
+	}
+	for k, want := range map[string]float64{"selected": 1000, "checked": 990, "passed": 980, "failed": 4,
+		"could_not_complete": 6, "skipped_held": 7, "skipped_leased": 3} {
+		if line[k] != want {
+			t.Errorf("%s = %v, want %v", k, line[k], want)
+		}
+	}
+}
+
+func TestScrubPassEventWithoutFailuresIsSuccess(t *testing.T) {
+	l, buf := newRecorder(t)
+	l.ScrubPass(context.Background(), ScrubPassCounts{Trigger: "manual", Scope: "x", Selected: 2, Checked: 2, Passed: 2})
+	line := decodeLines(t, buf)[0]
+	if line["result"] != string(ResultSuccess) {
+		t.Errorf("outcome = %v, want success", line["result"])
+	}
+}
+
+func TestScrubFailureEventCarriesNoRawControlBytes(t *testing.T) {
+	l, buf := newRecorder(t)
+	l.ScrubFailure(context.Background(), "prod/pg/a.dump", "local", "content", "bad\x1b[31m\x00 bytes")
+	line := decodeLines(t, buf)[0]
+	if line["event"] != EventScrubFailure || line["result"] != string(ResultWarn) {
+		t.Fatalf("line = %#v", line)
+	}
+	reason, _ := line["reason"].(string)
+	for _, r := range reason {
+		if r < 0x20 || r == 0x7f {
+			t.Errorf("reason carries control byte %#x: %q", r, reason)
+		}
+	}
+	if line["artifact"] != "prod/pg/a.dump" || line["medium"] != "local" || line["class"] != "content" {
+		t.Errorf("line = %#v", line)
 	}
 }

@@ -84,6 +84,7 @@ var commands = map[string]func([]string) int{
 	"retention":       cmdRetention,
 	"reconcile":       cmdReconcile,
 	"validate":        cmdValidate,
+	"scrub":           cmdScrub,
 	"catalog":         cmdCatalog,
 	"quarantine":      cmdQuarantine,
 	"unconfigured":    cmdUnconfigured,
@@ -254,6 +255,16 @@ commands:
                                                   full download and re-hash, which costs egress, so FR-31 makes it
                                                   something an operator asks for rather than something that happens
                                                   (#435)
+  scrub [<source/backup-set> | <source/backup-set/artifact> [--medium ID]] [--content --allow-egress]
+                                                  check the durable copies of what is named now, or every copy that is
+                                                  due when nothing is named: the scrub the daemon runs on a schedule,
+                                                  by hand. Each result prints the class that ran, and an existence
+                                                  check is never called verification of the bytes. A copy in an archive
+                                                  storage class is never read and no restore is started. --content
+                                                  reads a copy on a storage medium in full, which costs egress, so it
+                                                  also needs --allow-egress. Exit 1 when a copy failed, could not be
+                                                  checked, was skipped (held for editing, or being checked by another
+                                                  scrub) or was refused for cost (EPIC Q)
   catalog rebuild [--dry-run]                    reconstruct a lost/corrupted state database from sidecar recovery manifests
   quarantine <revalidate|retry|reinstate> <source/backup-set/artifact> [--note T]
                                                   act on one quarantined artifact: revalidate re-checks it and moves

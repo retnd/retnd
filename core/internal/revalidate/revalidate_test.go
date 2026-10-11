@@ -268,6 +268,23 @@ func TestSelectDue_IncludesRemoteRetained(t *testing.T) {
 	}
 }
 
+// copyDue builds a record in state st whose one local copy is due at the
+// given time, or immediately when due is nil. Due-ness is a property of the
+// copy, so a record that only had an UpdatedAt would be testing the clock
+// this package no longer reads.
+func copyDue(t *testing.T, name, st string, due *time.Time, updatedAt time.Time) state.Record {
+	t.Helper()
+	return state.Record{
+		Artifact: artifactNamed(t, name), State: st, UpdatedAt: updatedAt,
+		Placements: []state.Placement{{
+			Medium: state.MediumLocal, Location: "/backups/" + name, Status: state.PlacementActive,
+			Assurance: state.Assurance{AssuranceState: state.AssuranceUnknown, NextDueAt: due},
+		}},
+	}
+}
+
+func timePtr(t time.Time) *time.Time { return &t }
+
 // TestSelectDue_FiltersByInterval puts one record exactly ON the boundary,
 // which is the only case with a decision in it.
 //
@@ -279,10 +296,14 @@ func TestSelectDue_FiltersByInterval(t *testing.T) {
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	cfg := config.Revalidation{Hash: true, Interval: config.Duration(24 * time.Hour), MaxPerCycle: 10}
 
+	// Every artifact row below carries the SAME recent UpdatedAt on purpose:
+	// that clock is what reconciliation and a catalog rebuild reset, and
+	// selection must not be able to see it.
+	recent := now.Add(-time.Minute)
 	records := []state.Record{
-		{Artifact: artifactNamed(t, "fresh.dump"), State: "COMMITTED", UpdatedAt: now.Add(-1 * time.Hour)},
-		{Artifact: artifactNamed(t, "overdue.dump"), State: "COMMITTED", UpdatedAt: now.Add(-48 * time.Hour)},
-		{Artifact: artifactNamed(t, "exactly-due.dump"), State: "COMMITTED", UpdatedAt: now.Add(-24 * time.Hour)},
+		copyDue(t, "fresh.dump", "COMMITTED", timePtr(now.Add(23*time.Hour)), recent),
+		copyDue(t, "overdue.dump", "COMMITTED", timePtr(now.Add(-24*time.Hour)), recent),
+		copyDue(t, "exactly-due.dump", "COMMITTED", timePtr(now), recent),
 	}
 
 	due := SelectDue(records, cfg, now)
@@ -322,9 +343,9 @@ func TestSelectDue_BoundedByMaxPerCycleOldestFirst(t *testing.T) {
 	cfg := config.Revalidation{Hash: true, Interval: config.Duration(time.Hour), MaxPerCycle: 2}
 
 	records := []state.Record{
-		{Artifact: artifactNamed(t, "newest.dump"), State: "COMMITTED", UpdatedAt: now.Add(-3 * time.Hour)},
-		{Artifact: artifactNamed(t, "oldest.dump"), State: "COMMITTED", UpdatedAt: now.Add(-100 * time.Hour)},
-		{Artifact: artifactNamed(t, "middle.dump"), State: "COMMITTED", UpdatedAt: now.Add(-50 * time.Hour)},
+		copyDue(t, "newest.dump", "COMMITTED", timePtr(now.Add(-3*time.Hour)), now),
+		copyDue(t, "oldest.dump", "COMMITTED", timePtr(now.Add(-100*time.Hour)), now),
+		copyDue(t, "middle.dump", "COMMITTED", timePtr(now.Add(-50*time.Hour)), now),
 	}
 
 	due := SelectDue(records, cfg, now)
@@ -770,18 +791,33 @@ func TestRun_NoHashBaseline_IsANoOpNotAFailure(t *testing.T) {
 	if rec.State != "COMMITTED" {
 		t.Fatalf("state = %q, want it untouched", rec.State)
 	}
-	if !rec.UpdatedAt.Equal(occurredAt) {
-		t.Fatalf("UpdatedAt = %s, want it left at %s: a no-op check must never refresh the due-ness clock", rec.UpdatedAt, occurredAt)
+	// (This fixture predates placements, so the one same-state write that
+	// moved UpdatedAt is the adoption of its local copy, once. The checks
+	// below are about what the scrub itself recorded.)
+
+	// Nothing was checked, so the copy must not read as anything better than
+	// unknown, and must not carry an age that any surface could render.
+	p, ok := rec.LocalPlacement()
+	if !ok {
+		t.Fatal("the unchecked artifact has no local placement to hold the record")
+	}
+	if p.AssuranceState != state.AssuranceUnknown || p.LastCheckedAt != nil || p.ContentVerifiedAt != nil {
+		t.Fatalf("an unchecked copy reads state=%q checked=%v content=%v; it must stay unknown with no age",
+			p.AssuranceState, p.LastCheckedAt, p.ContentVerifiedAt)
 	}
 
-	// Because nothing was actually checked, this artifact must still be
-	// selected as due on a later Run: the clock was never reset.
+	// But it must not hog the cycle either: with nothing it can be checked
+	// against, it is pushed one interval out instead of being the most
+	// overdue copy for ever and spending MaxPerCycle on a no-op.
+	if p.NextDueAt == nil || !p.NextDueAt.After(now) {
+		t.Fatalf("NextDueAt = %v, want a time after %s so the copy does not hog every cycle", p.NextDueAt, now)
+	}
 	report2, err := Run(context.Background(), Deps{Journal: j, Now: func() time.Time { return now }}, set, cfg)
 	if err != nil {
 		t.Fatalf("second Run: %v", err)
 	}
-	if len(report2.Findings) != 1 || report2.Findings[0].Checked {
-		t.Fatalf("second Run's Findings = %+v, want the same unchecked finding again", report2.Findings)
+	if len(report2.Findings) != 0 {
+		t.Fatalf("second Run's Findings = %+v, want none: the unchecked copy was rescheduled", report2.Findings)
 	}
 }
 

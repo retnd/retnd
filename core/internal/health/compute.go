@@ -1,6 +1,7 @@
 package health
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/retnd/retnd/core/internal/lifecycle"
@@ -81,6 +82,11 @@ type evidence struct {
 	// PlacementHealth are carried along for the reason a caller can read
 	// on each of them; only FailedMoves is consulted below.
 	placement PlacementHealth
+
+	// scrubFailing is how many ACTIVE copies have failed their scheduled
+	// check ScrubFailureThreshold times running. Like a failing move it can
+	// only turn HEALTHY into DEGRADED.
+	scrubFailing int
 }
 
 // decideState assigns one of the four FR-24 states from evidence alone.
@@ -140,6 +146,10 @@ func decideState(e evidence) (State, string) {
 	}
 	if e.placement.FailedMoves > 0 {
 		return Degraded, placementReason(e.placement)
+	}
+	if e.scrubFailing > 0 {
+		return Degraded, fmt.Sprintf("a known-good backup exists within the stale threshold, but %d cop%s failed %d scheduled checks in a row",
+			e.scrubFailing, pluralY(e.scrubFailing), ScrubFailureThreshold)
 	}
 	return Healthy, "a known-good backup exists within the stale threshold and nothing needs attention"
 }
@@ -244,6 +254,12 @@ func buildAggregate(records []state.Record, staleThreshold time.Duration, now ti
 			haveArrival = true
 		}
 
+		for _, p := range r.Placements {
+			if p.Status == state.PlacementActive && p.ConsecutiveFailures >= ScrubFailureThreshold {
+				agg.scrubFailing++
+			}
+		}
+
 		st := parseRecordState(r.State)
 
 		if knownGood[st] {
@@ -344,6 +360,7 @@ func ComputeBackupSetHealth(set model.BackupSetID, records []state.Record, reins
 
 		QuarantinedCount:     agg.quarantinedCount,
 		QuarantinedLostCount: agg.quarantinedLostCount,
+		ScrubFailingCopies:   agg.scrubFailing,
 
 		ReinstatedRemoteRetainedCount: countReinstatedRemoteRetained(records, reinstated),
 		ReadOnlyRetainedCount:         agg.readOnlyRetainedCount,
@@ -371,4 +388,11 @@ func ComputeBackupSetHealth(set model.BackupSetID, records []state.Record, reins
 		// decideState; see BackupSetHealth.Snapshot.
 		Snapshot: in.Snapshot,
 	}
+}
+
+func pluralY(n int) string {
+	if n == 1 {
+		return "y"
+	}
+	return "ies"
 }

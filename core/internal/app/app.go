@@ -294,6 +294,18 @@ type Service struct {
 	// wrong once.
 	MediumStore transport.MediumStore
 
+	// scrub is this process's shared scrub admission control (scrub.go).
+	scrub scrubLimitsState
+
+	// Stages runs the operator's scripts for a purpose that is not a backup
+	// (stage.go). Nil means this process cannot, which every notification
+	// and every recovery test validator reads as "not configured".
+	Stages StageRunner
+
+	// assurance remembers which assurance episodes have been announced
+	// (assurancehook.go).
+	assurance assuranceEpisodes
+
 	// Repositories is EPIC K's backup-engine boundary: how this manager
 	// opens the repository an incremental backup set's snapshots live in
 	// (internal/backupengine, adapter in backupengine/kopia).
