@@ -34,7 +34,7 @@ func TestAssurance_ANilBlockResolvesToUsefulDefaults(t *testing.T) {
 	}
 	d := c.Assurance
 	if d.StagingTTL != DefaultStagingTTL || d.MaxConcurrentFullReads != DefaultMaxConcurrentReads ||
-		d.MaxPerDestination != DefaultMaxPerDestination || d.WebDownloadMemoryBytes != DefaultWebDownloadMemory {
+		d.MaxPerDestination != DefaultMaxPerDestination {
 		t.Errorf("host-scoped defaults not resolved: %+v", d)
 	}
 }

@@ -75,9 +75,9 @@ func captureConfigValidation(fixtureDir string) (Cell, error) {
 		// were captured.
 		if strings.Contains(base, "assurance") {
 			d := cfg.Assurance
-			lines = append(lines, fmt.Sprintf("%s   deployment assurance: scrub=%s/%s recovery_test=%s/%s/%q staging_ttl=%s reads=%d per_destination=%d web_memory=%d",
+			lines = append(lines, fmt.Sprintf("%s   deployment assurance: scrub=%s/%s recovery_test=%s/%s/%q staging_ttl=%s reads=%d per_destination=%d",
 				base, d.Scrub.Cadence, d.Scrub.Strategy, d.RecoveryTest.Mode, d.RecoveryTest.Cadence, d.RecoveryTest.ValidatorID,
-				d.StagingTTL, d.MaxConcurrentFullReads, d.MaxPerDestination, d.WebDownloadMemoryBytes))
+				d.StagingTTL, d.MaxConcurrentFullReads, d.MaxPerDestination))
 			for _, src := range cfg.Sources {
 				for _, bs := range src.BackupSets {
 					a := bs.Assurance

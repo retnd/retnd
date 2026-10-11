@@ -2603,7 +2603,6 @@ function fromWireAssuranceSettings(s: WireAssuranceSettingsResponse): AssuranceS
     stagingTtlSeconds: s.staging_ttl_seconds ?? 0,
     maxConcurrentFullReads: s.max_concurrent_full_reads ?? 0,
     maxPerDestination: s.max_per_destination ?? 0,
-    webDownloadMemoryBytes: s.web_download_memory_bytes ?? 0,
     hostKnobs: (s.host_knobs ?? []).map((k) => ({
       name: k.name ?? "",
       value: k.value ?? "",
@@ -2650,7 +2649,6 @@ function wireAssurancePatch(
   if (p.stagingTtlSeconds !== undefined) body.staging_ttl_seconds = p.stagingTtlSeconds;
   if (p.maxConcurrentFullReads !== undefined) body.max_concurrent_full_reads = p.maxConcurrentFullReads;
   if (p.maxPerDestination !== undefined) body.max_per_destination = p.maxPerDestination;
-  if (p.webDownloadMemoryBytes !== undefined) body.web_download_memory_bytes = p.webDownloadMemoryBytes;
   return body as WireUpdateAssuranceSettingsRequest & WireUpdateBackupSetAssuranceRequest;
 }
 

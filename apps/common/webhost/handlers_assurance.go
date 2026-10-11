@@ -55,7 +55,6 @@ type assuranceSettingsResponse struct {
 	Scrub                  assuranceScrubBody        `json:"scrub"`
 	StagingRoot            string                    `json:"staging_root"`
 	StagingTTLSeconds      int64                     `json:"staging_ttl_seconds"`
-	WebDownloadMemoryBytes int64                     `json:"web_download_memory_bytes"`
 }
 
 type updateAssuranceSettingsRequest struct {
@@ -68,7 +67,6 @@ type updateAssuranceSettingsRequest struct {
 	ScrubStrategy              *string `json:"scrub_strategy"`
 	StagingRoot                *string `json:"staging_root"`
 	StagingTTLSeconds          *int64  `json:"staging_ttl_seconds"`
-	WebDownloadMemoryBytes     *int64  `json:"web_download_memory_bytes"`
 }
 
 func (r updateAssuranceSettingsRequest) namesNothing() bool {
@@ -281,7 +279,6 @@ func toUpdateAssuranceSettingsRequest(b updateAssuranceSettingsRequest) (service
 		StagingTTL:              ttl,
 		MaxConcurrentFullReads:  toInt(b.MaxConcurrentFullReads),
 		MaxPerDestination:       toInt(b.MaxPerDestination),
-		WebDownloadMemoryBytes:  b.WebDownloadMemoryBytes,
 	}, nil
 }
 
@@ -300,7 +297,6 @@ func toAssuranceSettingsBody(s service.AssuranceSettings) assuranceSettingsRespo
 		Configured: s.Configured, HostKnobs: knobs,
 		MaxConcurrentFullReads: int64(s.MaxConcurrentFullReads), MaxPerDestination: int64(s.MaxPerDestination),
 		RecoveryTest: rt, Scrub: scrub, StagingRoot: s.StagingRoot, StagingTTLSeconds: durationSeconds(s.StagingTTL),
-		WebDownloadMemoryBytes: s.WebDownloadMemoryBytes,
 	}
 }
 
