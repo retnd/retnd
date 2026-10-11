@@ -240,34 +240,42 @@ argument.
 
 ## Validators and recovery staging
 
-A recovery test runs an operator's own executable (a validator) against a copy that has
-been recovered to an isolated path. It sits inside the contract above rather than beside
-it, and it adds no privilege.
+A recovery test runs an operator's own script (a validator, `NAME.local.sh` under
+`recovery-test/<source>/<set>` in the workflow root, chosen by the policy's `validator_id`)
+against a copy that has been recovered to an isolated path. It runs through the host
+workflow runner, the way every hook does. It sits inside the contract above rather than
+beside it, and it adds no privilege.
 
 What the validator can reach:
 
 - **The recovered copy, and nothing else on purpose.** It is run against a path under the
   recovery staging root, never against the durable file in the backup root. The staging
-  root is host-scoped and global: one filesystem, so no backup set can point it elsewhere.
-- **A fixed environment.** The validator does not inherit the engine's environment, so
-  no resolved credential, key or token is in it.
-- **Its own process group, a timeout that fails closed, and bounded output.** A validator
-  that never returns is terminated along with its group and the result is a failure. A
-  child that deliberately detaches outside the group is outside what the reaper can reach,
-  so termination is recorded as unconfirmed rather than claimed.
+  root is host-scoped and global: one filesystem, shared by recoveries and recovery
+  tests, so no backup set can point it elsewhere. Unless `assurance.staging_root` says
+  otherwise it is `recovery-staging` beside the state database. The runner's container
+  sees it only if you declare it with `--hook-mount`; a script that cannot open the file
+  fails, and is not a pass.
+- **The hook environment, not the engine's.** The validator gets the set's resolved
+  workflow environment plus the `RECOVERY_TEST_*` variables. It does not inherit the
+  engine's own environment, so no credential, key or token of the engine's is in it.
+- **Its own process group and a timeout that fails closed.** A validator that never
+  returns is terminated along with its group and the result is a failure. A child that
+  deliberately detaches outside the group is outside what the reaper can reach, so
+  termination is recorded as unconfirmed rather than claimed.
 
 What it cannot do, and why this section adds no exception to the prohibition list: the
 containers stay distroless, non-root and read-only, with `cap_drop: ALL` and
 `no-new-privileges`. No Docker socket and no host-root mount is added for this, no shell is
-added to the engine image, and no new port is opened. The validator runs through the same
-untrusted-subprocess boundary `retnd validate` already uses, and a recovery itself starts
-no subprocess at all.
+added to the engine image, and no new port is opened. The validator runs through the host
+workflow runner under the contract in
+[the host workflow runner ADR](adr/0020-host-workflow-runner.md), and a recovery itself
+starts no subprocess at all.
 
-Its output is untrusted. It is bounded per run, a raw control byte never reaches a
-structured field, a notification or the docked terminal, and a truncation is marked in a
-way the output itself cannot forge. A validator that exits 0 without opening the file does
-not produce a recovery-test pass, because the digest of the recovered bytes was checked
-first and is what the pass is recorded against.
+Its output is untrusted, and this build keeps none of it: what the engine records is the
+verdict, the hash of the script that ran and a reason in its own words, never the script's
+printed text. A validator that exits 0 without opening the file does not produce a
+recovery-test pass, because the digest of the recovered bytes was checked first and is
+what the pass is recorded against.
 
 ## Runtime profiles
 

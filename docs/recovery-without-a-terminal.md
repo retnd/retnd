@@ -317,10 +317,11 @@ path: it can give you the file, and putting it back is yours.
    step is reaching the destination by whatever route your storage provider gives you.
 4. **Cancelled or disconnected.** Start again. If it keeps dropping, a proxy in front of the
    interface is closing long downloads; that is a gateway setting, not this application.
-5. **Recovery test failed, content verified.** Open the result. It shows the validator's
-   exit status and a bounded, redacted tail of what it printed, and where the tail was cut
-   it says so in a box the validator's own output cannot imitate. Fix the validator or the
-   thing it checks. The application is telling you the file is intact.
+5. **Recovery test failed, content verified.** The set shows that the test failed and the
+   reason the application recorded. It does not show what your validator printed: this
+   build keeps no copy of that, so the script has to write its findings somewhere you can
+   read them. Fix the validator or the thing it checks. The application is telling you the
+   file is intact.
 6. **A cleanup notice.** Nothing is wrong with your result. Free space on the volume that
    holds the staging area, and the leftover is removed on its next sweep.
 
