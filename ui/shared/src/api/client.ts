@@ -3195,6 +3195,7 @@ export const httpApi: RetndApi = {
       "/activity/live?" +
         (options?.setId ? "backup_set=" + encodeURIComponent(options.setId) + "&" : "") +
         (options?.since ? "since=" + options.since + "&" : "") +
+        (options?.before ? "before=" + options.before + "&" : "") +
         (options?.limit ? "limit=" + options.limit : "")
     ).then(fromWireLiveActivity),
   listQuarantine: () =>

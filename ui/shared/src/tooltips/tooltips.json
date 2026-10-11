@@ -275,10 +275,6 @@
     "label": "Size",
     "html": "The size the artifact was received at. A copy held on a storage medium may measure differently, and the artifact's page reports each copy separately."
   },
-  "backups.col.validation": {
-    "label": "Validation",
-    "html": "Whether a checksum has been matched against the producer's manifest. A cell that reports neither a pass nor a failure means nothing has checked this backup yet, which is a gap rather than a verdict."
-  },
   "backups.col.retention": {
     "label": "Retention",
     "html": "Which retention tiers are keeping this artifact, and so what will eventually delete it. A row that names no tier is one nothing will ever expire, and it keeps its space until somebody acts."

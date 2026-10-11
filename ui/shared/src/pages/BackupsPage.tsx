@@ -186,7 +186,6 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
                   <th scope="col"><InfoTooltip id="backups.col.artifact"><span>Artifact</span></InfoTooltip></th>
                   <th scope="col" style={{ textAlign: "right" }}><InfoTooltip id="backups.col.size"><span>Size</span></InfoTooltip></th>
                   <th scope="col"><InfoTooltip id="assurance.col.claims"><span>Assurance</span></InfoTooltip></th>
-                  <th scope="col"><InfoTooltip id="backups.col.validation"><span>Validation</span></InfoTooltip></th>
                   <th scope="col"><InfoTooltip id="backups.col.retention"><span>Retention</span></InfoTooltip></th>
                   {showsMedium ? <th scope="col"><InfoTooltip id="backups.col.medium"><span>Medium</span></InfoTooltip></th> : null}
                   <th scope="col"><InfoTooltip id="backups.col.status"><span>Status</span></InfoTooltip></th>
@@ -206,24 +205,24 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
                       {stamp(a.receivedAt)}
                     </td>
                     <td>{a.setName}</td>
-                    <td className="mono" style={{ fontSize: "var(--text-sm)" }}>{a.filename}</td>
+                    <td className="mono" style={{ fontSize: "var(--text-sm)" }}>
+                      {a.filename}
+                      {/* The old Validation column drew a green "Verified" for an ingest-time
+                          check, beside the three claims that say what is known now. That column
+                          is retired. A validation that FAILED is still worth saying, and is
+                          said as the failure it is, in the danger colour, never as a pass. */}
+                      {a.validation === "failed" ? (
+                        <div style={{ color: "var(--danger)", fontFamily: "var(--font-sans, inherit)" }}>
+                          <span aria-hidden="true" style={{ display: "inline-flex", verticalAlign: "middle", marginRight: 4 }}>
+                            <Icon name="warning" />
+                          </span>
+                          Failed validation
+                        </div>
+                      ) : null}
+                    </td>
                     <td className="mono" style={{ textAlign: "right", whiteSpace: "nowrap" }}>{bytes(a.sizeBytes)}</td>
                     <td>
                       <ClaimChips assurance={assuranceById.get(a.id)} available={!!api.assurance && !assurance.error} />
-                    </td>
-                    <td style={{ whiteSpace: "nowrap" }}>
-                      <span
-                        style={{
-                          display: "inline-flex", alignItems: "center", gap: 6,
-                          fontSize: "var(--text-sm)",
-                          color: a.validation === "verified" ? "var(--text)" : "var(--danger)"
-                        }}
-                      >
-                        <span aria-hidden="true" style={{ color: a.validation === "verified" ? "var(--ok)" : "var(--danger)", display: "inline-flex" }}>
-                          <Icon name={a.validation === "verified" ? "success" : "warning"} />
-                        </span>
-                        {a.validation === "verified" ? "Verified" : a.validation === "failed" ? "Failed" : "Pending"}
-                      </span>
                     </td>
                     <td><RetentionCell artifact={a} /></td>
                     {showsMedium ? (

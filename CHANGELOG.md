@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **The green "Verified" Validation column is gone** (#1070). The Backups table drew the
+  ingest-time check (FR-13) as a green tick and the word "Verified" in a column of its own
+  beside the Assurance chips, so an operator saw two different things both called verified,
+  and the green one said nothing about whether the bytes are still good. The column and the
+  green badge in the artifact page's title are retired; Stored, Content verified and
+  Recovery tested are the only place those pages say it. A validation that failed is still
+  said, as "Failed validation" in the danger colour, never as a pass. The `validation`
+  field stays on the wire. Measured contrast for the failure badge: label 15.00:1 light
+  and 11.99:1 dark, icon and border 5.11:1 and 4.56:1.
+
+- **The Recover dialog says what the download now does** (#1072). The host prepares the
+  first download of a backup with one read against the recorded digest, then sends the copy
+  from where it lives, 4 MiB at a time, checking each piece, and cuts the transfer off
+  if one fails. It no longer says nothing is sent until the whole copy is staged, or that an
+  interrupted download cannot be resumed.
+
+- **The docked terminal does not show a line twice across a restart** (#1071). The engine
+  keeps its events now, so the first reading from a restarted process carries lines the
+  panel already froze above the restart rule; a line is the same line only if its number,
+  its time and its event all match, so an engine that restarts its numbering still keeps
+  both. `GET /api/v1/activity/live` takes `before=` to page back past the ring.
+
 ### Added
 
 - **The scheduled scrub follows `assurance.scrub.*`** (#978). A default install now
