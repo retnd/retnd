@@ -156,12 +156,14 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
         title={
           <span style={{ display: "inline-flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <span className="mono" style={{ fontSize: 19 }}>{a.filename}</span>
-            <StatusBadge
-              tone={a.validation === "verified" ? "ok" : "danger"}
-              icon={a.validation === "verified" ? "success" : "failure"}
-            >
-              {a.validation === "verified" ? "Verified" : "Failed"}
-            </StatusBadge>
+            {/* The green "Verified" that stood here said an ingest-time check had
+                passed, next to the Assurance card below that says what is known now.
+                That badge is retired (EPIC Q). A validation that failed is still said. */}
+            {a.validation === "failed" ? (
+              <StatusBadge tone="danger" icon="failure">
+                Failed validation
+              </StatusBadge>
+            ) : null}
             {/* One or the other, never both (issue #523). A backup whose
                 set was removed still has the tiers the journal last
                 recorded, and showing them here would say a chain is

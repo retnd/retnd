@@ -23,7 +23,7 @@ import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { CommandEcho } from "@shared/pages/CommandEcho";
 import { settingsCommand } from "./assuranceCommands";
-import { cadenceProblem, formatCadence, parseCadence } from "./duration";
+import { MIN_RECOVERY_TEST_CADENCE_SECONDS, cadenceProblem, formatCadence, parseCadence } from "./duration";
 
 const STRATEGIES = ["auto", "existence", "content"] as const;
 
@@ -60,7 +60,7 @@ export function AssuranceSettingsCard({ readOnly }: { readOnly: boolean }) {
   const set = (patch: Partial<Draft>) => { setDraft((d) => (d ? { ...d, ...patch } : d)); setSaved(false); };
 
   const scrubProblem = draft ? cadenceProblem(draft.scrubEvery) : null;
-  const testProblem = draft && draft.testEvery !== "" ? cadenceProblem(draft.testEvery) : null;
+  const testProblem = draft && draft.testEvery !== "" ? cadenceProblem(draft.testEvery, MIN_RECOVERY_TEST_CADENCE_SECONDS) : null;
   const requiredNeedsValidator = !!draft && draft.mode === "required" && draft.validator.trim() === "";
 
   const changes = (): AssuranceSettingsPatch => {

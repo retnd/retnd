@@ -4591,7 +4591,11 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
         // moving. A mock that answered with the idle one would let a
         // surface be built against a poll that never keeps up.
         pollAfterMs: 1000,
-        sets: (empty ? [] : LIVE_ACTIVITY).filter((a) => !options?.setId || a.setId === options.setId),
+        sets: (empty ? [] : LIVE_ACTIVITY)
+          .filter((a) => !options?.setId || a.setId === options.setId)
+          // A backwards page asks for what the ring no longer holds. The
+          // fixtures hold nothing older than the ring, so there is no page.
+          .map((a) => (options?.before ? { ...a, events: [], truncated: false } : a)),
         // Absent for a reading narrowed to one set, exactly as the
         // service omits it: a caller that named a set asked about that
         // set. Present for a deployment with nothing configured, which is

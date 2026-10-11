@@ -45,7 +45,7 @@ import { ClaimChips } from "./ClaimChips";
 import { OperationPanel } from "./OperationPanel";
 import { ValidatorLog } from "./ValidatorLog";
 import { recoveryTestCommand, scrubCommand, scrubContentCommand } from "./assuranceCommands";
-import { cadenceProblem, formatCadence, parseCadence } from "./duration";
+import { MIN_RECOVERY_TEST_CADENCE_SECONDS, cadenceProblem, formatCadence, parseCadence } from "./duration";
 import { useOperation } from "./useOperation";
 import type { ArtifactAssurance, OperationKind, ValidatorResult } from "./types";
 
@@ -142,7 +142,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
 
   const own = draft?.policy === "own";
   const scrubProblem = own && draft ? cadenceProblem(draft.scrubEvery) : null;
-  const testProblem = own && draft && draft.mode === "custom" ? cadenceProblem(draft.testEvery) : null;
+  const testProblem = own && draft && draft.mode === "custom" ? cadenceProblem(draft.testEvery, MIN_RECOVERY_TEST_CADENCE_SECONDS) : null;
   const validatorMissing = own && !!draft && draft.mode !== "off" && draft.validator.trim() === "" && !policy?.recoveryTest.validatorId;
   const customNeedsValidator = own && !!draft && draft.mode === "custom" && draft.validator.trim() === "";
 
