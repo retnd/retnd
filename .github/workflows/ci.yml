@@ -574,6 +574,27 @@ jobs:
       - name: the contract gates can actually fail (mutation self-test)
         run: bash scripts/api/selftest.sh
 
+  api-generator-deterministic:
+    name: the contract generator answers the same way every time (#1066)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.0"
+          cache: true
+          cache-dependency-path: core/go.sum
+
+      # check-contract-drift.sh regenerates and compares, so a generator that
+      # can answer two ways fails a clean tree about half the time. This
+      # plants an operation with two success statuses and runs the generator
+      # twelve times over it. It is the same script scripts/ci-local.sh runs.
+      - name: twelve generator runs over a two-success contract agree
+        run: bash scripts/tests/api-generator-is-deterministic.test.sh
+
   dependency-rules:
     name: repository-structure dependency rules (§7.1, three layers per #165)
     runs-on: ubuntu-latest
@@ -932,6 +953,7 @@ jobs:
       - gofmt
       - brand-drift
       - api-contract
+      - api-generator-deterministic
       - dependency-rules
       - gate-guards
       - workflow-gate
