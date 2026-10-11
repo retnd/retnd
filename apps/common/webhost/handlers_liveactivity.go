@@ -227,6 +227,11 @@ func (h *handlers) getLiveActivity(w http.ResponseWriter, r *http.Request) {
 			req.Since = parsed
 		}
 	}
+	if raw := r.URL.Query().Get("before"); raw != "" {
+		if parsed, err := strconv.ParseInt(raw, 10, 64); err == nil && parsed > 0 {
+			req.Before = parsed
+		}
+	}
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
 			req.Limit = parsed
