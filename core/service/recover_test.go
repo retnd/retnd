@@ -822,8 +822,11 @@ func TestALocalCopyThatIsASymlinkIsNeverFollowed(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, _, err := f.b.RecoverNow(context.Background(), f.session(), RecoveryRequest{ArtifactID: f.artifact, Target: stagingTo("x")}, nil)
+	if err == nil {
+		t.Fatal("a symlink at the artifact's path must be refused, but the recovery went ahead and read through it")
+	}
 	if codeOf(t, err) != RecoveryNotReadable {
-		t.Fatalf("a symlink at the artifact's path must be refused, got %v", err)
+		t.Fatalf("a symlink at the artifact's path must be refused as not readable, got %v", err)
 	}
 }
 
