@@ -45,7 +45,7 @@ RTRUN_GO = "core/internal/recoverytest/recoverytest.go"
 OUTPUT_GO = "core/internal/recoverytest/output.go"
 CONFIG_GO = "core/internal/config/assurance.go"
 SERVICE_GO = "core/service/assurance.go"
-FEED_GO = "core/service/assurancefeed.go"
+APP_SCRUB_GO = "core/internal/app/scrub.go"
 TICK_GO = "core/internal/app/recoverytest.go"
 SELECT_GO = "core/internal/revalidate/select.go"
 CLAIM_GO = "core/internal/recoverytest/claim.go"
@@ -129,8 +129,8 @@ MUTATIONS = [
     (
         "a failed scrub that leaves the content claim standing",
         SCRUB_GO,
-        "verification_class = '', verified_at = NULL, content_verified_at = NULL,\n\t\t\t\tlast_bytes_read = ?, last_duration_ms = ?,",
-        "verification_class = '', verified_at = NULL,\n\t\t\t\tlast_bytes_read = ?, last_duration_ms = ?,",
+        "\t\t\t\tconsecutive_failures = consecutive_failures + 1,\n\t\t\t\tcontent_verified_at = NULL,\n\t\t\t\tlast_bytes_read = ?, last_duration_ms = ?,",
+        "\t\t\t\tconsecutive_failures = consecutive_failures + 1,\n\t\t\t\tlast_bytes_read = ?, last_duration_ms = ?,",
         "--- FAIL: TestRecordCopyScrub_AFailureClearsTheClaimItContradicts",
         STATE_PKG,
         "TestRecordCopyScrub_AFailureClearsTheClaimItContradicts",
@@ -138,8 +138,8 @@ MUTATIONS = [
     (
         "a copy nobody has scheduled read as not due",
         SCRUB_GO,
-        "\treturn a.NextDueAt == nil || !a.NextDueAt.After(now)",
-        "\t" + PLANT + "no schedule means nothing is owed.\n\treturn a.NextDueAt != nil && !a.NextDueAt.After(now)",
+        "\tif a.NextDueAt == nil {\n\t\treturn time.Time{}, true\n\t}\n\tat := *a.NextDueAt",
+        "\tif a.NextDueAt == nil {\n\t\t" + PLANT + "no schedule means nothing is owed.\n\t\treturn time.Time{}, false\n\t}\n\tat := *a.NextDueAt",
         "--- FAIL: TestDueness_ACopyNobodyScheduledIsDueAndSortsFirst",
         REVAL_PKG,
         "TestDueness_ACopyNobodyScheduledIsDueAndSortsFirst",
@@ -199,13 +199,13 @@ MUTATIONS = [
         "TestUpdateAssuranceSettings_MovesAnInheritingSetAndNotAPinnedOne",
     ),
     (
-        "a scrub pass that writes a feed row for every failing copy",
-        FEED_GO,
-        "\t\tif rows >= MaxScrubCopyRows {",
-        "\t\t" + PLANT + "no cap on per-copy rows.\n\t\tif false {",
-        "--- FAIL: TestScrubFeed_AThousandFailingCopiesAreCappedAndSayTheyWere",
-        SERVICE_PKG,
-        "TestScrubFeed_AThousandFailingCopiesAreCappedAndSayTheyWere",
+        "a scrub pass that writes a pass row for every set",
+        APP_SCRUB_GO,
+        "\t\ts.tally(ctx, &sum, report)\n\t\tif runErr != nil && ctx.Err() != nil {",
+        "\t\ts.tally(ctx, &sum, report)\n\t\t" + PLANT + "a pass row per set, not one per pass.\n\t\t_ = s.finishScrub(ctx, journal, sum, started)\n\t\tif runErr != nil && ctx.Err() != nil {",
+        "--- FAIL: TestScrub_AThousandDueCopiesAcrossFiftySetsIsOnePassRowAndNoFeedRows",
+        APP_PKG,
+        "TestScrub_AThousandDueCopiesAcrossFiftySetsIsOnePassRowAndNoFeedRows",
     ),
     (
         "staging a crashed recovery test left behind never swept",
@@ -255,8 +255,8 @@ MUTATIONS = [
     (
         "a scrub lease that a second scrubber walks straight through",
         SCRUB_GO,
-        "\t\tif until.After(now) && currentOwner != holder {",
-        "\t\t" + PLANT + "a held lease is ignored.\n\t\tif until.After(now) && currentOwner != holder && false {",
+        "\t\tif until.After(now) && owner != holder {",
+        "\t\t" + PLANT + "a held lease is ignored.\n\t\tif until.After(now) && owner != holder && false {",
         "--- FAIL: TestClaimCopyScrub_OnlyOneHolderAtATime",
         STATE_PKG,
         "TestClaimCopyScrub_OnlyOneHolderAtATime",
@@ -264,8 +264,8 @@ MUTATIONS = [
     (
         "due-ness read from the artifact row's clock again",
         SELECT_GO,
-        "\t\tif !p.DueAt(now) {\n\t\t\tcontinue\n\t\t}\n\t\tdue = true",
-        "\t\t" + PLANT + "the artifact row's clock decides.\n\t\tif now.Sub(rec.UpdatedAt) < time.Hour {\n\t\t\tcontinue\n\t\t}\n\t\tdue = true",
+        "\t\tat, ok := p.DueUnder(interval, now)\n\t\tif !ok {\n\t\t\tcontinue\n\t\t}",
+        "\t\t" + PLANT + "the artifact row's clock decides.\n\t\t_ = p\n\t\tat, ok := rec.UpdatedAt.Add(interval), now.Sub(rec.UpdatedAt) >= interval\n\t\tif !ok {\n\t\t\tcontinue\n\t\t}",
         "--- FAIL: TestDueness_RewritingTheArtifactRowsClockChangesNothingAboutWhatIsDue",
         REVAL_PKG,
         "TestDueness_RewritingTheArtifactRowsClockChangesNothingAboutWhatIsDue",
@@ -273,8 +273,8 @@ MUTATIONS = [
     (
         "a failed validator that clears the content claim",
         RTSTATE_GO,
-        "recovery_cleanup_state = ?, recovery_bytes_read = ?, recovery_duration_ms = ?\n\t\t\t WHERE id = ?`,",
-        "recovery_cleanup_state = ?, recovery_bytes_read = ?, recovery_duration_ms = ?,\n\t\t\t\tcontent_verified_at = NULL " + PLANT + "a recovery verdict rewrites the content claim.\n\t\t\t WHERE id = ?`,",
+        "recovery_cleanup_state = ?, recovery_bytes_read = ?, recovery_duration_ms = ?\n\t\t\t WHERE placement_id = ?`,\n\t\t\tr.State, at, next, reason,",
+        "recovery_cleanup_state = ?, recovery_bytes_read = ?, recovery_duration_ms = ?,\n\t\t\t\tcontent_verified_at = NULL\n\t\t\t WHERE placement_id = ?`,\n\t\t\tr.State, at, next, reason,",
         "--- FAIL: TestRecordRecoveryTest_AFailedValidatorLeavesTheContentClaimStanding",
         STATE_PKG,
         "TestRecordRecoveryTest_AFailedValidatorLeavesTheContentClaimStanding",
@@ -282,8 +282,8 @@ MUTATIONS = [
     (
         "a cleanup failure that overwrites the recovery verdict",
         RTSTATE_GO,
-        "`UPDATE placements SET recovery_cleanup_state = ? WHERE id = ?`",
-        "`UPDATE placements SET recovery_cleanup_state = ?, recovery_state = 'failed' WHERE id = ?`",
+        "`UPDATE placement_assurance SET recovery_cleanup_state = ? WHERE placement_id = ?`",
+        "`UPDATE placement_assurance SET recovery_cleanup_state = ?, recovery_state = 'failed' WHERE placement_id = ?`",
         "--- FAIL: TestRecordRecoveryCleanup_ALaterSweepCanSettleCleanupWithoutTouchingTheVerdict",
         STATE_PKG,
         "TestRecordRecoveryCleanup_ALaterSweepCanSettleCleanupWithoutTouchingTheVerdict",
@@ -318,8 +318,8 @@ MUTATIONS = [
     (
         "a fresh copy that defaults to a passed scrub",
         MIGRATION_SQL,
-        "ALTER TABLE placements ADD COLUMN assurance_state TEXT NOT NULL DEFAULT 'unknown'",
-        "ALTER TABLE placements ADD COLUMN assurance_state TEXT NOT NULL DEFAULT 'passed'",
+        "    assurance_state TEXT NOT NULL DEFAULT 'unknown'\n",
+        "    assurance_state TEXT NOT NULL DEFAULT 'passed'\n",
         "--- FAIL: TestMigration0016_TheZeroValueCannotLookGood",
         STATE_PKG,
         "TestMigration0016_TheZeroValueCannotLookGood",
