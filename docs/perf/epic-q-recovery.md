@@ -9,6 +9,17 @@ This is a **measurement with stated ceilings, not a regression gate**. The
 ceilings are asserted every time the harness runs; nothing runs it on every
 push, because it writes about twelve gigabytes.
 
+> **Changed after this was measured.** A download is no longer staged: it is
+> streamed from the retained copy one verified 4 MiB chunk at a time, after a
+> preparation read that stores only chunk digests (`recover_stream.go`). The
+> numbers below were taken against the staged implementation, which held a
+> 256 KiB buffer and wrote the whole copy to the staging disk. The harness and
+> its ceilings are unchanged and still apply (the new buffer is 4 MiB, far
+> under both), but I have **not re-run the 4 GiB measurement** against the
+> streamed path, so the table is history and not a claim about it. The
+> harness's last assertion, that staging is empty afterwards, is now true for
+> the whole run and not only at the end.
+
 ## Running it
 
 ```
@@ -55,8 +66,8 @@ disk     ext4 on /dev/sda7, the artifact and its copies on the same filesystem
 
 Wall clock, for scale only: the CLI recovered 4 GiB in 33.9 s and the web
 process staged, verified and sent it in 26.7 s including its own startup and
-enrollment. The staged copy is on disk, not in memory, and is removed when the
-last byte is served.
+enrollment. In that implementation the staged copy was on disk, not in memory, and was
+removed when the last byte was served.
 
 Both recovered bytes hashed to
 `bccae53a3aa98301d3a5f25065aed4ccbee009e29b5fe4d917ce5be798ea19d1`, the
@@ -121,9 +132,9 @@ attempts on the way, which is `TestAnInteractiveStyleLimiterRefusesInsteadOfWait
   a client slower than the server's 30 second write timeout is covered by
   `handlers_recovery_test.go` rather than by this harness, because a
   loopback run would hide exactly that failure.
-- **Time to first byte for a remote copy.** The whole copy is read and verified
-  before the first byte is sent, so a browser waits for the entire
-  remote-to-staging transfer before its download starts. A gateway in front of
+- **Time to first byte.** The first download of an artifact makes a preparation
+  read of the whole copy before the first byte is sent (later downloads and
+  resumes reuse the stored chunk digests), so a browser waits for that read. A gateway in front of
   the engine needs a read timeout longer than that.
 
 ## Re-measured for the release gate (#988)
