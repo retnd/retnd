@@ -18,9 +18,15 @@ import type { ValidatorResult } from "./types";
 export function ValidatorLog({ result }: { result: ValidatorResult }) {
   return (
     <div className="avlog">
-      <div className="muted" style={{ fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
-        {"Validator exit status " + result.exitStatus + ", " + (result.durationMs / 1000).toFixed(1) + " s."}
+      <div className="muted" style={{ fontSize: "var(--text-sm)", color: "var(--text-2)" }} data-testid="validator-facts">
+        {"Your script " + (result.validatorName ? result.validatorName + " " : "") + "exited " + result.exitStatus + " after " + (result.durationMs / 1000).toFixed(1) + " s. "}
+        The engine records the claim, not the script: it re-read the recovered copy and checked its digest before it ran the script, and the exit status is one input to the verdict.
       </div>
+      {result.validatorSha256 ? (
+        <div className="mono" style={{ fontSize: "var(--text-xs)", color: "var(--text-2)", wordBreak: "break-all" }} data-testid="validator-hash">
+          {"Script hash recorded by the engine: " + result.validatorSha256 + (result.artifactId ? ", artifact " + result.artifactId : "") + (result.copy ? ", copy " + result.copy : "")}
+        </div>
+      ) : null}
       {result.truncatedBytes > 0 ? (
         <div className="avlog__marker" data-testid="truncation-marker">
           {"Output truncated: " + result.truncatedBytes.toLocaleString("en-US") + " bytes before this point are not shown."}

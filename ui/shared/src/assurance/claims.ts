@@ -33,7 +33,7 @@ export interface RenderedClaim {
 
 const STATUSES: readonly ClaimStatus[] = [
   "unknown", "never_configured", "never_run", "pass", "overdue", "refused_for_cost",
-  "could_not_complete", "failed", "requires_restore", "no_readable_copy"
+  "could_not_complete", "failed", "requires_restore", "no_readable_copy", "cleanup_failed"
 ];
 
 /** What marks a state. The retired geometric characters (the tick, the
@@ -53,6 +53,7 @@ export const GLYPH: Record<RenderState, Glyph> = {
   could_not_complete: { id: "could-not-complete", icon: "warning" },
   requires_restore: { id: "requires-restore", icon: "backups" },
   no_readable_copy: { id: "no-readable-copy", icon: "quarantine" },
+  cleanup_failed: { id: "cleanup-failed", icon: "warning" },
   existence_only: { id: "existence-only", text: "\u2248" },
   attested_only: { id: "attested-only", text: "\u2248" }
 };
@@ -91,6 +92,7 @@ const LABELS: Record<ClaimKind, Record<RenderState, string>> = {
     could_not_complete: "Could not complete",
     requires_restore: "Archived: thaw needed",
     no_readable_copy: "No readable copy",
+    cleanup_failed: "Unknown",
     existence_only: "Existence checked only",
     attested_only: "Attested only"
   },
@@ -105,6 +107,7 @@ const LABELS: Record<ClaimKind, Record<RenderState, string>> = {
     could_not_complete: "Could not complete",
     requires_restore: "Archived: thaw needed",
     no_readable_copy: "No readable copy",
+    cleanup_failed: "Cleanup failed: staged copy left behind",
     existence_only: "Unknown",
     attested_only: "Unknown"
   }
@@ -119,7 +122,10 @@ export function renderClaim(kind: ClaimKind, record: ClaimRecord | undefined, no
     glyph: GLYPH[state]
   });
   if (!record) return make("unknown", false);
-  const status = knownStatus(record.status);
+  let status = knownStatus(record.status);
+  // Cleanup is a fact about a recovery test's staged copy. A content record
+  // that claims it is a record this build cannot read.
+  if (kind === "content" && status === "cleanup_failed") status = "unknown";
   if (status === "pass") {
     if (!validTime(record.at)) return make("unknown", false);
     if (kind === "content") {
@@ -133,7 +139,7 @@ export function renderClaim(kind: ClaimKind, record: ClaimRecord | undefined, no
   }
   // Every other state keeps its own age where it has one: "overdue" says
   // how long ago it last passed, "failed" says when it failed.
-  const withAge = status === "overdue" || status === "failed" || status === "could_not_complete";
+  const withAge = status === "overdue" || status === "failed" || status === "could_not_complete" || status === "cleanup_failed";
   return make(status, withAge);
 }
 
@@ -145,17 +151,24 @@ export function renderStored(copies: number | undefined): { state: "stored" | "n
 }
 
 /** Counts for the dashboard, in the same vocabulary. Unknown is due.
- *  Degraded looks at BOTH claims: a failed recovery test is as degraded as a
- *  failed scrub, and counting only one would show a backup as fine that the
- *  Backups page shows as failing. */
+ *
+ *  Due looks at BOTH claims: a recovery test that is overdue or never ran is
+ *  as due as a scrub that is, and counting only the content claim would show a
+ *  set as fine on the dashboard that the Backups page shows as overdue.
+ *  `never_configured` and unknown recovery claims are not counted as due,
+ *  because a test nobody asked for or a server that cannot say is not a
+ *  deadline. Degraded looks at both as well. */
 export function tally(items: Array<{ content: ClaimRecord; recovery: ClaimRecord }>, now: number = Date.now()) {
   let due = 0, overdue = 0, degraded = 0, unknown = 0;
-  const bad = (s: RenderState) => s === "failed" || s === "could_not_complete" || s === "no_readable_copy";
+  const bad = (s: RenderState) => s === "failed" || s === "could_not_complete" || s === "no_readable_copy" || s === "cleanup_failed";
   for (const it of items) {
     const c = renderClaim("content", it.content, now).state;
     const r = renderClaim("recovery", it.recovery, now).state;
-    if (c === "unknown") { unknown++; due++; }
-    else if (c === "never_run" || c === "overdue") { due++; if (c === "overdue") overdue++; }
+    if (c === "unknown") unknown++;
+    const contentDue = c === "unknown" || c === "never_run" || c === "overdue";
+    const recoveryDue = r === "never_run" || r === "overdue";
+    if (contentDue || recoveryDue) due++;
+    if (c === "overdue" || r === "overdue") overdue++;
     if (bad(c) || bad(r)) degraded++;
   }
   return { due, overdue, degraded, unknown };

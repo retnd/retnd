@@ -18,13 +18,16 @@ import type { Glyph } from "./claims";
 import type { ArtifactAssurance } from "./types";
 
 export function ClaimChips({
-  assurance, available = true, checking = false
+  assurance, available = true, checking = false, recoveryReported = true
 }: {
   assurance: ArtifactAssurance | null | undefined;
   available?: boolean;
   /** A scrub or recovery test is running against this backup, so what the
    *  chips show is the previous answer and is drawn as such. */
   checking?: boolean;
+  /** False when the server has no route that reports recovery tests, so an
+   *  Unknown Recovery claim says why instead of looking like a failure to ask. */
+  recoveryReported?: boolean;
 }) {
   const known = available ? assurance ?? undefined : undefined;
   const stored = renderStored(known?.copies);
@@ -53,6 +56,11 @@ export function ClaimChips({
       <InfoTooltip id="assurance.claim.recoveryTested">
         {chip("recovery", "Recovery", recovery.state, recovery.glyph, recovery.label, recovery.age, checking)}
       </InfoTooltip>
+      {available && !recoveryReported && recovery.state === "unknown" ? (
+        <div data-testid="recovery-unknown-why" style={{ flexBasis: "100%", color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
+          This server has no route that reports recovery tests, so the Recovery claim is Unknown rather than a pass.
+        </div>
+      ) : null}
     </div>
   );
 }

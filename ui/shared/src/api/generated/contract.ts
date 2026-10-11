@@ -16,7 +16,11 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
+<<<<<<< HEAD
 export const CONTRACT_SHA256 = "c049dda96e64a3ae4108e4a46d34e6f59736a2cf7d0b432dd7d7f41088b6cf7b";
+=======
+export const CONTRACT_SHA256 = "4820a82337f714625603292a986d770766dbf4ea5be4513126d4a5781c563292";
+>>>>>>> origin/feat/985-assurance-web-ui
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -1420,7 +1424,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     concurrency: "",
     requestSchema: "",
     responseSchema: "RecoveryResult",
-    successStatus: 206,
+    successStatus: 200,
     errorCodes: {
       401: ["UNAUTHENTICATED"],
       403: ["RECOVERY_GRANT_SESSION_ENDED"],

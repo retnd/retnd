@@ -17,11 +17,12 @@ export function OperationDetailPage({ readOnly }: { readOnly: boolean }) {
   const api = useApi().assurance;
   const navigate = useNavigate();
   const [following, setFollowing] = useState(true);
-  const op = useOperation(api, id ? decodeURIComponent(id) : null);
+  const offered = !!api?.offers.operations;
+  const op = useOperation(offered ? api : undefined, id ? decodeURIComponent(id) : null);
   return (
     <>
       <PageHeader title="Operation" back={{ label: "Back", onClick: () => navigate(-1) }} />
-      {!api ? (
+      {!offered ? (
         <EmptyState title="Not available">This server does not offer scrub or recovery operations yet.</EmptyState>
       ) : (
         <OperationPanel
