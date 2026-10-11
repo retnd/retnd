@@ -35,8 +35,9 @@ these in it, and once at each phase exit gate.
   epic, in #817, which is how long an ungated item can go missing while every
   gated one stays green.
 - [ ] **FR numbers continue the global series and renumber nothing.** *(Ungated.)*
-  The next free number is **FR-49**. FR-1 to FR-24 are in `docs/EPIC.md`, FR-26 is
-  the `version` command, FR-27 to FR-35 are EPIC E, FR-36 to FR-48 are EPIC L.
+  The next free number is **FR-75**. FR-1 to FR-24 are in `docs/EPIC.md`, FR-26 is
+  the `version` command, FR-27 to FR-35 are EPIC E, FR-36 to FR-48 are EPIC L, FR-67
+  to FR-74 are EPIC Q (EPICs O, M and N hold FR-45 to FR-66 in their open specs).
   FR-25 is an unclaimed hole: leave it alone rather than filling it, because
   anything citing "FR-25" today is citing nothing.
 - [ ] **A five-expert adversarial review section**, initial verdicts and consensus
