@@ -353,3 +353,25 @@ func TestSessionWithNoExpiryEndsOnlyWhenEnded(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestARevertedRedemptionLeavesTheGrantFirstUseAgain(t *testing.T) {
+	c := newClock()
+	g := newGrants(c)
+	sess := sessionFor(c, "alice", time.Hour)
+	tok, _, _ := g.Mint(spec(sess))
+	if r, err := g.Redeem(tok, sess); err != nil || !r.First {
+		t.Fatalf("%+v, %v", r, err)
+	}
+	g.Revert(tok)
+	r, err := g.Redeem(tok, sess)
+	if err != nil || !r.First {
+		t.Fatalf("a refusal after the redeem (a budget full) spent the grant: %+v, %v", r, err)
+	}
+	// And a reverted grant that was attached to is not reverted: there is a
+	// started download behind it.
+	g.Attach(tok, "staged")
+	g.Revert(tok)
+	if r, _ := g.Redeem(tok, sess); r.First {
+		t.Fatal("a grant with a started download behind it was made first-use again")
+	}
+}

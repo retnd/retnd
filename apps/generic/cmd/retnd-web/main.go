@@ -858,6 +858,14 @@ func enableAlerts(backend *service.BackupService, platformAdapter capabilities.P
 // Outstanding holds are NOT an error -- they are the normal answer after
 // an interrupted run -- so they are announced and nothing else.
 func openWorkflowEngineOn(ctx context.Context, backend *service.BackupService, platformAdapter capabilities.PlatformAdapter) error {
+	// The host's limits for recovery (EPIC Q, #983) before anything can
+	// start one. A platform with no opinion leaves the engine's defaults;
+	// one whose limits cannot mean anything stops the start, because
+	// serving with limits nobody could have meant is how a budget turns
+	// into a suggestion.
+	if err := applyHostLimits(backend, platformAdapter); err != nil {
+		return err
+	}
 	enableAlerts(backend, platformAdapter)
 	backend.SetBuildVersion(version)
 
@@ -1461,4 +1469,21 @@ func bundleNameFor(p profile.Profile, root string) string {
 		return p.UIBundle
 	}
 	return string(p.ID)
+}
+
+// applyHostLimits hands the platform's recovery limits to the engine.
+func applyHostLimits(backend *service.BackupService, platformAdapter capabilities.PlatformAdapter) error {
+	limits, err := capabilities.LimitsOf(platformAdapter)
+	if err != nil {
+		return fmt.Errorf("the platform's host limits: %w", err)
+	}
+	if err := backend.SetRecoveryLimits(service.RecoveryLimits{
+		StagingReserveBytes:    limits.StagingReserveBytes,
+		MaxConcurrentReads:     limits.MaxConcurrentReads,
+		MaxReadsPerDestination: limits.MaxReadsPerDestination,
+		MaxDownloadStreams:     limits.MaxDownloadStreams,
+	}); err != nil {
+		return fmt.Errorf("the platform's host limits: %w", err)
+	}
+	return nil
 }
