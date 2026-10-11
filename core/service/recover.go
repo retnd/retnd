@@ -842,18 +842,17 @@ type RecoveryLimits struct {
 func (h *recoveryHost) hostLimits(cfg *config.Config) budget.Limits {
 	lim := h.limits
 	a := cfg.Assurance
-	raw := config.AssuranceBlock{}
-	if cfg.AssuranceBlock != nil {
-		raw = *cfg.AssuranceBlock
-	}
-	explicit := func(resolved, written, def int) int {
-		if written > 0 || (resolved > 0 && resolved != def) {
+	// Whether the operator wrote a number comes off the resolved policy, not
+	// off the raw block: only config/ and the assurance service files may
+	// read the pointers (TestAssurance_NoConsumerReadsThePointers).
+	explicit := func(resolved int, written bool, def int) int {
+		if written || (resolved > 0 && resolved != def) {
 			return resolved
 		}
 		return 0
 	}
-	lim.MaxConcurrentReads = smallerPositive(lim.MaxConcurrentReads, explicit(a.MaxConcurrentFullReads, raw.MaxConcurrentFullReads, config.DefaultMaxConcurrentReads))
-	lim.MaxReadsPerDestination = smallerPositive(lim.MaxReadsPerDestination, explicit(a.MaxPerDestination, raw.MaxPerDestination, config.DefaultMaxPerDestination))
+	lim.MaxConcurrentReads = smallerPositive(lim.MaxConcurrentReads, explicit(a.MaxConcurrentFullReads, a.MaxConcurrentFullReadsWritten, config.DefaultMaxConcurrentReads))
+	lim.MaxReadsPerDestination = smallerPositive(lim.MaxReadsPerDestination, explicit(a.MaxPerDestination, a.MaxPerDestinationWritten, config.DefaultMaxPerDestination))
 	// A per-destination ceiling above the global one could never bind, and
 	// the budget refuses it; the global one, if smaller, caps it.
 	if lim.MaxConcurrentReads > 0 && lim.MaxReadsPerDestination > lim.MaxConcurrentReads {

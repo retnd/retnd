@@ -120,6 +120,17 @@ type AssuranceDefaults struct {
 	StagingTTL             time.Duration
 	MaxConcurrentFullReads int
 	MaxPerDestination      int
+
+	// MaxConcurrentFullReadsWritten and MaxPerDestinationWritten say the
+	// operator put a number on that knob, as against the product's default
+	// filling it in. The two read the same after resolution when the operator
+	// wrote exactly the default, and a host that declares a limit of its own
+	// has to tell them apart: it yields to a number somebody wrote and not to
+	// a default nobody did. They exist so a consumer never has to read the raw
+	// AssuranceBlock to find that out, which is what the guard in
+	// TestAssurance_NoConsumerReadsThePointers is there to stop.
+	MaxConcurrentFullReadsWritten bool
+	MaxPerDestinationWritten      bool
 }
 
 // AssuranceIsOverride reports whether this set declares its own policy.
@@ -237,6 +248,8 @@ func (c *Config) resolveGlobalAssurance(v *validator) AssuranceDefaults {
 	}
 	out.MaxConcurrentFullReads = positiveOrDefault(v, p+".max_concurrent_full_reads", b.MaxConcurrentFullReads, DefaultMaxConcurrentReads)
 	out.MaxPerDestination = positiveOrDefault(v, p+".max_per_destination", b.MaxPerDestination, DefaultMaxPerDestination)
+	out.MaxConcurrentFullReadsWritten = b.MaxConcurrentFullReads > 0
+	out.MaxPerDestinationWritten = b.MaxPerDestination > 0
 	if out.MaxPerDestination > out.MaxConcurrentFullReads {
 		v.addf("%s.max_per_destination: %d is above max_concurrent_full_reads (%d), so it could never bind", p, out.MaxPerDestination, out.MaxConcurrentFullReads)
 	}
