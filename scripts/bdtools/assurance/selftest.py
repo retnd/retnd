@@ -51,6 +51,10 @@ SELECT_GO = "core/internal/revalidate/select.go"
 CLAIM_GO = "core/internal/recoverytest/claim.go"
 RECOVERY_MD = "docs/recovery.md"
 REFERENCE_HTML = "docs/site/reference.html"
+CHECKS_GO = "core/internal/revalidate/checks.go"
+CONFIG_LOAD_GO = "core/internal/config/config.go"
+CLI_ASSURANCE_GO = "core/cmd/retnd/assurance.go"
+MIGRATION_SQL = "core/migrations/0016_copy_assurance.sql"
 
 STATE_PKG = ("core", ("./internal/state/",))
 RTRUN_PKG = ("core", ("./internal/recoverytest/",))
@@ -59,6 +63,7 @@ SERVICE_PKG = ("core", ("./service/",))
 APP_PKG = ("core", ("./internal/app/",))
 REVAL_PKG = ("core", ("./internal/revalidate/",))
 GATE_PKG = ("core", ("./tests/assurancegate/",))
+CLI_PKG = ("core", ("./cmd/retnd/",))
 
 PLANT = "// PLANTED VIOLATION (scripts/bdtools/assurance/selftest.py): "
 
@@ -247,11 +252,96 @@ MUTATIONS = [
         GATE_PKG,
         "TestEveryLinkInTheSiteAndTheDocsResolves",
     ),
+    (
+        "a scrub lease that a second scrubber walks straight through",
+        SCRUB_GO,
+        "\t\tif until.After(now) && currentOwner != holder {",
+        "\t\t" + PLANT + "a held lease is ignored.\n\t\tif until.After(now) && currentOwner != holder && false {",
+        "--- FAIL: TestClaimCopyScrub_OnlyOneHolderAtATime",
+        STATE_PKG,
+        "TestClaimCopyScrub_OnlyOneHolderAtATime",
+    ),
+    (
+        "due-ness read from the artifact row's clock again",
+        SELECT_GO,
+        "\t\tif !p.DueAt(now) {\n\t\t\tcontinue\n\t\t}\n\t\tdue = true",
+        "\t\t" + PLANT + "the artifact row's clock decides.\n\t\tif now.Sub(rec.UpdatedAt) < time.Hour {\n\t\t\tcontinue\n\t\t}\n\t\tdue = true",
+        "--- FAIL: TestDueness_RewritingTheArtifactRowsClockChangesNothingAboutWhatIsDue",
+        REVAL_PKG,
+        "TestDueness_RewritingTheArtifactRowsClockChangesNothingAboutWhatIsDue",
+    ),
+    (
+        "a failed validator that clears the content claim",
+        RTSTATE_GO,
+        "recovery_cleanup_state = ?, recovery_bytes_read = ?, recovery_duration_ms = ?\n\t\t\t WHERE id = ?`,",
+        "recovery_cleanup_state = ?, recovery_bytes_read = ?, recovery_duration_ms = ?,\n\t\t\t\tcontent_verified_at = NULL " + PLANT + "a recovery verdict rewrites the content claim.\n\t\t\t WHERE id = ?`,",
+        "--- FAIL: TestRecordRecoveryTest_AFailedValidatorLeavesTheContentClaimStanding",
+        STATE_PKG,
+        "TestRecordRecoveryTest_AFailedValidatorLeavesTheContentClaimStanding",
+    ),
+    (
+        "a cleanup failure that overwrites the recovery verdict",
+        RTSTATE_GO,
+        "`UPDATE placements SET recovery_cleanup_state = ? WHERE id = ?`",
+        "`UPDATE placements SET recovery_cleanup_state = ?, recovery_state = 'failed' WHERE id = ?`",
+        "--- FAIL: TestRecordRecoveryCleanup_ALaterSweepCanSettleCleanupWithoutTouchingTheVerdict",
+        STATE_PKG,
+        "TestRecordRecoveryCleanup_ALaterSweepCanSettleCleanupWithoutTouchingTheVerdict",
+    ),
+    (
+        "a config that takes an unknown assurance key",
+        CONFIG_LOAD_GO,
+        "\tdec.KnownFields(true)",
+        "\tdec.KnownFields(false) " + PLANT + "an unknown key is accepted.",
+        "--- FAIL: TestAssurance_UnknownKeyIsRefusedByLoad",
+        CONFIG_PKG,
+        "TestAssurance_UnknownKeyIsRefusedByLoad",
+    ),
+    (
+        "an archive-tier copy recorded as a plain pass",
+        CHECKS_GO,
+        "\t\tcase archived:\n\t\t\t// The object is there, at the right size",
+        "\t\tcase archived && false:\n\t\t\t// The object is there, at the right size",
+        "--- FAIL: TestAnArchiveClassCopyIsRecordedRequiresRestoreAndNothingIsRead",
+        REVAL_PKG,
+        "TestAnArchiveClassCopyIsRecordedRequiresRestoreAndNothingIsRead",
+    ),
+    (
+        "a host-scoped knob accepted under a backup set",
+        CLI_ASSURANCE_GO,
+        '"config", "json", "reset")...); len(named) > 0 {',
+        '"config", "json", "reset")...); len(named) < 0 { ' + "// PLANTED VIOLATION: the global-only refusal never fires.",
+        "--- FAIL: TestBackupSetAssurance_PatchResetAndTheGlobalOnlyRefusal",
+        CLI_PKG,
+        "TestBackupSetAssurance_PatchResetAndTheGlobalOnlyRefusal",
+    ),
+    (
+        "a fresh copy that defaults to a passed scrub",
+        MIGRATION_SQL,
+        "ALTER TABLE placements ADD COLUMN assurance_state TEXT NOT NULL DEFAULT 'unknown'",
+        "ALTER TABLE placements ADD COLUMN assurance_state TEXT NOT NULL DEFAULT 'passed'",
+        "--- FAIL: TestMigration0016_TheZeroValueCannotLookGood",
+        STATE_PKG,
+        "TestMigration0016_TheZeroValueCannotLookGood",
+    ),
+    (
+        "two of the five not-a-pass reasons collapsed into one",
+        CLAIM_GO,
+        "\tcase c.State == \"\" || c.State == state.RecoveryUnknown || c.State == state.RecoveryNotConfigured:",
+        "\tcase c.State == state.RecoveryRefusedForCost: // " + "PLANTED VIOLATION (scripts/bdtools/assurance/selftest.py): a refusal for cost reads as could not complete.\n\t\tc.State = state.RecoveryCouldNotComplete\n\tcase c.State == \"\" || c.State == state.RecoveryUnknown || c.State == state.RecoveryNotConfigured:",
+        "--- FAIL: TestTheFiveNotAPassReasonsAreFiveValues",
+        RTRUN_PKG,
+        "TestTheFiveNotAPassReasonsAreFiveValues",
+    ),
 ]
 
 CLEAN_CONTROLS = [
     ("the per-copy record guards", STATE_PKG, "TestRecordCopyScrub_|TestRecordRecoveryTest_"),
-    ("the due-ness guard", REVAL_PKG, "TestDueness_"),
+    ("the due-ness and archive guards", REVAL_PKG, "TestDueness_|TestAnArchiveClassCopyIsRecordedRequiresRestoreAndNothingIsRead"),
+    ("the lease, migration and recovery-record guards", STATE_PKG, "TestClaimCopyScrub_OnlyOneHolderAtATime|TestMigration0016_TheZeroValueCannotLookGood|TestRecordRecoveryCleanup_|TestRecordRecoveryTest_AFailedValidator"),
+    ("the five-reasons guard", RTRUN_PKG, "TestTheFiveNotAPassReasonsAreFiveValues"),
+    ("the unknown-key guard", CONFIG_PKG, "TestAssurance_UnknownKeyIsRefusedByLoad"),
+    ("the global-only refusal guard", CLI_PKG, "TestBackupSetAssurance_PatchResetAndTheGlobalOnlyRefusal"),
     ("the recovery-test runner guards", RTRUN_PKG, "TestADigestMismatch|TestAValidatorThatExits|TestBytesThatDecrypt|TestHostileOutput"),
     ("the per-set resolution guard", CONFIG_PKG, "TestAssurance_AScrubOverrideInheritsEveryFieldItDoesNotName"),
     ("the assurance settings and feed guards", SERVICE_PKG, "TestUpdateAssuranceSettings_|TestScrubFeed_"),

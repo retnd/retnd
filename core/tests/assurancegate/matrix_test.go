@@ -6,19 +6,19 @@
 // satisfied by prose alone. So the prose is checked: this package reads the
 // matrix, and refuses it unless
 //
-//   - every one of the nineteen adversarial-review findings the epic lists is
-//     present as a row, by id and by a word the finding uses for itself, so a
-//     finding that quietly stopped being tracked turns the gate red;
-//   - every row names at least one executable proof and every proof RESOLVES:
-//     a `<package dir>:<TestName>` reference has to be a Go test function that
-//     exists in that directory today, and a bare path has to be a file that
-//     exists;
-//   - a row that says PASS cites a falsification that is a real mutation in a
-//     real self-test (`<selftest file>` ("<label>")), and the label has to
-//     occur in that file, so a PASS row cannot cite a mutation that was never
-//     written;
+//   - every row the specification (#954) numbers is present: the exit-gate
+//     lines Q1.1 to Q1.23 and Q2.1 to Q2.16, the nineteen adversarial-review
+//     findings QC-01 to QC-19 and the planted-violation ledger QV.1 to QV.22,
+//     so a row that quietly stopped being tracked turns the gate red;
+//   - every proof a row cites RESOLVES: a `<package dir>:<TestName>` reference
+//     has to be a Go test function that exists in that directory today, and a
+//     bare path has to be a file that exists;
+//   - a row that says PASS cites a falsification that was RUN: a mutation
+//     label that really occurs in one of the self-tests, or a guard test that
+//     plants the violation itself, and the date it was run;
 //   - a row that says BY HAND names who checked, what they did and the date,
 //     and never borrows a neighbouring green;
+//   - a row that says PARTIAL says what is missing and what it waits on;
 //   - no row is BLOCKED. The epic does not close with one, so this is the
 //     check that stops it closing with one.
 //
@@ -31,6 +31,7 @@
 package assurancegate_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -42,54 +43,55 @@ import (
 // matrixPath is the matrix, relative to the repository root.
 const matrixPath = "docs/conformance/epic-q-matrix.md"
 
-// findings are the nineteen rows of the epic's adversarial-review consensus
-// table, in the order it lists them, each with a word that has to appear in
-// the row's own claim. They are restated here rather than parsed out of the
-// issue because the issue is not in the tree: a checkout has to be able to
-// run this gate.
-var findings = []struct {
-	id      string
-	keyword string
-	about   string
-}{
-	{"QC-01", "gate", "recovery is its own route pair, outside the destructive gate, and completes on a deployment whose gate is shut"},
-	{"QC-02", "audit", "no role exists, so every grant and every served range is audited and the grant is single-use and bound to its session"},
-	{"QC-03", "existence", "an existence check is never recorded or rendered as content verification"},
-	{"QC-04", "journal", "a scrub reads its work list from the journal and a listing is only evidence about a row"},
-	{"QC-05", "due", "due-ness is a property of the copy and a rebuilt catalog reads unknown, which is due"},
-	{"QC-06", "unknown", "an assurance status is never green because nobody looked"},
-	{"QC-07", "reachability", "a recovery test is a recovery and a digest match, never reachability"},
-	{"QC-08", "budget", "money and bandwidth are refusals at the moment of spend"},
-	{"QC-09", "per-set", "the per-set answer is written down per knob, including where it is no"},
-	{"QC-10", "inherit", "a global change moves a set that inherits, through the route"},
-	{"QC-11", "kopia", "one assurance vocabulary for both engines, with no second drill"},
-	{"QC-12", "untrusted", "validator output is untrusted terminal input, bounded, with a marker that cannot be forged"},
-	{"QC-13", "staging", "a crash with a staging directory present is reconciled and a cleanup failure is separately visible"},
-	{"QC-14", "volume", "a scrub is one durable event per pass, and the feed volume is stated and asserted"},
-	{"QC-15", "boundary", "the no-download promise is reversed everywhere it was made"},
-	{"QC-16", "encryption", "Q works with M and N absent and takes no verdict from either"},
-	{"QC-17", "requires_restore", "an unreadable copy is its own state and never counts towards a satisfied policy"},
-	{"QC-18", "verb", "the vocabulary is recover and scrub, and neither existing restore verb is renamed"},
-	{"QC-19", "browser", "a recovery a browser cannot complete is no recovery on an appliance"},
+// selfTests are the files whose planted violations a PASS row may cite. A row
+// cites one by the verbatim label of the mutation, in double quotes.
+var selfTests = []string{
+	"scripts/bdtools/recovery/selftest.py",
+	"scripts/bdtools/assurance/selftest.py",
+	"scripts/bdtools/assurance/ui_selftest.py",
+}
+
+// requiredRows lists every row id the specification numbers.
+func requiredRows() []string {
+	var ids []string
+	for i := 1; i <= 23; i++ {
+		ids = append(ids, fmt.Sprintf("Q1.%d", i))
+	}
+	for i := 1; i <= 16; i++ {
+		ids = append(ids, fmt.Sprintf("Q2.%d", i))
+	}
+	for i := 1; i <= 19; i++ {
+		ids = append(ids, fmt.Sprintf("QC-%02d", i))
+	}
+	for i := 1; i <= 22; i++ {
+		ids = append(ids, fmt.Sprintf("QV.%d", i))
+	}
+
+	return ids
 }
 
 // A row of the matrix table.
 type row struct {
-	id     string
-	claim  string
-	proofs []string
-	falsif string
-	status string
-	line   int
+	id      string
+	claim   string
+	proof   string
+	falsif  string
+	status  string
+	waitsOn string
+	line    int
 }
 
 var (
-	proofRef = regexp.MustCompile("`([^`]+)`")
-	// A falsification that cites a mutation: `<file>` ("<label>").
-	mutationRef = regexp.MustCompile("`([^`]+)` \\(\"([^\"]+)\"\\)")
-	// A hand check: by <who> on <YYYY-MM-DD>.
-	handCheck = regexp.MustCompile(`by [^,;:]{3,60} on [0-9]{4}-[0-9]{2}-[0-9]{2}`)
-	rowID     = regexp.MustCompile(`^QC-[0-9]{2}$`)
+	rowID    = regexp.MustCompile(`^(Q[12]\.[0-9]+|QC-[0-9]{2}|QV\.[0-9]+)$`)
+	backtick = regexp.MustCompile("`([^`]+)`")
+	// A proof reference: a path, or a package directory and a test name.
+	proofShape = regexp.MustCompile(`^[A-Za-z0-9_./-]+(:Test[A-Za-z0-9_]+)?$`)
+	labelRe    = regexp.MustCompile(`"([^"]{12,})"`)
+	// A guard test that plants the violation itself.
+	guardTest = regexp.MustCompile(`:Test[A-Za-z0-9_]*(CanActuallyFail|CanFail|TurnsRed|CanLie|WouldCatch)[A-Za-z0-9_]*$`)
+	dateRe    = regexp.MustCompile(`20[0-9]{2}-[0-9]{2}-[0-9]{2}`)
+	byHand    = regexp.MustCompile(`by [^,;:()]{3,60} on 20[0-9]{2}-[0-9]{2}-[0-9]{2}`)
+	missingRe = regexp.MustCompile(`Missing: .{12,}`)
 )
 
 func goFuncDecl(name string) *regexp.Regexp {
@@ -106,20 +108,17 @@ func parseMatrix(text string) []row {
 			continue
 		}
 		cells := splitRow(trimmed)
-		if len(cells) < 5 || !rowID.MatchString(cells[0]) {
+		if len(cells) < 6 || !rowID.MatchString(cells[0]) {
 			continue
 		}
-		var proofs []string
-		for _, m := range proofRef.FindAllStringSubmatch(cells[2], -1) {
-			proofs = append(proofs, strings.TrimSpace(m[1]))
-		}
 		rows = append(rows, row{
-			id:     cells[0],
-			claim:  cells[1],
-			proofs: proofs,
-			falsif: cells[3],
-			status: strings.ToUpper(cells[4]),
-			line:   i + 1,
+			id:      cells[0],
+			claim:   cells[1],
+			proof:   cells[2],
+			falsif:  cells[3],
+			status:  strings.ToUpper(cells[4]),
+			waitsOn: cells[5],
+			line:    i + 1,
 		})
 	}
 
@@ -140,10 +139,49 @@ func splitRow(line string) []string {
 
 // resolver answers whether one proof reference names something that exists.
 // It is a parameter so the checker can be run against a tree that is not this
-// one. contains answers whether a file holds a string, for falsification labels.
+// one. contains answers whether a self-test file holds a string.
 type resolver struct {
 	exists   func(ref string) (bool, string)
 	contains func(path, needle string) bool
+}
+
+// proofRefs returns the backticked tokens of a proof cell that have the shape
+// of a path or a test reference. Other backticked words (a function name in
+// prose) are not references and are not resolved.
+func proofRefs(cell string) []string {
+	var refs []string
+	for _, m := range backtick.FindAllStringSubmatch(cell, -1) {
+		if tok := strings.TrimSpace(m[1]); proofShape.MatchString(tok) && (strings.Contains(tok, "/") || strings.Contains(tok, ":")) {
+			refs = append(refs, tok)
+		}
+	}
+
+	return refs
+}
+
+// ranMutation says whether a falsification cell cites a mutation that exists
+// and a date it was run: a quoted label in one of the self-tests, or a guard
+// test that plants the violation itself and resolves.
+func ranMutation(cell string, r resolver) (ok bool, why string) {
+	if !dateRe.MatchString(cell) {
+		return false, "carries no date it was run"
+	}
+	for _, m := range labelRe.FindAllStringSubmatch(cell, -1) {
+		for _, f := range selfTests {
+			if r.contains(f, m[1]) {
+				return true, ""
+			}
+		}
+	}
+	for _, ref := range proofRefs(cell) {
+		if guardTest.MatchString(ref) {
+			if found, _ := r.exists(ref); found {
+				return true, ""
+			}
+		}
+	}
+
+	return false, "cites no mutation label that occurs in " + strings.Join(selfTests, ", ") + " and no guard test that plants the violation itself"
 }
 
 // checkMatrix returns one finding per way the matrix does not hold. An empty
@@ -158,24 +196,18 @@ func checkMatrix(rows []row, r resolver) []string {
 		}
 		byID[x.id] = x
 	}
-
-	for _, want := range findings {
-		got, ok := byID[want.id]
-		if !ok {
-			out = append(out, want.id+" ("+want.about+") has no row at all: every finding has to map to a test that exists")
-
-			continue
-		}
-		if !strings.Contains(strings.ToLower(got.claim), strings.ToLower(want.keyword)) {
-			out = append(out, got.id+"'s claim does not mention "+want.keyword+", so it is not the finding it is numbered as: "+want.about)
+	for _, id := range requiredRows() {
+		if _, ok := byID[id]; !ok {
+			out = append(out, id+" has no row at all: the specification numbers it, so it has to be answered")
 		}
 	}
 
 	for _, x := range rows {
-		if len(x.proofs) == 0 {
-			out = append(out, x.id+" names no executable proof")
+		refs := proofRefs(x.proof)
+		if len(refs) == 0 {
+			out = append(out, x.id+" names no executable proof (a backticked path or `dir:TestName`)")
 		}
-		for _, ref := range x.proofs {
+		for _, ref := range refs {
 			if ok, why := r.exists(ref); !ok {
 				out = append(out, x.id+" cites "+ref+", which does not resolve: "+why)
 			}
@@ -183,25 +215,24 @@ func checkMatrix(rows []row, r resolver) []string {
 
 		switch x.status {
 		case "PASS":
-			ms := mutationRef.FindAllStringSubmatch(x.falsif, -1)
-			if len(ms) == 0 {
-				out = append(out, x.id+" says PASS but cites no mutation as `<self-test file>` (\"<label>\"), so nobody can say it was watched to fail")
-			}
-			for _, m := range ms {
-				if ok, why := r.exists(m[1]); !ok {
-					out = append(out, x.id+" cites the self-test "+m[1]+", which does not resolve: "+why)
-				} else if !r.contains(m[1], m[2]) {
-					out = append(out, x.id+" cites the mutation \""+m[2]+"\", which "+m[1]+" does not contain")
-				}
+			if ok, why := ranMutation(x.falsif, r); !ok {
+				out = append(out, x.id+" says PASS but its falsification "+why)
 			}
 		case "BY HAND":
-			if !handCheck.MatchString(x.falsif) {
+			if !byHand.MatchString(x.falsif) {
 				out = append(out, x.id+" is BY HAND but does not say who checked it and when (`by <name> on YYYY-MM-DD`), so it is borrowing a neighbour's green")
+			}
+		case "PARTIAL":
+			if !missingRe.MatchString(x.falsif) {
+				out = append(out, x.id+" is PARTIAL but does not say what is missing (`Missing: ...`)")
+			}
+			if x.waitsOn == "" || x.waitsOn == "-" {
+				out = append(out, x.id+" is PARTIAL but names nothing it waits on")
 			}
 		case "BLOCKED":
 			out = append(out, x.id+" is BLOCKED, and this epic does not close with a blocked row")
 		default:
-			out = append(out, x.id+" has status "+x.status+"; a row is PASS (a mutation was watched to fail), BY HAND (a named person did it on a named day) and nothing else")
+			out = append(out, x.id+" has status "+x.status+"; a row is PASS (a mutation was run and watched to fail), BY HAND (a named person did it on a named day), PARTIAL (and says what is missing) and nothing else")
 		}
 	}
 
@@ -292,8 +323,8 @@ func repoRoot(t *testing.T) string {
 	return root
 }
 
-// TestEveryFindingMapsToATestThatExistsAndNoRowIsBlocked is the gate.
-func TestEveryFindingMapsToATestThatExistsAndNoRowIsBlocked(t *testing.T) {
+// TestEveryRowIsAnsweredWithAProofThatExistsAndNoRowIsBlocked is the gate.
+func TestEveryRowIsAnsweredWithAProofThatExistsAndNoRowIsBlocked(t *testing.T) {
 	root := repoRoot(t)
 	raw, err := os.ReadFile(filepath.Join(root, matrixPath))
 	if err != nil {
@@ -302,8 +333,8 @@ func TestEveryFindingMapsToATestThatExistsAndNoRowIsBlocked(t *testing.T) {
 	text := string(raw)
 
 	rows := parseMatrix(text)
-	if len(rows) < len(findings) {
-		t.Fatalf("%s parsed to %d rows, fewer than the %d findings, so the parser or the file is wrong", matrixPath, len(rows), len(findings))
+	if len(rows) < len(requiredRows()) {
+		t.Fatalf("%s parsed to %d rows, fewer than the %d the specification numbers, so the parser or the file is wrong", matrixPath, len(rows), len(requiredRows()))
 	}
 	problems := append(checkMatrix(rows, repoResolver(root)), checkStatements(text)...)
 	for _, p := range problems {
@@ -317,10 +348,10 @@ func TestEveryFindingMapsToATestThatExistsAndNoRowIsBlocked(t *testing.T) {
 func TestTheMatrixCheckerRefusesEveryWayAMatrixCanLie(t *testing.T) {
 	good := func() []row {
 		var rows []row
-		for _, f := range findings {
+		for _, id := range requiredRows() {
 			rows = append(rows, row{
-				id: f.id, claim: "the " + f.keyword + " claim", proofs: []string{"pkg:TestReal"},
-				falsif: "`self.py` (\"a real mutation\")", status: "PASS",
+				id: id, claim: "a claim", proof: "`pkg:TestReal`",
+				falsif: "Planted control \"a real planted mutation\", run 2026-10-11.", status: "PASS", waitsOn: "-",
 			})
 		}
 
@@ -328,13 +359,15 @@ func TestTheMatrixCheckerRefusesEveryWayAMatrixCanLie(t *testing.T) {
 	}
 	res := resolver{
 		exists: func(ref string) (bool, string) {
-			if ref == "pkg:TestReal" || ref == "self.py" {
+			if ref == "pkg:TestReal" || ref == "pkg:TestTheGuardCanActuallyFail" || ref == "scripts/bdtools/assurance/selftest.py" {
 				return true, ""
 			}
 
 			return false, "not in the fake tree"
 		},
-		contains: func(path, needle string) bool { return path == "self.py" && needle == "a real mutation" },
+		contains: func(path, needle string) bool {
+			return path == "scripts/bdtools/assurance/selftest.py" && needle == "a real planted mutation"
+		},
 	}
 
 	if got := checkMatrix(good(), res); len(got) != 0 {
@@ -346,17 +379,38 @@ func TestTheMatrixCheckerRefusesEveryWayAMatrixCanLie(t *testing.T) {
 		mutate func(rows []row) []row
 		want   string
 	}{
-		{"a finding with no row", func(r []row) []row { return r[1:] }, "QC-01"},
-		{"a row about the wrong subject", func(r []row) []row { r[2].claim = "something else entirely"; return r }, "does not mention existence"},
+		{"a row the specification numbers, missing", func(r []row) []row { return r[1:] }, "Q1.1 has no row"},
 		{"a duplicated row", func(r []row) []row { return append(r, r[0]) }, "appears twice"},
-		{"a row with no proof", func(r []row) []row { r[3].proofs = nil; return r }, "names no executable proof"},
-		{"a proof that does not resolve", func(r []row) []row { r[4].proofs = []string{"pkg:TestGone"}; return r }, "does not resolve"},
-		{"a PASS with no mutation", func(r []row) []row { r[5].falsif = "I ran it once"; return r }, "cites no mutation"},
-		{"a PASS citing a mutation nobody wrote", func(r []row) []row { r[6].falsif = "`self.py` (\"invented\")"; return r }, "does not contain"},
-		{"a PASS citing a self-test that does not exist", func(r []row) []row { r[6].falsif = "`gone.py` (\"x\")"; return r }, "does not resolve"},
-		{"a BY HAND row that names nobody", func(r []row) []row { r[7].status = "BY HAND"; r[7].falsif = "looked fine"; return r }, "who checked it and when"},
-		{"a BLOCKED row", func(r []row) []row { r[8].status = "BLOCKED"; return r }, "does not close with a blocked row"},
-		{"a made-up status", func(r []row) []row { r[9].status = "GREEN"; return r }, "has status GREEN"},
+		{"a row with no proof", func(r []row) []row { r[3].proof = "none yet"; return r }, "names no executable proof"},
+		{"a proof that does not resolve", func(r []row) []row { r[4].proof = "`pkg:TestGone`"; return r }, "does not resolve"},
+		{"a PASS with no date", func(r []row) []row {
+			r[5].falsif = "Planted control \"a real planted mutation\"."
+			return r
+		}, "carries no date it was run"},
+		{"a PASS citing a mutation nobody wrote", func(r []row) []row {
+			r[6].falsif = "Planted control \"an invented mutation label\", run 2026-10-11."
+			return r
+		}, "cites no mutation label"},
+		{"a PASS with no falsification at all", func(r []row) []row { r[6].falsif = "-"; return r }, "carries no date"},
+		{"a BY HAND row that names nobody", func(r []row) []row {
+			r[7].status = "BY HAND"
+			r[7].falsif = "looked fine"
+			return r
+		}, "who checked it and when"},
+		{"a PARTIAL row that says nothing is missing", func(r []row) []row {
+			r[8].status = "PARTIAL"
+			r[8].falsif = "mostly there"
+			r[8].waitsOn = "#987"
+			return r
+		}, "does not say what is missing"},
+		{"a PARTIAL row that waits on nothing", func(r []row) []row {
+			r[8].status = "PARTIAL"
+			r[8].falsif = "Missing: the half that needs a provider this repository does not have."
+			r[8].waitsOn = "-"
+			return r
+		}, "names nothing it waits on"},
+		{"a BLOCKED row", func(r []row) []row { r[9].status = "BLOCKED"; return r }, "does not close with a blocked row"},
+		{"a made-up status", func(r []row) []row { r[10].status = "GREEN"; return r }, "has status GREEN"},
 	}
 	for _, l := range lies {
 		t.Run(l.name, func(t *testing.T) {
@@ -367,12 +421,28 @@ func TestTheMatrixCheckerRefusesEveryWayAMatrixCanLie(t *testing.T) {
 		})
 	}
 
+	t.Run("a guard test that plants its own violation counts as a run mutation", func(t *testing.T) {
+		rows := good()
+		rows[0].falsif = "The guard turns itself red when the comparison is removed: `pkg:TestTheGuardCanActuallyFail`, run 2026-10-11."
+		if got := checkMatrix(rows, res); len(got) != 0 {
+			t.Fatalf("a guard that plants its own violation was refused: %v", got)
+		}
+	})
 	t.Run("a BY HAND row that names who and when is accepted", func(t *testing.T) {
 		rows := good()
 		rows[0].status = "BY HAND"
 		rows[0].falsif = "checked by the author of this change on 2026-10-11: planted the break and watched it fail"
 		if got := checkMatrix(rows, res); len(got) != 0 {
 			t.Fatalf("a properly named hand check was refused: %v", got)
+		}
+	})
+	t.Run("a PARTIAL row that says what is missing and what it waits on is accepted", func(t *testing.T) {
+		rows := good()
+		rows[0].status = "PARTIAL"
+		rows[0].falsif = "Missing: the half that needs an S3-compatible provider this repository does not have."
+		rows[0].waitsOn = "retnd-tests#89"
+		if got := checkMatrix(rows, res); len(got) != 0 {
+			t.Fatalf("an honest PARTIAL was refused: %v", got)
 		}
 	})
 }
@@ -398,14 +468,15 @@ func TestTheRequiredStatementsCannotBeQuietlyDeleted(t *testing.T) {
 // the row shape so a reformatted table cannot make every row vanish and the
 // gate pass on nothing.
 func TestTheMatrixParserReadsTheRealTablesRatherThanTheirShape(t *testing.T) {
-	text := "| ID | Claim | Proof | Falsification | Status |\n|---|---|---|---|---|\n" +
-		"| QC-01 | the gate claim | `core/x:TestA`, `docs/y.md` | `s.py` (\"m\") | PASS |\n" +
-		"| not-a-row | x | y | z | PASS |\n"
+	text := "| ID | Claim | Proof | Falsification | Status | Waits on |\n|---|---|---|---|---|---|\n" +
+		"| Q1.1 | the gate claim | `core/x:TestA` `docs/y.md` | \"m\" run 2026-10-11 | PASS | - |\n" +
+		"| not-a-row | x | y | z | PASS | - |\n" +
+		"| QC-01 | five cells only | `a/b` | z | PASS |\n"
 	rows := parseMatrix(text)
 	if len(rows) != 1 {
 		t.Fatalf("parsed %d rows, want exactly the one real one", len(rows))
 	}
-	if r := rows[0]; r.id != "QC-01" || len(r.proofs) != 2 || r.status != "PASS" {
+	if r := rows[0]; r.id != "Q1.1" || len(proofRefs(r.proof)) != 2 || r.status != "PASS" {
 		t.Fatalf("parsed the row wrongly: %+v", r)
 	}
 }
