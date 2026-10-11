@@ -446,7 +446,7 @@ make_full_tree() {
   # release.yml refuses to publish a commit that gate never passed. None
   # of the three has anything to say about a synthetic tree with no
   # .github in it.
-  for guard in two-machine-ci-verdict release-gate-covers-every-job release-refuses-an-ungated-publish; do
+  for guard in two-machine-ci-verdict release-gate-covers-every-job release-refuses-an-ungated-publish every-module-builds-on-its-own; do
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/$guard.test.sh"
   done
 
