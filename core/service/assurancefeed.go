@@ -60,8 +60,13 @@ func EmitScrubPass(ctx context.Context, logger *obs.Logger, runID, backupSet str
 		logger.ScrubCopy(ctx, runID, backupSet, r.Artifact, r.Medium, r.Outcome, r.Reason)
 	}
 
+	// A pass that looked at nothing states no verdict: nothing was checked,
+	// so nothing passed, and a tick would be the "green because nobody
+	// looked" this epic exists to prevent.
 	result := obs.ResultSuccess
 	switch {
+	case t.Checked == 0:
+		result = obs.ResultInfo
 	case t.Failed > 0:
 		result = obs.ResultError
 	case t.Refused > 0 || t.Unread > 0:

@@ -134,7 +134,7 @@ func TestUpdateBackupSetAssurance_PatchThenResetReturnsTheSetToInheritance(t *te
 	if _, err := svc.UpdateBackupSetAssurance(ctx, inheritingSet, UpdateBackupSetAssuranceRequest{RecoveryTestMode: &required}); !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("required with no validator err = %v, want ErrInvalidRequest", err)
 	}
-	validator := "pg-restore-check"
+	validator := "trailer-marker"
 	got, err := svc.UpdateBackupSetAssurance(ctx, inheritingSet, UpdateBackupSetAssuranceRequest{RecoveryTestMode: &required, RecoveryTestValidatorID: &validator})
 	if err != nil {
 		t.Fatalf("UpdateBackupSetAssurance: %v", err)
@@ -179,5 +179,34 @@ func TestAssuranceDue_NextDueFollowsTheResolvedCadenceAndUnknownIsDue(t *testing
 	item = assuranceDueFor(now, "s/a", dueSubject{ID: "a1"}, day)
 	if !item.Due || !item.Overdue || item.Basis != DueBasisNever {
 		t.Errorf("a copy nobody has looked at is due and overdue, never green: %+v", item)
+	}
+}
+
+// Review finding: a validator reference nobody registered passes config's
+// shape check and then fails at the moment of use, long after the save.
+func TestAssuranceWrites_RefuseAValidatorThisBuildDoesNotKnow(t *testing.T) {
+	svc, configPath := openAssuranceService(t, "")
+	before, _ := os.ReadFile(configPath)
+	mode, unknown := "required", "no-such-validator"
+	ctx := context.Background()
+	if _, err := svc.UpdateAssuranceSettings(ctx, UpdateAssuranceSettingsRequest{RecoveryTestMode: &mode, RecoveryTestValidatorID: &unknown}); !errors.Is(err, ErrInvalidRequest) {
+		t.Errorf("global write err = %v, want ErrInvalidRequest", err)
+	}
+	if _, err := svc.UpdateBackupSetAssurance(ctx, inheritingSet, UpdateBackupSetAssuranceRequest{RecoveryTestMode: &mode, RecoveryTestValidatorID: &unknown}); !errors.Is(err, ErrInvalidRequest) {
+		t.Errorf("per-set write err = %v, want ErrInvalidRequest", err)
+	}
+	if after, _ := os.ReadFile(configPath); string(before) != string(after) {
+		t.Error("a refused write changed the file")
+	}
+}
+
+// Review finding: a hand-built Config that never ran Validate has a zero
+// resolved cadence, and a zero must not read as "continuously due".
+func TestAssuranceDue_AZeroResolvedCadenceFallsBackToTheDefault(t *testing.T) {
+	if got := effectiveScrubCadence(0); got != 7*24*time.Hour {
+		t.Errorf("effectiveScrubCadence(0) = %s, want the 7 day default", got)
+	}
+	if got := effectiveScrubCadence(3 * time.Hour); got != 3*time.Hour {
+		t.Errorf("a resolved cadence must pass through, got %s", got)
 	}
 }

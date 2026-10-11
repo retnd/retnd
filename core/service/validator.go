@@ -435,6 +435,11 @@ func checkValidatorCatalogMembership(cfg *config.Config) error {
 			}
 		}
 	}
+	// A recovery-test validator is named the same way and refused the same
+	// way, before any migration has been applied (EPIC Q, Q1.4).
+	if err := assuranceValidatorsKnown(cfg); err != nil {
+		return fmt.Errorf("%w", err)
+	}
 	return nil
 }
 
