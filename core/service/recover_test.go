@@ -143,6 +143,7 @@ type fixtureOpts struct {
 	localCopy   bool
 	remoteClass string // "" for no remote copy
 	engine      string
+	pollEvery   time.Duration // PollInterval for tests that run the scheduler loop
 }
 
 // newRecoveryFixture builds a service whose journal holds one artifact,
@@ -161,6 +162,9 @@ func newRecoveryFixture(t *testing.T, opts fixtureOpts) *recoveryFixture {
 		}},
 	})
 	cfg.State.Database = filepath.Join(dir, "state", "journal.db")
+	if opts.pollEvery > 0 {
+		cfg.PollInterval = config.Duration(opts.pollEvery)
+	}
 	cfg.StorageMediums = []config.StorageMedium{
 		{ID: "cold", Type: config.StorageMediumTypeS3, Region: "us-east-1", Bucket: "b", StorageClass: config.StorageClassDeepArchive, Credentials: config.MediumCredentials{File: "/x"}},
 		{ID: "warm", Type: config.StorageMediumTypeS3, Region: "us-east-1", Bucket: "w", StorageClass: config.StorageClassStandard, Credentials: config.MediumCredentials{File: "/x"}},

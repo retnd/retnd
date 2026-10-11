@@ -386,3 +386,11 @@ func (b *BackupService) mediumForRecovery(st *configState, id string) (transport
 	}
 	return m, nil
 }
+
+// recoveryReapEvery is how often the serving process reaps lapsed grants and
+// sweeps the staging area without a request to do it. A variable so a test
+// need not wait a minute.
+var recoveryReapEvery = time.Minute
+
+// runRecoveryReaper is a stub until the fix lands.
+func (b *BackupService) runRecoveryReaper(ctx context.Context) {}

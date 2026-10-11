@@ -308,3 +308,6 @@ func clearSessionCookie(w http.ResponseWriter, r *http.Request, trustForwarded b
 		SameSite: http.SameSiteStrictMode,
 	})
 }
+
+// setOnEnd is a stub until the fix lands.
+func (m *sessionManager) setOnEnd(fn func(username string, expiresAt time.Time)) {}
