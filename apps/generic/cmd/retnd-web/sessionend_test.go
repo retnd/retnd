@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -103,5 +106,29 @@ func TestLogoutRevokesTheRecoveryGrantsOfThatSession(t *testing.T) {
 	}
 	if got[0].Actor != "bm-admin" || !got[0].Expires.Equal(exp) {
 		t.Errorf("logout ended session %+v, want {bm-admin %s}: a different pair would match no grant", got[0], exp)
+	}
+}
+
+// The adapter above is only half of it: `serve` has two places a backup
+// service comes into being (a configured start and a first-run activation),
+// and each has to hand it to the adapter. A call-name scan is the seam this
+// package has, because cmdServe cannot be driven without a listener.
+func TestServeHandsEveryBackendItBuildsToTheLogoutAdapter(t *testing.T) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "main.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	ast.Inspect(f, func(n ast.Node) bool {
+		if c, ok := n.(*ast.CallExpr); ok {
+			if id, ok := c.Fun.(*ast.Ident); ok && id.Name == "endRecoverySessionsOnLogout" {
+				calls++
+			}
+		}
+		return true
+	})
+	if calls < 2 {
+		t.Errorf("main.go calls endRecoverySessionsOnLogout %d time(s), want one for the configured start and one for first-run activation; a backend built without it never hears about a logout", calls)
 	}
 }
