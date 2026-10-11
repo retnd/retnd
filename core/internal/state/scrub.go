@@ -274,7 +274,7 @@ const (
 	ScrubCouldNotComplete ScrubVerdict = "could_not_complete"
 	// ScrubRequiresRestore means the copy cannot be read without a restore.
 	// Class carries what was nonetheless achieved (existence, from a HEAD).
-	ScrubRequiresRestore ScrubVerdict = "requires_restore"
+	ScrubRequiresRestore ScrubVerdict = ScrubVerdict(AssuranceRequiresRestore)
 	// ScrubNotChecked means nothing configured could produce a verdict for
 	// this copy. It records no claim at all and only moves the due time, so
 	// a copy nothing can check does not hog every cycle.
