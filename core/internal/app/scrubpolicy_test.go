@@ -289,3 +289,40 @@ func TestScrub_ReadsAreAdmittedUnderTheAssuranceCeilings_C3(t *testing.T) {
 		t.Errorf("with the ceilings set to 3 and 2 the scrub admits %d (%d per destination)", g, d)
 	}
 }
+
+// C5, at the lifecycle: a failure read from bytes that were rewritten while
+// they were being read is a fact about bytes that are gone. The verdict is
+// refused (above); the artifact must not be quarantined over it either, or the
+// scrub invents a loss for a copy that was just replaced.
+func TestScrub_AFailureForBytesRewrittenDuringTheReadDoesNotQuarantine_C5(t *testing.T) {
+	ctx := context.Background()
+	bs := testBackupSet(t, t.TempDir())
+	svc, journal := scrubService(t, config.Revalidation{}, bs)
+	a := seedMovableArtifact(t, ctx, journal, bs, "replaced.dump", retentionTestNow.Add(-48*time.Hour))
+	p := localCopyOf(t, journal, a)
+	if err := os.WriteFile(filepath.Join(bs.LocalPath, "replaced.dump"), []byte("rotted"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	svc.Journal = &rewriteBeforeRecord{Journal: journal, rewrite: func() {
+		size := int64(1)
+		if _, err := journal.RecordTransition(ctx, state.Transition{
+			Artifact: a, Key: "replaced-mid-read", From: string(lifecycle.Complete), To: string(lifecycle.Complete),
+			OccurredAt: retentionTestNow,
+			Placement:  &state.PlacementUpdate{Medium: state.MediumLocal, Location: p.Location, Size: &size, Hash: "ffff", HashAlg: "sha256", Status: state.PlacementActive},
+		}); err != nil {
+			t.Errorf("rewrite: %v", err)
+		}
+	}}
+
+	if _, err := svc.Scrub(ctx, ScrubRequest{Trigger: state.ScrubBySchedule}); err != nil {
+		t.Fatalf("Scrub: %v", err)
+	}
+	rec, _ := journal.Get(ctx, a)
+	if st := lifecycle.State(rec.State); st != lifecycle.Complete {
+		t.Errorf("the copy was replaced while the old bytes were being read, and the artifact is now %s", st)
+	}
+	if got := localCopyOf(t, journal, a); got.AssuranceState != state.AssuranceUnknown || got.NextDueAt != nil {
+		t.Errorf("the replacement should be unknown and due, not carry a verdict about the old bytes: state=%s nextDue=%v", got.AssuranceState, got.NextDueAt)
+	}
+}
