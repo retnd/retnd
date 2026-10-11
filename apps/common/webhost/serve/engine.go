@@ -104,6 +104,11 @@ type EngineConfig struct {
 	// setup flow instead of refusing to start.
 	FirstRun webhost.FirstRunClient
 
+	// Setup answers the first-run guide's questions about the
+	// administrator, the mail server and skipped steps (retnd#1049).
+	// Optional: nil is a platform with its own identity provider.
+	Setup webhost.SetupProgress
+
 	// Activate opens a real backend against the configuration the
 	// first-run flow has just written, and returns it together with the
 	// cleanup that releases it (the same pair core/service.Open already

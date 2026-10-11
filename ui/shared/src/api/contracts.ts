@@ -1737,7 +1737,16 @@ export interface ManagerStorage {
  *  until setup completes. */
 export interface FirstRunStatus {
   configured: boolean;
+  /** retnd#1049: the guided setup steps and where each stands. Optional so
+   *  a reply from an older engine, which carries only `configured`, still
+   *  types and simply shows no guide. */
+  steps?: Record<FirstRunStep, FirstRunStepState>;
+  /** The first step that is pending, or "none". */
+  nextStep?: FirstRunStep | "none";
 }
+
+export type FirstRunStep = "administrator" | "email" | "backup_set";
+export type FirstRunStepState = "done" | "pending" | "skipped";
 
 /** POST /api/v1/system/first-run's answer. It is `CreatedBackupSet` plus
  *  the one thing only a first run can report: the configuration is
@@ -2653,6 +2662,9 @@ export interface RetndApi {
    *  else, because on an unconfigured instance every other call below
    *  refuses. */
   getFirstRunStatus(): Promise<FirstRunStatus>;
+  /** retnd#1049: leave a guided setup step for later. Stored by the
+   *  engine, so it survives a restart, and answers the status after it. */
+  skipFirstRunStep(step: "email" | "backup_set"): Promise<FirstRunStatus>;
   /** Issue #176: writes this deployment's FIRST configuration. Same
    *  request body as createBackupSet, because the operator answers the
    *  same questions in the same wizard; what differs is that there is no
@@ -3265,8 +3277,8 @@ export interface RetndApi {
   enrollAdministrator(
     username: string,
     password: string,
-    recoveryEmail: string,
-    smtp: SmtpSettingsInput
+    recoveryEmail?: string,
+    smtp?: SmtpSettingsInput
   ): Promise<void>;
 
   /**

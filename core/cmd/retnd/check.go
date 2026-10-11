@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/retnd/retnd/core/internal/app"
 )
@@ -23,6 +24,15 @@ func cmdCheck(args []string) int {
 	fs, cfgPath := newFlagSet("check")
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+
+	// A fresh install has no configuration yet, and the engine writes a
+	// default on its first start (retnd#1049). So the question check
+	// answers here is whether that write can happen: a writable
+	// configuration directory passes, an unwritable one is the one real
+	// thing to fix and is named.
+	if _, absent := configAbsentAt(*cfgPath); absent {
+		return printFirstRunNotice(os.Stdout, *cfgPath, "check")
 	}
 
 	cfg, preflight, err := app.Check(context.Background(), *cfgPath)

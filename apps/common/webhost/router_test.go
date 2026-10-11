@@ -278,7 +278,8 @@ var destructiveGateExemptRoutes = map[string]bool{
 	// protects. TestCompleteFirstRun_RefusesOnceConfigured pins that
 	// refusal by its typed code, so this entry's justification is a test
 	// and not just this comment.
-	"POST /api/v1/system/first-run": true,
+	"POST /api/v1/system/first-run":      true,
+	"POST /api/v1/system/first-run/skip": true,
 
 	// Issue #211. Each of these is state-changing but non-destructive
 	// under the same §50 reading, and each handler's own doc carries the

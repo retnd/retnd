@@ -14,9 +14,11 @@
  * advanced details, and it is omitted entirely when the failure carried
  * none, because an id that appears in no log is a false lead.
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Banner } from "@shared/components/Banner";
+import { copyText } from "@shared/utilities/copyText";
+import type { CopyOutcome } from "@shared/utilities/copyText";
 import { Icon } from "@shared/design-system/icons";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { TooltipId } from "@shared/tooltips/tooltips";
@@ -80,21 +82,6 @@ export function EmptyState({
  */
 const NOT_AN_ID = "unavailable";
 
-/** Copies text through the async clipboard, answering whether it worked.
- *  Every NAS deployment on a plain http:// origin has no
- *  navigator.clipboard at all, and a button whose entire job is getting a
- *  diagnostic off the screen has to say it could not rather than sit there
- *  looking like it worked (#598). */
-async function copyToClipboard(text: string): Promise<boolean> {
-  try {
-    if (!navigator.clipboard?.writeText) return false;
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export function ErrorState({
   message,
   remediation,
@@ -129,7 +116,8 @@ export function ErrorState({
    *  broke, not what the operator has lost by it. */
   tip?: TooltipId;
 }) {
-  const [copied, setCopied] = useState<"idle" | "done" | "failed">("idle");
+  const [copied, setCopied] = useState<"idle" | CopyOutcome>("idle");
+  const detailRef = useRef<HTMLDivElement | null>(null);
 
   const id = correlationId === NOT_AN_ID ? undefined : correlationId;
   const lines = [id ? "correlation id " + id : undefined, detail]
@@ -172,7 +160,7 @@ export function ErrorState({
           {advanced ? (
             <details style={{ marginTop: 8, fontSize: "var(--text-sm)", color: "var(--text-3)" }}>
               <summary style={{ cursor: "pointer" }}>Advanced details</summary>
-              <div className="mono" style={{ marginTop: 6, whiteSpace: "pre-wrap" }}>{advanced}</div>
+              <div ref={detailRef} className="mono" style={{ marginTop: 6, whiteSpace: "pre-wrap" }}>{advanced}</div>
               {/* The next thing an operator does with a failure is paste
                   it somewhere, and retyping four lines of exception text
                   off a screen is how the useful half gets left out. */}
@@ -181,16 +169,22 @@ export function ErrorState({
                   className="btn btn--sm"
                   style={{ marginTop: 8 }}
                   onClick={() => {
-                    void copyToClipboard(message + "\n" + (remediation ? remediation + "\n" : "") + advanced).then(
-                      (ok) => setCopied(ok ? "done" : "failed")
-                    );
+                    void copyText(
+                      message + "\n" + (remediation ? remediation + "\n" : "") + advanced,
+                      detailRef.current
+                    ).then(setCopied);
                   }}
                 >
                   Copy details
                 </button>
               </InfoTooltip>
-              {copied === "done" ? (
+              {copied === "copied" ? (
                 <span role="status" style={{ marginLeft: 8 }}>Copied</span>
+              ) : null}
+              {copied === "selected" ? (
+                <span role="status" style={{ marginLeft: 8 }}>
+                  Selected the details above. Press Ctrl+C (Cmd+C on a Mac) to copy.
+                </span>
               ) : null}
               {copied === "failed" ? (
                 <span role="status" style={{ marginLeft: 8 }}>

@@ -194,6 +194,37 @@ describe("what the page says when there is nothing to say", () => {
     expect(screen.queryByText(/could not be read/)).toBeNull();
   });
 
+  // retnd#1049: a deployment that never turned the incremental engine on
+  // answers the read with 409 INCREMENTAL_ENGINE_DISABLED. That is a
+  // feature that is off, which is the normal state on a fresh install, so
+  // it is said as such and is not drawn as a failure.
+  it("says the feature is off, and does not draw an alert, when the incremental engine is disabled", async () => {
+    const real = createMockApi();
+    const disabled: RetndApi = {
+      ...real,
+      listRepositories: () =>
+        Promise.reject(
+          new RetndError({
+            code: "INCREMENTAL_ENGINE_DISABLED",
+            message: "the incremental (kopia) backup engine is disabled in this deployment",
+            correlationId: "cid_off"
+          })
+        )
+    };
+
+    render(
+      <MemoryRouter>
+        <ApiProvider api={disabled}>
+          <RepositoryDomainsPage readOnly={false} />
+        </ApiProvider>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText(/Incremental backup is not turned on/i)).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(/could not be read/)).toBeNull();
+  });
+
   it("reports a fleet read that failed as a failure", async () => {
     const real = createMockApi();
     const broken: RetndApi = {

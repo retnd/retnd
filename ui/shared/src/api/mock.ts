@@ -11,6 +11,8 @@ import type {
   CreateBackupSetRequest,
   CreatedBackupSet,
   FirstRunResult,
+  FirstRunStatus,
+  FirstRunStepState,
   HostKeyProbeResult,
   ManagerStorage,
   MediumPreflight,
@@ -2284,6 +2286,7 @@ function defaultSettings(): AppSettings {
 const SERVED_WHILE_UNCONFIGURED: ReadonlySet<keyof RetndApi> = new Set([
   "getVersion",
   "getFirstRunStatus",
+  "skipFirstRunStep",
   "completeFirstRun",
   "listValidators",
   "importSSHKey",
@@ -3811,6 +3814,22 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
   // Mutable, because completing setup is what makes it configured — the
   // same one-way transition the real backend makes in-process.
   let configured = scenario !== "first-run";
+  // retnd#1049: the guide's view. Steps a fixture operator skipped; the
+  // administrator is always done (the fixture is signed in) and the mail
+  // step reads skipped so it never gates the guide in tests that predate it.
+  const skippedSteps = new Set<string>();
+  const mockFirstRunStatus = (): FirstRunStatus => {
+    const backupSet: FirstRunStepState = configured
+      ? "done"
+      : skippedSteps.has("backup_set")
+        ? "skipped"
+        : "pending";
+    return {
+      configured,
+      steps: { administrator: "done", email: "skipped", backup_set: backupSet },
+      nextStep: backupSet === "pending" ? "backup_set" : "none"
+    };
+  };
   // How many credentials this fixture has been asked to import, purely so
   // successive imports mint different ids. The MATERIAL is never kept:
   // there is no read side for it in the real backend either, and a
@@ -3893,7 +3912,12 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
           : VERSION
       ),
 
-    getFirstRunStatus: () => delay({ configured }),
+    getFirstRunStatus: () => delay(mockFirstRunStatus()),
+
+    skipFirstRunStep: (step) => {
+      skippedSteps.add(step);
+      return delay(mockFirstRunStatus());
+    },
 
     completeFirstRun: (req: CreateBackupSetRequest): Promise<FirstRunResult> => {
       if (configured)

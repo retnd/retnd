@@ -2,10 +2,10 @@ package app
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/retnd/retnd/core/internal/discovery"
+	"github.com/retnd/retnd/core/internal/obs"
 )
 
 // This file is issue #361's answer to "did this cycle actually do
@@ -302,7 +302,12 @@ func (s *Service) reportEmptyCycle(ctx context.Context, report CycleReport) {
 	}
 	c := s.cycleCoverage(ctx)
 	if c.Configured == 0 {
-		s.logger().Error(ctx, "cycle", errors.New("this cycle backed nothing up: no backup sets are configured"))
+		// Not an error since retnd#1049: a fresh install runs on a default
+		// configuration with no backup sets, which is a state to describe
+		// and not a failure to page on. A deployment that HAD sets and
+		// lost them is still visible, as this line every cycle.
+		s.logger().Event(ctx, obs.LevelInfo, "cycle_empty",
+			"this cycle had nothing to back up: no backup sets are configured yet")
 		return
 	}
 	s.logger().Error(ctx, "cycle", fmt.Errorf(

@@ -30,6 +30,24 @@ export function isNotConfigured(error: ApiError | null | undefined): boolean {
   return error?.code === "NOT_CONFIGURED";
 }
 
+/**
+ * retnd#1049: a repository read on a deployment that has not turned the
+ * incremental engine on answers 409 INCREMENTAL_ENGINE_DISABLED. That is a
+ * feature that is off, which on a fresh install is the normal state, so a
+ * page treats it as "nothing there yet" beside NOT_CONFIGURED rather than
+ * as a failure.
+ */
+export function isNothingThereYet(error: ApiError | null | undefined): boolean {
+  return isNotConfigured(error) || error?.code === "INCREMENTAL_ENGINE_DISABLED";
+}
+
+/** What an empty repository page says, by the reason it is empty. */
+export function nothingThereYetCopy(error: ApiError | null | undefined): string {
+  return error?.code === "INCREMENTAL_ENGINE_DISABLED"
+    ? "Incremental backup is not turned on for this deployment, so there are no repository domains to show. Nothing is needed here until you turn it on."
+    : "Nothing is configured yet, so there is nothing to check. Add a backup set and its repository appears here.";
+}
+
 /** The typed envelope behind a rejected request, or null when the failure
  *  never reached the service at all (a stopped container, a dropped
  *  connection) and so carries no code and no correlation id. */

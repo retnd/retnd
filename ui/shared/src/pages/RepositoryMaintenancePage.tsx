@@ -29,6 +29,7 @@
  * schedule is working.
  */
 import { useApi } from "@shared/api/ApiContext";
+import { isNothingThereYet, nothingThereYetCopy } from "@shared/api/failure";
 import { Banner } from "@shared/components/Banner";
 import { Cell, CellGrid, Note, Row, Rows } from "@shared/components/Definitions";
 import { EmptyState, ErrorState } from "@shared/components/EmptyState";
@@ -59,6 +60,16 @@ export function RepositoryMaintenancePage() {
       actions={<button className="btn" onClick={maintenance.reload}>Re-read</button>}
     />
   );
+
+  if (maintenance.error && isNothingThereYet(maintenance.error))
+    return (
+      <>
+        {header}
+        <EmptyState title="No repository domain yet">
+          {nothingThereYetCopy(maintenance.error)}
+        </EmptyState>
+      </>
+    );
 
   if (maintenance.error)
     return (

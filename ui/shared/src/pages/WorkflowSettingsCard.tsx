@@ -219,9 +219,9 @@ export function WorkflowSettingsCard({ readOnly }: { readOnly: boolean }) {
       <div className="card__body" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         {runner.configured ? null : (
           <WarningBanner
-            tone="warn"
+            tone="info"
             eyebrow="Host Workflow Runner"
-            title="This deployment has not been told how to reach the Host Workflow Runner"
+            title="The Host Workflow Runner is not set up on this deployment"
             tip="workflow.settings.runner"
             dismissible={false}
           >

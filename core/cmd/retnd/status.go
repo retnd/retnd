@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
 
 	"github.com/retnd/retnd/core/cliecho"
 	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/service"
 )
 
 // cmdStatus is `retnd status`: FR-24's health surface, rendered
@@ -35,6 +37,12 @@ func cmdStatus(args []string) int {
 	ctx := context.Background()
 	svc, cfg, cleanup, err := openService(ctx, *cfgPath, false)
 	if err != nil {
+		// A deployment nobody has configured yet has no backup set to be
+		// unhealthy, so this is a first-run notice and not a failure
+		// (retnd#1049).
+		if errors.Is(err, service.ErrConfigAbsent) {
+			return printFirstRunNotice(os.Stdout, *cfgPath, "status")
+		}
 		return fail(err)
 	}
 	defer cleanup()
@@ -69,6 +77,13 @@ func cmdStatus(args []string) int {
 		report.Process.BinaryVersion, commit, info.GoVersion, report.Process.RcloneVersion)
 
 	healthy := true
+	if len(report.BackupSets) == 0 {
+		// A configured deployment with no backup set is the fresh install the
+		// engine wrote its own default configuration for (retnd#1049): there
+		// is nothing to be unhealthy, so say that and name the next step.
+		fmt.Println("\n" + cliecho.Binary + " has no backup set configured yet (first run). Nothing is being backed up.")
+		fmt.Println("Next step: add the first backup set in the web interface, or with `" + cliecho.Binary + " backup-set create ...`.")
+	}
 	for _, bs := range report.BackupSets {
 		if !bs.State.OK() {
 			healthy = false
