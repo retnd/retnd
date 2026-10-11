@@ -216,12 +216,12 @@ func TestACopyThatRotsAfterPreparationStopsAtTheBadChunk(t *testing.T) {
 	}
 	dl.Close()
 	dl.Served(0, dl.Length()-1, int64(len(got)), err)
-	requireGrantSpent(t, f, token, "after a chunk failed verification")
 	rows := f.rows(t)
 	last := rows[len(rows)-1]
 	if last["outcome"] != "failed" || last["error_code"] != RecoveryLocalCopyCorrupt {
 		t.Fatalf("the audit row for the failed download is %v", last)
 	}
+	requireGrantSpent(t, f, token, "after a chunk failed verification")
 }
 
 func TestAnInterruptedDownloadResumesWithTheSameBytesUnderANewGrant(t *testing.T) {

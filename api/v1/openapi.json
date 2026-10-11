@@ -16408,7 +16408,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success. For a download target the verified bytes; for a staging or storage target the placement.",
+            "description": "Success. For a download target the artifact's bytes, streamed from the retained copy one verified chunk at a time and never staged; for a staging or storage target the placement. A download is refused before the status line when the copy cannot complete it (missing, wrong size, unreadable medium, a verifying read that did not match the journal). A copy that fails verification mid-stream aborts the connection short of the declared Content-Length, so a truncated body is never a clean end. Headers: ETag (a strong validator from the artifact id and the recorded SHA-256, the same for every grant, copy and process, so a download can be resumed with Range and If-Range under a new grant), Repr-Digest (RFC 9530 sha-256 of the whole artifact as the journal recorded it, for the client to compare against), Accept-Ranges: bytes, Content-Length.",
             "content": {
               "application/octet-stream": {
                 "schema": {
@@ -16424,7 +16424,7 @@
             }
           },
           "206": {
-            "description": "Success. One byte range of the verified bytes.",
+            "description": "Success. One byte range of the artifact, read from the copy at the range's chunk boundary. Resume with Range and If-Range set to the ETag. Carries the same ETag and Repr-Digest as the 200; Repr-Digest still describes the whole artifact.",
             "content": {
               "application/octet-stream": {
                 "schema": {
@@ -16476,7 +16476,7 @@
             ]
           },
           "409": {
-            "description": "Refused: RECOVERY_NOT_READABLE, RECOVERY_NO_DIGEST, RECOVERY_BUSY, RECOVERY_TARGET_EXISTS. RECOVERY_BUSY is a continuation that arrived while the first request was still staging.",
+            "description": "Refused: RECOVERY_NOT_READABLE, RECOVERY_NO_DIGEST, RECOVERY_BUSY, RECOVERY_TARGET_EXISTS. RECOVERY_BUSY is a second request for a server-side (staging or storage) target while the first is still carrying it out; a download has no such state.",
             "content": {
               "application/json": {
                 "schema": {

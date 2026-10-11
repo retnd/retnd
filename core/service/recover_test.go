@@ -581,12 +581,15 @@ func TestEndingASessionRevokesItsGrantsAndRemovesWhatItStaged(t *testing.T) {
 		t.Fatal(err)
 	}
 	dl.Close()
-	if len(f.stagingEntries(t)) != 1 {
-		t.Fatal("a started download should hold exactly one staged file")
+	if f.b.recoveryHost().grants.Active() != 1 {
+		t.Fatal("a started download should be one open grant")
 	}
 	f.b.EndRecoverySession(sess)
+	if n := f.b.recoveryHost().grants.Active(); n != 0 {
+		t.Fatalf("logout left %d downloads open", n)
+	}
 	if e := f.stagingEntries(t); len(e) != 0 {
-		t.Fatalf("logout left %v", e)
+		t.Fatalf("a streamed download staged %v", e)
 	}
 	_, _, err = f.b.RedeemRecovery(ctx, sess, g.Token)
 	if codeOf(t, err) != RecoveryGrantSessionEnded {
@@ -637,8 +640,13 @@ func TestEveryMintAndEveryServedRangeWritesOneRowNamingActorArtifactCopyAndOutco
 		dl.Served(start, end, end-start+1, nil)
 	}
 	rows := f.rows(t)
-	if len(rows) != 1+ranges {
-		t.Fatalf("50 ranges + 1 mint should write 51 rows, wrote %d", len(rows))
+	// One mint, one row per range, and one more when the ranges add up to
+	// the whole artifact: the download's final verification.
+	if len(rows) != 1+ranges+1 {
+		t.Fatalf("50 ranges + 1 mint + 1 final verification should write 52 rows, wrote %d", len(rows))
+	}
+	if rows[len(rows)-1]["operation"] != "recovery verified" {
+		t.Fatalf("the last row should be the final verification, got %v", rows[len(rows)-1])
 	}
 	for i, r := range rows {
 		for _, k := range []string{"actor", "artifact", "copy", "outcome", "target"} {
@@ -836,8 +844,8 @@ func TestAnUnsatisfiableRangeIsRefusedWithoutSpendingTheGrantOrTheStagedCopy(t *
 	if last := rows[len(rows)-1]; last["outcome"] != "refused" {
 		t.Fatalf("a range the copy does not have is a refusal, row = %v", last)
 	}
-	if len(f.stagingEntries(t)) != 1 {
-		t.Fatal("the staged copy was thrown away over a client's typo; a remote copy would be read and billed again")
+	if f.b.recoveryHost().grants.Active() != 1 {
+		t.Fatal("the grant was spent over a client's typo")
 	}
 	again, _, err := f.b.RedeemRecovery(ctx, sess, g.Token)
 	if err != nil {
@@ -908,14 +916,8 @@ func TestADownloadStillBeingServedKeepsItsGrantPastTheGrantTTL(t *testing.T) {
 	if _, _, err := f.b.RedeemRecovery(ctx, sess, other.Token); err != nil {
 		t.Fatal(err)
 	}
-	partials := 0
-	for _, e := range f.stagingEntries(t) {
-		if strings.HasSuffix(e, ".partial") {
-			partials++
-		}
-	}
-	if partials != 1 {
-		t.Fatalf("the staged copy of a download that is still being served should still be there, found %d partials", partials)
+	if n := f.b.recoveryHost().grants.Active(); n != 1 {
+		t.Fatalf("a download that is still being served was reaped from under its request (%d open)", n)
 	}
 	buf := make([]byte, 16)
 	if _, err := dl.Reader().Read(buf); err != nil {
