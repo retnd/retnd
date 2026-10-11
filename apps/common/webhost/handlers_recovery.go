@@ -367,6 +367,15 @@ func (h *handlers) writeRecoveryError(w http.ResponseWriter, r *http.Request, er
 			writeError(w, http.StatusForbidden, "RECOVERY_GRANT_SESSION_ENDED", re.Message)
 		case "RECOVERY_TOO_MANY_GRANTS":
 			writeError(w, http.StatusTooManyRequests, "RECOVERY_TOO_MANY_GRANTS", re.Message)
+		case "RECOVERY_READS_BUSY":
+			w.Header().Set("Retry-After", "30")
+			writeError(w, http.StatusTooManyRequests, "RECOVERY_READS_BUSY", re.Message)
+		case "RECOVERY_DESTINATION_BUSY":
+			w.Header().Set("Retry-After", "30")
+			writeError(w, http.StatusTooManyRequests, "RECOVERY_DESTINATION_BUSY", re.Message)
+		case "RECOVERY_DOWNLOADS_BUSY":
+			w.Header().Set("Retry-After", "30")
+			writeError(w, http.StatusTooManyRequests, "RECOVERY_DOWNLOADS_BUSY", re.Message)
 		case "RECOVERY_TARGET_INVALID":
 			writeError(w, http.StatusBadRequest, "RECOVERY_TARGET_INVALID", re.Message)
 		case "RECOVERY_TARGET_EXISTS":
