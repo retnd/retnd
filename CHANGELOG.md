@@ -45,6 +45,8 @@
   calm, because the moment you reach for this feature is usually an incident, and a
   downgrade after adding it fails closed...
 
+
+
 ### Added
 
 - **EPIC Q's closing gate** (#988, EPIC Q #953). `docs/conformance/epic-q-matrix.md` answers all eighty rows
@@ -189,6 +191,7 @@
     the label at 4.25:1 (light). It is now drawn with a dashed outline, italic type
     and the word "re-checking", and a unit test reads the real tokens and fails on
     any dimming.
+
 
 ## [0.5.1] - 2026-10-04
 
