@@ -201,6 +201,11 @@ export function createMockAssurance(scenario: string): AssuranceApi {
 
   const table = (now: number): ArtifactAssurance[] => {
     let t = baseTable(now);
+    if (scenario === "assurance-no-operations") {
+      // The production composition: no route reports a recovery test, so the
+      // claim is unknown for every backup.
+      t = t.map((a) => ({ ...a, recovery: rec("unknown", "") }));
+    }
     if (scenario === "assurance-rebuilt") {
       t = t.map((a) => ({ ...a, content: rec("unknown", ""), recovery: rec("unknown", "") }));
     }

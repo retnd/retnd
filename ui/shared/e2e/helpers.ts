@@ -98,3 +98,54 @@ export async function spaGo(page: Page, path: string) {
     window.dispatchEvent(new PopStateEvent("popstate"));
   }, path);
 }
+
+/** The boundary of every bordered element under `selector` against the
+ *  background it sits on (WCAG 1.4.11 asks for 3:1). Prints the worst ratio
+ *  per distinct border colour and returns the ones under 3. */
+export async function measureBorders(page: Page, label: string, selector: string) {
+  const all = await page.evaluate((sel) => {
+    const c = document.createElement("canvas").getContext("2d")!;
+    const rgb = (s: string): number[] => {
+      c.clearRect(0, 0, 1, 1);
+      c.fillStyle = "#000";
+      c.fillStyle = s;
+      c.fillRect(0, 0, 1, 1);
+      const d = c.getImageData(0, 0, 1, 1).data;
+      return [d[0], d[1], d[2], d[3] / 255];
+    };
+    const lum = (a: number[]) => {
+      const f = (v: number) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+      return 0.2126 * f(a[0]) + 0.7152 * f(a[1]) + 0.0722 * f(a[2]);
+    };
+    const out: Array<{ what: string; ratio: number; fg: string; bg: string }> = [];
+    document.querySelectorAll(sel).forEach((e) => {
+      const cs = getComputedStyle(e);
+      if (cs.display === "none" || cs.visibility === "hidden" || cs.borderTopStyle === "none" || parseFloat(cs.borderTopWidth) === 0) return;
+      if (e.closest(":disabled")) return;
+      const edge = rgb(cs.borderTopColor);
+      let bg: number[] | null = null;
+      for (let n: Element | null = e.parentElement; n; n = n.parentElement) {
+        const x = rgb(getComputedStyle(n).backgroundColor);
+        if (x[3] > 0.5) { bg = x; break; }
+      }
+      if (!bg || edge[3] < 0.5) return;
+      const a = lum(edge), b = lum(bg);
+      out.push({
+        what: e.tagName.toLowerCase() + "." + (e.getAttribute("class") ?? "").split(" ")[0],
+        ratio: Math.round(((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)) * 100) / 100,
+        fg: edge.slice(0, 3).join(","), bg: bg.slice(0, 3).join(",")
+      });
+    });
+    return out;
+  }, selector);
+  const worst = new Map<string, (typeof all)[number]>();
+  for (const m of all) {
+    const k = m.fg + " on " + m.bg + " " + m.what;
+    const w = worst.get(k);
+    if (!w || m.ratio < w.ratio) worst.set(k, m);
+  }
+  for (const m of worst.values()) {
+    console.log("BORDER " + label + " | " + m.ratio.toFixed(2) + ":1 (needs 3) | rgb(" + m.fg + ") on rgb(" + m.bg + ") | " + m.what);
+  }
+  return all.filter((m) => m.ratio < 3).map((m) => m.what + " " + m.ratio.toFixed(2));
+}

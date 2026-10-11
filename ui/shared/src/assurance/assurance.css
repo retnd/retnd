@@ -9,7 +9,7 @@
 .achip {
   display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 2px 9px;
   border-radius: var(--radius-md); font-size: var(--text-sm); font-weight: 600; color: var(--text);
-  background: var(--surface); border: 1.5px solid var(--border-strong);
+  background: var(--surface); border: 1.5px solid var(--text-3);
 }
 .achip__glyph { font-weight: 700; width: 14px; text-align: center; color: var(--text); }
 .achip__age { font-weight: 500; color: var(--text-2); }
@@ -36,7 +36,7 @@
 [data-checking="true"] > .achip { opacity: 0.6; }
 
 .aop { display: flex; flex-direction: column; gap: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-3); background: var(--surface-2); }
-.aop__bar { height: 10px; border-radius: var(--radius-pill); background: var(--surface-3); border: 1px solid var(--border-strong); overflow: hidden; }
+.aop__bar { height: 10px; border-radius: var(--radius-pill); background: var(--surface-3); border: 1px solid var(--text-3); overflow: hidden; }
 .aop__bar > i { display: block; height: 100%; background: var(--accent); }
 .aop__lines { margin: 0; padding: var(--space-2) var(--space-3); list-style: none; background: var(--term-bg); color: var(--term-text); border-radius: var(--radius-md); font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.7; max-height: 160px; overflow: auto; }
 .aop__bar[data-indeterminate] > i { width: 35%; animation: aop-slide 1.6s ease-in-out infinite alternate; }
@@ -44,11 +44,11 @@
 @media (prefers-reduced-motion: reduce) { .aop__bar[data-indeterminate] > i { animation: none; width: 100%; } }
 .aop__outcome { font-weight: 600; color: var(--text); }
 
-.aknob { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: baseline; padding: 6px 8px; background: var(--surface-3); border-radius: var(--radius-md); border: 1px dashed var(--border-strong); font-size: var(--text-sm); color: var(--text); }
+.aknob { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: baseline; padding: 6px 8px; background: var(--surface-3); border-radius: var(--radius-md); border: 1px dashed var(--text-3); font-size: var(--text-sm); color: var(--text); }
 .aknob__scope { font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text); }
 
 .avlog { display: flex; flex-direction: column; gap: var(--space-2); }
-.avlog__marker { padding: 2px 8px; border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); font-style: italic; color: var(--text); background: var(--warn-quiet); }
+.avlog__marker { padding: 2px 8px; border: 1px dashed var(--text-3); border-radius: var(--radius-sm); font-style: italic; color: var(--text); background: var(--warn-quiet); }
 .avlog__pre { margin: 0; padding: var(--space-3); background: var(--term-bg); color: var(--term-text); border-radius: var(--radius-md); font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.7; white-space: pre-wrap; word-break: break-all; max-height: 240px; overflow: auto; }
 
 .anotice { border: 2px solid var(--warn); background: var(--warn-quiet); border-radius: var(--radius-md); padding: var(--space-3); color: var(--text); }
@@ -68,3 +68,11 @@
 [data-assurance] .tooltip__icon,
 [data-assurance] .tooltip__close,
 [data-assurance] .tooltip__trigger { color: var(--text-2); }
+
+/* A UI component's boundary needs 3:1 against what it sits on. The shared
+   --border-strong is 1.69:1 on the light surface and 1.81:1 on the dark one, so
+   inside the assurance surfaces the edges of inputs, selects, chips, readouts
+   and bars take --text-3 (3.39:1 and 3.85:1), an existing token. The shared
+   .input rule and the token are untouched. */
+[data-assurance] .input,
+[data-assurance] select.input { border-color: var(--text-3); }

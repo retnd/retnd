@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { open, measureContrast, setTheme, spaGo } from "./helpers";
+import { open, measureBorders, measureContrast, setTheme, spaGo } from "./helpers";
 
 const SET = "/sets/production/postgres-primary";
 const region = (page: import("@playwright/test").Page) => page.getByRole("region", { name: "Assurance" });
@@ -48,8 +48,11 @@ test.describe("#985 Scrub now on a backup set", () => {
     await expect(section.getByRole("button", { name: "Show validator output" })).toHaveCount(0);
     await expect(section.getByText("retnd scrub production/postgres-primary", { exact: true })).toBeVisible();
     await expect(section.getByText("retnd scrub production/postgres-primary --content --allow-egress", { exact: true })).toBeVisible();
-    // and the claims that do not need the missing route are still on screen
-    await expect(section.locator('[data-claim="content"]')).toBeVisible();
+    // and the claims that do not need the missing route are still on screen,
+    // while the one that does says why it is Unknown
+    await expect(section.locator('[data-claim="content"]')).toHaveAttribute("data-state", "pass");
+    await expect(section.locator('[data-claim="recovery"]')).toHaveAttribute("data-state", "unknown");
+    await expect(section.getByTestId("recovery-unknown-why")).toContainText(/no route that reports recovery tests/);
   });
 
   test("the per-set section offers follow-the-deployment or an own policy, and says what following resolves to", async ({ page }) => {
@@ -156,10 +159,12 @@ for (const theme of ["light", "dark"] as const) {
     await expect(region(page)).toBeVisible();
     await setTheme(page, theme);
     expect(await measureContrast(page, `settings card, ${theme}`, '[aria-label="Assurance"]')).toEqual([]);
+    expect(await measureBorders(page, `settings card controls, ${theme}`, '[aria-label="Assurance"] .input, [aria-label="Assurance"] .aknob')).toEqual([]);
     await spaGo(page, SET + "?scenario=default");
     await expect(region(page)).toBeVisible();
     await setTheme(page, theme);
     await region(page).getByRole("radio", { name: "This set's own policy" }).check();
     expect(await measureContrast(page, `set section, ${theme}`, '[aria-label="Assurance"]')).toEqual([]);
+    expect(await measureBorders(page, `set section controls, ${theme}`, '[aria-label="Assurance"] .input')).toEqual([]);
   });
 }

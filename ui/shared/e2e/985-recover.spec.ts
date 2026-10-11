@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { open, row, measureContrast, setTheme } from "./helpers";
+import { open, row, measureBorders, measureContrast, setTheme } from "./helpers";
 
 const PG = "postgres-prod-20260828.dump.zst";
 const ARCHIVED = "billing-20260827.sql.gz";
@@ -273,6 +273,7 @@ for (const theme of ["light", "dark"] as const) {
     await setTheme(page, theme);
     await openDialog(page);
     expect(await measureContrast(page, `recover dialog, archived decision, ${theme}`, '[role="dialog"]')).toEqual([]);
+    expect(await measureBorders(page, `recover dialog controls, ${theme}`, '[role="dialog"] .input')).toEqual([]);
     // restoring
     const dlg = dialog(page);
     await dlg.getByRole("textbox", { name: /Recover to/ }).fill("billing-restore");

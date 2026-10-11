@@ -171,7 +171,7 @@ export function AssuranceSettingsCard({ readOnly }: { readOnly: boolean }) {
               <div role="alert" style={{ color: "var(--text)" }}>A required recovery test needs a validator, so the server will refuse this until one is named.</div>
             ) : null}
             <div style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
-              The validator is a script of yours, run by the engine over the recovered copy. The engine re-reads the copy and checks its digest first, then runs the script, and records the claim itself: the script never writes Content verified or Recovery tested.
+              The validator is a script of yours, run by the engine over the recovered copy. The engine re-reads the copy and checks its digest first, then runs the script, and records the claim itself: the script never writes Content verified or Recovery tested. The validator name above is checked against the server's registered validators when you save; it does not choose the script.
             </div>
             {knobs.map(([name, label, value]) => (
               <div key={name} className="aknob" data-testid="host-knob" data-scope="deployment-wide" data-knob={name}>

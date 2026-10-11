@@ -127,10 +127,10 @@ export const FIELD_HELP = {
   },
 
   assuranceValidator: {
-    what: "The validator the recovery test runs over the recovered copy. The server resolves this name; it is a name, never a path.",
+    what: "The validator reference for the recovery test. The server accepts only a name from its registered validators, never a path, and asks for one when the mode is required.",
     example: "pg-restore-check",
     effect:
-      "Saves the name. The engine recovers the newest known good copy to isolated staging, re-reads it and checks its digest, and only then runs your script. The script cannot write Content verified or Recovery tested: the engine records both."
+      "Saves the name. What the engine runs is the one NAME.local.sh script in the set's recovery-test directory: it re-reads the recovered copy and checks its digest first, runs that script, and records the claim and the script's hash itself. This build does not tie the name to the script, and the script can never write Content verified or Recovery tested."
   },
 
   assuranceSetScrubEvery: {
@@ -141,10 +141,10 @@ export const FIELD_HELP = {
   },
 
   assuranceSetValidator: {
-    what: "The validator this set's recovery test runs over the recovered copy, as a name the server resolves.",
+    what: "The validator reference for this set's recovery test: a name from the server's registered validators, never a path.",
     example: "pg-restore-check",
     effect:
-      "Saves the name as part of this set's own policy. The script itself is NAME.local.sh under recovery-test/<source>/<set> in the workflow root, run by the engine after it has re-read the copy and matched its digest. Its exit status and bounded output are what Show validator output displays, beside the hash the engine recorded for the script that ran."
+      "Saves the name as part of this set's own policy. The script that actually runs is NAME.local.sh under recovery-test/<source>/<set> in the workflow root, started by the engine after it has re-read the copy and matched its digest. The name does not select that script in this build. Show validator output displays the script's exit status and bounded output beside the hash the engine recorded for it."
   },
 
   // ---------------------------------------------------------------- auth

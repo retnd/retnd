@@ -175,7 +175,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
         {!api ? (
           <p style={{ margin: 0 }}>This server does not report assurance yet, so nothing here is claimed.</p>
         ) : null}
-        <ClaimChips assurance={latest} available={!!api} checking={checking} />
+        <ClaimChips assurance={latest} available={!!api} checking={checking} recoveryReported={!!api?.offers.recoveryClaim} />
 
         {draft && policy ? (
           <>
@@ -254,7 +254,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
                   </div>
                 ) : (
                   <div style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
-                    The validator is a script of yours (<span className="mono">NAME.local.sh</span> under <span className="mono">{"recovery-test/" + source + "/" + setName}</span> in the workflow root). The engine re-reads the recovered copy and checks its digest, then runs the script and records the claim itself.
+                    The validator is a script of yours (<span className="mono">NAME.local.sh</span> under <span className="mono">{"recovery-test/" + source + "/" + setName}</span> in the workflow root). The engine re-reads the recovered copy and checks its digest, then runs the script and records the claim itself. The name above is checked against the server&apos;s registered validators when you save; it does not choose the script.
                   </div>
                 )}
                 {scrubProblem ? <div role="alert">{scrubProblem}</div> : null}

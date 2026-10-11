@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { open, measureContrast, setTheme } from "./helpers";
+import { open, measureBorders, measureContrast, setTheme } from "./helpers";
 
 const SET = "/sets/production/postgres-primary";
 const region = (page: import("@playwright/test").Page) => page.getByRole("region", { name: "Assurance" });
@@ -162,5 +162,6 @@ for (const theme of ["light", "dark"] as const) {
     await section.getByRole("button", { name: "Show validator output" }).click();
     await expect(page.getByTestId("validator-log")).toBeVisible();
     expect(await measureContrast(page, `operation panel and validator log, ${theme}`, '[aria-label="Assurance"]')).toEqual([]);
+    expect(await measureBorders(page, `progress bar, ${theme}`, '[aria-label="Assurance"] .aop__bar')).toEqual([]);
   });
 }

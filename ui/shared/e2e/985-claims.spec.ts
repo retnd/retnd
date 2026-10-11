@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { open, row, measureContrast, setTheme } from "./helpers";
+import { open, row, measureBorders, measureContrast, setTheme } from "./helpers";
 
 // Issue #985 (Q2.2): the three claims, and the states that are not a pass.
 // Each backup carries Stored, Content verified and Recovery tested as three
@@ -116,6 +116,8 @@ for (const theme of ["light", "dark"] as const) {
       await expect(page.locator('[data-claim]').first()).toBeVisible();
       await setTheme(page, theme);
       expect(await measureContrast(page, `claim chips, ${scenario}, ${theme}`, '[data-testid="assurance-claims"]')).toEqual([]);
+      // the chip edge is a component boundary, so it needs 3:1 as well
+      expect(await measureBorders(page, `claim chips, ${scenario}, ${theme}`, '[data-testid="assurance-claims"] .achip')).toEqual([]);
     }
   });
 }
