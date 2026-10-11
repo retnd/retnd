@@ -174,3 +174,63 @@ func TestAStreamThatFailsMidBodyIsCutNotEnded(t *testing.T) {
 		t.Fatalf("the service was not told the download failed: %+v", be.served)
 	}
 }
+
+// A request that asks for no bytes has nothing to serve, and so nothing to
+// spend a grant on. A conditional GET that comes back 304 is how a client
+// asks whether what it already holds is still the file. It used to reach the
+// service as a whole-file range with nothing written, which the service reads
+// as the whole artifact served and verified: the grant was spent and the
+// download the client was about to make was refused (#1072).
+
+// redeemWith is redeem with a method, recovering the panic a cut response
+// raises so a failure here reads as a failure and not as a crashed test.
+func redeemWith(router http.Handler, method, token string, hdr map[string]string) (rec *httptest.ResponseRecorder, aborted any) {
+	req := httptest.NewRequest(method, "/api/v1/recoveries/"+token, nil)
+	for k, v := range hdr {
+		req.Header.Set(k, v)
+	}
+	rec = httptest.NewRecorder()
+	func() {
+		defer func() { aborted = recover() }()
+		router.ServeHTTP(rec, req)
+	}()
+	return rec, aborted
+}
+
+// The route answers GET only, so a HEAD never reaches the grant: it is a 405
+// from the router before RedeemRecovery is called. This pins that, because
+// the day someone adds a HEAD route the handler below would send the service
+// a whole-file range with nothing written, and the grant would go with it.
+func TestAHeadRequestIsRefusedBeforeItTouchesTheGrant(t *testing.T) {
+	router, be := newRecoveryRouter(t, alwaysPassGate{}, fakeAuthenticator{authenticated: true, username: "alice"})
+	be.stream = func(f *fakeRecoveryBackend) service.RecoveryStream { return streamBackend(f, -1, nil) }
+
+	rec, aborted := redeemWith(router, http.MethodHead, "tok_abc", nil)
+	if aborted != nil {
+		t.Fatalf("a HEAD aborted the response (%v)", aborted)
+	}
+	be.mu.Lock()
+	defer be.mu.Unlock()
+	if len(be.redeemed) != 0 || len(be.served) != 0 {
+		t.Fatalf("a HEAD (%d) redeemed %v and reported %+v: it must not reach the grant at all", rec.Code, be.redeemed, be.served)
+	}
+}
+
+func TestAConditionalGetAnswered304SpendsNothing(t *testing.T) {
+	router, be := newRecoveryRouter(t, alwaysPassGate{}, fakeAuthenticator{authenticated: true, username: "alice"})
+	be.stream = func(f *fakeRecoveryBackend) service.RecoveryStream { return streamBackend(f, -1, nil) }
+	etag := redeem(router, "tok_abc", nil).Header().Get("ETag")
+	be.mu.Lock()
+	be.served = nil
+	be.mu.Unlock()
+
+	rec, aborted := redeemWith(router, http.MethodGet, "tok_abc", map[string]string{"If-None-Match": etag})
+	if aborted != nil || rec.Code != http.StatusNotModified {
+		t.Fatalf("If-None-Match with the current ETag = %d (aborted %v), want 304", rec.Code, aborted)
+	}
+	be.mu.Lock()
+	defer be.mu.Unlock()
+	if len(be.served) != 0 {
+		t.Fatalf("a 304 sent no byte but told the service it served %+v, and the service reads that as the whole file served and verified", be.served)
+	}
+}
