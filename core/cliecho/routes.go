@@ -680,6 +680,46 @@ var routes = map[string]entry{
 		build:    func(a Action) *cmd { return newCmd("artifacts", artifactID(a)) },
 		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar"}}},
 	},
+	key("POST", "/backups/{source}/{set}/{name}/recovery"): {
+		build: func(a Action) *cmd {
+			var req apicontract.RecoveryMintRequest
+			c := newCmd("recover", artifactID(a))
+			if !decode(a.Body, &req) {
+				return c
+			}
+			if req.Copy != "" && req.Copy != "best-available" {
+				c.flag("copy", req.Copy)
+			}
+			switch req.Target.Kind {
+			case "download":
+				c.flag("to", "-")
+			case "staging":
+				c.flag("to", req.Target.Path)
+			case "storage":
+				to := "medium:" + req.Target.Medium
+				if req.Target.Key != "" {
+					to += "/" + req.Target.Key
+				}
+				c.flag("to", to)
+			}
+			if req.Acknowledged {
+				c.bare("acknowledge-cost")
+			}
+			return c
+		},
+		examples: []Action{
+			{Params: map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar"},
+				Body: []byte(`{"target":{"kind":"download"}}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar"},
+				Body: []byte(`{"copy":"offsite_s3","acknowledged":true,"target":{"kind":"staging","path":"restore/dump.tar"}}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar"},
+				Body: []byte(`{"target":{"kind":"storage","medium":"offsite_s3","key":"recovered/dump.tar"}}`)},
+		},
+	},
+	key("GET", "/recoveries/{grant}"): {
+		why:               "a grant is minted and redeemed in one step by `" + Binary + " recover`, in your own shell, so there is no verb that redeems a grant somebody else minted: the token belongs to the browser session that asked for it",
+		namesShippedVerbs: []string{"recover"},
+	},
 	key("POST", "/backups/{source}/{set}/{name}/retry"): {
 		build: func(a Action) *cmd {
 			var req apicontract.RetryFailedRequest

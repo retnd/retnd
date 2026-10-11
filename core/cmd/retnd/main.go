@@ -90,6 +90,7 @@ var commands = map[string]func([]string) int{
 	"medium":          cmdMedium,
 	"retry":           cmdRetry,
 	"restore":         cmdRestore,
+	"recover":         cmdRecover,
 	"snapshot":        cmdSnapshot,
 	"repository":      cmdRepository,
 	"settings":        cmdSettings,
@@ -344,6 +345,23 @@ commands:
                                                   to skip, because a restore is billed and takes hours; --days
                                                   defaults to 7 and is bounded to 1..30. artifacts <id> lists
                                                   which medium each copy is on
+  recover <source/backup-set/artifact> --to - | NAME | medium:ID[/KEY] [--copy M] [--acknowledge-cost] [--json]
+                                                  get the retained bytes of one artifact back (EPIC Q, FR-67). It
+                                                  reads one copy, checks all of it against the SHA-256 recorded when
+                                                  the backup was ingested, and only then writes it: to standard
+                                                  output (-), to a new file under the recovery staging root (NAME),
+                                                  or to another configured storage destination, never replacing an
+                                                  object. --copy defaults to the best readable copy, preferring the
+                                                  strongest verification class and one that costs nothing to read.
+                                                  A billed download, or a copy on an archive class that needs a
+                                                  provider restore first, is refused naming the cost unless
+                                                  --acknowledge-cost is given; an acknowledged archive request
+                                                  starts exactly one restore and exits 31 with nothing recovered.
+                                                  It runs no application command: this recovers the artifact, and
+                                                  putting the application back stays yours. It is neither restore
+                                                  (the archival thaw above, which writes nothing) nor snapshot
+                                                  restore (a kopia restore point), and a kopia set is refused with
+                                                  a sentence naming that verb
   backup-set enabled <source/backup-set> <on|off>
                                                   turn one already-configured backup set on or off, which
                                                   --disabled can only do at creation. "off" stops the scheduler
@@ -655,5 +673,14 @@ to print:
       not be performed at all, a route that was named and did not answer, and a route that
       answered for a different deployment, because none of those gets better by waiting
       (#551, #555)
+  10-31  recover only (EPIC Q), one code per reason so a script can branch without reading the
+      sentence: 10 chargeable and not acknowledged, 11 no retained copy, 12 no such copy,
+      13 nothing readable right now, 14 the copy on this host's disk failed its checksum,
+      15 a remote copy failed its checksum, 16 no recorded SHA-256 to verify against,
+      17 staging disk full, 18 below the staging free-space reserve, 19 a kopia set (use
+      snapshot restore), 20 target not allowed, 21 target already exists, 22-26 grant
+      refusals (unknown, used, expired, session ended, too many), 27 recovery unavailable,
+      28 busy, 29 interrupted, 30 any other failure, 31 an archive restore was started and
+      nothing was recovered yet. In every refusal no byte was delivered anywhere
 `)
 }

@@ -102,6 +102,13 @@ func TestNoAPIRouteBypassesAuthentication(t *testing.T) {
 // this list, is the CSRF one: see its own doc for why the two are
 // separate tests.)
 var destructiveGateExemptRoutes = map[string]bool{
+	// EPIC Q (#976): recovery reads. The mint authorises one read of one
+	// retained copy and deletes or overwrites nothing; the gate that
+	// guards destruction is not the guard for that, and gating it would
+	// ship recovery refused on every deployment this repository builds.
+	// The authorisation is a bound, single-use, audited grant instead.
+	"POST /api/v1/backups/{source}/{set}/{name}/recovery": true,
+
 	// Issue #146 (B2.7): every one of these is "state-changing but
 	// non-destructive" or outright read-only under
 	// docs/EPIC-B-multi-nas.md §50 ("create/edit backup set", "generate

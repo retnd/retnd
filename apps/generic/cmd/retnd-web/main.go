@@ -871,6 +871,15 @@ func openWorkflowEngineOn(ctx context.Context, backend *service.BackupService, p
 			len(report.Holds), cliecho.Binary)
 	}
 
+	// EPIC Q (#976): a partial recovery file left by a process that died is
+	// an orphan filling the staging disk. This is the one process that can
+	// say so (a terminal command opened beside it cannot tell the engine's
+	// in-flight partials from orphans), and a failure here is reported, not
+	// fatal: recovery staging must never stop backups being served.
+	if _, _, err := backend.ReconcileRecoveryStaging(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, cliecho.WebBinary+": reconciling the recovery staging area: %v\n", err)
+	}
+
 	return nil
 }
 
