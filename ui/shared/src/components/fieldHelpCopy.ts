@@ -123,7 +123,7 @@ export const FIELD_HELP = {
     what: "How often a recovery test is due.",
     example: "30d",
     effect:
-      "Saves the cadence. A whole number with a unit of s, m, h or d, and nothing under 1h. Empty returns to the default."
+      "Saves the cadence. A whole number with a unit of s, m, h or d, and nothing under 24h, because a recovery test reads a whole copy back. Empty returns to the default."
   },
 
   assuranceValidator: {
