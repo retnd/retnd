@@ -456,7 +456,7 @@ func (h *handlers) getSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := toSettingsResponse(settings)
 	resp.Persisted = true
-	resp.FirstRun = h.noSetsYet(r.Context()) && len(settings.Mediums) <= 1
+	resp.FirstRun = h.noSetsYet(r.Context()) && service.IsDefaultSettings(settings)
 	writeJSON(w, http.StatusOK, resp)
 }
 

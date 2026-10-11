@@ -106,6 +106,7 @@ export function FirstRunGuide({
                     type="button"
                     className="btn btn--sm btn--quiet"
                     disabled={busy}
+                    aria-label={"Skip for now: " + LABEL[step].toLowerCase()}
                     onClick={() => {
                       setBusy(true);
                       void onSkip(step as "email" | "backup_set").finally(() => setBusy(false));

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -71,5 +73,30 @@ func TestRun_CheckOnAFreshInstallIsAFirstRunNoticeNotAFailure(t *testing.T) {
 	}
 	if !namesTheNextStep.MatchString(stdout) {
 		t.Errorf("check did not name the next step (the first backup set)\nstdout:\n%s", stdout)
+	}
+}
+
+// check on a fresh install whose configuration directory cannot be
+// written is the one real thing to fix, so it is named and fails.
+func TestRun_CheckOnAFreshInstallWithAnUnwritableConfigDirectoryNamesIt(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes anywhere, so the directory cannot be made unwritable")
+	}
+	parent := t.TempDir()
+	configDir := filepath.Join(parent, "config")
+	if err := os.Mkdir(configDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(configDir, 0o700) })
+
+	var code int
+	stderr := captureStderr(t, func() {
+		captureStdout(t, func() { code = run([]string{"check", "--config", configDir}) })
+	})
+	if code != exitFailure {
+		t.Errorf("check = %d, want %d", code, exitFailure)
+	}
+	if !strings.Contains(stderr, "not writable") || !strings.Contains(stderr, configDir) {
+		t.Errorf("check did not name the unwritable directory:\n%s", stderr)
 	}
 }

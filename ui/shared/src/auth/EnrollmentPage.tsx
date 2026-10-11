@@ -253,7 +253,7 @@ export function EnrollmentPage({ onEnrolled }: { onEnrolled(): void }) {
         {withRecovery ? null : (
           <p style={{ margin: 0, fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
             Skipped for now. You can add a recovery address and a mail server later, under
-            Settings. Until then a forgotten password can only be reset from the command line.
+            Settings. Until then a forgotten password cannot be reset by email.
           </p>
         )}
         {withRecovery ? (

@@ -87,3 +87,61 @@ func TestEnsureDefaultConfig_AnUnwritableDirectoryIsReportedNotSwallowed(t *test
 		t.Errorf("ConfigDirWritable said an unwritable directory was fine")
 	}
 }
+
+// The first set created into a default configuration seeds the local
+// destination, exactly as the wizard's first-configuration path does, so
+// both doors leave the same file behind (retnd#1049).
+func TestCreateBackupSet_IntoADefaultConfigSeedsTheLocalDestinationOnce(t *testing.T) {
+	configPath, statePath := emptyInstall(t)
+	if _, _, err := EnsureDefaultConfig(FirstRunDefaults{ConfigPath: configPath, StateDatabase: statePath}); err != nil {
+		t.Fatal(err)
+	}
+	svc, cleanup, err := Open(t.Context(), configPath)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = cleanup() }()
+
+	req := validCreateReq(t, svc, "alpha")
+	req.SourceName = "production"
+	if err := os.MkdirAll(filepath.Dir(req.LocalPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.CreateBackupSet(t.Context(), req); err != nil {
+		t.Fatalf("CreateBackupSet into a default configuration: %v", err)
+	}
+	mediums := func() int {
+		raw, err := os.ReadFile(configPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return bytes.Count(raw, []byte("type: local_volume"))
+	}
+	if got := mediums(); got != 1 {
+		t.Fatalf("local destinations after the first set = %d, want 1", got)
+	}
+
+	second := validCreateReq(t, svc, "beta")
+	second.SourceName = "production"
+	if err := os.MkdirAll(filepath.Dir(second.LocalPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.CreateBackupSet(t.Context(), second); err != nil {
+		t.Fatalf("second CreateBackupSet: %v", err)
+	}
+	if got := mediums(); got != 1 {
+		t.Errorf("local destinations after a second set = %d, want still 1 (only the first set seeds it)", got)
+	}
+}
+
+func TestIsDefaultSettings_TrueForTheDefaultsFalseOnceAnythingChanged(t *testing.T) {
+	d := DefaultSettings()
+	if !IsDefaultSettings(d) {
+		t.Fatal("the defaults are not default")
+	}
+	changed := d
+	changed.Service.PollInterval *= 2
+	if IsDefaultSettings(changed) {
+		t.Errorf("a changed polling interval still reads as the defaults")
+	}
+}

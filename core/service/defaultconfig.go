@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 
 	"gopkg.in/yaml.v3"
 
@@ -187,4 +188,16 @@ func DefaultSettings() Settings {
 		Service:   toServiceSettings(cfg),
 		Mediums:   toStorageMediumSummaries(cfg),
 	}
+}
+
+// IsDefaultSettings reports whether s is exactly what DefaultSettings
+// answers: nobody has changed retention, capacity or the polling interval,
+// and no destination beyond the implicit local one is declared. Combined
+// with "no backup set exists" it is what first_run means on the wire.
+func IsDefaultSettings(s Settings) bool {
+	d := DefaultSettings()
+	return reflect.DeepEqual(s.Retention, d.Retention) &&
+		reflect.DeepEqual(s.Capacity, d.Capacity) &&
+		s.Service == d.Service &&
+		len(s.Mediums) <= 1
 }
