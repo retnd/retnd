@@ -260,7 +260,7 @@
     <p>Each row opens <a href="#web-backup-detail">that artifact's own detail page</a>.</p>
     <div class="note danger">
       <span class="note-label">What this screen is not</span>
-      <p>There is no restore here and there is no download. The footer of the table says so: these are retained, verified copies, and recovering a backup into an application is a documented manual procedure this product deliberately does not carry out.</p>
+      <p>This product recovers and exports the retained artifact; restoring it into an application remains the operator&rsquo;s responsibility. The footer of the table says the second half: these are retained, verified copies, and putting one back into a database or a VM is yours to do. The first half is the <strong>Recover artifact</strong> action on a row, which checks the bytes against the recorded digest before it hands them over and offers three targets: a download in this browser, a path under the host&rsquo;s staging root, or another configured destination. It sits beside three separate claims, <em>Stored</em>, <em>Content verified</em> and <em>Recovery tested</em>, each with its own age and never rolled into one tick. <a href="#cli-restore-verbs">Which of the three restore-shaped commands to use</a> is a table of its own.</p>
     </div>
 
     <h3 id="web-backup-detail">Backup detail</h3>
@@ -271,7 +271,7 @@
     <p>Two cards and a list, and no button among them. <strong>Artifact</strong> is the recorded facts: id, remote original path, the ingestion path (a path on disk, not proof a readable file is sitting there), producer and received timestamps, size, checksum, and which retention classes selected it. <strong>Lifecycle</strong> is the same timeline the dashboard's live view feeds, at rest: discovered, transferred, verified, committed, remote source removed. Below both, the copies list names where the bytes actually are, one row per storage medium, each with its own verification class and whether reading it back needs a restore first.</p>
     <div class="note ok">
       <span class="note-label">Why there is nothing to press</span>
-      <p>This screen answers &ldquo;is this backup safe, and where is it&rdquo;, and every one of those answers is something the engine already decided. Restoring a backup into an application is a documented manual procedure this product deliberately does not carry out, so there is no download and no restore button to be missing.</p>
+      <p>This screen answers &ldquo;is this backup safe, and where is it&rdquo;, and every one of those answers is something the engine already decided, so reading it changes nothing. Getting the bytes out is a separate, deliberate action, <strong>Recover artifact</strong> on <a href="#web-backups">the list</a>, because it is the one that moves retained data out of the deployment and it asks first. This product recovers and exports the retained artifact; restoring it into an application remains the operator&rsquo;s responsibility.</p>
     </div>
 
     <h3 id="web-workflow-run">Workflow run</h3>
@@ -508,11 +508,20 @@
       </table>
       <!-- END CLI-COMMANDS -->
     </div>
-    <div class="note danger">
-      <span class="note-label">Two different things are called restore</span>
-      <p><code>restore</code> above asks a storage provider to thaw an <em>archived object</em> so it can be read: it is billed, it takes hours, and it writes nothing anywhere. <code>snapshot restore</code> is the other one, and it only exists for a backup set on the incremental engine: it reads a restore point out of a repository and writes a tree into a local directory you name.</p>
-      <p>Neither one restores an <em>artifact</em> backup into an application. A retained artifact is a file on storage; putting its contents back is a documented manual procedure and this product deliberately does not carry it out. See <a href="https://github.com/retnd/retnd/blob/main/docs/recovery.md">docs/recovery.md</a>.</p>
+    <h3 id="cli-restore-verbs">Three commands that sound like restore</h3>
+    <p>This product recovers and exports the retained artifact; restoring it into an application remains the operator&rsquo;s responsibility. Three commands touch that boundary from different sides. None is renamed and none absorbs another, and the new one is called <code>recover</code> precisely so it does not borrow a word the other two already use.</p>
+    <div class="scroll-x">
+      <table>
+        <thead><tr><th></th><th><code>recover</code></th><th><code>restore</code></th><th><code>snapshot restore</code></th></tr></thead>
+        <tbody>
+          <tr><td><strong>It does</strong></td><td>Reads one retained copy of an <em>artifact</em>, checks it against the recorded digest, and delivers it to one target.</td><td>Asks a storage provider to make an <em>archived object</em> readable again. It writes nothing anywhere.</td><td>Reads a <em>snapshot</em> out of an encrypted repository and writes a tree into a local directory you name.</td></tr>
+          <tr><td><strong>For</strong></td><td>Artifact-engine sets, on any copy that can be read.</td><td>A copy in an archive storage class.</td><td>Sets on the incremental engine (<code>engine: kopia</code>) only.</td></tr>
+          <tr><td><strong>Costs</strong></td><td>Nothing, unless the copy is billed to read, in which case it refuses until <code>--acknowledge-cost</code>.</td><td>Always. Billed, takes hours, needs <code>--acknowledge</code>.</td><td>A repository read; no thaw.</td></tr>
+          <tr><td><strong>Reach for it when</strong></td><td>You need the file and the share is gone, or you want it re-checked on the way out.</td><td>The only copy is archived and you have decided to pay.</td><td>A <code>kopia</code> set, and you want files back.</td></tr>
+        </tbody>
+      </table>
     </div>
+    <p>An archived artifact takes two steps in order: <code>restore</code> and wait, then <code>recover</code>. A scheduled scrub never does the first one for you. None of the three puts anything back into an application, and a retained artifact that is a database dump is still a database dump when it arrives. The walk-through, including what to do when the catalog itself is gone, is <a href="https://github.com/retnd/retnd/blob/main/docs/recovery.md">docs/recovery.md</a>.</p>
     <div class="note warn">
       <span class="note-label">The incremental engine is off until you turn it on</span>
       <p><code>snapshot</code> and <code>repository</code>, and any backup set whose <code>engine</code> is <code>kopia</code>, are gated on one setting that defaults to <strong>off</strong>: <code>incremental_engine.enabled: true</code> in <code>config.yaml</code>, or <code>RETND_INCREMENTAL_ENGINE=1</code> in the environment, which overrides the file in both directions. With it off, those verbs refuse with one sentence naming both ways to enable it, and exit <code>1</code>; over the API it is <code>409 INCREMENTAL_ENGINE_DISABLED</code>.</p>
