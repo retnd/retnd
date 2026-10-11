@@ -113,7 +113,7 @@ func (s *Service) logRecoveryTest(ctx context.Context, r recoverytest.Result) {
 		}
 	}
 	s.logger().RecoveryTest(ctx, obs.RecoveryTestFacts{
-		Artifact: r.Artifact.String(), Medium: r.Medium, State: r.State, DigestMatched: digest,
+		Artifact: r.Artifact.String(), Medium: r.Medium, PlacementID: r.PlacementID, State: r.State, DigestMatched: digest,
 		ValidatorID: r.ValidatorID, Termination: r.Termination, Cleanup: r.CleanupState,
 		OutputTruncated: r.OutputTruncated, Reason: r.Reason,
 	})

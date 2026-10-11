@@ -162,6 +162,10 @@ type Result struct {
 	Artifact model.ArtifactID
 	Medium   string
 
+	// PlacementID is the copy's row id, so a result names the artifact, the
+	// copy and the validator it was made against.
+	PlacementID int64
+
 	// State is one of the state.Recovery* values.
 	State string
 
@@ -223,7 +227,7 @@ func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg Config, req 
 		return Result{}, err
 	}
 	ref := state.CopyRef{Artifact: rec.Artifact, Medium: copy_.Medium}
-	res := Result{Artifact: rec.Artifact, Medium: copy_.Medium}
+	res := Result{Artifact: rec.Artifact, Medium: copy_.Medium, PlacementID: copy_.ID}
 	now := deps.now()
 
 	if cfg.Command == nil {
