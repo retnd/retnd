@@ -17,10 +17,38 @@ import (
 // EPIC Q, #980: the recovery-test runner as the application sees it.
 //
 // internal/recoverytest does the work; this file resolves a backup set's own
-// configuration into its inputs and hands it a journal. The validator is the
-// set's declared restore-test hook (revalidation.command), which is the
-// operator's own executable run under the untrusted-subprocess contract
-// FR-13 established. Nothing new is executed and nothing new is trusted.
+// configuration into its inputs and hands it a journal.
+//
+// # The validator is a workflow script
+//
+// The operator's validator is a NAME.local.sh script in
+// <workflow root>/recovery-test/<source>/<set>, run through the stage runner
+// (stage.go) with EPIC L's machinery: custody, naming, bytes read once and
+// hashed, shell verification, the host runner's container, the resolved
+// environment. This product adds no execution boundary for it.
+//
+// It is told about the recovered copy through ordinary variables:
+//
+//	RECOVERY_TEST_FILE       the recovered bytes, a path the runner can read
+//	RECOVERY_TEST_ARTIFACT   the artifact id
+//	RECOVERY_TEST_MEDIUM     the copy that was recovered ("local" or a medium)
+//	RECOVERY_TEST_DIGEST     the SHA-256 the file already matched
+//	RECOVERY_TEST_SIZE       its length in bytes
+//
+// The path is only useful if the runner's container can see it. Hook
+// containers get no host path by default (hostrunner's mounts are
+// operator-declared), so the staging directory has to be declared to the
+// runner with --hook-mount. That is the existing way a hook is given a host
+// path and it is deliberately not widened for this: a validator that cannot
+// see the file fails, and says so, and is not a pass.
+//
+// A recovery test's validator must be a .local.sh script. A .remote.sh runs
+// on the source host, where the recovered file is not.
+//
+// The engine keeps the parts a script cannot be trusted with. It re-reads
+// the copy and checks the digest before the script runs, runs the script,
+// and records the result and the hash of the bytes that ran. A script never
+// writes "Content verified" or "Recovery tested".
 
 // DefaultRecoveryTestCadence is how often the newest known good copy of a
 // set is owed a recovery test until a per-set setting exists. It is a named
@@ -28,6 +56,12 @@ import (
 // (inherit, off, custom) is the configuration work's to add, and this is the
 // value it will inherit.
 const DefaultRecoveryTestCadence = 7 * 24 * time.Hour
+
+// RecoveryTestSetDir is a backup set's validator stage directory, relative
+// to the workflow root.
+func RecoveryTestSetDir(set model.BackupSetID) string {
+	return "recovery-test/" + set.Source + "/" + set.Set
+}
 
 // RecoveryTestRequest says what to test.
 type RecoveryTestRequest struct {
@@ -53,6 +87,55 @@ type RecoveryTestResult struct {
 // that can hold the claim.
 var ErrRecoveryTestUnavailable = errors.New("app: this journal cannot record a recovery test")
 
+// stageValidator is recoverytest.Validator over the stage runner.
+type stageValidator struct {
+	stages StageRunner
+	bs     config.BackupSet
+}
+
+func (v stageValidator) request() StageRequest {
+	return StageRequest{Set: v.bs, SetDir: RecoveryTestSetDir(v.bs.ID), LocalOnly: true, MaxScripts: 1}
+}
+
+func (v stageValidator) Configured(ctx context.Context, _ model.BackupSetID) (bool, error) {
+	req := v.request()
+	req.DryRun = true
+	res, err := v.stages.RunStage(ctx, req)
+	if err != nil {
+		if isNotConfigured(err) {
+			return false, nil
+		}
+
+		return false, err
+	}
+
+	return res.Configured && len(res.Scripts) > 0, nil
+}
+
+func (v stageValidator) Validate(ctx context.Context, in recoverytest.ValidatorInput) (recoverytest.ValidatorOutcome, error) {
+	req := v.request()
+	req.Vars = map[string]string{
+		"RECOVERY_TEST_FILE":     in.File,
+		"RECOVERY_TEST_ARTIFACT": stageValue(in.Artifact.String(), 400),
+		"RECOVERY_TEST_MEDIUM":   stageValue(in.Medium, 120),
+		"RECOVERY_TEST_DIGEST":   in.Digest,
+		"RECOVERY_TEST_SIZE":     fmt.Sprint(in.Size),
+	}
+	res, err := v.stages.RunStage(ctx, req)
+	if err != nil {
+		return recoverytest.ValidatorOutcome{}, err
+	}
+	if !res.Configured || len(res.Scripts) != 1 {
+		return recoverytest.ValidatorOutcome{}, fmt.Errorf("the validator directory held %d scripts when the test ran, and a recovery test has exactly one", len(res.Scripts))
+	}
+	sc := res.Scripts[0]
+
+	return recoverytest.ValidatorOutcome{
+		ID: sc.Name, Hash: sc.SHA256, Disposition: sc.Disposition, ExitCode: sc.ExitCode,
+		Termination: sc.Termination, Output: sc.Output, Truncated: sc.OutputTruncated, Detail: sc.Detail,
+	}, nil
+}
+
 // RecoveryTest runs a recovery test as req describes.
 func (s *Service) RecoveryTest(ctx context.Context, req RecoveryTestRequest) (RecoveryTestResult, error) {
 	bs, ok := s.backupSet(req.Set)
@@ -73,6 +156,7 @@ func (s *Service) RecoveryTest(ctx context.Context, req RecoveryTestRequest) (Re
 	if !ok {
 		return RecoveryTestResult{}, ErrRecoveryTestUnavailable
 	}
+
 	// The default staging place is a subdirectory of the backup set's own
 	// root, as the move engine's staging copy is: that disk is the one the
 	// artifact already fits on, ScanManifests and discovery never look in a
@@ -88,14 +172,45 @@ func (s *Service) RecoveryTest(ctx context.Context, req RecoveryTestRequest) (Re
 		Journal: journal, Recoverer: recoverer, Mediums: configMediums{s.Config},
 		Limits: s.scrubLimitsShared(), Now: s.Now,
 	}
-	cfg := recoverytest.Config{Command: bs.Revalidation.Command, Cadence: DefaultRecoveryTestCadence}
-	res, err := recoverytest.Run(ctx, deps, bs.ID, cfg, recoverytest.Request{
+	if s.Stages != nil {
+		deps.Validator = stageValidator{stages: s.Stages, bs: bs}
+	}
+	res, err := recoverytest.Run(ctx, deps, bs.ID, recoverytest.Config{Cadence: DefaultRecoveryTestCadence}, recoverytest.Request{
 		Artifact: req.Artifact, Scheduled: req.Scheduled, AcknowledgeCost: req.AcknowledgeCost,
 	})
 	if err == nil {
 		s.logRecoveryTest(ctx, res)
+		s.settleRecoveryEpisode(ctx, bs, res)
 	}
 	return RecoveryTestResult{Result: res}, err
+}
+
+// settleRecoveryEpisode announces a recovery test failing, and later passing
+// again, to the operator's assurance scripts. Only a verdict opens or closes
+// an episode: a refusal for cost and an attempt that could not complete say
+// nothing about whether the copy is usable, and a script told that a copy
+// failed because a scheduled test could not afford to read it would be told
+// something untrue.
+func (s *Service) settleRecoveryEpisode(ctx context.Context, bs config.BackupSet, r recoverytest.Result) {
+	switch r.State {
+	case state.RecoveryFailed:
+		if s.assurance.transition(bs.ID, "recovery", true) {
+			s.notifyAssurance(ctx, bs, assuranceFacts{
+				Event:    AssuranceRecoveryTestFailed,
+				Artifact: r.Artifact.String(),
+				Summary: fmt.Sprintf("the newest known good copy of %s did not pass its recovery test: %s",
+					bs.ID, recoverytest.SanitizeLabel(r.Reason, 200)),
+			})
+		}
+	case state.RecoveryPassed:
+		if s.assurance.transition(bs.ID, "recovery", false) {
+			s.notifyAssurance(ctx, bs, assuranceFacts{
+				Event:    AssuranceRecoveryTestRecovered,
+				Artifact: r.Artifact.String(),
+				Summary:  fmt.Sprintf("the newest known good copy of %s passes its recovery test again", bs.ID),
+			})
+		}
+	}
 }
 
 // logRecoveryTest emits the one line a recovery test writes. It names the
@@ -117,8 +232,9 @@ func (s *Service) logRecoveryTest(ctx context.Context, r recoverytest.Result) {
 }
 
 // RecoveryTestTick is the scheduled half: it ages passes that have outlived
-// their cadence into overdue, and runs one unattended test for each artifact
-// set that declares a validator and whose newest known good copy is due.
+// their cadence into overdue, sweeps staging a crash left behind, and runs
+// one unattended test for each artifact set that declares a validator and
+// whose newest known good copy is due.
 //
 // An unattended test never pays. A set whose newest copy is on a storage
 // medium reads refused_for_cost every time this runs, which is the honest
@@ -147,7 +263,10 @@ func (s *Service) RecoveryTestTick(ctx context.Context) {
 			// sweep runs for every set, validator or not, because the copy
 			// outlives a configuration change that removed the validator.
 			s.sweepRecoveryStaging(ctx, bs)
-			if bs.Revalidation.Command == nil {
+			if s.Stages == nil {
+				continue
+			}
+			if configured, err := (stageValidator{stages: s.Stages, bs: bs}).Configured(ctx, bs.ID); err != nil || !configured {
 				continue
 			}
 			if holds != nil && holds.Held(bs.ID.String()) {
@@ -169,32 +288,6 @@ func (s *Service) RecoveryTestTick(ctx context.Context) {
 		}
 	}
 }
-
-func (s *Service) backupSet(id model.BackupSetID) (config.BackupSet, bool) {
-	for _, src := range s.Config.Sources {
-		for _, bs := range src.BackupSets {
-			if bs.ID == id {
-				return bs, true
-			}
-		}
-	}
-	return config.BackupSet{}, false
-}
-
-func (s *Service) kopiaRecoveryClaim(ctx context.Context, bs config.BackupSet) (recoverytest.Claim, error) {
-	drill := bs.VerificationRestoreDrillEvery.Duration()
-	catalog, ok := s.Journal.(snapshotCatalog)
-	if !ok {
-		return recoverytest.KopiaClaim(nil, drill, s.now()), nil
-	}
-	runs, err := catalog.ListSnapshotRuns(ctx, snapshotLineage(bs), maxSnapshotListing)
-	if err != nil {
-		return recoverytest.Claim{}, fmt.Errorf("reading %s's snapshot history: %w", bs.ID, err)
-	}
-	return recoverytest.KopiaClaim(runs, drill, s.now()), nil
-}
-
-var _ = state.RecoveryUnknown
 
 // staleStagingAge is how old a staging directory has to be before the sweep
 // treats it as abandoned. A test in progress touches its directory when it
@@ -228,4 +321,28 @@ func (s *Service) recoveryStagingRoot(bs config.BackupSet) string {
 		return filepath.Join(bs.LocalPath, ".retnd-recovery-test")
 	}
 	return ""
+}
+
+func (s *Service) backupSet(id model.BackupSetID) (config.BackupSet, bool) {
+	for _, src := range s.Config.Sources {
+		for _, bs := range src.BackupSets {
+			if bs.ID == id {
+				return bs, true
+			}
+		}
+	}
+	return config.BackupSet{}, false
+}
+
+func (s *Service) kopiaRecoveryClaim(ctx context.Context, bs config.BackupSet) (recoverytest.Claim, error) {
+	drill := bs.VerificationRestoreDrillEvery.Duration()
+	catalog, ok := s.Journal.(snapshotCatalog)
+	if !ok {
+		return recoverytest.KopiaClaim(nil, drill, s.now()), nil
+	}
+	runs, err := catalog.ListSnapshotRuns(ctx, snapshotLineage(bs), maxSnapshotListing)
+	if err != nil {
+		return recoverytest.Claim{}, fmt.Errorf("reading %s's snapshot history: %w", bs.ID, err)
+	}
+	return recoverytest.KopiaClaim(runs, drill, s.now()), nil
 }

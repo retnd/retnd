@@ -9,12 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
 	"github.com/retnd/retnd/core/internal/config"
-	"github.com/retnd/retnd/core/internal/lifecycle"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/revalidate"
 	"github.com/retnd/retnd/core/internal/state"
@@ -125,18 +123,33 @@ func (r *fileRecoverer) Remove(_ context.Context, s Staged) error {
 	return os.Remove(s.Path)
 }
 
-func script(t *testing.T, body string) string {
-	t.Helper()
-	p := filepath.Join(t.TempDir(), "check-restore.sh")
-	if err := os.WriteFile(p, []byte("#!/bin/sh\n"+body), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return p
+// fakeValidator stands in for the workflow machinery the application puts
+// behind Validator. What it returns is scripted per test; what it was asked
+// is recorded.
+type fakeValidator struct {
+	configured bool
+	cerr       error
+	outcome    ValidatorOutcome
+	verr       error
+	calls      []ValidatorInput
 }
 
-func cfgFor(exe string, timeout time.Duration) Config {
-	return Config{Command: &config.Command{Executable: exe, Timeout: config.Duration(timeout)}, Cadence: 24 * time.Hour}
+func (f *fakeValidator) Configured(context.Context, model.BackupSetID) (bool, error) {
+	return f.configured, f.cerr
 }
+
+func (f *fakeValidator) Validate(_ context.Context, in ValidatorInput) (ValidatorOutcome, error) {
+	f.calls = append(f.calls, in)
+	return f.outcome, f.verr
+}
+
+func exitedWith(code int) ValidatorOutcome {
+	return ValidatorOutcome{ID: "10-check.local.sh", Hash: strings.Repeat("ab", 32), Disposition: "exited", ExitCode: &code}
+}
+
+func accepting() *fakeValidator { return &fakeValidator{configured: true, outcome: exitedWith(0)} }
+
+func cfgFor() Config { return Config{Cadence: 24 * time.Hour} }
 
 var content = []byte("the bytes of a database dump")
 
@@ -147,11 +160,11 @@ func newEnv(t *testing.T) (*state.Journal, model.ArtifactID, *fileRecoverer) {
 	return j, a, &fileRecoverer{dir: t.TempDir(), served: content}
 }
 
-func run(t *testing.T, j *state.Journal, rc *fileRecoverer, cfg Config, req Request) Result {
+func run(t *testing.T, j *state.Journal, rc *fileRecoverer, v Validator, req Request) Result {
 	t.Helper()
 	res, err := Run(context.Background(), Deps{
-		Journal: j, Recoverer: rc, Now: func() time.Time { return testNow },
-	}, setID(t), cfg, req)
+		Journal: j, Recoverer: rc, Validator: v, Now: func() time.Time { return testNow },
+	}, setID(t), cfgFor(), req)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -162,9 +175,9 @@ func run(t *testing.T, j *state.Journal, rc *fileRecoverer, cfg Config, req Requ
 
 func TestAMatchingDigestAndAnAcceptingValidatorIsARecordedPass(t *testing.T) {
 	j, a, rc := newEnv(t)
-	exe := script(t, "test -s \"$1\" || exit 1\nexit 0\n")
+	v := accepting()
 
-	res := run(t, j, rc, cfgFor(exe, 5*time.Second), Request{})
+	res := run(t, j, rc, v, Request{})
 	if res.State != state.RecoveryPassed {
 		t.Fatalf("State = %q (%s)", res.State, res.Reason)
 	}
@@ -172,13 +185,10 @@ func TestAMatchingDigestAndAnAcceptingValidatorIsARecordedPass(t *testing.T) {
 	if p.RecoveryState != state.RecoveryPassed || p.RecoveryDigestMatched == nil || !*p.RecoveryDigestMatched {
 		t.Errorf("record = %q / %v", p.RecoveryState, p.RecoveryDigestMatched)
 	}
-	if p.RecoveryValidatorID != "check-restore.sh" {
-		t.Errorf("validator id = %q, want the base name and never a path", p.RecoveryValidatorID)
+	if p.RecoveryValidatorID != "10-check.local.sh" || p.RecoveryValidatorHash != strings.Repeat("ab", 32) {
+		t.Errorf("validator = %q / %q: the identity is the script's name and the hash of the bytes that ran, reported by the plan", p.RecoveryValidatorID, p.RecoveryValidatorHash)
 	}
-	if want := hashOfFile(t, exe); p.RecoveryValidatorHash != want {
-		t.Errorf("validator hash = %q, want %q", p.RecoveryValidatorHash, want)
-	}
-	if p.RecoveryTermination != lifecycle.TerminationExited || p.RecoveryCleanupState != state.RecoveryCleanupRemoved {
+	if p.RecoveryTermination != state.RecoveryTerminationExited || p.RecoveryCleanupState != state.RecoveryCleanupRemoved {
 		t.Errorf("termination/cleanup = %q/%q", p.RecoveryTermination, p.RecoveryCleanupState)
 	}
 	if p.RecoveryNextDueAt == nil || !p.RecoveryNextDueAt.Equal(testNow.Add(24*time.Hour)) {
@@ -198,28 +208,29 @@ func TestAMatchingDigestAndAnAcceptingValidatorIsARecordedPass(t *testing.T) {
 	}
 }
 
-func hashOfFile(t *testing.T, p string) string {
-	t.Helper()
-	b, err := os.ReadFile(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return sha(b)
-}
-
 func TestAChangedValidatorIsADifferentRecordedIdentity(t *testing.T) {
 	j, a, rc := newEnv(t)
-	exe := script(t, "exit 0\n")
-	run(t, j, rc, cfgFor(exe, 5*time.Second), Request{})
+	v := accepting()
+	run(t, j, rc, v, Request{})
 	first := copyOf(t, j, a, state.MediumLocal).RecoveryValidatorHash
 
-	if err := os.WriteFile(exe, []byte("#!/bin/sh\n# edited\nexit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	run(t, j, rc, cfgFor(exe, 5*time.Second), Request{})
-	second := copyOf(t, j, a, state.MediumLocal).RecoveryValidatorHash
-	if first == second {
+	v.outcome.Hash = strings.Repeat("cd", 32)
+	run(t, j, rc, v, Request{})
+	if second := copyOf(t, j, a, state.MediumLocal).RecoveryValidatorHash; first == second {
 		t.Error("an edited validator recorded the same hash: an old pass would be silently inherited by new code")
+	}
+}
+
+func TestTheValidatorIsHandedTheRecoveredFileAndTheDigestThatPassedTheGate(t *testing.T) {
+	j, a, rc := newEnv(t)
+	v := accepting()
+	run(t, j, rc, v, Request{})
+	if len(v.calls) != 1 {
+		t.Fatalf("validator calls = %d", len(v.calls))
+	}
+	in := v.calls[0]
+	if in.Artifact != a || in.Digest != sha(content) || in.Size != int64(len(content)) || in.File == "" {
+		t.Errorf("input = %+v", in)
 	}
 }
 
@@ -233,10 +244,10 @@ func badBytesAreNeverAPass(t *testing.T) error {
 	t.Helper()
 	j, a, rc := newEnv(t)
 	rc.served = []byte("a different set of bytes entirely")
-	exe := script(t, "exit 0\n") // exits 0 having read nothing
+	v := accepting() // exits 0 having read nothing
 
-	res, err := Run(context.Background(), Deps{Journal: j, Recoverer: rc, Now: func() time.Time { return testNow }},
-		setID(t), cfgFor(exe, 5*time.Second), Request{})
+	res, err := Run(context.Background(), Deps{Journal: j, Recoverer: rc, Validator: v, Now: func() time.Time { return testNow }},
+		setID(t), cfgFor(), Request{})
 	if err != nil {
 		return err
 	}
@@ -256,14 +267,13 @@ func TestAValidatorThatExitsZeroWithoutReadingDoesNotProduceAPassOverWrongBytes(
 func TestADigestMismatchIsAFailureAndTheValidatorNeverRuns(t *testing.T) {
 	j, a, rc := newEnv(t)
 	rc.served = []byte("flipped")
-	marker := filepath.Join(t.TempDir(), "validator-ran")
-	exe := script(t, fmt.Sprintf("touch %s\nexit 0\n", marker))
+	v := accepting()
 
-	res := run(t, j, rc, cfgFor(exe, 5*time.Second), Request{})
+	res := run(t, j, rc, v, Request{})
 	if res.State != state.RecoveryFailed || res.DigestMatched == nil || *res.DigestMatched {
 		t.Fatalf("result = %q / %v", res.State, res.DigestMatched)
 	}
-	if _, err := os.Stat(marker); err == nil {
+	if len(v.calls) != 0 {
 		t.Error("the validator ran against bytes that did not match the recorded digest")
 	}
 	p := copyOf(t, j, a, state.MediumLocal)
@@ -292,7 +302,7 @@ func TestTheDigestGateGuardTurnsRedWhenTheComparisonIsRemoved(t *testing.T) {
 func TestBytesThatDecryptToTheWrongDigestAreNotAPass(t *testing.T) {
 	j, a, rc := newEnv(t)
 	rc.served = append([]byte("-----BEGIN ENCRYPTED-----\n"), content...)
-	res := run(t, j, rc, cfgFor(script(t, "exit 0\n"), 5*time.Second), Request{})
+	res := run(t, j, rc, accepting(), Request{})
 	if res.State != state.RecoveryFailed {
 		t.Errorf("State = %q", res.State)
 	}
@@ -305,14 +315,17 @@ func TestBytesThatDecryptToTheWrongDigestAreNotAPass(t *testing.T) {
 
 func TestAMatchingDigestWithAFailingValidatorIsContentVerifiedButRecoveryFailed(t *testing.T) {
 	j, a, rc := newEnv(t)
-	// The copy is content verified by a scrub first.
 	if err := j.RecordCopyScrub(context.Background(), state.CopyScrub{
 		Artifact: a, Medium: state.MediumLocal, Verdict: state.ScrubPassed, Class: state.VerificationContent,
 		At: testNow.Add(-time.Minute), NextDue: testNow.Add(time.Hour),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	res := run(t, j, rc, cfgFor(script(t, "echo 'pg_restore: unexpected EOF' >&2\nexit 3\n"), 5*time.Second), Request{})
+	v := accepting()
+	v.outcome = exitedWith(3)
+	v.outcome.Output = []byte("pg_restore: unexpected EOF\n")
+
+	res := run(t, j, rc, v, Request{})
 	if res.State != state.RecoveryFailed || res.ExitCode != 3 {
 		t.Fatalf("result = %q exit %d (%s)", res.State, res.ExitCode, res.Reason)
 	}
@@ -323,114 +336,122 @@ func TestAMatchingDigestWithAFailingValidatorIsContentVerifiedButRecoveryFailed(
 	if p.RecoveryState != state.RecoveryFailed || p.RecoveryDigestMatched == nil || !*p.RecoveryDigestMatched {
 		t.Errorf("recovery claim = %q / %v, want failed after a matching digest", p.RecoveryState, p.RecoveryDigestMatched)
 	}
-	joined := strings.Join(Render(res.Output), "\n")
-	if !strings.Contains(joined, "unexpected EOF") {
-		t.Errorf("the validator's output did not reach the result: %q", joined)
+	if !strings.Contains(strings.Join(Render(res.Output), "\n"), "unexpected EOF") {
+		t.Errorf("the validator's output did not reach the result: %+v", res.Output)
 	}
 }
 
-func TestAValidatorThatNeverReturnsIsTerminatedFailClosedAndTheTerminationIsRecorded(t *testing.T) {
-	j, a, rc := newEnv(t)
-	pidFile := filepath.Join(t.TempDir(), "child.pid")
-	exe := script(t, fmt.Sprintf("sleep 300 &\necho $! > %s\nsleep 300\n", pidFile))
-
-	start := time.Now()
-	res := run(t, j, rc, cfgFor(exe, 400*time.Millisecond), Request{})
-	if time.Since(start) > 30*time.Second {
-		t.Fatalf("took %v", time.Since(start))
+func TestAValidatorThatNeverReturnsIsFailClosedAndTheTerminationIsRecorded(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		proved   string
+		wantTerm string
+	}{
+		{"killed and proved gone", "confirmed", state.RecoveryTerminationKilledGroup},
+		{"killed and not proved", "unconfirmed", state.RecoveryTerminationUnconfirmed},
+		{"killed and nothing said", "", state.RecoveryTerminationUnconfirmed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			j, a, rc := newEnv(t)
+			v := accepting()
+			v.outcome = ValidatorOutcome{ID: "10-check.local.sh", Hash: strings.Repeat("ab", 32), Disposition: "timed_out", Termination: tc.proved}
+			res := run(t, j, rc, v, Request{})
+			if res.State != state.RecoveryFailed {
+				t.Fatalf("State = %q, want a fail-closed failure", res.State)
+			}
+			p := copyOf(t, j, a, state.MediumLocal)
+			if p.RecoveryTermination != tc.wantTerm {
+				t.Errorf("recorded termination = %q, want %q: certainty is recorded, not assumed", p.RecoveryTermination, tc.wantTerm)
+			}
+			if !strings.Contains(p.RecoveryFailureReason, "timeout") {
+				t.Errorf("reason = %q", p.RecoveryFailureReason)
+			}
+		})
 	}
-	if res.State != state.RecoveryFailed {
-		t.Fatalf("State = %q, want a fail-closed failure", res.State)
-	}
-	p := copyOf(t, j, a, state.MediumLocal)
-	if p.RecoveryTermination != lifecycle.TerminationKilledGroup {
-		t.Errorf("recorded termination = %q, want killed_group (observed, not assumed)", p.RecoveryTermination)
-	}
-	if !strings.Contains(p.RecoveryFailureReason, "timeout") {
-		t.Errorf("reason = %q", p.RecoveryFailureReason)
-	}
-	waitGone(t, pidFile)
 }
 
 func TestAnUnconfirmedTerminationIsNeverAPass(t *testing.T) {
 	j, a, rc := newEnv(t)
-	deps := Deps{
-		Journal: j, Recoverer: rc, Now: func() time.Time { return testNow },
-		Validator: func(context.Context, config.Command, string) (lifecycle.RestoreCheckOutcome, error) {
-			return lifecycle.RestoreCheckOutcome{Passed: true, Termination: lifecycle.TerminationUnconfirmed}, nil
-		},
-	}
-	res, err := Run(context.Background(), deps, setID(t), cfgFor(script(t, "exit 0\n"), time.Second), Request{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	v := accepting()
+	v.outcome.Termination = "unconfirmed" // exit 0, but the executor could not confirm the process is gone
+	res := run(t, j, rc, v, Request{})
 	if res.State != state.RecoveryFailed {
-		t.Errorf("State = %q: a process group nobody saw die gave no verdict", res.State)
+		t.Errorf("State = %q: a process nobody saw die gave no verdict", res.State)
 	}
-	if p := copyOf(t, j, a, state.MediumLocal); p.RecoveryTermination != lifecycle.TerminationUnconfirmed {
+	if p := copyOf(t, j, a, state.MediumLocal); p.RecoveryTermination != state.RecoveryTerminationUnconfirmed {
 		t.Errorf("termination = %q", p.RecoveryTermination)
 	}
 }
 
-func TestADoubleForkingValidatorLeavesNothingRunning(t *testing.T) {
-	j, _, rc := newEnv(t)
-	pidFile := filepath.Join(t.TempDir(), "child.pid")
-	exe := script(t, fmt.Sprintf("(sleep 300 & echo $! > %s)\nexit 0\n", pidFile))
-	res := run(t, j, rc, cfgFor(exe, 5*time.Second), Request{})
-	if res.State != state.RecoveryPassed {
-		t.Fatalf("State = %q (%s)", res.State, res.Reason)
+func TestAValidatorTheRunnerRefusedOrLostIsCouldNotCompleteNotAFailureOfTheCopy(t *testing.T) {
+	for _, d := range []string{"not_attempted", "transport_lost", "weird"} {
+		t.Run(d, func(t *testing.T) {
+			j, a, rc := newEnv(t)
+			v := accepting()
+			v.outcome = ValidatorOutcome{Disposition: d, Detail: "the runner socket went away"}
+			res := run(t, j, rc, v, Request{})
+			if res.State != state.RecoveryCouldNotComplete {
+				t.Errorf("State = %q", res.State)
+			}
+			p := copyOf(t, j, a, state.MediumLocal)
+			if p.RecoveryState != state.RecoveryCouldNotComplete || p.RecoveryValidatorID != "" {
+				t.Errorf("record = %q / validator %q", p.RecoveryState, p.RecoveryValidatorID)
+			}
+		})
 	}
-	waitGone(t, pidFile)
 }
 
-func waitGone(t *testing.T, pidFile string) {
-	t.Helper()
-	var raw []byte
-	for i := 0; i < 100; i++ {
-		var err error
-		if raw, err = os.ReadFile(pidFile); err == nil && len(strings.TrimSpace(string(raw))) > 0 {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
+func TestAnOutcomeWithNoIdentityCannotBeAttributedAndIsNotAPass(t *testing.T) {
+	j, _, rc := newEnv(t)
+	v := accepting()
+	v.outcome.ID, v.outcome.Hash = "", ""
+	if res := run(t, j, rc, v, Request{}); res.State != state.RecoveryCouldNotComplete {
+		t.Errorf("State = %q", res.State)
 	}
-	var pid int
-	if _, err := fmt.Sscanf(strings.TrimSpace(string(raw)), "%d", &pid); err != nil || pid <= 0 {
-		t.Fatalf("no child pid recorded: %q", raw)
+}
+
+func TestAValidatorThatErrorsIsCouldNotComplete(t *testing.T) {
+	j, _, rc := newEnv(t)
+	v := accepting()
+	v.verr = errors.New("the plan could not be built: a script is group writable")
+	res := run(t, j, rc, v, Request{})
+	if res.State != state.RecoveryCouldNotComplete || rc.removed != 1 {
+		t.Errorf("State = %q, removed = %d", res.State, rc.removed)
 	}
-	for deadline := time.Now().Add(5 * time.Second); ; {
-		if err := syscall.Kill(pid, 0); errors.Is(err, syscall.ESRCH) {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("child %d still running", pid)
-		}
-		time.Sleep(20 * time.Millisecond)
+}
+
+func TestAValidatorWhoseDirectoryCannotBeExaminedIsCouldNotCompleteAndNothingIsRecovered(t *testing.T) {
+	j, _, rc := newEnv(t)
+	v := accepting()
+	v.cerr = errors.New("the stage directory is a symbolic link")
+	res := run(t, j, rc, v, Request{})
+	if res.State != state.RecoveryCouldNotComplete || rc.recovered != 0 {
+		t.Errorf("State = %q, recovered = %d", res.State, rc.recovered)
 	}
 }
 
 // --- hostile output ---
 
-func TestTenMebibytesOfHostileOutputIsBoundedSanitisedAndMarkedTruncated(t *testing.T) {
+func TestHostileOutputLeavesAsSanitisedRecordsWithTheTruncationFlagged(t *testing.T) {
 	j, a, rc := newEnv(t)
-	exe := script(t, "i=0\nwhile [ $i -lt 40000 ]; do printf '\\033]0;owned\\007\\033[31mred\\033[0m\\007\\033[?1049h line of padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding padding\\n'; i=$((i+1)); done\nexit 4\n")
-	res := run(t, j, rc, cfgFor(exe, 60*time.Second), Request{})
+	hostile := strings.Repeat("\x1b]0;owned\x07\x1b[31mred\x1b[0m\x07\x1b[?1049h a line of padding\n", 400)
+	v := accepting()
+	v.outcome = exitedWith(4)
+	v.outcome.Output = []byte(hostile)
+	v.outcome.Truncated = true
+
+	res := run(t, j, rc, v, Request{})
 	if !res.OutputTruncated {
-		t.Fatal("OutputTruncated = false for ten mebibytes of output")
+		t.Fatal("OutputTruncated = false")
 	}
-	total := 0
 	for _, r := range res.Output {
-		total += len(r.Text)
 		for _, c := range r.Text {
 			if c < 0x20 && c != '\n' || c == 0x7f || c >= 0x80 && c < 0xa0 {
 				t.Fatalf("raw control character %#x in a %s record: %q", c, r.Kind, r.Text)
 			}
 		}
 	}
-	if total > 24<<10 {
-		t.Errorf("%d bytes of output survived the bound", total)
-	}
-	last := res.Output[len(res.Output)-1]
-	if last.Kind != OutputTruncation {
+	if last := res.Output[len(res.Output)-1]; last.Kind != OutputTruncation {
 		t.Errorf("last record is %q, want the truncation marker", last.Kind)
 	}
 	p := copyOf(t, j, a, state.MediumLocal)
@@ -502,8 +523,8 @@ func TestAScheduledTestOfAMediumCopyIsRefusedForCostAndNothingIsRead(t *testing.
 	a := seed(t, j, "away.dump", "offsite", content, testNow.Add(-time.Hour))
 	rc := &fileRecoverer{dir: t.TempDir(), served: content}
 
-	res, err := Run(context.Background(), Deps{Journal: j, Recoverer: rc, Mediums: fixedMediums{}, Now: func() time.Time { return testNow }},
-		setID(t), cfgFor(script(t, "exit 0\n"), time.Second), Request{Scheduled: true, AcknowledgeCost: true})
+	res, err := Run(context.Background(), Deps{Journal: j, Recoverer: rc, Mediums: fixedMediums{}, Validator: accepting(), Now: func() time.Time { return testNow }},
+		setID(t), cfgFor(), Request{Scheduled: true, AcknowledgeCost: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -522,8 +543,8 @@ func TestAnAcknowledgedManualTestOfAMediumCopyReadsOnceAndPasses(t *testing.T) {
 	j := openJournal(t)
 	a := seed(t, j, "away2.dump", "offsite", content, testNow.Add(-time.Hour))
 	rc := &fileRecoverer{dir: t.TempDir(), served: content}
-	res, err := Run(context.Background(), Deps{Journal: j, Recoverer: rc, Mediums: fixedMediums{}, Now: func() time.Time { return testNow }},
-		setID(t), cfgFor(script(t, "exit 0\n"), 5*time.Second), Request{AcknowledgeCost: true})
+	res, err := Run(context.Background(), Deps{Journal: j, Recoverer: rc, Mediums: fixedMediums{}, Validator: accepting(), Now: func() time.Time { return testNow }},
+		setID(t), cfgFor(), Request{AcknowledgeCost: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -539,8 +560,8 @@ func TestAnArchiveClassCopyNeedsTheAcknowledgementToo(t *testing.T) {
 	j := openJournal(t)
 	seed(t, j, "cold.dump", "offsite", content, testNow.Add(-time.Hour))
 	rc := &fileRecoverer{dir: t.TempDir(), served: content}
-	res, err := Run(context.Background(), Deps{Journal: j, Recoverer: rc, Mediums: fixedMediums{class: config.StorageClassDeepArchive}, Now: func() time.Time { return testNow }},
-		setID(t), cfgFor(script(t, "exit 0\n"), time.Second), Request{})
+	res, err := Run(context.Background(), Deps{Journal: j, Recoverer: rc, Mediums: fixedMediums{class: config.StorageClassDeepArchive}, Validator: accepting(), Now: func() time.Time { return testNow }},
+		setID(t), cfgFor(), Request{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -552,7 +573,7 @@ func TestAnArchiveClassCopyNeedsTheAcknowledgementToo(t *testing.T) {
 func TestARecovererThatDeclinesForCostIsRefusedForCostNotFailed(t *testing.T) {
 	j, a, rc := newEnv(t)
 	rc.recoverErr = fmt.Errorf("declined: %w", ErrCostRefused)
-	res := run(t, j, rc, cfgFor(script(t, "exit 0\n"), time.Second), Request{})
+	res := run(t, j, rc, accepting(), Request{})
 	if res.State != state.RecoveryRefusedForCost {
 		t.Errorf("State = %q", res.State)
 	}
@@ -564,7 +585,7 @@ func TestARecovererThatDeclinesForCostIsRefusedForCostNotFailed(t *testing.T) {
 func TestACopyThatCannotBeRecoveredCouldNotComplete(t *testing.T) {
 	j, a, rc := newEnv(t)
 	rc.recoverErr = errors.New("staging disk is full")
-	res := run(t, j, rc, cfgFor(script(t, "exit 0\n"), time.Second), Request{})
+	res := run(t, j, rc, accepting(), Request{})
 	if res.State != state.RecoveryCouldNotComplete {
 		t.Errorf("State = %q", res.State)
 	}
@@ -574,17 +595,21 @@ func TestACopyThatCannotBeRecoveredCouldNotComplete(t *testing.T) {
 }
 
 func TestASetWithNoValidatorIsNotConfiguredNotAPassAndNotAFailure(t *testing.T) {
-	j, a, rc := newEnv(t)
-	res := run(t, j, rc, Config{}, Request{})
-	if res.State != state.RecoveryNotConfigured || rc.recovered != 0 {
-		t.Errorf("state=%q recovered=%d", res.State, rc.recovered)
-	}
-	p := copyOf(t, j, a, state.MediumLocal)
-	if p.RecoveryState != state.RecoveryNotConfigured || p.RecoveryTestedAt != nil {
-		t.Errorf("record = %q / %v", p.RecoveryState, p.RecoveryTestedAt)
-	}
-	if got := ClaimOf(p, false, testNow); got.State != state.RecoveryNotConfigured {
-		t.Errorf("claim = %q", got.State)
+	for name, v := range map[string]Validator{"none declared": nil, "directory absent": &fakeValidator{configured: false}} {
+		t.Run(name, func(t *testing.T) {
+			j, a, rc := newEnv(t)
+			res := run(t, j, rc, v, Request{})
+			if res.State != state.RecoveryNotConfigured || rc.recovered != 0 {
+				t.Errorf("state=%q recovered=%d", res.State, rc.recovered)
+			}
+			p := copyOf(t, j, a, state.MediumLocal)
+			if p.RecoveryState != state.RecoveryNotConfigured || p.RecoveryTestedAt != nil {
+				t.Errorf("record = %q / %v", p.RecoveryState, p.RecoveryTestedAt)
+			}
+			if got := ClaimOf(p, false, testNow); got.State != state.RecoveryNotConfigured {
+				t.Errorf("claim = %q", got.State)
+			}
+		})
 	}
 }
 
@@ -592,17 +617,16 @@ func TestACleanupFailureIsItsOwnStateAndChangesNeitherVerdict(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		served []byte
-		exe    string
 		want   string
 	}{
-		{"pass", content, "exit 0\n", state.RecoveryPassed},
-		{"fail", []byte("wrong"), "exit 0\n", state.RecoveryFailed},
+		{"pass", content, state.RecoveryPassed},
+		{"fail", []byte("wrong"), state.RecoveryFailed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			j, a, rc := newEnv(t)
 			rc.served = tc.served
 			rc.removeErr = errors.New("device or resource busy")
-			res := run(t, j, rc, cfgFor(script(t, tc.exe), 5*time.Second), Request{})
+			res := run(t, j, rc, accepting(), Request{})
 			if res.State != tc.want || res.CleanupState != state.RecoveryCleanupFailed {
 				t.Errorf("state=%q cleanup=%q", res.State, res.CleanupState)
 			}
@@ -617,7 +641,7 @@ func TestACleanupFailureIsItsOwnStateAndChangesNeitherVerdict(t *testing.T) {
 func TestNothingToTestIsAnErrorNotAQuietPass(t *testing.T) {
 	j := openJournal(t)
 	rc := &fileRecoverer{dir: t.TempDir()}
-	_, err := Run(context.Background(), Deps{Journal: j, Recoverer: rc}, setID(t), cfgFor(script(t, "exit 0\n"), time.Second), Request{})
+	_, err := Run(context.Background(), Deps{Journal: j, Recoverer: rc, Validator: accepting()}, setID(t), cfgFor(), Request{})
 	if !errors.Is(err, ErrNoKnownGoodCopy) {
 		t.Errorf("err = %v, want ErrNoKnownGoodCopy", err)
 	}
@@ -628,23 +652,12 @@ func TestTheNewestKnownGoodCopyIsTheOneTested(t *testing.T) {
 	seed(t, j, "old.dump", state.MediumLocal, content, testNow.Add(-72*time.Hour))
 	newer := seed(t, j, "new.dump", state.MediumLocal, content, testNow.Add(-time.Hour))
 	rc := &fileRecoverer{dir: t.TempDir(), served: content}
-	res := run(t, j, rc, cfgFor(script(t, "exit 0\n"), 5*time.Second), Request{})
+	res := run(t, j, rc, accepting(), Request{})
 	if res.Artifact != newer {
 		t.Errorf("tested %s, want %s", res.Artifact, newer)
 	}
 	if rc.recovered != 1 {
 		t.Errorf("recovered %d copies: only the newest is tested", rc.recovered)
-	}
-}
-
-func TestValidatorFailingToBeIdentifiedIsCouldNotComplete(t *testing.T) {
-	j, _, rc := newEnv(t)
-	res := run(t, j, rc, cfgFor(filepath.Join(t.TempDir(), "missing"), time.Second), Request{})
-	if res.State != state.RecoveryCouldNotComplete || rc.recovered != 0 {
-		t.Errorf("state=%q recovered=%d", res.State, rc.recovered)
-	}
-	if strings.Contains(res.Reason, os.TempDir()) {
-		t.Errorf("the reason leaks the validator's path: %q", res.Reason)
 	}
 }
 
@@ -731,38 +744,12 @@ func TestARecoveryTestTakesASlotFromTheSharedLimit(t *testing.T) {
 	defer hold()
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	_, err = Run(ctx, Deps{Journal: j, Recoverer: rc, Limits: limits, Now: func() time.Time { return testNow }},
-		setID(t), cfgFor(script(t, "exit 0\n"), time.Second), Request{})
+	_, err = Run(ctx, Deps{Journal: j, Recoverer: rc, Limits: limits, Validator: accepting(), Now: func() time.Time { return testNow }},
+		setID(t), cfgFor(), Request{})
 	if err == nil {
 		t.Fatal("a recovery test ran while the only read slot was taken")
 	}
 	if rc.recovered != 0 {
 		t.Errorf("recovered %d copies without a slot", rc.recovered)
-	}
-}
-
-// --- found by the review of this diff ---
-
-// The validator's identity is hashed before it runs and it is executed later.
-// A validator that rewrites itself while it runs would otherwise be recorded
-// under the identity it had before, so the identity is read again afterwards
-// and the test is not trusted if it moved.
-func TestAValidatorThatChangesWhileItRunsIsNotRecordedUnderItsOldIdentity(t *testing.T) {
-	j, a, rc := newEnv(t)
-	exe := script(t, "echo '# rewritten while running' >> \"$0\"\nexit 0\n")
-
-	res := run(t, j, rc, cfgFor(exe, 5*time.Second), Request{})
-	if res.State == state.RecoveryPassed {
-		t.Fatal("a validator that changed itself during the run produced a pass under its pre-run hash")
-	}
-	if res.State != state.RecoveryCouldNotComplete {
-		t.Errorf("State = %q, want could_not_complete", res.State)
-	}
-	p := copyOf(t, j, a, state.MediumLocal)
-	if p.RecoveryState == state.RecoveryPassed || p.RecoveryValidatorHash != "" {
-		t.Errorf("record = %q / %q", p.RecoveryState, p.RecoveryValidatorHash)
-	}
-	if rc.removed != 1 {
-		t.Errorf("the staged copy was removed %d times", rc.removed)
 	}
 }
