@@ -426,3 +426,6 @@ func (s *Service) PrintBootstrapNotice(w io.Writer, baseURL string) error {
 	}
 	return err
 }
+
+// OnSessionEnd is a stub until the fix lands.
+func (s *Service) OnSessionEnd(fn func(username string, expiresAt time.Time)) {}
