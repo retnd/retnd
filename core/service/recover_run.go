@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -16,6 +15,29 @@ import (
 	"github.com/retnd/retnd/core/internal/transport"
 )
 
+// RecoveryStream is what the HTTP layer needs from a started download. It is
+// an interface so that layer can be tested against a double that records
+// exactly what it was told was served.
+type RecoveryStream interface {
+	// FileName is the name to offer the client.
+	FileName() string
+
+	// Length is the size of the verified copy.
+	Length() int64
+
+	// Reader is the verified bytes, seekable for Range requests.
+	Reader() io.ReadSeeker
+
+	// Close releases this request's handle. It does not spend the grant.
+	Close()
+
+	// Served records one request's outcome: which bytes went, how many were
+	// written and whether it worked.
+	Served(start, end, written int64, err error)
+}
+
+var _ RecoveryStream = (*RecoveryDownload)(nil)
+
 // RecoveryDownload is a started browser download: a verified, staged copy
 // the HTTP layer serves ranges of, one request at a time.
 //
@@ -25,15 +47,9 @@ import (
 // continuations (the ranges a browser asks for) and each writes its own
 // action-log row.
 type RecoveryDownload struct {
-	// Name is the file name to offer, the artifact's own.
-	Name string
-
-	// Size is the length of the verified copy.
-	Size int64
-
-	// Content is the verified bytes, seekable so the HTTP layer can answer
-	// Range requests. Close releases this request's handle.
-	Content *os.File
+	name    string
+	size    int64
+	content io.ReadSeekCloser
 
 	b      *BackupService
 	token  string
@@ -42,9 +58,18 @@ type RecoveryDownload struct {
 	closed sync.Once
 }
 
+// FileName implements RecoveryStream.
+func (d *RecoveryDownload) FileName() string { return d.name }
+
+// Length implements RecoveryStream.
+func (d *RecoveryDownload) Length() int64 { return d.size }
+
+// Reader implements RecoveryStream.
+func (d *RecoveryDownload) Reader() io.ReadSeeker { return d.content }
+
 // Close releases the file handle of this request. It does not spend the
 // grant; Served does that.
-func (d *RecoveryDownload) Close() { _ = d.Content.Close() }
+func (d *RecoveryDownload) Close() { _ = d.content.Close() }
 
 // Served records one request's outcome: which bytes went, and whether it
 // worked. A failed request, or one that reached the last byte, spends the
@@ -53,9 +78,12 @@ func (d *RecoveryDownload) Served(start, end, written int64, err error) {
 	ev := d.ev
 	ev.op = "range"
 	ev.bytes = written
-	ev.rng = strconv.FormatInt(start, 10) + "-" + strconv.FormatInt(end, 10) + "/" + strconv.FormatInt(d.Size, 10)
+	ev.rng = strconv.FormatInt(start, 10) + "-" + strconv.FormatInt(end, 10) + "/" + strconv.FormatInt(d.size, 10)
+	if d.b == nil {
+		return
+	}
 	d.b.auditRecovery(context.Background(), &ev, err)
-	if err != nil || (d.Size == 0 || end >= d.Size-1) {
+	if err != nil || (d.size == 0 || end >= d.size-1) {
 		d.b.finishRecoveryDownload(d.token)
 	}
 }
@@ -78,7 +106,7 @@ func (b *BackupService) logCleanupFailure(err error) {
 // RedeemRecovery presents a grant. A download target comes back as a
 // *RecoveryDownload to serve; a staging or storage target is carried out
 // here and comes back as a *RecoveryResult.
-func (b *BackupService) RedeemRecovery(ctx context.Context, sess RecoverySession, token string) (dl *RecoveryDownload, res *RecoveryResult, err error) {
+func (b *BackupService) RedeemRecovery(ctx context.Context, sess RecoverySession, token string) (dl RecoveryStream, res *RecoveryResult, err error) {
 	h, herr := b.recoveryReady()
 	if herr != nil {
 		return nil, nil, herr
@@ -178,7 +206,7 @@ func (b *BackupService) newRecoveryDownload(staged *export.Staged, token, actor 
 		return nil, err
 	}
 	name := filepath.Base(ev.artifact)
-	return &RecoveryDownload{Name: name, Size: staged.Size, Content: f, b: b, token: token, actor: actor, ev: ev}, nil
+	return &RecoveryDownload{name: name, size: staged.Size, content: f, b: b, token: token, actor: actor, ev: ev}, nil
 }
 
 // stageGrant re-derives the plan from the journal as it is NOW, so a copy
@@ -245,7 +273,7 @@ func (b *BackupService) RecoverNow(ctx context.Context, sess RecoverySession, re
 	if out == nil {
 		out = io.Discard
 	}
-	n, cerr := io.Copy(out, dl.Content)
+	n, cerr := io.Copy(out, dl.Reader())
 	if n < 0 {
 		n = 0
 	}
