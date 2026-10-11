@@ -1357,16 +1357,13 @@ var routes = map[string]entry{
 			if req.MaxPerDestination != nil {
 				c.flag("max-per-destination", itoa64(*req.MaxPerDestination))
 			}
-			if req.WebDownloadMemoryBytes != nil {
-				c.flag("web-download-memory-bytes", itoa64(*req.WebDownloadMemoryBytes))
-			}
 			return c
 		},
 		why: "there is no verb that patches the deployment's assurance policy from a request body",
 		examples: []Action{
 			{Body: []byte(`{"scrub_cadence_seconds":43200}`)},
 			{Body: []byte(`{"recovery_test_mode":"required","recovery_test_validator_id":"pg-restore-check","recovery_test_cadence_seconds":2592000}`)},
-			{Body: []byte(`{"staging_ttl_seconds":3600,"max_concurrent_full_reads":4,"max_per_destination":2,"web_download_memory_bytes":33554432}`)},
+			{Body: []byte(`{"staging_ttl_seconds":3600,"max_concurrent_full_reads":4,"max_per_destination":2}`)},
 			{Body: []byte(`{"scrub_cadence_seconds":0,"scrub_strategy":"","staging_root":"/var/lib/retnd/staging"}`)},
 		},
 	},

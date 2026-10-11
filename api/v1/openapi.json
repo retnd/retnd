@@ -6757,7 +6757,7 @@
           },
           "validator_id": {
             "type": "string",
-            "description": "The registered validator a recovery test runs over the recovered copy. A name, never a path. Empty when the mode is off and none is configured."
+            "description": "The recovery-test script to run over the recovered copy, named by its file name without the .local.sh suffix, in recovery-test/<source>/<set> under the workflow root. Not an entry in GET /validators. A name, never a path. Empty when the mode is off and none is configured."
           }
         }
       },
@@ -6818,11 +6818,6 @@
             "description": "The ceiling on concurrent reads against one destination. Global only.",
             "format": "int64"
           },
-          "web_download_memory_bytes": {
-            "type": "integer",
-            "description": "The memory the web process may spend on downloads at once. Global only.",
-            "format": "int64"
-          },
           "host_knobs": {
             "type": "array",
             "items": {
@@ -6861,7 +6856,7 @@
           },
           "recovery_test_validator_id": {
             "type": "string",
-            "description": "The default validator. Empty clears it.",
+            "description": "The default recovery-test script, by file name without .local.sh. Empty clears it.",
             "x-go-pointer": true
           },
           "staging_root": {
@@ -6882,12 +6877,6 @@
             "x-go-pointer": true
           },
           "max_per_destination": {
-            "type": "integer",
-            "description": "Zero clears it back to the default.",
-            "format": "int64",
-            "x-go-pointer": true
-          },
-          "web_download_memory_bytes": {
             "type": "integer",
             "description": "Zero clears it back to the default.",
             "format": "int64",
@@ -6950,7 +6939,7 @@
           },
           "recovery_test_validator_id": {
             "type": "string",
-            "description": "Required with mode custom, and with mode required unless the deployment names one. Empty clears it.",
+            "description": "The recovery-test script, by file name without .local.sh. Required with mode custom, and with mode required unless the deployment names one. Empty clears it.",
             "x-go-pointer": true
           }
         }

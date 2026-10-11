@@ -23,7 +23,6 @@ assurance:
   staging_ttl: 12h
   max_concurrent_full_reads: 3
   max_per_destination: 2
-  web_download_memory_bytes: 33554432
 
 sources:
   - id: production
