@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/obs"
 	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // The panel's findings on the recovery-test side of the assurance policy
@@ -467,5 +469,75 @@ func TestARecoveryTestOfACopyThatChangedIsNotAnnounced(t *testing.T) {
 	}
 	if got := localCopyOf(t, journal, a).RecoveryState; got != state.RecoveryUnknown {
 		t.Errorf("recorded %q", got)
+	}
+}
+
+// A local_volume destination is a directory, and every surface that asks
+// whether reading it costs money or how to dial it has to get the same
+// answer: MediumFor used to cast the configured type straight across, so the
+// copy on a local volume looked like a download from a storage medium.
+func TestMediumFor_ALocalVolumeIsALocalDirectoryAndNotAnObjectStore(t *testing.T) {
+	cfg := &config.Config{StorageMediums: []config.StorageMedium{
+		{ID: "disk2", Type: config.StorageMediumTypeLocalVolume, Path: "/mnt/disk2"},
+	}}
+	m, _, err := MediumFor(cfg, "disk2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Type != transport.MediumTypeLocalDir {
+		t.Errorf("Type = %q, want %q: this is a directory on a disk, nothing is billed for reading it", m.Type, transport.MediumTypeLocalDir)
+	}
+	if m.Bucket != "/mnt/disk2" {
+		t.Errorf("Bucket = %q, want the volume's path, which is what the transport dials", m.Bucket)
+	}
+}
+
+// The scrub reads under the same ceilings the settings name, not under its own.
+func TestAssuranceHostKnobsReachTheScrubLimits(t *testing.T) {
+	bs := testBackupSet(t, t.TempDir())
+	svc, _ := scrubService(t, scrubReval, bs)
+	svc.Config.Assurance.MaxConcurrentFullReads = 1
+	svc.Config.Assurance.MaxPerDestination = 1
+
+	limits := svc.scrubLimitsShared()
+	release, err := limits.Acquire(context.Background(), "local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if r, err := limits.Acquire(ctx, "other-destination"); err == nil {
+		r()
+		t.Fatal("a second full read was admitted under assurance.max_concurrent_full_reads = 1")
+	}
+}
+
+func TestTheScrubAndTheSettingsShareTheirDefaults(t *testing.T) {
+	// A hand-built configuration resolves no ceilings; the scrub must then
+	// run under the very numbers the settings report as defaults.
+	bs := testBackupSet(t, t.TempDir())
+	svc, _ := scrubService(t, scrubReval, bs)
+	svc.Config.Assurance.MaxConcurrentFullReads = 0
+	svc.Config.Assurance.MaxPerDestination = 0
+	limits := svc.scrubLimitsShared()
+	var held []func()
+	for i := 0; i < config.DefaultMaxConcurrentReads; i++ {
+		r, err := limits.Acquire(context.Background(), fmt.Sprintf("d%d", i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		held = append(held, r)
+	}
+	defer func() {
+		for _, r := range held {
+			r()
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if r, err := limits.Acquire(ctx, "one-more"); err == nil {
+		r()
+		t.Errorf("more than the settings' default of %d full reads ran at once", config.DefaultMaxConcurrentReads)
 	}
 }

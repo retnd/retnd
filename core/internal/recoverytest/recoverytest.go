@@ -88,6 +88,12 @@ type RecoverRequest struct {
 	// (egress, or a restore of an archived object). A scheduled test never
 	// carries it.
 	AcknowledgeCost bool
+
+	// Scheduled marks an unattended test. A recoverer that queues for a
+	// shared read slot instead of refusing may do so for this one: the
+	// scheduler's work is already bounded, and an operator at a terminal
+	// would rather be told "busy" than wait.
+	Scheduled bool
 }
 
 // Staged is a recovered copy sitting in an isolated staging place.
@@ -362,7 +368,7 @@ func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg Config, req 
 	defer release()
 
 	deps.stage("reading")
-	staged, err := deps.Recoverer.Recover(ctx, RecoverRequest{Artifact: rec.Artifact, Copy: copy_, AcknowledgeCost: ack})
+	staged, err := deps.Recoverer.Recover(ctx, RecoverRequest{Artifact: rec.Artifact, Copy: copy_, AcknowledgeCost: ack, Scheduled: req.Scheduled})
 	if err != nil {
 		if ctx.Err() != nil {
 			return res, fmt.Errorf("recoverytest: cancelled: %w", ctx.Err())
@@ -602,8 +608,17 @@ func costOf(deps Deps, p state.Placement) string {
 		return ""
 	}
 	if deps.Mediums != nil {
-		if m, ok := deps.Mediums.MediumFor(p.Medium); ok && archive.IsArchive(m.StorageClass) {
-			return fmt.Sprintf("the copy on %q is in an archive storage class, so reading it means a restore and a download", p.Medium)
+		if m, ok := deps.Mediums.MediumFor(p.Medium); ok {
+			if archive.IsArchive(m.StorageClass) {
+				return fmt.Sprintf("the copy on %q is in an archive storage class, so reading it means a restore and a download", p.Medium)
+			}
+			// A directory on a disk this host can reach is not a download:
+			// nothing is billed for reading it, so an unattended test may.
+			// This is the same question the recovery resolver asks
+			// (Chargeable), answered the same way.
+			if m.Type == transport.MediumTypeLocalDir {
+				return ""
+			}
 		}
 	}
 	return fmt.Sprintf("reading the copy on %q is a download from a storage medium", p.Medium)

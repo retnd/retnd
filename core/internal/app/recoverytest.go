@@ -66,6 +66,11 @@ type RecoveryTestRequest struct {
 	// is the operator's agreement to pay for reading a copy that costs money.
 	Scheduled       bool
 	AcknowledgeCost bool
+
+	// OperationID, when set, is the id the start, stage and end events carry,
+	// so a caller that returned it to somebody (a route) can be followed on
+	// the activity feed. Empty means a fresh one.
+	OperationID string
 }
 
 // RecoveryTestResult is a test's outcome. For an incremental (engine: kopia)
@@ -214,7 +219,10 @@ func (s *Service) RecoveryTest(ctx context.Context, req RecoveryTestRequest) (Re
 	}
 
 	validator, verr := s.validatorFor(bs)
-	opID := uuid.NewString()
+	opID := req.OperationID
+	if opID == "" {
+		opID = uuid.NewString()
+	}
 	started := s.now()
 	validatorID := bs.Assurance.RecoveryTest.ValidatorID
 	artifactLabel := ""
