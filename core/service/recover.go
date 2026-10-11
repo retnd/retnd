@@ -316,6 +316,8 @@ func mapRecoveryError(err error) error {
 		return &RecoveryError{Code: RecoveryGrantSessionEnded, Message: "the session that asked for this recovery has ended, and its grant with it; sign in and ask again", Cause: err}
 	case errors.Is(err, export.ErrTooManyGrants):
 		return &RecoveryError{Code: RecoveryTooManyGrants, Message: "too many recoveries are waiting to be collected; use or let some expire first", Cause: err}
+	case errors.Is(err, export.ErrTargetTooLong):
+		return &RecoveryError{Code: RecoveryTargetInvalid, Message: "that target name is too long", Cause: err}
 	case errors.Is(err, export.ErrTargetOutsideRoot):
 		return &RecoveryError{Code: RecoveryTargetInvalid, Message: "that target name does not stay inside the recovery staging root", Cause: err}
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
@@ -363,7 +365,7 @@ func (b *BackupService) planRecovery(ctx context.Context, artifactID, copySel st
 		return recoveryPlan{}, fmt.Errorf("service: loading artifact %s: %w", artifactID, err)
 	}
 
-	copies := b.recoveryCopies(st, rec)
+	copies := b.recoveryCopies(ctx, st, rec)
 	res, err := export.Resolve(copies, export.ResolveRequest{Copy: copySel, AcknowledgeCost: ack})
 	if err != nil {
 		return recoveryPlan{}, mapRecoveryError(err)
@@ -395,7 +397,7 @@ func configuredSet(sources []config.Source, id model.BackupSetID) (config.Backup
 // recoveryCopies turns a record's placements into the resolver's view.
 // The work list is the journal's placements, never a listing of any
 // destination.
-func (b *BackupService) recoveryCopies(st *configState, rec state.Record) []export.Copy {
+func (b *BackupService) recoveryCopies(ctx context.Context, st *configState, rec state.Record) []export.Copy {
 	var out []export.Copy
 	nowT := now()
 	for _, p := range rec.Placements {
@@ -417,7 +419,7 @@ func (b *BackupService) recoveryCopies(st *configState, rec state.Record) []expo
 			case err != nil:
 				c.Access = archive.Unreachable
 			default:
-				access, aerr := archive.Access(p.Medium, class, archive.Observation{}, nowT)
+				access, aerr := archive.Access(p.Medium, class, b.observeRestore(ctx, st, m, class, p), nowT)
 				if aerr != nil {
 					access = archive.Unreachable
 				}
@@ -530,7 +532,10 @@ func (b *BackupService) MintRecovery(ctx context.Context, sess RecoverySession, 
 	if plan.resolved.NeedsThaw {
 		thaw, terr := h.thaw(ctx, sess.Actor, req.ArtifactID, plan.resolved.Copy.Medium)
 		if terr != nil {
-			return RecoveryGrant{}, terr
+			if errors.Is(terr, ErrRestoreRefused) || errors.Is(terr, ErrRestoreUnavailable) {
+				return RecoveryGrant{}, &RecoveryError{Code: RecoveryNotReadable, Message: "the provider's restore of that copy could not be started right now, so nothing was recovered", Cause: terr}
+			}
+			return RecoveryGrant{}, mapRecoveryError(terr)
 		}
 		ev.note = "provider restore started: " + thaw.OperationID
 		return RecoveryGrant{ArtifactID: req.ArtifactID, Copy: plan.resolved.Copy.Medium, Target: req.Target, Thaw: &thaw}, nil
@@ -703,4 +708,30 @@ func isRefusal(code string) bool {
 		return true
 	}
 	return false
+}
+
+// observeRestore asks the provider whether a restore of an archive-class
+// copy has finished, which is the one fact the journal cannot hold and the
+// one without which a recovery could never complete: a copy on an archive
+// class reads as needing a restore for ever unless something looks.
+//
+// It is a metadata call. It starts nothing, reads no object and costs no
+// egress (FR-34's rule is that a read never initiates a restore), and it is
+// made only for an archive class, so a standard-class copy is never asked.
+// A medium that does not answer is recorded as not answering, which makes
+// the copy unreachable and therefore refused: the direction that never
+// reads, and never pays, on a guess.
+func (b *BackupService) observeRestore(ctx context.Context, st *configState, m transport.Medium, class string, p state.Placement) archive.Observation {
+	if !archive.IsArchive(class) {
+		return archive.Observation{}
+	}
+	store, _ := st.inner.Transport.(archive.Store)
+	if store == nil {
+		return archive.Observation{}
+	}
+	rs, err := store.RestoreStatus(ctx, m, p.Location)
+	if err != nil {
+		return archive.Observation{Probe: archive.DidNotAnswer}
+	}
+	return archive.Observation{Probe: archive.Answered, Restore: rs}
 }

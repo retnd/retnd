@@ -77,14 +77,15 @@ func TestUI_ARecoveryIsNotCutByTheUIHostsWholeResponseWriteTimeout(t *testing.T)
 	})
 	ui := uiOver(t, upstream, 0, 300*time.Millisecond)
 
+	const cut = "the UI host's 300ms write timeout cut a download that was still being written"
 	resp, err := http.Get(ui.URL + "/api/v1/recoveries/tok_abc")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("%s: %v", cut, err)
 	}
 	defer resp.Body.Close()
 	n, err := io.Copy(io.Discard, resp.Body)
 	if err != nil || n != 4000 {
-		t.Fatalf("got %d of 4000 bytes, err %v: the UI host's 300ms write timeout cut a download that was still being written", n, err)
+		t.Fatalf("got %d of 4000 bytes, err %v: %s", n, err, cut)
 	}
 }
 

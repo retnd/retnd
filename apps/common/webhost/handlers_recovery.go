@@ -61,6 +61,10 @@ var _ RecoveryClient = (*service.BackupService)(nil)
 // a download, so the handler replaces it with this, rolling.
 var recoveryWriteIdle = 60 * time.Second
 
+// recoveryGrantPathPrefix is where a grant sits in a URL. Anything that logs
+// a path must not log what follows it (refusal.go's routeOf).
+const recoveryGrantPathPrefix = "/api/v1/recoveries/"
+
 // maxRecoveryMintBodyBytes bounds the mint body: a copy id, a target and a
 // flag, nothing that needs more than a few hundred bytes.
 const maxRecoveryMintBodyBytes = 8 << 10

@@ -286,6 +286,10 @@ func (g *Grants) Redeem(token string, caller Session) (Redemption, error) {
 	return Redemption{Grant: e.grant, First: first, Attached: e.attached}, nil
 }
 
+// Done marks a request that Redeem admitted as finished. Stub: the real
+// accounting lands with the implementation.
+func (g *Grants) Done(token string) {}
+
 // Attach stores a value with a redeemed grant.
 func (g *Grants) Attach(token string, v any) {
 	g.mu.Lock()
@@ -354,15 +358,4 @@ func (g *Grants) Reap() []any {
 	}
 	g.reclaimLocked(now)
 	return released
-}
-
-func (g *Grants) holdsPlaintext(token string) bool {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	for k := range g.live {
-		if string(k[:]) == token {
-			return true
-		}
-	}
-	return false
 }

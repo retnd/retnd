@@ -2,6 +2,7 @@ package export
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -175,11 +176,134 @@ func TestGrantTokenIsNotKeptInTheClear(t *testing.T) {
 	g := newGrants(c)
 	sess := sessionFor(c, "alice", time.Hour)
 	tok, _, _ := g.Mint(spec(sess))
-	if g.holdsPlaintext(tok) {
-		t.Fatal("the store keeps the bearer token itself; it should keep only a digest")
+	if path := findInMemory(reflect.ValueOf(g), tok, map[uintptr]bool{}); path != "" {
+		t.Fatalf("the store keeps the bearer token itself (found at %s); it should keep only a digest", path)
 	}
 }
 
+// findInMemory walks v and returns where tok appears as a string, a byte
+// slice or a byte array, or "". reflect can read unexported fields through
+// Kind-based accessors, which is all this needs, so the check does not
+// depend on how the store happens to name or shape its table.
+func findInMemory(v reflect.Value, tok string, seen map[uintptr]bool) string {
+	switch v.Kind() {
+	case reflect.String:
+		if strings.Contains(v.String(), tok) {
+			return "a string"
+		}
+	case reflect.Slice:
+		if v.Type().Elem().Kind() == reflect.Uint8 && strings.Contains(string(v.Bytes()), tok) {
+			return "a byte slice"
+		}
+		for i := 0; i < v.Len(); i++ {
+			if p := findInMemory(v.Index(i), tok, seen); p != "" {
+				return p
+			}
+		}
+	case reflect.Array:
+		if v.Type().Elem().Kind() == reflect.Uint8 {
+			b := make([]byte, v.Len())
+			for i := range b {
+				b[i] = byte(v.Index(i).Uint())
+			}
+			if strings.Contains(string(b), tok) {
+				return "a byte array"
+			}
+			return ""
+		}
+		for i := 0; i < v.Len(); i++ {
+			if p := findInMemory(v.Index(i), tok, seen); p != "" {
+				return p
+			}
+		}
+	case reflect.Map:
+		for _, k := range v.MapKeys() {
+			if p := findInMemory(k, tok, seen); p != "" {
+				return "a map key: " + p
+			}
+			if p := findInMemory(v.MapIndex(k), tok, seen); p != "" {
+				return p
+			}
+		}
+	case reflect.Ptr, reflect.Interface:
+		if v.IsNil() {
+			return ""
+		}
+		if v.Kind() == reflect.Ptr {
+			if seen[v.Pointer()] {
+				return ""
+			}
+			seen[v.Pointer()] = true
+		}
+		return findInMemory(v.Elem(), tok, seen)
+	case reflect.Struct:
+		for i := 0; i < v.NumField(); i++ {
+			if p := findInMemory(v.Field(i), tok, seen); p != "" {
+				return p
+			}
+		}
+	}
+	return ""
+}
+
+func TestFindInMemoryActuallyFindsATokenWhereverItIsKept(t *testing.T) {
+	// The positive control for the check above: a walker that finds
+	// nothing would pass whatever the store did.
+	type holder struct {
+		m map[string]int
+		s []string
+		a [4]byte
+		b []byte
+	}
+	const tok = "secrettoken-abcdefghijklmnopqrstuvwxyz"
+	for name, h := range map[string]*holder{
+		"map key":    {m: map[string]int{tok: 1}},
+		"slice":      {s: []string{"x", "y-" + tok}},
+		"byte slice": {b: []byte("a" + tok)},
+	} {
+		if findInMemory(reflect.ValueOf(h), tok, map[uintptr]bool{}) == "" {
+			t.Errorf("%s: the walker missed a token it was handed", name)
+		}
+	}
+	if findInMemory(reflect.ValueOf(&holder{m: map[string]int{"other": 1}}), tok, map[uintptr]bool{}) != "" {
+		t.Error("the walker found a token that is not there")
+	}
+}
+
+func TestAnOpenRequestKeepsItsGrantAliveAcrossTheTTLAndReapSparesIt(t *testing.T) {
+	c := newClock()
+	g := NewGrants(GrantOptions{TTL: time.Minute, Now: c.Now, MaxOutstanding: 4})
+	sess := sessionFor(c, "alice", 24*time.Hour)
+	tok, _, _ := g.Mint(spec(sess))
+	if _, err := g.Redeem(tok, sess); err != nil {
+		t.Fatal(err)
+	}
+	g.Attach(tok, "staged")
+
+	// One long download: ten minutes in a single request, far past the
+	// grant's own lifetime.
+	c.Advance(10 * time.Minute)
+	if released := g.Reap(); len(released) != 0 {
+		t.Fatalf("Reap released %v from under a request that is still streaming it", released)
+	}
+	if _, err := g.Redeem(tok, sess); err != nil {
+		t.Fatalf("a client reconnecting while its first request is still open was refused: %v", err)
+	}
+	g.Done(tok)
+	g.Done(tok)
+
+	// Once nothing has the grant open, the idle clock runs from the moment
+	// the last request ended, not from when the download began.
+	c.Advance(30 * time.Second)
+	if _, err := g.Redeem(tok, sess); err != nil {
+		t.Fatalf("the idle clock should restart when a request ends: %v", err)
+	}
+	g.Done(tok)
+	c.Advance(2 * time.Minute)
+	if released := g.Reap(); len(released) != 1 || released[0] != "staged" {
+		t.Fatalf("an abandoned download should be released, got %v", released)
+	}
+}
 func TestGrantOutstandingBoundRefusesRatherThanGrowing(t *testing.T) {
 	c := newClock()
 	g := newGrants(c)

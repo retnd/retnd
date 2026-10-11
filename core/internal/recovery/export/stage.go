@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -28,6 +29,11 @@ var (
 	// the recovery staging root.
 	ErrTargetOutsideRoot = errors.New("recovery: target is outside the recovery staging root")
 )
+
+// maxTargetNameLen bounds a requested target name. Real paths under a
+// staging root are short; this stops a name built to exhaust path length, or
+// to make the directory it creates absurdly deep, before anything is made.
+const maxTargetNameLen = 512
 
 // The two shapes of file this package creates, and the only two it will
 // ever remove. Everything else in the staging root is somebody else's.
@@ -89,6 +95,13 @@ type Staging struct {
 
 	// Remove deletes one path. Nil means os.Remove.
 	Remove func(path string) error
+
+	// mu guards inflight: the bytes that recoveries already admitted still
+	// intend to write. Free space is read off the filesystem, which does
+	// not know about a file nobody has written to yet, so two recoveries
+	// checking at the same moment would each see all of it.
+	mu       sync.Mutex
+	inflight int64
 }
 
 // CleanupFailure is one path a sweep or a discard could not remove.
@@ -162,9 +175,26 @@ func (s *Staging) Begin(need int64) (File, error) {
 	if err != nil {
 		return nil, fmt.Errorf("recovery: cannot tell how much staging space is free, so not staging: %w", err)
 	}
-	if free-need < s.Reserve {
+	// Check and claim under one lock, so the claim is part of the answer
+	// the next caller sees.
+	s.mu.Lock()
+	if free-s.inflight-need < s.Reserve {
+		s.mu.Unlock()
 		return nil, ErrBelowReserve
 	}
+	s.inflight += need
+	s.mu.Unlock()
+
+	f, err := s.create()
+	if err != nil {
+		s.Release(need)
+		return nil, err
+	}
+	return f, nil
+}
+
+// create makes the exclusive partial.
+func (s *Staging) create() (File, error) {
 	name := filepath.Join(s.Root, partialPrefix+randomHex(12)+partialSuffix)
 	if s.OpenFile != nil {
 		return s.OpenFile(name)
@@ -176,8 +206,17 @@ func (s *Staging) Begin(need int64) (File, error) {
 	return f, nil
 }
 
-// Release gives back the claim a Begin of need bytes made.
-func (s *Staging) Release(need int64) {}
+// Release gives back the claim a Begin of need bytes made. A recovery calls
+// it when it is finished with the space, successful or not: by then the
+// bytes it wrote are on the disk and the free-space reading says so.
+func (s *Staging) Release(need int64) {
+	s.mu.Lock()
+	s.inflight -= need
+	if s.inflight < 0 {
+		s.inflight = 0
+	}
+	s.mu.Unlock()
+}
 
 func isPartial(name string) bool {
 	return strings.HasPrefix(name, partialPrefix) && strings.HasSuffix(name, partialSuffix)
@@ -291,6 +330,9 @@ func (s *Staging) ValidateName(rel string) error {
 // cleanTarget validates rel and returns the directory and sanitised base
 // name the output goes under.
 func (s *Staging) cleanTarget(rel string) (dir, base string, err error) {
+	if len(rel) > maxTargetNameLen {
+		return "", "", ErrTargetTooLong
+	}
 	if rel == "" || strings.ContainsRune(rel, 0) || filepath.IsAbs(rel) || strings.HasPrefix(rel, "/") || strings.Contains(rel, `\`) {
 		return "", "", ErrTargetOutsideRoot
 	}

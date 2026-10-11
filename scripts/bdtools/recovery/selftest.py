@@ -45,6 +45,8 @@ RESOLVE_GO = f"{EXPORT}/resolve.go"
 ENGINE_GO = f"{EXPORT}/engine.go"
 GRANT_GO = f"{EXPORT}/grant.go"
 STAGE_GO = f"{EXPORT}/stage.go"
+UI_GO = "apps/common/webhost/serve/ui.go"
+REFUSAL_GO = "apps/common/webhost/refusal.go"
 RECOVER_GO = "core/service/recover.go"
 RECOVER_RUN_GO = "core/service/recover_run.go"
 ROUTER_GO = "apps/common/webhost/router.go"
@@ -55,6 +57,7 @@ CLI_GO = "core/cmd/retnd/recover.go"
 EXPORT_PKG = ("core", ("./internal/recovery/export/",))
 SERVICE_PKG = ("core", ("./service/",))
 WEB_PKG = ("apps/common", ("./webhost/",))
+UI_PKG = ("apps/common", ("./webhost/serve/",))
 CLI_PKG = ("core", ("./cmd/retnd/",))
 
 PLANT = "// PLANTED VIOLATION (scripts/bdtools/recovery/selftest.py): "
@@ -212,7 +215,7 @@ MUTATIONS = [
     (
         "staging that ignores its free-space reserve",
         STAGE_GO,
-        "\tif free-need < s.Reserve {",
+        "\tif free-s.inflight-need < s.Reserve {",
         "\t" + PLANT + "the reserve is not enforced.\n\tif false {",
         "want ErrBelowReserve",
         EXPORT_PKG,
@@ -286,7 +289,7 @@ MUTATIONS = [
         HANDLER_GO,
         '\tif strings.Contains(r.Header.Get("Range"), ",") {',
         "\t" + PLANT + "multipart ranges are served.\n\tif false {",
-        "= 200",
+        "= 206",
         WEB_PKG,
         "TestMultipleRangesInOneRequestAreRefused",
     ),
@@ -309,6 +312,78 @@ MUTATIONS = [
         "TestAMintIsAuditedOnceByItsOwnRow",
     ),
     (
+        "two concurrent recoveries each checking free space alone",
+        STAGE_GO,
+        "\tif free-s.inflight-need < s.Reserve {",
+        "\t" + PLANT + "what other recoveries already claimed is ignored.\n\tif free-need < s.Reserve {",
+        "was admitted",
+        EXPORT_PKG,
+        "TestStagingCountsWhatIsAlreadySpokenFor",
+    ),
+    (
+        "a recovery that never gives back its claim on the staging space",
+        ENGINE_GO,
+        "\tdefer e.Staging.Release(need)\n",
+        "\t// " + PLANT.rstrip() + "\n",
+        "kept its claim",
+        EXPORT_PKG,
+        "TestStageGivesBackItsClaim",
+    ),
+    (
+        "a target name with no length bound",
+        STAGE_GO,
+        "\tif len(rel) > maxTargetNameLen {",
+        "\t" + PLANT + "any length will do.\n\tif false {",
+        "want ErrTargetTooLong",
+        EXPORT_PKG,
+        "TestATargetNameHasALengthBound",
+    ),
+    (
+        "an archive copy the provider already restored still read as needing a restore",
+        RECOVER_GO,
+        "access, aerr := archive.Access(p.Medium, class, b.observeRestore(ctx, st, m, class, p), nowT)",
+        "access, aerr := archive.Access(p.Medium, class, archive.Observation{}, nowT) // " + PLANT.rstrip(),
+        "the provider says the restore finished",
+        SERVICE_PKG,
+        "TestARestoredArchiveCopyIsReadable",
+    ),
+    (
+        "a recovery download cut by the UI proxy's header timeout",
+        UI_GO,
+        '\tmux.Handle("/api/v1/recoveries/", rollingWriteDeadline(&downloads))\n',
+        "\t// " + PLANT.rstrip() + "\n",
+        "cut by the proxy",
+        UI_PKG,
+        "TestUI_ARecoveryMayTakeLonger",
+    ),
+    (
+        "a recovery download cut by the UI host's whole-response write timeout",
+        UI_GO,
+        "\t_ = w.rc.SetWriteDeadline(now.Add(downloadWriteIdle))",
+        "\t_ = now // " + PLANT.rstrip(),
+        "cut a download that was still being written",
+        UI_PKG,
+        "TestUI_ARecoveryIsNotCutByTheUIHost",
+    ),
+    (
+        "a bearer grant written to the proxy's log",
+        UI_GO,
+        "\tif strings.HasPrefix(p, prefix) {\n\t\treturn prefix + \"{grant}\"\n\t}",
+        "\t" + PLANT + "the path is logged whole.\n\tif false {\n\t\treturn prefix + \"{grant}\"\n\t}",
+        "a bearer grant reached the log",
+        UI_PKG,
+        "TestUI_ADownloadsGrantIsNeverLogged",
+    ),
+    (
+        "a bearer grant written to the engine's refusal log",
+        REFUSAL_GO,
+        "\tif strings.HasPrefix(r.URL.Path, recoveryGrantPathPrefix) {",
+        "\t" + PLANT + "the path is logged whole.\n\tif false && strings.HasPrefix(r.URL.Path, recoveryGrantPathPrefix) {",
+        "a bearer grant reached the log",
+        WEB_PKG,
+        "TestAGrantIsNeverWrittenToTheLog",
+    ),
+    (
         "a recover verb that takes no explicit target",
         CLI_GO,
         '\tif *to == "" {',
@@ -329,8 +404,9 @@ CLEAN_CONTROLS = [
     (
         "the recovery route suite",
         WEB_PKG,
-        "TestARecoveryCompletes|TestMintCarries|TestMultipleRanges|TestADownloadSlower|TestAMintIsAudited",
+        "TestARecoveryCompletes|TestMintCarries|TestMultipleRanges|TestADownloadSlower|TestAMintIsAudited|TestAGrantIsNever",
     ),
+    ("the UI proxy's recovery path", UI_PKG, "TestUI_ARecovery|TestUI_ADownloadsGrant"),
     ("the recover verb suite", CLI_PKG, "TestRecoverIsRefusedBeforeAnythingIsOpened"),
 ]
 
