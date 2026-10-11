@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/retnd/retnd/core/internal/capacity"
 )
 
 // LocalRecoverer stages a copy that lives on local disk by copying its bytes
@@ -22,9 +24,25 @@ import (
 // real resolver later is replacing this value and not unpicking a half
 // implementation.
 type LocalRecoverer struct {
-	// Root is the staging root. Empty means the system temporary directory.
+	// Root is the staging root. Empty means the system temporary directory,
+	// which on many hosts is memory; the application passes a directory on
+	// the backup set's own disk instead.
 	Root string
+
+	// Reserve is the free space that must remain after the copy. Zero means
+	// DefaultStagingReserve.
+	Reserve uint64
+
+	// Available reports the bytes an unprivileged writer can still use on
+	// the filesystem holding path. Nil means the real statfs. It is a seam
+	// because a test cannot have a full disk.
+	Available func(path string) (uint64, error)
 }
+
+// DefaultStagingReserve is the free space left over after a staged copy. A
+// recovery test is background work and must never be the thing that fills
+// the volume backups are written to.
+const DefaultStagingReserve uint64 = 1 << 30
 
 // ErrUnsupportedCopy is returned for a copy this recoverer does not stage.
 var ErrUnsupportedCopy = errors.New("recoverytest: this recoverer stages local copies only")
@@ -55,6 +73,9 @@ func (r LocalRecoverer) Recover(ctx context.Context, req RecoverRequest) (Staged
 	if err := os.MkdirAll(r.root(), 0o700); err != nil {
 		return Staged{}, fmt.Errorf("the staging root could not be created: %w", pathless(err))
 	}
+	if err := r.roomFor(src, req.Copy.Size); err != nil {
+		return Staged{}, err
+	}
 	dir, err := os.MkdirTemp(r.root(), stagingPrefix+"*")
 	if err != nil {
 		return Staged{}, fmt.Errorf("a staging directory could not be created: %w", pathless(err))
@@ -65,6 +86,38 @@ func (r LocalRecoverer) Recover(ctx context.Context, req RecoverRequest) (Staged
 		return Staged{}, err
 	}
 	return Staged{Path: dst}, nil
+}
+
+// roomFor refuses a copy that would not fit with the reserve to spare. The
+// size that has to fit is the larger of the recorded one and the file's own,
+// so a stale record cannot understate it.
+func (r LocalRecoverer) roomFor(src *os.File, recorded *int64) error {
+	need := uint64(0)
+	if recorded != nil && *recorded > 0 {
+		need = uint64(*recorded)
+	}
+	if fi, err := src.Stat(); err == nil && fi.Size() > 0 && uint64(fi.Size()) > need {
+		need = uint64(fi.Size())
+	}
+	reserve := r.Reserve
+	if reserve == 0 {
+		reserve = DefaultStagingReserve
+	}
+	avail := r.Available
+	if avail == nil {
+		avail = func(path string) (uint64, error) {
+			st, err := capacity.StatPath(path)
+			return st.AvailableBytes, err
+		}
+	}
+	have, err := avail(r.root())
+	if err != nil {
+		return fmt.Errorf("the staging filesystem could not be measured, so nothing can say whether a copy fits: %w", pathless(err))
+	}
+	if have < need+reserve {
+		return fmt.Errorf("a staged copy needs %d bytes and a %d byte reserve, and the staging filesystem has %d available", need, reserve, have)
+	}
+	return nil
 }
 
 func copyFile(ctx context.Context, dst string, src io.Reader) error {
