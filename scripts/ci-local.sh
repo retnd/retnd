@@ -319,6 +319,15 @@ bash scripts/brand/selftest.sh
 gate_step "every package's go doc overview still matches its baseline, carriers included (#526)"
 bash scripts/docs/check-package-doc.sh
 
+# The docs site's contrast rule (#1054): WCAG 2.x AA, 4.5:1 for normal text
+# and 3:1 for large text and control boundaries, against the background the
+# text actually sits on, in both themes. The tokens are checked here with no
+# browser (and with the checker's own positive controls first); the rendered
+# pages, which is where an inherited colour or an opacity shows up, are
+# checked in the Docker-backed step further down.
+gate_step "docs site colour tokens meet WCAG AA in both themes, and the checker can still fail (#1054)"
+bash scripts/contrast/check.sh
+
 # The same blind spot, for the checks that actually find bugs (#417). Being
 # outside every module does not only cost those two files their formatting:
 # this gate vets and lints per module too, so nothing has ever vetted or
@@ -461,6 +470,15 @@ bash scripts/tests/release-gate-covers-every-job.test.sh
 # network, about a second.
 gate_step "a publish the release gate never passed is still refused (#575)"
 bash scripts/tests/release-refuses-an-ungated-publish.test.sh
+
+# The rendered half of the same rule (#1054): every page, light and dark,
+# every visible text node against its composited background, in the Playwright
+# image pinned for the e2e machines. Non-FAST only, like the other
+# Docker-backed browser step, so a FAST run cannot merge on it.
+if [ "$FAST" != "1" ]; then
+  gate_docker_step "docs site rendered contrast: every visible text node, both themes (#1054)"
+  bash scripts/contrast/run-browser-check.sh
+fi
 
 gate_step "core/ go build"
 (cd core && GOWORK=off go build ./...)

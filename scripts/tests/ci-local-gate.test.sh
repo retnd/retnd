@@ -316,6 +316,16 @@ make_full_tree() {
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/brand/$brand.sh"
   done
 
+  # The docs site's contrast checks (#1054). The token half runs
+  # unconditionally, FAST included, and the rendered half is a Docker-backed
+  # browser run; a gate step pointed at a path this fixture does not have
+  # exits 127 under `set -e`, so both are stubbed, for the same reason as
+  # everything above.
+  mkdir -p "$tree/scripts/contrast"
+  for contrast in check run-browser-check; do
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/contrast/$contrast.sh"
+  done
+
   # The /api/v1 contract drift check, the client-path check (#211) and
   # their shared mutation self-test (#166). Same reason again, and the same
   # failure mode if any of them is missing: they run unconditionally, FAST
