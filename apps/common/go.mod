@@ -3,8 +3,8 @@ module github.com/retnd/retnd/apps/common
 go 1.27.0
 
 require (
-	github.com/retnd/retnd/core v0.0.0-00010101000000-000000000000
 	github.com/go-chi/chi/v5 v5.3.2
+	github.com/retnd/retnd/core v0.0.0-00010101000000-000000000000
 	golang.org/x/crypto v0.57.0
 	golang.org/x/sys v0.48.0
 )
@@ -134,10 +134,10 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/ini.v1 v1.67.3 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	modernc.org/libc v1.75.6 // indirect
+	modernc.org/libc v1.77.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
-	modernc.org/sqlite v1.58.0 // indirect
+	modernc.org/sqlite v1.60.1 // indirect
 	moul.io/http2curl/v2 v2.3.0 // indirect
 	mvdan.cc/sh/v3 v3.14.1 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
