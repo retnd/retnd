@@ -302,12 +302,24 @@ func (s *Service) reportEmptyCycle(ctx context.Context, report CycleReport) {
 	}
 	c := s.cycleCoverage(ctx)
 	if c.Configured == 0 {
-		// Not an error since retnd#1049: a fresh install runs on a default
-		// configuration with no backup sets, which is a state to describe
-		// and not a failure to page on. A deployment that HAD sets and
-		// lost them is still visible, as this line every cycle.
-		s.logger().Event(ctx, obs.LevelInfo, "cycle_empty",
-			"this cycle had nothing to back up: no backup sets are configured yet")
+		// A fresh install runs on a default configuration with no backup
+		// sets, which is a state to describe and not a failure to page on
+		// (retnd#1049). A deployment whose journal already holds backups
+		// is a different thing: it lost its sets (a config volume that came
+		// back empty, an edit that dropped every source), and it stays the
+		// ERROR issue #412 made it, every cycle, until somebody looks.
+		sets, err := s.Journal.ListBackupSetIDs(ctx)
+		switch {
+		case err != nil:
+			s.logger().Error(ctx, "cycle", fmt.Errorf(
+				"this cycle backed nothing up: no backup sets are configured, and the journal could not be read to say whether it holds backups: %w", err))
+		case len(sets) > 0:
+			s.logger().Error(ctx, "cycle", fmt.Errorf(
+				"this cycle backed nothing up: no backup sets are configured, but the journal holds backups for %d set(s); the configuration has lost its sets, or the wrong one is mounted", len(sets)))
+		default:
+			s.logger().Event(ctx, obs.LevelInfo, "cycle_empty",
+				"this cycle had nothing to back up: no backup sets are configured yet")
+		}
 		return
 	}
 	s.logger().Error(ctx, "cycle", fmt.Errorf(

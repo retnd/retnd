@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -95,6 +96,10 @@ func DefaultConfigYAML(defaults FirstRunDefaults) ([]byte, error) {
 // as "nothing written" and not as a failure. It is idempotent by
 // construction: once the file exists the function returns before writing.
 //
+// A configuration that is missing next to a journal that holds backups is
+// not a fresh install: nothing is written and the error wraps
+// ErrConfigLostOverJournal (see CheckJournalIsFresh).
+//
 // A directory that does not exist yet is created (mode 0755), because a
 // fresh install may mount only its parent. A directory that cannot be
 // written is an error the caller reports (a WARN naming it) and carries on
@@ -116,6 +121,19 @@ func EnsureDefaultConfig(defaults FirstRunDefaults) (wrote bool, path string, er
 		return false, path, nil
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return false, path, fmt.Errorf("service: looking for a configuration at %s: %w", path, statErr)
+	}
+
+	// A journal with history in it means the configuration was lost, not
+	// that nothing was ever configured (retnd#1049, panel finding C7).
+	// Writing a default over it would turn a missing volume into a healthy
+	// looking, empty deployment pointing at the old state, so nothing is
+	// written and the caller gets an error it has to take seriously. This
+	// runs before the state directory is touched, because the check is
+	// read-only and the directory probe is not.
+	if defaults.StateDatabase != "" {
+		if err := CheckJournalIsFresh(context.Background(), defaults.StateDatabase); err != nil {
+			return false, path, err
+		}
 	}
 
 	// A state directory this process cannot use is the first-run setup
