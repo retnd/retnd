@@ -181,7 +181,9 @@ func TestRetentionDropsWhatIsOldAndWhatIsOverTheRowBound(t *testing.T) {
 	var rows []state.ActivityEventRow
 	for i := 1; i <= 120; i++ {
 		at := now
-		if i <= 20 {
+		// The old rows are in the MIDDLE of the sequence, so the row bound
+		// alone would keep them: only the age rule can remove them.
+		if i >= 61 && i <= 80 {
 			at = now.Add(-activityRetention - time.Hour)
 		}
 		rows = append(rows, state.ActivityEventRow{Seq: int64(i), At: at, Level: "info", Event: "e", Scope: "set", SetID: "alpha/nightly", Fields: "[]"})
@@ -194,8 +196,13 @@ func TestRetentionDropsWhatIsOldAndWhatIsOverTheRowBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	left, _ := j.RecentActivityEvents(ctx, "alpha/nightly", 1000)
-	if len(left) != 50 || left[0].Seq != 71 || n != 70 {
-		t.Fatalf("pruned %d, kept %d starting at %d; want 20 by age and 50 by count, the newest 50 kept", n, len(left), left[0].Seq)
+	for _, r := range left {
+		if r.Seq >= 61 && r.Seq <= 80 {
+			t.Fatalf("a row older than the retention survived (seq %d): want 20 by age", r.Seq)
+		}
+	}
+	if len(left) != 50 || left[0].Seq != 51 || n != 70 {
+		t.Fatalf("pruned %d, kept %d starting at %d; want 20 by age and 50 by count, the newest 50 of what is left", n, len(left), left[0].Seq)
 	}
 }
 
