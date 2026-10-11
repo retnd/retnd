@@ -50,6 +50,7 @@ TICK_GO = "core/internal/app/recoverytest.go"
 SELECT_GO = "core/internal/revalidate/select.go"
 CLAIM_GO = "core/internal/recoverytest/claim.go"
 RECOVERY_MD = "docs/recovery.md"
+REFERENCE_HTML = "docs/site/reference.html"
 
 STATE_PKG = ("core", ("./internal/state/",))
 RTRUN_PKG = ("core", ("./internal/recoverytest/",))
@@ -237,6 +238,15 @@ MUTATIONS = [
         GATE_PKG,
         "TestTheBoundarySentenceIsEverywhereTheOldPromiseWasMadeAndThePromiseIsGone",
     ),
+    (
+        "a site anchor renamed under the links that point at it",
+        REFERENCE_HTML,
+        '<h3 id="web-backup-detail">Backup detail</h3>',
+        '<h3 id="web-backup-detail-renamed">Backup detail</h3>',
+        "--- FAIL: TestEveryLinkInTheSiteAndTheDocsResolves",
+        GATE_PKG,
+        "TestEveryLinkInTheSiteAndTheDocsResolves",
+    ),
 ]
 
 CLEAN_CONTROLS = [
@@ -245,7 +255,7 @@ CLEAN_CONTROLS = [
     ("the recovery-test runner guards", RTRUN_PKG, "TestADigestMismatch|TestAValidatorThatExits|TestBytesThatDecrypt|TestHostileOutput"),
     ("the per-set resolution guard", CONFIG_PKG, "TestAssurance_AScrubOverrideInheritsEveryFieldItDoesNotName"),
     ("the assurance settings and feed guards", SERVICE_PKG, "TestUpdateAssuranceSettings_|TestScrubFeed_"),
-    ("the boundary guard", GATE_PKG, "TestTheBoundary"),
+    ("the boundary and link guards", GATE_PKG, "TestTheBoundary|TestEveryLink"),
     ("the staging sweep guard", APP_PKG, "TestRecoveryTestTick_SweepsAStagingDirectoryACrashLeftBehind"),
 ]
 

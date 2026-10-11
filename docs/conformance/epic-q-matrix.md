@@ -51,8 +51,11 @@ from the rows below.
   design the mock offers.
 - **Suite C proves equivalence in both directions except one, the ungated direction.** A recovery
   completes on a deployment whose destructive gate is shut (QC-01), and the CLI has no gate to be
-  shut, so no suite can put the two side by side on that axis. It is checked by hand, and the record
-  is the `BY HAND` entry under QC-01 in the log at the end of this file.
+  shut, so the two cannot be put side by side on that axis. The browser half is asserted in Suite C
+  (`assurance-recovery.986.spec.ts`: the engine that just completed a browser recovery still answers
+  `403 DESTRUCTIVE_OPERATIONS_DISABLED` to `POST /api/v1/operations`) and in
+  `apps/common/webhost:TestARecoveryCompletesWhileTheDestructiveGateIsShutAndOperationsStillRefuses`.
+  The matrix does not claim the CLI side of that axis, because there is nothing there to claim.
 
 ---
 
@@ -90,7 +93,7 @@ this table: each line is a command that runs.
 | Gate line | What proves it |
 |---|---|
 | Deterministic recapture: the same script twice gives byte-identical output | `node docs/site/tools/capture-recovery-assurance.mjs --check`, wired into CI as the `recovery-captures` job |
-| Site-wide dead-fragment check and the docs link checks | `scripts/docs/selftest.sh` and the package-documentation gate in `scripts/ci-local.sh` |
+| Site-wide dead-fragment check and the docs link checks | `core/tests/assurancegate:TestEveryLinkInTheSiteAndTheDocsResolves` (every `href`, `src` and Markdown link under `docs/` and the README, ids checked in the HTML pages), with `scripts/bdtools/assurance/selftest.py` ("a site anchor renamed under the links that point at it") |
 | Suites A, B and C green at the new pin | `scripts/e2e/run-tests-repo-gate.sh`; the pin moves with #986, see that pull request for what is blocked on the tests repository |
 | Parity gates | `apps/common/webhost:TestEveryAPIRouteNamesItsCLIEquivalentOrTheGap`, `core/cmd/retnd:TestNoGapClaimsAVerbThisBinaryShips`, `distribution/packaging/site_reference_test.go`, `core/cmd/retnd/routeparity_test.go`, `scripts/api/check-contract-drift.sh` |
 | Large-download memory budget proven with a number | `apps/generic/tests/recoveryperf` run with `RECOVERY_PERF_BYTES=4294967296`; the numbers and the host are in `docs/perf/epic-q-recovery.md` |
@@ -105,14 +108,18 @@ this table: each line is a command that runs.
 ## Log of the hand checks
 
 Written so a reader can tell who did what and when, and so a later hand check adds a line rather than
-rewriting this one.
+rewriting this one. Both were run on 2026-10-11 by the author of this change, in throw-away
+containers, against a copy of the tree.
 
-- **QC-01, the ungated direction.** Checked by the author of this change on 2026-10-11. On a
-  deployment whose destructive gate reports false, a recovery minted and redeemed through the browser
-  route completed and delivered bytes whose digest matched the recorded one, while `POST
-  /api/v1/operations` still answered `403 DESTRUCTIVE_OPERATIONS_DISABLED`. The CLI has no gate, so
-  there is nothing on that side to compare; the browser half is `QC-01`'s test.
-- **QC-06.** Checked by the author of this change on 2026-10-11, see the pull request body for the
-  mutation and the red spec.
-- **QC-18.** Checked by the author of this change on 2026-10-11, see the pull request body for the
-  mutation and the two red gates.
+- **QC-06.** In `ui/shared/src/assurance/claims.ts`, `if (!record) return make("unknown", false);`
+  was changed to return `"pass"`, so a backup with no assurance record at all rendered as a pass.
+  `ui/shared/e2e/985-claims.spec.ts` ran green before the change (11 passed) and red after it (1
+  failed, 10 passed: "an assurance API that is absent renders unknown, never a tick", on
+  `toHaveCount`). No self-test plants this one because the claim lives in TypeScript, and the
+  self-tests plant Go.
+- **QC-18.** In `core/cliecho/routes.go`, first the `GET /recoveries/{grant}` entry was deleted, so
+  a route existed with neither a CLI equivalent nor a declared gap, and
+  `apps/common/webhost:TestEveryAPIRouteNamesItsCLIEquivalentOrTheGap` went red. Then the entry was
+  restored and `namesShippedVerbs: []string{"recover"}` was removed from it, so a gap sentence named a
+  verb the binary ships without declaring it, and `core/cmd/retnd:TestNoGapClaimsAVerbThisBinaryShips`
+  went red. Both were green before.
