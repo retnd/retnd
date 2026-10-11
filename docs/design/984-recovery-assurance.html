@@ -207,8 +207,8 @@ const G={pass:"✓",fail:"✕",unk:"?",dash:"−",hollow:"○",clock:"◷",coin:
 const chip=(cls,g,label,age)=>`<span class="claim ${cls}"><span class="g" aria-hidden="true">${g}</span>${label}${age?` <span class="age">${age}</span>`:""}</span>`;
 const col=(lab,inner)=>`<div class="claimcol"><span class="lab">${lab}</span>${inner}</div>`;
 const stored=n=>chip("s-stored",G.pass,`Stored`,`${n} copies`);
-const cv=(cls,g,l,a)=>col("Content verified",chip(cls,g,l,a));
-const rt=(cls,g,l,a)=>col("Recovery tested",chip(cls,g,l,a));
+const cv=(cls,g,l,a)=>col("Content",chip(cls,g,l,a));
+const rt=(cls,g,l,a)=>col("Recovery",chip(cls,g,l,a));
 const S={
  claims(){return `
   <div class="card"><h3>Backups</h3><div class="body">
@@ -288,7 +288,7 @@ const S={
   </div></div>`},
  log(){return `
   <div class="card" style="grid-column:1/-1"><h3>Recovery test result</h3><div class="body">
-   <div class="claims">${col("Content verified",chip("s-pass",G.pass,"Content verified","2d ago"))}${col("Recovery tested",chip("s-fail",G.fail,"Recovery test failed","2d ago"))}</div>
+   <div class="claims">${col("Content",chip("s-pass",G.pass,"Content verified","2d ago"))}${col("Recovery",chip("s-fail",G.fail,"Recovery test failed","2d ago"))}</div>
    <div class="muted">Validator exit status 3, 4.2 s. Showing the last 2 KiB of output.</div>
    <div class="term"><span class="trunc">output truncated: 41,873 bytes before this point are not shown</span>
     <div><span class="t">validate</span> checking page 14 of 220</div>
