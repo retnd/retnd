@@ -22,7 +22,7 @@
 // freezes that. A frozen clock therefore holds a started operation at its
 // first instant forever. That is a gift rather than a problem: a mid-stage
 // picture is taken by moving the frozen clock to the instant wanted
-// (`at()` below), so "the digest stage, nine seconds in" is a place the
+// (`at()` below), so "the verifying stage, nine seconds in" is a place the
 // fixture is put, not a race the shutter has to win.
 //
 // # What is photographed
@@ -39,7 +39,7 @@
 //                     in the Activity list
 //   06 archive        the archival cost decision
 //   07 settings       the scheduled-scrub card on Settings
-//   08 per-set        the per-set Inherit / Off / Required / Custom control
+//   08 per-set        the per-set "Follow the deployment" / "This set's own policy" control
 //   09 scrub-failed   a scrub that failed and the degraded state after it
 //   10 test-passed    a recovery test that passed
 //   11 split          checksum good, validator failed
@@ -70,7 +70,7 @@ const CHECK = process.argv.includes("--check");
 const NARROW = { width: 940, height: 2400 };
 const SET = "/sets/production/postgres-primary";
 const DETAIL = "/backups/production/postgres-primary/postgres-prod-20260828.dump.zst";
-const ARCHIVED = "/backups/media/weekly-archive/media-week34.tar";
+const ARCHIVED = "/backups/production/billing-mysql/billing-20260827.sql.gz";
 
 /** Moves the frozen clock `secs` past the instant every capture starts at. */
 async function at(page, secs) {
@@ -122,9 +122,9 @@ const surfaces = [
       await section.getByRole("button", { name: "Run recovery test" }).click();
       await section.getByTestId("operation-progress").waitFor();
       await at(page, 9);
-      await page.locator('[data-testid="operation-progress"][data-stage="digest"]').waitFor({ timeout: 20_000 });
+      await page.locator('[data-testid="operation-progress"][data-stage="verifying"]').waitFor({ timeout: 20_000 });
       const terminal = page.getByLabel("Terminal", { exact: true });
-      await terminal.getByRole("log").getByText("recovery test stage digest", { exact: false }).waitFor();
+      await terminal.getByRole("log").getByText("recovery test: Verifying", { exact: false }).first().waitFor();
       return ["section[aria-label='Terminal']"];
     }
   },
@@ -137,9 +137,9 @@ const surfaces = [
       await section.getByRole("button", { name: "Run recovery test" }).click();
       await section.getByTestId("operation-progress").waitFor();
       await at(page, 9);
-      await page.locator('[data-testid="operation-progress"][data-stage="digest"]').waitFor({ timeout: 20_000 });
+      await page.locator('[data-testid="operation-progress"][data-stage="verifying"]').waitFor({ timeout: 20_000 });
       const panel = page.locator("section[aria-label^='Activity for']").first();
-      await panel.getByText("recovery test stage", { exact: false }).first().waitFor({ timeout: 20_000 });
+      await panel.getByText("recovery test: Verifying", { exact: false }).first().waitFor({ timeout: 20_000 });
       return ["section[aria-label^='Activity for']"];
     }
   },

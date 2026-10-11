@@ -24,7 +24,7 @@ const PAIRS = [
   ["claim chip, content verified (pass)", DETAIL, "default", async () => '[data-claim="content"][data-state="pass"]', false],
   ["claim chip, recovery test failed", DETAIL, "assurance-split", async () => '[data-claim="recovery"][data-state="failed"]', false],
   ["claim chip, stored", DETAIL, "default", async () => '[data-claim="stored"]', false],
-  ["claim chip, overdue", "/backups", "default", async () => '[data-claim="content"][data-state="overdue"]', false],
+  ["claim chip, never run", "/backups", "default", async (page) => { await page.locator('[data-claim="content"][data-state="never_run"]').first().waitFor(); return '[data-claim="content"][data-state="never_run"]'; }, false],
   ["claim chip, existence only", DETAIL, "assurance-existence", async () => '[data-claim="content"][data-state="existence_only"]', false],
   ["claim chip, requires restore", "/backups", "default", async () => '[data-claim="content"][data-state="requires_restore"]', false],
   [
@@ -39,7 +39,7 @@ const PAIRS = [
   ],
   [
     "recover dialog, the archive cost notice",
-    "/backups/media/weekly-archive/media-week34.tar",
+    "/backups/production/billing-mysql/billing-20260827.sql.gz",
     "default",
     async (page) => {
       await page.getByRole("button", { name: "Recover artifact", exact: true }).click();
@@ -57,7 +57,7 @@ const PAIRS = [
     },
     false
   ],
-  ["assurance section, command echo", SET, "default", async () => '[aria-label="Assurance"] code, [aria-label="Assurance"] .mono', false],
+  ["assurance section, command echo", SET, "default", async (page) => { await page.locator('[aria-label="Assurance"] .mono').first().waitFor(); return '[aria-label="Assurance"] .mono'; }, false],
   [
     "operation panel, the progress log",
     SET,
