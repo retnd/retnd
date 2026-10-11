@@ -90,6 +90,7 @@ var commands = map[string]func([]string) int{
 	"medium":          cmdMedium,
 	"retry":           cmdRetry,
 	"restore":         cmdRestore,
+	"recover":         cmdRecover,
 	"snapshot":        cmdSnapshot,
 	"repository":      cmdRepository,
 	"settings":        cmdSettings,
