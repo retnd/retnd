@@ -485,15 +485,6 @@ bash scripts/tests/api-generator-is-deterministic.test.sh
 gate_step "a publish the release gate never passed is still refused (#575)"
 bash scripts/tests/release-refuses-an-ungated-publish.test.sh
 
-# The rendered half of the same rule (#1054): every page, light and dark,
-# every visible text node against its composited background, in the Playwright
-# image pinned for the e2e machines. Non-FAST only, like the other
-# Docker-backed browser step, so a FAST run cannot merge on it.
-if [ "$FAST" != "1" ]; then
-  gate_docker_step "docs site rendered contrast: every visible text node, both themes (#1054)"
-  bash scripts/contrast/run-browser-check.sh
-fi
-
 gate_step "core/ go build"
 (cd core && GOWORK=off go build ./...)
 
@@ -568,6 +559,17 @@ gate_step "apps/common go build, vet, test -race"
 
 gate_step "apps/common golangci-lint"
 (cd apps/common && GOWORK=off golangci-lint run --config "$REPO_ROOT/.golangci.yml" ./...)
+
+# The rendered half of the same rule (#1054): every page, light and dark,
+# every visible text node against its composited background, in the Playwright
+# image pinned for the e2e machines. Non-FAST only, like the other
+# Docker-backed browser step, so a FAST run cannot merge on it. It sits after
+# core/'s first Docker-backed step on purpose: ci-local-gate.test.sh's J1 lets
+# exactly one `docker info` answer and expects the run to fail at that step.
+if [ "$FAST" != "1" ]; then
+  gate_docker_step "docs site rendered contrast: every visible text node, both themes (#1054)"
+  bash scripts/contrast/run-browser-check.sh
+fi
 
 gate_docker_step "distribution go build, vet, test -race (every package but packaging, which runs next)"
 (cd distribution && GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test -race $(GOWORK=off go list ./... | grep -v '/packaging$'))
