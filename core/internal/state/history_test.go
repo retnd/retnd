@@ -63,3 +63,17 @@ func TestCountArtifactsReadOnly_AFileThatIsNotAJournalIsAnError(t *testing.T) {
 		t.Fatal("an unreadable journal was reported as empty, which is how a lost config gets a default written over it")
 	}
 }
+
+// An unusable state directory is reported by the code that owns that case; it
+// is not evidence of history.
+func TestCountArtifactsReadOnly_AParentThatIsAFileHoldsNoJournal(t *testing.T) {
+	dir := t.TempDir()
+	notADir := filepath.Join(dir, "state")
+	if err := os.WriteFile(notADir, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	n, exists, err := CountArtifactsReadOnly(context.Background(), filepath.Join(notADir, "state.db"))
+	if err != nil || exists || n != 0 {
+		t.Fatalf("= (%d, %v, %v), want (0, false, nil)", n, exists, err)
+	}
+}

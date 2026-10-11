@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"syscall"
 )
 
 // CountArtifactsReadOnly answers one question about a journal file without
@@ -17,13 +18,19 @@ import (
 // even create the file when it is absent.
 //
 // exists is false, with a zero count and no error, when there is no file at
-// path. A file that exists but has no artifacts table yet (empty, or created
+// path (or none this process could open: a parent that is not a directory, or
+// one it may not enter). A file that exists but has no artifacts table yet (empty, or created
 // and never migrated) counts as zero: it has recorded nothing. A file that
 // exists and cannot be read as a journal is an error, and the caller must
 // treat that as "do not assume it is empty", never as zero.
 func CountArtifactsReadOnly(ctx context.Context, path string) (count int64, exists bool, err error) {
 	if _, statErr := os.Stat(path); statErr != nil {
-		if errors.Is(statErr, os.ErrNotExist) {
+		// A path whose parent is not a directory, or that this process may
+		// not look inside, holds no journal this process could ever open.
+		// That is the "state directory is unusable" case, which the callers
+		// report on their own (service.validateStateDir) and which must not
+		// be mistaken for a journal with history in it.
+		if errors.Is(statErr, os.ErrNotExist) || errors.Is(statErr, syscall.ENOTDIR) || errors.Is(statErr, os.ErrPermission) {
 			return 0, false, nil
 		}
 		return 0, false, fmt.Errorf("state: looking for the journal at %s: %w", path, statErr)

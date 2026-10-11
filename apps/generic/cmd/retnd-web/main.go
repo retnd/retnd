@@ -678,6 +678,13 @@ func cmdServe(args []string) int {
 		ConfigPath:    *configPath,
 		StateDatabase: *stateDatabase,
 	}); {
+	case errors.Is(ensureErr, service.ErrConfigLostOverJournal):
+		// A missing configuration next to a journal that holds backups is a
+		// lost or unmounted configuration volume. Serving the setup flow
+		// here would let the wizard write a first configuration over the old
+		// state, and a default file would read as a healthy empty
+		// deployment, so the process stops and says why.
+		return fail(fmt.Errorf("no configuration at %s, and this is not a fresh install: %w", written, ensureErr))
 	case ensureErr != nil && !errors.Is(ensureErr, service.ErrDefaultConfigSkipped):
 		fmt.Fprintf(os.Stderr, cliecho.WebBinary+": warning: could not write a default configuration to %s, so the first-run setup flow is served instead; check that the configuration directory %s is mounted writable: %v\n",
 			written, filepath.Dir(written), ensureErr)
