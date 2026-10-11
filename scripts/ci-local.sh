@@ -446,6 +446,14 @@ bash scripts/tests/two-machine-ci-verdict.test.sh
 gate_step "the release gate still covers every job in ci.yml (#575)"
 bash scripts/tests/release-gate-covers-every-job.test.sh
 
+# Every Go module resolves its own dependencies without go.work (#1064). The
+# workspace builds the whole tree on the highest version of every requirement,
+# so a dependency bumped in core/ alone is green everywhere the workspace is
+# used and red in the product image and under GOWORK=off. #1003, #797 and #838
+# were all that.
+gate_step "every Go module resolves its own dependencies without go.work (#1064)"
+bash scripts/tests/every-module-builds-on-its-own.test.sh
+
 # The other half of the same gate, and the half that does not need a
 # settings page to be true (#575). A required check gates while branch
 # protection says it does, and a direct push, an administrator merging
