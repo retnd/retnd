@@ -78,10 +78,7 @@ func (s *Service) RecoveryTest(ctx context.Context, req RecoveryTestRequest) (Re
 	// artifact already fits on, ScanManifests and discovery never look in a
 	// subdirectory, and the free-space check is made against the volume the
 	// backups are written to. The system temporary directory is often memory.
-	root := s.RecoveryStagingRoot
-	if root == "" && bs.LocalPath != "" {
-		root = filepath.Join(bs.LocalPath, ".retnd-recovery-test")
-	}
+	root := s.recoveryStagingRoot(bs)
 	var recoverer recoverytest.Recoverer = recoverytest.LocalRecoverer{Root: root}
 	if s.Recoverer != nil {
 		recoverer = s.Recoverer
@@ -143,7 +140,14 @@ func (s *Service) RecoveryTestTick(ctx context.Context) {
 			if ctx.Err() != nil {
 				return
 			}
-			if bs.Disabled || unrunnableEngine(bs.Engine) != nil || bs.Revalidation.Command == nil {
+			if bs.Disabled || unrunnableEngine(bs.Engine) != nil {
+				continue
+			}
+			// A crash mid-test leaves a staged copy nothing refers to. The
+			// sweep runs for every set, validator or not, because the copy
+			// outlives a configuration change that removed the validator.
+			s.sweepRecoveryStaging(ctx, bs)
+			if bs.Revalidation.Command == nil {
 				continue
 			}
 			if holds != nil && holds.Held(bs.ID.String()) {
@@ -191,3 +195,37 @@ func (s *Service) kopiaRecoveryClaim(ctx context.Context, bs config.BackupSet) (
 }
 
 var _ = state.RecoveryUnknown
+
+// staleStagingAge is how old a staging directory has to be before the sweep
+// treats it as abandoned. A test in progress touches its directory when it
+// creates it and holds it for as long as the validator's timeout, so a day
+// is far past anything live.
+const staleStagingAge = 24 * time.Hour
+
+func (s *Service) sweepRecoveryStaging(ctx context.Context, bs config.BackupSet) {
+	root := s.recoveryStagingRoot(bs)
+	if root == "" {
+		return
+	}
+	if _, ok := s.Recoverer.(recoverytest.LocalRecoverer); s.Recoverer != nil && !ok {
+		return // somebody else's recoverer owns its own cleanup
+	}
+	if n, err := (recoverytest.LocalRecoverer{Root: root}).Sweep(ctx, staleStagingAge); err != nil {
+		s.logger().Error(ctx, "recovery-staging-sweep", err)
+	} else if n > 0 {
+		s.logger().Event(ctx, obs.LevelWarn, "recovery_staging_swept",
+			fmt.Sprintf("removed %d abandoned recovery-test staging director%s", n, map[bool]string{true: "y", false: "ies"}[n == 1]))
+	}
+}
+
+// recoveryStagingRoot is where a set's recovery tests stage: the configured
+// root when there is one, and otherwise a subdirectory of the set's own root.
+func (s *Service) recoveryStagingRoot(bs config.BackupSet) string {
+	if s.RecoveryStagingRoot != "" {
+		return s.RecoveryStagingRoot
+	}
+	if bs.LocalPath != "" {
+		return filepath.Join(bs.LocalPath, ".retnd-recovery-test")
+	}
+	return ""
+}

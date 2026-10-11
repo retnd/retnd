@@ -352,6 +352,17 @@ func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg Config, req 
 		return finish(res, state.RecoveryTest{CleanupState: res.CleanupState, BytesRead: &n})
 	}
 
+	// The identity was read before the validator ran and it was executed
+	// later. A validator that rewrites itself while it runs, or a file swapped
+	// in between, would otherwise be recorded under the hash it no longer
+	// had. So it is read again, and a moved identity is a test nobody can
+	// attribute to anything.
+	if _, after, herr := validatorIdentity(cfg); herr != nil || after != hash {
+		res.State = state.RecoveryCouldNotComplete
+		res.Reason = "the validator changed while the test ran, so the result cannot be attributed to the validator that was identified"
+		return finish(res, state.RecoveryTest{CleanupState: res.CleanupState, BytesRead: &n})
+	}
+
 	res.ValidatorID, res.ValidatorHash = id, hash
 	res.Termination, res.ExitCode = out.Termination, out.ExitCode
 	res.Output = SanitizeOutput(out.Output, out.Truncated)
