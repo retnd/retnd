@@ -35,15 +35,23 @@ func CheckJournalIsFresh(ctx context.Context, dbPath string) error {
 	n, exists, err := state.CountArtifactsReadOnly(ctx, dbPath)
 	switch {
 	case err != nil:
-		return fmt.Errorf("%w: configuration missing and the journal at %s cannot be read (%v), so this is not treated as a fresh install", ErrConfigLostOverJournal, dbPath, err)
+		return &lostConfigError{fmt.Sprintf("configuration missing and the journal at %s cannot be read (%v), so this is not treated as a fresh install", dbPath, err)}
 	case !exists || n == 0:
 		return nil
 	case n == 1:
-		return fmt.Errorf("%w: configuration missing but the journal at %s holds 1 backup", ErrConfigLostOverJournal, dbPath)
+		return &lostConfigError{fmt.Sprintf("configuration missing but the journal at %s holds 1 backup", dbPath)}
 	default:
-		return fmt.Errorf("%w: configuration missing but the journal at %s holds %d backups", ErrConfigLostOverJournal, dbPath, n)
+		return &lostConfigError{fmt.Sprintf("configuration missing but the journal at %s holds %d backups", dbPath, n)}
 	}
 }
+
+// lostConfigError carries the message an operator reads and still answers
+// errors.Is(err, ErrConfigLostOverJournal), so the sentence is not preceded
+// by the sentinel's own text.
+type lostConfigError struct{ msg string }
+
+func (e *lostConfigError) Error() string        { return e.msg }
+func (e *lostConfigError) Is(target error) bool { return target == ErrConfigLostOverJournal }
 
 // JournalArtifactCount is how many artifacts this deployment's journal holds.
 // The web host reads it to tell a deployment that has never backed anything
