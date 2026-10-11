@@ -7,6 +7,7 @@ package state
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -299,5 +300,20 @@ func TestRecordRecoveryEvaluation_NotConfiguredAndNeverRunAreNotPassesAndNotFail
 	}
 	if err := j.RecordRecoveryEvaluation(ctx, ref, RecoveryPassed); err == nil {
 		t.Error("an evaluation was allowed to say passed")
+	}
+}
+
+func TestRecordRecoveryTest_ARetiredCopyHoldsNoResult(t *testing.T) {
+	ctx := context.Background()
+	j, ref := copyRef(t)
+	if _, err := j.db.ExecContext(ctx, `UPDATE placements SET status = 'GONE'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.RecordRecoveryTest(ctx, passingTest(ref)); !errors.Is(err, ErrPlacementRetired) {
+		t.Errorf("err = %v, want ErrPlacementRetired", err)
+	}
+	// Settling the cleanup of what a test staged is still true.
+	if err := j.RecordRecoveryCleanup(ctx, ref, RecoveryCleanupRemoved); err != nil {
+		t.Errorf("RecordRecoveryCleanup on a retired copy: %v", err)
 	}
 }

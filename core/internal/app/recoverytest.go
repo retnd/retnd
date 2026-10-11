@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/retnd/retnd/core/internal/config"
@@ -72,7 +73,16 @@ func (s *Service) RecoveryTest(ctx context.Context, req RecoveryTestRequest) (Re
 	if !ok {
 		return RecoveryTestResult{}, ErrRecoveryTestUnavailable
 	}
-	var recoverer recoverytest.Recoverer = recoverytest.LocalRecoverer{Root: s.RecoveryStagingRoot}
+	// The default staging place is a subdirectory of the backup set's own
+	// root, as the move engine's staging copy is: that disk is the one the
+	// artifact already fits on, ScanManifests and discovery never look in a
+	// subdirectory, and the free-space check is made against the volume the
+	// backups are written to. The system temporary directory is often memory.
+	root := s.RecoveryStagingRoot
+	if root == "" && bs.LocalPath != "" {
+		root = filepath.Join(bs.LocalPath, ".retnd-recovery-test")
+	}
+	var recoverer recoverytest.Recoverer = recoverytest.LocalRecoverer{Root: root}
 	if s.Recoverer != nil {
 		recoverer = s.Recoverer
 	}

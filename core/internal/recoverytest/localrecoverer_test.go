@@ -12,13 +12,15 @@ import (
 	"github.com/retnd/retnd/core/internal/state"
 )
 
+func roomy(string) (uint64, error) { return 1 << 50, nil }
+
 func TestLocalRecovererStagesAPrivateByteIdenticalCopyAndRemovesIt(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "dump.sql")
 	if err := os.WriteFile(src, content, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
-	r := LocalRecoverer{Root: root}
+	r := LocalRecoverer{Root: root, Available: roomy}
 	s, err := r.Recover(context.Background(), RecoverRequest{Copy: state.Placement{Medium: state.MediumLocal, Location: src}})
 	if err != nil {
 		t.Fatalf("Recover: %v", err)
@@ -84,5 +86,67 @@ func TestLocalRecovererErrorsCarryNoSourcePath(t *testing.T) {
 		Copy: state.Placement{Medium: state.MediumLocal, Location: "/very/secret/place/dump.sql"}})
 	if err == nil || strings.Contains(err.Error(), "secret") {
 		t.Errorf("err = %v: a stored reason must not carry the artifact's real path", err)
+	}
+}
+
+// --- found by the review of this diff ---
+
+// A recovery test copies a whole artifact, and a disk that fills because of
+// it is a worse outcome than a test that did not run. The copy is refused
+// before a byte is written unless the artifact fits with the reserve to spare.
+func TestLocalRecovererRefusesACopyThatDoesNotFitWithTheReserve(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "dump.sql")
+	if err := os.WriteFile(src, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	size := int64(len(content))
+	root := t.TempDir()
+	for name, tc := range map[string]struct {
+		available uint64
+		wantErr   bool
+	}{
+		"plenty":                   {available: uint64(size) + DefaultStagingReserve + 1, wantErr: false},
+		"exactly the reserve over": {available: uint64(size) + DefaultStagingReserve, wantErr: false},
+		"one byte inside reserve":  {available: uint64(size) + DefaultStagingReserve - 1, wantErr: true},
+		"less than the artifact":   {available: uint64(size) - 1, wantErr: true},
+		"nothing":                  {available: 0, wantErr: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := LocalRecoverer{Root: root, Available: func(string) (uint64, error) { return tc.available, nil }}
+			s, err := r.Recover(context.Background(), RecoverRequest{Copy: state.Placement{Medium: state.MediumLocal, Location: src, Size: &size}})
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("a copy that does not fit was staged")
+				}
+				entries, _ := os.ReadDir(root)
+				if len(entries) != 0 {
+					t.Errorf("%d entries left behind by a refused copy", len(entries))
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Recover: %v", err)
+			}
+			_ = r.Remove(context.Background(), s)
+		})
+	}
+}
+
+func TestLocalRecovererRefusesWhenTheStagingFilesystemCannotBeMeasured(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "dump.sql")
+	_ = os.WriteFile(src, content, 0o644)
+	size := int64(len(content))
+	r := LocalRecoverer{Root: t.TempDir(), Available: func(string) (uint64, error) { return 0, errors.New("statfs failed") }}
+	if _, err := r.Recover(context.Background(), RecoverRequest{Copy: state.Placement{Medium: state.MediumLocal, Location: src, Size: &size}}); err == nil {
+		t.Error("a copy was staged on a filesystem nobody could measure")
+	}
+}
+
+func TestLocalRecovererWithoutARecordedSizeUsesTheFileItself(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "dump.sql")
+	_ = os.WriteFile(src, content, 0o644)
+	r := LocalRecoverer{Root: t.TempDir(), Available: func(string) (uint64, error) { return 10, nil }}
+	if _, err := r.Recover(context.Background(), RecoverRequest{Copy: state.Placement{Medium: state.MediumLocal, Location: src}}); err == nil {
+		t.Error("a copy with no recorded size was staged on a 10 byte filesystem: the size of the file is what has to fit")
 	}
 }

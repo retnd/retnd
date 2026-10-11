@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -164,5 +165,33 @@ func TestRecoveryTestTick_ASetWithoutAValidatorIsLeftAlone(t *testing.T) {
 	svc.RecoveryTestTick(ctx)
 	if p := localCopyOf(t, journal, a); p.RecoveryState != state.RecoveryUnknown {
 		t.Errorf("a set with no validator was touched: %q", p.RecoveryState)
+	}
+}
+
+func TestRecoveryTest_StagesOnTheBackupSetsOwnDiskByDefaultAndNotInMemory(t *testing.T) {
+	ctx := context.Background()
+	seen := filepath.Join(t.TempDir(), "path-seen-by-the-validator")
+	svc, journal, bs := recoveryService(t, writeValidator(t, "printf '%s' \"$1\" > "+seen+"\n"))
+	svc.RecoveryStagingRoot = "" // the default
+	seedMovableArtifact(t, ctx, journal, bs, "where.dump", retentionTestNow.Add(-time.Hour))
+
+	res, err := svc.RecoveryTest(ctx, RecoveryTestRequest{Set: bs.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Result.State != state.RecoveryPassed {
+		t.Fatalf("State = %q (%s)", res.Result.State, res.Result.Reason)
+	}
+	raw, err := os.ReadFile(seen)
+	if err != nil {
+		t.Fatalf("the validator never recorded its argument: %v", err)
+	}
+	want := filepath.Join(bs.LocalPath, ".retnd-recovery-test") + string(filepath.Separator)
+	if !strings.HasPrefix(string(raw), want) {
+		t.Errorf("the validator was handed %q, want a path under %q: the default staging place is the set's own disk", raw, want)
+	}
+	entries, _ := os.ReadDir(filepath.Join(bs.LocalPath, ".retnd-recovery-test"))
+	if len(entries) != 0 {
+		t.Errorf("%d entries left in the set's staging directory", len(entries))
 	}
 }

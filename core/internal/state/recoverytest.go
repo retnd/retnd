@@ -257,7 +257,7 @@ func (j *Journal) RecordRecoveryCleanup(ctx context.Context, c CopyRef, st strin
 	if err := c.validate(); err != nil {
 		return err
 	}
-	id, err := j.placementID(ctx, c)
+	id, _, err := j.placementRow(ctx, c)
 	if err != nil {
 		return err
 	}
@@ -309,19 +309,38 @@ func (j *Journal) MarkRecoveryOverdue(ctx context.Context, now time.Time) (int, 
 	return len(due), nil
 }
 
+// placementID finds the copy's row. It refuses a copy that is no longer
+// ACTIVE, for RecordCopyScrub's reason: a result written onto a row that
+// is not a copy any more is a claim about nothing. RecordRecoveryCleanup is
+// the one writer that goes round this, because removing what a test staged
+// is true of a copy that has since been retired.
 func (j *Journal) placementID(ctx context.Context, c CopyRef) (int64, error) {
-	var id int64
-	err := j.db.QueryRowContext(ctx, `
-		SELECT p.id FROM placements p JOIN artifacts a ON a.id = p.artifact_id
-		 WHERE a.source = ? AND a.backup_set = ? AND a.artifact_name = ? AND p.medium = ?`,
-		c.Artifact.Set.Source, c.Artifact.Set.Set, c.Artifact.Name, c.Medium).Scan(&id)
-	if errors.Is(err, sql.ErrNoRows) {
-		return 0, fmt.Errorf("%w: %s has no copy on %q", ErrPlacementNotFound, c.Artifact, c.Medium)
-	}
+	id, status, err := j.placementRow(ctx, c)
 	if err != nil {
-		return 0, fmt.Errorf("state: find the copy of %s on %s: %w", c.Artifact, c.Medium, err)
+		return 0, err
+	}
+	if status != PlacementActive {
+		return 0, fmt.Errorf("%w: %s on %q is %s", ErrPlacementRetired, c.Artifact, c.Medium, status)
 	}
 	return id, nil
+}
+
+func (j *Journal) placementRow(ctx context.Context, c CopyRef) (int64, string, error) {
+	var (
+		id     int64
+		status string
+	)
+	err := j.db.QueryRowContext(ctx, `
+		SELECT p.id, p.status FROM placements p JOIN artifacts a ON a.id = p.artifact_id
+		 WHERE a.source = ? AND a.backup_set = ? AND a.artifact_name = ? AND p.medium = ?`,
+		c.Artifact.Set.Source, c.Artifact.Set.Set, c.Artifact.Name, c.Medium).Scan(&id, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, "", fmt.Errorf("%w: %s has no copy on %q", ErrPlacementNotFound, c.Artifact, c.Medium)
+	}
+	if err != nil {
+		return 0, "", fmt.Errorf("state: find the copy of %s on %s: %w", c.Artifact, c.Medium, err)
+	}
+	return id, status, nil
 }
 
 var _ = strings.TrimSpace
