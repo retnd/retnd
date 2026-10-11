@@ -564,7 +564,7 @@ safe, not here.
 ## Getting an artifact back with `retnd recover`
 
 ```bash
-retnd recover <artifact-id> --to staging/nightly-photos
+retnd recover <artifact-id> --to <name-under-the-staging-root>
 retnd recover <artifact-id> --copy <medium> --acknowledge-cost
 retnd recover <artifact-id> --json
 ```
