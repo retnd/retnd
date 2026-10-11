@@ -388,6 +388,10 @@ func (b *BackupService) mediumForRecovery(st *configState, id string) (transport
 	return m, nil
 }
 
+// recoveryChunkSize is the verification and memory unit of a streamed
+// download. A variable so a test can use a small one.
+var recoveryChunkSize = export.DefaultChunkSize
+
 // recoveryReapEvery is how often the serving process reaps lapsed grants and
 // sweeps the staging area without a request to do it. A variable so a test
 // need not wait a minute.
