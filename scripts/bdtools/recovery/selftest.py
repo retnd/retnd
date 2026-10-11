@@ -179,7 +179,7 @@ MUTATIONS = [
     (
         "a grant that never expires",
         GRANT_GO,
-        "\tif !now.Before(e.grant.ExpiresAt) {\n\t\treturn Redemption{}, ErrGrantExpired\n\t}",
+        "\tif e.open == 0 && !now.Before(e.grant.ExpiresAt) {\n\t\treturn Redemption{}, ErrGrantExpired\n\t}",
         "\t" + PLANT + "an expired grant is honoured.\n\tif false {\n\t\treturn Redemption{}, ErrGrantExpired\n\t}",
         "want ErrGrantExpired",
         EXPORT_PKG,
@@ -202,12 +202,22 @@ MUTATIONS = [
         'ValidateName("',
         EXPORT_PKG,
         "TestAMintTimeNameCheckRefusesEveryEscapeToo",
+        # cleanTarget has a second, independent check (the containment test
+        # in noSymlinksBelowRoot), so one plant alone is absorbed by it,
+        # which is defence in depth working. Both go for this control.
+        [
+            (
+                STAGE_GO,
+                '\tif err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {',
+                "\t" + PLANT + "containment is not re-checked.\n\tif err != nil {",
+            )
+        ],
     ),
     (
         "a target that passes through a symlink",
         STAGE_GO,
         "\t\tif fi.Mode()&fs.ModeSymlink != 0 {\n\t\t\treturn ErrTargetOutsideRoot\n\t\t}",
-        "\t\t" + PLANT + "a symlink is followed.\n\t\tif false {\n\t\t\treturn ErrTargetOutsideRoot\n\t\t}",
+        "\t\t" + PLANT + "a symlink is followed.\n\t\tif false && fi.Mode()&fs.ModeSymlink != 0 {\n\t\t\treturn ErrTargetOutsideRoot\n\t\t}",
         "want ErrTargetOutsideRoot",
         EXPORT_PKG,
         "TestStagingPublishRefusesEscapes",
@@ -216,7 +226,7 @@ MUTATIONS = [
         "staging that ignores its free-space reserve",
         STAGE_GO,
         "\tif free-s.inflight-need < s.Reserve {",
-        "\t" + PLANT + "the reserve is not enforced.\n\tif false {",
+        "\t" + PLANT + "the reserve is not enforced.\n\tif false && free-s.inflight-need < s.Reserve {",
         "want ErrBelowReserve",
         EXPORT_PKG,
         "TestStagingRefusesBelowTheReserve|TestStageBelowReserveRefusesBeforeOpeningTheCopy",
@@ -251,8 +261,8 @@ MUTATIONS = [
     (
         "a served range that writes no action-log row",
         RECOVER_RUN_GO,
-        "\td.b.auditRecovery(context.Background(), &ev, err)\n",
-        "\t" + PLANT + "a served range is not audited.\n\t_ = &ev\n",
+        "\td.b.auditRecovery(context.Background(), &ev, err)\n\tif err != nil || (d.size == 0 || end >= d.size-1) {",
+        "\t" + PLANT + "a served range is not audited.\n\t_ = &ev\n\tif err != nil || (d.size == 0 || end >= d.size-1) {",
         "should write 51 rows",
         SERVICE_PKG,
         "TestEveryMintAndEveryServedRange",
@@ -396,7 +406,7 @@ MUTATIONS = [
         "a local copy that is a symlink or a fifo, opened anyway",
         RECOVER_GO,
         "\t\tif !fi.Mode().IsRegular() {\n\t\t\treturn nil, recoveryErr(RecoveryNotReadable,",
-        "\t\t" + PLANT + "any file type is opened.\n\t\tif false {\n\t\t\treturn nil, recoveryErr(RecoveryNotReadable,",
+        "\t\t" + PLANT + "any file type is opened.\n\t\tif false && !fi.Mode().IsRegular() {\n\t\t\treturn nil, recoveryErr(RecoveryNotReadable,",
         "must be refused",
         SERVICE_PKG,
         "TestALocalCopyThatIsASymlink",
@@ -449,11 +459,15 @@ def body(root: Path, dry_run: bool) -> int:
         for label, where, pattern in CLEAN_CONTROLS:
             expect_passes(tracker, tally, f"{label} on an unmutated tree", root, where, pattern)
 
-        for i, (label, rel, old, new, needle, where, pattern) in enumerate(MUTATIONS):
+        for i, entry in enumerate(MUTATIONS):
+            label, rel, old, new, needle, where, pattern = entry[:7]
+            extras = entry[7] if len(entry) > 7 else []
             print()
             print(f"==> {label}")
             d = selftest_swap.mutant(root, tmp, f"recovery-{i:02d}", dry_run=dry_run)
             tracker.swap(d / rel, old, new)
+            for extra_rel, extra_old, extra_new in extras:
+                tracker.swap(d / extra_rel, extra_old, extra_new)
             expect_fails(tracker, tally, label, d, needle, where, pattern)
 
         tracker.stale_summary()
