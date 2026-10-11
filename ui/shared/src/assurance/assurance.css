@@ -25,6 +25,8 @@
 [data-state="never_run"] > .achip { background: var(--surface); }
 [data-state="unknown"] > .achip { border-style: dashed; border-color: var(--accent); background: var(--accent-quiet); }
 [data-state="unknown"] .achip__glyph { color: var(--accent); }
+[data-state="cleanup_failed"] > .achip { border-style: double; border-width: 4px; border-color: var(--warn); background: var(--warn-quiet); }
+[data-state="cleanup_failed"] .achip__glyph { color: var(--warn); }
 [data-state="requires_restore"] > .achip { border-left-width: 6px; border-color: var(--accent); background: var(--accent-quiet); }
 [data-state="requires_restore"] .achip__glyph { color: var(--accent); }
 [data-state="no_readable_copy"] > .achip { border-width: 2px; border-color: var(--danger); background: var(--danger-quiet); text-decoration: underline wavy var(--danger); }
@@ -37,6 +39,9 @@
 .aop__bar { height: 10px; border-radius: var(--radius-pill); background: var(--surface-3); border: 1px solid var(--border-strong); overflow: hidden; }
 .aop__bar > i { display: block; height: 100%; background: var(--accent); }
 .aop__lines { margin: 0; padding: var(--space-2) var(--space-3); list-style: none; background: var(--term-bg); color: var(--term-text); border-radius: var(--radius-md); font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.7; max-height: 160px; overflow: auto; }
+.aop__bar[data-indeterminate] > i { width: 35%; animation: aop-slide 1.6s ease-in-out infinite alternate; }
+@keyframes aop-slide { from { margin-left: 0; } to { margin-left: 65%; } }
+@media (prefers-reduced-motion: reduce) { .aop__bar[data-indeterminate] > i { animation: none; width: 100%; } }
 .aop__outcome { font-weight: 600; color: var(--text); }
 
 .aknob { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: baseline; padding: 6px 8px; background: var(--surface-3); border-radius: var(--radius-md); border: 1px dashed var(--border-strong); font-size: var(--text-sm); color: var(--text); }
@@ -52,3 +57,14 @@
    colours in both themes. Inside the assurance surfaces it takes the body's
    secondary ink instead; the shared component is untouched. */
 [data-assurance] .eyebrow { color: var(--text-2); }
+
+/* The shared help pop-ups draw their "for example" lead and their close
+   control in --text-3, which is 3.35:1 on the light surface and 3.85:1 on the
+   dark one, under the 4.5:1 text minimum. Inside the assurance surfaces they
+   take the body's secondary ink instead (6.64:1 and 6.89:1); the shared
+   component and the token are untouched. */
+[data-assurance] .fieldhelp__example-lead,
+[data-assurance] .fieldhelp__close,
+[data-assurance] .tooltip__icon,
+[data-assurance] .tooltip__close,
+[data-assurance] .tooltip__trigger { color: var(--text-2); }

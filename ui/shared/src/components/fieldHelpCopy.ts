@@ -99,24 +99,52 @@ export const FIELD_HELP = {
   // ------------------------------------------------------------ assurance
 
   assuranceScrubEvery: {
-    what: "How often every backup set that inherits scrubs its recorded copies and compares their digests.",
+    what: "How often every backup set that follows the deployment re-reads its recorded copies and compares their digests.",
     example: "7d",
     effect:
-      "Saves 7d as the deployment's cadence. Every set set to Inherit then reads Inheriting: scrub every 7d, and a set with its own Custom value keeps that value. A number and a unit of d or h is the only shape accepted; anything else is refused and nothing changes."
+      "Saves 7d as the deployment's cadence. Every set that follows the deployment then scrubs every 7d, and a set with its own policy keeps its value. A whole number with a unit of s, m, h or d, and nothing under 1h, is the only shape accepted; anything else is refused and nothing changes."
+  },
+
+  assuranceScrubStrategy: {
+    what: "What a scrub reads. Auto picks the strongest read the copy's destination allows at no cost, existence only checks the copy is still there and the right size, content re-reads and re-hashes every byte.",
+    example: "auto",
+    effect:
+      "Saves the choice. An existence check is never reported as content verification, and a content read of a copy on a storage medium costs egress, so a scheduled scrub never does it on its own."
+  },
+
+  assuranceRecoveryTestMode: {
+    what: "Whether a recovery test runs on a schedule. Off never runs one. Required runs one on its cadence and the set is not assured without it.",
+    example: "required",
+    effect:
+      "Saves the mode. Required needs a validator, and the server refuses the save until one is named. A scheduled test never thaws an archive."
+  },
+
+  assuranceRecoveryTestEvery: {
+    what: "How often a recovery test is due.",
+    example: "30d",
+    effect:
+      "Saves the cadence. A whole number with a unit of s, m, h or d, and nothing under 1h. Empty returns to the default."
+  },
+
+  assuranceValidator: {
+    what: "The validator the recovery test runs over the recovered copy. The server resolves this name; it is a name, never a path.",
+    example: "pg-restore-check",
+    effect:
+      "Saves the name. The engine recovers the newest known good copy to isolated staging, re-reads it and checks its digest, and only then runs your script. The script cannot write Content verified or Recovery tested: the engine records both."
   },
 
   assuranceSetScrubEvery: {
     what: "How often this one backup set scrubs, instead of following the deployment's cadence.",
     example: "12h",
     effect:
-      "Saves 12h for this set only, once the policy is saved as Custom. Changing the deployment's cadence afterwards does not move this set, which is the point of Custom and the reason Inherit exists."
+      "Saves 12h for this set only, as part of the set's own policy. Changing the deployment's cadence afterwards does not move this set, which is the point of an own policy."
   },
 
   assuranceSetValidator: {
-    what: "The validator this set's recovery test runs against the recovered copy.",
-    example: "check-dump",
+    what: "The validator this set's recovery test runs over the recovered copy, as a name the server resolves.",
+    example: "pg-restore-check",
     effect:
-      "Saves check-dump as this set's validator reference once the policy is saved as Custom. A recovery test then recovers into the isolated staging path and runs it there, and its exit status and bounded output are what the Show validator output button displays."
+      "Saves the name as part of this set's own policy. The script itself is NAME.local.sh under recovery-test/<source>/<set> in the workflow root, run by the engine after it has re-read the copy and matched its digest. Its exit status and bounded output are what Show validator output displays, beside the hash the engine recorded for the script that ran."
   },
 
   // ---------------------------------------------------------------- auth

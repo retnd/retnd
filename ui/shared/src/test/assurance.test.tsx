@@ -18,7 +18,7 @@ const NOW = Date.parse("2026-10-10T12:00:00Z");
 const ago = (days: number) => new Date(NOW - days * 86_400_000).toISOString();
 const STATUSES: ClaimStatus[] = [
   "unknown", "never_configured", "never_run", "pass", "overdue", "refused_for_cost",
-  "could_not_complete", "failed", "requires_restore", "no_readable_copy"
+  "could_not_complete", "failed", "requires_restore", "no_readable_copy", "cleanup_failed"
 ];
 const CLASSES: AchievedClass[] = ["", "content", "attested", "existence"];
 
@@ -58,13 +58,29 @@ describe("a pass is derived from the record, never carried by it", () => {
   it("every state has its own glyph and its own words", () => {
     const seen = new Set<string>();
     const words = new Set<string>();
-    for (const status of STATUSES.filter((s) => s !== "pass")) {
+    // Cleanup is a fact about a recovery test's staged copy, so a content
+    // record that claims it is unreadable and renders as unknown.
+    for (const status of STATUSES.filter((s) => s !== "pass" && s !== "cleanup_failed")) {
       const r = renderClaim("content", { status, achievedClass: "content", at: ago(2) }, NOW);
       seen.add(r.glyph.id);
       words.add(r.label);
     }
     expect(seen.size).toBe(9);
     expect(words.size).toBe(9);
+    const rec = new Set<string>();
+    for (const status of STATUSES.filter((s) => s !== "pass")) {
+      rec.add(renderClaim("recovery", { status, achievedClass: "content", at: ago(2) }, NOW).label);
+    }
+    expect(rec.size).toBe(10);
+    expect(renderClaim("content", { status: "cleanup_failed", achievedClass: "content", at: ago(2) }, NOW).state).toBe("unknown");
+  });
+
+  it("a recovery test that passed but left its staged copy behind is not a pass", () => {
+    const r = renderClaim("recovery", { status: "cleanup_failed", achievedClass: "content", at: ago(2) }, NOW);
+    expect(r.state).toBe("cleanup_failed");
+    expect(r.label).toMatch(/cleanup failed/i);
+    expect(r.label).not.toMatch(/passed/i);
+    expect(tally([{ content: { status: "pass", achievedClass: "content", at: ago(1) }, recovery: { status: "cleanup_failed", achievedClass: "content", at: ago(2) } }], NOW).degraded).toBe(1);
   });
 
   it("stored is a fact about copies and never a pass", () => {
@@ -76,6 +92,17 @@ describe("a pass is derived from the record, never carried by it", () => {
   it("unknown is due", () => {
     const u = { status: "unknown" as ClaimStatus, achievedClass: "" as AchievedClass };
     expect(tally([{ content: u, recovery: u }], NOW).due).toBe(1);
+  });
+
+  it("an overdue recovery test makes a set due and overdue even when its content is fresh", () => {
+    const fresh = { status: "pass" as ClaimStatus, achievedClass: "content" as AchievedClass, at: ago(1) };
+    const stale = { status: "overdue" as ClaimStatus, achievedClass: "content" as AchievedClass, at: ago(70) };
+    const t = tally([{ content: fresh, recovery: stale }], NOW);
+    expect(t.due).toBe(1);
+    expect(t.overdue).toBe(1);
+    // and a test nobody asked for is not a deadline
+    const none = { status: "never_configured" as ClaimStatus, achievedClass: "" as AchievedClass };
+    expect(tally([{ content: fresh, recovery: none }], NOW).due).toBe(0);
   });
 });
 

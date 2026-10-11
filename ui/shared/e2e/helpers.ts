@@ -17,8 +17,10 @@ export function row(page: Page, filename: string) {
 
 /** WCAG relative-luminance contrast of every text node under `selector`
  *  against its effective background, measured in the browser so the theme's
- *  real computed colours are what is judged. Returns the failures. */
-export async function contrastFailures(page: Page, selector: string) {
+ *  real computed colours are what is judged. Returns every measurement, with
+ *  the ratio it needs: 4.5 for normal text, 3 for large text (24px, or
+ *  18.66px at weight 700 or more). */
+export async function contrastReport(page: Page, selector: string) {
   return page.evaluate((sel) => {
     const c = document.createElement("canvas").getContext("2d")!;
     const rgb = (s: string): number[] => {
@@ -33,7 +35,7 @@ export async function contrastFailures(page: Page, selector: string) {
       const f = (v: number) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
       return 0.2126 * f(a[0]) + 0.7152 * f(a[1]) + 0.0722 * f(a[2]);
     };
-    const out: string[] = [];
+    const out: Array<{ text: string; ratio: number; need: number; fg: string; bg: string }> = [];
     document.querySelectorAll(sel + ", " + sel + " *").forEach((e) => {
       const own = [...e.childNodes].some((n) => n.nodeType === 3 && (n.textContent ?? "").trim());
       if (!own) return;
@@ -52,8 +54,47 @@ export async function contrastFailures(page: Page, selector: string) {
       const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
       const px = parseFloat(cs.fontSize);
       const need = px >= 24 || (px >= 18.66 && parseInt(cs.fontWeight) >= 700) ? 3 : 4.5;
-      if (ratio < need) out.push((e.textContent ?? "").trim().slice(0, 40) + " " + ratio.toFixed(2));
+      out.push({
+        text: (e.textContent ?? "").trim().slice(0, 40), ratio: Math.round(ratio * 100) / 100, need,
+        fg: fg.slice(0, 3).join(","), bg: bg.slice(0, 3).join(",")
+      });
     });
     return out;
   }, selector);
+}
+
+/** The measurements that fail their threshold, as "text ratio" strings. */
+export async function contrastFailures(page: Page, selector: string) {
+  return (await contrastReport(page, selector)).filter((m) => m.ratio < m.need).map((m) => m.text + " " + m.ratio.toFixed(2));
+}
+
+/** Measures, prints the worst ratio per distinct text colour and background,
+ *  and returns the failures. The printed lines are what the PR quotes. */
+export async function measureContrast(page: Page, label: string, selector: string) {
+  const all = await contrastReport(page, selector);
+  const worst = new Map<string, (typeof all)[number]>();
+  for (const m of all) {
+    const k = m.fg + " on " + m.bg;
+    const w = worst.get(k);
+    if (!w || m.ratio < w.ratio) worst.set(k, m);
+  }
+  for (const [k, m] of worst) {
+    console.log("CONTRAST " + label + " | " + m.ratio.toFixed(2) + ":1 (needs " + m.need + ") | rgb(" + k.replace(" on ", ") on rgb(") + ") | " + JSON.stringify(m.text));
+  }
+  return all.filter((m) => m.ratio < m.need).map((m) => m.text + " " + m.ratio.toFixed(2));
+}
+
+/** Sets the theme the way the app's own switch does. */
+export async function setTheme(page: Page, theme: "light" | "dark") {
+  await page.evaluate((t) => document.documentElement.setAttribute("data-theme", t), theme);
+}
+
+/** Navigates inside the running app without reloading it. The development
+ *  build keeps its settings in the page's memory, so a full load would drop
+ *  exactly the state a spec is trying to carry from one screen to the next. */
+export async function spaGo(page: Page, path: string) {
+  await page.evaluate((p) => {
+    window.history.pushState({}, "", p);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, path);
 }

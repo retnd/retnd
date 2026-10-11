@@ -21,13 +21,15 @@
  *
  * # Where these shapes come from
  *
- * The routes behind {@link AssuranceApi} belong to the recovery, scrub and
- * recovery-test work of the same epic and had not merged when this was
- * written. These are therefore the shapes the issues describe, held behind
- * one interface so that landing the real client replaces the implementation
- * and not the screens. Until then the production client does not offer it,
- * and every surface renders `unknown` rather than a tick (api/contracts.ts
- * declares `assurance` optional for exactly that reason).
+ * The settings, per-set policy and schedule (#982), the recovery mint and
+ * redeem (#976) and the copies' verification records (#978) are real routes
+ * and the screens call them through the ordinary client. What the server does
+ * NOT offer yet is a route to start a scrub or a recovery test, to follow one,
+ * to read the recovery-test claim, or to read a validator's output: the
+ * scrub runs from the daemon's schedule and `retnd scrub`, and the recovery
+ * test from the schedule alone. {@link AssuranceApi} is the one seam for the
+ * claims and for those missing operations, and `offers` says which of them
+ * the connected server really has, so a surface never fabricates one.
  */
 
 export type ClaimStatus =
@@ -40,7 +42,11 @@ export type ClaimStatus =
   | "could_not_complete"
   | "failed"
   | "requires_restore"
-  | "no_readable_copy";
+  | "no_readable_copy"
+  /** The recovery test itself concluded, but the staged copy it made could
+   *  not be removed. A pass nobody should read as clean, and not a failure of
+   *  the copy either, so it is its own state. */
+  | "cleanup_failed";
 
 /** The strongest verification class a copy has actually ACHIEVED, never the
  *  one configured (placements.verification_class). Only `content` is content
@@ -60,35 +66,6 @@ export interface ArtifactAssurance {
   copies: number;
   content: ClaimRecord;
   recovery: ClaimRecord;
-}
-
-export type SetAssuranceMode = "inherit" | "off" | "required" | "custom";
-
-export interface SetAssurance {
-  setId: string;
-  mode: SetAssuranceMode;
-  /** What the set resolves to now, spelled the way the global field is. */
-  resolvedScrubEvery: string;
-  /** Present for `custom`. */
-  customScrubEvery?: string;
-  customValidator?: string;
-  /** The set's latest backup, whose claims the section shows. */
-  latest?: ArtifactAssurance;
-}
-
-/** The four knobs that belong to the host and the process. They are read
- *  here and never written, and no per-set shape carries any of them: the
- *  per-set answer is "no", in writing (docs/design/984-recovery-assurance). */
-export interface HostKnobs {
-  stagingRoot: string;
-  stagingTtl: string;
-  concurrency: string;
-  downloadMemoryBudget: string;
-}
-
-export interface AssuranceSettings {
-  scrubEvery: string;
-  host: HostKnobs;
 }
 
 export type OperationKind = "scrub" | "recovery_test";
@@ -121,36 +98,16 @@ export interface OperationFeed {
   nextCursor: number;
 }
 
-export type RecoveryTarget = "browser" | "staging" | "destination";
-export type RecoveryState = "running" | "complete" | "cancelled" | "failed";
-
-export interface RecoveryRequest {
-  target: RecoveryTarget;
-  /** Staging sub-name or destination id, by target. */
-  where?: string;
-  /** Explicit acknowledgement of an archival thaw's cost. Absent means the
-   *  server refuses a read that costs money (never a silent spend). */
-  acknowledgeCost?: boolean;
-}
-
-export interface Recovery {
-  id: string;
-  artifactId: string;
-  target: RecoveryTarget;
-  state: RecoveryState;
-  bytes: number;
-  totalBytes: number;
-  /** Where a browser target streams from; empty for the other targets. */
-  streamUrl: string;
-}
-
-export interface ArchivalCost {
-  provider: string;
-  tier: string;
-  estimate: string;
-}
-
 export interface ValidatorResult {
+  /** What the engine recorded about the run, none of which the script
+   *  chooses: the artifact and copy it recovered, the validator script's
+   *  file name and the hash of the bytes that actually ran. */
+  artifactId?: string;
+  copy?: string;
+  validatorName?: string;
+  validatorSha256?: string;
+  /** How the script ended. Its exit status is one input to the engine's
+   *  verdict and never the verdict itself. */
   exitStatus: number;
   durationMs: number;
   /** Untrusted terminal input. Rendered inert (ValidatorLog.tsx). */
@@ -160,16 +117,27 @@ export interface ValidatorResult {
   truncatedBytes: number;
 }
 
+/** Which parts of the seam the connected server really offers. A part it
+ *  does not offer is not mocked in production: the screen says so and shows
+ *  the terminal command that does exist. */
+export interface AssuranceOffers {
+  /** Start a scrub or a recovery test from the browser, follow it and cancel
+   *  it. No such route exists in the contract today. */
+  operations: boolean;
+  /** Read the recovery-test claim and the validator's last output. No such
+   *  route exists in the contract today. */
+  recoveryClaim: boolean;
+}
+
 export interface AssuranceApi {
+  offers: AssuranceOffers;
+  /** The three claims of every backup (or of one set's), composed from what
+   *  the server does record: each copy's achieved verification class and
+   *  time, its access, and the scrub schedule. */
   listArtifactAssurance(setId?: string): Promise<ArtifactAssurance[]>;
   getArtifactAssurance(artifactId: string): Promise<ArtifactAssurance>;
-  /** Present when the artifact's only readable copy is archived. */
-  getArchivalCost(artifactId: string): Promise<ArchivalCost | null>;
-  getSetAssurance(setId: string): Promise<SetAssurance>;
-  putSetAssurance(setId: string, mode: SetAssuranceMode, custom?: { scrubEvery: string; validator: string }): Promise<SetAssurance>;
-  getSettings(): Promise<AssuranceSettings>;
-  putSettings(scrubEvery: string): Promise<AssuranceSettings>;
 
+  // Everything below exists only when `offers.operations` is true.
   startScrub(setId: string): Promise<Operation>;
   startRecoveryTest(setId: string): Promise<Operation>;
   /** The set's operation that is still running, if one is: what a reload
@@ -179,11 +147,4 @@ export interface AssuranceApi {
   cancelOperation(operationId: string): Promise<void>;
   /** The set's most recent recovery test's validator, or null when none has run. */
   getValidatorResult(setId: string): Promise<ValidatorResult | null>;
-
-  createRecovery(artifactId: string, req: RecoveryRequest): Promise<Recovery>;
-  getRecovery(recoveryId: string): Promise<Recovery>;
-  /** The artifact's recovery that is still running, if any: what a reload
-   *  asks, so it attaches to the live one and never starts a second. */
-  activeRecovery(artifactId: string): Promise<Recovery | null>;
-  cancelRecovery(recoveryId: string): Promise<void>;
 }

@@ -1985,31 +1985,31 @@
   },
   "assurance.claim.recoveryTested": {
     "label": "Recovery tested",
-    "html": "Whether the artifact was recovered to an isolated path, re-read end to end, matched its recorded digest and passed the validator, and how long ago. Reachability alone never counts."
+    "html": "Whether the engine recovered the artifact to an isolated path, re-read it end to end, matched its recorded digest, and only then ran your validator script, and how long ago. The engine records this claim. A script cannot write it, and reachability alone never counts."
   },
   "assurance.recover.artifact": {
     "label": "Recover artifact",
-    "html": "Hands you the retained artifact itself. It does not rebuild the application that produced it; that stays yours to do."
+    "html": "Hands you the retained artifact itself, after the host has read all of it and matched it to the digest it recorded. It does not rebuild the application that produced it; that stays yours to do."
   },
   "assurance.recover.target": {
     "label": "Recovery target",
-    "html": "Where the artifact is put: streamed to this browser, written under the host's staging root, or sent to a destination this deployment already declares."
+    "html": "Where the artifact is put: downloaded by this browser, written under the host's staging root, or sent to a destination this deployment already declares. Nothing is written or sent until the whole copy has matched its recorded digest."
   },
   "assurance.recover.thawCost": {
     "label": "Thaw cost",
-    "html": "The provider charges to make an archived copy readable and the thaw takes the time shown. Nothing is thawed until this is ticked and the button pressed."
+    "html": "The provider bills to make an archived copy readable and the restore takes hours it does not predict. retnd knows no price and no finishing time, so it shows neither. Nothing is restored until this is ticked and the button pressed."
   },
   "assurance.scrub.now": {
     "label": "Scrub now",
-    "html": "Reads this set's recorded copies and compares their digests now, instead of waiting for the schedule. It never thaws an archive."
+    "html": "Reads this set's recorded copies and compares their digests now, instead of waiting for the schedule. It never restores an archive."
   },
   "assurance.recoveryTest.run": {
     "label": "Run recovery test",
-    "html": "Recovers the latest backup to an isolated path, re-reads it, checks the digest and then runs this set's validator against it."
+    "html": "Recovers the newest known good copy to an isolated path, re-reads it, checks the digest and only then runs this set's validator script against it. The engine records the result."
   },
   "assurance.settings.card": {
     "label": "Assurance settings",
-    "html": "The deployment-wide defaults for scrubbing and recovery tests. A set that inherits follows them; the four host-scoped values are shown here and cannot be set per set."
+    "html": "The deployment-wide defaults for scrubbing and recovery tests. A set that follows the deployment uses them; the host-scoped values are shown here with the reason they cannot be set per set."
   },
   "assurance.set.section": {
     "label": "Set assurance",
@@ -2017,7 +2017,7 @@
   },
   "assurance.set.mode": {
     "label": "Assurance policy",
-    "html": "<strong>Inherit</strong> follows the deployment setting and shows the cadence it resolves to. <strong>Off</strong> turns assurance off for this set, so its claims read <em>Not configured</em>. <strong>Custom</strong> gives this set its own scrub cadence and validator."
+    "html": "<strong>Follow the deployment</strong> shows what the deployment setting resolves to for this set. <strong>This set's own policy</strong> pins this set's scrub cadence and reads and its recovery test, and a later change to the deployment does not move it."
   },
   "assurance.artifact.card": {
     "label": "Backup assurance",
@@ -2033,6 +2033,6 @@
   },
   "assurance.dashboard.card": {
     "label": "Assurance summary",
-    "html": "<strong>Due</strong> counts backups whose content check is unknown, never run or overdue. <strong>Overdue</strong> counts those that last passed too long ago. <strong>Degraded</strong> counts failed, incomplete or unreadable ones. A count is never shown as zero when it could not be read."
+    "html": "<strong>Due</strong> counts backups whose content check is unknown, never run or overdue, and those whose recovery test is overdue. <strong>Overdue</strong> counts those where either check last passed too long ago. <strong>Degraded</strong> counts failed, incomplete or unreadable ones. A count is never shown as zero when it could not be read."
   }
 }

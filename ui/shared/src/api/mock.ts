@@ -58,7 +58,7 @@ import type {
   SystemHealth,
   VersionInfo
 } from "@shared/types/operation";
-import { assuranceLiveEvents, createMockAssurance } from "@shared/assurance/mockAssurance";
+import { assuranceLiveEvents, createMockAssurance, createMockRecovery, overlayThaw } from "@shared/assurance/mockAssurance";
 import type { DeploymentActivity, SetActivity, SetActivityEvent } from "@shared/types/activity";
 
 /** Development fixtures. Covers every scenario the brief requires (§42):
@@ -107,7 +107,18 @@ export type Scenario =
   | "assurance-download-slow"
   | "assurance-download-fails"
   | "assurance-slow-test"
-  | "assurance-validator-output";
+  | "assurance-validator-output"
+  | "assurance-no-operations"
+  | "assurance-cleanup-fails"
+  | "assurance-recovery-overdue"
+  | "assurance-snapshot-set"
+  | "assurance-too-many-grants"
+  | "assurance-grant-expired"
+  | "assurance-grant-used"
+  | "assurance-session-ended"
+  | "assurance-staging-full"
+  | "assurance-reads-busy"
+  | "assurance-corrupt-copy";
 
 /** Reads the scenario out of the URL, falling back to the default for
  *  anything unrecognised. A closed allow-list rather than a cast, so a
@@ -120,7 +131,11 @@ export function scenarioFromLocation(): Scenario {
     "version-mismatch", "first-run", "no-medium", "activity-unreadable",
     "read-only-source", "assurance-split", "assurance-more", "assurance-existence", "assurance-rebuilt",
     "assurance-unavailable", "assurance-scrub-fails", "assurance-download-slow",
-    "assurance-download-fails", "assurance-slow-test", "assurance-validator-output"
+    "assurance-download-fails", "assurance-slow-test", "assurance-validator-output",
+    "assurance-no-operations", "assurance-cleanup-fails", "assurance-recovery-overdue",
+    "assurance-snapshot-set", "assurance-too-many-grants", "assurance-grant-expired",
+    "assurance-grant-used", "assurance-session-ended", "assurance-staging-full",
+    "assurance-reads-busy", "assurance-corrupt-copy"
   ];
   return (allowed as string[]).includes(s ?? "") ? (s as Scenario) : "default";
 }
@@ -3854,6 +3869,7 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
   // test must not be visible to the next.
   const workflowSettings = defaultWorkflowSettings();
   const assuranceSettings = defaultAssuranceSettings();
+  const mockRecovery = createMockRecovery(scenario);
   // Per-set overrides, keyed by source/set. Modelled the way the service
   // resolves them: a set follows the deployment for every field it does not
   // pin, so a global patch moves it.
@@ -4175,7 +4191,7 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
       delay({ id: "key_mock_" + Math.random().toString(36).slice(2, 10), algorithm: "ssh-ed25519", fingerprint: mockCandidateFingerprint }),
 
     listArtifacts: (setId) =>
-      delay(empty ? [] : artifacts.filter((a) => !a.quarantine && (!setId || a.setId === setId))),
+      delay(empty ? [] : artifacts.filter((a) => !a.quarantine && (!setId || a.setId === setId)).map(overlayThaw)),
     // An id this fixture does not have is a refusal, not the first
     // artifact. The fallback that used to be here answered every wrong id
     // with a real page about somebody else's backup, which is the same
@@ -4186,7 +4202,7 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
     getArtifact: (id) => {
       const found = artifacts.find((a) => a.id === id);
       return found
-        ? delay(found)
+        ? delay(overlayThaw(found))
         : delay(null).then(() => {
             throw new RetndError({
               code: "ARTIFACT_NOT_FOUND",
@@ -5238,6 +5254,11 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
       workflowHolds = workflowHolds.filter((hold) => hold.runId !== runId);
       return delay(undefined, 400);
     },
+
+    // EPIC Q (#976): the recovery mint and redeem, with the fixtures the
+    // assurance scenarios choose between.
+    mintRecovery: (artifactId, req) => mockRecovery.mintRecovery(artifactId, req),
+    redeemRecovery: (grant) => mockRecovery.redeemRecovery(grant),
 
     getAssuranceSettings: () => delay(structuredClone(assuranceSettings)),
     patchAssuranceSettings: (patch) => {

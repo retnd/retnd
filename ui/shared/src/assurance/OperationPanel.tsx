@@ -12,9 +12,8 @@
 import "./assurance.css";
 import { Link } from "react-router-dom";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
-import { CommandEcho } from "@shared/pages/CommandEcho";
 import { bytes } from "@shared/utilities/format";
-import { cancelOperationCommand } from "./assuranceCommands";
+import { stageLabel } from "./stages";
 import type { Operation, OperationEvent } from "./types";
 
 const KIND_LABEL = { scrub: "Scrub", recovery_test: "Recovery test" } as const;
@@ -53,7 +52,7 @@ export function OperationPanel({
     >
       <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
         <strong>{KIND_LABEL[operation.kind]}</strong>
-        {running ? <span>{"stage: " + operation.stage}</span> : <span className="aop__outcome" role="status">{outcome}</span>}
+        {running ? <span data-testid="stage-label">{"Stage: " + stageLabel(operation.stage)}</span> : <span className="aop__outcome" role="status">{outcome}</span>}
         <span style={{ flex: 1 }} />
         <span className="mono" style={{ fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
           {bytes(operation.bytes) + " of " + bytes(operation.totalBytes)}
@@ -92,7 +91,6 @@ export function OperationPanel({
           </InfoTooltip>
         ) : null}
       </div>
-      {running ? <CommandEcho label="Same thing from the terminal" commands={[cancelOperationCommand(operation.id)]} /> : null}
     </div>
   );
 }

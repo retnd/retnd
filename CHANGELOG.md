@@ -37,6 +37,25 @@
     it reads, and six new alert kinds: scrub overdue and failing, recovery test overdue
     and failing, no readable copy, and archive-only recoverability.
 
+- **The web UI shows what a backup's copies actually claim, and recovers them** (#985,
+  EPIC Q Q2.2). Every backup carries three separate claims on the Backups list, the
+  backup page and the dashboard: Stored (how many copies), Content verified (built
+  from each copy's achieved verification class and time, so an existence check never
+  reads as content verification) and Recovery tested. There is no roll-up. The
+  Recover artifact dialog mints a grant, then has the host read the whole copy and
+  match it to the recorded digest before a byte is sent; a browser download is handed
+  to the browser and the page does not claim the file arrived, while a staging or
+  destination recovery reports the digest the host placed. An archived copy is a
+  restore request first (cost acknowledged, no price or time shown, because none is
+  known) and a recovery once the provider has made it readable. Settings carries the
+  deployment's assurance block, and each backup set can follow it or pin its own
+  policy.
+  - **Not offered, and not faked.** The API has no route to start a scrub or a
+    recovery test from the browser, to follow one, to read the recovery-test claim or
+    to read a validator's output. On a server without them the set page shows the
+    `retnd scrub` command and says the schedule does the rest; the Recovery claim
+    reads Unknown, or Not configured when the set's own policy turns the test off.
+
 ## [0.5.1] - 2026-10-04
 
 0.5.1 is 0.5.0 plus the one logo. 0.5.0 was published without it: the logo
