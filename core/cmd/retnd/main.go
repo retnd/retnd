@@ -544,6 +544,31 @@ commands:
   settings workflow env unset NAME               remove one variable. A name that is not configured is refused rather than
                                                   quietly succeeding: an "unset the credential" that did nothing is
                                                   indistinguishable from one that worked
+  settings assurance [--json]                    report the resolved deployment-wide assurance policy: how often a copy is
+                                                  re-read, what a scrub reads, whether a recovery test is required, and the
+                                                  host-scoped settings that are global only, each with the reason a backup
+                                                  set cannot override it. A config that sets none reports the defaults
+  settings assurance patch [--scrub-cadence D] [--scrub-strategy S] [--recovery-test-mode M]
+                        [--recovery-test-cadence D] [--recovery-test-validator ID]
+                        [--staging-root P] [--staging-ttl D] [--max-concurrent-full-reads N]
+                        [--max-per-destination N] [--web-download-memory-bytes N] [--json]
+                                                  change the deployment's policy in place. An explicitly zero or empty value
+                                                  clears that setting back to its default. Every set that inherits the
+                                                  changed value decides under it on its next read. This write has no route
+                                                  to a serving engine in this build, so it is refused beside one with the
+                                                  file untouched
+  settings assurance due [--backup-set ID] [--due | --overdue] [--json]
+                                                  the scrub schedule, most overdue first: each copy's last-assured time, when
+                                                  it is next due under its set's resolved cadence, and whether that has
+                                                  passed. A copy nobody has looked at is overdue, never fine
+  backup-set assurance <source/backup-set> [--json]
+                                                  one backup set's resolved assurance policy and whether it is the set's own
+  backup-set assurance <source/backup-set> [--scrub-cadence D] [--scrub-strategy S]
+                          [--recovery-test-mode M] [--recovery-test-cadence D]
+                          [--recovery-test-validator ID] | --reset
+                                                  patch that set's own block, or --reset it to follow the deployment's policy
+                                                  again. The host-scoped settings are refused here by name: they are global
+                                                  only. Refused beside a serving engine, with the file untouched
   backup-set workflow <source/backup-set> [--json]
                                                   one backup set's hook configuration, resolved against the deployment's:
                                                   the stages it will actually run in execution order, which timeout wins
