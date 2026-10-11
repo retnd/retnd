@@ -269,3 +269,60 @@ func TestScrub_AnExistenceOnlyOtherCopyDoesNotSaveTheArtifact_C4(t *testing.T) {
 		t.Errorf("a rotted local copy beside an existence-only copy left the artifact %s, want QUARANTINED_LOST", st)
 	}
 }
+
+// S2 / C3: the two host ceilings an operator can write
+// (assurance.max_concurrent_full_reads, assurance.max_per_destination) are the
+// ones the scrub's reads are admitted under. Before this the scrub used its own
+// 4 and 2, so a default install read twice as wide as the setting it shows.
+func TestScrub_ReadsAreAdmittedUnderTheAssuranceCeilings_C3(t *testing.T) {
+	bs := testBackupSet(t, t.TempDir())
+	svc, _ := scrubService(t, config.Revalidation{}, bs)
+	if g, d := svc.scrubLimitsShared().Caps(); g != config.DefaultMaxConcurrentReads || d != config.DefaultMaxPerDestination {
+		t.Errorf("a default install admits %d reads (%d per destination), want the assurance defaults %d and %d",
+			g, d, config.DefaultMaxConcurrentReads, config.DefaultMaxPerDestination)
+	}
+
+	svc2, _ := scrubService(t, config.Revalidation{}, testBackupSet(t, t.TempDir()))
+	svc2.Config.Assurance.MaxConcurrentFullReads = 3
+	svc2.Config.Assurance.MaxPerDestination = 2
+	if g, d := svc2.scrubLimitsShared().Caps(); g != 3 || d != 2 {
+		t.Errorf("with the ceilings set to 3 and 2 the scrub admits %d (%d per destination)", g, d)
+	}
+}
+
+// C5, at the lifecycle: a failure read from bytes that were rewritten while
+// they were being read is a fact about bytes that are gone. The verdict is
+// refused (above); the artifact must not be quarantined over it either, or the
+// scrub invents a loss for a copy that was just replaced.
+func TestScrub_AFailureForBytesRewrittenDuringTheReadDoesNotQuarantine_C5(t *testing.T) {
+	ctx := context.Background()
+	bs := testBackupSet(t, t.TempDir())
+	svc, journal := scrubService(t, config.Revalidation{}, bs)
+	a := seedMovableArtifact(t, ctx, journal, bs, "replaced.dump", retentionTestNow.Add(-48*time.Hour))
+	p := localCopyOf(t, journal, a)
+	if err := os.WriteFile(filepath.Join(bs.LocalPath, "replaced.dump"), []byte("rotted"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	svc.Journal = &rewriteBeforeRecord{Journal: journal, rewrite: func() {
+		size := int64(1)
+		if _, err := journal.RecordTransition(ctx, state.Transition{
+			Artifact: a, Key: "replaced-mid-read", From: string(lifecycle.Complete), To: string(lifecycle.Complete),
+			OccurredAt: retentionTestNow,
+			Placement:  &state.PlacementUpdate{Medium: state.MediumLocal, Location: p.Location, Size: &size, Hash: "ffff", HashAlg: "sha256", Status: state.PlacementActive},
+		}); err != nil {
+			t.Errorf("rewrite: %v", err)
+		}
+	}}
+
+	if _, err := svc.Scrub(ctx, ScrubRequest{Trigger: state.ScrubBySchedule}); err != nil {
+		t.Fatalf("Scrub: %v", err)
+	}
+	rec, _ := journal.Get(ctx, a)
+	if st := lifecycle.State(rec.State); st != lifecycle.Complete {
+		t.Errorf("the copy was replaced while the old bytes were being read, and the artifact is now %s", st)
+	}
+	if got := localCopyOf(t, journal, a); got.AssuranceState != state.AssuranceUnknown || got.NextDueAt != nil {
+		t.Errorf("the replacement should be unknown and due, not carry a verdict about the old bytes: state=%s nextDue=%v", got.AssuranceState, got.NextDueAt)
+	}
+}
