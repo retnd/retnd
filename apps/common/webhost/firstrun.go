@@ -237,8 +237,16 @@ func (h *handlers) stepStates(ctx context.Context) (map[string]string, string) {
 		steps[stepBackupSet] = stepSkipped
 	}
 
+	// The mail step is optional and never blocks the guide: it stays
+	// listed (pending, skipped or done) and reachable, but the step the
+	// service names as next is the first required one that is still open,
+	// so a fresh install is led to its first backup set whether or not
+	// anybody has a mail server to hand.
 	next := "none"
 	for _, name := range setupSteps {
+		if name == stepEmail {
+			continue
+		}
 		if steps[name] == stepPending {
 			next = name
 			break

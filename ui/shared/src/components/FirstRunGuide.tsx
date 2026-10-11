@@ -50,6 +50,8 @@ export function FirstRunGuide({
     return undefined;
   };
 
+  const nextAction = act(next);
+
   return (
     <WarningBanner
       tone="info"
@@ -57,51 +59,66 @@ export function FirstRunGuide({
       title={configured ? "Welcome to retnd" : "retnd has no configuration yet"}
       dismissible={false}
     >
+      {/* The callout carries the ONE control that does the next step; the
+          list below carries every step's state and its skip. */}
       <div data-testid="first-run-next-step" data-next-step={next}>
         <p style={{ margin: "0 0 8px" }}>
           {configured
-            ? "retnd is running on its default settings. Nothing is backed up until you add a backup set, and every step here can wait."
+            ? "retnd is running on its default settings. Nothing is backed up until you add a backup set, and every other step here can wait."
             : "Add your first backup set and retnd writes its configuration for you. Until that is done nothing is backed up."}
         </p>
-        <ol style={{ margin: 0, paddingLeft: 20, display: "flex", flexDirection: "column", gap: 6 }}>
-          {ORDER.map((step) => {
-            const state = steps[step];
-            const action = act(step);
-            const canSkip = (step === "email" || step === "backup_set") && state === "pending";
-            return (
-              <li key={step} data-step={step} data-state={state}>
-                <span style={{ fontWeight: step === next ? 600 : 400 }}>{LABEL[step]}</span>
-                {" "}
-                <span style={{ color: "var(--text-3)" }}>({STATE_WORD[state]})</span>
-                {state !== "done" && action ? (
-                  <>
-                    {" "}
-                    <Link className="btn btn--sm" to={action.to}>
-                      {action.label}
-                    </Link>
-                  </>
-                ) : null}
-                {canSkip ? (
-                  <>
-                    {" "}
-                    <button
-                      type="button"
-                      className="btn btn--sm btn--quiet"
-                      disabled={busy}
-                      onClick={() => {
-                        setBusy(true);
-                        void onSkip(step as "email" | "backup_set").finally(() => setBusy(false));
-                      }}
-                    >
-                      Skip for now
-                    </button>
-                  </>
-                ) : null}
-              </li>
-            );
-          })}
-        </ol>
+        <p style={{ margin: 0 }}>
+          <span style={{ fontWeight: 600 }}>Next: {LABEL[next].toLowerCase()}.</span>
+          {nextAction ? (
+            <>
+              {" "}
+              <Link className="btn btn--sm btn--primary" to={nextAction.to}>
+                {nextAction.label}
+              </Link>
+            </>
+          ) : null}
+        </p>
       </div>
+      <ol
+        data-testid="first-run-steps"
+        style={{ margin: "10px 0 0", paddingLeft: 20, display: "flex", flexDirection: "column", gap: 6 }}
+      >
+        {ORDER.map((step) => {
+          const state = steps[step];
+          const action = act(step);
+          const canSkip = (step === "email" || step === "backup_set") && state === "pending";
+          return (
+            <li key={step} data-step={step} data-state={state}>
+              <span style={{ fontWeight: step === next ? 600 : 400 }}>{LABEL[step]}</span>{" "}
+              <span style={{ color: "var(--text-3)" }}>({STATE_WORD[state]})</span>
+              {state !== "done" && action && step !== next ? (
+                <>
+                  {" "}
+                  <Link className="btn btn--sm" to={action.to}>
+                    {action.label}
+                  </Link>
+                </>
+              ) : null}
+              {canSkip ? (
+                <>
+                  {" "}
+                  <button
+                    type="button"
+                    className="btn btn--sm btn--quiet"
+                    disabled={busy}
+                    onClick={() => {
+                      setBusy(true);
+                      void onSkip(step as "email" | "backup_set").finally(() => setBusy(false));
+                    }}
+                  >
+                    Skip for now
+                  </button>
+                </>
+              ) : null}
+            </li>
+          );
+        })}
+      </ol>
     </WarningBanner>
   );
 }

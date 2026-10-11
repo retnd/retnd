@@ -2448,10 +2448,9 @@
           },
           "next_step": {
             "type": "string",
-            "description": "The first step that is pending: administrator, email or backup_set, or none when nothing is pending.",
+            "description": "The first required step that is pending: administrator or backup_set, or none when nothing required is pending. The email step is optional and is never named here; its own state in `steps` says whether it is open.",
             "enum": [
               "administrator",
-              "email",
               "backup_set",
               "none"
             ]

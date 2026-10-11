@@ -41,12 +41,17 @@ describe("the first-run guide", () => {
   it("names the three steps and puts a control on the next one", async () => {
     renderApp(createMockApi("first-run"));
 
-    const guide = await screen.findByTestId("first-run-next-step");
-    expect(guide.getAttribute("data-next-step")).toBe("backup_set");
+    const next = await screen.findByTestId("first-run-next-step");
+    expect(next.getAttribute("data-next-step")).toBe("backup_set");
+    // The callout carries exactly the one control that does the next step.
+    expect(within(next).getAllByRole("link")).toHaveLength(1);
+    expect(within(next).getByRole("link", { name: /add backup set/i })).toBeInTheDocument();
+    expect(within(next).queryByRole("button")).toBeNull();
+
+    const list = screen.getByTestId("first-run-steps");
     for (const step of ["administrator", "email", "backup_set"]) {
-      expect(guide.querySelector(`[data-step="${step}"]`)).not.toBeNull();
+      expect(list.querySelector(`[data-step="${step}"]`)).not.toBeNull();
     }
-    expect(within(guide).getByRole("link", { name: /add backup set/i })).toBeInTheDocument();
     // A guide is a notice, not an alert: nothing here is a failure.
     expect(screen.queryByRole("alert")).toBeNull();
   });
@@ -56,8 +61,9 @@ describe("the first-run guide", () => {
     const skip = vi.spyOn(api, "skipFirstRunStep");
     renderApp(api);
 
-    const guide = await screen.findByTestId("first-run-next-step");
-    await userEvent.click(within(guide).getByRole("button", { name: /skip for now/i }));
+    const list = await screen.findByTestId("first-run-steps");
+    const backupSet = list.querySelector('[data-step="backup_set"]') as HTMLElement;
+    await userEvent.click(within(backupSet).getByRole("button", { name: /skip for now/i }));
 
     await waitFor(() => expect(skip).toHaveBeenCalledWith("backup_set"));
     // Every step is now done or skipped, so the guide has nothing left to lead.

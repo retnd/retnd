@@ -131,8 +131,10 @@ func TestFirstRunStatus_EmailIsPendingUntilDoneOrSkipped(t *testing.T) {
 		Steps    map[string]string `json:"steps"`
 	}
 	getJSONInto(t, router, "/api/v1/system/first-run", &body)
-	if body.Steps["email"] != "pending" || body.NextStep != "email" {
-		t.Fatalf("email = %q, next = %q, want pending and email", body.Steps["email"], body.NextStep)
+	// The mail step is optional: it is open, and it does not take the
+	// "next" slot from the first backup set.
+	if body.Steps["email"] != "pending" || body.NextStep != "backup_set" {
+		t.Fatalf("email = %q, next = %q, want pending and backup_set", body.Steps["email"], body.NextStep)
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/first-run/skip", strings.NewReader(`{"step":"email"}`))

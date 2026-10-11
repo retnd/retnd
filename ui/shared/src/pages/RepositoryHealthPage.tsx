@@ -32,7 +32,7 @@
 import { useNavigate } from "react-router-dom";
 
 import { useApi } from "@shared/api/ApiContext";
-import { isNotConfigured } from "@shared/api/failure";
+import { isNothingThereYet, nothingThereYetCopy } from "@shared/api/failure";
 import { CheckList } from "@shared/components/CheckList";
 import { Note, Row, Rows } from "@shared/components/Definitions";
 import { EmptyState, ErrorState } from "@shared/components/EmptyState";
@@ -56,7 +56,9 @@ export function RepositoryHealthPage() {
     <PageHeader
       title="Repository health"
       subtitle={
-        fleet.data === null
+        fleet.error
+          ? "Every repository domain, once there is one"
+          : fleet.data === null
           ? "Reading every repository domain"
           : "Checked " + relativeAge(fleet.data.generatedAt) + " \u00b7 " + domains.length + " domains"
       }
@@ -71,12 +73,12 @@ export function RepositoryHealthPage() {
     />
   );
 
-  if (fleet.error && isNotConfigured(fleet.error))
+  if (fleet.error && isNothingThereYet(fleet.error))
     return (
       <>
         {header}
         <EmptyState title="No repository domain yet">
-          Nothing is configured yet, so there is nothing to check. Add a backup set and its repository appears here.
+          {nothingThereYetCopy(fleet.error)}
         </EmptyState>
       </>
     );

@@ -46,7 +46,7 @@ import { CONSISTENCY_COPY, ENGINE_COPY, EngineBadge, VERIFICATION_COPY } from "@
 import { ErrorState } from "@shared/components/EmptyState";
 import { StatusBadge } from "@shared/components/StatusBadge";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
-import { isNotConfigured } from "@shared/api/failure";
+import { isNotConfigured, isNothingThereYet, nothingThereYetCopy } from "@shared/api/failure";
 import { relativeAge, stamp } from "@shared/utilities/format";
 import { NEW_SET_DEFAULTS } from "@shared/pages/incrementalConfigFields";
 import { loadRepositoryFleet } from "@shared/pages/repositoryFleet";
@@ -261,7 +261,7 @@ export function BackupDefaultsPage({ readOnly }: { readOnly: boolean }) {
           </InfoTooltip>
         </div>
         <div className="card__body">
-          {fleet.error && !isNotConfigured(fleet.error) ? (
+          {fleet.error && !isNothingThereYet(fleet.error) ? (
             <ErrorState
               message={fleet.error.message}
               remediation="The repository domains could not be read, so no ownership can be reported."
@@ -272,7 +272,7 @@ export function BackupDefaultsPage({ readOnly }: { readOnly: boolean }) {
             // retnd#1049: NOT_CONFIGURED is a state, not a read that is
             // still in flight. It used to fall through to "Loading" forever.
             <p style={{ margin: 0, fontSize: 13, color: "var(--text-2)" }}>
-              No repository domain is declared yet, so there is no maintenance to own.
+              {nothingThereYetCopy(fleet.error)}
             </p>
           ) : fleet.data === null ? (
             <p style={{ margin: 0, fontSize: 13, color: "var(--text-3)" }}>
