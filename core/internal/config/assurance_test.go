@@ -39,6 +39,41 @@ func TestAssurance_ANilBlockResolvesToUsefulDefaults(t *testing.T) {
 	}
 }
 
+// A consumer that has to tell "the operator wrote the default" from "nobody
+// wrote anything" reads it off the resolved policy, because the raw block is
+// off limits to it (TestAssurance_NoConsumerReadsThePointers).
+func TestAssurance_TheResolvedPolicyRemembersWhichHostKnobsWereWritten(t *testing.T) {
+	c := validConfig()
+	if err := c.Validate(); err != nil {
+		t.Fatalf("fixture does not validate: %v", err)
+	}
+	if c.Assurance.MaxConcurrentFullReadsWritten || c.Assurance.MaxPerDestinationWritten {
+		t.Errorf("a config that wrote nothing resolves as if it had: %+v", c.Assurance)
+	}
+
+	c = validConfig()
+	c.AssuranceBlock = &AssuranceBlock{MaxConcurrentFullReads: DefaultMaxConcurrentReads, MaxPerDestination: DefaultMaxPerDestination}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("writing the defaults out does not validate: %v", err)
+	}
+	d := c.Assurance
+	if d.MaxConcurrentFullReads != DefaultMaxConcurrentReads || d.MaxPerDestination != DefaultMaxPerDestination {
+		t.Fatalf("writing the defaults changed the values: %+v", d)
+	}
+	if !d.MaxConcurrentFullReadsWritten || !d.MaxPerDestinationWritten {
+		t.Errorf("an operator who wrote exactly the default reads as if they had written nothing: %+v", d)
+	}
+
+	c = validConfig()
+	c.AssuranceBlock = &AssuranceBlock{MaxConcurrentFullReads: DefaultMaxConcurrentReads}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("writing one knob does not validate: %v", err)
+	}
+	if !c.Assurance.MaxConcurrentFullReadsWritten || c.Assurance.MaxPerDestinationWritten {
+		t.Errorf("the two knobs are not tracked separately: %+v", c.Assurance)
+	}
+}
+
 func TestAssurance_AConfigThatMentionsNothingSurvivesAReMarshalByteIdentically(t *testing.T) {
 	c := validConfig()
 	before, err := yaml.Marshal(&c)
