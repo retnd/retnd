@@ -327,7 +327,7 @@ that sentence is only as strong as what the gate actually executes.
 
 | Suite | What EPIC Q adds there | What this gate runs |
 |---|---|---|
-| A, the CLI contract | twenty-four cases under `assurance/`, `scrub/` and `recover/`: the default resolver, per-set inherit and override, the cadence floor, a clean and a corrupted local copy, the recover refusals and their exit codes | the `smoke` slice only. Three of the new cases carry the tag; the other twenty-one run under `make suite-a`, which this gate does not call |
+| A, the CLI contract | twenty-four cases under `assurance/`, `scrub/` and `recover/`: the default resolver, per-set inherit and override, the cadence floor, a clean and a corrupted local copy, the recover refusals and their exit codes | the `smoke` slice only. Two of the new cases carry the tag; the other twenty-two run under `make suite-a`, which this gate does not call |
 | B, the web UI | `recovery-and-assurance.986.spec.ts`: a browser download completing while `POST /api/v1/operations` is still refused, the assurance cards at their default, the three claims on a backup | all of it, through `three-machine-web-ui.sh`, which is the point of that rig |
 | C, UI to CLI equivalence | `assurance-recovery.986.spec.ts`: the global and per-set policy, a browser download against `--to -`, a staged recovery against `--to NAME`, and a corrupted copy refused on both routes with the same sentence and exit status 14 | not run by this gate at all (`make suite-c` over there) |
 
