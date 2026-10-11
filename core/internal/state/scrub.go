@@ -170,27 +170,33 @@ type Assurance struct {
 }
 
 // assuranceColumns is the tail of placementColumns, in the order
-// assuranceFields.dests scans it.
+// assuranceFields.dests scans it. Every one is read through the LEFT JOIN on
+// placement_assurance, so a copy with no row yields NULL for all of them and
+// build turns that into the zero value that cannot look good.
 const assuranceColumns = `
-	assurance_state, next_due_at, last_checked_at, last_checked_class,
-	content_verified_at, last_failure_at, last_failure_reason, consecutive_failures,
-	last_bytes_read, last_duration_ms, scrub_lease_until, scrub_lease_holder,
-	recovery_state, recovery_tested_at, recovery_next_due_at, recovery_failure_reason,
-	recovery_validator_id, recovery_validator_hash, recovery_digest_matched,
-	recovery_termination, recovery_output_truncated, recovery_cleanup_state,
-	recovery_bytes_read, recovery_duration_ms`
+	pa.assurance_state, pa.next_due_at, pa.last_checked_at, pa.last_checked_class,
+	pa.content_verified_at, pa.last_failure_at, pa.last_failure_reason, pa.consecutive_failures,
+	pa.last_bytes_read, pa.last_duration_ms, pa.scrub_lease_until, pa.scrub_lease_holder,
+	pa.recovery_state, pa.recovery_tested_at, pa.recovery_next_due_at, pa.recovery_failure_reason,
+	pa.recovery_validator_id, pa.recovery_validator_hash, pa.recovery_digest_matched,
+	pa.recovery_termination, pa.recovery_output_truncated, pa.recovery_cleanup_state,
+	pa.recovery_bytes_read, pa.recovery_duration_ms`
+
+// placementFrom is the FROM clause every placement read shares: the copy
+// itself and, when one exists, its assurance row.
+const placementFrom = `placements p LEFT JOIN placement_assurance pa ON pa.placement_id = p.id`
 
 type assuranceFields struct {
-	state, checkedClass, failureReason, leaseHolder      string
+	state, checkedClass, failureReason, leaseHolder      sql.NullString
 	nextDue, checkedAt, contentAt, failureAt, leaseUntil sql.NullString
-	failures                                             int
+	failures                                             sql.NullInt64
 	bytesRead, durationMS                                sql.NullInt64
 
-	recoveryState, recoveryFailureReason, validatorID, validatorHash string
-	recoveryTermination, recoveryCleanup                             string
+	recoveryState, recoveryFailureReason, validatorID, validatorHash sql.NullString
+	recoveryTermination, recoveryCleanup                             sql.NullString
 	recoveryTestedAt, recoveryNextDue                                sql.NullString
 	digestMatched                                                    sql.NullInt64
-	outputTruncated                                                  int
+	outputTruncated                                                  sql.NullInt64
 	recoveryBytes, recoveryDuration                                  sql.NullInt64
 }
 
@@ -204,6 +210,15 @@ func (f *assuranceFields) dests() []any {
 		&f.recoveryTermination, &f.outputTruncated, &f.recoveryCleanup,
 		&f.recoveryBytes, &f.recoveryDuration,
 	}
+}
+
+// orDefault is a nullable text column read through the LEFT JOIN: NULL (no
+// row) takes the column's default.
+func orDefault(v sql.NullString, def string) string {
+	if !v.Valid {
+		return def
+	}
+	return v.String
 }
 
 func (f *assuranceFields) build() (Assurance, error) {
@@ -231,24 +246,24 @@ func (f *assuranceFields) build() (Assurance, error) {
 		}
 		*c.dst = t
 	}
-	out.AssuranceState = f.state
-	out.LastCheckedClass = f.checkedClass
-	out.LastFailureReason = f.failureReason
-	out.ConsecutiveFailures = f.failures
+	out.AssuranceState = orDefault(f.state, AssuranceUnknown)
+	out.LastCheckedClass = orDefault(f.checkedClass, "")
+	out.LastFailureReason = orDefault(f.failureReason, "")
+	out.ConsecutiveFailures = int(f.failures.Int64)
 	out.LastBytesRead = scanOptionalInt64(f.bytesRead)
 	out.LastDurationMS = scanOptionalInt64(f.durationMS)
-	out.ScrubLeaseHolder = f.leaseHolder
-	out.RecoveryState = f.recoveryState
-	out.RecoveryFailureReason = f.recoveryFailureReason
-	out.RecoveryValidatorID = f.validatorID
-	out.RecoveryValidatorHash = f.validatorHash
+	out.ScrubLeaseHolder = orDefault(f.leaseHolder, "")
+	out.RecoveryState = orDefault(f.recoveryState, RecoveryUnknown)
+	out.RecoveryFailureReason = orDefault(f.recoveryFailureReason, "")
+	out.RecoveryValidatorID = orDefault(f.validatorID, "")
+	out.RecoveryValidatorHash = orDefault(f.validatorHash, "")
 	if f.digestMatched.Valid {
 		matched := f.digestMatched.Int64 == 1
 		out.RecoveryDigestMatched = &matched
 	}
-	out.RecoveryTermination = f.recoveryTermination
-	out.RecoveryOutputTruncated = f.outputTruncated == 1
-	out.RecoveryCleanupState = f.recoveryCleanup
+	out.RecoveryTermination = orDefault(f.recoveryTermination, "")
+	out.RecoveryOutputTruncated = f.outputTruncated.Int64 == 1
+	out.RecoveryCleanupState = orDefault(f.recoveryCleanup, "")
 	out.RecoveryBytesRead = scanOptionalInt64(f.recoveryBytes)
 	out.RecoveryDurationMS = scanOptionalInt64(f.recoveryDuration)
 	return out, nil
@@ -259,6 +274,42 @@ func (f *assuranceFields) build() (Assurance, error) {
 // leave a copy alone.
 func (a Assurance) DueAt(now time.Time) bool {
 	return a.NextDueAt == nil || !a.NextDueAt.After(now)
+}
+
+// ScrubJitterFraction is the share of a scrub interval a copy's next due time
+// is spread over: a pass that finishes at T schedules the next at
+// T + interval + up to this fraction of the interval, so a thousand copies
+// checked together are not all due together again. It lives here, and not in
+// internal/revalidate, because DueUnder needs it and revalidate imports this
+// package.
+const ScrubJitterFraction = 0.10
+
+// DueUnder reports when this copy is owed a scrub under a cadence of
+// interval, and whether that is now.
+//
+// The stored next_due_at is the schedule the copy was given when it was last
+// checked, under the cadence in force THEN. An operator who shortens the
+// cadence afterwards (assurance.scrub.cadence from 7d to 1h) expects the very
+// next tick to honour it, so a copy whose last check ended in a pass is also
+// due once that pass is older than the cadence plus the jitter the schedule
+// could have added. A failure or a check that could not complete is left to
+// its own backoff, which is never longer than the cadence: reading the old
+// pass's age there would make a down endpoint due on every tick.
+//
+// A copy with no stored due time is due, for the zero value's reason.
+func (a Assurance) DueUnder(interval time.Duration, now time.Time) (time.Time, bool) {
+	if a.NextDueAt == nil {
+		return time.Time{}, true
+	}
+	at := *a.NextDueAt
+	passed := a.AssuranceState == AssurancePassed || a.AssuranceState == AssuranceRequiresRestore
+	if interval > 0 && passed && a.LastCheckedAt != nil {
+		ceiling := a.LastCheckedAt.Add(interval + time.Duration(ScrubJitterFraction*float64(interval)))
+		if ceiling.Before(at) {
+			at = ceiling
+		}
+	}
+	return at, !at.After(now)
 }
 
 // ScrubVerdict is what one scrub of one copy concluded.
@@ -405,8 +456,14 @@ func (a Assurance) ScrubClaim(now time.Time) string {
 }
 
 // RecordCopyScrub durably writes one scrub's result onto the copy it is
-// about, releases that copy's lease, and does both in one statement so a
+// about, releases that copy's lease, and does both in one transaction so a
 // crash cannot leave a verdict written and the lease held, or the reverse.
+//
+// The verdict is a statement about the bytes the check read. When c.Expect is
+// set and the copy no longer holds those bytes (its hash, algorithm or
+// location moved while the check ran), nothing is written and the answer is
+// ErrCopyChanged: a "passed" stamped on bytes nobody read is the stale
+// integrity claim this record exists to rule out.
 //
 // It writes nothing to state_transitions. A pass over a thousand copies
 // would append a thousand rows to a feed that is cursor-paged and never
@@ -437,13 +494,16 @@ func (j *Journal) RecordCopyScrub(ctx context.Context, c CopyScrub) error {
 		curVerifiedAt sql.NullString
 		curContent    sql.NullString
 		curStatus     string
+		cur           CopyIdentity
 	)
 	err = tx.QueryRowContext(ctx, `
-		SELECT p.id, p.verification_class, p.verified_at, p.content_verified_at, p.status
+		SELECT p.id, p.verification_class, p.verified_at, pa.content_verified_at, p.status,
+		       p.location, p.hash, p.hash_alg
 		  FROM placements p JOIN artifacts a ON a.id = p.artifact_id
+		  LEFT JOIN placement_assurance pa ON pa.placement_id = p.id
 		 WHERE a.source = ? AND a.backup_set = ? AND a.artifact_name = ? AND p.medium = ?`,
 		c.Artifact.Set.Source, c.Artifact.Set.Set, c.Artifact.Name, c.Medium,
-	).Scan(&id, &curClass, &curVerifiedAt, &curContent, &curStatus)
+	).Scan(&id, &curClass, &curVerifiedAt, &curContent, &curStatus, &cur.Location, &cur.Hash, &cur.HashAlg)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("%w: %s has no copy on %q", ErrPlacementNotFound, c.Artifact, c.Medium)
 	}
@@ -454,22 +514,32 @@ func (j *Journal) RecordCopyScrub(ctx context.Context, c CopyScrub) error {
 	if curStatus != PlacementActive {
 		return fmt.Errorf("%w: %s on %q is %s", ErrPlacementRetired, c.Artifact, c.Medium, curStatus)
 	}
+	if c.Expect != nil && *c.Expect != cur {
+		return fmt.Errorf("%w: %s on %q", ErrCopyChanged, c.Artifact, c.Medium)
+	}
+
+	// The row is created by the first verdict. Until then its absence reads
+	// as unknown and due.
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO placement_assurance (placement_id) VALUES (?) ON CONFLICT (placement_id) DO NOTHING`, id); err != nil {
+		return fmt.Errorf("state: record scrub of %s on %s: %w", c.Artifact, c.Medium, err)
+	}
 
 	switch c.Verdict {
 	case ScrubNotChecked:
 		_, err = tx.ExecContext(ctx, `
-			UPDATE placements SET next_due_at = ?, scrub_lease_until = NULL, scrub_lease_holder = ''
-			 WHERE id = ?`, next, id)
+			UPDATE placement_assurance SET next_due_at = ?, scrub_lease_until = NULL, scrub_lease_holder = ''
+			 WHERE placement_id = ?`, next, id)
 
 	case ScrubCouldNotComplete:
 		_, err = tx.ExecContext(ctx, `
-			UPDATE placements SET
+			UPDATE placement_assurance SET
 				assurance_state = 'could_not_complete', next_due_at = ?,
 				last_failure_at = ?, last_failure_reason = ?,
 				consecutive_failures = consecutive_failures + 1,
 				last_duration_ms = ?,
 				scrub_lease_until = NULL, scrub_lease_holder = ''
-			 WHERE id = ?`, next, at, reason, durMS, id)
+			 WHERE placement_id = ?`, next, at, reason, durMS, id)
 
 	case ScrubFailed:
 		// The failure contradicts every claim of the class it ran and of
@@ -477,24 +547,28 @@ func (j *Journal) RecordCopyScrub(ctx context.Context, c CopyScrub) error {
 		// right size is not content verified either. So all three of the
 		// class, its age and the content age are cleared together.
 		_, err = tx.ExecContext(ctx, `
-			UPDATE placements SET
+			UPDATE placement_assurance SET
 				assurance_state = 'failed', next_due_at = ?,
 				last_checked_at = ?, last_checked_class = ?,
 				last_failure_at = ?, last_failure_reason = ?,
 				consecutive_failures = consecutive_failures + 1,
-				verification_class = '', verified_at = NULL, content_verified_at = NULL,
+				content_verified_at = NULL,
 				last_bytes_read = ?, last_duration_ms = ?,
 				scrub_lease_until = NULL, scrub_lease_holder = ''
-			 WHERE id = ?`, next, at, c.Class, at, reason, optionalInt64(c.BytesRead), durMS, id)
+			 WHERE placement_id = ?`, next, at, c.Class, at, reason, optionalInt64(c.BytesRead), durMS, id)
+		if err == nil {
+			_, err = tx.ExecContext(ctx,
+				`UPDATE placements SET verification_class = '', verified_at = NULL WHERE id = ?`, id)
+		}
 
 	case ScrubRequiresRestore:
 		if c.Class == "" {
 			_, err = tx.ExecContext(ctx, `
-				UPDATE placements SET
+				UPDATE placement_assurance SET
 					assurance_state = 'requires_restore', next_due_at = ?,
 					consecutive_failures = 0, last_duration_ms = ?,
 					scrub_lease_until = NULL, scrub_lease_holder = ''
-				 WHERE id = ?`, next, durMS, id)
+				 WHERE placement_id = ?`, next, durMS, id)
 			break
 		}
 		fallthrough
@@ -515,16 +589,20 @@ func (j *Journal) RecordCopyScrub(ctx context.Context, c CopyScrub) error {
 			contentAt = at
 		}
 		_, err = tx.ExecContext(ctx, `
-			UPDATE placements SET
+			UPDATE placement_assurance SET
 				assurance_state = ?, next_due_at = ?,
 				last_checked_at = ?, last_checked_class = ?,
-				verification_class = ?, verified_at = ?, content_verified_at = ?,
+				content_verified_at = ?,
 				consecutive_failures = 0,
 				last_bytes_read = ?, last_duration_ms = ?,
 				scrub_lease_until = NULL, scrub_lease_holder = ''
-			 WHERE id = ?`,
-			state, next, at, c.Class, newClass, newVerified, contentAt,
+			 WHERE placement_id = ?`,
+			state, next, at, c.Class, contentAt,
 			optionalInt64(c.BytesRead), durMS, id)
+		if err == nil {
+			_, err = tx.ExecContext(ctx,
+				`UPDATE placements SET verification_class = ?, verified_at = ? WHERE id = ?`, newClass, newVerified, id)
+		}
 	}
 	if err != nil {
 		return fmt.Errorf("state: record scrub of %s on %s: %w", c.Artifact, c.Medium, err)
@@ -597,11 +675,12 @@ func (j *Journal) ClaimCopyScrub(ctx context.Context, a model.ArtifactID, medium
 		id           int64
 		status       string
 		leaseUntil   sql.NullString
-		currentOwner string
+		currentOwner sql.NullString
 	)
 	err := j.db.QueryRowContext(ctx, `
-		SELECT p.id, p.status, p.scrub_lease_until, p.scrub_lease_holder
+		SELECT p.id, p.status, pa.scrub_lease_until, pa.scrub_lease_holder
 		  FROM placements p JOIN artifacts a ON a.id = p.artifact_id
+		  LEFT JOIN placement_assurance pa ON pa.placement_id = p.id
 		 WHERE a.source = ? AND a.backup_set = ? AND a.artifact_name = ? AND p.medium = ?`,
 		a.Set.Source, a.Set.Set, a.Name, medium,
 	).Scan(&id, &status, &leaseUntil, &currentOwner)
@@ -614,6 +693,7 @@ func (j *Journal) ClaimCopyScrub(ctx context.Context, a model.ArtifactID, medium
 	if status != PlacementActive {
 		return false, nil
 	}
+	owner := currentOwner.String
 	if leaseUntil.Valid {
 		until, perr := parseTime(leaseUntil.String)
 		if perr != nil {
@@ -622,16 +702,21 @@ func (j *Journal) ClaimCopyScrub(ctx context.Context, a model.ArtifactID, medium
 			// thing the lease exists to prevent.
 			return false, nil
 		}
-		if until.After(now) && currentOwner != holder {
+		if until.After(now) && owner != holder {
 			return false, nil
 		}
 	}
 
+	if _, err := j.db.ExecContext(ctx,
+		`INSERT INTO placement_assurance (placement_id) VALUES (?) ON CONFLICT (placement_id) DO NOTHING`, id); err != nil {
+		return false, fmt.Errorf("state: claim scrub of %s on %s: %w", a, medium, err)
+	}
 	res, err := j.db.ExecContext(ctx, `
-		UPDATE placements SET scrub_lease_until = ?, scrub_lease_holder = ?
-		 WHERE id = ? AND status = 'ACTIVE'
+		UPDATE placement_assurance SET scrub_lease_until = ?, scrub_lease_holder = ?
+		 WHERE placement_id = ?
+		   AND EXISTS (SELECT 1 FROM placements WHERE id = placement_assurance.placement_id AND status = 'ACTIVE')
 		   AND COALESCE(scrub_lease_until, '') = ? AND scrub_lease_holder = ?`,
-		formatTime(now.Add(ttl)), holder, id, leaseUntil.String, currentOwner)
+		formatTime(now.Add(ttl)), holder, id, leaseUntil.String, owner)
 	if err != nil {
 		return false, fmt.Errorf("state: claim scrub of %s on %s: %w", a, medium, err)
 	}
@@ -647,10 +732,12 @@ func (j *Journal) ClaimCopyScrub(ctx context.Context, a model.ArtifactID, medium
 // a cancelled context). It only releases a lease holder owns.
 func (j *Journal) ReleaseCopyScrub(ctx context.Context, a model.ArtifactID, medium, holder string) error {
 	_, err := j.db.ExecContext(ctx, `
-		UPDATE placements SET scrub_lease_until = NULL, scrub_lease_holder = ''
-		 WHERE scrub_lease_holder = ? AND medium = ?
-		   AND artifact_id = (SELECT id FROM artifacts WHERE source = ? AND backup_set = ? AND artifact_name = ?)`,
-		holder, medium, a.Set.Source, a.Set.Set, a.Name)
+		UPDATE placement_assurance SET scrub_lease_until = NULL, scrub_lease_holder = ''
+		 WHERE scrub_lease_holder = ?
+		   AND placement_id = (
+		       SELECT p.id FROM placements p JOIN artifacts a ON a.id = p.artifact_id
+		        WHERE a.source = ? AND a.backup_set = ? AND a.artifact_name = ? AND p.medium = ?)`,
+		holder, a.Set.Source, a.Set.Set, a.Name, medium)
 	if err != nil {
 		return fmt.Errorf("state: release scrub of %s on %s: %w", a, medium, err)
 	}

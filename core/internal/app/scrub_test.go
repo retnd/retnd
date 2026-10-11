@@ -587,11 +587,20 @@ func (j *listCountingJournal) ListByBackupSet(ctx context.Context, set model.Bac
 	return j.Journal.ListByBackupSet(ctx, set)
 }
 
-// A tick on a deployment where nothing is configured to be scrubbed must not
-// read every set's journal looking for an episode that could not have changed.
-func TestScrub_AQuietTickReadsNoJournalAtAll(t *testing.T) {
-	bs := testBackupSet(t, t.TempDir())
-	cfg := testConfig(t, testSource("production", bs)) // no revalidation block: MaxPerCycle 0
+// A tick that checks nothing must not read every set's journal a second time
+// looking for an episode that could not have changed. A set the scrub does not
+// cover (disabled) is not read at all; a covered set with nothing due costs
+// the one read the selection itself makes.
+func TestScrub_AQuietTickReadsNoJournalBeyondTheSelection(t *testing.T) {
+	covered := testBackupSet(t, t.TempDir())
+	disabled := testBackupSet(t, t.TempDir())
+	disabled.Name = "disabled-set"
+	disabled.ID = mustSetID(t, "production", "disabled-set")
+	disabled.Disabled = true
+	cfg := testConfig(t, testSource("production", covered, disabled))
+	if err := cfg.ResolveAssurance(); err != nil {
+		t.Fatal(err)
+	}
 	j := &listCountingJournal{Journal: openJournal(t)}
 	svc := New(cfg, j, newFakeTransport(), nil)
 	svc.Now = fixedNow(retentionTestNow)
@@ -600,7 +609,7 @@ func TestScrub_AQuietTickReadsNoJournalAtAll(t *testing.T) {
 	if _, err := svc.Scrub(context.Background(), ScrubRequest{Trigger: state.ScrubBySchedule}); err != nil {
 		t.Fatal(err)
 	}
-	if j.lists != 0 {
-		t.Errorf("a quiet tick listed the journal %d times", j.lists)
+	if j.lists != 1 {
+		t.Errorf("a quiet tick listed the journal %d times, want exactly the one selection read of the covered set", j.lists)
 	}
 }

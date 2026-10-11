@@ -496,6 +496,14 @@ The rules that matter:
   recorded as `requires_restore`: I never read it and never start a restore.
   `retnd scrub --content --allow-egress` reads a copy on a medium in full, and
   without both flags the read is refused.
+  The schedule is the `assurance:` policy: `assurance.scrub.cadence` (weekly
+  unless you say otherwise) is how often a copy is owed a look, and
+  `assurance.scrub.strategy` says what the look is (`auto` and `content` re-hash
+  a local copy, `existence` does not). A default install scrubs with no other
+  configuration. A set's older `revalidation:` block still works, and when it
+  turns hashing or a restore hook on it wins over the policy for that set.
+  Changing the cadence changes what is due on the next tick, and `/assurance/due`
+  reads the same per-copy schedule the scrub keeps.
   Pacing is bounded: four copies at once overall, two per destination, jitter
   on every due time, and a capped backoff for a copy that fails or cannot be
   reached. A copy that fails three scheduled checks in a row degrades its

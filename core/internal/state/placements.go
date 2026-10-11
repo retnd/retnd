@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -279,14 +280,14 @@ func (r Record) ActiveMediumPlacements() []Placement {
 // artifact_id, to key its map by, which is why it does its own Scan rather
 // than calling scanPlacement.
 const placementColumns = `
-	medium, location, size_bytes, hash, hash_alg,
-	verification_class, verified_at, status, created_at, updated_at,
+	p.medium, p.location, p.size_bytes, p.hash, p.hash_alg,
+	p.verification_class, p.verified_at, p.status, p.created_at, p.updated_at,
 	` + assuranceColumns
 
 // loadPlacements reads the placements for one artifact row.
 func loadPlacements(ctx context.Context, q querier, artifactRowID int64) ([]Placement, error) {
 	rows, err := q.QueryContext(ctx,
-		`SELECT `+placementColumns+` FROM placements WHERE artifact_id = ? ORDER BY medium`,
+		`SELECT `+placementColumns+` FROM `+placementFrom+` WHERE p.artifact_id = ? ORDER BY p.medium`,
 		artifactRowID)
 	if err != nil {
 		return nil, fmt.Errorf("state: read placements: %w", err)
@@ -342,10 +343,10 @@ func loadPlacements(ctx context.Context, q querier, artifactRowID int64) ([]Plac
 func loadPlacementsFor(ctx context.Context, q querier, artifactWhere string, args ...any) (map[int64][]Placement, error) {
 	out := map[int64][]Placement{}
 	rows, err := q.QueryContext(ctx,
-		`SELECT artifact_id, `+placementColumns+
-			` FROM placements
-			  WHERE artifact_id IN (SELECT a.id FROM artifacts a WHERE `+artifactWhere+`)
-			  ORDER BY artifact_id, medium`,
+		`SELECT p.artifact_id, `+placementColumns+
+			` FROM `+placementFrom+`
+			  WHERE p.artifact_id IN (SELECT a.id FROM artifacts a WHERE `+artifactWhere+`)
+			  ORDER BY p.artifact_id, p.medium`,
 		args...)
 	if err != nil {
 		return nil, fmt.Errorf("state: read placements: %w", err)
@@ -452,6 +453,17 @@ func (f *placementFields) build() (Placement, error) {
 // the row's created_at is when this copy first came into being, and a
 // resumed upload writing the same placement again must not restart that
 // clock.
+//
+// # A claim dies with the bytes it was made about
+//
+// A scrub or a recovery test is a statement about the bytes a copy held when
+// it ran. When the row is rewritten to different bytes (a changed hash,
+// algorithm, size or location) or leaves ACTIVE, every such claim is deleted
+// with it; the next read of the copy is unknown and due. Rewriting identical
+// bytes (a resumed upload writing the same placement again) keeps what was
+// proven. Only a write that is itself a content verification moves the
+// content age, and it is the only door that does: an existence write for the
+// same bytes leaves it alone.
 func upsertPlacement(ctx context.Context, tx *sql.Tx, artifactRowID int64, p PlacementUpdate, now time.Time) error {
 	if p.Medium == "" {
 		return fmt.Errorf("state: a placement needs a medium")
@@ -465,11 +477,30 @@ func upsertPlacement(ctx context.Context, tx *sql.Tx, artifactRowID int64, p Pla
 	}
 	stamp := formatTime(now)
 
-	_, err := tx.ExecContext(ctx, `
+	var (
+		oldID     int64
+		oldLoc    string
+		oldSize   sql.NullInt64
+		oldHash   string
+		oldAlg    string
+		oldStatus string
+	)
+	existed := true
+	err := tx.QueryRowContext(ctx, `
+		SELECT id, location, size_bytes, hash, hash_alg, status
+		  FROM placements WHERE artifact_id = ? AND medium = ?`, artifactRowID, p.Medium).
+		Scan(&oldID, &oldLoc, &oldSize, &oldHash, &oldAlg, &oldStatus)
+	if errors.Is(err, sql.ErrNoRows) {
+		existed = false
+	} else if err != nil {
+		return fmt.Errorf("state: recording the %s placement: %w", p.Medium, err)
+	}
+
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO placements (
 			artifact_id, medium, location, size_bytes, hash, hash_alg,
-			verification_class, verified_at, content_verified_at, status, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			verification_class, verified_at, status, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (artifact_id, medium) DO UPDATE SET
 			location           = excluded.location,
 			size_bytes         = excluded.size_bytes,
@@ -477,28 +508,40 @@ func upsertPlacement(ctx context.Context, tx *sql.Tx, artifactRowID int64, p Pla
 			hash_alg           = excluded.hash_alg,
 			verification_class = excluded.verification_class,
 			verified_at        = excluded.verified_at,
-			content_verified_at = CASE
-				WHEN excluded.verification_class = 'content' AND excluded.verified_at IS NOT NULL
-				THEN excluded.verified_at ELSE content_verified_at END,
 			status             = excluded.status,
 			updated_at         = excluded.updated_at`,
 		artifactRowID, p.Medium, p.Location, optionalInt64(p.Size), p.Hash, p.HashAlg,
-		p.VerificationClass, optionalTimeText(p.VerifiedAt), contentVerifiedAt(p), status, stamp, stamp,
+		p.VerificationClass, optionalTimeText(p.VerifiedAt), status, stamp, stamp,
 	)
 	if err != nil {
 		return fmt.Errorf("state: recording the %s placement: %w", p.Medium, err)
 	}
-	return nil
-}
 
-// contentVerifiedAt is the content age a placement write carries: the
-// verification time when, and only when, the class being written is
-// content. Ingestion's own verification (FR-13) read the bytes, so a
-// freshly committed copy genuinely is content verified at that moment; an
-// attested or existence write is not, whatever its verified_at says.
-func contentVerifiedAt(p PlacementUpdate) any {
-	if p.VerificationClass != VerificationContent || p.VerifiedAt == nil {
-		return nil
+	var id int64
+	if existed {
+		id = oldID
+		sameBytes := oldLoc == p.Location && oldHash == p.Hash && oldAlg == p.HashAlg &&
+			oldSize.Valid == (p.Size != nil) && (!oldSize.Valid || oldSize.Int64 == *p.Size)
+		if !sameBytes || oldStatus != PlacementActive || status != PlacementActive {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM placement_assurance WHERE placement_id = ?`, id); err != nil {
+				return fmt.Errorf("state: dropping the claims about the old %s copy: %w", p.Medium, err)
+			}
+		}
+	} else if err := tx.QueryRowContext(ctx,
+		`SELECT id FROM placements WHERE artifact_id = ? AND medium = ?`, artifactRowID, p.Medium).Scan(&id); err != nil {
+		return fmt.Errorf("state: recording the %s placement: %w", p.Medium, err)
 	}
-	return formatTime(*p.VerifiedAt)
+
+	// Ingestion's own verification (FR-13) read the bytes, so a freshly
+	// committed copy genuinely is content verified at that moment. An
+	// attested or existence write is not, whatever its verified_at says.
+	if p.VerificationClass == VerificationContent && p.VerifiedAt != nil && status == PlacementActive {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO placement_assurance (placement_id, content_verified_at) VALUES (?, ?)
+			ON CONFLICT (placement_id) DO UPDATE SET content_verified_at = excluded.content_verified_at`,
+			id, formatTime(*p.VerifiedAt)); err != nil {
+			return fmt.Errorf("state: recording the %s placement: %w", p.Medium, err)
+		}
+	}
+	return nil
 }

@@ -6729,13 +6729,13 @@
           "last_assured_at": {
             "type": "string",
             "format": "date-time",
-            "description": "When this copy was last assured. Absent for a copy nobody has looked at.",
+            "description": "When the copy that is next due last ran a check to a verdict. Absent for a copy nobody has looked at.",
             "x-go-omitempty": true
           },
           "next_due_at": {
             "type": "string",
             "format": "date-time",
-            "description": "When the set's resolved cadence next calls for a scrub. For a copy nobody has looked at, the moment of the read."
+            "description": "When the copy is next owed a scrub, read from the copy's own schedule (the one the scrub driver keeps). For a copy with no schedule, the moment of the read."
           },
           "cadence_seconds": {
             "type": "integer",
@@ -6752,7 +6752,7 @@
           },
           "basis": {
             "type": "string",
-            "description": "Where last_assured_at came from: verified_at (a placement's own record), journal_updated_at (the interim stand-in until the per-copy record), or never."
+            "description": "Where next_due_at came from: copy_next_due_at (the copy's own scrub schedule, the one the scrub driver keeps), or never (a copy with no schedule, which is due now)."
           }
         }
       },

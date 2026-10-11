@@ -61,6 +61,10 @@ func writeAssuranceRouteConfig(t *testing.T) string {
 		t.Fatal(err)
 	}
 	runCLI(t, "run", "--config", path)
+	// And each copy has been through a scrub, which is what gives it a
+	// schedule of its own; the due list reads that schedule, not a clock
+	// recomputed from the artifact.
+	runCLI(t, "scrub", "--config", path)
 	return path
 }
 
@@ -141,8 +145,11 @@ func TestAssuranceRoute_AGlobalPatchMovesAnInheritingSetAndLeavesAPinnedOneAlone
 	if a2.CadenceSeconds != 43200 {
 		t.Errorf("the inheriting set still decides under %ds after the write; the global patch did not reach it", a2.CadenceSeconds)
 	}
-	if want := mustParse(t, a2.LastAssuredAt).Add(12 * time.Hour); !mustParse(t, a2.NextDueAt).Equal(want) {
-		t.Errorf("the inheriting set's next due = %s, want last assured + 12h = %s", a2.NextDueAt, want)
+	// A shortened cadence applies to a copy that was scheduled under the old
+	// one at once: it is owed a look once its last pass is older than the new
+	// cadence plus the jitter the schedule could have added (10%).
+	if want := mustParse(t, a2.LastAssuredAt).Add(12*time.Hour + 72*time.Minute); !mustParse(t, a2.NextDueAt).Equal(want) {
+		t.Errorf("the inheriting set's next due = %s, want last assured + 12h + 10%% = %s", a2.NextDueAt, want)
 	}
 	if mustParse(t, a2.NextDueAt).Equal(mustParse(t, alpha.NextDueAt)) {
 		t.Error("the inheriting set's next due did not move")
