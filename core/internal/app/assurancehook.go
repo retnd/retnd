@@ -16,17 +16,21 @@ import (
 // Telling the operator that an assurance claim went wrong, or came back
 // (EPIC Q, #978).
 //
-// # Through a script, not through a notifier
+// # A script, beside the notifier the product already has
 //
 // A scrub that keeps failing, and a recovery test that fails, are things an
-// operator has to hear about. This product already has a way to run what an
-// operator wants done about an event: the hook scripts of EPIC L, with their
-// custody checks, their shell verification and their hardened runner. So
-// the notification IS an "after" stage: a directory of NAME.local.sh scripts
-// the operator owns, run with the event in their environment. There is no
-// new built-in alert kind, no webhook client and no mail code to maintain,
-// and what happens next (page someone, post to a channel, open a ticket) is
-// the operator's script and not this product's opinion.
+// operator has to hear about. They are raised twice, on purpose, through two
+// doors that do different jobs. The alert dispatcher (alerts.go and
+// internal/alert's assurance kinds) is the default: a configured notifier gets
+// SCRUB_FAILING, RECOVERY_TEST_FAILING and the rest with its normal
+// de-duplication, and nobody has to write anything. This file is the
+// extension point: the hook scripts of EPIC L, with their custody checks,
+// their shell verification and their hardened runner, so what happens next
+// (page someone, post to a channel, open a ticket) can be the operator's script
+// and not this product's opinion. The notification IS an "after" stage: a
+// directory of NAME.local.sh scripts the operator owns, run with the event in
+// their environment. An absent directory means nobody asked and is silent;
+// the alert still goes out.
 //
 // The directories are conventions under the workflow root, not configured
 // stage directories, so an absent one means nobody asked and is silent:

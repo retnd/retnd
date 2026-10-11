@@ -44,11 +44,35 @@
     hot-reloaded in one step, so every set that inherits the changed value decides
     under it on its next read with no restart. The CLI writes beside a serving engine
     are refused with the file untouched, like `settings workflow`.
-  - **Feed and alerts.** New catalog events for scrub, recovery and recovery-test runs
+  - **Feed and alerts.** New catalog events for recovery and recovery-test runs
     (additions only, each completion states a `Result`) with one stage list shared by
-    the CLI and the browser, a scrub pass that costs two feed rows however many copies
-    it reads, and six new alert kinds: scrub overdue and failing, recovery test overdue
-    and failing, no readable copy, and archive-only recoverability.
+    the CLI and the browser, and four new alert kinds: scrub overdue and failing, and
+    recovery test overdue and failing. They are raised through the alert dispatcher a
+    configured notifier already has, with its de-duplication, so a failing scrub or
+    recovery test reaches you without anybody writing an `assurance-after` script; the
+    scripts stay as the extension point beside it. (A scrub pass is the existing
+    `scrub_pass` and `scrub_failure` events.)
+
+- **Recovery tests follow the assurance policy, run under `retnd serve`, and can be
+  started** (#980). The scheduled test now runs in the process the product actually
+  runs (`serve`, not only `daemon`), for a set whose resolved `recovery_test.mode` is
+  `required` or `custom`, on that policy's cadence (30 days by default) instead of a
+  fixed seven. `validator_id` names the script: `pg-check` runs
+  `recovery-test/<source>/<set>/pg-check.local.sh` and nothing else, and a name that
+  is not there is `could_not_complete`, never another script in its place. A set
+  that requires a test is DEGRADED until one passes. A copy on a storage medium can
+  now be tested: it is staged by the same engine `retnd recover` uses, so it is
+  verified against the recorded digest first, honours the read ceilings, and costs
+  nothing unattended (a free `local_volume` runs, a billed download is refused for
+  cost and an archived object is never thawed). `retnd recovery-test
+  <source/backup-set>` and `POST /api/v1/backup-sets/{source}/{set}/recovery-test`
+  start one now. A real recovery, and every recovery test, writes `recovery_start`, a
+  `recovery_stage` line per stage and `recovery_end` under one operation id.
+  `assurance.staging_root`, `staging_ttl`, `max_concurrent_full_reads` and
+  `max_per_destination` are now read: recovered copies and recovery tests stage in
+  one directory, `<state dir>/recovery-staging` unless you say otherwise (the
+  `<state dir>/recovery` of the draft is gone), and the scrub reads under the same
+  ceilings (2 and 1 by default; the draft scrub's 4 and 2 are gone).
 
 ## [0.5.1] - 2026-10-04
 

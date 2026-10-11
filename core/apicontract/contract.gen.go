@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "4cde3dc19d186a4aeb8ba513f53931ba652f9e26c55d4a6a3268f65b2ab28b08"
+const ContractSHA256 = "c94284d97d111b90065617f93fd8ae731971f4bfbb0a67c3ed0a44640dcca9ca"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -735,6 +735,20 @@ var Endpoints = []Endpoint{
 			404: {ErrorCodeBackupSetNotFound},
 			409: {ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable},
 			500: {ErrorCodeInternal},
+		},
+	},
+	{
+		ID: "startRecoveryTest", Method: "POST", Path: "/backup-sets/{source}/{set}/recovery-test",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "StartRecoveryTestRequest", ResponseSchema: "RecoveryTestStarted", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound, ErrorCodeArtifactNotFound},
+			409: {ErrorCodeOperationAlreadyRunning},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
 		},
 	},
 	{
@@ -2786,6 +2800,15 @@ type RecoveryTarget struct {
 	Path   string `json:"path,omitempty"`
 }
 
+// RecoveryTestStarted is A recovery test is under way. operation_id is carried by its
+// recovery_test_start, recovery_stage and recovery_test_end lines on
+// the activity feed, which is how a client follows it; the verdict
+// is the copy's recovery claim once it ends.
+type RecoveryTestStarted struct {
+	BackupSetID string `json:"backup_set_id"`
+	OperationID string `json:"operation_id"`
+}
+
 // RepositoryHealth is one repository domain's own health, which is a different question
 // from any backup set's. A set can be perfectly fresh while the
 // repository holding its snapshots is unwritable, out of
@@ -3315,6 +3338,16 @@ type SnapshotVerifyRequest struct {
 	Level         string `json:"level,omitempty"`
 	RunID         string `json:"run_id,omitempty"`
 	SamplePercent int    `json:"sample_percent,omitempty"`
+}
+
+// StartRecoveryTestRequest is POST /backup-sets/{source}/{set}/recovery-test. Starts a recovery
+// test now. An empty body tests the newest known good copy and
+// acknowledges no cost: a copy that costs money to read (a download
+// from a billed object store, or an archived object) is refused,
+// recorded as refused_for_cost, and nothing is read.
+type StartRecoveryTestRequest struct {
+	Acknowledged bool   `json:"acknowledged,omitempty"`
+	ArtifactID   string `json:"artifact_id,omitempty"`
 }
 
 // StorageMediumCredentialsReference is where one storage medium's credentials come from. Exactly one of
@@ -4105,6 +4138,7 @@ var SchemaTypes = map[string]any{
 	"RecoverySettingsResponse":           RecoverySettingsResponse{},
 	"RecoverySettingsUpdate":             RecoverySettingsUpdate{},
 	"RecoveryTarget":                     RecoveryTarget{},
+	"RecoveryTestStarted":                RecoveryTestStarted{},
 	"RepositoryHealth":                   RepositoryHealth{},
 	"RepositoryMaintenance":              RepositoryMaintenance{},
 	"RepositoryPassphraseReference":      RepositoryPassphraseReference{},
@@ -4144,6 +4178,7 @@ var SchemaTypes = map[string]any{
 	"SnapshotRetentionVerdict":           SnapshotRetentionVerdict{},
 	"SnapshotTransition":                 SnapshotTransition{},
 	"SnapshotVerifyRequest":              SnapshotVerifyRequest{},
+	"StartRecoveryTestRequest":           StartRecoveryTestRequest{},
 	"StorageMediumCredentialsReference":  StorageMediumCredentialsReference{},
 	"StorageMediumRequest":               StorageMediumRequest{},
 	"StorageMediumSummary":               StorageMediumSummary{},

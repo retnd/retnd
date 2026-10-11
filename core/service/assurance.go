@@ -35,13 +35,6 @@ import (
 // goes back to inheriting the default, which is what the field help says. It
 // is never an error and never written into the file as a literal zero.
 
-// MaxScrubCopyRows bounds how many non-passing copies one scrub pass gives a
-// feed line of its own. A thousand healthy copies cost two rows (start and
-// end), and a pass where everything fails costs this many plus two, with the
-// remainder counted on the end line. The feed is append-only, so this is a
-// performance decision as much as a display one.
-const MaxScrubCopyRows = 50
-
 // Due bases: where an item's next-due time came from.
 const (
 	// DueBasisCopyRecord is the copy's own next_due_at (migration 0016), the
@@ -325,11 +318,15 @@ var scrubEligibleStates = map[string]bool{
 func assuranceHostKnobs(d config.AssuranceDefaults) []AssuranceHostKnob {
 	const onePlace = "is a property of the one staging filesystem this process writes to; a per-set override could not be honoured by it"
 	const oneProcess = "bounds one process on one host; a per-set value could not be enforced across sets that share it"
+	// The engine builds its staging area and its gates once, the first time
+	// this process needs them, and does not resize them under live grants.
+	// Saying so here is the difference between a setting and a promise.
+	const atStart = ". It is read once, when this process first needs it, so a change takes effect when the serving process next starts"
 	return []AssuranceHostKnob{
-		{Name: "staging_root", Value: d.StagingRoot, Reason: "the staging root " + onePlace},
-		{Name: "staging_ttl", Value: d.StagingTTL.String(), Reason: "the staging TTL decides when leftovers in that one staging root are swept; " + onePlace},
-		{Name: "max_concurrent_full_reads", Value: fmt.Sprint(d.MaxConcurrentFullReads), Reason: "the concurrency ceiling " + oneProcess},
-		{Name: "max_per_destination", Value: fmt.Sprint(d.MaxPerDestination), Reason: "the per-destination ceiling " + oneProcess},
+		{Name: "staging_root", Value: d.StagingRoot, Reason: "the staging root " + onePlace + atStart},
+		{Name: "staging_ttl", Value: d.StagingTTL.String(), Reason: "the staging TTL decides when leftovers in that one staging root are swept; " + onePlace + atStart},
+		{Name: "max_concurrent_full_reads", Value: fmt.Sprint(d.MaxConcurrentFullReads), Reason: "the concurrency ceiling " + oneProcess + atStart},
+		{Name: "max_per_destination", Value: fmt.Sprint(d.MaxPerDestination), Reason: "the per-destination ceiling " + oneProcess + atStart},
 	}
 }
 

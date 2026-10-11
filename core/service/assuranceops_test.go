@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,6 +35,9 @@ type stubStages struct {
 	exit    int
 	reqs    []app.StageRequest
 	notices []app.StageRequest
+
+	// gate, when set, holds a validator run until it is closed.
+	gate chan struct{}
 }
 
 func (s *stubStages) RunStage(_ context.Context, req app.StageRequest) (app.StageResult, error) {
@@ -56,6 +60,12 @@ func (s *stubStages) RunStage(_ context.Context, req app.StageRequest) (app.Stag
 		return res, nil
 	}
 	s.reqs = append(s.reqs, req)
+	if s.gate != nil {
+		g := s.gate
+		s.mu.Unlock()
+		<-g
+		s.mu.Lock()
+	}
 	return res, nil
 }
 
@@ -241,7 +251,7 @@ func TestRecoveryTestOfAMediumCopyStagesAndPassesWhenAcknowledged(t *testing.T) 
 	withStages(f, stages)
 	a := seedComplete(t, f, "away.dump", "warm")
 
-	res, err := f.b.RunRecoveryTest(ctx, setID(t), RecoveryTestOptions{Artifact: &a, AcknowledgeCost: true})
+	res, err := f.b.RunRecoveryTest(ctx, setID(t), RecoveryTestOptions{ArtifactID: a.String(), AcknowledgeCost: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -303,7 +313,7 @@ func TestARecoveryTestOfAMediumCopyWithWrongBytesFailsAtTheDigestGate(t *testing
 	a := seedComplete(t, f, "rot.dump", "warm")
 	f.store.flipAt = 7
 
-	res, err := f.b.RunRecoveryTest(ctx, setID(t), RecoveryTestOptions{Artifact: &a, AcknowledgeCost: true})
+	res, err := f.b.RunRecoveryTest(ctx, setID(t), RecoveryTestOptions{ArtifactID: a.String(), AcknowledgeCost: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +335,7 @@ func TestARecoveryTestOfAnArchiveCopyIsRefusedAndNeverAPass(t *testing.T) {
 	withStages(f, stages)
 	a := seedComplete(t, f, "cold.dump", "cold")
 
-	res, err := f.b.RunRecoveryTest(ctx, setID(t), RecoveryTestOptions{Artifact: &a, AcknowledgeCost: true})
+	res, err := f.b.RunRecoveryTest(ctx, setID(t), RecoveryTestOptions{ArtifactID: a.String(), AcknowledgeCost: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -482,4 +492,71 @@ type alertSinkFunc func(kind, scope string)
 func (f alertSinkFunc) Deliver(_ context.Context, a alert.Alert) error {
 	f(string(a.Kind), a.Scope)
 	return nil
+}
+
+// --- C2: starting a test ---
+
+func TestStartRecoveryTestRunsOneAtATimePerSet(t *testing.T) {
+	f := newRecoveryFixture(t, fixtureOpts{cfg: requireRecoveryTest})
+	gate := make(chan struct{})
+	stages := &stubStages{script: "pg-check.local.sh", gate: gate}
+	withStages(f, stages)
+	a := seedComplete(t, f, "once.dump", state.MediumLocal)
+
+	first, err := f.b.StartRecoveryTest(context.Background(), "production/postgres", RecoveryTestOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.OperationID == "" || first.BackupSetID != "production/postgres" {
+		t.Errorf("started = %+v", first)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for stages.ran() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the background test never reached its validator")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := f.b.StartRecoveryTest(context.Background(), "production/postgres", RecoveryTestOptions{}); !errors.Is(err, ErrRecoveryTestRunning) {
+		t.Errorf("a second start while one runs: err = %v, want ErrRecoveryTestRunning (already running)", err)
+	}
+	close(gate)
+	f.b.wg.Wait() // the background test is tracked like every other goroutine the service starts
+	if got := claimOf(t, f, a, state.MediumLocal).RecoveryState; got != state.RecoveryPassed {
+		t.Fatalf("the background test recorded %q", got)
+	}
+	// Its lines on the feed carry the id the caller was handed.
+	for _, name := range []string{obs.EventRecoveryTestStart, obs.EventRecoveryTestEnd} {
+		evs := f.eventsNamed(t, name)
+		if len(evs) != 1 || evs[0]["op_id"] != first.OperationID {
+			t.Errorf("%s = %v, want one line for operation %s", name, evs, first.OperationID)
+		}
+	}
+	// And once it has finished another may start.
+	stages.mu.Lock()
+	stages.gate = nil
+	stages.mu.Unlock()
+	if _, err := f.b.StartRecoveryTest(context.Background(), "production/postgres", RecoveryTestOptions{}); err != nil {
+		t.Errorf("a start after the first finished: %v", err)
+	}
+	f.b.wg.Wait()
+}
+
+func TestStartRecoveryTestRefusesWhatCouldNotBeTested(t *testing.T) {
+	f := newRecoveryFixture(t, fixtureOpts{cfg: requireRecoveryTest})
+	for name, tc := range map[string]struct {
+		set  string
+		opts RecoveryTestOptions
+		want error
+	}{
+		"an unknown set":               {"production/nope", RecoveryTestOptions{}, ErrBackupSetNotFound},
+		"a malformed set":              {"nope", RecoveryTestOptions{}, ErrInvalidRequest},
+		"a malformed artifact":         {"production/postgres", RecoveryTestOptions{ArtifactID: "x"}, ErrInvalidRequest},
+		"an artifact of another set":   {"production/postgres", RecoveryTestOptions{ArtifactID: "production/other/a.dump"}, ErrInvalidRequest},
+		"an artifact never journalled": {"production/postgres", RecoveryTestOptions{ArtifactID: "production/postgres/ghost.dump"}, ErrArtifactNotFound},
+	} {
+		if _, err := f.b.StartRecoveryTest(context.Background(), tc.set, tc.opts); !errors.Is(err, tc.want) {
+			t.Errorf("%s: err = %v, want %v", name, err, tc.want)
+		}
+	}
 }

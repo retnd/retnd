@@ -678,7 +678,13 @@ describe("every request the shared client makes is a declared operation", () => 
     // the paragraph above describes: adding a contract operation forces a
     // line here, and wiring a screen to it forces the line back out.
     "mintRecovery",
-    "redeemRecovery"
+    "redeemRecovery",
+    //
+    // EPIC Q's "run a recovery test now" (#980): POST
+    // /backup-sets/{source}/{set}/recovery-test. The API and the CLI verb
+    // (`retnd recovery-test`) are the engine's half; the Run button is the
+    // assurance screens' (#985) and takes this line out when it calls it.
+    "startRecoveryTest"
   ];
 
   it("pins the contract operations no client call reaches", () => {
