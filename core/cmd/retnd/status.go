@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
 
 	"github.com/retnd/retnd/core/cliecho"
 	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/service"
 )
 
 // cmdStatus is `retnd status`: FR-24's health surface, rendered
@@ -35,6 +37,12 @@ func cmdStatus(args []string) int {
 	ctx := context.Background()
 	svc, cfg, cleanup, err := openService(ctx, *cfgPath, false)
 	if err != nil {
+		// A deployment nobody has configured yet has no backup set to be
+		// unhealthy, so this is a first-run notice and not a failure
+		// (retnd#1049).
+		if errors.Is(err, service.ErrConfigAbsent) {
+			return printFirstRunNotice(os.Stdout, *cfgPath, "status")
+		}
 		return fail(err)
 	}
 	defer cleanup()

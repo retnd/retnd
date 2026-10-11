@@ -76,6 +76,7 @@ var contractBindings = map[string]contractBinding{
 	"getSystemCapabilities":   {nil, capabilitiesResponse{}, "/api/v1/system/capabilities"},
 	"getFirstRunStatus":       {nil, firstRunStatusResponse{}, "/api/v1/system/first-run"},
 	"completeFirstRun":        {backupSetSpec{}, completeFirstRunResponse{}, "/api/v1/system/first-run"},
+	"skipFirstRunStep":        {skipFirstRunRequest{}, firstRunStatusResponse{}, "/api/v1/system/first-run/skip"},
 	"listStorageStatus":       {nil, listStorageStatusResponse{}, "/api/v1/system/storage"},
 	"submitOperation":         {submitOperationRequest{}, operationResponse{}, "/api/v1/operations"},
 	"getOperation":            {nil, operationResponse{}, "/api/v1/operations/op_1"},

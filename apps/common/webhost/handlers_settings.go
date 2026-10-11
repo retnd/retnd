@@ -2,6 +2,7 @@ package webhost
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -230,6 +231,15 @@ type settingsResponse struct {
 	// it.
 	Mediums []storageMediumBody `json:"mediums"`
 	Schema  settingsSchemaBody  `json:"schema"`
+
+	// FirstRun is true while these are the engine's defaults and nobody
+	// has changed anything yet: no backup set exists and no destination
+	// has been declared (retnd#1049). A client can then say "these are the
+	// defaults" without guessing from values. Persisted is false only in
+	// the degenerate case where the defaults are being served without a
+	// configuration file behind them, and every write then refuses.
+	FirstRun  bool `json:"first_run"`
+	Persisted bool `json:"persisted"`
 }
 
 // storageMediumBody describes one configured storage medium: what it is
@@ -444,7 +454,18 @@ func (h *handlers) getSettings(w http.ResponseWriter, r *http.Request) {
 		h.internalError(w, r, "INTERNAL", "failed to read settings", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toSettingsResponse(settings))
+	resp := toSettingsResponse(settings)
+	resp.Persisted = true
+	resp.FirstRun = h.noSetsYet(r.Context()) && len(settings.Mediums) <= 1
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// noSetsYet reports whether the configuration declares no backup set at
+// all, the fresh-install state (retnd#1049). A read that fails is not
+// "no sets": the answer errs towards the settled, not-first-run reading.
+func (h *handlers) noSetsYet(ctx context.Context) bool {
+	sets, err := h.backend.ListBackupSets(ctx)
+	return err == nil && len(sets) == 0
 }
 
 // updateSettings is PATCH /api/v1/settings: issue #140 (B3.7)'s generic

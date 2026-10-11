@@ -163,12 +163,16 @@ export function EnrollmentPage({ onEnrolled }: { onEnrolled(): void }) {
   const tooShortId = useId();
   const mismatchId = useId();
   const badEmailId = useId();
+  // retnd#1049: account recovery is an optional second section. Skipped,
+  // the administrator is created from the credentials alone and recovery
+  // is finished later in Settings, so a missing mail server never stops a
+  // first install.
+  const [withRecovery, setWithRecovery] = useState(false);
   const valid =
     username.length > 0 &&
     password.length >= MIN_LENGTH &&
     confirm === password &&
-    looksLikeEmail(recoveryEmail) &&
-    smtpFieldsComplete(smtp);
+    (!withRecovery || (looksLikeEmail(recoveryEmail) && smtpFieldsComplete(smtp)));
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -176,7 +180,12 @@ export function EnrollmentPage({ onEnrolled }: { onEnrolled(): void }) {
     setBusy(true);
     setFailure(null);
     api
-      .enrollAdministrator(username, password, recoveryEmail.trim(), smtpInput(smtp))
+      .enrollAdministrator(
+        username,
+        password,
+        withRecovery ? recoveryEmail.trim() : undefined,
+        withRecovery ? smtpInput(smtp) : undefined
+      )
       .then(onEnrolled)
       .catch((e: unknown) => setFailure(describeEnrollmentFailure(e, bootstrapTokenFromLocation() !== null)))
       .finally(() => setBusy(false));
@@ -233,6 +242,22 @@ export function EnrollmentPage({ onEnrolled }: { onEnrolled(): void }) {
             else on the screen. */}
         <div style={{ height: 1, background: "var(--border)", margin: "4px 0" }} />
         <h2 style={{ margin: 0, fontSize: 15 }}>Account recovery</h2>
+        <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: "var(--text-sm)" }}>
+          <input
+            type="checkbox"
+            checked={withRecovery}
+            onChange={(e) => setWithRecovery(e.target.checked)}
+          />
+          <span>Set up email recovery now</span>
+        </label>
+        {withRecovery ? null : (
+          <p style={{ margin: 0, fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
+            Skipped for now. You can add a recovery address and a mail server later, under
+            Settings. Until then a forgotten password can only be reset from the command line.
+          </p>
+        )}
+        {withRecovery ? (
+          <>
         <RecoveryAttention />
         <HelpField label="Recovery email" help={FIELD_HELP.recoveryEmail}>
           {/* aria-labelledby for the reason PasswordInput carries one: the
@@ -266,6 +291,8 @@ export function EnrollmentPage({ onEnrolled }: { onEnrolled(): void }) {
           onChange={(patch) => setSmtp((current) => ({ ...current, ...patch }))}
           passwordAutoComplete="new-password"
         />
+          </>
+        ) : null}
         {failure ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <ErrorState

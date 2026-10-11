@@ -99,9 +99,13 @@ func (c *Config) Validate() error {
 
 	v.validateState(c.State)
 
-	if len(c.Sources) == 0 {
-		v.addf("sources: at least one source is required")
-	}
+	// An empty sources list is valid (retnd#1049). It is what a fresh
+	// install runs on until its first backup set exists: the scheduler
+	// walks nothing and the UI shows its "No backup sets yet" state. The
+	// refusal that used to sit here protected a hand-edited file that had
+	// lost its sources, and the default configuration's header comment
+	// plus the dashboard's empty state say that honestly instead of
+	// keeping a first install from starting.
 
 	seenSourceNames := map[string]bool{}
 	seenSetIDs := map[string]string{} // BackupSetID.String() -> the field path that first claimed it
@@ -148,9 +152,7 @@ func (c *Config) Validate() error {
 		// the cycle completes silently. Whatever fixes that should fix
 		// both, at the cycle, where the emptiness is observable.
 		//
-		// The whole-file rule above (at least one source) is untouched,
-		// and stays reachable, because removal never empties Sources now
-		// that the source stays behind.
+		// Removal never empties Sources now that the source stays behind.
 
 		for j := range src.BackupSets {
 			bsPath := fmt.Sprintf("%s.backup_sets[%d]", path, j)

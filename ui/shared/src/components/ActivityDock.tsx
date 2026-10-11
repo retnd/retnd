@@ -94,6 +94,7 @@ import type { LiveActivity, SetActivity, SetActivityEvent, UnfinishedAction } fr
 import { clock } from "@shared/utilities/format";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { TooltipId } from "@shared/tooltips/tooltips";
+import { copyText } from "@shared/utilities/copyText";
 
 /** How many lines the dock holds.
  *
@@ -629,8 +630,12 @@ export function ActivityDock() {
   }, [all]);
 
   const copy = useCallback(() => {
-    void navigator.clipboard?.writeText(dockText(shown, viewer, preamble));
-    setCopied(true);
+    // "copied" is shown only when the text really went to the clipboard
+    // (retnd#1049); on a plain-http origin the fallback chain in
+    // copyText gets there, and "Save .txt" stays the route when it cannot.
+    void copyText(dockText(shown, viewer, preamble)).then((outcome) => {
+      if (outcome === "copied") setCopied(true);
+    });
   }, [shown, viewer, preamble]);
 
   const save = useCallback(() => {

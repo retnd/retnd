@@ -32,6 +32,7 @@
 import { useNavigate } from "react-router-dom";
 
 import { useApi } from "@shared/api/ApiContext";
+import { isNotConfigured } from "@shared/api/failure";
 import { CheckList } from "@shared/components/CheckList";
 import { Note, Row, Rows } from "@shared/components/Definitions";
 import { EmptyState, ErrorState } from "@shared/components/EmptyState";
@@ -69,6 +70,16 @@ export function RepositoryHealthPage() {
       }
     />
   );
+
+  if (fleet.error && isNotConfigured(fleet.error))
+    return (
+      <>
+        {header}
+        <EmptyState title="No repository domain yet">
+          Nothing is configured yet, so there is nothing to check. Add a backup set and its repository appears here.
+        </EmptyState>
+      </>
+    );
 
   if (fleet.error)
     return (

@@ -679,6 +679,14 @@ const (
 // exit code is what a script is supposed to branch on so that nothing has
 // to parse the prose.
 func fail(err error) int {
+	if errors.Is(err, service.ErrConfigAbsent) {
+		// A verb that needs a backup set to act on keeps its non-zero exit
+		// on a fresh install, but says what is true and what to do next
+		// rather than "no configuration file" (retnd#1049).
+		fmt.Fprintln(os.Stderr, cliecho.Binary+": no backup set configured yet:", err)
+		fmt.Fprintln(os.Stderr, "Next step: add the first backup set in the web interface, or with `"+cliecho.Binary+" backup-set create ...`.")
+		return exitFailure
+	}
 	fmt.Fprintln(os.Stderr, cliecho.Binary+":", err)
 	if errors.Is(err, errEngineHoldsDeployment) {
 		return exitEngineHoldsDeployment

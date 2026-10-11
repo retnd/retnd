@@ -756,6 +756,19 @@ func (b *BackupService) CreateBackupSet(ctx context.Context, req CreateBackupSet
 		return CreateBackupSetResult{}, err
 	}
 
+	// The first set of a deployment that was started on its default
+	// configuration (retnd#1049) seeds the local destination, exactly as
+	// CreateInitialConfig does for the setup flow, so both doors leave the
+	// same file behind. Counted before the append below, and only when no
+	// destination has been declared yet: a deployment that already has
+	// sets or mediums is never touched by this.
+	seedLocal := len(cfg.StorageMediums) == 0
+	for _, src := range cfg.Sources {
+		if len(src.BackupSets) > 0 {
+			seedLocal = false
+		}
+	}
+
 	found := false
 	for i := range cfg.Sources {
 		if cfg.Sources[i].Name == sourceName {
@@ -766,6 +779,13 @@ func (b *BackupService) CreateBackupSet(ctx context.Context, req CreateBackupSet
 	}
 	if !found {
 		cfg.Sources = append(cfg.Sources, config.Source{Name: sourceName, BackupSets: []config.BackupSet{newSet}})
+	}
+	if seedLocal {
+		localMedium, err := seedLocalStorageMedium(ctx, cfg, req.SkipConnectionCheck)
+		if err != nil {
+			return CreateBackupSetResult{}, err
+		}
+		cfg.StorageMediums = append(cfg.StorageMediums, localMedium)
 	}
 
 	// Encoded before cfg.Validate, which resolves Retention and Alerts IN

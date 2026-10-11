@@ -133,6 +133,13 @@ var firstRunSafeRoutes = map[string]bool{
 	"GET /api/v1/system/capabilities": true,
 	"GET /api/v1/system/first-run":    true,
 
+	// retnd#1049: a fresh install answers the two reads every page makes
+	// with what is true (the defaults, an empty report) and skips are the
+	// guide's one write. None touches backup data.
+	"GET /api/v1/settings":               true,
+	"GET /api/v1/system/health":          true,
+	"POST /api/v1/system/first-run/skip": true,
+
 	// The setup flow itself. Each is either read-only in effect
 	// (host-key-probe, test-connection) or the setup write it exists for
 	// (both imports, first-run), and none of them touches, moves or

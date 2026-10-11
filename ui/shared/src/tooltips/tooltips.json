@@ -1441,7 +1441,7 @@
   },
   "common.error-copy-details": {
     "label": "Copy details",
-    "html": "Puts the message, the remedy and the advanced detail on the clipboard as text, so none of it has to be retyped off the screen. Where the browser offers no clipboard at all, as on a plain unencrypted origin, it says so rather than appearing to have worked."
+    "html": "Puts the message, the remedy and the advanced detail on the clipboard as text, so none of it has to be retyped off the screen. On a plain unencrypted origin, where the browser offers no clipboard, it falls back to the browser's older copy command, and if that is refused too it selects the details for you to copy with Ctrl+C. It only says Copied when it did."
   },
   "common.error-retry": {
     "label": "Try again",

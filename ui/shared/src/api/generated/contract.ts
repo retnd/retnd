@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "f8cc9c340ef96db68d0ba4cc31405c45a542d5a736c2ba763373a5db61dca57d";
+export const CONTRACT_SHA256 = "5086dc7632eaae3aae5caf74dc1667657e7ed67a8697e625528d93aba8290f84";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -1844,6 +1844,25 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "skipFirstRunStep",
+    method: "POST",
+    path: "/system/first-run/skip",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "SkipFirstRunStepRequest",
+    responseSchema: "FirstRunStatusResponse",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      500: ["INTERNAL"],
+    }
+  },
+  {
     id: "getSystemHealth",
     method: "GET",
     path: "/system/health",
@@ -2538,22 +2557,22 @@ export interface WireCycleOutcome {
   moves?: WireCycleMoveOutcome;
 }
 
-/** POST /auth/enroll. The credentials, plus the two things issue #830
- *  makes part of creating the administrator: the address account
- *  recovery mails to, and the SMTP endpoint it goes out over. Both
- *  are required, because an administrator with no proven way to reach
- *  its owner is an account that is permanently lost the first time a
- *  password is forgotten, and enrollment is the last moment at which
- *  somebody who can still sign in is present to fix the mail
- *  configuration. The runtime SENDS a confirmation message to
- *  `recoveryEmail` over `smtp` before it writes anything, and refuses
- *  the whole enrollment with SMTP_SEND_FAILED if that send does not
- *  succeed - leaving the single-use enrollment token unspent, so the
- *  same link can be used again once the configuration is fixed. */
+/** POST /auth/enroll. The credentials, and optionally the two things
+ *  issue #830 makes part of recovering the administrator: the address
+ *  account recovery mails to, and the SMTP endpoint it goes out over.
+ *  Both are optional together (retnd#1049): a body with only the
+ *  credentials creates the administrator with recovery left
+ *  unconfigured, to be finished from Settings. A body that supplies
+ *  either is held to both: the runtime SENDS a verification message
+ *  to `recoveryEmail` over `smtp` before it writes anything, and
+ *  refuses the whole enrollment with SMTP_SEND_FAILED if that send
+ *  does not succeed - leaving the single-use enrollment token
+ *  unspent, so the same link can be used again once the configuration
+ *  is fixed. */
 export interface WireEnrollRequest {
   password: string;
-  recoveryEmail: string;
-  smtp: WireSmtpSettings;
+  recoveryEmail?: string;
+  smtp?: WireSmtpSettings;
   username: string;
 }
 
@@ -2571,12 +2590,25 @@ export interface WireErrorResponse {
   error: WireErrorBody;
 }
 
-/** GET /system/first-run. The one question a client asks before it
- *  decides whether to render the setup flow or the application.
- *  Deliberately one field: a client that has just been handed a 503
- *  NOT_CONFIGURED needs to know which screen to show, not why. */
+/** GET /system/first-run. Whether this deployment has a
+ *  configuration, and which guided setup step comes next. A fresh
+ *  install is configured from its first start (the engine writes a
+ *  default configuration), so `configured` is true there and the
+ *  guide is what tells an operator what is left to do. The steps are
+ *  derived from the thing each one sets up, except a skip, which is
+ *  stored. */
 export interface WireFirstRunStatusResponse {
   configured: boolean;
+  next_step: "administrator" | "email" | "backup_set" | "none";
+  steps: WireFirstRunSteps;
+}
+
+/** Each guided setup step mapped to its state: done, pending or
+ *  skipped. */
+export interface WireFirstRunSteps {
+  administrator: "done" | "pending" | "skipped";
+  backup_set: "done" | "pending" | "skipped";
+  email: "done" | "pending" | "skipped";
 }
 
 /** POST /auth/forgot-password. One field, and the answer never varies
@@ -3463,7 +3495,9 @@ export interface WireSetReadOnlyRequest {
  *  effect plus the rules they were validated against. */
 export interface WireSettingsResponse {
   capacity: WireCapacitySettings;
+  first_run?: boolean;
   mediums: WireStorageMediumSummary[];
+  persisted?: boolean;
   retention: WireRetentionSettings;
   schema: WireSettingsSchema;
   service: WireServiceSettings;
@@ -3474,6 +3508,12 @@ export interface WireSettingsSchema {
   retention: WireRetentionSchema;
   service: WireServiceSchema;
   storage: WireStorageSchema;
+}
+
+/** POST /system/first-run/skip. The guided setup step to leave for
+ *  later. */
+export interface WireSkipFirstRunStepRequest {
+  step: "email" | "backup_set";
 }
 
 /** One SMTP submission endpoint an operator typed in: where to

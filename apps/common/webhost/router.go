@@ -86,6 +86,10 @@ type RouterConfig struct {
 	// array means.
 	AdoptedPaths []legacypath.Adoption
 
+	// Setup, when non-nil, answers the first-run guide's questions about
+	// the administrator, the mail server and skipped steps (retnd#1049).
+	Setup SetupProgress
+
 	// OnConfigured, when non-nil, is called by POST
 	// /api/v1/system/first-run once the first configuration is durably
 	// written: the host's chance to open a real backend against that file
@@ -250,6 +254,7 @@ type handlers struct {
 	// names; see firstrun.go for what each is for.
 	firstRun     FirstRunClient
 	onConfigured func(context.Context) error
+	progress     SetupProgress
 
 	// adoptedPaths is RouterConfig.AdoptedPaths, carried unchanged.
 	adoptedPaths []legacypath.Adoption
@@ -305,6 +310,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		gate:          gate,
 		firstRun:      cfg.FirstRun,
 		onConfigured:  cfg.OnConfigured,
+		progress:      cfg.Setup,
 		adoptedPaths:  cfg.AdoptedPaths,
 		logger:        logger,
 		debug:         envLogLevel() == slog.LevelDebug,
@@ -361,6 +367,10 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// pins it, at destructiveGateExemptRoutes (router_test.go).
 		r.Get("/system/first-run", h.firstRunStatus)
 		r.With(requireCSRF).Post("/system/first-run", h.completeFirstRun)
+		// retnd#1049: leave a guide step for later. Non-destructive and
+		// touches no backup data, so it is exempt from the gate like the
+		// POST above it.
+		r.With(requireCSRF).Post("/system/first-run/skip", h.skipFirstRunStep)
 		// Issue #104 (B3.4): FR-21's existing capacity refusal, surfaced
 		// honestly. Read-only, same as the two routes above.
 		r.Get("/system/storage", h.systemStorage)

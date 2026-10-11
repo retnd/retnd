@@ -268,6 +268,12 @@ export function BackupDefaultsPage({ readOnly }: { readOnly: boolean }) {
               correlationId={fleet.error.correlationId}
               onRetry={fleet.reload}
             />
+          ) : fleet.error ? (
+            // retnd#1049: NOT_CONFIGURED is a state, not a read that is
+            // still in flight. It used to fall through to "Loading" forever.
+            <p style={{ margin: 0, fontSize: 13, color: "var(--text-2)" }}>
+              No repository domain is declared yet, so there is no maintenance to own.
+            </p>
           ) : fleet.data === null ? (
             <p style={{ margin: 0, fontSize: 13, color: "var(--text-3)" }}>
               Loading maintenance ownership…

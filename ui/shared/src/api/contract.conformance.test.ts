@@ -278,6 +278,7 @@ describe("every request the shared client makes is a declared operation", () => 
       ["getVersion", () => httpApi.getVersion()],
       ["getHealth", () => httpApi.getHealth()],
       ["getFirstRunStatus", () => httpApi.getFirstRunStatus()],
+      ["skipFirstRunStep", () => httpApi.skipFirstRunStep("email")],
       // Issue #176. Driven with the same spec createBackupSet is driven
       // with, deliberately: both operations declare the contract's
       // BackupSetSpec, and this list is what proves each one's REQUEST

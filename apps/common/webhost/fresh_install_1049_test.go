@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -93,5 +94,71 @@ func TestFirstRunStatus_NamesTheSetupStepsAndTheNextOne(t *testing.T) {
 	}
 	if _, ok := body.Steps["email"]; !ok {
 		t.Errorf("steps carries no email entry; the email step has to be reportable as pending, skipped or done\nbody: %s", rec.Body.String())
+	}
+}
+
+// The skip route and the steps behind it (retnd#1049).
+
+type fakeProgress struct {
+	admin, email bool
+	skips        []string
+}
+
+func (f *fakeProgress) AdministratorCreated() bool { return f.admin }
+func (f *fakeProgress) EmailConfigured() bool      { return f.email }
+func (f *fakeProgress) SetupSkips() []string       { return f.skips }
+func (f *fakeProgress) SkipSetupStep(s string) error {
+	f.skips = append(f.skips, s)
+	return nil
+}
+
+func progressRouter(p *fakeProgress) http.Handler {
+	return NewRouter(RouterConfig{
+		Platform:      allowingPlatform("alice"),
+		FirstRun:      &fakeFirstRun{},
+		Setup:         p,
+		BinaryVersion: "test",
+		Commit:        "test",
+	})
+}
+
+func TestFirstRunStatus_EmailIsPendingUntilDoneOrSkipped(t *testing.T) {
+	p := &fakeProgress{admin: true}
+	router := progressRouter(p)
+
+	var body struct {
+		NextStep string            `json:"next_step"`
+		Steps    map[string]string `json:"steps"`
+	}
+	getJSONInto(t, router, "/api/v1/system/first-run", &body)
+	if body.Steps["email"] != "pending" || body.NextStep != "email" {
+		t.Fatalf("email = %q, next = %q, want pending and email", body.Steps["email"], body.NextStep)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/first-run/skip", strings.NewReader(`{"step":"email"}`))
+	req.Header.Set("Content-Type", "application/json")
+	attachValidCSRF(req)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("skip = %d: %s", rec.Code, rec.Body.String())
+	}
+
+	body.Steps = nil
+	getJSONInto(t, router, "/api/v1/system/first-run", &body)
+	if body.Steps["email"] != "skipped" || body.NextStep != "backup_set" {
+		t.Errorf("after the skip: email = %q, next = %q", body.Steps["email"], body.NextStep)
+	}
+}
+
+func TestFirstRunSkip_RefusesTheAdministratorStep(t *testing.T) {
+	router := progressRouter(&fakeProgress{admin: true})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/first-run/skip", strings.NewReader(`{"step":"administrator"}`))
+	req.Header.Set("Content-Type", "application/json")
+	attachValidCSRF(req)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("skipping the administrator = %d, want 400", rec.Code)
 	}
 }
