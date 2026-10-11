@@ -689,6 +689,7 @@ func cmdServe(args []string) int {
 			// away the surface they would lift it from.
 			fmt.Fprintln(os.Stderr, cliecho.WebBinary+": workflow runs could not be reconciled, so this process refuses to START a backup until they can be; reading, recovery and the rest of the API are unaffected:", err)
 		}
+		endRecoverySessionsOnLogout(authSvc, backend)
 		engineConfig.Backend = backend
 		handler = serve.NewEngine(engineConfig)
 		scheduler = backend
@@ -766,6 +767,7 @@ func cmdServe(args []string) int {
 				return nil, nil, wfErr
 			}
 
+			endRecoverySessionsOnLogout(authSvc, opened)
 			return opened, closeFn, nil
 		}
 
