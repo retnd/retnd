@@ -1,6 +1,10 @@
 package config
 
-import "time"
+import (
+	"fmt"
+	"path/filepath"
+	"time"
+)
 
 // Assurance configuration (EPIC Q, Q1.4 / FR-73): the global default and
 // the per-set override for scrubbing and recovery testing.
@@ -85,4 +89,206 @@ type AssuranceDefaults struct {
 // AssuranceIsOverride reports whether this set declares its own policy.
 func (b BackupSet) AssuranceIsOverride() bool { return b.AssuranceConfig != nil }
 
-func (c *Config) resolveAssurance(v *validator) {}
+// ScrubStrategies and RecoveryTestModes spell the closed vocabularies in a
+// fixed order, for messages and for readers that render a chooser.
+var (
+	ScrubStrategies     = []string{ScrubStrategyAuto, ScrubStrategyExistence, ScrubStrategyContent}
+	GlobalRecoveryModes = []string{RecoveryTestOff, RecoveryTestRequired}
+	SetRecoveryModes    = []string{RecoveryTestInherit, RecoveryTestOff, RecoveryTestRequired, RecoveryTestCustom}
+)
+
+func containsString(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveAssurance is phase 2 of Validate for the assurance policy: it
+// resolves the deployment-wide block into c.Assurance without touching the
+// operator's own block (so a re-marshal stays byte-identical), then every
+// backup set's policy from its override and that resolved global.
+//
+// Any mutation of c.AssuranceBlock has to be followed by Validate. A
+// consumer that patched the global and skipped it would leave every
+// inheriting set deciding under the old policy, which is how the retention
+// override flags were once a silent no-op.
+func (c *Config) resolveAssurance(v *validator) {
+	global := c.resolveGlobalAssurance(v)
+	c.Assurance = global
+	for i := range c.Sources {
+		for j := range c.Sources[i].BackupSets {
+			bs := &c.Sources[i].BackupSets[j]
+			path := fmt.Sprintf("sources[%d].backup_sets[%d]", i, j)
+			bs.Assurance = resolveSetAssurance(v, path, bs.AssuranceConfig, global.Assurance)
+		}
+	}
+}
+
+// ResolveAssurance runs the assurance phase on its own, for a caller that
+// builds a Config by hand, the way ResolveBackupSetRetention does.
+func (c *Config) ResolveAssurance() error {
+	v := &validator{}
+	c.resolveAssurance(v)
+	return v.err()
+}
+
+func checkCadence(v *validator, path string, d Duration, floor time.Duration) {
+	if d.Duration() < floor {
+		v.addf("%s: %s is below the floor of %s; a cadence that short would re-read the same bytes continuously", path, d, floor)
+	}
+}
+
+func (c *Config) resolveGlobalAssurance(v *validator) AssuranceDefaults {
+	var b AssuranceBlock
+	if c.AssuranceBlock != nil {
+		b = *c.AssuranceBlock
+	}
+	const p = "assurance"
+	var out AssuranceDefaults
+
+	out.Scrub.Cadence = b.Scrub.Cadence
+	if out.Scrub.Cadence == 0 {
+		out.Scrub.Cadence = Duration(DefaultScrubCadence)
+	}
+	checkCadence(v, p+".scrub.cadence", out.Scrub.Cadence, MinScrubCadence)
+	out.Scrub.Strategy = b.Scrub.Strategy
+	if out.Scrub.Strategy == "" {
+		out.Scrub.Strategy = ScrubStrategyAuto
+	}
+	if !containsString(ScrubStrategies, out.Scrub.Strategy) {
+		v.addf("%s.scrub.strategy: %q is not one of %v", p, out.Scrub.Strategy, ScrubStrategies)
+	}
+
+	rt := &out.RecoveryTest
+	rt.Mode = b.RecoveryTest.Mode
+	if rt.Mode == "" {
+		rt.Mode = RecoveryTestOff
+	}
+	if !containsString(GlobalRecoveryModes, rt.Mode) {
+		v.addf("%s.recovery_test.mode: %q is not one of %v (inherit and custom are per-set spellings)", p, rt.Mode, GlobalRecoveryModes)
+	}
+	rt.Cadence = b.RecoveryTest.Cadence
+	if rt.Cadence == 0 {
+		rt.Cadence = Duration(DefaultRecoveryTestCadence)
+	}
+	checkCadence(v, p+".recovery_test.cadence", rt.Cadence, MinRecoveryTestCadence)
+	rt.ValidatorID = b.RecoveryTest.ValidatorID
+	if rt.ValidatorID != "" {
+		if err := validValidatorID(rt.ValidatorID); err != nil {
+			v.addf("%s.recovery_test.validator_id: %v", p, err)
+		}
+	}
+	if rt.Mode == RecoveryTestRequired && rt.ValidatorID == "" {
+		v.addf("%s.recovery_test.validator_id: mode required needs a validator; a recovery test with nothing to run proves only that the bytes came back", p)
+	}
+
+	out.StagingRoot = b.StagingRoot
+	if out.StagingRoot != "" && !filepath.IsAbs(out.StagingRoot) {
+		v.addf("%s.staging_root: %q must be an absolute path", p, out.StagingRoot)
+	}
+	if out.StagingRoot == "" && c.State.Database != "" {
+		out.StagingRoot = filepath.Join(filepath.Dir(c.State.Database), "recovery-staging")
+	}
+	out.StagingTTL = b.StagingTTL.Duration()
+	if out.StagingTTL < 0 {
+		v.addf("%s.staging_ttl: %s must not be negative", p, b.StagingTTL)
+	}
+	if out.StagingTTL == 0 {
+		out.StagingTTL = DefaultStagingTTL
+	}
+	out.MaxConcurrentFullReads = positiveOrDefault(v, p+".max_concurrent_full_reads", b.MaxConcurrentFullReads, DefaultMaxConcurrentReads)
+	out.MaxPerDestination = positiveOrDefault(v, p+".max_per_destination", b.MaxPerDestination, DefaultMaxPerDestination)
+	out.WebDownloadMemoryBytes = b.WebDownloadMemoryBytes
+	if out.WebDownloadMemoryBytes < 0 {
+		v.addf("%s.web_download_memory_bytes: %d must not be negative", p, b.WebDownloadMemoryBytes)
+	}
+	if out.WebDownloadMemoryBytes == 0 {
+		out.WebDownloadMemoryBytes = DefaultWebDownloadMemory
+	}
+	return out
+}
+
+func positiveOrDefault(v *validator, path string, n, def int) int {
+	if n < 0 {
+		v.addf("%s: %d must not be negative", path, n)
+	}
+	if n <= 0 {
+		return def
+	}
+	return n
+}
+
+// resolveSetAssurance resolves one set's policy. Each field a set does not
+// name is inherited from the already-resolved global, so a global change
+// reaches it, and the override block itself is never written to.
+func resolveSetAssurance(v *validator, path string, o *AssuranceOverride, global Assurance) Assurance {
+	out := global
+	if o == nil {
+		return out
+	}
+	path += ".assurance"
+	if *o == (AssuranceOverride{}) {
+		v.addf("%s: names nothing; remove the block to inherit the deployment's policy, or name a field", path)
+		return out
+	}
+	if o.Scrub.Cadence != 0 {
+		checkCadence(v, path+".scrub.cadence", o.Scrub.Cadence, MinScrubCadence)
+		out.Scrub.Cadence = o.Scrub.Cadence
+	}
+	if o.Scrub.Strategy != "" {
+		if !containsString(ScrubStrategies, o.Scrub.Strategy) {
+			v.addf("%s.scrub.strategy: %q is not one of %v", path, o.Scrub.Strategy, ScrubStrategies)
+		} else {
+			out.Scrub.Strategy = o.Scrub.Strategy
+		}
+	}
+
+	rt, rp := o.RecoveryTest, path+".recovery_test"
+	switch rt.Mode {
+	case "", RecoveryTestInherit:
+		if rt.Cadence != 0 || rt.ValidatorID != "" {
+			v.addf("%s: cadence and validator_id need mode required or custom; inherit takes the deployment's", rp)
+		}
+	case RecoveryTestOff:
+		if rt.Cadence != 0 || rt.ValidatorID != "" {
+			v.addf("%s: cadence and validator_id are only used when the mode is required or custom; remove them", rp)
+		}
+		out.RecoveryTest.Mode = RecoveryTestOff
+	case RecoveryTestRequired:
+		if rt.Cadence != 0 {
+			v.addf("%s.cadence: mode required runs on the deployment's cadence; use mode custom for the set's own", rp)
+		}
+		out.RecoveryTest.Mode = RecoveryTestRequired
+		if rt.ValidatorID != "" {
+			out.RecoveryTest.ValidatorID = rt.ValidatorID
+		}
+	case RecoveryTestCustom:
+		out.RecoveryTest.Mode = RecoveryTestCustom
+		if rt.Cadence == 0 {
+			v.addf("%s.cadence: mode custom needs the set's own cadence", rp)
+		} else {
+			checkCadence(v, rp+".cadence", rt.Cadence, MinRecoveryTestCadence)
+			out.RecoveryTest.Cadence = rt.Cadence
+		}
+		if rt.ValidatorID == "" {
+			v.addf("%s.validator_id: mode custom needs the set's own validator", rp)
+		}
+		out.RecoveryTest.ValidatorID = rt.ValidatorID
+	default:
+		v.addf("%s.mode: %q is not one of %v", rp, rt.Mode, SetRecoveryModes)
+	}
+	if rt.ValidatorID != "" {
+		if err := validValidatorID(rt.ValidatorID); err != nil {
+			v.addf("%s.validator_id: %v", rp, err)
+		}
+	}
+	if out.RecoveryTest.Mode == RecoveryTestRequired || out.RecoveryTest.Mode == RecoveryTestCustom {
+		if out.RecoveryTest.ValidatorID == "" {
+			v.addf("%s.validator_id: mode %s needs a validator, on the set or on the deployment", rp, out.RecoveryTest.Mode)
+		}
+	}
+	return out
+}
