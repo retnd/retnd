@@ -241,3 +241,52 @@ func TestAlertsCarryNoTimestampOfTheirOwn(t *testing.T) {
 		t.Errorf("ObservedAt = %s, want %s", sink.at(0).ObservedAt, at)
 	}
 }
+
+// A scrub that keeps failing alerts once per backup set, however many copies
+// are failing, and the alert resolves when the next pass clears it.
+func TestScrubFailingIsOneConditionPerSetNotPerCopy(t *testing.T) {
+	set := mustSetID(t, "prod", "pg")
+	h := health.BackupSetHealth{Set: set, State: health.Degraded, ScrubFailingCopies: 40}
+
+	conds := alert.BackupSetConditions(h, 3)
+	var scrub []alert.Condition
+	for _, c := range conds {
+		if c.Kind == alert.ScrubFailing {
+			scrub = append(scrub, c)
+		}
+	}
+	if len(scrub) != 1 {
+		t.Fatalf("got %d ScrubFailing conditions for 40 failing copies, want exactly 1", len(scrub))
+	}
+	if scrub[0].Scope != set.String() {
+		t.Errorf("Scope = %q, want the backup set", scrub[0].Scope)
+	}
+	if hasKind(alert.BackupSetConditions(health.BackupSetHealth{Set: set, State: health.Healthy}, 3), alert.ScrubFailing) {
+		t.Error("a set with no failing copy raised ScrubFailing")
+	}
+}
+
+func TestScrubFailingAlertsOnceAndResolvesWhenCleared(t *testing.T) {
+	ctx := context.Background()
+	set := mustSetID(t, "prod", "pg")
+	sink := &countSink{}
+	d := alert.NewDispatcher(sink, nil)
+	failing := alert.BackupSetConditions(health.BackupSetHealth{Set: set, State: health.Degraded, ScrubFailingCopies: 2}, 3)
+	now := time.Now()
+
+	d.Observe(ctx, failing, nil, now)
+	d.Observe(ctx, failing, nil, now.Add(time.Minute))
+	if sink.n != 1 {
+		t.Fatalf("delivered %d alerts over two passes of one standing condition, want exactly 1", sink.n)
+	}
+	// The next pass finds it cleared, and a later recurrence alerts again.
+	d.Observe(ctx, alert.BackupSetConditions(health.BackupSetHealth{Set: set, State: health.Healthy}, 3), nil, now.Add(2*time.Minute))
+	d.Observe(ctx, failing, nil, now.Add(3*time.Minute))
+	if sink.n != 2 {
+		t.Errorf("delivered %d after clearing and recurring, want 2", sink.n)
+	}
+}
+
+type countSink struct{ n int }
+
+func (s *countSink) Deliver(context.Context, alert.Alert) error { s.n++; return nil }

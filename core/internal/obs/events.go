@@ -230,6 +230,19 @@ const (
 	// count is the easiest place in the product to do it by accident.
 	EventSnapshotStats = "snapshot_stats"
 
+	// EventScrubPass records one finished scrub pass (EPIC Q, #978): how
+	// many copies it selected, checked, passed and failed, how many it
+	// skipped and why. It is ONE line per pass whatever the pass covered,
+	// because the durable feed is append-only and cursor-paged and a line per
+	// copy over a thousand due copies would be a volume decision made by
+	// accident. Per-copy progress is live-only.
+	EventScrubPass = "scrub_pass"
+
+	// EventScrubFailure records one copy a scrub found wrong, or could not
+	// check. It is the only per-copy line a pass writes, and it exists for
+	// the copies an operator has to do something about.
+	EventScrubFailure = "scrub_failure"
+
 	// EventWorkflowRunStart and EventWorkflowRunEnd bracket one EPIC L
 	// workflow run: the five-stage lifecycle internal/workflowrun drives
 	// around a backup set's backup (#811), whether or not that set
@@ -885,4 +898,69 @@ func (l *Logger) WorkflowBypassed(ctx context.Context, runID, backupSet, actor s
 		slog.String("actor", actor),
 		slog.Int("scripts", scripts),
 	)
+}
+
+// ScrubPassCounts is what one scrub pass did, as counts. It names no copy.
+type ScrubPassCounts struct {
+	// Trigger is "schedule" or "manual".
+	Trigger string
+	// Scope is what the pass was asked to cover, in words.
+	Scope string
+
+	Selected, Checked, Passed, Failed, CouldNotComplete, RequiresRestore int
+	SkippedHeld, SkippedLeased                                           int
+	BytesRead                                                            int64
+}
+
+// ScrubPass logs EventScrubPass. A pass that found a failure, could not
+// complete a check, or skipped a copy it was due to scrub completed with
+// something in it worth an operator's attention, so it is a warn: the scrub
+// did its job, which is not an error, and a skip must never read as success.
+func (l *Logger) ScrubPass(ctx context.Context, c ScrubPassCounts) {
+	result := ResultSuccess
+	if c.Failed > 0 || c.CouldNotComplete > 0 || c.SkippedHeld > 0 || c.SkippedLeased > 0 {
+		result = ResultWarn
+	}
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventScrubPass, "scrub pass complete",
+		slog.String("trigger", c.Trigger),
+		slog.String("scope", scrubText(c.Scope)),
+		slog.Int("selected", c.Selected),
+		slog.Int("checked", c.Checked),
+		slog.Int("passed", c.Passed),
+		slog.Int("failed", c.Failed),
+		slog.Int("could_not_complete", c.CouldNotComplete),
+		slog.Int("requires_restore", c.RequiresRestore),
+		slog.Int("skipped_held", c.SkippedHeld),
+		slog.Int("skipped_leased", c.SkippedLeased),
+		slog.Int64("bytes_read", c.BytesRead),
+	)
+}
+
+// ScrubFailure logs EventScrubFailure for one copy. class is the class that
+// ran, never the class asked for.
+func (l *Logger) ScrubFailure(ctx context.Context, artifact, medium, class, reason string) {
+	l.emitMarked(ctx, ResultWarn.Level(), mark{result: ResultWarn}, EventScrubFailure, "scrub found a copy wrong or could not check it",
+		slog.String("artifact", artifact),
+		slog.String("medium", medium),
+		slog.String("class", class),
+		slog.String("reason", scrubText(reason)),
+	)
+}
+
+// scrubText makes free text safe for a structured field: control bytes
+// become spaces and the length is bounded. The reason comes from checks that
+// wrap filesystem and storage errors, and a log line is read in terminals.
+func scrubText(s string) string {
+	const max = 512
+	b := make([]rune, 0, len(s))
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) {
+			r = ' '
+		}
+		b = append(b, r)
+		if len(b) >= max {
+			break
+		}
+	}
+	return string(b)
 }

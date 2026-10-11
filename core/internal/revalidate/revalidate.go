@@ -602,6 +602,27 @@ func checkArtifact(ctx context.Context, deps Deps, cfg config.Revalidation, opts
 		return Finding{}, 0, err
 	}
 
+	// Before a failure is allowed to stand, look again at what the journal
+	// says about the copy. A scrub reads for a long time, and the cycle that
+	// runs beside it may retire or delete the very copy being read; a file
+	// that vanished because retention removed it on purpose is not rot, and
+	// quarantining the artifact over it would be the scrub inventing a loss.
+	// So a failure only stands if the artifact is still in the state it was
+	// selected in and every copy that failed is still ACTIVE.
+	if res.checked && !res.passed {
+		if changed := copyChangedDuringScrub(ctx, deps, rec, res.copies); changed != "" {
+			for i := range res.copies {
+				if res.copies[i].verdict == state.ScrubFailed {
+					res.copies[i].verdict = state.ScrubCouldNotComplete
+					res.copies[i].class = ""
+					res.copies[i].reason = changed
+				}
+			}
+			res.checked, res.passed, res.class = false, true, ""
+			res.reason = changed
+		}
+	}
+
 	bytes, err := func() (int64, error) {
 		if err := recordCopies(ctx, deps, cfg, rec, res.copies, started); err != nil {
 			return 0, err
@@ -739,4 +760,30 @@ func isCancelled(err error) bool {
 		return category == transport.Cancelled
 	}
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+// copyChangedDuringScrub returns a non-empty explanation when the journal no
+// longer agrees with the record a failed check was made against.
+func copyChangedDuringScrub(ctx context.Context, deps Deps, rec state.Record, copies []copyOutcome) string {
+	fresh, err := deps.Journal.Get(context.WithoutCancel(ctx), rec.Artifact)
+	if err != nil {
+		// If the journal cannot be asked, the failure cannot be confirmed,
+		// and an unconfirmed failure must not quarantine anything.
+		return fmt.Sprintf("the journal could not be re-read to confirm the failure, so it was not acted on: %v", err)
+	}
+	if fresh.State != rec.State {
+		return fmt.Sprintf("the artifact moved from %s to %s while its copy was being read, so the failure was not acted on", rec.State, fresh.State)
+	}
+	active := map[string]bool{}
+	for _, p := range fresh.Placements {
+		if p.Status == state.PlacementActive {
+			active[p.Medium] = true
+		}
+	}
+	for _, c := range copies {
+		if c.verdict == state.ScrubFailed && len(fresh.Placements) > 0 && !active[c.medium] {
+			return fmt.Sprintf("the copy on %s was retired while it was being read, so the failure was not acted on", c.medium)
+		}
+	}
+	return ""
 }
