@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/retnd/retnd/apps/common/platform/capabilities"
+	"github.com/retnd/retnd/core/cliecho"
 	"github.com/retnd/retnd/core/service"
 )
 
@@ -534,5 +535,47 @@ func TestStagingThatTakesLongerThanTheWriteTimeoutDoesNotCostTheDownload(t *test
 	n, err := io.Copy(io.Discard, resp.Body)
 	if err != nil || n != int64(len(be.content)) {
 		t.Fatalf("got %d of %d bytes, err %v: the write deadline expired while the copy was being verified", n, len(be.content), err)
+	}
+}
+
+type countingRecorder struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (c *countingRecorder) RecordAPIAction(context.Context, cliecho.APIAction) {
+	c.mu.Lock()
+	c.calls++
+	c.mu.Unlock()
+}
+
+func TestAMintIsAuditedOnceByItsOwnRowAndNotAgainByTheGenericRecorder(t *testing.T) {
+	be := &fakeRecoveryBackend{syncFakeBackend: newSyncFakeBackend(), content: []byte("x")}
+	rec := &countingRecorder{}
+	router := NewRouter(RouterConfig{
+		Platform: allowingPlatform("alice"), Backend: be, Gate: alwaysPassGate{},
+		BinaryVersion: "t", Commit: "t", Recorder: rec,
+	})
+
+	// The positive control: the same router and recorder do record an
+	// ordinary non-GET, so a count of zero below means something.
+	submitOperation(t, router, "k1", `{"action":"run_cycle","config_revision":"`+be.ConfigRevision()+`"}`)
+	if rec.calls != 1 {
+		t.Fatalf("the recorder saw %d rows for an ordinary POST, want 1: the control is broken", rec.calls)
+	}
+
+	before := rec.calls
+	if m := mint(t, router, `{"target":{"kind":"download"}}`, true); m.Code != http.StatusCreated {
+		t.Fatalf("mint = %d", m.Code)
+	}
+	if rec.calls != before {
+		t.Fatalf("the generic recorder wrote %d extra row(s) for a mint that audits itself: one mint must be one row", rec.calls-before)
+	}
+
+	// A refusal before the handler runs is still recorded: that is why the
+	// flag is raised by the handler and not decided from the route.
+	mint(t, router, `{"target":{"kind":"download"}}`, false) // no CSRF pair
+	if rec.calls != before+1 {
+		t.Fatalf("a CSRF refusal on the mint route wrote %d rows, want 1", rec.calls-before)
 	}
 }
