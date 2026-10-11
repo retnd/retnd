@@ -47,6 +47,21 @@
 
 ### Added
 
+- **EPIC Q's closing gate** (#988, EPIC Q #953). `docs/conformance/epic-q-matrix.md` has one row
+  for each of the nineteen adversarial-review findings, each tied to tests that exist and to a
+  mutation that was run and watched to fail, and `core/tests/assurancegate` holds the file to the
+  tree (every proof resolves, every PASS cites a mutation its self-test really contains, no row is
+  BLOCKED). `scripts/assurance/selftest.sh` plants fifteen violations in real product files (an
+  existence check relabelled as content, a recovery test passed without the digest matching, a copy
+  nobody scheduled read as fresh, the no-download promise made again, a renamed site anchor, and so
+  on) and the narrowed suites have to go red naming the test. A site-wide dead-fragment and docs link
+  check and a test that runs EPIC L's hostile-output corpus through the validator output sanitiser
+  land with it. `docs/site/tools/capture-recovery-assurance.mjs` shoots eleven recovery and assurance
+  surfaces in light, dark and a 940px window from the mock API with the clock pinned, and its
+  `--check` mode fails unless two passes are byte-identical; `measure-recovery-contrast.mjs` prints the
+  contrast ratios. Both new CI jobs are in the release gate's `needs` list. Two of the four store
+  screenshots are back to outstanding in `docs/submission/screenshots.md`, because the Dashboard and
+  the Backup set detail changed.
 - **The web UI shows what a backup's copies actually claim, and recovers them** (#985,
   EPIC Q Q2.2). Every backup carries three separate claims on the Backups list, the
   backup page and the dashboard: Stored (how many copies), Content verified (built
