@@ -169,6 +169,16 @@ func NewLimits(b Bounds) *Limits {
 	}
 }
 
+// Caps reports the global and the per-destination ceiling this limiter was
+// built with, so a caller (and a test) can see which numbers a read is
+// admitted under.
+func (l *Limits) Caps() (global, perDestination int) {
+	if l == nil {
+		return 0, 0
+	}
+	return cap(l.global), l.perDst
+}
+
 func (l *Limits) destSem(dst string) chan struct{} {
 	l.mu.Lock()
 	defer l.mu.Unlock()
