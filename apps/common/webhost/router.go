@@ -618,6 +618,18 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// a remote delete at all, because FAILED is only ever reached
 		// before COMMITTED.
 		r.With(requireCSRF).Post("/backups/{source}/{set}/{name}/retry", h.retryFailedIngestion)
+
+		// EPIC Q (#976): artifact recovery, as its own pair rather than a
+		// seventh POST /operations action, because that route is behind a
+		// destructive gate that never passes in this repository and a
+		// recovery would ship refused. The mint carries requireCSRF and
+		// NOT requireDestructiveGate: it reads, it deletes and overwrites
+		// nothing, and what it authorises is audited rather than gated
+		// (there is no role to gate on). The redeem is a GET, so it takes
+		// neither; the grant in its path is what it presents. See
+		// handlers_recovery.go for the whole argument.
+		r.With(requireCSRF).Post("/backups/{source}/{set}/{name}/recovery", h.mintRecovery)
+		r.Get("/recoveries/{grant}", h.redeemRecovery)
 		r.Get("/activity", h.listActivity)
 		// Issue #573: what each backup set is DOING right now, as
 		// opposed to the durable record of what happened that the route

@@ -133,6 +133,11 @@ var contractBindings = map[string]contractBinding{
 	// 204 leaves no resource to describe.
 	"retryFailedIngestion": {retryFailedIngestionRequest{}, nil, "/api/v1/backups/src/set-1/backup.dump/retry"},
 	"reinstateArtifact":    {nil, artifactReinstateResponse{}, "/api/v1/quarantine/src/set-1/backup.dump/reinstate"},
+	// EPIC Q (#976): the recovery pair. The redeem's contract names two
+	// success shapes (the verified bytes, or the placement for a
+	// server-side target); the JSON one is the one with fields to hold.
+	"mintRecovery":   {recoveryMintRequest{}, recoveryMintResponse{}, "/api/v1/backups/src/set-1/backup.dump/recovery"},
+	"redeemRecovery": {nil, recoveryResultResponse{}, "/api/v1/recoveries/tok_abc"},
 	// Issue #443's medium preflight. Its path parameter is a single
 	// segment, unlike the artifact routes above, because a medium id is a
 	// single segment: config refuses one carrying a separator.
@@ -1358,6 +1363,18 @@ func TestContract_APathBuiltFromTheContractReachesTheResourceItNames(t *testing.
 				_ = json.Unmarshal(rec.Body.Bytes(), &body)
 				if rec.Code != http.StatusOK || body.ID != artifactID {
 					t.Errorf("reading the backup %q answered %d %q, want 200 and that id back", artifactID, rec.Code, rec.Body.String())
+				}
+			},
+		},
+		{
+			operation: "mintRecovery",
+			identity:  artifactID,
+			body:      `{"target":{"kind":"download"}}`,
+			csrf:      true,
+			arrange:   func(*backupSetFakeBackend) {},
+			reached: func(t *testing.T, b *backupSetFakeBackend, rec *httptest.ResponseRecorder) {
+				if got := b.lastRecoveryMint.ArtifactID; got != artifactID {
+					t.Errorf("the mint reached the backend for artifact %q, want %q (response %d %q)", got, artifactID, rec.Code, rec.Body.String())
 				}
 			},
 		},
