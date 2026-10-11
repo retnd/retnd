@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/internal/obs"
 	"github.com/retnd/retnd/core/internal/placement"
@@ -67,6 +68,7 @@ type RecoveryDownload struct {
 	actor  string
 	ev     recoveryEvent
 	closed sync.Once
+	trace  *recoveryTrace
 }
 
 // FileName implements RecoveryStream.
@@ -106,7 +108,14 @@ func (d *RecoveryDownload) Served(start, end, written int64, err error) {
 		return
 	}
 	d.b.auditRecovery(context.Background(), &ev, err)
-	if err != nil || d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {
+	if err != nil {
+		d.trace.fail(context.Background(), err)
+		d.b.finishRecoveryDownload(d.token)
+		return
+	}
+	if d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {
+		d.trace.stage(context.Background(), "cleaning_temporary_files")
+		d.trace.complete(context.Background(), d.size)
 		d.b.finishRecoveryDownload(d.token)
 	}
 }
@@ -118,6 +127,7 @@ func (d *RecoveryDownload) Served(start, end, written int64, err error) {
 type recoveryDownloadState struct {
 	staged  *export.Staged
 	release func()
+	trace   *recoveryTrace
 }
 
 // drop gives back the staged copy and the stream slot.
@@ -132,6 +142,10 @@ func (b *BackupService) dropDownload(v any) {
 	if st.staged != nil {
 		b.discardStaged(st.staged)
 	}
+	// Whoever gets here first ends the story. A download that was fully
+	// served has already said so (Served); this is the client that never
+	// came back, or a logout, and it is not a success.
+	st.trace.fail(context.Background(), recoveryErr(RecoveryInterrupted, "the download was abandoned before it was collected"))
 }
 
 func (b *BackupService) finishRecoveryDownload(token string) {
@@ -182,6 +196,7 @@ func (b *BackupService) RedeemRecovery(ctx context.Context, sess RecoverySession
 			b.auditRecovery(ctx, &ev, oerr)
 			return nil, nil, mapRecoveryError(oerr)
 		}
+		d.trace = st.trace
 		return d, nil, nil
 	}
 
@@ -205,7 +220,8 @@ func (b *BackupService) RedeemRecovery(ctx context.Context, sess RecoverySession
 		}
 	}
 
-	staged, serr := b.stageGrant(ctx, g)
+	trace := b.newRecoveryTrace(ctx, g.Artifact)
+	staged, serr := b.stageGrant(ctx, g, trace)
 	if serr == nil && h.afterStage != nil {
 		h.afterStage()
 	}
@@ -218,30 +234,38 @@ func (b *BackupService) RedeemRecovery(ctx context.Context, sess RecoverySession
 	if serr != nil {
 		giveBackStream()
 		h.grants.Close(token)
+		trace.fail(ctx, serr)
 		b.auditRecovery(ctx, &ev, serr)
 		return nil, nil, mapRecoveryError(serr)
 	}
 
 	switch g.Target.Kind {
 	case export.TargetDownload:
-		h.grants.Attach(token, &recoveryDownloadState{staged: staged, release: giveBackStream})
+		trace.stage(ctx, "writing_target")
+		h.grants.Attach(token, &recoveryDownloadState{staged: staged, release: giveBackStream, trace: trace})
 		d, oerr := b.newRecoveryDownload(staged, token, sess.Actor, ev)
 		if oerr != nil {
+			trace.fail(ctx, oerr)
 			b.finishRecoveryDownload(token)
 			b.auditRecovery(ctx, &ev, oerr)
 			return nil, nil, mapRecoveryError(oerr)
 		}
+		d.trace = trace
 		return d, nil, nil
 
 	case export.TargetStaging:
 		defer h.grants.Close(token)
+		trace.stage(ctx, "writing_target")
 		final, perr := staged.PublishTo(g.Target.Path)
 		if perr != nil {
 			b.discardStaged(staged)
+			trace.fail(ctx, perr)
 			b.auditRecovery(ctx, &ev, perr)
 			return nil, nil, mapRecoveryError(perr)
 		}
 		ev.bytes = staged.Size
+		trace.stage(ctx, "cleaning_temporary_files")
+		trace.complete(ctx, staged.Size)
 		b.auditRecovery(ctx, &ev, nil)
 		return nil, &RecoveryResult{
 			ArtifactID: g.Artifact, Copy: g.Copy, Target: recoveryTargetOf(g.Target),
@@ -250,12 +274,23 @@ func (b *BackupService) RedeemRecovery(ctx context.Context, sess RecoverySession
 
 	case export.TargetStorage:
 		defer h.grants.Close(token)
-		defer b.discardStaged(staged)
+		discarded := false
+		defer func() {
+			if !discarded {
+				b.discardStaged(staged)
+			}
+		}()
+		trace.stage(ctx, "writing_target")
 		if uerr := b.uploadRecovered(ctx, staged, g.Target); uerr != nil {
+			trace.fail(ctx, uerr)
 			b.auditRecovery(ctx, &ev, uerr)
 			return nil, nil, mapRecoveryError(uerr)
 		}
 		ev.bytes = staged.Size
+		trace.stage(ctx, "cleaning_temporary_files")
+		b.discardStaged(staged)
+		discarded = true
+		trace.complete(ctx, staged.Size)
 		b.auditRecovery(ctx, &ev, nil)
 		return nil, &RecoveryResult{
 			ArtifactID: g.Artifact, Copy: g.Copy, Target: recoveryTargetOf(g.Target),
@@ -264,6 +299,7 @@ func (b *BackupService) RedeemRecovery(ctx context.Context, sess RecoverySession
 	}
 	h.grants.Close(token)
 	b.discardStaged(staged)
+	trace.fail(ctx, recoveryErr(RecoveryTargetInvalid, "unknown target kind"))
 	return nil, nil, recoveryErr(RecoveryTargetInvalid, "unknown target kind")
 }
 
@@ -289,7 +325,7 @@ func (b *BackupService) newRecoveryDownload(staged *export.Staged, token, actor 
 // stageGrant re-derives the plan from the journal as it is NOW, so a copy
 // that was deleted or repointed between mint and redeem is refused, and
 // stages the chosen copy through the verifying engine.
-func (b *BackupService) stageGrant(ctx context.Context, g export.Grant) (*export.Staged, error) {
+func (b *BackupService) stageGrant(ctx context.Context, g export.Grant, trace *recoveryTrace) (*export.Staged, error) {
 	h := b.recoveryHost()
 	// One execution per (artifact, copy): two operators asking for the same
 	// recovery at once is one read of a copy that may be billed to read, and
@@ -297,6 +333,7 @@ func (b *BackupService) stageGrant(ctx context.Context, g export.Grant) (*export
 	return h.flight.Do(ctx, g.Artifact+"\x00"+g.Copy, func(ctx context.Context) (*export.Staged, error) {
 		// The grant already carries the cost acknowledgement: a chargeable
 		// copy could not have been minted without it.
+		trace.stage(ctx, "resolving_copy")
 		plan, err := b.planRecovery(ctx, g.Artifact, g.Copy, true)
 		if err != nil {
 			return nil, err
@@ -312,7 +349,16 @@ func (b *BackupService) stageGrant(ctx context.Context, g export.Grant) (*export
 		if err != nil {
 			return nil, err
 		}
-		return h.engine.Stage(ctx, src, plan.expect)
+		trace.stage(ctx, "reading")
+		staged, err := h.engine.Stage(ctx, src, plan.expect)
+		if err != nil {
+			return nil, err
+		}
+		// The engine reads and hashes in one pass and refuses on a mismatch
+		// before it returns, so this stage is entered with the verdict in
+		// hand.
+		trace.stage(ctx, "verifying")
+		return staged, nil
 	})
 }
 
@@ -524,4 +570,62 @@ func (b *BackupService) reapRecoveryOnce(ctx context.Context) {
 		return
 	}
 	b.sweepRecoveryIfDue(ctx)
+}
+
+// recoveryTrace is one recovery's start, stage and end lines on the activity
+// feed (obs.RecoveryStart, RecoveryStage, RecoveryEnd). They share an
+// operation id, so the CLI's --follow and the browser follow one recovery,
+// and the end line is written exactly once however the recovery finishes:
+// served, failed, or abandoned by a client that never came back.
+type recoveryTrace struct {
+	b        *BackupService
+	opID     string
+	set      string
+	artifact string
+	started  time.Time
+	once     sync.Once
+}
+
+func (b *BackupService) newRecoveryTrace(ctx context.Context, artifact string) *recoveryTrace {
+	t := &recoveryTrace{b: b, opID: uuid.NewString(), artifact: artifact, started: now()}
+	if id, err := app.ParseArtifactID(artifact); err == nil {
+		t.set = id.Set.String()
+	}
+	b.logger.RecoveryStart(ctx, t.opID, t.set, t.artifact)
+	return t
+}
+
+func (t *recoveryTrace) stage(ctx context.Context, id string) {
+	if t == nil {
+		return
+	}
+	t.b.logger.RecoveryStage(ctx, t.opID, t.set, id)
+}
+
+// complete writes the Complete stage and a success end line.
+func (t *recoveryTrace) complete(ctx context.Context, bytes int64) {
+	if t == nil {
+		return
+	}
+	t.once.Do(func() {
+		t.b.logger.RecoveryStage(ctx, t.opID, t.set, "complete")
+		t.b.logger.RecoveryEnd(ctx, t.opID, t.set, t.artifact, bytes, now().Sub(t.started), obs.ResultSuccess, "")
+	})
+}
+
+// fail writes an end line that is not a success. It never writes Complete.
+func (t *recoveryTrace) fail(ctx context.Context, err error) {
+	if t == nil {
+		return
+	}
+	t.once.Do(func() {
+		result, reason := obs.ResultError, "the recovery failed"
+		if re, ok := AsRecoveryError(mapRecoveryError(err)); ok {
+			reason = re.Code
+			if isRefusal(re.Code) {
+				result = obs.ResultWarn
+			}
+		}
+		t.b.logger.RecoveryEnd(ctx, t.opID, t.set, t.artifact, 0, now().Sub(t.started), result, reason)
+	})
 }

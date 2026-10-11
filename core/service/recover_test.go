@@ -178,6 +178,10 @@ type fixtureOpts struct {
 	remoteClass string // "" for no remote copy
 	engine      string
 	pollEvery   time.Duration // PollInterval for tests that run the scheduler loop
+
+	// cfg, when set, adjusts the hand-built configuration before the service
+	// is built from it (an assurance policy, an extra medium).
+	cfg func(*config.Config)
 }
 
 // newRecoveryFixture builds a service whose journal holds one artifact,
@@ -203,6 +207,10 @@ func newRecoveryFixture(t *testing.T, opts fixtureOpts) *recoveryFixture {
 		{ID: "cold", Type: config.StorageMediumTypeS3, Region: "us-east-1", Bucket: "b", StorageClass: config.StorageClassDeepArchive, Credentials: config.MediumCredentials{File: "/x"}},
 		{ID: "warm", Type: config.StorageMediumTypeS3, Region: "us-east-1", Bucket: "w", StorageClass: config.StorageClassStandard, Credentials: config.MediumCredentials{File: "/x"}},
 		{ID: "other", Type: config.StorageMediumTypeS3, Region: "us-east-1", Bucket: "o", StorageClass: config.StorageClassStandard, Credentials: config.MediumCredentials{File: "/x"}},
+	}
+
+	if opts.cfg != nil {
+		opts.cfg(cfg)
 	}
 
 	store := newRecoveryStore()
@@ -269,7 +277,7 @@ func (f *recoveryFixture) session() RecoverySession {
 
 func (f *recoveryFixture) stagingEntries(t *testing.T) []string {
 	t.Helper()
-	root := filepath.Join(f.dir, "state", "recovery")
+	root := filepath.Join(f.dir, "state", "recovery-staging")
 	var out []string
 	_ = filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
 		if err == nil && info.Mode().IsRegular() {
@@ -322,7 +330,7 @@ func TestRecoverALocalCopyToStagingEndToEnd(t *testing.T) {
 	if res.SHA256 != sha(f.data) || res.Bytes != int64(len(f.data)) {
 		t.Fatalf("result = %+v", res)
 	}
-	if !strings.Contains(res.Path, filepath.Join("state", "recovery")) {
+	if !strings.Contains(res.Path, filepath.Join("state", "recovery-staging")) {
 		t.Fatalf("output %s is not under the staging root", res.Path)
 	}
 }

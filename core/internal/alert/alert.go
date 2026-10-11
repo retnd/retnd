@@ -325,7 +325,6 @@ const (
 	// RecoveryTestFailing: a recovery test recovered the bytes and the
 	// operator's validator refused them, or the digest did not match.
 	RecoveryTestFailing Kind = "RECOVERY_TEST_FAILING"
-
 )
 
 // Kinds is every Kind this package can produce: §71's four in the order

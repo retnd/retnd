@@ -430,5 +430,5 @@ func (b *BackupService) tickScrub(ctx context.Context) {
 	}
 	b.runOnce.Unlock()
 
-	b.state.Load().inner.ScrubTick(app.WithBackupSetHolds(ctx, b.holds))
+	b.state.Load().inner.AssuranceTick(app.WithBackupSetHolds(ctx, b.holds))
 }

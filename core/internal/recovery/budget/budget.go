@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+
+	"github.com/retnd/retnd/core/internal/config"
 )
 
 // Name identifies one budget. The names are stable: they appear in
@@ -93,21 +95,19 @@ type Limits struct {
 	MaxDownloadStreams     int
 }
 
-// The defaults. Each one is sized for the smallest host this product runs on
-// (a home NAS with a handful of spinning disks), and all of them can be
-// raised by a host that has more.
+// The defaults. The two read ceilings ARE the operator-facing defaults of
+// assurance.max_concurrent_full_reads and assurance.max_per_destination:
+// these names are those constants (config.DefaultMaxConcurrentReads and
+// config.DefaultMaxPerDestination), not copies pinned equal by a test, so
+// the settings card and the engine cannot say two different numbers. Each is
+// sized for the smallest host this product runs on (a home NAS with a handful
+// of spinning disks), and a host that has more raises them.
 //
-// The two read ceilings are the same numbers as the operator-facing defaults
-// of assurance.max_concurrent_full_reads and assurance.max_per_destination
-// (config.DefaultMaxConcurrentReads and config.DefaultMaxPerDestination,
-// #1052), because the settings card names them and an engine that ran at 4
-// and 2 while the card said 2 and 1 would be telling the operator something
-// untrue. They are kept equal here by hand only until #1052 is on the same
-// tree: from then on these two constants are deleted and Defaults imports
-// those, so there is one place the number is written.
+// The staging reserve and the download ceiling have no operator-facing
+// setting, so the numbers are written here and only here.
 const (
-	DefaultMaxConcurrentReads     = 2
-	DefaultMaxReadsPerDestination = 1
+	DefaultMaxConcurrentReads     = config.DefaultMaxConcurrentReads
+	DefaultMaxReadsPerDestination = config.DefaultMaxPerDestination
 	DefaultStagingReserveBytes    = 1 << 30 // 1 GiB
 	DefaultMaxDownloadStreams     = 4
 )
