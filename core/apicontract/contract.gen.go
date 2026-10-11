@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "a41b43f41ffcc246d0560aa16153502bbebe172609f7a32d5c392759c459ec3a"
+const ContractSHA256 = "8db249d01043c7cc0f67dd627a1845c5d8461aeb8dfa41bbd7538d8b85b1df3a"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -1075,7 +1075,7 @@ var Endpoints = []Endpoint{
 	{
 		ID: "redeemRecovery", Method: "GET", Path: "/recoveries/{grant}",
 		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "", ResponseSchema: "RecoveryResult", SuccessStatus: 206,
+		RequestSchema: "", ResponseSchema: "RecoveryResult", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
 			403: {ErrorCodeRecoveryGrantSessionEnded},
@@ -2798,9 +2798,12 @@ type RecoverySettingsUpdate struct {
 // RecoveryTarget is where one recovery writes its bytes. The set is closed: download
 // streams to the caller that redeems the grant, staging places one
 // file under the configured recovery staging root, storage uploads
-// to another configured storage destination. Nothing is written
-// anywhere until the whole copy has been read and has matched the
-// SHA-256 the journal recorded.
+// to another configured storage destination. A staging or storage
+// target is written only after the whole copy has been read and has
+// matched the SHA-256 the journal recorded. A download is not
+// staged: it is refused before its first byte unless a read of the
+// whole copy has matched that digest, and each chunk is checked
+// again as it is sent.
 type RecoveryTarget struct {
 	Key    string `json:"key,omitempty"`
 	Kind   string `json:"kind"`
