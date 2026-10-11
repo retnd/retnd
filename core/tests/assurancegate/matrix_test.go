@@ -7,7 +7,8 @@
 // matrix, and refuses it unless
 //
 //   - every row the specification (#954) numbers is present: the exit-gate
-//     lines Q1.1 to Q1.23 and Q2.1 to Q2.16, the nineteen adversarial-review
+//     lines Q1.1 to Q1.28 and Q2.1 to Q2.17 (the last five and the last one are the
+//     owner decisions of 2026-10-11), the nineteen adversarial-review
 //     findings QC-01 to QC-19 and the planted-violation ledger QV.1 to QV.22,
 //     so a row that quietly stopped being tracked turns the gate red;
 //   - every proof a row cites RESOLVES: a `<package dir>:<TestName>` reference
@@ -54,10 +55,10 @@ var selfTests = []string{
 // requiredRows lists every row id the specification numbers.
 func requiredRows() []string {
 	var ids []string
-	for i := 1; i <= 23; i++ {
+	for i := 1; i <= 28; i++ {
 		ids = append(ids, fmt.Sprintf("Q1.%d", i))
 	}
-	for i := 1; i <= 16; i++ {
+	for i := 1; i <= 17; i++ {
 		ids = append(ids, fmt.Sprintf("Q2.%d", i))
 	}
 	for i := 1; i <= 19; i++ {

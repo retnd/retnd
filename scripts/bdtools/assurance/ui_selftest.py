@@ -109,6 +109,60 @@ CONTROLS = [
         ["985-claims"],
         "claim chips meet 4.5:1 text contrast in the light theme",
     ),
+    # Owner decision 1 (#1070): the Validation column is retired.
+    (
+        "a green Verified restored beside the three claims",
+        "src/pages/BackupDetailPage.tsx",
+        """            {a.validation === "failed" ? (
+              <StatusBadge tone="danger" icon="failure">
+                Failed validation
+              </StatusBadge>
+            ) : null}""",
+        """            <StatusBadge tone="ok" icon="success">Verified</StatusBadge>{/* """ + PLANT + """ */}""",
+        ["src/test/validation-column-retired.test.tsx"],
+        ["1057-validation-retired"],
+        "no green Verified badge",
+    ),
+    (
+        "a Validation column restored on the Backups table",
+        "src/pages/BackupsPage.tsx",
+        """                  <th scope="col"><InfoTooltip id="backups.col.retention"><span>Retention</span></InfoTooltip></th>""",
+        """                  <th scope="col">Validation</th>{/* """ + PLANT + """ */}
+                  <th scope="col"><InfoTooltip id="backups.col.retention"><span>Retention</span></InfoTooltip></th>""",
+        ["src/test/validation-column-retired.test.tsx"],
+        ["1057-validation-retired"],
+        "no Validation column",
+    ),
+    (
+        "a failed ingestion validation that is no longer said",
+        "src/pages/BackupsPage.tsx",
+        """{a.validation === "failed" ? (""",
+        """{false && a.validation === "failed" ? ( /* """ + PLANT + """ */""",
+        ["src/test/validation-column-retired.test.tsx"],
+        ["1057-validation-retired"],
+        "a validation that failed is still said",
+    ),
+    # Owner decision 2 (#1071): the engine keeps its events across a restart,
+    # so the dock must not show a frozen line a second time.
+    (
+        "a line the dock already froze shown a second time after a restart",
+        "src/components/ActivityDock.tsx",
+        ".filter((event) => !frozen.has(eventKey(event)))",
+        ".filter(() => true) /* " + PLANT + " */",
+        ["src/test/activity-dock.test.tsx"],
+        [],
+        "does not show a line twice",
+    ),
+    # Owner decisions 3 and 4 (#1072): the dialog describes the download that exists.
+    (
+        "a download dialog that describes the retired staged download",
+        "src/assurance/RecoverArtifact.tsx",
+        "It then sends the copy straight from where it lives, 4 MiB at a time, checking each piece against that digest, and nothing is copied to the host&apos;s disk.",
+        "It then sends the copy once it has been staged on the host&apos;s disk. /* " + PLANT + " */",
+        [],
+        ["985-recover"],
+        "prepares the download and then checks every piece it sends",
+    ),
 ]
 
 
