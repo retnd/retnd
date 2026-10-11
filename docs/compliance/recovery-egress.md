@@ -39,8 +39,8 @@ with audit rather than authority:
   action log naming the actor, the artifact, the copy, the target and the
   outcome (`TestEveryMintAndEveryServedRangeWritesOneRow...`);
 - an authenticated user can therefore not recover something without leaving a
-  record, but nothing stops them recovering it. If your threat model needs the
-  second half, this is not the control for it, and a role model is a separate
+  record, but nothing stops them recovering it. If what you need to defend against includes
+  second half, this is not the control for it, and a role system is a separate
   decision.
 
 ## How it is bounded

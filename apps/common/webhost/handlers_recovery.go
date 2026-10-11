@@ -34,7 +34,7 @@ import (
 //
 // There is no role on capabilities.AuthContext, so any authenticated
 // caller can recover any artifact, as any authenticated caller can hold
-// any backup set. The answer is audit and a bound grant, not a role model:
+// any backup set. The answer is audit and a bound grant, not a set of roles:
 // the grant belongs to the session that minted it and the service writes a
 // row for every mint and every served range.
 //

@@ -87,7 +87,7 @@ type record struct {
 type host struct {
 	OS, Arch string
 	NumCPU   int
-	Model    string
+	CPU      string
 	MemTotal string
 	Go       string
 }
@@ -477,7 +477,7 @@ func describeHost() host {
 	if b, err := os.ReadFile("/proc/cpuinfo"); err == nil {
 		for _, l := range strings.Split(string(b), "\n") {
 			if strings.HasPrefix(l, "model name") {
-				h.Model = strings.TrimSpace(l[strings.Index(l, ":")+1:])
+				h.CPU = strings.TrimSpace(l[strings.Index(l, ":")+1:])
 				break
 			}
 		}

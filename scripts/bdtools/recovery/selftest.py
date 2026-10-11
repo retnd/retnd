@@ -13,7 +13,7 @@ the working tree gets one deliberate violation planted in a real product
 file, a narrowed slice of the suite runs, and it must fail AND name the
 promise the violation broke. Naming it, not merely failing, is what stops
 a mutant that broke the build for an unrelated reason from reading as a
-pass. `scripts/bdtools/retention/selftest.py` is the model, and they share
+pass. `scripts/bdtools/retention/selftest.py` is the template, and they share
 `selftest_swap`'s anchor machinery.
 
 Every mutation is anchored to a verbatim copy of product source, tabs and
