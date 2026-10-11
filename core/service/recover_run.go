@@ -106,6 +106,12 @@ func (d *RecoveryDownload) Served(start, end, written int64, err error) {
 		d.b.auditRecovery(context.Background(), &ev, err)
 		return
 	}
+	if err == nil && written == 0 && d.size > 0 {
+		// Nothing left the host (a conditional GET answered 304). That is not
+		// a range served: it must neither cover the artifact nor claim the
+		// download verified.
+		return
+	}
 	d.b.auditRecovery(context.Background(), &ev, err)
 	if err != nil {
 		d.b.finishRecoveryDownload(d.token)
