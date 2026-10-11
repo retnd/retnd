@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "68d56a3694d028c6be42cce803757f5ccd814686154e5d6e96e440af0389eca3"
+const ContractSHA256 = "c94284d97d111b90065617f93fd8ae731971f4bfbb0a67c3ed0a44640dcca9ca"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -1075,7 +1075,7 @@ var Endpoints = []Endpoint{
 	{
 		ID: "redeemRecovery", Method: "GET", Path: "/recoveries/{grant}",
 		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "", ResponseSchema: "RecoveryResult", SuccessStatus: 200,
+		RequestSchema: "", ResponseSchema: "RecoveryResult", SuccessStatus: 206,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
 			403: {ErrorCodeRecoveryGrantSessionEnded},
@@ -1722,7 +1722,6 @@ type AssuranceSettingsResponse struct {
 	Scrub                  AssuranceScrubPolicy        `json:"scrub"`
 	StagingRoot            string                      `json:"staging_root"`
 	StagingTtlSeconds      int64                       `json:"staging_ttl_seconds"`
-	WebDownloadMemoryBytes int64                       `json:"web_download_memory_bytes"`
 }
 
 // AuthErrorResponse is the FLAT error body the /auth operations return, with the
@@ -3550,7 +3549,6 @@ type UpdateAssuranceSettingsRequest struct {
 	ScrubStrategy              *string `json:"scrub_strategy"`
 	StagingRoot                *string `json:"staging_root"`
 	StagingTtlSeconds          *int64  `json:"staging_ttl_seconds"`
-	WebDownloadMemoryBytes     *int64  `json:"web_download_memory_bytes"`
 }
 
 // UpdateBackupSetAssuranceRequest is PATCH one backup set's own assurance block. Omitted leaves a field
