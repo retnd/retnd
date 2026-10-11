@@ -41,7 +41,7 @@ func newDurableRig(t *testing.T) *durableRig {
 func (r *durableRig) restart() {
 	r.t.Helper()
 	r.svc.cancel()
-	r.svc.wg.Wait()
+	<-r.svc.activityDone
 	r.svc = New(r.cfg, r.journal, nil, nil)
 }
 
@@ -64,7 +64,7 @@ func (r *durableRig) recordAction(event, actionID string, fields ...obs.Field) {
 func (r *durableRig) flush() {
 	r.t.Helper()
 	r.svc.cancel()
-	r.svc.wg.Wait()
+	<-r.svc.activityDone
 }
 
 func (r *durableRig) set() LiveActivitySet {

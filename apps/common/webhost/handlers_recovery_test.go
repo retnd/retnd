@@ -52,6 +52,9 @@ type fakeRecoveryBackend struct {
 	// redeemDelay stands in for the time the first redeem spends staging
 	// and verifying a large copy before it can send a byte.
 	redeemDelay time.Duration
+
+	// stream, when set, builds the stream a redeem returns.
+	stream func(f *fakeRecoveryBackend) service.RecoveryStream
 }
 
 type servedCall struct {
@@ -86,6 +89,9 @@ func (f *fakeRecoveryBackend) RedeemRecovery(_ context.Context, s service.Recove
 	}
 	if f.result != nil {
 		return nil, f.result, nil
+	}
+	if f.stream != nil {
+		return f.stream(f), nil, nil
 	}
 	return &fakeStream{f: f, r: bytes.NewReader(f.content)}, nil, nil
 }
@@ -316,7 +322,16 @@ func TestAClientThatGoesAwayMidDownloadIsReportedAsAFailedRange(t *testing.T) {
 	router, be := newRecoveryRouter(t, NotYetImplementedGate{}, fakeAuthenticator{authenticated: true, username: "alice"})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/recoveries/tok_abc", nil)
 	w := &failingWriter{ResponseRecorder: httptest.NewRecorder(), after: 5000}
-	router.ServeHTTP(w, req)
+	// A body cut short of its Content-Length aborts the response, which is
+	// what a server turns into a dropped connection.
+	func() {
+		defer func() {
+			if r := recover(); r != http.ErrAbortHandler {
+				t.Fatalf("a download cut at 50%% must abort the response, recovered %v", r)
+			}
+		}()
+		router.ServeHTTP(w, req)
+	}()
 	if len(be.served) != 1 || be.served[0].err == nil {
 		t.Fatalf("a broken pipe at 50%% must reach the service as a failure: %+v", be.served)
 	}
@@ -327,6 +342,11 @@ func TestAClientThatGoesAwayMidDownloadIsReportedAsAFailedRange(t *testing.T) {
 
 func TestMultipleRangesInOneRequestAreRefusedNotHalfServed(t *testing.T) {
 	router, _ := newRecoveryRouter(t, NotYetImplementedGate{}, fakeAuthenticator{authenticated: true, username: "alice"})
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("= 206: a multipart answer was started and then aborted (%v)", r)
+		}
+	}()
 	rec := redeem(router, "tok_abc", map[string]string{"Range": "bytes=0-9,20-29"})
 	if rec.Code != http.StatusRequestedRangeNotSatisfiable {
 		t.Fatalf("= %d", rec.Code)

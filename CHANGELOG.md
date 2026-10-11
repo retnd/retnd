@@ -4,6 +4,22 @@
 
 ### Added
 
+- **The activity feed's events survive a restart** (#1071, migration 0017). The feed
+  behind the operation panel and the dashboard strips was an in-memory ring, so a
+  restart emptied it: a scrub that failed an hour before a deploy, or a recovery that was
+  running when the process died, left nothing on the screen built to show it. The events
+  are now also written to a new `activity_events` table (additive; nothing that exists
+  changes) by one goroutine that batches them off the cycle's path, and the rings are
+  refilled from it at start with the numbering continuing. Scrub passes and failures,
+  recovery and recovery-test events and their `op_id` are kept. Periodic samples
+  (`transfer_stats`, `snapshot_stats`) and a download's per-range lines are not, and
+  `recovery_stage` lines are coalesced to the last stage each operation reached, so a
+  recovery costs a start row, one stage row and an end row however many stages it passes
+  through. Rows are kept 30 days and the table 50,000 rows, oldest first, pruned at start,
+  hourly and after every 5,000 inserts. A writer that falls behind drops from the durable
+  record and counts it; it never slows a cycle. `GET /api/v1/activity/live` takes
+  `before=<sequence>` to page backwards past the ring.
+
 - **The scheduled scrub follows `assurance.scrub.*`** (#978). A default install now
   scrubs: the cadence is `assurance.scrub.cadence` (7 days unless you say otherwise)
   and the strategy decides whether a local copy is re-hashed (`auto` and `content`
@@ -73,6 +89,25 @@
   one directory, `<state dir>/recovery-staging` unless you say otherwise (the
   `<state dir>/recovery` of the draft is gone), and the scrub reads under the same
   ceilings (2 and 1 by default; the draft scrub's 4 and 2 are gone).
+### Changed
+
+- **A recovery download is streamed, not staged, and can be resumed** (#976). The
+  browser and `retnd recover --to -` used to copy the whole artifact to the staging
+  disk, hash it there and only then send it. Now the copy is read from where it
+  lives, one verified 4 MiB chunk at a time, so a download uses a chunk of memory
+  and no staging disk, and a client that walks away leaves nothing to clean up.
+  Before the first byte I run a pre-flight (the copy is there, it is the recorded
+  size, its medium can be read, and one verifying read matched the recorded SHA-256
+  and stored a digest per chunk), and a failure there is an error response with its
+  own code, not a `200`. Every chunk is checked against its digest before any of it
+  is sent, so a copy that rots mid-download stops at the bad chunk and the
+  connection is aborted short of the `Content-Length`, never ended cleanly. `ETag`
+  (from the artifact id and the recorded digest, the same for every grant) with
+  `Range` and `If-Range` resumes a download under a new grant, and `Repr-Digest`
+  carries the recorded digest for the client to compare. The end of a download is
+  recorded as `recovery verified` in the action log. The first download of an
+  artifact reads the copy twice (once to prepare, once to send); later downloads and
+  resumes reuse the stored digests. Staging and storage targets are unchanged.
 
 ## [0.5.1] - 2026-10-04
 
