@@ -957,6 +957,80 @@ MUTATIONS = [
         SERVICE_PKG,
         "TestStartRecoveryTestRunsOneAtATimePerSet",
     ),
+    # The activity feed is durable (migration 0017). Seven controls, one per
+    # promise: it survives a restart, it does not store samples or per-range
+    # lines, it coalesces stages, it prunes, it never blocks the cycle, and a
+    # backwards page stays behind its cursor.
+    (
+        "an activity feed that forgets everything at a restart",
+        "core/service/service.go",
+        "\tactivity.hydrate(ctx, journal, configuredSetIDs(cfg))\n",
+        "\t" + PLANT + "the rings are not refilled from the journal.\n\t_ = configuredSetIDs\n",
+        "after a restart the feed holds",
+        SERVICE_PKG,
+        "TestTheFeedSurvivesARestartAndTheNumberingContinues",
+    ),
+    (
+        "a periodic sample written to the journal",
+        "core/service/liveactivity_durable.go",
+        "\tif d == nil || activityNotStored[e.Event] {",
+        "\t" + PLANT + "samples are stored like everything else.\n\tif d == nil || (false && activityNotStored[e.Event]) {",
+        "rows stored for 150 samples",
+        SERVICE_PKG,
+        "TestPeriodicSamplesAndPerRangeDownloadLinesAreNotStored",
+    ),
+    (
+        "a per-range download line written for every range",
+        "core/service/liveactivity_durable.go",
+        '\t\tif f.Key == "operation" && f.Value == "recovery range" {',
+        "\t\t" + PLANT + "every range is stored.\n\t\tif false && f.Key == \"operation\" && f.Value == \"recovery range\" {",
+        "rows stored for 150 samples",
+        SERVICE_PKG,
+        "TestPeriodicSamplesAndPerRangeDownloadLinesAreNotStored",
+    ),
+    (
+        "a recovery whose every stage costs a row",
+        "core/service/liveactivity_durable.go",
+        "\t	Coalesce: it.e.Event == obs.EventRecoveryStage,",
+        "\t\t" + PLANT + "stages are never replaced.\n\t\tCoalesce: false && it.e.Event == obs.EventRecoveryStage,",
+        "stored 4 stage rows",
+        SERVICE_PKG,
+        "TestRecoveryStagesAreCoalescedToTheLastOneReached|TestACoalescedStageReplaces",
+        [
+            (
+                "core/service/liveactivity_durable.go",
+                '\t\tif it.e.Event == obs.EventRecoveryStage && it.e.ActionID != "" && lastStage[it.e.ActionID] != i {',
+                "\t\t" + PLANT + "every stage in a batch is written.\n\t\tif false && it.e.Event == obs.EventRecoveryStage && it.e.ActionID != \"\" && lastStage[it.e.ActionID] != i {",
+            )
+        ],
+    ),
+    (
+        "activity retention that never prunes by age",
+        "core/internal/state/activity_events.go",
+        "`DELETE FROM activity_events WHERE at < ?`",
+        "`DELETE FROM activity_events WHERE 0 AND at < ?`",
+        "want 20 by age",
+        SERVICE_PKG,
+        "TestRetentionDropsWhatIsOldAndWhatIsOverTheRowBound",
+    ),
+    (
+        "a durable writer that blocks the feed when it falls behind",
+        "core/service/liveactivity_durable.go",
+        "\tdefault:\n\t\td.dropped.Add(1)\n\t}",
+        "\tdefault:\n\t\t" + PLANT + "the feed waits for the writer.\n\t\td.queue <- durableItem{e: e, setID: setID}\n\t}",
+        "blocked on a full durable queue",
+        SERVICE_PKG,
+        "TestTheWriterFallingBehindDropsFromTheRecordAndNeverBlocksTheFeed",
+    ),
+    (
+        "a backwards page that includes the cursor it was asked to stay behind",
+        "core/internal/state/activity_events.go",
+        "AND seq < ? ORDER BY seq DESC LIMIT ?`,",
+        "AND seq <= ? ORDER BY seq DESC LIMIT ?`,",
+        "at or after it",
+        SERVICE_PKG,
+        "TestBeforePagesBackwardsPastWhatTheRingHolds",
+    ),
 ]
 
 CLEAN_CONTROLS = [
@@ -1003,6 +1077,11 @@ CLEAN_CONTROLS = [
         "TestAssuranceHostKnobs|TestADefaultDeployment|TestAStagingRoot|TestRecoveryTestOf|TestAScheduledRecovery|TestARecoveryTestOf|TestARealRecovery|TestAFailedRecovery|TestServeScheduler|TestAServeTick|TestStartRecoveryTest",
     ),
     ("the assurance route suite", WEB_PKG, "TestAssuranceRoute_StartRecoveryTest"),
+    (
+        "the durable activity feed suite",
+        SERVICE_PKG,
+        "TestTheFeedSurvivesARestart|TestRecoveryAndRecoveryTestEvents|TestPeriodicSamples|TestRecoveryStagesAreCoalesced|TestACoalescedStage|TestRetentionDrops|TestTheWriterFallingBehind|TestBeforePagesBackwards|TestAnOverlongMessage",
+    ),
 ]
 
 

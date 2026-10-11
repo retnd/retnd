@@ -344,6 +344,18 @@ func New(cfg *config.Config, journal *state.Journal, tr transport.Transport, log
 	inner.Recoverer = b.testRecoverer
 	b.state.Store(&configState{inner: inner, revision: computeConfigRevision(cfg)})
 
+	// The activity feed's events are durable (liveactivity_durable.go).
+	// The rings are refilled from what the last process stored, and one
+	// goroutine writes what this one files. Close drains it before the
+	// journal goes away.
+	activity.hydrate(ctx, journal, configuredSetIDs(cfg))
+	activity.durable = newActivityDurable(journal, logger)
+	b.wg.Add(1)
+	go func() {
+		defer b.wg.Done()
+		activity.durable.run(ctx)
+	}()
+
 	// EPIC L's engine, built here and switched on later. It is
 	// constructed unconditionally, including for a deployment that
 	// configures no hooks, because "does this deployment run workflows"

@@ -12351,7 +12351,17 @@
               "type": "integer",
               "format": "int64"
             },
-            "description": "The highest sequence the caller has already seen. Only events after it come back, which is what makes polling this cheap, and they come back oldest first so this cursor is always safe to advance to the last one handed over. Omitted, unparseable or non-positive means whatever the server still holds. Compare the response's epoch before reusing a cursor: the sequence counter is per process and starts again at zero, so a cursor kept across a restart asks for what the new process has not reached yet."
+            "description": "The highest sequence the caller has already seen. Only events after it come back, which is what makes polling this cheap, and they come back oldest first so this cursor is always safe to advance to the last one handed over. Omitted, unparseable or non-positive means whatever the server still holds. Events are durable: the sequence continues across a restart (the counter starts again from the highest stored one), so a cursor never repeats a number. The response's epoch still names the process that answered; a client that sees it change should drop what it holds and read again, because the ring it was following has been refilled from the journal."
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "description": "Page BACKWARDS through the durable record. When positive, each bucket answers with its events whose sequence is below this, the newest limit of them, oldest first, and truncated says older ones remain; since is ignored. It is how a client reaches events the in-memory ring no longer holds. Events are kept for 30 days and at most 50,000 rows, oldest pruned first; periodic samples and per-range download lines are not stored, and a recovery keeps its start, its last stage and its end. Omitted, unparseable or non-positive means the ordinary live reading."
           },
           {
             "name": "limit",
