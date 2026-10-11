@@ -53,9 +53,11 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 let siteDir = path.resolve(here, "..");
 const only = [];
+let selftest = false;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--site") siteDir = path.resolve(args[++i]);
   else if (args[i] === "--only") only.push(args[++i]);
+  else if (args[i] === "--selftest") selftest = true;
   else {
     console.error(`unknown argument ${args[i]}`);
     process.exit(2);
@@ -247,6 +249,46 @@ function auditPage() {
 }
 
 const browser = await chromium.launch();
+
+// The positive controls, run before the real pages every time (and alone
+// under --selftest): a known-good pair must pass and each known-bad shape
+// must be reported, or a green run below means nothing.
+{
+  const ctl = await browser.newPage();
+  const cases = [
+    ["good: dark text on a light ground", `<body style="background:#fff"><p style="color:#111">hello</p></body>`, 0],
+    ["bad: grey text on a light ground", `<body style="background:#f4f4f2"><p style="color:#8b8d8a">hello</p></body>`, 1],
+    ["bad: inherited dark grey on a dark bar, the pronunciation line's shape", `<body style="background:#f4f4f2;color:#5b5d5b"><header style="background:#16283a"><p style="opacity:.78">pronounced</p></header></body>`, 1],
+    ["good: white on that same dark bar", `<body style="background:#f4f4f2"><header style="background:#16283a;color:#fff"><p>pronounced</p></header></body>`, 0],
+    ["bad: opacity pulls good text under the line", `<body style="background:#fff"><p style="color:#111;opacity:.4">hello</p></body>`, 1],
+    ["bad: a translucent layer is composited, not ignored", `<body style="background:#fff"><div style="background:rgba(0,0,0,.6)"><p style="color:#333">hello</p></div></body>`, 1],
+    ["good: large text gets 3:1 (bold 24px at about 3.5:1)", `<body style="background:#fff"><p style="color:#858585;font:700 24px sans-serif">hello</p></body>`, 0],
+    ["bad: the same grey at normal size", `<body style="background:#fff"><p style="color:#858585;font:16px sans-serif">hello</p></body>`, 1],
+    ["bad: a gradient behind text is reported, not passed", `<body style="background:#fff"><p style="color:#111;background-image:linear-gradient(#fff,#000)">hello</p></body>`, 1],
+    ["good: hidden text is not read", `<body style="background:#fff"><p style="color:#eee;display:none">hello</p><p style="color:#111">x</p></body>`, 0],
+    ["bad: a form control with no boundary", `<body style="background:#fff"><input style="border:0;background:transparent" value="x"></body>`, 1],
+  ];
+  let bad = 0;
+  for (const [label, html, want] of cases) {
+    await ctl.setContent(html);
+    const { read, offenders } = await ctl.evaluate(auditPage);
+    const ok = read > 0 && (offenders.length > 0) === (want > 0);
+    console.log(`  ${ok ? "ok  " : "FAIL"} ${label}`);
+    if (!ok) bad++;
+  }
+  await ctl.close();
+  if (bad > 0) {
+    console.error(`contrast: ${bad} positive control(s) failed, so the check cannot be trusted`);
+    await browser.close();
+    process.exit(2);
+  }
+  if (selftest) {
+    await browser.close();
+    console.log("contrast: positive controls ok");
+    process.exit(0);
+  }
+}
+
 let failed = 0;
 let readTotal = 0;
 const report = [];
