@@ -55,6 +55,12 @@ type RecoveryClient interface {
 
 var _ RecoveryClient = (*service.BackupService)(nil)
 
+// recoveryWriteIdle is how long a download may go without the client
+// accepting a write before the connection is cut. The server's own write
+// timeout (30 seconds for a whole response) is right for JSON and wrong for
+// a download, so the handler replaces it with this, rolling.
+var recoveryWriteIdle = 60 * time.Second
+
 // maxRecoveryMintBodyBytes bounds the mint body: a copy id, a target and a
 // flag, nothing that needs more than a few hundred bytes.
 const maxRecoveryMintBodyBytes = 8 << 10
@@ -68,7 +74,7 @@ type recoveryTargetBody struct {
 
 type recoveryMintRequest struct {
 	Copy            string             `json:"copy,omitempty"`
-	AcknowledgeCost bool               `json:"acknowledge_cost,omitempty"`
+	AcknowledgeCost bool               `json:"acknowledged,omitempty"`
 	Target          recoveryTargetBody `json:"target"`
 }
 
@@ -195,8 +201,12 @@ func (h *handlers) redeemRecovery(w http.ResponseWriter, r *http.Request) {
 	hd.Set("X-Content-Type-Options", "nosniff")
 	hd.Set("Cache-Control", "no-store")
 
-	cw := &recoveryResponseWriter{ResponseWriter: w, status: http.StatusOK}
+	cw := &recoveryResponseWriter{ResponseWriter: w, status: http.StatusOK, rc: http.NewResponseController(w)}
+	cw.extendDeadline()
 	http.ServeContent(cw, r, "", time.Time{}, stream.Reader())
+	// The next request on this connection gets the server's own deadline
+	// back; a deadline left extended would outlive this download.
+	_ = cw.rc.SetWriteDeadline(time.Time{})
 
 	size := stream.Length()
 	start, end := int64(0), size-1
@@ -225,7 +235,27 @@ type recoveryResponseWriter struct {
 	status  int
 	written int64
 	err     error
+
+	rc       *http.ResponseController
+	extended time.Time
 }
+
+// extendDeadline pushes the connection's write deadline to recoveryWriteIdle
+// from now, at most about once a second. The server's write timeout covers a
+// whole response, which a multi-gigabyte download will not fit in; this turns
+// it into a bound on how long the client may go without accepting a write,
+// so a slow link finishes and a stalled one is still cut off.
+func (c *recoveryResponseWriter) extendDeadline() {
+	now := time.Now()
+	if now.Sub(c.extended) < time.Second && !c.extended.IsZero() && recoveryWriteIdle >= 4*time.Second {
+		return
+	}
+	c.extended = now
+	_ = c.rc.SetWriteDeadline(now.Add(recoveryWriteIdle))
+}
+
+// Unwrap lets http.ResponseController reach the real writer.
+func (c *recoveryResponseWriter) Unwrap() http.ResponseWriter { return c.ResponseWriter }
 
 func (c *recoveryResponseWriter) WriteHeader(status int) {
 	c.status = status
@@ -233,6 +263,7 @@ func (c *recoveryResponseWriter) WriteHeader(status int) {
 }
 
 func (c *recoveryResponseWriter) Write(p []byte) (int, error) {
+	c.extendDeadline()
 	n, err := c.ResponseWriter.Write(p)
 	c.written += int64(n)
 	if err != nil && c.err == nil {
@@ -287,44 +318,65 @@ func recoverySessionFrom(r *http.Request) service.RecoverySession {
 	return sess
 }
 
-// recoveryStatuses maps each code the service can refuse with to its HTTP
-// status. A code absent here is a 500, and a test holds this table to
-// service.RecoveryCodes so one cannot be added without a decision.
-var recoveryStatuses = map[string]int{
-	"RECOVERY_COST_NOT_ACKNOWLEDGED": http.StatusConflict,
-	"RECOVERY_NO_COPY":               http.StatusConflict,
-	"RECOVERY_COPY_NOT_FOUND":        http.StatusNotFound,
-	"RECOVERY_NOT_READABLE":          http.StatusConflict,
-	"RECOVERY_LOCAL_COPY_CORRUPT":    http.StatusInternalServerError,
-	"RECOVERY_REMOTE_COPY_CORRUPT":   http.StatusBadGateway,
-	"RECOVERY_NO_DIGEST":             http.StatusConflict,
-	"RECOVERY_NO_SPACE":              http.StatusInsufficientStorage,
-	"RECOVERY_BELOW_RESERVE":         http.StatusInsufficientStorage,
-	"RECOVERY_GRANT_UNKNOWN":         http.StatusNotFound,
-	"RECOVERY_GRANT_USED":            http.StatusGone,
-	"RECOVERY_GRANT_EXPIRED":         http.StatusGone,
-	"RECOVERY_GRANT_SESSION_ENDED":   http.StatusForbidden,
-	"RECOVERY_TOO_MANY_GRANTS":       http.StatusTooManyRequests,
-	"RECOVERY_TARGET_INVALID":        http.StatusBadRequest,
-	"RECOVERY_TARGET_EXISTS":         http.StatusConflict,
-	"RECOVERY_USE_SNAPSHOT_RESTORE":  http.StatusConflict,
-	"RECOVERY_UNAVAILABLE":           http.StatusServiceUnavailable,
-	"RECOVERY_BUSY":                  http.StatusConflict,
-	"RECOVERY_INTERRUPTED":           http.StatusServiceUnavailable,
-	"RECOVERY_FAILED":                http.StatusInternalServerError,
-}
-
 func (h *handlers) writeRecoveryError(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, service.ErrArtifactNotFound) {
 		writeError(w, http.StatusNotFound, "ARTIFACT_NOT_FOUND", "no such backup")
 		return
 	}
 	if re, ok := service.AsRecoveryError(err); ok {
-		status, known := recoveryStatuses[re.Code]
-		if !known {
-			status = http.StatusInternalServerError
+		// One literal per code, each with its own status, rather than a
+		// table: the contract test that holds the registry to what the
+		// handlers emit reads this package's source for exactly this
+		// shape, and a test here holds the set to service.RecoveryCodes.
+		switch re.Code {
+		case "RECOVERY_COST_NOT_ACKNOWLEDGED":
+			writeError(w, http.StatusConflict, "RECOVERY_COST_NOT_ACKNOWLEDGED", re.Message)
+		case "RECOVERY_NO_COPY":
+			writeError(w, http.StatusConflict, "RECOVERY_NO_COPY", re.Message)
+		case "RECOVERY_COPY_NOT_FOUND":
+			writeError(w, http.StatusNotFound, "RECOVERY_COPY_NOT_FOUND", re.Message)
+		case "RECOVERY_NOT_READABLE":
+			writeError(w, http.StatusConflict, "RECOVERY_NOT_READABLE", re.Message)
+		case "RECOVERY_LOCAL_COPY_CORRUPT":
+			id := writeError(w, http.StatusInternalServerError, "RECOVERY_LOCAL_COPY_CORRUPT", re.Message)
+			h.logRefusal(r, http.StatusInternalServerError, "RECOVERY_LOCAL_COPY_CORRUPT", id, re.Cause)
+		case "RECOVERY_REMOTE_COPY_CORRUPT":
+			writeError(w, http.StatusBadGateway, "RECOVERY_REMOTE_COPY_CORRUPT", re.Message)
+		case "RECOVERY_NO_DIGEST":
+			writeError(w, http.StatusConflict, "RECOVERY_NO_DIGEST", re.Message)
+		case "RECOVERY_NO_SPACE":
+			writeError(w, http.StatusInsufficientStorage, "RECOVERY_NO_SPACE", re.Message)
+		case "RECOVERY_BELOW_RESERVE":
+			writeError(w, http.StatusInsufficientStorage, "RECOVERY_BELOW_RESERVE", re.Message)
+		case "RECOVERY_GRANT_UNKNOWN":
+			writeError(w, http.StatusNotFound, "RECOVERY_GRANT_UNKNOWN", re.Message)
+		case "RECOVERY_GRANT_USED":
+			writeError(w, http.StatusGone, "RECOVERY_GRANT_USED", re.Message)
+		case "RECOVERY_GRANT_EXPIRED":
+			writeError(w, http.StatusGone, "RECOVERY_GRANT_EXPIRED", re.Message)
+		case "RECOVERY_GRANT_SESSION_ENDED":
+			writeError(w, http.StatusForbidden, "RECOVERY_GRANT_SESSION_ENDED", re.Message)
+		case "RECOVERY_TOO_MANY_GRANTS":
+			writeError(w, http.StatusTooManyRequests, "RECOVERY_TOO_MANY_GRANTS", re.Message)
+		case "RECOVERY_TARGET_INVALID":
+			writeError(w, http.StatusBadRequest, "RECOVERY_TARGET_INVALID", re.Message)
+		case "RECOVERY_TARGET_EXISTS":
+			writeError(w, http.StatusConflict, "RECOVERY_TARGET_EXISTS", re.Message)
+		case "RECOVERY_USE_SNAPSHOT_RESTORE":
+			writeError(w, http.StatusConflict, "RECOVERY_USE_SNAPSHOT_RESTORE", re.Message)
+		case "RECOVERY_UNAVAILABLE":
+			writeError(w, http.StatusServiceUnavailable, "RECOVERY_UNAVAILABLE", re.Message)
+		case "RECOVERY_BUSY":
+			writeError(w, http.StatusConflict, "RECOVERY_BUSY", re.Message)
+		case "RECOVERY_INTERRUPTED":
+			writeError(w, http.StatusServiceUnavailable, "RECOVERY_INTERRUPTED", re.Message)
+		case "RECOVERY_FAILED":
+			id := writeError(w, http.StatusInternalServerError, "RECOVERY_FAILED", re.Message)
+			h.logRefusal(r, http.StatusInternalServerError, "RECOVERY_FAILED", id, re.Cause)
+		default:
+			id := writeError(w, http.StatusInternalServerError, "RECOVERY_FAILED", "the recovery failed")
+			h.logRefusal(r, http.StatusInternalServerError, "RECOVERY_FAILED", id, re.Cause)
 		}
-		writeError(w, status, re.Code, re.Message)
 		return
 	}
 	h.internalError(w, r, "INTERNAL", "the recovery failed", err)

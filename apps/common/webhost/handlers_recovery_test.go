@@ -46,6 +46,10 @@ type fakeRecoveryBackend struct {
 	content    []byte
 	result     *service.RecoveryResult
 	served     []servedCall
+
+	// redeemDelay stands in for the time the first redeem spends staging
+	// and verifying a large copy before it can send a byte.
+	redeemDelay time.Duration
 }
 
 type servedCall struct {
@@ -70,6 +74,7 @@ func (f *fakeRecoveryBackend) MintRecovery(_ context.Context, s service.Recovery
 }
 
 func (f *fakeRecoveryBackend) RedeemRecovery(_ context.Context, s service.RecoverySession, token string) (service.RecoveryStream, *service.RecoveryResult, error) {
+	time.Sleep(f.redeemDelay)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.redeemed = append(f.redeemed, token)
@@ -227,11 +232,11 @@ func TestBothRoutesRefuseTheUnauthenticated(t *testing.T) {
 func TestTheSessionIsTheAuthenticatedActorAndItsLapseNotAnythingTheBodySays(t *testing.T) {
 	exp := time.Date(2026, 10, 1, 18, 0, 0, 0, time.UTC)
 	router, be := newRecoveryRouter(t, NotYetImplementedGate{}, recoverySessionAuth{username: "alice", expires: exp.Format(time.RFC3339)})
-	m := mint(t, router, `{"copy":"warm","acknowledge_cost":true,"actor":"mallory","target":{"kind":"staging","path":"out/x"}}`, true)
+	m := mint(t, router, `{"copy":"warm","acknowledged":true,"actor":"mallory","target":{"kind":"staging","path":"out/x"}}`, true)
 	if m.Code != http.StatusBadRequest {
 		t.Fatalf("an unknown body field (actor) must be refused, got %d", m.Code)
 	}
-	m = mint(t, router, `{"copy":"warm","acknowledge_cost":true,"target":{"kind":"staging","path":"out/x"}}`, true)
+	m = mint(t, router, `{"copy":"warm","acknowledged":true,"target":{"kind":"staging","path":"out/x"}}`, true)
 	if m.Code != http.StatusCreated {
 		t.Fatalf("mint = %d %s", m.Code, m.Body.String())
 	}
@@ -268,7 +273,7 @@ func TestMintBodyIsBounded(t *testing.T) {
 func TestAMintThatStartedAProviderRestoreSays202AndNamesTheOperation(t *testing.T) {
 	router, be := newRecoveryRouter(t, NotYetImplementedGate{}, fakeAuthenticator{authenticated: true, username: "alice"})
 	be.thaw = &service.RecoveryThaw{OperationID: "op_9", Wait: "up to 48 hours", Billing: "billed by the provider"}
-	rec := mint(t, router, `{"acknowledge_cost":true,"target":{"kind":"download"}}`, true)
+	rec := mint(t, router, `{"acknowledged":true,"target":{"kind":"download"}}`, true)
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("= %d %s", rec.Code, rec.Body.String())
 	}
@@ -429,4 +434,105 @@ func (f *failingWriter) Write(p []byte) (int, error) {
 	}
 	f.n += len(p)
 	return f.ResponseRecorder.Write(p)
+}
+
+// The server's write timeout is 30 seconds for the whole response
+// (serve/run.go), which is right for every JSON route and wrong for a
+// download: a 4 GiB artifact over a LAN takes longer than that, and the
+// connection would be cut at the deadline with the bytes half sent. A
+// loopback measurement hides it, which is why it is a test of its own.
+
+func TestADownloadSlowerThanTheServersWriteTimeoutStillCompletes(t *testing.T) {
+	router, be := newRecoveryRouter(t, NotYetImplementedGate{}, fakeAuthenticator{authenticated: true, username: "alice"})
+	be.content = bytes.Repeat([]byte("x"), 32<<20)
+
+	srv := httptest.NewUnstartedServer(router)
+	srv.Config.WriteTimeout = 400 * time.Millisecond
+	srv.Start()
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/v1/recoveries/tok_abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var got int
+	buf := make([]byte, 4<<20)
+	for {
+		n, rerr := resp.Body.Read(buf)
+		got += n
+		if rerr != nil {
+			if rerr != io.EOF {
+				t.Fatalf("download cut after %d of %d bytes: %v", got, len(be.content), rerr)
+			}
+			break
+		}
+		time.Sleep(100 * time.Millisecond) // eight reads: about 800ms, and the kernel buffers hold only a few MB of it, so the server is still writing well past its 400ms timeout
+	}
+	if got != len(be.content) {
+		t.Fatalf("got %d of %d bytes", got, len(be.content))
+	}
+}
+
+func TestAClientThatStopsReadingIsCutOffAfterTheIdleBound(t *testing.T) {
+	old := recoveryWriteIdle
+	recoveryWriteIdle = 300 * time.Millisecond
+	defer func() { recoveryWriteIdle = old }()
+
+	router, be := newRecoveryRouter(t, NotYetImplementedGate{}, fakeAuthenticator{authenticated: true, username: "alice"})
+	be.content = bytes.Repeat([]byte("x"), 64<<20)
+
+	srv := httptest.NewUnstartedServer(router)
+	srv.Config.WriteTimeout = 400 * time.Millisecond
+	srv.Start()
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/v1/recoveries/tok_abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	time.Sleep(1500 * time.Millisecond) // a client that stalls entirely
+	n, _ := io.Copy(io.Discard, resp.Body)
+	if n >= int64(len(be.content)) {
+		t.Fatal("a client that stalled past the idle bound was still served the whole file: a stalled connection would hold its staged copy forever")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		be.mu.Lock()
+		got := len(be.served)
+		var err error
+		if got > 0 {
+			err = be.served[0].err
+		}
+		be.mu.Unlock()
+		if got > 0 {
+			if err == nil {
+				t.Fatal("the abandoned download was reported as a success")
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("the abandoned download was never reported to the service, so its grant and staged file would stay")
+}
+
+func TestStagingThatTakesLongerThanTheWriteTimeoutDoesNotCostTheDownload(t *testing.T) {
+	router, be := newRecoveryRouter(t, NotYetImplementedGate{}, fakeAuthenticator{authenticated: true, username: "alice"})
+	be.redeemDelay = 700 * time.Millisecond // verifying a big remote copy
+
+	srv := httptest.NewUnstartedServer(router)
+	srv.Config.WriteTimeout = 300 * time.Millisecond
+	srv.Start()
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/v1/recoveries/tok_abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	n, err := io.Copy(io.Discard, resp.Body)
+	if err != nil || n != int64(len(be.content)) {
+		t.Fatalf("got %d of %d bytes, err %v: the write deadline expired while the copy was being verified", n, len(be.content), err)
+	}
 }

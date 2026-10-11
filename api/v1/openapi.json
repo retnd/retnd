@@ -6588,7 +6588,7 @@
             "x-go-omitempty": true,
             "description": "The medium id of the copy to recover, or best-available (also what an empty value means): the readable copy with the strongest recorded verification class, preferring one that costs nothing to read."
           },
-          "acknowledge_cost": {
+          "acknowledged": {
             "type": "boolean",
             "x-go-omitempty": true,
             "description": "The explicit yes to a chargeable retrieval. Without it a request that would download from a billed object store, or need a provider restore first, is refused naming the cost and starts nothing. An absent value is a no, never an implied yes."

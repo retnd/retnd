@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "e78e1c7ac45af73f1028604a29f37eff1cb6de92618f878d5f0921ad7ae3267b";
+export const CONTRACT_SHA256 = "1dc301357f6c763f34549e2ff85a41a2eab28c47aa018537e18a1f923579bd40";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -3202,7 +3202,7 @@ export interface WirePlacement {
  *  authorises nothing by itself beyond minting a short-lived,
  *  single-use grant bound to the session that asked. */
 export interface WireRecoveryMintRequest {
-  acknowledge_cost?: boolean;
+  acknowledged?: boolean;
   copy?: string;
   target: WireRecoveryTarget;
 }

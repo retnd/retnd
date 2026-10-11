@@ -321,7 +321,10 @@ func mapRecoveryError(err error) error {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return &RecoveryError{Code: RecoveryInterrupted, Message: "the recovery was interrupted before it finished; nothing was delivered and its staging file was removed", Cause: err}
 	}
-	return &RecoveryError{Code: RecoveryFailed, Message: "the recovery failed: " + err.Error(), Cause: err}
+	// The cause stays on the error for the log. It is never in the message:
+	// it can carry a path, or the body of a provider's error, and neither
+	// belongs on a response, in --json output or on the activity feed.
+	return &RecoveryError{Code: RecoveryFailed, Message: "the recovery failed; the engine log has the cause", Cause: err}
 }
 
 // recoverVerb is the binary name used inside sentences.
@@ -659,6 +662,9 @@ func (b *BackupService) auditRecovery(ctx context.Context, ev *recoveryEvent, er
 		if isRefusal(code) {
 			result, outcome = obs.ResultWarn, "refused"
 		}
+	}
+	if code == RecoveryFailed {
+		b.logger.Error(ctx, "recovery_failure", err)
 	}
 	route := "GET /api/v1/recoveries/{grant}"
 	if ev.op == "mint" {

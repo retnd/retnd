@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "e78e1c7ac45af73f1028604a29f37eff1cb6de92618f878d5f0921ad7ae3267b"
+const ContractSHA256 = "1dc301357f6c763f34549e2ff85a41a2eab28c47aa018537e18a1f923579bd40"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -2549,9 +2549,9 @@ type Placement struct {
 // authorises nothing by itself beyond minting a short-lived,
 // single-use grant bound to the session that asked.
 type RecoveryMintRequest struct {
-	AcknowledgeCost bool           `json:"acknowledge_cost,omitempty"`
-	Copy            string         `json:"copy,omitempty"`
-	Target          RecoveryTarget `json:"target"`
+	Acknowledged bool           `json:"acknowledged,omitempty"`
+	Copy         string         `json:"copy,omitempty"`
+	Target       RecoveryTarget `json:"target"`
 }
 
 // RecoveryMintResponse is the answer to a mint, in one of two shapes. A grant (201): the
