@@ -294,27 +294,6 @@ const (
 	// scope, and an operator acts per backup set, so
 	// WorkflowRecoveryConditions folds a set's holds into one.
 	WorkflowRecoveryRequired Kind = "WORKFLOW_RECOVERY_REQUIRED"
-
-	// ScrubFailing is EPIC Q's persistently failing scrub (#978): at least
-	// one copy in this backup set has failed, or could not complete, its
-	// scheduled check health.ScrubFailureThreshold times running.
-	//
-	// # Why it is a kind of its own
-	//
-	// RepeatedFailure counts artifacts stuck in FAILED, which is a
-	// population a backup that is verifying fine never produces: the
-	// backups themselves are arriving and the copies already held are the
-	// ones going wrong. StaleBackup is about freshness and a copy that
-	// stopped verifying is not stale. So the one condition a scrub exists to
-	// find had no name, and the first an operator would learn of it was a
-	// restore that did not work.
-	//
-	// It clears the way the others do: it is true while a copy keeps
-	// failing, a pass that succeeds ends it, and a recurrence alerts again.
-	// Scope is the backup set, one alert however many copies are failing,
-	// because an operator acts per set and forty identical pages are not
-	// forty problems.
-	ScrubFailing Kind = "SCRUB_FAILING"
 )
 
 // Kinds is every Kind this package can produce: §71's four in the order
@@ -330,7 +309,6 @@ var Kinds = []Kind{
 	WorkflowFailed,
 	WorkflowCleanupFailed,
 	WorkflowRecoveryRequired,
-	ScrubFailing,
 }
 
 func (k Kind) String() string { return string(k) }
@@ -357,8 +335,6 @@ func (k Kind) title() string {
 		return "Workflow cleanup failed"
 	case WorkflowRecoveryRequired:
 		return "Backup set is blocked pending recovery"
-	case ScrubFailing:
-		return "Scheduled check of a backup copy keeps failing"
 	default:
 		return "retnd alert"
 	}

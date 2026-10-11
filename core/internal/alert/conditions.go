@@ -125,23 +125,7 @@ func BackupSetConditions(h health.BackupSetHealth, repeatedFailureThreshold int)
 		})
 	}
 
-	if h.ScrubFailingCopies > 0 {
-		out = append(out, Condition{
-			Kind:  ScrubFailing,
-			Scope: scope,
-			Detail: fmt.Sprintf("%d cop%s in backup set %s failed %d scheduled checks in a row, so the set cannot be relied on to restore until that is looked at. Nothing has been deleted.",
-				h.ScrubFailingCopies, pluralY(h.ScrubFailingCopies), scope, health.ScrubFailureThreshold),
-		})
-	}
-
 	return out
-}
-
-func pluralY(n int) string {
-	if n == 1 {
-		return "y"
-	}
-	return "ies"
 }
 
 // StorageConditions returns §71's critical-storage-pressure condition for
