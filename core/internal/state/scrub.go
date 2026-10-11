@@ -292,6 +292,11 @@ type CopyScrub struct {
 	// for ScrubCouldNotComplete and ScrubNotChecked.
 	Class  string
 	Reason string
+	// Expect is the identity of the bytes the check read. A verdict is a
+	// statement about those bytes, so it is written only while the copy
+	// still holds them (ErrCopyChanged otherwise). Nil means unguarded,
+	// which is for tests; the scrub driver always sets it.
+	Expect *CopyIdentity
 	// At is when the check ran; NextDue is when the copy is next owed one.
 	At      time.Time
 	NextDue time.Time
@@ -361,6 +366,20 @@ var ErrPlacementNotFound = errors.New("state: no such placement")
 // the copy meanwhile; the verdict is about bytes that are no longer a copy,
 // and a "passed" or "failed" stamped on a GONE row is a claim about nothing.
 var ErrPlacementRetired = errors.New("state: the copy is no longer active")
+
+// ErrCopyChanged is returned when a verdict is written for bytes the copy no
+// longer holds: its hash, algorithm or location moved while the check ran.
+var ErrCopyChanged = errors.New("state: the copy now holds different bytes than the check read")
+
+// CopyIdentity names the bytes a copy holds.
+type CopyIdentity struct {
+	Location, Hash, HashAlg string
+}
+
+// Identity is the identity of the bytes this copy holds.
+func (p Placement) Identity() CopyIdentity {
+	return CopyIdentity{Location: p.Location, Hash: p.Hash, HashAlg: p.HashAlg}
+}
 
 // ScrubClaimOverdue is the derived reading of a stored pass that is past its
 // due time. It is never stored: a stored pass is a statement about the moment

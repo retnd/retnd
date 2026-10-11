@@ -36,6 +36,12 @@ func scrubService(t *testing.T, reval config.Revalidation, sets ...config.Backup
 	}
 	cfg := alertingConfig(t, testSource("production", srcs...))
 	cfg.StorageMediums = moveTestMediums()
+	// Production resolves the assurance policy when it loads the file. A
+	// hand-built config has to ask, or every set decides under a zero policy
+	// no deployment can have.
+	if err := cfg.ResolveAssurance(); err != nil {
+		t.Fatalf("ResolveAssurance: %v", err)
+	}
 	journal := openJournal(t)
 	svc := New(cfg, journal, newFakeTransport(), nil)
 	svc.Now = fixedNow(retentionTestNow)

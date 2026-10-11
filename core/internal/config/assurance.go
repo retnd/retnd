@@ -292,3 +292,13 @@ func resolveSetAssurance(v *validator, path string, o *AssuranceOverride, global
 	}
 	return out
 }
+
+// DefaultScrubMaxPerCycle bounds how many artifacts one backup set's scheduled
+// scrub looks at per tick when the policy, and not an explicit `revalidation:`
+// block, drives it.
+const DefaultScrubMaxPerCycle = 50
+
+// Revalidation is the scrub configuration this resolved policy implies.
+func (a Assurance) Revalidation(explicit Revalidation) Revalidation {
+	return explicit
+}
