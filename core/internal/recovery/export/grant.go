@@ -123,6 +123,13 @@ type entry struct {
 	session  Session
 	redeemed bool
 	revoked  bool
+
+	// open counts requests Redeem admitted and Done has not yet ended. A
+	// grant with a request open is being used: it does not lapse, and the
+	// reaper leaves its attachment alone, however long the one request
+	// takes. Without this a slow download of a large copy outlives its
+	// two-minute grant and has the staged file taken from under it.
+	open     int
 	closedAt time.Time // non-zero once spent; the entry stays as a tombstone
 	attached any
 }
@@ -275,20 +282,34 @@ func (g *Grants) Redeem(token string, caller Session) (Redemption, error) {
 		subtle.ConstantTimeCompare([]byte(e.session.key()), []byte(caller.key())) != 1 {
 		return Redemption{}, ErrGrantSessionEnded
 	}
-	if !now.Before(e.grant.ExpiresAt) {
+	if e.open == 0 && !now.Before(e.grant.ExpiresAt) {
 		return Redemption{}, ErrGrantExpired
 	}
 	first := !e.redeemed
 	e.redeemed = true
+	e.open++
 	// A started download is kept alive by its own traffic: each range has
 	// the TTL again, but never past the end of the session.
 	e.grant.ExpiresAt = g.expiryFor(e.session, now)
 	return Redemption{Grant: e.grant, First: first, Attached: e.attached}, nil
 }
 
-// Done marks a request that Redeem admitted as finished. Stub: the real
-// accounting lands with the implementation.
-func (g *Grants) Done(token string) {}
+// Done ends a request that Redeem admitted. The idle clock restarts from
+// here, so a client coming back for the next range has the full lifetime
+// again no matter how long the request that just ended took.
+func (g *Grants) Done(token string) {
+	now := g.now()
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	e, ok := g.live[digest(token)]
+	if !ok || e.closed() {
+		return
+	}
+	if e.open > 0 {
+		e.open--
+	}
+	e.grant.ExpiresAt = g.expiryFor(e.session, now)
+}
 
 // Attach stores a value with a redeemed grant.
 func (g *Grants) Attach(token string, v any) {
@@ -348,7 +369,7 @@ func (g *Grants) Reap() []any {
 		if e.closed() {
 			continue
 		}
-		if e.redeemed && (!now.Before(e.grant.ExpiresAt) || e.session.endedAt(now)) {
+		if e.redeemed && (e.session.endedAt(now) || (e.open == 0 && !now.Before(e.grant.ExpiresAt))) {
 			if e.attached != nil {
 				released = append(released, e.attached)
 				e.attached = nil

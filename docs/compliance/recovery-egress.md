@@ -37,7 +37,7 @@ with audit rather than authority:
   session ends;
 - every mint, every served byte range and every refusal writes one row to the
   action log naming the actor, the artifact, the copy, the target and the
-  outcome (`TestEveryMintAndEveryServedRange...`);
+  outcome (`TestEveryMintAndEveryServedRangeWritesOneRow...`);
 - an authenticated user can therefore not recover something without leaving a
   record, but nothing stops them recovering it. If your threat model needs the
   second half, this is not the control for it, and a role model is a separate
@@ -47,12 +47,17 @@ with audit rather than authority:
 
 - **It reads, never writes the source.** The route pair is registered without
   the destructive gate on purpose, because a recovery deletes and overwrites
-  nothing. The recovery path has no call to delete an object, to list a
-  destination, or to replace anything: an upload target refuses an existing key,
-  a staging output gets a unique name, and the destination double used in the
-  tests fails the test if `DeleteObject` or `ListObjects` is ever called.
+  nothing. The recovery path has no call to delete an object or to list a
+  destination, and the destination double used in the tests returns an error
+  from both, so a recovery that reached for either would fail its own test. A
+  staging output gets a unique name and so never replaces a file. An upload
+  target checks that its key is free immediately before it writes, but the
+  storage API offers no atomic create-if-absent, so a second writer racing that
+  one object key could still win. I am saying that rather than claiming the
+  upload can never overwrite.
 - **It runs no program.** The recovery packages import no `os/exec` and a test
-  holds them to it. (A storage medium whose credentials are fetched by a
+  holds them to it (a check of imports and of a few call names, which is weaker
+  than watching a process seam, and I have not built one). (A storage medium whose credentials are fetched by a
   configured command is the transport's existing behaviour and is not new here.)
 - **It cannot be tricked into sending bad bytes as good.** All of the copy is
   read and compared with the size and SHA-256 recorded at ingestion before any

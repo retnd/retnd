@@ -223,6 +223,11 @@ func (h *handlers) redeemRecovery(w http.ResponseWriter, r *http.Request) {
 		serr = cw.err
 	case r.Context().Err() != nil:
 		serr = r.Context().Err()
+	case cw.status == http.StatusRequestedRangeNotSatisfiable:
+		// The client asked for bytes the copy does not have. That is its
+		// mistake, not the download failing, and it must not spend the
+		// grant: a remote copy would be read and billed again.
+		serr = service.ErrRecoveryRangeNotSatisfiable
 	case cw.status >= 400:
 		serr = errors.New("the range could not be served")
 	case cw.status != http.StatusNotModified && cw.written != end-start+1:
