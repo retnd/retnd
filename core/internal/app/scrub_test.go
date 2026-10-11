@@ -568,3 +568,33 @@ func TestScrub_ReportsAnUnknownBackupSetRatherThanScrubbingNothingQuietly(t *tes
 		t.Error("scrubbing a set that is not configured succeeded quietly")
 	}
 }
+
+// listCountingJournal counts ListByBackupSet calls, so a test can say how
+// much reading a tick did.
+type listCountingJournal struct {
+	*state.Journal
+	lists int
+}
+
+func (j *listCountingJournal) ListByBackupSet(ctx context.Context, set model.BackupSetID) ([]state.Record, error) {
+	j.lists++
+	return j.Journal.ListByBackupSet(ctx, set)
+}
+
+// A tick on a deployment where nothing is configured to be scrubbed must not
+// read every set's journal looking for an episode that could not have changed.
+func TestScrub_AQuietTickReadsNoJournalAtAll(t *testing.T) {
+	bs := testBackupSet(t, t.TempDir())
+	cfg := testConfig(t, testSource("production", bs)) // no revalidation block: MaxPerCycle 0
+	j := &listCountingJournal{Journal: openJournal(t)}
+	svc := New(cfg, j, newFakeTransport(), nil)
+	svc.Now = fixedNow(retentionTestNow)
+	svc.Stages = &fakeStages{}
+
+	if _, err := svc.Scrub(context.Background(), ScrubRequest{Trigger: state.ScrubBySchedule}); err != nil {
+		t.Fatal(err)
+	}
+	if j.lists != 0 {
+		t.Errorf("a quiet tick listed the journal %d times", j.lists)
+	}
+}
