@@ -2305,6 +2305,22 @@ export interface RecoveryPlacement {
   sha256: string;
 }
 
+/** What to test. Both fields are optional: with neither, the newest known
+ *  good copy is tested and no cost is acknowledged. */
+export interface RecoveryTestRequest {
+  /** source/set/name, in the same backup set. */
+  artifactId?: string;
+  /** The explicit yes to a read that costs money. Absent is a no. */
+  acknowledged?: boolean;
+}
+
+/** A recovery test is under way. */
+export interface RecoveryTestStart {
+  backupSetId: string;
+  /** Carried as `op_id` by every line of the test on the live feed. */
+  operationId: string;
+}
+
 /** A resolved scrub and recovery-test policy (EPIC Q, Q1.4). Every value is
  *  RESOLVED: an inherited or defaulted setting is filled in, so a zero here
  *  is never something to read as "never". */
@@ -2948,6 +2964,18 @@ export interface RetndApi {
    * the bytes never pass through this page's memory.
    */
   redeemRecovery(grant: string): Promise<RecoveryPlacement>;
+
+  /**
+   * EPIC Q (#980, issue #985): start a recovery test of this backup set now,
+   * in the background. An empty request tests the newest known good copy and
+   * acknowledges no cost, so a copy that would cost money to read is refused
+   * and recorded as such rather than read. Answers as soon as the test is
+   * accepted: the `operationId` is carried by its start, stage and end lines
+   * on the live activity feed (`op_id`), and the verdict lands on the copy's
+   * recovery claim. A second request while one is running REJECTS with
+   * OPERATION_ALREADY_RUNNING.
+   */
+  startRecoveryTest(source: string, set: string, req?: RecoveryTestRequest): Promise<RecoveryTestStart>;
 
   listOperations(): Promise<Operation[]>;
   /**

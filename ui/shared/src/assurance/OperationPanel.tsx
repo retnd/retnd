@@ -19,7 +19,7 @@ import type { Operation, OperationEvent } from "./types";
 const KIND_LABEL = { scrub: "Scrub", recovery_test: "Recovery test" } as const;
 
 export function OperationPanel({
-  operation, events, error, onCancel, readOnly, detailLink = true, following = true, onFollowing
+  operation, events, error, onCancel, readOnly, detailLink = true, cancellable = true, following = true, onFollowing
 }: {
   operation: Operation | null;
   events: OperationEvent[];
@@ -27,6 +27,9 @@ export function OperationPanel({
   onCancel(): void;
   readOnly?: boolean;
   detailLink?: boolean;
+  /** False where the server offers no route to cancel, so no Cancel button
+   *  is drawn that could only fail. */
+  cancellable?: boolean;
   following?: boolean;
   /** Present on the detail view, which owns the Following toggle. */
   onFollowing?: (on: boolean) => void;
@@ -40,6 +43,7 @@ export function OperationPanel({
     operation.state === "complete" ? KIND_LABEL[operation.kind] + " finished"
     : operation.state === "failed" ? KIND_LABEL[operation.kind] + " failed"
     : operation.state === "cancelled" ? KIND_LABEL[operation.kind] + " cancelled"
+    : operation.state === "untracked" ? KIND_LABEL[operation.kind] + " is no longer on the live feed. Its result lands on the Recovery chip."
     : null;
   return (
     <div
@@ -54,9 +58,11 @@ export function OperationPanel({
         <strong>{KIND_LABEL[operation.kind]}</strong>
         {running ? <span data-testid="stage-label">{"Stage: " + stageLabel(operation.stage)}</span> : <span className="aop__outcome" role="status">{outcome}</span>}
         <span style={{ flex: 1 }} />
-        <span className="mono" style={{ fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
-          {bytes(operation.bytes) + " of " + bytes(operation.totalBytes)}
-        </span>
+        {operation.totalBytes > 0 ? (
+          <span className="mono" style={{ fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
+            {bytes(operation.bytes) + " of " + bytes(operation.totalBytes)}
+          </span>
+        ) : null}
       </div>
       <div
         className="aop__bar"
@@ -64,9 +70,10 @@ export function OperationPanel({
         aria-label={KIND_LABEL[operation.kind] + " progress"}
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-valuenow={pct}
+        aria-valuenow={operation.totalBytes > 0 ? pct : undefined}
+        data-indeterminate={operation.totalBytes === 0 && running ? "" : undefined}
       >
-        <i style={{ width: pct + "%" }} />
+        <i style={operation.totalBytes > 0 || !running ? { width: pct + "%" } : undefined} />
       </div>
       {error ? <div role="status" style={{ fontSize: "var(--text-sm)" }}>{"Connection lost, retrying: " + error}</div> : null}
       <ul className="aop__lines" aria-label="Operation lines" ref={(el) => { if (el && following) el.scrollTop = el.scrollHeight; }}>
@@ -85,7 +92,7 @@ export function OperationPanel({
         ) : null}
         {detailLink ? <Link to={"/assurance/operations/" + encodeURIComponent(operation.id)}>Operation detail</Link> : null}
         <span style={{ flex: 1 }} />
-        {running ? (
+        {running && cancellable ? (
           <InfoTooltip id="assurance.operation.cancel">
             <button className="btn btn--sm btn--destructive" disabled={readOnly} onClick={onCancel}>Cancel</button>
           </InfoTooltip>

@@ -18,7 +18,8 @@
  * unknown claim.
  */
 import type { IconName } from "@shared/design-system/icons";
-import type { AchievedClass, ClaimRecord, ClaimStatus } from "./types";
+import { stamp } from "@shared/utilities/format";
+import type { AchievedClass, ClaimRecord, ClaimStatus, CopyFailure } from "./types";
 
 export type RenderState = ClaimStatus | "existence_only" | "attested_only";
 export type ClaimKind = "content" | "recovery";
@@ -172,4 +173,19 @@ export function tally(items: Array<{ content: ClaimRecord; recovery: ClaimRecord
     if (bad(c) || bad(r)) degraded++;
   }
   return { due, overdue, degraded, unknown };
+}
+
+/** One failed copy as a sentence, in the words the CLI's `retnd artifacts`
+ *  would: which copy, what ran, how often, when and what was recorded. The
+ *  reason is the journal's own bounded text and is shown as text, never as
+ *  markup. */
+export function failureSentence(f: CopyFailure): string {
+  const where = f.medium === "local" ? "the local copy" : "the copy on " + f.medium;
+  const what = f.kind === "scrub" ? "scrub" : "recovery test";
+  const head = f.state === "failed"
+    ? (f.kind === "scrub" ? "The last scrub of " + where + " failed" : "The last recovery test of " + where + " failed")
+    : "The last " + what + " of " + where + " could not complete";
+  const streak = f.consecutiveFailures > 1 ? ", " + f.consecutiveFailures + " times in a row" : "";
+  const when = f.at ? " (" + stamp(f.at) + ")" : "";
+  return head + streak + when + (f.reason ? ": " + f.reason : ".");
 }

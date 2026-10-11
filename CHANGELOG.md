@@ -87,11 +87,28 @@
   known) and a recovery once the provider has made it readable. Settings carries the
   deployment's assurance block, and each backup set can follow it or pin its own
   policy.
-  - **Not offered, and not faked.** The API has no route to start a scrub or a
-    recovery test from the browser, to follow one, to read the recovery-test claim or
-    to read a validator's output. On a server without them the set page shows the
-    `retnd scrub` command and says the schedule does the rest; the Recovery claim
-    reads Unknown, or Not configured when the set's own policy turns the test off.
+  - **Not offered, and not faked.** The API has a route to start a recovery test
+    (`POST /backup-sets/{source}/{set}/recovery-test`) and none to start a scrub,
+    cancel anything or read a validator's output. The set page's Run recovery test
+    control calls that route and follows the test on the live feed (its lines carry
+    the operation id); a test whose lines have fallen off the feed is shown as no
+    longer tracked, never as a pass. There is no Scrub now button: the page shows
+    the `retnd scrub` command and says what runs by itself, which is a scrub pass
+    over the copies that are due at every poll of the running service, and a
+    recovery test only for a set whose mode is required or custom.
+  - **A copy that failed is shown as failed.** A failed scrub clears the copy's
+    verification class and time, so the Backups page used to draw it as Never run.
+    The placement now carries the copy's own record (`assurance_state`,
+    `last_checked_at`, `last_failure_at`, `last_failure_reason`,
+    `consecutive_failures`, `recovery_state`, `recovery_tested_at`,
+    `recovery_failure_reason`), all additive and omitted for a copy nobody has
+    checked, and the chips and a line under them say which copy failed, how many
+    times in a row and why. The Recovery claim is read from the same record.
+  - **A chip being re-checked keeps its contrast.** It was dimmed with
+    `opacity: 0.6`, which put the age text at 2.50:1 (light) and 3.05:1 (dark) and
+    the label at 4.25:1 (light). It is now drawn with a dashed outline, italic type
+    and the word "re-checking", and a unit test reads the real tokens and fails on
+    any dimming.
 
 ## [0.5.1] - 2026-10-04
 

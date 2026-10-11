@@ -5257,6 +5257,9 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
     // assurance scenarios choose between.
     mintRecovery: (artifactId, req) => mockRecovery.mintRecovery(artifactId, req),
     redeemRecovery: (grant) => mockRecovery.redeemRecovery(grant),
+    // Replaced below by the assurance mock's own start when the scenario has
+    // one; a server that offers no assurance never has this reached.
+    startRecoveryTest: (source, set) => delay({ backupSetId: source + "/" + set, operationId: "mock-recovery-test" }),
 
     getAssuranceSettings: () => delay(structuredClone(assuranceSettings)),
     patchAssuranceSettings: (patch) => {
@@ -5417,6 +5420,10 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
   return {
     ...served,
     assurance,
+    startRecoveryTest: async (source, set) => {
+      const o = await assurance.startRecoveryTest(source + "/" + set);
+      return { backupSetId: source + "/" + set, operationId: o.id };
+    },
     getLiveActivity: async (options) => {
       const base = await live(options);
       const since = options?.since ?? 0;

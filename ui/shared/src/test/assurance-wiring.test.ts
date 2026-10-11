@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { cadenceProblem, formatCadence, parseCadence } from "@shared/assurance/duration";
 import { contentClaim } from "@shared/assurance/realAssurance";
 import { RECOVERY_STAGES } from "@shared/assurance/stages";
-import { recoverCommand, scrubCommand, snapshotRestoreCommand, thawCommand } from "@shared/assurance/assuranceCommands";
+import { recoverCommand, recoveryTestCommand, scrubCommand, snapshotRestoreCommand, thawCommand } from "@shared/assurance/assuranceCommands";
 import { recoveryRefusal } from "@shared/assurance/recoveryMessages";
 import { RetndError } from "@shared/api/contracts";
 import type { ApiErrorCode } from "@shared/api/contracts";
@@ -43,14 +43,15 @@ describe("the terminal commands are ones the CLI has", () => {
     expect(recoverCommand("s/set/a.zst", "storage", "offsite", false)).toBe("retnd recover s/set/a.zst --to medium:offsite");
     expect(usage).toContain("--to - | NAME | medium:ID[/KEY]");
   });
-  it("scrub, restore and snapshot restore exist as verbs, and there is no recovery-test verb to echo", () => {
+  it("scrub, recovery-test, restore and snapshot restore exist as verbs", () => {
     expect(usage).toMatch(/\n {2}scrub \[<source\/backup-set>/);
     expect(scrubCommand("s/set")).toBe("retnd scrub s/set");
     expect(usage).toMatch(/\n {2}restore <source\/backup-set\/artifact> --medium M \[--days N\] --acknowledge/);
     expect(thawCommand("s/set/a")).toContain("--acknowledge");
     expect(usage).toMatch(/\n {2}snapshot restore <source\/backup-set> --to DIR/);
     expect(snapshotRestoreCommand("s/set")).toMatch(/^retnd snapshot restore s\/set --to /);
-    expect(usage).not.toMatch(/\n {2}recovery-test /);
+    expect(usage).toMatch(/\n {2}recovery-test <source\/backup-set>/);
+    expect(recoveryTestCommand("s/set")).toBe("retnd recovery-test s/set");
   });
 });
 

@@ -88,9 +88,9 @@ function baseTable(now: number): ArtifactAssurance[] {
  *  the script records neither. */
 const PLAN: Record<OperationKind, Array<{ stage: string; secs: number; bytes: boolean }>> = {
   scrub: [
-    { stage: "scrub_start", secs: 1, bytes: false },
     { stage: "reading", secs: 2, bytes: true },
-    { stage: "scrub_end", secs: 1, bytes: false }
+    { stage: "verifying", secs: 1, bytes: true },
+    { stage: "complete", secs: 1, bytes: false }
   ],
   recovery_test: [
     { stage: "resolving_copy", secs: 1, bytes: false },
@@ -101,8 +101,10 @@ const PLAN: Record<OperationKind, Array<{ stage: string; secs: number; bytes: bo
   ]
 };
 const TOTAL_BYTES = 4_800_000_000;
+/** What the journal's bounded reason reads like for a copy whose bytes changed. */
+const FAIL_REASON = "sha256 differs from the one recorded at ingest";
 const total = (k: OperationKind) => PLAN[k].reduce((n, p) => n + p.secs, 0);
-const FINAL: Record<OperationKind, string> = { scrub: "scrub_end", recovery_test: "complete" };
+const FINAL: Record<OperationKind, string> = { scrub: "complete", recovery_test: "complete" };
 
 function eventsOf(op: StoredOp, upTo: number): OperationEvent[] {
   const out: OperationEvent[] = [];
@@ -201,11 +203,6 @@ export function createMockAssurance(scenario: string): AssuranceApi {
 
   const table = (now: number): ArtifactAssurance[] => {
     let t = baseTable(now);
-    if (scenario === "assurance-no-operations") {
-      // The production composition: no route reports a recovery test, so the
-      // claim is unknown for every backup.
-      t = t.map((a) => ({ ...a, recovery: rec("unknown", "") }));
-    }
     if (scenario === "assurance-rebuilt") {
       t = t.map((a) => ({ ...a, content: rec("unknown", ""), recovery: rec("unknown", "") }));
     }
@@ -215,7 +212,10 @@ export function createMockAssurance(scenario: string): AssuranceApi {
     if (scenario === "assurance-more") {
       t = t.map((a) =>
         a.artifactId.endsWith("20260828.dump.zst") ? { ...a, content: rec("refused_for_cost", "existence", 9 * DAY, now), recovery: rec("cleanup_failed", "content", 2 * DAY, now) }
-        : a.artifactId.endsWith("20260827.sql.gz") ? { ...a, content: rec("failed", "", 2 * DAY, now), recovery: rec("never_configured", "") }
+        : a.artifactId.endsWith("20260827.sql.gz") ? {
+          ...a, content: rec("failed", "", 2 * DAY, now), recovery: rec("never_configured", ""),
+          copyFailures: [{ medium: "local", kind: "scrub", state: "failed", reason: FAIL_REASON, consecutiveFailures: 3, at: new Date(now - 2 * DAY).toISOString() }]
+        }
         : a.artifactId.endsWith("20260812.rdb.zst") ? { ...a, content: rec("overdue", "content", 41 * DAY, now), recovery: rec("never_run", "") }
         : a);
     }
@@ -241,7 +241,15 @@ export function createMockAssurance(scenario: string): AssuranceApi {
       t = t.map((a) => {
         if (a.artifactId !== target) return a;
         const at = new Date(endedAt).toISOString();
-        if (op.kind === "scrub") return { ...a, content: { status: v.state === "failed" ? "failed" : "pass", achievedClass: v.state === "failed" ? "" : "content", at } };
+        if (op.kind === "scrub") {
+          return {
+            ...a,
+            content: { status: v.state === "failed" ? "failed" : "pass", achievedClass: v.state === "failed" ? "" : "content", at },
+            copyFailures: v.state === "failed"
+              ? [{ medium: "local", kind: "scrub", state: "failed", reason: FAIL_REASON, consecutiveFailures: 1, at }]
+              : []
+          };
+        }
         return { ...a, recovery: { status: cleanupFails ? "cleanup_failed" : "pass", achievedClass: "content", at } };
       });
     }
@@ -252,7 +260,10 @@ export function createMockAssurance(scenario: string): AssuranceApi {
   const operationsOf = (setId: string) => Object.values(load().ops).filter((o) => o.setId === setId);
 
   const api: AssuranceApi = {
-    offers: { operations: scenario !== "assurance-no-operations", recoveryClaim: scenario !== "assurance-no-operations" },
+    // assurance-no-operations is the production composition: no route starts
+    // a scrub or cancels anything, a recovery test can be started and its
+    // claim is reported per copy.
+    offers: { operations: scenario !== "assurance-no-operations", recoveryTest: true, recoveryClaim: true },
     listArtifactAssurance: async (setId) => table(Date.now()).filter((a) => !setId || setOf(a.artifactId) === setId),
     getArtifactAssurance: async (id) => {
       const a = table(Date.now()).find((x) => x.artifactId === id);
