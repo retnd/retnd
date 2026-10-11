@@ -247,7 +247,7 @@ MUTATIONS = [
         "ok && set.Engine == model.EngineKopia && false { " + PLANT.rstrip(),
         "snapshot restore",
         SERVICE_PKG,
-        "TestKopiaSetRefusesAndNamesSnapshotRestore",
+        "TestAnIncrementalEngineSetRefusesAndNamesSnapshotRestore",
     ),
     (
         "a mint that writes no action-log row",
@@ -436,7 +436,7 @@ CLEAN_CONTROLS = [
     (
         "the recovery service suite",
         SERVICE_PKG,
-        "TestKopiaSet|TestEveryMint|TestAFailedRange|TestGrantRefusals|TestRecoverALocalCopy",
+        "TestAnIncrementalEngineSet|TestEveryMint|TestAFailedRange|TestGrantRefusals|TestRecoverALocalCopy",
     ),
     (
         "the recovery route suite",
