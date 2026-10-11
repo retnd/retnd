@@ -197,7 +197,11 @@ func (s *Service) Scrub(ctx context.Context, req ScrubRequest) (ScrubSummary, er
 			return s.finishScrub(ctx, journal, sum, started), fmt.Errorf("app: scrub cancelled: %w", runErr)
 		}
 	}
-	return s.finishScrub(ctx, journal, sum, started), nil
+	out := s.finishScrub(ctx, journal, sum, started)
+	// After the verdicts are durable, so the script is told what is true.
+	s.settleScrubEpisodes(ctx, sets)
+
+	return out, nil
 }
 
 // tally folds one set's report into the pass counts and emits the one
