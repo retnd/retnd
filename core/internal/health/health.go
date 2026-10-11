@@ -171,6 +171,16 @@ const ScrubFailureThreshold = 3
 // nothing here is allowed to reach a verdict. That is the opposite of
 // what the placement evidence is for on both counts.
 type BackupSetInputs struct {
+	// RecoveryTestRequired says the operator requires the newest known good
+	// copy to have a current, passing recovery test (EPIC Q, #980). When it
+	// does not, a failed or missing test degrades nothing: it is a claim a
+	// surface shows, and requiring it is a decision.
+	//
+	// It can only turn HEALTHY into DEGRADED and it reads the claim off the
+	// copy's own record. It never reaches back and changes a backup that
+	// already succeeded: that backup is still the newest good one.
+	RecoveryTestRequired bool
+
 	// LastSuccessfulPollAt is when discovery last completed successfully
 	// for this set. It is a liveness signal, not evidence of freshness: a
 	// set can be polled successfully every cycle while its source has
