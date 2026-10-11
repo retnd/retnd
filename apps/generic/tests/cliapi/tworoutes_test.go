@@ -814,6 +814,10 @@ var surfaces = []surface{
 		argv: func(f fixture) []string {
 			return []string{"catalog", "--config", f.configPath, "rebuild", "--dry-run"}
 		}},
+	{verb: "recovery-test", name: "the newest good copy of one set, refused because the fixture declares no validator", mode: "", exit: 1, needsArtifacts: true,
+		says: "no recovery-test validator is declared for this backup set",
+		note: "the terminal's door to the test the scheduler runs. It finds the newest known good copy and then stops, because the test is only worth running against a script the operator named and this fixture names none; that is the refusal an unconfigured deployment gets, and it is worth pinning for what it is not, which is a pass. It records its outcome in the journal and touches no configuration, and it names no mode",
+		argv: func(f fixture) []string { return []string{"recovery-test", "--config", f.configPath, f.setID} }},
 	{verb: "quarantine", name: "revalidate", mode: "", exit: 1, needsArtifacts: true,
 		note: "nothing here is quarantined, so this refuses for the missing subject",
 		argv: func(f fixture) []string {
