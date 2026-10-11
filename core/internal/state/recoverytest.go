@@ -89,6 +89,12 @@ type RecoveryTest struct {
 	// CleanupState says whether the recovered copy was removed.
 	CleanupState string
 
+	// Expect is the identity of the bytes the test staged and hashed. A
+	// verdict is a statement about those bytes, so it is written only while
+	// the copy still holds them (ErrCopyChanged otherwise). Nil means
+	// unguarded, which is for tests; the runner always sets it.
+	Expect *CopyIdentity
+
 	BytesRead *int64
 	Duration  time.Duration
 }
@@ -172,17 +178,30 @@ func (r RecoveryTest) validate() error {
 
 // RecordRecoveryTest durably writes one attempt's outcome onto its copy. It
 // never touches the scrub claim.
+//
+// The claim lives in placement_assurance, keyed by the placement, and the
+// first result creates that row. When r.Expect is set and the copy no longer
+// holds those bytes, nothing is written and the answer is ErrCopyChanged: a
+// "passed" stamped on bytes the artifact no longer has is the stale claim
+// this record exists to rule out.
 func (j *Journal) RecordRecoveryTest(ctx context.Context, r RecoveryTest) error {
 	if err := r.validate(); err != nil {
-		return err
-	}
-	id, err := j.placementID(ctx, r.Copy)
-	if err != nil {
 		return err
 	}
 	reason := boundReason(r.Reason)
 	at, next := formatTime(r.At), formatTime(r.NextDue)
 	durMS := r.Duration.Milliseconds()
+
+	tx, err := j.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("state: record recovery test of %s on %s: %w", r.Copy.Artifact, r.Copy.Medium, err)
+	}
+	defer tx.Rollback() //nolint:errcheck // rolled back unless committed
+
+	id, err := lockedActiveCopy(ctx, tx, r.Copy, r.Expect)
+	if err != nil {
+		return err
+	}
 
 	switch r.State {
 	case RecoveryPassed, RecoveryFailed:
@@ -190,29 +209,67 @@ func (j *Journal) RecordRecoveryTest(ctx context.Context, r RecoveryTest) error 
 		if r.DigestMatched != nil {
 			matched = boolToInt(*r.DigestMatched)
 		}
-		_, err = j.db.ExecContext(ctx, `
-			UPDATE placements SET
+		_, err = tx.ExecContext(ctx, `
+			UPDATE placement_assurance SET
 				recovery_state = ?, recovery_tested_at = ?, recovery_next_due_at = ?,
 				recovery_failure_reason = ?,
 				recovery_validator_id = ?, recovery_validator_hash = ?,
 				recovery_digest_matched = ?, recovery_termination = ?, recovery_output_truncated = ?,
 				recovery_cleanup_state = ?, recovery_bytes_read = ?, recovery_duration_ms = ?
-			 WHERE id = ?`,
+			 WHERE placement_id = ?`,
 			r.State, at, next, reason, r.ValidatorID, r.ValidatorHash, matched, r.Termination,
 			boolToInt(r.OutputTruncated), r.CleanupState, optionalInt64(r.BytesRead), durMS, id)
 	default:
 		// No verdict: the last verdict's evidence stays as it was.
-		_, err = j.db.ExecContext(ctx, `
-			UPDATE placements SET
+		_, err = tx.ExecContext(ctx, `
+			UPDATE placement_assurance SET
 				recovery_state = ?, recovery_next_due_at = ?, recovery_failure_reason = ?,
 				recovery_cleanup_state = ?, recovery_duration_ms = ?
-			 WHERE id = ?`,
+			 WHERE placement_id = ?`,
 			r.State, next, reason, r.CleanupState, durMS, id)
 	}
 	if err != nil {
 		return fmt.Errorf("state: record recovery test of %s on %s: %w", r.Copy.Artifact, r.Copy.Medium, err)
 	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("state: record recovery test of %s on %s: %w", r.Copy.Artifact, r.Copy.Medium, err)
+	}
 	return nil
+}
+
+// lockedActiveCopy finds the copy's placement inside tx, refuses one that is
+// retired (ErrPlacementRetired) or whose bytes moved since expect was taken
+// (ErrCopyChanged), makes sure it has a placement_assurance row, and returns
+// the placement id.
+func lockedActiveCopy(ctx context.Context, tx *sql.Tx, c CopyRef, expect *CopyIdentity) (int64, error) {
+	var (
+		id     int64
+		status string
+		cur    CopyIdentity
+	)
+	err := tx.QueryRowContext(ctx, `
+		SELECT p.id, p.status, p.location, p.hash, p.hash_alg
+		  FROM placements p JOIN artifacts a ON a.id = p.artifact_id
+		 WHERE a.source = ? AND a.backup_set = ? AND a.artifact_name = ? AND p.medium = ?`,
+		c.Artifact.Set.Source, c.Artifact.Set.Set, c.Artifact.Name, c.Medium,
+	).Scan(&id, &status, &cur.Location, &cur.Hash, &cur.HashAlg)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("%w: %s has no copy on %q", ErrPlacementNotFound, c.Artifact, c.Medium)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("state: find the copy of %s on %s: %w", c.Artifact, c.Medium, err)
+	}
+	if status != PlacementActive {
+		return 0, fmt.Errorf("%w: %s on %q is %s", ErrPlacementRetired, c.Artifact, c.Medium, status)
+	}
+	if expect != nil && *expect != cur {
+		return 0, fmt.Errorf("%w: %s on %q", ErrCopyChanged, c.Artifact, c.Medium)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO placement_assurance (placement_id) VALUES (?) ON CONFLICT (placement_id) DO NOTHING`, id); err != nil {
+		return 0, fmt.Errorf("state: open the assurance record of %s on %s: %w", c.Artifact, c.Medium, err)
+	}
+	return id, nil
 }
 
 // ErrRecoveryHistory is returned when an evaluation would overwrite a
@@ -231,18 +288,26 @@ func (j *Journal) RecordRecoveryEvaluation(ctx context.Context, c CopyRef, st st
 	if err := c.validate(); err != nil {
 		return err
 	}
-	id, err := j.placementID(ctx, c)
+	tx, err := j.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("state: evaluate recovery claim of %s on %s: %w", c.Artifact, c.Medium, err)
+	}
+	defer tx.Rollback() //nolint:errcheck // rolled back unless committed
+	id, err := lockedActiveCopy(ctx, tx, c, nil)
 	if err != nil {
 		return err
 	}
-	res, err := j.db.ExecContext(ctx, `
-		UPDATE placements SET recovery_state = ?
-		 WHERE id = ? AND recovery_state IN ('unknown', 'not_configured', 'never_run')`, st, id)
+	res, err := tx.ExecContext(ctx, `
+		UPDATE placement_assurance SET recovery_state = ?
+		 WHERE placement_id = ? AND recovery_state IN ('unknown', 'not_configured', 'never_run')`, st, id)
 	if err != nil {
 		return fmt.Errorf("state: evaluate recovery claim of %s on %s: %w", c.Artifact, c.Medium, err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrRecoveryHistory
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("state: evaluate recovery claim of %s on %s: %w", c.Artifact, c.Medium, err)
 	}
 	return nil
 }
@@ -261,7 +326,13 @@ func (j *Journal) RecordRecoveryCleanup(ctx context.Context, c CopyRef, st strin
 	if err != nil {
 		return err
 	}
-	if _, err := j.db.ExecContext(ctx, `UPDATE placements SET recovery_cleanup_state = ? WHERE id = ?`, st, id); err != nil {
+	// The row may not exist yet, and removing what a test staged is true of
+	// a copy that has since been retired, so this one writer creates it
+	// without the ACTIVE check the verdict writers hold.
+	if _, err := j.db.ExecContext(ctx, `INSERT INTO placement_assurance (placement_id) VALUES (?) ON CONFLICT (placement_id) DO NOTHING`, id); err != nil {
+		return fmt.Errorf("state: record recovery cleanup of %s on %s: %w", c.Artifact, c.Medium, err)
+	}
+	if _, err := j.db.ExecContext(ctx, `UPDATE placement_assurance SET recovery_cleanup_state = ? WHERE placement_id = ?`, st, id); err != nil {
 		return fmt.Errorf("state: record recovery cleanup of %s on %s: %w", c.Artifact, c.Medium, err)
 	}
 	return nil
@@ -273,8 +344,9 @@ func (j *Journal) RecordRecoveryCleanup(ctx context.Context, c CopyRef, st strin
 // its cadence allows, and its age is the thing it reports.
 func (j *Journal) MarkRecoveryOverdue(ctx context.Context, now time.Time) (int, error) {
 	rows, err := j.db.QueryContext(ctx, `
-		SELECT id, recovery_next_due_at FROM placements
-		 WHERE recovery_state = 'passed' AND status = 'ACTIVE' AND recovery_next_due_at IS NOT NULL`)
+		SELECT pa.placement_id, pa.recovery_next_due_at
+		  FROM placement_assurance pa JOIN placements p ON p.id = pa.placement_id
+		 WHERE pa.recovery_state = 'passed' AND p.status = 'ACTIVE' AND pa.recovery_next_due_at IS NOT NULL`)
 	if err != nil {
 		return 0, fmt.Errorf("state: mark overdue recovery tests: %w", err)
 	}
@@ -302,27 +374,11 @@ func (j *Journal) MarkRecoveryOverdue(ctx context.Context, now time.Time) (int, 
 		return 0, fmt.Errorf("state: mark overdue recovery tests: %w", err)
 	}
 	for _, id := range due {
-		if _, err := j.db.ExecContext(ctx, `UPDATE placements SET recovery_state = 'overdue' WHERE id = ? AND recovery_state = 'passed'`, id); err != nil {
+		if _, err := j.db.ExecContext(ctx, `UPDATE placement_assurance SET recovery_state = 'overdue' WHERE placement_id = ? AND recovery_state = 'passed'`, id); err != nil {
 			return 0, fmt.Errorf("state: mark overdue recovery tests: %w", err)
 		}
 	}
 	return len(due), nil
-}
-
-// placementID finds the copy's row. It refuses a copy that is no longer
-// ACTIVE, for RecordCopyScrub's reason: a result written onto a row that
-// is not a copy any more is a claim about nothing. RecordRecoveryCleanup is
-// the one writer that goes round this, because removing what a test staged
-// is true of a copy that has since been retired.
-func (j *Journal) placementID(ctx context.Context, c CopyRef) (int64, error) {
-	id, status, err := j.placementRow(ctx, c)
-	if err != nil {
-		return 0, err
-	}
-	if status != PlacementActive {
-		return 0, fmt.Errorf("%w: %s on %q is %s", ErrPlacementRetired, c.Artifact, c.Medium, status)
-	}
-	return id, nil
 }
 
 func (j *Journal) placementRow(ctx context.Context, c CopyRef) (int64, string, error) {
