@@ -6,6 +6,8 @@ import (
 	"math/rand/v2"
 	"sync"
 	"time"
+
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // This file is the driver's bounds: how much of the deployment a scrub is
@@ -36,7 +38,7 @@ const (
 	// schedules the next at T + interval + up to this fraction of the
 	// interval, so a thousand copies checked together are not all due
 	// together again.
-	DefaultJitterFraction = 0.10
+	DefaultJitterFraction = state.ScrubJitterFraction
 
 	// DefaultBackoffBase and DefaultBackoffCap bound the retry of a copy
 	// that could not be checked or failed: base, then double each time the

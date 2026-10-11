@@ -1364,14 +1364,15 @@ type Command struct {
 // guaranteed to still verify today; this is what re-checks it without
 // waiting for a restore attempt to find out the hard way.
 //
-// It is entirely optional. The zero value (Hash false, Command nil) means
-// disabled: nothing is re-checked, ever, for this backup set, which is
-// exactly today's behavior and stays the default so an existing config
-// keeps working unchanged. Re-reading, and potentially re-hashing, a NAS's
-// worth of already-verified data has a real I/O cost, so an operator has
-// to opt in explicitly and choose both a cadence (Interval) and a scope
-// (MaxPerCycle) rather than this package guessing safe values for either;
-// see validateRevalidation.
+// It is optional, and since EPIC Q it is no longer what turns scrubbing on.
+// The scheduled scrub is driven by the set's resolved assurance policy
+// (assurance.scrub.cadence and .strategy; Assurance.Revalidation derives the
+// scrub configuration from it), so a default install scrubs. This block is
+// the older, explicit form and still wins for a set that enables it: a block
+// with Hash or Command set is used exactly as written, and both Interval and
+// MaxPerCycle are required with it, so an operator who chose a cadence and a
+// scope keeps them; see validateRevalidation. The zero value (Hash false,
+// Command nil) means "no explicit choice" and defers to the policy.
 type Revalidation struct {
 	// Interval is how long since an artifact's last check still counts as
 	// fresh; once exceeded, the artifact becomes due for another one.

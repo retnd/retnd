@@ -7,8 +7,33 @@
 -- reconciliation and by a catalog rebuild, so a copy nobody re-read can
 -- look freshly verified. And "has this copy ever been proven usable, as
 -- distinct from present" has no home at all. Both are facts about a COPY,
--- and a copy is a placements row, so the answer goes beside the two
--- columns 0007 already put there (verification_class, verified_at).
+-- and a copy is a placements row.
+--
+-- WHY A SIDE TABLE AND NOT COLUMNS ON placements. An earlier draft of this
+-- file added thirty columns to placements. Two things were wrong with that.
+-- Its header said nothing references placements, and that is false:
+-- placement_moves.source_placement_id REFERENCES placements (id) (0007).
+-- And it moved the corpus's FR-35 promise (compat cell 03-migrated-schema:
+-- an existing table may never change), which could only be got past by
+-- re-capturing the pinned line by hand, so the next change to placements
+-- needed another exception. The record is 1:1 with a copy and optional, so
+-- it is a table of its own, keyed by the placement:
+--
+--   * placements is exactly as 0013 left it, and cell 03 stays purely
+--     additive with no waiver;
+--   * a row is created the first time a scrub or a recovery test writes
+--     one, and ABSENCE MEANS UNKNOWN AND DUE, so a copy this migration has
+--     never touched, a copy a catalog rebuild just wrote and a copy a
+--     future code path forgot are all owed a check;
+--   * ON DELETE CASCADE plus a DELETE in the placement upsert means a claim
+--     dies with the bytes it was made about (the panel's C5);
+--   * the closed state vocabularies below sit on a table nothing references,
+--     so widening one later (EPICs M, N and P are expected to add states)
+--     rebuilds this table and never placements.
+--
+-- The one thing this table does not hold is the verification class and its
+-- age. verification_class and verified_at are 0007's, they stay on
+-- placements, and a scrub writes them there as it always has.
 --
 -- THE THREE CLAIMS, THREE HOMES. Stored is the placements row itself.
 -- Content verified is verification_class + content_verified_at +
@@ -20,21 +45,12 @@
 -- must never be able to move content_verified_at.
 --
 -- THE ZERO VALUE IS THE ONE THAT CANNOT LOOK GOOD. Every state column
--- defaults to 'unknown', every age column to NULL and every counter to 0.
--- A NULL next_due_at is DUE, not "never due": a row this migration just
--- widened, a row a catalog rebuild just wrote, and a row a future code
--- path forgot to fill are all owed a check, which is the direction a
--- forgotten value has to fall. Nothing below backfills a time, for the
--- reason 0007 refused to backfill verified_at: there is no honest value to
--- put there, and putting one in would make every upgraded copy claim a
--- check it never had.
---
--- WHY ADD COLUMN AND NOT A TABLE RECREATE. 0002 and 0006 are what widening
--- a CHECK on a referenced table costs in this schema. This migration adds
--- columns to placements, which nothing references by foreign key, so it
--- touches no other row and cannot trip the foreign-key cascade
--- suspendForeignKeys exists to survive. SQLite tests an added CHECK against
--- the existing rows, and every default below satisfies its own CHECK.
+-- defaults to 'unknown', every age column to NULL and every counter to 0,
+-- and a copy with no row at all reads the same. A NULL next_due_at is DUE,
+-- not "never due". Nothing below backfills a time, for the reason 0007
+-- refused to backfill verified_at: there is no honest value to put there,
+-- and putting one in would make every upgraded copy claim a check it never
+-- had.
 --
 -- WHY THE VOCABULARIES ARE CHECKed HERE WHEN 0012 REFUSED TO. 0012 left its
 -- state strings to Go because they were going to grow. These are the
@@ -43,130 +59,143 @@
 -- the load-bearing one. internal/state carries the Go copy of each list
 -- and a test pins the two together.
 --
+-- A FUTURE REBUILD OF placements. Rebuilding placements (drop, create,
+-- copy) is done the way 0002 and 0006 rebuilt artifacts, inside
+-- suspendForeignKeys, and that now protects this table's rows as well as
+-- placement_moves's: with foreign keys on, the DROP would cascade-delete
+-- every claim.
+--
 -- THE NUMBER. 0014 and 0015 are reserved by the two epics landing beside
 -- this one and are not in the tree yet. migrate applies any unapplied
 -- version whatever its order, so a gap is safe, and this file is
--- independent of both of them.
+-- independent of both of them. 0016 has not been published, so this file
+-- is the only version of it there is.
 --
--- ---------------------------------------------------------------------
--- THE SCRUB CLAIM (#978)
--- ---------------------------------------------------------------------
+CREATE TABLE placement_assurance (
+    placement_id INTEGER PRIMARY KEY REFERENCES placements (id) ON DELETE CASCADE,
 
--- assurance_state is the outcome of the most recent scrub of THIS copy.
---   unknown             nothing has checked this copy (the zero value)
---   passed              the last check ran and the copy satisfied the
---                       class it ran; last_checked_class says WHICH class,
---                       and 'existence' is not content verification
---   failed              the last check ran and the copy did not satisfy it
---   requires_restore    the copy sits in an archive storage class, so its
---                       bytes cannot be read without a restore this
---                       product never starts on its own
---   could_not_complete  the check could not be made (the endpoint did not
---                       answer); this is a fact about the endpoint and not
---                       about the copy, and it never quarantines anything
-ALTER TABLE placements ADD COLUMN assurance_state TEXT NOT NULL DEFAULT 'unknown'
-    CHECK (assurance_state IN ('unknown', 'passed', 'failed', 'requires_restore', 'could_not_complete'));
+    -- -----------------------------------------------------------------
+    -- THE SCRUB CLAIM (#978)
+    -- -----------------------------------------------------------------
 
--- next_due_at is when this copy is next owed a check. NULL is due now.
-ALTER TABLE placements ADD COLUMN next_due_at TEXT;
+    -- assurance_state is the outcome of the most recent scrub of THIS copy.
+    --   unknown             nothing has checked this copy (the zero value)
+    --   passed              the last check ran and the copy satisfied the
+    --                       class it ran; last_checked_class says WHICH
+    --                       class, and 'existence' is not content
+    --                       verification
+    --   failed              the last check ran and the copy did not
+    --                       satisfy it
+    --   requires_restore    the copy sits in an archive storage class, so
+    --                       its bytes cannot be read without a restore this
+    --                       product never starts on its own
+    --   could_not_complete  the check could not be made (the endpoint did
+    --                       not answer); a fact about the endpoint and not
+    --                       about the copy, and it never quarantines
+    --                       anything
+    assurance_state TEXT NOT NULL DEFAULT 'unknown'
+        CHECK (assurance_state IN ('unknown', 'passed', 'failed', 'requires_restore', 'could_not_complete')),
 
--- last_checked_at / last_checked_class: when a check of this copy last ran
--- to a verdict, and which class it ran. A check that could not complete
--- records neither, because nothing was checked.
-ALTER TABLE placements ADD COLUMN last_checked_at TEXT;
-ALTER TABLE placements ADD COLUMN last_checked_class TEXT NOT NULL DEFAULT ''
-    CHECK (last_checked_class IN ('', 'content', 'attested', 'existence'));
+    -- next_due_at is when this copy is next owed a check. NULL is due now.
+    next_due_at TEXT,
 
--- content_verified_at is the age "Content verified" renders from. It moves
--- only when a check that READ THE BYTES passed. verified_at cannot be that
--- age: it is "when verification_class was last achieved", an existence
--- pass writes it too, and a copy whose verified_at is fresh while its
--- bytes are not is the fixture this column exists to be wrong about.
-ALTER TABLE placements ADD COLUMN content_verified_at TEXT;
+    -- last_checked_at / last_checked_class: when a check of this copy last
+    -- ran to a verdict, and which class it ran. A check that could not
+    -- complete records neither, because nothing was checked.
+    last_checked_at    TEXT,
+    last_checked_class TEXT NOT NULL DEFAULT ''
+        CHECK (last_checked_class IN ('', 'content', 'attested', 'existence')),
 
--- The failure record. consecutive_failures counts verdicts of 'failed' and
--- 'could_not_complete' in a row; any pass resets it. Health and the alert
--- read it, and a transient blip is the same count as a persistent one on
--- purpose, because the threshold is what tells them apart.
-ALTER TABLE placements ADD COLUMN last_failure_at TEXT;
-ALTER TABLE placements ADD COLUMN last_failure_reason TEXT NOT NULL DEFAULT '';
-ALTER TABLE placements ADD COLUMN consecutive_failures INTEGER NOT NULL DEFAULT 0
-    CHECK (consecutive_failures >= 0);
+    -- content_verified_at is the age "Content verified" renders from. It
+    -- moves only when a check that READ THE BYTES passed. verified_at
+    -- cannot be that age: it is "when verification_class was last
+    -- achieved", an existence pass writes it too, and a copy whose
+    -- verified_at is fresh while its bytes are not is the fixture this
+    -- column exists to be wrong about.
+    content_verified_at TEXT,
 
--- What the last check cost. NULL is "not recorded", and 0 is a real answer.
-ALTER TABLE placements ADD COLUMN last_bytes_read INTEGER;
-ALTER TABLE placements ADD COLUMN last_duration_ms INTEGER;
+    -- The failure record. consecutive_failures counts verdicts of 'failed'
+    -- and 'could_not_complete' in a row; any pass resets it. Health reads
+    -- it, and a transient blip is the same count as a persistent one on
+    -- purpose, because the threshold is what tells them apart.
+    last_failure_at      TEXT,
+    last_failure_reason  TEXT NOT NULL DEFAULT '',
+    consecutive_failures INTEGER NOT NULL DEFAULT 0 CHECK (consecutive_failures >= 0),
 
--- The lease that makes two scrubbers of one copy impossible. A scheduler
--- tick and a manual `retnd scrub` are different processes sharing this
--- file, so an in-memory lock cannot be what stops them; a conditional
--- UPDATE here can. A lease expires, so a process that died holding one
--- does not make its copy unscrubbable.
-ALTER TABLE placements ADD COLUMN scrub_lease_until TEXT;
-ALTER TABLE placements ADD COLUMN scrub_lease_holder TEXT NOT NULL DEFAULT '';
+    -- What the last check cost. NULL is "not recorded", and 0 is a real
+    -- answer.
+    last_bytes_read  INTEGER,
+    last_duration_ms INTEGER,
 
--- ---------------------------------------------------------------------
--- THE RECOVERY-TEST CLAIM (#980)
--- ---------------------------------------------------------------------
+    -- The lease that makes two scrubbers of one copy impossible. A
+    -- scheduler tick and a manual `retnd scrub` are different processes
+    -- sharing this file, so an in-memory lock cannot be what stops them; a
+    -- conditional UPDATE here can. A lease expires, so a process that died
+    -- holding one does not make its copy unscrubbable.
+    scrub_lease_until  TEXT,
+    scrub_lease_holder TEXT NOT NULL DEFAULT '',
 
--- recovery_state is the outcome of the most recent recovery test of this
--- copy, and it is a different column from assurance_state because passing
--- one says nothing about the other.
---   unknown            nothing has evaluated this claim (the zero value)
---   not_configured     no validator is declared; not a pass, not a failure
---   never_run          a validator is declared and has never run here
---   passed             the recovered bytes matched the artifact's digest
---                      AND the declared validator accepted them
---   overdue            the last pass is older than its cadence allows
---   failed             the digest did not match, or the validator rejected
---                      the bytes
---   refused_for_cost   the test needs a read that costs money and nobody
---                      acknowledged the cost
---   could_not_complete the test could not be carried out
-ALTER TABLE placements ADD COLUMN recovery_state TEXT NOT NULL DEFAULT 'unknown'
-    CHECK (recovery_state IN ('unknown', 'not_configured', 'never_run', 'passed', 'overdue', 'failed', 'refused_for_cost', 'could_not_complete'));
+    -- -----------------------------------------------------------------
+    -- THE RECOVERY-TEST CLAIM (#980)
+    -- -----------------------------------------------------------------
 
-ALTER TABLE placements ADD COLUMN recovery_tested_at TEXT;
-ALTER TABLE placements ADD COLUMN recovery_next_due_at TEXT;
-ALTER TABLE placements ADD COLUMN recovery_failure_reason TEXT NOT NULL DEFAULT '';
+    -- recovery_state is the outcome of the most recent recovery test of
+    -- this copy, a different column from assurance_state because passing
+    -- one says nothing about the other.
+    --   unknown            nothing has evaluated this claim (the zero value)
+    --   not_configured     no validator is declared; not a pass, not a failure
+    --   never_run          a validator is declared and has never run here
+    --   passed             the recovered bytes matched the artifact's digest
+    --                      AND the declared validator accepted them
+    --   overdue            the last pass is older than its cadence allows
+    --   failed             the digest did not match, or the validator
+    --                      rejected the bytes
+    --   refused_for_cost   the test needs a read that costs money and
+    --                      nobody acknowledged the cost
+    --   could_not_complete the test could not be carried out
+    recovery_state TEXT NOT NULL DEFAULT 'unknown'
+        CHECK (recovery_state IN ('unknown', 'not_configured', 'never_run', 'passed', 'overdue', 'failed', 'refused_for_cost', 'could_not_complete')),
 
--- Which validator said so. The id is the operator's own name for it and
--- never a path; the hash is of the validator's bytes, so a changed
--- validator is a different recorded identity and an old pass is not
--- silently inherited by it.
-ALTER TABLE placements ADD COLUMN recovery_validator_id TEXT NOT NULL DEFAULT '';
-ALTER TABLE placements ADD COLUMN recovery_validator_hash TEXT NOT NULL DEFAULT '';
+    recovery_tested_at      TEXT,
+    recovery_next_due_at    TEXT,
+    recovery_failure_reason TEXT NOT NULL DEFAULT '',
 
--- recovery_digest_matched is the gate: NULL means the digest was never
--- compared, 1 means the recovered bytes hashed to the artifact's recorded
--- digest, 0 means they did not. A validator verdict means nothing unless
--- this is 1.
-ALTER TABLE placements ADD COLUMN recovery_digest_matched INTEGER
-    CHECK (recovery_digest_matched IN (0, 1));
+    -- Which validator said so. The id is the operator's own name for it
+    -- and never a path; the hash is of the validator's bytes, so a changed
+    -- validator is a different recorded identity and an old pass is not
+    -- silently inherited by it.
+    recovery_validator_id   TEXT NOT NULL DEFAULT '',
+    recovery_validator_hash TEXT NOT NULL DEFAULT '',
 
--- How the validator's process ended, and whether anyone can be sure. A
--- validator that hangs is killed with its process group, and
--- 'unconfirmed' says the kill was requested and its effect was not
--- observed, which is a different fact from 'killed_group'.
-ALTER TABLE placements ADD COLUMN recovery_termination TEXT NOT NULL DEFAULT ''
-    CHECK (recovery_termination IN ('', 'exited', 'killed_group', 'unconfirmed'));
+    -- recovery_digest_matched is the gate: NULL means the digest was never
+    -- compared, 1 means the recovered bytes hashed to the artifact's
+    -- recorded digest, 0 means they did not. A validator verdict means
+    -- nothing unless this is 1.
+    recovery_digest_matched INTEGER CHECK (recovery_digest_matched IN (0, 1)),
 
-ALTER TABLE placements ADD COLUMN recovery_output_truncated INTEGER NOT NULL DEFAULT 0
-    CHECK (recovery_output_truncated IN (0, 1));
+    -- How the validator's process ended, and whether anyone can be sure. A
+    -- validator that hangs is killed with its process group, and
+    -- 'unconfirmed' says the kill was requested and its effect was not
+    -- observed, which is a different fact from 'killed_group'.
+    recovery_termination TEXT NOT NULL DEFAULT ''
+        CHECK (recovery_termination IN ('', 'exited', 'killed_group', 'unconfirmed')),
 
--- Whether the recovered copy was removed afterwards. It is its own column
--- because a cleanup failure and a test failure mean different things: one
--- says the claim is unproven, the other says a disk is filling, and
--- neither may overwrite the other.
-ALTER TABLE placements ADD COLUMN recovery_cleanup_state TEXT NOT NULL DEFAULT ''
-    CHECK (recovery_cleanup_state IN ('', 'removed', 'failed'));
+    recovery_output_truncated INTEGER NOT NULL DEFAULT 0 CHECK (recovery_output_truncated IN (0, 1)),
 
-ALTER TABLE placements ADD COLUMN recovery_bytes_read INTEGER;
-ALTER TABLE placements ADD COLUMN recovery_duration_ms INTEGER;
+    -- Whether the recovered copy was removed afterwards. It is its own
+    -- column because a cleanup failure and a test failure mean different
+    -- things: one says the claim is unproven, the other says a disk is
+    -- filling, and neither may overwrite the other.
+    recovery_cleanup_state TEXT NOT NULL DEFAULT ''
+        CHECK (recovery_cleanup_state IN ('', 'removed', 'failed')),
 
--- The due scan reads next_due_at over active copies. A partial index keeps
--- it off the GONE and DELETE_PENDING rows, which a scrub never touches.
-CREATE INDEX idx_placements_next_due ON placements (next_due_at) WHERE status = 'ACTIVE';
+    recovery_bytes_read  INTEGER,
+    recovery_duration_ms INTEGER
+);
+
+-- The due scan reads next_due_at. Absence of a row also means due, so the
+-- scan is a LEFT JOIN; this index serves the rows that do exist.
+CREATE INDEX idx_placement_assurance_next_due ON placement_assurance (next_due_at);
 
 -- ---------------------------------------------------------------------
 -- THE DURABLE PASS RECORD (#978)

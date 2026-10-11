@@ -193,3 +193,79 @@ func TestScrub_AFifoAtTheCopyPathDoesNotBlockTheTick_C11(t *testing.T) {
 		t.Fatal("Scrub is still blocked 5s after it met a fifo at the copy's path")
 	}
 }
+
+// rewriteBeforeRecord rewrites the copy's placement to different bytes at the
+// moment the scrub goes to record its verdict, which is what a re-upload or a
+// move landing during a long read looks like from the journal.
+type rewriteBeforeRecord struct {
+	*state.Journal
+	rewrite func()
+}
+
+func (j *rewriteBeforeRecord) RecordCopyScrub(ctx context.Context, c state.CopyScrub) error {
+	if j.rewrite != nil {
+		j.rewrite()
+		j.rewrite = nil
+	}
+	return j.Journal.RecordCopyScrub(ctx, c)
+}
+
+// C5, at the driver: a verdict about bytes that were rewritten while they were
+// being read is not written, so the new bytes stay unknown and due.
+func TestScrub_AVerdictForBytesRewrittenDuringTheReadIsNotRecorded_C5(t *testing.T) {
+	ctx := context.Background()
+	bs := testBackupSet(t, t.TempDir())
+	svc, journal := scrubService(t, config.Revalidation{}, bs)
+	a := seedMovableArtifact(t, ctx, journal, bs, "moving.dump", retentionTestNow.Add(-48*time.Hour))
+	p := localCopyOf(t, journal, a)
+
+	svc.Journal = &rewriteBeforeRecord{Journal: journal, rewrite: func() {
+		size := int64(1)
+		if _, err := journal.RecordTransition(ctx, state.Transition{
+			Artifact: a, Key: "rewritten-mid-read", From: string(lifecycle.Complete), To: string(lifecycle.Complete),
+			OccurredAt: retentionTestNow,
+			Placement:  &state.PlacementUpdate{Medium: state.MediumLocal, Location: p.Location, Size: &size, Hash: "ffff", HashAlg: "sha256", Status: state.PlacementActive},
+		}); err != nil {
+			t.Errorf("rewrite: %v", err)
+		}
+	}}
+
+	if _, err := svc.Scrub(ctx, ScrubRequest{Trigger: state.ScrubBySchedule}); err != nil {
+		t.Fatalf("Scrub: %v", err)
+	}
+	got := localCopyOf(t, journal, a)
+	if got.Hash != "ffff" {
+		t.Fatalf("the rewrite did not land: %q", got.Hash)
+	}
+	if got.AssuranceState != state.AssuranceUnknown || got.ContentVerifiedAt != nil || got.NextDueAt != nil {
+		t.Errorf("a verdict about the old bytes landed on the new ones: state=%s contentVerifiedAt=%v nextDue=%v", got.AssuranceState, got.ContentVerifiedAt, got.NextDueAt)
+	}
+}
+
+// C4: an existence-class sibling says an object of the right size was there
+// and nothing about its bytes, so it does not keep an artifact alive when the
+// copy that was actually read has rotted.
+func TestScrub_AnExistenceOnlyOtherCopyDoesNotSaveTheArtifact_C4(t *testing.T) {
+	ctx := context.Background()
+	bs := testBackupSet(t, t.TempDir())
+	svc, journal := scrubService(t, scrubReval, bs)
+	a := seedMovableArtifact(t, ctx, journal, bs, "weak.dump", retentionTestNow.Add(-48*time.Hour))
+	size := int64(1)
+	verified := retentionTestNow.Add(-24 * time.Hour)
+	if _, err := journal.RecordTransition(ctx, state.Transition{
+		Artifact: a, Key: "weak-second-placement", From: string(lifecycle.Complete), To: string(lifecycle.Complete), OccurredAt: retentionTestNow.Add(-24 * time.Hour),
+		Placement: &state.PlacementUpdate{Medium: moveTestMedium, Location: "artifacts/weak.dump", Size: &size, VerificationClass: state.VerificationExistence, VerifiedAt: &verified, Status: state.PlacementActive},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bs.LocalPath, "weak.dump"), []byte("rotted"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Scrub(ctx, ScrubRequest{Trigger: state.ScrubBySchedule}); err != nil {
+		t.Fatal(err)
+	}
+	rec, _ := journal.Get(ctx, a)
+	if st := lifecycle.State(rec.State); st != lifecycle.QuarantinedLost {
+		t.Errorf("a rotted local copy beside an existence-only copy left the artifact %s, want QUARANTINED_LOST", st)
+	}
+}

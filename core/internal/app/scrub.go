@@ -171,7 +171,11 @@ func (s *Service) Scrub(ctx context.Context, req ScrubRequest) (ScrubSummary, er
 		if err := ctx.Err(); err != nil {
 			return s.finishScrub(ctx, journal, sum, started), fmt.Errorf("app: scrub cancelled: %w", err)
 		}
-		cfg := bs.Revalidation
+		// The scrub's configuration comes from the set's RESOLVED assurance
+		// policy, so a default install scrubs and assurance.scrub.cadence is
+		// the schedule the driver actually keeps. An explicit, enabled
+		// `revalidation:` block still wins (config.Assurance.Revalidation).
+		cfg := bs.Assurance.Revalidation(bs.Revalidation)
 		if req.forced() {
 			// An operator who names a copy has asked for the bytes to be
 			// read, and re-reading a local file costs nothing, so the hash

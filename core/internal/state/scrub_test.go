@@ -437,14 +437,14 @@ func TestRecordScrubPass_IsOneRowOfCounts(t *testing.T) {
 func TestAssuranceVocabulariesAgreeWithTheSchema(t *testing.T) {
 	ctx := context.Background()
 	j, a := scrubFixture(t)
-	_ = a
+	recordPass(t, j, a, scrubAt) // creates the row the CHECKs live on
 	for _, v := range []string{AssuranceUnknown, AssurancePassed, AssuranceFailed, AssuranceRequiresRestore, AssuranceCouldNotComplete} {
-		if _, err := j.db.ExecContext(ctx, `UPDATE placements SET assurance_state = ?`, v); err != nil {
+		if _, err := j.db.ExecContext(ctx, `UPDATE placement_assurance SET assurance_state = ?`, v); err != nil {
 			t.Errorf("schema refuses assurance state %q the code writes: %v", v, err)
 		}
 	}
 	for _, v := range []string{RecoveryUnknown, RecoveryNotConfigured, RecoveryNeverRun, RecoveryPassed, RecoveryOverdue, RecoveryFailed, RecoveryRefusedForCost, RecoveryCouldNotComplete} {
-		if _, err := j.db.ExecContext(ctx, `UPDATE placements SET recovery_state = ?`, v); err != nil {
+		if _, err := j.db.ExecContext(ctx, `UPDATE placement_assurance SET recovery_state = ?`, v); err != nil {
 			t.Errorf("schema refuses recovery state %q the code writes: %v", v, err)
 		}
 	}
