@@ -195,3 +195,24 @@ func TestRecoveryTest_StagesOnTheBackupSetsOwnDiskByDefaultAndNotInMemory(t *tes
 		t.Errorf("%d entries left in the set's staging directory", len(entries))
 	}
 }
+
+func TestRecoveryTestTick_SweepsAStagingDirectoryACrashLeftBehind(t *testing.T) {
+	ctx := context.Background()
+	svc, journal, bs := recoveryService(t, writeValidator(t, "exit 0\n"))
+	svc.RecoveryStagingRoot = ""
+	seedMovableArtifact(t, ctx, journal, bs, "orphan.dump", retentionTestNow.Add(-time.Hour))
+	root := filepath.Join(bs.LocalPath, ".retnd-recovery-test")
+	orphan := filepath.Join(root, "retnd-recovery-test-crashed")
+	if err := os.MkdirAll(orphan, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-72 * time.Hour)
+	if err := os.Chtimes(orphan, old, old); err != nil {
+		t.Fatal(err)
+	}
+	svc.Now = fixedNow(time.Now())
+	svc.RecoveryTestTick(ctx)
+	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
+		t.Errorf("the orphan survived the tick: %v", err)
+	}
+}

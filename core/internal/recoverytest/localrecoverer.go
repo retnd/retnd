@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/retnd/retnd/core/internal/capacity"
 )
@@ -164,4 +165,48 @@ func pathless(err error) error {
 		return pe.Err
 	}
 	return err
+}
+
+// Sweep removes the staging directories this recoverer created under Root
+// that are older than olderThan, and returns how many it removed.
+//
+// A crash between staging a copy and removing it leaves a directory that
+// nothing refers to, and a recovery test stages a whole artifact, so left
+// alone a few crashes fill the volume backups are written to. It touches
+// only a directory whose name carries this recoverer's prefix, so a Root
+// that is shared with anything else loses nothing else, and only a directory
+// (not a file that happens to carry the prefix). A directory that cannot be
+// removed is reported and the sweep carries on, because one stuck entry must
+// not stop the others being cleared.
+func (r LocalRecoverer) Sweep(ctx context.Context, olderThan time.Duration) (int, error) {
+	entries, err := os.ReadDir(r.root())
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("the staging root could not be read: %w", pathless(err))
+	}
+	cutoff := time.Now().Add(-olderThan)
+	removed := 0
+	var firstErr error
+	for _, e := range entries {
+		if ctx.Err() != nil {
+			return removed, ctx.Err()
+		}
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), stagingPrefix) {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(r.root(), e.Name())); err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("an old staging directory could not be removed: %w", pathless(err))
+			}
+			continue
+		}
+		removed++
+	}
+	return removed, firstErr
 }

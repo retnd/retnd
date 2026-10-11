@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/state"
@@ -148,5 +149,56 @@ func TestLocalRecovererWithoutARecordedSizeUsesTheFileItself(t *testing.T) {
 	r := LocalRecoverer{Root: t.TempDir(), Available: func(string) (uint64, error) { return 10, nil }}
 	if _, err := r.Recover(context.Background(), RecoverRequest{Copy: state.Placement{Medium: state.MediumLocal, Location: src}}); err == nil {
 		t.Error("a copy with no recorded size was staged on a 10 byte filesystem: the size of the file is what has to fit")
+	}
+}
+
+// A crash between staging a copy and removing it leaves a directory nothing
+// would ever look at again. The sweep removes what this recoverer created and
+// has outlived the age it is given, and nothing else.
+func TestSweepRemovesOnlyOldStagingDirectoriesThisRecovererCreated(t *testing.T) {
+	root := t.TempDir()
+	old := time.Now().Add(-48 * time.Hour)
+	mk := func(name string, mtime time.Time) string {
+		d := filepath.Join(root, name)
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "artifact"), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(d, mtime, mtime); err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	stale := mk(stagingPrefix+"stale", old)
+	fresh := mk(stagingPrefix+"fresh", time.Now())
+	foreign := mk("somebody-elses-directory", old)
+	file := filepath.Join(root, stagingPrefix+"a-file-not-a-directory")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Chtimes(file, old, old)
+
+	n, err := LocalRecoverer{Root: root}.Sweep(context.Background(), 24*time.Hour)
+	if err != nil {
+		t.Fatalf("Sweep: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("Sweep removed %d, want 1", n)
+	}
+	for path, wantGone := range map[string]bool{stale: true, fresh: false, foreign: false, file: false} {
+		_, err := os.Stat(path)
+		gone := errors.Is(err, os.ErrNotExist)
+		if gone != wantGone {
+			t.Errorf("%s: gone=%v, want %v", filepath.Base(path), gone, wantGone)
+		}
+	}
+}
+
+func TestSweepOfAMissingRootIsNothingToDo(t *testing.T) {
+	n, err := LocalRecoverer{Root: filepath.Join(t.TempDir(), "never-created")}.Sweep(context.Background(), time.Hour)
+	if err != nil || n != 0 {
+		t.Errorf("Sweep = %d, %v", n, err)
 	}
 }

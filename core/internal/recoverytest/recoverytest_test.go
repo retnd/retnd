@@ -740,3 +740,29 @@ func TestARecoveryTestTakesASlotFromTheSharedLimit(t *testing.T) {
 		t.Errorf("recovered %d copies without a slot", rc.recovered)
 	}
 }
+
+// --- found by the review of this diff ---
+
+// The validator's identity is hashed before it runs and it is executed later.
+// A validator that rewrites itself while it runs would otherwise be recorded
+// under the identity it had before, so the identity is read again afterwards
+// and the test is not trusted if it moved.
+func TestAValidatorThatChangesWhileItRunsIsNotRecordedUnderItsOldIdentity(t *testing.T) {
+	j, a, rc := newEnv(t)
+	exe := script(t, "echo '# rewritten while running' >> \"$0\"\nexit 0\n")
+
+	res := run(t, j, rc, cfgFor(exe, 5*time.Second), Request{})
+	if res.State == state.RecoveryPassed {
+		t.Fatal("a validator that changed itself during the run produced a pass under its pre-run hash")
+	}
+	if res.State != state.RecoveryCouldNotComplete {
+		t.Errorf("State = %q, want could_not_complete", res.State)
+	}
+	p := copyOf(t, j, a, state.MediumLocal)
+	if p.RecoveryState == state.RecoveryPassed || p.RecoveryValidatorHash != "" {
+		t.Errorf("record = %q / %q", p.RecoveryState, p.RecoveryValidatorHash)
+	}
+	if rc.removed != 1 {
+		t.Errorf("the staged copy was removed %d times", rc.removed)
+	}
+}
