@@ -486,6 +486,21 @@ The rules that matter:
   the artifact having been "revalidated" in the sense a local artifact is.
 - An artifact on `GLACIER` or `DEEP_ARCHIVE` is `existence`-checkable only, until
   an explicit restore makes anything stronger possible.
+- **The scheduled scrub runs this, and `retnd scrub` runs it by hand.** The
+  daemon (and the web host) check each copy on its own schedule, which lives on
+  the copy: `next_due_at` in the journal, not the artifact row's clock, so a
+  reconciliation or a catalog rebuild cannot make a copy nobody re-read look
+  fresh. A rebuilt catalog reads `unknown` and every copy in it is due. The
+  result is recorded on the copy with the class that ran, and `Content verified`
+  only ever moves when the bytes were read. A copy in an archive class is
+  recorded as `requires_restore`: I never read it and never start a restore.
+  `retnd scrub --content --allow-egress` reads a copy on a medium in full, and
+  without both flags the read is refused.
+  Pacing is bounded: four copies at once overall, two per destination, jitter
+  on every due time, and a capped backoff for a copy that fails or cannot be
+  reached. A copy that fails three scheduled checks in a row degrades its
+  set's health and raises one `SCRUB_FAILING` alert, and the next passing check
+  clears both. A set held for editing is skipped, and the skip is reported.
 - **A tier whose medium writes an archive class cannot take delivery of an
   artifact, and the move is refused before anything is uploaded.** Both settings
   `upload_verification` accepts need the object read back, a freshly written
