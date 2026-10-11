@@ -185,6 +185,10 @@ type Engine struct {
 //
 // # Why it stages first
 //
+// A download no longer goes through Stage (service/recover_stream.go streams
+// it, after a preparation read that stores only chunk digests, ChunkIndex);
+// a staging or storage target still does, for the reason below.
+//
 // "Fails before a single byte reaches the client or the target" cannot be
 // met by streaming straight through a hash: by the time the last byte
 // shows the digest is wrong, the first gigabyte has left. So the bytes go
