@@ -50,9 +50,14 @@ import (
 //
 // # Where the bytes go
 //
-// Always through the staging area first (core/internal/recovery/export), so
-// nothing reaches a client, a path or another destination until the whole
-// copy has been read and has matched the SHA-256 the journal recorded.
+// A server-side target (a name under the staging root, or another storage
+// destination) goes through the staging area first, so nothing is placed
+// until the whole copy has been read and has matched the SHA-256 the journal
+// recorded. A browser or terminal download is different: it is streamed from
+// the retained copy, one verified chunk at a time, after a pre-flight and a
+// preparation read that prove the copy matches the journal (recover_stream.go
+// says what that does and does not prove). It is not staged, so it cannot
+// fill the staging disk and has nothing to clean up if the client leaves.
 
 // Recovery staging defaults. They are constants here and not configuration
 // because the settings surface for them is its own work (the staging root,
@@ -166,6 +171,11 @@ type recoveryHost struct {
 	afterStage func()
 
 	flight export.Flight
+	// indexes is the cache of chunk indexes a streamed download is checked
+	// against, and the single-flight in front of making one; verified is
+	// what the server remembers of finished downloads.
+	indexes  downloadIndexes
+	verified verifiedLog
 
 	// unavailable is set when there is nowhere to stage; every recovery
 	// entry point then refuses with RecoveryUnavailable.
@@ -212,6 +222,7 @@ func (b *BackupService) recoveryHost() *recoveryHost {
 		h.reads = budget.NewReads(lim)
 		h.streams = budget.NewGate(budget.DownloadStreams, lim.MaxDownloadStreams)
 		h.engine = &export.Engine{Staging: h.staging, Reads: h.reads}
+		h.indexes.store = &export.IndexStore{Dir: filepath.Join(filepath.Dir(cfg.State.Database), "recovery-index")}
 		h.grants = export.NewGrants(export.GrantOptions{TTL: recoveryGrantTTL, MaxOutstanding: recoveryMaxGrants, Now: h.now})
 		if h.thaw == nil {
 			h.thaw = b.startRecoveryThaw
@@ -851,3 +862,8 @@ func isNotFoundCategory(err error) bool {
 	cat, ok := transport.CategoryOf(err)
 	return ok && cat == transport.NotFound
 }
+
+// RecoveryErrorFor is the coded form of any error a recovery can hit, for
+// the HTTP layer to answer a failure it met outside the service (a first
+// chunk that failed verification) in the words the terminal would use.
+func RecoveryErrorFor(err error) error { return mapRecoveryError(err) }
