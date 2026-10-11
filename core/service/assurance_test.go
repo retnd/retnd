@@ -182,18 +182,31 @@ func TestAssuranceDue_NextDueFollowsTheResolvedCadenceAndUnknownIsDue(t *testing
 	}
 }
 
-// Review finding: a validator reference nobody registered passes config's
-// shape check and then fails at the moment of use, long after the save.
-func TestAssuranceWrites_RefuseAValidatorThisBuildDoesNotKnow(t *testing.T) {
+// Panel finding C3: validator_id names a recovery-test script by file name,
+// so a name the registry has never heard of is fine and a name that could
+// never be a script's file name is refused at save time.
+func TestAssuranceWrites_TakeAScriptNameAndRefuseWhatCouldNotBeOne(t *testing.T) {
 	svc, configPath := openAssuranceService(t, "")
-	before, _ := os.ReadFile(configPath)
-	mode, unknown := "required", "no-such-validator"
 	ctx := context.Background()
-	if _, err := svc.UpdateAssuranceSettings(ctx, UpdateAssuranceSettingsRequest{RecoveryTestMode: &mode, RecoveryTestValidatorID: &unknown}); !errors.Is(err, ErrInvalidRequest) {
-		t.Errorf("global write err = %v, want ErrInvalidRequest", err)
+	mode := "required"
+
+	ok := "nightly-restore-check"
+	if _, err := svc.UpdateAssuranceSettings(ctx, UpdateAssuranceSettingsRequest{RecoveryTestMode: &mode, RecoveryTestValidatorID: &ok}); err != nil {
+		t.Fatalf("a script name nobody registered must save: %v", err)
 	}
-	if _, err := svc.UpdateBackupSetAssurance(ctx, inheritingSet, UpdateBackupSetAssuranceRequest{RecoveryTestMode: &mode, RecoveryTestValidatorID: &unknown}); !errors.Is(err, ErrInvalidRequest) {
-		t.Errorf("per-set write err = %v, want ErrInvalidRequest", err)
+	if _, err := svc.UpdateBackupSetAssurance(ctx, inheritingSet, UpdateBackupSetAssuranceRequest{RecoveryTestMode: &mode, RecoveryTestValidatorID: &ok}); err != nil {
+		t.Fatalf("a per-set script name must save: %v", err)
+	}
+
+	before, _ := os.ReadFile(configPath)
+	for _, bad := range []string{"nightly.local.sh", "-nightly", ".nightly", "a b", "a/b"} {
+		bad := bad
+		if _, err := svc.UpdateAssuranceSettings(ctx, UpdateAssuranceSettingsRequest{RecoveryTestMode: &mode, RecoveryTestValidatorID: &bad}); !errors.Is(err, ErrInvalidRequest) {
+			t.Errorf("global write of %q err = %v, want ErrInvalidRequest", bad, err)
+		}
+		if _, err := svc.UpdateBackupSetAssurance(ctx, inheritingSet, UpdateBackupSetAssuranceRequest{RecoveryTestMode: &mode, RecoveryTestValidatorID: &bad}); !errors.Is(err, ErrInvalidRequest) {
+			t.Errorf("per-set write of %q err = %v, want ErrInvalidRequest", bad, err)
+		}
 	}
 	if after, _ := os.ReadFile(configPath); string(before) != string(after) {
 		t.Error("a refused write changed the file")
