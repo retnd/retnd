@@ -70,6 +70,11 @@ type StageRequest struct {
 	// MaxOutputBytes bounds the output kept per script. Zero takes the
 	// engine's default.
 	MaxOutputBytes int64
+
+	// DryRun builds and verifies the plan and runs nothing: it answers "is
+	// there something here, and would it be allowed to run" with the
+	// scripts' names and hashes. Scripts come back with an empty State.
+	DryRun bool
 }
 
 // StageScript is one script's outcome.

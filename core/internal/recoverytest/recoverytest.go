@@ -19,14 +19,23 @@
 // file cannot produce a pass: the pass is recorded against the digest, not
 // against the exit code.
 //
-// # What it reuses, and what it adds no more of
+// # The validator is a workflow script
 //
-// The validator runs through lifecycle.RunRestoreCheckOutcome, which is
-// lifecycle.RunRestoreCheck's contract (fixed environment, its own process
-// group, bounded capture, fail-closed timeout) plus the one thing a recovery
-// test records that a plain verdict does not: how the process ended and
-// whether the group was observed gone. No new execution boundary, no shell,
-// no privilege. Output is untrusted terminal input, so it leaves this
+// The operator's validator is a NAME.local.sh script in a stage directory
+// under the workflow root (recovery-test/<source>/<set>), run with EPIC L's
+// machinery and not with a built-in of this package: the same discovery and
+// custody rules, the same bytes read once and hashed, the same shell
+// verification that gates a save, the same host runner container, the same
+// resolved environment. Validator is the seam; the application implements it
+// over app.StageRunner.
+//
+// What the script is NOT trusted with is the claim. The engine re-reads the
+// recovered bytes, checks their digest, and only then asks the script. The
+// script's exit status is one input to a verdict this package reaches and the
+// journal refuses to store without the digest match, and the hash recorded as
+// the validator's identity is the hash of the bytes that actually ran, taken
+// by the plan that ran them. A script never writes "Content verified" or
+// "Recovery tested". Output is untrusted terminal input, so it leaves this
 // package only as OutputRecords whose text has no control byte in it, with a
 // truncation marker that is a record of its own kind (see output.go).
 //
@@ -52,14 +61,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/retnd/retnd/core/internal/archive"
-	"github.com/retnd/retnd/core/internal/config"
-	"github.com/retnd/retnd/core/internal/lifecycle"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/revalidate"
 	"github.com/retnd/retnd/core/internal/state"
@@ -108,9 +114,54 @@ var ErrCostRefused = errors.New("recoverytest: the read costs money and was not 
 // ErrNoKnownGoodCopy is returned when a set has nothing to test.
 var ErrNoKnownGoodCopy = errors.New("recoverytest: this backup set has no known good copy to test")
 
-// Validator runs the operator's validator against a staged file. The default
-// is lifecycle.RunRestoreCheckOutcome.
-type Validator func(ctx context.Context, cmd config.Command, path string) (lifecycle.RestoreCheckOutcome, error)
+// Validator is the operator's declared validator, as the application resolves
+// it. Configured says whether one exists for set at all, without running
+// anything, so a set without one reads "not configured" before a copy is
+// asked for. Validate runs it against a recovered file.
+type Validator interface {
+	Configured(ctx context.Context, set model.BackupSetID) (bool, error)
+	Validate(ctx context.Context, in ValidatorInput) (ValidatorOutcome, error)
+}
+
+// ValidatorInput is what a validator is given about the recovered copy.
+type ValidatorInput struct {
+	Set      model.BackupSetID
+	Artifact model.ArtifactID
+	Medium   string
+
+	// File is the recovered copy. Digest is its SHA-256 as this package
+	// computed it, which has already matched the artifact's recorded digest:
+	// a validator is only ever handed bytes that passed the gate. Size is
+	// its length.
+	File   string
+	Digest string
+	Size   int64
+}
+
+// ValidatorOutcome is what running the validator showed.
+type ValidatorOutcome struct {
+	// ID is the validator's name (its script's file name, never a path) and
+	// Hash the SHA-256 of the exact bytes that ran.
+	ID   string
+	Hash string
+
+	// Disposition is what became of the process: "exited", "timed_out",
+	// "canceled", "signaled", "transport_lost" or "not_attempted". Only
+	// "exited" carries an ExitCode, and the others are never read as one.
+	Disposition string
+	ExitCode    *int
+
+	// Termination is what was PROVED about a termination this product
+	// requested: "", "confirmed" or "unconfirmed".
+	Termination string
+
+	// Output is the redacted, bounded capture: untrusted terminal input.
+	Output    []byte
+	Truncated bool
+
+	// Detail is a short note from the executor, never an environment value.
+	Detail string
+}
 
 // Deps is what a Run needs.
 type Deps struct {
@@ -118,7 +169,7 @@ type Deps struct {
 	Recoverer Recoverer
 	// Mediums resolves a medium id, to tell a free copy from a chargeable one.
 	Mediums revalidate.Mediums
-	// Validator is the seam over the subprocess. Nil means the real one.
+	// Validator is the operator's validator. Nil means none is declared.
 	Validator Validator
 	// Limits is the shared admission control for full reads. Nil is unbounded.
 	Limits *revalidate.Limits
@@ -134,14 +185,6 @@ func (d Deps) now() time.Time {
 
 // Config is one set's recovery-test settings, already resolved.
 type Config struct {
-	// Command is the operator's declared validator. Nil means none is
-	// declared, and the claim reads not configured.
-	Command *config.Command
-
-	// ValidatorID is the name the operator gave the validator. Empty means
-	// the base name of the executable, never its path.
-	ValidatorID string
-
 	// Cadence is how often the newest known good copy is owed a test.
 	Cadence time.Duration
 }
@@ -205,12 +248,6 @@ var digestMatches = strings.EqualFold
 // artifact, so it does not hammer.
 const retryAfter = 6 * time.Hour
 
-// maxValidatorBytes bounds how much of a validator's executable is read to
-// identify it. A validator larger than this is not a script an operator
-// wrote, and an unbounded read of an arbitrary path is not something a
-// scheduled job does.
-const maxValidatorBytes = 256 << 20
-
 // Run tests the newest known good copy of set (or req.Artifact) and records
 // the outcome on that copy. An error means the test could not even be
 // attempted (nothing to test, a cancelled context); every other outcome,
@@ -230,7 +267,21 @@ func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg Config, req 
 	res := Result{Artifact: rec.Artifact, Medium: copy_.Medium, PlacementID: copy_.ID}
 	now := deps.now()
 
-	if cfg.Command == nil {
+	configured := false
+	if deps.Validator != nil {
+		var cerr error
+		configured, cerr = deps.Validator.Configured(ctx, set)
+		if cerr != nil {
+			res.State = state.RecoveryCouldNotComplete
+			res.Reason = "the validator could not be examined: " + safeError(cerr)
+			rt := state.RecoveryTest{Copy: ref, State: res.State, At: now, NextDue: now.Add(retryAfter), Reason: res.Reason}
+			if err := deps.Journal.RecordRecoveryTest(context.WithoutCancel(ctx), rt); err != nil {
+				return res, err
+			}
+			return res, nil
+		}
+	}
+	if !configured {
 		res.State = state.RecoveryNotConfigured
 		res.Reason = "no recovery-test validator is declared for this backup set"
 		if err := deps.Journal.RecordRecoveryEvaluation(ctx, ref, state.RecoveryNotConfigured); err != nil && !errors.Is(err, state.ErrRecoveryHistory) {
@@ -274,13 +325,6 @@ func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg Config, req 
 	if expected == "" || !strings.EqualFold(alg, string(transport.SHA256)) {
 		res.State = state.RecoveryCouldNotComplete
 		res.Reason = "this artifact has no recorded sha256 digest, so there is nothing for the recovered bytes to be matched against"
-		return finish(res, state.RecoveryTest{})
-	}
-
-	id, hash, err := validatorIdentity(cfg)
-	if err != nil {
-		res.State = state.RecoveryCouldNotComplete
-		res.Reason = "the validator could not be identified: " + err.Error()
 		return finish(res, state.RecoveryTest{})
 	}
 
@@ -337,11 +381,9 @@ func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg Config, req 
 	}
 
 	// The gate passed. Only now does the validator mean anything.
-	run := deps.Validator
-	if run == nil {
-		run = lifecycle.RunRestoreCheckOutcome
-	}
-	out, vErr := run(ctx, *cfg.Command, staged.Path)
+	out, vErr := deps.Validator.Validate(ctx, ValidatorInput{
+		Set: set, Artifact: rec.Artifact, Medium: copy_.Medium, File: staged.Path, Digest: sum, Size: n,
+	})
 	cleanup()
 	if vErr != nil {
 		if ctx.Err() != nil {
@@ -352,41 +394,79 @@ func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg Config, req 
 		return finish(res, state.RecoveryTest{CleanupState: res.CleanupState, BytesRead: &n})
 	}
 
-	// The identity was read before the validator ran and it was executed
-	// later. A validator that rewrites itself while it runs, or a file swapped
-	// in between, would otherwise be recorded under the hash it no longer
-	// had. So it is read again, and a moved identity is a test nobody can
-	// attribute to anything.
-	if _, after, herr := validatorIdentity(cfg); herr != nil || after != hash {
-		res.State = state.RecoveryCouldNotComplete
-		res.Reason = "the validator changed while the test ran, so the result cannot be attributed to the validator that was identified"
-		return finish(res, state.RecoveryTest{CleanupState: res.CleanupState, BytesRead: &n})
-	}
-
-	res.ValidatorID, res.ValidatorHash = id, hash
-	res.Termination, res.ExitCode = out.Termination, out.ExitCode
-	res.Output = SanitizeOutput(out.Output, out.Truncated)
+	res.Output = SanitizeOutput(string(out.Output), out.Truncated)
 	res.OutputTruncated = out.Truncated
 
 	rt := state.RecoveryTest{
-		DigestMatched: &matched, ValidatorID: id, ValidatorHash: hash, Termination: out.Termination,
-		OutputTruncated: out.Truncated, CleanupState: res.CleanupState, BytesRead: &n,
+		DigestMatched: &matched, OutputTruncated: out.Truncated, CleanupState: res.CleanupState, BytesRead: &n,
 	}
+	termination, ran := terminationOf(out)
 	switch {
-	case out.Passed && out.Termination == lifecycle.TerminationExited:
+	case !ran:
+		// The script never produced a verdict: the runner refused it, the
+		// connection to the runner failed, or it was cancelled before it
+		// started. That is a fact about the machinery and not about the copy.
+		res.State = state.RecoveryCouldNotComplete
+		res.Reason = "the validator could not be run: " + SanitizeLabel(out.Disposition+" "+out.Detail, 240)
+		return finish(res, state.RecoveryTest{CleanupState: res.CleanupState, BytesRead: &n})
+	case out.ID == "" || len(out.Hash) != 64:
+		res.State = state.RecoveryCouldNotComplete
+		res.Reason = "the validator ran but its identity was not reported, so the result cannot be attributed to anything"
+		return finish(res, state.RecoveryTest{CleanupState: res.CleanupState, BytesRead: &n})
+	}
+
+	res.ValidatorID, res.ValidatorHash = SanitizeLabel(out.ID, 128), out.Hash
+	res.Termination = termination
+	if out.ExitCode != nil {
+		res.ExitCode = *out.ExitCode
+	}
+	rt.ValidatorID, rt.ValidatorHash, rt.Termination = res.ValidatorID, res.ValidatorHash, termination
+
+	switch {
+	case out.Disposition == "exited" && out.ExitCode != nil && *out.ExitCode == 0 && termination == state.RecoveryTerminationExited:
 		res.State = state.RecoveryPassed
 		rt.NextDue = now.Add(cadenceOr(cadence))
-	case out.TimedOut:
+	case out.Disposition == "timed_out":
 		res.State = state.RecoveryFailed
-		res.Reason = fmt.Sprintf("the validator did not finish inside its %s timeout and was terminated (%s)", cfg.Command.Timeout.Duration(), out.Termination)
-	case out.Termination == lifecycle.TerminationUnconfirmed:
+		res.Reason = fmt.Sprintf("the validator did not finish inside its timeout and was terminated (%s)", termination)
+	case termination == state.RecoveryTerminationUnconfirmed:
 		res.State = state.RecoveryFailed
-		res.Reason = "the validator's process group could not be observed gone, so its verdict was not relied on"
+		res.Reason = "the validator's termination could not be confirmed, so its verdict was not relied on"
+	case out.Disposition == "signaled":
+		res.State = state.RecoveryFailed
+		res.Reason = "the validator was killed by a signal"
 	default:
 		res.State = state.RecoveryFailed
-		res.Reason = fmt.Sprintf("the validator exited %d", out.ExitCode)
+		res.Reason = fmt.Sprintf("the validator exited %d", res.ExitCode)
 	}
 	return finish(res, rt)
+}
+
+// terminationOf maps what the workflow executor proved onto the recorded
+// termination vocabulary, and says whether a verdict-bearing process ran at
+// all.
+//
+// "exited" is a process that ended on its own and whose status was observed.
+// A timeout or cancellation this product requested is "killed_group" when the
+// executor PROVED the process gone and "unconfirmed" when it could not;
+// anything the executor describes as unconfirmed is unconfirmed whatever the
+// disposition, so a pass can never be built on a process nobody saw die.
+func terminationOf(o ValidatorOutcome) (term string, ran bool) {
+	switch o.Disposition {
+	case "exited", "signaled":
+		term = state.RecoveryTerminationExited
+	case "timed_out", "canceled":
+		term = state.RecoveryTerminationKilledGroup
+	default:
+		return "", false
+	}
+	if o.Termination == "unconfirmed" {
+		term = state.RecoveryTerminationUnconfirmed
+	} else if (o.Disposition == "timed_out" || o.Disposition == "canceled") && o.Termination != "confirmed" {
+		term = state.RecoveryTerminationUnconfirmed
+	}
+
+	return term, true
 }
 
 func cadenceOr(c time.Duration) time.Duration {
@@ -496,35 +576,6 @@ func recordedDigest(rec state.Record, p state.Placement) (digest, alg string) {
 		return p.Hash, p.HashAlg
 	}
 	return rec.LocalHash, rec.LocalHashAlg
-}
-
-// validatorIdentity names the validator and hashes what would run. The id is
-// the operator's name for it or the executable's base name, never a path; the
-// hash is of the executable's bytes, so replacing the validator is a
-// different recorded identity and an old pass is not silently inherited.
-func validatorIdentity(cfg Config) (id, hash string, err error) {
-	id = cfg.ValidatorID
-	if id == "" {
-		id = filepath.Base(cfg.Command.Executable)
-	}
-	id = SanitizeLabel(id, 128)
-	if id == "" {
-		return "", "", errors.New("it has no name")
-	}
-	f, err := os.Open(cfg.Command.Executable)
-	if err != nil {
-		return "", "", errors.New("its executable could not be opened")
-	}
-	defer f.Close()
-	h := sha256.New()
-	n, err := io.Copy(h, io.LimitReader(f, maxValidatorBytes+1))
-	if err != nil {
-		return "", "", errors.New("its executable could not be read")
-	}
-	if n > maxValidatorBytes {
-		return "", "", fmt.Errorf("its executable is larger than %d bytes", maxValidatorBytes)
-	}
-	return id, hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func hashFile(ctx context.Context, path string) (sum string, n int64, err error) {

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,38 +15,87 @@ import (
 )
 
 // EPIC Q, #980 as the deployment sees it: Service.RecoveryTest runs the
-// recovery-test runner over the set's own configuration, and for an
-// incremental set it reads the existing ladder and runs nothing.
+// recovery-test runner with the operator's validator as a workflow script
+// behind the stage runner, and for an incremental set it reads the existing
+// ladder and runs nothing.
 
-func recoveryService(t *testing.T, validator string) (*Service, *state.Journal, config.BackupSet) {
+// validatorStages is the service layer's script runner as a test sees it. A
+// request for the set's recovery-test directory is answered as the validator;
+// a request for an assurance-after directory is a notification and is
+// recorded. For the validator it reads the recovered file at the moment the
+// script would have, because "the script was handed bytes that match" is the
+// claim.
+type validatorStages struct {
+	mu         sync.Mutex
+	configured bool
+	outcome    StageScript
+	seenFile   string
+	seenBytes  []byte
+	validated  []StageRequest
+	notified   []StageRequest
+}
+
+func (v *validatorStages) RunStage(_ context.Context, req StageRequest) (StageResult, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	if strings.HasPrefix(req.SetDir, "assurance-after") {
+		v.notified = append(v.notified, req)
+
+		return StageResult{Configured: true, Scripts: []StageScript{{Name: "10-notify.local.sh", State: "success"}}}, nil
+	}
+
+	if !v.configured {
+		return StageResult{}, nil
+	}
+	if req.DryRun {
+		return StageResult{Configured: true, Scripts: []StageScript{{Name: v.outcome.Name, SHA256: v.outcome.SHA256}}}, nil
+	}
+	v.validated = append(v.validated, req)
+	v.seenFile = req.Vars["RECOVERY_TEST_FILE"]
+	v.seenBytes, _ = os.ReadFile(v.seenFile)
+
+	return StageResult{Configured: true, Scripts: []StageScript{v.outcome}}, nil
+}
+
+func (v *validatorStages) events() []string {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	out := make([]string, 0, len(v.notified))
+	for _, c := range v.notified {
+		out = append(out, c.Vars["ASSURANCE_EVENT"])
+	}
+
+	return out
+}
+
+func exitCode(n int) *int { return &n }
+
+func accepts() *validatorStages {
+	return &validatorStages{configured: true, outcome: StageScript{
+		Name: "10-check.local.sh", SHA256: strings.Repeat("ab", 32), Target: "local",
+		State: "success", Disposition: "exited", ExitCode: exitCode(0),
+	}}
+}
+
+func recoveryService(t *testing.T, stages *validatorStages) (*Service, *state.Journal, config.BackupSet) {
 	t.Helper()
 	bs := testBackupSet(t, t.TempDir())
-	if validator != "" {
-		bs.Revalidation = config.Revalidation{
-			Interval: config.Duration(24 * time.Hour), MaxPerCycle: 10, Hash: true,
-			Command: &config.Command{Executable: validator, Timeout: config.Duration(5 * time.Second)},
-		}
-	}
 	cfg := testConfig(t, testSource("production", bs))
 	journal := openJournal(t)
 	svc := New(cfg, journal, newFakeTransport(), nil)
 	svc.Now = fixedNow(retentionTestNow)
 	svc.RecoveryStagingRoot = t.TempDir()
-	return svc, journal, bs
-}
-
-func writeValidator(t *testing.T, body string) string {
-	t.Helper()
-	p := filepath.Join(t.TempDir(), "check.sh")
-	if err := os.WriteFile(p, []byte("#!/bin/sh\n"+body), 0o755); err != nil {
-		t.Fatal(err)
+	if stages != nil {
+		svc.Stages = stages
 	}
-	return p
+	return svc, journal, bs
 }
 
 func TestRecoveryTest_PassesOnALocalCopyAndLeavesNoStagingBehind(t *testing.T) {
 	ctx := context.Background()
-	svc, journal, bs := recoveryService(t, writeValidator(t, "test -s \"$1\"\n"))
+	stages := accepts()
+	svc, journal, bs := recoveryService(t, stages)
 	a := seedMovableArtifact(t, ctx, journal, bs, "rt.dump", retentionTestNow.Add(-time.Hour))
 
 	res, err := svc.RecoveryTest(ctx, RecoveryTestRequest{Set: bs.ID})
@@ -59,6 +109,9 @@ func TestRecoveryTest_PassesOnALocalCopyAndLeavesNoStagingBehind(t *testing.T) {
 	if p.RecoveryState != state.RecoveryPassed || p.RecoveryDigestMatched == nil || !*p.RecoveryDigestMatched {
 		t.Errorf("record = %q / %v", p.RecoveryState, p.RecoveryDigestMatched)
 	}
+	if p.RecoveryValidatorID != "10-check.local.sh" || p.RecoveryValidatorHash != strings.Repeat("ab", 32) {
+		t.Errorf("validator = %q / %q: the identity is what the plan that ran the script reported", p.RecoveryValidatorID, p.RecoveryValidatorHash)
+	}
 	entries, _ := os.ReadDir(svc.RecoveryStagingRoot)
 	if len(entries) != 0 {
 		t.Errorf("%d entries left in the staging root after a successful test", len(entries))
@@ -69,25 +122,59 @@ func TestRecoveryTest_PassesOnALocalCopyAndLeavesNoStagingBehind(t *testing.T) {
 	}
 }
 
-func TestRecoveryTest_ASetWithNoValidatorReadsNotConfigured(t *testing.T) {
+func TestRecoveryTest_TheValidatorIsAskedAsALocalSingleScriptStageAndHandedTheMatchingBytes(t *testing.T) {
 	ctx := context.Background()
-	svc, journal, bs := recoveryService(t, "")
-	a := seedMovableArtifact(t, ctx, journal, bs, "nv.dump", retentionTestNow.Add(-time.Hour))
-	res, err := svc.RecoveryTest(ctx, RecoveryTestRequest{Set: bs.ID})
-	if err != nil {
+	stages := accepts()
+	svc, journal, bs := recoveryService(t, stages)
+	seedMovableArtifact(t, ctx, journal, bs, "what.dump", retentionTestNow.Add(-time.Hour))
+
+	if _, err := svc.RecoveryTest(ctx, RecoveryTestRequest{Set: bs.ID}); err != nil {
 		t.Fatal(err)
 	}
-	if res.Result.State != state.RecoveryNotConfigured {
-		t.Errorf("State = %q", res.Result.State)
+	if len(stages.validated) != 1 {
+		t.Fatalf("validator runs = %d", len(stages.validated))
 	}
-	if p := localCopyOf(t, journal, a); p.RecoveryTestedAt != nil {
-		t.Errorf("an age appeared on a claim that never ran: %v", p.RecoveryTestedAt)
+	req := stages.validated[0]
+	if req.SetDir != "recovery-test/production/postgres-primary" || !req.LocalOnly || req.MaxScripts != 1 || req.GlobalDir != "" {
+		t.Errorf("request = %+v", req)
+	}
+	if string(stages.seenBytes) != "the bytes of what.dump" {
+		t.Errorf("the validator was handed %q", stages.seenBytes)
+	}
+	if req.Vars["RECOVERY_TEST_DIGEST"] == "" || req.Vars["RECOVERY_TEST_SIZE"] != "22" {
+		t.Errorf("variables = %v", req.Vars)
+	}
+	for name := range req.Vars {
+		if strings.HasPrefix(name, "RETND_") || strings.HasPrefix(name, "BACKUPD_") {
+			t.Errorf("the request sets %s, which is the product's own namespace", name)
+		}
+	}
+}
+
+func TestRecoveryTest_ASetWithNoValidatorReadsNotConfigured(t *testing.T) {
+	ctx := context.Background()
+	for name, stages := range map[string]*validatorStages{"no stage runner": nil, "no directory": {configured: false}} {
+		t.Run(name, func(t *testing.T) {
+			svc, journal, bs := recoveryService(t, stages)
+			a := seedMovableArtifact(t, ctx, journal, bs, "nv.dump", retentionTestNow.Add(-time.Hour))
+			res, err := svc.RecoveryTest(ctx, RecoveryTestRequest{Set: bs.ID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.Result.State != state.RecoveryNotConfigured {
+				t.Errorf("State = %q", res.Result.State)
+			}
+			if p := localCopyOf(t, journal, a); p.RecoveryTestedAt != nil {
+				t.Errorf("an age appeared on a claim that never ran: %v", p.RecoveryTestedAt)
+			}
+		})
 	}
 }
 
 func TestRecoveryTest_ABadCopyIsAFailureEvenWithAValidatorThatAlwaysSaysYes(t *testing.T) {
 	ctx := context.Background()
-	svc, journal, bs := recoveryService(t, writeValidator(t, "exit 0\n"))
+	stages := accepts()
+	svc, journal, bs := recoveryService(t, stages)
 	a := seedMovableArtifact(t, ctx, journal, bs, "bad.dump", retentionTestNow.Add(-time.Hour))
 	if err := os.WriteFile(filepath.Join(bs.LocalPath, "bad.dump"), []byte("rotted"), 0o600); err != nil {
 		t.Fatal(err)
@@ -99,6 +186,9 @@ func TestRecoveryTest_ABadCopyIsAFailureEvenWithAValidatorThatAlwaysSaysYes(t *t
 	if res.Result.State != state.RecoveryFailed {
 		t.Errorf("State = %q: the digest gate did not stop a yes-man validator", res.Result.State)
 	}
+	if len(stages.validated) != 0 {
+		t.Error("the validator was run against bytes that did not match")
+	}
 	if p := localCopyOf(t, journal, a); p.RecoveryState != state.RecoveryFailed || p.RecoveryValidatorID != "" {
 		t.Errorf("record = %q / validator %q", p.RecoveryState, p.RecoveryValidatorID)
 	}
@@ -109,14 +199,15 @@ func TestRecoveryTest_AnIncrementalSetReadsItsExistingLevelAndRunsNothing(t *tes
 	bs := testBackupSet(t, t.TempDir())
 	bs.Engine = model.EngineKopia
 	bs.UUID = "6f9619ff-8b86-d011-b42d-00c04fc964ff"
-	svc, _, _ := recoveryService(t, "")
+	stages := accepts()
+	svc, _, _ := recoveryService(t, stages)
 	svc.Config = testConfig(t, testSource("production", bs))
 	res, err := svc.RecoveryTest(ctx, RecoveryTestRequest{Set: bs.ID})
 	if err != nil {
 		t.Fatalf("RecoveryTest: %v", err)
 	}
-	if !res.ReadOnly {
-		t.Error("an engine: kopia set ran a test instead of reading its achieved level")
+	if !res.ReadOnly || len(stages.validated) != 0 {
+		t.Errorf("an engine: kopia set ran a test instead of reading its achieved level (readonly=%v, runs=%d)", res.ReadOnly, len(stages.validated))
 	}
 	if res.Claim.State != state.RecoveryNotConfigured {
 		t.Errorf("claim = %q, want not_configured for a set with no drill cadence and no drill", res.Claim.State)
@@ -124,7 +215,7 @@ func TestRecoveryTest_AnIncrementalSetReadsItsExistingLevelAndRunsNothing(t *tes
 }
 
 func TestRecoveryTest_ATestOfAnUnconfiguredSetIsRefused(t *testing.T) {
-	svc, _, _ := recoveryService(t, "")
+	svc, _, _ := recoveryService(t, nil)
 	other, _ := model.NewBackupSetID("production", "nope")
 	if _, err := svc.RecoveryTest(context.Background(), RecoveryTestRequest{Set: other}); err == nil {
 		t.Error("a recovery test of a set that is not configured succeeded")
@@ -133,7 +224,8 @@ func TestRecoveryTest_ATestOfAnUnconfiguredSetIsRefused(t *testing.T) {
 
 func TestRecoveryTestTick_RunsOnlyForSetsThatDeclareAValidatorAndAreDue(t *testing.T) {
 	ctx := context.Background()
-	svc, journal, bs := recoveryService(t, writeValidator(t, "exit 0\n"))
+	stages := accepts()
+	svc, journal, bs := recoveryService(t, stages)
 	a := seedMovableArtifact(t, ctx, journal, bs, "tick.dump", retentionTestNow.Add(-time.Hour))
 
 	svc.RecoveryTestTick(ctx)
@@ -143,7 +235,7 @@ func TestRecoveryTestTick_RunsOnlyForSetsThatDeclareAValidatorAndAreDue(t *testi
 	}
 	first := *p.RecoveryTestedAt
 
-	// Not due again: a second tick at the same instant tests nothing.
+	// Not due again: a second tick an hour later tests nothing.
 	svc.Now = fixedNow(retentionTestNow.Add(time.Hour))
 	svc.RecoveryTestTick(ctx)
 	if got := localCopyOf(t, journal, a).RecoveryTestedAt; !got.Equal(first) {
@@ -160,7 +252,7 @@ func TestRecoveryTestTick_RunsOnlyForSetsThatDeclareAValidatorAndAreDue(t *testi
 
 func TestRecoveryTestTick_ASetWithoutAValidatorIsLeftAlone(t *testing.T) {
 	ctx := context.Background()
-	svc, journal, bs := recoveryService(t, "")
+	svc, journal, bs := recoveryService(t, &validatorStages{configured: false})
 	a := seedMovableArtifact(t, ctx, journal, bs, "none.dump", retentionTestNow.Add(-time.Hour))
 	svc.RecoveryTestTick(ctx)
 	if p := localCopyOf(t, journal, a); p.RecoveryState != state.RecoveryUnknown {
@@ -170,8 +262,8 @@ func TestRecoveryTestTick_ASetWithoutAValidatorIsLeftAlone(t *testing.T) {
 
 func TestRecoveryTest_StagesOnTheBackupSetsOwnDiskByDefaultAndNotInMemory(t *testing.T) {
 	ctx := context.Background()
-	seen := filepath.Join(t.TempDir(), "path-seen-by-the-validator")
-	svc, journal, bs := recoveryService(t, writeValidator(t, "printf '%s' \"$1\" > "+seen+"\n"))
+	stages := accepts()
+	svc, journal, bs := recoveryService(t, stages)
 	svc.RecoveryStagingRoot = "" // the default
 	seedMovableArtifact(t, ctx, journal, bs, "where.dump", retentionTestNow.Add(-time.Hour))
 
@@ -182,13 +274,9 @@ func TestRecoveryTest_StagesOnTheBackupSetsOwnDiskByDefaultAndNotInMemory(t *tes
 	if res.Result.State != state.RecoveryPassed {
 		t.Fatalf("State = %q (%s)", res.Result.State, res.Result.Reason)
 	}
-	raw, err := os.ReadFile(seen)
-	if err != nil {
-		t.Fatalf("the validator never recorded its argument: %v", err)
-	}
 	want := filepath.Join(bs.LocalPath, ".retnd-recovery-test") + string(filepath.Separator)
-	if !strings.HasPrefix(string(raw), want) {
-		t.Errorf("the validator was handed %q, want a path under %q: the default staging place is the set's own disk", raw, want)
+	if !strings.HasPrefix(stages.seenFile, want) {
+		t.Errorf("the validator was handed %q, want a path under %q: the default staging place is the set's own disk", stages.seenFile, want)
 	}
 	entries, _ := os.ReadDir(filepath.Join(bs.LocalPath, ".retnd-recovery-test"))
 	if len(entries) != 0 {
@@ -198,7 +286,7 @@ func TestRecoveryTest_StagesOnTheBackupSetsOwnDiskByDefaultAndNotInMemory(t *tes
 
 func TestRecoveryTestTick_SweepsAStagingDirectoryACrashLeftBehind(t *testing.T) {
 	ctx := context.Background()
-	svc, journal, bs := recoveryService(t, writeValidator(t, "exit 0\n"))
+	svc, journal, bs := recoveryService(t, &validatorStages{configured: false})
 	svc.RecoveryStagingRoot = ""
 	seedMovableArtifact(t, ctx, journal, bs, "orphan.dump", retentionTestNow.Add(-time.Hour))
 	root := filepath.Join(bs.LocalPath, ".retnd-recovery-test")
@@ -214,5 +302,57 @@ func TestRecoveryTestTick_SweepsAStagingDirectoryACrashLeftBehind(t *testing.T) 
 	svc.RecoveryTestTick(ctx)
 	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
 		t.Errorf("the orphan survived the tick: %v", err)
+	}
+}
+
+// --- telling the operator ---
+
+func TestRecoveryTest_AFailureRunsTheAssuranceScriptOnceAndARecoveryRunsItOnceMore(t *testing.T) {
+	ctx := context.Background()
+	stages := accepts()
+	svc, journal, bs := recoveryService(t, stages)
+	seedMovableArtifact(t, ctx, journal, bs, "ep.dump", retentionTestNow.Add(-time.Hour))
+
+	stages.outcome.ExitCode = exitCode(7)
+	stages.outcome.State = "failed"
+	for i := 0; i < 3; i++ {
+		if _, err := svc.RecoveryTest(ctx, RecoveryTestRequest{Set: bs.ID}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := stages.events(); len(got) != 1 || got[0] != AssuranceRecoveryTestFailed {
+		t.Fatalf("scripts run = %v, want exactly one recovery_test_failed across three failures", got)
+	}
+	call := stages.notified[0]
+	if !strings.Contains(call.Vars["ASSURANCE_SUMMARY"], "did not pass its recovery test") || call.Vars["ASSURANCE_ARTIFACT"] == "" {
+		t.Errorf("variables = %v", call.Vars)
+	}
+
+	stages.outcome.ExitCode = exitCode(0)
+	stages.outcome.State = "success"
+	if _, err := svc.RecoveryTest(ctx, RecoveryTestRequest{Set: bs.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if got := stages.events(); len(got) != 2 || got[1] != AssuranceRecoveryTestRecovered {
+		t.Errorf("scripts run = %v", got)
+	}
+}
+
+func TestRecoveryTest_ARefusalOrAnIncompleteAttemptIsNotAnnouncedAsAFailure(t *testing.T) {
+	ctx := context.Background()
+	stages := accepts()
+	stages.outcome.Disposition = "transport_lost"
+	stages.outcome.ExitCode = nil
+	svc, journal, bs := recoveryService(t, stages)
+	seedMovableArtifact(t, ctx, journal, bs, "inc.dump", retentionTestNow.Add(-time.Hour))
+	res, err := svc.RecoveryTest(ctx, RecoveryTestRequest{Set: bs.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Result.State != state.RecoveryCouldNotComplete {
+		t.Fatalf("State = %q", res.Result.State)
+	}
+	if got := stages.events(); len(got) != 0 {
+		t.Errorf("an attempt that could not complete was announced as %v: nothing is known about the copy", got)
 	}
 }
