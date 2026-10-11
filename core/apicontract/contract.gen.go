@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "08d2e9957eb3e36649f39b7aa75d9db2037559eb48f99a29c88428f3eeb5855b"
+const ContractSHA256 = "d70f678bcae49896d03ca47d4ef263b0ff5e1e7871a5e6f6c7948379a11ef63f"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -877,7 +877,7 @@ var Endpoints = []Endpoint{
 	{
 		ID: "mintRecovery", Method: "POST", Path: "/backups/{source}/{set}/{name}/recovery",
 		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "RecoveryMintRequest", ResponseSchema: "RecoveryMintResponse", SuccessStatus: 201,
+		RequestSchema: "RecoveryMintRequest", ResponseSchema: "RecoveryMintResponse", SuccessStatus: 202,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeRecoveryTargetInvalid},
 			401: {ErrorCodeUnauthenticated},
@@ -2627,9 +2627,12 @@ type RecoverySettingsUpdate struct {
 // RecoveryTarget is where one recovery writes its bytes. The set is closed: download
 // streams to the caller that redeems the grant, staging places one
 // file under the configured recovery staging root, storage uploads
-// to another configured storage destination. Nothing is written
-// anywhere until the whole copy has been read and has matched the
-// SHA-256 the journal recorded.
+// to another configured storage destination. A staging or storage
+// target is written only after the whole copy has been read and has
+// matched the SHA-256 the journal recorded. A download is not
+// staged: it is refused before its first byte unless a read of the
+// whole copy has matched that digest, and each chunk is checked
+// again as it is sent.
 type RecoveryTarget struct {
 	Key    string `json:"key,omitempty"`
 	Kind   string `json:"kind"`
