@@ -36,6 +36,8 @@ import type {
   WorkflowEnvVariableInput,
   WorkflowRecoveryHold,
   WorkflowRun,
+  AssuranceSettings,
+  BackupSetAssurance,
   WorkflowSettings,
   WorkflowStepLogPage,
   WorkflowStepLogRecord,
@@ -2885,6 +2887,31 @@ function defaultSetWorkflowEnvironment(): WorkflowEnvVariable[] {
   ];
 }
 
+function defaultAssuranceSettings(): AssuranceSettings {
+  return {
+    configured: false,
+    scrub: { cadenceSeconds: 7 * 24 * 3600, strategy: "auto" },
+    recoveryTest: { mode: "off", cadenceSeconds: 30 * 24 * 3600, validatorId: "" },
+    stagingRoot: "/var/lib/retnd/recovery-staging",
+    stagingTtlSeconds: 24 * 3600,
+    maxConcurrentFullReads: 2,
+    maxPerDestination: 1,
+    webDownloadMemoryBytes: 64 * 1024 * 1024,
+    hostKnobs: [
+      ["staging_root", "the one staging filesystem this process writes to"],
+      ["staging_ttl", "the sweep of that one staging root"],
+      ["max_concurrent_full_reads", "the one process that runs the reads"],
+      ["max_per_destination", "the one process that runs the reads"],
+      ["web_download_memory_bytes", "the one HTTP process that serves downloads"]
+    ].map(([name, why]) => ({
+      name,
+      value: "",
+      perSet: false,
+      reason: "A per-set value could not be honoured: it bounds " + why + "."
+    }))
+  };
+}
+
 function defaultWorkflowSettings(): WorkflowSettings {
   return {
     configured: true,
@@ -3811,6 +3838,27 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
   // which is what the real backend's hot reload does, and a write in one
   // test must not be visible to the next.
   const workflowSettings = defaultWorkflowSettings();
+  const assuranceSettings = defaultAssuranceSettings();
+  // Per-set overrides, keyed by source/set. Modelled the way the service
+  // resolves them: a set follows the deployment for every field it does not
+  // pin, so a global patch moves it.
+  const assuranceOverrides = new Map<string, Record<string, number | string>>();
+  const resolveAssurance = (key: string): BackupSetAssurance => {
+    const o = assuranceOverrides.get(key) ?? {};
+    return {
+      backupSetId: key,
+      isOverride: assuranceOverrides.has(key),
+      scrub: {
+        cadenceSeconds: (o.scrubCadenceSeconds as number) || assuranceSettings.scrub.cadenceSeconds,
+        strategy: (o.scrubStrategy as string) || assuranceSettings.scrub.strategy
+      },
+      recoveryTest: {
+        mode: (o.recoveryTestMode as string) || assuranceSettings.recoveryTest.mode,
+        cadenceSeconds: (o.recoveryTestCadenceSeconds as number) || assuranceSettings.recoveryTest.cadenceSeconds,
+        validatorId: (o.recoveryTestValidatorId as string) || assuranceSettings.recoveryTest.validatorId
+      }
+    };
+  };
   const setWorkflows = defaultSetWorkflows();
   const workflowEnv = new Map<string, WorkflowEnvVariable[]>([
     ["", workflowSettings.environment],
@@ -5175,6 +5223,41 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
       workflowHolds = workflowHolds.filter((hold) => hold.runId !== runId);
       return delay(undefined, 400);
     },
+
+    getAssuranceSettings: () => delay(structuredClone(assuranceSettings)),
+    patchAssuranceSettings: (patch) => {
+      assuranceSettings.configured = true;
+      if (patch.scrubCadenceSeconds !== undefined) {
+        assuranceSettings.scrub.cadenceSeconds = patch.scrubCadenceSeconds || 7 * 24 * 3600;
+      }
+      if (patch.scrubStrategy !== undefined) assuranceSettings.scrub.strategy = patch.scrubStrategy || "auto";
+      if (patch.recoveryTestMode !== undefined) assuranceSettings.recoveryTest.mode = patch.recoveryTestMode || "off";
+      if (patch.recoveryTestCadenceSeconds !== undefined) {
+        assuranceSettings.recoveryTest.cadenceSeconds = patch.recoveryTestCadenceSeconds || 30 * 24 * 3600;
+      }
+      if (patch.recoveryTestValidatorId !== undefined) {
+        assuranceSettings.recoveryTest.validatorId = patch.recoveryTestValidatorId;
+      }
+      return delay(structuredClone(assuranceSettings));
+    },
+    getBackupSetAssurance: (source, set) => delay(resolveAssurance(source + "/" + set)),
+    patchBackupSetAssurance: (source, set, patch) => {
+      const key = source + "/" + set;
+      const next = { ...(assuranceOverrides.get(key) ?? {}) };
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === undefined) continue;
+        if (v === 0 || v === "") delete next[k];
+        else next[k] = v as number | string;
+      }
+      if (Object.keys(next).length === 0) assuranceOverrides.delete(key);
+      else assuranceOverrides.set(key, next);
+      return delay(resolveAssurance(key));
+    },
+    resetBackupSetAssurance: (source, set) => {
+      assuranceOverrides.delete(source + "/" + set);
+      return delay(resolveAssurance(source + "/" + set));
+    },
+    listAssuranceDue: () => delay({ generatedAt: new Date().toISOString(), items: [] }),
 
     getWorkflowSettings: () => delay(structuredClone(workflowSettings)),
     patchWorkflowSettings: (patch) => {

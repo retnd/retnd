@@ -599,6 +599,19 @@ func writeRichTestConfigFile(t *testing.T) string {
 		// edit would silently move that set back onto the deployment's
 		// cadence, and a fixture that omitted the key could not tell.
 		"        poll_interval: 5m\n" +
+		// EPIC Q's per-set assurance override (Q1.4, #982), set for the
+		// same reason: an applier that dropped it on an unrelated edit
+		// would quietly put the set back on the deployment's scrub cadence
+		// and recovery-test policy, and a fixture that omitted the block
+		// could not tell.
+		"        assurance:\n" +
+		"          scrub:\n" +
+		"            cadence: 6h\n" +
+		"            strategy: content\n" +
+		"          recovery_test:\n" +
+		"            mode: custom\n" +
+		"            cadence: 48h\n" +
+		"            validator_id: trailer-marker\n" +
 		// EPIC L's per-set workflow block and environment (#808), set
 		// for the reason every field above is: an applier that dropped
 		// an operator's hook directories on an unrelated edit would
@@ -718,11 +731,16 @@ func mustRead(t *testing.T, path string) string {
 // being ledgered is a judgement someone has to make at the moment the
 // field lands rather than a violation to be waved through.
 var exemptFromIsolationFixture = map[string]string{
-	"ID":           "assigned by Validate from the source and name, never read off the file, so a fixture cannot set it",
-	"Retention":    "the RESOLVED policy, filled in by Validate and carrying yaml:\"-\", so it is never on disk to compare",
-	"ReadOnly":     "the RESOLVED answer, filled in by Validate from ReadOnlyConfig; the override is what the fixture sets",
-	"Disabled":     "a bool whose zero value IS its ordinary state (an enabled set), so \"non-zero\" cannot be required of it. UpdateBackupSetRequest cannot reach it either: enabling and disabling is POST /enabled's own route",
-	"Revalidation": "issue #315's re-check schedule, which no update-path request field can reach and which config.Validate does not require",
+	"ID":                                 "assigned by Validate from the source and name, never read off the file, so a fixture cannot set it",
+	"Retention":                          "the RESOLVED policy, filled in by Validate and carrying yaml:\"-\", so it is never on disk to compare",
+	"ReadOnly":                           "the RESOLVED answer, filled in by Validate from ReadOnlyConfig; the override is what the fixture sets",
+	"Disabled":                           "a bool whose zero value IS its ordinary state (an enabled set), so \"non-zero\" cannot be required of it. UpdateBackupSetRequest cannot reach it either: enabling and disabling is POST /enabled's own route",
+	"Assurance.Scrub.Cadence":            "the RESOLVED scrub cadence, filled in by Validate from AssuranceConfig and the deployment's block and carrying yaml:\"-\", so it is never on disk to compare",
+	"Assurance.Scrub.Strategy":           "the RESOLVED scrub strategy, same footing as the cadence",
+	"Assurance.RecoveryTest.Mode":        "the RESOLVED recovery-test mode, same footing",
+	"Assurance.RecoveryTest.Cadence":     "the RESOLVED recovery-test cadence, same footing",
+	"Assurance.RecoveryTest.ValidatorID": "the RESOLVED recovery-test validator, same footing",
+	"Revalidation":                       "issue #315's re-check schedule, which no update-path request field can reach and which config.Validate does not require",
 
 	// EPIC L (#808). The merged environment a hook actually runs with,
 	// filled in by Validate from three layers and carrying yaml:"-", so

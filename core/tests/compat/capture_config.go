@@ -70,6 +70,22 @@ func captureConfigValidation(fixtureDir string) (Cell, error) {
 			}
 		}
 		lines = append(lines, fmt.Sprintf("%s   storage_mediums declared: %d", base, len(cfg.StorageMediums)))
+		// Assurance (EPIC Q, #982) is printed only for the fixtures that are
+		// about it, so every earlier fixture's lines stay exactly as they
+		// were captured.
+		if strings.Contains(base, "assurance") {
+			d := cfg.Assurance
+			lines = append(lines, fmt.Sprintf("%s   deployment assurance: scrub=%s/%s recovery_test=%s/%s/%q staging_ttl=%s reads=%d per_destination=%d web_memory=%d",
+				base, d.Scrub.Cadence, d.Scrub.Strategy, d.RecoveryTest.Mode, d.RecoveryTest.Cadence, d.RecoveryTest.ValidatorID,
+				d.StagingTTL, d.MaxConcurrentFullReads, d.MaxPerDestination, d.WebDownloadMemoryBytes))
+			for _, src := range cfg.Sources {
+				for _, bs := range src.BackupSets {
+					a := bs.Assurance
+					lines = append(lines, fmt.Sprintf("%s   set %s/%s assurance: scrub=%s/%s recovery_test=%s/%s/%q override=%v",
+						base, src.Name, bs.Name, a.Scrub.Cadence, a.Scrub.Strategy, a.RecoveryTest.Mode, a.RecoveryTest.Cadence, a.RecoveryTest.ValidatorID, bs.AssuranceIsOverride()))
+				}
+			}
+		}
 	}
 	return Cell{
 		Certifies: "FR-35 clause 1: a medium-free config validates to the same outcome, with the same resolved policy per backup set, and the refusals it can hit still come in the same words.",
