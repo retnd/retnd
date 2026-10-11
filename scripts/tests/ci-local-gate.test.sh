@@ -337,6 +337,11 @@ make_full_tree() {
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/api/$api.sh"
   done
 
+  # The generator's determinism test (#1066), a static gate step next to the
+  # drift check it protects, stubbed for the same reason.
+  mkdir -p "$tree/scripts/tests"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/api-generator-is-deterministic.test.sh"
+
   # EPIC E's FR-35 compatibility mutation self-test (#242), stubbed for the
   # third time for the third identical reason. The real one copies the tree
   # sixteen times and builds core/ in each copy; this fixture measures which
@@ -366,6 +371,12 @@ make_full_tree() {
   # core/ and apps/common in each copy.
   mkdir -p "$tree/scripts/recovery"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/recovery/selftest.sh"
+
+  # EPIC Q's assurance mutation self-test (#988), stubbed for the same
+  # reason: the real one copies the tree a dozen times and builds core/ in
+  # each copy.
+  mkdir -p "$tree/scripts/assurance"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/assurance/selftest.sh"
 
   # The race detector's own mutation self-test (#417), stubbed for the
   # seventh time for the seventh identical reason: the real one copies the
@@ -440,7 +451,7 @@ make_full_tree() {
   # release.yml refuses to publish a commit that gate never passed. None
   # of the three has anything to say about a synthetic tree with no
   # .github in it.
-  for guard in two-machine-ci-verdict release-gate-covers-every-job release-refuses-an-ungated-publish every-module-builds-on-its-own api-generator-is-deterministic; do
+  for guard in two-machine-ci-verdict release-gate-covers-every-job release-refuses-an-ungated-publish every-module-builds-on-its-own; do
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/$guard.test.sh"
   done
 

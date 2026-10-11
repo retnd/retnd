@@ -275,6 +275,10 @@ ended somewhere other than a finished file or a passing result. It reads one of:
 
 - **Failed: nothing saved**, or **Cancelled: nothing saved**. No download link, and no
   file left anywhere that could be mistaken for a complete one.
+- A download that **stopped partway**: your browser shows it as failed or incomplete, and
+  the file in its download folder is smaller than the size the dialog told you to expect.
+  The application cut the transfer off on purpose (see below), so that an incomplete file is
+  never mistaken for a whole one.
 - A **cost decision** instead of a download: the copy you chose is archived, or reading it
   is billed, and the dialog is waiting for you to say yes or to back out.
 - **No readable copy**, or **Archived: thaw needed**, on the artifact's page.
@@ -283,15 +287,28 @@ ended somewhere other than a finished file or a passing result. It reads one of:
 
 ### What it means
 
-The recover action reads one retained copy, checks it against the digest the application
-recorded when it was committed, and only then hands it over. So the failures sort by where
-they happened, and the difference matters because the fix is different for each:
+The recover action reads one retained copy and checks it against the digest the application
+recorded when it was committed. For a download it does that in two steps. First, before it
+sends anything, it checks that the copy is there, that it is the size it recorded, that its
+storage can be read, and (the first time this backup is downloaded, then remembered) it reads
+the whole copy against the recorded digest. Then it sends the copy straight from where it
+lives, 4 MiB at a time, checking each piece again as it goes. Nothing is copied to the host's
+disk first, so a download needs no free space there. The failures sort by where they happened,
+and the difference matters because the fix is different for each:
 
 - **Before any byte left:** the copy was unreadable, was archived, was billed and you had
   not agreed, or its bytes did not match the recorded digest. A mismatch means that copy is
   damaged. It is not a download problem and trying again will not change it.
-- **During the download:** the browser disconnected or you cancelled. Nothing was kept, and
-  a second try starts again from the beginning.
+- **During the download, because the connection dropped:** the browser disconnected or you
+  cancelled. Nothing is kept on the host, and a second try can carry on from the bytes you
+  already have: ask for a new link, and a client that resumes (a command-line tool using
+  `Range` and `If-Range` with the file's `ETag`, or a browser that restarts the transfer on
+  its own) gets exactly the bytes the first attempt would have. A browser that starts over
+  simply downloads it again.
+- **During the download, because a piece did not match:** the copy changed on its storage
+  after the application had checked it, so the transfer was cut off at the first bad piece.
+  What you received before that was good, the bad piece was never sent, and the file is
+  incomplete on purpose. That copy is damaged; recover from another copy.
 - **After the file was checked:** a recovery test ran *your* validator, and the validator
   said no. The bytes are intact. The set shows **Content verified** and **Recovery test
   failed** side by side on purpose, because "the file is fine" and "the file is usable by

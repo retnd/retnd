@@ -210,7 +210,10 @@ var routeSections = map[string]documentedRoute{
 	// and whether a machine is still quiesced. It was mounted without an
 	// entry here, which is the gap this map exists to catch.
 	"/workflow-runs/:runId": {"reference.html", "web-workflow-run"},
-	"/enroll":               {"first-run.html", "enrol"},
+	// EPIC Q's one screen of its own (#985): the page a set's Operation
+	// detail link opens, to follow one scrub or recovery test by id.
+	"/assurance/operations/:id": {"reference.html", "web-assurance-operation"},
+	"/enroll":                   {"first-run.html", "enrol"},
 	// Both halves of the forgotten-password flow (#830) are documented by
 	// one section, because they are one procedure: the page that asks for
 	// a reset link and the page the emailed link opens. first-run.html's

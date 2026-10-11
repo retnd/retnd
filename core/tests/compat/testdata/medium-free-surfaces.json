@@ -84,6 +84,9 @@
       "certifies": "FR-35: an upgrade may add tables and migrations, and may not change or drop a single definition an existing deployment already has.",
       "rule": "additive-only",
       "lines": [
+        "index idx_activity_events_at :: CREATE INDEX idx_activity_events_at ON activity_events (at)",
+        "index idx_activity_events_op :: CREATE INDEX idx_activity_events_op ON activity_events (op_id) WHERE op_id <> ''",
+        "index idx_activity_events_set :: CREATE INDEX idx_activity_events_set ON activity_events (set_id, seq)",
         "index idx_artifacts_backup_set :: CREATE INDEX idx_artifacts_backup_set ON artifacts (source, backup_set)",
         "index idx_artifacts_state :: CREATE INDEX idx_artifacts_state ON artifacts (state)",
         "index idx_operations_status :: CREATE INDEX idx_operations_status ON operations (status)",
@@ -107,6 +110,7 @@
         "index idx_workflow_runs_unsettled :: CREATE INDEX idx_workflow_runs_unsettled ON workflow_runs (recovery_state, started_at) WHERE recovery_state IN ('required', 'in_progress')",
         "index idx_workflow_step_logs_step :: CREATE INDEX idx_workflow_step_logs_step ON workflow_step_logs (run_id, step_id, seq)",
         "index idx_workflow_steps_run :: CREATE INDEX idx_workflow_steps_run ON workflow_steps (run_id, step_order)",
+        "table activity_events :: CREATE TABLE activity_events ( seq INTEGER PRIMARY KEY, at TEXT NOT NULL, level TEXT NOT NULL, event TEXT NOT NULL, scope TEXT NOT NULL, set_id TEXT NOT NULL DEFAULT '', op_id TEXT NOT NULL DEFAULT '', message TEXT NOT NULL DEFAULT '', result TEXT NOT NULL DEFAULT '', action TEXT NOT NULL DEFAULT '', action_id TEXT NOT NULL DEFAULT '', fields TEXT NOT NULL DEFAULT '[]' )",
         "table artifacts :: CREATE TABLE \"artifacts\" ( id INTEGER PRIMARY KEY, source TEXT NOT NULL, backup_set TEXT NOT NULL, artifact_name TEXT NOT NULL, remote_path TEXT NOT NULL, local_path TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'DISCOVERED' CHECK (state IN ( 'DISCOVERED', 'TRANSFERRING', 'TRANSFERRED', 'VERIFYING', 'VERIFIED', 'COMMITTING', 'COMMITTED', 'REMOTE_DELETE_PENDING', 'COMPLETE', 'REMOTE_RETAINED', 'FAILED', 'QUARANTINED', 'QUARANTINED_LOST' )), discovered_at TEXT NOT NULL, updated_at TEXT NOT NULL, remote_size INTEGER, remote_mtime TEXT, remote_hash TEXT NOT NULL DEFAULT '', remote_hash_alg TEXT NOT NULL DEFAULT '', remote_backend_id TEXT NOT NULL DEFAULT '', transfer_bytes INTEGER, transfer_checksummed INTEGER NOT NULL DEFAULT 0 CHECK (transfer_checksummed IN (0, 1)), local_hash TEXT NOT NULL DEFAULT '', local_hash_alg TEXT NOT NULL DEFAULT '', validation_passed INTEGER CHECK (validation_passed IN (0, 1)), validation_detail TEXT NOT NULL DEFAULT '', retry_count INTEGER NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '', next_retry_at TEXT, remote_deleted_at TEXT, remote_delete_error TEXT NOT NULL DEFAULT '', retention_tier TEXT NOT NULL DEFAULT '', retention_expires_at TEXT, UNIQUE (source, backup_set, artifact_name) )",
         "table backup_set_addresses :: CREATE TABLE backup_set_addresses ( source TEXT NOT NULL, backup_set TEXT NOT NULL, host TEXT NOT NULL DEFAULT '', remote_path TEXT NOT NULL, local_path TEXT NOT NULL, recorded_at TEXT NOT NULL, PRIMARY KEY (source, backup_set) )",
         "table backup_set_halts :: CREATE TABLE \"backup_set_halts\" ( source TEXT NOT NULL, backup_set TEXT NOT NULL, reason TEXT NOT NULL CHECK (reason IN ( 'HOST_KEY_CHANGED', 'AUTHENTICATION_FAILED', 'KEY_PERMISSIONS' )), observed_at TEXT NOT NULL, PRIMARY KEY (source, backup_set) )",
@@ -138,7 +142,8 @@
         "migration 0011 snapshot_holds",
         "migration 0012 workflow_runs",
         "migration 0013 workflow_lifecycle",
-        "migration 0016 copy_assurance"
+        "migration 0016 copy_assurance",
+        "migration 0017 activity_events"
       ]
     },
     "04-retention-verdicts": {

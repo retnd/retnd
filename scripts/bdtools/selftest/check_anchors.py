@@ -105,7 +105,7 @@ the list of six subjects cannot silently shrink to zero or drop a domain
                      silently produce fewer entries than six without the
                      loop itself changing at all, and a `for` over zero
                      items is a clean, silent, zero-second pass.
-  held by:          `EXPECTED_SELFTESTS = 7`, pinned as a literal
+  held by:          `EXPECTED_SELFTESTS = 8`, pinned as a literal
                      independent of `len(SELFTESTS)`, and the
                      `ran != EXPECTED_SELFTESTS` check in `body()` that
                      refuses rather than reporting OK for a run that
@@ -123,7 +123,7 @@ from bdtools import harness
 
 PROGRAM = "selftest check-anchors"
 
-# The seven selftests with anchors of their own. Not architecture or api:
+# The eight selftests with anchors of their own. Not architecture or api:
 # neither uses the selftest_swap anchor pattern, and adding a domain with
 # no anchors to an anchor checker is a row that always passes -- a new
 # vacuous check created inside the very port whose subject is vacuous
@@ -137,10 +137,11 @@ SELFTESTS = (
     "scripts/docs/selftest.sh",
     "scripts/retention/selftest.sh",
     "scripts/recovery/selftest.sh",
+    "scripts/assurance/selftest.sh",
 )
 
 # Pinned independent of len(SELFTESTS) -- see this file's hazard note.
-EXPECTED_SELFTESTS = 6
+EXPECTED_SELFTESTS = 8
 
 
 def run_one(root: Path, selftest: str) -> int:
@@ -182,7 +183,7 @@ def body(root: Path) -> int:
 
     print(
         "OK: every mutation anchor and precondition in the compat, conformance, race, format, docs "
-        "retention and recovery selftests still matches the real tree."
+        "retention, recovery and assurance selftests still matches the real tree."
     )
     return harness.EXIT_OK
 

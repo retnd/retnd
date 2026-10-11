@@ -58,6 +58,9 @@ ROUTER_GO = "apps/common/webhost/router.go"
 HANDLER_GO = "apps/common/webhost/handlers_recovery.go"
 CLI_GO = "core/cmd/retnd/recover.go"
 BUDGET_GO = "core/internal/recovery/budget/budget.go"
+APP_SCRUB_GO = "core/internal/app/scrub.go"
+REVALIDATE_GO = "core/internal/revalidate/revalidate.go"
+PLACEMENTS_GO = "core/internal/state/placements.go"
 FLIGHT_GO = f"{EXPORT}/flight.go"
 CAPS_GO = "apps/common/platform/capabilities/hostlimits.go"
 WEBMAIN_GO = "apps/generic/cmd/retnd-web/main.go"
@@ -91,6 +94,7 @@ FSOPEN_PKG = ("core", ("./internal/fsopen/",))
 RT_PKG = ("core", ("./internal/recoverytest/",))
 ALERT_PKG = ("core", ("./internal/alert/",))
 OBS_PKG = ("core", ("./internal/obs/",))
+REVALIDATE_PKG = ("core", ("./internal/revalidate/",))
 
 PLANT = "// PLANTED VIOLATION (scripts/bdtools/recovery/selftest.py): "
 
@@ -293,26 +297,26 @@ MUTATIONS = [
     (
         "a served range that writes no action-log row",
         RECOVER_RUN_GO,
-        "\td.b.auditRecovery(context.Background(), &ev, err)\n\tif err != nil || d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {",
-        "\t" + PLANT + "a served range is not audited.\n\t_ = &ev\n\tif err != nil || d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {",
-        "should write 51 rows",
+        "\td.b.auditRecovery(context.Background(), &ev, err)\n\tif err != nil {\n\t\td.endTrace(err)\n\t\td.b.finishRecoveryDownload(d.token)\n\t\treturn\n\t}",
+        "\t" + PLANT + "a served range is not audited.\n\t_ = &ev\n\tif err != nil {\n\t\td.endTrace(err)\n\t\td.b.finishRecoveryDownload(d.token)\n\t\treturn\n\t}",
+        "should write 52 rows",
         SERVICE_PKG,
         "TestEveryMintAndEveryServedRange",
     ),
     (
         "a download whose grant is not spent when the client goes away",
         RECOVER_RUN_GO,
-        "\tif err != nil || d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {",
+        "\tif err != nil {\n\t\td.endTrace(err)\n\t\td.b.finishRecoveryDownload(d.token)\n\t\treturn\n\t}\n\tif d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {",
         "\t" + PLANT + "only a complete download spends the grant.\n\tif d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {",
-        "left",
+        "still redeemable",
         SERVICE_PKG,
         "TestAFailedRangeWritesARowSayingSo|TestAFailedTailRangeStillSpendsTheGrant",
     ),
     (
         "a tail range that spends the grant",
         RECOVER_RUN_GO,
-        "\tif err != nil || d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {",
-        "\t" + PLANT + "reaching the last byte spends the grant.\n\tif err != nil || d.size == 0 || end >= d.size-1 {",
+        "\tif d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {",
+        "\t" + PLANT + "reaching the last byte spends the grant.\n\tif d.size == 0 || end >= d.size-1 {",
         "after one tail range",
         SERVICE_PKG,
         "TestATailRangeDoesNotSpendTheGrant|TestRangesThatCoverTheArtifact",
@@ -334,6 +338,78 @@ MUTATIONS = [
         "the grant is spent",
         SERVICE_PKG,
         "TestATailRangeDoesNotSpendTheGrant|TestRangesThatCoverTheArtifact",
+    ),
+    (
+        "a chunk that does not match its digest, sent anyway",
+        f"{EXPORT}/verifyreader.go",
+        "\tif sum := sha256.Sum256(r.buf[:n]); sum != r.ix.Chunks[i] {",
+        "\t" + PLANT + "a chunk is never compared with the index.\n\tif sum := sha256.Sum256(r.buf[:n]); false && sum != r.ix.Chunks[i] {",
+        "went out; exactly the 3 chunks",
+        SERVICE_PKG,
+        "TestACopyThatRotsAfterPreparationStopsAtTheBadChunk",
+    ),
+    (
+        "a whole-content digest that is never checked before the last chunk is released",
+        f"{EXPORT}/verifyreader.go",
+        "\t\t\tif !strings.EqualFold(hex.EncodeToString(r.whole.Sum(nil)), r.ix.SHA256) {",
+        "\t\t\t" + PLANT + "the whole digest is never compared.\n\t\t\tif false && !strings.EqualFold(hex.EncodeToString(r.whole.Sum(nil)), r.ix.SHA256) {",
+        "want an integrity failure",
+        EXPORT_PKG,
+        "TestTheWholeDigestIsCheckedBeforeTheLastChunkIsReleased",
+    ),
+    (
+        "a download started on a copy of the wrong size",
+        "core/service/recover_stream.go",
+        "\tif plan.expect.Size != nil && size != *plan.expect.Size {",
+        "\t" + PLANT + "the size is never compared in the pre-flight.\n\tif false {",
+        "bandwidth was spent",
+        SERVICE_PKG,
+        "TestPreflightRefusesBeforeAnyByte",
+    ),
+    (
+        "an ETag that does not change with the bytes it names",
+        f"{EXPORT}/chunks.go",
+        "\th.Write([]byte(strings.ToLower(sha256Hex)))",
+        "\t" + PLANT + "the digest is not part of the validator.\n\t_ = sha256Hex",
+        "does not change with the artifact or the digest",
+        EXPORT_PKG,
+        "TestTheETagIsAStrongValidator",
+    ),
+    (
+        "a body cut short that the server finishes as if it were whole",
+        HANDLER_GO,
+        "\t\tpanic(http.ErrAbortHandler)",
+        "\t\t" + PLANT + "a short body is left to end cleanly.\n\t\t_ = http.ErrAbortHandler",
+        "must abort the response",
+        WEB_PKG,
+        "TestAClientThatGoesAwayMidDownload",
+    ),
+    (
+        "a first chunk that is not verified before the status line",
+        HANDLER_GO,
+        "\tif p, ok := stream.(service.RecoveryPrimer); ok {",
+        "\t" + PLANT + "the first chunk is not primed.\n\tif p, ok := stream.(service.RecoveryPrimer); ok && false {",
+        "status 200",
+        WEB_PKG,
+        "TestAFirstChunkThatFailsVerificationIsAnErrorResponseNotA200",
+    ),
+    (
+        "a finished download that records no verification",
+        RECOVER_RUN_GO,
+        "\t\td.recordVerified()\n",
+        "\t\t" + PLANT + "the end of a download is not recorded.\n",
+        "left no verification row",
+        SERVICE_PKG,
+        "TestACompleteDownloadRecordsWhetherTheWholeThingVerified",
+    ),
+    (
+        "a partial download that claims it verified",
+        RECOVER_RUN_GO,
+        "\tif d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {\n\t\td.recordVerified()",
+        "\t" + PLANT + "any served range claims the whole download verified.\n\td.b.recoveryHost().grants.Served(d.token, start, end, d.size)\n\tif true {\n\t\td.recordVerified()",
+        "the trail says the download verified",
+        SERVICE_PKG,
+        "TestAPartialDownloadClaimsNoVerification",
     ),
     (
         "a recovery reaper that sweeps nothing",
@@ -634,7 +710,7 @@ MUTATIONS = [
     ),
     (
         "a download ceiling that is not enforced",
-        RECOVER_RUN_GO,
+        "core/service/recover_stream.go",
         "\t\trel, aerr := h.streams.Acquire()",
         "\t\t" + PLANT + "any number of streams.\n\t\trel, aerr := func() (func(), error) { return func() {}, nil }()",
         "a second stream over a ceiling of one",
@@ -957,6 +1033,139 @@ MUTATIONS = [
         SERVICE_PKG,
         "TestStartRecoveryTestRunsOneAtATimePerSet",
     ),
+    # Panel finding C10 (#988): the matrix said a default deployment scrubs and
+    # recovery-tests on the strength of tests that call one tick by hand or only
+    # import the package. These plant the break one hop out, in the process the
+    # product actually runs, and the suites that go red are the ones that start
+    # RunOnSchedule (what `retnd serve` runs) and read the `serve` command.
+    (
+        "a serving scheduler that never starts the scrub timer",
+        SCHEDULER_GO,
+        "\t\tb.runScrubTicks(ctx, b.PollInterval())\n",
+        "\t\t" + PLANT + "the serving scheduler never starts the scrub timer.\n\t\t<-ctx.Done()\n",
+        "nothing the serving process runs scrubs it",
+        SERVICE_PKG,
+        "TestRunOnScheduleScrubsADefaultInstall",
+    ),
+    (
+        "a scheduled pass that drops the recovery tests",
+        APP_SCRUB_GO,
+        "\ts.ScrubTick(ctx)\n\ts.RecoveryTestTick(ctx)\n",
+        "\ts.ScrubTick(ctx)\n\t" + PLANT + "the scheduled pass skips the recovery tests.\n",
+        "nothing the serving process runs starts it",
+        SERVICE_PKG,
+        "TestRunOnScheduleRunsTheDueRecoveryTest",
+    ),
+    (
+        "a scrub tick that gives up when an operation is running",
+        SCHEDULER_GO,
+        "\t\tb.tickScrubWhenFree(ctx, interval)\n",
+        "\t\t" + PLANT + "a busy tick is simply lost until the next interval.\n\t\tb.tickScrub(ctx)\n",
+        "scrub ticks that each arrive while a cycle holds the lock",
+        SERVICE_PKG,
+        "TestAScrubTickThatFindsTheLockHeldRunsAsSoonAsItIsFree",
+    ),
+    (
+        "a serve command that hands the engine no scheduler",
+        WEB_MAIN_GO,
+        "\t\tscheduler = backend\n",
+        "\t\t" + PLANT + "the process serves and never runs a scrub.\n\t\tscheduler = nil\n",
+        "assigns a nil scheduler",
+        SERVE_PKG,
+        "TestServeHandsTheEngineAScheduler",
+    ),
+    (
+        "a forced scrub that obeys an empty schedule",
+        REVALIDATE_GO,
+        "\tif cfg.MaxPerCycle <= 0 && !opts.Force {\n",
+        "\t" + PLANT + "Force is ignored.\n\tif cfg.MaxPerCycle <= 0 {\n",
+        "a forced pass selected 0 artifacts",
+        REVALIDATE_PKG,
+        "TestRunWith_AForcedPass",
+    ),
+    (
+        "a placement upsert that lets any class move the content age",
+        PLACEMENTS_GO,
+        "\tif p.VerificationClass == VerificationContent && p.VerifiedAt != nil && status == PlacementActive {\n",
+        "\t" + PLANT + "an existence write moves the content age.\n\tif p.VerificationClass != \"\" && p.VerifiedAt != nil && status == PlacementActive {\n",
+        "an existence write moved the content age",
+        STATE_PKG,
+        "TestUpsertOfAnExistenceClassCannotMoveTheContentAge",
+    ),
+    # The activity feed is durable (migration 0017). Seven controls, one per
+    # promise: it survives a restart, it does not store samples or per-range
+    # lines, it coalesces stages, it prunes, it never blocks the cycle, and a
+    # backwards page stays behind its cursor.
+    (
+        "an activity feed that forgets everything at a restart",
+        "core/service/service.go",
+        "\tactivity.hydrate(ctx, journal, configuredSetIDs(cfg))\n",
+        "\t" + PLANT + "the rings are not refilled from the journal.\n\t_ = configuredSetIDs\n",
+        "after a restart the feed holds",
+        SERVICE_PKG,
+        "TestTheFeedSurvivesARestartAndTheNumberingContinues",
+    ),
+    (
+        "a periodic sample written to the journal",
+        "core/service/liveactivity_durable.go",
+        "\tif d == nil || activityNotStored[e.Event] {",
+        "\t" + PLANT + "samples are stored like everything else.\n\tif d == nil || (false && activityNotStored[e.Event]) {",
+        "rows stored for 150 samples",
+        SERVICE_PKG,
+        "TestPeriodicSamplesAndPerRangeDownloadLinesAreNotStored",
+    ),
+    (
+        "a per-range download line written for every range",
+        "core/service/liveactivity_durable.go",
+        '\t\tif f.Key == "operation" && f.Value == "recovery range" {',
+        "\t\t" + PLANT + "every range is stored.\n\t\tif false && f.Key == \"operation\" && f.Value == \"recovery range\" {",
+        "rows stored for 150 samples",
+        SERVICE_PKG,
+        "TestPeriodicSamplesAndPerRangeDownloadLinesAreNotStored",
+    ),
+    (
+        "a recovery whose every stage costs a row",
+        "core/service/liveactivity_durable.go",
+        "\t	Coalesce: it.e.Event == obs.EventRecoveryStage,",
+        "\t\t" + PLANT + "stages are never replaced.\n\t\tCoalesce: false && it.e.Event == obs.EventRecoveryStage,",
+        "stored 4 stage rows",
+        SERVICE_PKG,
+        "TestRecoveryStagesAreCoalescedToTheLastOneReached|TestACoalescedStageReplaces",
+        [
+            (
+                "core/service/liveactivity_durable.go",
+                '\t\tif it.e.Event == obs.EventRecoveryStage && it.e.ActionID != "" && lastStage[it.e.ActionID] != i {',
+                "\t\t" + PLANT + "every stage in a batch is written.\n\t\tif false && it.e.Event == obs.EventRecoveryStage && it.e.ActionID != \"\" && lastStage[it.e.ActionID] != i {",
+            )
+        ],
+    ),
+    (
+        "activity retention that never prunes by age",
+        "core/internal/state/activity_events.go",
+        "`DELETE FROM activity_events WHERE at < ?`",
+        "`DELETE FROM activity_events WHERE 0 AND at < ?`",
+        "want 20 by age",
+        SERVICE_PKG,
+        "TestRetentionDropsWhatIsOldAndWhatIsOverTheRowBound",
+    ),
+    (
+        "a durable writer that blocks the feed when it falls behind",
+        "core/service/liveactivity_durable.go",
+        "\tdefault:\n\t\td.dropped.Add(1)\n\t}",
+        "\tdefault:\n\t\t" + PLANT + "the feed waits for the writer.\n\t\td.queue <- durableItem{e: e, setID: setID}\n\t}",
+        "blocked on a full durable queue",
+        SERVICE_PKG,
+        "TestTheWriterFallingBehindDropsFromTheRecordAndNeverBlocksTheFeed",
+    ),
+    (
+        "a backwards page that includes the cursor it was asked to stay behind",
+        "core/internal/state/activity_events.go",
+        "AND seq < ? ORDER BY seq DESC LIMIT ?`,",
+        "AND seq <= ? ORDER BY seq DESC LIMIT ?`,",
+        "at or after it",
+        SERVICE_PKG,
+        "TestBeforePagesBackwardsPastWhatTheRingHolds",
+    ),
 ]
 
 CLEAN_CONTROLS = [
@@ -996,13 +1205,31 @@ CLEAN_CONTROLS = [
     ("the recovery-test journal suite", STATE_PKG, "TestRecordRecovery|TestMarkRecoveryOverdue"),
     ("the copy opener", FSOPEN_PKG, "."),
     ("the alert vocabulary guard", ALERT_PKG, "TestEveryAlertKind|TestTheAlertProducerGuard"),
-    ("the assurance event guard", OBS_PKG, "TestEveryAssuranceEvent|TestTheAssuranceEmitterGuard"),
+    ("the assurance event guard", OBS_PKG, "TestEveryAssuranceEvent|TestTheAssuranceEmitterGuard|TestTheScrubAndRecoveryTestEvents"),
+    ("the default-deployment wiring suite", SERVICE_PKG, "TestRunOnSchedule"),
+    ("the serve command's scheduler guard", SERVE_PKG, "TestServeHandsTheEngineAScheduler|TestTheServeSchedulerGuardCanFail"),
+    ("the forced-pass contract", REVALIDATE_PKG, "TestRunWith_"),
     (
         "the recovery-test service suite",
         SERVICE_PKG,
         "TestAssuranceHostKnobs|TestADefaultDeployment|TestAStagingRoot|TestRecoveryTestOf|TestAScheduledRecovery|TestARecoveryTestOf|TestARealRecovery|TestAFailedRecovery|TestServeScheduler|TestAServeTick|TestStartRecoveryTest",
     ),
     ("the assurance route suite", WEB_PKG, "TestAssuranceRoute_StartRecoveryTest"),
+    (
+        "the durable activity feed suite",
+        SERVICE_PKG,
+        "TestTheFeedSurvivesARestart|TestRecoveryAndRecoveryTestEvents|TestPeriodicSamples|TestRecoveryStagesAreCoalesced|TestACoalescedStage|TestRetentionDrops|TestTheWriterFallingBehind|TestBeforePagesBackwards|TestAnOverlongMessage",
+    ),
+    (
+        "the streamed download suite",
+        SERVICE_PKG,
+        "TestADownloadIsStreamed|TestADownloadReadsTheSource|TestTheETagIsTheSame|TestThePreparationReadIsPaid|TestPreflightRefuses|TestACopyThatRots|TestAnInterruptedDownloadResumes|TestACompleteDownloadRecords|TestAPartialDownloadClaims",
+    ),
+    (
+        "the streamed download route suite",
+        WEB_PKG,
+        "TestADownloadCarriesAStrongETag|TestIfRangeWithTheETag|TestAFirstChunkThatFails|TestAStreamThatFailsMidBody|TestAClientThatGoesAwayMidDownload",
+    ),
 ]
 
 

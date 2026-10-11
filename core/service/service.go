@@ -136,6 +136,10 @@ type BackupService struct {
 	// while one is still writing to it.
 	wg sync.WaitGroup
 
+	// activityDone is closed when the activity feed's durable writer has
+	// flushed and stopped (liveactivity_durable.go).
+	activityDone chan struct{}
+
 	// runOnce enforces this package's single-flight invariant: at most one
 	// executeRunCycle call may be inside internal/app.Service.RunCycle at a
 	// time, restoring on the API side the "no concurrent pass over the
@@ -343,6 +347,22 @@ func New(cfg *config.Config, journal *state.Journal, tr transport.Transport, log
 	b.testRecoverer = newEngineRecoverer(b)
 	inner.Recoverer = b.testRecoverer
 	b.state.Store(&configState{inner: inner, revision: computeConfigRevision(cfg)})
+
+	// The activity feed's events are durable (liveactivity_durable.go).
+	// The rings are refilled from what the last process stored, and one
+	// goroutine writes what this one files. Close drains it before the
+	// journal goes away.
+	activity.hydrate(ctx, journal, configuredSetIDs(cfg))
+	activity.durable = newActivityDurable(journal, logger)
+	// Not on b.wg: that group is the operations Close drains, and tests
+	// wait on it to mean "the work I started has finished". The writer runs
+	// until the service's context ends, so it has a channel of its own.
+	activityDone := make(chan struct{})
+	b.activityDone = activityDone
+	go func() {
+		defer close(activityDone)
+		activity.durable.run(ctx)
+	}()
 
 	// EPIC L's engine, built here and switched on later. It is
 	// constructed unconditionally, including for a deployment that
@@ -645,6 +665,16 @@ func (b *BackupService) Close() error {
 	case <-time.After(closeDrainTimeout):
 		b.logger.Error(context.Background(), "close",
 			fmt.Errorf("timed out after %s waiting for an in-flight operation to finish", closeDrainTimeout))
+	}
+
+	// The activity writer flushes what it holds before the journal goes.
+	if b.activityDone != nil {
+		select {
+		case <-b.activityDone:
+		case <-time.After(closeDrainTimeout):
+			b.logger.Error(context.Background(), "close",
+				fmt.Errorf("timed out after %s waiting for the activity writer to flush", closeDrainTimeout))
+		}
 	}
 
 	err := b.journal.Close()

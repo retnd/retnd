@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "7a90af43c7379a7f7c585400093cdf7dd17cf8e01d32a151913da06ad14b6a4d"
+const ContractSHA256 = "4a16c4c2b79c105cc8ba38f49b190b434cf15b7259f5b09bb82aaa732b738cf2"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -2822,9 +2822,12 @@ type RecoverySettingsUpdate struct {
 // RecoveryTarget is where one recovery writes its bytes. The set is closed: download
 // streams to the caller that redeems the grant, staging places one
 // file under the configured recovery staging root, storage uploads
-// to another configured storage destination. Nothing is written
-// anywhere until the whole copy has been read and has matched the
-// SHA-256 the journal recorded.
+// to another configured storage destination. A staging or storage
+// target is written only after the whole copy has been read and has
+// matched the SHA-256 the journal recorded. A download is not
+// staged: it is refused before its first byte unless a read of the
+// whole copy has matched that digest, and each chunk is checked
+// again as it is sent.
 type RecoveryTarget struct {
 	Key    string `json:"key,omitempty"`
 	Kind   string `json:"kind"`

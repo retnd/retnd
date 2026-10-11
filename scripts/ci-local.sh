@@ -463,12 +463,6 @@ bash scripts/tests/release-gate-covers-every-job.test.sh
 gate_step "every Go module resolves its own dependencies without go.work (#1064)"
 bash scripts/tests/every-module-builds-on-its-own.test.sh
 
-# The contract generator answers the same way every time it is run (#1066).
-# check-contract-drift.sh regenerates and compares, so a generator that can
-# answer two ways fails a clean tree about half the time.
-gate_step "the contract generator is deterministic (#1066)"
-bash scripts/tests/api-generator-is-deterministic.test.sh
-
 # The other half of the same gate, and the half that does not need a
 # settings page to be true (#575). A required check gates while branch
 # protection says it does, and a direct push, an administrator merging
@@ -484,15 +478,6 @@ bash scripts/tests/api-generator-is-deterministic.test.sh
 # network, about a second.
 gate_step "a publish the release gate never passed is still refused (#575)"
 bash scripts/tests/release-refuses-an-ungated-publish.test.sh
-
-# The rendered half of the same rule (#1054): every page, light and dark,
-# every visible text node against its composited background, in the Playwright
-# image pinned for the e2e machines. Non-FAST only, like the other
-# Docker-backed browser step, so a FAST run cannot merge on it.
-if [ "$FAST" != "1" ]; then
-  gate_docker_step "docs site rendered contrast: every visible text node, both themes (#1054)"
-  bash scripts/contrast/run-browser-check.sh
-fi
 
 gate_step "core/ go build"
 (cd core && GOWORK=off go build ./...)
@@ -568,6 +553,17 @@ gate_step "apps/common go build, vet, test -race"
 
 gate_step "apps/common golangci-lint"
 (cd apps/common && GOWORK=off golangci-lint run --config "$REPO_ROOT/.golangci.yml" ./...)
+
+# The rendered half of the same rule (#1054): every page, light and dark,
+# every visible text node against its composited background, in the Playwright
+# image pinned for the e2e machines. Non-FAST only, like the other
+# Docker-backed browser step, so a FAST run cannot merge on it. It sits after
+# core/'s first Docker-backed step on purpose: ci-local-gate.test.sh's J1 lets
+# exactly one `docker info` answer and expects the run to fail at that step.
+if [ "$FAST" != "1" ]; then
+  gate_docker_step "docs site rendered contrast: every visible text node, both themes (#1054)"
+  bash scripts/contrast/run-browser-check.sh
+fi
 
 gate_docker_step "distribution go build, vet, test -race (every package but packaging, which runs next)"
 (cd distribution && GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test -race $(GOWORK=off go list ./... | grep -v '/packaging$'))
@@ -853,6 +849,12 @@ bash scripts/perf/selftest.sh
 gate_step "/api/v1 bindings match the contract, and no implementation type leaks (#166)"
 bash scripts/api/check-contract-drift.sh
 
+# The contract generator answers the same way every time it is run (#1066).
+# check-contract-drift.sh regenerates and compares, so a generator that can
+# answer two ways fails a clean tree about half the time.
+gate_step "the contract generator is deterministic (#1066)"
+bash scripts/tests/api-generator-is-deterministic.test.sh
+
 # The other half of #166's "generated from it or mechanically validated
 # against it": ui/shared/src/api/client.ts is hand-written on top of the
 # generated module, so its request paths are string literals that the
@@ -1020,6 +1022,17 @@ if [ "$FAST" != "1" ]; then
   # suite has to go red naming the promise. No Docker, a few minutes.
   gate_step "the recovery guards can actually fail (mutation self-test, #976)"
   bash scripts/recovery/selftest.sh
+
+  # EPIC Q (#988): the other half of the same promise. The recovery
+  # self-test above plants violations in the route, the grant and the
+  # budgets; this one plants them in what keeps Stored, Content verified
+  # and Recovery tested three claims: an existence check relabelled as
+  # content, a recovery test stored as a pass with no digest match, a copy
+  # nobody scheduled read as fresh, a per-set override that forgets the
+  # deployment, a feed row per copy, a crash that leaves staging behind, the
+  # no-download promise made again. No Docker, a few minutes.
+  gate_step "the assurance guards can actually fail (mutation self-test, #988)"
+  bash scripts/assurance/selftest.sh
 
   gate_step "repository-structure dependency rules (§7.1), by actual deletion"
   bash scripts/architecture/check-core-dependency-rule.sh

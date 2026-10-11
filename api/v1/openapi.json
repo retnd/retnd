@@ -6635,7 +6635,7 @@
       "RecoveryTarget": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Where one recovery writes its bytes. The set is closed: download streams to the caller that redeems the grant, staging places one file under the configured recovery staging root, storage uploads to another configured storage destination. Nothing is written anywhere until the whole copy has been read and has matched the SHA-256 the journal recorded.",
+        "description": "Where one recovery writes its bytes. The set is closed: download streams to the caller that redeems the grant, staging places one file under the configured recovery staging root, storage uploads to another configured storage destination. A staging or storage target is written only after the whole copy has been read and has matched the SHA-256 the journal recorded. A download is not staged: it is refused before its first byte unless a read of the whole copy has matched that digest, and each chunk is checked again as it is sent.",
         "properties": {
           "kind": {
             "type": "string",
@@ -7022,6 +7022,41 @@
           }
         }
       },
+      "StartRecoveryTestRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "POST /backup-sets/{source}/{set}/recovery-test. Starts a recovery test now. An empty body tests the newest known good copy and acknowledges no cost: a copy that costs money to read (a download from a billed object store, or an archived object) is refused, recorded as refused_for_cost, and nothing is read.",
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "Test this artifact (source/set/name, in the same backup set) instead of the newest known good one."
+          },
+          "acknowledged": {
+            "type": "boolean",
+            "x-go-omitempty": true,
+            "description": "The explicit yes to a read that costs money. An absent value is a no, never an implied yes."
+          }
+        }
+      },
+      "RecoveryTestStarted": {
+        "type": "object",
+        "description": "A recovery test is under way. operation_id is carried by its recovery_test_start, recovery_stage and recovery_test_end lines on the activity feed, which is how a client follows it; the verdict is the copy's recovery claim once it ends.",
+        "properties": {
+          "backup_set_id": {
+            "type": "string",
+            "description": "source/set."
+          },
+          "operation_id": {
+            "type": "string",
+            "description": "The id every line of this test carries, in the op_id field."
+          }
+        },
+        "required": [
+          "backup_set_id",
+          "operation_id"
+        ]
+      },
       "AssuranceDueItem": {
         "type": "object",
         "description": "One copy's place in the scrub schedule.",
@@ -7136,41 +7171,6 @@
           "administrator",
           "email",
           "backup_set"
-        ]
-      },
-      "StartRecoveryTestRequest": {
-        "type": "object",
-        "additionalProperties": false,
-        "description": "POST /backup-sets/{source}/{set}/recovery-test. Starts a recovery test now. An empty body tests the newest known good copy and acknowledges no cost: a copy that costs money to read (a download from a billed object store, or an archived object) is refused, recorded as refused_for_cost, and nothing is read.",
-        "properties": {
-          "artifact_id": {
-            "type": "string",
-            "x-go-omitempty": true,
-            "description": "Test this artifact (source/set/name, in the same backup set) instead of the newest known good one."
-          },
-          "acknowledged": {
-            "type": "boolean",
-            "x-go-omitempty": true,
-            "description": "The explicit yes to a read that costs money. An absent value is a no, never an implied yes."
-          }
-        }
-      },
-      "RecoveryTestStarted": {
-        "type": "object",
-        "description": "A recovery test is under way. operation_id is carried by its recovery_test_start, recovery_stage and recovery_test_end lines on the activity feed, which is how a client follows it; the verdict is the copy's recovery claim once it ends.",
-        "properties": {
-          "backup_set_id": {
-            "type": "string",
-            "description": "source/set."
-          },
-          "operation_id": {
-            "type": "string",
-            "description": "The id every line of this test carries, in the op_id field."
-          }
-        },
-        "required": [
-          "backup_set_id",
-          "operation_id"
         ]
       }
     },
@@ -12482,7 +12482,17 @@
               "type": "integer",
               "format": "int64"
             },
-            "description": "The highest sequence the caller has already seen. Only events after it come back, which is what makes polling this cheap, and they come back oldest first so this cursor is always safe to advance to the last one handed over. Omitted, unparseable or non-positive means whatever the server still holds. Compare the response's epoch before reusing a cursor: the sequence counter is per process and starts again at zero, so a cursor kept across a restart asks for what the new process has not reached yet."
+            "description": "The highest sequence the caller has already seen. Only events after it come back, which is what makes polling this cheap, and they come back oldest first so this cursor is always safe to advance to the last one handed over. Omitted, unparseable or non-positive means whatever the server still holds. Events are durable: the sequence continues across a restart (the counter starts again from the highest stored one), so a cursor never repeats a number. The response's epoch still names the process that answered; a client that sees it change should drop what it holds and read again, because the ring it was following has been refilled from the journal."
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "description": "Page BACKWARDS through the durable record. When positive, each bucket answers with its events whose sequence is below this, the newest limit of them, oldest first, and truncated says older ones remain; since is ignored. It is how a client reaches events the in-memory ring no longer holds. Events are kept for 30 days and at most 50,000 rows, oldest pruned first; periodic samples and per-range download lines are not stored, and a recovery keeps its start, its last stage and its end. Omitted, unparseable or non-positive means the ordinary live reading."
           },
           {
             "name": "limit",
@@ -16865,7 +16875,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success. For a download target the verified bytes; for a staging or storage target the placement.",
+            "description": "Success. For a download target the artifact's bytes, streamed from the retained copy one verified chunk at a time and never staged; for a staging or storage target the placement. A download is refused before the status line when the copy cannot complete it (missing, wrong size, unreadable medium, a verifying read that did not match the journal). A copy that fails verification mid-stream aborts the connection short of the declared Content-Length, so a truncated body is never a clean end. Headers: ETag (a strong validator from the artifact id and the recorded SHA-256, the same for every grant, copy and process, so a download can be resumed with Range and If-Range under a new grant), Repr-Digest (RFC 9530 sha-256 of the whole artifact as the journal recorded it, for the client to compare against), Accept-Ranges: bytes, Content-Length.",
             "content": {
               "application/octet-stream": {
                 "schema": {
@@ -16881,7 +16891,7 @@
             }
           },
           "206": {
-            "description": "Success. One byte range of the verified bytes.",
+            "description": "Success. One byte range of the artifact, read from the copy at the range's chunk boundary. Resume with Range and If-Range set to the ETag. Carries the same ETag and Repr-Digest as the 200; Repr-Digest still describes the whole artifact.",
             "content": {
               "application/octet-stream": {
                 "schema": {
@@ -16933,7 +16943,7 @@
             ]
           },
           "409": {
-            "description": "Refused: RECOVERY_NOT_READABLE, RECOVERY_NO_DIGEST, RECOVERY_BUSY, RECOVERY_TARGET_EXISTS. RECOVERY_BUSY is a continuation that arrived while the first request was still staging.",
+            "description": "Refused: RECOVERY_NOT_READABLE, RECOVERY_NO_DIGEST, RECOVERY_BUSY, RECOVERY_TARGET_EXISTS. RECOVERY_BUSY is a second request for a server-side (staging or storage) target while the first is still carrying it out; a download has no such state.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17604,6 +17614,162 @@
         "x-authenticated": true
       }
     },
+    "/backup-sets/{source}/{set}/recovery-test": {
+      "post": {
+        "operationId": "startRecoveryTest",
+        "summary": "Start a recovery test of this backup set's newest known good copy, now, in the background.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "source",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The configured source this backup set belongs to."
+          },
+          {
+            "name": "set",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The backup set's own name within that source."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartRecoveryTestRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted. The test is running in the background under the returned operation id: its start, stage and end lines carry that id on the activity feed, and its result lands on the copy's recovery claim. Nothing waits for it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryTestStarted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. The artifact id is malformed or belongs to another backup set, or this backup set is stored by the incremental engine, whose restore drill is its own.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "404": {
+            "description": "Refused: BACKUP_SET_NOT_FOUND, ARTIFACT_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "BACKUP_SET_NOT_FOUND",
+              "ARTIFACT_NOT_FOUND"
+            ]
+          },
+          "409": {
+            "description": "Refused: OPERATION_ALREADY_RUNNING. A recovery test of this backup set is already running. One at a time per set: a test reads a whole artifact, and two at once would be two reads of a copy that may be billed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "OPERATION_ALREADY_RUNNING"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
     "/assurance/due": {
       "get": {
         "operationId": "listAssuranceDue",
@@ -17806,162 +17972,6 @@
             },
             "x-error-codes": [
               "INTERNAL"
-            ]
-          }
-        },
-        "x-destructive-gate": false,
-        "x-idempotency-key": "none",
-        "x-optimistic-concurrency": null,
-        "x-csrf-required": true,
-        "x-authenticated": true
-      }
-    },
-    "/backup-sets/{source}/{set}/recovery-test": {
-      "post": {
-        "operationId": "startRecoveryTest",
-        "summary": "Start a recovery test of this backup set's newest known good copy, now, in the background.",
-        "tags": [
-          "assurance"
-        ],
-        "security": [
-          {
-            "session": [],
-            "csrf": [],
-            "csrfCookie": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "source",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "The configured source this backup set belongs to."
-          },
-          {
-            "name": "set",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            },
-            "description": "The backup set's own name within that source."
-          }
-        ],
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/StartRecoveryTestRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "202": {
-            "description": "Accepted. The test is running in the background under the returned operation id: its start, stage and end lines carry that id on the activity feed, and its result lands on the copy's recovery claim. Nothing waits for it.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RecoveryTestStarted"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Refused: INVALID_REQUEST. The artifact id is malformed or belongs to another backup set, or this backup set is stored by the incremental engine, whose restore drill is its own.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "x-error-codes": [
-              "INVALID_REQUEST"
-            ]
-          },
-          "401": {
-            "description": "Refused: UNAUTHENTICATED.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "x-error-codes": [
-              "UNAUTHENTICATED"
-            ]
-          },
-          "403": {
-            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "x-error-codes": [
-              "CSRF_TOKEN_MISSING",
-              "CSRF_TOKEN_MISMATCH"
-            ]
-          },
-          "404": {
-            "description": "Refused: BACKUP_SET_NOT_FOUND, ARTIFACT_NOT_FOUND.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "x-error-codes": [
-              "BACKUP_SET_NOT_FOUND",
-              "ARTIFACT_NOT_FOUND"
-            ]
-          },
-          "409": {
-            "description": "Refused: OPERATION_ALREADY_RUNNING. A recovery test of this backup set is already running. One at a time per set: a test reads a whole artifact, and two at once would be two reads of a copy that may be billed.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "x-error-codes": [
-              "OPERATION_ALREADY_RUNNING"
-            ]
-          },
-          "500": {
-            "description": "Refused: INTERNAL.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "x-error-codes": [
-              "INTERNAL"
-            ]
-          },
-          "503": {
-            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "x-error-codes": [
-              "NOT_CONFIGURED"
             ]
           }
         },

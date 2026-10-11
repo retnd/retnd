@@ -3021,7 +3021,13 @@ export interface RetndApi {
    * to hunt for it, and its absence then means either nothing is running
    * or nothing is reporting, with no way to tell which.
    */
-  getLiveActivity(options?: { setId?: string; since?: number; limit?: number }): Promise<LiveActivity>;
+  /**
+   * `before`, when positive, pages BACKWARDS through the durable record
+   * (events are kept for 30 days and at most 50,000 rows): each bucket
+   * answers with its events below that sequence, oldest first, and
+   * `truncated` says older ones remain. `since` is ignored then.
+   */
+  getLiveActivity(options?: { setId?: string; since?: number; before?: number; limit?: number }): Promise<LiveActivity>;
   listQuarantine(): Promise<BackupArtifact[]>;
   revalidate(artifactId: string): Promise<void>;
   retryIngestion(artifactId: string): Promise<void>;

@@ -9,6 +9,17 @@ This is a **measurement with stated ceilings, not a regression gate**. The
 ceilings are asserted every time the harness runs; nothing runs it on every
 push, because it writes about twelve gigabytes.
 
+> **Changed after this was measured.** A download is no longer staged: it is
+> streamed from the retained copy one verified 4 MiB chunk at a time, after a
+> preparation read that stores only chunk digests (`recover_stream.go`). The
+> numbers below were taken against the staged implementation, which held a
+> 256 KiB buffer and wrote the whole copy to the staging disk. The harness and
+> its ceilings are unchanged and still apply (the new buffer is 4 MiB, far
+> under both), but I have **not re-run the 4 GiB measurement** against the
+> streamed path, so the table is history and not a claim about it. The
+> harness's last assertion, that staging is empty afterwards, is now true for
+> the whole run and not only at the end.
+
 ## Running it
 
 ```
@@ -55,8 +66,8 @@ disk     ext4 on /dev/sda7, the artifact and its copies on the same filesystem
 
 Wall clock, for scale only: the CLI recovered 4 GiB in 33.9 s and the web
 process staged, verified and sent it in 26.7 s including its own startup and
-enrollment. The staged copy is on disk, not in memory, and is removed when the
-last byte is served.
+enrollment. In that implementation the staged copy was on disk, not in memory, and was
+removed when the last byte was served.
 
 Both recovered bytes hashed to
 `bccae53a3aa98301d3a5f25065aed4ccbee009e29b5fe4d917ce5be798ea19d1`, the
@@ -121,7 +132,34 @@ attempts on the way, which is `TestAnInteractiveStyleLimiterRefusesInsteadOfWait
   a client slower than the server's 30 second write timeout is covered by
   `handlers_recovery_test.go` rather than by this harness, because a
   loopback run would hide exactly that failure.
-- **Time to first byte for a remote copy.** The whole copy is read and verified
-  before the first byte is sent, so a browser waits for the entire
-  remote-to-staging transfer before its download starts. A gateway in front of
+- **Time to first byte.** The first download of an artifact makes a preparation
+  read of the whole copy before the first byte is sent (later downloads and
+  resumes reuse the stored chunk digests), so a browser waits for that read. A gateway in front of
   the engine needs a read timeout longer than that.
+
+## Re-measured for the release gate (#988)
+
+The release gate asks for the large-download budget as a measured number with the host it was
+measured on, so it was run again on the composed EPIC Q tree, after the other lanes' work had
+landed in it, rather than quoting the run above. One difference from the run above, stated rather
+than hidden: it is 2 GiB, not 4 GiB, because the shared host's disk had about 14 GB free and the
+4 GiB run writes about twelve, so the artifact lived on a 12 GB tmpfs instead. The ceilings below
+are the harness's own and are size-independent (a fixed 256 KiB buffer either holds or it does not).
+
+```
+host     MARS (devshell@192.168.0.100), shared, other containers running
+cpu      Intel Core i7-14700F, 28 hardware threads
+memory   32 GB
+os       linux/amd64, golang:1.27-bookworm, artifact and staging on tmpfs
+command  RECOVERY_PERF_BYTES=2147483648 go test ./tests/recoveryperf/ -run Memory -v -count=1
+```
+
+| Process | Peak RSS | Control (nothing recovered) | Attributable to the stream |
+|---|---|---|---|
+| `retnd recover --to -` | 47.5 MiB | 45.8 MiB (`retnd status`) | none measurable |
+| `retnd-web serve` | 112.1 MiB | 112.9 MiB (served nothing) | none measurable (-0.7 MiB) |
+
+Both recovered hashes equalled the ingested artifact's. The harness builds the two binaries with
+`GOWORK=off`, and on a tree that has taken the SQLite bump in `core` that build of `apps/generic`
+fails (`go: updates to go.mod needed`), which is also true of a clean `main`; this run built them
+under the workspace instead, by pointing the harness at `go.work`, and nothing else in it changed.

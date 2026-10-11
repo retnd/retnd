@@ -272,7 +272,7 @@ export function RecoverArtifactDialog({
               ) : null}
               {kind === "download" ? (
                 <div style={{ color: "var(--text-2)" }}>
-                  The host reads the whole copy and checks it against the digest it recorded before it sends the first byte, so the download may not start for a while. It works over plain http. The grant is single-use, lasts a few minutes and ends with this sign-in.
+                  Before it sends the first byte the host checks that the copy is there and is the size it recorded and, the first time this backup is downloaded, reads the whole copy against the digest it recorded, so the download may not start for a while. It then sends the copy straight from where it lives, 4 MiB at a time, checking each piece against that digest, and nothing is copied to the host&apos;s disk. If a piece fails the check the download is cut off, so an incomplete file means the download failed and not that the backup is short. It works over plain http. The grant is single-use, lasts a few minutes and ends with this sign-in.
                 </div>
               ) : null}
               {kind === "staging" ? (
@@ -343,15 +343,15 @@ export function RecoverArtifactDialog({
               <div className="aop__bar" role="progressbar" aria-label="Host check, no progress is reported" aria-busy={phase.k === "verifying"} data-indeterminate=""><i /></div>
               {phase.k === "verifying" ? (
                 <div>
-                  The host is reading the whole copy and matching it to the digest it recorded. It writes nothing until that matches. This page gets no progress from it, and closing this window does not stop it.
+                  The host is reading the copy once and matching it to the digest it recorded, to prepare the download. It sends and writes nothing until that matches. This page gets no progress from it, and closing this window does not stop it.
                 </div>
               ) : (
                 <>
                   <div>
-                    The host is reading the whole copy and checking it against the recorded digest. It sends the first byte only after that matches, so nothing has been sent yet and your browser may sit quiet for a while.
+                    The host has checked the copy and sends it from where it lives, 4 MiB at a time, checking each piece against the recorded digest. If one fails, the download is cut off short, so a file smaller than expected is a failed download. Your browser may sit quiet while the host prepares the first download of a backup.
                   </div>
                   <div>
-                    This page cannot see your browser&apos;s transfer, so it cannot tell you the file arrived, and a broken download cannot be resumed: ask for a new one. When your browser says it has finished, compare its checksum with the recorded one.
+                    This page cannot see your browser&apos;s transfer, so it cannot tell you the file arrived. An interrupted download can be resumed with a new link and a tool that sends Range and If-Range (the file&apos;s validator does not change); a browser may start over instead. When your browser says it has finished, compare its checksum with the recorded one.
                   </div>
                   {recorded ? <div className="mono" style={{ wordBreak: "break-all" }} data-testid="recorded-digest">{recorded}</div> : null}
                   {phase.mint.sizeBytes !== undefined ? <div className="mono">{"Expect " + bytes(phase.mint.sizeBytes)}</div> : null}

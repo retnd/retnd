@@ -38,10 +38,16 @@ test.describe("#985 Recover artifact: choosing", () => {
     await expect(dlg).not.toContainText("--accept-cost");
   });
 
-  test("says up front that the host checks the whole copy before sending a byte", async ({ page }) => {
+  test("says up front that the host prepares the download and then checks every piece it sends", async ({ page }) => {
     await toDetail(page, PG);
     await openDialog(page);
-    await expect(dialog(page)).toContainText(/checks it against the digest it recorded before it sends the first byte/);
+    const dlg = dialog(page);
+    await expect(dlg).toContainText(/reads the whole copy against the digest it recorded/);
+    await expect(dlg).toContainText(/straight from where it lives, 4 MiB at a time/);
+    await expect(dlg).toContainText(/nothing is copied to the host's disk/);
+    await expect(dlg).toContainText(/the download is cut off/);
+    // the retired wording: a whole-copy staging that the download no longer does
+    await expect(dlg).not.toContainText(/reads the whole copy and checks it against the digest it recorded before it sends the first byte/);
   });
 
   test("a backup with no copy has nothing to recover and the action stays off", async ({ page }) => {
@@ -184,9 +190,11 @@ test.describe("#985 Recover artifact: checking on the host", () => {
     const check = dlg.getByTestId("host-check");
     await expect(check).toHaveAttribute("data-phase", "handed");
     await expect(check).toContainText("Download handed to your browser");
-    await expect(check).toContainText(/nothing has been sent yet/);
+    await expect(check).toContainText(/checking each piece against the recorded digest/);
+    await expect(check).toContainText(/cut off short/);
     await expect(check).toContainText(/cannot see your browser's transfer/);
-    await expect(check).toContainText(/cannot be resumed/);
+    await expect(check).toContainText(/can be resumed with a new link/);
+    await expect(check).not.toContainText(/cannot be resumed|nothing has been sent yet/);
     await expect(dlg).not.toContainText(/Recovered|Download complete|your browser has the file/i);
     // the page offers the recorded digest to compare against, not a verdict
     await expect(dlg.getByTestId("recorded-digest")).toHaveText(/^sha256:[0-9a-f]{64}$/);
