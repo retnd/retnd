@@ -39,6 +39,12 @@ type recoveryStore struct {
 	restores atomic.Int32
 	uploads  atomic.Int32
 	flipAt   int // when >= 0, bit-flip this offset on every read
+
+	// restoreState and restoreErr are what the provider says about a
+	// restore of any object, for the archive-class cases.
+	restoreState *transport.RestoreState
+	restoreErr   error
+	statuses     atomic.Int32
 }
 
 func newRecoveryStore() *recoveryStore {
@@ -91,7 +97,8 @@ func (s *recoveryStore) ListObjects(context.Context, transport.Medium, string) (
 	return nil, errors.New("recovery must never list a destination")
 }
 func (s *recoveryStore) RestoreStatus(context.Context, transport.Medium, string) (*transport.RestoreState, error) {
-	return nil, nil
+	s.statuses.Add(1)
+	return s.restoreState, s.restoreErr
 }
 func (s *recoveryStore) InitiateRestore(context.Context, transport.Medium, string, int) error {
 	s.restores.Add(1)
@@ -713,5 +720,60 @@ func TestTheRecoveryPathSpawnsNoSubprocess(t *testing.T) {
 				t.Errorf("%s imports %s", name, imp.Path.Value)
 			}
 		}
+	}
+}
+
+func TestARestoredArchiveCopyIsReadableAndNeedsNoSecondRestore(t *testing.T) {
+	f := newRecoveryFixture(t, fixtureOpts{remoteClass: "cold"})
+	expires := time.Now().Add(48 * time.Hour)
+	f.store.restoreState = &transport.RestoreState{InProgress: false, ExpiresAt: &expires}
+
+	res, thaw, err := f.b.RecoverNow(context.Background(), f.session(),
+		RecoveryRequest{ArtifactID: f.artifact, Target: stagingTo("x"), AcknowledgeCost: true}, nil)
+	if err != nil || thaw != nil {
+		t.Fatalf("the provider says the restore finished, so the copy is readable: %+v, %+v, %v", res, thaw, err)
+	}
+	if f.store.restores.Load() != 0 {
+		t.Fatalf("a copy that is already restored started %d more provider restores", f.store.restores.Load())
+	}
+	if f.store.opens.Load() != 1 {
+		t.Fatalf("the restored copy was read %d times, want 1", f.store.opens.Load())
+	}
+}
+
+func TestAnArchiveCopyMidRestoreIsNotReadableAndStartsNothing(t *testing.T) {
+	f := newRecoveryFixture(t, fixtureOpts{remoteClass: "cold"})
+	f.store.restoreState = &transport.RestoreState{InProgress: true}
+	_, err := f.b.MintRecovery(context.Background(), f.session(),
+		RecoveryRequest{ArtifactID: f.artifact, Target: stagingTo("x"), AcknowledgeCost: true})
+	if codeOf(t, err) != RecoveryNotReadable {
+		t.Fatalf("want %s, got %v", RecoveryNotReadable, err)
+	}
+	if f.store.restores.Load() != 0 || f.store.opens.Load() != 0 {
+		t.Fatalf("a restore in progress must neither be started again nor read: restores=%d opens=%d", f.store.restores.Load(), f.store.opens.Load())
+	}
+}
+
+func TestAnArchiveCopyWhoseMediumDoesNotAnswerIsUnreadableAndStartsNothing(t *testing.T) {
+	f := newRecoveryFixture(t, fixtureOpts{remoteClass: "cold"})
+	f.store.restoreErr = errors.New("connection refused")
+	_, err := f.b.MintRecovery(context.Background(), f.session(),
+		RecoveryRequest{ArtifactID: f.artifact, Target: stagingTo("x"), AcknowledgeCost: true})
+	if codeOf(t, err) != RecoveryNotReadable {
+		t.Fatalf("want %s, got %v", RecoveryNotReadable, err)
+	}
+	if f.store.restores.Load() != 0 {
+		t.Fatal("an unreachable medium was asked to start a restore")
+	}
+}
+
+func TestOnlyAnArchiveClassCopyIsProbedAndNeverToStartAnything(t *testing.T) {
+	f := newRecoveryFixture(t, fixtureOpts{remoteClass: "warm"})
+	if _, _, err := f.b.RecoverNow(context.Background(), f.session(),
+		RecoveryRequest{ArtifactID: f.artifact, Target: stagingTo("x"), AcknowledgeCost: true}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if f.store.statuses.Load() != 0 {
+		t.Fatalf("a standard-class copy was asked about restores %d times: that is a metadata call with no reason to be made", f.store.statuses.Load())
 	}
 }

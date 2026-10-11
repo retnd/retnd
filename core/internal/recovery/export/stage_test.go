@@ -1,6 +1,7 @@
 package export
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -229,5 +230,61 @@ func TestStagingPublishRefusesToPublishAForeignFile(t *testing.T) {
 	}
 	if _, err := os.Stat(foreign); err != nil {
 		t.Fatalf("the foreign file was moved: %v", err)
+	}
+}
+
+func TestStagingCountsWhatIsAlreadySpokenForSoTwoCopiesCannotBothFit(t *testing.T) {
+	c := newClock()
+	s := newStaging(t, c)
+	s.Reserve = 500
+	s.FreeBytes = func(string) (int64, error) { return 1500, nil }
+
+	first, err := s.Begin(600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	// Neither file has been written yet, so the disk still reports 1500
+	// free. Two concurrent recoveries each checking that alone would both
+	// pass; together they would leave 300, under the reserve.
+	if _, err := s.Begin(600); !errors.Is(err, ErrBelowReserve) {
+		t.Fatalf("a second copy that cannot fit beside the first was admitted: %v", err)
+	}
+	s.Release(600)
+	second, err := s.Begin(600)
+	if err != nil {
+		t.Fatalf("after the first released its claim there is room again: %v", err)
+	}
+	second.Close()
+}
+
+func TestStageGivesBackItsClaimOnSuccessAndOnFailure(t *testing.T) {
+	e, st := newEngine(t)
+	st.Reserve = 500
+	st.FreeBytes = func(string) (int64, error) { return 1500, nil }
+	data := sample(600)
+	for i := 0; i < 3; i++ {
+		src := goodSource(data)
+		if i == 1 {
+			src = &bytesSource{data: data, flipAt: 3}
+		}
+		s, err := e.Stage(context.Background(), src, expectFor(data, OriginLocal))
+		if i != 1 && err != nil {
+			t.Fatalf("stage %d: %v (the previous one kept its claim)", i, err)
+		}
+		if s != nil {
+			_ = s.Discard()
+		}
+	}
+}
+
+func TestATargetNameHasALengthBound(t *testing.T) {
+	c := newClock()
+	s := newStaging(t, c)
+	if err := s.ValidateName(strings.Repeat("a/", 300) + "x"); !errors.Is(err, ErrTargetTooLong) {
+		t.Fatalf("want ErrTargetTooLong, got %v", err)
+	}
+	if err := s.ValidateName("restored/dump.tar"); err != nil {
+		t.Fatalf("an ordinary name was refused: %v", err)
 	}
 }

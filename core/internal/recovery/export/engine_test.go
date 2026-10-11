@@ -126,11 +126,17 @@ func TestStageShortAndLongCopiesFail(t *testing.T) {
 	data := sample(10000)
 	exp := expectFor(data, OriginLocal)
 
-	if _, err := e.Stage(context.Background(), goodSource(data[:9000]), exp); !errors.Is(err, ErrIntegrity) {
-		t.Fatalf("short copy: %v", err)
-	}
-	if _, err := e.Stage(context.Background(), goodSource(append(append([]byte(nil), data...), 1)), exp); !errors.Is(err, ErrIntegrity) {
-		t.Fatalf("long copy: %v", err)
+	// The kind matters, not just the failure: a short copy would also fail
+	// the digest, so only the kind shows the length itself was checked.
+	for name, src := range map[string]*bytesSource{
+		"short copy": goodSource(data[:9000]),
+		"long copy":  goodSource(append(append([]byte(nil), data...), 1)),
+	} {
+		_, err := e.Stage(context.Background(), src, exp)
+		var ie *IntegrityError
+		if !errors.As(err, &ie) || ie.Kind != KindSize {
+			t.Fatalf("%s: want a size mismatch, got %v", name, err)
+		}
 	}
 	if entries, _ := st.Entries(); len(entries) != 0 {
 		t.Fatalf("left %v", entries)

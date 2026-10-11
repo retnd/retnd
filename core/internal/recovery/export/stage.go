@@ -20,6 +20,10 @@ var (
 	// copy is opened, so nothing was read and nothing was billed.
 	ErrBelowReserve = errors.New("recovery: staging this copy would take the staging disk below its free-space reserve")
 
+	// ErrTargetTooLong: the requested target name is longer than any real
+	// path needs to be.
+	ErrTargetTooLong = errors.New("recovery: target name is too long")
+
 	// ErrTargetOutsideRoot: the requested target name does not stay under
 	// the recovery staging root.
 	ErrTargetOutsideRoot = errors.New("recovery: target is outside the recovery staging root")
@@ -171,6 +175,9 @@ func (s *Staging) Begin(need int64) (File, error) {
 	}
 	return f, nil
 }
+
+// Release gives back the claim a Begin of need bytes made.
+func (s *Staging) Release(need int64) {}
 
 func isPartial(name string) bool {
 	return strings.HasPrefix(name, partialPrefix) && strings.HasSuffix(name, partialSuffix)
