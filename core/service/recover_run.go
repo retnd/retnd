@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -46,8 +45,9 @@ type RecoveryStream interface {
 
 var _ RecoveryStream = (*RecoveryDownload)(nil)
 
-// RecoveryDownload is a started browser download: a verified, staged copy
-// the HTTP layer serves ranges of, one request at a time.
+// RecoveryDownload is a started browser download: a chunk-verified stream
+// over the retained copy (recover_stream.go) that the HTTP layer serves ranges
+// of, one request at a time. Nothing is staged.
 //
 // The grant is spent when every byte has been served (in any number of
 // ranges, in any order), when any request
@@ -58,7 +58,9 @@ var _ RecoveryStream = (*RecoveryDownload)(nil)
 type RecoveryDownload struct {
 	name    string
 	size    int64
-	content io.ReadSeekCloser
+	content *export.VerifiedReader
+	index   *export.ChunkIndex
+	etag    string
 
 	b      *BackupService
 	token  string
@@ -76,7 +78,7 @@ func (d *RecoveryDownload) Length() int64 { return d.size }
 // Reader implements RecoveryStream.
 func (d *RecoveryDownload) Reader() io.ReadSeeker { return d.content }
 
-// Close releases the file handle of this request. It does not spend the
+// Close releases this request's read of the copy. It does not spend the
 // grant; Served does that.
 func (d *RecoveryDownload) Close() {
 	d.closed.Do(func() {
@@ -87,8 +89,9 @@ func (d *RecoveryDownload) Close() {
 }
 
 // Served records one request's outcome: which bytes went, and whether it
-// worked. A failed request, or one that reached the last byte, spends the
-// grant and removes the staged copy.
+// worked. A failed request spends the grant. So do the ranges that, taken
+// together, are the whole artifact, and that moment is also when the
+// download's final verification is written to the trail.
 func (d *RecoveryDownload) Served(start, end, written int64, err error) {
 	ev := d.ev
 	ev.op = "range"
@@ -104,7 +107,12 @@ func (d *RecoveryDownload) Served(start, end, written int64, err error) {
 		return
 	}
 	d.b.auditRecovery(context.Background(), &ev, err)
-	if err != nil || d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {
+	if err != nil {
+		d.b.finishRecoveryDownload(d.token)
+		return
+	}
+	if d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {
+		d.recordVerified()
 		d.b.finishRecoveryDownload(d.token)
 	}
 }
@@ -143,21 +151,25 @@ func (b *BackupService) RedeemRecovery(ctx context.Context, sess RecoverySession
 	g := redeem.Grant
 	ev.artifact, ev.copy, ev.target = g.Artifact, g.Copy, recoveryTargetOf(g.Target).label()
 
-	if !redeem.First {
-		staged, ok := redeem.Attached.(*export.Staged)
-		if !ok || staged == nil || g.Target.Kind != export.TargetDownload {
-			h.grants.Done(token)
-			berr := recoveryErr(RecoveryBusy, "this recovery is still being prepared; try the same link again in a moment")
-			b.auditRecovery(ctx, &ev, berr)
-			return nil, nil, berr
-		}
-		d, oerr := b.newRecoveryDownload(staged, token, sess.Actor, ev)
-		if oerr != nil {
-			b.finishRecoveryDownload(token)
-			b.auditRecovery(ctx, &ev, oerr)
-			return nil, nil, mapRecoveryError(oerr)
+	if g.Target.Kind == export.TargetDownload {
+		// Streamed, never staged. A first request and a range after it run
+		// the same pre-flight, and two requests at once share one
+		// preparation read, so there is no "still being prepared" to wait
+		// out.
+		d, derr := b.redeemDownload(ctx, h, sess, token, redeem, ev)
+		if derr != nil {
+			return nil, nil, derr
 		}
 		return d, nil, nil
+	}
+	if !redeem.First {
+		// A server-side target is carried out in the request that redeems
+		// it. A second request for the same token while the first is still
+		// at it has nothing to continue.
+		h.grants.Done(token)
+		berr := recoveryErr(RecoveryBusy, "this recovery is still being prepared; try the same link again in a moment")
+		b.auditRecovery(ctx, &ev, berr)
+		return nil, nil, berr
 	}
 
 	staged, serr := b.stageGrant(ctx, g)
@@ -168,16 +180,6 @@ func (b *BackupService) RedeemRecovery(ctx context.Context, sess RecoverySession
 	}
 
 	switch g.Target.Kind {
-	case export.TargetDownload:
-		h.grants.Attach(token, staged)
-		d, oerr := b.newRecoveryDownload(staged, token, sess.Actor, ev)
-		if oerr != nil {
-			b.finishRecoveryDownload(token)
-			b.auditRecovery(ctx, &ev, oerr)
-			return nil, nil, mapRecoveryError(oerr)
-		}
-		return d, nil, nil
-
 	case export.TargetStaging:
 		defer h.grants.Close(token)
 		final, perr := h.staging.Publish(staged.Path, g.Target.Path)
@@ -220,15 +222,6 @@ func (b *BackupService) discardStaged(s *export.Staged) {
 	if err := s.Discard(); err != nil {
 		b.logCleanupFailure(err)
 	}
-}
-
-func (b *BackupService) newRecoveryDownload(staged *export.Staged, token, actor string, ev recoveryEvent) (*RecoveryDownload, error) {
-	f, err := staged.Open()
-	if err != nil {
-		return nil, err
-	}
-	name := filepath.Base(ev.artifact)
-	return &RecoveryDownload{name: name, size: staged.Size, content: f, b: b, token: token, actor: actor, ev: ev}, nil
 }
 
 // stageGrant re-derives the plan from the journal as it is NOW, so a copy
@@ -304,7 +297,13 @@ func (b *BackupService) RecoverNow(ctx context.Context, sess RecoverySession, re
 	if cerr != nil {
 		return RecoveryResult{}, nil, mapRecoveryError(cerr)
 	}
-	return RecoveryResult{ArtifactID: req.ArtifactID, Copy: grant.Copy, Target: req.Target, Bytes: n}, nil, nil
+	out2 := RecoveryResult{ArtifactID: req.ArtifactID, Copy: grant.Copy, Target: req.Target, Bytes: n}
+	if v, ok := dl.(RecoveryValidator); ok {
+		// Every chunk written matched the digest the journal recorded, so
+		// this is the digest of what was written, not a promise about it.
+		out2.SHA256 = v.SHA256()
+	}
+	return out2, nil, nil
 }
 
 // EndRecoverySession revokes every grant the session minted and removes any
@@ -339,6 +338,9 @@ func (b *BackupService) sweepRecoveryIfDue(ctx context.Context) {
 	h.sweepMu.Unlock()
 	if !due {
 		return
+	}
+	if _, err := h.indexes.store.Sweep(); err != nil {
+		b.logger.Error(ctx, "recovery_index_sweep", err)
 	}
 	if rep, err := h.staging.Sweep(); err != nil {
 		b.logger.Error(ctx, "recovery_cleanup", err)

@@ -118,7 +118,9 @@ func TestAFailedTailRangeStillSpendsTheGrant(t *testing.T) {
 	requireGrantSpent(t, f, token, "after a failed request")
 }
 
-// Nobody comes back: the reaper, not a later request, frees the staged copy.
+// Nobody comes back: the reaper, not a later request, lets the download go.
+// (Nothing is staged any more, so what it frees is the open grant and the
+// index it holds.)
 func TestAbandonedDownloadIsReapedWithoutANewRequest(t *testing.T) {
 	f := newRecoveryFixture(t, fixtureOpts{localCopy: true})
 	old := recoveryReapEvery
@@ -127,8 +129,8 @@ func TestAbandonedDownloadIsReapedWithoutANewRequest(t *testing.T) {
 
 	token, dl := redeemDownload(t, f)
 	serveRange(dl, 0, 99) // started, then abandoned
-	if len(f.stagingEntries(t)) == 0 {
-		t.Fatal("setup: nothing is staged")
+	if f.b.recoveryHost().grants.Active() != 1 {
+		t.Fatal("setup: no download is open")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -138,9 +140,9 @@ func TestAbandonedDownloadIsReapedWithoutANewRequest(t *testing.T) {
 
 	f.clock.Advance(10 * time.Minute) // past the grant's idle lifetime
 	deadline := time.Now().Add(5 * time.Second)
-	for len(f.stagingEntries(t)) != 0 {
+	for f.b.recoveryHost().grants.Active() != 0 {
 		if time.Now().After(deadline) {
-			t.Fatalf("an abandoned download's staged copy is still on disk with no request to reap it: %v", f.stagingEntries(t))
+			t.Fatal("an abandoned download is still open with no request to reap it")
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -178,9 +180,9 @@ func TestRunOnScheduleStartsTheRecoveryReaper(t *testing.T) {
 	})
 
 	deadline := time.Now().Add(5 * time.Second)
-	for len(f.stagingEntries(t)) != 0 {
+	for f.b.recoveryHost().grants.Active() != 0 {
 		if time.Now().After(deadline) {
-			t.Fatalf("RunOnSchedule never reaped the abandoned download: %v", f.stagingEntries(t))
+			t.Fatal("RunOnSchedule never reaped the abandoned download")
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
