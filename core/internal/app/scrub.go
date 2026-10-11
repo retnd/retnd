@@ -118,8 +118,20 @@ type scrubLimitsState struct {
 // scrubLimits is this process's shared admission control for scrub reads.
 // It is created once, so the scheduler tick and a manual scrub in the same
 // process draw on one global cap.
+//
+// The two ceilings are the operator's own (assurance.max_concurrent_full_reads
+// and assurance.max_per_destination), as the process first scrubbed. They are
+// read once because a limiter that is resized while reads hold its slots
+// would admit more than either number allows, so a change to them applies
+// from the next start. A hand-built Config that never ran Validate carries
+// zeros, which the limiter fills with the same defaults.
 func (s *Service) scrubLimitsShared() *revalidate.Limits {
-	s.scrub.once.Do(func() { s.scrub.limits = revalidate.NewLimits(revalidate.Bounds{}) })
+	s.scrub.once.Do(func() {
+		s.scrub.limits = revalidate.NewLimits(revalidate.Bounds{
+			GlobalConcurrency:         s.Config.Assurance.MaxConcurrentFullReads,
+			PerDestinationConcurrency: s.Config.Assurance.MaxPerDestination,
+		})
+	})
 	return s.scrub.limits
 }
 
