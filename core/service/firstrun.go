@@ -291,6 +291,12 @@ func (f *FirstRun) CreateInitialConfig(ctx context.Context, req CreateBackupSetR
 	if f.Configured() {
 		return BackupSet{}, ErrAlreadyConfigured
 	}
+	// The wizard writes the first configuration there has ever been; over a
+	// journal that holds backups it would be the default-config overwrite
+	// again, through the other door (retnd#1049).
+	if err := CheckJournalIsFresh(ctx, f.defaults.StateDatabase); err != nil {
+		return BackupSet{}, err
+	}
 	if err := validateCreateRequest(req); err != nil {
 		return BackupSet{}, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
 	}

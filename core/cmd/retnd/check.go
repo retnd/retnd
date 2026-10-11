@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/retnd/retnd/core/cliecho"
 	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // cmdCheck is `retnd check`: a pre-flight answer to "can this
@@ -43,6 +45,21 @@ func cmdCheck(args []string) int {
 	sets := 0
 	for _, src := range cfg.Sources {
 		sets += len(src.BackupSets)
+	}
+	// A configuration with no backup set is valid on a fresh install
+	// (retnd#1049), but not over a journal that holds backups: that is a
+	// configuration that lost its sets, and `check` is the command an
+	// operator runs to ask whether the configuration is right.
+	if len(cfg.Sources) == 0 {
+		n, _, jerr := state.CountArtifactsReadOnly(context.Background(), cfg.State.Database)
+		if jerr != nil || n > 0 {
+			held := fmt.Sprintf("holds %d backup(s)", n)
+			if jerr != nil {
+				held = fmt.Sprintf("cannot be read (%v)", jerr)
+			}
+			fmt.Fprintf(os.Stderr, cliecho.Binary+": the configuration at %s names no source, but the journal at %s %s. Restore the sources, or mount the configuration this journal belongs to.\n", *cfgPath, cfg.State.Database, held)
+			return exitFailure
+		}
 	}
 	fmt.Printf("config OK: %d source(s), %d backup set(s)\n", len(cfg.Sources), sets)
 	fmt.Printf("state database OK: %s\n", cfg.State.Database)

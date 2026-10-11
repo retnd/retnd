@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -38,6 +39,18 @@ func printFirstRunNotice(out io.Writer, cfgPath, verb string) int {
 	path, _ := configAbsentAt(cfgPath)
 	if path == "" {
 		path = config.ResolvePath(cfgPath)
+	}
+
+	// No configuration is a fresh install only when the journal agrees. A
+	// journal that holds backups next to a missing configuration is a lost
+	// or unmounted configuration volume, and it must read as the failure it
+	// is: `status` is the image's HEALTHCHECK, and a green exit here would
+	// report a deployment with no configuration as healthy (panel finding
+	// C7 on retnd#1049).
+	if err := service.CheckJournalIsFresh(context.Background(), service.StateDatabaseDefault()); err != nil {
+		fmt.Fprintf(os.Stderr, cliecho.Binary+": %v\n", err)
+		fmt.Fprintf(os.Stderr, "No configuration was found at %s. Restore the configuration volume, or mount the one this journal belongs to; nothing was written.\n", path)
+		return exitFailure
 	}
 	writable := service.ConfigDirWritable(path)
 

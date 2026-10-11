@@ -465,7 +465,18 @@ func (h *handlers) getSettings(w http.ResponseWriter, r *http.Request) {
 // "no sets": the answer errs towards the settled, not-first-run reading.
 func (h *handlers) noSetsYet(ctx context.Context) bool {
 	sets, err := h.backend.ListBackupSets(ctx)
-	return err == nil && len(sets) == 0
+	if err != nil || len(sets) != 0 {
+		return false
+	}
+	// A configuration with no sets over a journal that holds backups is a
+	// deployment that lost its sets, not one that has never had any, so it
+	// is not a first run (retnd#1049). A journal that cannot be counted
+	// errs the same way, towards the settled reading.
+	if holder, ok := h.backend.(JournalHolder); ok {
+		n, err := holder.JournalArtifactCount(ctx)
+		return err == nil && n == 0
+	}
+	return true
 }
 
 // updateSettings is PATCH /api/v1/settings: issue #140 (B3.7)'s generic

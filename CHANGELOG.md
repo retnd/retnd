@@ -12,6 +12,10 @@
   absent configuration is no longer an ERROR line, and `retnd status` and `retnd check`
   on a fresh install print a first-run notice with the next step and exit 0 (`check`
   still fails, naming the directory, when the configuration directory is not writable).
+  A missing configuration is only a fresh install while the journal agrees: if the
+  journal already holds backups, no default is written, `status` and `check` exit 1
+  naming the journal, the engine stops instead of serving the setup flow, an empty
+  cycle stays an ERROR, and the Settings read is not a first run.
   The Settings page shows the engine's defaults, a first-run guide replaces the old
   one-paragraph banner (administrator, email, first backup set, each skippable), and
   enrolment no longer needs a mail server. "Copy details" now works on a plain-http
