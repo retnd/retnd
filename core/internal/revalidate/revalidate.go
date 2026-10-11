@@ -496,6 +496,21 @@ func scrubArtifact(ctx context.Context, deps Deps, cfg config.Revalidation, opts
 		}
 		filtered.Placements = append(filtered.Placements, p)
 	}
+	// The local copy is all-or-nothing. runChecks reads medium copies only
+	// when there is no ACTIVE local one, so dropping a leased local copy from
+	// the record would not skip the artifact, it would quietly turn the pass
+	// into a check of the medium copies of a mid-move artifact that the local
+	// copy's holder is in the middle of checking.
+	if lp, ok := rec.LocalPlacement(); ok {
+		held := false
+		for _, m := range claimed {
+			held = held || m == lp.Medium
+		}
+		if !held {
+			releaseAll(deps, rec.Artifact, claimed, holder)
+			return nil, skips, 0, nil
+		}
+	}
 	if len(claimed) == 0 {
 		return nil, skips, 0, nil
 	}

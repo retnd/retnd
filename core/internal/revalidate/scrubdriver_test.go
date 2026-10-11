@@ -650,3 +650,33 @@ func corrupt(t *testing.T, path string) {
 		t.Fatalf("corrupting %s: %v", path, err)
 	}
 }
+
+// A mid-move artifact has a local copy and a medium copy, and the pass checks
+// the local one. If another scrubber holds the local copy, the artifact is
+// skipped: the medium copy must not be checked in its place, which is what a
+// record with the local copy quietly removed would turn into.
+func TestALeasedLocalCopySkipsTheArtifactAndNeverFallsThroughToTheMediumCopy(t *testing.T) {
+	ctx := context.Background()
+	j := openJournal(t)
+	a := artifactNamed(t, "midmove.dump")
+	content := []byte("both places")
+	long := time.Now().UTC().Add(-90 * 24 * time.Hour)
+	path := completeArtifact(t, j, a, content, long)
+	addLocalPlacementFrom(t, j, a, "COMPLETE", path, content, long)
+	addMediumPlacement(t, j, a, "offsite", content, long)
+
+	if ok, err := j.ClaimCopyScrub(ctx, a, state.MediumLocal, "someone-else", time.Now(), time.Hour); err != nil || !ok {
+		t.Fatalf("fixture claim = %v, %v", ok, err)
+	}
+	store := &bytesStore{content: content}
+	rep, err := Run(ctx, Deps{Journal: j, Store: store, Mediums: classMediums{id: "offsite"}, Holder: "me"}, a.Set, scrubCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.stats.Load() != 0 {
+		t.Errorf("the medium copy was checked %d times while the local copy was leased", store.stats.Load())
+	}
+	if len(rep.Findings) != 0 || len(rep.Skipped) != 1 || rep.Skipped[0].Reason != SkipLeased {
+		t.Errorf("findings=%+v skipped=%+v", rep.Findings, rep.Skipped)
+	}
+}
