@@ -1568,12 +1568,25 @@ func buildWeb(t *testing.T, root string) string {
 }
 
 // firstRunStack is a deployment in the state an installer leaves behind:
-// no config.yaml at all, an administrator already enrolled, and the real
-// engine up and serving the setup flow.
+// no config.yaml, an administrator already enrolled, and the real engine
+// started against it.
+//
+// What the engine does next depends on whether it can write the
+// configuration directory (#1049). From startFirstRunStack it can: it writes
+// its own default config.yaml on that first start and is a configured engine
+// from its first second. From startSetupFlowStack it cannot, so it serves the
+// setup flow exactly as it did before #1049, which is the state #571 and the
+// wizard's own save were written against and which still exists on an
+// install whose configuration mount is read-only.
 type firstRunStack struct {
 	configPath    string
 	stateDatabase string
 	engineURL     string
+
+	// unlockConfigDir makes the configuration directory writable again,
+	// which is what an operator fixing the mount does. A no-op on a stack
+	// that never locked it.
+	unlockConfigDir func()
 
 	// log is everything the engine has printed so far, so a failure here
 	// carries the process's own account of what it did rather than only
@@ -1582,9 +1595,31 @@ type firstRunStack struct {
 }
 
 // startFirstRunStack performs steps 1 and 2 of #571: install, then enrol an
-// administrator through the Web UI. Nothing writes a configuration, which
-// is #176's whole point and the state the rest of this test is about.
+// administrator through the Web UI. Nothing of the test writes a
+// configuration. Since #1049 the engine does: on its first start it writes a
+// default config.yaml (no sources) and serves as a configured engine, so
+// "installed and not yet given a backup set" is an ordinary configured
+// state and no longer a setup flow.
 func startFirstRunStack(t *testing.T, webBin string) *firstRunStack {
+	t.Helper()
+	return startFreshInstall(t, webBin, false)
+}
+
+// startSetupFlowStack is the same install with the configuration directory
+// read-only, so the engine cannot write its default config.yaml and falls back
+// to serving the setup flow. That is the one way left to meet an engine with
+// no configuration (a read-only config mount), and it is the state #571's
+// guard and the wizard's first-run save still have to work in. The test is
+// skipped as root, where a mode bit restricts nothing.
+func startSetupFlowStack(t *testing.T, webBin string) *firstRunStack {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("a read-only configuration directory restricts nothing for root, so the engine would write its default config")
+	}
+	return startFreshInstall(t, webBin, true)
+}
+
+func startFreshInstall(t *testing.T, webBin string, lockConfigDir bool) *firstRunStack {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -1609,6 +1644,17 @@ func startFirstRunStack(t *testing.T, webBin string) *firstRunStack {
 		Password:  testPassword,
 	}); err != nil {
 		t.Fatalf("CreateAdmin: %v", err)
+	}
+
+	unlock := func() {}
+	if lockConfigDir {
+		// Registered after TempDir's own cleanup, so it runs first and the
+		// directory can be removed.
+		unlock = func() { _ = os.Chmod(dir, 0o700) }
+		t.Cleanup(unlock)
+		if err := os.Chmod(dir, 0o500); err != nil {
+			t.Fatalf("making %s read-only: %v", dir, err)
+		}
 	}
 
 	addr := freeAddr(t)
@@ -1638,6 +1684,8 @@ func startFirstRunStack(t *testing.T, webBin string) *firstRunStack {
 		stateDatabase: stateDatabase,
 		engineURL:     base,
 		log:           out.String,
+
+		unlockConfigDir: unlock,
 	}
 }
 
@@ -1790,7 +1838,14 @@ const exitEngineHoldsDeployment = 3
 // command went. A guard that refused and left the file written would satisfy
 // an exit-code assertion and fail this one.
 //
-// The second case is the control that keeps the first from being satisfied
+// Since #1049 a fresh install starts as a configured engine on its own
+// default config.yaml, so the first case below is the ordinary fresh install
+// and its precondition is that file, with no set in it. The setup flow is
+// still served when the configuration directory cannot be written, so the
+// second case keeps #571's original state alive through that door. Both must
+// refuse the same way and leave the same file behind.
+//
+// The last case is the control that keeps the others from being satisfied
 // by refusing everything. A genuinely bare host, with nothing serving and no
 // state directory yet, still writes its first configuration from the command
 // line, which is the case the direct path exists for and the one the
@@ -1802,22 +1857,19 @@ func TestAFirstCreateFromTheCLICannotLandBehindTheSetupFlow(t *testing.T) {
 	root := repoRoot(t)
 	bin := buildCLI(t, root)
 
-	t.Run("beside an engine serving the setup flow", func(t *testing.T) {
-		live := startFirstRunStack(t, buildWeb(t, root))
-		view := signIn(t, live.engineURL)
-
-		// The state #571 was reported from, asserted rather than assumed.
-		// Without these three the case below could pass on a deployment
-		// that was already configured, which is a different issue with a
-		// different answer.
-		if _, err := os.Stat(live.configPath); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("this deployment already has a configuration at %s (stat err = %v), so it is not the fresh install #571 is about", live.configPath, err)
-		}
-		if !notReady(t, live.engineURL) {
-			t.Fatalf("the engine is ready before anything has configured it, so it is not serving the setup flow:\n%s", live.log())
-		}
-		if sets := view.backupSetsOrUnconfigured(); len(sets) != 0 {
-			t.Fatalf("the engine already lists backup sets on a deployment with no configuration: %v", sets)
+	// refusedBesideTheEngine is the shared body: the create is refused the
+	// way #538, #542 and #551 already promise for any create beside an
+	// engine with no route, nothing is written, and the two surfaces still
+	// agree. wantConfig is whether the engine is expected to have left a
+	// config.yaml (its default) for the refusal to leave alone.
+	refusedBesideTheEngine := func(t *testing.T, live *firstRunStack, view *browser, wantConfig bool) {
+		t.Helper()
+		var before []byte
+		if wantConfig {
+			var err error
+			if before, err = os.ReadFile(live.configPath); err != nil {
+				t.Fatalf("a fresh install's engine should have written its default configuration to %s (#1049): %v\nengine log:\n%s", live.configPath, err, live.log())
+			}
 		}
 
 		got := runCLI(t, bin, nil, createArgs(live.configPath, writePrivateKey(t), newSetID,
@@ -1828,6 +1880,9 @@ func TestAFirstCreateFromTheCLICannotLandBehindTheSetupFlow(t *testing.T) {
 		if !equal(cliSets, engineSets) {
 			t.Fatalf("the CLI and the engine serving this deployment describe different worlds after a `backup-set create`, which is issue #535 on a fresh install.\nCLI:    %v\nengine: %v\n%s\nengine log:\n%s",
 				cliSets, engineSets, got, live.log())
+		}
+		if contains(cliSets, newSetID) {
+			t.Errorf("the refused create landed anyway: %v\n%s", cliSets, got)
 		}
 
 		// And the refusal is the one #538, #542 and #551 already promise
@@ -1842,9 +1897,62 @@ func TestAFirstCreateFromTheCLICannotLandBehindTheSetupFlow(t *testing.T) {
 		if !strings.Contains(got.output(), "refused here rather than downgraded") {
 			t.Errorf("the refusal did not say that nothing was written:\n%s", got)
 		}
-		if _, err := os.Stat(live.configPath); !errors.Is(err, os.ErrNotExist) {
-			t.Errorf("a refused create wrote %s underneath the engine serving the setup flow (stat err = %v)", live.configPath, err)
+		after, err := os.ReadFile(live.configPath)
+		switch {
+		case wantConfig && err != nil:
+			t.Errorf("the refused create removed %s: %v", live.configPath, err)
+		case wantConfig && !bytes.Equal(before, after):
+			t.Errorf("a refused create rewrote %s underneath the engine serving it\nbefore:\n%s\nafter:\n%s", live.configPath, before, after)
+		case !wantConfig && !errors.Is(err, os.ErrNotExist):
+			t.Errorf("a refused create wrote %s underneath the engine serving the setup flow (read err = %v)", live.configPath, err)
 		}
+	}
+
+	t.Run("beside an engine on a fresh install's default configuration", func(t *testing.T) {
+		live := startFirstRunStack(t, buildWeb(t, root))
+		view := signIn(t, live.engineURL)
+
+		// The state #1049 leaves behind, asserted rather than assumed.
+		// Without these the case below could pass on a deployment the
+		// engine never configured, which is a different state with a
+		// different answer.
+		if _, err := os.Stat(live.configPath); err != nil {
+			t.Fatalf("the engine wrote no default configuration to %s on a fresh install (#1049): %v\nengine log:\n%s", live.configPath, err, live.log())
+		}
+		if notReady(t, live.engineURL) {
+			t.Fatalf("a fresh install's engine is still answering 503 though it wrote its own configuration:\n%s", live.log())
+		}
+		if sets := view.backupSetsOrUnconfigured(); len(sets) != 0 {
+			t.Fatalf("a fresh install lists backup sets before anyone created one: %v", sets)
+		}
+
+		refusedBesideTheEngine(t, live, view, true)
+
+		// The engine is still the configured, ready engine it was, which is
+		// the remedy the operator actually has.
+		if notReady(t, live.engineURL) {
+			t.Errorf("the engine stopped being ready after a refused create:\n%s", live.log())
+		}
+	})
+
+	t.Run("beside an engine serving the setup flow", func(t *testing.T) {
+		live := startSetupFlowStack(t, buildWeb(t, root))
+		view := signIn(t, live.engineURL)
+
+		// The state #571 was reported from: an engine that could not write a
+		// configuration and is serving the setup flow instead.
+		if _, err := os.Stat(live.configPath); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("this deployment already has a configuration at %s (stat err = %v), so it is not the setup-flow state #571 is about", live.configPath, err)
+		}
+		if !notReady(t, live.engineURL) {
+			t.Fatalf("the engine is ready before anything has configured it, so it is not serving the setup flow:\n%s", live.log())
+		}
+		if sets := view.backupSetsOrUnconfigured(); len(sets) != 0 {
+			t.Fatalf("the engine already lists backup sets on a deployment with no configuration: %v", sets)
+		}
+
+		refusedBesideTheEngine(t, live, view, false)
+
 		// The setup flow is still there, which is the remedy the operator
 		// actually has: an instance torn down by this refusal would have
 		// traded one silent divergence for an install nobody can finish.
@@ -1949,35 +2057,18 @@ func TestTheWizardsReadOnlyChoiceSurvivesTheFirstRunSave(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and runs the real first-run engine")
 	}
-	live := startFirstRunStack(t, buildWeb(t, repoRoot(t)))
+	// Since #1049 a fresh install writes its own configuration and never
+	// serves the setup flow, so the route this test drives is only reachable
+	// on an engine that could not write one. The configuration directory is
+	// made writable again before the save, which is what an operator fixing
+	// the mount does, and the save is then the first configuration there has
+	// ever been exactly as it was before #1049.
+	live := startSetupFlowStack(t, buildWeb(t, repoRoot(t)))
 	view := signIn(t, live.engineURL)
-
-	spec := apicontract.BackupSetSpec{
-		SourceName:         "api",
-		Name:               "var-backups",
-		Host:               "source.example.internal",
-		Port:               2222,
-		User:               "backupuser",
-		SSHKeyID:           view.importSSHKey(writePrivateKey(t)),
-		KnownHostsLine:     aKnownHostsLine,
-		RemotePath:         "/srv/backups",
-		LocalPath:          filepath.Join(t.TempDir(), "backups"),
-		Include:            []string{"*.dump"},
-		CompletionStrategy: "rename",
-		StaleAfterSeconds:  172800,
-		// The tick under test. Everything above it is here so the save is
-		// a real one rather than a minimal one.
-		ReadOnly: true,
-		// Issue #624: the service proves a first set's connection in front
-		// of the write, and source.example.internal is a name that
-		// resolves nowhere. This case is about the read-only tick surviving
-		// a real save, activation and a read back, not about the check, so
-		// it skips it the way every `backup-set create` in this package
-		// does (createArgs). The check's own cases are in core/service and
-		// apps/common/webhost, and its real-machine proof is
-		// scripts/e2e/two-machine-backup.sh.
-		SkipConnectionCheck: true,
-	}
+	// Unlocked before the spec is built: importing the wizard's key writes
+	// into the same directory, so it needs the mount fixed as well.
+	live.unlockConfigDir()
+	spec := readOnlyWizardSpec(t, view)
 
 	code, body := view.post("/api/v1/system/first-run", spec)
 	if code != http.StatusCreated {
@@ -1993,12 +2084,77 @@ func TestTheWizardsReadOnlyChoiceSurvivesTheFirstRunSave(t *testing.T) {
 	if !saved.BackupSet.ReadOnly {
 		t.Errorf("the wizard's own 201 says the set it just created is not read-only, though that is what was asked for:\n%s", body)
 	}
+	assertReadOnlyServed(t, view, live, spec)
+}
 
-	// And what the Web UI would render, off the engine this process is now
-	// serving, with nothing restarted.
+// TestTheWizardsReadOnlyChoiceSurvivesTheFirstSetOnAFreshInstall is the same
+// question asked of the door every fresh install uses since #1049. The engine
+// has already written its default configuration, so the wizard's save is the
+// ordinary POST /backup-sets, which seeds the local destination into that
+// file. Read-only has to survive that path as well, for the same reason: it is
+// the declaration that stops this manager deleting remote copies, and a
+// silent discard leaves somebody believing they chose the safer posture.
+func TestTheWizardsReadOnlyChoiceSurvivesTheFirstSetOnAFreshInstall(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and runs the real engine")
+	}
+	live := startFirstRunStack(t, buildWeb(t, repoRoot(t)))
+	view := signIn(t, live.engineURL)
+	spec := readOnlyWizardSpec(t, view)
+
+	code, body := view.post("/api/v1/backup-sets", apicontract.CreateBackupSetRequest{BackupSetSpec: spec})
+	if code != http.StatusCreated {
+		t.Fatalf("a fresh install refused the wizard's first set with %d: %s\nengine log:\n%s", code, body, live.log())
+	}
+	var saved apicontract.CreateBackupSetResponse
+	if err := json.Unmarshal(body, &saved); err != nil {
+		t.Fatalf("decoding the create response: %v\n%s", err, body)
+	}
+	if !saved.ReadOnly {
+		t.Errorf("the 201 says the set just created is not read-only, though that is what was asked for:\n%s", body)
+	}
+	assertReadOnlyServed(t, view, live, spec)
+}
+
+// readOnlyWizardSpec is a complete wizard submission with the read-only tick
+// set. Everything beside the tick is here so the save is a real one rather
+// than a minimal one.
+func readOnlyWizardSpec(t *testing.T, view *browser) apicontract.BackupSetSpec {
+	t.Helper()
+	return apicontract.BackupSetSpec{
+		SourceName:         "api",
+		Name:               "var-backups",
+		Host:               "source.example.internal",
+		Port:               2222,
+		User:               "backupuser",
+		SSHKeyID:           view.importSSHKey(writePrivateKey(t)),
+		KnownHostsLine:     aKnownHostsLine,
+		RemotePath:         "/srv/backups",
+		LocalPath:          filepath.Join(t.TempDir(), "backups"),
+		Include:            []string{"*.dump"},
+		CompletionStrategy: "rename",
+		StaleAfterSeconds:  172800,
+		// The tick under test.
+		ReadOnly: true,
+		// Issue #624: the service proves a first set's connection in front
+		// of the write, and source.example.internal is a name that
+		// resolves nowhere. This case is about the read-only tick surviving
+		// a real save, activation and a read back, not about the check, so
+		// it skips it the way every `backup-set create` in this package
+		// does (createArgs). The check's own cases are in core/service and
+		// apps/common/webhost, and its real-machine proof is
+		// scripts/e2e/two-machine-backup.sh.
+		SkipConnectionCheck: true,
+	}
+}
+
+// assertReadOnlyServed reads the saved set back off the engine, which is what
+// the Web UI would render, with nothing restarted.
+func assertReadOnlyServed(t *testing.T, view *browser, live *firstRunStack, spec apicontract.BackupSetSpec) {
+	t.Helper()
 	sets := view.backupSetsOrUnconfigured()
 	if !contains(sets, "api/var-backups") {
-		t.Fatalf("the setup flow reported success and the engine does not serve the set: %v\nengine log:\n%s", sets, live.log())
+		t.Fatalf("the save reported success and the engine does not serve the set: %v\nengine log:\n%s", sets, live.log())
 	}
 	served := view.backupSet(t, "api/var-backups")
 	if !served.ReadOnly {
