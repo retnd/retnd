@@ -48,6 +48,11 @@ import { apiErrorFromResponse, nameAttempt, noResponse, refusal, unreadableBody 
 import { API_VERSION } from "./generated/contract";
 import type {
   WireActivityEvent,
+  WireAssuranceDueResponse,
+  WireAssuranceSettingsResponse,
+  WireBackupSetAssurance,
+  WireUpdateAssuranceSettingsRequest,
+  WireUpdateBackupSetAssuranceRequest,
   WireArtifact,
   WireArtifactReinstateResponse,
   WireBackupSet,
@@ -131,6 +136,11 @@ import type {
 } from "./generated/contract";
 import type {
   AppSettings,
+  AssuranceDue,
+  AssuranceSettings,
+  AssuranceSettingsPatch,
+  BackupSetAssurance,
+  BackupSetAssurancePatch,
   BackendManifest,
   RetndApi,
   BackupSetRetention,
@@ -2571,6 +2581,81 @@ function fromWireWorkflowSettings(s: WireWorkflowSettingsResponse): WorkflowSett
   };
 }
 
+function fromWireAssurancePolicy(s: {
+  scrub?: { cadence_seconds?: number; strategy?: string };
+  recovery_test?: { mode?: string; cadence_seconds?: number; validator_id?: string };
+}): Pick<AssuranceSettings, "scrub" | "recoveryTest"> {
+  return {
+    scrub: { cadenceSeconds: s.scrub?.cadence_seconds ?? 0, strategy: s.scrub?.strategy ?? "" },
+    recoveryTest: {
+      mode: s.recovery_test?.mode ?? "",
+      cadenceSeconds: s.recovery_test?.cadence_seconds ?? 0,
+      validatorId: s.recovery_test?.validator_id ?? ""
+    }
+  };
+}
+
+function fromWireAssuranceSettings(s: WireAssuranceSettingsResponse): AssuranceSettings {
+  return {
+    ...fromWireAssurancePolicy(s),
+    configured: s.configured === true,
+    stagingRoot: s.staging_root ?? "",
+    stagingTtlSeconds: s.staging_ttl_seconds ?? 0,
+    maxConcurrentFullReads: s.max_concurrent_full_reads ?? 0,
+    maxPerDestination: s.max_per_destination ?? 0,
+    webDownloadMemoryBytes: s.web_download_memory_bytes ?? 0,
+    hostKnobs: (s.host_knobs ?? []).map((k) => ({
+      name: k.name ?? "",
+      value: k.value ?? "",
+      perSet: k.per_set === true,
+      reason: k.reason ?? ""
+    }))
+  };
+}
+
+function fromWireBackupSetAssurance(s: WireBackupSetAssurance): BackupSetAssurance {
+  return { ...fromWireAssurancePolicy(s), backupSetId: s.backup_set_id ?? "", isOverride: s.is_override === true };
+}
+
+function fromWireAssuranceDue(s: WireAssuranceDueResponse): AssuranceDue {
+  return {
+    generatedAt: s.generated_at ?? "",
+    items: (s.items ?? []).map((i) => ({
+      backupSetId: i.backup_set_id ?? "",
+      artifactId: i.artifact_id ?? "",
+      artifactName: i.artifact_name ?? "",
+      ...(i.last_assured_at ? { lastAssuredAt: i.last_assured_at } : {}),
+      nextDueAt: i.next_due_at ?? "",
+      cadenceSeconds: i.cadence_seconds ?? 0,
+      due: i.due === true,
+      overdue: i.overdue === true,
+      basis: i.basis ?? ""
+    }))
+  };
+}
+
+/** A PATCH body carrying only the fields a caller named: an absent key is
+ *  "leave this alone", and a zero or empty value is "clear this". */
+function wireAssurancePatch(
+  patch: AssuranceSettingsPatch | BackupSetAssurancePatch
+): WireUpdateAssuranceSettingsRequest & WireUpdateBackupSetAssuranceRequest {
+  const p = patch as AssuranceSettingsPatch;
+  const body: WireUpdateAssuranceSettingsRequest = {};
+  if (p.scrubCadenceSeconds !== undefined) body.scrub_cadence_seconds = p.scrubCadenceSeconds;
+  if (p.scrubStrategy !== undefined) body.scrub_strategy = p.scrubStrategy;
+  if (p.recoveryTestMode !== undefined) body.recovery_test_mode = p.recoveryTestMode;
+  if (p.recoveryTestCadenceSeconds !== undefined) body.recovery_test_cadence_seconds = p.recoveryTestCadenceSeconds;
+  if (p.recoveryTestValidatorId !== undefined) body.recovery_test_validator_id = p.recoveryTestValidatorId;
+  if (p.stagingRoot !== undefined) body.staging_root = p.stagingRoot;
+  if (p.stagingTtlSeconds !== undefined) body.staging_ttl_seconds = p.stagingTtlSeconds;
+  if (p.maxConcurrentFullReads !== undefined) body.max_concurrent_full_reads = p.maxConcurrentFullReads;
+  if (p.maxPerDestination !== undefined) body.max_per_destination = p.maxPerDestination;
+  if (p.webDownloadMemoryBytes !== undefined) body.web_download_memory_bytes = p.webDownloadMemoryBytes;
+  return body as WireUpdateAssuranceSettingsRequest & WireUpdateBackupSetAssuranceRequest;
+}
+
+const assurancePath = (source: string, set: string) => backupSetPath(source, set) + "/assurance";
+
 function fromWireBackupSetWorkflow(s: WireBackupSetWorkflowResponse): BackupSetWorkflow {
   return {
     backupSetId: s.backup_set_id ?? "",
@@ -3505,6 +3590,31 @@ export const httpApi: RetndApi = {
   acknowledgeWorkflowRecovery: (runId, reason) =>
     post(workflowRecoveryPath(runId) + "/acknowledge", { reason }),
 
+  getAssuranceSettings: () =>
+    request<WireAssuranceSettingsResponse>("/settings/assurance").then(fromWireAssuranceSettings),
+  patchAssuranceSettings: (patch) =>
+    request<WireAssuranceSettingsResponse>("/settings/assurance", {
+      method: "PATCH",
+      body: JSON.stringify(wireAssurancePatch(patch))
+    }).then(fromWireAssuranceSettings),
+  getBackupSetAssurance: (source, set) =>
+    request<WireBackupSetAssurance>(assurancePath(source, set)).then(fromWireBackupSetAssurance),
+  patchBackupSetAssurance: (source, set, patch) =>
+    request<WireBackupSetAssurance>(assurancePath(source, set), {
+      method: "PATCH",
+      body: JSON.stringify(wireAssurancePatch(patch))
+    }).then(fromWireBackupSetAssurance),
+  resetBackupSetAssurance: (source, set) =>
+    request<WireBackupSetAssurance>(assurancePath(source, set), { method: "DELETE" }).then(
+      fromWireBackupSetAssurance
+    ),
+  listAssuranceDue: (filter) => {
+    const q = new URLSearchParams();
+    if (filter?.backupSetId) q.set("backup_set", filter.backupSetId);
+    if (filter?.status && filter.status !== "all") q.set("status", filter.status);
+    const qs = q.toString();
+    return request<WireAssuranceDueResponse>("/assurance/due" + (qs ? "?" + qs : "")).then(fromWireAssuranceDue);
+  },
   getWorkflowSettings: () =>
     request<WireWorkflowSettingsResponse>("/settings/workflow").then(fromWireWorkflowSettings),
   patchWorkflowSettings: (patch) =>

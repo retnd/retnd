@@ -2,6 +2,52 @@
 
 ## [Unreleased]
 
+### Added
+
+- **The scheduled scrub follows `assurance.scrub.*`** (#978). A default install now
+  scrubs: the cadence is `assurance.scrub.cadence` (7 days unless you say otherwise)
+  and the strategy decides whether a local copy is re-hashed (`auto` and `content`
+  do, `existence` does not), with no `revalidation:` block needed. A set whose
+  `revalidation:` block turns hashing or a hook on keeps using that block exactly as
+  written. `GET /api/v1/assurance/due` now reads each copy's own `next_due_at`, the
+  schedule the scrub keeps, so what you are shown is what runs. A rotted local copy
+  beside a verified offsite copy no longer quarantines the artifact (the set goes
+  DEGRADED after three failed checks, not FAILING), and a scrub or recovery claim is
+  dropped when the copy is rewritten to different bytes.
+
+- **Assurance has a deployment-wide default and a per-set override** (#982, EPIC Q
+  Q1.4). A new top-level `assurance:` block sets how often a copy is re-read (scrub
+  cadence, default 7 days, floor 1 hour), what a scrub reads (`auto`, `existence` or
+  `content`) and whether a recovery test is required, and a backup set can carry its
+  own `assurance:` block in the same shape `retention:` uses: nil inherits, `Validate`
+  fills a resolved field, and everything reads the resolved field. A config that
+  mentions none of it scrubs on the defaults and comes back from a settings save
+  byte-identical. Per set, the recovery-test mode is `inherit`, `off`, `required` or
+  `custom`; `required` and `custom` need a validator, so a recovery test with nothing
+  to run is refused rather than quietly downgraded. The staging root, the staging TTL,
+  the two concurrency ceilings and the web download memory budget are global only,
+  and each one carries the written reason a set cannot override it, in the API
+  response, in `settings assurance` and in the field help.
+  - **A one-way door.** `Load` uses `KnownFields(true)`, so a config that carries an
+    `assurance:` key cannot be parsed by an older build at all. Anyone who edits this
+    block during an incident and then rolls back needs to take the block out first. A
+    deployment that never adds it sees no change.
+  - **What an existing deployment sees.** Nothing is written for it. `GET
+    /api/v1/settings/assurance` and `retnd settings assurance` report the defaults with
+    `configured: false`.
+  - **Surfaces.** `GET`/`PATCH /api/v1/settings/assurance`, `GET`/`PATCH`/`DELETE
+    /api/v1/backup-sets/{source}/{set}/assurance` and `GET /api/v1/assurance/due`, with
+    `retnd settings assurance [patch|due]` and `retnd backup-set assurance`, all with
+    `--json` printing the API's own body. A `PATCH` is validated, written and
+    hot-reloaded in one step, so every set that inherits the changed value decides
+    under it on its next read with no restart. The CLI writes beside a serving engine
+    are refused with the file untouched, like `settings workflow`.
+  - **Feed and alerts.** New catalog events for scrub, recovery and recovery-test runs
+    (additions only, each completion states a `Result`) with one stage list shared by
+    the CLI and the browser, a scrub pass that costs two feed rows however many copies
+    it reads, and six new alert kinds: scrub overdue and failing, recovery test overdue
+    and failing, no readable copy, and archive-only recoverability.
+
 ## [0.5.1] - 2026-10-04
 
 0.5.1 is 0.5.0 plus the one logo. 0.5.0 was published without it: the logo

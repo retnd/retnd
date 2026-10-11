@@ -1,0 +1,23 @@
+# A scrub cadence under the one-hour floor. Re-reading the same bytes every
+# few minutes is a cost an operator never meant to ask for.
+poll_interval: 15m
+
+state:
+  database: /var/lib/retnd/state.db
+
+assurance:
+  scrub:
+    cadence: 5m
+
+sources:
+  - id: production
+    backup_sets:
+      - id: postgres-primary
+        remote:
+          type: local
+        remote_path: /srv/exports/postgres-primary
+        local_path: /backups/production/postgres-primary
+        completion:
+          strategy: stable
+          stable_for: 10m
+        stale_after: 30h

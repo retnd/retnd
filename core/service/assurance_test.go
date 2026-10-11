@@ -1,0 +1,212 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+// EPIC Q, Q1.4 (#982): the service half of the assurance configuration.
+
+// openAssuranceService opens a real file-backed deployment with two sets:
+// "postgres-primary" inherits the deployment's assurance policy and "pinned"
+// carries its own scrub cadence.
+func openAssuranceService(t *testing.T, top string) (*BackupService, string) {
+	t.Helper()
+	configPath := writeTestConfigFileWithRetention(t, "")
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Dir(configPath)
+	body := string(raw) +
+		"      - id: pinned\n" +
+		"        remote:\n          type: local\n" +
+		"        remote_path: " + filepath.Join(dir, "remote") + "\n" +
+		"        local_path: " + filepath.Join(dir, "local-pinned") + "\n" +
+		"        include:\n          - \"*.dump\"\n" +
+		"        completion:\n          strategy: rename\n" +
+		"        stale_after: 24h\n" +
+		"        assurance:\n          scrub:\n            cadence: 5h\n"
+	// The top-level block has to sit before "sources:".
+	body = strings.Replace(body, "sources:\n", top+"sources:\n", 1)
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	svc, cleanup, err := Open(context.Background(), configPath)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = cleanup() })
+	return svc, configPath
+}
+
+const (
+	inheritingSet = "production/postgres-primary"
+	pinnedSet     = "production/pinned"
+)
+
+func TestAssuranceSettings_ReportTheResolvedDefaultsAndTheWrittenNoPerHostKnob(t *testing.T) {
+	svc, _ := openAssuranceService(t, "")
+	got, err := svc.AssuranceSettings(context.Background())
+	if err != nil {
+		t.Fatalf("AssuranceSettings: %v", err)
+	}
+	if got.Policy.Scrub.Cadence != 7*24*time.Hour || got.Policy.Scrub.Strategy != "auto" {
+		t.Errorf("scrub = %+v, want the 7 day auto default", got.Policy.Scrub)
+	}
+	if got.Configured {
+		t.Error("a config with no assurance block must report configured=false")
+	}
+	want := map[string]bool{"staging_root": true, "staging_ttl": true, "max_concurrent_full_reads": true, "max_per_destination": true, "web_download_memory_bytes": true}
+	for _, k := range got.HostKnobs {
+		if k.PerSet || strings.TrimSpace(k.Reason) == "" {
+			t.Errorf("host knob %s must say no per set and carry its reason: %+v", k.Name, k)
+		}
+		delete(want, k.Name)
+	}
+	if len(want) > 0 {
+		t.Errorf("host knobs missing a written no: %v", want)
+	}
+}
+
+// The retention-override trap, at the service boundary: the patch must reach
+// the set that inherits, with no restart, and leave the pinned one alone.
+func TestUpdateAssuranceSettings_MovesAnInheritingSetAndNotAPinnedOne(t *testing.T) {
+	svc, configPath := openAssuranceService(t, "")
+	ctx := context.Background()
+	before, _ := svc.BackupSetAssurance(ctx, inheritingSet)
+	if before.Policy.Scrub.Cadence != 7*24*time.Hour {
+		t.Fatalf("precondition: inheriting cadence = %s", before.Policy.Scrub.Cadence)
+	}
+
+	twelve := 12 * time.Hour
+	if _, err := svc.UpdateAssuranceSettings(ctx, UpdateAssuranceSettingsRequest{ScrubCadence: &twelve}); err != nil {
+		t.Fatalf("UpdateAssuranceSettings: %v", err)
+	}
+	after, err := svc.BackupSetAssurance(ctx, inheritingSet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Policy.Scrub.Cadence != twelve || after.Override {
+		t.Errorf("inheriting set = %+v, want 12h and no override", after)
+	}
+	pinned, _ := svc.BackupSetAssurance(ctx, pinnedSet)
+	if pinned.Policy.Scrub.Cadence != 5*time.Hour || !pinned.Override {
+		t.Errorf("pinned set = %+v, a global change must not move it", pinned)
+	}
+
+	raw, _ := os.ReadFile(configPath)
+	if !strings.Contains(string(raw), "cadence: 12h0m0s") && !strings.Contains(string(raw), "cadence: 12h") {
+		t.Errorf("the patch was not persisted:\n%s", raw)
+	}
+	if strings.Contains(string(raw), "staging_ttl") || strings.Contains(string(raw), "web_download_memory_bytes") {
+		t.Errorf("the patch froze unrelated defaults into the operator's file:\n%s", raw)
+	}
+}
+
+func TestUpdateAssuranceSettings_RefusesWhatValidateRefusesAndLeavesTheFileAlone(t *testing.T) {
+	svc, configPath := openAssuranceService(t, "")
+	before, _ := os.ReadFile(configPath)
+	tiny := time.Minute
+	_, err := svc.UpdateAssuranceSettings(context.Background(), UpdateAssuranceSettingsRequest{ScrubCadence: &tiny})
+	if !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("err = %v, want ErrInvalidRequest", err)
+	}
+	after, _ := os.ReadFile(configPath)
+	if string(before) != string(after) {
+		t.Error("a refused patch changed the file")
+	}
+	if _, err := svc.UpdateAssuranceSettings(context.Background(), UpdateAssuranceSettingsRequest{}); !errors.Is(err, ErrInvalidRequest) {
+		t.Errorf("an empty patch err = %v, want ErrInvalidRequest", err)
+	}
+}
+
+func TestUpdateBackupSetAssurance_PatchThenResetReturnsTheSetToInheritance(t *testing.T) {
+	svc, configPath := openAssuranceService(t, "")
+	ctx := context.Background()
+
+	required := "required"
+	if _, err := svc.UpdateBackupSetAssurance(ctx, inheritingSet, UpdateBackupSetAssuranceRequest{RecoveryTestMode: &required}); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("required with no validator err = %v, want ErrInvalidRequest", err)
+	}
+	validator := "trailer-marker"
+	got, err := svc.UpdateBackupSetAssurance(ctx, inheritingSet, UpdateBackupSetAssuranceRequest{RecoveryTestMode: &required, RecoveryTestValidatorID: &validator})
+	if err != nil {
+		t.Fatalf("UpdateBackupSetAssurance: %v", err)
+	}
+	if !got.Override || got.Policy.RecoveryTest.Mode != "required" || got.Policy.RecoveryTest.ValidatorID != validator {
+		t.Errorf("after patch = %+v", got)
+	}
+
+	reset, err := svc.ResetBackupSetAssurance(ctx, inheritingSet)
+	if err != nil {
+		t.Fatalf("ResetBackupSetAssurance: %v", err)
+	}
+	if reset.Override || reset.Policy.RecoveryTest.Mode != "off" {
+		t.Errorf("after reset = %+v, want inheriting and off", reset)
+	}
+	raw, _ := os.ReadFile(configPath)
+	if strings.Count(string(raw), "assurance:") != 1 {
+		t.Errorf("only the pinned set should still carry a block:\n%s", raw)
+	}
+	if _, err := svc.BackupSetAssurance(ctx, "production/nope"); !errors.Is(err, ErrBackupSetNotFound) {
+		t.Errorf("unknown set err = %v", err)
+	}
+}
+
+func TestAssuranceDue_ClassifiesTheCopysOwnDueTimeAndNoScheduleIsDue(t *testing.T) {
+	now := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
+	day := 24 * time.Hour
+
+	next := now.Add(14 * time.Hour)
+	item := assuranceDueFor(now, "s/a", dueSubject{ID: "a1", Name: "a.dump", LastAssured: now.Add(-10 * time.Hour), NextDue: next}, day)
+	if !item.NextDueAt.Equal(next) || item.Due || item.Overdue || item.Basis != DueBasisCopyRecord {
+		t.Errorf("a fresh copy = %+v, want next due %s and not due", item, next)
+	}
+	item = assuranceDueFor(now, "s/a", dueSubject{ID: "a1", NextDue: now.Add(-time.Hour)}, day)
+	if !item.Due || item.Overdue {
+		t.Errorf("a copy past its own due time is due but not yet overdue: %+v", item)
+	}
+	item = assuranceDueFor(now, "s/a", dueSubject{ID: "a1", NextDue: now.Add(-3 * day)}, day)
+	if !item.Due || !item.Overdue {
+		t.Errorf("a copy a whole cadence past due is overdue: %+v", item)
+	}
+	item = assuranceDueFor(now, "s/a", dueSubject{ID: "a1"}, day)
+	if !item.Due || !item.Overdue || item.Basis != DueBasisNever {
+		t.Errorf("a copy with no schedule is due and overdue, never green: %+v", item)
+	}
+}
+
+// Review finding: a validator reference nobody registered passes config's
+// shape check and then fails at the moment of use, long after the save.
+func TestAssuranceWrites_RefuseAValidatorThisBuildDoesNotKnow(t *testing.T) {
+	svc, configPath := openAssuranceService(t, "")
+	before, _ := os.ReadFile(configPath)
+	mode, unknown := "required", "no-such-validator"
+	ctx := context.Background()
+	if _, err := svc.UpdateAssuranceSettings(ctx, UpdateAssuranceSettingsRequest{RecoveryTestMode: &mode, RecoveryTestValidatorID: &unknown}); !errors.Is(err, ErrInvalidRequest) {
+		t.Errorf("global write err = %v, want ErrInvalidRequest", err)
+	}
+	if _, err := svc.UpdateBackupSetAssurance(ctx, inheritingSet, UpdateBackupSetAssuranceRequest{RecoveryTestMode: &mode, RecoveryTestValidatorID: &unknown}); !errors.Is(err, ErrInvalidRequest) {
+		t.Errorf("per-set write err = %v, want ErrInvalidRequest", err)
+	}
+	if after, _ := os.ReadFile(configPath); string(before) != string(after) {
+		t.Error("a refused write changed the file")
+	}
+}
+
+// Review finding: a hand-built Config that never ran Validate has a zero
+// resolved cadence, and a zero must not read as "continuously due".
+func TestAssuranceDue_AZeroResolvedCadenceFallsBackToTheDefault(t *testing.T) {
+	if got := effectiveScrubCadence(0); got != 7*24*time.Hour {
+		t.Errorf("effectiveScrubCadence(0) = %s, want the 7 day default", got)
+	}
+	if got := effectiveScrubCadence(3 * time.Hour); got != 3*time.Hour {
+		t.Errorf("a resolved cadence must pass through, got %s", got)
+	}
+}
