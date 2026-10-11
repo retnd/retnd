@@ -499,8 +499,15 @@ The rules that matter:
   Pacing is bounded: four copies at once overall, two per destination, jitter
   on every due time, and a capped backoff for a copy that fails or cannot be
   reached. A copy that fails three scheduled checks in a row degrades its
-  set's health and raises one `SCRUB_FAILING` alert, and the next passing check
-  clears both. A set held for editing is skipped, and the skip is reported.
+  set's health, and the next passing check clears that. You hear about it
+  through a script of your own: put `NAME.local.sh` scripts in
+  `assurance-after/sets/<source>/<set>` or `assurance-after/global` under the
+  workflow root and they run once when the episode opens (`ASSURANCE_EVENT` is
+  `scrub_failing`) and once when it closes (`scrub_recovered`), with the same
+  custody, shell verification and runner container as any other hook. That
+  directory is not the set's `after_dir`, whose scripts undo what a `before`
+  hook did to the source machine and have no business running because a scrub
+  failed. A set held for editing is skipped, and the skip is reported.
 - **A tier whose medium writes an archive class cannot take delivery of an
   artifact, and the move is refused before anything is uploaded.** Both settings
   `upload_verification` accepts need the object read back, a freshly written

@@ -7,11 +7,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/retnd/retnd/core/internal/alert"
 	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/health"
 	"github.com/retnd/retnd/core/internal/lifecycle"
@@ -344,7 +344,42 @@ func (s *unreachableStore) OpenObject(context.Context, transport.Medium, string)
 
 func (s *unreachableStore) setDown(d bool) { s.mu.Lock(); s.down = d; s.mu.Unlock() }
 
-func TestScrub_NConsecutiveFailuresDegradeHealthAndRaiseExactlyOneAlertAndALaterPassClearsBoth(t *testing.T) {
+// fakeStages stands in for the service layer's script runner: it records what
+// it was asked to run and says the scripts succeeded.
+type fakeStages struct {
+	mu    sync.Mutex
+	calls []StageRequest
+	// result, when set, is returned instead of a successful run.
+	result *StageResult
+	err    error
+}
+
+func (f *fakeStages) RunStage(_ context.Context, req StageRequest) (StageResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, req)
+	if f.err != nil {
+		return StageResult{}, f.err
+	}
+	if f.result != nil {
+		return *f.result, nil
+	}
+
+	return StageResult{Configured: true, Scripts: []StageScript{{Name: "10-notify.local.sh", State: "success"}}}, nil
+}
+
+func (f *fakeStages) events() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]string, 0, len(f.calls))
+	for _, c := range f.calls {
+		out = append(out, c.Vars["ASSURANCE_EVENT"])
+	}
+
+	return out
+}
+
+func TestScrub_NConsecutiveFailuresDegradeHealthAndRunTheAssuranceScriptOnceAndALaterPassClearsBoth(t *testing.T) {
 	ctx := context.Background()
 	bs := testBackupSet(t, t.TempDir())
 	bs.StaleAfter = config.Duration(30 * 24 * time.Hour)
@@ -366,10 +401,8 @@ func TestScrub_NConsecutiveFailuresDegradeHealthAndRaiseExactlyOneAlertAndALater
 	}
 	store := &unreachableStore{down: true, size: size}
 	svc.MediumStore = store
-	sink := &recordingSink{}
-	if !svc.EnableAlerts(sink) {
-		t.Fatal("alerting did not enable")
-	}
+	stages := &fakeStages{}
+	svc.Stages = stages
 
 	now := retentionTestNow
 	scrubAt := func() {
@@ -377,7 +410,6 @@ func TestScrub_NConsecutiveFailuresDegradeHealthAndRaiseExactlyOneAlertAndALater
 		if _, err := svc.Scrub(ctx, ScrubRequest{Trigger: state.ScrubBySchedule}); err != nil {
 			t.Fatalf("Scrub: %v", err)
 		}
-		svc.AlertTick(ctx)
 	}
 	healthState := func() health.State {
 		rep, err := svc.BuildHealthReport(ctx, VersionInfo{})
@@ -397,20 +429,31 @@ func TestScrub_NConsecutiveFailuresDegradeHealthAndRaiseExactlyOneAlertAndALater
 		if got := healthState(); got != health.Healthy {
 			t.Fatalf("after %d failures the set is %s; it degrades at %d", i-1, got, health.ScrubFailureThreshold)
 		}
+		if len(stages.calls) != 0 {
+			t.Fatalf("a script ran after %d failures, before the threshold: %v", i-1, stages.events())
+		}
 		now = now.Add(48 * time.Hour) // past any backoff
 		scrubAt()
 	}
 	if got := healthState(); got != health.Degraded {
 		t.Errorf("after %d consecutive failures the set is %s, want DEGRADED", health.ScrubFailureThreshold, got)
 	}
-	if n := sink.countOf(alert.ScrubFailing); n != 1 {
-		t.Errorf("alerts = %d, want exactly 1 (all: %v)", n, sink.kinds())
+	if got := stages.events(); len(got) != 1 || got[0] != AssuranceScrubFailing {
+		t.Fatalf("scripts run = %v, want exactly one scrub_failing", got)
 	}
-	// More failures do not page again.
+	call := stages.calls[0]
+	if call.SetDir != "assurance-after/sets/production/postgres-primary" || call.GlobalDir != AssuranceHookGlobalDir || !call.ContinueOnFailure || !call.LocalOnly {
+		t.Errorf("the request = %+v", call)
+	}
+	if call.Vars["ASSURANCE_FAILING_COPIES"] != "1" || !strings.Contains(call.Vars["ASSURANCE_SUMMARY"], bs.ID.String()) {
+		t.Errorf("the variables = %v", call.Vars)
+	}
+
+	// More failures do not run it again.
 	now = now.Add(48 * time.Hour)
 	scrubAt()
-	if n := sink.countOf(alert.ScrubFailing); n != 1 {
-		t.Errorf("a further failure raised another alert: %d", n)
+	if got := stages.events(); len(got) != 1 {
+		t.Errorf("a further failure ran the script again: %v", got)
 	}
 
 	// The medium comes back and the next pass clears both.
@@ -420,14 +463,61 @@ func TestScrub_NConsecutiveFailuresDegradeHealthAndRaiseExactlyOneAlertAndALater
 	if got := healthState(); got != health.Healthy {
 		t.Errorf("after a passing scrub the set is %s, want HEALTHY", got)
 	}
-	// Cleared means a recurrence alerts again.
+	if got := stages.events(); len(got) != 2 || got[1] != AssuranceScrubRecovered {
+		t.Errorf("scripts run = %v, want the recovery announced once", got)
+	}
+
+	// Cleared means a recurrence is announced again.
 	store.setDown(true)
 	for i := 0; i < health.ScrubFailureThreshold; i++ {
 		now = now.Add(48 * time.Hour)
 		scrubAt()
 	}
-	if n := sink.countOf(alert.ScrubFailing); n != 2 {
-		t.Errorf("alerts after clear and recurrence = %d, want 2", n)
+	if got := stages.events(); len(got) != 3 || got[2] != AssuranceScrubFailing {
+		t.Errorf("scripts run after clear and recurrence = %v", got)
+	}
+}
+
+func TestAssuranceScript_ANotifierThatFailsIsLoggedAndTheScrubIsUnaffected(t *testing.T) {
+	ctx := context.Background()
+	bs := testBackupSet(t, t.TempDir())
+	svc, journal := scrubService(t, scrubReval, bs)
+	a := seedMovableArtifact(t, ctx, journal, bs, "x.dump", retentionTestNow.Add(-48*time.Hour))
+	svc.Stages = &fakeStages{err: errors.New("the host runner is not reachable")}
+	// Force an episode: three failures on the local copy via the journal.
+	for i := 0; i < health.ScrubFailureThreshold; i++ {
+		if err := journal.RecordCopyScrub(ctx, state.CopyScrub{
+			Artifact: a, Medium: state.MediumLocal, Verdict: state.ScrubCouldNotComplete,
+			At: retentionTestNow.Add(time.Duration(i) * time.Minute), NextDue: retentionTestNow.Add(-time.Hour), Reason: "no",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sum, err := svc.Scrub(ctx, ScrubRequest{Trigger: state.ScrubBySchedule})
+	if err != nil {
+		t.Fatalf("a failing notification failed the scrub: %v", err)
+	}
+	if sum.Selected != 1 {
+		t.Errorf("summary = %+v", sum)
+	}
+}
+
+func TestAssuranceScript_ANotConfiguredDirectoryIsSilent(t *testing.T) {
+	bs := testBackupSet(t, t.TempDir())
+	svc, _ := scrubService(t, scrubReval, bs)
+	svc.Stages = &fakeStages{result: &StageResult{Configured: false}}
+	svc.notifyAssurance(context.Background(), bs, assuranceFacts{Event: AssuranceScrubFailing, Summary: "x"})
+}
+
+func TestAssuranceScript_ValuesAreOneLineOfPrintableText(t *testing.T) {
+	got := stageValue("a\x1b]0;owned\x07 b\nc\x00"+strings.Repeat("y", 400), 50)
+	if len(got) > 50 {
+		t.Errorf("len = %d", len(got))
+	}
+	for _, r := range got {
+		if r < 0x20 || r == 0x7f {
+			t.Fatalf("control byte %#x in %q", r, got)
+		}
 	}
 }
 
