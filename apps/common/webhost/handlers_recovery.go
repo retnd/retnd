@@ -2,6 +2,9 @@ package webhost
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -205,6 +208,31 @@ func (h *handlers) redeemRecovery(w http.ResponseWriter, r *http.Request) {
 	hd.Set("X-Content-Type-Options", "nosniff")
 	hd.Set("Cache-Control", "no-store")
 
+	// A strong validator and the recorded digest, so a client can resume
+	// (Range with If-Range) and can compare what it received with what the
+	// journal says without another call. The ETag is the same for every
+	// grant of the artifact, which is what makes a resume after a crash or
+	// a new sign-in safe.
+	if v, ok := stream.(service.RecoveryValidator); ok {
+		if tag := v.ETag(); tag != "" {
+			hd.Set("ETag", tag)
+		}
+		if d := reprDigest(v.SHA256()); d != "" {
+			hd.Set("Repr-Digest", d)
+		}
+	}
+
+	// Read and verify the first chunk this request will send BEFORE any
+	// header goes out, so a copy that fails on its first chunk is an error
+	// response and not a 200 followed by a broken body.
+	if p, ok := stream.(service.RecoveryPrimer); ok {
+		if perr := p.Prime(firstByteRequested(r.Header.Get("Range"), stream.Length())); perr != nil {
+			stream.Served(0, 0, 0, perr)
+			h.writeRecoveryError(w, r, service.RecoveryErrorFor(perr))
+			return
+		}
+	}
+
 	cw := &recoveryResponseWriter{ResponseWriter: w, status: http.StatusOK, rc: http.NewResponseController(w)}
 	cw.extendDeadline()
 	http.ServeContent(cw, r, "", time.Time{}, stream.Reader())
@@ -218,7 +246,16 @@ func (h *handlers) redeemRecovery(w http.ResponseWriter, r *http.Request) {
 		start, end = parseContentRange(cw.Header().Get("Content-Range"), start, end)
 	}
 	var serr error
+	var failure error
+	if f, ok := stream.(service.RecoveryFailer); ok {
+		failure = f.Failure()
+	}
 	switch {
+	case failure != nil:
+		// The copy stopped being trustworthy mid-stream (a chunk did not
+		// match, the copy lost bytes). That is the cause, whatever the
+		// write side then saw.
+		serr = failure
 	case cw.err != nil:
 		serr = cw.err
 	case r.Context().Err() != nil:
@@ -234,6 +271,55 @@ func (h *handlers) redeemRecovery(w http.ResponseWriter, r *http.Request) {
 		serr = io.ErrShortWrite
 	}
 	stream.Served(start, end, cw.written, serr)
+
+	// A body that stopped short of the Content-Length it promised must be
+	// seen by the client as cut, never as a short file that ended. The
+	// connection (HTTP/1) or the stream (HTTP/2) is aborted. This is the
+	// documented way for a handler to do it: ServeContent has already sent
+	// the header and cannot take it back, and a clean return here would let
+	// the server finish the response as if it were complete.
+	if serr != nil && cw.status >= 200 && cw.status < 300 && cw.written != end-start+1 {
+		panic(http.ErrAbortHandler)
+	}
+}
+
+// reprDigest renders the recorded SHA-256 as an RFC 9530 Repr-Digest value:
+// the digest of the whole representation, which is what it means on a 206
+// as well as on a 200.
+func reprDigest(hexSum string) string {
+	raw, err := hex.DecodeString(hexSum)
+	if err != nil || len(raw) != sha256.Size {
+		return ""
+	}
+	return "sha-256=:" + base64.StdEncoding.EncodeToString(raw) + ":"
+}
+
+// firstByteRequested is the offset the first byte of this request will be
+// read from, according to its Range header, or 0 when there is none or it
+// is not one the cheap parse below understands (ServeContent then decides,
+// and the only cost of a wrong guess is that the priming did not help).
+func firstByteRequested(rangeHeader string, size int64) int64 {
+	spec, ok := strings.CutPrefix(strings.TrimSpace(rangeHeader), "bytes=")
+	if !ok {
+		return 0
+	}
+	first, _, _ := strings.Cut(spec, ",")
+	a, b, ok := strings.Cut(strings.TrimSpace(first), "-")
+	if !ok {
+		return 0
+	}
+	if a == "" {
+		n, err := strconv.ParseInt(b, 10, 64)
+		if err != nil || n <= 0 || n > size {
+			return 0
+		}
+		return size - n
+	}
+	n, err := strconv.ParseInt(a, 10, 64)
+	if err != nil || n < 0 || n >= size {
+		return 0
+	}
+	return n
 }
 
 // recoveryResponseWriter counts what was written and keeps the first write

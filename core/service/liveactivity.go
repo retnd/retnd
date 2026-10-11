@@ -43,20 +43,28 @@ import (
 // for every other client, and a message composed here would be a second
 // place the wording lives.
 //
-// # Why in memory, and why bounded
+// # Why the NUMBERS are in memory, and why the ring is bounded
 //
-// For the same reason progress.go gives: this is a volatile fact. It
-// changes several times a second, it stops meaning anything the moment the
-// process producing it dies, and the last value it held after a restart is
-// not stale data but a lie about a cycle that no longer exists. Writing it
-// to the journal would put a tick-rate write path on the one table whose
-// durability guarantees exist to avoid exactly that.
+// The live counters (a transfer's rate, a bar's position, which stage a pass
+// is in) are volatile facts: they change several times a second, they stop
+// meaning anything the moment the process producing them dies, and the last
+// value one held after a restart is not stale data but a lie about a cycle
+// that no longer exists. Those stay in memory, and nothing below changes
+// that.
 //
-// Bounded, because an unbounded tail of a daemon that runs for months is a
-// memory leak with a nice name. The durable record of what happened is the
-// journal, read through ListActivity; this is the last few hundred lines,
-// and it says where it begins so a client that has fallen behind can tell
-// it missed something instead of reading a gap as continuity.
+// The EVENTS used to share that fate and no longer do: they are also written
+// to the journal (liveactivity_durable.go, migration 0017), so a restart
+// refills the ring instead of emptying it, the sequence counter continues
+// instead of starting again, and a client can page back past the ring with
+// before=. What is written, what is not and why, and the retention rule are
+// in that file's header. The write is off this path: RecordEvent still does
+// one lock, one append and a send that cannot block.
+//
+// The ring itself stays bounded, because an unbounded tail of a daemon that
+// runs for months is a memory leak with a nice name. It is the hot read: the
+// last few hundred lines, with the cursor protocol below, and it says where
+// it begins so a client that has fallen behind can tell it missed something
+// instead of reading a gap as continuity.
 //
 // # Why it is not a stream
 //
@@ -469,6 +477,13 @@ type LiveActivityRequest struct {
 	// means "whatever is still held".
 	Since int64
 
+	// Before, when positive, turns the read into a page BACKWARDS through
+	// the durable record: each bucket's events with a sequence below it,
+	// the newest Limit of them, oldest first, with Truncated saying older
+	// ones remain. Since is ignored. It is how a client reaches what the
+	// ring no longer holds.
+	Before int64
+
 	// Limit bounds how many events come back per set. See
 	// liveActivityDefaultLimit for why it is advisory.
 	Limit int
@@ -494,7 +509,7 @@ type LiveActivityRequest struct {
 //
 // Read-only in the strictest sense: it takes no lock the cycle needs,
 // starts nothing and writes nothing.
-func (b *BackupService) LiveActivity(_ context.Context, req LiveActivityRequest) (LiveActivity, error) {
+func (b *BackupService) LiveActivity(ctx context.Context, req LiveActivityRequest) (LiveActivity, error) {
 	if req.BackupSetID != "" {
 		if err := b.requireBackupSet(req.BackupSetID); err != nil {
 			return LiveActivity{}, err
@@ -544,7 +559,19 @@ func (b *BackupService) LiveActivity(_ context.Context, req LiveActivityRequest)
 	// cursor lands on the latest of them and whatever arrived for an
 	// earlier bucket meanwhile is filtered out of the next poll and never
 	// returned to anybody. One reading is one moment.
-	sets, deployment := b.activity.read(ids, wantDeployment, req.Since, limit)
+	var (
+		sets       []LiveActivitySet
+		deployment *LiveActivityDeployment
+	)
+	if req.Before > 0 {
+		var err error
+		sets, deployment, err = b.activityHistory(ctx, ids, wantDeployment, req.Before, limit)
+		if err != nil {
+			return LiveActivity{}, err
+		}
+	} else {
+		sets, deployment = b.activity.read(ids, wantDeployment, req.Since, limit)
+	}
 	out := LiveActivity{
 		ObservedAt: now(),
 		Epoch:      b.activity.epochID(),
@@ -610,6 +637,12 @@ type liveActivity struct {
 	deployment *liveActivityRing
 
 	sets map[string]*liveActivitySetState
+
+	// durable, when set, is offered every event this feed files, for the
+	// writer that makes them survive a restart (liveactivity_durable.go).
+	// The offer is a non-blocking channel send under the lock the event is
+	// already filed under.
+	durable *activityDurable
 
 	// current is the set a cycle is inside right now, or "". It is what
 	// turns a stream of readings into "this pass started" and "that pass
@@ -732,6 +765,7 @@ func (l *liveActivity) RecordEvent(r obs.Record) {
 
 	if scope == LiveActivityScopeDeployment {
 		l.deployment.add(e)
+		l.durable.offer("", e)
 		return
 	}
 	st := l.setLocked(setID)
@@ -745,9 +779,11 @@ func (l *liveActivity) RecordEvent(r obs.Record) {
 		// showing somebody probing this API is the point.
 		e.Scope = LiveActivityScopeDeployment
 		l.deployment.add(e)
+		l.durable.offer("", e)
 		return
 	}
 	st.ring.add(e)
+	l.durable.offer(setID, e)
 	if isTerminalFailureTransition(r) {
 		st.failures++
 	}
