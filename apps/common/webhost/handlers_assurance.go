@@ -247,7 +247,9 @@ func (h *handlers) listAssuranceDue(w http.ResponseWriter, r *http.Request) {
 func (h *handlers) startRecoveryTest(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxAssuranceBodyBytes)
 	var body startRecoveryTestRequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&body); err != nil && !errors.Is(err, io.EOF) {
 		writeDecodeError(w, err, maxAssuranceBodyBytes)
 		return
 	}
