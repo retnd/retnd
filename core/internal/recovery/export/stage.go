@@ -273,6 +273,14 @@ func (s *Staging) Publish(from, rel string) (string, error) {
 	return final, nil
 }
 
+// ValidateName reports whether rel is an acceptable target name under the
+// root, without creating anything. A mint calls it so a bad name is refused
+// before a grant exists.
+func (s *Staging) ValidateName(rel string) error {
+	_, _, err := s.cleanTarget(rel)
+	return err
+}
+
 // cleanTarget validates rel and returns the directory and sanitised base
 // name the output goes under.
 func (s *Staging) cleanTarget(rel string) (dir, base string, err error) {

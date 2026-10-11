@@ -215,8 +215,9 @@ func (g *Grants) expiryFor(s Session, now time.Time) time.Time {
 
 func (g *Grants) outstandingLocked() int {
 	n := 0
+	now := g.now()
 	for _, e := range g.live {
-		if !e.closed() {
+		if !e.closed() && now.Before(e.grant.ExpiresAt) {
 			n++
 		}
 	}
@@ -235,7 +236,9 @@ func (g *Grants) reclaimLocked(now time.Time) {
 			delete(g.live, k)
 		case e.closed():
 			tombs = append(tombs, k)
-		case !now.Before(e.grant.ExpiresAt) && !e.redeemed:
+		case !e.redeemed && now.Sub(e.grant.ExpiresAt) > tombstoneLife:
+			// A lapsed grant keeps answering "expired" for a while, so the
+			// refusal is the accurate one, then becomes unknown.
 			delete(g.live, k)
 		}
 	}
