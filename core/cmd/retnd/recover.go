@@ -14,6 +14,7 @@ import (
 	"github.com/retnd/retnd/core/cliecho"
 	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/recovery/budget"
 	"github.com/retnd/retnd/core/service"
 )
 
@@ -54,7 +55,7 @@ var recoverExitCodes = map[string]int{
 	service.RecoveryRemoteCopyCorrupt:   15,
 	service.RecoveryNoDigest:            16,
 	service.RecoveryNoSpace:             17,
-	service.RecoveryBelowReserve:        18,
+	service.RecoveryBelowReserve:        budget.ExitCode(budget.StagingReserve),
 	service.RecoveryUseSnapshotRestore:  19,
 	service.RecoveryTargetInvalid:       20,
 	service.RecoveryTargetExists:        21,
@@ -67,6 +68,9 @@ var recoverExitCodes = map[string]int{
 	service.RecoveryBusy:                28,
 	service.RecoveryInterrupted:         29,
 	service.RecoveryFailed:              30,
+	service.RecoveryReadsBusy:           budget.ExitCode(budget.ConcurrentReads),
+	service.RecoveryDestinationBusy:     budget.ExitCode(budget.DestinationReads),
+	service.RecoveryDownloadsBusy:       budget.ExitCode(budget.DownloadStreams),
 }
 
 // exitRecoverThawStarted: nothing was recovered, because the only copy is

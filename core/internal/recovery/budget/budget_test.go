@@ -1,6 +1,7 @@
 package budget
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"sync"
@@ -289,5 +290,95 @@ func TestARefusalReadsInWordsAnOperatorCanActOn(t *testing.T) {
 	}
 	if (&Refusal{Budget: DestinationReads, Destination: "offsite"}).Error() == (&Refusal{Budget: ConcurrentReads}).Error() {
 		t.Error("the global and per-destination refusals read the same")
+	}
+}
+
+func TestAcquireWaitBlocksUntilASlotFreesAndHonoursCancellation(t *testing.T) {
+	g := NewGate(ConcurrentReads, 1)
+	first, err := g.Acquire()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := make(chan error, 1)
+	go func() {
+		rel, err := g.AcquireWait(context.Background())
+		if err == nil {
+			rel()
+		}
+		got <- err
+	}()
+	select {
+	case err := <-got:
+		t.Fatalf("a waiter was admitted while the gate was full: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	first()
+	select {
+	case err := <-got:
+		if err != nil {
+			t.Fatalf("the waiter was refused after the slot freed: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the waiter never got the freed slot")
+	}
+
+	// A cancelled waiter leaves nothing behind.
+	hold, _ := g.Acquire()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { _, err := g.AcquireWait(ctx); done <- err }()
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("got %v", err)
+	}
+	hold()
+	if g.InFlight() != 0 {
+		t.Fatalf("in flight = %d after everything was released: a cancelled waiter leaked a slot", g.InFlight())
+	}
+}
+
+func TestReadsAcquireWaitHoldsBothCeilingsUnderContention(t *testing.T) {
+	r := NewReads(Limits{MaxConcurrentReads: 4, MaxReadsPerDestination: 2})
+	var wg sync.WaitGroup
+	var running, runningA, over atomic.Int32
+	for i := 0; i < 200; i++ {
+		dest := "a"
+		if i%3 == 0 {
+			dest = "b"
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			rel, err := r.AcquireWait(context.Background(), dest)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			if running.Add(1) > 4 {
+				over.Add(1)
+			}
+			if dest == "a" && runningA.Add(1) > 2 {
+				over.Add(1)
+			}
+			time.Sleep(time.Millisecond)
+			if dest == "a" {
+				runningA.Add(-1)
+			}
+			running.Add(-1)
+			rel()
+		}()
+	}
+	wg.Wait()
+	if over.Load() != 0 {
+		t.Fatalf("a ceiling was exceeded %d times", over.Load())
+	}
+	g, per := r.Peaks()
+	if g > 4 || per["a"] > 2 || per["b"] > 2 {
+		t.Fatalf("peaks = %d %v", g, per)
+	}
+	if g < 3 {
+		t.Fatalf("peak global = %d: the test never exercised the ceiling", g)
 	}
 }

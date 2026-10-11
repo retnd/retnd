@@ -69,12 +69,12 @@ func envInt(name string, def int) int {
 	return def
 }
 
-func runScale(t *testing.T, copies, size int) scaleResult {
+func runScale(t *testing.T, copies, size int, wait bool) scaleResult {
 	t.Helper()
 	l := budget.Defaults()
 	reads := budget.NewReads(l)
 	staging := &export.Staging{Root: t.TempDir(), FreeBytes: func(string) (int64, error) { return 1 << 40, nil }}
-	engine := &export.Engine{Staging: staging, Reads: reads}
+	engine := &export.Engine{Staging: staging, Reads: reads, WaitForRead: wait}
 
 	// Three destinations with very unequal shares, so the per-destination
 	// ceiling has something to do: most of the fleet lives on one bucket.
@@ -178,7 +178,7 @@ func runScale(t *testing.T, copies, size int) scaleResult {
 func TestOneThousandDueCopiesCompleteInsideThePerPassBoundWithTheCeilingsNeverExceeded(t *testing.T) {
 	copies := envInt("RECOVERY_BUDGET_COPIES", 1200)
 	size := envInt("RECOVERY_BUDGET_BYTES", 16<<10)
-	res := runScale(t, copies, size)
+	res := runScale(t, copies, size, true)
 
 	l := budget.Defaults()
 	if res.MaxConsideredPass > l.MaxCopiesPerTick {
@@ -193,11 +193,14 @@ func TestOneThousandDueCopiesCompleteInsideThePerPassBoundWithTheCeilingsNeverEx
 	if res.PeakGlobalReads < 2 {
 		t.Errorf("peak global reads = %d: the model never ran anything concurrently, so the ceilings above were not tested", res.PeakGlobalReads)
 	}
-	if res.Refusals == 0 {
-		t.Error("the limiter never refused anything, so the per-destination ceiling was not exercised by a fleet that is mostly on one bucket")
+	if res.PeakPerDest < l.MaxReadsPerDestination {
+		t.Errorf("peak on one destination = %d: a fleet that is mostly on one bucket never reached its ceiling of %d, so the ceiling was not exercised", res.PeakPerDest, l.MaxReadsPerDestination)
 	}
-	if want := (copies + l.MaxCopiesPerTick - 1) / l.MaxCopiesPerTick; res.Passes < want {
-		t.Errorf("%d passes for %d copies at %d a pass: it cannot have finished in fewer than %d", res.Passes, copies, l.MaxCopiesPerTick, want)
+	if want := (copies + l.MaxCopiesPerTick - 1) / l.MaxCopiesPerTick; res.Passes != want {
+		t.Errorf("%d passes for %d copies at %d a pass, want exactly %d: with the scheduler waiting for a slot instead of being refused, every pass finishes what it considered", res.Passes, copies, l.MaxCopiesPerTick, want)
+	}
+	if res.Refusals != 0 {
+		t.Errorf("%d refusals in waiting mode", res.Refusals)
 	}
 	blob, _ := json.MarshalIndent(res, "", "  ")
 	t.Logf("%s", blob)
@@ -240,4 +243,15 @@ func TestTheScaleModelCanActuallyFail(t *testing.T) {
 		t.Fatalf("with the ceiling lifted the peak was only %d: the model cannot tell a held line from an absent one", g)
 	}
 	_ = strings.Repeat
+}
+
+func TestAnInteractiveStyleLimiterRefusesInsteadOfWaitingAndStillNeverExceedsTheCeilings(t *testing.T) {
+	res := runScale(t, 240, 4<<10, false)
+	l := budget.Defaults()
+	if res.PeakGlobalReads > l.MaxConcurrentReads || res.PeakPerDest > l.MaxReadsPerDestination {
+		t.Fatalf("peaks %d / %d over the ceilings", res.PeakGlobalReads, res.PeakPerDest)
+	}
+	if res.Refusals == 0 {
+		t.Fatal("the refusing limiter never refused anything: the refusal path was not exercised")
+	}
 }

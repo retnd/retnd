@@ -28,6 +28,19 @@ import (
 // decrypt stage) belong to the recovery-test runner and to EPIC N, and are
 // named in that document as such rather than skipped here.
 
+// mustBeInterrupted asserts a cancelled stage came back as an interruption,
+// and says which stage in the message, because a recovery that went ahead
+// after being cancelled is the failure this is for.
+func mustBeInterrupted(t *testing.T, stage string, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("cancellation during %s was ignored: the recovery went ahead anyway", stage)
+	}
+	if got := codeOf(t, err); got != RecoveryInterrupted {
+		t.Fatalf("cancellation during %s: want %s, got %s (%v)", stage, RecoveryInterrupted, got, err)
+	}
+}
+
 func stagingIsEmpty(t *testing.T, f *recoveryFixture) {
 	t.Helper()
 	if e := f.stagingEntries(t); len(e) != 0 {
@@ -44,8 +57,9 @@ func TestCancellationDuringTheThawLeavesNothingAndStartsNoGrant(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
 	g, err := f.b.MintRecovery(ctx, f.session(), RecoveryRequest{ArtifactID: f.artifact, Target: stagingTo("x"), AcknowledgeCost: true})
-	if codeOf(t, err) != RecoveryInterrupted || g.Token != "" {
-		t.Fatalf("got %+v, %v", g, err)
+	mustBeInterrupted(t, "the thaw", err)
+	if g.Token != "" {
+		t.Fatalf("a grant was minted: %+v", g)
 	}
 	stagingIsEmpty(t, f)
 }
@@ -60,9 +74,7 @@ func TestCancellationDuringTheReadLeavesNothingAndNoTarget(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { time.Sleep(150 * time.Millisecond); cancel() }()
 	_, _, err = f.b.RedeemRecovery(ctx, f.session(), g.Token)
-	if codeOf(t, err) != RecoveryInterrupted {
-		t.Fatalf("got %v", err)
-	}
+	mustBeInterrupted(t, "the read", err)
 	stagingIsEmpty(t, f)
 }
 
@@ -75,9 +87,7 @@ func TestCancellationBetweenVerifyingAndPlacingLeavesNoOutputAndNoPartial(t *tes
 		t.Fatal(err)
 	}
 	_, _, err = f.b.RedeemRecovery(ctx, f.session(), g.Token)
-	if codeOf(t, err) != RecoveryInterrupted {
-		t.Fatalf("got %v", err)
-	}
+	mustBeInterrupted(t, "the gap between verifying and placing", err)
 	stagingIsEmpty(t, f)
 }
 
@@ -92,9 +102,7 @@ func TestCancellationDuringTheUploadLeavesNoPartialAndNoObject(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { time.Sleep(150 * time.Millisecond); cancel() }()
 	_, _, err = f.b.RedeemRecovery(ctx, f.session(), g.Token)
-	if codeOf(t, err) != RecoveryInterrupted {
-		t.Fatalf("got %v", err)
-	}
+	mustBeInterrupted(t, "the upload", err)
 	stagingIsEmpty(t, f)
 	if _, ok := f.store.objects["recovered/a"]; ok {
 		t.Fatal("a cancelled upload left an object behind")
@@ -107,8 +115,8 @@ func TestADestinationThatDisappearsMidReadFailsCleanlyAndSaysWhy(t *testing.T) {
 	f.store.failErr = transport.NewError(transport.NotFound, "read", errors.New("NoSuchKey: the object is gone"))
 	_, _, err := f.b.RecoverNow(context.Background(), f.session(),
 		RecoveryRequest{ArtifactID: f.artifact, Target: stagingTo("x"), AcknowledgeCost: true}, nil)
-	if codeOf(t, err) != RecoveryNotReadable {
-		t.Fatalf("want %s, got %v", RecoveryNotReadable, err)
+	if err == nil || codeOf(t, err) != RecoveryNotReadable {
+		t.Fatalf("a destination that loses the object mid-read: want %s, got %v", RecoveryNotReadable, err)
 	}
 	if strings.Contains(err.Error(), "NoSuchKey") {
 		t.Fatalf("the provider's error text reached the operator: %v", err)
@@ -263,7 +271,7 @@ func TestTheDownloadCeilingRefusesTheNextStreamAndFreesWhenOneFinishes(t *testin
 		t.Fatal(err)
 	}
 	_, _, err = f.b.RedeemRecovery(ctx, sess, t2)
-	if codeOf(t, err) != RecoveryDownloadsBusy {
+	if err == nil || codeOf(t, err) != RecoveryDownloadsBusy {
 		t.Fatalf("a second stream over a ceiling of one: %v", err)
 	}
 	if f.store.opens.Load() != 0 {
@@ -293,13 +301,13 @@ func TestAnAbandonedDownloadGivesBackItsStreamSlot(t *testing.T) {
 	f.b.recovery.limits = budget.Limits{MaxDownloadStreams: 1}
 	sess := f.session()
 	g1, _ := f.b.MintRecovery(ctx, sess, RecoveryRequest{ArtifactID: f.artifact, Target: RecoveryTarget{Kind: "download"}})
-	g2, _ := f.b.MintRecovery(ctx, sess, RecoveryRequest{ArtifactID: f.artifact, Target: RecoveryTarget{Kind: "download"}})
 	d1, _, err := f.b.RedeemRecovery(ctx, sess, g1.Token)
 	if err != nil {
 		t.Fatal(err)
 	}
 	d1.Close() // the client went away and never came back
 	f.clock.Advance(10 * time.Minute)
+	g2, _ := f.b.MintRecovery(ctx, sess, RecoveryRequest{ArtifactID: f.artifact, Target: RecoveryTarget{Kind: "download"}})
 	d2, _, err := f.b.RedeemRecovery(ctx, sess, g2.Token)
 	if err != nil {
 		t.Fatalf("an abandoned stream kept its slot for ever: %v", err)
@@ -328,7 +336,7 @@ func TestAProviderChecksumThatDisagreesIsAFindingBeforeAnyByteIsRead(t *testing.
 	}
 	_, _, err := f.b.RecoverNow(context.Background(), f.session(),
 		RecoveryRequest{ArtifactID: f.artifact, Target: stagingTo("x"), AcknowledgeCost: true}, nil)
-	if codeOf(t, err) != RecoveryRemoteCopyCorrupt {
+	if err == nil || codeOf(t, err) != RecoveryRemoteCopyCorrupt {
 		t.Fatalf("a provider that attests a different checksum is a positive finding of corruption, got %v", err)
 	}
 	if f.store.opens.Load() != 0 {
@@ -438,6 +446,6 @@ func TestHostLimitsCannotChangeOnceRecoveryHasStarted(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := f.b.SetRecoveryLimits(RecoveryLimits{MaxDownloadStreams: 9}); err == nil {
-		t.Fatal("limits changed under live grants and gates")
+		t.Fatal("limits changed under live grants and gates: they must be fixed once recovery has started")
 	}
 }

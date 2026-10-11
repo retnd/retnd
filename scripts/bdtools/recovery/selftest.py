@@ -52,10 +52,18 @@ RECOVER_RUN_GO = "core/service/recover_run.go"
 ROUTER_GO = "apps/common/webhost/router.go"
 HANDLER_GO = "apps/common/webhost/handlers_recovery.go"
 CLI_GO = "core/cmd/retnd/recover.go"
+BUDGET_GO = "core/internal/recovery/budget/budget.go"
+FLIGHT_GO = f"{EXPORT}/flight.go"
+CAPS_GO = "apps/common/platform/capabilities/hostlimits.go"
+WEBMAIN_GO = "apps/generic/cmd/retnd-web/main.go"
 
 # (module directory under the tree root, package patterns)
 EXPORT_PKG = ("core", ("./internal/recovery/export/",))
 SERVICE_PKG = ("core", ("./service/",))
+DEPLOY_PKG = ("core", ("./tests/deploymentdiff/",))
+BUDGET_PKG = ("core", ("./internal/recovery/budget/",))
+CAPS_PKG = ("apps/common", ("./platform/capabilities/",))
+WEBMAIN_PKG = ("apps/generic", ("./cmd/retnd-web/",))
 WEB_PKG = ("apps/common", ("./webhost/",))
 UI_PKG = ("apps/common", ("./webhost/serve/",))
 CLI_PKG = ("core", ("./cmd/retnd/",))
@@ -421,6 +429,168 @@ MUTATIONS = [
         "TestAnUnsatisfiableRangeIsReportedAsARefusal",
     ),
     (
+        "a read budget that never refuses",
+        BUDGET_GO,
+        "\tif g.n >= g.limit {",
+        "\t" + PLANT + "the line is not enforced.\n\tif false && g.n >= g.limit {",
+        "over the line",
+        BUDGET_PKG,
+        "TestAGateRefusesPastItsLine",
+    ),
+    (
+        "a per-destination budget that is not applied",
+        BUDGET_GO,
+        "\treleaseDest, err := dg.Acquire()",
+        "\t" + PLANT + "one destination may take every slot.\n\treleaseDest, err := func() (func(), error) { return func() {}, nil }()",
+        "a third read of one destination",
+        BUDGET_PKG,
+        "TestReadsRefusesPerDestination",
+    ),
+    (
+        "a scheduler pass with no bound on the copies it considers",
+        BUDGET_GO,
+        "\tn := l.MaxCopiesPerTick\n",
+        "\t" + PLANT + "a pass takes everything due.\n\tn := len(ordered)\n",
+        "over the bound",
+        BUDGET_PKG,
+        "TestOneThousandDueCopiesSpreadOverPassesAndNothingStarves",
+    ),
+    (
+        "an unattended pass allowed to reach a content read",
+        BUDGET_GO,
+        "func ScheduledCeiling() placement.Class { return placement.Existence }",
+        "func ScheduledCeiling() placement.Class { return placement.Content } // " + PLANT.rstrip(),
+        "costs egress",
+        BUDGET_PKG,
+        "TestAScheduledPassCostsNoEgressByConstruction",
+    ),
+    (
+        "a validator output bound that is no longer EPIC L's",
+        BUDGET_GO,
+        "DefaultValidatorOutputBytes   = 256 << 10",
+        "DefaultValidatorOutputBytes   = 1 << 20",
+        "EPIC L's",
+        BUDGET_PKG,
+        "TestTheValidatorOutputBoundIsEpicLs",
+    ),
+    (
+        "a full read that never takes a read slot",
+        ENGINE_GO,
+        "\tif e.Reads != nil {",
+        "\t" + PLANT + "reads are unbounded.\n\tif false && e.Reads != nil {",
+        "want a per-destination refusal",
+        EXPORT_PKG,
+        "TestStageOverTheReadBudgetIsRefusedBeforeTheCopyIsOpened",
+    ),
+    (
+        "a full read that never gives its slot back",
+        ENGINE_GO,
+        "\t	defer release()\n",
+        "\t	// " + PLANT.rstrip() + "\n\t\t_ = release\n",
+        "slot is still held",
+        EXPORT_PKG,
+        "TestAStageGivesBackItsReadSlotWhateverHappens",
+    ),
+    (
+        "two operators asking for the same copy each reading it",
+        FLIGHT_GO,
+        "\tif c, ok := f.calls[key]; ok {",
+        "\t" + PLANT + "nothing is shared.\n\tif c, ok := f.calls[key]; ok && false {",
+        "read 2 times",
+        EXPORT_PKG,
+        "TestTwoOperatorsAskingForTheSameCopyShareOneRead",
+    ),
+    (
+        "a shared copy removed by the first operator to finish",
+        FLIGHT_GO,
+        "\t	staged.addRefs(c.waiters)\n",
+        "\t	// " + PLANT.rstrip() + "\n",
+        "removed the copy the second is still using",
+        EXPORT_PKG,
+        "TestTwoOperatorsAskingForTheSameCopyShareOneRead",
+    ),
+    (
+        "a download ceiling that is not enforced",
+        RECOVER_RUN_GO,
+        "\t\trel, aerr := h.streams.Acquire()",
+        "\t\t" + PLANT + "any number of streams.\n\t\trel, aerr := func() (func(), error) { return func() {}, nil }()",
+        "a second stream over a ceiling of one",
+        SERVICE_PKG,
+        "TestTheDownloadCeilingRefusesTheNextStream",
+    ),
+    (
+        "a provider checksum that disagrees and is read anyway",
+        RECOVER_RUN_GO,
+        "\tif !res.Passed {",
+        "\t" + PLANT + "a disagreement is ignored.\n\tif false && !res.Passed {",
+        "positive finding of corruption",
+        SERVICE_PKG,
+        "TestAProviderChecksumThatDisagrees",
+    ),
+    (
+        "a cancelled recovery that places its output anyway",
+        RECOVER_RUN_GO,
+        "\tif serr == nil && ctx.Err() != nil {",
+        "\t" + PLANT + "cancellation after verifying is ignored.\n\tif false {",
+        "was ignored",
+        SERVICE_PKG,
+        "TestCancellationBetweenVerifyingAndPlacing",
+    ),
+    (
+        "a destination that loses an object mid-read blamed on nobody",
+        RECOVER_GO,
+        "\tcase isNotFoundCategory(err):",
+        "\t" + PLANT + "a vanished object is a generic failure.\n\tcase false && isNotFoundCategory(err):",
+        "mid-read",
+        SERVICE_PKG,
+        "TestADestinationThatDisappearsMidRead",
+    ),
+    (
+        "a budget refusal that maps to the wrong code",
+        RECOVER_GO,
+        "\tcase errors.As(err, &ref):",
+        "\t" + PLANT + "budget refusals are not recognised.\n\tcase false && errors.As(err, &ref):",
+        "refusal maps to",
+        SERVICE_PKG,
+        "TestEveryBudgetRefusalMapsToACode",
+    ),
+    (
+        "host limits changed under live grants",
+        RECOVER_GO,
+        "\tif h.started {",
+        "\t" + PLANT + "limits may change at any time.\n\tif false && h.started {",
+        "limits changed under live grants",
+        SERVICE_PKG,
+        "TestHostLimitsCannotChangeOnceRecoveryHasStarted",
+    ),
+    (
+        "host limits that cannot mean anything accepted from a platform",
+        CAPS_GO,
+        "\tif err := l.Validate(); err != nil {",
+        "\t" + PLANT + "nothing is validated.\n\tif err := l.Validate(); err != nil && false {",
+        "was accepted",
+        CAPS_PKG,
+        "TestHostLimitsThatCannotMeanAnythingAreRefused",
+    ),
+    (
+        "a platform's host limits never handed to the engine",
+        WEBMAIN_GO,
+        "\tif err := applyHostLimits(backend, platformAdapter); err != nil {",
+        "\t" + PLANT + "the limits are never applied.\n\tif err := error(nil); err != nil {",
+        "the engine runs with",
+        WEBMAIN_PKG,
+        "TestAPlatformsHostLimitsReach",
+    ),
+    (
+        "the shipped container quietly made privileged",
+        "container/compose.yaml",
+        "x-security: &security\n  privileged: false\n",
+        "x-security: &security\n  privileged: true # " + PLANT.rstrip() + "\n",
+        "container/compose.yaml has changed",
+        DEPLOY_PKG,
+        "TestTheCanonicalDeploymentIsExactlyWhatItWasBeforeEpicQ",
+    ),
+    (
         "a recover verb that takes no explicit target",
         CLI_GO,
         '\tif *to == "" {',
@@ -445,6 +615,9 @@ CLEAN_CONTROLS = [
     ),
     ("the UI proxy's recovery path", UI_PKG, "TestUI_ARecovery|TestUI_ADownloadsGrant"),
     ("the recover verb suite", CLI_PKG, "TestRecoverIsRefusedBeforeAnythingIsOpened"),
+    ("the budget package", BUDGET_PKG, "."),
+    ("the host-limits contract", CAPS_PKG, "."),
+    ("the deployment tripwire", DEPLOY_PKG, "."),
 ]
 
 
