@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "7b821e6237f0ea506453e3c657dc04c62136ae5e7ebdb1ebdac6e77990e60469"
+const ContractSHA256 = "27e60ba1d9b6b86a4dcc8762d5ef1e585f4265d68def0383660b62c587fc8497"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -1601,7 +1601,6 @@ type AssuranceSettingsResponse struct {
 	Scrub                  AssuranceScrubPolicy        `json:"scrub"`
 	StagingRoot            string                      `json:"staging_root"`
 	StagingTtlSeconds      int64                       `json:"staging_ttl_seconds"`
-	WebDownloadMemoryBytes int64                       `json:"web_download_memory_bytes"`
 }
 
 // AuthErrorResponse is the FLAT error body the /auth operations return, with the
@@ -3349,7 +3348,6 @@ type UpdateAssuranceSettingsRequest struct {
 	ScrubStrategy              *string `json:"scrub_strategy"`
 	StagingRoot                *string `json:"staging_root"`
 	StagingTtlSeconds          *int64  `json:"staging_ttl_seconds"`
-	WebDownloadMemoryBytes     *int64  `json:"web_download_memory_bytes"`
 }
 
 // UpdateBackupSetAssuranceRequest is PATCH one backup set's own assurance block. Omitted leaves a field

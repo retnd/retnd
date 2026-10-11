@@ -435,11 +435,9 @@ func checkValidatorCatalogMembership(cfg *config.Config) error {
 			}
 		}
 	}
-	// A recovery-test validator is named the same way and refused the same
-	// way, before any migration has been applied (EPIC Q, Q1.4).
-	if err := assuranceValidatorsKnown(cfg); err != nil {
-		return fmt.Errorf("%w", err)
-	}
+	// A recovery-test validator_id is deliberately not checked here: it names
+	// a script file in the workflow tree, not an entry in this catalog, and
+	// config.Validate has already refused an id that could not be one.
 	return nil
 }
 

@@ -62,7 +62,7 @@ func TestAssuranceSettings_ReportTheResolvedDefaultsAndTheWrittenNoPerHostKnob(t
 	if got.Configured {
 		t.Error("a config with no assurance block must report configured=false")
 	}
-	want := map[string]bool{"staging_root": true, "staging_ttl": true, "max_concurrent_full_reads": true, "max_per_destination": true, "web_download_memory_bytes": true}
+	want := map[string]bool{"staging_root": true, "staging_ttl": true, "max_concurrent_full_reads": true, "max_per_destination": true}
 	for _, k := range got.HostKnobs {
 		if k.PerSet || strings.TrimSpace(k.Reason) == "" {
 			t.Errorf("host knob %s must say no per set and carry its reason: %+v", k.Name, k)
@@ -104,7 +104,7 @@ func TestUpdateAssuranceSettings_MovesAnInheritingSetAndNotAPinnedOne(t *testing
 	if !strings.Contains(string(raw), "cadence: 12h0m0s") && !strings.Contains(string(raw), "cadence: 12h") {
 		t.Errorf("the patch was not persisted:\n%s", raw)
 	}
-	if strings.Contains(string(raw), "staging_ttl") || strings.Contains(string(raw), "web_download_memory_bytes") {
+	if strings.Contains(string(raw), "staging_ttl") {
 		t.Errorf("the patch froze unrelated defaults into the operator's file:\n%s", raw)
 	}
 }
