@@ -810,6 +810,9 @@ var surfaces = []surface{
 		argv: func(f fixture) []string { return []string{"reconcile", "--config", f.configPath} }},
 	{verb: "validate", name: "one durable copy", mode: "", exit: 0, needsArtifacts: true,
 		argv: func(f fixture) []string { return []string{"validate", "--config", f.configPath, f.artifactID} }},
+	{verb: "scrub", name: "one named backup, checked now whether or not it is due", mode: "", exit: 0, needsArtifacts: true,
+		note: "scrub reads copies and records what it found in the journal, like validate beside it, so it writes no configuration and names no mode. Naming the artifact is the operator saying now, which makes the pass check it even though nothing is due yet, so the row proves work happened rather than an empty schedule",
+		argv: func(f fixture) []string { return []string{"scrub", "--config", f.configPath, f.artifactID} }},
 	{verb: "catalog", name: "rebuild, previewed", mode: "", exit: 0, needsArtifacts: true,
 		argv: func(f fixture) []string {
 			return []string{"catalog", "--config", f.configPath, "rebuild", "--dry-run"}
