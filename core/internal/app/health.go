@@ -161,6 +161,11 @@ func (s *Service) BuildHealthReport(ctx context.Context, versionInfo VersionInfo
 			}
 
 			in := health.BackupSetInputs{
+				// The set's resolved assurance policy, so a set that
+				// requires a recovery test is degraded until one passes and
+				// the scrub cadence the alert reads is the one in force.
+				RecoveryTestRequired: bs.Assurance.RecoveryTestEnabled(),
+				ScrubCadence:         bs.Assurance.Scrub.Cadence.Duration(),
 				LastSuccessfulPollAt: s.lastPollAt(bs.ID),
 				LastRetentionRunAt:   s.lastRetentionAt(bs.ID),
 				// Absent from the map means no refusal is on record, which

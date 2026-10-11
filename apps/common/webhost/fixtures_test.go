@@ -252,6 +252,7 @@ type syncFakeBackend struct {
 	lastRevalidated       string
 	lastRetried           string
 	lastRetriedFailed     string
+	lastRecoveryMint      service.RecoveryRequest
 	lastRetryFailedNote   string
 	lastPreflightedMedium string
 	lastReinstated        string
@@ -1895,4 +1896,19 @@ func (f *settingsFakeBackend) UpdateSettings(_ context.Context, req service.Upda
 		}
 	}
 	return f.settings, nil
+}
+
+// MintRecovery records the request it was handed, so a contract test can
+// show a path built from the template reached the artifact it names.
+func (f *syncFakeBackend) MintRecovery(_ context.Context, _ service.RecoverySession, r service.RecoveryRequest) (service.RecoveryGrant, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lastRecoveryMint = r
+	return service.RecoveryGrant{Token: "tok_fake", ArtifactID: r.ArtifactID, Copy: "local", Target: r.Target}, nil
+}
+
+// RedeemRecovery is here so the shared fake satisfies RecoveryClient; the
+// recovery tests that care about it use fakeRecoveryBackend instead.
+func (f *syncFakeBackend) RedeemRecovery(context.Context, service.RecoverySession, string) (service.RecoveryStream, *service.RecoveryResult, error) {
+	return nil, &service.RecoveryResult{}, nil
 }

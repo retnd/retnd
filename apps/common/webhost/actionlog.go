@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/go-chi/chi/v5"
 
@@ -65,6 +66,24 @@ type ActionRecorder interface {
 	RecordAPIAction(ctx context.Context, action cliecho.APIAction)
 }
 
+// selfAuditedKey carries a flag a handler raises when it has written its own
+// action-log row, naming things this middleware cannot see (the copy
+// chosen, the target, the code of a refusal). Recording the request here
+// too would write two rows for one act, and "one mint writes one row" is a
+// claim somebody counts.
+//
+// A flag the handler raises, rather than a list of routes, because a
+// request can be refused before its handler runs (no session, no CSRF
+// pair) and those are exactly the refusals that must still be recorded.
+type selfAuditedKey struct{}
+
+// markSelfAudited tells recordActions this request has its own row.
+func markSelfAudited(ctx context.Context) {
+	if f, ok := ctx.Value(selfAuditedKey{}).(*atomic.Bool); ok {
+		f.Store(true)
+	}
+}
+
 // maxRecordedBodyBytes bounds what this middleware buffers in order to
 // build a command line from a request.
 //
@@ -92,10 +111,15 @@ func recordActions(recorder ActionRecorder) func(http.Handler) http.Handler {
 			}
 
 			body := drainBody(r)
+			selfAudited := &atomic.Bool{}
+			r = r.WithContext(context.WithValue(r.Context(), selfAuditedKey{}, selfAudited))
 			capture := &capturingWriter{ResponseWriter: w, status: http.StatusOK}
 			next.ServeHTTP(capture, r)
 
 			route := routePatternOf(r)
+			if selfAudited.Load() {
+				return
+			}
 			if route == "" {
 				// Nothing matched, so there is no action to name: a 404
 				// on a path this API does not have is not an operator

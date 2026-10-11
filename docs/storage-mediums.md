@@ -486,6 +486,51 @@ The rules that matter:
   the artifact having been "revalidated" in the sense a local artifact is.
 - An artifact on `GLACIER` or `DEEP_ARCHIVE` is `existence`-checkable only, until
   an explicit restore makes anything stronger possible.
+- **The scheduled scrub runs this, and `retnd scrub` runs it by hand.** The
+  daemon (and the web host) check each copy on its own schedule, which lives on
+  the copy: `next_due_at` in the journal, not the artifact row's clock, so a
+  reconciliation or a catalog rebuild cannot make a copy nobody re-read look
+  fresh. A rebuilt catalog reads `unknown` and every copy in it is due. The
+  result is recorded on the copy with the class that ran, and `Content verified`
+  only ever moves when the bytes were read. A copy in an archive class is
+  recorded as `requires_restore`: I never read it and never start a restore.
+  `retnd scrub --content --allow-egress` reads a copy on a medium in full, and
+  without both flags the read is refused.
+  The schedule is the `assurance:` policy: `assurance.scrub.cadence` (weekly
+  unless you say otherwise) is how often a copy is owed a look, and
+  `assurance.scrub.strategy` says what the look is (`auto` and `content` re-hash
+  a local copy, `existence` does not). A default install scrubs with no other
+  configuration. A set's older `revalidation:` block still works, and when it
+  turns hashing or a restore hook on it wins over the policy for that set.
+  Changing the cadence changes what is due on the next tick, and `/assurance/due`
+  reads the same per-copy schedule the scrub keeps.
+  Pacing is bounded: four copies at once overall, two per destination, jitter
+  on every due time, and a capped backoff for a copy that fails or cannot be
+  reached. A copy that fails three scheduled checks in a row degrades its
+  set's health, and the next passing check clears that. You hear about it
+  through a script of your own: put `NAME.local.sh` scripts in
+  `assurance-after/sets/<source>/<set>` or `assurance-after/global` under the
+  workflow root and they run once when the episode opens (`ASSURANCE_EVENT` is
+  `scrub_failing`) and once when it closes (`scrub_recovered`), with the same
+  custody, shell verification and runner container as any other hook. That
+  directory is not the set's `after_dir`, whose scripts undo what a `before`
+  hook did to the source machine and have no business running because a scrub
+  failed. A set held for editing is skipped, and the skip is reported.
+- **A recovery test proves a copy is usable, and the validator is your script.**
+  Put one `NAME.local.sh` in `recovery-test/<source>/<set>` under the workflow
+  root. The engine recovers the newest known good copy to a private staging
+  directory, reads it back and checks its digest against the one recorded for
+  the artifact, and only then runs your script with `RECOVERY_TEST_FILE` (the
+  path), `RECOVERY_TEST_ARTIFACT`, `RECOVERY_TEST_DIGEST` and
+  `RECOVERY_TEST_SIZE` set. It records the result together with the name and
+  the hash of the script that ran. Your script never writes the claim: a script
+  that exits 0 without opening the file still cannot make a pass out of bytes
+  that did not match. The runner's container cannot see the staging directory
+  unless you declare it with `--hook-mount`, and a script that cannot see the
+  file fails rather than passing. A set with no such directory reads `not
+  configured`, which is not a pass and not a failure. A failing test runs the
+  same `assurance-after` scripts the scrub does, with `ASSURANCE_EVENT` set to
+  `recovery_test_failed` and, when it passes again, `recovery_test_recovered`.
 - **A tier whose medium writes an archive class cannot take delivery of an
   artifact, and the move is refused before anything is uploaded.** Both settings
   `upload_verification` accepts need the object read back, a freshly written

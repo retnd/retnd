@@ -10,6 +10,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/retnd/retnd/core/internal/archive"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // These two guards are #241's answer to the two integration questions it
@@ -695,7 +698,7 @@ func declaringAccessStates(t *testing.T, dirs []string) []string {
 			if !ok {
 				return true
 			}
-			for _, value := range spec.Values {
+			for i, value := range spec.Values {
 				lit, ok := value.(*ast.BasicLit)
 				if !ok || lit.Kind != token.STRING {
 					continue
@@ -704,12 +707,74 @@ func declaringAccessStates(t *testing.T, dirs []string) []string {
 				if err != nil || !accessVocabulary[unquoted] {
 					continue
 				}
+				if i < len(spec.Names) && assuranceExemption(path, spec.Names[i].Name, unquoted) {
+					continue
+				}
 				out = append(out, path+" declares "+strconv.Quote(unquoted))
 			}
 			return true
 		})
 	})
 	return out
+}
+
+// assuranceExemption reports whether this declaration is the one place
+// outside internal/archive that is allowed to spell one of the four words.
+//
+// EPIC Q's per-copy assurance record has a state of its own whose value is
+// "requires_restore": the copy sits in an archive class, so its bytes cannot
+// be read without a restore this product never starts. That is a different
+// closed vocabulary (assurance_state, five values, enforced by a CHECK in
+// migration 0016) that deliberately says the same thing archive's access
+// state does, and internal/state cannot import internal/archive, because
+// archive imports state. So the word has to be spelled once more, beside the
+// schema that constrains it, exactly as 0007's verification classes are.
+//
+// The exemption is one identifier in one file, not a pattern, and it is
+// held to archive's own spelling by
+// TestTheAssuranceStateSpellsArchivesWordAndOnlyThat, so it cannot drift into
+// a second table that happens to agree today.
+func assuranceExemption(path, ident, value string) bool {
+	return strings.HasSuffix(filepath.ToSlash(path), "/internal/state/scrub.go") &&
+		ident == "AssuranceRequiresRestore" && value == string(archive.RequiresRestore)
+}
+
+// TestTheAssuranceStateSpellsArchivesWordAndOnlyThat pins the exemption
+// above from both sides. The exempted constant equals archive's word, so the
+// two cannot disagree, and the exemption is narrow: the same word under any
+// other name in that file, or under that name anywhere else, is still a
+// second copy of the vocabulary.
+func TestTheAssuranceStateSpellsArchivesWordAndOnlyThat(t *testing.T) {
+	if state.AssuranceRequiresRestore != string(archive.RequiresRestore) {
+		t.Errorf("the assurance state spells %q and archive spells %q: they are the same word on purpose",
+			state.AssuranceRequiresRestore, archive.RequiresRestore)
+	}
+
+	planted := t.TempDir()
+	stateDir := filepath.Join(planted, "internal", "state")
+	other := filepath.Join(planted, "internal", "elsewhere")
+	write(t, filepath.Join(stateDir, "scrub.go"), `package state
+
+const AssuranceRequiresRestore = "requires_restore"
+`)
+	if got := declaringAccessStates(t, []string{stateDir}); len(got) != 0 {
+		t.Errorf("the exempted declaration was flagged: %v", got)
+	}
+	write(t, filepath.Join(stateDir, "scrub.go"), `package state
+
+const AssuranceRequiresRestore = "requires_restore"
+const AlsoRequiresRestore = "requires_restore"
+`)
+	if got := declaringAccessStates(t, []string{stateDir}); len(got) != 1 {
+		t.Errorf("a second declaration of the word in the exempted file was not flagged exactly once: %v", got)
+	}
+	write(t, filepath.Join(other, "scrub.go"), `package elsewhere
+
+const AssuranceRequiresRestore = "requires_restore"
+`)
+	if got := declaringAccessStates(t, []string{other}); len(got) != 1 {
+		t.Errorf("the exempted identifier in a different package was not flagged: %v", got)
+	}
 }
 
 // internalPackages is every directory under core/internal, which is the
@@ -774,6 +839,9 @@ func forEachFile(t *testing.T, dirs []string, fn func(path string, file *ast.Fil
 
 func write(t *testing.T, path, content string) {
 	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("creating the directory for %s: %v", path, err)
+	}
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("writing %s: %v", path, err)
 	}

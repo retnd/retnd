@@ -28,6 +28,78 @@
   downgrade after adding it fails closed...
 
 
+### Added
+
+- **The scheduled scrub follows `assurance.scrub.*`** (#978). A default install now
+  scrubs: the cadence is `assurance.scrub.cadence` (7 days unless you say otherwise)
+  and the strategy decides whether a local copy is re-hashed (`auto` and `content`
+  do, `existence` does not), with no `revalidation:` block needed. A set whose
+  `revalidation:` block turns hashing or a hook on keeps using that block exactly as
+  written. `GET /api/v1/assurance/due` now reads each copy's own `next_due_at`, the
+  schedule the scrub keeps, so what you are shown is what runs. A rotted local copy
+  beside a verified offsite copy no longer quarantines the artifact (the set goes
+  DEGRADED after three failed checks, not FAILING), and a scrub or recovery claim is
+  dropped when the copy is rewritten to different bytes.
+
+- **Assurance has a deployment-wide default and a per-set override** (#982, EPIC Q
+  Q1.4). A new top-level `assurance:` block sets how often a copy is re-read (scrub
+  cadence, default 7 days, floor 1 hour), what a scrub reads (`auto`, `existence` or
+  `content`) and whether a recovery test is required, and a backup set can carry its
+  own `assurance:` block in the same shape `retention:` uses: nil inherits, `Validate`
+  fills a resolved field, and everything reads the resolved field. A config that
+  mentions none of it scrubs on the defaults and comes back from a settings save
+  byte-identical. Per set, the recovery-test mode is `inherit`, `off`, `required` or
+  `custom`; `required` and `custom` need a validator, so a recovery test with nothing
+  to run is refused rather than quietly downgraded. The validator is a script: `validator_id` is the file name
+  of a `NAME.local.sh` in `recovery-test/<source>/<set>`, written without the suffix,
+  and a name that could not be a script's file name is refused when it is saved. The staging root, the staging TTL,
+  and the two concurrency ceilings are global only,
+  and each one carries the written reason a set cannot override it, in the API
+  response, in `settings assurance` and in the field help.
+  - **A one-way door.** `Load` uses `KnownFields(true)`, so a config that carries an
+    `assurance:` key cannot be parsed by an older build at all. Anyone who edits this
+    block during an incident and then rolls back needs to take the block out first. A
+    deployment that never adds it sees no change.
+  - **What an existing deployment sees.** Nothing is written for it. `GET
+    /api/v1/settings/assurance` and `retnd settings assurance` report the defaults with
+    `configured: false`.
+  - **Surfaces.** `GET`/`PATCH /api/v1/settings/assurance`, `GET`/`PATCH`/`DELETE
+    /api/v1/backup-sets/{source}/{set}/assurance` and `GET /api/v1/assurance/due`, with
+    `retnd settings assurance [patch|due]` and `retnd backup-set assurance`, all with
+    `--json` printing the API's own body. A `PATCH` is validated, written and
+    hot-reloaded in one step, so every set that inherits the changed value decides
+    under it on its next read with no restart. The CLI writes beside a serving engine
+    are refused with the file untouched, like `settings workflow`.
+  - **Feed and alerts.** New catalog events for recovery and recovery-test runs
+    (additions only, each completion states a `Result`) with one stage list shared by
+    the CLI and the browser, and four new alert kinds: scrub overdue and failing, and
+    recovery test overdue and failing. They are raised through the alert dispatcher a
+    configured notifier already has, with its de-duplication, so a failing scrub or
+    recovery test reaches you without anybody writing an `assurance-after` script; the
+    scripts stay as the extension point beside it. (A scrub pass is the existing
+    `scrub_pass` and `scrub_failure` events.)
+
+- **Recovery tests follow the assurance policy, run under `retnd serve`, and can be
+  started** (#980). The scheduled test now runs in the process the product actually
+  runs (`serve`, not only `daemon`), for a set whose resolved `recovery_test.mode` is
+  `required` or `custom`, on that policy's cadence (30 days by default) instead of a
+  fixed seven. `validator_id` names the script: `pg-check` runs
+  `recovery-test/<source>/<set>/pg-check.local.sh` and nothing else, and a name that
+  is not there is `could_not_complete`, never another script in its place. A set
+  that requires a test is DEGRADED until one passes. A copy on a storage medium can
+  now be tested: it is staged by the same engine `retnd recover` uses, so it is
+  verified against the recorded digest first, honours the read ceilings, and costs
+  nothing unattended (a free `local_volume` runs, a billed download is refused for
+  cost and an archived object is never thawed). `retnd recovery-test
+  <source/backup-set>` and `POST /api/v1/backup-sets/{source}/{set}/recovery-test`
+  start one now. A real recovery, and every recovery test, writes `recovery_start`, a
+  `recovery_stage` line per stage and `recovery_end` under one operation id.
+  `assurance.staging_root`, `staging_ttl`, `max_concurrent_full_reads` and
+  `max_per_destination` are now read: recovered copies and recovery tests stage in
+  one directory, `<state dir>/recovery-staging` unless you say otherwise (the
+  `<state dir>/recovery` of the draft is gone), and the scrub reads under the same
+  ceilings (2 and 1 by default; the draft scrub's 4 and 2 are gone).
+
 ## [0.5.1] - 2026-10-04
 
 0.5.1 is 0.5.0 plus the one logo. 0.5.0 was published without it: the logo

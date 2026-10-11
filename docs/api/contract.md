@@ -732,6 +732,34 @@ of the deployment: `REPOSITORY_DOMAIN_EXISTS` and
 
 There is still no route that EDITS, REMOVES or TRANSFERS a domain.
 
+## Recorded decision: recovery is a mint and a stream, and the stream is the first byte-range response in `/api/v1`
+
+EPIC Q (#976) adds two routes, and the second one is different from every other route in this document: it does not answer JSON.
+
+`POST /backups/{source}/{set}/{name}/recovery` mints a grant. `GET /recoveries/{grant}` redeems it. I did not make recovery a seventh `POST /operations` action because that route sits behind `requireDestructiveGate`, the only gate this repository ships never passes, and a recovery submitted there would be refused on every deployment it can build. A recovery reads. It deletes and overwrites nothing, so the mint carries `requireCSRF` and not the gate, which is the tier `retryFailedIngestion` already uses for an action with no effect on backup data.
+
+There is no role on `AuthContext`, so every authenticated caller can recover every backup. I wrote that down instead of hiding it, and the answer is audit: the grant is bound to the session that minted it (actor plus the session's lapse), single-use, short-lived, and gone when that session ends. Every mint and every served range writes one row to the action log naming the actor, the backup, the copy, the target and how it went, and a refusal or a failed range writes a row saying so. The generic action recorder skips a request whose handler wrote its own row, so one mint is one row...
+
+### What the stream promises
+
+- **Nothing reaches the client before the whole copy has been verified.** The first request stages the copy through a fixed-size buffer into a private file, hashes it as it goes, and compares size and SHA-256 with what the journal recorded. Bytes flipped mid-file with the size unchanged fail here (`RECOVERY_LOCAL_COPY_CORRUPT` for the copy on this host's disk, `RECOVERY_REMOTE_COPY_CORRUPT` for one on a destination, and the two are different codes on purpose).
+- **`200` or `206`, `application/octet-stream`, `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`, `Accept-Ranges: bytes`.** The file name is the backup's own, escaped, and cannot add a header.
+- **One range per request.** Several in one are `416`, because an audit row names a range and a multipart answer has none. A client that wants resumability asks for the next range with the same link while the grant is open.
+- **The grant is spent** when every byte has been served (the ranges served so far, in any order and however they overlap, cover the whole copy; a tail range alone does not), when a request fails (a client that went away at 50% counts), when the client stops coming back inside the grant's lifetime (a timer in the serving process frees the staged copy, with no later request needed), or when the session ends (a logout, a password rotation or reset, or the session's own lapse). After that the same link is `410 RECOVERY_GRANT_USED`.
+- **A staging or storage target answers `200` JSON** (`RecoveryResult`) on the first request and streams nothing.
+- **The memory it needs is the copy buffer** (256 KiB), whatever the artifact's size. The staging file is disk, not memory, and the disk is budgeted: a copy that would take the staging filesystem under its free-space reserve is refused (`507 RECOVERY_BELOW_RESERVE`) before the copy is opened. `docs/perf/epic-q-recovery.md` has the measured peak resident set size for a 4 GiB artifact in both processes.
+
+### What it costs, and what refuses
+
+Recovery runs inside written budgets (`core/internal/recovery/budget`, #983), and every one is a refusal at the moment of spend:
+
+- **`429` with `Retry-After`** when a budget is full. `RECOVERY_READS_BUSY` (this host already runs its ceiling of full reads of retained copies), `RECOVERY_DESTINATION_BUSY` (the same, against that one destination) and `RECOVERY_DOWNLOADS_BUSY` (the process already streams its ceiling of downloads). Nothing was read, nothing was billed, and the grant is not spent: ask again with the same link.
+- **`507`** for `RECOVERY_BELOW_RESERVE`, when staging the copy would take the staging filesystem under its free-space reserve, and `RECOVERY_NO_SPACE` when it filled anyway.
+- Two operators asking for the same copy at the same moment share one read. Each is handed their own file or stream and writes their own audit row.
+- The limits are properties of the host, not of a backup set. A platform adjusts them for every set at once through `capabilities.HostLimits`.
+
+The UI host (`retnd-ui`) is the front door in the two-container topology, so a download goes through its reverse proxy. That proxy bounds the wait for the engine's first response byte at five seconds and its server bounds a whole response at thirty, both right for JSON and both fatal to a download whose copy has to be read and verified before the first byte. `/api/v1/recoveries/` gets its own proxy with no header bound and a write deadline that rolls with the client accepting bytes. A different gateway in front of that one needs the same treatment: a read timeout longer than the time to read the copy, and no response buffering.
+
 ## Migration record: what was removed and what replaced it
 
 | removed | replaced by |

@@ -997,6 +997,16 @@ if [ "$FAST" != "1" ]; then
   gate_step "the retention-apply evidence can actually fail (mutation self-test, #602)"
   bash scripts/retention/selftest.sh
 
+  # EPIC Q (#976): recovery is a read path that hands out retained backup
+  # data, and its guards (the cost refusal, the digest compare, a grant that
+  # cannot be used twice or from another session, a target that cannot
+  # leave the staging root, the audit rows, the route's tier) are exactly
+  # the kind that pass on the tree they ship with and could not fail. Each
+  # is planted as a real violation in a real product file and the narrowed
+  # suite has to go red naming the promise. No Docker, a few minutes.
+  gate_step "the recovery guards can actually fail (mutation self-test, #976)"
+  bash scripts/recovery/selftest.sh
+
   gate_step "repository-structure dependency rules (§7.1), by actual deletion"
   bash scripts/architecture/check-core-dependency-rule.sh
   bash scripts/architecture/verify-core-without-apps.sh

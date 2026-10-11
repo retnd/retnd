@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "f8cc9c340ef96db68d0ba4cc31405c45a542d5a736c2ba763373a5db61dca57d";
+export const CONTRACT_SHA256 = "c94284d97d111b90065617f93fd8ae731971f4bfbb0a67c3ed0a44640dcca9ca";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -83,6 +83,30 @@ export const WIRE_ERROR_CODES = [
   "WORKFLOW_STEP_NOT_FOUND",
   "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED",
   "WORKFLOW_ENGINE_UNAVAILABLE",
+  "RECOVERY_COST_NOT_ACKNOWLEDGED",
+  "RECOVERY_NO_COPY",
+  "RECOVERY_COPY_NOT_FOUND",
+  "RECOVERY_NOT_READABLE",
+  "RECOVERY_LOCAL_COPY_CORRUPT",
+  "RECOVERY_REMOTE_COPY_CORRUPT",
+  "RECOVERY_NO_DIGEST",
+  "RECOVERY_NO_SPACE",
+  "RECOVERY_BELOW_RESERVE",
+  "RECOVERY_GRANT_UNKNOWN",
+  "RECOVERY_GRANT_USED",
+  "RECOVERY_GRANT_EXPIRED",
+  "RECOVERY_GRANT_SESSION_ENDED",
+  "RECOVERY_TOO_MANY_GRANTS",
+  "RECOVERY_TARGET_INVALID",
+  "RECOVERY_TARGET_EXISTS",
+  "RECOVERY_USE_SNAPSHOT_RESTORE",
+  "RECOVERY_UNAVAILABLE",
+  "RECOVERY_BUSY",
+  "RECOVERY_INTERRUPTED",
+  "RECOVERY_FAILED",
+  "RECOVERY_READS_BUSY",
+  "RECOVERY_DESTINATION_BUSY",
+  "RECOVERY_DOWNLOADS_BUSY",
 ] as const;
 
 /** This UI's own presentation vocabulary. No endpoint emits these;
@@ -178,6 +202,30 @@ export const API_ERROR_CODES = [
   "WORKFLOW_STEP_NOT_FOUND",
   "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED",
   "WORKFLOW_ENGINE_UNAVAILABLE",
+  "RECOVERY_COST_NOT_ACKNOWLEDGED",
+  "RECOVERY_NO_COPY",
+  "RECOVERY_COPY_NOT_FOUND",
+  "RECOVERY_NOT_READABLE",
+  "RECOVERY_LOCAL_COPY_CORRUPT",
+  "RECOVERY_REMOTE_COPY_CORRUPT",
+  "RECOVERY_NO_DIGEST",
+  "RECOVERY_NO_SPACE",
+  "RECOVERY_BELOW_RESERVE",
+  "RECOVERY_GRANT_UNKNOWN",
+  "RECOVERY_GRANT_USED",
+  "RECOVERY_GRANT_EXPIRED",
+  "RECOVERY_GRANT_SESSION_ENDED",
+  "RECOVERY_TOO_MANY_GRANTS",
+  "RECOVERY_TARGET_INVALID",
+  "RECOVERY_TARGET_EXISTS",
+  "RECOVERY_USE_SNAPSHOT_RESTORE",
+  "RECOVERY_UNAVAILABLE",
+  "RECOVERY_BUSY",
+  "RECOVERY_INTERRUPTED",
+  "RECOVERY_FAILED",
+  "RECOVERY_READS_BUSY",
+  "RECOVERY_DESTINATION_BUSY",
+  "RECOVERY_DOWNLOADS_BUSY",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -186,13 +234,13 @@ export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
  *  the RIGHT refusal rather than any refusal. */
 export const API_ERROR_CLASSES = {
   "authentication": ["UNAUTHENTICATED", "BOOTSTRAP_TOKEN_INVALID", "RESET_TOKEN_INVALID", "VERIFY_TOKEN_INVALID"],
-  "authorization": ["ENROLLMENT_CLOSED", "DESTRUCTIVE_OPERATIONS_DISABLED", "CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
-  "conflict": ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "IDEMPOTENCY_KEY_CONFLICT", "CONFIG_REVISION_STALE", "ALREADY_CONFIGURED", "ARTIFACT_NOT_QUARANTINED", "ARTIFACT_IRRECOVERABLE", "REINSTATEMENT_REFUSED", "BACKUP_SET_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED", "ARTIFACT_NOT_FAILED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE", "MEDIUM_IS_DEFAULT", "MEDIUM_CONNECTION_NOT_PROVEN", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED", "REPOSITORY_DOMAIN_EXISTS", "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE", "WORKFLOWS_NOT_CONFIGURED", "WORKFLOW_SCRIPT_REJECTED"],
-  "internal": ["INTERNAL", "INTERNAL_ERROR"],
-  "not-found": ["BACKUP_SET_NOT_FOUND", "OPERATION_NOT_FOUND", "RETENTION_PLAN_NOT_FOUND", "ARTIFACT_NOT_FOUND", "MEDIUM_NOT_FOUND", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_HOLD_NOT_FOUND", "REPOSITORY_DOMAIN_NOT_FOUND", "WORKFLOW_ENV_NOT_FOUND", "WORKFLOW_RUN_NOT_FOUND", "WORKFLOW_STEP_NOT_FOUND"],
-  "throttling": ["RATE_LIMITED"],
-  "unavailable": ["NOT_CONFIGURED", "SMTP_SEND_FAILED", "WORKFLOW_ENGINE_UNAVAILABLE"],
-  "validation": ["INVALID_REQUEST", "INVALID_EMAIL", "SSH_KEY_NOT_FOUND", "HOST_KEY_PROBE_FAILED", "MEDIUM_DISCLOSURE_REQUIRED", "BACKUP_SET_NOT_INCREMENTAL", "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED"],
+  "authorization": ["ENROLLMENT_CLOSED", "DESTRUCTIVE_OPERATIONS_DISABLED", "CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "RECOVERY_GRANT_SESSION_ENDED"],
+  "conflict": ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "IDEMPOTENCY_KEY_CONFLICT", "CONFIG_REVISION_STALE", "ALREADY_CONFIGURED", "ARTIFACT_NOT_QUARANTINED", "ARTIFACT_IRRECOVERABLE", "REINSTATEMENT_REFUSED", "BACKUP_SET_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED", "ARTIFACT_NOT_FAILED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE", "MEDIUM_IS_DEFAULT", "MEDIUM_CONNECTION_NOT_PROVEN", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED", "REPOSITORY_DOMAIN_EXISTS", "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE", "WORKFLOWS_NOT_CONFIGURED", "WORKFLOW_SCRIPT_REJECTED", "RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_GRANT_USED", "RECOVERY_GRANT_EXPIRED", "RECOVERY_TARGET_EXISTS", "RECOVERY_USE_SNAPSHOT_RESTORE", "RECOVERY_BUSY"],
+  "internal": ["INTERNAL", "INTERNAL_ERROR", "RECOVERY_LOCAL_COPY_CORRUPT", "RECOVERY_REMOTE_COPY_CORRUPT", "RECOVERY_NO_SPACE", "RECOVERY_BELOW_RESERVE", "RECOVERY_FAILED"],
+  "not-found": ["BACKUP_SET_NOT_FOUND", "OPERATION_NOT_FOUND", "RETENTION_PLAN_NOT_FOUND", "ARTIFACT_NOT_FOUND", "MEDIUM_NOT_FOUND", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_HOLD_NOT_FOUND", "REPOSITORY_DOMAIN_NOT_FOUND", "WORKFLOW_ENV_NOT_FOUND", "WORKFLOW_RUN_NOT_FOUND", "WORKFLOW_STEP_NOT_FOUND", "RECOVERY_COPY_NOT_FOUND", "RECOVERY_GRANT_UNKNOWN"],
+  "throttling": ["RATE_LIMITED", "RECOVERY_TOO_MANY_GRANTS", "RECOVERY_READS_BUSY", "RECOVERY_DESTINATION_BUSY", "RECOVERY_DOWNLOADS_BUSY"],
+  "unavailable": ["NOT_CONFIGURED", "SMTP_SEND_FAILED", "WORKFLOW_ENGINE_UNAVAILABLE", "RECOVERY_UNAVAILABLE", "RECOVERY_INTERRUPTED"],
+  "validation": ["INVALID_REQUEST", "INVALID_EMAIL", "SSH_KEY_NOT_FOUND", "HOST_KEY_PROBE_FAILED", "MEDIUM_DISCLOSURE_REQUIRED", "BACKUP_SET_NOT_INCREMENTAL", "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED", "RECOVERY_TARGET_INVALID"],
 } as const satisfies Record<string, readonly ApiErrorCode[]>;
 
 /** The platform-capability set GET /system/capabilities reports, as wire
@@ -257,6 +305,26 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     responseSchema: "LiveActivityResponse",
     successStatus: 200,
     errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "listAssuranceDue",
+    method: "GET",
+    path: "/assurance/due",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "AssuranceDueResponse",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
       404: ["BACKUP_SET_NOT_FOUND"],
       500: ["INTERNAL"],
@@ -627,6 +695,66 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "resetBackupSetAssurance",
+    method: "DELETE",
+    path: "/backup-sets/{source}/{set}/assurance",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "BackupSetAssurance",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "getBackupSetAssurance",
+    method: "GET",
+    path: "/backup-sets/{source}/{set}/assurance",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "BackupSetAssurance",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "updateBackupSetAssurance",
+    method: "PATCH",
+    path: "/backup-sets/{source}/{set}/assurance",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "UpdateBackupSetAssuranceRequest",
+    responseSchema: "BackupSetAssurance",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
     id: "getBackupSetEditHold",
     method: "GET",
     path: "/backup-sets/{source}/{set}/edit-hold",
@@ -742,6 +870,28 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       404: ["BACKUP_SET_NOT_FOUND"],
       409: ["BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE"],
       500: ["INTERNAL"],
+    }
+  },
+  {
+    id: "startRecoveryTest",
+    method: "POST",
+    path: "/backup-sets/{source}/{set}/recovery-test",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "StartRecoveryTestRequest",
+    responseSchema: "RecoveryTestStarted",
+    successStatus: 202,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND", "ARTIFACT_NOT_FOUND"],
+      409: ["OPERATION_ALREADY_RUNNING"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
     }
   },
   {
@@ -1067,6 +1217,30 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "mintRecovery",
+    method: "POST",
+    path: "/backups/{source}/{set}/{name}/recovery",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "RecoveryMintRequest",
+    responseSchema: "RecoveryMintResponse",
+    successStatus: 202,
+    errorCodes: {
+      400: ["INVALID_REQUEST", "RECOVERY_TARGET_INVALID"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["ARTIFACT_NOT_FOUND", "RECOVERY_COPY_NOT_FOUND"],
+      409: ["RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_USE_SNAPSHOT_RESTORE"],
+      429: ["RECOVERY_TOO_MANY_GRANTS"],
+      500: ["INTERNAL", "RECOVERY_FAILED"],
+      501: ["RECOVERY_UNAVAILABLE"],
+      503: ["RECOVERY_UNAVAILABLE"],
+    }
+  },
+  {
     id: "retryFailedIngestion",
     method: "POST",
     path: "/backups/{source}/{set}/{name}/retry",
@@ -1258,6 +1432,33 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "redeemRecovery",
+    method: "GET",
+    path: "/recoveries/{grant}",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "RecoveryResult",
+    successStatus: 206,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["RECOVERY_GRANT_SESSION_ENDED"],
+      404: ["ARTIFACT_NOT_FOUND", "RECOVERY_COPY_NOT_FOUND", "RECOVERY_GRANT_UNKNOWN"],
+      409: ["RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_BUSY", "RECOVERY_TARGET_EXISTS"],
+      410: ["RECOVERY_GRANT_USED", "RECOVERY_GRANT_EXPIRED"],
+      416: ["INVALID_REQUEST"],
+      429: ["RECOVERY_READS_BUSY", "RECOVERY_DESTINATION_BUSY", "RECOVERY_DOWNLOADS_BUSY"],
+      500: ["INTERNAL", "RECOVERY_LOCAL_COPY_CORRUPT", "RECOVERY_FAILED"],
+      501: ["RECOVERY_UNAVAILABLE"],
+      502: ["RECOVERY_REMOTE_COPY_CORRUPT"],
+      503: ["RECOVERY_UNAVAILABLE", "RECOVERY_INTERRUPTED"],
+      507: ["RECOVERY_NO_SPACE", "RECOVERY_BELOW_RESERVE"],
+    }
+  },
+  {
     id: "listRepositories",
     method: "GET",
     path: "/repositories",
@@ -1348,6 +1549,44 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     successStatus: 200,
     errorCodes: {
       400: ["INVALID_REQUEST", "MEDIUM_DISCLOSURE_REQUIRED"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "getAssuranceSettings",
+    method: "GET",
+    path: "/settings/assurance",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "AssuranceSettingsResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "updateAssuranceSettings",
+    method: "PATCH",
+    path: "/settings/assurance",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "UpdateAssuranceSettingsRequest",
+    responseSchema: "AssuranceSettingsResponse",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
       403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
       500: ["INTERNAL"],
@@ -2134,6 +2373,65 @@ export interface WireArtifactReinstateResponse {
   state?: string;
 }
 
+/** One copy's place in the scrub schedule. */
+export interface WireAssuranceDueItem {
+  artifact_id?: string;
+  artifact_name?: string;
+  backup_set_id?: string;
+  basis?: string;
+  cadence_seconds?: number;
+  due?: boolean;
+  last_assured_at?: string;
+  next_due_at?: string;
+  overdue?: boolean;
+}
+
+/** The scrub schedule, most overdue first, computed from each set's
+ *  resolved policy. */
+export interface WireAssuranceDueResponse {
+  generated_at?: string;
+  items?: WireAssuranceDueItem[];
+}
+
+/** A setting that is global only, with the reason a backup set cannot
+ *  override it. The per-set answer is written down for every
+ *  host-scoped knob so nobody looks for a per-set switch that could
+ *  not work. */
+export interface WireAssuranceHostKnob {
+  name?: string;
+  per_set?: boolean;
+  reason?: string;
+  value?: string;
+}
+
+/** A resolved recovery-test policy. */
+export interface WireAssuranceRecoveryTestPolicy {
+  cadence_seconds?: number;
+  mode?: string;
+  validator_id?: string;
+}
+
+/** A resolved scrub policy: how often a copy is re-read and how much
+ *  of it is read. */
+export interface WireAssuranceScrubPolicy {
+  cadence_seconds?: number;
+  strategy?: string;
+}
+
+/** The deployment-wide assurance policy, RESOLVED. A config that
+ *  never mentions assurance reports the defaults here, which is the
+ *  point: the default is good enough that nobody has to set it. */
+export interface WireAssuranceSettingsResponse {
+  configured?: boolean;
+  host_knobs?: WireAssuranceHostKnob[];
+  max_concurrent_full_reads?: number;
+  max_per_destination?: number;
+  recovery_test?: WireAssuranceRecoveryTestPolicy;
+  scrub?: WireAssuranceScrubPolicy;
+  staging_root?: string;
+  staging_ttl_seconds?: number;
+}
+
 /** The FLAT error body the /auth operations return, with the
  *  correlation id in the body as well as the header. Deliberately
  *  recorded as a second shape rather than pretended away:
@@ -2239,6 +2537,16 @@ export interface WireBackupSet {
   verification_level?: string;
   verification_restore_drill_every_seconds?: number;
   verification_sample_percent?: number;
+}
+
+/** One backup set's resolved assurance policy and whether it is the
+ *  set's own. Served together because 'what is deciding' and 'is that
+ *  this set's own or the deployment's' are one question. */
+export interface WireBackupSetAssurance {
+  backup_set_id: string;
+  is_override: boolean;
+  recovery_test: WireAssuranceRecoveryTestPolicy;
+  scrub: WireAssuranceScrubPolicy;
 }
 
 /** POST /backup-sets/{source}/{set}/edit-hold. The lease just taken
@@ -3105,6 +3413,54 @@ export interface WirePlacement {
   verified_at?: string;
 }
 
+/** POST /backups/{source}/{set}/{name}/recovery. Asks for one
+ *  retained copy of one backup to be read once, to one target. It
+ *  authorises nothing by itself beyond minting a short-lived,
+ *  single-use grant bound to the session that asked. */
+export interface WireRecoveryMintRequest {
+  acknowledged?: boolean;
+  copy?: string;
+  target: WireRecoveryTarget;
+}
+
+/** The answer to a mint, in one of two shapes. A grant (201): the
+ *  token is shown once, is bound to the minting session, dies when
+ *  that session ends, expires within minutes, and is spent when the
+ *  download completes, fails or is abandoned. Or (202), when the only
+ *  copy is on an archive class and an acknowledged request started
+ *  exactly one provider restore: no grant yet, ask again once the
+ *  copy is readable. Carries no percentage, finishing time or amount,
+ *  because this product knows none of them. */
+export interface WireRecoveryMintResponse {
+  artifact_id: string;
+  copy: string;
+  download_url?: string;
+  expires_at?: string;
+  grant?: string;
+  restore?: WireRecoveryRestoreOperation;
+  size_bytes?: number;
+  target?: WireRecoveryTarget;
+}
+
+export interface WireRecoveryRestoreOperation {
+  billing?: string;
+  operation_id: string;
+  wait?: string;
+}
+
+/** What a redeemed grant answers when its target is server-side
+ *  (staging or storage): the bytes were verified and placed, and
+ *  nothing was streamed. */
+export interface WireRecoveryResult {
+  artifact_id: string;
+  bytes: number;
+  copy: string;
+  key?: string;
+  path?: string;
+  sha256: string;
+  target: WireRecoveryTarget;
+}
+
 /** GET /auth/recovery and PATCH /auth/recovery: the recovery address,
  *  the two proofs about it, the deadline an unverified one lapses at,
  *  and the SMTP endpoint without its password. `smtp` is ABSENT on a
@@ -3135,6 +3491,28 @@ export interface WireRecoverySettingsUpdate {
   currentPassword: string;
   recoveryEmail?: string;
   smtp?: WireSmtpSettings;
+}
+
+/** Where one recovery writes its bytes. The set is closed: download
+ *  streams to the caller that redeems the grant, staging places one
+ *  file under the configured recovery staging root, storage uploads
+ *  to another configured storage destination. Nothing is written
+ *  anywhere until the whole copy has been read and has matched the
+ *  SHA-256 the journal recorded. */
+export interface WireRecoveryTarget {
+  key?: string;
+  kind: "download" | "staging" | "storage";
+  medium?: string;
+  path?: string;
+}
+
+/** A recovery test is under way. operation_id is carried by its
+ *  recovery_test_start, recovery_stage and recovery_test_end lines on
+ *  the activity feed, which is how a client follows it; the verdict
+ *  is the copy's recovery claim once it ends. */
+export interface WireRecoveryTestStarted {
+  backup_set_id: string;
+  operation_id: string;
 }
 
 /** One repository domain's own health, which is a different question
@@ -3668,6 +4046,16 @@ export interface WireSnapshotVerifyRequest {
   sample_percent?: number;
 }
 
+/** POST /backup-sets/{source}/{set}/recovery-test. Starts a recovery
+ *  test now. An empty body tests the newest known good copy and
+ *  acknowledges no cost: a copy that costs money to read (a download
+ *  from a billed object store, or an archived object) is refused,
+ *  recorded as refused_for_cost, and nothing is read. */
+export interface WireStartRecoveryTestRequest {
+  acknowledged?: boolean;
+  artifact_id?: string;
+}
+
 /** Where one storage medium's credentials come from. Exactly one of
  *  the four must be set, and none of them is credential MATERIAL:
  *  this is a reference in all four spellings. credentials_id is the
@@ -3851,6 +4239,34 @@ export interface WireTrustedHostKey {
  *  since a create request naming one is refused by the registry. */
 export interface WireUnregisteredBackend {
   transport: string;
+}
+
+/** PATCH the deployment-wide assurance block. Every field is nullable
+ *  because this is a PATCH: omitted leaves the setting alone, and a
+ *  zero or empty value clears it back to its default. A body that
+ *  names nothing is refused. */
+export interface WireUpdateAssuranceSettingsRequest {
+  max_concurrent_full_reads?: number;
+  max_per_destination?: number;
+  recovery_test_cadence_seconds?: number;
+  recovery_test_mode?: string;
+  recovery_test_validator_id?: string;
+  scrub_cadence_seconds?: number;
+  scrub_strategy?: string;
+  staging_root?: string;
+  staging_ttl_seconds?: number;
+}
+
+/** PATCH one backup set's own assurance block. Omitted leaves a field
+ *  alone and a zero or empty value clears it, so the set inherits it
+ *  again. Clearing every field is the same as a reset. A body that
+ *  names nothing is refused. */
+export interface WireUpdateBackupSetAssuranceRequest {
+  recovery_test_cadence_seconds?: number;
+  recovery_test_mode?: string;
+  recovery_test_validator_id?: string;
+  scrub_cadence_seconds?: number;
+  scrub_strategy?: string;
 }
 
 /** PATCH /backup-sets/{source}/{set}. A SPARSE edit of one

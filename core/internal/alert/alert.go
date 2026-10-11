@@ -294,10 +294,41 @@ const (
 	// scope, and an operator acts per backup set, so
 	// WorkflowRecoveryConditions folds a set's holds into one.
 	WorkflowRecoveryRequired Kind = "WORKFLOW_RECOVERY_REQUIRED"
+
+	// The four assurance kinds below are EPIC Q's (Q1.4, #982). (A fifth and a
+	// sixth, NO_READABLE_COPY and ARCHIVE_ONLY_RECOVERABILITY, were deleted: nothing
+	// measured either fact, so nothing could ever raise them.) They are
+	// about whether a backup set can be GOT BACK, and they pass the same
+	// three tests every kind has to: each needs a human, each resolves
+	// when the underlying fact changes, and each names a backup set.
+	//
+	// Overdue and failing are separate kinds for scrub and for recovery
+	// test because the remedies differ: overdue means the scheduler or
+	// its budget is not getting to the copy, failing means it got there
+	// and the bytes (or the operator's validator) said no. Folding them
+	// together hides whichever one is not the headline.
+
+	// ScrubOverdue: at least one copy in the set is past its scrub
+	// cadence. A copy nobody has ever looked at counts as overdue, never
+	// as fine.
+	ScrubOverdue Kind = "SCRUB_OVERDUE"
+
+	// ScrubFailing: a scrub read a copy and it did not pass, repeatedly.
+	ScrubFailing Kind = "SCRUB_FAILING"
+
+	// RecoveryTestOverdue: the set's policy requires a recovery test and a
+	// pass has lapsed past its cadence, or the last attempt was refused for
+	// cost or could not complete. A copy no test has run on yet is not
+	// overdue, it is untested, and the dashboard says so.
+	RecoveryTestOverdue Kind = "RECOVERY_TEST_OVERDUE"
+
+	// RecoveryTestFailing: a recovery test recovered the bytes and the
+	// operator's validator refused them, or the digest did not match.
+	RecoveryTestFailing Kind = "RECOVERY_TEST_FAILING"
 )
 
 // Kinds is every Kind this package can produce: §71's four in the order
-// it lists them, then EPIC K's two, then EPIC L's three. It exists so a
+// it lists them, then EPIC K's two, then EPIC L's three, then EPIC Q's four. It exists so a
 // test (and a reader) can see the whole vocabulary in one place.
 var Kinds = []Kind{
 	StaleBackup,
@@ -309,9 +340,16 @@ var Kinds = []Kind{
 	WorkflowFailed,
 	WorkflowCleanupFailed,
 	WorkflowRecoveryRequired,
+	ScrubOverdue,
+	ScrubFailing,
+	RecoveryTestOverdue,
+	RecoveryTestFailing,
 }
 
 func (k Kind) String() string { return string(k) }
+
+// Title is the short operator-facing headline for this Kind.
+func (k Kind) Title() string { return k.title() }
 
 // title is the short operator-facing headline for this Kind, the first
 // half of what a platform notifier renders.
@@ -335,6 +373,14 @@ func (k Kind) title() string {
 		return "Workflow cleanup failed"
 	case WorkflowRecoveryRequired:
 		return "Backup set is blocked pending recovery"
+	case ScrubOverdue:
+		return "Backups have not been re-read on schedule"
+	case ScrubFailing:
+		return "A backup failed its re-read"
+	case RecoveryTestOverdue:
+		return "No recent recovery test"
+	case RecoveryTestFailing:
+		return "A recovery test failed"
 	default:
 		return "retnd alert"
 	}
