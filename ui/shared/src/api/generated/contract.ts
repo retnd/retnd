@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "80aad7885e1c95b1e15b45c514511330060c899401a1e9753c227b04ad1af6aa";
+export const CONTRACT_SHA256 = "4cde3dc19d186a4aeb8ba513f53931ba652f9e26c55d4a6a3268f65b2ab28b08";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -2408,7 +2408,6 @@ export interface WireAssuranceSettingsResponse {
   scrub?: WireAssuranceScrubPolicy;
   staging_root?: string;
   staging_ttl_seconds?: number;
-  web_download_memory_bytes?: number;
 }
 
 /** The FLAT error body the /auth operations return, with the
@@ -4215,7 +4214,6 @@ export interface WireUpdateAssuranceSettingsRequest {
   scrub_strategy?: string;
   staging_root?: string;
   staging_ttl_seconds?: number;
-  web_download_memory_bytes?: number;
 }
 
 /** PATCH one backup set's own assurance block. Omitted leaves a field

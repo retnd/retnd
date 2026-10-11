@@ -34,7 +34,7 @@ func TestAssurance_ANilBlockResolvesToUsefulDefaults(t *testing.T) {
 	}
 	d := c.Assurance
 	if d.StagingTTL != DefaultStagingTTL || d.MaxConcurrentFullReads != DefaultMaxConcurrentReads ||
-		d.MaxPerDestination != DefaultMaxPerDestination || d.WebDownloadMemoryBytes != DefaultWebDownloadMemory {
+		d.MaxPerDestination != DefaultMaxPerDestination {
 		t.Errorf("host-scoped defaults not resolved: %+v", d)
 	}
 }
@@ -188,6 +188,18 @@ func TestAssurance_InvalidInputsAreRefusedWithTheirOwnSentence(t *testing.T) {
 		{"a path smuggled in as a validator id", func(c *Config) {
 			c.AssuranceBlock = &AssuranceBlock{RecoveryTest: AssuranceRecoveryTest{Mode: RecoveryTestRequired, ValidatorID: "../bin/sh"}}
 		}, "validator_id"},
+		{"a script file name carried whole", func(c *Config) {
+			c.AssuranceBlock = &AssuranceBlock{RecoveryTest: AssuranceRecoveryTest{Mode: RecoveryTestRequired, ValidatorID: "nightly.local.sh"}}
+		}, "validator_id"},
+		{"a name that starts with a dash", func(c *Config) {
+			c.AssuranceBlock = &AssuranceBlock{RecoveryTest: AssuranceRecoveryTest{Mode: RecoveryTestRequired, ValidatorID: "-nightly"}}
+		}, "validator_id"},
+		{"a hidden file name", func(c *Config) {
+			c.Sources[0].BackupSets[0].AssuranceConfig = &AssuranceOverride{RecoveryTest: AssuranceRecoveryTest{Mode: RecoveryTestCustom, Cadence: Duration(48 * time.Hour), ValidatorID: ".nightly"}}
+		}, "validator_id"},
+		{"a name with a non-ASCII letter", func(c *Config) {
+			c.AssuranceBlock = &AssuranceBlock{RecoveryTest: AssuranceRecoveryTest{Mode: RecoveryTestRequired, ValidatorID: "n\u0131ghtly"}}
+		}, "validator_id"},
 		{"an empty per-set block", func(c *Config) {
 			c.Sources[0].BackupSets[0].AssuranceConfig = &AssuranceOverride{}
 		}, "assurance"},
@@ -252,5 +264,26 @@ func TestAssurance_NoConsumerReadsThePointers(t *testing.T) {
 	}
 	if len(offenders) > 0 {
 		t.Errorf("these files read the raw assurance pointers instead of the resolved field: %v", offenders)
+	}
+}
+
+// Panel finding C3 (S3): validator_id names the recovery-test script by file
+// name, NAME in NAME.local.sh, so the config layer is where an id that could
+// never be a script's name is refused, at save time.
+func TestRecoveryTestScriptName(t *testing.T) {
+	for id, want := range map[string]string{
+		"pg":                    "pg.local.sh",
+		"nightly-restore_check": "nightly-restore_check.local.sh",
+		"10-verify.v2":          "10-verify.v2.local.sh",
+	} {
+		got, err := RecoveryTestScriptName(id)
+		if err != nil || got != want {
+			t.Errorf("RecoveryTestScriptName(%q) = %q, %v; want %q", id, got, err, want)
+		}
+	}
+	for _, id := range []string{"", "nightly.local.sh", "nightly.sh", "-x", ".x", "a/b", "a b", "n\u0131ghtly", "a\nb", ".", ".."} {
+		if got, err := RecoveryTestScriptName(id); err == nil {
+			t.Errorf("RecoveryTestScriptName(%q) = %q, want a refusal", id, got)
+		}
 	}
 }
