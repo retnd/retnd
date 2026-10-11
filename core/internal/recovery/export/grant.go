@@ -398,6 +398,21 @@ func mergeSpan(list []span, s span) []span {
 	return out
 }
 
+// Active is the number of started downloads still open: redeemed, not spent
+// and not revoked. It is what a reaper or a logout brings to zero, and what a
+// test reads to tell that a download was really let go.
+func (g *Grants) Active() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	n := 0
+	for _, e := range g.live {
+		if e.redeemed && !e.closed() && !e.revoked {
+			n++
+		}
+	}
+	return n
+}
+
 // Attach stores a value with a redeemed grant.
 func (g *Grants) Attach(token string, v any) {
 	g.mu.Lock()
