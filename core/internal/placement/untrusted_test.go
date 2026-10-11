@@ -88,7 +88,8 @@ func coreModuleRoot(t *testing.T) string {
 // "nothing compares an ETag to a hash": there is nothing named to compare.
 //
 // Four files are allowed to say the word, and every one of them says it
-// to explain why it does not carry one.
+// to explain why it does not carry one. Three more say it because the
+// recovery download sends its own validator (see the map below).
 func TestNoProductionCodeNamesAnETag(t *testing.T) {
 	// Four files are allowed to say the word, and every one of them says
 	// it to explain why it does not carry one.
@@ -97,6 +98,16 @@ func TestNoProductionCodeNamesAnETag(t *testing.T) {
 		filepath.Join("internal", "transport", "rclone", "medium.go"):   true,
 		filepath.Join("internal", "transport", "contract", "medium.go"): true,
 		filepath.Join("internal", "placement", "ladder.go"):             true,
+
+		// The recovery download's HTTP validator (EPIC Q). It is a response
+		// header this product SENDS to a client so a download can be
+		// resumed, built from the artifact id and the digest the journal
+		// recorded. It is not read from any medium and is never compared
+		// with a content hash: the rule above is about the former, and
+		// these files are why the word has to appear at all.
+		filepath.Join("internal", "recovery", "export", "chunks.go"): true,
+		filepath.Join("service", "recover_run.go"):                   true,
+		filepath.Join("service", "recover_stream.go"):                true,
 	}
 
 	for path, content := range productionGoFiles(t) {
