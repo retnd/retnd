@@ -237,6 +237,9 @@ func (c *Config) resolveGlobalAssurance(v *validator) AssuranceDefaults {
 	}
 	out.MaxConcurrentFullReads = positiveOrDefault(v, p+".max_concurrent_full_reads", b.MaxConcurrentFullReads, DefaultMaxConcurrentReads)
 	out.MaxPerDestination = positiveOrDefault(v, p+".max_per_destination", b.MaxPerDestination, DefaultMaxPerDestination)
+	if out.MaxPerDestination > out.MaxConcurrentFullReads {
+		v.addf("%s.max_per_destination: %d is above max_concurrent_full_reads (%d), so it could never bind", p, out.MaxPerDestination, out.MaxConcurrentFullReads)
+	}
 	return out
 }
 
