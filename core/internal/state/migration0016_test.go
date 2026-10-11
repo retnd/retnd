@@ -258,7 +258,7 @@ func TestMigration0016_ScrubPassesIsAnAppendOnlyCountsTable(t *testing.T) {
 	}
 	cols := placementColumnSet(t, db, "scrub_passes")
 	for _, want := range []string{
-		"id", "trigger", "scope", "started_at", "finished_at", "selected", "checked",
+		"id", "triggered_by", "scope", "started_at", "finished_at", "selected", "checked",
 		"passed", "failed", "could_not_complete", "requires_restore",
 		"skipped_held", "skipped_leased", "bytes_read",
 	} {
