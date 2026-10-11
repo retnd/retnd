@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "1dc301357f6c763f34549e2ff85a41a2eab28c47aa018537e18a1f923579bd40"
+const ContractSHA256 = "3652f89a9f50d1a251541c3b60bb95867a8edef40daf9847fc42523174c0a974"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -141,6 +141,9 @@ const (
 	ErrorCodeRecoveryBusy                           ErrorCode = "RECOVERY_BUSY"
 	ErrorCodeRecoveryInterrupted                    ErrorCode = "RECOVERY_INTERRUPTED"
 	ErrorCodeRecoveryFailed                         ErrorCode = "RECOVERY_FAILED"
+	ErrorCodeRecoveryReadsBusy                      ErrorCode = "RECOVERY_READS_BUSY"
+	ErrorCodeRecoveryDestinationBusy                ErrorCode = "RECOVERY_DESTINATION_BUSY"
+	ErrorCodeRecoveryDownloadsBusy                  ErrorCode = "RECOVERY_DOWNLOADS_BUSY"
 )
 
 // WireErrorCodes is codes a server may put on the wire. Every one of these is emitted by real handler code, and apps/common/webhost's TestContract_EveryWireErrorCodeIsRegistered holds that both ways.
@@ -229,6 +232,9 @@ var WireErrorCodes = []ErrorCode{
 	ErrorCodeRecoveryBusy,
 	ErrorCodeRecoveryInterrupted,
 	ErrorCodeRecoveryFailed,
+	ErrorCodeRecoveryReadsBusy,
+	ErrorCodeRecoveryDestinationBusy,
+	ErrorCodeRecoveryDownloadsBusy,
 }
 
 // UIErrorCodes is the shared UI's own presentation vocabulary. No endpoint emits these; they are registered here so there is one registry rather than a second hand-maintained list in ui/shared.
@@ -341,6 +347,9 @@ var ErrorCodes = []ErrorCode{
 	ErrorCodeRecoveryBusy,
 	ErrorCodeRecoveryInterrupted,
 	ErrorCodeRecoveryFailed,
+	ErrorCodeRecoveryReadsBusy,
+	ErrorCodeRecoveryDestinationBusy,
+	ErrorCodeRecoveryDownloadsBusy,
 }
 
 // ErrorClasses groups codes by the refusal they represent, so a caller (or
@@ -351,7 +360,7 @@ var ErrorClasses = map[string][]ErrorCode{
 	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy},
 	"internal":       {ErrorCodeInternal, ErrorCodeInternalError, ErrorCodeRecoveryLocalCopyCorrupt, ErrorCodeRecoveryRemoteCopyCorrupt, ErrorCodeRecoveryNoSpace, ErrorCodeRecoveryBelowReserve, ErrorCodeRecoveryFailed},
 	"not-found":      {ErrorCodeBackupSetNotFound, ErrorCodeOperationNotFound, ErrorCodeRetentionPlanNotFound, ErrorCodeArtifactNotFound, ErrorCodeMediumNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound, ErrorCodeRepositoryDomainNotFound, ErrorCodeWorkflowEnvNotFound, ErrorCodeWorkflowRunNotFound, ErrorCodeWorkflowStepNotFound, ErrorCodeRecoveryCopyNotFound, ErrorCodeRecoveryGrantUnknown},
-	"throttling":     {ErrorCodeRateLimited, ErrorCodeRecoveryTooManyGrants},
+	"throttling":     {ErrorCodeRateLimited, ErrorCodeRecoveryTooManyGrants, ErrorCodeRecoveryReadsBusy, ErrorCodeRecoveryDestinationBusy, ErrorCodeRecoveryDownloadsBusy},
 	"unavailable":    {ErrorCodeNotConfigured, ErrorCodeSmtpSendFailed, ErrorCodeWorkflowEngineUnavailable, ErrorCodeRecoveryUnavailable, ErrorCodeRecoveryInterrupted},
 	"validation":     {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail, ErrorCodeSSHKeyNotFound, ErrorCodeHostKeyProbeFailed, ErrorCodeMediumDisclosureRequired, ErrorCodeBackupSetNotIncremental, ErrorCodeWorkflowAcknowledgementReasonRequired, ErrorCodeRecoveryTargetInvalid},
 }
@@ -1012,6 +1021,7 @@ var Endpoints = []Endpoint{
 			409: {ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryBusy, ErrorCodeRecoveryTargetExists},
 			410: {ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired},
 			416: {ErrorCodeInvalidRequest},
+			429: {ErrorCodeRecoveryReadsBusy, ErrorCodeRecoveryDestinationBusy, ErrorCodeRecoveryDownloadsBusy},
 			500: {ErrorCodeInternal, ErrorCodeRecoveryLocalCopyCorrupt, ErrorCodeRecoveryFailed},
 			501: {ErrorCodeRecoveryUnavailable},
 			502: {ErrorCodeRecoveryRemoteCopyCorrupt},

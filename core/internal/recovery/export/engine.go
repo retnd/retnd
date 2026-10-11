@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/retnd/retnd/core/internal/recovery/budget"
@@ -90,18 +91,68 @@ type Staged struct {
 	Digest string
 
 	staging *Staging
+
+	// refs counts the handles on this file. A recovery that several
+	// operators asked for at once reads the copy once and hands each of them
+	// a handle (Flight), and the file goes when the last handle is done with
+	// it. A Staged that was never shared has one.
+	mu   sync.Mutex
+	refs int
+}
+
+// addRefs gives n more handles to a copy that has already been staged.
+func (s *Staged) addRefs(n int) {
+	s.mu.Lock()
+	s.refs += n
+	s.mu.Unlock()
 }
 
 // Open opens the staged bytes for reading, seekable so a download can
 // answer range requests.
 func (s *Staged) Open() (*os.File, error) { return os.Open(s.Path) }
 
-// Discard removes the staged file.
+// Discard gives up this handle. The file is removed when the last handle is
+// given up; until then the others keep reading it.
 func (s *Staged) Discard() error {
+	s.mu.Lock()
+	s.refs--
+	last := s.refs <= 0
+	s.mu.Unlock()
+	if !last {
+		return nil
+	}
 	if err := s.staging.remove(s.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return &CleanupError{Failures: []CleanupFailure{{Path: s.Path, Err: err}}}
 	}
 	return nil
+}
+
+// PublishTo places the staged copy under the staging root as rel and gives up
+// this handle. The only handle moves the file; one of several links it (or
+// copies it where the filesystem has no hard links) so the other operators'
+// handles keep a file to read.
+func (s *Staged) PublishTo(rel string) (string, error) {
+	s.mu.Lock()
+	sole := s.refs <= 1
+	s.mu.Unlock()
+	if sole {
+		final, err := s.staging.Publish(s.Path, rel)
+		if err != nil {
+			return "", err
+		}
+		s.mu.Lock()
+		s.refs = 0 // the file has moved; nothing is left to remove
+		s.mu.Unlock()
+		return final, nil
+	}
+	final, err := s.staging.publishCopy(s.Path, rel)
+	if err != nil {
+		return "", err
+	}
+	if derr := s.Discard(); derr != nil {
+		return final, derr
+	}
+	return final, nil
 }
 
 // DefaultBuffer is the copy buffer: the whole of the per-stream memory this
@@ -116,6 +167,13 @@ type Engine struct {
 	// destination. Nil means unbounded, which is a test double and not a
 	// deployment.
 	Reads *budget.Reads
+
+	// WaitForRead makes a stage wait for a read slot instead of being
+	// refused. A scheduler sets it: its work per pass is already bounded, so
+	// waiting is a queue of known size and a refusal would only make it try
+	// again. An operator at a terminal or a browser does not: they get the
+	// refusal, now, with a Retry-After, which is the point of a budget.
+	WaitForRead bool
 
 	// Buffer is the copy buffer in bytes. Zero means DefaultBuffer.
 	Buffer int
@@ -151,6 +209,23 @@ func (e *Engine) Stage(ctx context.Context, src Source, exp Expect) (staged *Sta
 	var need int64
 	if exp.Size != nil {
 		need = *exp.Size
+	}
+	// The read slot first: it is the cheaper refusal, it costs nothing to
+	// give back, and a refusal here has opened nothing and billed nothing.
+	if e.Reads != nil {
+		var (
+			release func()
+			rerr    error
+		)
+		if e.WaitForRead {
+			release, rerr = e.Reads.AcquireWait(ctx, exp.Medium)
+		} else {
+			release, rerr = e.Reads.Acquire(exp.Medium)
+		}
+		if rerr != nil {
+			return nil, rerr
+		}
+		defer release()
 	}
 	f, err := e.Staging.Begin(need)
 	if err != nil {
@@ -203,7 +278,7 @@ func (e *Engine) Stage(ctx context.Context, src Source, exp Expect) (staged *Sta
 	if err := f.Close(); err != nil {
 		return nil, wrapWrite(err)
 	}
-	return &Staged{Path: f.Name(), Size: n, Digest: sum, staging: e.Staging}, nil
+	return &Staged{Path: f.Name(), Size: n, Digest: sum, staging: e.Staging, refs: 1}, nil
 }
 
 func (e *Engine) bufferSize() int {

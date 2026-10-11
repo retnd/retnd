@@ -61,7 +61,6 @@ import (
 const (
 	recoveryPartialTTL = time.Hour
 	recoveryOutputTTL  = 7 * 24 * time.Hour
-	recoveryReserve    = 1 << 30 // keep 1 GiB free on the staging filesystem
 	recoveryGrantTTL   = export.DefaultGrantTTL
 	recoveryMaxGrants  = 32
 )
@@ -156,9 +155,11 @@ type recoveryHost struct {
 	// limits are this host's budgets (core/internal/recovery/budget), and
 	// reads and streams the gates built from them. Zero fields take the
 	// defaults; a test or a host sets them before first use.
-	limits  budget.Limits
-	reads   *budget.Reads
-	streams *budget.Gate
+	limitsMu sync.Mutex
+	started  bool
+	limits   budget.Limits
+	reads    *budget.Reads
+	streams  *budget.Gate
 
 	// afterStage, when set, runs once a copy is staged and verified and
 	// before it is delivered. A test hook for the write stage.
@@ -192,13 +193,25 @@ func (b *BackupService) recoveryHost() *recoveryHost {
 			return
 		}
 		root := filepath.Join(filepath.Dir(cfg.State.Database), "recovery")
+		h.limitsMu.Lock()
+		h.started = true
+		lim := h.limits.WithDefaults()
+		h.limitsMu.Unlock()
+		if lim.Validate() != nil {
+			// SetRecoveryLimits refuses these before they get here; this
+			// is the backstop for a value set some other way.
+			lim = budget.Defaults()
+		}
+		h.limits = lim
 		h.staging = &export.Staging{
 			Root:       root,
 			PartialTTL: recoveryPartialTTL,
 			OutputTTL:  recoveryOutputTTL,
-			Reserve:    recoveryReserve,
+			Reserve:    lim.StagingReserveBytes,
 		}
-		h.engine = &export.Engine{Staging: h.staging}
+		h.reads = budget.NewReads(lim)
+		h.streams = budget.NewGate(budget.DownloadStreams, lim.MaxDownloadStreams)
+		h.engine = &export.Engine{Staging: h.staging, Reads: h.reads}
 		h.grants = export.NewGrants(export.GrantOptions{TTL: recoveryGrantTTL, MaxOutstanding: recoveryMaxGrants, Now: h.now})
 		if h.thaw == nil {
 			h.thaw = b.startRecoveryThaw
@@ -296,7 +309,21 @@ func mapRecoveryError(err error) error {
 	}
 	var ie *export.IntegrityError
 	var ce *export.CleanupError
+	var ref *budget.Refusal
 	switch {
+	case errors.As(err, &ref):
+		code := RecoveryBusy
+		switch ref.Budget {
+		case budget.ConcurrentReads:
+			code = RecoveryReadsBusy
+		case budget.DestinationReads:
+			code = RecoveryDestinationBusy
+		case budget.DownloadStreams:
+			code = RecoveryDownloadsBusy
+		case budget.StagingReserve:
+			code = RecoveryBelowReserve
+		}
+		return &RecoveryError{Code: code, Message: ref.Error() + "; nothing was read", Cause: err}
 	case errors.As(err, &ie):
 		code := RecoveryRemoteCopyCorrupt
 		where := "the copy on " + ie.Medium
@@ -338,6 +365,8 @@ func mapRecoveryError(err error) error {
 		return &RecoveryError{Code: RecoveryTargetInvalid, Message: "that target name is too long", Cause: err}
 	case errors.Is(err, export.ErrTargetOutsideRoot):
 		return &RecoveryError{Code: RecoveryTargetInvalid, Message: "that target name does not stay inside the recovery staging root", Cause: err}
+	case isNotFoundCategory(err):
+		return &RecoveryError{Code: RecoveryNotReadable, Message: "the destination no longer has this copy, or lost it while it was being read; nothing was delivered", Cause: err}
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return &RecoveryError{Code: RecoveryInterrupted, Message: "the recovery was interrupted before it finished; nothing was delivered and its staging file was removed", Cause: err}
 	}
@@ -728,7 +757,7 @@ func isRefusal(code string) bool {
 	case RecoveryCostNotAcknowledged, RecoveryNoCopy, RecoveryCopyNotFound, RecoveryNotReadable,
 		RecoveryGrantUnknown, RecoveryGrantUsed, RecoveryGrantExpired, RecoveryGrantSessionEnded,
 		RecoveryTooManyGrants, RecoveryTargetInvalid, RecoveryTargetExists, RecoveryUseSnapshotRestore,
-		RecoveryBelowReserve, RecoveryBusy, recoveryArtifactNotFoundCode, "RECOVERY_RANGE_NOT_SATISFIABLE":
+		RecoveryBelowReserve, RecoveryBusy, RecoveryReadsBusy, RecoveryDestinationBusy, RecoveryDownloadsBusy, recoveryArtifactNotFoundCode, "RECOVERY_RANGE_NOT_SATISFIABLE":
 		return true
 	}
 	return false
@@ -771,8 +800,54 @@ type RecoveryLimits struct {
 	MaxDownloadStreams     int
 }
 
-// SetRecoveryLimits stub; see the tests.
-func (b *BackupService) SetRecoveryLimits(RecoveryLimits) error { return nil }
+// SetRecoveryLimits applies the host's limits to the recovery engine. It is
+// called once, by the process that serves, before anything is served: the
+// gates are built from the limits on first use and are not resized under live
+// grants, so a later call is refused rather than half applied.
+func (b *BackupService) SetRecoveryLimits(l RecoveryLimits) error {
+	h := &b.recovery
+	merged := budget.Limits{
+		StagingReserveBytes:    l.StagingReserveBytes,
+		MaxConcurrentReads:     l.MaxConcurrentReads,
+		MaxReadsPerDestination: l.MaxReadsPerDestination,
+		MaxDownloadStreams:     l.MaxDownloadStreams,
+	}.WithDefaults()
+	if err := merged.Validate(); err != nil {
+		return err
+	}
+	h.limitsMu.Lock()
+	defer h.limitsMu.Unlock()
+	if h.started {
+		return errors.New("service: recovery has already started, so its limits are fixed for the life of this process")
+	}
+	// Keep the zero fields zero here: the defaults are applied when the
+	// gates are built, and a limit the host left alone should keep tracking
+	// the engine's default rather than freezing today's.
+	h.limits = budget.Limits{
+		StagingReserveBytes:    l.StagingReserveBytes,
+		MaxConcurrentReads:     l.MaxConcurrentReads,
+		MaxReadsPerDestination: l.MaxReadsPerDestination,
+		MaxDownloadStreams:     l.MaxDownloadStreams,
+	}
+	return nil
+}
 
-// RecoveryLimits stub; see the tests.
-func (b *BackupService) RecoveryLimits() RecoveryLimits { return RecoveryLimits{} }
+// RecoveryLimits reports the limits recovery runs under: the host's where it
+// gave one, the engine's defaults where it did not.
+func (b *BackupService) RecoveryLimits() RecoveryLimits {
+	h := &b.recovery
+	h.limitsMu.Lock()
+	lim := h.limits.WithDefaults()
+	h.limitsMu.Unlock()
+	return RecoveryLimits{
+		StagingReserveBytes:    lim.StagingReserveBytes,
+		MaxConcurrentReads:     lim.MaxConcurrentReads,
+		MaxReadsPerDestination: lim.MaxReadsPerDestination,
+		MaxDownloadStreams:     lim.MaxDownloadStreams,
+	}
+}
+
+func isNotFoundCategory(err error) bool {
+	cat, ok := transport.CategoryOf(err)
+	return ok && cat == transport.NotFound
+}
