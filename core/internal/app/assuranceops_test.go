@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -248,8 +248,8 @@ func TestARecoveryTestFailureRaisesRecoveryTestFailingThroughTheDispatcher(t *te
 		t.Fatalf("RECOVERY_TEST_FAILING alerts = %d across two ticks, want exactly 1 (all: %v)", got, sink.kinds())
 	}
 	for _, a := range sink.delivered {
-		if a.Kind == alert.RecoveryTestFailing && (strings.Contains(a.Detail, "/") || !strings.Contains(a.Detail, bs.ID.String())) {
-			t.Errorf("the alert text names a path or no set: %q", a.Detail)
+		if a.Kind == alert.RecoveryTestFailing && (strings.Contains(a.Message, ".dump") || strings.Contains(a.Message, bs.LocalPath) || !strings.Contains(a.Message, bs.ID.String())) {
+			t.Errorf("the alert text names a file or no set: %q", a.Message)
 		}
 	}
 
@@ -271,19 +271,42 @@ func TestARecoveryTestFailureRaisesRecoveryTestFailingThroughTheDispatcher(t *te
 	}
 }
 
-func TestARecoveryTestThatWasNeverRunRaisesRecoveryTestOverdueOnlyWhenRequired(t *testing.T) {
+func TestALapsedRecoveryTestRaisesRecoveryTestOverdueOnlyWhenRequired(t *testing.T) {
 	ctx := context.Background()
 	svc, journal, bs, sink, _ := assuranceAlertService(t)
-	seedMovableArtifact(t, ctx, journal, bs, "never.dump", retentionTestNow.Add(-time.Hour))
+	setPolicy(svc, config.RecoveryTestRequired, 24*time.Hour, "")
+	seedMovableArtifact(t, ctx, journal, bs, "lapse.dump", retentionTestNow.Add(-time.Hour))
 
+	// A set no test has run on yet is untested, not overdue: nothing to say.
 	svc.AlertTick(ctx)
-	if got := sink.countOf(alert.RecoveryTestOverdue); got != 1 {
-		t.Fatalf("RECOVERY_TEST_OVERDUE = %d with mode required and no test, want 1 (all: %v)", got, sink.kinds())
+	if got := sink.countOf(alert.RecoveryTestOverdue); got != 0 {
+		t.Fatalf("RECOVERY_TEST_OVERDUE = %d for a set that was never tested (all: %v)", got, sink.kinds())
+	}
+	if _, err := svc.RecoveryTest(ctx, RecoveryTestRequest{Set: bs.ID}); err != nil {
+		t.Fatal(err)
+	}
+	svc.AlertTick(ctx)
+	if got := sink.countOf(alert.RecoveryTestOverdue); got != 0 {
+		t.Fatalf("an on-time pass alerted: %v", sink.kinds())
 	}
 
+	// Two days later the pass has lapsed.
+	svc.Now = fixedNow(retentionTestNow.Add(49 * time.Hour))
+	svc.AlertTick(ctx)
+	svc.AlertTick(ctx)
+	if got := sink.countOf(alert.RecoveryTestOverdue); got != 1 {
+		t.Fatalf("RECOVERY_TEST_OVERDUE = %d after the pass lapsed, want exactly 1 across two ticks (all: %v)", got, sink.kinds())
+	}
+
+	// The same lapse on a set that does not require a test says nothing.
 	svc2, journal2, bs2, sink2, _ := assuranceAlertService(t)
+	setPolicy(svc2, config.RecoveryTestRequired, 24*time.Hour, "")
+	seedMovableArtifact(t, ctx, journal2, bs2, "lapse.dump", retentionTestNow.Add(-time.Hour))
+	if _, err := svc2.RecoveryTest(ctx, RecoveryTestRequest{Set: bs2.ID}); err != nil {
+		t.Fatal(err)
+	}
 	setPolicy(svc2, config.RecoveryTestOff, 0, "")
-	seedMovableArtifact(t, ctx, journal2, bs2, "never.dump", retentionTestNow.Add(-time.Hour))
+	svc2.Now = fixedNow(retentionTestNow.Add(49 * time.Hour))
 	svc2.AlertTick(ctx)
 	if got := sink2.countOf(alert.RecoveryTestOverdue) + sink2.countOf(alert.RecoveryTestFailing); got != 0 {
 		t.Errorf("a set that does not require a test alerted about one: %v", sink2.kinds())
@@ -296,13 +319,27 @@ func TestAScrubFailureRaisesTheScrubFailingAlertThroughTheDispatcher(t *testing.
 	bs.StaleAfter = config.Duration(30 * 24 * time.Hour)
 	svc, journal := scrubService(t, scrubReval, bs)
 	svc.Config.Alerts = config.Alerts{Enabled: true, RepeatedFailureThreshold: 3}
-	a := seedMovableArtifact(t, ctx, journal, bs, "rot.dump", retentionTestNow.Add(-time.Hour))
+	a := seedMovableArtifact(t, ctx, journal, bs, "away.dump", retentionTestNow.Add(-time.Hour))
+	size := int64(len("the bytes of away.dump"))
+	// The copy lives on a medium that stops answering, as a finished move leaves it.
+	if _, err := journal.RecordTransition(ctx, state.Transition{
+		Artifact: a, Key: "retire-local", From: "COMPLETE", To: "COMPLETE", OccurredAt: retentionTestNow,
+		Placement: &state.PlacementUpdate{Medium: state.MediumLocal, Location: filepath.Join(bs.LocalPath, "away.dump"), Status: state.PlacementGone},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := journal.RecordTransition(ctx, state.Transition{
+		Artifact: a, Key: "on-medium", From: "COMPLETE", To: "COMPLETE", OccurredAt: retentionTestNow,
+		Placement: &state.PlacementUpdate{Medium: moveTestMedium, Location: "retnd/away.dump", Size: &size, Hash: "x", HashAlg: "sha256", Status: state.PlacementActive},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	svc.MediumStore = &unreachableStore{down: true, size: size}
 	sink := &recordingSink{}
 	if !svc.EnableAlerts(sink) {
 		t.Fatal("EnableAlerts returned false")
 	}
-	// Three scheduled checks in a row fail: the file is gone.
-	mustRemove(t, localCopyOf(t, journal, a).Location)
+
 	now := retentionTestNow
 	for i := 0; i < health.ScrubFailureThreshold; i++ {
 		now = now.Add(48 * time.Hour)
@@ -430,12 +467,5 @@ func TestARecoveryTestOfACopyThatChangedIsNotAnnounced(t *testing.T) {
 	}
 	if got := localCopyOf(t, journal, a).RecoveryState; got != state.RecoveryUnknown {
 		t.Errorf("recorded %q", got)
-	}
-}
-
-func mustRemove(t *testing.T, path string) {
-	t.Helper()
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
 	}
 }

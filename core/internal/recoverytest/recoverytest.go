@@ -60,12 +60,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/retnd/retnd/core/internal/archive"
+	"github.com/retnd/retnd/core/internal/fsopen"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/revalidate"
 	"github.com/retnd/retnd/core/internal/state"
@@ -110,6 +110,13 @@ type Recoverer interface {
 // ErrCostRefused is what a Recoverer wraps when it declines a read because it
 // would cost money and the request did not acknowledge that.
 var ErrCostRefused = errors.New("recoverytest: the read costs money and was not acknowledged")
+
+// ErrCorruptCopy is what a Recoverer wraps when it read the copy and the bytes
+// did not match the digest recorded for the artifact. It is the digest gate
+// speaking from inside the recoverer (the export engine verifies before it
+// hands anything over), so Run records it as a failed copy, exactly as a
+// mismatch it finds itself, and never as an attempt that could not complete.
+var ErrCorruptCopy = errors.New("recoverytest: the recovered bytes do not match the recorded digest")
 
 // ErrNoKnownGoodCopy is returned when a set has nothing to test.
 var ErrNoKnownGoodCopy = errors.New("recoverytest: this backup set has no known good copy to test")
@@ -174,6 +181,18 @@ type Deps struct {
 	// Limits is the shared admission control for full reads. Nil is unbounded.
 	Limits *revalidate.Limits
 	Now    func() time.Time
+
+	// Stage, when set, is told the id of each stage Run enters, using the
+	// names of obs.RecoveryStages and in their order. The application turns
+	// it into the stage lines the CLI's --follow and the browser render. Nil
+	// reports nothing.
+	Stage func(id string)
+}
+
+func (d Deps) stage(id string) {
+	if d.Stage != nil {
+		d.Stage(id)
+	}
 }
 
 func (d Deps) now() time.Time {
@@ -266,6 +285,10 @@ func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg Config, req 
 	ref := state.CopyRef{Artifact: rec.Artifact, Medium: copy_.Medium}
 	res := Result{Artifact: rec.Artifact, Medium: copy_.Medium, PlacementID: copy_.ID}
 	now := deps.now()
+	// What the verdict will be about: the bytes this copy holds right now. A
+	// copy rewritten while the test runs is refused by the journal.
+	identity := copy_.Identity()
+	deps.stage("resolving_copy")
 
 	configured := false
 	if deps.Validator != nil {
@@ -274,10 +297,11 @@ func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg Config, req 
 		if cerr != nil {
 			res.State = state.RecoveryCouldNotComplete
 			res.Reason = "the validator could not be examined: " + safeError(cerr)
-			rt := state.RecoveryTest{Copy: ref, State: res.State, At: now, NextDue: now.Add(retryAfter), Reason: res.Reason}
+			rt := state.RecoveryTest{Copy: ref, State: res.State, At: now, NextDue: now.Add(retryAfter), Reason: res.Reason, Expect: &identity}
 			if err := deps.Journal.RecordRecoveryTest(context.WithoutCancel(ctx), rt); err != nil {
 				return res, err
 			}
+			deps.stage("complete")
 			return res, nil
 		}
 	}
@@ -287,6 +311,7 @@ func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg Config, req 
 		if err := deps.Journal.RecordRecoveryEvaluation(ctx, ref, state.RecoveryNotConfigured); err != nil && !errors.Is(err, state.ErrRecoveryHistory) {
 			return res, err
 		}
+		deps.stage("complete")
 		return res, nil
 	}
 	cadence := cfg.Cadence
@@ -297,6 +322,7 @@ func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg Config, req 
 
 	finish := func(r Result, rt state.RecoveryTest) (Result, error) {
 		rt.Copy = ref
+		rt.Expect = &identity
 		rt.At = now
 		rt.Duration = deps.now().Sub(now)
 		if rt.NextDue.IsZero() {
@@ -308,6 +334,7 @@ func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg Config, req 
 		if err := deps.Journal.RecordRecoveryTest(context.WithoutCancel(ctx), rt); err != nil {
 			return r, fmt.Errorf("recording the recovery test of %s: %w", ref.Artifact, err)
 		}
+		deps.stage("complete")
 		return r, nil
 	}
 
@@ -334,10 +361,18 @@ func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg Config, req 
 	}
 	defer release()
 
+	deps.stage("reading")
 	staged, err := deps.Recoverer.Recover(ctx, RecoverRequest{Artifact: rec.Artifact, Copy: copy_, AcknowledgeCost: ack})
 	if err != nil {
 		if ctx.Err() != nil {
 			return res, fmt.Errorf("recoverytest: cancelled: %w", ctx.Err())
+		}
+		if errors.Is(err, ErrCorruptCopy) {
+			matched := false
+			res.DigestMatched = &matched
+			res.State = state.RecoveryFailed
+			res.Reason = "the recovered bytes do not match the digest recorded for this artifact, so none were handed to the validator"
+			return finish(res, state.RecoveryTest{DigestMatched: &matched})
 		}
 		if errors.Is(err, ErrCostRefused) {
 			res.State = state.RecoveryRefusedForCost
@@ -351,6 +386,7 @@ func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg Config, req 
 
 	// From here a staged copy exists, and it is removed on every path out.
 	cleanup := func() {
+		deps.stage("cleaning_temporary_files")
 		if rerr := deps.Recoverer.Remove(context.WithoutCancel(ctx), staged); rerr != nil {
 			res.CleanupState = state.RecoveryCleanupFailed
 			res.CleanupErr = safeError(rerr)
@@ -359,6 +395,7 @@ func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg Config, req 
 		res.CleanupState = state.RecoveryCleanupRemoved
 	}
 
+	deps.stage("verifying")
 	sum, n, readErr := hashFile(ctx, staged.Path)
 	res.BytesRead = n
 	if readErr != nil {
@@ -381,6 +418,7 @@ func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg Config, req 
 	}
 
 	// The gate passed. Only now does the validator mean anything.
+	deps.stage("validating")
 	out, vErr := deps.Validator.Validate(ctx, ValidatorInput{
 		Set: set, Artifact: rec.Artifact, Medium: copy_.Medium, File: staged.Path, Digest: sum, Size: n,
 	})
@@ -579,7 +617,7 @@ func recordedDigest(rec state.Record, p state.Placement) (digest, alg string) {
 }
 
 func hashFile(ctx context.Context, path string) (sum string, n int64, err error) {
-	f, err := os.Open(path)
+	f, err := fsopen.OpenRegular(path)
 	if err != nil {
 		return "", 0, err
 	}
