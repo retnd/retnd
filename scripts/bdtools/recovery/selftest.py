@@ -888,7 +888,7 @@ MUTATIONS = [
     (
         "a configured read ceiling nothing reads",
         RECOVER_GO,
-        "\tlim.MaxConcurrentReads = smallerPositive(lim.MaxConcurrentReads, explicit(a.MaxConcurrentFullReads, raw.MaxConcurrentFullReads, config.DefaultMaxConcurrentReads))",
+        "\tlim.MaxConcurrentReads = smallerPositive(lim.MaxConcurrentReads, explicit(a.MaxConcurrentFullReads, a.MaxConcurrentFullReadsWritten, config.DefaultMaxConcurrentReads))",
         "\t_ = explicit // " + PLANT.rstrip(),
         "effective read ceilings",
         SERVICE_PKG,
