@@ -2247,6 +2247,87 @@ export interface WorkflowRunnerStatus {
   tokenFile: string;
 }
 
+/** A resolved scrub and recovery-test policy (EPIC Q, Q1.4). Every value is
+ *  RESOLVED: an inherited or defaulted setting is filled in, so a zero here
+ *  is never something to read as "never". */
+export interface AssurancePolicy {
+  scrub: { cadenceSeconds: number; strategy: string };
+  recoveryTest: { mode: string; cadenceSeconds: number; validatorId: string };
+}
+
+/** A global-only setting and the written reason a backup set cannot
+ *  override it. */
+export interface AssuranceHostKnob {
+  name: string;
+  value: string;
+  perSet: boolean;
+  reason: string;
+}
+
+/** The deployment-wide assurance policy. `configured` false means every
+ *  value is a default nobody had to set. */
+export interface AssuranceSettings extends AssurancePolicy {
+  configured: boolean;
+  stagingRoot: string;
+  stagingTtlSeconds: number;
+  maxConcurrentFullReads: number;
+  maxPerDestination: number;
+  webDownloadMemoryBytes: number;
+  hostKnobs: AssuranceHostKnob[];
+}
+
+/** A sparse write. An absent field is "leave this alone"; a zero or empty
+ *  value clears that setting back to its default. */
+export interface AssuranceSettingsPatch {
+  scrubCadenceSeconds?: number;
+  scrubStrategy?: string;
+  recoveryTestMode?: string;
+  recoveryTestCadenceSeconds?: number;
+  recoveryTestValidatorId?: string;
+  stagingRoot?: string;
+  stagingTtlSeconds?: number;
+  maxConcurrentFullReads?: number;
+  maxPerDestination?: number;
+  webDownloadMemoryBytes?: number;
+}
+
+/** One backup set's resolved policy. `isOverride` is reported rather than
+ *  derived, because a set that pinned the deployment's own value is not
+ *  inheriting. */
+export interface BackupSetAssurance extends AssurancePolicy {
+  backupSetId: string;
+  isOverride: boolean;
+}
+
+/** The per-set subset of a write. The host-scoped settings are not here
+ *  because the per-set answer to each is no. */
+export interface BackupSetAssurancePatch {
+  scrubCadenceSeconds?: number;
+  scrubStrategy?: string;
+  recoveryTestMode?: string;
+  recoveryTestCadenceSeconds?: number;
+  recoveryTestValidatorId?: string;
+}
+
+/** One copy's place in the scrub schedule. A copy nobody has looked at has
+ *  no `lastAssuredAt` and is overdue, never fine. */
+export interface AssuranceDueItem {
+  backupSetId: string;
+  artifactId: string;
+  artifactName: string;
+  lastAssuredAt?: string;
+  nextDueAt: string;
+  cadenceSeconds: number;
+  due: boolean;
+  overdue: boolean;
+  basis: string;
+}
+
+export interface AssuranceDue {
+  generatedAt: string;
+  items: AssuranceDueItem[];
+}
+
 /** The deployment-wide workflow configuration, RESOLVED: the timeout a
  *  hook will actually get, the stages that will actually run, the
  *  environment a hook will actually see. That is why this read exists
@@ -3332,6 +3413,17 @@ export interface RetndApi {
    *  form re-renders from what was persisted rather than from what it
    *  hoped it had written. */
   patchWorkflowSettings(patch: WorkflowSettingsPatch): Promise<WorkflowSettings>;
+
+  /** EPIC Q's assurance policy (Q1.4): the deployment's, one backup set's,
+   *  and the scrub schedule computed from those resolved policies. A write
+   *  is validated, persisted and hot-reloaded in one step, so every set
+   *  that inherits the change decides under it on its next read. */
+  getAssuranceSettings(): Promise<AssuranceSettings>;
+  patchAssuranceSettings(patch: AssuranceSettingsPatch): Promise<AssuranceSettings>;
+  getBackupSetAssurance(source: string, set: string): Promise<BackupSetAssurance>;
+  patchBackupSetAssurance(source: string, set: string, patch: BackupSetAssurancePatch): Promise<BackupSetAssurance>;
+  resetBackupSetAssurance(source: string, set: string): Promise<BackupSetAssurance>;
+  listAssuranceDue(filter?: { backupSetId?: string; status?: "all" | "due" | "overdue" }): Promise<AssuranceDue>;
 
   /** The deployment-wide environment, and its two writes. Every one of
    *  the three answers with the whole list, because a set or an unset is

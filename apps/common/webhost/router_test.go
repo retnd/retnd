@@ -420,6 +420,20 @@ var destructiveGateExemptRoutes = map[string]bool{
 	"DELETE /api/v1/backup-sets/{source}/{set}/workflow/environment/{name}": true,
 	"POST /api/v1/workflow-recovery/{run}/resume-cleanup":                   true,
 	"POST /api/v1/workflow-recovery/{run}/acknowledge":                      true,
+
+	// EPIC Q's assurance configuration (Q1.4, #982). Three writes, all
+	// configuration: they rewrite one block of config.yaml and hot-reload,
+	// the class PATCH /settings above sits in. None reaches a backup datum.
+	// A scrub cadence or a recovery-test mode changes WHEN the product
+	// reads a copy, never what it keeps, so it is not the deletion class
+	// this list guards. Turning the recovery test off or lengthening a
+	// cadence is a weaker posture, and that is exactly the case
+	// PATCH /settings already settles for turning FR-19's protection off:
+	// the posture is visible in the response and on the feed, and nothing
+	// here can cause an unattended deletion.
+	"PATCH /api/v1/settings/assurance":                    true,
+	"PATCH /api/v1/backup-sets/{source}/{set}/assurance":  true,
+	"DELETE /api/v1/backup-sets/{source}/{set}/assurance": true,
 }
 
 // TestEveryMutatingAPIRouteRefusesARequestWithNoCSRFPair walks the route
