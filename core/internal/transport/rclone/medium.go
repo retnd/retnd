@@ -430,6 +430,7 @@ func (a *Adapter) UploadFromLocal(ctx context.Context, medium transport.Medium, 
 // the shape #264 found on the sftp side when nothing released an Fs at
 // all.
 func (a *Adapter) OpenObject(ctx context.Context, medium transport.Medium, key string) (io.ReadCloser, error) {
+	ctx = mediumContext(ctx)
 	return a.openObject(ctx, medium, key, 0)
 }
 
@@ -440,13 +441,17 @@ func (a *Adapter) OpenObjectRange(ctx context.Context, medium transport.Medium, 
 	if off < 0 {
 		return nil, transport.NewError(transport.Permanent, "open_object", fmt.Errorf("negative offset %d", off))
 	}
+	ctx = mediumContext(ctx)
 	return a.openObject(ctx, medium, key, off)
 }
 
 var _ transport.RangeOpener = (*Adapter)(nil)
 
+// openObject is OpenObject and OpenObjectRange's shared body. Both bound
+// rclone's low-level retries (mediumContext) BEFORE they get here, because the
+// retry-bound scan holds each exported operation to that, and the Fs is built
+// below with the already-bounded context.
 func (a *Adapter) openObject(ctx context.Context, medium transport.Medium, key string, off int64) (io.ReadCloser, error) {
-	ctx = mediumContext(ctx)
 	f, err := a.mediumFs(ctx, medium)
 	if err != nil {
 		return nil, err
