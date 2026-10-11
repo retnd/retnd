@@ -311,7 +311,14 @@ func (c CopyScrub) validate() error {
 		return errors.New("state: a scrub result needs both the time it ran and the time the copy is next due")
 	}
 	switch c.Verdict {
-	case ScrubPassed, ScrubFailed, ScrubRequiresRestore:
+	case ScrubRequiresRestore:
+		// A copy refused before anything ran (a content scrub of an
+		// archive-class object) ran no class, and that is allowed. One that
+		// was HEADed first carries existence.
+		if c.Class != "" && !validCheckClass(c.Class) {
+			return fmt.Errorf("state: a requires_restore scrub result carries no class or a valid one, got %q", c.Class)
+		}
+	case ScrubPassed, ScrubFailed:
 		if !validCheckClass(c.Class) {
 			return fmt.Errorf("state: a %s scrub result needs the class that ran (content, attested or existence), got %q", c.Verdict, c.Class)
 		}
@@ -427,7 +434,19 @@ func (j *Journal) RecordCopyScrub(ctx context.Context, c CopyScrub) error {
 				scrub_lease_until = NULL, scrub_lease_holder = ''
 			 WHERE id = ?`, next, at, c.Class, at, reason, optionalInt64(c.BytesRead), durMS, id)
 
-	default: // ScrubPassed, ScrubRequiresRestore
+	case ScrubRequiresRestore:
+		if c.Class == "" {
+			_, err = tx.ExecContext(ctx, `
+				UPDATE placements SET
+					assurance_state = 'requires_restore', next_due_at = ?,
+					consecutive_failures = 0, last_duration_ms = ?,
+					scrub_lease_until = NULL, scrub_lease_holder = ''
+				 WHERE id = ?`, next, durMS, id)
+			break
+		}
+		fallthrough
+
+	default: // ScrubPassed, and ScrubRequiresRestore after a HEAD
 		state := AssurancePassed
 		if c.Verdict == ScrubRequiresRestore {
 			state = AssuranceRequiresRestore

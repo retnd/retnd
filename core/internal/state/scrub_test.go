@@ -452,3 +452,30 @@ func TestAssuranceVocabulariesAgreeWithTheSchema(t *testing.T) {
 		t.Errorf("vocabulary sizes = %d, %d; a new value needs a migration and a deliberate edit here", len(AssuranceStates), len(RecoveryStates))
 	}
 }
+
+// A content scrub of an archive-class object is refused before anything is
+// read, so no class ran. That is recorded as requires_restore without
+// touching the class or either age.
+func TestRecordCopyScrub_ARefusedArchiveReadRecordsNoClassAndMovesNoAge(t *testing.T) {
+	ctx := context.Background()
+	j, a := scrubFixture(t)
+	if err := j.RecordCopyScrub(ctx, CopyScrub{
+		Artifact: a, Medium: MediumLocal, Verdict: ScrubPassed, Class: VerificationContent,
+		At: scrubAt.Add(-time.Hour), NextDue: scrubAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := j.RecordCopyScrub(ctx, CopyScrub{
+		Artifact: a, Medium: MediumLocal, Verdict: ScrubRequiresRestore,
+		At: scrubAt, NextDue: scrubAt.Add(time.Hour), Reason: "archive",
+	}); err != nil {
+		t.Fatalf("RecordCopyScrub: %v", err)
+	}
+	p := localCopy(t, j, a)
+	if p.AssuranceState != AssuranceRequiresRestore {
+		t.Errorf("AssuranceState = %q", p.AssuranceState)
+	}
+	if p.LastCheckedClass != VerificationContent || p.ContentVerifiedAt == nil || !p.ContentVerifiedAt.Equal(scrubAt.Add(-time.Hour)) {
+		t.Errorf("a refusal that read nothing moved the class or the age: %q / %v", p.LastCheckedClass, p.ContentVerifiedAt)
+	}
+}
