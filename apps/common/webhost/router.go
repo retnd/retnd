@@ -598,6 +598,17 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.With(requireCSRF).Put("/backup-sets/{source}/{set}/workflow/environment/{name}", h.setBackupSetWorkflowEnvironment)
 		r.With(requireCSRF).Delete("/backup-sets/{source}/{set}/workflow/environment/{name}", h.unsetBackupSetWorkflowEnvironment)
 		r.Get("/backup-sets/{source}/{set}/workflow/validation", h.getBackupSetWorkflowValidation)
+
+		// EPIC Q's per-set assurance policy (Q1.4, #982), registered with
+		// the same two named segments and literal tail as the retention and
+		// workflow sub-resources above, and for the same reason: a fixed
+		// arity and a literal tail ahead of the "/backup-sets/*" catch-all.
+		//
+		// CSRF on the two writes and no destructive gate: these edit
+		// configuration and hot-reload, and move no backup data.
+		r.Get("/backup-sets/{source}/{set}/assurance", h.getBackupSetAssurance)
+		r.With(requireCSRF).Patch("/backup-sets/{source}/{set}/assurance", h.updateBackupSetAssurance)
+		r.With(requireCSRF).Delete("/backup-sets/{source}/{set}/assurance", h.resetBackupSetAssurance)
 		r.Get("/backup-sets/*", h.getBackupSet)
 
 		// Issue #211: the backups this deployment actually holds, and the
@@ -862,6 +873,17 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Get("/settings/workflow/environment", h.listWorkflowEnvironment)
 		r.With(requireCSRF).Put("/settings/workflow/environment/{name}", h.setWorkflowEnvironment)
 		r.With(requireCSRF).Delete("/settings/workflow/environment/{name}", h.unsetWorkflowEnvironment)
+
+		// EPIC Q's deployment-wide assurance policy (Q1.4, #982), a
+		// sub-resource of /settings for the workflow block's reason: a
+		// client reads one path to learn how this deployment scrubs. The
+		// PATCH validates, writes and hot-reloads in one step, so every set
+		// that inherits the changed value decides under it on its next
+		// read. The schedule lives beside it, top level, because the
+		// question an operator asks of it is deployment-wide.
+		r.Get("/settings/assurance", h.getAssuranceSettings)
+		r.With(requireCSRF).Patch("/settings/assurance", h.updateAssuranceSettings)
+		r.Get("/assurance/due", h.listAssuranceDue)
 
 		// EPIC L's workflow runs and recovery (#813).
 		//
