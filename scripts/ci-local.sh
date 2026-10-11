@@ -463,6 +463,12 @@ bash scripts/tests/release-gate-covers-every-job.test.sh
 gate_step "every Go module resolves its own dependencies without go.work (#1064)"
 bash scripts/tests/every-module-builds-on-its-own.test.sh
 
+# The contract generator answers the same way every time it is run (#1066).
+# check-contract-drift.sh regenerates and compares, so a generator that can
+# answer two ways fails a clean tree about half the time.
+gate_step "the contract generator is deterministic (#1066)"
+bash scripts/tests/api-generator-is-deterministic.test.sh
+
 # The other half of the same gate, and the half that does not need a
 # settings page to be true (#575). A required check gates while branch
 # protection says it does, and a direct push, an administrator merging
