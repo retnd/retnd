@@ -23,6 +23,14 @@ machine with Docker.
 [`docs/recovery.md`](docs/recovery.md) — or, for a backup set on the
 incremental engine, [`docs/incremental-runbooks.md`](docs/incremental-runbooks.md).
 
+**If you need a backup out, not just to know it is there:** this product recovers and
+exports the retained artifact; restoring it into an application remains the operator's
+responsibility. `retnd recover` hands you one retained copy, checked against the digest
+recorded when it was committed. It is not `retnd restore` (which asks a storage provider to
+thaw an archived object) and not `retnd snapshot restore` (which extracts a snapshot on the
+incremental engine), and [`docs/recovery.md`](docs/recovery.md) puts the three side by side
+so you can pick the right one at 3am.
+
 **The same material as pages, with pictures**, is the published site: [the first-run
 tutorial](https://retnd.github.io/retnd/first-run.html), [the web interface in
 motion](https://retnd.github.io/retnd/web-ui.html), [SSH and
@@ -185,6 +193,10 @@ so it is the one in shot: it is mostly native `select`s and number inputs, which
 what the application used to leave at the browser's default and paint black on black.
 
 ![The settings page switching to dark mode, scrolling through a form of native selects and number inputs, then switching back](docs/site/screens/ui-dark-mode.gif)
+
+None of these clips shows recovery or the three assurance claims (Stored, Content
+verified, Recovery tested), because those screens were not recorded when the clips were. The
+pages describe them in words, and they will get clips of their own...
 
 
 ## Two engines: artifacts, and incremental snapshots

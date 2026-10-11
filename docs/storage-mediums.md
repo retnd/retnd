@@ -559,6 +559,22 @@ provider. Multiplying a guess by a guess and printing it in an operator console
 is how people make expensive decisions confidently, so this product does not do
 it.
 
+### What a scrub and a recovery do with an archive copy
+
+A scheduled scrub never thaws, and never downloads. Against a storage medium the strongest
+thing an unattended pass will do is an existence check, which asks the provider whether an
+object of the right size is at that key and reads none of its bytes. That is why a copy
+that has only ever been scrubbed reads **Existence checked**, and never **Content
+verified**: nothing read it.
+
+An archive-class copy is recorded as `requires_restore`, with no thaw started and no cost
+incurred, and it never counts toward a satisfied assurance policy. Recovering it is a
+decision a person makes: `retnd recover` refuses a chargeable or archived copy and names
+what reading it takes, and only `--acknowledge-cost` (or the cost box in the browser)
+starts exactly one provider request. When you would rather do the two steps yourself,
+`retnd restore` first, wait for the provider, then `recover`; the order does not change and
+neither step is done for you on a timer.
+
 ## Things the manager deliberately does not manage
 
 - **Bucket lifecycle rules, object lock and versioning.** The manager is the only

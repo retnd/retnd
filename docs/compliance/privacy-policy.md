@@ -34,6 +34,21 @@ to the operator's own destination. No third party is in that path, and the app
 adds no destination of its own: it has no mail relay, and it cannot send anything
 anywhere until the operator supplies a server to send it through.
 
+### Recovered artifacts leave the deployment only to a person who asked
+
+Recovering an artifact is the one feature that moves retained backup data out of the
+deployment, so it is stated here rather than left to be inferred. A recovery delivers one
+retained copy to exactly one target the signed-in operator named: a download in their own
+browser, a path under the host's recovery staging root, or another storage destination they
+configured. It sends nothing to us, to a vendor or to any destination nobody configured.
+The grant that authorises a download is short-lived, single-use and tied to the session
+that asked for it, and every grant and every range served writes an action-log row naming
+who asked, which artifact, which copy, where it went and how it ended. This product has one
+tier of signed-in identity and no roles, so any signed-in operator can recover any retained
+artifact; the audit trail is what stands in for a boundary that does not exist. No
+credential, key or recovery secret is written to that log, to a notification or to the
+terminal view.
+
 ## What the app stores, and where
 
 Everything stays on the machine the app runs on, under paths the operator
