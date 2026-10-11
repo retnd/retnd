@@ -15,7 +15,9 @@ import (
 func TestTheReaperGivesBackAnAbandonedDownloadsStreamSlot(t *testing.T) {
 	ctx := context.Background()
 	f := newRecoveryFixture(t, fixtureOpts{localCopy: true})
-	f.b.recovery.limits = budget.Limits{MaxDownloadStreams: 1}
+	// A one byte reserve: the default is 1 GiB of free space, which a small
+	// scratch disk does not have, and this test is about the slot.
+	f.b.recovery.limits = budget.Limits{MaxDownloadStreams: 1, StagingReserveBytes: 1}
 	sess := f.session()
 	g, err := f.b.MintRecovery(ctx, sess, RecoveryRequest{ArtifactID: f.artifact, Target: RecoveryTarget{Kind: "download"}})
 	if err != nil {
