@@ -486,6 +486,28 @@ The rules that matter:
   the artifact having been "revalidated" in the sense a local artifact is.
 - An artifact on `GLACIER` or `DEEP_ARCHIVE` is `existence`-checkable only, until
   an explicit restore makes anything stronger possible.
+- **The scheduled scrub runs this, and `retnd scrub` runs it by hand.** The
+  daemon (and the web host) check each copy on its own schedule, which lives on
+  the copy: `next_due_at` in the journal, not the artifact row's clock, so a
+  reconciliation or a catalog rebuild cannot make a copy nobody re-read look
+  fresh. A rebuilt catalog reads `unknown` and every copy in it is due. The
+  result is recorded on the copy with the class that ran, and `Content verified`
+  only ever moves when the bytes were read. A copy in an archive class is
+  recorded as `requires_restore`: I never read it and never start a restore.
+  `retnd scrub --content --allow-egress` reads a copy on a medium in full, and
+  without both flags the read is refused.
+  Pacing is bounded: four copies at once overall, two per destination, jitter
+  on every due time, and a capped backoff for a copy that fails or cannot be
+  reached. A copy that fails three scheduled checks in a row degrades its
+  set's health, and the next passing check clears that. You hear about it
+  through a script of your own: put `NAME.local.sh` scripts in
+  `assurance-after/sets/<source>/<set>` or `assurance-after/global` under the
+  workflow root and they run once when the episode opens (`ASSURANCE_EVENT` is
+  `scrub_failing`) and once when it closes (`scrub_recovered`), with the same
+  custody, shell verification and runner container as any other hook. That
+  directory is not the set's `after_dir`, whose scripts undo what a `before`
+  hook did to the source machine and have no business running because a scrub
+  failed. A set held for editing is skipped, and the skip is reported.
 - **A tier whose medium writes an archive class cannot take delivery of an
   artifact, and the move is refused before anything is uploaded.** Both settings
   `upload_verification` accepts need the object read back, a freshly written
