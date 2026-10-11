@@ -358,4 +358,5 @@ func (s *Service) scrubTickRecovered(ctx context.Context) {
 		}
 	}()
 	s.ScrubTick(ctx)
+	s.RecoveryTestTick(ctx)
 }

@@ -77,3 +77,66 @@ func TestOnlyActiveCopiesCountTowardsScrubFailure(t *testing.T) {
 		t.Errorf("a GONE copy counted: %d", got.ScrubFailingCopies)
 	}
 }
+
+// --- recovery_test_required (EPIC Q, #980) ---
+//
+// A set whose operator said a recovery test is required is degraded when the
+// newest known good copy's test failed, is overdue, or has not run. It never
+// rewrites a backup that already succeeded, and it never softens a stronger
+// verdict.
+
+func recoveryRecord(now time.Time, rs string, tested, next *time.Time) state.Record {
+	r := rec("r.dump", lifecycle.Complete, now.Add(-2*time.Hour), now.Add(-time.Hour))
+	r.Placements = []state.Placement{{
+		Medium: state.MediumLocal, Status: state.PlacementActive,
+		Assurance: state.Assurance{RecoveryState: rs, RecoveryTestedAt: tested, RecoveryNextDueAt: next},
+	}}
+	return r
+}
+
+func TestARequiredRecoveryTestDegradesWhenFailedOverdueOrNeverRun(t *testing.T) {
+	now := time.Now().UTC()
+	past, future := now.Add(-time.Hour), now.Add(time.Hour)
+	for name, tc := range map[string]struct {
+		rec  state.Record
+		want State
+	}{
+		"fresh pass":       {recoveryRecord(now, state.RecoveryPassed, &past, &future), Healthy},
+		"failed":           {recoveryRecord(now, state.RecoveryFailed, &past, &future), Degraded},
+		"pass gone stale":  {recoveryRecord(now, state.RecoveryPassed, &past, &past), Degraded},
+		"marked overdue":   {recoveryRecord(now, state.RecoveryOverdue, &past, &past), Degraded},
+		"never run":        {recoveryRecord(now, state.RecoveryUnknown, nil, nil), Degraded},
+		"refused for cost": {recoveryRecord(now, state.RecoveryRefusedForCost, &past, &future), Degraded},
+		"not configured":   {recoveryRecord(now, state.RecoveryNotConfigured, nil, nil), Degraded},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := ComputeBackupSetHealth(testSet, []state.Record{tc.rec}, nil, PlacementEvidence{}, day, BackupSetInputs{RecoveryTestRequired: true}, now)
+			if got.State != tc.want {
+				t.Errorf("State = %s (%s), want %s", got.State, got.Reason, tc.want)
+			}
+		})
+	}
+}
+
+func TestARecoveryTestThatIsNotRequiredNeverDegradesAnything(t *testing.T) {
+	now := time.Now().UTC()
+	past := now.Add(-time.Hour)
+	got := ComputeBackupSetHealth(testSet, []state.Record{recoveryRecord(now, state.RecoveryFailed, &past, &past)}, nil, PlacementEvidence{}, day, BackupSetInputs{}, now)
+	if got.State != Healthy {
+		t.Errorf("State = %s: a failed test nobody required degraded the set", got.State)
+	}
+}
+
+func TestARequiredRecoveryTestNeverRewritesAnEarlierSuccessfulBackup(t *testing.T) {
+	now := time.Now().UTC()
+	past := now.Add(-time.Hour)
+	r := recoveryRecord(now, state.RecoveryFailed, &past, &past)
+	got := ComputeBackupSetHealth(testSet, []state.Record{r}, nil, PlacementEvidence{}, day, BackupSetInputs{RecoveryTestRequired: true}, now)
+	if got.NewestGoodBackupAt == nil || got.LastCompletedBackupAt == nil {
+		t.Error("the backup that succeeded stopped being the newest good one because its recovery test failed")
+	}
+	lost := rec("lost.dump", lifecycle.QuarantinedLost, now.Add(-3*time.Hour), now.Add(-2*time.Hour))
+	if s := ComputeBackupSetHealth(testSet, []state.Record{lost, r}, nil, PlacementEvidence{}, day, BackupSetInputs{RecoveryTestRequired: true}, now).State; s != Failing {
+		t.Errorf("a required recovery test softened FAILING to %s", s)
+	}
+}
