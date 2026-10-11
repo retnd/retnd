@@ -136,9 +136,18 @@ def body(root: Path) -> int:
     tally_ok, tally_bad = 0, 0
     with tempfile.TemporaryDirectory(prefix="retnd-ui-selftest.") as tmp_name:
         tmp = Path(tmp_name)
-        copy = tmp / "shared"
+        # The same shape as the repository, because the bundler resolves
+        # @platform-entry to ../../apps/<platform>/frontend/bootstrap.tsx
+        # relative to ui/shared.
+        copy = tmp / "ui" / "shared"
+        copy.parent.mkdir(parents=True)
         shutil.copytree(ui, copy, symlinks=True, ignore=shutil.ignore_patterns("node_modules", "dist", "test-results"))
         os.symlink(ui / "node_modules", copy / "node_modules")
+        # The unit tests read Go source (the CLI's usage text, the stage list)
+        # at ../../core, so every top-level directory but ui/ is linked in.
+        for entry in sorted(root.iterdir()):
+            if entry.is_dir() and entry.name not in ("ui", ".git", "node_modules"):
+                os.symlink(entry, tmp / entry.name)
 
         print("==> negative control: the narrowed suites are clean on the real tree")
         units = sorted({u for c in CONTROLS for u in c[4]})
@@ -146,6 +155,8 @@ def body(root: Path) -> int:
         code, out = suite(copy, units, specs)
         if code != 0:
             print(out[-3000:], file=sys.stderr)
+            print(f"exit status {code}; the first failing line of the run is:", file=sys.stderr)
+            print(next((l for l in out.splitlines() if "failed" in l.lower() or "error" in l.lower()), "(none)"), file=sys.stderr)
             harness.die("the narrowed suites FAILED against an unmutated tree, so their failures would mean nothing.")
         print("  ok:   (clean): the narrowed unit tests and specs on an unmutated tree")
 
