@@ -34,7 +34,12 @@ with audit rather than authority:
 
 - a grant is bound to the session that minted it (the actor and the instant that
   authentication lapses), is single-use, lives minutes, and is revoked when the
-  session ends;
+  session ends. The local sign-in reports that instant, and a logout, a password
+  rotation or a reset tells the recovery engine, which revokes the session's
+  grants and removes what they staged. A trusted-gateway deployment has no
+  session of its own: the gateway reports no lapse, so there the binding is the
+  actor for as long as the gateway vouches for them, a sign-out at the gateway
+  never reaches this process, and the grant's own short lifetime is the bound;
 - every mint, every served byte range and every refusal writes one row to the
   action log naming the actor, the artifact, the copy, the target and the
   outcome (`TestEveryMintAndEveryServedRangeWritesOneRow...`);
