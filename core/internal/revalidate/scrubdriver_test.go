@@ -680,3 +680,88 @@ func TestALeasedLocalCopySkipsTheArtifactAndNeverFallsThroughToTheMediumCopy(t *
 		t.Errorf("findings=%+v skipped=%+v", rep.Findings, rep.Skipped)
 	}
 }
+
+// --- found by the review of this diff ---
+
+// A restore-test hook that exits 0 may have read nothing. With no hash
+// baseline to re-read against, its pass is not a content claim, and the copy
+// must not gain a content age from it.
+func TestAHookOnlyPassMakesNoContentClaim(t *testing.T) {
+	ctx := context.Background()
+	j := openJournal(t)
+	a := artifactNamed(t, "hookonly.dump")
+	content := []byte("hook only")
+	path := commitArtifactWithoutHash(t, j, a, content, time.Now().UTC().Add(-999*time.Hour))
+	size := int64(len(content))
+	if _, err := j.RecordTransition(ctx, state.Transition{
+		Artifact: a, Key: "ph", From: "COMMITTED", To: "COMMITTED", OccurredAt: time.Now().UTC(),
+		Placement: &state.PlacementUpdate{Medium: state.MediumLocal, Location: path, Size: &size, Status: state.PlacementActive},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Revalidation{
+		Interval: config.Duration(24 * time.Hour), MaxPerCycle: 10,
+		Command: &config.Command{Executable: mustScript(t, "exit 0\n"), Timeout: config.Duration(5 * time.Second)},
+	}
+	rep, err := Run(ctx, Deps{Journal: j}, a.Set, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Findings) != 1 || !rep.Findings[0].Passed {
+		t.Fatalf("findings = %+v", rep.Findings)
+	}
+	rec, _ := j.Get(ctx, a)
+	p, _ := rec.LocalPlacement()
+	if p.ContentVerifiedAt != nil || p.LastCheckedClass == state.VerificationContent || p.VerificationClass == state.VerificationContent {
+		t.Errorf("a hook that may have read nothing earned a content claim: age=%v class=%q/%q", p.ContentVerifiedAt, p.LastCheckedClass, p.VerificationClass)
+	}
+	if p.AssuranceState == state.AssurancePassed {
+		t.Errorf("AssuranceState = passed for a copy no one re-read")
+	}
+}
+
+// A copy retired by retention while it was being read must not have a verdict
+// written onto a row that is no longer a copy.
+func TestAVerdictIsNotWrittenOntoACopyThatWasRetiredMidRead(t *testing.T) {
+	ctx := context.Background()
+	j := openJournal(t)
+	a := artifactNamed(t, "retired.dump")
+	content := []byte("retired mid read")
+	path := commitArtifactWithPlacement(t, j, a, content, time.Now().UTC().Add(-999*time.Hour))
+	if err := j.RecordCopyScrub(ctx, state.CopyScrub{
+		Artifact: a, Medium: state.MediumLocal, Verdict: state.ScrubPassed, Class: state.VerificationContent,
+		At: time.Now().Add(-time.Hour), NextDue: time.Now().Add(-time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	size := int64(len(content))
+	retire := func() {
+		if _, err := j.RecordTransition(ctx, state.Transition{
+			Artifact: a, Key: "retire", From: "COMMITTED", To: "COMMITTED", OccurredAt: time.Now().UTC(),
+			Placement: &state.PlacementUpdate{Medium: state.MediumLocal, Location: path, Size: &size, Status: state.PlacementGone},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := j.RecordCopyScrub(ctx, state.CopyScrub{
+		Artifact: a, Medium: state.MediumLocal, Verdict: state.ScrubPassed, Class: state.VerificationContent,
+		At: time.Now(), NextDue: time.Now().Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("fixture: %v", err)
+	}
+	retire()
+	err = j.RecordCopyScrub(ctx, state.CopyScrub{
+		Artifact: a, Medium: state.MediumLocal, Verdict: state.ScrubFailed, Class: state.VerificationContent,
+		At: time.Now(), NextDue: time.Now().Add(time.Hour), Reason: "gone",
+	})
+	if !errors.Is(err, state.ErrPlacementRetired) {
+		t.Errorf("err = %v, want ErrPlacementRetired", err)
+	}
+	rec, _ := j.Get(ctx, a)
+	for _, p := range rec.Placements {
+		if p.AssuranceState == state.AssuranceFailed || p.ConsecutiveFailures != 0 {
+			t.Errorf("a failure was recorded on a retired copy: %q / %d", p.AssuranceState, p.ConsecutiveFailures)
+		}
+	}
+}

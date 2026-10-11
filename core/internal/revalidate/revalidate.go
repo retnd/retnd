@@ -731,6 +731,12 @@ func recordCopies(ctx context.Context, deps Deps, cfg config.Revalidation, rec s
 			Duration: finished.Sub(started),
 		})
 		cancel()
+		if errors.Is(err, state.ErrPlacementRetired) {
+			// Retention retired the copy while it was being read. There is
+			// no copy left to hold the verdict, and inventing one would be
+			// the journal asserting something about nothing.
+			continue
+		}
 		if err != nil {
 			return fmt.Errorf("recording the scrub of %s on %s: %w", rec.Artifact, c.medium, err)
 		}

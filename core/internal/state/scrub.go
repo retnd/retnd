@@ -356,6 +356,35 @@ func classRank(c string) int {
 // has no row for.
 var ErrPlacementNotFound = errors.New("state: no such placement")
 
+// ErrPlacementRetired is returned when a verdict is written for a copy that
+// is no longer ACTIVE. A scrub reads for a long time and retention may retire
+// the copy meanwhile; the verdict is about bytes that are no longer a copy,
+// and a "passed" or "failed" stamped on a GONE row is a claim about nothing.
+var ErrPlacementRetired = errors.New("state: the copy is no longer active")
+
+// ScrubClaimOverdue is the derived reading of a stored pass that is past its
+// due time. It is never stored: a stored pass is a statement about the moment
+// it was made, and what it means now is a function of the clock.
+const ScrubClaimOverdue = "overdue"
+
+// ScrubClaim is the scrub claim a surface should render at now: the stored
+// state, except that a pass whose next check has fallen due reads overdue. A
+// failure, an archived copy and an incomplete check keep their own readings
+// however old they are, because ageing must not soften them.
+func (a Assurance) ScrubClaim(now time.Time) string {
+	st := a.AssuranceState
+	if st == "" {
+		return AssuranceUnknown
+	}
+	if st == AssurancePassed && !a.DueAt(now) {
+		return AssurancePassed
+	}
+	if st == AssurancePassed {
+		return ScrubClaimOverdue
+	}
+	return st
+}
+
 // RecordCopyScrub durably writes one scrub's result onto the copy it is
 // about, releases that copy's lease, and does both in one statement so a
 // crash cannot leave a verdict written and the lease held, or the reverse.
@@ -388,18 +417,23 @@ func (j *Journal) RecordCopyScrub(ctx context.Context, c CopyScrub) error {
 		curClass      string
 		curVerifiedAt sql.NullString
 		curContent    sql.NullString
+		curStatus     string
 	)
 	err = tx.QueryRowContext(ctx, `
-		SELECT p.id, p.verification_class, p.verified_at, p.content_verified_at
+		SELECT p.id, p.verification_class, p.verified_at, p.content_verified_at, p.status
 		  FROM placements p JOIN artifacts a ON a.id = p.artifact_id
 		 WHERE a.source = ? AND a.backup_set = ? AND a.artifact_name = ? AND p.medium = ?`,
 		c.Artifact.Set.Source, c.Artifact.Set.Set, c.Artifact.Name, c.Medium,
-	).Scan(&id, &curClass, &curVerifiedAt, &curContent)
+	).Scan(&id, &curClass, &curVerifiedAt, &curContent, &curStatus)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("%w: %s has no copy on %q", ErrPlacementNotFound, c.Artifact, c.Medium)
 	}
 	if err != nil {
 		return fmt.Errorf("state: record scrub of %s on %s: %w", c.Artifact, c.Medium, err)
+	}
+
+	if curStatus != PlacementActive {
+		return fmt.Errorf("%w: %s on %q is %s", ErrPlacementRetired, c.Artifact, c.Medium, curStatus)
 	}
 
 	switch c.Verdict {

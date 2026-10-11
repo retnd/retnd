@@ -479,3 +479,20 @@ func TestRecordCopyScrub_ARefusedArchiveReadRecordsNoClassAndMovesNoAge(t *testi
 		t.Errorf("a refusal that read nothing moved the class or the age: %q / %v", p.LastCheckedClass, p.ContentVerifiedAt)
 	}
 }
+
+func TestScrubClaim_APassPastItsDueTimeReadsOverdueNotPassed(t *testing.T) {
+	due := scrubAt.Add(time.Hour)
+	a := Assurance{AssuranceState: AssurancePassed, NextDueAt: &due}
+	if got := a.ScrubClaim(scrubAt); got != AssurancePassed {
+		t.Errorf("inside its window: %q", got)
+	}
+	if got := a.ScrubClaim(due.Add(time.Second)); got != ScrubClaimOverdue {
+		t.Errorf("past its window: %q, want %q: a stored pass is a statement about the moment it was made", got, ScrubClaimOverdue)
+	}
+	if got := (Assurance{AssuranceState: AssuranceFailed, NextDueAt: &due}).ScrubClaim(due.Add(time.Hour)); got != AssuranceFailed {
+		t.Errorf("a failure must not soften into overdue: %q", got)
+	}
+	if got := (Assurance{}).ScrubClaim(scrubAt); got != AssuranceUnknown {
+		t.Errorf("the zero value reads %q", got)
+	}
+}
