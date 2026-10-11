@@ -135,8 +135,8 @@ type Engine struct {
 // failure, because "you did not get your bytes" and "the disk is filling"
 // are different things to know.
 func (e *Engine) Stage(ctx context.Context, src Source, exp Expect) (staged *Staged, err error) {
-	if !strings.EqualFold(exp.HashAlg, "sha256") || !validSHA256(exp.Hash) {
-		return nil, ErrNoDigest
+	if err := CheckExpect(exp); err != nil {
+		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -261,4 +261,14 @@ func wrapWrite(err error) error {
 		return fmt.Errorf("%w: %v", ErrNoSpace, err)
 	}
 	return err
+}
+
+// CheckExpect reports whether exp carries what verification needs: a
+// recorded SHA-256. It is the same check Stage makes first, exposed so a
+// mint can refuse an unverifiable artifact before it authorises anything.
+func CheckExpect(exp Expect) error {
+	if !strings.EqualFold(exp.HashAlg, "sha256") || !validSHA256(exp.Hash) {
+		return ErrNoDigest
+	}
+	return nil
 }

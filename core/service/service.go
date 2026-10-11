@@ -97,6 +97,11 @@ type BackupService struct {
 	journal *state.Journal
 	logger  *obs.Logger
 
+	// recovery is the artifact-recovery machinery (recover.go): the grant
+	// table, the staging area and the verifying engine. Zero until first
+	// used, so a process that never recovers anything creates nothing.
+	recovery recoveryHost
+
 	// activity is the live, in-memory feed of what each backup set is
 	// doing right now (issue #573, liveactivity.go). It is wired as the
 	// logger's obs.Sink in New below, so it follows every event this
