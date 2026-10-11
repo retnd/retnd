@@ -24,8 +24,10 @@
   mentions none of it scrubs on the defaults and comes back from a settings save
   byte-identical. Per set, the recovery-test mode is `inherit`, `off`, `required` or
   `custom`; `required` and `custom` need a validator, so a recovery test with nothing
-  to run is refused rather than quietly downgraded. The staging root, the staging TTL,
-  the two concurrency ceilings and the web download memory budget are global only,
+  to run is refused rather than quietly downgraded. The validator is a script: `validator_id` is the file name
+  of a `NAME.local.sh` in `recovery-test/<source>/<set>`, written without the suffix,
+  and a name that could not be a script's file name is refused when it is saved. The staging root, the staging TTL,
+  and the two concurrency ceilings are global only,
   and each one carries the written reason a set cannot override it, in the API
   response, in `settings assurance` and in the field help.
   - **A one-way door.** `Load` uses `KnownFields(true)`, so a config that carries an

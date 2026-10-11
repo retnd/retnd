@@ -562,7 +562,7 @@ commands:
   settings assurance patch [--scrub-cadence D] [--scrub-strategy S] [--recovery-test-mode M]
                         [--recovery-test-cadence D] [--recovery-test-validator ID]
                         [--staging-root P] [--staging-ttl D] [--max-concurrent-full-reads N]
-                        [--max-per-destination N] [--web-download-memory-bytes N] [--json]
+                        [--max-per-destination N] [--json]
                                                   change the deployment's policy in place. An explicitly zero or empty value
                                                   clears that setting back to its default. Every set that inherits the
                                                   changed value decides under it on its next read. This write has no route

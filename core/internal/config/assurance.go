@@ -3,7 +3,10 @@ package config
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
+
+	"github.com/retnd/retnd/core/internal/workflow"
 )
 
 // Assurance configuration (EPIC Q, Q1.4 / FR-73): the global default and
@@ -32,9 +35,12 @@ const (
 	DefaultRecoveryTestCadence = 30 * 24 * time.Hour
 	MinRecoveryTestCadence     = 24 * time.Hour
 	DefaultStagingTTL          = 24 * time.Hour
-	DefaultMaxConcurrentReads  = 2
-	DefaultMaxPerDestination   = 1
-	DefaultWebDownloadMemory   = int64(64 << 20)
+
+	// DefaultStagingDirName is the directory beside the state database that
+	// holds recovered copies when staging_root is not set.
+	DefaultStagingDirName     = "recovery-staging"
+	DefaultMaxConcurrentReads = 2
+	DefaultMaxPerDestination  = 1
 )
 
 // AssuranceScrub is the scrub half of the policy.
@@ -44,10 +50,42 @@ type AssuranceScrub struct {
 }
 
 // AssuranceRecoveryTest is the recovery-test half of the policy.
+//
+// ValidatorID selects the script a recovery test runs, by FILE NAME: NAME in
+// NAME.local.sh, inside recovery-test/<source>/<set> under the workflow root.
+// It is not an entry in FR-13's catalog of ingest validators (a different
+// contract, materialised from embedded copies so a caller cannot choose
+// code). RecoveryTestScriptName is the one place an id becomes a file name.
 type AssuranceRecoveryTest struct {
 	Mode        string   `yaml:"mode,omitempty"`
 	Cadence     Duration `yaml:"cadence,omitempty"`
 	ValidatorID string   `yaml:"validator_id,omitempty"`
+}
+
+// RecoveryTestScriptName turns a recovery-test validator_id into the file
+// name of the script it selects, and refuses an id that could never be one.
+//
+// The id is checked as the workflow runner will check the file, so the
+// refusal happens when the setting is saved rather than the first time a test
+// is due: a leading dash or dot, whitespace, control or non-ASCII characters
+// and a path are all refused. A caller that passes the whole file name gets
+// told to drop the suffix, because NAME.local.sh.local.sh would be accepted
+// by the name rule and never exist.
+func RecoveryTestScriptName(id string) (string, error) {
+	if id == "" {
+		return "", fmt.Errorf("a validator id must not be empty")
+	}
+	if err := validValidatorID(id); err != nil {
+		return "", err
+	}
+	if strings.HasSuffix(id, ".sh") {
+		return "", fmt.Errorf("%q is a file name; name the script without its .local.sh suffix", id)
+	}
+	name := id + ".local.sh"
+	if _, err := workflow.ParseScriptName(name); err != nil {
+		return "", fmt.Errorf("%q cannot be the name of a recovery-test script: %w", id, err)
+	}
+	return name, nil
 }
 
 // AssuranceBlock is the deployment-wide `assurance:` block. Nil on Config
@@ -61,7 +99,6 @@ type AssuranceBlock struct {
 	StagingTTL             Duration `yaml:"staging_ttl,omitempty"`
 	MaxConcurrentFullReads int      `yaml:"max_concurrent_full_reads,omitempty"`
 	MaxPerDestination      int      `yaml:"max_per_destination,omitempty"`
-	WebDownloadMemoryBytes int64    `yaml:"web_download_memory_bytes,omitempty"`
 }
 
 // AssuranceOverride is a backup set's own `assurance:` block.
@@ -83,7 +120,6 @@ type AssuranceDefaults struct {
 	StagingTTL             time.Duration
 	MaxConcurrentFullReads int
 	MaxPerDestination      int
-	WebDownloadMemoryBytes int64
 }
 
 // AssuranceIsOverride reports whether this set declares its own policy.
@@ -177,7 +213,7 @@ func (c *Config) resolveGlobalAssurance(v *validator) AssuranceDefaults {
 	checkCadence(v, p+".recovery_test.cadence", rt.Cadence, MinRecoveryTestCadence)
 	rt.ValidatorID = b.RecoveryTest.ValidatorID
 	if rt.ValidatorID != "" {
-		if err := validValidatorID(rt.ValidatorID); err != nil {
+		if _, err := RecoveryTestScriptName(rt.ValidatorID); err != nil {
 			v.addf("%s.recovery_test.validator_id: %v", p, err)
 		}
 	}
@@ -190,7 +226,7 @@ func (c *Config) resolveGlobalAssurance(v *validator) AssuranceDefaults {
 		v.addf("%s.staging_root: %q must be an absolute path", p, out.StagingRoot)
 	}
 	if out.StagingRoot == "" && c.State.Database != "" {
-		out.StagingRoot = filepath.Join(filepath.Dir(c.State.Database), "recovery-staging")
+		out.StagingRoot = filepath.Join(filepath.Dir(c.State.Database), DefaultStagingDirName)
 	}
 	out.StagingTTL = b.StagingTTL.Duration()
 	if out.StagingTTL < 0 {
@@ -201,12 +237,8 @@ func (c *Config) resolveGlobalAssurance(v *validator) AssuranceDefaults {
 	}
 	out.MaxConcurrentFullReads = positiveOrDefault(v, p+".max_concurrent_full_reads", b.MaxConcurrentFullReads, DefaultMaxConcurrentReads)
 	out.MaxPerDestination = positiveOrDefault(v, p+".max_per_destination", b.MaxPerDestination, DefaultMaxPerDestination)
-	out.WebDownloadMemoryBytes = b.WebDownloadMemoryBytes
-	if out.WebDownloadMemoryBytes < 0 {
-		v.addf("%s.web_download_memory_bytes: %d must not be negative", p, b.WebDownloadMemoryBytes)
-	}
-	if out.WebDownloadMemoryBytes == 0 {
-		out.WebDownloadMemoryBytes = DefaultWebDownloadMemory
+	if out.MaxPerDestination > out.MaxConcurrentFullReads {
+		v.addf("%s.max_per_destination: %d is above max_concurrent_full_reads (%d), so it could never bind", p, out.MaxPerDestination, out.MaxConcurrentFullReads)
 	}
 	return out
 }
@@ -281,7 +313,7 @@ func resolveSetAssurance(v *validator, path string, o *AssuranceOverride, global
 		v.addf("%s.mode: %q is not one of %v", rp, rt.Mode, SetRecoveryModes)
 	}
 	if rt.ValidatorID != "" {
-		if err := validValidatorID(rt.ValidatorID); err != nil {
+		if _, err := RecoveryTestScriptName(rt.ValidatorID); err != nil {
 			v.addf("%s.validator_id: %v", rp, err)
 		}
 	}

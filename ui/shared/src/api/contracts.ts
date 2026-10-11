@@ -2272,7 +2272,6 @@ export interface AssuranceSettings extends AssurancePolicy {
   stagingTtlSeconds: number;
   maxConcurrentFullReads: number;
   maxPerDestination: number;
-  webDownloadMemoryBytes: number;
   hostKnobs: AssuranceHostKnob[];
 }
 
@@ -2288,7 +2287,6 @@ export interface AssuranceSettingsPatch {
   stagingTtlSeconds?: number;
   maxConcurrentFullReads?: number;
   maxPerDestination?: number;
-  webDownloadMemoryBytes?: number;
 }
 
 /** One backup set's resolved policy. `isOverride` is reported rather than

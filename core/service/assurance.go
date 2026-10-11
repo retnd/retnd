@@ -2,9 +2,13 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/retnd/retnd/core/internal/config"
@@ -88,7 +92,6 @@ type AssuranceSettings struct {
 	StagingTTL             time.Duration
 	MaxConcurrentFullReads int
 	MaxPerDestination      int
-	WebDownloadMemoryBytes int64
 
 	HostKnobs []AssuranceHostKnob
 }
@@ -107,7 +110,6 @@ type UpdateAssuranceSettingsRequest struct {
 	StagingTTL             *time.Duration
 	MaxConcurrentFullReads *int
 	MaxPerDestination      *int
-	WebDownloadMemoryBytes *int64
 }
 
 func (r UpdateAssuranceSettingsRequest) isEmpty() bool {
@@ -260,34 +262,52 @@ func effectiveScrubCadence(resolved time.Duration) time.Duration {
 	return resolved
 }
 
-// assuranceValidatorsKnown refuses a validator reference this build does not
-// register, on the raw fields an operator wrote. config checks only the
-// SHAPE of an id; whether it names anything is this package's question, and
-// asking at save time turns a failure at the moment of use into a refusal.
-func assuranceValidatorsKnown(cfg *config.Config) error {
-	check := func(where, id string) error {
-		if id != "" && !isRegisteredValidator(ValidatorID(id)) {
-			return fmt.Errorf("%w: %s: %q is not a registered validator", ErrInvalidRequest, where, id)
-		}
+// ValidateStagingRoot is the custody check on assurance.staging_root. The
+// recovery engine creates and removes files under it, so a settings write
+// can no longer point it just anywhere it can be written to: the path must be
+// absolute and already clean, must not be a symbolic link or a file, and an
+// existing directory must not be writable by anyone but its owner. A path
+// that does not exist yet is accepted when the nearest ancestor that does is
+// a directory, and the engine creates it 0700.
+//
+// Only the last component is held to the symlink rule. A mount point the
+// operator declared is routinely a link higher up (a NAS volume), the same
+// asymmetry the workflow root documents, and what the engine writes through
+// is the directory itself. An empty path is the default and always valid.
+func ValidateStagingRoot(p string) error {
+	if p == "" {
 		return nil
 	}
-	if cfg.AssuranceBlock != nil {
-		if err := check("assurance.recovery_test.validator_id", cfg.AssuranceBlock.RecoveryTest.ValidatorID); err != nil {
-			return err
+	if !filepath.IsAbs(p) || filepath.Clean(p) != p {
+		return fmt.Errorf("%q must be an absolute, clean path (no .. and no trailing slash)", p)
+	}
+	info, err := os.Lstat(p)
+	switch {
+	case err == nil:
+		switch {
+		case info.Mode()&os.ModeSymlink != 0:
+			return fmt.Errorf("%q is a symbolic link, and recovered copies are not staged through one", p)
+		case !info.IsDir():
+			return fmt.Errorf("%q exists and is not a directory", p)
+		case info.Mode().Perm()&0o022 != 0:
+			return fmt.Errorf("%q has permissions %04o, which lets another account swap a staged copy; use chmod go-w", p, info.Mode().Perm())
+		}
+		return nil
+	case !errors.Is(err, os.ErrNotExist) && !errors.Is(err, syscall.ENOTDIR):
+		return fmt.Errorf("%q cannot be examined", p)
+	}
+	for dir := filepath.Dir(p); ; dir = filepath.Dir(dir) {
+		ai, aerr := os.Stat(dir)
+		if aerr == nil {
+			if !ai.IsDir() {
+				return fmt.Errorf("%q is under %q, which is not a directory", p, dir)
+			}
+			return nil
+		}
+		if dir == filepath.Dir(dir) {
+			return fmt.Errorf("%q has no existing ancestor", p)
 		}
 	}
-	for i := range cfg.Sources {
-		for j := range cfg.Sources[i].BackupSets {
-			bs := &cfg.Sources[i].BackupSets[j]
-			if bs.AssuranceConfig == nil {
-				continue
-			}
-			if err := check(cfg.Sources[i].Name+"/"+bs.Name+" assurance.recovery_test.validator_id", bs.AssuranceConfig.RecoveryTest.ValidatorID); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 // scrubEligibleStates are the lifecycle states with a durable local copy to
@@ -310,7 +330,6 @@ func assuranceHostKnobs(d config.AssuranceDefaults) []AssuranceHostKnob {
 		{Name: "staging_ttl", Value: d.StagingTTL.String(), Reason: "the staging TTL decides when leftovers in that one staging root are swept; " + onePlace},
 		{Name: "max_concurrent_full_reads", Value: fmt.Sprint(d.MaxConcurrentFullReads), Reason: "the concurrency ceiling " + oneProcess},
 		{Name: "max_per_destination", Value: fmt.Sprint(d.MaxPerDestination), Reason: "the per-destination ceiling " + oneProcess},
-		{Name: "web_download_memory_bytes", Value: fmt.Sprint(d.WebDownloadMemoryBytes), Reason: "the web download memory budget bounds the one HTTP process; a per-set value could not be enforced across downloads that share it"},
 	}
 }
 
@@ -332,7 +351,6 @@ func assuranceSettingsOf(cfg *config.Config) AssuranceSettings {
 		StagingTTL:             d.StagingTTL,
 		MaxConcurrentFullReads: d.MaxConcurrentFullReads,
 		MaxPerDestination:      d.MaxPerDestination,
-		WebDownloadMemoryBytes: d.WebDownloadMemoryBytes,
 		HostKnobs:              assuranceHostKnobs(d),
 	}
 }
@@ -381,6 +399,9 @@ func (b *BackupService) UpdateAssuranceSettings(_ context.Context, req UpdateAss
 	}
 	if req.StagingRoot != nil {
 		blk.StagingRoot = strings.TrimSpace(*req.StagingRoot)
+		if err := ValidateStagingRoot(blk.StagingRoot); err != nil {
+			return AssuranceSettings{}, fmt.Errorf("%w: assurance.staging_root: %v", ErrInvalidRequest, err)
+		}
 	}
 	if req.StagingTTL != nil {
 		blk.StagingTTL = config.Duration(*req.StagingTTL)
@@ -391,9 +412,6 @@ func (b *BackupService) UpdateAssuranceSettings(_ context.Context, req UpdateAss
 	if req.MaxPerDestination != nil {
 		blk.MaxPerDestination = *req.MaxPerDestination
 	}
-	if req.WebDownloadMemoryBytes != nil {
-		blk.WebDownloadMemoryBytes = *req.WebDownloadMemoryBytes
-	}
 	// A block that now says nothing is removed rather than written empty,
 	// so clearing the last field returns the file to a config that never
 	// mentioned assurance.
@@ -403,9 +421,6 @@ func (b *BackupService) UpdateAssuranceSettings(_ context.Context, req UpdateAss
 		cfg.AssuranceBlock = blk
 	}
 
-	if err := assuranceValidatorsKnown(cfg); err != nil {
-		return AssuranceSettings{}, err
-	}
 	if err := b.persistConfig(cfg); err != nil {
 		return AssuranceSettings{}, err
 	}
@@ -472,9 +487,6 @@ func (b *BackupService) UpdateBackupSetAssurance(ctx context.Context, id string,
 		bs.AssuranceConfig = o
 	}
 
-	if err := assuranceValidatorsKnown(cfg); err != nil {
-		return BackupSetAssurance{}, err
-	}
 	if err := b.persistConfig(cfg); err != nil {
 		return BackupSetAssurance{}, err
 	}

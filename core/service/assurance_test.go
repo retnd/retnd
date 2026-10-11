@@ -62,7 +62,7 @@ func TestAssuranceSettings_ReportTheResolvedDefaultsAndTheWrittenNoPerHostKnob(t
 	if got.Configured {
 		t.Error("a config with no assurance block must report configured=false")
 	}
-	want := map[string]bool{"staging_root": true, "staging_ttl": true, "max_concurrent_full_reads": true, "max_per_destination": true, "web_download_memory_bytes": true}
+	want := map[string]bool{"staging_root": true, "staging_ttl": true, "max_concurrent_full_reads": true, "max_per_destination": true}
 	for _, k := range got.HostKnobs {
 		if k.PerSet || strings.TrimSpace(k.Reason) == "" {
 			t.Errorf("host knob %s must say no per set and carry its reason: %+v", k.Name, k)
@@ -104,7 +104,7 @@ func TestUpdateAssuranceSettings_MovesAnInheritingSetAndNotAPinnedOne(t *testing
 	if !strings.Contains(string(raw), "cadence: 12h0m0s") && !strings.Contains(string(raw), "cadence: 12h") {
 		t.Errorf("the patch was not persisted:\n%s", raw)
 	}
-	if strings.Contains(string(raw), "staging_ttl") || strings.Contains(string(raw), "web_download_memory_bytes") {
+	if strings.Contains(string(raw), "staging_ttl") {
 		t.Errorf("the patch froze unrelated defaults into the operator's file:\n%s", raw)
 	}
 }
@@ -182,18 +182,31 @@ func TestAssuranceDue_ClassifiesTheCopysOwnDueTimeAndNoScheduleIsDue(t *testing.
 	}
 }
 
-// Review finding: a validator reference nobody registered passes config's
-// shape check and then fails at the moment of use, long after the save.
-func TestAssuranceWrites_RefuseAValidatorThisBuildDoesNotKnow(t *testing.T) {
+// Panel finding C3: validator_id names a recovery-test script by file name,
+// so a name the registry has never heard of is fine and a name that could
+// never be a script's file name is refused at save time.
+func TestAssuranceWrites_TakeAScriptNameAndRefuseWhatCouldNotBeOne(t *testing.T) {
 	svc, configPath := openAssuranceService(t, "")
-	before, _ := os.ReadFile(configPath)
-	mode, unknown := "required", "no-such-validator"
 	ctx := context.Background()
-	if _, err := svc.UpdateAssuranceSettings(ctx, UpdateAssuranceSettingsRequest{RecoveryTestMode: &mode, RecoveryTestValidatorID: &unknown}); !errors.Is(err, ErrInvalidRequest) {
-		t.Errorf("global write err = %v, want ErrInvalidRequest", err)
+	mode := "required"
+
+	ok := "nightly-restore-check"
+	if _, err := svc.UpdateAssuranceSettings(ctx, UpdateAssuranceSettingsRequest{RecoveryTestMode: &mode, RecoveryTestValidatorID: &ok}); err != nil {
+		t.Fatalf("a script name nobody registered must save: %v", err)
 	}
-	if _, err := svc.UpdateBackupSetAssurance(ctx, inheritingSet, UpdateBackupSetAssuranceRequest{RecoveryTestMode: &mode, RecoveryTestValidatorID: &unknown}); !errors.Is(err, ErrInvalidRequest) {
-		t.Errorf("per-set write err = %v, want ErrInvalidRequest", err)
+	if _, err := svc.UpdateBackupSetAssurance(ctx, inheritingSet, UpdateBackupSetAssuranceRequest{RecoveryTestMode: &mode, RecoveryTestValidatorID: &ok}); err != nil {
+		t.Fatalf("a per-set script name must save: %v", err)
+	}
+
+	before, _ := os.ReadFile(configPath)
+	for _, bad := range []string{"nightly.local.sh", "-nightly", ".nightly", "a b", "a/b"} {
+		bad := bad
+		if _, err := svc.UpdateAssuranceSettings(ctx, UpdateAssuranceSettingsRequest{RecoveryTestMode: &mode, RecoveryTestValidatorID: &bad}); !errors.Is(err, ErrInvalidRequest) {
+			t.Errorf("global write of %q err = %v, want ErrInvalidRequest", bad, err)
+		}
+		if _, err := svc.UpdateBackupSetAssurance(ctx, inheritingSet, UpdateBackupSetAssuranceRequest{RecoveryTestMode: &mode, RecoveryTestValidatorID: &bad}); !errors.Is(err, ErrInvalidRequest) {
+			t.Errorf("per-set write of %q err = %v, want ErrInvalidRequest", bad, err)
+		}
 	}
 	if after, _ := os.ReadFile(configPath); string(before) != string(after) {
 		t.Error("a refused write changed the file")
@@ -208,5 +221,63 @@ func TestAssuranceDue_AZeroResolvedCadenceFallsBackToTheDefault(t *testing.T) {
 	}
 	if got := effectiveScrubCadence(3 * time.Hour); got != 3*time.Hour {
 		t.Errorf("a resolved cadence must pass through, got %s", got)
+	}
+}
+
+// Panel finding C3: the staging root is live now (the engine creates files in
+// it), so a PATCH may not point it at a place whose custody the product could
+// not vouch for.
+func TestUpdateAssuranceSettings_RefusesAStagingRootThatIsNotOurs(t *testing.T) {
+	svc, configPath := openAssuranceService(t, "")
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	open := filepath.Join(dir, "open")
+	if err := os.Mkdir(open, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(open, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "afile")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	real := filepath.Join(dir, "real")
+	if err := os.Mkdir(real, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+
+	before, _ := os.ReadFile(configPath)
+	for name, bad := range map[string]string{
+		"world-writable": open,
+		"a file":         file,
+		"a symlink":      link,
+		"dot-dot":        dir + "/real/../real",
+		"under a file":   filepath.Join(file, "stage"),
+	} {
+		bad := bad
+		if _, err := svc.UpdateAssuranceSettings(ctx, UpdateAssuranceSettingsRequest{StagingRoot: &bad}); !errors.Is(err, ErrInvalidRequest) {
+			t.Errorf("%s: err = %v, want ErrInvalidRequest", name, err)
+		}
+	}
+	if after, _ := os.ReadFile(configPath); string(before) != string(after) {
+		t.Error("a refused write changed the file")
+	}
+
+	creatable := filepath.Join(real, "recovery-staging")
+	if _, err := svc.UpdateAssuranceSettings(ctx, UpdateAssuranceSettingsRequest{StagingRoot: &creatable}); err != nil {
+		t.Errorf("a creatable root under a private directory must save: %v", err)
+	}
+	if _, err := svc.UpdateAssuranceSettings(ctx, UpdateAssuranceSettingsRequest{StagingRoot: &real}); err != nil {
+		t.Errorf("an existing private directory must save: %v", err)
+	}
+	empty := ""
+	if _, err := svc.UpdateAssuranceSettings(ctx, UpdateAssuranceSettingsRequest{StagingRoot: &empty}); err != nil {
+		t.Errorf("clearing the root must save: %v", err)
 	}
 }
