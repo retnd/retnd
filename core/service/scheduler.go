@@ -396,7 +396,54 @@ func (b *BackupService) runScrubTicks(ctx context.Context, interval time.Duratio
 			return
 		case <-timer.C:
 		}
-		b.tickScrub(ctx)
+		b.tickScrubWhenFree(ctx, interval)
+	}
+}
+
+// scrubBusyRetry is how soon a scrub tick that found an operation running
+// looks again: a tenth of the poll interval, so a one-minute interval retries
+// every six seconds, and never longer than 30 seconds so a long interval does
+// not leave a tick waiting half a minute behind an operation that has already
+// finished. The floor only keeps a test's tiny interval from spinning.
+func scrubBusyRetry(interval time.Duration) time.Duration {
+	d := interval / 10
+	if d > 30*time.Second {
+		d = 30 * time.Second
+	}
+	if d < time.Millisecond {
+		d = time.Millisecond
+	}
+	return d
+}
+
+// tickScrubWhenFree runs one scheduled pass, and when an operation holds the
+// single-flight lock it looks again shortly instead of giving up until the
+// next interval.
+//
+// That retry is the point of this function (#1068). The scrub timer and the
+// cycle loop both start with the process and both repeat every poll
+// interval, so a cycle takes the lock at the top of its interval and the scrub
+// tick arrives a fraction of a millisecond later, every time. A tick that
+// skipped and waited a whole interval therefore met the next cycle's lock
+// again, and a serving process never scrubbed and never ran a due recovery
+// test. The retry loop is sequential with the timer in runScrubTicks, so ticks
+// cannot pile up behind a long operation; it ends when the pass has run or the
+// context is done.
+func (b *BackupService) tickScrubWhenFree(ctx context.Context, interval time.Duration) {
+	retry := scrubBusyRetry(interval)
+	deferred := false
+	for {
+		if b.tickScrub(ctx, !deferred) {
+			return
+		}
+		deferred = true
+		timer := time.NewTimer(retry)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
 	}
 }
 
@@ -416,19 +463,29 @@ func (b *BackupService) runScrubTicks(ctx context.Context, interval time.Duratio
 //
 // A set that is held for editing is skipped copy by copy inside the pass, and
 // reported, because the hold is handed to the pass through its context.
-func (b *BackupService) tickScrub(ctx context.Context) {
+//
+// It reports whether the pass ran. False means an operation held the lock, and
+// tickScrubWhenFree looks again soon (#1068): skipping until the next interval
+// is how the cycle that starts at the same instant used to win every time.
+// announce says whether to write the one "deferred" line for this tick, so a
+// long operation is one line and not one per retry.
+func (b *BackupService) tickScrub(ctx context.Context, announce ...bool) (ran bool) {
 	defer func() {
 		if r := recover(); r != nil {
+			ran = true // a panic is not "busy"; the next interval tries again
 			b.logger.Error(context.Background(), "scrub-tick-panic", fmt.Errorf("recovered panic: %v", r))
 		}
 	}()
 
 	if !b.runOnce.TryLock() {
-		b.logger.Event(ctx, obs.LevelInfo, "scrub_tick_skipped",
-			"skipped scheduled scrub: an operation is already in progress")
-		return
+		if len(announce) == 0 || announce[0] {
+			b.logger.Event(ctx, obs.LevelInfo, "scrub_tick_deferred",
+				"deferred scheduled scrub: an operation is already in progress, trying again shortly")
+		}
+		return false
 	}
 	b.runOnce.Unlock()
 
 	b.state.Load().inner.AssuranceTick(app.WithBackupSetHolds(ctx, b.holds))
+	return true
 }

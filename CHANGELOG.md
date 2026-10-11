@@ -47,6 +47,17 @@
 
 
 
+### Fixed
+
+- **A serving process now runs its scheduled scrub and its due recovery tests** (#1068).
+  The scrub timer and the cycle loop both start with `retnd serve` and repeat every poll
+  interval, so a cycle took the single-flight lock at the top of its interval and the
+  scrub tick, arriving a fraction of a millisecond later, skipped and tried again an
+  interval later, into the next cycle's lock. On a default install nothing was ever
+  scrubbed and no due recovery test ever ran. A tick that finds an operation running now
+  looks again shortly (a tenth of the poll interval, at most 30 seconds) and runs when it
+  is free. `retnd daemon` was not affected.
+
 ### Added
 
 - **EPIC Q's closing gate** (#988, EPIC Q #953). `docs/conformance/epic-q-matrix.md` answers all eighty rows
