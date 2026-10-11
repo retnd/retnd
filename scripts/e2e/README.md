@@ -317,3 +317,26 @@ sessions in its own process, so the app may land on the sign-in form, and the
 check signs in again and then requires a real feed (or the healthy empty
 state) with no error alert. An uncaught exception is never excused by the
 outage window, unlike the 502s and failed requests the window asked for.
+
+## EPIC Q's suites, and what this gate runs of them
+
+EPIC Q (#953, recovery and assurance) has black-box cases in all three suites in
+`retnd/retnd-tests`, and this gate runs two of the three, one of them in part. I wrote it down because
+the matrix at `docs/conformance/epic-q-matrix.md` says "Suites A, B and C green at the new pin", and
+that sentence is only as strong as what the gate actually executes.
+
+| Suite | What EPIC Q adds there | What this gate runs |
+|---|---|---|
+| A, the CLI contract | twenty-four cases under `assurance/`, `scrub/` and `recover/`: the default resolver, per-set inherit and override, the cadence floor, a clean and a corrupted local copy, the recover refusals and their exit codes | the `smoke` slice only. Three of the new cases carry the tag; the other twenty-one run under `make suite-a`, which this gate does not call |
+| B, the web UI | `recovery-and-assurance.986.spec.ts`: a browser download completing while `POST /api/v1/operations` is still refused, the assurance cards at their default, the three claims on a backup | all of it, through `three-machine-web-ui.sh`, which is the point of that rig |
+| C, UI to CLI equivalence | `assurance-recovery.986.spec.ts`: the global and per-set policy, a browser download against `--to -`, a staged recovery against `--to NAME`, and a corrupted copy refused on both routes with the same sentence and exit status 14 | not run by this gate at all (`make suite-c` over there) |
+
+So a green gate here is not evidence about Suite C or about the non-smoke part of Suite A, and the
+pull request that moves `tests-repo.pin` for EPIC Q has to say what it ran by hand. What is a gap in
+the gate itself (Suite C absent, Suite A only in part) is recorded here rather than fixed in this
+change, because widening what the per-commit gate runs is a decision about its cost.
+
+The pin moves only to a commit that is on `main` in `retnd-tests`, never to a branch head: a squash
+rewrites the head, and a pin that names a commit in no history cannot be cloned once the branch is
+gone. The pin this repository holds today (`c75e4dd`) is already not an ancestor of that repository's
+`main`, though its tree is identical to `main`'s `#87`, which is the same defect one step earlier.
