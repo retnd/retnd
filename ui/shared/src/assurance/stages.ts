@@ -22,18 +22,10 @@ export const RECOVERY_STAGES: readonly Stage[] = [
   { id: "complete", label: "Complete" }
 ];
 
-/** A scrub pass is not a staged operation: it is a start line, one line per
- *  copy that did not pass, and an end line (obs.EventScrubStart and friends). */
-export const SCRUB_EVENTS: readonly Stage[] = [
-  { id: "scrub_start", label: "Scrub started" },
-  { id: "scrub_copy", label: "Copy not passed" },
-  { id: "scrub_end", label: "Scrub finished" }
-];
-
 /** The label for a stage or event id, or the id itself for one this build
  *  does not name. An unknown stage is shown as received, never hidden. */
 export function stageLabel(id: string): string {
-  return [...RECOVERY_STAGES, ...SCRUB_EVENTS].find((s) => s.id === id)?.label ?? id;
+  return RECOVERY_STAGES.find((s) => s.id === id)?.label ?? id;
 }
 
 /** The stages a recovery test goes through, in the engine's order: it

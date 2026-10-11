@@ -619,6 +619,9 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Get("/backup-sets/{source}/{set}/assurance", h.getBackupSetAssurance)
 		r.With(requireCSRF).Patch("/backup-sets/{source}/{set}/assurance", h.updateBackupSetAssurance)
 		r.With(requireCSRF).Delete("/backup-sets/{source}/{set}/assurance", h.resetBackupSetAssurance)
+		// Run a recovery test now. CSRF and not the destructive gate: it
+		// reads one copy and writes a claim, and removes nothing.
+		r.With(requireCSRF).Post("/backup-sets/{source}/{set}/recovery-test", h.startRecoveryTest)
 		r.Get("/backup-sets/*", h.getBackupSet)
 
 		// Issue #211: the backups this deployment actually holds, and the

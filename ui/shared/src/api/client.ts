@@ -94,6 +94,7 @@ import type {
   WireStorageMediumUsageResponse,
   WireOperation,
   WirePlacement,
+  WireRecoveryTestStarted,
   WireRecoverySettingsResponse,
   WireRecoverySettingsUpdate,
   WireRetentionOverride,
@@ -1759,7 +1760,17 @@ function fromWirePlacement(p: WirePlacement): BackupPlacement {
     verificationClass: p.verification_class ?? null,
     verifiedAt: stampOrNull(p.verified_at),
     access: p.access,
-    status: p.status
+    status: p.status,
+    // The copy's own scrub and recovery-test record. Absent on the wire stays
+    // absent here: an unevaluated copy is not a passing one.
+    assuranceState: p.assurance_state ?? null,
+    lastCheckedAt: stampOrNull(p.last_checked_at),
+    lastFailureAt: stampOrNull(p.last_failure_at),
+    lastFailureReason: p.last_failure_reason ?? "",
+    consecutiveFailures: p.consecutive_failures ?? 0,
+    recoveryState: p.recovery_state ?? null,
+    recoveryTestedAt: stampOrNull(p.recovery_tested_at),
+    recoveryFailureReason: p.recovery_failure_reason ?? ""
   };
 }
 
@@ -2612,7 +2623,6 @@ function fromWireAssuranceSettings(s: WireAssuranceSettingsResponse): AssuranceS
     stagingTtlSeconds: s.staging_ttl_seconds ?? 0,
     maxConcurrentFullReads: s.max_concurrent_full_reads ?? 0,
     maxPerDestination: s.max_per_destination ?? 0,
-    webDownloadMemoryBytes: s.web_download_memory_bytes ?? 0,
     hostKnobs: (s.host_knobs ?? []).map((k) => ({
       name: k.name ?? "",
       value: k.value ?? "",
@@ -2659,7 +2669,6 @@ function wireAssurancePatch(
   if (p.stagingTtlSeconds !== undefined) body.staging_ttl_seconds = p.stagingTtlSeconds;
   if (p.maxConcurrentFullReads !== undefined) body.max_concurrent_full_reads = p.maxConcurrentFullReads;
   if (p.maxPerDestination !== undefined) body.max_per_destination = p.maxPerDestination;
-  if (p.webDownloadMemoryBytes !== undefined) body.web_download_memory_bytes = p.webDownloadMemoryBytes;
   return body as WireUpdateAssuranceSettingsRequest & WireUpdateBackupSetAssuranceRequest;
 }
 
@@ -3683,6 +3692,15 @@ export const httpApi: RetndApi = {
     }).then(fromWireRecoveryMint),
   redeemRecovery: (grant) =>
     request<WireRecoveryResult>("/recoveries/" + encodeURIComponent(grant)).then(fromWireRecoveryResult),
+
+  startRecoveryTest: (source, set, req) =>
+    request<WireRecoveryTestStarted>(backupSetPath(source, set) + "/recovery-test", {
+      method: "POST",
+      body: JSON.stringify({
+        ...(req?.artifactId ? { artifact_id: req.artifactId } : {}),
+        ...(req?.acknowledged ? { acknowledged: true } : {})
+      })
+    }).then((r) => ({ backupSetId: r.backup_set_id, operationId: r.operation_id })),
 
   getAssuranceSettings: () =>
     request<WireAssuranceSettingsResponse>("/settings/assurance").then(fromWireAssuranceSettings),

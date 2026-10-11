@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -200,5 +201,50 @@ func TestSweepOfAMissingRootIsNothingToDo(t *testing.T) {
 	n, err := LocalRecoverer{Root: filepath.Join(t.TempDir(), "never-created")}.Sweep(context.Background(), time.Hour)
 	if err != nil || n != 0 {
 		t.Errorf("Sweep = %d, %v", n, err)
+	}
+}
+
+// C11: opening a copy path that has been made into a fifo must not block the
+// tick for ever, and a symlink is not followed to something else.
+func TestLocalRecovererRefusesAFifoWithoutBlocking(t *testing.T) {
+	dir := t.TempDir()
+	fifo := filepath.Join(dir, "copy.dump")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Skipf("no fifos here: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := LocalRecoverer{Root: t.TempDir(), Available: func(string) (uint64, error) { return 1 << 40, nil }}.Recover(
+			context.Background(), RecoverRequest{Copy: state.Placement{Medium: state.MediumLocal, Location: fifo}})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a fifo was staged as a copy")
+		}
+	case <-time.After(3 * time.Second):
+		// Let the goroutine go: a writer arriving releases the open.
+		if w, err := os.OpenFile(fifo, os.O_WRONLY, 0); err == nil {
+			w.Close()
+		}
+		t.Fatal("Recover blocked on a fifo: one such path wedges every later tick")
+	}
+}
+
+func TestLocalRecovererDoesNotFollowASymlinkAtTheCopyPath(t *testing.T) {
+	dir := t.TempDir()
+	secret := filepath.Join(dir, "secret")
+	if err := os.WriteFile(secret, []byte("not the artifact"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "copy.dump")
+	if err := os.Symlink(secret, link); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LocalRecoverer{Root: t.TempDir(), Available: func(string) (uint64, error) { return 1 << 40, nil }}.Recover(
+		context.Background(), RecoverRequest{Copy: state.Placement{Medium: state.MediumLocal, Location: link}})
+	if err == nil {
+		t.Fatal("a symlink at the copy path was followed and staged")
 	}
 }

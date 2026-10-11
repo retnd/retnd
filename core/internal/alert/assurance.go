@@ -24,12 +24,6 @@ type AssuranceSignal struct {
 	// ValidatorID names the validator, for the sentence only. It is
 	// checked as a bare name and withheld otherwise.
 	ValidatorID string
-
-	// NoReadableCopy is how many artifacts have no copy that can be read
-	// now.
-	NoReadableCopy int
-	// ArchiveOnly is how many artifacts have only an archived copy left.
-	ArchiveOnly int
 }
 
 // AssuranceConditions turns signals into conditions: at most one per kind
@@ -50,17 +44,21 @@ func AssuranceConditions(signals []AssuranceSignal) []Condition {
 			add(ScrubFailing, fmt.Sprintf("Backup set %s has %d backup(s) that failed their last re-read. The stored copy no longer matches what was recorded.", set, s.ScrubFailing))
 		}
 		if s.RecoveryTestOverdue {
-			add(RecoveryTestOverdue, fmt.Sprintf("Backup set %s requires a recovery test and the last one is older than its cadence, or none has run.", set))
+			add(RecoveryTestOverdue, fmt.Sprintf("Backup set %s requires a recovery test and the last passing one is older than its cadence, or the last attempt could not be made.", set))
 		}
 		if s.RecoveryTestFailing {
-			add(RecoveryTestFailing, fmt.Sprintf("The last recovery test for backup set %s did not pass (validator %s). The bytes were recovered but the check on them failed.", set, safeToken(s.ValidatorID)))
-		}
-		if s.NoReadableCopy > 0 {
-			add(NoReadableCopy, fmt.Sprintf("Backup set %s has %d backup(s) with no copy that can be read right now.", set, s.NoReadableCopy))
-		}
-		if s.ArchiveOnly > 0 {
-			add(ArchiveOnlyRecoverability, fmt.Sprintf("Backup set %s has %d backup(s) whose only surviving copy is in an archive tier. Recovering one needs a thaw first.", set, s.ArchiveOnly))
+			add(RecoveryTestFailing, fmt.Sprintf("The last recovery test for backup set %s did not pass%s. Either the recovered bytes did not match what was recorded or the check on them failed.", set, validatorClause(s.ValidatorID)))
 		}
 	}
 	return out
+}
+
+// validatorClause names the validator for a sentence, or says nothing when the
+// policy names none or the name is not a bare token.
+func validatorClause(id string) string {
+	t := safeToken(id)
+	if t == withheldField {
+		return ""
+	}
+	return " (validator " + t + ")"
 }

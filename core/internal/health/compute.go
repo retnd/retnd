@@ -346,8 +346,9 @@ func ageOf(at *time.Time, now time.Time) *time.Duration {
 func ComputeBackupSetHealth(set model.BackupSetID, records []state.Record, reinstated []model.ArtifactID, placements PlacementEvidence, staleThreshold time.Duration, in BackupSetInputs, now time.Time) BackupSetHealth {
 	agg := buildAggregate(records, staleThreshold, now)
 	agg.placement = buildPlacementHealth(placements, records, now)
+	recoveryKind := ""
 	if in.RecoveryTestRequired {
-		agg.recoveryUnmet = recoveryUnmet(records, now)
+		agg.recoveryUnmet, recoveryKind = recoveryUnmet(records, now)
 	}
 	st, reason := decideState(agg.evidence)
 
@@ -371,6 +372,10 @@ func ComputeBackupSetHealth(set model.BackupSetID, records []state.Record, reins
 		QuarantinedCount:     agg.quarantinedCount,
 		QuarantinedLostCount: agg.quarantinedLostCount,
 		ScrubFailingCopies:   agg.scrubFailing,
+		ScrubOverdueCopies:   scrubOverdue(records, in.ScrubCadence, now),
+		RecoveryTestFailed:   recoveryKind == recoveryFailed,
+		RecoveryTestLapsed:   recoveryKind == recoveryLapsed,
+		RecoveryTestUnmet:    agg.recoveryUnmet,
 
 		ReinstatedRemoteRetainedCount: countReinstatedRemoteRetained(records, reinstated),
 		ReadOnlyRetainedCount:         agg.readOnlyRetainedCount,
@@ -407,12 +412,22 @@ func pluralY(n int) string {
 	return "ies"
 }
 
+// The kinds a required recovery test can fail to be met in. Only the first
+// two are worth telling an operator about: a copy nobody has tested yet is
+// shown on the dashboard, and the first scheduled test is due within a poll
+// interval.
+const (
+	recoveryFailed = "failed"
+	recoveryLapsed = "lapsed"
+	recoveryNever  = "never"
+)
+
 // recoveryUnmet reads the recovery-test claim of the newest known good copy
 // and says why it is not a current pass, or returns "" when it is one. The
 // claim is the stored state, except that a stored pass past its next-due
 // time is overdue whether or not a sweep has marked it so: this must not
 // depend on a timer having run.
-func recoveryUnmet(records []state.Record, now time.Time) string {
+func recoveryUnmet(records []state.Record, now time.Time) (reason, kind string) {
 	var newest *state.Record
 	for i := range records {
 		r := &records[i]
@@ -424,7 +439,7 @@ func recoveryUnmet(records []state.Record, now time.Time) string {
 		}
 	}
 	if newest == nil {
-		return ""
+		return "", ""
 	}
 	// The copy a test would use: the local one when there is one.
 	var copy_ *state.Placement
@@ -438,25 +453,43 @@ func recoveryUnmet(records []state.Record, now time.Time) string {
 		}
 	}
 	if copy_ == nil {
-		return ""
+		return "", ""
 	}
 	switch copy_.RecoveryState {
 	case state.RecoveryPassed:
 		if copy_.RecoveryNextDueAt != nil && !copy_.RecoveryNextDueAt.After(now) {
-			return "the last pass is overdue"
+			return "the last pass is overdue", recoveryLapsed
 		}
-		return ""
+		return "", ""
 	case state.RecoveryFailed:
-		return "the last one failed"
+		return "the last one failed", recoveryFailed
 	case state.RecoveryOverdue:
-		return "the last pass is overdue"
+		return "the last pass is overdue", recoveryLapsed
 	case state.RecoveryRefusedForCost:
-		return "the last attempt was refused for cost"
+		return "the last attempt was refused for cost", recoveryLapsed
 	case state.RecoveryCouldNotComplete:
-		return "the last attempt could not complete"
+		return "the last attempt could not complete", recoveryLapsed
 	case state.RecoveryNotConfigured:
-		return "no validator is configured"
+		return "no validator is configured", recoveryNever
 	default:
-		return "none has run"
+		return "none has run", recoveryNever
 	}
+}
+
+// scrubOverdue counts the ACTIVE copies whose last scrub passed and whose next
+// one is more than a whole cadence late. Zero cadence counts none.
+func scrubOverdue(records []state.Record, cadence time.Duration, now time.Time) int {
+	if cadence <= 0 {
+		return 0
+	}
+	n := 0
+	for _, r := range records {
+		for _, p := range r.Placements {
+			if p.Status == state.PlacementActive && p.AssuranceState == state.AssurancePassed &&
+				p.NextDueAt != nil && !now.Before(p.NextDueAt.Add(cadence)) {
+				n++
+			}
+		}
+	}
+	return n
 }

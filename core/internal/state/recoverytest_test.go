@@ -317,3 +317,52 @@ func TestRecordRecoveryTest_ARetiredCopyHoldsNoResult(t *testing.T) {
 		t.Errorf("RecordRecoveryCleanup on a retired copy: %v", err)
 	}
 }
+
+// A recovery test is a statement about the bytes the runner staged and
+// hashed. When the copy is rewritten while the test runs, the verdict is
+// about bytes the artifact no longer has, and it is refused (the same rule
+// RecordCopyScrub holds).
+func TestRecordRecoveryTestRefusesAVerdictForDifferentBytes(t *testing.T) {
+	ctx := context.Background()
+	j, ref := copyRef(t)
+	read := localCopy(t, j, ref.Artifact)
+
+	size := int64(7)
+	rewriteCopy(t, j, ref.Artifact, "changed-under-the-test", PlacementUpdate{
+		Medium: MediumLocal, Location: read.Location, Size: &size, Hash: "eeee", HashAlg: "sha256",
+		VerificationClass: VerificationExistence, Status: PlacementActive,
+	}, recAt)
+
+	old := read.Identity()
+	rt := passingTest(ref)
+	rt.Expect = &old
+	if err := j.RecordRecoveryTest(ctx, rt); !errors.Is(err, ErrCopyChanged) {
+		t.Fatalf("a pass for the old bytes: err = %v, want ErrCopyChanged", err)
+	}
+	if got := localCopy(t, j, ref.Artifact); got.RecoveryState != RecoveryUnknown {
+		t.Errorf("a refused verdict still landed: %s", got.RecoveryState)
+	}
+
+	cur := localCopy(t, j, ref.Artifact).Identity()
+	rt.Expect = &cur
+	if err := j.RecordRecoveryTest(ctx, rt); err != nil {
+		t.Errorf("a pass for the bytes the copy holds was refused: %v", err)
+	}
+}
+
+// The claim lives in placement_assurance, and the first result creates the
+// row; an evaluation on a copy that has no row yet must create it too.
+func TestRecordRecoveryEvaluationCreatesTheRowAndThePlacementsTableIsUntouched(t *testing.T) {
+	ctx := context.Background()
+	j, ref := copyRef(t)
+	if err := j.RecordRecoveryEvaluation(ctx, ref, RecoveryNeverRun); err != nil {
+		t.Fatalf("RecordRecoveryEvaluation: %v", err)
+	}
+	if got := localCopy(t, j, ref.Artifact).RecoveryState; got != RecoveryNeverRun {
+		t.Errorf("state = %q, want never_run", got)
+	}
+	var n int
+	if err := j.db.QueryRow(`SELECT count(*) FROM pragma_table_info('placements') WHERE name LIKE 'recovery_%'`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("placements carries %d recovery_ columns (err %v): the claim belongs in placement_assurance", n, err)
+	}
+}

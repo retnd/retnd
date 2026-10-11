@@ -1360,16 +1360,13 @@ var routes = map[string]entry{
 			if req.MaxPerDestination != nil {
 				c.flag("max-per-destination", itoa64(*req.MaxPerDestination))
 			}
-			if req.WebDownloadMemoryBytes != nil {
-				c.flag("web-download-memory-bytes", itoa64(*req.WebDownloadMemoryBytes))
-			}
 			return c
 		},
 		why: "there is no verb that patches the deployment's assurance policy from a request body",
 		examples: []Action{
 			{Body: []byte(`{"scrub_cadence_seconds":43200}`)},
 			{Body: []byte(`{"recovery_test_mode":"required","recovery_test_validator_id":"pg-restore-check","recovery_test_cadence_seconds":2592000}`)},
-			{Body: []byte(`{"staging_ttl_seconds":3600,"max_concurrent_full_reads":4,"max_per_destination":2,"web_download_memory_bytes":33554432}`)},
+			{Body: []byte(`{"staging_ttl_seconds":3600,"max_concurrent_full_reads":4,"max_per_destination":2}`)},
 			{Body: []byte(`{"scrub_cadence_seconds":0,"scrub_strategy":"","staging_root":"/var/lib/retnd/staging"}`)},
 		},
 	},
@@ -1413,6 +1410,28 @@ var routes = map[string]entry{
 			return newCmd("backup-set", "assurance", setID(a)).bare("reset")
 		},
 		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
+	},
+	key("POST", "/backup-sets/{source}/{set}/recovery-test"): {
+		build: func(a Action) *cmd {
+			c := newCmd("recovery-test", setID(a))
+			var req apicontract.StartRecoveryTestRequest
+			if !decode(a.Body, &req) {
+				return c
+			}
+			if req.ArtifactID != "" {
+				c.flag("artifact", req.ArtifactID)
+			}
+			if req.Acknowledged {
+				c.bare("acknowledge-cost")
+			}
+			return c
+		},
+		examples: []Action{
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}, Body: []byte(`{}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"},
+				Body: []byte(`{"artifact_id":"api-server/var-backups/dump.tar","acknowledged":true}`)},
+		},
 	},
 	key("GET", "/assurance/due"): {
 		build: func(a Action) *cmd {

@@ -22,14 +22,16 @@
  * # Where these shapes come from
  *
  * The settings, per-set policy and schedule (#982), the recovery mint and
- * redeem (#976) and the copies' verification records (#978) are real routes
- * and the screens call them through the ordinary client. What the server does
- * NOT offer yet is a route to start a scrub or a recovery test, to follow one,
- * to read the recovery-test claim, or to read a validator's output: the
- * scrub runs from the daemon's schedule and `retnd scrub`, and the recovery
- * test from the schedule alone. {@link AssuranceApi} is the one seam for the
- * claims and for those missing operations, and `offers` says which of them
- * the connected server really has, so a surface never fabricates one.
+ * redeem (#976), the copies' verification records (#978) and the recovery
+ * test's start route and verdicts (#980) are real routes and the screens call
+ * them through the ordinary client. A copy's own scrub and recovery-test
+ * record rides on the placement (`assurance_state`, `last_failure_*`,
+ * `recovery_state`), so a failed copy is shown as failed. What the server does
+ * NOT offer is a route to start a scrub, to cancel anything, or to read a
+ * validator's output: the scrub runs from the schedule and `retnd scrub`.
+ * {@link AssuranceApi} is the one seam for the claims and for those
+ * operations, and `offers` says which of them the connected server really
+ * has, so a surface never fabricates one.
  */
 
 export type ClaimStatus =
@@ -60,16 +62,40 @@ export interface ClaimRecord {
   at?: string;
 }
 
+/** One copy whose last check did not pass, said about that copy and not
+ *  folded into a claim: which copy, what ran, what the journal recorded and
+ *  how many times in a row it has gone wrong. */
+export interface CopyFailure {
+  /** "local" or the storage medium's id. */
+  medium: string;
+  kind: "scrub" | "recovery_test";
+  /** The recorded verdict: failed or could_not_complete. */
+  state: "failed" | "could_not_complete";
+  /** The journal's bounded plain words. Empty when none was recorded. */
+  reason: string;
+  /** Scrub verdicts in a row that were not a pass. Zero for a recovery test,
+   *  which keeps no streak. */
+  consecutiveFailures: number;
+  /** RFC 3339, when it last failed or could not complete. */
+  at?: string;
+}
+
 export interface ArtifactAssurance {
   artifactId: string;
   /** How many copies are recorded. Zero is "no copy yet", not an error. */
   copies: number;
   content: ClaimRecord;
   recovery: ClaimRecord;
+  /** Every copy whose last scrub or recovery test failed or could not
+   *  complete. Empty or absent means no copy has such a record. */
+  copyFailures?: CopyFailure[];
 }
 
 export type OperationKind = "scrub" | "recovery_test";
-export type OperationState = "running" | "complete" | "failed" | "cancelled";
+/** `untracked` is a run this page started and can no longer see: the live
+ *  feed that carried its lines has dropped them. It is NOT a verdict. The
+ *  Recovery chip is where the result lands. */
+export type OperationState = "running" | "complete" | "failed" | "cancelled" | "untracked";
 
 export interface OperationEvent {
   /** Strictly increasing per operation; the key reconnects deduplicate on. */
@@ -121,11 +147,13 @@ export interface ValidatorResult {
  *  does not offer is not mocked in production: the screen says so and shows
  *  the terminal command that does exist. */
 export interface AssuranceOffers {
-  /** Start a scrub or a recovery test from the browser, follow it and cancel
-   *  it. No such route exists in the contract today. */
+  /** Start a scrub from the browser, follow it and cancel it. No such route
+   *  exists in the contract today, so a production client says false. */
   operations: boolean;
-  /** Read the recovery-test claim and the validator's last output. No such
-   *  route exists in the contract today. */
+  /** Start a recovery test now (POST /backup-sets/{source}/{set}/recovery-test)
+   *  and follow it on the live feed. Cancelling one is not part of this. */
+  recoveryTest: boolean;
+  /** The recovery-test claim is reported per copy, on the placement. */
   recoveryClaim: boolean;
 }
 
@@ -137,7 +165,9 @@ export interface AssuranceApi {
   listArtifactAssurance(setId?: string): Promise<ArtifactAssurance[]>;
   getArtifactAssurance(artifactId: string): Promise<ArtifactAssurance>;
 
-  // Everything below exists only when `offers.operations` is true.
+  // startScrub, cancelOperation and getValidatorResult exist only when
+  // `offers.operations` is true; startRecoveryTest, activeOperation and
+  // readOperation when `offers.recoveryTest` is.
   startScrub(setId: string): Promise<Operation>;
   startRecoveryTest(setId: string): Promise<Operation>;
   /** The set's operation that is still running, if one is: what a reload

@@ -113,7 +113,7 @@ export const FIELD_HELP = {
   },
 
   assuranceRecoveryTestMode: {
-    what: "Whether a recovery test runs on a schedule. Off never runs one. Required runs one on its cadence and the set is not assured without it.",
+    what: "Whether a recovery test runs on a schedule. Off never runs one. Required runs one on its cadence, and a set that requires one is degraded until one passes.",
     example: "required",
     effect:
       "Saves the mode. Required needs a validator, and the server refuses the save until one is named. A scheduled test never thaws an archive."
@@ -127,10 +127,10 @@ export const FIELD_HELP = {
   },
 
   assuranceValidator: {
-    what: "The validator reference for the recovery test. The server accepts only a name from its registered validators, never a path, and asks for one when the mode is required.",
+    what: "The name of the script a recovery test runs, without its .local.sh suffix. A name is never a path, and the server asks for one when the mode is required.",
     example: "pg-restore-check",
     effect:
-      "Saves the name. What the engine runs is the one NAME.local.sh script in the set's recovery-test directory: it re-reads the recovered copy and checks its digest first, runs that script, and records the claim and the script's hash itself. This build does not tie the name to the script, and the script can never write Content verified or Recovery tested."
+      "Saves the name. The name selects the script: the engine runs NAME.local.sh from the set's recovery-test directory under the workflow root, after it has re-read the recovered copy and matched its digest, and it records the claim and the script's hash itself. A name that could not be a script's file name is refused when you save, and the script can never write Content verified or Recovery tested."
   },
 
   assuranceSetScrubEvery: {
@@ -141,10 +141,10 @@ export const FIELD_HELP = {
   },
 
   assuranceSetValidator: {
-    what: "The validator reference for this set's recovery test: a name from the server's registered validators, never a path.",
+    what: "The name of the script this set's recovery test runs, without its .local.sh suffix. A name is never a path.",
     example: "pg-restore-check",
     effect:
-      "Saves the name as part of this set's own policy. The script that actually runs is NAME.local.sh under recovery-test/<source>/<set> in the workflow root, started by the engine after it has re-read the copy and matched its digest. The name does not select that script in this build. Show validator output displays the script's exit status and bounded output beside the hash the engine recorded for it."
+      "Saves the name as part of this set's own policy. The name selects the script: NAME.local.sh under recovery-test/<source>/<set> in the workflow root, started by the engine after it has re-read the copy and matched its digest. Where the server offers it, Show validator output displays the script's exit status and bounded output beside the hash the engine recorded for it."
   },
 
   // ---------------------------------------------------------------- auth

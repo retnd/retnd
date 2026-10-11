@@ -45,38 +45,36 @@ import (
 const settingsAssuranceOperand = "assurance"
 
 type assuranceFlags struct {
-	scrubCadence     *time.Duration
-	scrubStrategy    *string
-	rtMode           *string
-	rtCadence        *time.Duration
-	rtValidator      *string
-	stagingRoot      *string
-	stagingTTL       *time.Duration
-	maxFullReads     *int
-	maxPerDest       *int
-	webDownloadBytes *int64
-	reset            *bool
+	scrubCadence  *time.Duration
+	scrubStrategy *string
+	rtMode        *string
+	rtCadence     *time.Duration
+	rtValidator   *string
+	stagingRoot   *string
+	stagingTTL    *time.Duration
+	maxFullReads  *int
+	maxPerDest    *int
+	reset         *bool
 }
 
 // setScopeAssuranceFlags are the flags a backup set may carry. The rest are
 // global only, and the per-set answer to each is no (see service.AssuranceHostKnob).
 var setScopeAssuranceFlags = []string{"scrub-cadence", "scrub-strategy", "recovery-test-mode", "recovery-test-cadence", "recovery-test-validator"}
 
-var globalOnlyAssuranceFlags = []string{"staging-root", "staging-ttl", "max-concurrent-full-reads", "max-per-destination", "web-download-memory-bytes"}
+var globalOnlyAssuranceFlags = []string{"staging-root", "staging-ttl", "max-concurrent-full-reads", "max-per-destination"}
 
 func declareAssuranceFlags(fs *flag.FlagSet) assuranceFlags {
 	return assuranceFlags{
-		scrubCadence:     fs.Duration("scrub-cadence", 0, "how long after a copy was last assured it is next due, e.g. 168h. Zero clears it back to the default; under 1h is refused"),
-		scrubStrategy:    fs.String("scrub-strategy", "", "what a scrub reads: auto, existence or content. Empty clears it"),
-		rtMode:           fs.String("recovery-test-mode", "", "off, required, or (per set only) inherit or custom. Empty clears it. required needs a validator"),
-		rtCadence:        fs.Duration("recovery-test-cadence", 0, "how often a recovery test is due, e.g. 720h. Per set, only with mode custom. Zero clears it"),
-		rtValidator:      fs.String("recovery-test-validator", "", "the registered validator a recovery test runs, by name and never a path. Empty clears it"),
-		stagingRoot:      fs.String("staging-root", "", "global only: where recovered copies are staged; an absolute path. Empty returns to the directory beside the state database"),
-		stagingTTL:       fs.Duration("staging-ttl", 0, "global only: how long a staged leftover survives. Zero clears it to the default"),
-		maxFullReads:     fs.Int("max-concurrent-full-reads", 0, "global only: the ceiling on full reads running at once. Zero clears it"),
-		maxPerDest:       fs.Int("max-per-destination", 0, "global only: the ceiling on concurrent reads against one destination. Zero clears it"),
-		webDownloadBytes: fs.Int64("web-download-memory-bytes", 0, "global only: memory the web process may spend on downloads at once. Zero clears it"),
-		reset:            fs.Bool("reset", false, "backup-set only: remove this set's own assurance block so it follows the deployment's policy again"),
+		scrubCadence:  fs.Duration("scrub-cadence", 0, "how long after a copy was last assured it is next due, e.g. 168h. Zero clears it back to the default; under 1h is refused"),
+		scrubStrategy: fs.String("scrub-strategy", "", "what a scrub reads: auto, existence or content. Empty clears it"),
+		rtMode:        fs.String("recovery-test-mode", "", "off, required, or (per set only) inherit or custom. Empty clears it. required needs a validator"),
+		rtCadence:     fs.Duration("recovery-test-cadence", 0, "how often a recovery test is due, e.g. 720h. Per set, only with mode custom. Zero clears it"),
+		rtValidator:   fs.String("recovery-test-validator", "", "the recovery-test script to run, by file name without .local.sh and never a path. Empty clears it"),
+		stagingRoot:   fs.String("staging-root", "", "global only: where recovered copies are staged; an absolute path. Empty returns to the directory beside the state database"),
+		stagingTTL:    fs.Duration("staging-ttl", 0, "global only: how long a staged leftover survives. Zero clears it to the default"),
+		maxFullReads:  fs.Int("max-concurrent-full-reads", 0, "global only: the ceiling on full reads running at once. Zero clears it"),
+		maxPerDest:    fs.Int("max-per-destination", 0, "global only: the ceiling on concurrent reads against one destination. Zero clears it"),
+		reset:         fs.Bool("reset", false, "backup-set only: remove this set's own assurance block so it follows the deployment's policy again"),
 	}
 }
 
@@ -121,8 +119,6 @@ func assuranceGlobalRequest(fs *flag.FlagSet, f assuranceFlags) service.UpdateAs
 			req.MaxConcurrentFullReads = f.maxFullReads
 		case "max-per-destination":
 			req.MaxPerDestination = f.maxPerDest
-		case "web-download-memory-bytes":
-			req.WebDownloadMemoryBytes = f.webDownloadBytes
 		}
 	})
 	return req
@@ -144,7 +140,7 @@ func assuranceSettingsWire(s service.AssuranceSettings) apicontract.AssuranceSet
 	return apicontract.AssuranceSettingsResponse{
 		Configured: s.Configured, HostKnobs: knobs, MaxConcurrentFullReads: int64(s.MaxConcurrentFullReads),
 		MaxPerDestination: int64(s.MaxPerDestination), RecoveryTest: rt, Scrub: scrub, StagingRoot: s.StagingRoot,
-		StagingTtlSeconds: secs(s.StagingTTL), WebDownloadMemoryBytes: s.WebDownloadMemoryBytes,
+		StagingTtlSeconds: secs(s.StagingTTL),
 	}
 }
 

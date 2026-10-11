@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 //	GET/PATCH        /settings/assurance
 //	GET/PATCH/DELETE /backup-sets/{source}/{set}/assurance
 //	GET              /assurance/due
+//	POST             /backup-sets/{source}/{set}/recovery-test
 //
 // The set resource is PATCH plus DELETE rather than PUT. A per-set override
 // merges field by field with the deployment's (a field the set does not name
@@ -55,7 +57,6 @@ type assuranceSettingsResponse struct {
 	Scrub                  assuranceScrubBody        `json:"scrub"`
 	StagingRoot            string                    `json:"staging_root"`
 	StagingTTLSeconds      int64                     `json:"staging_ttl_seconds"`
-	WebDownloadMemoryBytes int64                     `json:"web_download_memory_bytes"`
 }
 
 type updateAssuranceSettingsRequest struct {
@@ -68,7 +69,6 @@ type updateAssuranceSettingsRequest struct {
 	ScrubStrategy              *string `json:"scrub_strategy"`
 	StagingRoot                *string `json:"staging_root"`
 	StagingTTLSeconds          *int64  `json:"staging_ttl_seconds"`
-	WebDownloadMemoryBytes     *int64  `json:"web_download_memory_bytes"`
 }
 
 func (r updateAssuranceSettingsRequest) namesNothing() bool {
@@ -92,6 +92,16 @@ type updateBackupSetAssuranceRequest struct {
 
 func (r updateBackupSetAssuranceRequest) namesNothing() bool {
 	return r == updateBackupSetAssuranceRequest{}
+}
+
+type startRecoveryTestRequest struct {
+	Acknowledged bool   `json:"acknowledged,omitempty"`
+	ArtifactID   string `json:"artifact_id,omitempty"`
+}
+
+type recoveryTestStartedResponse struct {
+	BackupSetID string `json:"backup_set_id"`
+	OperationID string `json:"operation_id"`
 }
 
 type assuranceDueItemBody struct {
@@ -228,11 +238,41 @@ func (h *handlers) listAssuranceDue(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// startRecoveryTest is the operator's way to run a recovery test now. It is a
+// write in the same tier as the rest of this file (CSRF, no destructive gate):
+// it reads one copy through the recovery engine and writes a claim on that
+// copy, and deletes and overwrites nothing. It answers 202 at once, because
+// a test reads a whole artifact and runs an operator's script, and the
+// operation id in the answer is how the activity feed is followed.
+func (h *handlers) startRecoveryTest(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxAssuranceBodyBytes)
+	var body startRecoveryTestRequest
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		writeDecodeError(w, err, maxAssuranceBodyBytes)
+		return
+	}
+	started, err := h.backend.StartRecoveryTest(r.Context(), backupSetIDFromRoute(r), service.RecoveryTestOptions{
+		ArtifactID: body.ArtifactID, AcknowledgeCost: body.Acknowledged,
+	})
+	if err != nil {
+		h.writeAssuranceError(w, r, err, "failed to start the recovery test")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, recoveryTestStartedResponse{BackupSetID: started.BackupSetID, OperationID: started.OperationID})
+}
+
 func (h *handlers) writeAssuranceError(w http.ResponseWriter, r *http.Request, err error, internal string) {
 	switch {
 	case errors.Is(err, service.ErrBackupSetNotFound):
 		h.logRefusal(r, http.StatusNotFound, "BACKUP_SET_NOT_FOUND",
 			writeError(w, http.StatusNotFound, "BACKUP_SET_NOT_FOUND", "no such backup set"), err)
+	case errors.Is(err, service.ErrArtifactNotFound):
+		h.logRefusal(r, http.StatusNotFound, "ARTIFACT_NOT_FOUND",
+			writeError(w, http.StatusNotFound, "ARTIFACT_NOT_FOUND", "no such backup"), err)
+	case errors.Is(err, service.ErrRecoveryTestRunning):
+		writeError(w, http.StatusConflict, "OPERATION_ALREADY_RUNNING", "a recovery test of this backup set is already running")
 	case errors.Is(err, service.ErrInvalidRequest):
 		// Safe to echo, on core/service's standing guarantee for this
 		// sentinel: the text is built from config's own field descriptions
@@ -281,7 +321,6 @@ func toUpdateAssuranceSettingsRequest(b updateAssuranceSettingsRequest) (service
 		StagingTTL:              ttl,
 		MaxConcurrentFullReads:  toInt(b.MaxConcurrentFullReads),
 		MaxPerDestination:       toInt(b.MaxPerDestination),
-		WebDownloadMemoryBytes:  b.WebDownloadMemoryBytes,
 	}, nil
 }
 
@@ -300,7 +339,6 @@ func toAssuranceSettingsBody(s service.AssuranceSettings) assuranceSettingsRespo
 		Configured: s.Configured, HostKnobs: knobs,
 		MaxConcurrentFullReads: int64(s.MaxConcurrentFullReads), MaxPerDestination: int64(s.MaxPerDestination),
 		RecoveryTest: rt, Scrub: scrub, StagingRoot: s.StagingRoot, StagingTTLSeconds: durationSeconds(s.StagingTTL),
-		WebDownloadMemoryBytes: s.WebDownloadMemoryBytes,
 	}
 }
 

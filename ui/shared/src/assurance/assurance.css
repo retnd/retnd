@@ -33,7 +33,18 @@
 [data-state="existence_only"] > .achip, [data-state="attested_only"] > .achip { border-style: dashed; border-color: var(--warn); background: var(--warn-quiet); }
 [data-state="stored"] > .achip { background: var(--surface-2); }
 [data-state="no_copy"] > .achip { border-style: dashed; background: var(--surface-3); }
-[data-checking="true"] > .achip { opacity: 0.6; }
+/* A chip being re-checked keeps its full-contrast ink. It used to be dimmed
+   with opacity: 0.6, which composited the text with what is behind it: the age
+   text fell to 2.50:1 (light) and 3.05:1 (dark) and the label to 4.25:1
+   (light), under the 4.5:1 minimum. The cue is now shape and words, not
+   colour: a dashed outline, italic type and the "re-checking" word. */
+[data-checking="true"] > .achip { border-style: dashed; outline: 2px dashed var(--text-2); outline-offset: 2px; font-style: italic; }
+.achip__checking { font-weight: 500; color: var(--text-2); }
+
+/* A copy whose last check did not pass, said about that copy. The ink is the
+   body text on the page surface; the red edge is a redundant cue. */
+.afails { flex-basis: 100%; margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-1); }
+.afail { padding: 2px 8px; border-left: 3px solid var(--danger); font-size: var(--text-sm); color: var(--text); overflow-wrap: anywhere; }
 
 .aop { display: flex; flex-direction: column; gap: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-3); background: var(--surface-2); }
 .aop__bar { height: 10px; border-radius: var(--radius-pill); background: var(--surface-3); border: 1px solid var(--text-3); overflow: hidden; }

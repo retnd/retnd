@@ -6,15 +6,21 @@
  * spelling is pinned by assurance.test.tsx against the usage text. CommandEcho
  * prints exactly what is returned, so nothing on screen can disagree with it.
  *
- * There is deliberately NO recovery-test command and no operations-cancel
- * command: the CLI has neither. A recovery test runs from the schedule, and
- * the screens say that instead of echoing a command that would fail.
+ * There is deliberately NO operations-cancel command: the CLI has none. The
+ * recovery test has one (`retnd recovery-test`, the same code the route
+ * runs), and so does the scrub (`retnd scrub`).
  */
 import type { RecoveryTargetSpec } from "@shared/api/contracts";
 
 /** `<source>/<set>`, the same id the web uses for a backup set. */
 export function scrubCommand(setId: string): string {
   return "retnd scrub " + setId;
+}
+
+/** `retnd recovery-test <source/backup-set>`: the same test the Run recovery
+ *  test control starts, with no cost acknowledged unless the flag says so. */
+export function recoveryTestCommand(setId: string): string {
+  return "retnd recovery-test " + setId;
 }
 
 /** A read of every copy's bytes on a storage medium costs egress, so the CLI

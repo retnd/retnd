@@ -85,6 +85,7 @@ var commands = map[string]func([]string) int{
 	"reconcile":       cmdReconcile,
 	"validate":        cmdValidate,
 	"scrub":           cmdScrub,
+	"recovery-test":   cmdRecoveryTest,
 	"catalog":         cmdCatalog,
 	"quarantine":      cmdQuarantine,
 	"unconfigured":    cmdUnconfigured,
@@ -265,6 +266,17 @@ commands:
                                                   also needs --allow-egress. Exit 1 when a copy failed, could not be
                                                   checked, was skipped (held for editing, or being checked by another
                                                   scrub) or was refused for cost (EPIC Q)
+  recovery-test <source/backup-set> [--artifact <source/backup-set/name>] [--acknowledge-cost] [--json]
+                                                  prove now that the newest known good copy can be got back and used:
+                                                  the copy is staged by the recovery engine, checked against the
+                                                  SHA-256 recorded when it was ingested, and only then handed to the
+                                                  set's validator script (recovery-test/<source>/<set>, selected by the
+                                                  policy's validator_id). A read that costs money is refused unless
+                                                  --acknowledge-cost is given, and no provider restore is ever started.
+                                                  Exit 0 when the copy passed, 10 when the read was refused for cost,
+                                                  1 otherwise (failed, or could not be completed). The same test as
+                                                  POST /api/v1/backup-sets/{source}/{set}/recovery-test, which starts
+                                                  it in the background (EPIC Q)
   catalog rebuild [--dry-run]                    reconstruct a lost/corrupted state database from sidecar recovery manifests
   quarantine <revalidate|retry|reinstate> <source/backup-set/artifact> [--note T]
                                                   act on one quarantined artifact: revalidate re-checks it and moves
@@ -580,7 +592,7 @@ commands:
   settings assurance patch [--scrub-cadence D] [--scrub-strategy S] [--recovery-test-mode M]
                         [--recovery-test-cadence D] [--recovery-test-validator ID]
                         [--staging-root P] [--staging-ttl D] [--max-concurrent-full-reads N]
-                        [--max-per-destination N] [--web-download-memory-bytes N] [--json]
+                        [--max-per-destination N] [--json]
                                                   change the deployment's policy in place. An explicitly zero or empty value
                                                   clears that setting back to its default. Every set that inherits the
                                                   changed value decides under it on its next read. This write has no route

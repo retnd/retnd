@@ -30,29 +30,43 @@ test.describe("#985 Scrub now on a backup set", () => {
     await expect(section.getByRole("button", { name: "Scrub now" })).toBeDisabled();
     // the previous answer is still on screen, so it is drawn as one being re-checked
     await expect(section.locator('[data-claim="content"]')).toHaveAttribute("data-checking", "true");
+    // and it is drawn by shape and words, with its ink untouched
+    await expect(section.locator('[data-claim="content"]')).toHaveAttribute("aria-busy", "true");
+    await expect(section.locator('[data-claim="content"]')).toContainText("re-checking");
   });
 
-  test("the terminal command printed is one the CLI has, and no recovery-test verb is invented", async ({ page }) => {
+  test("the terminal commands printed are ones the CLI has", async ({ page }) => {
     await open(page, SET);
     const section = region(page);
     await expect(section.getByText("retnd scrub production/postgres-primary", { exact: true })).toBeVisible();
-    await expect(section.getByText("retnd recovery-test", { exact: false })).toHaveCount(0);
+    await expect(section.getByText("retnd recovery-test production/postgres-primary", { exact: true })).toBeVisible();
   });
 
-  test("a server with no route to start a run offers the command and does not fake a run", async ({ page }) => {
+  test("a server with no scrub route offers the command for it, a real Run recovery test, and does not fake a scrub", async ({ page }) => {
     await open(page, SET, "assurance-no-operations");
     const section = region(page);
-    await expect(section.getByTestId("no-run-route")).toContainText(/no route to start a scrub or a recovery test/i);
+    await expect(section.getByTestId("no-run-route")).toContainText(/no route to start a scrub/i);
+    await expect(section.getByTestId("no-run-route")).toContainText(/every poll of the running service checks the copies that are due/i);
+    await expect(section.getByTestId("recovery-test-note")).toContainText(/only for a set whose mode is required or custom/i);
+    await expect(section.getByText(/Scrubs run on the schedule above/)).toHaveCount(0);
     await expect(section.getByRole("button", { name: "Scrub now" })).toHaveCount(0);
-    await expect(section.getByRole("button", { name: "Run recovery test" })).toHaveCount(0);
+    await expect(section.getByRole("button", { name: "Run recovery test" })).toBeVisible();
     await expect(section.getByRole("button", { name: "Show validator output" })).toHaveCount(0);
     await expect(section.getByText("retnd scrub production/postgres-primary", { exact: true })).toBeVisible();
     await expect(section.getByText("retnd scrub production/postgres-primary --content --allow-egress", { exact: true })).toBeVisible();
-    // and the claims that do not need the missing route are still on screen,
-    // while the one that does says why it is Unknown
+    // the claims are reported from the copies, the recovery one included
     await expect(section.locator('[data-claim="content"]')).toHaveAttribute("data-state", "pass");
-    await expect(section.locator('[data-claim="recovery"]')).toHaveAttribute("data-state", "unknown");
-    await expect(section.getByTestId("recovery-unknown-why")).toContainText(/no route that reports recovery tests/);
+    await expect(section.locator('[data-claim="recovery"]')).toHaveAttribute("data-state", "pass");
+    await expect(section.getByTestId("recovery-unknown-why")).toHaveCount(0);
+  });
+
+  test("Run recovery test starts one, follows it and cannot be cancelled where there is no route to cancel", async ({ page }) => {
+    await open(page, SET, "assurance-no-operations");
+    const section = region(page);
+    await section.getByRole("button", { name: "Run recovery test" }).click();
+    await expect(section.getByTestId("operation-progress")).toBeVisible();
+    await expect(section.getByRole("button", { name: "Cancel" })).toHaveCount(0);
+    await expect(section.getByRole("button", { name: "Run recovery test" })).toBeDisabled();
   });
 
   test("the per-set section offers follow-the-deployment or an own policy, and says what following resolves to", async ({ page }) => {
@@ -123,7 +137,7 @@ test.describe("#985 the global Assurance card on Settings", () => {
     await expect(card).toContainText(/never thaws an archive/i);
     await expect(card.getByTestId("assurance-first-run")).toContainText(/nothing needs setting up first/i);
     const knobs = card.locator('[data-testid="host-knob"]');
-    await expect(knobs).toHaveCount(5);
+    await expect(knobs).toHaveCount(4);
     for (const k of await knobs.all()) {
       await expect(k).toHaveAttribute("data-scope", "deployment-wide");
       await expect(k.locator("input, select, textarea, button")).toHaveCount(0);

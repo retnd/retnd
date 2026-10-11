@@ -31,23 +31,29 @@ local gate, and the run has to go red naming the promise.
 | Two operators, same recovery test | not in this change | the runner is #980; `export.Flight` is what it should key on | owned by #980 |
 | Catalog rebuilt with unknown verification age | `TestResolveRanksAnUnknownVerificationBelowAnyRecordedClassButStillRecoversIt` | recovery still works and still verifies the bytes | (see below) |
 | One very large artifact | `apps/generic/tests/recoveryperf` (4 GiB, `docs/perf/epic-q-recovery.md`) | RSS inside the stated ceiling, both processes | buffering the copy: the harness's ceilings |
-| 1000+ copies due at once | `TestOneThousandDueCopiesSpreadOverPassesAndNothingStarves`, `core/internal/recovery/budget` measurement in `docs/perf/epic-q-recovery.md` | per-pass bound and concurrency ceiling never exceeded | per-pass selection unbounded |
+| 1000+ copies due at once | `TestOneThousandDueCopiesCompleteWithTheReadCeilingsNeverExceeded`, `core/internal/recovery/budget` measurement in `docs/perf/epic-q-recovery.md` | the read concurrency ceilings never exceeded | read ceilings removed |
 
 ## The budgets
 
 | Budget | Default | Refusal | Exit code | Test over the line |
 |---|---|---|---|---|
-| Concurrent full reads | 4 | `RECOVERY_READS_BUSY` | 32 | `TestTheConcurrentReadBudgetRefusesAtTheMomentOfSpendAndReadsNothing` |
-| Reads per destination | 2 | `RECOVERY_DESTINATION_BUSY` | 33 | `TestThePerDestinationBudgetIsADifferentRefusalFromTheGlobalOne` |
+| Concurrent full reads | 2 | `RECOVERY_READS_BUSY` | 32 | `TestTheConcurrentReadBudgetRefusesAtTheMomentOfSpendAndReadsNothing` |
+| Reads per destination | 1 | `RECOVERY_DESTINATION_BUSY` | 33 | `TestThePerDestinationBudgetIsADifferentRefusalFromTheGlobalOne` |
 | Staging disk reserve | 1 GiB | `RECOVERY_BELOW_RESERVE` | 18 | `TestAStagingReserveRefusalHasItsOwnCodeAndReadsNothing` |
-| Scheduler work per tick | 50 copies | deferral, `tick_work` | 34 | `TestOneThousandDueCopiesSpreadOverPassesAndNothingStarves` |
-| Captured output per validator | 256 KiB | truncation marker, `validator_output` | 35 | `TestTheValidatorOutputBoundIsEpicLsAndNotACopyOfIt` |
 | Concurrent downloads | 4 | `RECOVERY_DOWNLOADS_BUSY` | 36 | `TestTheDownloadCeilingRefusesTheNextStreamAndFreesWhenOneFinishes` |
-| Egress per scheduled pass | zero | none to refuse: the ceiling is `existence` | 37 | `TestAScheduledPassCostsNoEgressByConstruction` |
 
 Every number is a property of the host or the process, never of one backup
 set. The settings surface for them is #982's; the defaults are
-`core/internal/recovery/budget`'s.
+`core/internal/recovery/budget`'s, and the two read ceilings are the same
+numbers as #982's operator-facing defaults (2 and 1).
+
+Three budgets this document used to list are gone: work per scheduler pass,
+captured validator output and egress per scheduled pass. Nothing in the
+product read them (exit codes 34, 35 and 37, unused now), so they were a table
+row and a unit test and not a limit. A scheduler pass, a validator run or a
+scheduled verification that wants a bound brings its own, in the change that
+makes it read one; `TestEveryBudgetIsReadByAProductCodePath` is what stops one
+from being declared without a reader.
 
 ## Host facts go through the capability contract
 
