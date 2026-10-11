@@ -11,6 +11,8 @@ import (
 	"os"
 	"strings"
 	"syscall"
+
+	"github.com/retnd/retnd/core/internal/recovery/budget"
 )
 
 // Origin says where a copy came from, so a corrupt local copy and a corrupt
@@ -109,6 +111,11 @@ const DefaultBuffer = 256 << 10
 // Engine stages and verifies. It holds no per-recovery state.
 type Engine struct {
 	Staging *Staging
+
+	// Reads bounds full reads of retained copies, globally and per
+	// destination. Nil means unbounded, which is a test double and not a
+	// deployment.
+	Reads *budget.Reads
 
 	// Buffer is the copy buffer in bytes. Zero means DefaultBuffer.
 	Buffer int

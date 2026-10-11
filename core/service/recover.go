@@ -19,6 +19,7 @@ import (
 	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/recovery/budget"
 	"github.com/retnd/retnd/core/internal/recovery/export"
 	"github.com/retnd/retnd/core/internal/state"
 	"github.com/retnd/retnd/core/internal/transport"
@@ -152,6 +153,19 @@ type recoveryHost struct {
 	staging *export.Staging
 	engine  *export.Engine
 
+	// limits are this host's budgets (core/internal/recovery/budget), and
+	// reads and streams the gates built from them. Zero fields take the
+	// defaults; a test or a host sets them before first use.
+	limits  budget.Limits
+	reads   *budget.Reads
+	streams *budget.Gate
+
+	// afterStage, when set, runs once a copy is staged and verified and
+	// before it is delivered. A test hook for the write stage.
+	afterStage func()
+
+	flight export.Flight
+
 	// unavailable is set when there is nowhere to stage; every recovery
 	// entry point then refuses with RecoveryUnavailable.
 	unavailable bool
@@ -237,6 +251,9 @@ const (
 	RecoveryUnavailable          = "RECOVERY_UNAVAILABLE"
 	RecoveryBusy                 = "RECOVERY_BUSY"
 	RecoveryInterrupted          = "RECOVERY_INTERRUPTED"
+	RecoveryReadsBusy            = "RECOVERY_READS_BUSY"
+	RecoveryDestinationBusy      = "RECOVERY_DESTINATION_BUSY"
+	RecoveryDownloadsBusy        = "RECOVERY_DOWNLOADS_BUSY"
 	RecoveryFailed               = "RECOVERY_FAILED"
 	recoveryArtifactNotFoundCode = "ARTIFACT_NOT_FOUND"
 )
@@ -250,6 +267,7 @@ func RecoveryCodes() []string {
 		RecoveryBelowReserve, RecoveryGrantUnknown, RecoveryGrantUsed, RecoveryGrantExpired,
 		RecoveryGrantSessionEnded, RecoveryTooManyGrants, RecoveryTargetInvalid, RecoveryTargetExists,
 		RecoveryUseSnapshotRestore, RecoveryUnavailable, RecoveryBusy, RecoveryInterrupted, RecoveryFailed,
+		RecoveryReadsBusy, RecoveryDestinationBusy, RecoveryDownloadsBusy,
 	}
 }
 
@@ -741,3 +759,20 @@ func (b *BackupService) observeRestore(ctx context.Context, st *configState, m t
 	}
 	return archive.Observation{Probe: archive.Answered, Restore: rs}
 }
+
+// RecoveryLimits are the budgets a host may adjust for every backup set at
+// once. A zero field takes the engine's default. They are properties of the
+// host and the process, never of one set: one staging filesystem and one
+// HTTP server cannot honour a per-set override.
+type RecoveryLimits struct {
+	StagingReserveBytes    int64
+	MaxConcurrentReads     int
+	MaxReadsPerDestination int
+	MaxDownloadStreams     int
+}
+
+// SetRecoveryLimits stub; see the tests.
+func (b *BackupService) SetRecoveryLimits(RecoveryLimits) error { return nil }
+
+// RecoveryLimits stub; see the tests.
+func (b *BackupService) RecoveryLimits() RecoveryLimits { return RecoveryLimits{} }
