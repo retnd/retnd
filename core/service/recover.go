@@ -472,16 +472,19 @@ type recoverySource struct {
 
 func (s recoverySource) Open(ctx context.Context) (io.ReadCloser, error) {
 	if s.store == nil {
-		f, err := os.Open(s.local)
+		// Lstat before Open, and a symlink is refused: opening a fifo
+		// blocks until a writer appears, and a link is how a path under a
+		// backup root becomes a read of something else. (The SHA-256 check
+		// would refuse bytes that are not the artifact's, but not before
+		// the read had begun, and not a read that never ends.)
+		fi, err := os.Lstat(s.local)
 		if err != nil {
 			return nil, err
 		}
-		fi, err := f.Stat()
-		if err != nil || !fi.Mode().IsRegular() {
-			_ = f.Close()
-			return nil, fmt.Errorf("the local copy is not a regular file")
+		if !fi.Mode().IsRegular() {
+			return nil, recoveryErr(RecoveryNotReadable, "the local copy is not a regular file, so it is not read")
 		}
-		return f, nil
+		return os.Open(s.local)
 	}
 	return s.store.OpenObject(ctx, s.medium, s.key)
 }
@@ -664,6 +667,9 @@ func (b *BackupService) auditRecovery(ctx context.Context, ev *recoveryEvent, er
 		if errors.Is(err, ErrArtifactNotFound) {
 			code = recoveryArtifactNotFoundCode
 		}
+		if errors.Is(err, ErrRecoveryRangeNotSatisfiable) {
+			code = "RECOVERY_RANGE_NOT_SATISFIABLE"
+		}
 		if isRefusal(code) {
 			result, outcome = obs.ResultWarn, "refused"
 		}
@@ -704,7 +710,7 @@ func isRefusal(code string) bool {
 	case RecoveryCostNotAcknowledged, RecoveryNoCopy, RecoveryCopyNotFound, RecoveryNotReadable,
 		RecoveryGrantUnknown, RecoveryGrantUsed, RecoveryGrantExpired, RecoveryGrantSessionEnded,
 		RecoveryTooManyGrants, RecoveryTargetInvalid, RecoveryTargetExists, RecoveryUseSnapshotRestore,
-		RecoveryBelowReserve, RecoveryBusy, recoveryArtifactNotFoundCode:
+		RecoveryBelowReserve, RecoveryBusy, recoveryArtifactNotFoundCode, "RECOVERY_RANGE_NOT_SATISFIABLE":
 		return true
 	}
 	return false

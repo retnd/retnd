@@ -77,7 +77,13 @@ func (d *RecoveryDownload) Reader() io.ReadSeeker { return d.content }
 
 // Close releases the file handle of this request. It does not spend the
 // grant; Served does that.
-func (d *RecoveryDownload) Close() { _ = d.content.Close() }
+func (d *RecoveryDownload) Close() {
+	d.closed.Do(func() {
+		_ = d.content.Close()
+		// The request is over: the grant's idle clock restarts from now.
+		d.b.recoveryHost().grants.Done(d.token)
+	})
+}
 
 // Served records one request's outcome: which bytes went, and whether it
 // worked. A failed request, or one that reached the last byte, spends the
@@ -88,6 +94,12 @@ func (d *RecoveryDownload) Served(start, end, written int64, err error) {
 	ev.bytes = written
 	ev.rng = strconv.FormatInt(start, 10) + "-" + strconv.FormatInt(end, 10) + "/" + strconv.FormatInt(d.size, 10)
 	if d.b == nil {
+		return
+	}
+	if errors.Is(err, ErrRecoveryRangeNotSatisfiable) {
+		// The client's mistake. Recorded as a refusal, and the grant and
+		// the staged copy stay for the next, valid range.
+		d.b.auditRecovery(context.Background(), &ev, err)
 		return
 	}
 	d.b.auditRecovery(context.Background(), &ev, err)
@@ -133,6 +145,7 @@ func (b *BackupService) RedeemRecovery(ctx context.Context, sess RecoverySession
 	if !redeem.First {
 		staged, ok := redeem.Attached.(*export.Staged)
 		if !ok || staged == nil || g.Target.Kind != export.TargetDownload {
+			h.grants.Done(token)
 			berr := recoveryErr(RecoveryBusy, "this recovery is still being prepared; try the same link again in a moment")
 			b.auditRecovery(ctx, &ev, berr)
 			return nil, nil, berr
