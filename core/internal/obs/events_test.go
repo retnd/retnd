@@ -64,6 +64,7 @@ func TestEventNamesAreStable(t *testing.T) {
 		{"EventWorkflowBypassed", EventWorkflowBypassed, "workflow_bypassed"},
 		{"EventScrubPass", EventScrubPass, "scrub_pass"},
 		{"EventScrubFailure", EventScrubFailure, "scrub_failure"},
+		{"EventRecoveryTest", EventRecoveryTest, "recovery_test"},
 		{"EventError", EventError, "error"},
 	}
 	seen := make(map[string]string, len(cases))
@@ -466,5 +467,43 @@ func TestScrubFailureEventCarriesNoRawControlBytes(t *testing.T) {
 	}
 	if line["artifact"] != "prod/pg/a.dump" || line["medium"] != "local" || line["class"] != "content" {
 		t.Errorf("line = %#v", line)
+	}
+}
+
+func TestRecoveryTestEventStatesTheGateAndTheTermination(t *testing.T) {
+	l, buf := newRecorder(t)
+	l.RecoveryTest(context.Background(), RecoveryTestFacts{
+		Artifact: "prod/pg/a.dump", Medium: "local", State: "passed", DigestMatched: "matched",
+		ValidatorID: "pg-restore-check", Termination: "exited", Cleanup: "removed",
+	})
+	line := decodeLines(t, buf)[0]
+	if line["event"] != EventRecoveryTest || line["result"] != string(ResultSuccess) {
+		t.Fatalf("line = %#v", line)
+	}
+	for k, want := range map[string]string{"digest": "matched", "validator": "pg-restore-check", "termination": "exited", "state": "passed"} {
+		if line[k] != want {
+			t.Errorf("%s = %v, want %q", k, line[k], want)
+		}
+	}
+}
+
+func TestRecoveryTestEventIsNeverAQuietSuccessWhenCleanupFailedOrNothingWasTested(t *testing.T) {
+	for name, tc := range map[string]struct {
+		facts RecoveryTestFacts
+		want  Result
+	}{
+		"pass with a cleanup failure": {RecoveryTestFacts{State: "passed", Cleanup: "failed"}, ResultWarn},
+		"failure":                     {RecoveryTestFacts{State: "failed"}, ResultWarn},
+		"refused for cost":            {RecoveryTestFacts{State: "refused_for_cost"}, ResultWarn},
+		"could not complete":          {RecoveryTestFacts{State: "could_not_complete"}, ResultWarn},
+		"not configured":              {RecoveryTestFacts{State: "not_configured"}, ResultInfo},
+	} {
+		t.Run(name, func(t *testing.T) {
+			l, buf := newRecorder(t)
+			l.RecoveryTest(context.Background(), tc.facts)
+			if got := decodeLines(t, buf)[0]["result"]; got != string(tc.want) {
+				t.Errorf("result = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
