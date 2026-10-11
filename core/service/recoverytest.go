@@ -29,8 +29,9 @@ var ErrRecoveryTestRunning = errors.New("service: a recovery test of this backup
 
 // RecoveryTestOptions says what to test.
 type RecoveryTestOptions struct {
-	// Artifact tests this artifact. Nil tests the newest known good one.
-	Artifact *model.ArtifactID
+	// ArtifactID (source/set/name) tests this artifact, which has to be in
+	// the backup set being tested. Empty tests the newest known good one.
+	ArtifactID string
 
 	// AcknowledgeCost is the operator's yes to a read that costs money: the
 	// download from a storage medium, or the restore of an archived object.
@@ -78,9 +79,13 @@ func (b *BackupService) RunRecoveryTest(ctx context.Context, set model.BackupSet
 }
 
 func (b *BackupService) runRecoveryTest(ctx context.Context, set model.BackupSetID, opts RecoveryTestOptions, opID string) (RecoveryTestOutcome, error) {
+	artifact, err := recoveryTestArtifact(set, opts.ArtifactID)
+	if err != nil {
+		return RecoveryTestOutcome{}, err
+	}
 	inner := b.state.Load().inner
 	res, err := inner.RecoveryTest(ctx, app.RecoveryTestRequest{
-		Set: set, Artifact: opts.Artifact, AcknowledgeCost: opts.AcknowledgeCost, OperationID: opID,
+		Set: set, Artifact: artifact, AcknowledgeCost: opts.AcknowledgeCost, OperationID: opID,
 	})
 	if err != nil {
 		if errors.Is(err, state.ErrCopyChanged) {
@@ -100,6 +105,23 @@ func (b *BackupService) runRecoveryTest(ctx context.Context, set model.BackupSet
 	return out, nil
 }
 
+// recoveryTestArtifact parses the optional artifact of a request and refuses
+// one that is in another backup set: a test of set A's copy recorded against
+// set B's claim would be a statement about nothing.
+func recoveryTestArtifact(set model.BackupSetID, id string) (*model.ArtifactID, error) {
+	if id == "" {
+		return nil, nil
+	}
+	a, err := app.ParseArtifactID(id)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %q is not an artifact id (source/set/name)", ErrInvalidRequest, id)
+	}
+	if a.Set != set {
+		return nil, fmt.Errorf("%w: %s is not in backup set %s", ErrInvalidRequest, id, set)
+	}
+	return &a, nil
+}
+
 // StartRecoveryTest begins a recovery test in the background and returns
 // before it finishes. It is what POST /backup-sets/{source}/{set}/recovery-test
 // calls. A test takes as long as reading the artifact and running the
@@ -113,8 +135,26 @@ func (b *BackupService) StartRecoveryTest(_ context.Context, id string, opts Rec
 		return RecoveryTestStarted{}, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
 	}
 	cfg := b.state.Load().inner.Config
-	if _, ok := configuredSet(cfg.Sources, set); !ok {
+	bs, ok := configuredSet(cfg.Sources, set)
+	if !ok {
 		return RecoveryTestStarted{}, fmt.Errorf("%w: %s", ErrBackupSetNotFound, id)
+	}
+	if bs.Engine == model.EngineKopia {
+		return RecoveryTestStarted{}, fmt.Errorf("%w: %s is stored by the incremental engine, whose restore drill is its own and is read from its snapshot history", ErrInvalidRequest, id)
+	}
+	// Refused now, while the caller is still on the line, rather than in a
+	// background job nobody is watching.
+	artifact, err := recoveryTestArtifact(set, opts.ArtifactID)
+	if err != nil {
+		return RecoveryTestStarted{}, err
+	}
+	if artifact != nil {
+		if _, err := b.journal.Get(context.Background(), *artifact); err != nil {
+			if errors.Is(err, state.ErrArtifactNotFound) {
+				return RecoveryTestStarted{}, fmt.Errorf("%w: %s", ErrArtifactNotFound, opts.ArtifactID)
+			}
+			return RecoveryTestStarted{}, fmt.Errorf("service: loading artifact %s: %w", opts.ArtifactID, err)
+		}
 	}
 
 	b.recoveryTests.mu.Lock()

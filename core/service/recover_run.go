@@ -108,16 +108,25 @@ func (d *RecoveryDownload) Served(start, end, written int64, err error) {
 		return
 	}
 	d.b.auditRecovery(context.Background(), &ev, err)
-	if err != nil {
-		d.trace.fail(context.Background(), err)
+	if err != nil || d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {
+		d.endTrace(err)
 		d.b.finishRecoveryDownload(d.token)
+	}
+}
+
+// endTrace writes the recovery's end line: a failed range is a failed
+// recovery, and the last byte served is the Complete stage. (A download that
+// is abandoned is ended by dropDownload.)
+func (d *RecoveryDownload) endTrace(err error) {
+	if d.trace == nil {
 		return
 	}
-	if d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {
-		d.trace.stage(context.Background(), "cleaning_temporary_files")
-		d.trace.complete(context.Background(), d.size)
-		d.b.finishRecoveryDownload(d.token)
+	if err != nil {
+		d.trace.fail(context.Background(), err)
+		return
 	}
+	d.trace.stage(context.Background(), "cleaning_temporary_files")
+	d.trace.complete(context.Background(), d.size)
 }
 
 // recoveryDownloadState is what a started download keeps on its grant: the

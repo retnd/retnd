@@ -58,3 +58,11 @@ func (f *asyncFakeBackend) ResetBackupSetAssurance(_ context.Context, id string)
 func (f *asyncFakeBackend) AssuranceDue(context.Context, service.AssuranceDueFilter) ([]service.AssuranceDueItem, error) {
 	return nil, nil
 }
+
+func (f *syncFakeBackend) StartRecoveryTest(_ context.Context, id string, _ service.RecoveryTestOptions) (service.RecoveryTestStarted, error) {
+	return service.RecoveryTestStarted{BackupSetID: id, OperationID: "op"}, nil
+}
+
+func (f *asyncFakeBackend) StartRecoveryTest(_ context.Context, id string, _ service.RecoveryTestOptions) (service.RecoveryTestStarted, error) {
+	return service.RecoveryTestStarted{BackupSetID: id, OperationID: "op"}, nil
+}

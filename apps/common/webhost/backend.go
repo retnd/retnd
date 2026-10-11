@@ -502,6 +502,11 @@ type BackupServiceClient interface {
 	UpdateBackupSetAssurance(ctx context.Context, id string, req service.UpdateBackupSetAssuranceRequest) (service.BackupSetAssurance, error)
 	ResetBackupSetAssurance(ctx context.Context, id string) (service.BackupSetAssurance, error)
 	AssuranceDue(ctx context.Context, filter service.AssuranceDueFilter) ([]service.AssuranceDueItem, error)
+
+	// StartRecoveryTest begins a recovery test of one backup set in the
+	// background and returns the operation id it can be followed by. One at
+	// a time per set (service.ErrRecoveryTestRunning).
+	StartRecoveryTest(ctx context.Context, id string, opts service.RecoveryTestOptions) (service.RecoveryTestStarted, error)
 	UpdateBackupSetWorkflow(ctx context.Context, id string, req service.UpdateBackupSetWorkflowRequest) (service.BackupSetWorkflow, error)
 
 	// The environment, at either scope: an empty id is the

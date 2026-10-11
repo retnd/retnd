@@ -556,10 +556,10 @@ func (s recoverySource) Open(ctx context.Context) (io.ReadCloser, error) {
 		// check would refuse bytes that are not the artifact's, but not
 		// before the read had begun, and not a read that never ends.)
 		f, err := fsopen.OpenRegular(s.local)
+		if errors.Is(err, fsopen.ErrNotRegular) {
+			return nil, recoveryErr(RecoveryNotReadable, "the local copy is not a regular file, so it is not read")
+		}
 		if err != nil {
-			if errors.Is(err, fsopen.ErrNotRegular) {
-				return nil, recoveryErr(RecoveryNotReadable, "the local copy is not a regular file, so it is not read")
-			}
 			return nil, err
 		}
 		return f, nil

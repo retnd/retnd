@@ -79,11 +79,14 @@ with audit rather than authority:
 
 ## Where a copy rests while it is being verified
 
-In a private file under the recovery staging root, beside the state directory
-(`<state dir>/recovery`), created with mode 0600 inside a directory of mode
-0700. It is as sensitive as the artifact itself: it is the artifact. It exists
+In a private file under the recovery staging root, which is
+`assurance.staging_root` and sits beside the state directory unless the
+operator says otherwise (`<state dir>/recovery-staging`), created with mode 0600
+inside a directory of mode 0700. A recovery test stages in the same directory.
+It is as sensitive as the artifact itself: it is the artifact. It exists
 from the start of a recovery to its end (a download) or until the operator
-collects it (a `staging` target, kept for seven days and then swept). If the
+collects it (a `staging` target, kept for `assurance.staging_ttl`, a day unless
+changed, and then swept). If the
 backup is encrypted at rest by the operator's own tooling, the staged copy is
 whatever that tooling produced. This product does not decrypt anything.
 

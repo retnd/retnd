@@ -341,3 +341,66 @@ func TestAssuranceRoute_TheCLIReadsWhatTheRouteWroteAndPrintsTheSameBody(t *test
 		t.Errorf("the route and the CLI disagree:\nroute %s\ncli   %s", routeBody, cli)
 	}
 }
+
+// Panel finding C2: nothing could start a recovery test. The route answers at
+// once, because a test reads a whole artifact and runs the operator's script,
+// and hands back the operation id the activity feed follows it by.
+func TestAssuranceRoute_StartRecoveryTestAnswers202WithAnOperationId(t *testing.T) {
+	configPath := writeAssuranceRouteConfig(t)
+	router, closeRouter := gatedBoundaryRouter(t, configPath)
+	defer closeRouter()
+
+	code, body := call(t, router, http.MethodPost, "/api/v1/backup-sets/production/alpha/recovery-test", `{}`)
+	if code != http.StatusAccepted {
+		t.Fatalf("= %d: %s", code, body)
+	}
+	var doc struct {
+		BackupSetID string `json:"backup_set_id"`
+		OperationID string `json:"operation_id"`
+	}
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("decoding: %v\n%s", err, body)
+	}
+	if doc.BackupSetID != alphaSet || len(doc.OperationID) < 8 {
+		t.Errorf("answer = %+v, want the set and an operation id", doc)
+	}
+
+	// The body is optional.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		code, body = call(t, router, http.MethodPost, "/api/v1/backup-sets/production/beta/recovery-test", "")
+		if code == http.StatusAccepted {
+			break
+		}
+		if code != http.StatusConflict || time.Now().After(deadline) {
+			t.Fatalf("an empty body = %d: %s", code, body)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func TestAssuranceRoute_StartRecoveryTestRefusalsHaveTheirOwnCodes(t *testing.T) {
+	configPath := writeAssuranceRouteConfig(t)
+	router, closeRouter := gatedBoundaryRouter(t, configPath)
+	defer closeRouter()
+
+	cases := []struct {
+		name, path, body string
+		status           int
+		code             string
+	}{
+		{"an unknown set", "/api/v1/backup-sets/production/nope/recovery-test", `{}`, 404, "BACKUP_SET_NOT_FOUND"},
+		{"a malformed artifact", "/api/v1/backup-sets/production/alpha/recovery-test", `{"artifact_id":"not-an-artifact"}`, 400, "INVALID_REQUEST"},
+		{"an artifact in another set", "/api/v1/backup-sets/production/alpha/recovery-test", `{"artifact_id":"production/beta/beta.dump"}`, 400, "INVALID_REQUEST"},
+		{"an artifact nobody journalled", "/api/v1/backup-sets/production/alpha/recovery-test", `{"artifact_id":"production/alpha/ghost.dump"}`, 404, "ARTIFACT_NOT_FOUND"},
+		{"an unknown field", "/api/v1/backup-sets/production/alpha/recovery-test", `{"force":true}`, 400, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			code, body := call(t, router, http.MethodPost, tc.path, tc.body)
+			if code != tc.status || !strings.Contains(body, tc.code) {
+				t.Errorf("= %d %s, want %d %s", code, body, tc.status, tc.code)
+			}
+		})
+	}
+}

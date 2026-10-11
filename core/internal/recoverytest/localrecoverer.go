@@ -71,6 +71,10 @@ func (r LocalRecoverer) Recover(ctx context.Context, req RecoverRequest) (Staged
 	// something that was never the copy.
 	src, err := fsopen.OpenRegular(req.Copy.Location)
 	if err != nil {
+		if errors.Is(err, fsopen.ErrNotRegular) {
+			// Its text names the path, and this becomes a stored reason.
+			return Staged{}, errors.New("the local copy is not a regular file (a link, a fifo or a device), so it is not read")
+		}
 		return Staged{}, fmt.Errorf("the local copy could not be opened: %w", pathless(err))
 	}
 	defer src.Close()
