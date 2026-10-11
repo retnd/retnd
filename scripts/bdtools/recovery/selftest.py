@@ -332,7 +332,7 @@ MUTATIONS = [
         "a local session whose expiry the authenticator never reports",
         AUTHENTICATOR_GO,
         "\t\tSessionExpiresAt: rec.expiresAt.UTC().Format(time.RFC3339Nano),\n",
-        "\t\t// " + PLANT.rstrip() + "\n",
+        "\t\tSessionExpiresAt: rec.expiresAt.UTC().Format(time.RFC3339Nano)[:0], // " + PLANT.rstrip() + "\n",
         "SessionExpiresAt is empty",
         AUTH_PKG,
         "TestAuthenticatorReportsSessionExpiry",
