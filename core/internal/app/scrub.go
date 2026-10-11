@@ -199,7 +199,17 @@ func (s *Service) Scrub(ctx context.Context, req ScrubRequest) (ScrubSummary, er
 	}
 	out := s.finishScrub(ctx, journal, sum, started)
 	// After the verdicts are durable, so the script is told what is true.
-	s.settleScrubEpisodes(ctx, sets)
+	// Only for sets this pass actually looked at: an episode can only open
+	// or close because a copy was checked, and a quiet tick that listed
+	// every set's journal just to find nothing changed would be a read per
+	// set per poll for no reason.
+	var touched []config.BackupSet
+	for i, bs := range sets {
+		if i < len(sum.Sets) && sum.Sets[i].Report.Selected > 0 {
+			touched = append(touched, bs)
+		}
+	}
+	s.settleScrubEpisodes(ctx, touched)
 
 	return out, nil
 }
