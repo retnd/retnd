@@ -162,6 +162,10 @@ type copyOutcome struct {
 	// money nobody agreed to. A refusal is not a fact about the copy, so it
 	// is reported and not recorded.
 	refused bool
+	// rewritten is set when the verdict was refused because the copy no
+	// longer holds the bytes that were read (state.ErrCopyChanged). A failure
+	// about bytes that are gone is not a failure of the copy that is there.
+	rewritten bool
 }
 
 func int64p(n int64) *int64 { return &n }
