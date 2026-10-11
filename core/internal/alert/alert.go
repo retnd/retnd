@@ -295,7 +295,9 @@ const (
 	// WorkflowRecoveryConditions folds a set's holds into one.
 	WorkflowRecoveryRequired Kind = "WORKFLOW_RECOVERY_REQUIRED"
 
-	// The six assurance kinds below are EPIC Q's (Q1.4, #982). They are
+	// The four assurance kinds below are EPIC Q's (Q1.4, #982). (A fifth and a
+	// sixth, NO_READABLE_COPY and ARCHIVE_ONLY_RECOVERABILITY, were deleted: nothing
+	// measured either fact, so nothing could ever raise them.) They are
 	// about whether a backup set can be GOT BACK, and they pass the same
 	// three tests every kind has to: each needs a human, each resolves
 	// when the underlying fact changes, and each names a backup set.
@@ -314,26 +316,20 @@ const (
 	// ScrubFailing: a scrub read a copy and it did not pass, repeatedly.
 	ScrubFailing Kind = "SCRUB_FAILING"
 
-	// RecoveryTestOverdue: the set's policy requires a recovery test and
-	// the last one is older than its cadence, or there has never been one.
+	// RecoveryTestOverdue: the set's policy requires a recovery test and a
+	// pass has lapsed past its cadence, or the last attempt was refused for
+	// cost or could not complete. A copy no test has run on yet is not
+	// overdue, it is untested, and the dashboard says so.
 	RecoveryTestOverdue Kind = "RECOVERY_TEST_OVERDUE"
 
 	// RecoveryTestFailing: a recovery test recovered the bytes and the
 	// operator's validator refused them, or the digest did not match.
 	RecoveryTestFailing Kind = "RECOVERY_TEST_FAILING"
 
-	// NoReadableCopy: no copy of an artifact in the set can be read right
-	// now, so the product could not hand the bytes back if asked.
-	NoReadableCopy Kind = "NO_READABLE_COPY"
-
-	// ArchiveOnlyRecoverability: the only surviving copy is in an
-	// archive tier, so recovering it needs a thaw that costs time and
-	// money before a single byte can be read.
-	ArchiveOnlyRecoverability Kind = "ARCHIVE_ONLY_RECOVERABILITY"
 )
 
 // Kinds is every Kind this package can produce: §71's four in the order
-// it lists them, then EPIC K's two, then EPIC L's three. It exists so a
+// it lists them, then EPIC K's two, then EPIC L's three, then EPIC Q's four. It exists so a
 // test (and a reader) can see the whole vocabulary in one place.
 var Kinds = []Kind{
 	StaleBackup,
@@ -349,8 +345,6 @@ var Kinds = []Kind{
 	ScrubFailing,
 	RecoveryTestOverdue,
 	RecoveryTestFailing,
-	NoReadableCopy,
-	ArchiveOnlyRecoverability,
 }
 
 func (k Kind) String() string { return string(k) }
@@ -388,10 +382,6 @@ func (k Kind) title() string {
 		return "No recent recovery test"
 	case RecoveryTestFailing:
 		return "A recovery test failed"
-	case NoReadableCopy:
-		return "No copy can be read"
-	case ArchiveOnlyRecoverability:
-		return "Only an archived copy is left"
 	default:
 		return "retnd alert"
 	}

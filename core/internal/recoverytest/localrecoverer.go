@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/retnd/retnd/core/internal/capacity"
+	"github.com/retnd/retnd/core/internal/fsopen"
 )
 
 // LocalRecoverer stages a copy that lives on local disk by copying its bytes
@@ -65,7 +66,10 @@ func (r LocalRecoverer) Recover(ctx context.Context, req RecoverRequest) (Staged
 	if !req.Copy.IsLocal() {
 		return Staged{}, fmt.Errorf("%w: the copy is on %q", ErrUnsupportedCopy, req.Copy.Medium)
 	}
-	src, err := os.Open(req.Copy.Location)
+	// OpenRegular, not os.Open: a path that has become a fifo would block this
+	// call for ever (and the tick behind it), and a symlink is a read of
+	// something that was never the copy.
+	src, err := fsopen.OpenRegular(req.Copy.Location)
 	if err != nil {
 		return Staged{}, fmt.Errorf("the local copy could not be opened: %w", pathless(err))
 	}
