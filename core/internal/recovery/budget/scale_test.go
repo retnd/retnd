@@ -23,7 +23,7 @@ import (
 
 // A thousand copies due at the same instant is the day a catalog is rebuilt
 // or a scheduler is switched on for a fleet that never had one. This is the
-// model of that day: the real selection, the real read budget and the real
+// simulation of that day: the real selection, the real read budget and the real
 // verifying engine, driven the way a scheduler would drive them, with the
 // peaks read off the limiter rather than asserted from the outside.
 //
@@ -191,7 +191,7 @@ func TestOneThousandDueCopiesCompleteInsideThePerPassBoundWithTheCeilingsNeverEx
 		t.Errorf("%d full reads of one destination ran at once, over %d", res.PeakPerDest, l.MaxReadsPerDestination)
 	}
 	if res.PeakGlobalReads < 2 {
-		t.Errorf("peak global reads = %d: the model never ran anything concurrently, so the ceilings above were not tested", res.PeakGlobalReads)
+		t.Errorf("peak global reads = %d: the simulation never ran anything concurrently, so the ceilings above were not tested", res.PeakGlobalReads)
 	}
 	if res.PeakPerDest < l.MaxReadsPerDestination {
 		t.Errorf("peak on one destination = %d: a fleet that is mostly on one bucket never reached its ceiling of %d, so the ceiling was not exercised", res.PeakPerDest, l.MaxReadsPerDestination)
@@ -212,7 +212,7 @@ func TestOneThousandDueCopiesCompleteInsideThePerPassBoundWithTheCeilingsNeverEx
 }
 
 func TestTheScaleModelCanActuallyFail(t *testing.T) {
-	// The positive control: take the read ceilings away and the same model
+	// The positive control: take the read ceilings away and the same simulation
 	// must report a peak over the line, or the test above proves nothing.
 	l := budget.Limits{MaxConcurrentReads: 64, MaxReadsPerDestination: 64, MaxCopiesPerTick: 64}
 	reads := budget.NewReads(l)
@@ -240,7 +240,7 @@ func TestTheScaleModelCanActuallyFail(t *testing.T) {
 	}
 	wg.Wait()
 	if g, _ := reads.Peaks(); g <= budget.Defaults().MaxConcurrentReads {
-		t.Fatalf("with the ceiling lifted the peak was only %d: the model cannot tell a held line from an absent one", g)
+		t.Fatalf("with the ceiling lifted the peak was only %d: the simulation cannot tell a held line from an absent one", g)
 	}
 	_ = strings.Repeat
 }

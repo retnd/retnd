@@ -78,7 +78,7 @@ change these ceilings exist to catch.
 ## A thousand and more copies due at once (#983)
 
 The day a catalog is rebuilt, or a scheduler is switched on for a fleet that
-never had one, every copy is due at the same instant. The model of that day is
+never had one, every copy is due at the same instant. The simulation of that day is
 `core/internal/recovery/budget/scale_test.go`: the real selection
 (`budget.SelectTick`), the real read limiter and the real verifying engine, a
 scheduler that waits for a slot rather than being refused (its work per pass is
@@ -105,7 +105,7 @@ RECOVERY_BUDGET_COPIES=1200 RECOVERY_BUDGET_BYTES=1048576 \
 Run on the host above, linux/amd64, 28 threads, under a docker container with
 the usual neighbours. The wall clock is for scale only: a copy here is read
 from memory, so it measures the engine's bookkeeping and the staging disk, not
-a destination. The same model with a refusing limiter (what an operator at a
+a destination. The same simulation with a refusing limiter (what an operator at a
 terminal gets) also never exceeds either ceiling, and refuses thousands of
 attempts on the way, which is `TestAnInteractiveStyleLimiterRefusesInsteadOfWaitingAndStillNeverExceedsTheCeilings`.
 
