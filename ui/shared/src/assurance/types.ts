@@ -182,5 +182,8 @@ export interface AssuranceApi {
 
   createRecovery(artifactId: string, req: RecoveryRequest): Promise<Recovery>;
   getRecovery(recoveryId: string): Promise<Recovery>;
+  /** The artifact's recovery that is still running, if any: what a reload
+   *  asks, so it attaches to the live one and never starts a second. */
+  activeRecovery(artifactId: string): Promise<Recovery | null>;
   cancelRecovery(recoveryId: string): Promise<void>;
 }

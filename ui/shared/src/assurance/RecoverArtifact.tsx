@@ -26,6 +26,7 @@
  */
 import "./assurance.css";
 import { useEffect, useRef, useState } from "react";
+import type { RefObject } from "react";
 import { useApi } from "@shared/api/ApiContext";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { CommandEcho } from "@shared/pages/CommandEcho";
@@ -38,14 +39,19 @@ export function ArtifactAssuranceCard({ artifactId, readOnly }: { artifactId: st
   const api = useApi().assurance;
   const [a, setA] = useState<ArtifactAssurance | null>(null);
   const [open, setOpen] = useState(false);
+  const [attached, setAttached] = useState<Recovery | undefined>(undefined);
+  const opener = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!api) return;
     let live = true;
     api.getArtifactAssurance(artifactId).then((x) => { if (live) setA(x); }, () => { if (live) setA(null); });
+    // A reload mid-recovery re-attaches to the recovery the service is still
+    // running, rather than leaving it unwatched or starting a second one.
+    api.activeRecovery(artifactId).then((r) => { if (live && r) { setAttached(r); setOpen(true); } }, () => undefined);
     return () => { live = false; };
   }, [api, artifactId]);
   return (
-    <section className="card" aria-label="Assurance" style={{ marginBottom: 14 }}>
+    <section className="card" data-assurance="" aria-label="Assurance" style={{ marginBottom: 14 }}>
       <div className="card__header">
         <InfoTooltip id="assurance.artifact.card"><h2 className="eyebrow">Assurance</h2></InfoTooltip>
       </div>
@@ -54,11 +60,11 @@ export function ArtifactAssuranceCard({ artifactId, readOnly }: { artifactId: st
         <span style={{ flex: 1 }} />
         {api ? (
           <InfoTooltip id="assurance.recover.artifact">
-            <button className="btn btn--primary" disabled={readOnly} onClick={() => setOpen(true)}>Recover artifact</button>
+            <button ref={opener} className="btn btn--primary" disabled={readOnly} onClick={() => setOpen(true)}>Recover artifact</button>
           </InfoTooltip>
         ) : null}
       </div>
-      {open ? <RecoverArtifactDialog artifactId={artifactId} onClose={() => setOpen(false)} /> : null}
+      {open ? <RecoverArtifactDialog artifactId={artifactId} initial={attached} returnFocus={opener} onClose={() => { setOpen(false); setAttached(undefined); }} /> : null}
     </section>
   );
 }
@@ -69,22 +75,46 @@ const TARGETS: Array<{ id: RecoveryTarget; label: string }> = [
   { id: "destination", label: "Configured destination" }
 ];
 
-export function RecoverArtifactDialog({ artifactId, onClose }: { artifactId: string; onClose(): void }) {
+export function RecoverArtifactDialog({
+  artifactId, onClose, initial, returnFocus
+}: {
+  artifactId: string;
+  onClose(): void;
+  /** A recovery already running, found after a reload. Shown, not restarted. */
+  initial?: Recovery;
+  /** Where focus goes when the dialog closes. */
+  returnFocus?: RefObject<HTMLElement>;
+}) {
   const api = useApi().assurance;
   const [target, setTarget] = useState<RecoveryTarget>("browser");
   const [where, setWhere] = useState("");
   const [cost, setCost] = useState<ArchivalCost | null>(null);
   const [host, setHost] = useState<AssuranceSettings["host"] | null>(null);
   const [accepted, setAccepted] = useState(false);
-  const [recovery, setRecovery] = useState<Recovery | null>(null);
+  const [recovery, setRecovery] = useState<Recovery | null>(initial ?? null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const box = useRef<HTMLDivElement>(null);
-  const streamed = useRef(new Set<string>());
+  const streamed = useRef(new Set<string>(initial ? [initial.id] : []));
 
-  useEffect(() => { box.current?.focus(); }, []);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const back = returnFocus?.current ?? (document.activeElement as HTMLElement | null);
+    box.current?.focus();
+    return () => back?.focus?.();
+  }, [returnFocus]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { onClose(); return; }
+      // aria-modal says the page behind is inert; this makes Tab honour it.
+      if (e.key !== "Tab" || !box.current) return;
+      const items = [...box.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), a[href], select:not(:disabled), [tabindex]:not([tabindex='-1'])")];
+      if (items.length === 0) return;
+      const first = items[0], last = items[items.length - 1];
+      const at = document.activeElement;
+      if (e.shiftKey && (at === first || at === box.current)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && at === last) { e.preventDefault(); first.focus(); }
+      else if (!box.current.contains(at)) { e.preventDefault(); first.focus(); }
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
@@ -148,7 +178,7 @@ export function RecoverArtifactDialog({ artifactId, onClose }: { artifactId: str
 
   const pct = recovery && recovery.totalBytes > 0 ? Math.round((recovery.bytes / recovery.totalBytes) * 100) : 0;
   return (
-    <div className="dialog-scrim" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="dialog-scrim" style={{ gridTemplateColumns: "minmax(0, 1fr)" }} onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div
         ref={box}
         tabIndex={-1}
@@ -156,11 +186,12 @@ export function RecoverArtifactDialog({ artifactId, onClose }: { artifactId: str
         aria-modal="true"
         aria-labelledby="recover-title"
         className="dialog"
-        style={{ maxWidth: 520 }}
+        data-assurance=""
+        style={{ maxWidth: 520, minWidth: 0 }}
       >
         <div style={{ padding: "20px 22px 0" }}>
           <h2 id="recover-title" style={{ margin: 0, fontSize: 18 }}>Recover artifact</h2>
-          <div className="mono" style={{ fontSize: "var(--text-sm)", color: "var(--text-2)", marginTop: 4 }}>{artifactId}</div>
+          <div className="mono" style={{ fontSize: "var(--text-sm)", color: "var(--text-2)", marginTop: 4, wordBreak: "break-all" }}>{artifactId}</div>
         </div>
         <div style={{ padding: "14px 22px 20px", display: "flex", flexDirection: "column", gap: 12, fontSize: 13.5 }}>
           {!recovery ? (

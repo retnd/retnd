@@ -35,6 +35,20 @@ test.describe("#985 reconnect and continuity", () => {
     expect(new Set(seqs).size).toBe(seqs.length);
   });
 
+  test("every named stage reaches the docked terminal exactly once", async ({ page }) => {
+    await open(page, SET, "assurance-slow-test");
+    const section = page.getByRole("region", { name: "Assurance" });
+    await section.getByRole("button", { name: "Run recovery test" }).click();
+    const log = page.getByLabel("Terminal", { exact: true }).getByRole("log");
+    await expect(log).toContainText("recovery test stage digest", { timeout: 20_000 });
+    // a few more polls, and a dropped connection in the middle
+    await page.evaluate(() => sessionStorage.setItem("retnd.mock.assurance.drop", "1"));
+    await page.waitForTimeout(3000);
+    for (const stage of ["recover", "read", "digest"]) {
+      await expect(log.getByText("recovery test stage " + stage + ":")).toHaveCount(1);
+    }
+  });
+
   test("the operation detail view follows the live stage and can cancel", async ({ page }) => {
     await open(page, SET, "assurance-slow-test");
     const section = page.getByRole("region", { name: "Assurance" });

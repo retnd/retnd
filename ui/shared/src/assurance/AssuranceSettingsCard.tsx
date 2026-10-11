@@ -54,7 +54,7 @@ export function AssuranceSettingsCard({ readOnly }: { readOnly: boolean }) {
   ];
 
   return (
-    <section className="card" aria-label="Assurance">
+    <section className="card" data-assurance="" aria-label="Assurance">
       <div className="card__header">
         <InfoTooltip id="assurance.settings.card"><h2 className="eyebrow">Assurance</h2></InfoTooltip>
       </div>

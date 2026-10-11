@@ -21,6 +21,7 @@ import type {
   ArchivalCost, ArtifactAssurance, AssuranceApi, AssuranceSettings, ClaimRecord, Operation, OperationEvent,
   OperationFeed, OperationKind, OperationState, Recovery, RecoveryRequest, SetAssurance, SetAssuranceMode, ValidatorResult
 } from "./types";
+import type { SetActivityEvent } from "@shared/types/activity";
 
 const DAY = 86_400_000;
 const KEY = "retnd.mock.assurance";
@@ -150,7 +151,40 @@ function view(op: StoredOp, scrubFails: boolean, now: number): { operation: Oper
   };
 }
 
+let activeScenario = "default";
+
+/**
+ * The docked terminal's view of the same operations: one live line per
+ * named stage event, with a sequence that is stable across polls, so the
+ * activity strip's merge-by-sequence leaves no duplicate after a reconnect.
+ * Per-copy progress is live-only and never reaches the durable record; this
+ * is the live channel.
+ */
+export function assuranceLiveEvents(setId: string): SetActivityEvent[] {
+  const out: SetActivityEvent[] = [];
+  const ops = Object.values(load().ops).filter((o) => o.setId === setId);
+  ops.forEach((op, i) => {
+    const v = view(op, activeScenario === "assurance-scrub-fails", Date.now());
+    v.events.forEach((e) => {
+      const last = e.stage === "done" || e.text.startsWith("cancelled");
+      const failed = v.operation.state === "failed" && e.stage === "done";
+      out.push({
+        sequence: 100_000 + i * 1_000 + e.seq,
+        at: e.at,
+        level: failed ? "error" : "info",
+        event: "assurance_stage",
+        scope: "set",
+        message: (op.kind === "scrub" ? "scrub " : "recovery test ") + e.text,
+        ...(last ? { result: failed ? ("error" as const) : e.text.startsWith("cancelled") ? ("warn" as const) : ("success" as const) } : {}),
+        fields: { stage: e.stage, operation: op.id }
+      });
+    });
+  });
+  return out;
+}
+
 export function createMockAssurance(scenario: string): AssuranceApi {
+  activeScenario = scenario;
   const scrubFails = scenario === "assurance-scrub-fails";
   // A new tab session of the mock starts clean the first time a scenario is
   // opened; a reload keeps what the page left behind.
@@ -303,6 +337,15 @@ export function createMockAssurance(scenario: string): AssuranceApi {
       s.recoveries[id] = { id, artifactId, target: req.target, startedAt: Date.now() };
       save(s);
       return recoveryView(s.recoveries[id], Date.now());
+    },
+    activeRecovery: async (artifactId) => {
+      const now = Date.now();
+      for (const r of Object.values(load().recoveries)) {
+        if (r.artifactId !== artifactId) continue;
+        const v = recoveryView(r, now);
+        if (v.state === "running") return v;
+      }
+      return null;
     },
     getRecovery: async (id) => {
       const r = load().recoveries[id];

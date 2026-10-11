@@ -144,15 +144,19 @@ export function renderStored(copies: number | undefined): { state: "stored" | "n
   return { state: "stored", label: "Stored · " + copies + (copies === 1 ? " copy" : " copies") };
 }
 
-/** Counts for the dashboard, in the same vocabulary. Unknown is due. */
+/** Counts for the dashboard, in the same vocabulary. Unknown is due.
+ *  Degraded looks at BOTH claims: a failed recovery test is as degraded as a
+ *  failed scrub, and counting only one would show a backup as fine that the
+ *  Backups page shows as failing. */
 export function tally(items: Array<{ content: ClaimRecord; recovery: ClaimRecord }>, now: number = Date.now()) {
   let due = 0, overdue = 0, degraded = 0, unknown = 0;
+  const bad = (s: RenderState) => s === "failed" || s === "could_not_complete" || s === "no_readable_copy";
   for (const it of items) {
     const c = renderClaim("content", it.content, now).state;
+    const r = renderClaim("recovery", it.recovery, now).state;
     if (c === "unknown") { unknown++; due++; }
-    else if (c === "never_run" || c === "never_configured") due += c === "never_run" ? 1 : 0;
-    else if (c === "overdue") { overdue++; due++; }
-    if (c === "failed" || c === "could_not_complete" || c === "no_readable_copy") degraded++;
+    else if (c === "never_run" || c === "overdue") { due++; if (c === "overdue") overdue++; }
+    if (bad(c) || bad(r)) degraded++;
   }
   return { due, overdue, degraded, unknown };
 }

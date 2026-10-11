@@ -39,6 +39,8 @@ export async function contrastFailures(page: Page, selector: string) {
       if (!own) return;
       const cs = getComputedStyle(e);
       if (cs.visibility === "hidden" || cs.display === "none") return;
+      // WCAG exempts inactive (disabled) components from the contrast minimum.
+      if (e.closest(":disabled")) return;
       let bg: number[] | null = null;
       for (let n: Element | null = e; n; n = n.parentElement) {
         const x = rgb(getComputedStyle(n).backgroundColor);

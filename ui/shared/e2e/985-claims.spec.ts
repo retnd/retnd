@@ -112,3 +112,19 @@ for (const theme of ["light", "dark"] as const) {
     expect(await contrastFailures(page, '[data-testid="assurance-claims"]')).toEqual([]);
   });
 }
+
+test.describe("#985 the Dashboard counters", () => {
+  test("unknown is due, and a rebuilt catalog is never counted as nothing due", async ({ page }) => {
+    await open(page, "/", "assurance-rebuilt");
+    const card = page.getByRole("region", { name: "Assurance summary" });
+    await expect(card.getByTestId("assurance-due")).toContainText("4");
+    await expect(card.getByTestId("assurance-degraded")).not.toContainText("unknown");
+  });
+
+  test("the default fixture reports its overdue and degraded backups", async ({ page }) => {
+    await open(page, "/");
+    const card = page.getByRole("region", { name: "Assurance summary" });
+    await expect(card.getByTestId("assurance-overdue")).toContainText("1");
+    await expect(card.getByTestId("assurance-degraded")).toContainText("2");
+  });
+});

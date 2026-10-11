@@ -2030,5 +2030,9 @@
   "assurance.operation.cancel": {
     "label": "Cancel operation",
     "html": "Stops the run. The claims keep their previous answer until a run finishes."
+  },
+  "assurance.dashboard.card": {
+    "label": "Assurance summary",
+    "html": "<strong>Due</strong> counts backups whose content check is unknown, never run or overdue. <strong>Overdue</strong> counts those that last passed too long ago. <strong>Degraded</strong> counts failed, incomplete or unreadable ones. A count is never shown as zero when it could not be read."
   }
 }

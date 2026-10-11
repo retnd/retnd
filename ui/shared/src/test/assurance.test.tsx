@@ -7,7 +7,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import "@shared/design-system/components.css";
 import { ClaimChips } from "@shared/assurance/ClaimChips";
 import { renderClaim, renderStored, tally } from "@shared/assurance/claims";
-import { inert } from "@shared/assurance/ValidatorLog";
+import { inert } from "@shared/assurance/inert";
 import { mergeBySeq } from "@shared/assurance/useOperation";
 import type { AchievedClass, ClaimStatus } from "@shared/assurance/types";
 import { resetGraphForTests } from "@shared/state/graph";

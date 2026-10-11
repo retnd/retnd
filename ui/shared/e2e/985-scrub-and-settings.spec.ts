@@ -27,6 +27,8 @@ test.describe("#985 Scrub now on a backup set", () => {
     await section.getByRole("button", { name: "Scrub now" }).click();
     await expect(section.getByTestId("operation-progress")).toBeVisible();
     await expect(section.getByRole("button", { name: "Scrub now" })).toBeDisabled();
+    // the previous answer is still on screen, so it is drawn as one being re-checked
+    await expect(section.locator('[data-claim="content"]')).toHaveAttribute("data-checking", "true");
   });
 
   test("every mutating control prints the command it is equivalent to", async ({ page }) => {

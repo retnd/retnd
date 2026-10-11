@@ -43,6 +43,8 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
   const [opId, setOpId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [settled, setSettled] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
   const [validatorResult, setValidatorResult] = useState<ValidatorResult | null | undefined>(undefined);
 
   const refresh = useCallback(async () => {
@@ -71,23 +73,31 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
     return () => { live = false; };
   }, [api, setId, refresh]);
 
-  const op = useOperation(api, opId, () => { void refresh(); });
+  // The old answer stays marked as "being re-checked" from the start of a
+  // run until the claims have been re-read AFTER it ended, so a failing
+  // scrub never leaves a pass on screen for the gap between the two.
+  const op = useOperation(api, opId, (o) => { void refresh().finally(() => setSettled(o.id)); });
   const running = op.operation?.state === "running";
+  const checking = opId !== null && settled !== opId;
 
   const start = async (kind: OperationKind) => {
-    if (!api) return;
+    if (!api || starting) return;
     setError(null);
+    setStarting(true);
     try {
       const o = kind === "scrub" ? await api.startScrub(setId) : await api.startRecoveryTest(setId);
       setOpId(o.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "could not start");
+    } finally {
+      setStarting(false);
     }
   };
 
   const save = async () => {
     if (!api) return;
     setError(null);
+    setSaved(false);
     try {
       await api.putSetAssurance(setId, draft, draft === "custom" ? { scrubEvery: every, validator } : undefined);
       await refresh();
@@ -103,7 +113,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
   };
 
   return (
-    <section className="card" aria-label="Assurance">
+    <section className="card" data-assurance="" aria-label="Assurance">
       <div className="card__header">
         <InfoTooltip id="assurance.set.section"><h2 className="eyebrow">Assurance</h2></InfoTooltip>
       </div>
@@ -111,7 +121,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
         {!api ? (
           <p style={{ margin: 0 }}>This server does not report assurance yet, so nothing here is claimed.</p>
         ) : null}
-        <ClaimChips assurance={latest} available={!!api} checking={running} />
+        <ClaimChips assurance={latest} available={!!api} checking={checking} />
 
         {api ? (
           <>
@@ -167,10 +177,10 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
 
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <InfoTooltip id="assurance.scrub.now">
-                <button className="btn" disabled={readOnly || running} onClick={() => void start("scrub")}>Scrub now</button>
+                <button className="btn" disabled={readOnly || running || starting} onClick={() => void start("scrub")}>Scrub now</button>
               </InfoTooltip>
               <InfoTooltip id="assurance.recoveryTest.run">
-                <button className="btn" disabled={readOnly || running} onClick={() => void start("recovery_test")}>Run recovery test</button>
+                <button className="btn" disabled={readOnly || running || starting} onClick={() => void start("recovery_test")}>Run recovery test</button>
               </InfoTooltip>
               <button className="btn btn--quiet" onClick={() => void showValidator()}>Show validator output</button>
             </div>

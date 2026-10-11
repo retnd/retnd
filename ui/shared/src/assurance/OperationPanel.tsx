@@ -53,7 +53,7 @@ export function OperationPanel({
     >
       <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
         <strong>{KIND_LABEL[operation.kind]}</strong>
-        {running ? <span>{"stage: " + operation.stage}</span> : <span className="aop__outcome">{outcome}</span>}
+        {running ? <span>{"stage: " + operation.stage}</span> : <span className="aop__outcome" role="status">{outcome}</span>}
         <span style={{ flex: 1 }} />
         <span className="mono" style={{ fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
           {bytes(operation.bytes) + " of " + bytes(operation.totalBytes)}

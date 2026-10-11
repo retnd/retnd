@@ -56,7 +56,7 @@ import type {
   SystemHealth,
   VersionInfo
 } from "@shared/types/operation";
-import { createMockAssurance } from "@shared/assurance/mockAssurance";
+import { assuranceLiveEvents, createMockAssurance } from "@shared/assurance/mockAssurance";
 import type { DeploymentActivity, SetActivity, SetActivityEvent } from "@shared/types/activity";
 
 /** Development fixtures. Covers every scenario the brief requires (§42):
@@ -5306,7 +5306,27 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
   // that wrapper treats every key as a method. `assurance-unavailable` is
   // the server that does not offer the routes yet, which is what every
   // production client is until they land.
-  return scenario === "assurance-unavailable" ? served : { ...served, assurance: createMockAssurance(scenario) };
+  if (scenario === "assurance-unavailable") return served;
+  const assurance = createMockAssurance(scenario);
+  // The docked terminal reads the live feed, so a scrub or recovery test
+  // also shows up there, stage by stage, with the same sequence on every
+  // poll (see assuranceLiveEvents).
+  const live = served.getLiveActivity;
+  return {
+    ...served,
+    assurance,
+    getLiveActivity: async (options) => {
+      const base = await live(options);
+      const since = options?.since ?? 0;
+      return {
+        ...base,
+        sets: base.sets.map((s) => {
+          const extra = assuranceLiveEvents(s.setId).filter((e) => e.sequence > since);
+          return extra.length ? { ...s, events: [...s.events, ...extra] } : s;
+        })
+      };
+    }
+  };
 }
 
 // mockPreflightFor builds the report both preflight fixtures answer with,

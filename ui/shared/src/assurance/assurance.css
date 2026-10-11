@@ -47,3 +47,8 @@
 .avlog__pre { margin: 0; padding: var(--space-3); background: var(--term-bg); color: var(--term-text); border-radius: var(--radius-md); font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.7; white-space: pre-wrap; word-break: break-all; max-height: 240px; overflow: auto; }
 
 .anotice { border: 2px solid var(--warn); background: var(--warn-quiet); border-radius: var(--radius-md); padding: var(--space-3); color: var(--text); }
+
+/* CommandEcho's eyebrow takes --text-3, which is below 4.5:1 on the surface
+   colours in both themes. Inside the assurance surfaces it takes the body's
+   secondary ink instead; the shared component is untouched. */
+[data-assurance] .eyebrow { color: var(--text-2); }
