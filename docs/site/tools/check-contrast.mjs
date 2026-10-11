@@ -30,6 +30,11 @@
 // colour, so it is reported as an offender of its own kind rather than
 // passed: a check that cannot tell says so.
 //
+// What it does not see, said plainly: hover, focus and other states (the
+// token check covers the fills those use), text scrolled out of view inside
+// an overflow container, and the narrow-viewport drawer. A pass is a pass
+// for the default state at 1280px.
+//
 // Nothing is fixed here. It prints every offender and exits 1 when there is
 // one, 2 when it could not run (no browser, no page, zero text nodes read).
 // A run that read nothing is a failure on purpose: that is what a green
