@@ -17,10 +17,14 @@
  * fixture or which outcome a case needs; there is no assurance behaviour
  * here the typed interface does not describe.
  */
+import { RetndError } from "@shared/api/contracts";
+import type { BackupArtifact } from "@shared/types/backup";
+import type { ApiErrorCode, RecoveryMint, RecoveryMintRequest, RecoveryPlacement, RecoveryTargetSpec } from "@shared/api/contracts";
 import type {
-  ArchivalCost, ArtifactAssurance, AssuranceApi, AssuranceSettings, ClaimRecord, Operation, OperationEvent,
-  OperationFeed, OperationKind, OperationState, Recovery, RecoveryRequest, SetAssurance, SetAssuranceMode, ValidatorResult
+  ArtifactAssurance, AssuranceApi, ClaimRecord, Operation, OperationEvent,
+  OperationFeed, OperationKind, OperationState, ValidatorResult
 } from "./types";
+import { stageLabel } from "./stages";
 import type { SetActivityEvent } from "@shared/types/activity";
 
 const DAY = 86_400_000;
@@ -28,14 +32,12 @@ const KEY = "retnd.mock.assurance";
 const DROP = "retnd.mock.assurance.drop";
 
 interface StoredOp { id: string; kind: OperationKind; setId: string; startedAt: number; cancelledAt?: number }
-interface StoredRecovery { id: string; artifactId: string; target: "browser" | "staging" | "destination"; startedAt: number; cancelledAt?: number }
 interface Store {
   starts: number;
   grants: number;
   ops: Record<string, StoredOp>;
-  recoveries: Record<string, StoredRecovery>;
-  modes: Record<string, { mode: SetAssuranceMode; scrubEvery?: string; validator?: string }>;
-  scrubEvery: string;
+  /** artifact id -> when its provider restore was requested. */
+  thaws: Record<string, number>;
 }
 
 let memory: Store | null = null;
@@ -44,60 +46,63 @@ function load(): Store {
     const raw = sessionStorage.getItem(KEY);
     if (raw) return JSON.parse(raw) as Store;
   } catch { /* private window: fall through to memory */ }
-  memory ??= { starts: 0, grants: 0, ops: {}, recoveries: {}, modes: {}, scrubEvery: "7d" };
+  memory ??= fresh();
   return memory;
 }
 function save(s: Store) {
   memory = s;
   try { sessionStorage.setItem(KEY, JSON.stringify(s)); } catch { /* memory holds it */ }
 }
-function fresh(): Store { return { starts: 0, grants: 0, ops: {}, recoveries: {}, modes: {}, scrubEvery: "7d" }; }
+function fresh(): Store { return { starts: 0, grants: 0, ops: {}, thaws: {} }; }
 
 const rec = (status: ClaimRecord["status"], cls: ClaimRecord["achievedClass"], ago?: number, now = Date.now()): ClaimRecord => ({
   status, achievedClass: cls, at: ago === undefined ? undefined : new Date(now - ago).toISOString()
 });
 
-/** Artifact id -> the set it belongs to, and which one is that set's latest. */
+/** Set id -> the set's latest backup, whose claims the set page shows. */
 const SET_LATEST: Record<string, string> = {
   "production/postgres-primary": "production/postgres-primary/postgres-prod-20260828.dump.zst",
   "production/billing-mysql": "production/billing-mysql/billing-20260827.sql.gz",
   "production/auth-config": "production/auth-config/auth-config-20260826.tar.zst",
   "media/weekly-archive": "media/weekly-archive/media-week34.tar"
 };
-const COST: Record<string, ArchivalCost> = {
-  "media/weekly-archive/media-week34.tar": {
-    provider: "s3-cold", tier: "Bulk", estimate: "about 12 hours to thaw; egress for 48 GB is charged by the provider"
-  }
-};
 
 function baseTable(now: number): ArtifactAssurance[] {
-  // Only the four backups the Backups page lists (the other two fixtures are
-  // quarantined and have their own page), so every state below is one a
-  // reader can reach by looking.
+  // Only the backups the Backups page lists, in the shapes their placements
+  // have in the fixtures (api/mock.ts): two copies of one dump, a single copy
+  // on an archive class, a backup with no copy yet, and a copy nobody can
+  // reach. Every state below is one a reader can reach by looking.
   return [
     { artifactId: "production/postgres-primary/postgres-prod-20260828.dump.zst", copies: 2, content: rec("pass", "content", 3 * DAY, now), recovery: rec("pass", "content", 12 * DAY, now) },
-    { artifactId: "production/billing-mysql/billing-20260827.sql.gz", copies: 1, content: rec("overdue", "content", 41 * DAY, now), recovery: rec("never_run", "") },
-    { artifactId: "media/weekly-archive/media-week34.tar", copies: 1, content: rec("requires_restore", ""), recovery: rec("could_not_complete", "", 1 * DAY, now) },
+    { artifactId: "production/billing-mysql/billing-20260827.sql.gz", copies: 1, content: rec("requires_restore", ""), recovery: rec("could_not_complete", "", 1 * DAY, now) },
+    { artifactId: "media/weekly-archive/media-week34.tar", copies: 0, content: rec("never_run", ""), recovery: rec("never_configured", "") },
     { artifactId: "production/legacy-redis/redis-20260812.rdb.zst", copies: 1, content: rec("no_readable_copy", ""), recovery: rec("never_configured", "") }
   ];
 }
 
-/** The stage plan of an operation: name, seconds, whether bytes move. */
-const PLAN: Record<OperationKind, Array<{ stage: string; secs: number; bytes: boolean; label: string }>> = {
+/** The stage plan of an operation: engine stage id, seconds, whether bytes
+ *  move. Ids and order are the engine's (stages.ts mirrors obs.RecoveryStages
+ *  and the scrub events), so the browser and `--follow` cannot name a stage
+ *  differently. A recovery test re-reads the staged copy, checks its digest,
+ *  and only then runs the operator's script; the engine records both claims,
+ *  the script records neither. */
+const PLAN: Record<OperationKind, Array<{ stage: string; secs: number; bytes: boolean }>> = {
   scrub: [
-    { stage: "enumerate", secs: 1, bytes: false, label: "Reading the copy list from the journal" },
-    { stage: "read", secs: 2, bytes: true, label: "Reading copies" },
-    { stage: "verify", secs: 1, bytes: false, label: "Comparing digests" }
+    { stage: "scrub_start", secs: 1, bytes: false },
+    { stage: "reading", secs: 2, bytes: true },
+    { stage: "scrub_end", secs: 1, bytes: false }
   ],
   recovery_test: [
-    { stage: "recover", secs: 1, bytes: false, label: "Recovering to an isolated staging path" },
-    { stage: "read", secs: 6, bytes: true, label: "Re-reading the recovered bytes" },
-    { stage: "digest", secs: 14, bytes: true, label: "Checking the digest against the recorded one" },
-    { stage: "validator", secs: 3, bytes: false, label: "Running the validator" }
+    { stage: "resolving_copy", secs: 1, bytes: false },
+    { stage: "reading", secs: 6, bytes: true },
+    { stage: "verifying", secs: 14, bytes: true },
+    { stage: "validating", secs: 3, bytes: false },
+    { stage: "cleaning_temporary_files", secs: 1, bytes: false }
   ]
 };
 const TOTAL_BYTES = 4_800_000_000;
 const total = (k: OperationKind) => PLAN[k].reduce((n, p) => n + p.secs, 0);
+const FINAL: Record<OperationKind, string> = { scrub: "scrub_end", recovery_test: "complete" };
 
 function eventsOf(op: StoredOp, upTo: number): OperationEvent[] {
   const out: OperationEvent[] = [];
@@ -106,12 +111,12 @@ function eventsOf(op: StoredOp, upTo: number): OperationEvent[] {
   const at = (s: number) => new Date(op.startedAt + s * 1000).toISOString();
   for (const p of PLAN[op.kind]) {
     if (offset > upTo) break;
-    out.push({ seq: ++seq, at: at(offset), stage: p.stage, text: "stage " + p.stage + ": " + p.label });
+    out.push({ seq: ++seq, at: at(offset), stage: p.stage, text: stageLabel(p.stage) });
     if (p.bytes) {
       for (let s = 1; s < p.secs; s++) {
         if (offset + s > upTo) break;
         const pct = Math.round(((offset + s) / total(op.kind)) * 100);
-        out.push({ seq: ++seq, at: at(offset + s), stage: p.stage, text: p.stage + " " + pct + "% of the way through" });
+        out.push({ seq: ++seq, at: at(offset + s), stage: p.stage, text: stageLabel(p.stage) + ": " + pct + "% of the way through" });
       }
     }
     offset += p.secs;
@@ -133,18 +138,18 @@ function view(op: StoredOp, scrubFails: boolean, now: number): { operation: Oper
   let state: OperationState = "running";
   if (op.cancelledAt) {
     state = "cancelled";
-    events.push({ seq: events.length + 1, at: new Date(op.cancelledAt).toISOString(), stage, text: "cancelled by the operator" });
+    events.push({ seq: events.length + 1, at: new Date(op.cancelledAt).toISOString(), stage, text: "Cancelled by the operator" });
   } else if (done) {
     state = op.kind === "scrub" && scrubFails ? "failed" : "complete";
     events.push({
-      seq: events.length + 1, at: new Date(op.startedAt + total(op.kind) * 1000).toISOString(), stage: "done",
-      text: state === "failed" ? "scrub finished: a digest did not match" : op.kind + " finished"
+      seq: events.length + 1, at: new Date(op.startedAt + total(op.kind) * 1000).toISOString(), stage: FINAL[op.kind],
+      text: state === "failed" ? "Scrub finished: a digest did not match" : stageLabel(FINAL[op.kind])
     });
   }
   const frac = state === "complete" || state === "failed" ? 1 : Math.min(1, elapsed / total(op.kind));
   return {
     operation: {
-      id: op.id, kind: op.kind, setId: op.setId, state, stage: state === "running" ? stage : "done",
+      id: op.id, kind: op.kind, setId: op.setId, state, stage: state === "running" ? stage : FINAL[op.kind],
       bytes: Math.round(TOTAL_BYTES * frac), totalBytes: TOTAL_BYTES, startedAt: new Date(op.startedAt).toISOString()
     },
     events
@@ -166,16 +171,16 @@ export function assuranceLiveEvents(setId: string): SetActivityEvent[] {
   ops.forEach((op, i) => {
     const v = view(op, activeScenario === "assurance-scrub-fails", Date.now());
     v.events.forEach((e) => {
-      const last = e.stage === "done" || e.text.startsWith("cancelled");
-      const failed = v.operation.state === "failed" && e.stage === "done";
+      const last = e.stage === FINAL[op.kind] || e.text.startsWith("Cancelled");
+      const failed = v.operation.state === "failed" && e.stage === FINAL[op.kind];
       out.push({
         sequence: 100_000 + i * 1_000 + e.seq,
         at: e.at,
         level: failed ? "error" : "info",
         event: "assurance_stage",
         scope: "set",
-        message: (op.kind === "scrub" ? "scrub " : "recovery test ") + e.text,
-        ...(last ? { result: failed ? ("error" as const) : e.text.startsWith("cancelled") ? ("warn" as const) : ("success" as const) } : {}),
+        message: (op.kind === "scrub" ? "scrub: " : "recovery test: ") + e.text,
+        ...(last ? { result: failed ? ("error" as const) : e.text.startsWith("Cancelled") ? ("warn" as const) : ("success" as const) } : {}),
         fields: { stage: e.stage, operation: op.id }
       });
     });
@@ -186,6 +191,7 @@ export function assuranceLiveEvents(setId: string): SetActivityEvent[] {
 export function createMockAssurance(scenario: string): AssuranceApi {
   activeScenario = scenario;
   const scrubFails = scenario === "assurance-scrub-fails";
+  const cleanupFails = scenario === "assurance-cleanup-fails";
   // A new tab session of the mock starts clean the first time a scenario is
   // opened; a reload keeps what the page left behind.
   try {
@@ -195,6 +201,11 @@ export function createMockAssurance(scenario: string): AssuranceApi {
 
   const table = (now: number): ArtifactAssurance[] => {
     let t = baseTable(now);
+    if (scenario === "assurance-no-operations") {
+      // The production composition: no route reports a recovery test, so the
+      // claim is unknown for every backup.
+      t = t.map((a) => ({ ...a, recovery: rec("unknown", "") }));
+    }
     if (scenario === "assurance-rebuilt") {
       t = t.map((a) => ({ ...a, content: rec("unknown", ""), recovery: rec("unknown", "") }));
     }
@@ -203,16 +214,23 @@ export function createMockAssurance(scenario: string): AssuranceApi {
     }
     if (scenario === "assurance-more") {
       t = t.map((a) =>
-        a.artifactId.endsWith("20260828.dump.zst") ? { ...a, content: rec("refused_for_cost", "existence", 9 * DAY, now) }
+        a.artifactId.endsWith("20260828.dump.zst") ? { ...a, content: rec("refused_for_cost", "existence", 9 * DAY, now), recovery: rec("cleanup_failed", "content", 2 * DAY, now) }
         : a.artifactId.endsWith("20260827.sql.gz") ? { ...a, content: rec("failed", "", 2 * DAY, now), recovery: rec("never_configured", "") }
+        : a.artifactId.endsWith("20260812.rdb.zst") ? { ...a, content: rec("overdue", "content", 41 * DAY, now), recovery: rec("never_run", "") }
         : a);
     }
     if (scenario === "assurance-existence") {
       t = t.map((a) => a.artifactId.endsWith("20260828.dump.zst") ? { ...a, content: rec("pass", "existence", 3 * DAY, now) } : a);
     }
+    if (scenario === "assurance-recovery-overdue") {
+      // Only the recovery claim is overdue. Content is fresh, so the
+      // dashboard has to count this set as due from the other claim alone.
+      t = t.map((a) => a.artifactId.endsWith("20260828.dump.zst") ? { ...a, recovery: rec("overdue", "content", 70 * DAY, now) } : a);
+    }
     // Finished operations write their verdict onto the set's latest backup,
     // which is what makes a failing scrub REPLACE the chip rather than sit
-    // beside it.
+    // beside it. This is the mock's stand-in for the engine recording the
+    // claim: nothing the validator script prints can reach these fields.
     const s = load();
     for (const op of Object.values(s.ops)) {
       if (op.cancelledAt) continue;
@@ -224,64 +242,22 @@ export function createMockAssurance(scenario: string): AssuranceApi {
         if (a.artifactId !== target) return a;
         const at = new Date(endedAt).toISOString();
         if (op.kind === "scrub") return { ...a, content: { status: v.state === "failed" ? "failed" : "pass", achievedClass: v.state === "failed" ? "" : "content", at } };
-        return { ...a, recovery: { status: "pass", achievedClass: "content", at } };
+        return { ...a, recovery: { status: cleanupFails ? "cleanup_failed" : "pass", achievedClass: "content", at } };
       });
     }
     return t;
   };
 
   const setOf = (artifactId: string) => artifactId.split("/").slice(0, 2).join("/");
-
   const operationsOf = (setId: string) => Object.values(load().ops).filter((o) => o.setId === setId);
 
-  const recoveryView = (r: StoredRecovery, now: number): Recovery => {
-    const total = 48_000_000;
-    const slow = scenario === "assurance-download-slow";
-    const fails = scenario === "assurance-download-fails";
-    const dur = slow ? 120_000 : 3_000;
-    const elapsed = (r.cancelledAt ?? now) - r.startedAt;
-    let state: Recovery["state"] = "running";
-    let bytes = Math.min(total, Math.round((elapsed / dur) * total));
-    if (r.cancelledAt) state = "cancelled";
-    else if (fails && elapsed >= 2_000) { state = "failed"; bytes = Math.round(total * 0.4); }
-    else if (elapsed >= dur) state = "complete";
-    return { id: r.id, artifactId: r.artifactId, target: r.target, state, bytes, totalBytes: total, streamUrl: "" };
-  };
-
-  const latestFor = (setId: string, now: number) => table(now).find((a) => a.artifactId === SET_LATEST[setId]);
-
   const api: AssuranceApi = {
+    offers: { operations: scenario !== "assurance-no-operations", recoveryClaim: scenario !== "assurance-no-operations" },
     listArtifactAssurance: async (setId) => table(Date.now()).filter((a) => !setId || setOf(a.artifactId) === setId),
     getArtifactAssurance: async (id) => {
       const a = table(Date.now()).find((x) => x.artifactId === id);
       if (!a) throw new Error("no such artifact");
       return a;
-    },
-    getArchivalCost: async (id) => COST[id] ?? null,
-    getSetAssurance: async (setId) => {
-      const s = load();
-      const m = s.modes[setId] ?? { mode: "inherit" as const };
-      return {
-        setId, mode: m.mode, resolvedScrubEvery: m.mode === "custom" && m.scrubEvery ? m.scrubEvery : s.scrubEvery,
-        customScrubEvery: m.scrubEvery, customValidator: m.validator, latest: latestFor(setId, Date.now())
-      } satisfies SetAssurance;
-    },
-    putSetAssurance: async (setId, mode, custom) => {
-      const s = load();
-      s.modes[setId] = { mode, scrubEvery: custom?.scrubEvery, validator: custom?.validator };
-      save(s);
-      return api.getSetAssurance(setId);
-    },
-    getSettings: async (): Promise<AssuranceSettings> => ({
-      scrubEvery: load().scrubEvery,
-      host: { stagingRoot: "/data/recover-staging", stagingTtl: "24h", concurrency: "1 full read, 1 per destination", downloadMemoryBudget: "64 MiB" }
-    }),
-    putSettings: async (scrubEvery) => {
-      if (!/^\d+[dh]$/.test(scrubEvery)) throw new Error("Use a number and a unit, like 7d or 12h.");
-      const s = load();
-      s.scrubEvery = scrubEvery;
-      save(s);
-      return api.getSettings();
     },
 
     startScrub: (setId) => start("scrub", setId),
@@ -314,6 +290,10 @@ export function createMockAssurance(scenario: string): AssuranceApi {
     getValidatorResult: async (): Promise<ValidatorResult | null> => {
       if (scenario !== "assurance-validator-output") return null;
       return {
+        artifactId: "production/postgres-primary/postgres-prod-20260828.dump.zst",
+        copy: "local",
+        validatorName: "pg-restore-check.local.sh",
+        validatorSha256: "5c1e9a07b3d84f26a0c7e1d9b8f34a6572ce0d1b94a7f83e6d205b1c9a47e3f8",
         exitStatus: 3,
         durationMs: 4200,
         truncatedBytes: 41_873,
@@ -325,36 +305,6 @@ export function createMockAssurance(scenario: string): AssuranceApi {
           "validate: error: index mismatch"
         ].join("\n")
       };
-    },
-
-    createRecovery: async (artifactId, req: RecoveryRequest) => {
-      if (COST[artifactId] && !req.acknowledgeCost) {
-        throw new Error("This copy is archived: recovering it costs money, and no acknowledgement was sent.");
-      }
-      const s = load();
-      s.grants += 1;
-      const id = "rec_" + s.grants + "_" + Date.now().toString(36);
-      s.recoveries[id] = { id, artifactId, target: req.target, startedAt: Date.now() };
-      save(s);
-      return recoveryView(s.recoveries[id], Date.now());
-    },
-    activeRecovery: async (artifactId) => {
-      const now = Date.now();
-      for (const r of Object.values(load().recoveries)) {
-        if (r.artifactId !== artifactId) continue;
-        const v = recoveryView(r, now);
-        if (v.state === "running") return v;
-      }
-      return null;
-    },
-    getRecovery: async (id) => {
-      const r = load().recoveries[id];
-      if (!r) throw new Error("no such recovery");
-      return recoveryView(r, Date.now());
-    },
-    cancelRecovery: async (id) => {
-      const s = load();
-      if (s.recoveries[id] && !s.recoveries[id].cancelledAt) { s.recoveries[id].cancelledAt = Date.now(); save(s); }
     }
   };
 
@@ -376,4 +326,111 @@ export function createMockAssurance(scenario: string): AssuranceApi {
   }
 
   return api;
+}
+
+// ---------------------------------------------------------------------------
+// Recovery (#976): the mint and the redeem, and the one provider restore.
+// ---------------------------------------------------------------------------
+
+/** The fixture backup whose only copy is on an archive class. */
+export const ARCHIVED_FIXTURE = "production/billing-mysql/billing-20260827.sql.gz";
+/** How long the mock's provider restore takes. Real ones take hours; the
+ *  fixture takes seconds so a spec can watch the whole flow. */
+const THAW_MS = 2500;
+/** A spec that needs the restore to stay in flight sets this key. */
+const thawMs = () => {
+  try { return Number(sessionStorage.getItem(KEY + ".thawMs")) || THAW_MS; } catch { return THAW_MS; }
+};
+
+const refuse = (code: string, message: string, status: number) =>
+  new RetndError({ code: code as ApiErrorCode, message, status, correlationId: "cid_mock" + code.toLowerCase() });
+
+/** What a provider restore has done to the archived fixture's copy so far, or
+ *  null when none was requested. The overlay api/mock.ts applies to the copy's
+ *  `access`, derived from the clock like everything else here. */
+export function mockThawAccess(artifactId: string, now: number = Date.now()): "restoring" | "immediate" | null {
+  const at = load().thaws[artifactId];
+  if (at === undefined) return null;
+  return now - at >= thawMs() ? "immediate" : "restoring";
+}
+
+export function overlayThaw(a: BackupArtifact): BackupArtifact {
+  const access = mockThawAccess(a.id);
+  if (!access) return a;
+  return { ...a, placements: a.placements.map((p) => (p.access === "requires_restore" || p.access === "restoring" ? { ...p, access } : p)) };
+}
+
+/** What each grant the mock minted is for, so a redeem answers for the right
+ *  target. Memory only: a grant is single-use and short-lived by design. */
+const GRANTS = new Map<string, { artifactId: string; copy: string; target: RecoveryTargetSpec }>();
+
+export function createMockRecovery(scenario: string) {
+  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+  return {
+    mintRecovery: async (artifactId: string, req: RecoveryMintRequest): Promise<RecoveryMint> => {
+      if (scenario === "assurance-snapshot-set") {
+        throw refuse("RECOVERY_USE_SNAPSHOT_RESTORE", "This backup set is stored by the snapshot engine, so its backups are restore points. Use retnd snapshot restore.", 409);
+      }
+      if (scenario === "assurance-too-many-grants") {
+        throw refuse("RECOVERY_TOO_MANY_GRANTS", "Too many recoveries are waiting to be collected. Use or let some expire first.", 429);
+      }
+      const s = load();
+      if (artifactId === ARCHIVED_FIXTURE) {
+        if (!req.acknowledged) {
+          throw refuse(
+            "RECOVERY_COST_NOT_ACKNOWLEDGED",
+            "The only copy is in DEEP_ARCHIVE on offsite_cold. Reading it needs the provider to restore it first, which is billed and takes hours. Nothing was started.",
+            409
+          );
+        }
+        const state = mockThawAccess(artifactId);
+        if (state === null) {
+          s.thaws[artifactId] = Date.now();
+          save(s);
+          return {
+            kind: "restore", artifactId, copy: "offsite_cold", operationId: "op_restore_mock",
+            wait: "up to 48 hours for DEEP_ARCHIVE (the class's published time, not an estimate for this copy)",
+            billing: "The provider bills for this restore. retnd holds no price list, so it shows no amount."
+          };
+        }
+        if (state === "restoring") {
+          throw refuse("RECOVERY_NOT_READABLE", "The provider is still restoring this copy. Ask again once it is readable.", 409);
+        }
+      }
+      s.grants += 1;
+      save(s);
+      const grant = "mockgrant" + s.grants;
+      GRANTS.set(grant, { artifactId, copy: artifactId === ARCHIVED_FIXTURE ? "offsite_cold" : "local", target: req.target });
+      return {
+        kind: "grant", artifactId, copy: artifactId === ARCHIVED_FIXTURE ? "offsite_cold" : "local", grant,
+        downloadUrl: "/api/v1/recoveries/" + grant,
+        expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+        target: req.target, sizeBytes: 15_246_903_296
+      };
+    },
+    redeemRecovery: async (grant: string): Promise<RecoveryPlacement> => {
+      // The host re-reads the copy and matches it to the recorded digest
+      // before it writes anything. The mock holds the request open for that
+      // long so the "checking on the host" phase can be seen.
+      await sleep(scenario === "assurance-download-slow" ? 6000 : 1200);
+      if (scenario === "assurance-grant-expired") throw refuse("RECOVERY_GRANT_EXPIRED", "This grant expired before it was used. Ask for a new one.", 410);
+      if (scenario === "assurance-grant-used") throw refuse("RECOVERY_GRANT_USED", "This grant was already used. Ask for a new one.", 410);
+      if (scenario === "assurance-session-ended") throw refuse("RECOVERY_GRANT_SESSION_ENDED", "The session that minted this grant has ended.", 403);
+      if (scenario === "assurance-staging-full") throw refuse("RECOVERY_NO_SPACE", "The staging filesystem does not have room for this copy plus its reserve. Nothing was written and no partial file remains.", 507);
+      if (scenario === "assurance-reads-busy") throw refuse("RECOVERY_READS_BUSY", "This host runs only so many full reads at once and all of them are taken. The grant is not spent. Try again shortly.", 429);
+      if (scenario === "assurance-download-fails" || scenario === "assurance-corrupt-copy") {
+        throw refuse("RECOVERY_LOCAL_COPY_CORRUPT", "The copy on this host's disk failed verification against the digest the journal recorded. Nothing was delivered.", 500);
+      }
+      const g = GRANTS.get(grant);
+      if (!g) throw refuse("RECOVERY_GRANT_UNKNOWN", "No such grant.", 404);
+      GRANTS.delete(grant);
+      const placed = g.target.kind === "storage"
+        ? { key: g.target.key || "recovered/" + g.artifactId }
+        : { path: "/data/recover-staging/" + (g.target.path || "recovered") + ".k3j9" };
+      return {
+        artifactId: g.artifactId, copy: g.copy, target: g.target, ...placed,
+        bytes: 15_246_903_296, sha256: "9f2c61b7a5e84d03c1b7f60a29e5d8374bc01e6a52d93f8087ab4c6e1d25f390"
+      };
+    }
+  };
 }

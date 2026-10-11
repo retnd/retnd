@@ -51,6 +51,10 @@ import type {
   WireAssuranceDueResponse,
   WireAssuranceSettingsResponse,
   WireBackupSetAssurance,
+  WireRecoveryMintRequest,
+  WireRecoveryMintResponse,
+  WireRecoveryResult,
+  WireRecoveryTarget,
   WireUpdateAssuranceSettingsRequest,
   WireUpdateBackupSetAssuranceRequest,
   WireArtifact,
@@ -136,6 +140,10 @@ import type {
 } from "./generated/contract";
 import type {
   AppSettings,
+  RecoveryMint,
+  RecoveryMintRequest,
+  RecoveryPlacement,
+  RecoveryTargetSpec,
   AssuranceDue,
   AssuranceSettings,
   AssuranceSettingsPatch,
@@ -2657,6 +2665,65 @@ function wireAssurancePatch(
 
 const assurancePath = (source: string, set: string) => backupSetPath(source, set) + "/assurance";
 
+function fromWireRecoveryTarget(t: WireRecoveryTarget | undefined): RecoveryTargetSpec {
+  return {
+    kind: t?.kind ?? "download",
+    ...(t?.path ? { path: t.path } : {}),
+    ...(t?.medium ? { medium: t.medium } : {}),
+    ...(t?.key ? { key: t.key } : {})
+  };
+}
+
+function fromWireRecoveryMint(m: WireRecoveryMintResponse): RecoveryMint {
+  // A grant and a restore never share a response. The restore wins when
+  // both were somehow named, because a grant with a restore beside it would
+  // be offering a download of a copy that cannot be read yet.
+  if (m.restore) {
+    return {
+      kind: "restore",
+      artifactId: m.artifact_id,
+      copy: m.copy,
+      operationId: m.restore.operation_id,
+      ...(m.restore.wait ? { wait: m.restore.wait } : {}),
+      ...(m.restore.billing ? { billing: m.restore.billing } : {})
+    };
+  }
+  return {
+    kind: "grant",
+    artifactId: m.artifact_id,
+    copy: m.copy,
+    grant: m.grant ?? "",
+    downloadUrl: m.download_url ?? "",
+    expiresAt: m.expires_at ?? "",
+    target: fromWireRecoveryTarget(m.target),
+    ...(m.size_bytes !== undefined ? { sizeBytes: m.size_bytes } : {})
+  };
+}
+
+function toWireRecoveryMint(req: RecoveryMintRequest): WireRecoveryMintRequest {
+  const target: WireRecoveryTarget = { kind: req.target.kind };
+  if (req.target.path) target.path = req.target.path;
+  if (req.target.medium) target.medium = req.target.medium;
+  if (req.target.key) target.key = req.target.key;
+  return {
+    target,
+    ...(req.copy ? { copy: req.copy } : {}),
+    ...(req.acknowledged ? { acknowledged: true } : {})
+  };
+}
+
+function fromWireRecoveryResult(r: WireRecoveryResult): RecoveryPlacement {
+  return {
+    artifactId: r.artifact_id,
+    copy: r.copy,
+    target: fromWireRecoveryTarget(r.target),
+    ...(r.path ? { path: r.path } : {}),
+    ...(r.key ? { key: r.key } : {}),
+    bytes: r.bytes,
+    sha256: r.sha256
+  };
+}
+
 function fromWireBackupSetWorkflow(s: WireBackupSetWorkflowResponse): BackupSetWorkflow {
   return {
     backupSetId: s.backup_set_id ?? "",
@@ -3608,6 +3675,14 @@ export const httpApi: RetndApi = {
   // 204, so there is nothing to map.
   acknowledgeWorkflowRecovery: (runId, reason) =>
     post(workflowRecoveryPath(runId) + "/acknowledge", { reason }),
+
+  mintRecovery: (artifactId, req) =>
+    request<WireRecoveryMintResponse>(artifactPath(artifactId) + "/recovery", {
+      method: "POST",
+      body: JSON.stringify(toWireRecoveryMint(req))
+    }).then(fromWireRecoveryMint),
+  redeemRecovery: (grant) =>
+    request<WireRecoveryResult>("/recoveries/" + encodeURIComponent(grant)).then(fromWireRecoveryResult),
 
   getAssuranceSettings: () =>
     request<WireAssuranceSettingsResponse>("/settings/assurance").then(fromWireAssuranceSettings),

@@ -24,6 +24,7 @@ import { App } from "@shared/App";
 import { ApiProvider } from "@shared/api/ApiContext";
 import { PlatformProvider } from "@shared/platform/PlatformContext";
 import { httpApi } from "@shared/api/client";
+import { withHttpAssurance } from "@shared/assurance/realAssurance";
 import { createMockApi, scenarioFromLocation } from "@shared/api/mock";
 import type { RetndApi } from "@shared/api/contracts";
 import type { PlatformBridge } from "@shared/types/platform";
@@ -36,7 +37,7 @@ import { ErrorBoundary } from "./ErrorBoundary";
 export function createApp(
   container: HTMLElement,
   bridge: PlatformBridge,
-  api: RetndApi = import.meta.env.DEV ? createMockApi(scenarioFromLocation()) : httpApi
+  api: RetndApi = import.meta.env.DEV ? createMockApi(scenarioFromLocation()) : withHttpAssurance(httpApi)
 ) {
   createRoot(container).render(
     <StrictMode>

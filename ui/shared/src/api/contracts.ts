@@ -2256,6 +2256,64 @@ export interface WorkflowRunnerStatus {
   tokenFile: string;
 }
 
+/** Where one recovery writes its bytes. `download` streams to whoever
+ *  redeems the grant, `staging` places one file under the host's recovery
+ *  staging root, `storage` uploads to another configured destination. */
+export interface RecoveryTargetSpec {
+  kind: "download" | "staging" | "storage";
+  /** staging: a name under the staging root. */
+  path?: string;
+  /** storage: a configured destination id. */
+  medium?: string;
+  /** storage: an object key, defaulting to recovered/<artifact id>. */
+  key?: string;
+}
+
+export interface RecoveryMintRequest {
+  /** A medium id, or empty / "best-available" for the strongest readable copy. */
+  copy?: string;
+  /** The explicit yes to a chargeable retrieval. Absent is a no. */
+  acknowledged?: boolean;
+  target: RecoveryTargetSpec;
+}
+
+/** A grant, or the provider restore that has to finish before there can be
+ *  one. The two never share fields, which is why this is a union. */
+export type RecoveryMint =
+  | {
+      kind: "grant";
+      artifactId: string;
+      copy: string;
+      grant: string;
+      /** GET this path to redeem the grant. */
+      downloadUrl: string;
+      expiresAt: string;
+      target: RecoveryTargetSpec;
+      sizeBytes?: number;
+    }
+  | {
+      kind: "restore";
+      artifactId: string;
+      copy: string;
+      operationId: string;
+      /** The storage class's own published restore time, in words. */
+      wait?: string;
+      /** The plain statement that a bill exists. Never an amount. */
+      billing?: string;
+    };
+
+/** What a redeemed server-side grant answers: verified and placed. */
+export interface RecoveryPlacement {
+  artifactId: string;
+  copy: string;
+  target: RecoveryTargetSpec;
+  path?: string;
+  key?: string;
+  bytes: number;
+  /** The digest of the bytes placed, equal to the one the journal recorded. */
+  sha256: string;
+}
+
 /** A resolved scrub and recovery-test policy (EPIC Q, Q1.4). Every value is
  *  RESOLVED: an inherited or defaulted setting is filled in, so a zero here
  *  is never something to read as "never". */
@@ -2883,6 +2941,27 @@ export interface RetndApi {
    */
   listArtifacts(setId?: string): Promise<BackupArtifact[]>;
   getArtifact(id: string): Promise<BackupArtifact>;
+
+  /**
+   * EPIC Q (#976, issue #985): ask for one read of one backup's copy.
+   *
+   * A mint authorises nothing by itself. It answers in one of two shapes: a
+   * short-lived single-use grant, or (when the only copy is on an archive
+   * class and the request acknowledged the cost) the id of the one provider
+   * restore it started, with no grant yet. A request that would cost money
+   * and did not acknowledge it REJECTS with RECOVERY_COST_NOT_ACKNOWLEDGED
+   * and starts nothing.
+   */
+  mintRecovery(artifactId: string, req: RecoveryMintRequest): Promise<RecoveryMint>;
+  /**
+   * Redeem a grant whose target is on the host (staging or storage). The
+   * request stays open while the host re-reads the copy, matches it to the
+   * digest the journal recorded and only then places it, so it can take a
+   * long time and it carries no progress. A browser download is NOT redeemed
+   * through here: the browser follows the grant's `downloadUrl` itself, so
+   * the bytes never pass through this page's memory.
+   */
+  redeemRecovery(grant: string): Promise<RecoveryPlacement>;
 
   listOperations(): Promise<Operation[]>;
   /**

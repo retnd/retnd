@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { open, row, contrastFailures } from "./helpers";
+import { open, row, measureBorders, measureContrast, setTheme } from "./helpers";
 
 // Issue #985 (Q2.2): the three claims, and the states that are not a pass.
 // Each backup carries Stored, Content verified and Recovery tested as three
@@ -27,18 +27,22 @@ test.describe("#985 the three claims on the Backups list", () => {
     const main: Row[] = [
       ["postgres-prod-20260828.dump.zst", "content", "pass", /Content verified.*ago/],
       ["postgres-prod-20260828.dump.zst", "recovery", "pass", /Recovery test passed.*ago/],
-      ["billing-20260827.sql.gz", "content", "overdue", /Overdue/],
-      ["billing-20260827.sql.gz", "recovery", "never_run", /Never run/],
-      ["media-week34.tar", "content", "requires_restore", /Archived: thaw needed/],
-      ["media-week34.tar", "recovery", "could_not_complete", /Could not complete/],
+      ["billing-20260827.sql.gz", "content", "requires_restore", /Archived: thaw needed/],
+      ["billing-20260827.sql.gz", "recovery", "could_not_complete", /Could not complete/],
+      ["media-week34.tar", "content", "never_run", /Never run/],
+      ["media-week34.tar", "recovery", "never_configured", /Not configured/],
       ["redis-20260812.rdb.zst", "content", "no_readable_copy", /No readable copy/],
       ["redis-20260812.rdb.zst", "recovery", "never_configured", /Not configured/]
     ];
     const more: Row[] = [
       ["postgres-prod-20260828.dump.zst", "content", "refused_for_cost", /Skipped: read would cost egress/],
-      ["billing-20260827.sql.gz", "content", "failed", /Content check failed/]
+      ["postgres-prod-20260828.dump.zst", "recovery", "cleanup_failed", /Cleanup failed: staged copy left behind/],
+      ["billing-20260827.sql.gz", "content", "failed", /Content check failed/],
+      ["redis-20260812.rdb.zst", "content", "overdue", /Overdue/],
+      ["redis-20260812.rdb.zst", "recovery", "never_run", /Never run/]
     ];
     const seen = new Set<string>();
+    const done = new Set<string>();
     for (const [scenario, expected] of [["default", main], ["assurance-more", more]] as Array<[string, Row[]]>) {
       await open(page, "/backups", scenario);
       for (const [file, which, state, text] of expected) {
@@ -46,7 +50,8 @@ test.describe("#985 the three claims on the Backups list", () => {
         await expect(c, `${file} ${which}`).toHaveAttribute("data-state", state);
         await expect(c).toContainText(text);
         if (state !== "pass") await expect(c).not.toContainText(/Content verified|Recovery test passed/);
-        if (state !== "pass") {
+        if (state !== "pass" && !done.has(state)) {
+          done.add(state);
           seen.add(await c.locator("[data-chip]").evaluate((e) => {
             const s = getComputedStyle(e);
             return [s.borderTopStyle, s.borderTopWidth, e.querySelector("[data-glyph]")?.getAttribute("data-glyph")].join("|");
@@ -58,7 +63,7 @@ test.describe("#985 the three claims on the Backups list", () => {
     // each state has its own (border style, width, glyph) triple
     const shapes = new Set([...seen].map((x) => x.split("#")[0]));
     const states = new Set([...seen].map((x) => x.split("#")[1]));
-    expect(states.size).toBe(8);
+    expect(states.size).toBe(9);
     expect(shapes.size).toBe(states.size);
   });
   test("a verified checksum with a failed recovery test reads as two facts", async ({ page }) => {
@@ -106,10 +111,14 @@ test.describe("#985 the Backup detail page", () => {
 
 for (const theme of ["light", "dark"] as const) {
   test(`#985 claim chips meet 4.5:1 text contrast in the ${theme} theme`, async ({ page }) => {
-    await open(page, "/backups");
-    await expect(page.locator('[data-claim]').first()).toBeVisible();
-    await page.evaluate((t) => document.documentElement.setAttribute("data-theme", t), theme);
-    expect(await contrastFailures(page, '[data-testid="assurance-claims"]')).toEqual([]);
+    for (const scenario of ["default", "assurance-more"]) {
+      await open(page, "/backups", scenario);
+      await expect(page.locator('[data-claim]').first()).toBeVisible();
+      await setTheme(page, theme);
+      expect(await measureContrast(page, `claim chips, ${scenario}, ${theme}`, '[data-testid="assurance-claims"]')).toEqual([]);
+      // the chip edge is a component boundary, so it needs 3:1 as well
+      expect(await measureBorders(page, `claim chips, ${scenario}, ${theme}`, '[data-testid="assurance-claims"] .achip')).toEqual([]);
+    }
   });
 }
 
@@ -121,10 +130,20 @@ test.describe("#985 the Dashboard counters", () => {
     await expect(card.getByTestId("assurance-degraded")).not.toContainText("unknown");
   });
 
-  test("the default fixture reports its overdue and degraded backups", async ({ page }) => {
+  test("the default fixture reports what is due and what is degraded", async ({ page }) => {
     await open(page, "/");
     const card = page.getByRole("region", { name: "Assurance summary" });
-    await expect(card.getByTestId("assurance-overdue")).toContainText("1");
+    // media-week34 has never been checked; billing's recovery test could not
+    // complete and redis has no readable copy
+    await expect(card.getByTestId("assurance-due")).toContainText("1");
+    await expect(card.getByTestId("assurance-overdue")).toContainText("0");
     await expect(card.getByTestId("assurance-degraded")).toContainText("2");
+  });
+
+  test("an overdue recovery test makes a set due and overdue even though its content check is fresh", async ({ page }) => {
+    await open(page, "/", "assurance-recovery-overdue");
+    const card = page.getByRole("region", { name: "Assurance summary" });
+    await expect(card.getByTestId("assurance-due")).toContainText("2");
+    await expect(card.getByTestId("assurance-overdue")).toContainText("1");
   });
 });
