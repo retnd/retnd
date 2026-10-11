@@ -51,7 +51,8 @@ var _ RecoveryStream = (*RecoveryDownload)(nil)
 // RecoveryDownload is a started browser download: a verified, staged copy
 // the HTTP layer serves ranges of, one request at a time.
 //
-// The grant is spent when the last byte has been served, when any request
+// The grant is spent when every byte has been served (in any number of
+// ranges, in any order), when any request
 // fails, or when the session ends or the client stops coming back inside
 // the grant's TTL. Until then further requests with the same token are
 // continuations (the ranges a browser asks for) and each writes its own
@@ -105,7 +106,7 @@ func (d *RecoveryDownload) Served(start, end, written int64, err error) {
 		return
 	}
 	d.b.auditRecovery(context.Background(), &ev, err)
-	if err != nil || (d.size == 0 || end >= d.size-1) {
+	if err != nil || d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {
 		d.b.finishRecoveryDownload(d.token)
 	}
 }
@@ -487,4 +488,40 @@ func (b *BackupService) mediumForRecovery(st *configState, id string) (transport
 		return transport.Medium{}, recoveryErr(RecoveryTargetInvalid, "%q is not a configured storage destination", id)
 	}
 	return m, nil
+}
+
+// recoveryReapEvery is how often the serving process reaps lapsed grants and
+// sweeps the staging area without a request to do it. A variable so a test
+// need not wait a minute.
+var recoveryReapEvery = time.Minute
+
+// runRecoveryReaper reaps lapsed grants and sweeps staging on a timer until
+// ctx ends. Without it a download the client walked away from keeps its
+// staged copy (and a download-stream slot) until the next recovery request,
+// which on a quiet deployment may be days.
+func (b *BackupService) runRecoveryReaper(ctx context.Context) {
+	for {
+		timer := time.NewTimer(recoveryReapEvery)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		b.reapRecoveryOnce(ctx)
+	}
+}
+
+// reapRecoveryOnce is one reaper pass, with the panic recovery the other
+// background passes in this process have: it shares a process with the API.
+func (b *BackupService) reapRecoveryOnce(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			b.logger.Error(context.Background(), "recovery-reap-panic", fmt.Errorf("recovered panic: %v", r))
+		}
+	}()
+	if _, err := b.recoveryReady(); err != nil {
+		return
+	}
+	b.sweepRecoveryIfDue(ctx)
 }

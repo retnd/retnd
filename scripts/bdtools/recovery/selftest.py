@@ -44,6 +44,11 @@ EXPORT = "core/internal/recovery/export"
 RESOLVE_GO = f"{EXPORT}/resolve.go"
 ENGINE_GO = f"{EXPORT}/engine.go"
 GRANT_GO = f"{EXPORT}/grant.go"
+SCHEDULER_GO = "core/service/scheduler.go"
+AUTHENTICATOR_GO = "apps/common/auth/local/authenticator.go"
+SESSION_GO = "apps/common/auth/local/session.go"
+SESSIONEND_GO = "apps/generic/cmd/retnd-web/sessionend.go"
+WEB_MAIN_GO = "apps/generic/cmd/retnd-web/main.go"
 STAGE_GO = f"{EXPORT}/stage.go"
 UI_GO = "apps/common/webhost/serve/ui.go"
 REFUSAL_GO = "apps/common/webhost/refusal.go"
@@ -67,6 +72,8 @@ WEBMAIN_PKG = ("apps/generic", ("./cmd/retnd-web/",))
 WEB_PKG = ("apps/common", ("./webhost/",))
 UI_PKG = ("apps/common", ("./webhost/serve/",))
 CLI_PKG = ("core", ("./cmd/retnd/",))
+AUTH_PKG = ("apps/common", ("./auth/local/",))
+SERVE_PKG = ("apps/generic", ("./cmd/retnd-web/",))
 
 PLANT = "// PLANTED VIOLATION (scripts/bdtools/recovery/selftest.py): "
 
@@ -269,8 +276,8 @@ MUTATIONS = [
     (
         "a served range that writes no action-log row",
         RECOVER_RUN_GO,
-        "\td.b.auditRecovery(context.Background(), &ev, err)\n\tif err != nil || (d.size == 0 || end >= d.size-1) {",
-        "\t" + PLANT + "a served range is not audited.\n\t_ = &ev\n\tif err != nil || (d.size == 0 || end >= d.size-1) {",
+        "\td.b.auditRecovery(context.Background(), &ev, err)\n\tif err != nil || d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {",
+        "\t" + PLANT + "a served range is not audited.\n\t_ = &ev\n\tif err != nil || d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {",
         "should write 51 rows",
         SERVICE_PKG,
         "TestEveryMintAndEveryServedRange",
@@ -278,11 +285,101 @@ MUTATIONS = [
     (
         "a download whose grant is not spent when the client goes away",
         RECOVER_RUN_GO,
-        "\tif err != nil || (d.size == 0 || end >= d.size-1) {",
-        "\t" + PLANT + "only a complete download spends the grant.\n\tif d.size == 0 || end >= d.size-1 {",
+        "\tif err != nil || d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {",
+        "\t" + PLANT + "only a complete download spends the grant.\n\tif d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {",
         "left",
         SERVICE_PKG,
-        "TestAFailedRangeWritesARowSayingSo",
+        "TestAFailedRangeWritesARowSayingSo|TestAFailedTailRangeStillSpendsTheGrant",
+    ),
+    (
+        "a tail range that spends the grant",
+        RECOVER_RUN_GO,
+        "\tif err != nil || d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {",
+        "\t" + PLANT + "reaching the last byte spends the grant.\n\tif err != nil || d.size == 0 || end >= d.size-1 {",
+        "after one tail range",
+        SERVICE_PKG,
+        "TestATailRangeDoesNotSpendTheGrant|TestRangesThatCoverTheArtifact",
+    ),
+    (
+        "ranges that cover the artifact never spending the grant",
+        GRANT_GO,
+        "\treturn len(e.served) == 1 && e.served[0].from == 0 && e.served[0].to >= size",
+        "\t" + PLANT + "coverage is never recognised.\n\treturn false",
+        "still redeemable",
+        SERVICE_PKG,
+        "TestRangesThatCoverTheArtifact|TestAWholeFileRequestSpendsTheGrant",
+    ),
+    (
+        "a gap in the served ranges counted as covered",
+        GRANT_GO,
+        "\treturn len(e.served) == 1 && e.served[0].from == 0 && e.served[0].to >= size",
+        "\t" + PLANT + "one span that does not start at zero counts.\n\treturn len(e.served) == 1 && e.served[0].to >= size",
+        "the grant is spent",
+        SERVICE_PKG,
+        "TestATailRangeDoesNotSpendTheGrant|TestRangesThatCoverTheArtifact",
+    ),
+    (
+        "a recovery reaper that sweeps nothing",
+        RECOVER_RUN_GO,
+        "\t}\n\tb.sweepRecoveryIfDue(ctx)\n}\n",
+        "\t}\n\t" + PLANT + "the timer fires and does nothing.\n\t_ = ctx\n}\n",
+        "no request to reap it",
+        SERVICE_PKG,
+        "TestAbandonedDownloadIsReapedWithoutANewRequest",
+    ),
+    (
+        "a recovery reaper nobody starts",
+        SCHEDULER_GO,
+        "\t\tb.runRecoveryReaper(ctx)\n",
+        "\t\t" + PLANT + "the reaper is never started.\n\t\t<-ctx.Done()\n",
+        "never reaped the abandoned download",
+        SERVICE_PKG,
+        "TestRunOnScheduleStartsTheRecoveryReaper",
+    ),
+    (
+        "a local session whose expiry the authenticator never reports",
+        AUTHENTICATOR_GO,
+        "\t\tSessionExpiresAt: rec.expiresAt.UTC().Format(time.RFC3339Nano),\n",
+        "\t\t// " + PLANT.rstrip() + "\n",
+        "SessionExpiresAt is empty",
+        AUTH_PKG,
+        "TestAuthenticatorReportsSessionExpiry",
+    ),
+    (
+        "a logout that tells nobody",
+        SESSION_GO,
+        "\tif ok && !m.now().After(rec.expiresAt) {\n\t\tm.ended(fn, rec)\n\t}",
+        "\t" + PLANT + "the session end is not reported.\n\t_, _, _ = ok, fn, rec",
+        "logout never told",
+        AUTH_PKG,
+        "TestLogoutTellsTheSessionEndHook",
+    ),
+    (
+        "a password rotation that leaves the dropped sessions' grants alive",
+        SESSION_GO,
+        "\tfn := m.onEnd\n\tm.mu.Unlock()\n\tm.ended(fn, dropped...)\n\treturn token, expiresAt, nil",
+        "\tfn := m.onEnd\n\tm.mu.Unlock()\n\t" + PLANT + "dropped sessions are not reported.\n\t_, _ = fn, dropped\n\treturn token, expiresAt, nil",
+        "told the hook about 0",
+        AUTH_PKG,
+        "TestRotatingThePassword",
+    ),
+    (
+        "a logout adapter that never reaches the backup service",
+        SESSIONEND_GO,
+        "\t\tbackend.EndRecoverySession(service.RecoverySession{Actor: username, Expires: expiresAt})\n",
+        "\t\t" + PLANT + "the backup service is not told.\n\t\t_, _, _ = backend, username, expiresAt\n",
+        "logout ended 0 recovery sessions",
+        SERVE_PKG,
+        "TestLogoutRevokesTheRecoveryGrantsOfThatSession",
+    ),
+    (
+        "a first-run backend that never hears about a logout",
+        WEB_MAIN_GO,
+        "\t\t\tendRecoverySessionsOnLogout(authSvc, opened)\n",
+        "\t\t\t" + PLANT + "first-run activation is not wired.\n",
+        "calls endRecoverySessionsOnLogout 1 time",
+        SERVE_PKG,
+        "TestServeHandsEveryBackendItBuildsToTheLogoutAdapter",
     ),
     (
         "a recovery mint behind the destructive gate",
@@ -618,6 +715,17 @@ CLEAN_CONTROLS = [
     ("the budget package", BUDGET_PKG, "."),
     ("the host-limits contract", CAPS_PKG, "."),
     ("the deployment tripwire", DEPLOY_PKG, "."),
+    (
+        "the grant lifetime suite",
+        SERVICE_PKG,
+        "TestATailRange|TestRangesThat|TestAWholeFile|TestAFailedTail|TestAbandoned|TestRunOnScheduleStartsTheRecovery|TestEndingTheSession",
+    ),
+    (
+        "the local session suite",
+        AUTH_PKG,
+        "TestAuthenticatorReportsSessionExpiry|TestLogoutTells|TestRotatingThePassword",
+    ),
+    ("the logout wiring suite", SERVE_PKG, "TestLogoutRevokes|TestServeHandsEveryBackend"),
 ]
 
 
