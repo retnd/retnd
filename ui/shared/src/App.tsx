@@ -25,6 +25,7 @@
  * here is the footer naming what it is running on.
  */
 import { useCallback, useEffect, useState } from "react";
+import { OperationDetailPage } from "@shared/assurance/OperationDetailPage";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import "@shared/design-system/tokens.css";
 import "@shared/design-system/typography.css";
@@ -352,6 +353,7 @@ export function App() {
             build the URL with workflowRunPath() (utilities/routes.ts). */}
         <Route path="/workflow-runs/:runId" element={<WorkflowRunPage readOnly={readOnly} />} />
         <Route path="/backups" element={<BackupsPage readOnly={readOnly} />} />
+        <Route path="/assurance/operations/:id" element={<OperationDetailPage readOnly={readOnly} />} />
         {/* And three, not one, for the same reason one route up: an
             artifact id (model.ArtifactID.String()) is a backup set id
             plus the file's name, so it is source, set and name, and the

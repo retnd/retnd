@@ -56,6 +56,7 @@ import type {
   SystemHealth,
   VersionInfo
 } from "@shared/types/operation";
+import { createMockAssurance } from "@shared/assurance/mockAssurance";
 import type { DeploymentActivity, SetActivity, SetActivityEvent } from "@shared/types/activity";
 
 /** Development fixtures. Covers every scenario the brief requires (§42):
@@ -92,7 +93,19 @@ export type Scenario =
   // delete-from-source control and say why. It is its own scenario
   // because the interesting state is a PASSING test with one answer
   // inverted, and no other fixture here can produce that.
-  | "read-only-source";
+  | "read-only-source"
+  // EPIC Q (issue #985): fixtures and outcomes for the assurance surfaces.
+  // They only choose which record or which outcome a case needs.
+  | "assurance-split"
+  | "assurance-more"
+  | "assurance-existence"
+  | "assurance-rebuilt"
+  | "assurance-unavailable"
+  | "assurance-scrub-fails"
+  | "assurance-download-slow"
+  | "assurance-download-fails"
+  | "assurance-slow-test"
+  | "assurance-validator-output";
 
 /** Reads the scenario out of the URL, falling back to the default for
  *  anything unrecognised. A closed allow-list rather than a cast, so a
@@ -103,7 +116,9 @@ export function scenarioFromLocation(): Scenario {
   const allowed: Scenario[] = [
     "default", "empty", "storage-critical", "catalog-recovery",
     "version-mismatch", "first-run", "no-medium", "activity-unreadable",
-    "read-only-source"
+    "read-only-source", "assurance-split", "assurance-more", "assurance-existence", "assurance-rebuilt",
+    "assurance-unavailable", "assurance-scrub-fails", "assurance-download-slow",
+    "assurance-download-fails", "assurance-slow-test", "assurance-validator-output"
   ];
   return (allowed as string[]).includes(s ?? "") ? (s as Scenario) : "default";
 }
@@ -5286,7 +5301,12 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
     }
   };
 
-  return refusingWhileUnconfigured(api, () => configured);
+  const served = refusingWhileUnconfigured(api, () => configured);
+  // EPIC Q (issue #985). Attached AFTER the unconfigured wrapper because
+  // that wrapper treats every key as a method. `assurance-unavailable` is
+  // the server that does not offer the routes yet, which is what every
+  // production client is until they land.
+  return scenario === "assurance-unavailable" ? served : { ...served, assurance: createMockAssurance(scenario) };
 }
 
 // mockPreflightFor builds the report both preflight fixtures answer with,

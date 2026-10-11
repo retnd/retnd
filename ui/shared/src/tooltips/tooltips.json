@@ -1970,5 +1970,65 @@
   "workflow.set.exec-own-source": {
     "label": "This set's own source connection",
     "html": "A backup set may execute its remote hooks over the connection it already backs up from, named as <code>source/set</code>. It is used <strong>only if that connection can execute a command</strong>: an SFTP-only account moves bytes and runs nothing, which the hook check reports as a capability failure rather than as a broken backup set."
+  },
+  "assurance.col.claims": {
+    "label": "Assurance",
+    "html": "Three separate claims per backup: <strong>Stored</strong>, <strong>Content</strong> and <strong>Recovery</strong>. They are never combined into one verdict, because a checksum that passed says nothing about whether the artifact can be recovered and used."
+  },
+  "assurance.claim.stored": {
+    "label": "Stored",
+    "html": "Whether a copy of this backup is recorded, and how many. It says nothing about whether any copy has been <em>read back</em>."
+  },
+  "assurance.claim.contentVerified": {
+    "label": "Content verified",
+    "html": "Whether the retained bytes were read and their digest matched the recorded one, and how long ago. A check that only confirmed an object exists reads <strong>Existence checked only</strong> and is not this."
+  },
+  "assurance.claim.recoveryTested": {
+    "label": "Recovery tested",
+    "html": "Whether the artifact was recovered to an isolated path, re-read end to end, matched its recorded digest and passed the validator, and how long ago. Reachability alone never counts."
+  },
+  "assurance.recover.artifact": {
+    "label": "Recover artifact",
+    "html": "Hands you the retained artifact itself. It does not rebuild the application that produced it; that stays yours to do."
+  },
+  "assurance.recover.target": {
+    "label": "Recovery target",
+    "html": "Where the artifact is put: streamed to this browser, written under the host's staging root, or sent to a destination this deployment already declares."
+  },
+  "assurance.recover.thawCost": {
+    "label": "Thaw cost",
+    "html": "The provider charges to make an archived copy readable and the thaw takes the time shown. Nothing is thawed until this is ticked and the button pressed."
+  },
+  "assurance.scrub.now": {
+    "label": "Scrub now",
+    "html": "Reads this set's recorded copies and compares their digests now, instead of waiting for the schedule. It never thaws an archive."
+  },
+  "assurance.recoveryTest.run": {
+    "label": "Run recovery test",
+    "html": "Recovers the latest backup to an isolated path, re-reads it, checks the digest and then runs this set's validator against it."
+  },
+  "assurance.settings.card": {
+    "label": "Assurance settings",
+    "html": "The deployment-wide defaults for scrubbing and recovery tests. A set that inherits follows them; the four host-scoped values are shown here and cannot be set per set."
+  },
+  "assurance.set.section": {
+    "label": "Set assurance",
+    "html": "What this set claims now and the policy that governs it. Inherit follows the deployment setting; the host-scoped limits are never per set."
+  },
+  "assurance.set.mode": {
+    "label": "Assurance policy",
+    "html": "<strong>Inherit</strong> follows the deployment setting and shows the cadence it resolves to. <strong>Off</strong> turns assurance off for this set, so its claims read <em>Not configured</em>. <strong>Custom</strong> gives this set its own scrub cadence and validator."
+  },
+  "assurance.artifact.card": {
+    "label": "Backup assurance",
+    "html": "The three claims for this backup, each with its own age, and the way to recover the artifact."
+  },
+  "assurance.operation.follow": {
+    "label": "Following",
+    "html": "Keeps the line list scrolled to the newest line. Turn it off to read earlier lines without being moved."
+  },
+  "assurance.operation.cancel": {
+    "label": "Cancel operation",
+    "html": "Stops the run. The claims keep their previous answer until a run finishes."
   }
 }

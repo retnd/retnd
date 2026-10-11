@@ -96,6 +96,29 @@ export interface FieldHelpCopy {
  * its pop-up and a missing one is a field that never had it.
  */
 export const FIELD_HELP = {
+  // ------------------------------------------------------------ assurance
+
+  assuranceScrubEvery: {
+    what: "How often every backup set that inherits scrubs its recorded copies and compares their digests.",
+    example: "7d",
+    effect:
+      "Saves 7d as the deployment's cadence. Every set set to Inherit then reads Inheriting: scrub every 7d, and a set with its own Custom value keeps that value. A number and a unit of d or h is the only shape accepted; anything else is refused and nothing changes."
+  },
+
+  assuranceSetScrubEvery: {
+    what: "How often this one backup set scrubs, instead of following the deployment's cadence.",
+    example: "12h",
+    effect:
+      "Saves 12h for this set only, once the policy is saved as Custom. Changing the deployment's cadence afterwards does not move this set, which is the point of Custom and the reason Inherit exists."
+  },
+
+  assuranceSetValidator: {
+    what: "The validator this set's recovery test runs against the recovered copy.",
+    example: "check-dump",
+    effect:
+      "Saves check-dump as this set's validator reference once the policy is saved as Custom. A recovery test then recovers into the isolated staging path and runs it there, and its exit status and bounded output are what the Show validator output button displays."
+  },
+
   // ---------------------------------------------------------------- auth
 
   loginUsername: {

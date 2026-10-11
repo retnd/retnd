@@ -1,0 +1,49 @@
+/* The assurance claim chips (issue #985, design: docs/design/984-recovery-assurance.html).
+   The ink is ALWAYS --text. What distinguishes a state is its glyph, the
+   border style and the words, with colour only as a redundant fourth cue, so
+   every chip clears 4.5:1 in both themes and survives anyone who cannot tell
+   the hues apart. No colour literal lives here: tokens only. */
+.aclaims { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: flex-start; }
+.aclaim { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.aclaim__lab { font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2); }
+.achip {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 2px 9px;
+  border-radius: var(--radius-md); font-size: var(--text-sm); font-weight: 600; color: var(--text);
+  background: var(--surface); border: 1.5px solid var(--border-strong);
+}
+.achip__glyph { font-weight: 700; width: 14px; text-align: center; color: var(--text); }
+.achip__age { font-weight: 500; color: var(--text-2); }
+[data-state="pass"] > .achip { border-color: var(--ok); background: var(--ok-quiet); }
+[data-state="pass"] .achip__glyph { color: var(--ok); }
+[data-state="failed"] > .achip { border-color: var(--danger); background: var(--danger-quiet); }
+[data-state="failed"] .achip__glyph { color: var(--danger); }
+[data-state="overdue"] > .achip { border-color: var(--warn); background: var(--warn-quiet); }
+[data-state="refused_for_cost"] > .achip { border-style: dotted; border-color: var(--warn); background: var(--warn-quiet); }
+[data-state="could_not_complete"] > .achip { border-style: double; border-width: 4px; border-color: var(--danger); }
+[data-state="could_not_complete"] .achip__glyph { color: var(--danger); }
+[data-state="never_configured"] > .achip { border-style: dashed; background: var(--surface-3); }
+[data-state="never_run"] > .achip { background: var(--surface); }
+[data-state="unknown"] > .achip { border-style: dashed; border-color: var(--accent); background: var(--accent-quiet); }
+[data-state="unknown"] .achip__glyph { color: var(--accent); }
+[data-state="requires_restore"] > .achip { border-left-width: 6px; border-color: var(--accent); background: var(--accent-quiet); }
+[data-state="requires_restore"] .achip__glyph { color: var(--accent); }
+[data-state="no_readable_copy"] > .achip { border-width: 2px; border-color: var(--danger); background: var(--danger-quiet); text-decoration: underline wavy var(--danger); }
+[data-state="existence_only"] > .achip, [data-state="attested_only"] > .achip { border-style: dashed; border-color: var(--warn); background: var(--warn-quiet); }
+[data-state="stored"] > .achip { background: var(--surface-2); }
+[data-state="no_copy"] > .achip { border-style: dashed; background: var(--surface-3); }
+[data-checking="true"] > .achip { opacity: 0.6; }
+
+.aop { display: flex; flex-direction: column; gap: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-3); background: var(--surface-2); }
+.aop__bar { height: 10px; border-radius: var(--radius-pill); background: var(--surface-3); border: 1px solid var(--border-strong); overflow: hidden; }
+.aop__bar > i { display: block; height: 100%; background: var(--accent); }
+.aop__lines { margin: 0; padding: var(--space-2) var(--space-3); list-style: none; background: var(--term-bg); color: var(--term-text); border-radius: var(--radius-md); font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.7; max-height: 160px; overflow: auto; }
+.aop__outcome { font-weight: 600; color: var(--text); }
+
+.aknob { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: baseline; padding: 6px 8px; background: var(--surface-3); border-radius: var(--radius-md); border: 1px dashed var(--border-strong); font-size: var(--text-sm); color: var(--text); }
+.aknob__scope { font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text); }
+
+.avlog { display: flex; flex-direction: column; gap: var(--space-2); }
+.avlog__marker { padding: 2px 8px; border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); font-style: italic; color: var(--text); background: var(--warn-quiet); }
+.avlog__pre { margin: 0; padding: var(--space-3); background: var(--term-bg); color: var(--term-text); border-radius: var(--radius-md); font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.7; white-space: pre-wrap; word-break: break-all; max-height: 240px; overflow: auto; }
+
+.anotice { border: 2px solid var(--warn); background: var(--warn-quiet); border-radius: var(--radius-md); padding: var(--space-3); color: var(--text); }

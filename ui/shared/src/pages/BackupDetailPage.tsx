@@ -23,6 +23,7 @@ import { PageHeader } from "@shared/components/PageHeader";
 import { StatusBadge } from "@shared/components/StatusBadge";
 import { RetentionBadges, RetentionPolicyBadge } from "@shared/components/RetentionBadge";
 import { LifecycleTimeline } from "@shared/components/LifecycleTimeline";
+import { ArtifactAssuranceCard } from "@shared/assurance/RecoverArtifact";
 import { PlacementList } from "@shared/components/PlacementList";
 import { ErrorState } from "@shared/components/EmptyState";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
@@ -173,6 +174,8 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
           </span>
         }
       />
+
+      <ArtifactAssuranceCard artifactId={a.id} readOnly={readOnly} />
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 14, alignItems: "start" }}>
         <section className="card">

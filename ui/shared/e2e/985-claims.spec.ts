@@ -12,7 +12,7 @@ test.describe("#985 the three claims on the Backups list", () => {
   test("every row has three separate claim elements and no single tick", async ({ page }) => {
     await open(page, "/backups");
     const rows = page.getByRole("row").filter({ has: page.locator('[data-testid="assurance-claims"]') });
-    await expect(rows).toHaveCount(6);
+    await expect(rows).toHaveCount(4);
     for (const r of await rows.all()) {
       await expect(r.locator("[data-claim]")).toHaveCount(3);
       await expect(claim(r, "stored")).toContainText("Stored");
@@ -23,37 +23,44 @@ test.describe("#985 the three claims on the Backups list", () => {
 
   test("each not-a-pass state renders as itself, not as a pass", async ({ page }) => {
     await open(page, "/backups");
-    const expected: Array<[string, "content" | "recovery", string, RegExp]> = [
+    type Row = [string, "content" | "recovery", string, RegExp];
+    const main: Row[] = [
       ["postgres-prod-20260828.dump.zst", "content", "pass", /Content verified.*ago/],
       ["postgres-prod-20260828.dump.zst", "recovery", "pass", /Recovery test passed.*ago/],
       ["billing-20260827.sql.gz", "content", "overdue", /Overdue/],
       ["billing-20260827.sql.gz", "recovery", "never_run", /Never run/],
-      ["auth-config-20260826.tar.zst", "content", "failed", /Content check failed/],
-      ["auth-config-20260826.tar.zst", "recovery", "never_configured", /Not configured/],
-      ["billing-20260824.sql.gz", "content", "refused_for_cost", /Skipped: read would cost egress/],
-      ["billing-20260824.sql.gz", "recovery", "could_not_complete", /Could not complete/],
       ["media-week34.tar", "content", "requires_restore", /Archived: thaw needed/],
-      ["redis-20260812.rdb.zst", "content", "no_readable_copy", /No readable copy/]
+      ["media-week34.tar", "recovery", "could_not_complete", /Could not complete/],
+      ["redis-20260812.rdb.zst", "content", "no_readable_copy", /No readable copy/],
+      ["redis-20260812.rdb.zst", "recovery", "never_configured", /Not configured/]
     ];
-    for (const [file, which, state, text] of expected) {
-      const c = claim(row(page, file), which);
-      await expect(c, `${file} ${which}`).toHaveAttribute("data-state", state);
-      await expect(c).toContainText(text);
-      if (state !== "pass") await expect(c).not.toContainText(/Content verified|Recovery test passed/);
-    }
-    // five not-a-pass renderings are visibly different from one another
+    const more: Row[] = [
+      ["postgres-prod-20260828.dump.zst", "content", "refused_for_cost", /Skipped: read would cost egress/],
+      ["billing-20260827.sql.gz", "content", "failed", /Content check failed/]
+    ];
     const seen = new Set<string>();
-    for (const [file, which, state] of expected) {
-      if (state === "pass") continue;
-      seen.add(await claim(row(page, file), which).locator("[data-chip]").evaluate((e) => {
-        const s = getComputedStyle(e);
-        return [s.borderTopStyle, s.borderTopWidth, e.querySelector("[data-glyph]")?.textContent].join("|");
-      }) + "|" + state);
+    for (const [scenario, expected] of [["default", main], ["assurance-more", more]] as Array<[string, Row[]]>) {
+      await open(page, "/backups", scenario);
+      for (const [file, which, state, text] of expected) {
+        const c = claim(row(page, file), which);
+        await expect(c, `${file} ${which}`).toHaveAttribute("data-state", state);
+        await expect(c).toContainText(text);
+        if (state !== "pass") await expect(c).not.toContainText(/Content verified|Recovery test passed/);
+        if (state !== "pass") {
+          seen.add(await c.locator("[data-chip]").evaluate((e) => {
+            const s = getComputedStyle(e);
+            return [s.borderTopStyle, s.borderTopWidth, e.querySelector("[data-glyph]")?.getAttribute("data-glyph")].join("|");
+          }) + "#" + state);
+        }
+      }
     }
-    const shapes = new Set([...seen].map((s) => s.split("|").slice(0, 3).join("|")));
-    expect(shapes.size).toBeGreaterThanOrEqual(7);
+    // the not-a-pass renderings are visibly different from one another:
+    // each state has its own (border style, width, glyph) triple
+    const shapes = new Set([...seen].map((x) => x.split("#")[0]));
+    const states = new Set([...seen].map((x) => x.split("#")[1]));
+    expect(states.size).toBe(8);
+    expect(shapes.size).toBe(states.size);
   });
-
   test("a verified checksum with a failed recovery test reads as two facts", async ({ page }) => {
     await open(page, "/backups", "assurance-split");
     const r = row(page, "postgres-prod-20260828.dump.zst");
@@ -72,15 +79,15 @@ test.describe("#985 the three claims on the Backups list", () => {
 
   test("a rebuilt catalog is unknown everywhere and no path leads from unknown to pass", async ({ page }) => {
     await open(page, "/backups", "assurance-rebuilt");
-    await expect(page.locator('[data-claim="content"][data-state="unknown"]')).toHaveCount(6);
-    await expect(page.locator('[data-claim="recovery"][data-state="unknown"]')).toHaveCount(6);
+    await expect(page.locator('[data-claim="content"][data-state="unknown"]')).toHaveCount(4);
+    await expect(page.locator('[data-claim="recovery"][data-state="unknown"]')).toHaveCount(4);
     await expect(page.locator('[data-state="pass"]')).toHaveCount(0);
-    await expect(page.getByText(/Content verified/)).toHaveCount(0);
+    await expect(page.locator('[data-testid="assurance-claims"]').getByText(/Content verified/)).toHaveCount(0);
   });
 
   test("an assurance API that is absent renders unknown, never a tick", async ({ page }) => {
     await open(page, "/backups", "assurance-unavailable");
-    await expect(page.locator('[data-claim="content"][data-state="unknown"]')).toHaveCount(6);
+    await expect(page.locator('[data-claim="content"][data-state="unknown"]')).toHaveCount(4);
     await expect(page.locator('[data-state="pass"]')).toHaveCount(0);
   });
 });

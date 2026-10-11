@@ -37,6 +37,7 @@ import { StatusBadge } from "@shared/components/StatusBadge";
 import { Icon } from "@shared/design-system/icons";
 import { EmptyState, ErrorState } from "@shared/components/EmptyState";
 import { isNotConfigured } from "@shared/api/failure";
+import { ClaimChips } from "@shared/assurance/ClaimChips";
 import { RetentionPreviewDialog } from "./RetentionPreviewDialog";
 import { bytes, stamp } from "@shared/utilities/format";
 import { useHoverTitle } from "@shared/hooks/useTooltips";
@@ -61,6 +62,15 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   // node is already populated by the time this page can render.
   const sets = useCausl(setsNode);
   const artifacts = useAsync(() => api.listArtifacts(setFilter || undefined), [api, setFilter]);
+  // EPIC Q (issue #985): the three assurance claims per backup. A server
+  // that does not offer them yields `undefined` here and every row renders
+  // `unknown`; a read that fails does the same, because "could not ask" is
+  // not an answer to draw as one.
+  const assurance = useAsync(
+    () => (api.assurance ? api.assurance.listArtifactAssurance(setFilter || undefined) : Promise.resolve(null)),
+    [api, setFilter]
+  );
+  const assuranceById = new Map((assurance.data ?? []).map((x) => [x.artifactId, x]));
   // previewFor is the flat BackupSet.id the <select> below is keyed by
   // (matching every other set-picker in this file); RetentionPreviewDialog
   // itself takes source/set (BackupSetID's own two-part identity — see
@@ -161,7 +171,7 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
         <div className="card">
           {/* A small app window must never hide a column (§31). */}
           <div className="table-scroll">
-            <table className="table" style={{ minWidth: 820 }}>
+            <table className="table" style={{ minWidth: 1020 }}>
               <caption className="eyebrow" style={{ textAlign: "left", padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
                 <InfoTooltip id="backups.table"><span>Retained backups</span></InfoTooltip>
               </caption>
@@ -175,6 +185,7 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
                   <th scope="col"><InfoTooltip id="backups.col.set"><span>Backup set</span></InfoTooltip></th>
                   <th scope="col"><InfoTooltip id="backups.col.artifact"><span>Artifact</span></InfoTooltip></th>
                   <th scope="col" style={{ textAlign: "right" }}><InfoTooltip id="backups.col.size"><span>Size</span></InfoTooltip></th>
+                  <th scope="col"><InfoTooltip id="assurance.col.claims"><span>Assurance</span></InfoTooltip></th>
                   <th scope="col"><InfoTooltip id="backups.col.validation"><span>Validation</span></InfoTooltip></th>
                   <th scope="col"><InfoTooltip id="backups.col.retention"><span>Retention</span></InfoTooltip></th>
                   {showsMedium ? <th scope="col"><InfoTooltip id="backups.col.medium"><span>Medium</span></InfoTooltip></th> : null}
@@ -197,6 +208,9 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
                     <td>{a.setName}</td>
                     <td className="mono" style={{ fontSize: "var(--text-sm)" }}>{a.filename}</td>
                     <td className="mono" style={{ textAlign: "right", whiteSpace: "nowrap" }}>{bytes(a.sizeBytes)}</td>
+                    <td>
+                      <ClaimChips assurance={assuranceById.get(a.id)} available={!!api.assurance && !assurance.error} />
+                    </td>
                     <td style={{ whiteSpace: "nowrap" }}>
                       <span
                         style={{

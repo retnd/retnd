@@ -2558,6 +2558,13 @@ export interface WorkflowValidation {
  * wrong, and none of them are visible in the types.
  */
 export interface RetndApi {
+  /**
+   * EPIC Q (issue #985): recovery, scrub and recovery-test. OPTIONAL on
+   * purpose. The routes belong to the epic's backend work, and a client for
+   * a server that does not offer them leaves this undefined; every surface
+   * then renders `unknown` and says why, rather than a tick nobody earned.
+   */
+  assurance?: import("@shared/assurance/types").AssuranceApi;
   getVersion(): Promise<VersionInfo>;
   getHealth(): Promise<SystemHealth>;
 
