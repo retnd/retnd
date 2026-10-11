@@ -294,6 +294,9 @@ type Service struct {
 	// wrong once.
 	MediumStore transport.MediumStore
 
+	// scrub is this process's shared scrub admission control (scrub.go).
+	scrub scrubLimitsState
+
 	// Repositories is EPIC K's backup-engine boundary: how this manager
 	// opens the repository an incremental backup set's snapshots live in
 	// (internal/backupengine, adapter in backupengine/kopia).

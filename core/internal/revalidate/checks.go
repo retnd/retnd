@@ -461,13 +461,23 @@ func checkLocalCopy(ctx context.Context, deps Deps, cfg config.Revalidation, rec
 
 	localPath, hasLocal := rec.ReadableLocalPath()
 
+	// The baseline is the hash recorded for THIS copy when the copy has a
+	// placement row that carries one, and the artifact row's own otherwise.
+	// They are the same value for anything ingestion wrote; they differ for
+	// a copy a rebuild or a move wrote a row for, where the placement is
+	// the record that is about the bytes on the disk being read.
+	baseHash, baseAlg := rec.LocalHash, rec.LocalHashAlg
+	if lp, ok := rec.LocalPlacement(); ok && lp.Hash != "" && lp.HashAlg != "" {
+		baseHash, baseAlg = lp.Hash, lp.HashAlg
+	}
+
 	release, limitErr := deps.Limits.Acquire(ctx, state.MediumLocal)
 	if limitErr != nil {
 		return checkResult{}, limitErr
 	}
 	defer release()
 
-	if cfg.Hash && rec.LocalHashAlg == string(transport.SHA256) && rec.LocalHash != "" {
+	if cfg.Hash && baseAlg == string(transport.SHA256) && baseHash != "" {
 		checked = true
 		class = placement.Content
 		switch {
@@ -485,11 +495,11 @@ func checkLocalCopy(ctx context.Context, deps Deps, cfg config.Revalidation, rec
 			case readErr != nil:
 				passed = false
 				reasons = append(reasons, fmt.Sprintf("local final file %s could not be read: %v", localPath, readErr))
-			case !strings.EqualFold(sum, rec.LocalHash):
+			case !strings.EqualFold(sum, baseHash):
 				passed = false
 				reasons = append(reasons, fmt.Sprintf(
 					"local final file %s now hashes to %s, but the %s hash recorded at verification was %s",
-					localPath, sum, rec.LocalHashAlg, rec.LocalHash,
+					localPath, sum, baseAlg, baseHash,
 				))
 			default:
 				reasons = append(reasons, "recomputed hash still matches the hash recorded at verification")
@@ -524,7 +534,7 @@ func checkLocalCopy(ctx context.Context, deps Deps, cfg config.Revalidation, rec
 	if !checked {
 		why := fmt.Sprintf(
 			"nothing to check for this artifact: no recorded hash baseline (local_hash_alg=%q) and no restore-test hook configured",
-			rec.LocalHashAlg,
+			baseAlg,
 		)
 		return checkResult{
 			passed: true, reason: why,
