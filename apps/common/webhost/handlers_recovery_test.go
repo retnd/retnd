@@ -342,6 +342,11 @@ func TestAClientThatGoesAwayMidDownloadIsReportedAsAFailedRange(t *testing.T) {
 
 func TestMultipleRangesInOneRequestAreRefusedNotHalfServed(t *testing.T) {
 	router, _ := newRecoveryRouter(t, NotYetImplementedGate{}, fakeAuthenticator{authenticated: true, username: "alice"})
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("= 206: a multipart answer was started and then aborted (%v)", r)
+		}
+	}()
 	rec := redeem(router, "tok_abc", map[string]string{"Range": "bytes=0-9,20-29"})
 	if rec.Code != http.StatusRequestedRangeNotSatisfiable {
 		t.Fatalf("= %d", rec.Code)
