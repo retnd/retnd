@@ -144,7 +144,7 @@ func (l *Logger) ScrubCopy(ctx context.Context, runID, backupSet, artifact, medi
 		slog.String("artifact", artifact),
 		slog.String("medium", medium),
 		slog.String("outcome", outcome),
-		slog.String("reason", reason),
+		slog.String("reason", cleanReason(reason)),
 	)
 }
 
@@ -181,7 +181,7 @@ func (l *Logger) RecoveryEnd(ctx context.Context, opID, backupSet, artifact stri
 		slog.Duration("duration", d),
 	}
 	if reason != "" {
-		attrs = append(attrs, slog.String("reason", reason))
+		attrs = append(attrs, slog.String("reason", cleanReason(reason)))
 	}
 	l.emitMarked(ctx, result.Level(), mark{result: result, action: ActionRecovery, actionID: opID},
 		EventRecoveryEnd, "recovery finished", attrs...)
@@ -209,7 +209,7 @@ func (l *Logger) RecoveryTestEnd(ctx context.Context, opID, backupSet, artifact,
 		slog.Duration("duration", d),
 	}
 	if reason != "" {
-		attrs = append(attrs, slog.String("reason", reason))
+		attrs = append(attrs, slog.String("reason", cleanReason(reason)))
 	}
 	l.emitMarked(ctx, result.Level(), mark{result: result, action: ActionRecoveryTest, actionID: opID},
 		EventRecoveryTestEnd, "recovery test finished", attrs...)
@@ -230,4 +230,25 @@ func validatorRef(id string) string {
 		}
 	}
 	return id
+}
+
+// maxReasonBytes bounds a reason on the feed.
+const maxReasonBytes = 200
+
+// cleanReason makes a reason safe for a terminal: control and non-printing
+// bytes become spaces and the length is bounded. Reasons are the service's
+// own sentences, but a caller can fold a validator's words into one, and
+// validator output is untrusted terminal input.
+func cleanReason(s string) string {
+	out := make([]rune, 0, len(s))
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) {
+			r = ' '
+		}
+		out = append(out, r)
+		if len(out) >= maxReasonBytes {
+			break
+		}
+	}
+	return string(out)
 }

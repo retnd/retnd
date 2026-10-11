@@ -204,6 +204,46 @@ func assuranceDueFor(now time.Time, setID string, s dueSubject, cadence time.Dur
 
 var assuranceNow = time.Now
 
+// effectiveScrubCadence guards the schedule against a Config that was built
+// by hand and never validated: its resolved cadence is zero, and a zero must
+// not read as "due continuously". The product default stands in.
+func effectiveScrubCadence(resolved time.Duration) time.Duration {
+	if resolved <= 0 {
+		return config.DefaultScrubCadence
+	}
+	return resolved
+}
+
+// assuranceValidatorsKnown refuses a validator reference this build does not
+// register, on the raw fields an operator wrote. config checks only the
+// SHAPE of an id; whether it names anything is this package's question, and
+// asking at save time turns a failure at the moment of use into a refusal.
+func assuranceValidatorsKnown(cfg *config.Config) error {
+	check := func(where, id string) error {
+		if id != "" && !isRegisteredValidator(ValidatorID(id)) {
+			return fmt.Errorf("%w: %s: %q is not a registered validator", ErrInvalidRequest, where, id)
+		}
+		return nil
+	}
+	if cfg.AssuranceBlock != nil {
+		if err := check("assurance.recovery_test.validator_id", cfg.AssuranceBlock.RecoveryTest.ValidatorID); err != nil {
+			return err
+		}
+	}
+	for i := range cfg.Sources {
+		for j := range cfg.Sources[i].BackupSets {
+			bs := &cfg.Sources[i].BackupSets[j]
+			if bs.AssuranceConfig == nil {
+				continue
+			}
+			if err := check(cfg.Sources[i].Name+"/"+bs.Name+" assurance.recovery_test.validator_id", bs.AssuranceConfig.RecoveryTest.ValidatorID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // scrubEligibleStates are the lifecycle states with a durable local copy to
 // re-read, the same four internal/revalidate treats as known good.
 var scrubEligibleStates = map[string]bool{
@@ -317,6 +357,9 @@ func (b *BackupService) UpdateAssuranceSettings(_ context.Context, req UpdateAss
 		cfg.AssuranceBlock = blk
 	}
 
+	if err := assuranceValidatorsKnown(cfg); err != nil {
+		return AssuranceSettings{}, err
+	}
 	if err := b.persistConfig(cfg); err != nil {
 		return AssuranceSettings{}, err
 	}
@@ -383,6 +426,9 @@ func (b *BackupService) UpdateBackupSetAssurance(ctx context.Context, id string,
 		bs.AssuranceConfig = o
 	}
 
+	if err := assuranceValidatorsKnown(cfg); err != nil {
+		return BackupSetAssurance{}, err
+	}
 	if err := b.persistConfig(cfg); err != nil {
 		return BackupSetAssurance{}, err
 	}
@@ -461,7 +507,7 @@ func (b *BackupService) AssuranceDue(ctx context.Context, filter AssuranceDueFil
 			if subject.LastAssured.IsZero() && !a.UpdatedAt.IsZero() {
 				subject.LastAssured, subject.Basis = a.UpdatedAt, DueBasisJournal
 			}
-			item := assuranceDueFor(now, id, subject, bs.Assurance.Scrub.Cadence.Duration())
+			item := assuranceDueFor(now, id, subject, effectiveScrubCadence(bs.Assurance.Scrub.Cadence.Duration()))
 			if (filter.DueOnly && !item.Due) || (filter.OverdueOnly && !item.Overdue) {
 				continue
 			}

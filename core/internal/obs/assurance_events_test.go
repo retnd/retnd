@@ -108,3 +108,17 @@ func TestRecoveryTestEventsNeverCarryAPathOrControlBytes(t *testing.T) {
 		t.Errorf("validator reference leaked into the line: %s", out)
 	}
 }
+
+// Review finding: a reason reaches a terminal, so control bytes are stripped
+// and the length is bounded before it is logged.
+func TestFeedReasonsCarryNoControlBytesAndAreBounded(t *testing.T) {
+	l, buf := newRecorder(t)
+	l.ScrubCopy(context.Background(), "r", "prod/db", "prod/db/a", "local", "fail", "bad\x1b]0;pwned\x07 news\n"+strings.Repeat("x", 5000))
+	l.RecoveryEnd(context.Background(), "o", "prod/db", "prod/db/a", 0, time.Second, ResultError, "\x1b[2Jboom")
+	for _, ln := range decodeLines(t, buf) {
+		reason, _ := ln["reason"].(string)
+		if strings.ContainsAny(reason, "\x1b\x07\n") || len(reason) > 300 {
+			t.Errorf("reason %q is not bounded plain text", reason)
+		}
+	}
+}

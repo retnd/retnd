@@ -98,3 +98,11 @@ func TestScrubFeed_DoesNotGrowTheDurablePagedRead(t *testing.T) {
 	}
 	_ = next
 }
+
+// Review finding: a pass that looked at nothing must not read as a pass.
+func TestScrubFeed_AnEmptyPassIsNeutralNotSuccess(t *testing.T) {
+	_, end, _ := feedRows(t, nil)
+	if end.Result != string(obs.ResultInfo) {
+		t.Errorf("an empty pass states %q, want %q: nothing was checked, so nothing passed", end.Result, obs.ResultInfo)
+	}
+}
