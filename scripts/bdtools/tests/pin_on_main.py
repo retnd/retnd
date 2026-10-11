@@ -159,7 +159,12 @@ def main() -> int:
         # ------------------------------------------------------- case B
         root = sandbox_tree(base, "b1", fx, fx.a)
         out, status = run_script(root, BUMP, fx.b, cache=cache)
-        suite.check(status == 0, "B: the bump accepts a sha that is on main", f"B: refused a main sha (exit {status})", out)
+        suite.check(
+            status == 0,
+            "B: the bump accepts a sha that is on main",
+            f"B: refused a main sha (exit {status})",
+            out,
+        )
         suite.assert_eq("B: and the pin now names it", fx.b, pinned_sha(root))
 
         root = sandbox_tree(base, "b2", fx, fx.c)
