@@ -662,7 +662,16 @@ describe("every request the shared client makes is a declared operation", () => 
     // could call them without this list shrinking, which is the property
     // the exact assertion below enforces in both directions.
     "getSession",
-    "getSystemCapabilities"
+    "getSystemCapabilities",
+    //
+    // EPIC Q's recovery pair (#976): the mint and the redeem. The API and
+    // the CLI halves land first, and the browser's half is its own issue
+    // (#985, the download dialog and its progress). They leave this list
+    // the commit a screen calls them, which is the mechanism working as
+    // the paragraph above describes: adding a contract operation forces a
+    // line here, and wiring a screen to it forces the line back out.
+    "mintRecovery",
+    "redeemRecovery"
   ];
 
   it("pins the contract operations no client call reaches", () => {
