@@ -27,6 +27,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -96,6 +97,11 @@ type BackupService struct {
 
 	journal *state.Journal
 	logger  *obs.Logger
+
+	// recovery is the artifact-recovery machinery (recover.go): the grant
+	// table, the staging area and the verifying engine. Zero until first
+	// used, so a process that never recovers anything creates nothing.
+	recovery recoveryHost
 
 	// activity is the live, in-memory feed of what each backup set is
 	// doing right now (issue #573, liveactivity.go). It is wired as the
@@ -521,7 +527,16 @@ func OpenConfigAndJournal(ctx context.Context, configPath string) (*config.Confi
 // process the trace describes to join it to. Unset is still INFO, so a
 // deployment that asked for nothing is byte-identical to before.
 func Open(ctx context.Context, configPath string) (*BackupService, func() error, error) {
-	logger := obs.New(os.Stdout, obs.LevelFromEnv())
+	return OpenWithLog(ctx, configPath, os.Stdout)
+}
+
+// OpenWithLog is Open with the structured log going to logTo instead of
+// standard output. A command whose standard output is data (recover writing
+// an artifact's bytes, or JSON a script parses) sends the log to standard
+// error with it, because a log line in the middle of a recovered file is a
+// corrupted file.
+func OpenWithLog(ctx context.Context, configPath string, logTo io.Writer) (*BackupService, func() error, error) {
+	logger := obs.New(logTo, obs.LevelFromEnv())
 
 	// Issue #665: loads the bundled backend manifests and refuses loudly
 	// if one is malformed, before anything else opens. Nothing reads the

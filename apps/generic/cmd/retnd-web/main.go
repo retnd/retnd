@@ -689,6 +689,7 @@ func cmdServe(args []string) int {
 			// away the surface they would lift it from.
 			fmt.Fprintln(os.Stderr, cliecho.WebBinary+": workflow runs could not be reconciled, so this process refuses to START a backup until they can be; reading, recovery and the rest of the API are unaffected:", err)
 		}
+		endRecoverySessionsOnLogout(authSvc, backend)
 		engineConfig.Backend = backend
 		handler = serve.NewEngine(engineConfig)
 		scheduler = backend
@@ -766,6 +767,7 @@ func cmdServe(args []string) int {
 				return nil, nil, wfErr
 			}
 
+			endRecoverySessionsOnLogout(authSvc, opened)
 			return opened, closeFn, nil
 		}
 
@@ -869,6 +871,15 @@ func openWorkflowEngineOn(ctx context.Context, backend *service.BackupService, p
 	if len(report.Holds) > 0 {
 		fmt.Fprintf(os.Stderr, cliecho.WebBinary+": %d workflow cleanup(s) from an interrupted run are outstanding; the affected backup sets refuse to run until each is resumed or acknowledged (`%s workflow recovery show`)\n",
 			len(report.Holds), cliecho.Binary)
+	}
+
+	// EPIC Q (#976): a partial recovery file left by a process that died is
+	// an orphan filling the staging disk. This is the one process that can
+	// say so (a terminal command opened beside it cannot tell the engine's
+	// in-flight partials from orphans), and a failure here is reported, not
+	// fatal: recovery staging must never stop backups being served.
+	if _, _, err := backend.ReconcileRecoveryStaging(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, cliecho.WebBinary+": reconciling the recovery staging area: %v\n", err)
 	}
 
 	return nil

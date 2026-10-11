@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "26f988fcc88f66105cd2c4a1c129d08ca9329efd7b70865238ed82b7894ef4a7"
+const ContractSHA256 = "6d025ddf0c3ddd83156c65febe102a2dfa616b9489610ee2c6171ae1071908b5"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -120,6 +120,27 @@ const (
 	ErrorCodeWorkflowStepNotFound                   ErrorCode = "WORKFLOW_STEP_NOT_FOUND"
 	ErrorCodeWorkflowAcknowledgementReasonRequired  ErrorCode = "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED"
 	ErrorCodeWorkflowEngineUnavailable              ErrorCode = "WORKFLOW_ENGINE_UNAVAILABLE"
+	ErrorCodeRecoveryCostNotAcknowledged            ErrorCode = "RECOVERY_COST_NOT_ACKNOWLEDGED"
+	ErrorCodeRecoveryNoCopy                         ErrorCode = "RECOVERY_NO_COPY"
+	ErrorCodeRecoveryCopyNotFound                   ErrorCode = "RECOVERY_COPY_NOT_FOUND"
+	ErrorCodeRecoveryNotReadable                    ErrorCode = "RECOVERY_NOT_READABLE"
+	ErrorCodeRecoveryLocalCopyCorrupt               ErrorCode = "RECOVERY_LOCAL_COPY_CORRUPT"
+	ErrorCodeRecoveryRemoteCopyCorrupt              ErrorCode = "RECOVERY_REMOTE_COPY_CORRUPT"
+	ErrorCodeRecoveryNoDigest                       ErrorCode = "RECOVERY_NO_DIGEST"
+	ErrorCodeRecoveryNoSpace                        ErrorCode = "RECOVERY_NO_SPACE"
+	ErrorCodeRecoveryBelowReserve                   ErrorCode = "RECOVERY_BELOW_RESERVE"
+	ErrorCodeRecoveryGrantUnknown                   ErrorCode = "RECOVERY_GRANT_UNKNOWN"
+	ErrorCodeRecoveryGrantUsed                      ErrorCode = "RECOVERY_GRANT_USED"
+	ErrorCodeRecoveryGrantExpired                   ErrorCode = "RECOVERY_GRANT_EXPIRED"
+	ErrorCodeRecoveryGrantSessionEnded              ErrorCode = "RECOVERY_GRANT_SESSION_ENDED"
+	ErrorCodeRecoveryTooManyGrants                  ErrorCode = "RECOVERY_TOO_MANY_GRANTS"
+	ErrorCodeRecoveryTargetInvalid                  ErrorCode = "RECOVERY_TARGET_INVALID"
+	ErrorCodeRecoveryTargetExists                   ErrorCode = "RECOVERY_TARGET_EXISTS"
+	ErrorCodeRecoveryUseSnapshotRestore             ErrorCode = "RECOVERY_USE_SNAPSHOT_RESTORE"
+	ErrorCodeRecoveryUnavailable                    ErrorCode = "RECOVERY_UNAVAILABLE"
+	ErrorCodeRecoveryBusy                           ErrorCode = "RECOVERY_BUSY"
+	ErrorCodeRecoveryInterrupted                    ErrorCode = "RECOVERY_INTERRUPTED"
+	ErrorCodeRecoveryFailed                         ErrorCode = "RECOVERY_FAILED"
 )
 
 // WireErrorCodes is codes a server may put on the wire. Every one of these is emitted by real handler code, and apps/common/webhost's TestContract_EveryWireErrorCodeIsRegistered holds that both ways.
@@ -187,6 +208,27 @@ var WireErrorCodes = []ErrorCode{
 	ErrorCodeWorkflowStepNotFound,
 	ErrorCodeWorkflowAcknowledgementReasonRequired,
 	ErrorCodeWorkflowEngineUnavailable,
+	ErrorCodeRecoveryCostNotAcknowledged,
+	ErrorCodeRecoveryNoCopy,
+	ErrorCodeRecoveryCopyNotFound,
+	ErrorCodeRecoveryNotReadable,
+	ErrorCodeRecoveryLocalCopyCorrupt,
+	ErrorCodeRecoveryRemoteCopyCorrupt,
+	ErrorCodeRecoveryNoDigest,
+	ErrorCodeRecoveryNoSpace,
+	ErrorCodeRecoveryBelowReserve,
+	ErrorCodeRecoveryGrantUnknown,
+	ErrorCodeRecoveryGrantUsed,
+	ErrorCodeRecoveryGrantExpired,
+	ErrorCodeRecoveryGrantSessionEnded,
+	ErrorCodeRecoveryTooManyGrants,
+	ErrorCodeRecoveryTargetInvalid,
+	ErrorCodeRecoveryTargetExists,
+	ErrorCodeRecoveryUseSnapshotRestore,
+	ErrorCodeRecoveryUnavailable,
+	ErrorCodeRecoveryBusy,
+	ErrorCodeRecoveryInterrupted,
+	ErrorCodeRecoveryFailed,
 }
 
 // UIErrorCodes is the shared UI's own presentation vocabulary. No endpoint emits these; they are registered here so there is one registry rather than a second hand-maintained list in ui/shared.
@@ -278,19 +320,40 @@ var ErrorCodes = []ErrorCode{
 	ErrorCodeWorkflowStepNotFound,
 	ErrorCodeWorkflowAcknowledgementReasonRequired,
 	ErrorCodeWorkflowEngineUnavailable,
+	ErrorCodeRecoveryCostNotAcknowledged,
+	ErrorCodeRecoveryNoCopy,
+	ErrorCodeRecoveryCopyNotFound,
+	ErrorCodeRecoveryNotReadable,
+	ErrorCodeRecoveryLocalCopyCorrupt,
+	ErrorCodeRecoveryRemoteCopyCorrupt,
+	ErrorCodeRecoveryNoDigest,
+	ErrorCodeRecoveryNoSpace,
+	ErrorCodeRecoveryBelowReserve,
+	ErrorCodeRecoveryGrantUnknown,
+	ErrorCodeRecoveryGrantUsed,
+	ErrorCodeRecoveryGrantExpired,
+	ErrorCodeRecoveryGrantSessionEnded,
+	ErrorCodeRecoveryTooManyGrants,
+	ErrorCodeRecoveryTargetInvalid,
+	ErrorCodeRecoveryTargetExists,
+	ErrorCodeRecoveryUseSnapshotRestore,
+	ErrorCodeRecoveryUnavailable,
+	ErrorCodeRecoveryBusy,
+	ErrorCodeRecoveryInterrupted,
+	ErrorCodeRecoveryFailed,
 }
 
 // ErrorClasses groups codes by the refusal they represent, so a caller (or
 // a red team) can assert the RIGHT refusal rather than any refusal.
 var ErrorClasses = map[string][]ErrorCode{
 	"authentication": {ErrorCodeUnauthenticated, ErrorCodeBootstrapTokenInvalid, ErrorCodeResetTokenInvalid, ErrorCodeVerifyTokenInvalid},
-	"authorization":  {ErrorCodeEnrollmentClosed, ErrorCodeDestructiveOperationsDisabled, ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
-	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected},
-	"internal":       {ErrorCodeInternal, ErrorCodeInternalError},
-	"not-found":      {ErrorCodeBackupSetNotFound, ErrorCodeOperationNotFound, ErrorCodeRetentionPlanNotFound, ErrorCodeArtifactNotFound, ErrorCodeMediumNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound, ErrorCodeRepositoryDomainNotFound, ErrorCodeWorkflowEnvNotFound, ErrorCodeWorkflowRunNotFound, ErrorCodeWorkflowStepNotFound},
-	"throttling":     {ErrorCodeRateLimited},
-	"unavailable":    {ErrorCodeNotConfigured, ErrorCodeSmtpSendFailed, ErrorCodeWorkflowEngineUnavailable},
-	"validation":     {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail, ErrorCodeSSHKeyNotFound, ErrorCodeHostKeyProbeFailed, ErrorCodeMediumDisclosureRequired, ErrorCodeBackupSetNotIncremental, ErrorCodeWorkflowAcknowledgementReasonRequired},
+	"authorization":  {ErrorCodeEnrollmentClosed, ErrorCodeDestructiveOperationsDisabled, ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeRecoveryGrantSessionEnded},
+	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy},
+	"internal":       {ErrorCodeInternal, ErrorCodeInternalError, ErrorCodeRecoveryLocalCopyCorrupt, ErrorCodeRecoveryRemoteCopyCorrupt, ErrorCodeRecoveryNoSpace, ErrorCodeRecoveryBelowReserve, ErrorCodeRecoveryFailed},
+	"not-found":      {ErrorCodeBackupSetNotFound, ErrorCodeOperationNotFound, ErrorCodeRetentionPlanNotFound, ErrorCodeArtifactNotFound, ErrorCodeMediumNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound, ErrorCodeRepositoryDomainNotFound, ErrorCodeWorkflowEnvNotFound, ErrorCodeWorkflowRunNotFound, ErrorCodeWorkflowStepNotFound, ErrorCodeRecoveryCopyNotFound, ErrorCodeRecoveryGrantUnknown},
+	"throttling":     {ErrorCodeRateLimited, ErrorCodeRecoveryTooManyGrants},
+	"unavailable":    {ErrorCodeNotConfigured, ErrorCodeSmtpSendFailed, ErrorCodeWorkflowEngineUnavailable, ErrorCodeRecoveryUnavailable, ErrorCodeRecoveryInterrupted},
+	"validation":     {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail, ErrorCodeSSHKeyNotFound, ErrorCodeHostKeyProbeFailed, ErrorCodeMediumDisclosureRequired, ErrorCodeBackupSetNotIncremental, ErrorCodeWorkflowAcknowledgementReasonRequired, ErrorCodeRecoveryTargetInvalid},
 }
 
 // Endpoint is one operation of the contract, with the requirements a
@@ -860,6 +923,22 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "mintRecovery", Method: "POST", Path: "/backups/{source}/{set}/{name}/recovery",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "RecoveryMintRequest", ResponseSchema: "RecoveryMintResponse", SuccessStatus: 201,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest, ErrorCodeRecoveryTargetInvalid},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeArtifactNotFound, ErrorCodeRecoveryCopyNotFound},
+			409: {ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryUseSnapshotRestore},
+			429: {ErrorCodeRecoveryTooManyGrants},
+			500: {ErrorCodeInternal, ErrorCodeRecoveryFailed},
+			501: {ErrorCodeRecoveryUnavailable},
+			503: {ErrorCodeRecoveryUnavailable},
+		},
+	},
+	{
 		ID: "retryFailedIngestion", Method: "POST", Path: "/backups/{source}/{set}/{name}/retry",
 		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "RetryFailedRequest", ResponseSchema: "", SuccessStatus: 204,
@@ -968,6 +1047,24 @@ var Endpoints = []Endpoint{
 			404: {ErrorCodeArtifactNotFound, ErrorCodeBackupSetNotFound},
 			409: {ErrorCodeArtifactNotQuarantined},
 			500: {ErrorCodeInternal},
+		},
+	},
+	{
+		ID: "redeemRecovery", Method: "GET", Path: "/recoveries/{grant}",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "RecoveryResult", SuccessStatus: 206,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeRecoveryGrantSessionEnded},
+			404: {ErrorCodeArtifactNotFound, ErrorCodeRecoveryCopyNotFound, ErrorCodeRecoveryGrantUnknown},
+			409: {ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryBusy, ErrorCodeRecoveryTargetExists},
+			410: {ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired},
+			416: {ErrorCodeInvalidRequest},
+			500: {ErrorCodeInternal, ErrorCodeRecoveryLocalCopyCorrupt, ErrorCodeRecoveryFailed},
+			501: {ErrorCodeRecoveryUnavailable},
+			502: {ErrorCodeRecoveryRemoteCopyCorrupt},
+			503: {ErrorCodeRecoveryUnavailable, ErrorCodeRecoveryInterrupted},
+			507: {ErrorCodeRecoveryNoSpace, ErrorCodeRecoveryBelowReserve},
 		},
 	},
 	{
@@ -2587,6 +2684,54 @@ type Placement struct {
 	VerifiedAt        string `json:"verified_at,omitempty"`
 }
 
+// RecoveryMintRequest is POST /backups/{source}/{set}/{name}/recovery. Asks for one
+// retained copy of one backup to be read once, to one target. It
+// authorises nothing by itself beyond minting a short-lived,
+// single-use grant bound to the session that asked.
+type RecoveryMintRequest struct {
+	Acknowledged bool           `json:"acknowledged,omitempty"`
+	Copy         string         `json:"copy,omitempty"`
+	Target       RecoveryTarget `json:"target"`
+}
+
+// RecoveryMintResponse is the answer to a mint, in one of two shapes. A grant (201): the
+// token is shown once, is bound to the minting session, dies when
+// that session ends, expires within minutes, and is spent when the
+// download completes, fails or is abandoned. Or (202), when the only
+// copy is on an archive class and an acknowledged request started
+// exactly one provider restore: no grant yet, ask again once the
+// copy is readable. Carries no percentage, finishing time or amount,
+// because this product knows none of them.
+type RecoveryMintResponse struct {
+	ArtifactID  string                    `json:"artifact_id"`
+	Copy        string                    `json:"copy"`
+	DownloadURL string                    `json:"download_url,omitempty"`
+	ExpiresAt   string                    `json:"expires_at,omitempty"`
+	Grant       string                    `json:"grant,omitempty"`
+	Restore     *RecoveryRestoreOperation `json:"restore,omitempty"`
+	SizeBytes   *int64                    `json:"size_bytes,omitempty"`
+	Target      *RecoveryTarget           `json:"target,omitempty"`
+}
+
+type RecoveryRestoreOperation struct {
+	Billing     string `json:"billing,omitempty"`
+	OperationID string `json:"operation_id"`
+	Wait        string `json:"wait,omitempty"`
+}
+
+// RecoveryResult is what a redeemed grant answers when its target is server-side
+// (staging or storage): the bytes were verified and placed, and
+// nothing was streamed.
+type RecoveryResult struct {
+	ArtifactID string         `json:"artifact_id"`
+	Bytes      int64          `json:"bytes"`
+	Copy       string         `json:"copy"`
+	Key        string         `json:"key,omitempty"`
+	Path       string         `json:"path,omitempty"`
+	Sha256     string         `json:"sha256"`
+	Target     RecoveryTarget `json:"target"`
+}
+
 // RecoverySettingsResponse is GET /auth/recovery and PATCH /auth/recovery: the recovery address,
 // the two proofs about it, the deadline an unverified one lapses at,
 // and the SMTP endpoint without its password. `smtp` is ABSENT on a
@@ -2617,6 +2762,19 @@ type RecoverySettingsUpdate struct {
 	CurrentPassword string        `json:"currentPassword"`
 	RecoveryEmail   *string       `json:"recoveryEmail"`
 	Smtp            *SmtpSettings `json:"smtp"`
+}
+
+// RecoveryTarget is where one recovery writes its bytes. The set is closed: download
+// streams to the caller that redeems the grant, staging places one
+// file under the configured recovery staging root, storage uploads
+// to another configured storage destination. Nothing is written
+// anywhere until the whole copy has been read and has matched the
+// SHA-256 the journal recorded.
+type RecoveryTarget struct {
+	Key    string `json:"key,omitempty"`
+	Kind   string `json:"kind"`
+	Medium string `json:"medium,omitempty"`
+	Path   string `json:"path,omitempty"`
 }
 
 // RepositoryHealth is one repository domain's own health, which is a different question
@@ -3932,8 +4090,13 @@ var SchemaTypes = map[string]any{
 	"OperationProgress":                  OperationProgress{},
 	"OperationRestore":                   OperationRestore{},
 	"Placement":                          Placement{},
+	"RecoveryMintRequest":                RecoveryMintRequest{},
+	"RecoveryMintResponse":               RecoveryMintResponse{},
+	"RecoveryRestoreOperation":           RecoveryRestoreOperation{},
+	"RecoveryResult":                     RecoveryResult{},
 	"RecoverySettingsResponse":           RecoverySettingsResponse{},
 	"RecoverySettingsUpdate":             RecoverySettingsUpdate{},
+	"RecoveryTarget":                     RecoveryTarget{},
 	"RepositoryHealth":                   RepositoryHealth{},
 	"RepositoryMaintenance":              RepositoryMaintenance{},
 	"RepositoryPassphraseReference":      RepositoryPassphraseReference{},
