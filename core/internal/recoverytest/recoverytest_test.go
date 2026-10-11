@@ -193,6 +193,9 @@ func TestAMatchingDigestAndAnAcceptingValidatorIsARecordedPass(t *testing.T) {
 	if res.Artifact != a || res.Medium != state.MediumLocal {
 		t.Errorf("result names %s on %s", res.Artifact, res.Medium)
 	}
+	if res.PlacementID <= 0 || res.PlacementID != p.ID {
+		t.Errorf("result names placement %d, the copy is placement %d", res.PlacementID, p.ID)
+	}
 }
 
 func hashOfFile(t *testing.T, p string) string {

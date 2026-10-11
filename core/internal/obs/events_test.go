@@ -473,12 +473,15 @@ func TestScrubFailureEventCarriesNoRawControlBytes(t *testing.T) {
 func TestRecoveryTestEventStatesTheGateAndTheTermination(t *testing.T) {
 	l, buf := newRecorder(t)
 	l.RecoveryTest(context.Background(), RecoveryTestFacts{
-		Artifact: "prod/pg/a.dump", Medium: "local", State: "passed", DigestMatched: "matched",
+		Artifact: "prod/pg/a.dump", Medium: "local", PlacementID: 42, State: "passed", DigestMatched: "matched",
 		ValidatorID: "pg-restore-check", Termination: "exited", Cleanup: "removed",
 	})
 	line := decodeLines(t, buf)[0]
 	if line["event"] != EventRecoveryTest || line["result"] != string(ResultSuccess) {
 		t.Fatalf("line = %#v", line)
+	}
+	if line["placement_id"] != float64(42) {
+		t.Errorf("placement_id = %v", line["placement_id"])
 	}
 	for k, want := range map[string]string{"digest": "matched", "validator": "pg-restore-check", "termination": "exited", "state": "passed"} {
 		if line[k] != want {

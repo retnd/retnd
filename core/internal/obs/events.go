@@ -983,6 +983,8 @@ func scrubText(s string) string {
 type RecoveryTestFacts struct {
 	Artifact string
 	Medium   string
+	// PlacementID is the copy's row id in the journal.
+	PlacementID int64
 	// State is one of internal/state's Recovery* values.
 	State string
 	// DigestMatched is "matched", "mismatched" or "not_compared".
@@ -1013,6 +1015,7 @@ func (l *Logger) RecoveryTest(ctx context.Context, f RecoveryTestFacts) {
 	l.emitMarked(ctx, result.Level(), mark{result: result}, EventRecoveryTest, "recovery test complete",
 		slog.String("artifact", f.Artifact),
 		slog.String("medium", f.Medium),
+		slog.Int64("placement_id", f.PlacementID),
 		slog.String("state", f.State),
 		slog.String("digest", f.DigestMatched),
 		slog.String("validator", scrubText(f.ValidatorID)),
