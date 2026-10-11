@@ -148,7 +148,10 @@
           "RECOVERY_UNAVAILABLE",
           "RECOVERY_BUSY",
           "RECOVERY_INTERRUPTED",
-          "RECOVERY_FAILED"
+          "RECOVERY_FAILED",
+          "RECOVERY_READS_BUSY",
+          "RECOVERY_DESTINATION_BUSY",
+          "RECOVERY_DOWNLOADS_BUSY"
         ],
         "x-code-origins": {
           "authentication-failed": "ui",
@@ -244,7 +247,10 @@
           "RECOVERY_UNAVAILABLE": "wire",
           "RECOVERY_BUSY": "wire",
           "RECOVERY_INTERRUPTED": "wire",
-          "RECOVERY_FAILED": "wire"
+          "RECOVERY_FAILED": "wire",
+          "RECOVERY_READS_BUSY": "wire",
+          "RECOVERY_DESTINATION_BUSY": "wire",
+          "RECOVERY_DOWNLOADS_BUSY": "wire"
         },
         "x-error-classes": {
           "authentication": [
@@ -322,7 +328,10 @@
           ],
           "throttling": [
             "RATE_LIMITED",
-            "RECOVERY_TOO_MANY_GRANTS"
+            "RECOVERY_TOO_MANY_GRANTS",
+            "RECOVERY_READS_BUSY",
+            "RECOVERY_DESTINATION_BUSY",
+            "RECOVERY_DOWNLOADS_BUSY"
           ],
           "internal": [
             "INTERNAL",
@@ -16616,7 +16625,7 @@
             ]
           },
           "429": {
-            "description": "Refused: RECOVERY_TOO_MANY_GRANTS.",
+            "description": "Refused: RECOVERY_TOO_MANY_GRANTS. Too many recoveries are waiting to be collected; use or let some expire first.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16878,6 +16887,21 @@
             "x-error-codes": [
               "RECOVERY_NO_SPACE",
               "RECOVERY_BELOW_RESERVE"
+            ]
+          },
+          "429": {
+            "description": "Refused: RECOVERY_READS_BUSY, RECOVERY_DESTINATION_BUSY, RECOVERY_DOWNLOADS_BUSY. A budget is full: this host runs only so many full reads of retained copies at once, and against one destination, and streams only so many downloads. Nothing was read, the grant is not spent, and Retry-After says when to come back.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_READS_BUSY",
+              "RECOVERY_DESTINATION_BUSY",
+              "RECOVERY_DOWNLOADS_BUSY"
             ]
           }
         },

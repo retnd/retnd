@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"github.com/retnd/retnd/core/internal/recovery/budget"
 	"go/parser"
 	"go/token"
 	"io"
@@ -381,4 +382,70 @@ func TestRecoveryPackageSpawnsNoSubprocess(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestStageOverTheReadBudgetIsRefusedBeforeTheCopyIsOpened(t *testing.T) {
+	e, st := newEngine(t)
+	e.Reads = budget.NewReads(budget.Limits{MaxConcurrentReads: 1, MaxReadsPerDestination: 1})
+	hold, err := e.Reads.Acquire("m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hold()
+
+	data := sample(4096)
+	src := goodSource(data)
+	_, err = e.Stage(context.Background(), src, expectFor(data, OriginRemote)) // Medium "m"
+	var ref *budget.Refusal
+	if !errors.As(err, &ref) || ref.Budget != budget.DestinationReads || !errors.Is(err, budget.ErrOverBudget) {
+		t.Fatalf("want a per-destination refusal, got %v", err)
+	}
+	if src.opens.Load() != 0 {
+		t.Fatal("the copy was opened (and, if remote, billed) although the budget refused the read")
+	}
+	if entries, _ := st.Entries(); len(entries) != 0 {
+		t.Fatalf("a refusal left %v", entries)
+	}
+}
+
+func TestAStageGivesBackItsReadSlotWhateverHappens(t *testing.T) {
+	e, _ := newEngine(t)
+	e.Reads = budget.NewReads(budget.Limits{MaxConcurrentReads: 1, MaxReadsPerDestination: 1})
+	data := sample(4096)
+
+	if s, err := e.Stage(context.Background(), goodSource(data), expectFor(data, OriginRemote)); err != nil {
+		t.Fatalf("the first stage on a free slot: %v", err)
+	} else {
+		_ = s.Discard()
+	}
+	if _, err := e.Stage(context.Background(), &bytesSource{data: data, flipAt: 9}, expectFor(data, OriginRemote)); !errors.Is(err, ErrIntegrity) {
+		t.Fatalf("a stage after a success should reach the copy and fail its verification, got %v (a read slot from the first is still held)", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := e.Stage(ctx, goodSource(data), expectFor(data, OriginRemote)); err == nil {
+		t.Fatal("a cancelled stage succeeded")
+	} else if errors.Is(err, budget.ErrOverBudget) {
+		t.Fatalf("a cancelled stage was refused by the budget instead of by its context: the slot is still held by an earlier one (%v)", err)
+	}
+	rel, err := e.Reads.Acquire("m")
+	if err != nil {
+		t.Fatalf("after a success, a failure and a cancellation the slot is still held: %v", err)
+	}
+	rel()
+}
+
+func TestOneDestinationBeingFullDoesNotRefuseAnother(t *testing.T) {
+	e, _ := newEngine(t)
+	e.Reads = budget.NewReads(budget.Limits{MaxConcurrentReads: 4, MaxReadsPerDestination: 1})
+	hold, _ := e.Reads.Acquire("m")
+	defer hold()
+	data := sample(4096)
+	exp := expectFor(data, OriginRemote)
+	exp.Medium = "elsewhere"
+	s, err := e.Stage(context.Background(), goodSource(data), exp)
+	if err != nil {
+		t.Fatalf("a read of a different destination was refused: %v", err)
+	}
+	_ = s.Discard()
 }

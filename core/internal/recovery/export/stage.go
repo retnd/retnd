@@ -396,3 +396,56 @@ func safeName(name string) string {
 	}
 	return out
 }
+
+// publishCopy places a copy of from under the root as rel and leaves from
+// where it is. It links when it can, which is instant and costs no space, and
+// copies where the filesystem cannot link (a USB share, an SMB mount).
+func (s *Staging) publishCopy(from, rel string) (string, error) {
+	if filepath.Dir(from) != filepath.Clean(s.Root) || !isPartial(filepath.Base(from)) {
+		return "", errors.New("recovery: refusing to publish a file the staging area did not create")
+	}
+	dir, base, err := s.cleanTarget(rel)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("recovery: preparing the target directory: %w", err)
+	}
+	if err := s.noSymlinksBelowRoot(dir); err != nil {
+		return "", err
+	}
+	final := filepath.Join(dir, outputPrefix+randomHex(8)+"-"+base)
+	if err := os.Link(from, final); err == nil {
+		syncDir(dir)
+		return final, nil
+	}
+	if err := copyFileExclusive(from, final); err != nil {
+		return "", fmt.Errorf("recovery: placing a copy of the recovered file: %w", err)
+	}
+	syncDir(dir)
+	return final, nil
+}
+
+func copyFileExclusive(from, to string) (err error) {
+	in, err := os.Open(from)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(to, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if cerr := out.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			_ = os.Remove(to)
+		}
+	}()
+	if _, err = io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Sync()
+}

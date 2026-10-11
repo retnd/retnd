@@ -46,6 +46,20 @@ type recoveryStore struct {
 	restoreState *transport.RestoreState
 	restoreErr   error
 	statuses     atomic.Int32
+
+	// openGate, when set, makes OpenObject wait until it is closed or the
+	// caller's context ends, so a test can hold a read in flight. failAfter
+	// and failErr make a read die partway, the way a destination does when
+	// it disappears under a copy.
+	openGate   chan struct{}
+	failAfter  int
+	failErr    error
+	uploadGate chan struct{}
+
+	// attest, when set, is what the provider says its own checksum for an
+	// object is. Unset, the medium cannot attest, which is what the shipped
+	// S3 adapter reports for SHA-256.
+	attest func() (transport.ChecksumAttestation, error)
 }
 
 func newRecoveryStore() *recoveryStore {
@@ -61,7 +75,14 @@ func (s *recoveryStore) StatObject(_ context.Context, _ transport.Medium, key st
 	return transport.ObjectInfo{}, transport.NewError(transport.NotFound, "stat", errors.New("no such key"))
 }
 
-func (s *recoveryStore) UploadFromLocal(_ context.Context, _ transport.Medium, localPath, key string, _ transport.UploadOptions) (transport.UploadResult, error) {
+func (s *recoveryStore) UploadFromLocal(ctx context.Context, _ transport.Medium, localPath, key string, _ transport.UploadOptions) (transport.UploadResult, error) {
+	if s.uploadGate != nil {
+		select {
+		case <-s.uploadGate:
+		case <-ctx.Done():
+			return transport.UploadResult{}, ctx.Err()
+		}
+	}
 	b, err := os.ReadFile(localPath)
 	if err != nil {
 		return transport.UploadResult{}, err
@@ -73,8 +94,15 @@ func (s *recoveryStore) UploadFromLocal(_ context.Context, _ transport.Medium, l
 	return transport.UploadResult{Key: key, BytesUploaded: int64(len(b))}, nil
 }
 
-func (s *recoveryStore) OpenObject(_ context.Context, _ transport.Medium, key string) (io.ReadCloser, error) {
+func (s *recoveryStore) OpenObject(ctx context.Context, _ transport.Medium, key string) (io.ReadCloser, error) {
 	s.opens.Add(1)
+	if s.openGate != nil {
+		select {
+		case <-s.openGate:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	s.mu.Lock()
 	b, ok := s.objects[key]
 	s.mu.Unlock()
@@ -85,11 +113,17 @@ func (s *recoveryStore) OpenObject(_ context.Context, _ transport.Medium, key st
 	if s.flipAt >= 0 {
 		d[s.flipAt] ^= 1
 	}
+	if s.failErr != nil {
+		return io.NopCloser(io.MultiReader(bytes.NewReader(d[:s.failAfter]), &failingReader{err: s.failErr})), nil
+	}
 	return io.NopCloser(bytes.NewReader(d)), nil
 }
 
 func (s *recoveryStore) ObjectChecksum(context.Context, transport.Medium, string, transport.HashAlgorithm) (transport.ChecksumAttestation, error) {
-	return transport.ChecksumAttestation{}, errors.New("not used")
+	if s.attest != nil {
+		return s.attest()
+	}
+	return transport.ChecksumAttestation{}, errors.New("this endpoint cannot attest a full-object SHA-256")
 }
 func (s *recoveryStore) DeleteObject(context.Context, transport.Medium, string) error {
 	return errors.New("recovery must never delete")
@@ -889,3 +923,7 @@ func TestADownloadStillBeingServedKeepsItsGrantPastTheGrantTTL(t *testing.T) {
 	}
 	dl.Close()
 }
+
+type failingReader struct{ err error }
+
+func (f *failingReader) Read([]byte) (int, error) { return 0, f.err }

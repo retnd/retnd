@@ -75,6 +75,39 @@ holding the artifact, or a megabyte per concurrent range, moves the number
 by orders of magnitude and not by a few percent, which is the only kind of
 change these ceilings exist to catch.
 
+## A thousand and more copies due at once (#983)
+
+The day a catalog is rebuilt, or a scheduler is switched on for a fleet that
+never had one, every copy is due at the same instant. The simulation of that day is
+`core/internal/recovery/budget/scale_test.go`: the real read limiter and the
+real verifying engine, a simulated scheduler that hands them 50 copies at a
+time and waits for a slot rather than being refused (the pass size is the
+test's own, because no product code bounds a pass), and the peaks read off the
+limiter rather than asserted from outside. Most of the fleet is on one destination on purpose, so the
+per-destination ceiling has something to hold.
+
+```
+RECOVERY_BUDGET_COPIES=1200 RECOVERY_BUDGET_BYTES=1048576 \
+  RECOVERY_BUDGET_OUT=/some/dir/result.json \
+  go test ./internal/recovery/budget/ -run OneThousandDue -v -count=1
+```
+
+| | Measured | Bound |
+|---|---|---|
+| copies due at once | 1200, 1 MiB each (1.2 GiB read, hashed and staged) | |
+| passes to finish them | 24 | 24 (1200 copies at 50 a pass) |
+| most full reads running at once | 2 | 2 |
+| most full reads of one destination at once | 1 | 1 |
+| refusals | 0 | |
+| wall clock | 0.7 s | |
+
+Run on the host above, linux/amd64, 28 threads, under a docker container with
+the usual neighbours. The wall clock is for scale only: a copy here is read
+from memory, so it measures the engine's bookkeeping and the staging disk, not
+a destination. The same simulation with a refusing limiter (what an operator at a
+terminal gets) also never exceeds either ceiling, and refuses thousands of
+attempts on the way, which is `TestAnInteractiveStyleLimiterRefusesInsteadOfWaitingAndStillNeverExceedsTheCeilings`.
+
 ## What this does not measure
 
 - **Concurrent streams.** One recovery at a time. The concurrent-stream ceiling

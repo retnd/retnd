@@ -709,7 +709,7 @@ to print:
       not be performed at all, a route that was named and did not answer, and a route that
       answered for a different deployment, because none of those gets better by waiting
       (#551, #555)
-  10-31  recover only (EPIC Q), one code per reason so a script can branch without reading the
+  10-36  recover only (EPIC Q), one code per reason so a script can branch without reading the
       sentence: 10 chargeable and not acknowledged, 11 no retained copy, 12 no such copy,
       13 nothing readable right now, 14 the copy on this host's disk failed its checksum,
       15 a remote copy failed its checksum, 16 no recorded SHA-256 to verify against,
@@ -717,6 +717,8 @@ to print:
       snapshot restore), 20 target not allowed, 21 target already exists, 22-26 grant
       refusals (unknown, used, expired, session ended, too many), 27 recovery unavailable,
       28 busy, 29 interrupted, 30 any other failure, 31 an archive restore was started and
-      nothing was recovered yet. In every refusal no byte was delivered anywhere
+      nothing was recovered yet, 32 too many full reads running on this host, 33 too many
+      on that one destination, 36 too many downloads in progress (a budget refusal: try
+      again when one finishes). In every refusal no byte was delivered anywhere
 `)
 }

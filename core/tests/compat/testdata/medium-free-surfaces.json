@@ -917,7 +917,7 @@
         "  err|       not be performed at all, a route that was named and did not answer, and a route that",
         "  err|       answered for a different deployment, because none of those gets better by waiting",
         "  err|       (#551, #555)",
-        "  err|   10-31  recover only (EPIC Q), one code per reason so a script can branch without reading the",
+        "  err|   10-36  recover only (EPIC Q), one code per reason so a script can branch without reading the",
         "  err|       sentence: 10 chargeable and not acknowledged, 11 no retained copy, 12 no such copy,",
         "  err|       13 nothing readable right now, 14 the copy on this host's disk failed its checksum,",
         "  err|       15 a remote copy failed its checksum, 16 no recorded SHA-256 to verify against,",
@@ -925,7 +925,9 @@
         "  err|       snapshot restore), 20 target not allowed, 21 target already exists, 22-26 grant",
         "  err|       refusals (unknown, used, expired, session ended, too many), 27 recovery unavailable,",
         "  err|       28 busy, 29 interrupted, 30 any other failure, 31 an archive restore was started and",
-        "  err|       nothing was recovered yet. In every refusal no byte was delivered anywhere",
+        "  err|       nothing was recovered yet, 32 too many full reads running on this host, 33 too many",
+        "  err|       on that one destination, 36 too many downloads in progress (a budget refusal: try",
+        "  err|       again when one finishes). In every refusal no byte was delivered anywhere",
         "$ retnd definitely-not-a-command -> exit 2",
         "  err| retnd: unknown command \"definitely-not-a-command\"",
         "  err| ",
@@ -1507,7 +1509,7 @@
         "  err|       not be performed at all, a route that was named and did not answer, and a route that",
         "  err|       answered for a different deployment, because none of those gets better by waiting",
         "  err|       (#551, #555)",
-        "  err|   10-31  recover only (EPIC Q), one code per reason so a script can branch without reading the",
+        "  err|   10-36  recover only (EPIC Q), one code per reason so a script can branch without reading the",
         "  err|       sentence: 10 chargeable and not acknowledged, 11 no retained copy, 12 no such copy,",
         "  err|       13 nothing readable right now, 14 the copy on this host's disk failed its checksum,",
         "  err|       15 a remote copy failed its checksum, 16 no recorded SHA-256 to verify against,",
@@ -1515,7 +1517,9 @@
         "  err|       snapshot restore), 20 target not allowed, 21 target already exists, 22-26 grant",
         "  err|       refusals (unknown, used, expired, session ended, too many), 27 recovery unavailable,",
         "  err|       28 busy, 29 interrupted, 30 any other failure, 31 an archive restore was started and",
-        "  err|       nothing was recovered yet. In every refusal no byte was delivered anywhere"
+        "  err|       nothing was recovered yet, 32 too many full reads running on this host, 33 too many",
+        "  err|       on that one destination, 36 too many downloads in progress (a budget refusal: try",
+        "  err|       again when one finishes). In every refusal no byte was delivered anywhere"
       ]
     },
     "07-cli-retention-preview": {
