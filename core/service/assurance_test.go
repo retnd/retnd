@@ -257,7 +257,7 @@ func TestUpdateAssuranceSettings_RefusesAStagingRootThatIsNotOurs(t *testing.T) 
 		"world-writable": open,
 		"a file":         file,
 		"a symlink":      link,
-		"dot-dot":        filepath.Join(dir, "real", "..", "real"),
+		"dot-dot":        dir + "/real/../real",
 		"under a file":   filepath.Join(file, "stage"),
 	} {
 		bad := bad
