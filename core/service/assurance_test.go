@@ -223,3 +223,61 @@ func TestAssuranceDue_AZeroResolvedCadenceFallsBackToTheDefault(t *testing.T) {
 		t.Errorf("a resolved cadence must pass through, got %s", got)
 	}
 }
+
+// Panel finding C3: the staging root is live now (the engine creates files in
+// it), so a PATCH may not point it at a place whose custody the product could
+// not vouch for.
+func TestUpdateAssuranceSettings_RefusesAStagingRootThatIsNotOurs(t *testing.T) {
+	svc, configPath := openAssuranceService(t, "")
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	open := filepath.Join(dir, "open")
+	if err := os.Mkdir(open, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(open, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "afile")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	real := filepath.Join(dir, "real")
+	if err := os.Mkdir(real, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+
+	before, _ := os.ReadFile(configPath)
+	for name, bad := range map[string]string{
+		"world-writable": open,
+		"a file":         file,
+		"a symlink":      link,
+		"dot-dot":        filepath.Join(dir, "real", "..", "real"),
+		"under a file":   filepath.Join(file, "stage"),
+	} {
+		bad := bad
+		if _, err := svc.UpdateAssuranceSettings(ctx, UpdateAssuranceSettingsRequest{StagingRoot: &bad}); !errors.Is(err, ErrInvalidRequest) {
+			t.Errorf("%s: err = %v, want ErrInvalidRequest", name, err)
+		}
+	}
+	if after, _ := os.ReadFile(configPath); string(before) != string(after) {
+		t.Error("a refused write changed the file")
+	}
+
+	creatable := filepath.Join(real, "recovery-staging")
+	if _, err := svc.UpdateAssuranceSettings(ctx, UpdateAssuranceSettingsRequest{StagingRoot: &creatable}); err != nil {
+		t.Errorf("a creatable root under a private directory must save: %v", err)
+	}
+	if _, err := svc.UpdateAssuranceSettings(ctx, UpdateAssuranceSettingsRequest{StagingRoot: &real}); err != nil {
+		t.Errorf("an existing private directory must save: %v", err)
+	}
+	empty := ""
+	if _, err := svc.UpdateAssuranceSettings(ctx, UpdateAssuranceSettingsRequest{StagingRoot: &empty}); err != nil {
+		t.Errorf("clearing the root must save: %v", err)
+	}
+}
