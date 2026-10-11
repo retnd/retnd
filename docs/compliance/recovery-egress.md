@@ -77,13 +77,16 @@ with audit rather than authority:
   a recovery that failed, because one means no bytes and the other means a
   filling disk.
 
-## Where a copy rests while it is being verified
+## Where a copy rests while it is being recovered
 
 In a private file under the recovery staging root, beside the state directory
 (`<state dir>/recovery`), created with mode 0600 inside a directory of mode
 0700. It is as sensitive as the artifact itself: it is the artifact. It exists
-from the start of a recovery to its end (a download) or until the operator
-collects it (a `staging` target, kept for seven days and then swept). If the
+from the start of a recovery to its end (a `storage` target) or until the operator
+collects it (a `staging` target, kept for seven days and then swept). A download
+rests nowhere: it is streamed from the retained copy, and the only thing kept
+beside the state directory is a small chunk-digest file per artifact
+(`<state dir>/recovery-index`, 32 bytes per 4 MiB, no content). If the
 backup is encrypted at rest by the operator's own tooling, the staged copy is
 whatever that tooling produced. This product does not decrypt anything.
 
