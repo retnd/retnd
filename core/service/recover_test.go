@@ -34,12 +34,14 @@ import (
 type recoveryStore struct {
 	restoreOnlyTransport
 
-	mu       sync.Mutex
-	objects  map[string][]byte
-	opens    atomic.Int32
-	restores atomic.Int32
-	uploads  atomic.Int32
-	flipAt   int // when >= 0, bit-flip this offset on every read
+	mu         sync.Mutex
+	objects    map[string][]byte
+	opens      atomic.Int32
+	rangeOpens atomic.Int32
+	rangeBytes atomic.Int64 // bytes served through OpenObjectRange
+	restores   atomic.Int32
+	uploads    atomic.Int32
+	flipAt     int // when >= 0, bit-flip this offset on every read
 
 	// restoreState and restoreErr are what the provider says about a
 	// restore of any object, for the archive-class cases.
@@ -86,6 +88,38 @@ func (s *recoveryStore) OpenObject(_ context.Context, _ transport.Medium, key st
 		d[s.flipAt] ^= 1
 	}
 	return io.NopCloser(bytes.NewReader(d)), nil
+}
+
+// OpenObjectRange is the ranged read a streamed download needs: from off to
+// the end of the object, with the bytes it hands out counted, so a test can
+// see how much of a copy a download really read.
+func (s *recoveryStore) OpenObjectRange(_ context.Context, _ transport.Medium, key string, off int64) (io.ReadCloser, error) {
+	s.rangeOpens.Add(1)
+	s.mu.Lock()
+	b, ok := s.objects[key]
+	s.mu.Unlock()
+	if !ok {
+		return nil, transport.NewError(transport.NotFound, "stat", errors.New("no such key"))
+	}
+	d := append([]byte(nil), b...)
+	if s.flipAt >= 0 {
+		d[s.flipAt] ^= 1
+	}
+	if off > int64(len(d)) {
+		off = int64(len(d))
+	}
+	return io.NopCloser(&countedReader{r: bytes.NewReader(d[off:]), n: &s.rangeBytes}), nil
+}
+
+type countedReader struct {
+	r io.Reader
+	n *atomic.Int64
+}
+
+func (c *countedReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n.Add(int64(n))
+	return n, err
 }
 
 func (s *recoveryStore) ObjectChecksum(context.Context, transport.Medium, string, transport.HashAlgorithm) (transport.ChecksumAttestation, error) {
