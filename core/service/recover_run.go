@@ -12,7 +12,9 @@ import (
 
 	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/placement"
 	"github.com/retnd/retnd/core/internal/recovery/export"
+	"github.com/retnd/retnd/core/internal/state"
 	"github.com/retnd/retnd/core/internal/transport"
 )
 
@@ -109,13 +111,32 @@ func (d *RecoveryDownload) Served(start, end, written int64, err error) {
 	}
 }
 
+// recoveryDownloadState is what a started download keeps on its grant: the
+// staged copy it serves, and the slot it holds against the download ceiling.
+// Both are given back together, by whichever of completion, failure, the
+// reaper or a logout gets there first.
+type recoveryDownloadState struct {
+	staged  *export.Staged
+	release func()
+}
+
+// drop gives back the staged copy and the stream slot.
+func (b *BackupService) dropDownload(v any) {
+	st, ok := v.(*recoveryDownloadState)
+	if !ok || st == nil {
+		return
+	}
+	if st.release != nil {
+		st.release()
+	}
+	if st.staged != nil {
+		b.discardStaged(st.staged)
+	}
+}
+
 func (b *BackupService) finishRecoveryDownload(token string) {
 	h := b.recoveryHost()
-	if staged, ok := h.grants.Close(token).(*export.Staged); ok && staged != nil {
-		if err := staged.Discard(); err != nil {
-			b.logCleanupFailure(err)
-		}
-	}
+	b.dropDownload(h.grants.Close(token))
 }
 
 func (b *BackupService) logCleanupFailure(err error) {
@@ -144,7 +165,11 @@ func (b *BackupService) RedeemRecovery(ctx context.Context, sess RecoverySession
 	ev.artifact, ev.copy, ev.target = g.Artifact, g.Copy, recoveryTargetOf(g.Target).label()
 
 	if !redeem.First {
-		staged, ok := redeem.Attached.(*export.Staged)
+		st, ok := redeem.Attached.(*recoveryDownloadState)
+		var staged *export.Staged
+		if ok && st != nil {
+			staged = st.staged
+		}
 		if !ok || staged == nil || g.Target.Kind != export.TargetDownload {
 			h.grants.Done(token)
 			berr := recoveryErr(RecoveryBusy, "this recovery is still being prepared; try the same link again in a moment")
@@ -160,8 +185,38 @@ func (b *BackupService) RedeemRecovery(ctx context.Context, sess RecoverySession
 		return d, nil, nil
 	}
 
+	// A download holds a slot against the ceiling from here until it is
+	// finished. Taken before anything is read, so a refusal has read nothing,
+	// and the grant is handed back unspent: the holder can come for it again.
+	var releaseStream func()
+	if g.Target.Kind == export.TargetDownload {
+		rel, aerr := h.streams.Acquire()
+		if aerr != nil {
+			h.grants.Revert(token)
+			b.auditRecovery(ctx, &ev, aerr)
+			return nil, nil, mapRecoveryError(aerr)
+		}
+		releaseStream = rel
+	}
+	giveBackStream := func() {
+		if releaseStream != nil {
+			releaseStream()
+			releaseStream = nil
+		}
+	}
+
 	staged, serr := b.stageGrant(ctx, g)
+	if serr == nil && h.afterStage != nil {
+		h.afterStage()
+	}
+	if serr == nil && ctx.Err() != nil {
+		// Cancelled between verifying and delivering: nothing has been
+		// placed, so nothing should be left either.
+		b.discardStaged(staged)
+		serr = ctx.Err()
+	}
 	if serr != nil {
+		giveBackStream()
 		h.grants.Close(token)
 		b.auditRecovery(ctx, &ev, serr)
 		return nil, nil, mapRecoveryError(serr)
@@ -169,7 +224,7 @@ func (b *BackupService) RedeemRecovery(ctx context.Context, sess RecoverySession
 
 	switch g.Target.Kind {
 	case export.TargetDownload:
-		h.grants.Attach(token, staged)
+		h.grants.Attach(token, &recoveryDownloadState{staged: staged, release: giveBackStream})
 		d, oerr := b.newRecoveryDownload(staged, token, sess.Actor, ev)
 		if oerr != nil {
 			b.finishRecoveryDownload(token)
@@ -180,7 +235,7 @@ func (b *BackupService) RedeemRecovery(ctx context.Context, sess RecoverySession
 
 	case export.TargetStaging:
 		defer h.grants.Close(token)
-		final, perr := h.staging.Publish(staged.Path, g.Target.Path)
+		final, perr := staged.PublishTo(g.Target.Path)
 		if perr != nil {
 			b.discardStaged(staged)
 			b.auditRecovery(ctx, &ev, perr)
@@ -235,21 +290,72 @@ func (b *BackupService) newRecoveryDownload(staged *export.Staged, token, actor 
 // that was deleted or repointed between mint and redeem is refused, and
 // stages the chosen copy through the verifying engine.
 func (b *BackupService) stageGrant(ctx context.Context, g export.Grant) (*export.Staged, error) {
-	// The grant already carries the cost acknowledgement: a chargeable
-	// copy could not have been minted without it.
-	plan, err := b.planRecovery(ctx, g.Artifact, g.Copy, true)
+	h := b.recoveryHost()
+	// One execution per (artifact, copy): two operators asking for the same
+	// recovery at once is one read of a copy that may be billed to read, and
+	// each of them is handed their own handle on the result.
+	return h.flight.Do(ctx, g.Artifact+"\x00"+g.Copy, func(ctx context.Context) (*export.Staged, error) {
+		// The grant already carries the cost acknowledgement: a chargeable
+		// copy could not have been minted without it.
+		plan, err := b.planRecovery(ctx, g.Artifact, g.Copy, true)
+		if err != nil {
+			return nil, err
+		}
+		if plan.resolved.NeedsThaw {
+			return nil, recoveryErr(RecoveryNotReadable, "the copy on %s needs a provider restore before it can be read", g.Copy)
+		}
+		st := b.state.Load()
+		if err := b.checkProviderChecksum(ctx, st, plan); err != nil {
+			return nil, err
+		}
+		src, err := b.sourceFor(st, plan)
+		if err != nil {
+			return nil, err
+		}
+		return h.engine.Stage(ctx, src, plan.expect)
+	})
+}
+
+// checkProviderChecksum asks the destination for its own checksum of the
+// object before a byte of it is downloaded. It is one metadata call and no
+// egress, and where the destination can attest a full-object SHA-256 and
+// disagrees with the one recorded at ingestion, that is a positive finding
+// that the copy is not the recorded bytes: the recovery is refused, and the
+// download that would have been billed is not made.
+//
+// It never refuses on silence. A destination that cannot attest (the S3
+// adapter this product ships cannot attest a SHA-256 at all), attests another
+// algorithm, or does not answer has said nothing, and the bytes are verified
+// on the way out regardless, which is the stronger check.
+func (b *BackupService) checkProviderChecksum(ctx context.Context, st *configState, plan recoveryPlan) error {
+	c := plan.resolved.Copy
+	if c.Local {
+		return nil
+	}
+	store, _ := st.inner.Transport.(placement.Store)
+	if store == nil {
+		return nil
+	}
+	var p state.Placement
+	for _, candidate := range plan.rec.Placements {
+		if candidate.Medium == c.Medium {
+			p = candidate
+		}
+	}
+	res, err := placement.Verify(ctx, store, plan.medium, p, placement.Attested, now())
 	if err != nil {
-		return nil, err
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return nil
 	}
-	if plan.resolved.NeedsThaw {
-		return nil, recoveryErr(RecoveryNotReadable, "the copy on %s needs a provider restore before it can be read", g.Copy)
+	if !res.Passed {
+		return &RecoveryError{
+			Code:    RecoveryRemoteCopyCorrupt,
+			Message: "the destination's own checksum for the copy on " + c.Medium + " does not match the one recorded when this backup was ingested, so it was not downloaded",
+		}
 	}
-	st := b.state.Load()
-	src, err := b.sourceFor(st, plan)
-	if err != nil {
-		return nil, err
-	}
-	return b.recoveryHost().engine.Stage(ctx, src, plan.expect)
+	return nil
 }
 
 // uploadRecovered writes a verified staged file to another configured
@@ -315,9 +421,7 @@ func (b *BackupService) EndRecoverySession(sess RecoverySession) {
 		return
 	}
 	for _, v := range h.grants.EndSession(sess.toExport()) {
-		if s, ok := v.(*export.Staged); ok {
-			b.discardStaged(s)
-		}
+		b.dropDownload(v)
 	}
 }
 
@@ -327,9 +431,7 @@ func (b *BackupService) EndRecoverySession(sess RecoverySession) {
 func (b *BackupService) sweepRecoveryIfDue(ctx context.Context) {
 	h := b.recoveryHost()
 	for _, v := range h.grants.Reap() {
-		if s, ok := v.(*export.Staged); ok {
-			b.discardStaged(s)
-		}
+		b.dropDownload(v)
 	}
 	h.sweepMu.Lock()
 	due := now().Sub(h.lastSweep) >= time.Minute
