@@ -338,5 +338,5 @@ change, because widening what the per-commit gate runs is a decision about its c
 
 The pin moves only to a commit that is on `main` in `retnd-tests`, never to a branch head: a squash
 rewrites the head, and a pin that names a commit in no history cannot be cloned once the branch is
-gone. The pin this repository holds today (`c75e4dd`) is already not an ancestor of that repository's
-`main`, though its tree is identical to `main`'s `#87`, which is the same defect one step earlier.
+gone. The pin used to name `c75e4dd`, which was #87's own head and not an ancestor of that
+repository's `main`; it names `9584fa3` now, the squash of #87 with the identical tree.
