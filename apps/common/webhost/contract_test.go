@@ -236,6 +236,13 @@ var contractBindings = map[string]contractBinding{
 	// that sends nothing gets this deployment's whole history, which is
 	// the reading an operator asking "what is stuck here" makes.
 	"listWorkflowRuns":     {nil, listWorkflowRunsResponse{}, "/api/v1/workflow-runs"},
+	// EPIC Q, Q1.4 (#982).
+	"getAssuranceSettings":      {nil, assuranceSettingsResponse{}, "/api/v1/settings/assurance"},
+	"updateAssuranceSettings":   {updateAssuranceSettingsRequest{}, assuranceSettingsResponse{}, "/api/v1/settings/assurance"},
+	"getBackupSetAssurance":     {nil, backupSetAssuranceResponse{}, "/api/v1/backup-sets/src/set-1/assurance"},
+	"updateBackupSetAssurance":  {updateBackupSetAssuranceRequest{}, backupSetAssuranceResponse{}, "/api/v1/backup-sets/src/set-1/assurance"},
+	"resetBackupSetAssurance":   {nil, backupSetAssuranceResponse{}, "/api/v1/backup-sets/src/set-1/assurance"},
+	"listAssuranceDue":          {nil, assuranceDueResponse{}, "/api/v1/assurance/due"},
 	"getWorkflowRun":       {nil, workflowRunResponse{}, "/api/v1/workflow-runs/run_1"},
 	"listWorkflowRunSteps": {nil, listWorkflowStepsResponse{}, "/api/v1/workflow-runs/run_1/steps"},
 	"getWorkflowStepLogs":  {nil, workflowStepLogPageResponse{}, "/api/v1/workflow-runs/run_1/steps/step_1/logs"},
