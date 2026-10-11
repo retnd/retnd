@@ -172,7 +172,15 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 
 	// The rest.
 	"--medium": "the id of the destination a restore reads from",
-	"--note":   "the operator's own note on a retry, which they wrote and can read back",
+
+	// Recovery (EPIC Q). The copy is a medium id, a name from this
+	// deployment's own configuration; the target is a path under the
+	// recovery staging root or a destination id and key. Neither carries
+	// a credential: a storage target names its destination by id, and the
+	// credentials stay behind that id.
+	"--copy": "the id of the storage medium holding the copy to recover",
+	"--to":   "where the recovered bytes go: a name under the staging root, or a destination id and key",
+	"--note": "the operator's own note on a retry, which they wrote and can read back",
 
 	// EPIC K's snapshot verbs (#788). Every one of these is a value the
 	// operator themselves supplied and has to be able to retype: a
