@@ -8,9 +8,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/retnd/retnd/core/internal/placement"
-	"github.com/retnd/retnd/core/internal/workflowrun"
 )
 
 func TestEveryBudgetHasADefaultAndAValidDefaultSet(t *testing.T) {
@@ -22,8 +19,6 @@ func TestEveryBudgetHasADefaultAndAValidDefaultSet(t *testing.T) {
 		"concurrent reads":      int64(d.MaxConcurrentReads),
 		"reads per destination": int64(d.MaxReadsPerDestination),
 		"staging reserve":       d.StagingReserveBytes,
-		"copies per tick":       int64(d.MaxCopiesPerTick),
-		"validator output":      d.ValidatorOutputBytes,
 		"concurrent downloads":  int64(d.MaxDownloadStreams),
 	} {
 		if v <= 0 {
@@ -47,8 +42,8 @@ func TestEveryBudgetHasItsOwnExitCodeAboveTheOnesTheUsageTextPublishes(t *testin
 		}
 		seen[code] = n
 	}
-	if len(All) != 7 {
-		t.Errorf("the issue names seven budgets and All lists %d", len(All))
+	if len(All) != 4 {
+		t.Errorf("four budgets are read by the product and All lists %d", len(All))
 	}
 }
 
@@ -59,8 +54,6 @@ func TestValidateRefusesLimitsThatCannotMeanAnything(t *testing.T) {
 		"zero per destination":         func(l *Limits) { l.MaxReadsPerDestination = 0 },
 		"per destination above global": func(l *Limits) { l.MaxReadsPerDestination = l.MaxConcurrentReads + 1 },
 		"negative reserve":             func(l *Limits) { l.StagingReserveBytes = -1 },
-		"zero copies per tick":         func(l *Limits) { l.MaxCopiesPerTick = 0 },
-		"zero validator output":        func(l *Limits) { l.ValidatorOutputBytes = 0 },
 		"zero downloads":               func(l *Limits) { l.MaxDownloadStreams = 0 },
 	} {
 		l := Defaults()
@@ -73,10 +66,10 @@ func TestValidateRefusesLimitsThatCannotMeanAnything(t *testing.T) {
 
 func TestWithDefaultsFillsOnlyWhatWasLeftZeroAndLeavesNegativesToBeRefused(t *testing.T) {
 	got := Limits{MaxConcurrentReads: 9}.WithDefaults()
-	if got.MaxConcurrentReads != 9 || got.MaxCopiesPerTick != DefaultMaxCopiesPerTick {
+	if got.MaxConcurrentReads != 9 || got.MaxDownloadStreams != DefaultMaxDownloadStreams {
 		t.Fatalf("got %+v", got)
 	}
-	if neg := (Limits{MaxCopiesPerTick: -5}).WithDefaults(); neg.MaxCopiesPerTick != -5 || neg.Validate() == nil {
+	if neg := (Limits{MaxDownloadStreams: -5}).WithDefaults(); neg.MaxDownloadStreams != -5 || neg.Validate() == nil {
 		t.Fatalf("a negative limit was quietly replaced: %+v", neg)
 	}
 }
@@ -184,101 +177,12 @@ func TestAGlobalRefusalDoesNotLeakTheDestinationSlotItBrieflyTook(t *testing.T) 
 	}
 }
 
-func TestOneThousandDueCopiesSpreadOverPassesAndNothingStarves(t *testing.T) {
-	l := Defaults()
-	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	var due []Candidate
-	for i := 0; i < 1200; i++ {
-		due = append(due, Candidate{ID: idOf(i), Destination: "d", Due: base.Add(time.Duration(1200-i) * time.Minute)})
-	}
-	done := map[string]int{}
-	passes := 0
-	for len(due) > 0 {
-		passes++
-		considered, deferred := SelectTick(due, l)
-		if len(considered) > l.MaxCopiesPerTick {
-			t.Fatalf("pass %d considered %d, over the bound of %d", passes, len(considered), l.MaxCopiesPerTick)
-		}
-		if len(considered) == 0 {
-			t.Fatal("a pass considered nothing while copies were due: that is a stall")
-		}
-		if passes == 1 {
-			// The oldest due is first: the copy that has waited longest
-			// goes before any newer one.
-			if considered[0].Due.After(considered[len(considered)-1].Due) {
-				t.Fatal("not ordered oldest first")
-			}
-		}
-		for _, c := range considered {
-			done[c.ID]++
-		}
-		due = deferred
-	}
-	if len(done) != 1200 {
-		t.Fatalf("%d of 1200 copies were ever considered", len(done))
-	}
-	for id, n := range done {
-		if n != 1 {
-			t.Fatalf("%s considered %d times", id, n)
-		}
-	}
-	if want := (1200 + l.MaxCopiesPerTick - 1) / l.MaxCopiesPerTick; passes != want {
-		t.Fatalf("took %d passes, want %d", passes, want)
-	}
-}
-
-func idOf(i int) string { return "set/artifact-" + strings.Repeat("0", 5-len(itoa(i))) + itoa(i) }
-
-func itoa(i int) string {
-	if i == 0 {
-		return "0"
-	}
-	var b []byte
-	for ; i > 0; i /= 10 {
-		b = append([]byte{byte('0' + i%10)}, b...)
-	}
-	return string(b)
-}
-
-func TestATickWithFewerDueCopiesThanTheBoundTakesThemAll(t *testing.T) {
-	c, d := SelectTick([]Candidate{{ID: "a"}, {ID: "b"}}, Defaults())
-	if len(c) != 2 || len(d) != 0 {
-		t.Fatalf("%v %v", c, d)
-	}
-	if c, d := SelectTick(nil, Defaults()); len(c) != 0 || len(d) != 0 {
-		t.Fatalf("%v %v", c, d)
-	}
-}
-
-func TestTheValidatorOutputBoundIsEpicLsAndNotACopyOfIt(t *testing.T) {
-	if Defaults().ValidatorOutputBytes != workflowrun.DefaultStepOutputBytes {
-		t.Fatalf("the validator output bound is %d and EPIC L's is %d: this budget reuses that bound rather than keeping its own",
-			Defaults().ValidatorOutputBytes, workflowrun.DefaultStepOutputBytes)
-	}
-}
-
-func TestAScheduledPassCostsNoEgressByConstruction(t *testing.T) {
-	if ScheduledCeiling().CostsEgress() {
-		t.Fatalf("the unattended ceiling %s costs egress, so a scheduled pass could download", ScheduledCeiling())
-	}
-	if ScheduledCeiling() != placement.Existence {
-		t.Fatalf("the automatic ceiling moved to %s; FR-31 keeps it at existence", ScheduledCeiling())
-	}
-	if !placement.Content.CostsEgress() {
-		t.Fatal("test premise: a content read costs egress")
-	}
-	if ExitCode(ScheduledEgress) == 0 {
-		t.Fatal("the zero-egress budget has no exit code")
-	}
-}
-
 func TestARefusalReadsInWordsAnOperatorCanActOn(t *testing.T) {
 	for _, r := range []*Refusal{
 		{Budget: ConcurrentReads, Limit: 4},
 		{Budget: DestinationReads, Limit: 2, Destination: "offsite"},
 		{Budget: DownloadStreams, Limit: 4},
 		{Budget: StagingReserve, Limit: 1 << 30},
-		{Budget: TickWork, Limit: 50},
 	} {
 		msg := r.Error()
 		if !strings.Contains(msg, "budget:") || len(msg) < 40 {
