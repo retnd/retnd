@@ -6,11 +6,16 @@ import (
 	"time"
 )
 
-// FR-23 catalog additions for EPIC Q (Q1.4, #982): scrubbing, artifact
-// recovery and recovery testing. Every name here is new. None of them
-// renames or reshapes anything already shipped, and the stable-names test
-// in assurance_events_test.go pins them the way events_test.go pins the
-// older ones.
+// FR-23 catalog additions for EPIC Q (Q1.4, #982): artifact recovery and
+// recovery testing. Every name here is new. None of them renames or reshapes
+// anything already shipped, and the stable-names test in
+// assurance_events_test.go pins them the way events_test.go pins the older
+// ones.
+//
+// A scrub pass is not here: it has its own two events, EventScrubPass and
+// EventScrubFailure (events.go). A start/end/copy trio drafted for it in this
+// file never had a caller once the driver chose those, and a catalog entry
+// nothing emits is a promise nobody keeps, so it was deleted.
 //
 // # The pairing, and what each completion states
 //
@@ -21,23 +26,9 @@ import (
 //
 // # Event volume is a decision, not a side effect
 //
-// The activity feed is append-only and cursor-paged, and a scrub can touch a
-// thousand copies in one pass. So a scrub pass is two lines (start, end)
-// plus one EventScrubCopy per copy that did NOT pass, and the caller caps
-// those (service.MaxScrubCopyRows). A thousand healthy copies cost two
-// rows. A recovery or recovery test is a start, one stage line per stage it
-// enters, and an end.
+// The activity feed is append-only and cursor-paged. A recovery or recovery
+// test is a start, one stage line per stage it enters, and an end.
 const (
-	// EventScrubStart and EventScrubEnd bracket one scrub pass over a
-	// backup set.
-	EventScrubStart = "scrub_start"
-	EventScrubEnd   = "scrub_end"
-
-	// EventScrubCopy records one copy a scrub pass could not pass: it
-	// failed, it could not be read, or it was refused for cost. A passing
-	// copy emits nothing, which is what keeps a large pass bounded.
-	EventScrubCopy = "scrub_copy"
-
 	// EventRecoveryStart, EventRecoveryStage and EventRecoveryEnd bracket
 	// one artifact recovery and name the stage it is in.
 	EventRecoveryStart = "recovery_start"
@@ -53,7 +44,6 @@ const (
 
 // The action names the pairs above are bracketed under.
 const (
-	ActionScrub        = "scrub"
 	ActionRecovery     = "recovery"
 	ActionRecoveryTest = "recovery_test"
 )
@@ -91,61 +81,6 @@ func StageLabel(id string) string {
 		}
 	}
 	return ""
-}
-
-// ScrubTotals is what a finished scrub pass measured.
-type ScrubTotals struct {
-	Checked   int
-	Passed    int
-	Failed    int
-	Refused   int
-	Unread    int
-	Truncated int
-	BytesRead int64
-	Duration  time.Duration
-}
-
-// ScrubStart logs EventScrubStart for the pass runID.
-func (l *Logger) ScrubStart(ctx context.Context, runID, backupSet string, copies int) {
-	l.emitMarked(ctx, LevelInfo, mark{action: ActionScrub, actionID: runID},
-		EventScrubStart, "scrub starting",
-		slog.String("run_id", runID),
-		slog.String("backup_set", backupSet),
-		slog.Int("copies", copies),
-	)
-}
-
-// ScrubEnd logs EventScrubEnd for the pass runID started, stating result.
-// Truncated is how many non-passing copies were not given a line of their
-// own, so a capped pass says that it was capped.
-func (l *Logger) ScrubEnd(ctx context.Context, runID, backupSet string, t ScrubTotals, result Result) {
-	l.emitMarked(ctx, result.Level(), mark{result: result, action: ActionScrub, actionID: runID},
-		EventScrubEnd, "scrub finished",
-		slog.String("run_id", runID),
-		slog.String("backup_set", backupSet),
-		slog.Int("checked", t.Checked),
-		slog.Int("passed", t.Passed),
-		slog.Int("failed", t.Failed),
-		slog.Int("refused", t.Refused),
-		slog.Int("unread", t.Unread),
-		slog.Int("truncated", t.Truncated),
-		slog.Int64("bytes_read", t.BytesRead),
-		slog.Duration("duration", t.Duration),
-	)
-}
-
-// ScrubCopy logs EventScrubCopy: one copy the pass run runID could not
-// pass. reason is the service's own sentence, never a validator's output.
-func (l *Logger) ScrubCopy(ctx context.Context, runID, backupSet, artifact, medium, outcome, reason string) {
-	l.emitMarked(ctx, LevelWarn, mark{result: ResultWarn},
-		EventScrubCopy, "scrub could not pass a copy",
-		slog.String("run_id", runID),
-		slog.String("backup_set", backupSet),
-		slog.String("artifact", artifact),
-		slog.String("medium", medium),
-		slog.String("outcome", outcome),
-		slog.String("reason", cleanReason(reason)),
-	)
 }
 
 // RecoveryStart logs EventRecoveryStart for the recovery opID.

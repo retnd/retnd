@@ -3467,6 +3467,64 @@
               "DELETE_PENDING"
             ],
             "description": "ACTIVE means the copy is meant to be there. DELETE_PENDING means a delete has been decided and durably recorded and may not have happened yet, so the bytes are probably still there and are on their way out. There is no third value here: a copy the journal knows is gone is not served at all, because a row for it would read as a copy."
+          },
+          "assurance_state": {
+            "type": "string",
+            "enum": [
+              "passed",
+              "failed",
+              "requires_restore",
+              "could_not_complete"
+            ],
+            "description": "The outcome of the most recent scrub of THIS copy. ABSENT means no scrub has evaluated the copy, which is a different fact from a pass and must never be rendered as one. \"failed\" is a failed check: a failed scrub clears verification_class and verified_at, so without this field a copy that failed reads exactly like one nobody has looked at. \"could_not_complete\" is a fact about the endpoint and not about the copy. \"requires_restore\" is an archive-class copy that cannot be read without a restore this product never starts by itself.",
+            "x-go-omitempty": true
+          },
+          "last_checked_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When a scrub of this copy last ran to a verdict. Absent when none has. A check that could not complete does not set it, because nothing was checked.",
+            "x-go-omitempty": true
+          },
+          "last_failure_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When a scrub of this copy last failed or could not complete. It survives a later pass; only consecutive_failures resets.",
+            "x-go-omitempty": true
+          },
+          "last_failure_reason": {
+            "type": "string",
+            "description": "Why that scrub failed or could not complete, in the journal's bounded plain words. It names no path and no credential.",
+            "x-go-omitempty": true
+          },
+          "consecutive_failures": {
+            "type": "integer",
+            "description": "How many scrubs of this copy in a row failed or could not complete. Any pass resets it to zero (and so omits it).",
+            "x-go-omitempty": true
+          },
+          "recovery_state": {
+            "type": "string",
+            "enum": [
+              "not_configured",
+              "never_run",
+              "passed",
+              "overdue",
+              "failed",
+              "refused_for_cost",
+              "could_not_complete"
+            ],
+            "description": "The outcome of the most recent recovery test of THIS copy, a different claim from assurance_state because passing one says nothing about the other. ABSENT means no test has evaluated the copy.",
+            "x-go-omitempty": true
+          },
+          "recovery_tested_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When a recovery test of this copy last concluded. Absent when none has.",
+            "x-go-omitempty": true
+          },
+          "recovery_failure_reason": {
+            "type": "string",
+            "description": "Why the last recovery test of this copy failed or could not complete, in the journal's bounded plain words. Never the validator's output.",
+            "x-go-omitempty": true
           }
         },
         "required": [
@@ -6777,7 +6835,7 @@
           },
           "validator_id": {
             "type": "string",
-            "description": "The registered validator a recovery test runs over the recovered copy. A name, never a path. Empty when the mode is off and none is configured."
+            "description": "The recovery-test script to run over the recovered copy, named by its file name without the .local.sh suffix, in recovery-test/<source>/<set> under the workflow root. Not an entry in GET /validators. A name, never a path. Empty when the mode is off and none is configured."
           }
         }
       },
@@ -6838,11 +6896,6 @@
             "description": "The ceiling on concurrent reads against one destination. Global only.",
             "format": "int64"
           },
-          "web_download_memory_bytes": {
-            "type": "integer",
-            "description": "The memory the web process may spend on downloads at once. Global only.",
-            "format": "int64"
-          },
           "host_knobs": {
             "type": "array",
             "items": {
@@ -6881,7 +6934,7 @@
           },
           "recovery_test_validator_id": {
             "type": "string",
-            "description": "The default validator. Empty clears it.",
+            "description": "The default recovery-test script, by file name without .local.sh. Empty clears it.",
             "x-go-pointer": true
           },
           "staging_root": {
@@ -6902,12 +6955,6 @@
             "x-go-pointer": true
           },
           "max_per_destination": {
-            "type": "integer",
-            "description": "Zero clears it back to the default.",
-            "format": "int64",
-            "x-go-pointer": true
-          },
-          "web_download_memory_bytes": {
             "type": "integer",
             "description": "Zero clears it back to the default.",
             "format": "int64",
@@ -6970,7 +7017,7 @@
           },
           "recovery_test_validator_id": {
             "type": "string",
-            "description": "Required with mode custom, and with mode required unless the deployment names one. Empty clears it.",
+            "description": "The recovery-test script, by file name without .local.sh. Required with mode custom, and with mode required unless the deployment names one. Empty clears it.",
             "x-go-pointer": true
           }
         }
@@ -6992,13 +7039,13 @@
           "last_assured_at": {
             "type": "string",
             "format": "date-time",
-            "description": "When this copy was last assured. Absent for a copy nobody has looked at.",
+            "description": "When the copy that is next due last ran a check to a verdict. Absent for a copy nobody has looked at.",
             "x-go-omitempty": true
           },
           "next_due_at": {
             "type": "string",
             "format": "date-time",
-            "description": "When the set's resolved cadence next calls for a scrub. For a copy nobody has looked at, the moment of the read."
+            "description": "When the copy is next owed a scrub, read from the copy's own schedule (the one the scrub driver keeps). For a copy with no schedule, the moment of the read."
           },
           "cadence_seconds": {
             "type": "integer",
@@ -7015,7 +7062,7 @@
           },
           "basis": {
             "type": "string",
-            "description": "Where last_assured_at came from: verified_at (a placement's own record), journal_updated_at (the interim stand-in until the per-copy record), or never."
+            "description": "Where next_due_at came from: copy_next_due_at (the copy's own scrub schedule, the one the scrub driver keeps), or never (a copy with no schedule, which is due now)."
           }
         }
       },
@@ -7089,6 +7136,41 @@
           "administrator",
           "email",
           "backup_set"
+        ]
+      },
+      "StartRecoveryTestRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "POST /backup-sets/{source}/{set}/recovery-test. Starts a recovery test now. An empty body tests the newest known good copy and acknowledges no cost: a copy that costs money to read (a download from a billed object store, or an archived object) is refused, recorded as refused_for_cost, and nothing is read.",
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "Test this artifact (source/set/name, in the same backup set) instead of the newest known good one."
+          },
+          "acknowledged": {
+            "type": "boolean",
+            "x-go-omitempty": true,
+            "description": "The explicit yes to a read that costs money. An absent value is a no, never an implied yes."
+          }
+        }
+      },
+      "RecoveryTestStarted": {
+        "type": "object",
+        "description": "A recovery test is under way. operation_id is carried by its recovery_test_start, recovery_stage and recovery_test_end lines on the activity feed, which is how a client follows it; the verdict is the copy's recovery claim once it ends.",
+        "properties": {
+          "backup_set_id": {
+            "type": "string",
+            "description": "source/set."
+          },
+          "operation_id": {
+            "type": "string",
+            "description": "The id every line of this test carries, in the op_id field."
+          }
+        },
+        "required": [
+          "backup_set_id",
+          "operation_id"
         ]
       }
     },
@@ -17724,6 +17806,162 @@
             },
             "x-error-codes": [
               "INTERNAL"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/backup-sets/{source}/{set}/recovery-test": {
+      "post": {
+        "operationId": "startRecoveryTest",
+        "summary": "Start a recovery test of this backup set's newest known good copy, now, in the background.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "source",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The configured source this backup set belongs to."
+          },
+          {
+            "name": "set",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The backup set's own name within that source."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartRecoveryTestRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted. The test is running in the background under the returned operation id: its start, stage and end lines carry that id on the activity feed, and its result lands on the copy's recovery claim. Nothing waits for it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryTestStarted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. The artifact id is malformed or belongs to another backup set, or this backup set is stored by the incremental engine, whose restore drill is its own.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "404": {
+            "description": "Refused: BACKUP_SET_NOT_FOUND, ARTIFACT_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "BACKUP_SET_NOT_FOUND",
+              "ARTIFACT_NOT_FOUND"
+            ]
+          },
+          "409": {
+            "description": "Refused: OPERATION_ALREADY_RUNNING. A recovery test of this backup set is already running. One at a time per set: a test reads a whole artifact, and two at once would be two reads of a copy that may be billed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "OPERATION_ALREADY_RUNNING"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
             ]
           }
         },

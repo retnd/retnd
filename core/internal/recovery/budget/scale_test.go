@@ -23,13 +23,21 @@ import (
 
 // A thousand copies due at the same instant is the day a catalog is rebuilt
 // or a scheduler is switched on for a fleet that never had one. This is the
-// simulation of that day: the real selection, the real read budget and the real
-// verifying engine, driven the way a scheduler would drive them, with the
-// peaks read off the limiter rather than asserted from the outside.
+// simulation of that day: the real read budget and the real verifying
+// engine, driven the way a scheduler would drive them (passes of a fixed
+// size, which is this test's own, because no product code bounds a pass), with
+// the peaks read off the limiter rather than asserted from the outside.
 //
 // RECOVERY_BUDGET_COPIES overrides the count, RECOVERY_BUDGET_BYTES the size
 // of each copy, and RECOVERY_BUDGET_OUT writes the measurement as JSON for
 // docs/perf/epic-q-recovery.md.
+
+// scaleCandidate is one copy the simulated scheduler has to get to.
+type scaleCandidate struct {
+	ID          string
+	Destination string
+	Due         time.Time
+}
 
 type fakeCopy struct {
 	id, dest string
@@ -47,19 +55,22 @@ func (s copySource) Open(context.Context) (io.ReadCloser, error) {
 	return io.NopCloser(bytes.NewReader(s.c.data)), nil
 }
 
+// passSize is how many due copies the simulated scheduler hands to workers
+// at a time. It belongs to the simulation: the product does not bound a pass.
+const passSize = 50
+
 type scaleResult struct {
-	Copies            int     `json:"copies"`
-	CopyBytes         int     `json:"copy_bytes"`
-	PerPassBound      int     `json:"per_pass_bound"`
-	Passes            int     `json:"passes"`
-	MaxConsideredPass int     `json:"max_considered_in_a_pass"`
-	GlobalCeiling     int     `json:"global_read_ceiling"`
-	PeakGlobalReads   int     `json:"peak_global_reads"`
-	PeakPerDest       int     `json:"peak_reads_on_one_destination"`
-	DestCeiling       int     `json:"per_destination_ceiling"`
-	Refusals          int64   `json:"budget_refusals_deferred_to_a_later_pass"`
-	Seconds           float64 `json:"wall_seconds"`
-	Host              string  `json:"host"`
+	Copies          int     `json:"copies"`
+	CopyBytes       int     `json:"copy_bytes"`
+	PassSize        int     `json:"simulated_pass_size"`
+	Passes          int     `json:"passes"`
+	GlobalCeiling   int     `json:"global_read_ceiling"`
+	PeakGlobalReads int     `json:"peak_global_reads"`
+	PeakPerDest     int     `json:"peak_reads_on_one_destination"`
+	DestCeiling     int     `json:"per_destination_ceiling"`
+	Refusals        int64   `json:"budget_refusals_deferred_to_a_later_pass"`
+	Seconds         float64 `json:"wall_seconds"`
+	Host            string  `json:"host"`
 }
 
 func envInt(name string, def int) int {
@@ -81,7 +92,7 @@ func runScale(t *testing.T, copies, size int, wait bool) scaleResult {
 	dests := []string{"bulk", "bulk", "bulk", "bulk", "mid", "small"}
 	all := make([]*fakeCopy, copies)
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	var due []budget.Candidate
+	var due []scaleCandidate
 	for i := range all {
 		data := make([]byte, size)
 		for j := range data {
@@ -89,7 +100,7 @@ func runScale(t *testing.T, copies, size int, wait bool) scaleResult {
 		}
 		h := sha256.Sum256(data)
 		all[i] = &fakeCopy{id: "set/" + strconv.Itoa(i), dest: dests[i%len(dests)], data: data, sum: hex.EncodeToString(h[:])}
-		due = append(due, budget.Candidate{ID: all[i].id, Destination: all[i].dest, Due: base.Add(time.Duration(copies-i) * time.Second)})
+		due = append(due, scaleCandidate{ID: all[i].id, Destination: all[i].dest, Due: base.Add(time.Duration(copies-i) * time.Second)})
 	}
 	byID := map[string]*fakeCopy{}
 	for _, c := range all {
@@ -99,7 +110,7 @@ func runScale(t *testing.T, copies, size int, wait bool) scaleResult {
 	var refusals, sourceReads atomic.Int64
 	done := map[string]bool{}
 	var doneMu sync.Mutex
-	res := scaleResult{Copies: copies, CopyBytes: size, PerPassBound: l.MaxCopiesPerTick, GlobalCeiling: l.MaxConcurrentReads, DestCeiling: l.MaxReadsPerDestination}
+	res := scaleResult{Copies: copies, CopyBytes: size, PassSize: passSize, GlobalCeiling: l.MaxConcurrentReads, DestCeiling: l.MaxReadsPerDestination}
 
 	start := time.Now()
 	for len(due) > 0 {
@@ -107,16 +118,13 @@ func runScale(t *testing.T, copies, size int, wait bool) scaleResult {
 		if res.Passes > copies+10 {
 			t.Fatal("the scheduler is not converging: passes keep going while copies stay due")
 		}
-		considered, deferred := budget.SelectTick(due, l)
-		if len(considered) > res.MaxConsideredPass {
-			res.MaxConsideredPass = len(considered)
-		}
-		if len(considered) > l.MaxCopiesPerTick {
-			t.Fatalf("pass %d considered %d copies, over the bound of %d", res.Passes, len(considered), l.MaxCopiesPerTick)
+		considered, deferred := due, []scaleCandidate(nil)
+		if len(due) > passSize {
+			considered, deferred = due[:passSize], due[passSize:]
 		}
 
-		work := make(chan budget.Candidate)
-		var retry []budget.Candidate
+		work := make(chan scaleCandidate)
+		var retry []scaleCandidate
 		var retryMu sync.Mutex
 		var wg sync.WaitGroup
 		// More workers than the global ceiling on purpose: the limiter, not
@@ -175,15 +183,12 @@ func runScale(t *testing.T, copies, size int, wait bool) scaleResult {
 	return res
 }
 
-func TestOneThousandDueCopiesCompleteInsideThePerPassBoundWithTheCeilingsNeverExceeded(t *testing.T) {
+func TestOneThousandDueCopiesCompleteWithTheReadCeilingsNeverExceeded(t *testing.T) {
 	copies := envInt("RECOVERY_BUDGET_COPIES", 1200)
 	size := envInt("RECOVERY_BUDGET_BYTES", 16<<10)
 	res := runScale(t, copies, size, true)
 
 	l := budget.Defaults()
-	if res.MaxConsideredPass > l.MaxCopiesPerTick {
-		t.Errorf("a pass considered %d copies, over %d", res.MaxConsideredPass, l.MaxCopiesPerTick)
-	}
 	if res.PeakGlobalReads > l.MaxConcurrentReads {
 		t.Errorf("%d full reads ran at once, over the ceiling of %d", res.PeakGlobalReads, l.MaxConcurrentReads)
 	}
@@ -196,8 +201,8 @@ func TestOneThousandDueCopiesCompleteInsideThePerPassBoundWithTheCeilingsNeverEx
 	if res.PeakPerDest < l.MaxReadsPerDestination {
 		t.Errorf("peak on one destination = %d: a fleet that is mostly on one bucket never reached its ceiling of %d, so the ceiling was not exercised", res.PeakPerDest, l.MaxReadsPerDestination)
 	}
-	if want := (copies + l.MaxCopiesPerTick - 1) / l.MaxCopiesPerTick; res.Passes != want {
-		t.Errorf("%d passes for %d copies at %d a pass, want exactly %d: with the scheduler waiting for a slot instead of being refused, every pass finishes what it considered", res.Passes, copies, l.MaxCopiesPerTick, want)
+	if want := (copies + passSize - 1) / passSize; res.Passes != want {
+		t.Errorf("%d passes for %d copies at %d a pass, want exactly %d: with the scheduler waiting for a slot instead of being refused, every pass finishes what it was handed", res.Passes, copies, passSize, want)
 	}
 	if res.Refusals != 0 {
 		t.Errorf("%d refusals in waiting mode", res.Refusals)
@@ -214,7 +219,7 @@ func TestOneThousandDueCopiesCompleteInsideThePerPassBoundWithTheCeilingsNeverEx
 func TestTheScaleModelCanActuallyFail(t *testing.T) {
 	// The positive control: take the read ceilings away and the same simulation
 	// must report a peak over the line, or the test above proves nothing.
-	l := budget.Limits{MaxConcurrentReads: 64, MaxReadsPerDestination: 64, MaxCopiesPerTick: 64}
+	l := budget.Limits{MaxConcurrentReads: 64, MaxReadsPerDestination: 64}
 	reads := budget.NewReads(l)
 	var wg sync.WaitGroup
 	var running, peak atomic.Int32

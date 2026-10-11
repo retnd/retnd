@@ -137,6 +137,10 @@ func TestNoRequestFieldReachesTheArgvUnlessItIsEchoedOnPurpose(t *testing.T) {
 // secret can arrive in is not knowable, and the set of flags this package
 // prints is right here.
 var flagsThatEchoWhatTheRequestSaid = map[string]string{
+	// The artifact a recovery test was asked about: a backup's own id
+	// (source/set/name), which an operator retyping the command has to say
+	// and which is a name, not material.
+	"--artifact": "the backup the test was asked about, by its id",
 	// A backup set's own description. Every one of these is a
 	// connection detail an operator types when they create the set by
 	// hand, and none of them is a secret: the key is named by id and the

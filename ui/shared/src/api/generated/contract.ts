@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "c049dda96e64a3ae4108e4a46d34e6f59736a2cf7d0b432dd7d7f41088b6cf7b";
+export const CONTRACT_SHA256 = "7a90af43c7379a7f7c585400093cdf7dd17cf8e01d32a151913da06ad14b6a4d";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -870,6 +870,28 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       404: ["BACKUP_SET_NOT_FOUND"],
       409: ["BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE"],
       500: ["INTERNAL"],
+    }
+  },
+  {
+    id: "startRecoveryTest",
+    method: "POST",
+    path: "/backup-sets/{source}/{set}/recovery-test",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "StartRecoveryTestRequest",
+    responseSchema: "RecoveryTestStarted",
+    successStatus: 202,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND", "ARTIFACT_NOT_FOUND"],
+      409: ["OPERATION_ALREADY_RUNNING"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
     }
   },
   {
@@ -2427,7 +2449,6 @@ export interface WireAssuranceSettingsResponse {
   scrub?: WireAssuranceScrubPolicy;
   staging_root?: string;
   staging_ttl_seconds?: number;
-  web_download_memory_bytes?: number;
 }
 
 /** The FLAT error body the /auth operations return, with the
@@ -3414,9 +3435,17 @@ export interface WireOperationRestore {
  *  or an estimate of how long a restore will take; see access. */
 export interface WirePlacement {
   access: "immediate" | "requires_restore" | "restoring" | "unreachable";
+  assurance_state?: "passed" | "failed" | "requires_restore" | "could_not_complete";
+  consecutive_failures?: number;
+  last_checked_at?: string;
+  last_failure_at?: string;
+  last_failure_reason?: string;
   location: string;
   medium: string;
   medium_type: "local" | "s3";
+  recovery_failure_reason?: string;
+  recovery_state?: "not_configured" | "never_run" | "passed" | "overdue" | "failed" | "refused_for_cost" | "could_not_complete";
+  recovery_tested_at?: string;
   size_bytes?: number;
   status: "ACTIVE" | "DELETE_PENDING";
   storage_class?: string;
@@ -3515,6 +3544,15 @@ export interface WireRecoveryTarget {
   kind: "download" | "staging" | "storage";
   medium?: string;
   path?: string;
+}
+
+/** A recovery test is under way. operation_id is carried by its
+ *  recovery_test_start, recovery_stage and recovery_test_end lines on
+ *  the activity feed, which is how a client follows it; the verdict
+ *  is the copy's recovery claim once it ends. */
+export interface WireRecoveryTestStarted {
+  backup_set_id: string;
+  operation_id: string;
 }
 
 /** One repository domain's own health, which is a different question
@@ -4056,6 +4094,16 @@ export interface WireSnapshotVerifyRequest {
   sample_percent?: number;
 }
 
+/** POST /backup-sets/{source}/{set}/recovery-test. Starts a recovery
+ *  test now. An empty body tests the newest known good copy and
+ *  acknowledges no cost: a copy that costs money to read (a download
+ *  from a billed object store, or an archived object) is refused,
+ *  recorded as refused_for_cost, and nothing is read. */
+export interface WireStartRecoveryTestRequest {
+  acknowledged?: boolean;
+  artifact_id?: string;
+}
+
 /** Where one storage medium's credentials come from. Exactly one of
  *  the four must be set, and none of them is credential MATERIAL:
  *  this is a reference in all four spellings. credentials_id is the
@@ -4255,7 +4303,6 @@ export interface WireUpdateAssuranceSettingsRequest {
   scrub_strategy?: string;
   staging_root?: string;
   staging_ttl_seconds?: number;
-  web_download_memory_bytes?: number;
 }
 
 /** PATCH one backup set's own assurance block. Omitted leaves a field

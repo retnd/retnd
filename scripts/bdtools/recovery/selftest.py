@@ -44,6 +44,11 @@ EXPORT = "core/internal/recovery/export"
 RESOLVE_GO = f"{EXPORT}/resolve.go"
 ENGINE_GO = f"{EXPORT}/engine.go"
 GRANT_GO = f"{EXPORT}/grant.go"
+SCHEDULER_GO = "core/service/scheduler.go"
+AUTHENTICATOR_GO = "apps/common/auth/local/authenticator.go"
+SESSION_GO = "apps/common/auth/local/session.go"
+SESSIONEND_GO = "apps/generic/cmd/retnd-web/sessionend.go"
+WEB_MAIN_GO = "apps/generic/cmd/retnd-web/main.go"
 STAGE_GO = f"{EXPORT}/stage.go"
 UI_GO = "apps/common/webhost/serve/ui.go"
 REFUSAL_GO = "apps/common/webhost/refusal.go"
@@ -56,6 +61,17 @@ BUDGET_GO = "core/internal/recovery/budget/budget.go"
 FLIGHT_GO = f"{EXPORT}/flight.go"
 CAPS_GO = "apps/common/platform/capabilities/hostlimits.go"
 WEBMAIN_GO = "apps/generic/cmd/retnd-web/main.go"
+APP_RT_GO = "core/internal/app/recoverytest.go"
+APP_SCRUB_GO = "core/internal/app/scrub.go"
+APP_ALERTS_GO = "core/internal/app/alerts.go"
+SVC_RT_GO = "core/service/recoverytest.go"
+RT_GO = "core/internal/recoverytest/recoverytest.go"
+LOCALREC_GO = "core/internal/recoverytest/localrecoverer.go"
+STATE_RT_GO = "core/internal/state/recoverytest.go"
+FSOPEN_GO = "core/internal/fsopen/fsopen.go"
+CONFIG_ASSURANCE_GO = "core/internal/config/assurance.go"
+ALERT_GO = "core/internal/alert/alert.go"
+OBS_ASSURANCE_GO = "core/internal/obs/assurance_events.go"
 
 # (module directory under the tree root, package patterns)
 EXPORT_PKG = ("core", ("./internal/recovery/export/",))
@@ -67,6 +83,14 @@ WEBMAIN_PKG = ("apps/generic", ("./cmd/retnd-web/",))
 WEB_PKG = ("apps/common", ("./webhost/",))
 UI_PKG = ("apps/common", ("./webhost/serve/",))
 CLI_PKG = ("core", ("./cmd/retnd/",))
+AUTH_PKG = ("apps/common", ("./auth/local/",))
+SERVE_PKG = ("apps/generic", ("./cmd/retnd-web/",))
+APP_PKG = ("core", ("./internal/app/",))
+STATE_PKG = ("core", ("./internal/state/",))
+FSOPEN_PKG = ("core", ("./internal/fsopen/",))
+RT_PKG = ("core", ("./internal/recoverytest/",))
+ALERT_PKG = ("core", ("./internal/alert/",))
+OBS_PKG = ("core", ("./internal/obs/",))
 
 PLANT = "// PLANTED VIOLATION (scripts/bdtools/recovery/selftest.py): "
 
@@ -269,8 +293,8 @@ MUTATIONS = [
     (
         "a served range that writes no action-log row",
         RECOVER_RUN_GO,
-        "\td.b.auditRecovery(context.Background(), &ev, err)\n\tif err != nil || (d.size == 0 || end >= d.size-1) {",
-        "\t" + PLANT + "a served range is not audited.\n\t_ = &ev\n\tif err != nil || (d.size == 0 || end >= d.size-1) {",
+        "\td.b.auditRecovery(context.Background(), &ev, err)\n\tif err != nil || d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {",
+        "\t" + PLANT + "a served range is not audited.\n\t_ = &ev\n\tif err != nil || d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {",
         "should write 51 rows",
         SERVICE_PKG,
         "TestEveryMintAndEveryServedRange",
@@ -278,11 +302,101 @@ MUTATIONS = [
     (
         "a download whose grant is not spent when the client goes away",
         RECOVER_RUN_GO,
-        "\tif err != nil || (d.size == 0 || end >= d.size-1) {",
-        "\t" + PLANT + "only a complete download spends the grant.\n\tif d.size == 0 || end >= d.size-1 {",
+        "\tif err != nil || d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {",
+        "\t" + PLANT + "only a complete download spends the grant.\n\tif d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {",
         "left",
         SERVICE_PKG,
-        "TestAFailedRangeWritesARowSayingSo",
+        "TestAFailedRangeWritesARowSayingSo|TestAFailedTailRangeStillSpendsTheGrant",
+    ),
+    (
+        "a tail range that spends the grant",
+        RECOVER_RUN_GO,
+        "\tif err != nil || d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {",
+        "\t" + PLANT + "reaching the last byte spends the grant.\n\tif err != nil || d.size == 0 || end >= d.size-1 {",
+        "after one tail range",
+        SERVICE_PKG,
+        "TestATailRangeDoesNotSpendTheGrant|TestRangesThatCoverTheArtifact",
+    ),
+    (
+        "ranges that cover the artifact never spending the grant",
+        GRANT_GO,
+        "\treturn len(e.served) == 1 && e.served[0].from == 0 && e.served[0].to >= size",
+        "\t" + PLANT + "coverage is never recognised.\n\treturn false",
+        "still redeemable",
+        SERVICE_PKG,
+        "TestRangesThatCoverTheArtifact|TestAWholeFileRequestSpendsTheGrant",
+    ),
+    (
+        "a gap in the served ranges counted as covered",
+        GRANT_GO,
+        "\treturn len(e.served) == 1 && e.served[0].from == 0 && e.served[0].to >= size",
+        "\t" + PLANT + "one span that does not start at zero counts.\n\treturn len(e.served) == 1 && e.served[0].to >= size",
+        "the grant is spent",
+        SERVICE_PKG,
+        "TestATailRangeDoesNotSpendTheGrant|TestRangesThatCoverTheArtifact",
+    ),
+    (
+        "a recovery reaper that sweeps nothing",
+        RECOVER_RUN_GO,
+        "\t}\n\tb.sweepRecoveryIfDue(ctx)\n}\n",
+        "\t}\n\t" + PLANT + "the timer fires and does nothing.\n\t_ = ctx\n}\n",
+        "no request to reap it",
+        SERVICE_PKG,
+        "TestAbandonedDownloadIsReapedWithoutANewRequest",
+    ),
+    (
+        "a recovery reaper nobody starts",
+        SCHEDULER_GO,
+        "\t\tb.runRecoveryReaper(ctx)\n",
+        "\t\t" + PLANT + "the reaper is never started.\n\t\t<-ctx.Done()\n",
+        "never reaped the abandoned download",
+        SERVICE_PKG,
+        "TestRunOnScheduleStartsTheRecoveryReaper",
+    ),
+    (
+        "a local session whose expiry the authenticator never reports",
+        AUTHENTICATOR_GO,
+        "\t\tSessionExpiresAt: rec.expiresAt.UTC().Format(time.RFC3339Nano),\n",
+        "\t\tSessionExpiresAt: rec.expiresAt.UTC().Format(time.RFC3339Nano)[:0], // " + PLANT.rstrip() + "\n",
+        "SessionExpiresAt is empty",
+        AUTH_PKG,
+        "TestAuthenticatorReportsSessionExpiry",
+    ),
+    (
+        "a logout that tells nobody",
+        SESSION_GO,
+        "\tif ok && !m.now().After(rec.expiresAt) {\n\t\tm.ended(fn, rec)\n\t}",
+        "\t" + PLANT + "the session end is not reported.\n\t_, _, _ = ok, fn, rec",
+        "logout never told",
+        AUTH_PKG,
+        "TestLogoutTellsTheSessionEndHook",
+    ),
+    (
+        "a password rotation that leaves the dropped sessions' grants alive",
+        SESSION_GO,
+        "\tfn := m.onEnd\n\tm.mu.Unlock()\n\tm.ended(fn, dropped...)\n\treturn token, expiresAt, nil",
+        "\tfn := m.onEnd\n\tm.mu.Unlock()\n\t" + PLANT + "dropped sessions are not reported.\n\t_, _ = fn, dropped\n\treturn token, expiresAt, nil",
+        "told the hook about 0",
+        AUTH_PKG,
+        "TestRotatingThePassword",
+    ),
+    (
+        "a logout adapter that never reaches the backup service",
+        SESSIONEND_GO,
+        "\t\tbackend.EndRecoverySession(service.RecoverySession{Actor: username, Expires: expiresAt})\n",
+        "\t\t" + PLANT + "the backup service is not told.\n\t\t_, _, _ = backend, username, expiresAt\n",
+        "logout ended 0 recovery sessions",
+        SERVE_PKG,
+        "TestLogoutRevokesTheRecoveryGrantsOfThatSession",
+    ),
+    (
+        "a first-run backend that never hears about a logout",
+        WEB_MAIN_GO,
+        "\t\t\tendRecoverySessionsOnLogout(authSvc, opened)\n",
+        "\t\t\t" + PLANT + "first-run activation is not wired.\n",
+        "calls endRecoverySessionsOnLogout 1 time",
+        SERVE_PKG,
+        "TestServeHandsEveryBackendItBuildsToTheLogoutAdapter",
     ),
     (
         "a recovery mint behind the destructive gate",
@@ -413,11 +527,20 @@ MUTATIONS = [
     (
         "a local copy that is a symlink or a fifo, opened anyway",
         RECOVER_GO,
-        "\t\tif !fi.Mode().IsRegular() {\n\t\t\treturn nil, recoveryErr(RecoveryNotReadable,",
-        "\t\t" + PLANT + "any file type is opened.\n\t\tif false && !fi.Mode().IsRegular() {\n\t\t\treturn nil, recoveryErr(RecoveryNotReadable,",
-        "must be refused",
+        "\t\tf, err := fsopen.OpenRegular(s.local)\n\t\tif errors.Is(err, fsopen.ErrNotRegular) {",
+        "\t\tf, err := fsopen.OpenRegular(s.local)\n\t\t" + PLANT + "a refusal is not recognised.\n\t\tif false && errors.Is(err, fsopen.ErrNotRegular) {",
+        "must be refused as not readable",
         SERVICE_PKG,
         "TestALocalCopyThatIsASymlink",
+    ),
+    (
+        "an opener that follows a fifo or a link to whatever is behind it",
+        FSOPEN_GO,
+        "\tif !fi.Mode().IsRegular() {",
+        "\t" + PLANT + "any file type is opened.\n\tif false {",
+        "OpenRegular opened a fifo",
+        FSOPEN_PKG,
+        "TestOpenRegularRefusesAFifoWithoutBlocking_C11|TestOpenRegularRefusesWhatIsNotARegularFile_C11",
     ),
     (
         "a client's bad range offset that spends the grant",
@@ -447,31 +570,31 @@ MUTATIONS = [
         "TestReadsRefusesPerDestination",
     ),
     (
-        "a scheduler pass with no bound on the copies it considers",
+        "a budget the product never reads",
         BUDGET_GO,
-        "\tn := l.MaxCopiesPerTick\n",
-        "\t" + PLANT + "a pass takes everything due.\n\tn := len(ordered)\n",
-        "over the bound",
+        '\tDownloadStreams Name = "download_streams"\n',
+        '\tDownloadStreams Name = "download_streams"\n\n\t' + PLANT + 'a budget with a name, a default and an exit code and no reader.\n\tUnreadBudget Name = "unread_budget"\n',
+        "UnreadBudget is declared",
         BUDGET_PKG,
-        "TestOneThousandDueCopiesSpreadOverPassesAndNothingStarves",
+        "TestEveryBudgetIsReadByAProductCodePath",
     ),
     (
-        "an unattended pass allowed to reach a content read",
-        BUDGET_GO,
-        "func ScheduledCeiling() placement.Class { return placement.Existence }",
-        "func ScheduledCeiling() placement.Class { return placement.Content } // " + PLANT.rstrip(),
-        "costs egress",
+        "read ceilings that disagree with the configuration's documented defaults",
+        CONFIG_ASSURANCE_GO,
+        "\tDefaultMaxConcurrentReads = 2",
+        "\tDefaultMaxConcurrentReads = 4 // " + PLANT.rstrip(),
+        "documented defaults are 2 and 1",
         BUDGET_PKG,
-        "TestAScheduledPassCostsNoEgressByConstruction",
+        "TestTheReadCeilingDefaultsAreTheOnesTheOperatorIsTold",
     ),
     (
-        "a validator output bound that is no longer EPIC L's",
-        BUDGET_GO,
-        "DefaultValidatorOutputBytes   = 256 << 10",
-        "DefaultValidatorOutputBytes   = 1 << 20",
-        "EPIC L's",
-        BUDGET_PKG,
-        "TestTheValidatorOutputBoundIsEpicLs",
+        "an abandoned download whose stream slot the reaper keeps",
+        RECOVER_RUN_GO,
+        "	if st.release != nil {\n\t\tst.release()\n\t}",
+        "	" + PLANT + "the slot is not given back.\n\t_ = st.release",
+        "kept its slot",
+        SERVICE_PKG,
+        "TestTheReaperGivesBackAnAbandonedDownloadsStreamSlot",
     ),
     (
         "a full read that never takes a read slot",
@@ -599,6 +722,241 @@ MUTATIONS = [
         CLI_PKG,
         "TestRecoverIsRefusedBeforeAnythingIsOpened",
     ),
+    # --- the panel's findings on the recovery-test side (C2, C3, C13, C14) ---
+    (
+        "a scheduled recovery test that ignores the policy's mode",
+        APP_RT_GO,
+        "\t\t\tif !bs.Assurance.RecoveryTestEnabled() || s.Stages == nil {",
+        "\t\t\t" + PLANT + "the mode is not consulted.\n\t\t\tif s.Stages == nil {",
+        "under mode off",
+        APP_PKG,
+        "TestRecoveryTest_ModeOffRunsNothingEvenWithAScript",
+    ),
+    (
+        "a recovery test cadence that is a constant and not the setting",
+        APP_RT_GO,
+        "recoverytest.Config{Cadence: bs.Assurance.RecoveryTestInterval()}",
+        "recoverytest.Config{Cadence: 7 * 24 * time.Hour /* " + PLANT.rstrip() + " */}",
+        "the cadence the operator wrote",
+        APP_PKG,
+        "TestRecoveryTest_UsesTheResolvedCadence",
+    ),
+    (
+        "a validator_id that selects no script",
+        APP_RT_GO,
+        "\t\treq.Only = v.scriptFile\n",
+        "\t\t_ = v.scriptFile // " + PLANT.rstrip() + "\n",
+        "asking for exactly pg-check.local.sh",
+        APP_PKG,
+        "TestRecoveryTest_ValidatorIDSelectsTheScript",
+    ),
+    (
+        "a named validator that is missing, run as another script",
+        APP_RT_GO,
+        "\tif v.scriptFile != \"\" && !(res.Configured && len(res.Scripts) == 1 && res.Scripts[0].Name == v.scriptFile) {",
+        "\t" + PLANT + "an absent named script reads as not configured.\n\tif false {",
+        "no directory but a declared validator",
+        APP_PKG,
+        "TestRecoveryTest_ANamedValidatorThatIsNotThereFailsClosed",
+    ),
+    (
+        "a pass that sets no recovery requirement on a set's health",
+        "core/internal/app/health.go",
+        "\t\t\t\tRecoveryTestRequired: bs.Assurance.RecoveryTestEnabled(),",
+        "\t\t\t\t// " + PLANT.rstrip(),
+        "want DEGRADED",
+        APP_PKG,
+        "TestHealth_RequiredModeDegradesASetWithNoPass",
+    ),
+    (
+        "a scheduled assurance tick that scrubs and never tests",
+        APP_SCRUB_GO,
+        "\ts.ScrubTick(ctx)\n\ts.RecoveryTestTick(ctx)\n}",
+        "\ts.ScrubTick(ctx)\n\t" + PLANT + "the recovery test is not run.\n}",
+        "the tick that scrubs must also test",
+        APP_PKG,
+        "TestAssuranceTick_ScrubsAndRecoveryTestsInOneCall",
+    ),
+    (
+        "a serving scheduler that scrubs and never tests",
+        SCHEDULER_GO,
+        "b.state.Load().inner.AssuranceTick(app.WithBackupSetHolds(ctx, b.holds))",
+        "b.state.Load().inner.ScrubTick(app.WithBackupSetHolds(ctx, b.holds)) // " + PLANT.rstrip(),
+        "RecoveryTestTick had no caller under serve",
+        SERVICE_PKG,
+        "TestServeSchedulerRunsADueRecoveryTest",
+    ),
+    (
+        "a failing recovery test or scrub that reaches no notifier",
+        APP_ALERTS_GO,
+        "\tconditions = append(conditions, alert.AssuranceConditions(s.assuranceSignals(healthReport, alertable))...)",
+        "\t_ = s.assuranceSignals // " + PLANT.rstrip(),
+        "RECOVERY_TEST_FAILING alerts",
+        APP_PKG,
+        "TestARecoveryTestFailureRaisesRecoveryTestFailingThroughTheDispatcher|TestAScrubFailureRaisesTheScrubFailingAlertThroughTheDispatcher",
+    ),
+    (
+        "a recovery test verdict stamped on bytes the copy no longer has",
+        STATE_RT_GO,
+        "\tif expect != nil && *expect != cur {",
+        "\t" + PLANT + "the bytes are not compared.\n\tif false {",
+        "want ErrCopyChanged",
+        STATE_PKG,
+        "TestRecordRecoveryTestRefusesAVerdictForDifferentBytes",
+    ),
+    (
+        "a recovery test that records its verdict without the identity it read",
+        RT_GO,
+        "\t\trt.Expect = &identity\n",
+        "\t\t// " + PLANT.rstrip() + "\n",
+        "guarded by the identity of the copy that was read",
+        RT_PKG,
+        "TestEveryRecordedVerdictCarriesTheIdentityOfTheCopyItRead",
+    ),
+    (
+        "a recoverer's integrity refusal recorded as an attempt that could not complete",
+        RT_GO,
+        "\t\tif errors.Is(err, ErrCorruptCopy) {",
+        "\t\t" + PLANT + "corrupt bytes are not a digest failure.\n\t\tif false && errors.Is(err, ErrCorruptCopy) {",
+        "want failed with the digest not matched",
+        RT_PKG,
+        "TestARecoverersIntegrityRefusalIsADigestFailure",
+    ),
+    (
+        "a recovery test that stages a local copy through a plain open",
+        LOCALREC_GO,
+        "\tsrc, err := fsopen.OpenRegular(req.Copy.Location)",
+        "\tsrc, err := os.Open(req.Copy.Location) // " + PLANT.rstrip(),
+        "Recover blocked on a fifo",
+        RT_PKG,
+        "TestLocalRecovererRefusesAFifoWithoutBlocking",
+    ),
+    (
+        "a free local volume priced as a download",
+        RT_GO,
+        "\t\t\tif m.Type == transport.MediumTypeLocalDir {",
+        "\t\t\t" + PLANT + "a directory costs money to read.\n\t\t\tif false && m.Type == transport.MediumTypeLocalDir {",
+        "nothing is charged for reading it",
+        SERVICE_PKG,
+        "TestAScheduledRecoveryTestOfAFreeLocalDirMediumRuns",
+    ),
+    (
+        "a recovery test that cannot reach a copy on a storage medium",
+        SVC_RT_GO,
+        "\tcase RecoveryLocalCopyCorrupt, RecoveryRemoteCopyCorrupt:",
+        "\t" + PLANT + "corruption is not recognised.\n\tcase \"\":",
+        "want a failure at the digest gate",
+        SERVICE_PKG,
+        "TestARecoveryTestOfAMediumCopyWithWrongBytesFailsAtTheDigestGate",
+    ),
+    (
+        "an unattended recovery test that pays for a download",
+        RT_GO,
+        "\tack := req.AcknowledgeCost && !req.Scheduled",
+        "\t" + PLANT + "a scheduled test carries the yes.\n\tack := req.AcknowledgeCost",
+        "a scheduled test never pays",
+        RT_PKG,
+        "TestAScheduledTestOfAMediumCopyIsRefusedForCostAndNothingIsRead",
+    ),
+    (
+        "a real recovery that says nothing about its stages",
+        RECOVER_RUN_GO,
+        "\t\ttrace.stage(ctx, \"reading\")\n",
+        "\t\t// " + PLANT.rstrip() + "\n",
+        "stages =",
+        SERVICE_PKG,
+        "TestARealRecoveryEmitsTheStageEventsTheUIRenders",
+    ),
+    (
+        "a failed recovery that still says Complete",
+        RECOVER_RUN_GO,
+        "\t\tt.b.logger.RecoveryEnd(ctx, t.opID, t.set, t.artifact, 0, now().Sub(t.started), result, reason)",
+        "\t\tt.b.logger.RecoveryStage(ctx, t.opID, t.set, \"complete\") // " + PLANT.rstrip() + "\n\t\tt.b.logger.RecoveryEnd(ctx, t.opID, t.set, t.artifact, 0, now().Sub(t.started), result, reason)",
+        "reported the Complete stage",
+        SERVICE_PKG,
+        "TestAFailedRecoveryEndsWithAnErrorAndNeverSaysComplete",
+    ),
+    (
+        "a configured staging root nothing reads",
+        RECOVER_GO,
+        "\t\troot := cfg.Assurance.StagingRoot\n",
+        "\t\troot := \"\" // " + PLANT.rstrip() + "\n",
+        "staging root =",
+        SERVICE_PKG,
+        "TestAssuranceHostKnobsReachTheEngine",
+    ),
+    (
+        "a configured read ceiling nothing reads",
+        RECOVER_GO,
+        "\tlim.MaxConcurrentReads = smallerPositive(lim.MaxConcurrentReads, explicit(a.MaxConcurrentFullReads, a.MaxConcurrentFullReadsWritten, config.DefaultMaxConcurrentReads))",
+        "\t_ = explicit // " + PLANT.rstrip(),
+        "effective read ceilings",
+        SERVICE_PKG,
+        "TestAssuranceHostKnobsReachTheEngine",
+    ),
+    (
+        "a staging root that fails custody and is written to anyway",
+        RECOVER_GO,
+        "\t\tif err := ValidateStagingRoot(root); err != nil {",
+        "\t\t" + PLANT + "custody is not checked.\n\t\tif err := ValidateStagingRoot(root); err != nil && false {",
+        "a world-writable staging root",
+        SERVICE_PKG,
+        "TestAStagingRootThatFailsCustody",
+    ),
+    (
+        "a scrub that runs under its own read ceilings and not the settings'",
+        APP_SCRUB_GO,
+        "\t\t\tb.GlobalConcurrency = s.Config.Assurance.MaxConcurrentFullReads\n",
+        "\t\t\t// " + PLANT.rstrip() + "\n",
+        "admitted under assurance.max_concurrent_full_reads = 1",
+        APP_PKG,
+        "TestAssuranceHostKnobsReachTheScrubLimits",
+    ),
+    (
+        "a route that starts a recovery test and is not registered",
+        ROUTER_GO,
+        '\t\tr.With(requireCSRF).Post("/backup-sets/{source}/{set}/recovery-test", h.startRecoveryTest)',
+        "\t\t_ = h.startRecoveryTest // " + PLANT.rstrip(),
+        "= 405",
+        WEB_PKG,
+        "TestAssuranceRoute_StartRecoveryTest",
+    ),
+    (
+        "a scheduled pass that neither scheduler can reach",
+        APP_SCRUB_GO,
+        "// AssuranceTick is one scheduled assurance pass:",
+        "// " + PLANT.rstrip() + "\n// NewPassTick is a pass nobody schedules.\nfunc (s *Service) NewPassTick(ctx context.Context) {}\n\n// AssuranceTick is one scheduled assurance pass:",
+        "is a scheduled pass that AssuranceTick does not call",
+        APP_PKG,
+        "TestEveryEntryPointInAssuranceTickIsCalledByBothSchedulers",
+    ),
+    (
+        "an alert kind nothing ever raises",
+        ALERT_GO,
+        '\tRecoveryTestFailing Kind = "RECOVERY_TEST_FAILING"\n',
+        '\tRecoveryTestFailing Kind = "RECOVERY_TEST_FAILING"\n\n\t' + PLANT + 'a kind with a name, a title and no producer.\n\tUnraised Kind = "UNRAISED"\n',
+        "the kind Unraised is produced by no function",
+        ALERT_PKG,
+        "TestEveryAlertKindHasAProducerAndEveryProducerHasACaller",
+    ),
+    (
+        "an assurance event nothing emits",
+        OBS_ASSURANCE_GO,
+        "// validatorRef renders a validator reference for the feed.",
+        "// " + PLANT.rstrip() + "\n// Dormant is an event with an emitter and no caller.\nfunc (l *Logger) Dormant() {}\n\n// validatorRef renders a validator reference for the feed.",
+        "events nothing emits",
+        OBS_PKG,
+        "TestEveryAssuranceEventHasAProductionEmitter",
+    ),
+    (
+        "a second recovery test of one set started while the first runs",
+        SVC_RT_GO,
+        "\tif b.recoveryTests.running[set.String()] {",
+        "\t" + PLANT + "any number at once.\n\tif false && b.recoveryTests.running[set.String()] {",
+        "already running",
+        SERVICE_PKG,
+        "TestStartRecoveryTestRunsOneAtATimePerSet",
+    ),
 ]
 
 CLEAN_CONTROLS = [
@@ -618,6 +976,33 @@ CLEAN_CONTROLS = [
     ("the budget package", BUDGET_PKG, "."),
     ("the host-limits contract", CAPS_PKG, "."),
     ("the deployment tripwire", DEPLOY_PKG, "."),
+    (
+        "the grant lifetime suite",
+        SERVICE_PKG,
+        "TestATailRange|TestRangesThat|TestAWholeFile|TestAFailedTail|TestAbandoned|TestRunOnScheduleStartsTheRecovery|TestEndingTheSession",
+    ),
+    (
+        "the local session suite",
+        AUTH_PKG,
+        "TestAuthenticatorReportsSessionExpiry|TestLogoutTells|TestRotatingThePassword",
+    ),
+    ("the logout wiring suite", SERVE_PKG, "TestLogoutRevokes|TestServeHandsEveryBackend"),
+    (
+        "the recovery-test policy suite",
+        APP_PKG,
+        "TestRecoveryTest_|TestHealth_RequiredMode|TestAssuranceTick_|TestEveryEntryPoint|TestTheAssuranceTickGuard|TestRecoveryTestTick_|TestARecoveryTest|TestAScrubFailure|TestALapsed|TestAFailedRecoveryTest|TestAssuranceHostKnobsReachTheScrub|TestMediumFor_",
+    ),
+    ("the recovery-test runner suite", RT_PKG, "."),
+    ("the recovery-test journal suite", STATE_PKG, "TestRecordRecovery|TestMarkRecoveryOverdue"),
+    ("the copy opener", FSOPEN_PKG, "."),
+    ("the alert vocabulary guard", ALERT_PKG, "TestEveryAlertKind|TestTheAlertProducerGuard"),
+    ("the assurance event guard", OBS_PKG, "TestEveryAssuranceEvent|TestTheAssuranceEmitterGuard"),
+    (
+        "the recovery-test service suite",
+        SERVICE_PKG,
+        "TestAssuranceHostKnobs|TestADefaultDeployment|TestAStagingRoot|TestRecoveryTestOf|TestAScheduledRecovery|TestARecoveryTestOf|TestARealRecovery|TestAFailedRecovery|TestServeScheduler|TestAServeTick|TestStartRecoveryTest",
+    ),
+    ("the assurance route suite", WEB_PKG, "TestAssuranceRoute_StartRecoveryTest"),
 ]
 
 
@@ -628,12 +1013,19 @@ def body(root: Path, dry_run: bool) -> int:
         tmp = Path(tmp_name)
         tracker = selftest_swap.AnchorTracker(dry_run=dry_run, root=root, tmp=tmp)
 
+        # RECOVERY_SELFTEST_ONLY=<substring> runs only the controls whose label
+        # contains it (and no negative controls), for re-running the control
+        # you just wrote. Unset, everything runs, and that is the gate.
+        only = os.environ.get("RECOVERY_SELFTEST_ONLY", "")
+
         print("==> negative controls: each slice is clean on the real tree")
-        for label, where, pattern in CLEAN_CONTROLS:
+        for label, where, pattern in ([] if only else CLEAN_CONTROLS):
             expect_passes(tracker, tally, f"{label} on an unmutated tree", root, where, pattern)
 
         for i, entry in enumerate(MUTATIONS):
             label, rel, old, new, needle, where, pattern = entry[:7]
+            if only and only not in label:
+                continue
             extras = entry[7] if len(entry) > 7 else []
             print()
             print(f"==> {label}")

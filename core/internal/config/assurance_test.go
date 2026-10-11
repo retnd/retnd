@@ -34,8 +34,43 @@ func TestAssurance_ANilBlockResolvesToUsefulDefaults(t *testing.T) {
 	}
 	d := c.Assurance
 	if d.StagingTTL != DefaultStagingTTL || d.MaxConcurrentFullReads != DefaultMaxConcurrentReads ||
-		d.MaxPerDestination != DefaultMaxPerDestination || d.WebDownloadMemoryBytes != DefaultWebDownloadMemory {
+		d.MaxPerDestination != DefaultMaxPerDestination {
 		t.Errorf("host-scoped defaults not resolved: %+v", d)
+	}
+}
+
+// A consumer that has to tell "the operator wrote the default" from "nobody
+// wrote anything" reads it off the resolved policy, because the raw block is
+// off limits to it (TestAssurance_NoConsumerReadsThePointers).
+func TestAssurance_TheResolvedPolicyRemembersWhichHostKnobsWereWritten(t *testing.T) {
+	c := validConfig()
+	if err := c.Validate(); err != nil {
+		t.Fatalf("fixture does not validate: %v", err)
+	}
+	if c.Assurance.MaxConcurrentFullReadsWritten || c.Assurance.MaxPerDestinationWritten {
+		t.Errorf("a config that wrote nothing resolves as if it had: %+v", c.Assurance)
+	}
+
+	c = validConfig()
+	c.AssuranceBlock = &AssuranceBlock{MaxConcurrentFullReads: DefaultMaxConcurrentReads, MaxPerDestination: DefaultMaxPerDestination}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("writing the defaults out does not validate: %v", err)
+	}
+	d := c.Assurance
+	if d.MaxConcurrentFullReads != DefaultMaxConcurrentReads || d.MaxPerDestination != DefaultMaxPerDestination {
+		t.Fatalf("writing the defaults changed the values: %+v", d)
+	}
+	if !d.MaxConcurrentFullReadsWritten || !d.MaxPerDestinationWritten {
+		t.Errorf("an operator who wrote exactly the default reads as if they had written nothing: %+v", d)
+	}
+
+	c = validConfig()
+	c.AssuranceBlock = &AssuranceBlock{MaxConcurrentFullReads: DefaultMaxConcurrentReads}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("writing one knob does not validate: %v", err)
+	}
+	if !c.Assurance.MaxConcurrentFullReadsWritten || c.Assurance.MaxPerDestinationWritten {
+		t.Errorf("the two knobs are not tracked separately: %+v", c.Assurance)
 	}
 }
 
@@ -188,12 +223,30 @@ func TestAssurance_InvalidInputsAreRefusedWithTheirOwnSentence(t *testing.T) {
 		{"a path smuggled in as a validator id", func(c *Config) {
 			c.AssuranceBlock = &AssuranceBlock{RecoveryTest: AssuranceRecoveryTest{Mode: RecoveryTestRequired, ValidatorID: "../bin/sh"}}
 		}, "validator_id"},
+		{"a script file name carried whole", func(c *Config) {
+			c.AssuranceBlock = &AssuranceBlock{RecoveryTest: AssuranceRecoveryTest{Mode: RecoveryTestRequired, ValidatorID: "nightly.local.sh"}}
+		}, "validator_id"},
+		{"a name that starts with a dash", func(c *Config) {
+			c.AssuranceBlock = &AssuranceBlock{RecoveryTest: AssuranceRecoveryTest{Mode: RecoveryTestRequired, ValidatorID: "-nightly"}}
+		}, "validator_id"},
+		{"a hidden file name", func(c *Config) {
+			c.Sources[0].BackupSets[0].AssuranceConfig = &AssuranceOverride{RecoveryTest: AssuranceRecoveryTest{Mode: RecoveryTestCustom, Cadence: Duration(48 * time.Hour), ValidatorID: ".nightly"}}
+		}, "validator_id"},
+		{"a name with a non-ASCII letter", func(c *Config) {
+			c.AssuranceBlock = &AssuranceBlock{RecoveryTest: AssuranceRecoveryTest{Mode: RecoveryTestRequired, ValidatorID: "n\u0131ghtly"}}
+		}, "validator_id"},
 		{"an empty per-set block", func(c *Config) {
 			c.Sources[0].BackupSets[0].AssuranceConfig = &AssuranceOverride{}
 		}, "assurance"},
 		{"negative concurrency", func(c *Config) {
 			c.AssuranceBlock = &AssuranceBlock{MaxConcurrentFullReads: -1}
 		}, "max_concurrent_full_reads"},
+		{"a per-destination ceiling above the global one", func(c *Config) {
+			c.AssuranceBlock = &AssuranceBlock{MaxConcurrentFullReads: 2, MaxPerDestination: 3}
+		}, "max_per_destination"},
+		{"a per-destination ceiling above the default global one", func(c *Config) {
+			c.AssuranceBlock = &AssuranceBlock{MaxPerDestination: DefaultMaxConcurrentReads + 1}
+		}, "max_per_destination"},
 		{"relative staging root", func(c *Config) {
 			c.AssuranceBlock = &AssuranceBlock{StagingRoot: "staging"}
 		}, "staging_root"},
@@ -252,5 +305,26 @@ func TestAssurance_NoConsumerReadsThePointers(t *testing.T) {
 	}
 	if len(offenders) > 0 {
 		t.Errorf("these files read the raw assurance pointers instead of the resolved field: %v", offenders)
+	}
+}
+
+// Panel finding C3 (S3): validator_id names the recovery-test script by file
+// name, NAME in NAME.local.sh, so the config layer is where an id that could
+// never be a script's name is refused, at save time.
+func TestRecoveryTestScriptName(t *testing.T) {
+	for id, want := range map[string]string{
+		"pg":                    "pg.local.sh",
+		"nightly-restore_check": "nightly-restore_check.local.sh",
+		"10-verify.v2":          "10-verify.v2.local.sh",
+	} {
+		got, err := RecoveryTestScriptName(id)
+		if err != nil || got != want {
+			t.Errorf("RecoveryTestScriptName(%q) = %q, %v; want %q", id, got, err, want)
+		}
+	}
+	for _, id := range []string{"", "nightly.local.sh", "nightly.sh", "-x", ".x", "a/b", "a b", "n\u0131ghtly", "a\nb", ".", ".."} {
+		if got, err := RecoveryTestScriptName(id); err == nil {
+			t.Errorf("RecoveryTestScriptName(%q) = %q, want a refusal", id, got)
+		}
 	}
 }

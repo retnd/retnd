@@ -17,9 +17,19 @@
  *
  * # Starting a scrub or a recovery test
  *
- * The contract has no route for either, so on a server without them
- * (`offers.operations` false) this offers the terminal command that exists
- * and says the schedule does the rest. It never starts a fake run.
+ * The contract has a route to start a recovery test (POST
+ * /backup-sets/{source}/{set}/recovery-test) and none to start a scrub. So
+ * "Run recovery test" is a real control whenever the server offers it, and
+ * "Scrub now" is only drawn on a server that offers `operations`; elsewhere
+ * this shows the terminal command that exists and says what the schedule does.
+ * It never starts a fake run.
+ *
+ * # What it says the schedule does
+ *
+ * Only what the engine does by default, read from the code: every poll of the
+ * serving process (and of `retnd daemon`) runs a scrub pass over the copies
+ * that are due, at the cadence shown, and then the recovery tests that are due
+ * for sets whose mode is required or custom. A mode of off runs none.
  */
 import "./assurance.css";
 import { useCallback, useEffect, useState } from "react";
@@ -34,8 +44,8 @@ import { stamp } from "@shared/utilities/format";
 import { ClaimChips } from "./ClaimChips";
 import { OperationPanel } from "./OperationPanel";
 import { ValidatorLog } from "./ValidatorLog";
-import { scrubCommand, scrubContentCommand } from "./assuranceCommands";
-import { cadenceProblem, formatCadence, parseCadence } from "./duration";
+import { recoveryTestCommand, scrubCommand, scrubContentCommand } from "./assuranceCommands";
+import { MIN_RECOVERY_TEST_CADENCE_SECONDS, cadenceProblem, formatCadence, parseCadence } from "./duration";
 import { useOperation } from "./useOperation";
 import type { ArtifactAssurance, OperationKind, ValidatorResult } from "./types";
 
@@ -73,6 +83,10 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
   const [starting, setStarting] = useState(false);
   const [validatorResult, setValidatorResult] = useState<ValidatorResult | null | undefined>(undefined);
   const operations = !!api?.offers.operations;
+  const canRunTest = !!api?.offers.recoveryTest;
+  // Following a run needs either: a scrub run (operations) or a recovery test
+  // run (recoveryTest) both read their progress through the same seam.
+  const follow = operations || canRunTest;
 
   const refresh = useCallback(async () => {
     const p = await root.getBackupSetAssurance(source, setName);
@@ -94,19 +108,19 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
     void (async () => {
       try {
         await refresh();
-        const running = operations && api ? await api.activeOperation(setId) : null;
+        const running = follow && api ? await api.activeOperation(setId) : null;
         if (live && running) setOpId(running.id);
       } catch (e) {
         if (live) setError(describeFailure(e, "could not read assurance").message);
       }
     })();
     return () => { live = false; };
-  }, [api, operations, setId, refresh]);
+  }, [api, follow, setId, refresh]);
 
   // The old answer stays marked as "being re-checked" from the start of a
   // run until the claims have been re-read AFTER it ended, so a failing
   // scrub never leaves a pass on screen for the gap between the two.
-  const op = useOperation(operations ? api : undefined, opId, (o) => { void refresh().finally(() => setSettled(o.id)); });
+  const op = useOperation(follow ? api : undefined, opId, (o) => { void refresh().finally(() => setSettled(o.id)); });
   const running = op.operation?.state === "running";
   const checking = opId !== null && settled !== opId;
 
@@ -128,7 +142,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
 
   const own = draft?.policy === "own";
   const scrubProblem = own && draft ? cadenceProblem(draft.scrubEvery) : null;
-  const testProblem = own && draft && draft.mode === "custom" ? cadenceProblem(draft.testEvery) : null;
+  const testProblem = own && draft && draft.mode === "custom" ? cadenceProblem(draft.testEvery, MIN_RECOVERY_TEST_CADENCE_SECONDS) : null;
   const validatorMissing = own && !!draft && draft.mode !== "off" && draft.validator.trim() === "" && !policy?.recoveryTest.validatorId;
   const customNeedsValidator = own && !!draft && draft.mode === "custom" && draft.validator.trim() === "";
 
@@ -254,7 +268,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
                   </div>
                 ) : (
                   <div style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
-                    The validator is a script of yours (<span className="mono">NAME.local.sh</span> under <span className="mono">{"recovery-test/" + source + "/" + setName}</span> in the workflow root). The engine re-reads the recovered copy and checks its digest, then runs the script and records the claim itself. The name above is checked against the server&apos;s registered validators when you save; it does not choose the script.
+                    The validator is the name of a script of yours: <span className="mono">NAME.local.sh</span> under <span className="mono">{"recovery-test/" + source + "/" + setName}</span> in the workflow root. Write the name without the <span className="mono">.local.sh</span> suffix. The engine re-reads the recovered copy and checks its digest, then runs the script and records the claim itself.
                   </div>
                 )}
                 {scrubProblem ? <div role="alert">{scrubProblem}</div> : null}
@@ -265,7 +279,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
               </>
             )}
             <div style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
-              Staging root, staging TTL, the read ceilings and the download memory budget belong to the host. They are shown on Settings and have no per-set control.
+              The staging root, its TTL and the read ceilings belong to the host. They are shown on Settings, take effect when the serving process next starts, and have no per-set control.
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <button className="btn btn--sm btn--primary"
@@ -285,28 +299,35 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
                     + (nextDue ? "Next scrub due " + stamp(nextDue) + "." : "")}
             </div>
 
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {operations ? (
+                <InfoTooltip id="assurance.scrub.now">
+                  <button className="btn" disabled={readOnly || running || starting} onClick={() => void start("scrub")}>Scrub now</button>
+                </InfoTooltip>
+              ) : null}
+              {canRunTest ? (
+                <InfoTooltip id="assurance.recoveryTest.run">
+                  <button className="btn" disabled={readOnly || running || starting} onClick={() => void start("recovery_test")}>Run recovery test</button>
+                </InfoTooltip>
+              ) : null}
+              {operations ? <button className="btn btn--quiet" onClick={() => void showValidator()}>Show validator output</button> : null}
+            </div>
             {operations ? (
-              <>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <InfoTooltip id="assurance.scrub.now">
-                    <button className="btn" disabled={readOnly || running || starting} onClick={() => void start("scrub")}>Scrub now</button>
-                  </InfoTooltip>
-                  <InfoTooltip id="assurance.recoveryTest.run">
-                    <button className="btn" disabled={readOnly || running || starting} onClick={() => void start("recovery_test")}>Run recovery test</button>
-                  </InfoTooltip>
-                  <button className="btn btn--quiet" onClick={() => void showValidator()}>Show validator output</button>
-                </div>
-                <CommandEcho label="Same thing from the terminal" commands={[scrubCommand(setId)]} />
-              </>
+              <CommandEcho label="Same thing from the terminal" commands={[scrubCommand(setId), recoveryTestCommand(setId)]} />
             ) : (
               <div data-testid="no-run-route" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <div style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
-                  This server has no route to start a scrub or a recovery test from the browser. Scrubs run on the schedule above, and a recovery test runs on its own schedule when its mode is required. To scrub now, run this on the host:
+                  This server has no route to start a scrub, so there is no Scrub now button. The scrub does not wait for one: every poll of the running service checks the copies that are due, at the cadence above. To scrub now, run this on the host:
                 </div>
-                <CommandEcho label="From the terminal" commands={[scrubCommand(setId), scrubContentCommand(setId)]} />
+                <CommandEcho label="From the terminal" commands={[scrubCommand(setId), scrubContentCommand(setId), recoveryTestCommand(setId)]} />
               </div>
             )}
-            <OperationPanel operation={op.operation} events={op.events} error={op.error} onCancel={() => void op.cancel()} readOnly={readOnly} />
+            {canRunTest ? (
+              <div data-testid="recovery-test-note" style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
+                A recovery test also runs on its own, at its cadence, but only for a set whose mode is required or custom and whose validator script is in place; with the mode off none runs. Run recovery test starts one now and acknowledges no cost: a copy that would cost money to read is refused and recorded as skipped, and nothing is read.
+              </div>
+            ) : null}
+            <OperationPanel operation={op.operation} events={op.events} error={op.error} onCancel={() => void op.cancel()} readOnly={readOnly} detailLink={operations} cancellable={operations} />
             {validatorResult === null ? <div role="status">No recovery test has run for this set yet.</div> : null}
             {validatorResult ? <ValidatorLog result={validatorResult} /> : null}
           </>

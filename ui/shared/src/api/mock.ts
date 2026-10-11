@@ -2929,13 +2929,11 @@ function defaultAssuranceSettings(): AssuranceSettings {
     stagingTtlSeconds: 24 * 3600,
     maxConcurrentFullReads: 2,
     maxPerDestination: 1,
-    webDownloadMemoryBytes: 64 * 1024 * 1024,
     hostKnobs: [
       ["staging_root", "the one staging filesystem this process writes to"],
       ["staging_ttl", "the sweep of that one staging root"],
       ["max_concurrent_full_reads", "the one process that runs the reads"],
-      ["max_per_destination", "the one process that runs the reads"],
-      ["web_download_memory_bytes", "the one HTTP process that serves downloads"]
+      ["max_per_destination", "the one process that runs the reads"]
     ].map(([name, why]) => ({
       name,
       value: "",
@@ -5283,6 +5281,9 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
     // assurance scenarios choose between.
     mintRecovery: (artifactId, req) => mockRecovery.mintRecovery(artifactId, req),
     redeemRecovery: (grant) => mockRecovery.redeemRecovery(grant),
+    // Replaced below by the assurance mock's own start when the scenario has
+    // one; a server that offers no assurance never has this reached.
+    startRecoveryTest: (source, set) => delay({ backupSetId: source + "/" + set, operationId: "mock-recovery-test" }),
 
     getAssuranceSettings: () => delay(structuredClone(assuranceSettings)),
     patchAssuranceSettings: (patch) => {
@@ -5443,6 +5444,10 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
   return {
     ...served,
     assurance,
+    startRecoveryTest: async (source, set) => {
+      const o = await assurance.startRecoveryTest(source + "/" + set);
+      return { backupSetId: source + "/" + set, operationId: o.id };
+    },
     getLiveActivity: async (options) => {
       const base = await live(options);
       const since = options?.since ?? 0;

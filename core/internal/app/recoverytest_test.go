@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,6 +34,12 @@ type validatorStages struct {
 	seenBytes  []byte
 	validated  []StageRequest
 	notified   []StageRequest
+
+	// delay is how long a validator takes, and beforeReturn runs once the
+	// script has "finished" and before its outcome is handed back, so a test
+	// can change the world while a test is in flight.
+	delay        time.Duration
+	beforeReturn func()
 }
 
 func (v *validatorStages) RunStage(_ context.Context, req StageRequest) (StageResult, error) {
@@ -48,12 +55,21 @@ func (v *validatorStages) RunStage(_ context.Context, req StageRequest) (StageRe
 	if !v.configured {
 		return StageResult{}, nil
 	}
+	if req.Only != "" && req.Only != v.outcome.Name {
+		return StageResult{}, fmt.Errorf("%w: %s", ErrStageScriptMissing, req.Only)
+	}
 	if req.DryRun {
 		return StageResult{Configured: true, Scripts: []StageScript{{Name: v.outcome.Name, SHA256: v.outcome.SHA256}}}, nil
 	}
 	v.validated = append(v.validated, req)
 	v.seenFile = req.Vars["RECOVERY_TEST_FILE"]
 	v.seenBytes, _ = os.ReadFile(v.seenFile)
+	if v.delay > 0 {
+		time.Sleep(v.delay)
+	}
+	if v.beforeReturn != nil {
+		v.beforeReturn()
+	}
 
 	return StageResult{Configured: true, Scripts: []StageScript{v.outcome}}, nil
 }
@@ -83,6 +99,9 @@ func recoveryService(t *testing.T, stages *validatorStages) (*Service, *state.Jo
 	bs := testBackupSet(t, t.TempDir())
 	cfg := testConfig(t, testSource("production", bs))
 	journal := openJournal(t)
+	// Production resolves the policy when it loads the file; a recovery test
+	// runs only for a set whose resolved mode asks for one.
+	cfg.Sources[0].BackupSets[0].Assurance.RecoveryTest.Mode = config.RecoveryTestRequired
 	svc := New(cfg, journal, newFakeTransport(), nil)
 	svc.Now = fixedNow(retentionTestNow)
 	svc.RecoveryStagingRoot = t.TempDir()
@@ -243,7 +262,7 @@ func TestRecoveryTestTick_RunsOnlyForSetsThatDeclareAValidatorAndAreDue(t *testi
 	}
 
 	// Past the cadence, the pass is marked overdue and tested again.
-	svc.Now = fixedNow(retentionTestNow.Add(DefaultRecoveryTestCadence + time.Hour))
+	svc.Now = fixedNow(retentionTestNow.Add(config.DefaultRecoveryTestCadence + time.Hour))
 	svc.RecoveryTestTick(ctx)
 	if got := localCopyOf(t, journal, a); !got.RecoveryTestedAt.After(first) || got.RecoveryState != state.RecoveryPassed {
 		t.Errorf("after the cadence: %q tested %v", got.RecoveryState, got.RecoveryTestedAt)

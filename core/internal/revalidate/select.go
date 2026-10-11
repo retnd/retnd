@@ -76,7 +76,7 @@ func ScrubTargets(rec state.Record) []state.Placement {
 // A record with no placement rows at all is due, for the same reason. It is
 // a row the migration backfill or a rebuild never gave a copy, and what the
 // driver does about it is adopt it, not skip it.
-func dueKey(rec state.Record, now time.Time) (time.Time, bool) {
+func dueKey(rec state.Record, interval time.Duration, now time.Time) (time.Time, bool) {
 	targets := ScrubTargets(rec)
 	if len(targets) == 0 {
 		return time.Time{}, true
@@ -87,14 +87,13 @@ func dueKey(rec state.Record, now time.Time) (time.Time, bool) {
 		due      bool
 	)
 	for _, p := range targets {
-		if !p.DueAt(now) {
+		// DueUnder, not DueAt: a cadence the operator shortened after this
+		// copy was scheduled applies to it at once.
+		at, ok := p.DueUnder(interval, now)
+		if !ok {
 			continue
 		}
 		due = true
-		var at time.Time
-		if p.NextDueAt != nil {
-			at = *p.NextDueAt
-		}
 		if !any || at.Before(earliest) {
 			earliest, any = at, true
 		}
@@ -145,7 +144,7 @@ func SelectDue(records []state.Record, cfg config.Revalidation, now time.Time) [
 		if !eligibleStates[lifecycle.State(rec.State)] {
 			continue
 		}
-		if key, ok := dueKey(rec, now); ok {
+		if key, ok := dueKey(rec, cfg.Interval.Duration(), now); ok {
 			due = append(due, candidate{rec, key})
 		}
 	}

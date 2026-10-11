@@ -418,6 +418,25 @@ export interface BackupPlacement {
    *  and may not have happened yet. A copy the backend knows is gone is
    *  not served at all, so there is no third value to render. */
   status: WirePlacement["status"];
+
+  /**
+   * This copy's own scrub and recovery-test record (EPIC Q, issue #985). All
+   * of it is OPTIONAL and null/empty means "nothing has evaluated this copy",
+   * never "fine". It exists because a failed scrub clears `verificationClass`
+   * and `verifiedAt`, so without it a copy that FAILED reads exactly like one
+   * nobody has looked at ("Never run").
+   */
+  assuranceState?: WirePlacement["assurance_state"] | null;
+  /** When a scrub of this copy last ran to a verdict. */
+  lastCheckedAt?: string | null;
+  /** When it last failed or could not complete, and why (the journal's
+   *  bounded plain words), and how many such verdicts in a row. */
+  lastFailureAt?: string | null;
+  lastFailureReason?: string;
+  consecutiveFailures?: number;
+  recoveryState?: WirePlacement["recovery_state"] | null;
+  recoveryTestedAt?: string | null;
+  recoveryFailureReason?: string;
 }
 
 /**

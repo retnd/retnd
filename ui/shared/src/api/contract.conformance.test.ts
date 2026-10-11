@@ -491,6 +491,9 @@ describe("every request the shared client makes is a declared operation", () => 
       // EPIC Q's recovery pair (#976), reached by the Recover artifact dialog.
       ["mintRecovery", () => httpApi.mintRecovery("src/set-1/a.tar.gz", { target: { kind: "staging", path: "restore-1" }, acknowledged: true })],
       ["redeemRecovery", () => httpApi.redeemRecovery("grant-token")],
+      // EPIC Q's "run a recovery test now" (#980, issue #985): reached by the
+      // Run recovery test control on the set's Assurance section.
+      ["startRecoveryTest", () => httpApi.startRecoveryTest("src", "set-1", { acknowledged: true })],
       // EPIC Q's assurance surface (Q1.4, #982).
       ["getAssuranceSettings", () => httpApi.getAssuranceSettings()],
       ["patchAssuranceSettings", () => httpApi.patchAssuranceSettings({ scrubCadenceSeconds: 43_200 })],
@@ -679,7 +682,8 @@ describe("every request the shared client makes is a declared operation", () => 
     // be pinned here as "unreached until a screen calls them". The Recover
     // artifact dialog (#985) calls both, so they left this list in the same
     // commit as the screen, which is the mechanism working as the paragraph
-    // above describes.
+    // above describes. startRecoveryTest (#980) followed the same way: the
+    // Run recovery test control calls it, so it is not pinned here either.
   ];
 
   it("pins the contract operations no client call reaches", () => {

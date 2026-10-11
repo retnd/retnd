@@ -16,15 +16,14 @@
 import "./assurance.css";
 import { useEffect, useState } from "react";
 import { useApi } from "@shared/api/ApiContext";
-import type { AssuranceSettings, AssuranceSettingsPatch, ValidatorCatalogEntry } from "@shared/api/contracts";
+import type { AssuranceSettings, AssuranceSettingsPatch } from "@shared/api/contracts";
 import { apiErrorOf, describeFailure, isNotConfigured } from "@shared/api/failure";
 import { FieldHelp } from "@shared/components/FieldHelp";
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { CommandEcho } from "@shared/pages/CommandEcho";
-import { bytes } from "@shared/utilities/format";
 import { settingsCommand } from "./assuranceCommands";
-import { cadenceProblem, formatCadence, parseCadence } from "./duration";
+import { MIN_RECOVERY_TEST_CADENCE_SECONDS, cadenceProblem, formatCadence, parseCadence } from "./duration";
 
 const STRATEGIES = ["auto", "existence", "content"] as const;
 
@@ -42,7 +41,6 @@ export function AssuranceSettingsCard({ readOnly }: { readOnly: boolean }) {
   const api = useApi();
   const [settings, setSettings] = useState<AssuranceSettings | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [validators, setValidators] = useState<ValidatorCatalogEntry[]>([]);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notConfigured, setNotConfigured] = useState(false);
@@ -56,14 +54,13 @@ export function AssuranceSettingsCard({ readOnly }: { readOnly: boolean }) {
       if (isNotConfigured(apiErrorOf(e))) setNotConfigured(true);
       else setError(describeFailure(e, "could not read the assurance settings").message);
     });
-    api.listValidators().then((v) => { if (live) setValidators(v); }, () => undefined);
     return () => { live = false; };
   }, [api]);
 
   const set = (patch: Partial<Draft>) => { setDraft((d) => (d ? { ...d, ...patch } : d)); setSaved(false); };
 
   const scrubProblem = draft ? cadenceProblem(draft.scrubEvery) : null;
-  const testProblem = draft && draft.testEvery !== "" ? cadenceProblem(draft.testEvery) : null;
+  const testProblem = draft && draft.testEvery !== "" ? cadenceProblem(draft.testEvery, MIN_RECOVERY_TEST_CADENCE_SECONDS) : null;
   const requiredNeedsValidator = !!draft && draft.mode === "required" && draft.validator.trim() === "";
 
   const changes = (): AssuranceSettingsPatch => {
@@ -97,8 +94,7 @@ export function AssuranceSettingsCard({ readOnly }: { readOnly: boolean }) {
     ["staging_root", "Recovery staging root", settings?.stagingRoot],
     ["staging_ttl", "Staging TTL", settings ? formatCadence(settings.stagingTtlSeconds) : undefined],
     ["max_concurrent_full_reads", "Concurrent full reads", settings ? String(settings.maxConcurrentFullReads) : undefined],
-    ["max_per_destination", "Concurrent reads per destination", settings ? String(settings.maxPerDestination) : undefined],
-    ["web_download_memory_bytes", "Download memory budget", settings ? bytes(settings.webDownloadMemoryBytes) : undefined]
+    ["max_per_destination", "Concurrent reads per destination", settings ? String(settings.maxPerDestination) : undefined]
   ];
 
   return (
@@ -107,9 +103,9 @@ export function AssuranceSettingsCard({ readOnly }: { readOnly: boolean }) {
         <InfoTooltip id="assurance.settings.card"><h2 className="eyebrow">Assurance</h2></InfoTooltip>
       </div>
       <div className="card__body" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <p style={{ margin: 0 }}>
-          Every backup set is scrubbed on a schedule using only reads that cost nothing. A scheduled pass never thaws an archive and never reads across a link that costs egress.
-          A recovery test runs only when its mode is required and a validator script is named.
+        <p style={{ margin: 0 }} data-testid="assurance-what-runs">
+          The running service (and <span className="mono">retnd daemon</span>) scrubs on every poll: it checks each copy that is due, at the cadence below. A copy on this host is re-read and re-hashed; a copy on a storage medium gets an existence check only, with no download. A scheduled pass never thaws an archive and never reads across a link that costs egress.
+          A recovery test runs on its own cadence only when its mode is required and a validator script is named; with the mode off none runs. A set that requires a recovery test is degraded until one passes.
         </p>
         {notConfigured ? (
           <p style={{ margin: 0 }}>
@@ -118,7 +114,7 @@ export function AssuranceSettingsCard({ readOnly }: { readOnly: boolean }) {
         ) : null}
         {settings && !settings.configured ? (
           <p style={{ margin: 0 }} data-testid="assurance-first-run">
-            This deployment has no assurance block in its configuration, so everything below is a default nobody had to set. Scrubbing already runs on it, and nothing needs setting up first. Recovery tests are off until you choose otherwise.
+            This deployment has no assurance block in its configuration, so everything below is a default nobody had to set. The scrub already runs on these defaults, and nothing needs setting up first. Recovery tests are off until you choose otherwise.
           </p>
         ) : null}
         {draft ? (
@@ -158,20 +154,17 @@ export function AssuranceSettingsCard({ readOnly }: { readOnly: boolean }) {
               </FieldHelp>
               <FieldHelp label="Validator" help={FIELD_HELP.assuranceValidator}>
                 {(helpId) => (
-                  <input className="input input--mono" aria-label="Validator" aria-describedby={helpId} list="assurance-validators"
+                  <input className="input input--mono" aria-label="Validator" aria-describedby={helpId}
                     value={draft.validator} disabled={readOnly} style={{ width: 220 }} onChange={(e) => set({ validator: e.target.value })} />
                 )}
               </FieldHelp>
-              <datalist id="assurance-validators">
-                {validators.map((v) => <option key={v.id} value={v.id}>{v.summary}</option>)}
-              </datalist>
             </div>
             {testProblem ? <div role="alert" style={{ color: "var(--text)" }}>{testProblem}</div> : null}
             {requiredNeedsValidator ? (
               <div role="alert" style={{ color: "var(--text)" }}>A required recovery test needs a validator, so the server will refuse this until one is named.</div>
             ) : null}
             <div style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
-              The validator is a script of yours, run by the engine over the recovered copy. The engine re-reads the copy and checks its digest first, then runs the script, and records the claim itself: the script never writes Content verified or Recovery tested. The validator name above is checked against the server's registered validators when you save; it does not choose the script.
+              The validator is the name of a script of yours: NAME.local.sh under recovery-test/&lt;source&gt;/&lt;set&gt; in the workflow root, written without the .local.sh suffix. The engine re-reads the recovered copy and checks its digest first, then runs the script, and records the claim itself: the script never writes Content verified or Recovery tested.
             </div>
             {knobs.map(([name, label, value]) => (
               <div key={name} className="aknob" data-testid="host-knob" data-scope="deployment-wide" data-knob={name}>
@@ -182,7 +175,7 @@ export function AssuranceSettingsCard({ readOnly }: { readOnly: boolean }) {
               </div>
             ))}
             <div style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
-              These belong to the host and the process. They are read here, changed in the configuration file, and have no per-set control.
+              These belong to the host and the process. They are read here, changed in the configuration file, take effect when the serving process next starts, and have no per-set control. The staging directory is one place shared by recoveries and recovery tests: unless staging_root says otherwise it is <span className="mono">recovery-staging</span> beside the state database.
             </div>
             <CommandEcho label="Same thing from the terminal" commands={[settingsCommand()]} />
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>

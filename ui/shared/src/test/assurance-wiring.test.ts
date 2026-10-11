@@ -3,10 +3,11 @@
  * from, something the server owns, each checked against that source.
  */
 import { describe, expect, it } from "vitest";
-import { cadenceProblem, formatCadence, parseCadence } from "@shared/assurance/duration";
+import { MIN_CADENCE_SECONDS, MIN_RECOVERY_TEST_CADENCE_SECONDS, cadenceProblem, formatCadence, formatFloor, parseCadence } from "@shared/assurance/duration";
+import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
 import { contentClaim } from "@shared/assurance/realAssurance";
 import { RECOVERY_STAGES } from "@shared/assurance/stages";
-import { recoverCommand, scrubCommand, snapshotRestoreCommand, thawCommand } from "@shared/assurance/assuranceCommands";
+import { recoverCommand, recoveryTestCommand, scrubCommand, snapshotRestoreCommand, thawCommand } from "@shared/assurance/assuranceCommands";
 import { recoveryRefusal } from "@shared/assurance/recoveryMessages";
 import { RetndError } from "@shared/api/contracts";
 import type { ApiErrorCode } from "@shared/api/contracts";
@@ -16,6 +17,7 @@ import type { BackupArtifact, BackupPlacement } from "@shared/types/backup";
 import obsEvents from "../../../../core/internal/obs/assurance_events.go?raw";
 import cliMain from "../../../../core/cmd/retnd/main.go?raw";
 import openapi from "../../../../api/v1/openapi.json?raw";
+import assuranceConfig from "../../../../core/internal/config/assurance.go?raw";
 
 describe("the stage names are the engine's", () => {
   it("lists exactly obs.RecoveryStages, in order, with the same labels", () => {
@@ -43,14 +45,15 @@ describe("the terminal commands are ones the CLI has", () => {
     expect(recoverCommand("s/set/a.zst", "storage", "offsite", false)).toBe("retnd recover s/set/a.zst --to medium:offsite");
     expect(usage).toContain("--to - | NAME | medium:ID[/KEY]");
   });
-  it("scrub, restore and snapshot restore exist as verbs, and there is no recovery-test verb to echo", () => {
+  it("scrub, recovery-test, restore and snapshot restore exist as verbs", () => {
     expect(usage).toMatch(/\n {2}scrub \[<source\/backup-set>/);
     expect(scrubCommand("s/set")).toBe("retnd scrub s/set");
     expect(usage).toMatch(/\n {2}restore <source\/backup-set\/artifact> --medium M \[--days N\] --acknowledge/);
     expect(thawCommand("s/set/a")).toContain("--acknowledge");
     expect(usage).toMatch(/\n {2}snapshot restore <source\/backup-set> --to DIR/);
     expect(snapshotRestoreCommand("s/set")).toMatch(/^retnd snapshot restore s\/set --to /);
-    expect(usage).not.toMatch(/\n {2}recovery-test /);
+    expect(usage).toMatch(/\n {2}recovery-test <source\/backup-set>/);
+    expect(recoveryTestCommand("s/set")).toBe("retnd recovery-test s/set");
   });
 });
 
@@ -65,6 +68,29 @@ describe("cadences", () => {
     expect(cadenceProblem("30m")).toMatch(/1h/);
     expect(cadenceProblem("soon")).toMatch(/number and a unit/);
     expect(cadenceProblem("1h")).toBeNull();
+  });
+
+  // The floors are the config package's, read out of its source so neither the
+  // checks nor the help copy can drift from what the server refuses. The
+  // recovery test's was once described as an hour here while the server held
+  // it to a day.
+  const goFloorSeconds = (name: string): number => {
+    const m = new RegExp(`${name}\\s*=\\s*(?:(\\d+)\\s*\\*\\s*)?time\\.Hour`).exec(assuranceConfig);
+    if (!m) throw new Error(`${name} is not an hours constant in core/internal/config/assurance.go any more`);
+    return (m[1] ? Number(m[1]) : 1) * 3600;
+  };
+  it("hold each claim to the floor the server holds it to", () => {
+    expect(MIN_CADENCE_SECONDS).toBe(goFloorSeconds("MinScrubCadence"));
+    expect(MIN_RECOVERY_TEST_CADENCE_SECONDS).toBe(goFloorSeconds("MinRecoveryTestCadence"));
+    expect(cadenceProblem("12h", MIN_RECOVERY_TEST_CADENCE_SECONDS)).toMatch(/24h/);
+    expect(cadenceProblem("12h")).toBeNull();
+    expect(cadenceProblem("24h", MIN_RECOVERY_TEST_CADENCE_SECONDS)).toBeNull();
+  });
+  it("describe the recovery-test floor in the help copy as the server's floor", () => {
+    const floor = formatFloor(goFloorSeconds("MinRecoveryTestCadence"));
+    expect(FIELD_HELP.assuranceRecoveryTestEvery.effect).toContain(`nothing under ${floor}`);
+    expect(FIELD_HELP.assuranceRecoveryTestEvery.effect).not.toContain("nothing under 1h");
+    expect(FIELD_HELP.assuranceScrubEvery.effect).toContain(`nothing under ${formatFloor(goFloorSeconds("MinScrubCadence"))}`);
   });
 });
 

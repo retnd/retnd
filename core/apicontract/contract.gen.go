@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "c049dda96e64a3ae4108e4a46d34e6f59736a2cf7d0b432dd7d7f41088b6cf7b"
+const ContractSHA256 = "7a90af43c7379a7f7c585400093cdf7dd17cf8e01d32a151913da06ad14b6a4d"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -735,6 +735,20 @@ var Endpoints = []Endpoint{
 			404: {ErrorCodeBackupSetNotFound},
 			409: {ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable},
 			500: {ErrorCodeInternal},
+		},
+	},
+	{
+		ID: "startRecoveryTest", Method: "POST", Path: "/backup-sets/{source}/{set}/recovery-test",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "StartRecoveryTestRequest", ResponseSchema: "RecoveryTestStarted", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound, ErrorCodeArtifactNotFound},
+			409: {ErrorCodeOperationAlreadyRunning},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
 		},
 	},
 	{
@@ -1719,7 +1733,6 @@ type AssuranceSettingsResponse struct {
 	Scrub                  AssuranceScrubPolicy        `json:"scrub"`
 	StagingRoot            string                      `json:"staging_root"`
 	StagingTtlSeconds      int64                       `json:"staging_ttl_seconds"`
-	WebDownloadMemoryBytes int64                       `json:"web_download_memory_bytes"`
 }
 
 // AuthErrorResponse is the FLAT error body the /auth operations return, with the
@@ -2707,15 +2720,23 @@ type OperationRestore struct {
 // verification_class fields are for. Nothing here is a price, a bill
 // or an estimate of how long a restore will take; see access.
 type Placement struct {
-	Access            string `json:"access"`
-	Location          string `json:"location"`
-	Medium            string `json:"medium"`
-	MediumType        string `json:"medium_type"`
-	SizeBytes         *int64 `json:"size_bytes,omitempty"`
-	Status            string `json:"status"`
-	StorageClass      string `json:"storage_class,omitempty"`
-	VerificationClass string `json:"verification_class,omitempty"`
-	VerifiedAt        string `json:"verified_at,omitempty"`
+	Access                string `json:"access"`
+	AssuranceState        string `json:"assurance_state,omitempty"`
+	ConsecutiveFailures   int    `json:"consecutive_failures,omitempty"`
+	LastCheckedAt         string `json:"last_checked_at,omitempty"`
+	LastFailureAt         string `json:"last_failure_at,omitempty"`
+	LastFailureReason     string `json:"last_failure_reason,omitempty"`
+	Location              string `json:"location"`
+	Medium                string `json:"medium"`
+	MediumType            string `json:"medium_type"`
+	RecoveryFailureReason string `json:"recovery_failure_reason,omitempty"`
+	RecoveryState         string `json:"recovery_state,omitempty"`
+	RecoveryTestedAt      string `json:"recovery_tested_at,omitempty"`
+	SizeBytes             *int64 `json:"size_bytes,omitempty"`
+	Status                string `json:"status"`
+	StorageClass          string `json:"storage_class,omitempty"`
+	VerificationClass     string `json:"verification_class,omitempty"`
+	VerifiedAt            string `json:"verified_at,omitempty"`
 }
 
 // RecoveryMintRequest is POST /backups/{source}/{set}/{name}/recovery. Asks for one
@@ -2809,6 +2830,15 @@ type RecoveryTarget struct {
 	Kind   string `json:"kind"`
 	Medium string `json:"medium,omitempty"`
 	Path   string `json:"path,omitempty"`
+}
+
+// RecoveryTestStarted is A recovery test is under way. operation_id is carried by its
+// recovery_test_start, recovery_stage and recovery_test_end lines on
+// the activity feed, which is how a client follows it; the verdict
+// is the copy's recovery claim once it ends.
+type RecoveryTestStarted struct {
+	BackupSetID string `json:"backup_set_id"`
+	OperationID string `json:"operation_id"`
 }
 
 // RepositoryHealth is one repository domain's own health, which is a different question
@@ -3350,6 +3380,16 @@ type SnapshotVerifyRequest struct {
 	SamplePercent int    `json:"sample_percent,omitempty"`
 }
 
+// StartRecoveryTestRequest is POST /backup-sets/{source}/{set}/recovery-test. Starts a recovery
+// test now. An empty body tests the newest known good copy and
+// acknowledges no cost: a copy that costs money to read (a download
+// from a billed object store, or an archived object) is refused,
+// recorded as refused_for_cost, and nothing is read.
+type StartRecoveryTestRequest struct {
+	Acknowledged bool   `json:"acknowledged,omitempty"`
+	ArtifactID   string `json:"artifact_id,omitempty"`
+}
+
 // StorageMediumCredentialsReference is where one storage medium's credentials come from. Exactly one of
 // the four must be set, and none of them is credential MATERIAL:
 // this is a reference in all four spellings. credentials_id is the
@@ -3549,7 +3589,6 @@ type UpdateAssuranceSettingsRequest struct {
 	ScrubStrategy              *string `json:"scrub_strategy"`
 	StagingRoot                *string `json:"staging_root"`
 	StagingTtlSeconds          *int64  `json:"staging_ttl_seconds"`
-	WebDownloadMemoryBytes     *int64  `json:"web_download_memory_bytes"`
 }
 
 // UpdateBackupSetAssuranceRequest is PATCH one backup set's own assurance block. Omitted leaves a field
@@ -4140,6 +4179,7 @@ var SchemaTypes = map[string]any{
 	"RecoverySettingsResponse":           RecoverySettingsResponse{},
 	"RecoverySettingsUpdate":             RecoverySettingsUpdate{},
 	"RecoveryTarget":                     RecoveryTarget{},
+	"RecoveryTestStarted":                RecoveryTestStarted{},
 	"RepositoryHealth":                   RepositoryHealth{},
 	"RepositoryMaintenance":              RepositoryMaintenance{},
 	"RepositoryPassphraseReference":      RepositoryPassphraseReference{},
@@ -4180,6 +4220,7 @@ var SchemaTypes = map[string]any{
 	"SnapshotRetentionVerdict":           SnapshotRetentionVerdict{},
 	"SnapshotTransition":                 SnapshotTransition{},
 	"SnapshotVerifyRequest":              SnapshotVerifyRequest{},
+	"StartRecoveryTestRequest":           StartRecoveryTestRequest{},
 	"StorageMediumCredentialsReference":  StorageMediumCredentialsReference{},
 	"StorageMediumRequest":               StorageMediumRequest{},
 	"StorageMediumSummary":               StorageMediumSummary{},

@@ -12,15 +12,11 @@ import (
 
 func TestAssuranceEventNamesAreStable(t *testing.T) {
 	for name, pair := range map[string][2]string{
-		"EventScrubStart":        {EventScrubStart, "scrub_start"},
-		"EventScrubEnd":          {EventScrubEnd, "scrub_end"},
-		"EventScrubCopy":         {EventScrubCopy, "scrub_copy"},
 		"EventRecoveryStart":     {EventRecoveryStart, "recovery_start"},
 		"EventRecoveryStage":     {EventRecoveryStage, "recovery_stage"},
 		"EventRecoveryEnd":       {EventRecoveryEnd, "recovery_end"},
 		"EventRecoveryTestStart": {EventRecoveryTestStart, "recovery_test_start"},
 		"EventRecoveryTestEnd":   {EventRecoveryTestEnd, "recovery_test_end"},
-		"ActionScrub":            {ActionScrub, "scrub"},
 		"ActionRecovery":         {ActionRecovery, "recovery"},
 		"ActionRecoveryTest":     {ActionRecoveryTest, "recovery_test"},
 	} {
@@ -56,8 +52,6 @@ func TestEveryCompletionStatesAResultAndPairsWithItsStart(t *testing.T) {
 	l, buf := newRecorder(t)
 	ctx := context.Background()
 
-	l.ScrubStart(ctx, "run1", "prod/db", 1000)
-	l.ScrubEnd(ctx, "run1", "prod/db", ScrubTotals{Checked: 1000, Passed: 1000, Duration: time.Second}, ResultSuccess)
 	l.RecoveryStart(ctx, "op1", "prod/db", "prod/db/a.dump")
 	l.RecoveryStage(ctx, "op1", "prod/db", "reading")
 	l.RecoveryEnd(ctx, "op1", "prod/db", "prod/db/a.dump", 12, time.Second, ResultError, "no readable copy")
@@ -65,8 +59,8 @@ func TestEveryCompletionStatesAResultAndPairsWithItsStart(t *testing.T) {
 	l.RecoveryTestEnd(ctx, "t1", "prod/db", "prod/db/a.dump", "pg-restore-check", time.Second, ResultWarn, "validator failed")
 
 	lines := decodeLines(t, buf)
-	if len(lines) != 7 {
-		t.Fatalf("%d lines, want 7", len(lines))
+	if len(lines) != 5 {
+		t.Fatalf("%d lines, want 5", len(lines))
 	}
 	pairs := map[string]map[string]bool{}
 	for _, ln := range lines {
@@ -113,7 +107,7 @@ func TestRecoveryTestEventsNeverCarryAPathOrControlBytes(t *testing.T) {
 // and the length is bounded before it is logged.
 func TestFeedReasonsCarryNoControlBytesAndAreBounded(t *testing.T) {
 	l, buf := newRecorder(t)
-	l.ScrubCopy(context.Background(), "r", "prod/db", "prod/db/a", "local", "fail", "bad\x1b]0;pwned\x07 news\n"+strings.Repeat("x", 5000))
+	l.RecoveryEnd(context.Background(), "r", "prod/db", "prod/db/a", 0, time.Second, ResultError, "bad\x1b]0;pwned\x07 news\n"+strings.Repeat("x", 5000))
 	l.RecoveryEnd(context.Background(), "o", "prod/db", "prod/db/a", 0, time.Second, ResultError, "\x1b[2Jboom")
 	for _, ln := range decodeLines(t, buf) {
 		reason, _ := ln["reason"].(string)

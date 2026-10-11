@@ -249,6 +249,7 @@ var contractBindings = map[string]contractBinding{
 	"updateBackupSetAssurance":  {updateBackupSetAssuranceRequest{}, backupSetAssuranceResponse{}, "/api/v1/backup-sets/src/set-1/assurance"},
 	"resetBackupSetAssurance":   {nil, backupSetAssuranceResponse{}, "/api/v1/backup-sets/src/set-1/assurance"},
 	"listAssuranceDue":          {nil, assuranceDueResponse{}, "/api/v1/assurance/due"},
+	"startRecoveryTest":         {startRecoveryTestRequest{}, recoveryTestStartedResponse{}, "/api/v1/backup-sets/src/set-1/recovery-test"},
 	"getWorkflowRun":       {nil, workflowRunResponse{}, "/api/v1/workflow-runs/run_1"},
 	"listWorkflowRunSteps": {nil, listWorkflowStepsResponse{}, "/api/v1/workflow-runs/run_1/steps"},
 	"getWorkflowStepLogs":  {nil, workflowStepLogPageResponse{}, "/api/v1/workflow-runs/run_1/steps/step_1/logs"},

@@ -442,6 +442,11 @@ var destructiveGateExemptRoutes = map[string]bool{
 	"PATCH /api/v1/settings/assurance":                    true,
 	"PATCH /api/v1/backup-sets/{source}/{set}/assurance":  true,
 	"DELETE /api/v1/backup-sets/{source}/{set}/assurance": true,
+
+	// A recovery test reads one copy through the recovery engine and writes a
+	// claim on that copy. It deletes and overwrites nothing, so it sits in the
+	// tier the recovery mint does: CSRF, and no destructive gate.
+	"POST /api/v1/backup-sets/{source}/{set}/recovery-test": true,
 }
 
 // TestEveryMutatingAPIRouteRefusesARequestWithNoCSRFPair walks the route

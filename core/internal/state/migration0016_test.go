@@ -88,7 +88,7 @@ func TestMigration0016_AddsTheAssuranceRecordBesideTheClass(t *testing.T) {
 	if err := migrate(context.Background(), db); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	cols := placementColumnSet(t, db, "placements")
+	cols := placementColumnSet(t, db, "placement_assurance")
 
 	for _, want := range []string{
 		// The scrub claim (#978).
@@ -101,11 +101,16 @@ func TestMigration0016_AddsTheAssuranceRecordBesideTheClass(t *testing.T) {
 		"recovery_failure_reason", "recovery_validator_id", "recovery_validator_hash",
 		"recovery_digest_matched", "recovery_termination", "recovery_output_truncated",
 		"recovery_cleanup_state", "recovery_bytes_read", "recovery_duration_ms",
-		// The two it lands beside.
-		"verification_class", "verified_at",
 	} {
 		if _, ok := cols[want]; !ok {
-			t.Errorf("placements has no %q column after migrating; got %v", want, keysOf(cols))
+			t.Errorf("placement_assurance has no %q column after migrating; got %v", want, keysOf(cols))
+		}
+	}
+	// The two it lands beside stay on placements, where 0007 put them.
+	pcols := placementColumnSet(t, db, "placements")
+	for _, want := range []string{"verification_class", "verified_at"} {
+		if _, ok := pcols[want]; !ok {
+			t.Errorf("placements lost %q", want)
 		}
 	}
 }
@@ -133,10 +138,15 @@ func TestMigration0016_TheZeroValueCannotLookGood(t *testing.T) {
 		next, checked, contentAt       sql.NullString
 		lastFailure, recTested         sql.NullString
 	)
+	// A row with every column left to its default: what the first verdict
+	// creates before it sets anything.
+	if _, err := j.db.ExecContext(ctx, `INSERT INTO placement_assurance (placement_id) SELECT id FROM placements`); err != nil {
+		t.Fatalf("inserting a default row: %v", err)
+	}
 	err := j.db.QueryRowContext(ctx, `
 		SELECT assurance_state, recovery_state, last_checked_class, consecutive_failures,
 		       next_due_at, last_checked_at, content_verified_at, last_failure_at, recovery_tested_at
-		  FROM placements`).Scan(&assurance, &recovery, &lastClass, &failures,
+		  FROM placement_assurance`).Scan(&assurance, &recovery, &lastClass, &failures,
 		&next, &checked, &contentAt, &lastFailure, &recTested)
 	if err != nil {
 		t.Fatalf("reading the record: %v", err)
@@ -171,8 +181,11 @@ func TestMigration0016_TheVocabulariesAreClosed(t *testing.T) {
 	j, _ := openJournal(t)
 	driveOneArtifact(t, j, testArtifact(t).Set, "closed.dump", time.Now().UTC())
 
+	if _, err := j.db.ExecContext(ctx, `INSERT INTO placement_assurance (placement_id) SELECT id FROM placements`); err != nil {
+		t.Fatalf("inserting a default row: %v", err)
+	}
 	set := func(column, value string) error {
-		_, err := j.db.ExecContext(ctx, `UPDATE placements SET `+column+` = ?`, value)
+		_, err := j.db.ExecContext(ctx, `UPDATE placement_assurance SET `+column+` = ?`, value)
 		return err
 	}
 	for _, v := range []string{"unknown", "passed", "failed", "requires_restore", "could_not_complete"} {
@@ -201,7 +214,7 @@ func TestMigration0016_TheVocabulariesAreClosed(t *testing.T) {
 			t.Errorf("%s = %q failed for the wrong reason: %v", c.column, c.value, err)
 		}
 	}
-	if _, err := j.db.ExecContext(ctx, `UPDATE placements SET consecutive_failures = -1`); err == nil {
+	if _, err := j.db.ExecContext(ctx, `UPDATE placement_assurance SET consecutive_failures = -1`); err == nil {
 		t.Error("consecutive_failures = -1 was accepted")
 	}
 }
@@ -229,20 +242,19 @@ func TestMigration0016_AnUpgradedCopyIsUnknownAndDueNotFresh(t *testing.T) {
 		t.Fatalf("migrating a populated v13 database to latest: %v", err)
 	}
 
-	var (
-		assurance string
-		next      sql.NullString
-		contentAt sql.NullString
-		class     string
-	)
-	if err := db.QueryRowContext(ctx, `
-		SELECT assurance_state, next_due_at, content_verified_at, verification_class FROM placements`).
-		Scan(&assurance, &next, &contentAt, &class); err != nil {
-		t.Fatalf("reading the upgraded copy: %v", err)
+	// The migration writes no assurance row for a copy that already existed:
+	// absence is what reads as unknown and due, and there is no honest value
+	// to backfill.
+	var rows int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM placement_assurance`).Scan(&rows); err != nil {
+		t.Fatalf("counting assurance rows: %v", err)
 	}
-	if assurance != "unknown" || next.Valid || contentAt.Valid {
-		t.Errorf("upgraded copy reads assurance=%q next_due_at=%v content_verified_at=%v; want unknown, NULL, NULL",
-			assurance, next, contentAt)
+	if rows != 0 {
+		t.Errorf("the migration backfilled %d assurance rows; an upgraded copy has none and reads unknown and due", rows)
+	}
+	var class string
+	if err := db.QueryRowContext(ctx, `SELECT verification_class FROM placements`).Scan(&class); err != nil {
+		t.Fatalf("reading the upgraded copy: %v", err)
 	}
 	if class != "content" {
 		t.Errorf("verification_class = %q: the migration must not rewrite what 0007 recorded", class)
@@ -281,11 +293,11 @@ func TestMigration0016_TheDueScanHasAnIndex(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 	var n int
-	if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='index' AND name='idx_placements_next_due'`).Scan(&n); err != nil {
+	if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='index' AND name='idx_placement_assurance_next_due'`).Scan(&n); err != nil {
 		t.Fatalf("index lookup: %v", err)
 	}
 	if n != 1 {
-		t.Error("no idx_placements_next_due index")
+		t.Error("no idx_placement_assurance_next_due index")
 	}
 }
 

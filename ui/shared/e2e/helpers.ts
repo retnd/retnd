@@ -44,19 +44,40 @@ export async function contrastReport(page: Page, selector: string) {
       // WCAG exempts inactive (disabled) components from the contrast minimum.
       if (e.closest(":disabled")) return;
       let bg: number[] | null = null;
+      let bgNode: Element | null = null;
       for (let n: Element | null = e; n; n = n.parentElement) {
         const x = rgb(getComputedStyle(n).backgroundColor);
-        if (x[3] > 0.5) { bg = x; break; }
+        if (x[3] > 0.5) { bg = x; bgNode = n; break; }
       }
-      if (!bg) return;
-      const fg = rgb(cs.color);
+      if (!bg || !bgNode) return;
+      let fg = rgb(cs.color);
+      // Opacity composites. A translucent element dims its own text toward the
+      // fill it sits on, and a translucent ancestor of that fill dims the fill
+      // and the text together toward whatever is behind it. Ignoring either is
+      // how an opacity: 0.6 chip measured as a pass for as long as it did (#985,
+      // the panel's C9): getComputedStyle().color does not include it.
+      const mix = (top: number[], under: number[], o: number) => [0, 1, 2].map((i) => o * top[i] + (1 - o) * under[i]).concat([1]);
+      let inner = 1;
+      for (let n: Element | null = e; n && n !== bgNode; n = n.parentElement) inner *= parseFloat(getComputedStyle(n).opacity);
+      let outer = 1;
+      for (let n: Element | null = bgNode; n; n = n.parentElement) outer *= parseFloat(getComputedStyle(n).opacity);
+      if (inner < 1) fg = mix(fg, bg, inner);
+      if (outer < 1) {
+        let page: number[] = [255, 255, 255, 1];
+        for (let n: Element | null = bgNode.parentElement; n; n = n.parentElement) {
+          const x = rgb(getComputedStyle(n).backgroundColor);
+          if (x[3] > 0.5) { page = x; break; }
+        }
+        fg = mix(fg, page, outer);
+        bg = mix(bg, page, outer);
+      }
       const a = lum(fg), b = lum(bg);
       const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
       const px = parseFloat(cs.fontSize);
       const need = px >= 24 || (px >= 18.66 && parseInt(cs.fontWeight) >= 700) ? 3 : 4.5;
       out.push({
         text: (e.textContent ?? "").trim().slice(0, 40), ratio: Math.round(ratio * 100) / 100, need,
-        fg: fg.slice(0, 3).join(","), bg: bg.slice(0, 3).join(",")
+        fg: fg.slice(0, 3).map(Math.round).join(","), bg: bg.slice(0, 3).map(Math.round).join(",")
       });
     });
     return out;

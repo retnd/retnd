@@ -61,6 +61,10 @@ func writeAssuranceRouteConfig(t *testing.T) string {
 		t.Fatal(err)
 	}
 	runCLI(t, "run", "--config", path)
+	// And each copy has been through a scrub, which is what gives it a
+	// schedule of its own; the due list reads that schedule, not a clock
+	// recomputed from the artifact.
+	runCLI(t, "scrub", "--config", path)
 	return path
 }
 
@@ -141,8 +145,11 @@ func TestAssuranceRoute_AGlobalPatchMovesAnInheritingSetAndLeavesAPinnedOneAlone
 	if a2.CadenceSeconds != 43200 {
 		t.Errorf("the inheriting set still decides under %ds after the write; the global patch did not reach it", a2.CadenceSeconds)
 	}
-	if want := mustParse(t, a2.LastAssuredAt).Add(12 * time.Hour); !mustParse(t, a2.NextDueAt).Equal(want) {
-		t.Errorf("the inheriting set's next due = %s, want last assured + 12h = %s", a2.NextDueAt, want)
+	// A shortened cadence applies to a copy that was scheduled under the old
+	// one at once: it is owed a look once its last pass is older than the new
+	// cadence plus the jitter the schedule could have added (10%).
+	if want := mustParse(t, a2.LastAssuredAt).Add(12*time.Hour + 72*time.Minute); !mustParse(t, a2.NextDueAt).Equal(want) {
+		t.Errorf("the inheriting set's next due = %s, want last assured + 12h + 10%% = %s", a2.NextDueAt, want)
 	}
 	if mustParse(t, a2.NextDueAt).Equal(mustParse(t, alpha.NextDueAt)) {
 		t.Error("the inheriting set's next due did not move")
@@ -245,7 +252,7 @@ func TestAssuranceRoute_EveryHostScopedKnobCarriesItsWrittenNo(t *testing.T) {
 			t.Errorf("%s: per_set=%v reason=%q, want a no with a real reason", k.Name, k.PerSet, k.Reason)
 		}
 	}
-	for _, want := range []string{"staging_root", "staging_ttl", "max_concurrent_full_reads", "max_per_destination", "web_download_memory_bytes"} {
+	for _, want := range []string{"staging_root", "staging_ttl", "max_concurrent_full_reads", "max_per_destination"} {
 		if !names[want] {
 			t.Errorf("no written answer for %s", want)
 		}
@@ -266,7 +273,7 @@ func TestAssuranceRoute_APatchWritesOnlyWhatItNamed(t *testing.T) {
 	if !strings.Contains(s, "strategy: content") {
 		t.Errorf("the patch was not persisted:\n%s", s)
 	}
-	for _, leaked := range []string{"staging_ttl", "web_download_memory_bytes", "max_concurrent_full_reads", "recovery_test"} {
+	for _, leaked := range []string{"staging_ttl", "max_concurrent_full_reads", "recovery_test"} {
 		if strings.Contains(s, leaked) {
 			t.Errorf("the write froze %s into the file:\n%s", leaked, s)
 		}
@@ -332,5 +339,68 @@ func TestAssuranceRoute_TheCLIReadsWhatTheRouteWroteAndPrintsTheSameBody(t *test
 	}
 	if !reflect.DeepEqual(a, b) {
 		t.Errorf("the route and the CLI disagree:\nroute %s\ncli   %s", routeBody, cli)
+	}
+}
+
+// Panel finding C2: nothing could start a recovery test. The route answers at
+// once, because a test reads a whole artifact and runs the operator's script,
+// and hands back the operation id the activity feed follows it by.
+func TestAssuranceRoute_StartRecoveryTestAnswers202WithAnOperationId(t *testing.T) {
+	configPath := writeAssuranceRouteConfig(t)
+	router, closeRouter := gatedBoundaryRouter(t, configPath)
+	defer closeRouter()
+
+	code, body := call(t, router, http.MethodPost, "/api/v1/backup-sets/production/alpha/recovery-test", `{}`)
+	if code != http.StatusAccepted {
+		t.Fatalf("= %d: %s", code, body)
+	}
+	var doc struct {
+		BackupSetID string `json:"backup_set_id"`
+		OperationID string `json:"operation_id"`
+	}
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("decoding: %v\n%s", err, body)
+	}
+	if doc.BackupSetID != alphaSet || len(doc.OperationID) < 8 {
+		t.Errorf("answer = %+v, want the set and an operation id", doc)
+	}
+
+	// The body is optional.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		code, body = call(t, router, http.MethodPost, "/api/v1/backup-sets/production/beta/recovery-test", "")
+		if code == http.StatusAccepted {
+			break
+		}
+		if code != http.StatusConflict || time.Now().After(deadline) {
+			t.Fatalf("an empty body = %d: %s", code, body)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func TestAssuranceRoute_StartRecoveryTestRefusalsHaveTheirOwnCodes(t *testing.T) {
+	configPath := writeAssuranceRouteConfig(t)
+	router, closeRouter := gatedBoundaryRouter(t, configPath)
+	defer closeRouter()
+
+	cases := []struct {
+		name, path, body string
+		status           int
+		code             string
+	}{
+		{"an unknown set", "/api/v1/backup-sets/production/nope/recovery-test", `{}`, 404, "BACKUP_SET_NOT_FOUND"},
+		{"a malformed artifact", "/api/v1/backup-sets/production/alpha/recovery-test", `{"artifact_id":"not-an-artifact"}`, 400, "INVALID_REQUEST"},
+		{"an artifact in another set", "/api/v1/backup-sets/production/alpha/recovery-test", `{"artifact_id":"production/beta/beta.dump"}`, 400, "INVALID_REQUEST"},
+		{"an artifact nobody journalled", "/api/v1/backup-sets/production/alpha/recovery-test", `{"artifact_id":"production/alpha/ghost.dump"}`, 404, "ARTIFACT_NOT_FOUND"},
+		{"an unknown field", "/api/v1/backup-sets/production/alpha/recovery-test", `{"force":true}`, 400, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			code, body := call(t, router, http.MethodPost, tc.path, tc.body)
+			if code != tc.status || !strings.Contains(body, tc.code) {
+				t.Errorf("= %d %s, want %d %s", code, body, tc.status, tc.code)
+			}
+		})
 	}
 }
