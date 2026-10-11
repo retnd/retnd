@@ -680,7 +680,7 @@ MUTATIONS = [
     ),
     (
         "a download ceiling that is not enforced",
-        RECOVER_RUN_GO,
+        "core/service/recover_stream.go",
         "\t\trel, aerr := h.streams.Acquire()",
         "\t\t" + PLANT + "any number of streams.\n\t\trel, aerr := func() (func(), error) { return func() {}, nil }()",
         "a second stream over a ceiling of one",

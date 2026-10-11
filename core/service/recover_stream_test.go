@@ -288,3 +288,54 @@ func TestAPartialDownloadClaimsNoVerification(t *testing.T) {
 		}
 	}
 }
+
+// What the budgets bound for a streamed download (#983): the stream ceiling
+// for the whole life of the grant, and the read ceilings for the one
+// preparation read, and nothing else.
+
+func TestAStreamingDownloadHoldsNoReadSlotSoAScrubOrRecoveryOnItsDestinationIsNotShutOut(t *testing.T) {
+	smallChunks(t)
+	f := newRecoveryFixture(t, fixtureOpts{localCopy: true})
+	if err := f.b.SetRecoveryLimits(RecoveryLimits{MaxConcurrentReads: 1, MaxReadsPerDestination: 1, MaxDownloadStreams: 2}); err != nil {
+		t.Fatal(err)
+	}
+	_, dl := redeemDownload(t, f)
+	defer dl.Close()
+	// A slow client: the download is open and being read a little at a time.
+	_, _ = dl.Reader().Read(make([]byte, 16))
+
+	g, err := f.b.MintRecovery(context.Background(), f.session(), RecoveryRequest{ArtifactID: f.artifact, Target: stagingTo("while-streaming")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := f.b.RedeemRecovery(context.Background(), f.session(), g.Token); err != nil {
+		t.Fatalf("a recovery on the destination a download is streaming from was refused: %v", err)
+	}
+}
+
+func TestAPreparationReadThatCannotGetASlotIsARetryAndSpendsNothing(t *testing.T) {
+	smallChunks(t)
+	f := newRecoveryFixture(t, fixtureOpts{localCopy: true})
+	if err := f.b.SetRecoveryLimits(RecoveryLimits{MaxConcurrentReads: 1, MaxReadsPerDestination: 1, MaxDownloadStreams: 1}); err != nil {
+		t.Fatal(err)
+	}
+	h := f.b.recoveryHost()
+	hold, err := h.reads.Acquire("local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := mintDownload(t, f, false)
+	_, _, err = f.b.RedeemRecovery(context.Background(), f.session(), g.Token)
+	if code := codeOf(t, err); code != RecoveryReadsBusy && code != RecoveryDestinationBusy {
+		t.Fatalf("want a read-budget refusal, got %s", code)
+	}
+	if n := h.streams.InFlight(); n != 0 {
+		t.Fatalf("a refused download is holding %d stream slots", n)
+	}
+	hold()
+	dl, _, err := f.b.RedeemRecovery(context.Background(), f.session(), g.Token)
+	if err != nil {
+		t.Fatalf("the same link was spent by a refusal that read nothing: %v", err)
+	}
+	dl.Close()
+}
