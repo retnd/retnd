@@ -572,8 +572,8 @@ retnd recover <artifact-id> --json
 `<artifact-id>` is what `retnd artifacts` prints. `--copy` names a storage medium, and the
 default, `best-available`, picks the readable copy with the strongest verification class
 the journal has recorded for it. `--to` names where the bytes go. There are three kinds of
-target: a stream to your browser (the **Recover artifact** dialog's *Download in this
-browser*), a path under the configured staging root, and another configured storage
+target: a stream to your browser or terminal (the **Recover artifact** dialog's *Download in
+this browser*, or `--to -`), a path under the configured staging root, and another configured storage
 destination. The staging root is a host setting and is not something a single recovery
 can move. Unless `assurance.staging_root` says otherwise it is `recovery-staging` beside
 the state database, and recoveries and recovery tests share that one directory. A change
@@ -592,15 +592,35 @@ What happens, in order, and why the order is the point:
    is archived, it refuses and starts no provider job. Passing `--acknowledge-cost` is the
    explicit yes, and an acknowledged archive recovery starts exactly one thaw and reports
    that the recovery has not happened yet.
-4. **The bytes are read through a bounded buffer and checked.** They go into a staging file
-   first and the digest is compared with the artifact's recorded digest. A copy whose size
-   and recorded class are unchanged and whose bytes were flipped mid-file fails here,
-   before a single byte reaches your browser or your target.
-5. **Only then is the file handed over**, to exactly one target, under an atomic unique
-   name. A client that disconnects halfway, or a process killed mid-write, leaves nothing
-   that looks like a finished file: staging names are swept on a TTL and reconciled at
-   startup, and a failure to clean up is reported separately from a failure to recover,
-   because one means you did not get your bytes and the other means a disk is filling.
+4. **The bytes are checked against the recorded digest.** For a staging or storage target
+   they are read through a bounded buffer into a staging file and the digest is compared
+   with the artifact's recorded digest; a copy whose size and recorded class are unchanged
+   and whose bytes were flipped mid-file fails here, before anything is placed. For a
+   download nothing is staged. The host first checks that the copy is there, is the size it
+   recorded and can be read, and (once per artifact, then remembered as a file of digests, 32
+   bytes per 4 MiB) reads the whole copy against the recorded digest, so a damaged copy is
+   refused with its own error before your browser is sent a byte. It then sends the copy
+   straight from where it lives, 4 MiB at a time, checking each piece against that digest
+   before it goes out.
+5. **Only then is the file handed over**, to exactly one target. A staging or storage target
+   is placed under an atomic unique name: a client that disconnects halfway, or a process
+   killed mid-write, leaves nothing that looks like a finished file, staging names are swept
+   on a TTL and reconciled at startup, and a failure to clean up is reported separately from
+   a failure to recover, because one means you did not get your bytes and the other means a
+   disk is filling. A download that fails partway is cut off: the connection is aborted
+   short of the length it promised, so an incomplete file is never mistaken for a whole one,
+   and the end of a download that went through is written to the action log as `recovery
+   verified`, naming the digest it matched.
+
+What a download's checks prove, and what they do not. They prove each piece sent matched the
+digest of the same piece when the whole copy was last read, and that whole read matched the
+digest recorded when the backup was ingested. They do not prove the copy cannot change
+between that read and the transfer (the per-piece check stops it at the first bad piece, and
+what was sent before was good), that your connection holds, or that a storage provider keeps
+answering. A download that was interrupted can be resumed: its `ETag` is the same for every
+link, so a client sending `Range` with `If-Range` under a new link gets the bytes the first
+attempt would have. The first download of a billed remote copy reads it twice, once to
+prepare and once to send.
 
 Some things this is not:
 

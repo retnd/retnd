@@ -134,3 +134,35 @@ measured, which is the true statement until somebody measures one.
 - **Softening the old claim** ("restoring an artifact is not usually automated"). Rejected:
   the acceptance criteria say the old claims are gone, not softened, because a softened
   promise is one an operator cannot tell is reversed.
+
+## Addendum, 2026-10-11: a download is streamed, not staged
+
+The review of the open EPIC Q pull requests put two questions to the owner, and the answers
+change how the bytes reach a browser. They do not change the boundary sentence, the routes,
+the grant or the audit.
+
+**A download is streamed, not staged, and can be resumed.** It used to be copied whole to the
+staging disk, hashed there and only then sent, which cost a staging disk per download, a wait
+for the whole read before the first byte, and a transfer that could not be resumed. It is now
+read from the retained copy one verified 4 MiB chunk at a time. Memory is a chunk, nothing is
+staged, and `ETag` (derived from the artifact id and the recorded digest, the same for every
+grant) with `Range` and `If-Range` resumes under a new grant. A staging or storage target is
+unchanged and still stages, because its promise is that nothing is placed until the whole
+copy has matched.
+
+**A download that cannot complete is refused before it starts.** The tension was that "prove
+the download will complete" cannot be met by hashing the copy before sending it without
+staging it. It is met by hashing the copy once, keeping only a digest per chunk, and checking
+the stream against those digests: a pre-flight (the copy is there, is the recorded size, its
+medium is readable, and one verifying read matched the recorded SHA-256) before the status
+line, every chunk checked before any of it is sent, a stop at the first bad chunk, and an
+aborted connection short of its `Content-Length` rather than a clean end. What it proves is
+that the bytes were the recorded bytes when the digests were made and are, chunk by chunk, as
+they are sent. It does not prove the copy cannot rot between the preparation read and the
+stream (the per-chunk check bounds the loss to the chunk that failed), that the client
+stays connected, or that a provider keeps answering. The cost is that the first download of a
+billed remote copy reads it twice, once to prepare and once to send.
+
+Rejected: sending first and verifying at the end (a corrupt copy would cost the client's
+whole bandwidth before anyone knew), and keeping the staged download with a bigger budget
+(it moves the cost to the disk and still cannot resume).
