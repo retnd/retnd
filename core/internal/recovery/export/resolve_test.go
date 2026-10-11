@@ -189,3 +189,23 @@ func TestResolveRestoringAndUnreachableAreNotReadableAndStartNothing(t *testing.
 		}
 	}
 }
+
+func TestResolveRanksAnUnknownVerificationBelowAnyRecordedClassButStillRecoversIt(t *testing.T) {
+	// A catalog rebuilt from sidecars knows nothing about when or how any
+	// copy was last verified: every class is empty and every time is nil.
+	unknown := copyOn("local", "")
+	existence := copyOn("cold", "existence")
+
+	got, err := Resolve([]Copy{unknown, existence}, ResolveRequest{AcknowledgeCost: true})
+	if err != nil || got.Copy.Medium != "cold" {
+		t.Fatalf("a copy that has achieved some class should outrank one that never has: %+v, %v", got, err)
+	}
+	got, err = Resolve([]Copy{unknown}, ResolveRequest{})
+	if err != nil || got.Copy.Medium != "local" {
+		t.Fatalf("a copy of unknown verification age must still be recoverable (the bytes are verified on the way out): %+v, %v", got, err)
+	}
+	got, err = Resolve([]Copy{unknown, existence}, ResolveRequest{})
+	if err != nil || got.Copy.Medium != "local" {
+		t.Fatalf("without the cost acknowledgement the free, unverified copy is the one allowed: %+v, %v", got, err)
+	}
+}
