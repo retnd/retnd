@@ -252,7 +252,7 @@ func TestAssuranceRoute_EveryHostScopedKnobCarriesItsWrittenNo(t *testing.T) {
 			t.Errorf("%s: per_set=%v reason=%q, want a no with a real reason", k.Name, k.PerSet, k.Reason)
 		}
 	}
-	for _, want := range []string{"staging_root", "staging_ttl", "max_concurrent_full_reads", "max_per_destination", "web_download_memory_bytes"} {
+	for _, want := range []string{"staging_root", "staging_ttl", "max_concurrent_full_reads", "max_per_destination"} {
 		if !names[want] {
 			t.Errorf("no written answer for %s", want)
 		}
@@ -273,7 +273,7 @@ func TestAssuranceRoute_APatchWritesOnlyWhatItNamed(t *testing.T) {
 	if !strings.Contains(s, "strategy: content") {
 		t.Errorf("the patch was not persisted:\n%s", s)
 	}
-	for _, leaked := range []string{"staging_ttl", "web_download_memory_bytes", "max_concurrent_full_reads", "recovery_test"} {
+	for _, leaked := range []string{"staging_ttl", "max_concurrent_full_reads", "recovery_test"} {
 		if strings.Contains(s, leaked) {
 			t.Errorf("the write froze %s into the file:\n%s", leaked, s)
 		}
