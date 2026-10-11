@@ -454,6 +454,7 @@ func checkLocalCopy(ctx context.Context, deps Deps, cfg config.Revalidation, rec
 	var (
 		reasons   []string
 		checked   bool
+		hashRan   bool
 		class     placement.Class
 		bytesRead *int64
 	)
@@ -479,6 +480,7 @@ func checkLocalCopy(ctx context.Context, deps Deps, cfg config.Revalidation, rec
 
 	if cfg.Hash && baseAlg == string(transport.SHA256) && baseHash != "" {
 		checked = true
+		hashRan = true
 		class = placement.Content
 		switch {
 		case !hasLocal:
@@ -542,11 +544,25 @@ func checkLocalCopy(ctx context.Context, deps Deps, cfg config.Revalidation, rec
 		}, nil
 	}
 
+	reason := strings.Join(reasons, "; ")
+	if passed && !hashRan {
+		// The hook accepted the copy, and nothing re-read and hashed its
+		// bytes: there was no baseline to compare against. An executable the
+		// operator wrote may have opened the file or may have exited 0
+		// without looking, and a content claim is only ever made by a check
+		// that read the bytes and compared them. So the pass is reported and
+		// the copy is left unknown; the recovery test is where "a validator
+		// accepted these bytes" is a claim, and it is gated on the digest.
+		note := reason + "; no hash baseline was available, so the bytes were not re-hashed and no content claim is made for this copy"
+		return checkResult{
+			checked: true, passed: true, reason: note,
+			copies: []copyOutcome{{medium: state.MediumLocal, verdict: state.ScrubNotChecked, reason: note}},
+		}, nil
+	}
 	verdict := state.ScrubPassed
 	if !passed {
 		verdict = state.ScrubFailed
 	}
-	reason := strings.Join(reasons, "; ")
 	return checkResult{
 		checked: true, passed: passed, class: class, reason: reason,
 		copies: []copyOutcome{{medium: state.MediumLocal, verdict: verdict, class: class, reason: reason, bytesRead: bytesRead}},
