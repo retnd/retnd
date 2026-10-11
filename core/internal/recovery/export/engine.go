@@ -149,6 +149,9 @@ func (e *Engine) Stage(ctx context.Context, src Source, exp Expect) (staged *Sta
 	if err != nil {
 		return nil, err
 	}
+	// Whatever happens next, the claim ends with this call: on success the
+	// bytes are on the disk and are counted by the free-space reading.
+	defer e.Staging.Release(need)
 
 	closed := false
 	defer func() {

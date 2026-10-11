@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -577,5 +578,53 @@ func TestAMintIsAuditedOnceByItsOwnRowAndNotAgainByTheGenericRecorder(t *testing
 	mint(t, router, `{"target":{"kind":"download"}}`, false) // no CSRF pair
 	if rec.calls != before+1 {
 		t.Fatalf("a CSRF refusal on the mint route wrote %d rows, want 1", rec.calls-before)
+	}
+}
+
+type capturedLogger struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (c *capturedLogger) Event(_ context.Context, _ slog.Level, event, msg string, attrs ...slog.Attr) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	line := event + " " + msg
+	for _, a := range attrs {
+		line += " " + a.Key + "=" + a.Value.String()
+	}
+	c.lines = append(c.lines, line)
+}
+
+func TestAGrantIsNeverWrittenToTheLogWhenARedeemFails(t *testing.T) {
+	be := &fakeRecoveryBackend{syncFakeBackend: newSyncFakeBackend(), content: []byte("x")}
+	be.redeemErr = errors.New("something broke underneath")
+	lg := &capturedLogger{}
+	router := NewRouter(RouterConfig{
+		Platform: allowingPlatform("alice"), Backend: be, Gate: NotYetImplementedGate{},
+		BinaryVersion: "t", Commit: "t", Logger: lg,
+	})
+	rec := redeem(router, "SECRETGRANTTOKEN123", nil)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("= %d", rec.Code)
+	}
+	if len(lg.lines) == 0 {
+		t.Fatal("the failure was not logged at all, so the check below proves nothing")
+	}
+	for _, l := range lg.lines {
+		if strings.Contains(l, "SECRETGRANTTOKEN123") {
+			t.Fatalf("a bearer grant reached the log: %s", l)
+		}
+	}
+}
+
+func TestAnUnsatisfiableRangeIsReportedAsARefusalNotAFailedDownload(t *testing.T) {
+	router, be := newRecoveryRouter(t, NotYetImplementedGate{}, fakeAuthenticator{authenticated: true, username: "alice"})
+	rec := redeem(router, "tok_abc", map[string]string{"Range": "bytes=99999999-"})
+	if rec.Code != http.StatusRequestedRangeNotSatisfiable {
+		t.Fatalf("= %d", rec.Code)
+	}
+	if len(be.served) != 1 || !errors.Is(be.served[0].err, service.ErrRecoveryRangeNotSatisfiable) {
+		t.Fatalf("served = %+v: a client's bad offset must not read as the download failing, because that spends the grant", be.served)
 	}
 }

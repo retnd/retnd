@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -14,6 +15,13 @@ import (
 	"github.com/retnd/retnd/core/internal/recovery/export"
 	"github.com/retnd/retnd/core/internal/transport"
 )
+
+// ErrRecoveryRangeNotSatisfiable is what the HTTP layer reports to Served when
+// the client asked for a byte range that does not exist in the copy. It is
+// the client's mistake and not a failure of the download: the row says it was
+// refused, and the grant and the staged copy stay, because spending them on a
+// typo would cost a remote copy a second read.
+var ErrRecoveryRangeNotSatisfiable = errors.New("service: that byte range is not in the recovered copy")
 
 // RecoveryStream is what the HTTP layer needs from a started download. It is
 // an interface so that layer can be tested against a double that records

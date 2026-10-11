@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -418,8 +419,11 @@ func TestDefaultThawGoesThroughTheExistingRestoreOperationOncePerDay(t *testing.
 func TestKopiaSetRefusesAndNamesSnapshotRestore(t *testing.T) {
 	f := newRecoveryFixture(t, fixtureOpts{localCopy: true, engine: "kopia"})
 	_, err := f.b.MintRecovery(context.Background(), f.session(), RecoveryRequest{ArtifactID: f.artifact, Target: stagingTo("x")})
+	if err == nil {
+		t.Fatal("a kopia set must be refused naming snapshot restore, but the mint went through")
+	}
 	if codeOf(t, err) != RecoveryUseSnapshotRestore {
-		t.Fatalf("got %v", err)
+		t.Fatalf("a kopia set must be refused naming snapshot restore, got %v", err)
 	}
 	if !strings.Contains(err.Error(), "snapshot restore") {
 		t.Fatalf("the sentence must name the verb that does apply: %v", err)
@@ -690,7 +694,7 @@ func TestNoStateDirectoryMeansNowhereToStageAndARefusal(t *testing.T) {
 	}
 }
 
-func TestEveryRecoveryCodeIsDistinctAndDocumented(t *testing.T) {
+func TestEveryRecoveryCodeIsDistinctAndNamespaced(t *testing.T) {
 	seen := map[string]bool{}
 	for _, c := range RecoveryCodes() {
 		if seen[c] {
@@ -776,4 +780,105 @@ func TestOnlyAnArchiveClassCopyIsProbedAndNeverToStartAnything(t *testing.T) {
 	if f.store.statuses.Load() != 0 {
 		t.Fatalf("a standard-class copy was asked about restores %d times: that is a metadata call with no reason to be made", f.store.statuses.Load())
 	}
+}
+
+func TestAnUnsatisfiableRangeIsRefusedWithoutSpendingTheGrantOrTheStagedCopy(t *testing.T) {
+	ctx := context.Background()
+	f := newRecoveryFixture(t, fixtureOpts{localCopy: true})
+	sess := f.session()
+	g, _ := f.b.MintRecovery(ctx, sess, RecoveryRequest{ArtifactID: f.artifact, Target: RecoveryTarget{Kind: "download"}})
+	dl, _, err := f.b.RedeemRecovery(ctx, sess, g.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dl.Close()
+	dl.Served(dl.Length()+10, dl.Length()+20, 0, ErrRecoveryRangeNotSatisfiable)
+
+	rows := f.rows(t)
+	if last := rows[len(rows)-1]; last["outcome"] != "refused" {
+		t.Fatalf("a range the copy does not have is a refusal, row = %v", last)
+	}
+	if len(f.stagingEntries(t)) != 1 {
+		t.Fatal("the staged copy was thrown away over a client's typo; a remote copy would be read and billed again")
+	}
+	again, _, err := f.b.RedeemRecovery(ctx, sess, g.Token)
+	if err != nil {
+		t.Fatalf("the grant should still serve the next, valid range: %v", err)
+	}
+	again.Close()
+}
+
+func TestALocalCopyThatIsASymlinkIsNeverFollowed(t *testing.T) {
+	f := newRecoveryFixture(t, fixtureOpts{localCopy: true})
+	real := filepath.Join(f.dir, "elsewhere.bin")
+	if err := os.WriteFile(real, f.data, 0o600); err != nil { // identical bytes: the digest alone would accept it
+		t.Fatal(err)
+	}
+	local := filepath.Join(f.localDir, "dump.zst")
+	if err := os.Remove(local); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, local); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := f.b.RecoverNow(context.Background(), f.session(), RecoveryRequest{ArtifactID: f.artifact, Target: stagingTo("x")}, nil)
+	if codeOf(t, err) != RecoveryNotReadable {
+		t.Fatalf("a symlink at the artifact's path must be refused, got %v", err)
+	}
+}
+
+func TestALocalCopyThatIsAFifoDoesNotHangTheRecovery(t *testing.T) {
+	f := newRecoveryFixture(t, fixtureOpts{localCopy: true})
+	local := filepath.Join(f.localDir, "dump.zst")
+	if err := os.Remove(local); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(local, 0o600); err != nil {
+		t.Skipf("no fifos here: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := f.b.RecoverNow(context.Background(), f.session(), RecoveryRequest{ArtifactID: f.artifact, Target: stagingTo("x")}, nil)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if codeOf(t, err) != RecoveryNotReadable {
+			t.Fatalf("got %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("opening a fifo blocked the recovery: a non-regular file must be refused before it is opened")
+	}
+}
+
+func TestADownloadStillBeingServedKeepsItsGrantPastTheGrantTTL(t *testing.T) {
+	ctx := context.Background()
+	f := newRecoveryFixture(t, fixtureOpts{localCopy: true})
+	sess := f.session()
+	g, _ := f.b.MintRecovery(ctx, sess, RecoveryRequest{ArtifactID: f.artifact, Target: RecoveryTarget{Kind: "download"}})
+	dl, _, err := f.b.RedeemRecovery(ctx, sess, g.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A slow link: the one request outlives the grant's lifetime, and an
+	// unrelated recovery elsewhere triggers the reaper meanwhile.
+	f.clock.Advance(10 * time.Minute)
+	other, _ := f.b.MintRecovery(ctx, sess, RecoveryRequest{ArtifactID: f.artifact, Target: stagingTo("y")})
+	if _, _, err := f.b.RedeemRecovery(ctx, sess, other.Token); err != nil {
+		t.Fatal(err)
+	}
+	partials := 0
+	for _, e := range f.stagingEntries(t) {
+		if strings.HasSuffix(e, ".partial") {
+			partials++
+		}
+	}
+	if partials != 1 {
+		t.Fatalf("the staged copy of a download that is still being served should still be there, found %d partials", partials)
+	}
+	buf := make([]byte, 16)
+	if _, err := dl.Reader().Read(buf); err != nil {
+		t.Fatalf("the download's own handle broke: %v", err)
+	}
+	dl.Close()
 }

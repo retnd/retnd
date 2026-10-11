@@ -288,3 +288,23 @@ func TestATargetNameHasALengthBound(t *testing.T) {
 		t.Fatalf("an ordinary name was refused: %v", err)
 	}
 }
+
+func TestAMintTimeNameCheckRefusesEveryEscapeToo(t *testing.T) {
+	// ValidateName is what a mint calls, before any grant exists. Publish
+	// checks again, which is defence in depth, and means a Publish-only test
+	// cannot tell whether the first line of defence works at all.
+	c := newClock()
+	s := newStaging(t, c)
+	link := filepath.Join(s.Root, "link")
+	if err := os.MkdirAll(s.Root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), link); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{"../x", "/etc/passwd", "a/../../x", "link/x", "", ".", "a\x00b", "a\\b"} {
+		if err := s.ValidateName(rel); !errors.Is(err, ErrTargetOutsideRoot) {
+			t.Errorf("ValidateName(%q): want ErrTargetOutsideRoot, got %v", rel, err)
+		}
+	}
+}
