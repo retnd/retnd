@@ -504,10 +504,14 @@ The rules that matter:
   turns hashing or a restore hook on it wins over the policy for that set.
   Changing the cadence changes what is due on the next tick, and `/assurance/due`
   reads the same per-copy schedule the scrub keeps.
-  Pacing is bounded: four copies at once overall, two per destination, jitter
-  on every due time, and a capped backoff for a copy that fails or cannot be
-  reached. A copy that fails three scheduled checks in a row degrades its
-  set's health, and the next passing check clears that. You hear about it
+  Pacing is bounded: two full reads at once overall and one per destination by
+  default (`assurance.max_concurrent_full_reads` and `max_per_destination`,
+  read when the serving process starts), jitter on every due time, and a
+  capped backoff for a copy that fails or cannot be reached. A copy that fails
+  three scheduled checks in a row degrades its set's health, and the next
+  passing check clears that. You hear about it through the alerts you already
+  have (`SCRUB_FAILING`, once when the episode opens and a clear when it ends,
+  with `SCRUB_OVERDUE` for a copy nobody is getting to) and, if you want more,
   through a script of your own: put `NAME.local.sh` scripts in
   `assurance-after/sets/<source>/<set>` or `assurance-after/global` under the
   workflow root and they run once when the episode opens (`ASSURANCE_EVENT` is

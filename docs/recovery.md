@@ -575,7 +575,10 @@ the journal has recorded for it. `--to` names where the bytes go. There are thre
 target: a stream to your browser (the **Recover artifact** dialog's *Download in this
 browser*), a path under the configured staging root, and another configured storage
 destination. The staging root is a host setting and is not something a single recovery
-can move.
+can move. Unless `assurance.staging_root` says otherwise it is `recovery-staging` beside
+the state database, and recoveries and recovery tests share that one directory. A change
+to the root, its TTL or the read ceilings is read once, so it takes effect when the
+serving process next starts.
 
 What happens, in order, and why the order is the point:
 
@@ -665,19 +668,41 @@ copy's own record (`next_due_at`), so a reconciliation or a catalog rebuild cann
 the clock on a copy nobody re-read. A **recovery test** is the stronger thing: recover,
 digest, then your validator.
 
+### What runs on its own, with nothing configured
+
+Both `retnd serve` and `retnd daemon` run an assurance pass at every poll, with no
+`assurance:` block and no `revalidation:` block:
+
+- **The scrub.** It takes the copies that are due (a copy with no record is due now, and a
+  rebuilt catalog makes every copy due) and checks them, at most 50 per set per pass.
+  A copy is due again after `assurance.scrub.cadence`, 7 days unless you say otherwise.
+  A local copy is re-read and re-hashed (`auto` and `content`; `existence` only checks it
+  is there), and a copy on a storage medium gets an existence check, whatever the strategy
+  says. Reads run under the host's ceilings, two full reads at once and one per
+  destination by default.
+- **The recovery test, only where you asked for one.** The default mode is `off`, and with
+  it no test runs. A set whose mode is `required` or `custom` and whose validator script is
+  in place is tested on `assurance.recovery_test.cadence`, 30 days unless you say
+  otherwise. An unattended test never pays: if the newest known good copy can only be read
+  at a cost, the test is recorded as refused for cost and nothing is read. Under
+  `retnd daemon` the copy tested is a local one.
+- **A set that requires a test is degraded until one passes.** A mode of `required` that
+  nobody has satisfied is not a quiet default to good.
+
 The deployment-wide `assurance:` block has a default good enough that you should not need
 to set it. A backup set can say `inherit` (the default), `off`, `required` or `custom`
 for its recovery test, and inherits the scrub cadence and strategy unless it names its
 own. Resolution happens in `Validate`, so a change to the global default moves every set
-that inherits it on the next pass, with no restart.
+that inherits it on the next pass, with no restart. The host-scoped settings in the table
+below are the exception: they are read once, so they take effect when the serving process
+next starts.
 
 | Knob | Per set? |
 |---|---|
 | Scrub cadence and strategy (`auto`, `existence`, `content`) | Yes |
 | Recovery-test mode (`inherit`, `off`, `required`, `custom`) and its validator | Yes |
-| Recovery staging root and TTL | **No.** One staging filesystem |
+| Recovery staging root and TTL | **No.** One staging filesystem, shared by recoveries and recovery tests |
 | Concurrency ceilings (full reads, per destination) | **No.** One host |
-| Web download memory budget | **No.** One HTTP process |
 
 Writing a block that names nothing under a set is refused, because it would silently mean
 "inherit" under a different spelling. A set whose recovery-test mode is `required` or
@@ -699,10 +724,15 @@ archived copy is always a person saying yes to a named cost.
 
 ### Validators are untrusted
 
-The validator is your own executable, run through the same boundary `retnd validate`
-uses: a fixed environment, its own process group, bounded captured output and a fail-closed
-timeout. It is run **against a recovered copy in an isolated path**, never against the
-durable file. Its output is untrusted terminal input: no raw control byte reaches a
+The validator is a script of yours: `validator_id` is the file name of a `NAME.local.sh` in
+`recovery-test/<source>/<set>` under the workflow root, written without the suffix. It is
+not picked from a list of registered validators, and a name that could not be a script's
+file name is refused when you save it. It runs the way every other hook runs, through the
+host workflow runner, with the same custody checks, shell verification, resolved
+environment and fail-closed timeout. It is run **against a recovered copy in an isolated
+path**, never against the durable file, and the path reaches it as `RECOVERY_TEST_FILE`.
+The runner's container cannot see the staging directory unless you declare it with
+`--hook-mount`, and a script that cannot open the file fails rather than passing. Its output is untrusted terminal input: no raw control byte reaches a
 structured field, a notification or the docked terminal, and a truncation is marked in a
 way its own output cannot forge. What it can and cannot reach is in
 [the runtime contract](runtime-contract.md#validators-and-recovery-staging).
@@ -728,10 +758,10 @@ ways forward, in this order:
 | What you see | What it means | What to do |
 |---|---|---|
 | Scrub: `failed`, `existence` class | An object of the wrong size, or none, is at that key | Run `retnd validate <artifact> --content` for a read of the bytes; if the copy is damaged, recover from another copy |
-| Scrub: `could not complete` | The endpoint did not answer. It says nothing about the copy | Fix reachability. Repeated failures degrade the set's health and raise one alert, which clears on a later pass |
+| Scrub: `could not complete` | The endpoint did not answer. It says nothing about the copy | Fix reachability. Three failed or incomplete checks in a row degrade the set's health and raise `SCRUB_FAILING` once through your alert channels, and it clears on a later pass |
 | Scrub: `requires_restore` | The copy is archived | `retnd restore` (billed, hours), then `recover`. A scrub never starts that for you |
 | Scrub skipped for a set | The set is under an edit hold | The skip is visible; release the hold |
-| Recovery test: `Content verified`, `Recovery test failed` | The bytes are right and your validator said no | Read the bounded, redacted validator output. The product is telling you the file is intact and your check disagrees |
+| Recovery test: `Content verified`, `Recovery test failed` | The bytes are right and your validator said no | `RECOVERY_TEST_FAILING` is raised through your alert channels. The browser and `retnd recovery-test <source/backup-set>` show the verdict and the reason the engine recorded. This build keeps no copy of the validator's own output, so have the script write its findings somewhere you can read them. The product is telling you the file is intact and your check disagrees |
 | Recovery test: failed before the validator ran | The digest did not match | Treat the copy as damaged. This is a content failure, not a validator one |
 | Recovery test: pass, but a cleanup failure is shown | The recovered copy could not be removed from staging | The claim is unaffected; the staging disk is filling. Clear it and check the staging TTL |
 | A validator that always exits 0 | It never opened the file, and the digest gate is what the pass was recorded against | Fix the validator; it proves nothing about the application |
