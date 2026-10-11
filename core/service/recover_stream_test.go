@@ -288,3 +288,109 @@ func TestAPartialDownloadClaimsNoVerification(t *testing.T) {
 		}
 	}
 }
+
+// The end of a download as the feed has to tell it (EPIC Q, W-12b): a page
+// shows "completed", "interrupted at N of M bytes" or "failed verification"
+// from the server's own record, and the three must not be confusable. The
+// first already existed as the `recovery verified` row. A failed range wrote
+// only a `recovery range failed` row, which says failed for a client that
+// walked away and for a chunk that did not match alike, and carries the
+// range asked for, not the size.
+
+func outcomeRows(t *testing.T, f *recoveryFixture) map[string]map[string]any {
+	t.Helper()
+	got := map[string]map[string]any{}
+	for _, r := range f.rows(t) {
+		switch op, _ := r["operation"].(string); op {
+		case "recovery verified", "recovery interrupted", "recovery failed verification":
+			if _, dup := got[op]; dup {
+				t.Fatalf("%q was written twice: %v", op, f.rows(t))
+			}
+			got[op] = r
+		}
+	}
+	return got
+}
+
+func TestADownloadTheClientWalkedAwayFromIsRecordedAsInterruptedWithBytesSentAndTotal(t *testing.T) {
+	smallChunks(t)
+	f := newRecoveryFixture(t, fixtureOpts{localCopy: true})
+	_, dl := redeemDownload(t, f)
+	buf := make([]byte, 100_000)
+	n, _ := io.ReadFull(dl.Reader(), buf)
+	dl.Close()
+	dl.Served(0, dl.Length()-1, int64(n), errors.New("write: broken pipe"))
+
+	rows := outcomeRows(t, f)
+	r, ok := rows["recovery interrupted"]
+	if !ok {
+		t.Fatalf("a download cut at %d of %d bytes left no interrupted row; rows: %v", n, dl.Length(), f.rows(t))
+	}
+	if r["bytes"] != float64(n) || r["total_bytes"] != float64(dl.Length()) {
+		t.Fatalf("the interrupted row must say how far it got and how far it was going: %v", r)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("an interrupted download is also recorded as %v", rows)
+	}
+}
+
+func TestACopyThatFailedVerificationIsRecordedAsThatAndNotAsInterrupted(t *testing.T) {
+	smallChunks(t)
+	f := newRecoveryFixture(t, fixtureOpts{localCopy: true})
+	_, dl := redeemDownload(t, f)
+	defer dl.Close()
+	p := filepath.Join(f.localDir, "dump.zst")
+	b, _ := os.ReadFile(p)
+	b[3*streamTestChunk+5] ^= 1
+	if err := os.WriteFile(p, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(dl.Reader())
+	if err == nil {
+		t.Fatal("the rotted chunk was not detected")
+	}
+	dl.Close()
+	dl.Served(0, dl.Length()-1, int64(len(got)), err)
+
+	rows := outcomeRows(t, f)
+	r, ok := rows["recovery failed verification"]
+	if !ok {
+		t.Fatalf("a chunk that did not match left no failed-verification row; rows: %v", f.rows(t))
+	}
+	if r["error_code"] != RecoveryLocalCopyCorrupt || r["bytes"] != float64(len(got)) || r["total_bytes"] != float64(dl.Length()) {
+		t.Fatalf("the failed-verification row must name the code and say how many good bytes went out of how many: %v", r)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("a failed verification is also recorded as %v", rows)
+	}
+}
+
+func TestOnlyAFinishedDownloadIsRecordedAsVerifiedAndARefusedRangeIsNoOutcome(t *testing.T) {
+	smallChunks(t)
+	f := newRecoveryFixture(t, fixtureOpts{localCopy: true})
+	token, dl := redeemDownload(t, f)
+	dl.Close()
+	// A bad offset is the client's typo: no outcome, and the grant stays.
+	dl.Served(0, 0, 0, ErrRecoveryRangeNotSatisfiable)
+	if rows := outcomeRows(t, f); len(rows) != 0 {
+		t.Fatalf("a refused range is recorded as an outcome: %v", rows)
+	}
+	requireGrantStillGood(t, f, token, "after a refused range")
+
+	d2, _, err := f.b.RedeemRecovery(context.Background(), f.session(), token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(io.Discard, d2.Reader()); err != nil {
+		t.Fatal(err)
+	}
+	d2.Close()
+	d2.Served(0, d2.Length()-1, d2.Length(), nil)
+	rows := outcomeRows(t, f)
+	if _, ok := rows["recovery verified"]; !ok || len(rows) != 1 {
+		t.Fatalf("a finished download must be recorded as verified and nothing else: %v", rows)
+	}
+	if rows["recovery verified"]["total_bytes"] != float64(d2.Length()) {
+		t.Fatalf("the verified row does not say the total: %v", rows["recovery verified"])
+	}
+}
