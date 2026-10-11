@@ -621,7 +621,7 @@ func TestAFailedRangeWritesARowSayingSoAndRemovesStaging(t *testing.T) {
 	}
 	dl.Close()
 	// The browser went away at 50%.
-	dl.Served(0, dl.Size/2, dl.Size/2, errors.New("write: broken pipe"))
+	dl.Served(0, dl.Length()/2, dl.Length()/2, errors.New("write: broken pipe"))
 
 	rows := f.rows(t)
 	last := rows[len(rows)-1]
