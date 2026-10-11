@@ -179,7 +179,7 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 	// a credential: a storage target names its destination by id, and the
 	// credentials stay behind that id.
 	"--copy": "the id of the storage medium holding the copy to recover",
-	"--to":   "where the recovered bytes go: a name under the staging root, or a destination id and key",
+
 	"--note": "the operator's own note on a retry, which they wrote and can read back",
 
 	// EPIC K's snapshot verbs (#788). Every one of these is a value the
@@ -187,7 +187,7 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 	// restore that landed somewhere they cannot name is a restore they
 	// cannot find, and the durable operation row already records the
 	// destination for exactly that reason.
-	"--to":       "the directory a snapshot restore writes into, which the operator named and has to be able to find afterwards",
+	"--to":       "where a restore or a recovery writes, which the operator named and has to be able to find afterwards: a directory, a name under the staging root, or a destination id and key",
 	"--snapshot": "the engine's opaque manifest id, which is neither a path nor a secret",
 	"--path":     "one path INSIDE the snapshot, which is a path in the operator's own source tree and is what they asked to get back",
 	"--conflict": "one of three words deciding what happens to a file already at the destination",

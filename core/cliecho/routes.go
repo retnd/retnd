@@ -702,7 +702,7 @@ var routes = map[string]entry{
 				}
 				c.flag("to", to)
 			}
-			if req.AcknowledgeCost {
+			if req.Acknowledged {
 				c.bare("acknowledge-cost")
 			}
 			return c
@@ -711,7 +711,7 @@ var routes = map[string]entry{
 			{Params: map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar"},
 				Body: []byte(`{"target":{"kind":"download"}}`)},
 			{Params: map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar"},
-				Body: []byte(`{"copy":"offsite_s3","acknowledge_cost":true,"target":{"kind":"staging","path":"restore/dump.tar"}}`)},
+				Body: []byte(`{"copy":"offsite_s3","acknowledged":true,"target":{"kind":"staging","path":"restore/dump.tar"}}`)},
 			{Params: map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar"},
 				Body: []byte(`{"target":{"kind":"storage","medium":"offsite_s3","key":"recovered/dump.tar"}}`)},
 		},
