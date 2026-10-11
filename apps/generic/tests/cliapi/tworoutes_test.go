@@ -842,6 +842,9 @@ var surfaces = []surface{
 		argv: func(f fixture) []string {
 			return []string{"restore", "--config", f.configPath, f.artifactID, "--medium", "no-such-medium", "--acknowledge"}
 		}},
+	{verb: "recover", name: "one backup, streamed to standard output", mode: "", exit: 0, needsArtifacts: true,
+		note: "--to - sends the bytes to standard output, so the row leaves nothing on disk to clean up; recovery reads a copy and writes no configuration, and it names no mode",
+		argv: func(f fixture) []string { return []string{"recover", "--config", f.configPath, f.artifactID, "--to", "-"} }},
 	{verb: "snapshot", name: "list, refused because this deployment's incremental engine is switched off", mode: "", exit: 1,
 		says: "the incremental (kopia) backup engine is disabled in this deployment",
 		note: "EPIC K's whole surface sits behind a gate that is shut until a deployment opts in, and this fixture is an ordinary artifact-engine deployment, so the honest outcome here is that refusal and not a snapshot history. It is worth pinning for what it is not: an empty list would tell an operator this backup set has taken no snapshots, when what is true is that nothing in this deployment could have taken one",
