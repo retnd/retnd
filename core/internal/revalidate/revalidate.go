@@ -663,6 +663,17 @@ func checkArtifact(ctx context.Context, deps Deps, cfg config.Revalidation, opts
 		return finding, bytes, nil
 	}
 
+	// A failure about bytes that were rewritten while they were being read
+	// is not a failure of the copy that is there now. Its verdict was refused
+	// (the new bytes are unknown and due); acting on it here would quarantine
+	// the artifact over a loss that was already repaired.
+	for _, c := range res.copies {
+		if c.verdict == state.ScrubFailed && c.rewritten {
+			finding.Reason = fmt.Sprintf("%s; the artifact was not quarantined because its copy on %q was rewritten while it was being read", res.reason, c.medium)
+			return finding, bytes, nil
+		}
+	}
+
 	// A failed copy is not a lost artifact while another ACTIVE copy of it
 	// is verified: FR-31 quarantines an artifact "only when no other ACTIVE
 	// verified placement remains", and runChecks only ever reads one copy
@@ -746,7 +757,8 @@ func recordCopies(ctx context.Context, deps Deps, cfg config.Revalidation, rec s
 	for _, p := range rec.Placements {
 		byMedium[p.Medium] = p
 	}
-	for _, c := range copies {
+	for i := range copies {
+		c := copies[i]
 		if c.refused {
 			continue
 		}
@@ -780,6 +792,7 @@ func recordCopies(ctx context.Context, deps Deps, cfg config.Revalidation, rec s
 			// Rewritten to different bytes while it was being read. The
 			// new bytes are unchecked and owed a check, and the rewrite
 			// already cleared the lease and every claim.
+			copies[i].rewritten = true
 			continue
 		}
 		if errors.Is(err, state.ErrPlacementRetired) {
