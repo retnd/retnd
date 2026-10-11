@@ -293,8 +293,8 @@ MUTATIONS = [
     (
         "a served range that writes no action-log row",
         RECOVER_RUN_GO,
-        "\td.b.auditRecovery(context.Background(), &ev, err)\n\tif err != nil {\n\t\td.b.finishRecoveryDownload(d.token)\n\t\treturn\n\t}",
-        "\t" + PLANT + "a served range is not audited.\n\t_ = &ev\n\tif err != nil {\n\t\td.b.finishRecoveryDownload(d.token)\n\t\treturn\n\t}",
+        "\td.b.auditRecovery(context.Background(), &ev, err)\n\tif err != nil {\n\t\td.endTrace(err)\n\t\td.b.finishRecoveryDownload(d.token)\n\t\treturn\n\t}",
+        "\t" + PLANT + "a served range is not audited.\n\t_ = &ev\n\tif err != nil {\n\t\td.endTrace(err)\n\t\td.b.finishRecoveryDownload(d.token)\n\t\treturn\n\t}",
         "should write 52 rows",
         SERVICE_PKG,
         "TestEveryMintAndEveryServedRange",
@@ -302,7 +302,7 @@ MUTATIONS = [
     (
         "a download whose grant is not spent when the client goes away",
         RECOVER_RUN_GO,
-        "\tif err != nil {\n\t\td.b.finishRecoveryDownload(d.token)\n\t\treturn\n\t}\n\tif d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {",
+        "\tif err != nil {\n\t\td.endTrace(err)\n\t\td.b.finishRecoveryDownload(d.token)\n\t\treturn\n\t}\n\tif d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {",
         "\t" + PLANT + "only a complete download spends the grant.\n\tif d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {",
         "still redeemable",
         SERVICE_PKG,
