@@ -145,3 +145,14 @@ func TestIsDefaultSettings_TrueForTheDefaultsFalseOnceAnythingChanged(t *testing
 		t.Errorf("a changed polling interval still reads as the defaults")
 	}
 }
+
+func TestDefaultConfigYAML_IsExactlyTheThreeKeys(t *testing.T) {
+	body, err := DefaultConfigYAML(FirstRunDefaults{ConfigPath: "/c/config.yaml", StateDatabase: "/data/state/state.db"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := DefaultConfigHeader + "poll_interval: 1h\nstate:\n  database: /data/state/state.db\nsources: []\n"
+	if string(body) != want {
+		t.Errorf("default configuration =\n%s\nwant\n%s", body, want)
+	}
+}

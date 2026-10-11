@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -56,15 +58,20 @@ func DefaultConfigYAML(defaults FirstRunDefaults) ([]byte, error) {
 	if poll <= 0 {
 		poll = DefaultFirstRunPollInterval
 	}
-	cfg := &config.Config{
-		PollInterval: config.Duration(poll),
-		State:        config.State{Database: defaults.StateDatabase},
-		Sources:      []config.Source{},
-	}
-	body, err := yaml.Marshal(cfg)
+	// Three keys, written by hand rather than by marshalling a Config: the
+	// marshalled form also spells out empty retention and alerts blocks,
+	// and anything written here is frozen into the file across upgrades.
+	// The database path goes through the YAML encoder so an unusual path
+	// is quoted correctly.
+	db, err := yaml.Marshal(defaults.StateDatabase)
 	if err != nil {
 		return nil, fmt.Errorf("service: encoding the default configuration: %w", err)
 	}
+	pollText := poll.String()
+	if poll%time.Hour == 0 {
+		pollText = fmt.Sprintf("%dh", int64(poll/time.Hour))
+	}
+	body := []byte("poll_interval: " + pollText + "\nstate:\n  database: " + strings.TrimSpace(string(db)) + "\nsources: []\n")
 	// A configuration that this build would refuse is never written, so
 	// the file can only ever be one the next start accepts.
 	probe := &config.Config{}

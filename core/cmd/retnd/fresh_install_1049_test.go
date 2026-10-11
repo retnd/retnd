@@ -100,3 +100,25 @@ func TestRun_CheckOnAFreshInstallWithAnUnwritableConfigDirectoryNamesIt(t *testi
 		t.Errorf("check did not name the unwritable directory:\n%s", stderr)
 	}
 }
+
+// A deployment whose default configuration the engine already wrote has a
+// configuration and no backup set. status says it is a first run there too.
+func TestRun_StatusOnADefaultConfigurationSaysItIsAFirstRun(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	body := "poll_interval: 1h\nstate:\n  database: " + filepath.Join(dir, "state.db") + "\nsources: []\n"
+	if err := os.WriteFile(configPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var code int
+	var stdout string
+	captureStderr(t, func() {
+		stdout = captureStdout(t, func() { code = run([]string{"status", "--config", configPath}) })
+	})
+	if code != 0 {
+		t.Errorf("status = %d, want 0 (no backup set means nothing is unhealthy)\n%s", code, stdout)
+	}
+	if !saysFirstRun.MatchString(stdout) || !namesTheNextStep.MatchString(stdout) {
+		t.Errorf("status did not say it is a first run with a next step:\n%s", stdout)
+	}
+}

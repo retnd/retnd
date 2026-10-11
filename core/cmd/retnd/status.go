@@ -77,6 +77,13 @@ func cmdStatus(args []string) int {
 		report.Process.BinaryVersion, commit, info.GoVersion, report.Process.RcloneVersion)
 
 	healthy := true
+	if len(report.BackupSets) == 0 {
+		// A configured deployment with no backup set is the fresh install the
+		// engine wrote its own default configuration for (retnd#1049): there
+		// is nothing to be unhealthy, so say that and name the next step.
+		fmt.Println("\n" + cliecho.Binary + " has no backup set configured yet (first run). Nothing is being backed up.")
+		fmt.Println("Next step: add the first backup set in the web interface, or with `" + cliecho.Binary + " backup-set create ...`.")
+	}
 	for _, bs := range report.BackupSets {
 		if !bs.State.OK() {
 			healthy = false
