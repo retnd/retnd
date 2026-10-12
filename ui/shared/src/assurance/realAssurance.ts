@@ -6,33 +6,39 @@
  *
  * Each copy's achieved verification class, its time and its access (the
  * backup's placements), the copy's own scrub and recovery-test record (also
- * on the placement), the scrub schedule (GET /assurance/due), and the route
- * that starts a recovery test now (POST /backup-sets/{source}/{set}/recovery-test).
- * From those this builds the Stored, Content and Recovery claims, and the
- * Run recovery test control.
+ * on the placement), the scrub schedule (GET /assurance/due), and the four
+ * operator routes: start a scrub (POST /backup-sets/{source}/{set}/scrub),
+ * start a recovery test (POST .../recovery-test), cancel either (POST
+ * /assurance/operations/{op}/cancel) and read the newest test's validator
+ * output (GET .../recovery-test/output). From those this builds the Stored,
+ * Content and Recovery claims and the controls.
  *
- * # What is not offered, and therefore not invented
+ * # Following an operation
  *
- * A route to start a scrub, to cancel anything, or to read a validator's
- * output. `offers` says so, the screens show the terminal command that does
- * exist, and every method that would need such a route rejects with
- * {@link NotOffered} rather than answering with a made-up value.
+ * A recovery test (and a recovery) answers with an operation id that every
+ * one of its lines carries as `op_id` on the live activity feed, so this
+ * page follows it by reading that feed. The feed is a bounded in-memory
+ * tail, not a record, and this says so: a run whose lines have fallen off it
+ * is reported as `untracked`, which is not a verdict, and the chip is where
+ * the result lands.
  *
- * # Following a recovery test
- *
- * A recovery test answers 202 with an operation id and runs in the
- * background. Its start, stage and end lines carry that id as `op_id` on the
- * live activity feed, so this page follows it by reading that feed for the
- * set. The feed is a bounded in-memory tail, not a record, and this says so:
- * a run whose lines have fallen off it is reported as `untracked`, which is
- * not a verdict, and the Recovery chip is where the result lands.
+ * A SCRUB is different, and the difference is the server's on purpose: its
+ * operation id is on no feed line, it exists to be cancelled. So a scrub is
+ * followed by what it leaves behind, read from the feed after the point the
+ * page started it: this set's manual `scrub_pass` line ends it, and each
+ * `scrub_failure` line naming one of the set's copies is a line of it. A
+ * scrub that selected nothing writes no line at all, so silence is not a
+ * verdict either: after {@link SCRUB_QUIET_MS} of it the page says it can no
+ * longer see the run, and a restart of the serving process (a new feed epoch)
+ * says the same at once.
  */
 import type { RetndApi } from "@shared/api/contracts";
-import type { SetActivityEvent } from "@shared/types/activity";
+import type { LiveActivity, SetActivityEvent } from "@shared/types/activity";
 import type { BackupArtifact, BackupPlacement } from "@shared/types/backup";
-import { stageLabel } from "./stages";
+import { scrubFailureText, scrubPassText, stageWords } from "./feedText";
 import type {
-  AchievedClass, ArtifactAssurance, AssuranceApi, ClaimRecord, CopyFailure, Operation, OperationEvent, OperationFeed
+  AchievedClass, ArtifactAssurance, AssuranceApi, ClaimRecord, CopyContent, CopyFailure, Operation, OperationEvent, OperationFeed,
+  OperationKind, ValidatorResult
 } from "./types";
 
 export class NotOffered extends Error {
@@ -61,6 +67,18 @@ function strongest(a: BackupArtifact): { cls: AchievedClass; at?: string } {
     if ((RANK[p.verificationClass] ?? 0) > (RANK[best.cls] ?? 0)) best = { cls: p.verificationClass, at: p.verifiedAt };
   }
   return best;
+}
+
+/** What each live copy has on record for the Content claim, in the copies'
+ *  own order. A failed scrub clears a copy's class and time, so the recorded
+ *  state is read first, exactly as `contentClaim` does. */
+export function copyContentOf(a: BackupArtifact): CopyContent[] {
+  return liveCopies(a).map((p): CopyContent => {
+    if (p.assuranceState === "failed") return "failed";
+    if (p.verificationClass && p.verifiedAt) return p.verificationClass;
+    if (p.assuranceState === "could_not_complete") return "could_not_complete";
+    return "unchecked";
+  });
 }
 
 /** One backup's Content claim. `overdue` and `neverAssured` come from the
@@ -146,26 +164,166 @@ export function copyFailures(a: BackupArtifact): CopyFailure[] {
  *  feed before the page stops saying it is simply waiting. */
 export const START_GRACE_MS = 20_000;
 
-const startLine = (e: SetActivityEvent) => e.event === "recovery_test_start";
-const endLine = (e: SetActivityEvent) => e.event === "recovery_test_end";
+/** How long a scrub may leave nothing on the feed before the page stops
+ *  claiming it can see it. A scrub that selects nothing writes no line, and a
+ *  content read of a large copy can be quiet for minutes, so this is long
+ *  enough not to cry wolf and short enough not to spin for ever. */
+export const SCRUB_QUIET_MS = 5 * 60_000;
 
-/** What one line of a recovery test says, in the words the terminal's
- *  `--follow` uses (the engine's own stage label wins over this build's). */
-function lineText(e: SetActivityEvent): string {
-  if (startLine(e)) return "Recovery test started";
-  if (endLine(e)) {
-    if (e.result === "success") return "Recovery test finished";
-    const reason = e.fields.reason;
-    return "Recovery test did not pass" + (reason ? ": " + reason : "");
+/** How long after a cancel was accepted a scrub that writes no line is taken
+ *  to have stopped. A cancelled pass that had selected copies still writes its
+ *  counts, so this only covers the pass with nothing to say. */
+export const CANCEL_GRACE_MS = 10_000;
+
+/** Thrown for an operation id that is not on the live feed. */
+export class NotFollowable extends Error {
+  constructor() {
+    super(
+      "The live feed holds no operation with this id, so this page cannot follow it. A scrub never appears on the feed " +
+      "(its id exists only to cancel it), and a finished run's lines fall off the feed. Its result is on the chip it feeds."
+    );
+    this.name = "NotFollowable";
   }
-  const stage = e.fields.stage ?? "";
-  return e.fields.stage_label || stageLabel(stage) || e.message;
+}
+
+interface Followed {
+  setId: string;
+  kind: OperationKind;
+  startedAt: number;
+  sawStart: boolean;
+  /** Scrub only: the feed sequence at the start; nothing at or below it is this scrub's. */
+  floor: number;
+  /** Scrub only: the feed epoch at the start, so a restart of the serving process is noticed. */
+  epoch: string;
+  /** When a cancel the service accepted was asked for, or 0. */
+  cancelRequestedAt: number;
+  /** Scrub only: when a line of this scrub was last seen. */
+  lastLineAt: number;
+  /** Starting joined a run that was already going. */
+  joined: boolean;
+}
+
+function newFollowed(setId: string, kind: OperationKind, startedAt: number, over: Partial<Followed> = {}): Followed {
+  return { setId, kind, startedAt, sawStart: false, floor: 0, epoch: "", cancelRequestedAt: 0, lastLineAt: 0, joined: false, ...over };
+}
+
+/** The highest sequence anything on a reading carries. */
+function headOf(live: LiveActivity): number {
+  let head = live.deployment?.latestSequence ?? 0;
+  for (const s of live.sets) head = Math.max(head, s.latestSequence);
+  return head;
+}
+
+/** Which kind of run a set of its lines (or its open action) belongs to. */
+function kindOf(lines: SetActivityEvent[], openAction?: string): OperationKind | null {
+  if (lines.some((e) => e.event === "recovery_test_start" || e.event === "recovery_test_end") || openAction === "recovery_test") return "recovery_test";
+  if (lines.some((e) => e.event === "recovery_start" || e.event === "recovery_end") || openAction === "recovery") return "recovery";
+  if (lines.some((e) => e.event === "recovery_stage")) return lines.some((e) => e.action === "recovery_test") ? "recovery_test" : "recovery";
+  return null;
+}
+
+const KIND_WORDS = { scrub: "Scrub", recovery_test: "Recovery test", recovery: "Recovery" } as const;
+
+/** What one line of a recovery or recovery test says in the operation panel,
+ *  in the words the terminal's `--follow` uses (the engine's own stage label
+ *  wins over this build's). */
+function runLineText(kind: OperationKind, e: SetActivityEvent, cancelled: boolean): string {
+  const word = KIND_WORDS[kind];
+  if (e.event === "recovery_test_start" || e.event === "recovery_start") return word + " started";
+  if (e.event === "recovery_test_end" || e.event === "recovery_end") {
+    if (e.result === "success") return word + " finished";
+    if (cancelled) return word + " cancelled";
+    const reason = e.fields.reason;
+    // An error is a verdict that came back wrong; a warning proved nothing
+    // either way (a refusal, or a run that could not complete).
+    return word + (e.result === "warn" ? " did not complete" : " did not pass") + (reason ? ": " + reason : "");
+  }
+  return e.fields.stage ? stageWords(e.fields) : e.message;
+}
+
+const isStart = (e: SetActivityEvent) => e.event === "recovery_test_start" || e.event === "recovery_start";
+const isEnd = (e: SetActivityEvent) => e.event === "recovery_test_end" || e.event === "recovery_end";
+
+async function readRun(api: RetndApi, operationId: string, mine: Followed, cursor: number): Promise<OperationFeed> {
+  const live = await api.getLiveActivity({ setId: mine.setId, since: cursor });
+  const set = live.sets.find((s) => s.setId === mine.setId);
+  const lines = (set?.events ?? []).filter((e) => e.fields.op_id === operationId);
+  const end = lines.find(isEnd);
+  const cancelled = !!end && end.result === "warn" && mine.cancelRequestedAt > 0;
+  const events: OperationEvent[] = lines.map((e) => ({
+    seq: e.sequence, at: e.at, stage: e.fields.stage ?? e.event,
+    kind: isStart(e) ? "start" : isEnd(e) ? "end" : "stage",
+    text: runLineText(mine.kind, e, cancelled && e === end)
+  }));
+  const last = lines[lines.length - 1];
+  const stillOpen = !!set?.unfinishedActions?.some((x) => x.actionId === operationId);
+  if (lines.some(isStart) || stillOpen) mine.sawStart = true;
+
+  let state: Operation["state"] = "running";
+  if (end) state = end.result === "success" ? "complete" : cancelled ? "cancelled" : "failed";
+  else if (!stillOpen && mine.sawStart) state = "untracked";
+  else if (!mine.sawStart && Date.now() - mine.startedAt > START_GRACE_MS) state = "untracked";
+
+  const stageLine = [...lines].reverse().find((e) => e.fields.stage);
+  const done = end ? Number(end.fields.bytes) : 0;
+  const operation: Operation = {
+    id: operationId, kind: mine.kind, setId: mine.setId, state,
+    stage: end?.result === "success" ? "complete" : stageLine?.fields.stage ?? "resolving_copy",
+    bytes: Number.isFinite(done) && done > 0 ? done : 0, totalBytes: Number.isFinite(done) && done > 0 ? done : 0,
+    startedAt: new Date(mine.startedAt).toISOString(),
+    ...(state === "running" && mine.cancelRequestedAt > 0 ? { cancelling: true } : {}),
+    ...(mine.joined ? { joined: true } : {})
+  };
+  return { operation, events, nextCursor: Math.max(cursor, last?.sequence ?? 0) };
+}
+
+async function readScrub(api: RetndApi, operationId: string, mine: Followed, cursor: number): Promise<OperationFeed> {
+  const live = await api.getLiveActivity({ since: Math.max(cursor, mine.floor) });
+  const all = [...live.sets.flatMap((s) => s.events), ...(live.deployment?.events ?? [])];
+  const prefix = mine.setId + "/";
+  // This set's own lines and nothing else. A pass names its scope in words
+  // ("set a/b"), a failure names the copy's artifact, and the trigger keeps a
+  // scheduled pass or a CLI scrub from being taken for this one.
+  const mineLines = all
+    .filter((e) => e.sequence > Math.max(cursor, mine.floor))
+    .filter((e) =>
+      (e.event === "scrub_pass" && e.fields.trigger === "manual" && e.fields.scope === "set " + mine.setId) ||
+      (e.event === "scrub_failure" && (e.fields.artifact ?? "").startsWith(prefix)))
+    .sort((a, b) => a.sequence - b.sequence);
+  const events: OperationEvent[] = mineLines.map((e) => ({
+    seq: e.sequence, at: e.at, stage: e.event, kind: "scrub",
+    text: e.event === "scrub_pass" ? scrubPassText(e) : scrubFailureText(e)
+  }));
+  const now = Date.now();
+  if (mineLines.length > 0) mine.lastLineAt = now;
+  const pass = [...mineLines].reverse().find((e) => e.event === "scrub_pass");
+  const cancelRequested = mine.cancelRequestedAt > 0;
+  const quietSince = Math.max(mine.startedAt, mine.lastLineAt);
+
+  let state: Operation["state"] = "running";
+  if (pass) {
+    const bad = Number(pass.fields.failed) > 0 || Number(pass.fields.could_not_complete) > 0;
+    state = cancelRequested ? "cancelled" : bad ? "failed" : "complete";
+  } else if (cancelRequested && now - mine.cancelRequestedAt > CANCEL_GRACE_MS) {
+    state = "cancelled";
+  } else if ((mine.epoch && live.epoch !== mine.epoch) || now - quietSince > SCRUB_QUIET_MS) {
+    // The serving process restarted, or the feed has been silent for longer
+    // than a run with nothing to report would be. Neither is a verdict.
+    state = "untracked";
+  }
+  const operation: Operation = {
+    id: operationId, kind: "scrub", setId: mine.setId, state, stage: state === "running" ? "scrub" : "complete",
+    bytes: 0, totalBytes: 0, startedAt: new Date(mine.startedAt).toISOString(),
+    ...(state === "running" && cancelRequested ? { cancelling: true } : {})
+  };
+  const nextCursor = mineLines.length > 0 ? mineLines[mineLines.length - 1].sequence : cursor;
+  return { operation, events, nextCursor: Math.max(cursor, nextCursor) };
 }
 
 export function createHttpAssurance(api: RetndApi): AssuranceApi {
-  /** Operations this page started or reattached to: id -> (set, when). The
+  /** Operations this page started, reattached to, or found on the feed. The
    *  feed is read per set, and an id alone does not say which. */
-  const followed = new Map<string, { setId: string; startedAt: number; sawStart: boolean }>();
+  const followed = new Map<string, Followed>();
 
   const compose = async (artifacts: BackupArtifact[]): Promise<ArtifactAssurance[]> => {
     const dueById = new Map<string, { overdue: boolean; never: boolean }>();
@@ -187,23 +345,44 @@ export function createHttpAssurance(api: RetndApi): AssuranceApi {
     return artifacts.map((a) => ({
       artifactId: a.id,
       copies: liveCopies(a).length,
+      copyContent: copyContentOf(a),
       content: contentClaim(a, dueById.get(a.id)),
       recovery: recoveryClaim(a, off.get(a.setId) ?? false, true),
       copyFailures: copyFailures(a)
     }));
   };
 
-  const refuse = (what: string) => () => Promise.reject(new NotOffered(what));
+  const startedOperation = (id: string, kind: OperationKind, setId: string, at: number, extra: Partial<Operation> = {}): Operation => ({
+    id, kind, setId, state: "running", stage: kind === "scrub" ? "scrub" : "resolving_copy", bytes: 0, totalBytes: 0,
+    startedAt: new Date(at).toISOString(), ...extra
+  });
 
   const startRecoveryTest = async (setId: string): Promise<Operation> => {
     const [source, set] = splitSet(setId);
     const started = await api.startRecoveryTest(source, set);
     const startedAt = Date.now();
-    followed.set(started.operationId, { setId, startedAt, sawStart: false });
-    return {
-      id: started.operationId, kind: "recovery_test", setId, state: "running",
-      stage: "resolving_copy", bytes: 0, totalBytes: 0, startedAt: new Date(startedAt).toISOString()
-    };
+    // Joining a test that is already running follows that one: its lines are
+    // already on the feed, so the start-grace clock does not apply to it.
+    followed.set(started.operationId, newFollowed(setId, "recovery_test", startedAt, { sawStart: started.coalesced, joined: started.coalesced }));
+    return startedOperation(started.operationId, "recovery_test", setId, startedAt, started.coalesced ? { joined: true } : {});
+  };
+
+  const startScrub = async (setId: string): Promise<Operation> => {
+    const [source, set] = splitSet(setId);
+    // Where the feed stands now, so only what the scrub writes AFTER this is
+    // taken for its. Best effort: a feed that cannot be read here leaves the
+    // floor at zero, and the set and trigger filters below still apply.
+    let head = 0;
+    let epoch = "";
+    try {
+      const before = await api.getLiveActivity();
+      head = headOf(before);
+      epoch = before.epoch;
+    } catch { /* the floor stays at zero */ }
+    const started = await api.startScrub(source, set);
+    const startedAt = Date.now();
+    followed.set(started.operationId, newFollowed(setId, "scrub", startedAt, { sawStart: true, floor: head, epoch }));
+    return startedOperation(started.operationId, "scrub", setId, startedAt);
   };
 
   const activeOperation = async (setId: string): Promise<Operation | null> => {
@@ -211,52 +390,60 @@ export function createHttpAssurance(api: RetndApi): AssuranceApi {
     const open = live.sets.find((s) => s.setId === setId)?.unfinishedActions?.find((x) => x.action === "recovery_test");
     if (!open) return null;
     const at = Date.parse(open.startedAt);
-    followed.set(open.actionId, { setId, startedAt: Number.isNaN(at) ? Date.now() : at, sawStart: true });
-    return {
-      id: open.actionId, kind: "recovery_test", setId, state: "running",
-      stage: "resolving_copy", bytes: 0, totalBytes: 0, startedAt: open.startedAt
-    };
+    const startedAt = Number.isNaN(at) ? Date.now() : at;
+    followed.set(open.actionId, newFollowed(setId, "recovery_test", startedAt, { sawStart: true }));
+    return startedOperation(open.actionId, "recovery_test", setId, startedAt);
+  };
+
+  /** Finds an operation this page did not start (a reload, or a link to its
+   *  detail) on the live feed by its `op_id`. */
+  const attach = async (operationId: string): Promise<Followed> => {
+    const live = await api.getLiveActivity();
+    for (const set of live.sets) {
+      const lines = set.events.filter((e) => e.fields.op_id === operationId);
+      const open = set.unfinishedActions?.find((x) => x.actionId === operationId);
+      if (lines.length === 0 && !open) continue;
+      const kind = kindOf(lines, open?.action);
+      if (!kind) continue;
+      const at = Date.parse(lines[0]?.at ?? open?.startedAt ?? "");
+      const mine = newFollowed(set.setId, kind, Number.isNaN(at) ? Date.now() : at, { sawStart: true });
+      followed.set(operationId, mine);
+      return mine;
+    }
+    throw new NotFollowable();
   };
 
   const readOperation = async (operationId: string, cursor: number): Promise<OperationFeed> => {
-    const mine = followed.get(operationId);
-    if (!mine) throw new NotOffered("follow a recovery test this page did not start");
-    const live = await api.getLiveActivity({ setId: mine.setId, since: cursor });
-    const set = live.sets.find((s) => s.setId === mine.setId);
-    const lines = (set?.events ?? []).filter((e) => e.fields.op_id === operationId);
-    const events: OperationEvent[] = lines.map((e) => ({
-      seq: e.sequence, at: e.at, stage: e.fields.stage ?? e.event, text: lineText(e)
-    }));
-    const last = lines[lines.length - 1];
-    const end = lines.find(endLine);
-    const stillOpen = !!set?.unfinishedActions?.some((x) => x.actionId === operationId);
-    if (lines.some(startLine) || stillOpen) mine.sawStart = true;
-    const seenStart = mine.sawStart;
+    const mine = followed.get(operationId) ?? (await attach(operationId));
+    return mine.kind === "scrub" ? readScrub(api, operationId, mine, cursor) : readRun(api, operationId, mine, cursor);
+  };
 
-    let state: Operation["state"] = "running";
-    if (end) state = end.result === "success" ? "complete" : "failed";
-    else if (!stillOpen && seenStart) state = "untracked";
-    else if (!seenStart && Date.now() - mine.startedAt > START_GRACE_MS) state = "untracked";
-
-    const stageLine = [...lines].reverse().find((e) => e.fields.stage);
-    const operation: Operation = {
-      id: operationId, kind: "recovery_test", setId: mine.setId, state,
-      stage: end ? "complete" : stageLine?.fields.stage ?? "resolving_copy",
-      bytes: 0, totalBytes: 0, startedAt: new Date(mine.startedAt).toISOString()
+  const getValidatorResult = async (setId: string): Promise<ValidatorResult | null> => {
+    const [source, set] = splitSet(setId);
+    const out = await api.getRecoveryTestOutput(source, set);
+    if (!out.recorded) return null;
+    return {
+      artifactId: out.artifactId, medium: out.medium, operationId: out.operationId, state: out.state,
+      recordedAt: out.recordedAt, truncated: out.truncated, records: out.records
     };
-    return { operation, events, nextCursor: Math.max(cursor, last?.sequence ?? 0) };
   };
 
   return {
-    offers: { operations: false, recoveryTest: true, recoveryClaim: true },
+    offers: { operations: true, recoveryTest: true, recoveryClaim: true },
     listArtifactAssurance: async (setId) => compose(await api.listArtifacts(setId)),
     getArtifactAssurance: async (id) => (await compose([await api.getArtifact(id)]))[0],
-    startScrub: refuse("start a scrub from the browser"),
+    startScrub,
     startRecoveryTest,
     activeOperation,
     readOperation,
-    cancelOperation: refuse("cancel a scrub or a recovery test"),
-    getValidatorResult: refuse("read a validator's output")
+    cancelOperation: async (operationId) => {
+      await api.cancelAssuranceOperation(operationId);
+      // Remembered only once the service accepted it: a cancel it refused
+      // (404, the run just ended) must not turn a later warn into "Cancelled".
+      const mine = followed.get(operationId);
+      if (mine) mine.cancelRequestedAt = Date.now();
+    },
+    getValidatorResult
   };
 }
 

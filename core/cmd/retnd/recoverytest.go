@@ -8,10 +8,14 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
+	"github.com/google/uuid"
+	"github.com/retnd/retnd/core/apicontract"
 	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/recoverytest"
 	"github.com/retnd/retnd/core/internal/state"
 	"github.com/retnd/retnd/core/service"
 )
@@ -41,6 +45,8 @@ func cmdRecoveryTest(args []string) int {
 	artifact := fs.String("artifact", "", "test this artifact (source/backup-set/name) instead of the newest known good one")
 	ack := fs.Bool("acknowledge-cost", false, "accept a read that costs money (a billed download, or an archived object that is already readable)")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
+	follow := fs.Bool("follow", false, "print the test's stages on standard error as it passes through them; the exit status is the test's")
+	showOutput := fs.Bool("show-output", false, "print what the newest recovery test of the set printed, as stored; runs no test")
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
 		return exitUsage
@@ -51,6 +57,9 @@ func cmdRecoveryTest(args []string) int {
 	set, err := model.ParseBackupSetID(operands[0])
 	if err != nil || strings.Count(operands[0], "/") != 1 {
 		return usageError("recovery-test: %q is not <source/backup-set>", operands[0])
+	}
+	if *showOutput && (*follow || *ack || *artifact != "") {
+		return usageError("recovery-test: --show-output reads the stored output and runs no test, so --follow, --acknowledge-cost and --artifact have nothing to apply to")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -64,7 +73,20 @@ func cmdRecoveryTest(args []string) int {
 
 	logStartup(ctx, obs.New(os.Stderr, obs.LevelFromEnv()), app.BuildVersionInfo(version, commit))
 
-	out, err := svc.RunRecoveryTest(ctx, set, service.RecoveryTestOptions{ArtifactID: *artifact, AcknowledgeCost: *ack})
+	if *showOutput {
+		return showRecoveryTestOutput(ctx, svc, set, *asJSON)
+	}
+
+	opts := service.RecoveryTestOptions{ArtifactID: *artifact, AcknowledgeCost: *ack}
+	var out service.RecoveryTestOutcome
+	if *follow {
+		opts.OperationID = uuid.NewString()
+		followWhile(ctx, svc, opByID(opts.OperationID), os.Stderr, os.Stderr, func() {
+			out, err = svc.RunRecoveryTest(ctx, set, opts)
+		})
+	} else {
+		out, err = svc.RunRecoveryTest(ctx, set, opts)
+	}
 	if err != nil {
 		return fail(err)
 	}
@@ -114,4 +136,53 @@ func printRecoveryTest(o service.RecoveryTestOutcome, asJSON bool) {
 	if o.CleanupState != "" {
 		fmt.Printf("staged copy:         %s\n", o.CleanupState)
 	}
+}
+
+// showRecoveryTestOutput is `recovery-test <set> --show-output`: the newest
+// test's output as the journal holds it, which is the same body
+// GET /backup-sets/{source}/{set}/recovery-test/output serves. It reads the
+// journal and runs nothing, so it works beside a serving engine and with
+// nothing serving alike.
+//
+// The text is printed as stored. The records were made inert before they were
+// written (no control byte survives into them), so nothing here needs to
+// escape anything, and the runner's truncation record is printed as itself
+// while a line that merely quotes it is printed as output.
+func showRecoveryTestOutput(ctx context.Context, svc *service.BackupService, set model.BackupSetID, asJSON bool) int {
+	out, err := svc.RecoveryTestOutput(ctx, set.String())
+	if err != nil {
+		return fail(err)
+	}
+	records := make([]apicontract.RecoveryTestOutputRecord, 0, len(out.Records))
+	rendered := make([]recoverytest.OutputRecord, 0, len(out.Records))
+	for _, r := range out.Records {
+		records = append(records, apicontract.RecoveryTestOutputRecord{Kind: r.Kind, Text: r.Text})
+		rendered = append(rendered, recoverytest.OutputRecord{Kind: recoverytest.OutputKind(r.Kind), Text: r.Text})
+	}
+	if asJSON {
+		body := apicontract.RecoveryTestOutput{BackupSetID: out.BackupSetID, Recorded: out.Recorded, Truncated: out.Truncated, Records: records}
+		if out.Recorded {
+			body.OperationID, body.ArtifactID, body.Medium, body.State = out.OperationID, out.ArtifactID, out.Medium, out.State
+			body.RecordedAt = out.RecordedAt.UTC().Format(time.RFC3339)
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(body); err != nil {
+			return fail(fmt.Errorf("recovery-test: writing the output: %w", err))
+		}
+		return exitOK
+	}
+	if !out.Recorded {
+		fmt.Printf("no recovery test of %s has recorded output yet\n", out.BackupSetID)
+		return exitOK
+	}
+	fmt.Printf("%s: %s on %s, %s (operation %s)\n", out.ArtifactID, out.State, out.Medium, out.RecordedAt.UTC().Format(time.RFC3339), out.OperationID)
+	if len(rendered) == 0 {
+		fmt.Println("the validator printed nothing")
+		return exitOK
+	}
+	for _, line := range recoverytest.Render(rendered) {
+		fmt.Println(line)
+	}
+	return exitOK
 }

@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "4a16c4c2b79c105cc8ba38f49b190b434cf15b7259f5b09bb82aaa732b738cf2";
+export const CONTRACT_SHA256 = "f7afb2a29aa7bae3024216bc18265748536aa7c6b26ebc48009a65e57dd6ea7b";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -327,6 +327,26 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
       404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "cancelAssuranceOperation",
+    method: "POST",
+    path: "/assurance/operations/{op}/cancel",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "AssuranceOperationCancelled",
+    successStatus: 202,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["OPERATION_NOT_FOUND"],
       500: ["INTERNAL"],
       503: ["NOT_CONFIGURED"],
     }
@@ -895,6 +915,25 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "getRecoveryTestOutput",
+    method: "GET",
+    path: "/backup-sets/{source}/{set}/recovery-test/output",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "RecoveryTestOutput",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
     id: "clearBackupSetRetention",
     method: "DELETE",
     path: "/backup-sets/{source}/{set}/retention",
@@ -993,6 +1032,28 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
       404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "startScrub",
+    method: "POST",
+    path: "/backup-sets/{source}/{set}/scrub",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ScrubStarted",
+    successStatus: 202,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      409: ["OPERATION_ALREADY_RUNNING"],
       500: ["INTERNAL"],
       503: ["NOT_CONFIGURED"],
     }
@@ -2423,6 +2484,14 @@ export interface WireAssuranceHostKnob {
   value?: string;
 }
 
+/** A running scrub or recovery test has been told to stop. */
+export interface WireAssuranceOperationCancelled {
+  backup_set_id: string;
+  kind: "scrub" | "recovery_test";
+  operation_id: string;
+  status: "cancelling";
+}
+
 /** A resolved recovery-test policy. */
 export interface WireAssuranceRecoveryTestPolicy {
   cadence_seconds?: number;
@@ -2906,6 +2975,8 @@ export interface WireErrorResponse {
  *  derived from the thing each one sets up, except a skip, which is
  *  stored. */
 export interface WireFirstRunStatusResponse {
+  config_dir?: string;
+  config_dir_problem?: string;
   configured: boolean;
   next_step: "administrator" | "backup_set" | "none";
   steps: WireFirstRunSteps;
@@ -3549,12 +3620,36 @@ export interface WireRecoveryTarget {
   path?: string;
 }
 
+/** What the newest recovery test of a backup set printed. Only the
+ *  newest test is kept per set. */
+export interface WireRecoveryTestOutput {
+  artifact_id: string;
+  backup_set_id: string;
+  medium: string;
+  operation_id: string;
+  recorded: boolean;
+  recorded_at: string;
+  records: WireRecoveryTestOutputRecord[];
+  state: string;
+  truncated: boolean;
+}
+
+/** One line of a validator's output, or the runner's own truncation
+ *  marker. Branch on kind and never on text: only the runner produces
+ *  a truncation record, so a validator that prints the marker's words
+ *  is still an output record. */
+export interface WireRecoveryTestOutputRecord {
+  kind: "output" | "truncation";
+  text: string;
+}
+
 /** A recovery test is under way. operation_id is carried by its
  *  recovery_test_start, recovery_stage and recovery_test_end lines on
  *  the activity feed, which is how a client follows it; the verdict
  *  is the copy's recovery claim once it ends. */
 export interface WireRecoveryTestStarted {
   backup_set_id: string;
+  coalesced: boolean;
   operation_id: string;
 }
 
@@ -3844,6 +3939,92 @@ export interface WireSSHKeyDiscoveryLocation {
   kind: string;
   path: string;
   problem?: string;
+}
+
+/** An artifact the pass could not give a verdict at all, with the
+ *  infrastructure problem that stopped it. The copies it did get a
+ *  verdict for are in the set's copies, each once. */
+export interface WireScrubArtifactError {
+  artifact_id: string;
+  error: string;
+}
+
+/** What a scrub learned about one copy of one artifact. The class is
+ *  the class that RAN, never the class asked for: a HEAD is reported
+ *  as a HEAD. */
+export interface WireScrubCopyOutcome {
+  artifact_id: string;
+  class?: string;
+  medium: string;
+  reason?: string;
+  refused: boolean;
+  verdict: string;
+}
+
+/** What one scrub did: the counts the pass recorded plus the per-set
+ *  detail. It is the body `retnd scrub --json` prints, and the one
+ *  result shape every route that reports a scrub reuses. */
+export interface WireScrubResult {
+  bytes_read: number;
+  checked: number;
+  could_not_complete: number;
+  failed: number;
+  pass_id?: number;
+  passed: number;
+  refused: number;
+  requires_restore: number;
+  scope: string;
+  selected: number;
+  sets: WireScrubSetResult[];
+  skipped_held: number;
+  skipped_leased: number;
+  trigger: string;
+  unknown_objects?: number;
+  unlisted?: number;
+}
+
+/** One backup set's part of a scrub. */
+export interface WireScrubSetResult {
+  backup_set_id: string;
+  copies: WireScrubCopyOutcome[];
+  error?: string;
+  errors: WireScrubArtifactError[];
+  skipped: WireScrubSkip[];
+  unknown_objects?: WireScrubUnknownObject[];
+  unlisted?: WireScrubUnlistedMedium[];
+}
+
+/** Work a scrub was asked to do and did not. A skip is always
+ *  reported: a copy that was due and silently not looked at is the
+ *  same failure as one never scheduled. */
+export interface WireScrubSkip {
+  artifact_id?: string;
+  medium?: string;
+  reason: string;
+}
+
+/** A scrub is under way. operation_id is what POST
+ *  /assurance/operations/{op}/cancel takes. */
+export interface WireScrubStarted {
+  backup_set_id: string;
+  operation_id: string;
+}
+
+/** An object a storage medium holds under a backup set's namespace at
+ *  a key the journal has no placement for (QC-04). It is a finding
+ *  for an operator to look at: never a verified copy of anything, and
+ *  a scrub never reads, moves or deletes it. */
+export interface WireScrubUnknownObject {
+  key: string;
+  medium: string;
+  size: number;
+}
+
+/** A storage medium the pass could not enumerate, so that no unknown
+ *  objects reported for it does not read as nothing being there. */
+export interface WireScrubUnlistedMedium {
+  medium: string;
+  reason: string;
 }
 
 /** The rules the service-behaviour settings are validated against,

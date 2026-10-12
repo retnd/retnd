@@ -14,6 +14,7 @@ import (
 	"github.com/retnd/retnd/core/internal/obs"
 	"github.com/retnd/retnd/core/internal/placement"
 	"github.com/retnd/retnd/core/internal/recovery/export"
+	"github.com/retnd/retnd/core/internal/revalidate"
 	"github.com/retnd/retnd/core/internal/state"
 	"github.com/retnd/retnd/core/internal/transport"
 )
@@ -109,6 +110,17 @@ func (d *RecoveryDownload) Served(start, end, written int64, err error) {
 		// the staged copy stay for the next, valid range.
 		d.b.auditRecovery(context.Background(), &ev, err)
 		return
+	}
+	if err == nil && written == 0 && d.size > 0 {
+		// Nothing left the host (a conditional GET answered 304). That is not
+		// a range served: it must neither cover the artifact nor claim the
+		// download verified.
+		return
+	}
+	if err != nil {
+		// The end of the download, said once and plainly, ahead of the
+		// per-range row below (which stays the last row, as it always was).
+		d.recordEnd(start, written, err)
 	}
 	d.b.auditRecovery(context.Background(), &ev, err)
 	if err != nil {
@@ -368,12 +380,50 @@ func (b *BackupService) checkProviderChecksum(ctx context.Context, st *configSta
 		return nil
 	}
 	if !res.Passed {
+		b.recordProviderFinding(ctx, plan, p)
 		return &RecoveryError{
 			Code:    RecoveryRemoteCopyCorrupt,
 			Message: "the destination's own checksum for the copy on " + c.Medium + " does not match the one recorded when this backup was ingested, so it was not downloaded",
 		}
 	}
 	return nil
+}
+
+// providerMismatchReason is what the copy's record says when a destination
+// attested a checksum other than the one recorded at ingestion.
+const providerMismatchReason = "the destination's own checksum (SHA-256) for this copy does not match the one recorded when it was ingested"
+
+// recordProviderFinding writes a destination's checksum disagreement onto the
+// copy it is about. A refusal that lives in a response body is a soft warning:
+// it is gone with the request, and the next scrub of the set would say the
+// copy was fine. Written on the copy as a failed attested check, it is the
+// same record a scrub's failure leaves, so the settings card and the feed
+// render it, the copy is owed a re-check soon, and internal/reconcile reports
+// the artifact as needing investigation on its next pass. It moves no
+// lifecycle state: whether an artifact is quarantined depends on whether
+// another verified copy survives (FR-31), and that decision stays with the
+// scrub, which makes it for every other failed copy.
+//
+// The verdict is stamped with the identity of the bytes the probe was about,
+// so a copy rewritten meanwhile is not accused of the old copy's mismatch. A
+// journal that cannot be written costs the record, never the refusal.
+func (b *BackupService) recordProviderFinding(ctx context.Context, plan recoveryPlan, p state.Placement) {
+	at := time.Now().UTC()
+	if b.recovery.now != nil {
+		at = b.recovery.now().UTC()
+	}
+	identity := p.Identity()
+	wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	err := b.journal.RecordCopyScrub(wctx, state.CopyScrub{
+		Artifact: plan.rec.Artifact, Medium: p.Medium, Verdict: state.ScrubFailed, Class: state.VerificationAttested,
+		Reason: providerMismatchReason, At: at,
+		NextDue: revalidate.Bounds{}.NextDueAfterFailure(at, 0, p.ConsecutiveFailures+1),
+		Expect:  &identity,
+	})
+	if err != nil && !errors.Is(err, state.ErrCopyChanged) && !errors.Is(err, state.ErrPlacementRetired) {
+		b.logger.Error(ctx, "recovery_provider_finding", err)
+	}
 }
 
 // uploadRecovered writes a verified staged file to another configured

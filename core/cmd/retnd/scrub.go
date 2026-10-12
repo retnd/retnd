@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/obs"
 	"github.com/retnd/retnd/core/internal/revalidate"
 	"github.com/retnd/retnd/core/internal/state"
 )
@@ -32,6 +34,23 @@ import (
 // prints the class that ran beside every result and never calls an existence
 // check verification.
 //
+// # Beside a serving engine
+//
+// An edit hold lives in the memory of the process serving the deployment, so
+// when RETND_API_URL (with its two credential variables) reaches that process
+// this command asks it, and a set it is holding is skipped exactly as the
+// engine's own scrub skips it: the same line, counted as a skip, and exit
+// status 1. A hold this command cannot read is treated as a hold. With no
+// route to an engine there is no hold to see, and the announcement the
+// reads make on stderr says which world this ran in.
+//
+// # --json
+//
+// --json prints the one result object the API contract defines
+// (apicontract.ScrubResult) and nothing else on standard output; the log
+// lines this process writes go to standard error for that run. The exit
+// status means what it means without the flag.
+//
 // Exit status is 0 when nothing failed and nothing was left undone, and 1
 // when any copy failed, could not be checked, was skipped (held for editing,
 // or being scrubbed by something else) or was refused for cost. A skip is
@@ -42,6 +61,7 @@ func cmdScrub(args []string) int {
 	medium := fs.String("medium", "", "check only the copy on this medium (\"local\" for the local copy); needs an artifact")
 	content := fs.Bool("content", false, "read the bytes of a copy on a storage medium and re-hash them (costs egress; needs --allow-egress)")
 	allowEgress := fs.Bool("allow-egress", false, "acknowledge that --content downloads the copy and may be billed for it")
+	asJSON := fs.Bool("json", false, "emit the scrub result as JSON, the same object the API reports, instead of text")
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
 		return 2
@@ -77,19 +97,57 @@ func cmdScrub(args []string) int {
 	}
 
 	ctx := context.Background()
-	svc, _, cleanup, err := openService(ctx, *cfgPath, false)
+	svc, cfg, cleanup, err := openService(ctx, *cfgPath, false)
 	if err != nil {
 		return fail(err)
 	}
 	defer cleanup()
 
+	if *asJSON {
+		// Standard output is the result and only the result.
+		svc.Logger = obs.New(os.Stderr, obs.LevelFromEnv())
+	}
 	logStartup(ctx, svc.Logger, app.BuildVersionInfo(version, commit))
+
+	// The same door every read goes through: it says which world this ran in
+	// and, when it can reach the engine serving this deployment, hands back
+	// the route the hold is asked through.
+	mode, err := enterReadMode(ctx, *cfgPath, cfg, os.Stderr)
+	if err != nil {
+		return fail(err)
+	}
+	if mode.attached() {
+		ctx = app.WithBackupSetHolds(ctx, newEngineHolds(ctx, mode.client))
+	}
 
 	sum, err := svc.Scrub(ctx, req)
 	if err != nil {
 		return fail(err)
 	}
+	if *asJSON {
+		return printScrubJSON(sum)
+	}
 	return printScrub(sum)
+}
+
+// printScrubJSON writes the contract's scrub result and returns the status
+// the text form would have returned for the same pass.
+func printScrubJSON(sum app.ScrubSummary) int {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(sum.Wire()); err != nil {
+		return fail(fmt.Errorf("scrub: writing the result: %w", err))
+	}
+	return scrubStatus(sum)
+}
+
+// scrubStatus is the exit status of a pass: 0 only when nothing failed and
+// nothing was left undone.
+func scrubStatus(sum app.ScrubSummary) int {
+	if sum.Failed+sum.CouldNotComplete+sum.SkippedHeld+sum.SkippedLeased+sum.Refused > 0 {
+		return 1
+	}
+	return 0
 }
 
 func printScrub(sum app.ScrubSummary) int {
@@ -103,7 +161,20 @@ func printScrub(sum app.ScrubSummary) int {
 			}
 		}
 		for _, e := range sr.Report.Errors {
+			// The copies the pass did get an answer for are said as
+			// themselves, each once, before the artifact's own problem.
+			for _, c := range e.Copies {
+				fmt.Printf("%s on %s: %s\n", e.Artifact, c.Medium, describeCopyResult(c))
+			}
 			fmt.Fprintf(os.Stderr, "%s: could not be checked: %v\n", e.Artifact, e.Err)
+		}
+		// QC-04: findings, not copy outcomes. They do not change the exit
+		// status; the lines are how an operator hears about them.
+		for _, u := range sr.Report.Unknown {
+			fmt.Printf("%s: unknown object %q (%d bytes) on %s: the journal has no copy at that key\n", sr.Set, u.Key, u.Size, u.Medium)
+		}
+		for _, u := range sr.Report.Unlisted {
+			fmt.Printf("%s: %s was not listed: %s\n", sr.Set, u.Medium, u.Reason)
 		}
 		for _, sk := range sr.Report.Skipped {
 			target := sr.Set.String()
@@ -124,11 +195,11 @@ func printScrub(sum app.ScrubSummary) int {
 	fmt.Printf("scrub (%s): %d selected, %d passed, %d failed, %d could not be checked, %d need a restore, %d skipped, %d refused; %d bytes read\n",
 		sum.Scope, sum.Selected, sum.Passed, sum.Failed, sum.CouldNotComplete, sum.RequiresRestore,
 		sum.SkippedHeld+sum.SkippedLeased, sum.Refused, sum.BytesRead)
-
-	if sum.Failed+sum.CouldNotComplete+sum.SkippedHeld+sum.SkippedLeased+sum.Refused > 0 {
-		return 1
+	if sum.Unknown > 0 || sum.Unlisted > 0 {
+		fmt.Printf("scrub (%s): %d unknown objects found, %d media not listed\n", sum.Scope, sum.Unknown, sum.Unlisted)
 	}
-	return 0
+
+	return scrubStatus(sum)
 }
 
 // describeCopyResult says what ran and what it proves, in that order. The

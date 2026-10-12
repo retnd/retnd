@@ -342,3 +342,39 @@ gone. The pin used to name `c75e4dd`, which was #87's own head and not an ancest
 repository's `main`. #1073 moved it to `9584fa3`, the squash of #87 with the identical tree, and
 every move after that reads off `main` the same way, so `tests-repo.pin` itself is where to look
 for the commit it names today.
+
+## A deployment nobody has configured (`--fresh`)
+
+`retnd#1049` is the first install: the browser opens a deployment that has an
+administrator and nothing else. The default rig cannot show that, because it
+seeds a backup set and runs a cycle before the browser arrives, so every case
+that is about a first install writes `needs(isFresh(facts))` and skips itself
+here. A skip is the same colour as a pass, which is how those cases went
+unrun.
+
+```sh
+scripts/e2e/three-machine-web-ui.sh --fresh --break-engine \
+  --suite ../retnd-tests/suites/web-ui -- .1049.spec.ts
+```
+
+`--fresh` does one thing: it leaves out the seeding. The administrator is
+enrolled (a browser has to sign in), but no backup set is created, no cycle is
+run, and the engine starts against an empty configuration directory, so it
+writes its own default configuration on first start, exactly as it does on a
+real first install. `RETND_BACKUP_SET` is not set, and `--no-workflows` is
+implied, because every workflow scenario is a backup set. `--break-engine` is
+the one flag worth adding: the Copy details and unreachable-banner cases need
+the engine control channel as well as a fresh deployment, and without it they
+skip for that reason instead.
+
+Everything after a bare `--` goes to the `npx playwright test` the client
+container runs, so a run can be narrowed to the specs whose path matches
+(`.1049.spec.ts` above) and can ask for the JSON reporter. The client container
+has `PLAYWRIGHT_JSON_OUTPUT_NAME` set to `/artifacts/playwright-report.json`,
+which is `playwright-report.json` in `--artifacts`.
+
+`scripts/bdtools/e2e/run_tests_repo_gate.py` runs exactly that against the
+pinned tests checkout (the `fresh_first_run_half` step) and **fails the commit if
+any `*.1049.spec.ts` case skipped**, or if none ran, or if the report is
+missing. The report is the check, not the exit status: Playwright exits 0 for a
+run in which every case skipped.

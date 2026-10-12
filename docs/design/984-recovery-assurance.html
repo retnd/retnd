@@ -98,6 +98,13 @@ table.t td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
 .trunc{display:block;margin:4px 0;padding:2px 8px;border:1px dashed var(--term-warn);color:var(--term-warn);font-style:italic}
 .dash{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-2)}
 @container (max-width:420px){.dash{grid-template-columns:1fr}.hide-narrow{display:none}.claims{flex-direction:column;align-items:flex-start}}
+.pf{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none;font-size:12.5px}
+.pf li{display:flex;gap:8px;align-items:baseline}
+.pf .g{width:16px;text-align:center;font-weight:800;flex:none}
+.pf .ok .g{color:var(--ok)}.pf .no .g{color:var(--danger)}.pf .skip .g,.pf .skip{color:var(--text-2)}
+.notice.refused{border:2px solid var(--danger);background:var(--danger-quiet)}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:2px var(--space-3);font-size:12.5px;margin:0}
+.kv dt{color:var(--text-2)}.kv dd{margin:0;color:var(--text)}
 .tipid{font-family:var(--font-mono);font-size:11px;border:1px solid var(--border-strong);border-radius:var(--radius-sm);padding:0 4px;color:var(--text);background:var(--surface-3)}
 .nopop{font-size:11px;border:1px dashed var(--border-strong);border-radius:var(--radius-sm);padding:0 4px;color:var(--text)}
 @media (max-width:900px){.grid{grid-template-columns:1fr}}
@@ -115,7 +122,7 @@ table.t td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
       <li>The green "Verified" Validation column is retired (Q2.17, #1070). I never drew it here, but any older screenshot of the Backups list or the artifact page that shows it is superseded: the three claims are the only place those pages say "verified".</li>
       <li>Activity events are durable (Q1.28, #1071). Section 5 says per-copy progress is live-only, which still holds, but the feed is no longer an in-memory ring that forgets on restart.</li>
       <li>A download is streamed and never staged (Q1.24, Q1.25, Q1.27, #1072). The "Download memory budget" readout in section 4 and the staging wording on the browser path are superseded: memory is one 4 MiB chunk, and <code>web_download_memory_bytes</code> is not coming back. The "Staging path on the host" target, the staging root and the staging TTL describe the host-side target only. Resume is by a new grant with <code>Range</code> and <code>If-Range</code> on a stable <code>ETag</code>.</li>
-      <li>A download that cannot complete is refused before it starts (Q1.26, Q1.27, #1072). This note draws no such refusal, so the dialogs in section 3 are missing a state: a pre-flight failure shown before any byte is sent.</li>
+      <li>A download that cannot complete is refused before it starts (Q1.26, Q1.27, #1072). Section 3.1 now draws that refusal, with the CLI line that matches it, and the three outcomes the server records for a stream that did start. The dialogs in section 3 are the happy path only.</li>
     </ol>
   </div>
 </header>
@@ -147,6 +154,18 @@ table.t td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
     <p><strong>Decision.</strong> <em>Recover artifact</em> opens a dialog with three targets: <em>Download in this browser</em>, <em>Staging path on the host</em>, <em>Configured destination</em>. The staging root is not editable here (it is a host setting, section 4); the operator picks a sub-name only. The command that does the same thing is echoed under the form by <code>CommandEcho</code> and updates as the target changes.</p>
     <p><strong>The thaw cost is a blocking step.</strong> When the chosen copy is archived, the dialog replaces its footer with a decision panel: the provider, the retrieval tier, the estimated egress and the time the thaw takes, stated as the provider states them, and two buttons of equal weight, <em>Pay for the thaw and recover</em> and <em>Do not recover</em>. The primary action is not reachable by Enter from the target chooser, it is disabled until the operator ticks <em>I accept this cost</em>, and Escape means <em>Do not recover</em>. It is a dialog the operator has to answer, not a toast they dismiss. A scheduled scrub never reaches this panel: no scheduled pass thaws.</p>
     <p><strong>Plain http.</strong> The browser path streams to a download; it does not depend on the Clipboard API. Where the command echo offers a copy button, the fallback is a selected, read-only text field.</p>
+  </div>
+</section>
+
+<section class="sec" id="stream">
+  <h2>3.1 Streamed download: the pre-flight refusal and the recorded outcomes</h2>
+  <div class="grid" data-surface="refusal"></div>
+  <div class="grid" data-surface="outcome"></div>
+  <div class="reason">
+    <p><strong>Decision (Q1.26, Q1.27, #1072).</strong> A pre-flight runs before the first byte leaves the server, and it runs the same checks for the browser and for the CLI. In order: a digest was recorded for this copy; the copy is a regular file or object of the recorded size; its medium is readable; it is not archive-class and unrestored; a checksum the provider reports does not contradict ours; one verifying read matches the recorded SHA-256; and the first chunk is checked. The first check that fails stops the run, the rest are drawn as <em>Not run</em>, and the operator sees which one and why. No grant is spent and nothing is sent, so there is no partial file to explain.</p>
+    <p><strong>The CLI line is the same refusal.</strong> The terminal block under each refusal is what <code>retnd recover</code> prints for the same copy: the same check name, the same sentence, and a non-zero exit status that is distinct per reason, the way the other refusals at the moment of spend are. The browser dialog and the CLI do not word it differently, and neither suggests trying again until the cause is dealt with. The archive-class refusal points at the thaw decision in section 3 and spends nothing against the provider.</p>
+    <p><strong>After the first byte, a failure aborts.</strong> A stream that dies part way is aborted, so the browser shows an incomplete download and never a clean short file. The server records the outcome of every stream that started, and the page reads that record rather than guessing from the connection. The browser's own download UI is the progress and cancel surface, so nothing here draws a second progress bar. The three outcomes are <em>Completed</em>, <em>Interrupted at N of M bytes</em> and <em>Failed verification</em>. Interrupted keeps the double border of <em>Could not complete</em> because it means the same thing (it started and did not finish), and Failed verification keeps the solid red cross of <em>Failed</em> because the bytes were wrong. Each says in words what the browser holds. The <em>Failed: nothing saved</em> chip in section 5 is superseded by these two: a streamed download that fails leaves an incomplete file in the browser, and the page says so.</p>
+    <p><strong>Resume.</strong> The only action on an interrupted or failed stream is a new download, which takes a new grant and sends <code>Range</code> with <code>If-Range</code> on the stable <code>ETag</code>. A failed verification resumes from zero, because the bytes already sent cannot be trusted.</p>
   </div>
 </section>
 
@@ -193,6 +212,7 @@ table.t td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
       <tr><th>Control</th><th>TooltipId</th></tr>
       <tr><td>Recover artifact (button)</td><td><span class="tipid">assurance.recover.artifact</span></td></tr>
       <tr><td>Target: Download in this browser / Staging path / Configured destination</td><td><span class="tipid">assurance.recover.target</span></td></tr>
+      <tr><td>Start a new download (after an interrupted or failed stream)</td><td><span class="tipid">assurance.recover.resume</span></td></tr>
       <tr><td>Accept thaw cost (checkbox)</td><td><span class="tipid">assurance.recover.thawCost</span></td></tr>
       <tr><td>Scrub now</td><td><span class="tipid">assurance.scrub.now</span></td></tr>
       <tr><td>Run recovery test</td><td><span class="tipid">assurance.recoveryTest.run</span></td></tr>
@@ -237,6 +257,7 @@ table.t td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
     <p><strong>What I changed.</strong> The first version drew the edge of the neutral chips, the buttons, the segmented control, the bar and the readouts with <code>--border-strong</code>, which is 1.69:1 on the light surface and 1.81:1 on the dark one, so those edges failed the 3:1 a component boundary needs. The shipped assurance CSS already uses <code>--text-3</code> for them, with a comment saying why, so the picture now matches it. <code>--border-strong</code> stays on the outer theme frames, the card rules and the two documentation labels in section 8, which are not controls. <code>--text-3</code> is still never used for text: it is 3.35:1 and 3.85:1 on the surface.</p>
     <p><strong>What still fails, said plainly.</strong> The Not configured chip draws a <code>--text-3</code> dashed edge on a <code>--surface-3</code> fill, and that pair is 2.93:1 in the light theme. Against the surface the chip sits on, the edge is 3.35:1, so it passes if you measure a component against its surroundings and fails if you measure it against its own fill. I kept it because the shipped CSS draws it the same way and this note should not invent a different build; the state is also carried by the dashed edge, the dash glyph and the words "Not configured", so nothing depends on that edge alone. In the dark theme the same pair is 3.37:1. The terminal timestamp colour <code>--term-time</code> is 3.79:1 on <code>--term-bg</code>, and no element in this picture uses it.</p>
     <p>I checked the table twice. The table itself comes from a script run in a Node container against the token values (that run is what showed the 1.69:1 and 1.81:1 edges before the change). Then I rendered this file in Chromium (Playwright 1.60.0, 1280 px wide) and read the computed colour of every text node against its effective background, and of every chip, button, segmented control, bar, readout and input edge against the surface around it and against its own fill. Result: 436 text nodes in each theme frame, lowest 4.61:1 in light (a check glyph on its quiet fill) and 4.53:1 in dark (a cross glyph), none under 4.5:1; 229 text nodes outside the frames (the page headings, the status note and the reasoning text), lowest 5.93:1; every component edge is at least 3.35:1 in light and 3.85:1 in dark against the surface it sits on. The only edges under 3:1 are the ones named above, measured against their own fill. I did not run an automated accessibility scanner, and I did not check forced-colours mode.</p>
+    <p><strong>Section 3.1, measured on its own.</strong> I read the computed colour of all 380 text nodes in the section 3.1 frames (light, dark and narrow, Chromium via Playwright 1.62.1, 1280 px) against their composited backgrounds. None is under 4.5:1. Lowest text pairs: the muted labels and the not-run steps are 6.64 light and 6.89 dark, the primary button is 5.48 and 6.35, the refusal glyph on its quiet fill is 4.61 (check, light) and 4.53 (cross, dark). The refusal notice edge (<code>--danger</code>) is 5.95 light and 5.49 dark against the surface, the Interrupted double edge is 5.95 and 5.49, the Failed edge 5.95 and 5.49, the Completed edge 5.22 and 7.17, and the neutral button edge is 3.35 and 3.85. No frame overflows horizontally at 360 px. The card rule (<code>--border</code>) is decorative and is not counted as a component edge.</p>
   </div>
 </section>
 </div>
@@ -293,6 +314,42 @@ const S={
     <div class="muted" style="color:var(--text)">Provider s3-cold, retrieval tier Bulk. Thaw takes about 12 hours. Egress for 48 GB is charged by the provider. Nothing happens until you answer.</div></div>
    <label class="row"><input type="checkbox"> I accept this cost</label>
    <div class="row"><span class="grow"></span><button class="btn">Do not recover</button><button class="btn danger" disabled>Pay for the thaw and recover</button></div>
+  </div></div>`},
+ refusal(){
+  const steps=["A SHA-256 is recorded for this copy","The copy is a regular file of the recorded size","The medium is readable","Not archive-class and unrestored","The provider checksum does not contradict ours","One verifying read matches the SHA-256","The first chunk checks out"];
+  const card=(title,stop,why,fix,cli,exit)=>`
+  <div class="card"><h3>${title}</h3><div class="body">
+   <div class="mono">nightly-photos / 2026-10-08</div>
+   <div class="notice refused" role="alert"><b>${G.fail} Not started. Nothing was sent.</b>
+    <div class="muted" style="color:var(--text)">${why}</div></div>
+   <ol class="pf">${steps.map((t,i)=>i<stop?`<li class="ok"><span class="g" aria-hidden="true">${G.pass}</span>${t}</li>`:i===stop?`<li class="no"><span class="g" aria-hidden="true">${G.fail}</span><b>${t}</b></li>`:`<li class="skip"><span class="g" aria-hidden="true">${G.hollow}</span>${t} (not run)</li>`).join("")}</ol>
+   <div class="muted">${fix}</div>
+   <div class="row"><span class="grow"></span><button class="btn">Close</button></div>
+   <div class="muted">The same refusal from the CLI:</div>
+   <div class="term"><div><span class="t">$</span> retnd recover &hellip;</div>${cli}<div><span class="t">exit status</span> ${exit}</div></div>
+  </div></div>`;
+  return card("Recover artifact: refused before it started",3,"Recovering this copy would start a paid thaw, and a download does not do that on its own. The grant was not spent.","Open the cost decision in Recover artifact (section 3) to thaw it first, or pick another copy.",`<div><span class="e">refused</span> s3-cold/photos is archive-class and not restored</div><div><span class="e">refused</span> no byte was requested from the provider</div>`,"non-zero, the archive-class code")+
+  card("Recover artifact: refused after a verifying read",5,"One read of the whole copy gave a SHA-256 that is not the recorded one. The copy is damaged or was changed, so none of it is sent.","This copy failed verification. Run Scrub now on the set, or recover from another copy.",`<div><span class="e">refused</span> nas-b/photos read 48 GB, SHA-256 differs from the recorded digest</div><div><span class="e">refused</span> nothing was written to stdout</div>`,"non-zero, the verification code")},
+ outcome(){return `
+  <div class="card"><h3>Download: recorded outcome</h3><div class="body">
+   <div class="row"><b class="mono">nightly-photos-2026-10-08</b><span class="grow"></span><span class="muted">recorded by the server</span></div>
+   <div class="row">${chip("s-pass",G.pass,"Completed","48 of 48 GB")}</div>
+   <dl class="kv"><dt>Sent</dt><dd>48 of 48 GB</dd><dt>Digest</dt><dd>matches the recorded SHA-256</dd><dt>Finished</dt><dd>2026-10-11 09:14</dd></dl>
+   <div class="muted">The file in your downloads folder is complete.</div>
+  </div></div>
+  <div class="card"><h3>Download: recorded outcome</h3><div class="body">
+   <div class="row"><b class="mono">nightly-photos-2026-10-08</b><span class="grow"></span><span class="muted">recorded by the server</span></div>
+   <div class="row">${chip("s-incomplete",G.warn,"Interrupted at 31.2 of 48 GB")}</div>
+   <dl class="kv"><dt>Sent</dt><dd>31.2 of 48 GB</dd><dt>Stopped</dt><dd>2026-10-11 09:07, the connection dropped</dd></dl>
+   <div class="muted">The stream was aborted, so your browser shows an incomplete download. The partial file is not the artifact.</div>
+   <div class="row"><span class="grow"></span><button class="btn primary">Start a new download</button></div>
+  </div></div>
+  <div class="card"><h3>Download: recorded outcome</h3><div class="body">
+   <div class="row"><b class="mono">nightly-photos-2026-10-08</b><span class="grow"></span><span class="muted">recorded by the server</span></div>
+   <div class="row">${chip("s-fail",G.fail,"Failed verification at 9.6 of 48 GB")}</div>
+   <dl class="kv"><dt>Sent</dt><dd>9.6 of 48 GB</dd><dt>Stopped</dt><dd>2026-10-11 09:03, a chunk did not match the recorded digest</dd></dl>
+   <div class="muted">The stream was aborted, so your browser shows an incomplete download. Do not use the partial file. A new download starts from zero.</div>
+   <div class="row"><span class="grow"></span><button class="btn primary">Start a new download</button></div>
   </div></div>`},
  settings(){return `
   <div class="card"><h3>Assurance (all backup sets)</h3><div class="body">

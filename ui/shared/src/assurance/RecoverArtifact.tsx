@@ -41,6 +41,7 @@ import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { CommandEcho } from "@shared/pages/CommandEcho";
 import { bytes } from "@shared/utilities/format";
 import { ClaimChips } from "./ClaimChips";
+import { DownloadOutcome } from "./DownloadOutcome";
 import { recoverCommand, thawCommand } from "./assuranceCommands";
 import { planOf, THAW_POLL_MS } from "./copyPlan";
 import { recoveryRefusal } from "./recoveryMessages";
@@ -72,6 +73,7 @@ export function ArtifactAssuranceCard({ artifactId, readOnly }: { artifactId: st
           </InfoTooltip>
         ) : null}
       </div>
+      {api ? <DownloadOutcome artifactId={artifactId} /> : null}
       {open ? <RecoverArtifactDialog artifactId={artifactId} returnFocus={opener} onClose={() => setOpen(false)} /> : null}
     </section>
   );

@@ -622,6 +622,12 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// Run a recovery test now. CSRF and not the destructive gate: it
 		// reads one copy and writes a claim, and removes nothing.
 		r.With(requireCSRF).Post("/backup-sets/{source}/{set}/recovery-test", h.startRecoveryTest)
+		// What the newest recovery test printed, and "scrub this set now".
+		// Both sit beside the recovery test for its reason: a scrub reads and
+		// writes a verdict on each copy, the output is a read, and none of
+		// them deletes anything.
+		r.Get("/backup-sets/{source}/{set}/recovery-test/output", h.getRecoveryTestOutput)
+		r.With(requireCSRF).Post("/backup-sets/{source}/{set}/scrub", h.startScrub)
 		r.Get("/backup-sets/*", h.getBackupSet)
 
 		// Issue #211: the backups this deployment actually holds, and the
@@ -909,6 +915,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		r.Get("/settings/assurance", h.getAssuranceSettings)
 		r.With(requireCSRF).Patch("/settings/assurance", h.updateAssuranceSettings)
 		r.Get("/assurance/due", h.listAssuranceDue)
+		// Stop a running scrub or recovery test. Deliberately not under
+		// /operations: that is the destructive gate's, and stopping a read
+		// deletes nothing, so it has to answer on a deployment whose gate is
+		// shut.
+		r.With(requireCSRF).Post("/assurance/operations/{op}/cancel", h.cancelAssuranceOperation)
 
 		// EPIC L's workflow runs and recovery (#813).
 		//

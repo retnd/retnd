@@ -42,6 +42,13 @@ import (
 // above the four codes the usage text already publishes, and they are
 // stable: a code is never reused and never renumbered.
 //
+// 34, 35 and 37 are deliberately absent. They were reserved for a per-pass
+// bound, a validator-output bound and scheduled egress. FR-74 as amended says
+// the first two defer or truncate and never refuse, and that scheduled egress
+// is refused at the moment of spend by the placement ladder, so no operator
+// command can hit any of them and a code nothing emits is a promise nobody
+// keeps. They stay unallocated and are not to be reused (budget.Unused).
+//
 // The grant refusals (22 to 26) are reachable here only in the sense that
 // the code table is shared; the terminal redeems its own grant at once.
 // They are still distinct, because the same table is what the HTTP route's
@@ -84,6 +91,7 @@ func cmdRecover(args []string) int {
 	to := fs.String("to", "", "where the bytes go: - for standard output, a name under the recovery staging root, or medium:ID[/KEY] (required)")
 	ack := fs.Bool("acknowledge-cost", false, "accept a chargeable retrieval (a billed download, or a provider restore first)")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
+	follow := fs.Bool("follow", false, "print the recovery's stages on standard error as it passes through them; the exit status is the recovery's")
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
 		return exitUsage
@@ -122,7 +130,17 @@ func cmdRecover(args []string) int {
 	if target.Kind == "download" {
 		out = os.Stdout
 	}
-	res, thaw, err := svc.RecoverNow(ctx, sess, req, out)
+	var (
+		res  service.RecoveryResult
+		thaw *service.RecoveryThaw
+	)
+	if *follow {
+		followWhile(ctx, svc, opByFirstStart(operands[0]), os.Stderr, os.Stderr, func() {
+			res, thaw, err = svc.RecoverNow(ctx, sess, req, out)
+		})
+	} else {
+		res, thaw, err = svc.RecoverNow(ctx, sess, req, out)
+	}
 	if err != nil {
 		return reportRecoverError(err, *asJSON)
 	}

@@ -429,20 +429,28 @@ func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg Config, req 
 		Set: set, Artifact: rec.Artifact, Medium: copy_.Medium, File: staged.Path, Digest: sum, Size: n,
 	})
 	cleanup()
+	// A cancelled test has no result, however the runner reported the script
+	// it killed. It reports that as an outcome (disposition canceled) and not
+	// as an error, so this has to look at the context itself: classified like
+	// any other outcome, a cancel would be recorded as a failure of a copy
+	// nobody finished testing.
+	if ctx.Err() != nil {
+		return res, fmt.Errorf("recoverytest: cancelled: %w", ctx.Err())
+	}
 	if vErr != nil {
-		if ctx.Err() != nil {
-			return res, fmt.Errorf("recoverytest: cancelled: %w", ctx.Err())
-		}
 		res.State = state.RecoveryCouldNotComplete
 		res.Reason = "the validator could not be run: " + safeError(vErr)
 		return finish(res, state.RecoveryTest{CleanupState: res.CleanupState, BytesRead: &n})
 	}
 
-	res.Output = SanitizeOutput(string(out.Output), out.Truncated)
-	res.OutputTruncated = out.Truncated
+	// Bounded to what the journal will store, so the result a surface shows
+	// and the record the journal keeps are the same records.
+	var cut bool
+	res.Output, cut = BoundOutput(SanitizeOutput(string(out.Output), out.Truncated))
+	res.OutputTruncated = out.Truncated || cut
 
 	rt := state.RecoveryTest{
-		DigestMatched: &matched, OutputTruncated: out.Truncated, CleanupState: res.CleanupState, BytesRead: &n,
+		DigestMatched: &matched, OutputTruncated: res.OutputTruncated, CleanupState: res.CleanupState, BytesRead: &n,
 	}
 	termination, ran := terminationOf(out)
 	switch {

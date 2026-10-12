@@ -189,6 +189,11 @@ type Options struct {
 	// it is never attempted against an archive-class copy at all.
 	Content     bool
 	AllowEgress bool
+
+	// ListDestinations lists each destination even when nothing was selected.
+	// Without it a pass lists only when it checked something (or was forced),
+	// so an idle scheduled poll costs no listing request.
+	ListDestinations bool
 }
 
 // CopyResult is what a scrub concluded about one copy.
@@ -259,6 +264,14 @@ type ArtifactError struct {
 	// and said "this artifact is corrupt" is a Finding with Passed false;
 	// only a check that could not run at all lands here.
 	Err error
+
+	// Copies is what the pass learned about each copy of the artifact before
+	// it hit the problem in Err, and recorded on the copy. It is empty when
+	// the problem came before any copy was asked. Without it an artifact with
+	// one copy provably gone and another that did not answer reports as one
+	// error, and a failed copy the journal holds a verdict for is never
+	// reported to anyone.
+	Copies []CopyResult
 }
 
 // Error renders as "artifact: reason".
@@ -269,6 +282,27 @@ func (e ArtifactError) Error() string { return fmt.Sprintf("%s: %v", e.Artifact,
 // artifact went wrong, and a caller reading a Report needs the same ability
 // for the same reason.
 func (e ArtifactError) Unwrap() error { return e.Err }
+
+// copiesError is an error that also carries what the pass learned about each
+// copy before it stopped. checkArtifact records those verdicts on the copies
+// whatever happens next, so the report has to be able to say them too.
+type copiesError struct {
+	err    error
+	copies []CopyResult
+}
+
+func (e *copiesError) Error() string { return e.err.Error() }
+func (e *copiesError) Unwrap() error { return e.err }
+
+// artifactErrorFrom is the report entry for an artifact whose pass stopped on
+// err, with the per-copy outcomes if err carried any.
+func artifactErrorFrom(a model.ArtifactID, err error) ArtifactError {
+	var ce *copiesError
+	if errors.As(err, &ce) {
+		return ArtifactError{Artifact: a, Err: ce.err, Copies: ce.copies}
+	}
+	return ArtifactError{Artifact: a, Err: err}
+}
 
 // SkipReason says why a due copy was not scrubbed. A skip is always visible:
 // a copy that was due and silently not looked at is the same failure as one
@@ -313,6 +347,16 @@ type Report struct {
 
 	// BytesRead is the total read off storage by checks that read bytes.
 	BytesRead int64
+
+	// Unknown is every object a destination holds under this set's
+	// namespace at a key the journal has no placement for (QC-04). Each is a
+	// reconciliation finding for an operator to look at: it is never a
+	// verified copy of anything and is never acted on.
+	Unknown []UnknownObject
+
+	// Unlisted is every destination the pass could not enumerate, and why,
+	// so that "nothing unknown" is never mistaken for "nothing looked at".
+	Unlisted []UnlistedMedium
 }
 
 // Run performs one scheduled-revalidation pass over set: it loads set's
@@ -410,7 +454,7 @@ func RunWith(ctx context.Context, deps Deps, set model.BackupSetID, cfg config.R
 						stopErr = fmt.Errorf("revalidate: cancelled: %w", err)
 					}
 				case err != nil:
-					report.Errors = append(report.Errors, ArtifactError{Artifact: rec.Artifact, Err: err})
+					report.Errors = append(report.Errors, artifactErrorFrom(rec.Artifact, err))
 				case finding != nil:
 					report.Findings = append(report.Findings, *finding)
 				}
@@ -450,6 +494,9 @@ feed:
 		}
 		return a.Medium < b.Medium
 	})
+	if stopErr == nil {
+		report.Unknown, report.Unlisted = listDestinations(ctx, deps, set, records, opts, report.Selected)
+	}
 	return report, stopErr
 }
 
@@ -614,7 +661,7 @@ func checkArtifact(ctx context.Context, deps Deps, cfg config.Revalidation, opts
 		if rerr := recordCopies(ctx, deps, cfg, rec, res.copies, started); rerr != nil {
 			err = fmt.Errorf("%w (and recording the copies failed: %v)", err, rerr)
 		}
-		return Finding{}, 0, err
+		return Finding{}, 0, &copiesError{err: err, copies: copyResults(res.copies)}
 	}
 
 	// Before a failure is allowed to stand, look again at what the journal

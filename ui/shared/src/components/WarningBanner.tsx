@@ -59,8 +59,12 @@ const ICON: Record<BannerTone, IconName> = {
   info: "info", ok: "success", warn: "warning", danger: "failure"
 };
 
+// info is --text-2, not --text-3 (retnd#1049): the eyebrow and the icon are
+// drawn in this colour on --surface-3, and --text-3 measures 2.93:1 there in
+// the light theme and 3.37:1 in the dark one, under both the 4.5:1 an eyebrow
+// needs and the 3:1 an icon does. --text-2 is 5.82:1 and 6.04:1.
 const COLOR: Record<BannerTone, string> = {
-  info: "var(--text-3)", ok: "var(--ok)", warn: "var(--warn)", danger: "var(--danger)"
+  info: "var(--text-2)", ok: "var(--ok)", warn: "var(--warn)", danger: "var(--danger)"
 };
 
 /** The body as a key fragment, when it is prose. Anything else reads as

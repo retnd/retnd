@@ -267,7 +267,14 @@ TESTS_REPO_URL=https://github.com/retnd/retnd-tests.git
 # #624, so #60's three cases are red over there until it moves to whatever
 # commit this branch merges as. That is the same manual half every paragraph
 # above keeps flagging.
-TESTS_REPO_SHA=9584fa30c1aa2de6494076a9b6a510cc950a5362
+#
+# Moved to 9584fa3 (#1074). The line below used to name c75e4dd, which was
+# retnd-tests#87's branch head and was never on their main; 9584fa3 is the
+# squash commit that merged it, with the identical tree (checked with
+# `git cat-file -p` on both: tree 24832df8), so no suite sees a difference.
+# bump_tests_pin.py and the gate now both refuse a sha that is not an
+# ancestor of their main, so this cannot happen again.
+TESTS_REPO_SHA=e91b356c9b287a0bbc75cb197e9a031ec5299003
 #
 # Moved to bccd71c, retnd-tests#65, off their merged main and not
 # off the branch, for the reason the paragraph about a794c38 above already
@@ -604,6 +611,12 @@ TESTS_REPO_SHA=9584fa30c1aa2de6494076a9b6a510cc950a5362
 # observes any of them. The manual half is deliberate again rather than
 # owed.
 #
+# Moved to 3aa1b92, the merge of retnd-tests#88 on their main, for retnd#1049.
+# It carries #88's first-run specs: the three Suite A first-run cases now expect
+# exit 0, and the two *.1049.spec.ts Suite B specs are in. It carries none of
+# EPIC Q's suites, those wait for retnd-tests#89. This replaces 9584fa3, and
+# #88's merge descends from it.
+#
 # Moved to 9584fa3, which is the squash of retnd-tests#87 on their main, and it
 # moves nothing but the name. c75e4dd was that pull request's own head, and the
 # squash left it in no history that main has (git merge-base --is-ancestor says
@@ -612,3 +625,8 @@ TESTS_REPO_SHA=9584fa30c1aa2de6494076a9b6a510cc950a5362
 # differs between the old pin and the new one. This does not carry EPIC Q's
 # suites: those are retnd-tests#88 and #89, both still open, and the pin moves
 # past them in the branch that carries the product change once they have merged.
+#
+# Moved to e91b356, the merge of retnd-tests#89 on their main, for retnd#986. It
+# carries EPIC Q's Suites A, B and C (recovery, scrubbing and assurance), plus the
+# fixes for the two Suite A cases that had drifted from the product. This replaces
+# 3aa1b92, retnd-tests#88's merge, which #89 descends from.

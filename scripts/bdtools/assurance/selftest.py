@@ -201,8 +201,8 @@ MUTATIONS = [
     (
         "a scrub pass that writes a pass row for every set",
         APP_SCRUB_GO,
-        "\t\ts.tally(ctx, &sum, report)\n\t\tif runErr != nil && ctx.Err() != nil {",
-        "\t\ts.tally(ctx, &sum, report)\n\t\t" + PLANT + "a pass row per set, not one per pass.\n\t\t_ = s.finishScrub(ctx, journal, sum, started)\n\t\tif runErr != nil && ctx.Err() != nil {",
+        "\t\ts.tally(ctx, &sum, bs.ID, report)\n\t\tif runErr != nil && ctx.Err() != nil {",
+        "\t\ts.tally(ctx, &sum, bs.ID, report)\n\t\t" + PLANT + "a pass row per set, not one per pass.\n\t\t_ = s.finishScrub(ctx, journal, sum, started)\n\t\tif runErr != nil && ctx.Err() != nil {",
         "--- FAIL: TestScrub_AThousandDueCopiesAcrossFiftySetsIsOnePassRowAndNoFeedRows",
         APP_PKG,
         "TestScrub_AThousandDueCopiesAcrossFiftySetsIsOnePassRowAndNoFeedRows",

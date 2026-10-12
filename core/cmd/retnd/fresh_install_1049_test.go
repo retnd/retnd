@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/retnd/retnd/core/service"
 )
 
 // The CLI side of the first-run invariant (retnd#1049): on a deployment
@@ -120,5 +122,30 @@ func TestRun_StatusOnADefaultConfigurationSaysItIsAFirstRun(t *testing.T) {
 	}
 	if !saysFirstRun.MatchString(stdout) || !namesTheNextStep.MatchString(stdout) {
 		t.Errorf("status did not say it is a first run with a next step:\n%s", stdout)
+	}
+}
+
+// The command line and the web interface say the same thing about an
+// unwritable configuration directory: one sentence, from the service
+// package, so an operator who reads either is told the same fix.
+func TestRun_CheckSaysTheSameUnwritableSentenceAsTheWebInterface(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root writes anywhere, so the directory cannot be made unwritable")
+	}
+	configDir := filepath.Join(t.TempDir(), "config")
+	if err := os.Mkdir(configDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(configDir, 0o700) })
+
+	var code int
+	stderr := captureStderr(t, func() {
+		captureStdout(t, func() { code = run([]string{"check", "--config", configDir}) })
+	})
+	if code != exitFailure {
+		t.Fatalf("check = %d, want %d", code, exitFailure)
+	}
+	if want := service.ConfigDirUnwritableMessage(configDir); !strings.Contains(stderr, want) {
+		t.Errorf("check did not print the shared sentence\nwant: %s\ngot:\n%s", want, stderr)
 	}
 }

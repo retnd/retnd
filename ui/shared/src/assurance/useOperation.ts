@@ -16,6 +16,7 @@
  * The cursor only moves forward.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { describeFailure } from "@shared/api/failure";
 import type { AssuranceApi, Operation, OperationEvent } from "./types";
 
 export const POLL_MS = 1000;
@@ -71,6 +72,9 @@ export function useOperation(api: AssuranceApi | undefined, operationId: string 
         // trying. A dropped connection is the ordinary cause.
         const message = e instanceof Error ? e.message : "could not read progress";
         setHeld((h) => ({ ...(h.id === operationId ? h : { id: operationId, operation: null, events: [] }), id: operationId, error: message }));
+        // An id that is not on the feed will not be there a second later
+        // either: say so once and stop asking.
+        if (e instanceof Error && e.name === "NotFollowable") return;
       }
       timer = setTimeout(tick, POLL_MS);
     };
@@ -78,9 +82,26 @@ export function useOperation(api: AssuranceApi | undefined, operationId: string 
     return () => { stopped = true; if (timer) clearTimeout(timer); };
   }, [api, operationId]);
 
+  // A cancel the service refused (it already ended, or the session lost its
+  // right) is shown, in the service's words. Held with the id it belongs to,
+  // like the reading, so it never outlives the operation it was about.
+  const [refusal, setRefusal] = useState<{ id: string | null; message: string } | null>(null);
+  const cancelError = refusal && refusal.id === operationId ? refusal.message : null;
+
   const cancel = useCallback(async () => {
-    if (api && operationId) await api.cancelOperation(operationId);
+    if (!api || !operationId) return;
+    setRefusal(null);
+    try {
+      await api.cancelOperation(operationId);
+      // The service accepted the request, which is a fact the next reading
+      // will confirm; say so now rather than a poll later.
+      setHeld((h) => (h.id === operationId && h.operation && h.operation.state === "running"
+        ? { ...h, operation: { ...h.operation, cancelling: true } }
+        : h));
+    } catch (e) {
+      setRefusal({ id: operationId, message: describeFailure(e, "could not cancel").message });
+    }
   }, [api, operationId]);
 
-  return { operation, events, error, cancel };
+  return { operation, events, error, cancel, cancelError };
 }

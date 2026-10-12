@@ -265,14 +265,18 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
           ) : null}
           <div
             className="card__footer"
+            data-testid="backups-footer"
             style={{ display: "flex", justifyContent: "space-between", gap: 16, fontSize: "var(--text-sm)", color: "var(--text-2)" }}
           >
             <InfoTooltip id="backups.showing">
               <span>{"Showing " + rows.length + " artifacts"}</span>
             </InfoTooltip>
-            <span style={{ color: "var(--text-3)" }}>
-              retnd does not perform application restore — these are
-              retained, verified copies.
+            {/* The recovery boundary (#987), in the secondary ink: --text-3 is
+                3.35:1 on the light surface and fails AA for text (#1070). The
+                old line called every copy "verified" beside chips that take
+                care not to. */}
+            <span data-testid="backups-boundary" style={{ color: "var(--text-2)" }}>
+              {"This product recovers and exports the retained artifact; restoring it into an application remains the operator's responsibility."}
             </span>
           </div>
         </div>

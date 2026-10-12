@@ -24,6 +24,7 @@ import (
 	"github.com/retnd/retnd/core/internal/lifecycle"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/procseam"
 	"github.com/retnd/retnd/core/internal/state"
 	"github.com/retnd/retnd/core/internal/transport"
 )
@@ -62,6 +63,46 @@ type recoveryStore struct {
 	// object is. Unset, the medium cannot attest, which is what the shipped
 	// S3 adapter reports for SHA-256.
 	attest func() (transport.ChecksumAttestation, error)
+
+	// rangeGate holds a ranged read (the preparation read of a download)
+	// until it is closed or the caller's context ends. probeGate does the
+	// same to the provider's checksum probe, and probeEntered is closed
+	// when one is waiting. stallAfter makes OpenObject hand out that many
+	// bytes and then wait for the caller's context, which is what a
+	// destination that goes quiet partway through a read looks like; the
+	// stalled channel is closed when the reader reaches the wait.
+	rangeGate    chan struct{}
+	probeGate    chan struct{}
+	probeEntered chan struct{}
+	stallAfter   int
+	stalled      chan struct{}
+}
+
+// stallingReader yields n bytes of r and then waits for ctx.
+type stallingReader struct {
+	ctx     context.Context
+	r       io.Reader
+	left    int
+	stalled chan struct{}
+	once    sync.Once
+}
+
+func (s *stallingReader) Read(p []byte) (int, error) {
+	if s.left <= 0 {
+		s.once.Do(func() {
+			if s.stalled != nil {
+				close(s.stalled)
+			}
+		})
+		<-s.ctx.Done()
+		return 0, s.ctx.Err()
+	}
+	if len(p) > s.left {
+		p = p[:s.left]
+	}
+	n, err := s.r.Read(p)
+	s.left -= n
+	return n, err
 }
 
 func newRecoveryStore() *recoveryStore {
@@ -115,6 +156,9 @@ func (s *recoveryStore) OpenObject(ctx context.Context, _ transport.Medium, key 
 	if s.flipAt >= 0 {
 		d[s.flipAt] ^= 1
 	}
+	if s.stallAfter > 0 {
+		return io.NopCloser(&stallingReader{ctx: ctx, r: bytes.NewReader(d), left: s.stallAfter, stalled: s.stalled}), nil
+	}
 	if s.failErr != nil {
 		return io.NopCloser(io.MultiReader(bytes.NewReader(d[:s.failAfter]), &failingReader{err: s.failErr})), nil
 	}
@@ -124,8 +168,15 @@ func (s *recoveryStore) OpenObject(ctx context.Context, _ transport.Medium, key 
 // OpenObjectRange is the ranged read a streamed download needs: from off to
 // the end of the object, with the bytes it hands out counted, so a test can
 // see how much of a copy a download really read.
-func (s *recoveryStore) OpenObjectRange(_ context.Context, _ transport.Medium, key string, off int64) (io.ReadCloser, error) {
+func (s *recoveryStore) OpenObjectRange(ctx context.Context, _ transport.Medium, key string, off int64) (io.ReadCloser, error) {
 	s.rangeOpens.Add(1)
+	if s.rangeGate != nil {
+		select {
+		case <-s.rangeGate:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	s.mu.Lock()
 	b, ok := s.objects[key]
 	s.mu.Unlock()
@@ -153,7 +204,21 @@ func (c *countedReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func (s *recoveryStore) ObjectChecksum(context.Context, transport.Medium, string, transport.HashAlgorithm) (transport.ChecksumAttestation, error) {
+func (s *recoveryStore) ObjectChecksum(ctx context.Context, _ transport.Medium, _ string, _ transport.HashAlgorithm) (transport.ChecksumAttestation, error) {
+	if s.probeGate != nil {
+		if s.probeEntered != nil {
+			select {
+			case <-s.probeEntered:
+			default:
+				close(s.probeEntered)
+			}
+		}
+		select {
+		case <-s.probeGate:
+		case <-ctx.Done():
+			return transport.ChecksumAttestation{}, ctx.Err()
+		}
+	}
 	if s.attest != nil {
 		return s.attest()
 	}
@@ -811,6 +876,47 @@ func TestTheRecoveryPathSpawnsNoSubprocess(t *testing.T) {
 			case "os/exec", "plugin":
 				t.Errorf("%s imports %s", name, imp.Path.Value)
 			}
+		}
+	}
+}
+
+// The import scan above shows the recovery files do not call os/exec. This
+// shows the product code recovery RUNS does not: every spawn site in the
+// module goes through internal/procseam, and while Forbid is in force a spawn
+// fails this test and cannot start. The paths are the ones an operator uses,
+// a local and a remote copy, to a download and to staging, plus
+// the corrupt copy that stops partway. A target on another storage destination is the one path not driven here.
+func TestRecoverySpawnsNoProcessFromAnyPathItRuns(t *testing.T) {
+	smallChunks(t)
+	ctx := context.Background()
+	local := newRecoveryFixture(t, fixtureOpts{localCopy: true})
+	remote := newRecoveryFixture(t, fixtureOpts{remoteClass: "warm"})
+	rotted := newRecoveryFixture(t, fixtureOpts{localCopy: true})
+	p := filepath.Join(rotted.localDir, "dump.zst")
+	b, _ := os.ReadFile(p)
+	b[3*streamTestChunk+5] ^= 1
+	if err := os.WriteFile(p, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	procseam.Forbid(t)
+
+	for _, c := range []struct {
+		name string
+		f    *recoveryFixture
+		req  RecoveryRequest
+		want bool // the recovery is expected to succeed
+	}{
+		{"a local copy to a download", local, RecoveryRequest{Target: RecoveryTarget{Kind: "download"}}, true},
+		{"a local copy to staging", local, RecoveryRequest{Target: stagingTo("a/dump.zst")}, true},
+		{"a remote copy to a download", remote, RecoveryRequest{Target: RecoveryTarget{Kind: "download"}, AcknowledgeCost: true}, true},
+		{"a remote copy to staging", remote, RecoveryRequest{Target: stagingTo("b/dump.zst"), AcknowledgeCost: true}, true},
+		{"a copy that rots partway", rotted, RecoveryRequest{Target: RecoveryTarget{Kind: "download"}}, false},
+	} {
+		c.req.ArtifactID = c.f.artifact
+		_, _, err := c.f.b.RecoverNow(ctx, c.f.session(), c.req, io.Discard)
+		if (err == nil) != c.want {
+			t.Errorf("%s: err = %v, want success=%v (a recovery that did not run proves nothing about spawning)", c.name, err, c.want)
 		}
 	}
 }

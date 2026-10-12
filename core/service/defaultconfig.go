@@ -193,6 +193,17 @@ func ConfigDirWritable(configPath string) error {
 	return os.Remove(name)
 }
 
+// ConfigDirUnwritableMessage is the one sentence an operator is given when
+// the engine has no configuration and cannot write its default one because
+// dir is not writable (retnd#1049). It is a function of the directory alone
+// so the command line (`retnd check`, `retnd status`) and the web
+// interface's first-run guide say exactly the same thing: which directory,
+// and what to do about it.
+func ConfigDirUnwritableMessage(dir string) string {
+	return fmt.Sprintf("The configuration directory %s is not writable, so retnd cannot write its default configuration there. "+
+		"Mount that directory writable for the user retnd runs as, then restart retnd.", dir)
+}
+
 // DefaultSettings returns the settings an engine runs with when nobody has
 // changed anything: the documented defaults, resolved the way a load
 // resolves them. It is what a deployment still waiting for its
