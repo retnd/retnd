@@ -1472,11 +1472,15 @@ func TestPollIntervalMustBePositive(t *testing.T) {
 	}
 }
 
-func TestAtLeastOneSourceRequired(t *testing.T) {
+// TestAConfigWithNoSourcesIsAccepted pins retnd#1049's relaxation. It
+// replaces TestAtLeastOneSourceRequired: a fresh install runs on a
+// default configuration that declares no sources, and refusing it would
+// be a first-run error for something nobody has configured yet.
+func TestAConfigWithNoSourcesIsAccepted(t *testing.T) {
 	cfg := validConfig()
 	cfg.Sources = nil
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("a config with no sources was accepted")
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("a config with no sources was refused: %v", err)
 	}
 }
 
@@ -1499,15 +1503,15 @@ func TestASourceWithNoBackupSetsIsAccepted(t *testing.T) {
 	}
 }
 
-// TestAnEmptySourceDoesNotWeakenTheWholeFileRule is the control beside it.
-// The relaxation above is one rule, not two: a configuration with no
-// sources at all is still refused, and removal can never produce one now
-// that the source stays behind.
-func TestAnEmptySourceDoesNotWeakenTheWholeFileRule(t *testing.T) {
+// TestAnEmptySourcesListIsAccepted is the control beside the relaxation
+// above. A configuration with no sources at all is what a fresh install
+// runs on until its first backup set exists (retnd#1049), so it is valid
+// and idle, whether the list is nil or empty.
+func TestAnEmptySourcesListIsAccepted(t *testing.T) {
 	cfg := validConfig()
 	cfg.Sources = []Source{}
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("a config with an empty (not nil) sources list was accepted")
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("a config with an empty sources list was refused: %v", err)
 	}
 }
 

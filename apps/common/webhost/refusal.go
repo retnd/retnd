@@ -69,7 +69,15 @@ func (h *handlers) logRefusal(r *http.Request, status int, code, correlationID s
 	if err != nil {
 		attrs = append(attrs, slog.String("error", err.Error()))
 	}
-	h.logger.Event(contextOf(r), slog.LevelError, "http_refusal",
+	// A feature that is simply off is an expected state, not a failure to
+	// page on (retnd#1049): the engine's own gate refusing a repository
+	// read on a deployment that never turned the incremental engine on
+	// would otherwise put an ERROR line in the log on every page view.
+	level := slog.LevelError
+	if code == "INCREMENTAL_ENGINE_DISABLED" {
+		level = slog.LevelInfo
+	}
+	h.logger.Event(contextOf(r), level, "http_refusal",
 		"the web host refused a request and could not name a reason for the client", attrs...)
 }
 

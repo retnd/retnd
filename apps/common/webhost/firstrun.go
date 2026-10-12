@@ -80,6 +80,20 @@ type FirstRunClient interface {
 
 var _ FirstRunClient = (*service.FirstRun)(nil)
 
+// ConfigDirReporter is the optional half of the first-run surface that
+// knows whether the directory the default configuration would be written
+// into can be written (retnd#1049). It is separate from FirstRunClient so
+// a client that has no such knowledge (a test double, a platform with its
+// own configuration) needs nothing, and the answer is simply absent.
+// *service.FirstRun satisfies it.
+type ConfigDirReporter interface {
+	// ConfigDirProblem returns the directory and an operator-facing
+	// sentence, or two empty strings when there is nothing to report.
+	ConfigDirProblem() (dir, message string)
+}
+
+var _ ConfigDirReporter = (*service.FirstRun)(nil)
+
 // SetupClient is the part of the wizard's surface that works identically
 // before and after a configuration exists: import a key, probe a host
 // key, test a candidate connection. Both a configured backend and the
@@ -154,20 +168,168 @@ const activationTimeout = 10 * time.Minute
 
 // firstRunStatusResponse is GET /api/v1/system/first-run's body: the one
 // question the shared UI asks before deciding whether to render the setup
-// flow or the application.
+// flow or the application, and (retnd#1049) the guide that leads a fresh
+// install through its first steps.
+//
+// Steps maps each guide step to done, pending or skipped, and NextStep is
+// the first step that is pending, or "none". Only a skip is stored; done is
+// derived from the thing the step sets up, so the answer cannot drift from
+// the truth.
 type firstRunStatusResponse struct {
-	Configured bool `json:"configured"`
+	Configured bool          `json:"configured"`
+	Steps      firstRunSteps `json:"steps"`
+	NextStep   string        `json:"next_step"`
+
+	// ConfigDir and ConfigDirProblem are set together, and only when this
+	// instance has no configuration and could not write its default one
+	// because the directory is not writable (retnd#1049). The sentence is
+	// the first-run surface's own (service.ConfigDirUnwritableMessage), the
+	// one `retnd check` prints, so the guide and the command line agree.
+	ConfigDir        string `json:"config_dir,omitempty"`
+	ConfigDirProblem string `json:"config_dir_problem,omitempty"`
 }
 
-// firstRunStatus is GET /api/v1/system/first-run: a single boolean saying
-// whether this instance has been configured yet.
+// firstRunSteps is the contract's FirstRunSteps: each step's state.
+type firstRunSteps struct {
+	Administrator string `json:"administrator"`
+	Email         string `json:"email"`
+	BackupSet     string `json:"backup_set"`
+}
+
+// The guide's steps, in the order they are offered.
+const (
+	stepAdministrator = "administrator"
+	stepEmail         = "email"
+	stepBackupSet     = "backup_set"
+
+	stepDone    = "done"
+	stepPending = "pending"
+	stepSkipped = "skipped"
+)
+
+var setupSteps = []string{stepAdministrator, stepEmail, stepBackupSet}
+
+// SetupProgress is what the first-run guide asks the host about the parts
+// of setup this package cannot see itself: whether an administrator
+// exists, whether a mail server is set up for account recovery, and which
+// steps an operator skipped. The generic host's local-auth service
+// satisfies it. A nil SetupProgress is a platform with its own identity
+// provider, where the caller is authenticated by construction and there
+// is no mail step to set up.
+type SetupProgress interface {
+	AdministratorCreated() bool
+	EmailConfigured() bool
+	SetupSkips() []string
+	SkipSetupStep(step string) error
+}
+
+// stepStates computes the guide for the current moment.
+func (h *handlers) stepStates(ctx context.Context) (map[string]string, string) {
+	steps := map[string]string{}
+	skipped := map[string]bool{}
+	if h.progress != nil {
+		for _, s := range h.progress.SetupSkips() {
+			skipped[s] = true
+		}
+	}
+
+	steps[stepAdministrator] = stepDone
+	steps[stepEmail] = stepSkipped
+	if h.progress != nil {
+		if !h.progress.AdministratorCreated() {
+			steps[stepAdministrator] = stepPending
+		}
+		switch {
+		case h.progress.EmailConfigured():
+			steps[stepEmail] = stepDone
+		case skipped[stepEmail]:
+			steps[stepEmail] = stepSkipped
+		default:
+			steps[stepEmail] = stepPending
+		}
+	}
+
+	steps[stepBackupSet] = stepPending
+	if h.backend != nil {
+		if sets, err := h.backend.ListBackupSets(ctx); err == nil && len(sets) > 0 {
+			steps[stepBackupSet] = stepDone
+		}
+	}
+	if steps[stepBackupSet] == stepPending && skipped[stepBackupSet] {
+		steps[stepBackupSet] = stepSkipped
+	}
+
+	// The mail step is optional and never blocks the guide: it stays
+	// listed (pending, skipped or done) and reachable, but the step the
+	// service names as next is the first required one that is still open,
+	// so a fresh install is led to its first backup set whether or not
+	// anybody has a mail server to hand.
+	next := "none"
+	for _, name := range setupSteps {
+		if name == stepEmail {
+			continue
+		}
+		if steps[name] == stepPending {
+			next = name
+			break
+		}
+	}
+	return steps, next
+}
+
+// firstRunStatus is GET /api/v1/system/first-run: whether this instance
+// has been configured yet, and which guided setup step comes next.
 //
 // It stays registered on the configured router too, rather than
 // disappearing once setup is done, so a client asking always gets an
 // answer. A route that vanished would answer 404, which a client cannot
 // tell apart from a wrong URL or an older server.
 func (h *handlers) firstRunStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, firstRunStatusResponse{Configured: h.configured()})
+	steps, next := h.stepStates(r.Context())
+	resp := firstRunStatusResponse{
+		Configured: h.configured(),
+		Steps: firstRunSteps{
+			Administrator: steps[stepAdministrator],
+			Email:         steps[stepEmail],
+			BackupSet:     steps[stepBackupSet],
+		},
+		NextStep: next,
+	}
+	if reporter, ok := h.firstRun.(ConfigDirReporter); ok {
+		resp.ConfigDir, resp.ConfigDirProblem = reporter.ConfigDirProblem()
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// skipFirstRunRequest is POST /api/v1/system/first-run/skip's body.
+type skipFirstRunRequest struct {
+	Step string `json:"step"`
+}
+
+// skipFirstRunStep is POST /api/v1/system/first-run/skip: an operator
+// choosing to leave a guide step for later. The skip is stored durably, and
+// the step stays reachable from the same guide at any time. Only the email
+// and backup-set steps can be skipped: the administrator is how the
+// operator got here at all.
+func (h *handlers) skipFirstRunStep(w http.ResponseWriter, r *http.Request) {
+	var body skipFirstRunRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil {
+		writeDecodeError(w, err, 4096)
+		return
+	}
+	if body.Step != stepEmail && body.Step != stepBackupSet {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "step must be \"email\" or \"backup_set\"")
+		return
+	}
+	if h.progress == nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "this deployment keeps no setup steps to skip")
+		return
+	}
+	if err := h.progress.SkipSetupStep(body.Step); err != nil {
+		h.internalError(w, r, "INTERNAL", "could not record the skipped step", err)
+		return
+	}
+	h.firstRunStatus(w, r)
 }
 
 // completeFirstRunResponse is POST /api/v1/system/first-run's body.
@@ -368,6 +530,27 @@ func writeNotConfigured(w http.ResponseWriter, r *http.Request) {
 		"this instance has not been configured yet; complete the setup flow at /api/v1/system/first-run first")
 }
 
+// getDefaultSettings is GET /api/v1/settings on an instance with no
+// configuration on disk (retnd#1049): the engine's own defaults, marked
+// first_run and not persisted, so a page can say "these are the defaults,
+// nobody has changed them" instead of refusing to show a setting.
+func (h *handlers) getDefaultSettings(w http.ResponseWriter, r *http.Request) {
+	resp := toSettingsResponse(service.DefaultSettings())
+	resp.FirstRun = true
+	resp.Persisted = false
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// getEmptyHealth is GET /api/v1/system/health on an instance with no
+// configuration: nothing is being backed up, which is an empty report and
+// not an unavailable one.
+func (h *handlers) getEmptyHealth(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, healthResponse{
+		GeneratedAt: formatTime(time.Now()),
+		BackupSets:  []backupSetHealthResponse{},
+	})
+}
+
 // newUnconfiguredRouter builds the entire HTTP surface of an instance
 // that has no configuration: the two health probes, and an authenticated
 // /api/v1 group holding nothing but what setup genuinely needs.
@@ -398,6 +581,15 @@ func newUnconfiguredRouter(h *handlers, platform capabilities.PlatformAdapter) h
 		r.Get("/system/version", h.systemVersion)
 		r.Get("/system/capabilities", h.systemCapabilities)
 		r.Get("/system/first-run", h.firstRunStatus)
+		r.With(requireCSRF).Post("/system/first-run/skip", h.skipFirstRunStep)
+
+		// retnd#1049: the two reads every page makes first. An instance
+		// that is still waiting for its configuration answers them with
+		// what is true, the engine's own defaults and an empty report,
+		// instead of refusing: "nothing configured yet" is a state, not
+		// an error. Only writes stay refused below.
+		r.Get("/settings", h.getDefaultSettings)
+		r.Get("/system/health", h.getEmptyHealth)
 
 		// The setup flow itself.
 		r.With(requireCSRF).Post("/system/first-run", h.completeFirstRun)

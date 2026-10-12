@@ -278,9 +278,11 @@ func TestLoadAndValidatePropagatesLoadError(t *testing.T) {
 }
 
 func TestLoadAndValidatePropagatesValidateError(t *testing.T) {
-	// This file parses cleanly (Load succeeds) but has no sources, so the
-	// error must come from Validate, not Load.
-	_, err := LoadAndValidate("testdata/invalid_no_sources.yaml")
+	// This file parses cleanly (Load succeeds) but its poll interval is
+	// under the floor, so the error must come from Validate, not Load. It
+	// used to be a file with no sources; an empty sources list is valid
+	// now (retnd#1049), so it is a different rule that proves the path.
+	_, err := LoadAndValidate("testdata/invalid_poll_interval.yaml")
 	if err == nil {
 		t.Fatal("expected a Validate error to propagate out of LoadAndValidate")
 	}

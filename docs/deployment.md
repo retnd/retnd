@@ -422,8 +422,9 @@ storage medium reports nothing new at all.
 `/health/live` instead. The reason is `web-ui`'s `depends_on: retnd: condition:
 service_healthy`: whatever the engine's healthcheck asks is what stands between an operator
 and the only LAN-facing listener, and `retnd status` exits non-zero on a `DEGRADED`
-or `STALE` set and on an instance with no configuration at all. Gating startup on it means a
-stale backup set, or a fresh install, keeps the UI from ever coming up, which is the worst
+or `STALE` set, and when the configuration is missing or names no backup set while the journal
+holds backups. A fresh install with an empty journal exits 0. Gating startup on it means a
+stale backup set, or a lost configuration, keeps the UI from ever coming up, which is the worst
 moment to lose the page you would fix it from. Backup freshness stays what it was built to
 be: the image's own `HEALTHCHECK` (so a plain `docker run` still reports it, and so does the
 headless `daemon` command, which serves no HTTP and has no liveness endpoint to ask), the

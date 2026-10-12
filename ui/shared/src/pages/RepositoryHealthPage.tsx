@@ -32,6 +32,7 @@
 import { useNavigate } from "react-router-dom";
 
 import { useApi } from "@shared/api/ApiContext";
+import { isNothingThereYet, nothingThereYetCopy } from "@shared/api/failure";
 import { CheckList } from "@shared/components/CheckList";
 import { Note, Row, Rows } from "@shared/components/Definitions";
 import { EmptyState, ErrorState } from "@shared/components/EmptyState";
@@ -55,7 +56,9 @@ export function RepositoryHealthPage() {
     <PageHeader
       title="Repository health"
       subtitle={
-        fleet.data === null
+        fleet.error
+          ? "Every repository domain, once there is one"
+          : fleet.data === null
           ? "Reading every repository domain"
           : "Checked " + relativeAge(fleet.data.generatedAt) + " \u00b7 " + domains.length + " domains"
       }
@@ -69,6 +72,16 @@ export function RepositoryHealthPage() {
       }
     />
   );
+
+  if (fleet.error && isNothingThereYet(fleet.error))
+    return (
+      <>
+        {header}
+        <EmptyState title="No repository domain yet">
+          {nothingThereYetCopy(fleet.error)}
+        </EmptyState>
+      </>
+    );
 
   if (fleet.error)
     return (

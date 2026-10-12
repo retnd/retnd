@@ -47,6 +47,7 @@ import { bytes, clock, rate, relativeAge } from "@shared/utilities/format";
 import { StatusBadge } from "@shared/components/StatusBadge";
 import type { StatusTone } from "@shared/components/StatusBadge";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
+import { copyText } from "@shared/utilities/copyText";
 import {
   recoveryEndText, recoveryStageText, recoveryStartText, recoveryTestEndText, recoveryTestStartText,
   scrubFailureText, scrubPassText
@@ -702,11 +703,11 @@ function ActivityToolbar({
 
   const copy = useCallback(() => {
     const text = logText(events);
-    // Optional chaining rather than a guard: a browser without the async
-    // clipboard (an http:// origin, most notably) should leave the button
-    // inert rather than throw into a panel an operator is reading.
-    void navigator.clipboard?.writeText(text);
-    setCopied(true);
+    // copyText works on a plain-http origin too (retnd#1049), and "copied"
+    // is shown only when the text really was.
+    void copyText(text).then((outcome) => {
+      if (outcome === "copied") setCopied(true);
+    });
   }, [events]);
 
   useEffect(() => {

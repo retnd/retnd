@@ -274,7 +274,7 @@ TESTS_REPO_URL=https://github.com/retnd/retnd-tests.git
 # `git cat-file -p` on both: tree 24832df8), so no suite sees a difference.
 # bump_tests_pin.py and the gate now both refuse a sha that is not an
 # ancestor of their main, so this cannot happen again.
-TESTS_REPO_SHA=9584fa30c1aa2de6494076a9b6a510cc950a5362
+TESTS_REPO_SHA=3aa1b92ef474926f63f5e3cfd2d61357d858a765
 #
 # Moved to bccd71c, retnd-tests#65, off their merged main and not
 # off the branch, for the reason the paragraph about a794c38 above already
@@ -610,3 +610,9 @@ TESTS_REPO_SHA=9584fa30c1aa2de6494076a9b6a510cc950a5362
 # the conformance matrix and the coordinate sweep, and no suite over there
 # observes any of them. The manual half is deliberate again rather than
 # owed.
+#
+# Moved to 3aa1b92, the merge of retnd-tests#88 on their main, for retnd#1049.
+# It carries #88's first-run specs: the three Suite A first-run cases now expect
+# exit 0, and the two *.1049.spec.ts Suite B specs are in. It carries none of
+# EPIC Q's suites, those wait for retnd-tests#89. This replaces 9584fa3, and
+# #88's merge descends from it.

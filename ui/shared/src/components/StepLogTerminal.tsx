@@ -85,6 +85,7 @@ import {
   transcriptText
 } from "@shared/components/stepterminal/transcript";
 import type { StepLogSource, WorkflowStepSummary } from "@shared/components/stepterminal/contract";
+import { copyText } from "@shared/utilities/copyText";
 
 export type { StepLogSource, WorkflowStepLogPage, WorkflowStepSummary, StepLogRecord } from "@shared/components/stepterminal/contract";
 
@@ -291,8 +292,9 @@ export function StepLogTerminal({ runId, stepId, step, api }: StepLogTerminalPro
   );
 
   const copy = useCallback(() => {
-    void navigator.clipboard?.writeText(transcript());
-    setCopied(true);
+    void copyText(transcript()).then((outcome) => {
+      if (outcome === "copied") setCopied(true);
+    });
   }, [transcript]);
 
   const download = useCallback(() => {

@@ -4,6 +4,39 @@
 
 ### Changed
 
+- **A fresh install configures itself and leads you through setup** (#1049). On its
+  first start, with no `config.yaml` in the configuration directory, the engine now
+  writes a small default one (the documented one hour polling interval, the journal
+  path it was started with, no sources), created exclusively with mode 0600 and never
+  over an existing file, and says so once at INFO. An empty `sources` list is valid, an
+  absent configuration is no longer an ERROR line, and `retnd status` and `retnd check`
+  on a fresh install print a first-run notice with the next step and exit 0 (`check`
+  still fails, naming the directory, when the configuration directory is not writable).
+  A missing configuration is only a fresh install while the journal agrees: if the
+  journal already holds backups, no default is written, `status` and `check` exit 1
+  naming the journal, the engine stops instead of serving the setup flow, an empty
+  cycle stays an ERROR, and the Settings read is not a first run.
+  The Settings page shows the engine's defaults, a first-run guide replaces the old
+  one-paragraph banner (administrator, email, first backup set, each skippable), and
+  enrolment no longer needs a mail server. "Copy details" now works on a plain-http
+  origin by falling back to the browser's older copy command and then to selecting the
+  text, and only says Copied when it did.
+
+  I also finished the failure side of that first install (#1049): the "could not reach
+  the retnd service" banner now checks `/health/live` every few seconds and clears
+  itself when the service answers, so nobody has to reload; the two states carry
+  different `data-testid`s (`first-run-not-configured` for a fresh install,
+  `service-unreachable` for a service that is really down); and when the engine cannot
+  write its default configuration because the directory is read-only, the first-run
+  guide shows an alert naming the directory and the fix, in the same sentence
+  `retnd check` prints. `scripts/e2e/three-machine-web-ui.sh --fresh` stands up a
+  deployment with no backup set so the first-run specs run instead of skipping.
+
+  **Rolling back a never-configured install:** an older release refuses a configuration
+  with no backup set, so delete the default `config.yaml` (or add a backup set first)
+  before starting the older binary. An install that already has a configuration is not
+  touched by any of this.
+
 - **The "no download" promise is reversed, and the boundary sentence replaces it** (#987,
   EPIC Q #953). This product recovers and exports the retained artifact; restoring it into
   an application remains the operator's responsibility. The old claim was made
@@ -18,6 +51,7 @@
   as its own numbered failure-and-fix section), `docs/storage-mediums.md`,
   `docs/runtime-contract.md`, `docs/incremental-runbooks.md` and
   `docs/compliance/privacy-policy.md`.
+
 - **One thing to know before you need it: the `assurance:` block is a one-way door.** The
   configuration loader rejects unknown keys, so a `config.yaml` that carries the new
   `assurance:` block (globally or on a backup set) is refused outright by a build that

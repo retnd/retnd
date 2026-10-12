@@ -303,7 +303,6 @@ func TestFreshInstall_RefusesBackupWorkUntilItIsConfigured(t *testing.T) {
 		{http.MethodPost, "/api/v1/operations", "{}"},
 		{http.MethodGet, "/api/v1/backup-sets/api/nightly/retention/preview", ""},
 		{http.MethodPost, "/api/v1/backup-sets/api/nightly/retention/apply", "{}"},
-		{http.MethodGet, "/api/v1/settings", ""},
 		{http.MethodPatch, "/api/v1/settings", "{}"},
 		{http.MethodGet, "/api/v1/system/storage", ""},
 	}

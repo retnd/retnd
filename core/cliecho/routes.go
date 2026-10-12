@@ -117,6 +117,9 @@ var routes = map[string]entry{
 	key("GET", "/system/first-run"): {
 		why: "there is no verb that asks whether this instance has been configured; on a terminal the answer is whether config.yaml exists",
 	},
+	key("POST", "/system/first-run/skip"): {
+		why: "skipping a step of the first-run guide is a choice about what the web interface shows next; a terminal has no guide to leave a step of",
+	},
 	key("POST", "/system/first-run"): {
 		// The first config.yaml, which usage() puts on `backup-set
 		// create`: "On an instance with no config.yaml yet this writes

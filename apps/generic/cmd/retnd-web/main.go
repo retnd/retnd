@@ -57,6 +57,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -614,6 +615,14 @@ func cmdServe(args []string) int {
 		BinaryVersion:         version,
 		Commit:                commit,
 	}
+	// The first-run guide's view of the administrator, the mail server and
+	// skipped steps (retnd#1049). Left unset on a gateway profile, where
+	// the platform owns identity and there is no mail step to set up. The
+	// nil check matters: a typed-nil *local.Service in the interface would
+	// not compare equal to nil downstream.
+	if authSvc != nil {
+		engineConfig.Setup = authSvc
+	}
 
 	var handler http.Handler
 	var scheduler serve.Scheduler
@@ -655,6 +664,32 @@ func cmdServe(args []string) int {
 	// has the whole argument, including which failures still stop a start.
 	if blocked := serving.Blocked(); blocked != nil {
 		fmt.Fprintf(os.Stderr, cliecho.WebBinary+": this deployment's state directory cannot be used yet, so nothing has been announced and the setup flow will refuse to complete until it can be: %v\n", blocked)
+	}
+
+	// A fresh install writes its own default configuration here (retnd#1049),
+	// after the announcement above has taken the serving lock and before
+	// the open, so the process below is a configured engine from its
+	// first second and "not configured yet" is not a state anything has
+	// to refuse. EnsureDefaultConfig never overwrites: an existing file
+	// makes it a no-op, and a lost race is "then open what is there".
+	// A directory that cannot be written is one WARN naming it, and the
+	// start carries on into the first-run setup flow exactly as before.
+	switch wrote, written, ensureErr := service.EnsureDefaultConfig(service.FirstRunDefaults{
+		ConfigPath:    *configPath,
+		StateDatabase: *stateDatabase,
+	}); {
+	case errors.Is(ensureErr, service.ErrConfigLostOverJournal):
+		// A missing configuration next to a journal that holds backups is a
+		// lost or unmounted configuration volume. Serving the setup flow
+		// here would let the wizard write a first configuration over the old
+		// state, and a default file would read as a healthy empty
+		// deployment, so the process stops and says why.
+		return fail(fmt.Errorf("no configuration at %s, and this is not a fresh install: %w", written, ensureErr))
+	case ensureErr != nil && !errors.Is(ensureErr, service.ErrDefaultConfigSkipped):
+		fmt.Fprintf(os.Stderr, cliecho.WebBinary+": warning: could not write a default configuration to %s, so the first-run setup flow is served instead; check that the configuration directory %s is mounted writable: %v\n",
+			written, filepath.Dir(written), ensureErr)
+	case wrote:
+		fmt.Fprintf(os.Stderr, cliecho.WebBinary+": first run: wrote a default configuration to %s\n", written)
 	}
 
 	backend, cleanup, err := service.Open(ctx, *configPath)
@@ -1363,6 +1398,18 @@ func (g firstRunGate) CreateInitialConfig(ctx context.Context, req service.Creat
 		return service.BackupSet{}, err
 	}
 	return g.FirstRunClient.CreateInitialConfig(ctx, req)
+}
+
+// ConfigDirProblem forwards the optional half of the first-run surface
+// (webhost.ConfigDirReporter, retnd#1049). Embedding the interface does not
+// promote it, because an embedded interface only carries its own methods, so
+// without this the guide would never be told the configuration directory is
+// read-only.
+func (g firstRunGate) ConfigDirProblem() (dir, message string) {
+	if r, ok := g.FirstRunClient.(webhost.ConfigDirReporter); ok {
+		return r.ConfigDirProblem()
+	}
+	return "", ""
 }
 
 // envOrDefault returns the environment variable key's value if set and

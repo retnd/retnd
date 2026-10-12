@@ -283,6 +283,32 @@
 #                        Not handed over under --keep-up, for the reason
 #                        the engine channel is not.
 #
+#   --fresh          hand the suite a deployment nobody has configured: the
+#                    administrator is enrolled and nothing else is. No backup
+#                    set is created, no backup cycle is run, and the engine
+#                    starts against an empty configuration directory, so
+#                    what a browser meets is a first install (retnd#1049).
+#                    Implies --no-workflows (every workflow scenario is a
+#                    backup set), and RETND_BACKUP_SET is left unset. A
+#                    suite whose cases need a fresh install (the ones that
+#                    `needs(isFresh(...))`) RUNS here; against the default
+#                    seeded rig the same cases skip, and a skip is the same
+#                    colour as a pass, which is why
+#                    scripts/bdtools/e2e/run_tests_repo_gate.py runs them
+#                    against this mode and fails if any of them skipped.
+#                    Combines with --break-engine, which the Copy details
+#                    and unreachable-banner cases also need.
+#
+#   -- ARGS...       everything after a bare -- is appended to the
+#                    `npx playwright test` the client container runs, so
+#                    `--suite DIR -- first-run --reporter=list,json` runs
+#                    only the specs whose path matches "first-run". With no
+#                    --suite there is no Playwright command and the
+#                    arguments are refused. The JSON reporter writes to
+#                    $PLAYWRIGHT_JSON_OUTPUT_NAME, which the client
+#                    container has set to /artifacts/playwright-report.json,
+#                    that is playwright-report.json in --artifacts.
+#
 #   --no-workflows   leave all of it out. For a machine whose daemon
 #                    cannot host the runner, and it is honest rather than
 #                    quiet: none of the variables above is set, so every
@@ -390,6 +416,12 @@ break_engine="${RETND_BREAK_ENGINE:-0}"
 # a suite handed a deployment with no hooks configured skips every
 # workflow case and reports a pass.
 workflows="${RETND_WORKFLOWS:-1}"
+# retnd#1049. A deployment nobody has configured: the administrator and
+# nothing else. Off by default; every line it changes is behind this flag,
+# so a default run is the run it was before.
+fresh="${RETND_FRESH:-0}"
+# Whatever follows a bare -- on the command line, for the Playwright run.
+playwright_args=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -404,11 +436,22 @@ while [ $# -gt 0 ]; do
     --front-proxy-tls) front_proxy=1; shift ;;
     --break-engine) break_engine=1; shift ;;
     --no-workflows) workflows=0; shift ;;
+    --fresh) fresh=1; shift ;;
+    --) shift; playwright_args=("$@"); break ;;
     -h|--help) render_help; exit 0 ;;
     *) die "unknown option $1" \
-           "Usage: $0 [--suite DIR] [--artifacts DIR] [--image REF] [--front-proxy-tls] [--break-engine] [--no-workflows] [--keep-up] [--keep-on-failure]" ;;
+           "Usage: $0 [--suite DIR] [--artifacts DIR] [--image REF] [--front-proxy-tls] [--break-engine] [--no-workflows] [--fresh] [--keep-up] [--keep-on-failure] [-- PLAYWRIGHT_ARGS...]" ;;
   esac
 done
+
+# --fresh has no backup sets, and every workflow scenario is one.
+if [ "$fresh" = 1 ] && [ "$workflows" = 1 ]; then
+  workflows=0
+  note "--fresh: no backup set exists on a fresh deployment, so --no-workflows is implied"
+fi
+if [ "${#playwright_args[@]}" -gt 0 ] && [ -z "$suite_dir" ]; then
+  die "arguments after -- go to Playwright, and there is no --suite to run it on."
+fi
 
 if [ -n "$suite_dir" ]; then
   [ -d "$suite_dir" ] || die "--suite $suite_dir is not a directory."
@@ -1688,6 +1731,7 @@ fi
 
 # ------------------------------------------- configure the deployment
 
+if [ "$fresh" != 1 ]; then
 step "creating the backup set, before anything is serving"
 # --trust-host-key probes the VPS now and trusts what answers, which is why
 # the VPS is up first. The alternative, --known-hosts-line, would need a
@@ -1707,6 +1751,7 @@ oneshot "$net_backhaul" \
   || die "creating the backup set failed." \
          "This ran with nothing serving, on the deployment's own volumes, so a refusal here is about the arguments or the VPS, not about #571."
 note "backup set $backup_set points at the VPS over SSH, read-only"
+fi
 
 step "enrolling the administrator"
 # Down a pipe into stdin, never on a command line and never in a file:
@@ -1718,6 +1763,7 @@ printf '%s' "$admin_pass" | oneshot none \
   || die "could not enrol the administrator."
 note "administrator $admin_user enrolled, password generated this run"
 
+if [ "$fresh" != 1 ]; then
 step "running one backup cycle, so the pages have something real to render"
 # BEFORE the engine starts, and this order is load-bearing rather than
 # stylistic. `retnd run` beside a serving engine is two processes writing the
@@ -1772,6 +1818,7 @@ for pair in "payload.bin:$want_payload" "schema.sql:$want_schema" "notes.txt:$wa
            "A file that exists is not a backup, and a page rendering a row about it would be rendering a lie."
 done
 note "three artifacts landed and every one matches the VPS by sha256"
+fi
 
 if [ "$workflows" = 1 ]; then
   step "creating the workflow backup sets, one per scenario"
@@ -2364,7 +2411,11 @@ step "the stack is up"
 note "RETND_BASE_URL       $base_url"
 note "RETND_ADMIN_USERNAME $admin_user"
 note "RETND_ADMIN_PASSWORD $admin_pass"
-note "RETND_BACKUP_SET     $backup_set"
+if [ "$fresh" = 1 ]; then
+  note "RETND_BACKUP_SET     (unset: --fresh, no backup set exists)"
+else
+  note "RETND_BACKUP_SET     $backup_set"
+fi
 note "RETND_ARTIFACTS_DIR  /artifacts, mounted from $artifacts_dir"
 if [ "$workflows" = 1 ]; then
   note "RETND_WORKFLOW_SET   $wf_set_happy"
@@ -2383,8 +2434,11 @@ client_env=(
   -e "RETND_BASE_URL=$base_url"
   -e "RETND_ADMIN_USERNAME=$admin_user"
   -e "RETND_ADMIN_PASSWORD=$admin_pass"
-  -e "RETND_BACKUP_SET=$backup_set"
   -e "RETND_ARTIFACTS_DIR=/artifacts"
+  # Where Playwright's JSON reporter writes when a run asks for it
+  # (`-- --reporter=list,json`). Harmless otherwise: nothing reads it unless
+  # that reporter is on.
+  -e "PLAYWRIGHT_JSON_OUTPUT_NAME=/artifacts/playwright-report.json"
   -e "RETND_CHROMIUM_NO_SANDBOX=${RETND_CHROMIUM_NO_SANDBOX:-0}"
   # The same value under the name the SUITE reads. This rig's own
   # web-ui-smoke.mjs reads RETND_CHROMIUM_NO_SANDBOX and
@@ -2398,6 +2452,12 @@ client_env=(
   -e "RETND_NO_SANDBOX=${RETND_CHROMIUM_NO_SANDBOX:-0}"
   -e "HOME=/tmp"
 )
+# The seeded set's name, unless --fresh left the deployment without one.
+# Appended after the array literal like the blocks below, so a fresh run
+# never carries an empty RETND_BACKUP_SET that a suite would read as set.
+if [ "$fresh" != 1 ]; then
+  client_env+=(-e "RETND_BACKUP_SET=$backup_set")
+fi
 # Over the self-signed front proxy the browser and any node fetch in the
 # suite must accept the leaf; RETND_IGNORE_HTTPS switches on Playwright's
 # ignoreHTTPSErrors in web-ui-smoke.mjs, and NODE_TLS_REJECT_UNAUTHORIZED
@@ -2507,7 +2567,7 @@ if [ -n "$suite_dir" ]; then
   # the checkout and /suite/node_modules is the image's linux install, and
   # the checkout's darwin-built one is never in the picture.
   client_run+=(-v "$suite_dir:/suite" -v "/suite/node_modules" -w /suite)
-  client_run+=("$client_image" npx playwright test)
+  client_run+=("$client_image" npx playwright test "${playwright_args[@]+"${playwright_args[@]}"}")
   [ "$keep_up" = 1 ] || note "running the suite at $suite_dir inside the client container"
 else
   client_run+=(-w /suite "$client_image" node smoke.mjs)

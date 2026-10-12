@@ -1848,6 +1848,14 @@
           },
           "service": {
             "$ref": "#/components/schemas/ServiceSettings"
+          },
+          "first_run": {
+            "type": "boolean",
+            "description": "True while these are the engine's defaults and nobody has changed anything: no backup set exists and no destination has been declared."
+          },
+          "persisted": {
+            "type": "boolean",
+            "description": "False only when the defaults are being served without a configuration file behind them, in which case every write refuses."
           }
         },
         "required": [
@@ -2049,7 +2057,7 @@
       },
       "EnrollRequest": {
         "type": "object",
-        "description": "POST /auth/enroll. The credentials, plus the two things issue #830 makes part of creating the administrator: the address account recovery mails to, and the SMTP endpoint it goes out over. Both are required, because an administrator with no proven way to reach its owner is an account that is permanently lost the first time a password is forgotten, and enrollment is the last moment at which somebody who can still sign in is present to fix the mail configuration. The runtime SENDS a confirmation message to `recoveryEmail` over `smtp` before it writes anything, and refuses the whole enrollment with SMTP_SEND_FAILED if that send does not succeed - leaving the single-use enrollment token unspent, so the same link can be used again once the configuration is fixed.",
+        "description": "POST /auth/enroll. The credentials, and optionally the two things issue #830 makes part of recovering the administrator: the address account recovery mails to, and the SMTP endpoint it goes out over. Both are optional together (retnd#1049): a body with only the credentials creates the administrator with recovery left unconfigured, to be finished from Settings. A body that supplies either is held to both: the runtime SENDS a verification message to `recoveryEmail` over `smtp` before it writes anything, and refuses the whole enrollment with SMTP_SEND_FAILED if that send does not succeed - leaving the single-use enrollment token unspent, so the same link can be used again once the configuration is fixed.",
         "additionalProperties": false,
         "properties": {
           "username": {
@@ -2069,9 +2077,7 @@
         },
         "required": [
           "username",
-          "password",
-          "recoveryEmail",
-          "smtp"
+          "password"
         ]
       },
       "ForgotPasswordRequest": {
@@ -2502,16 +2508,40 @@
       },
       "FirstRunStatusResponse": {
         "type": "object",
-        "description": "GET /system/first-run. The one question a client asks before it decides whether to render the setup flow or the application. Deliberately one field: a client that has just been handed a 503 NOT_CONFIGURED needs to know which screen to show, not why.",
+        "description": "GET /system/first-run. Whether this deployment has a configuration, and which guided setup step comes next. A fresh install is configured from its first start (the engine writes a default configuration), so `configured` is true there and the guide is what tells an operator what is left to do. The steps are derived from the thing each one sets up, except a skip, which is stored.",
         "additionalProperties": false,
         "properties": {
           "configured": {
             "type": "boolean",
             "description": "True once this deployment has a configuration. It never goes back to false for a running process: a live service was opened from a configuration that existed and validated, whatever happens to the file afterwards."
+          },
+          "steps": {
+            "$ref": "#/components/schemas/FirstRunSteps"
+          },
+          "next_step": {
+            "type": "string",
+            "description": "The first required step that is pending: administrator or backup_set, or none when nothing required is pending. The email step is optional and is never named here; its own state in `steps` says whether it is open.",
+            "enum": [
+              "administrator",
+              "backup_set",
+              "none"
+            ]
+          },
+          "config_dir": {
+            "type": "string",
+            "description": "The directory the engine would write its default configuration into. Present only together with config_dir_problem.",
+            "x-go-omitempty": true
+          },
+          "config_dir_problem": {
+            "type": "string",
+            "description": "Present only when the engine has no configuration and could not write one because config_dir is not writable. A sentence an operator can act on: it names the directory and says to mount it writable and restart. It is the same sentence `retnd check` prints. Absent on every healthy deployment.",
+            "x-go-omitempty": true
           }
         },
         "required": [
-          "configured"
+          "configured",
+          "steps",
+          "next_step"
         ]
       },
       "CompleteFirstRunResponse": {
@@ -6610,6 +6640,59 @@
         },
         "required": [
           "reason"
+        ]
+      },
+      "SkipFirstRunStepRequest": {
+        "type": "object",
+        "description": "POST /system/first-run/skip. The guided setup step to leave for later.",
+        "additionalProperties": false,
+        "properties": {
+          "step": {
+            "type": "string",
+            "enum": [
+              "email",
+              "backup_set"
+            ]
+          }
+        },
+        "required": [
+          "step"
+        ]
+      },
+      "FirstRunSteps": {
+        "type": "object",
+        "description": "Each guided setup step mapped to its state: done, pending or skipped.",
+        "additionalProperties": false,
+        "properties": {
+          "administrator": {
+            "type": "string",
+            "enum": [
+              "done",
+              "pending",
+              "skipped"
+            ]
+          },
+          "email": {
+            "type": "string",
+            "enum": [
+              "done",
+              "pending",
+              "skipped"
+            ]
+          },
+          "backup_set": {
+            "type": "string",
+            "enum": [
+              "done",
+              "pending",
+              "skipped"
+            ]
+          }
+        },
+        "required": [
+          "administrator",
+          "email",
+          "backup_set"
         ]
       },
       "RecoveryTarget": {
@@ -16977,6 +17060,102 @@
             "x-error-codes": [
               "NOT_CONFIGURED",
               "WORKFLOW_ENGINE_UNAVAILABLE"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/system/first-run/skip": {
+      "post": {
+        "operationId": "skipFirstRunStep",
+        "summary": "Leave a guided setup step for later.",
+        "tags": [
+          "system"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SkipFirstRunStepRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success. The first-run status after the skip.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FirstRunStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
             ]
           }
         },

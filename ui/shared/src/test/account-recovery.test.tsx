@@ -73,6 +73,9 @@ async function fillCredentialsAndSmtp(user: UserEvent) {
   await user.type(screen.getByLabelText("Username"), "bm-admin");
   await user.type(screen.getByLabelText(/^Password/), PASSPHRASE);
   await user.type(screen.getByLabelText("Confirm password"), PASSPHRASE);
+  // Recovery is an optional section since retnd#1049; these cases are about
+  // what it collects, so they open it first.
+  await user.click(screen.getByRole("checkbox", { name: /set up email recovery now/i }));
   await user.type(screen.getByLabelText("SMTP host"), "smtp.example.net");
   await user.clear(screen.getByLabelText("Port"));
   await user.type(screen.getByLabelText("Port"), "2525");
@@ -83,6 +86,32 @@ async function fillCredentialsAndSmtp(user: UserEvent) {
 }
 
 const createButton = () => screen.getByRole("button", { name: "Create administrator" });
+
+describe("first-run enrolment, with the recovery section skipped (retnd#1049)", () => {
+  afterEach(() => {
+    resetMockFixtures();
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("enables Create administrator on the credentials alone and sends no mail settings", async () => {
+    const user = userEvent.setup();
+    const api = createMockApi();
+    const enroll = vi.spyOn(api, "enrollAdministrator");
+    renderEnrollment(api);
+
+    await user.type(screen.getByLabelText("Username"), "bm-admin");
+    await user.type(screen.getByLabelText(/^Password/), PASSPHRASE);
+    await user.type(screen.getByLabelText("Confirm password"), PASSPHRASE);
+
+    expect(screen.queryByLabelText("SMTP host")).toBeNull();
+    expect(createButton()).toBeEnabled();
+    await user.click(createButton());
+
+    await waitFor(() => expect(enroll).toHaveBeenCalledTimes(1));
+    expect(enroll).toHaveBeenCalledWith("bm-admin", PASSPHRASE, undefined, undefined);
+  });
+});
 
 describe("first-run enrolment collects the way back into the account", () => {
   afterEach(() => {

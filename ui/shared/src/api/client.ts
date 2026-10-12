@@ -201,7 +201,8 @@ import type {
   WorkflowStepState,
   WorkflowStepSummary,
   WorkflowValidatedScript,
-  WorkflowValidation
+  WorkflowValidation,
+  FirstRunStatus
 } from "./contracts";
 import type {
   ArtifactRetentionPolicy,
@@ -2954,6 +2955,15 @@ const setWorkflowPath = (source: string, set: string) => backupSetPath(source, s
  * that has a reason carries it at the method rather than in a shared
  * helper that would hide the differences.
  */
+function fromWireFirstRunStatus(r: WireFirstRunStatusResponse): FirstRunStatus {
+  return {
+    configured: r.configured,
+    steps: r.steps,
+    nextStep: r.next_step,
+    ...(r.config_dir_problem ? { configDir: r.config_dir, configDirProblem: r.config_dir_problem } : {})
+  };
+}
+
 export const httpApi: RetndApi = {
   getVersion: () => request<WireVersionResponse>("/system/version").then(fromWireVersion),
   // GET /system/health, NOT /health/ready. The two answer different
@@ -2967,9 +2977,12 @@ export const httpApi: RetndApi = {
     request<WireHealthResponse>("/system/health").then((r) => fromWireHealth(r, Date.now())),
 
   getFirstRunStatus: () =>
-    request<WireFirstRunStatusResponse>("/system/first-run").then((r) => ({
-      configured: r.configured
-    })),
+    request<WireFirstRunStatusResponse>("/system/first-run").then(fromWireFirstRunStatus),
+  skipFirstRunStep: (step) =>
+    request<WireFirstRunStatusResponse>("/system/first-run/skip", {
+      method: "POST",
+      body: JSON.stringify({ step })
+    }).then(fromWireFirstRunStatus),
   // The body is the SPEC, not the create request: POST /system/first-run
   // declares BackupSetSpec, which carries no run_immediately, because
   // there is no service running yet to run anything. This method still
@@ -3568,7 +3581,14 @@ export const httpApi: RetndApi = {
 
   login: (username, password) => post("/auth/login", { username, password }),
   enrollAdministrator: (username, password, recoveryEmail, smtp) =>
-    post("/auth/enroll", { username, password, recoveryEmail, smtp: wireSmtpSettings(smtp) }),
+    // retnd#1049: the recovery section is optional. Without it the body is
+    // the credentials alone, which the engine accepts.
+    post(
+      "/auth/enroll",
+      smtp && recoveryEmail
+        ? { username, password, recoveryEmail, smtp: wireSmtpSettings(smtp) }
+        : { username, password }
+    ),
 
   // Issue #830's three unauthenticated recovery calls. Every one of them
   // resolves with nothing: the reset request answers 204 for every

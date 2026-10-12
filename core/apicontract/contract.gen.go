@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "c78221ee8574664e98bd04e04cc886ead95566deea001fbad0dcd5bf44cb9449"
+const ContractSHA256 = "adbb6e98a28a31d497ca4d294586439272c1f7031e76f79b16062434202d8c2b"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -1489,6 +1489,17 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "skipFirstRunStep", Method: "POST", Path: "/system/first-run/skip",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "SkipFirstRunStepRequest", ResponseSchema: "FirstRunStatusResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			500: {ErrorCodeInternal},
+		},
+	},
+	{
 		ID: "getSystemHealth", Method: "GET", Path: "/system/health",
 		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "HealthResponse", SuccessStatus: 200,
@@ -2185,18 +2196,18 @@ type CycleOutcome struct {
 	Moves               *CycleMoveOutcome `json:"moves,omitempty"`
 }
 
-// EnrollRequest is POST /auth/enroll. The credentials, plus the two things issue #830
-// makes part of creating the administrator: the address account
-// recovery mails to, and the SMTP endpoint it goes out over. Both
-// are required, because an administrator with no proven way to reach
-// its owner is an account that is permanently lost the first time a
-// password is forgotten, and enrollment is the last moment at which
-// somebody who can still sign in is present to fix the mail
-// configuration. The runtime SENDS a confirmation message to
-// `recoveryEmail` over `smtp` before it writes anything, and refuses
-// the whole enrollment with SMTP_SEND_FAILED if that send does not
-// succeed - leaving the single-use enrollment token unspent, so the
-// same link can be used again once the configuration is fixed.
+// EnrollRequest is POST /auth/enroll. The credentials, and optionally the two things
+// issue #830 makes part of recovering the administrator: the address
+// account recovery mails to, and the SMTP endpoint it goes out over.
+// Both are optional together (retnd#1049): a body with only the
+// credentials creates the administrator with recovery left
+// unconfigured, to be finished from Settings. A body that supplies
+// either is held to both: the runtime SENDS a verification message
+// to `recoveryEmail` over `smtp` before it writes anything, and
+// refuses the whole enrollment with SMTP_SEND_FAILED if that send
+// does not succeed - leaving the single-use enrollment token
+// unspent, so the same link can be used again once the configuration
+// is fixed.
 type EnrollRequest struct {
 	Password      string       `json:"password"`
 	RecoveryEmail string       `json:"recoveryEmail"`
@@ -2218,12 +2229,27 @@ type ErrorResponse struct {
 	Error ErrorBody `json:"error"`
 }
 
-// FirstRunStatusResponse is GET /system/first-run. The one question a client asks before it
-// decides whether to render the setup flow or the application.
-// Deliberately one field: a client that has just been handed a 503
-// NOT_CONFIGURED needs to know which screen to show, not why.
+// FirstRunStatusResponse is GET /system/first-run. Whether this deployment has a
+// configuration, and which guided setup step comes next. A fresh
+// install is configured from its first start (the engine writes a
+// default configuration), so `configured` is true there and the
+// guide is what tells an operator what is left to do. The steps are
+// derived from the thing each one sets up, except a skip, which is
+// stored.
 type FirstRunStatusResponse struct {
-	Configured bool `json:"configured"`
+	ConfigDir        string        `json:"config_dir,omitempty"`
+	ConfigDirProblem string        `json:"config_dir_problem,omitempty"`
+	Configured       bool          `json:"configured"`
+	NextStep         string        `json:"next_step"`
+	Steps            FirstRunSteps `json:"steps"`
+}
+
+// FirstRunSteps is each guided setup step mapped to its state: done, pending or
+// skipped.
+type FirstRunSteps struct {
+	Administrator string `json:"administrator"`
+	BackupSet     string `json:"backup_set"`
+	Email         string `json:"email"`
 }
 
 // ForgotPasswordRequest is POST /auth/forgot-password. One field, and the answer never varies
@@ -3301,7 +3327,9 @@ type SetReadOnlyRequest struct {
 // effect plus the rules they were validated against.
 type SettingsResponse struct {
 	Capacity  CapacitySettings       `json:"capacity"`
+	FirstRun  bool                   `json:"first_run"`
 	Mediums   []StorageMediumSummary `json:"mediums"`
+	Persisted bool                   `json:"persisted"`
 	Retention RetentionSettings      `json:"retention"`
 	Schema    SettingsSchema         `json:"schema"`
 	Service   ServiceSettings        `json:"service"`
@@ -3312,6 +3340,12 @@ type SettingsSchema struct {
 	Retention RetentionSchema `json:"retention"`
 	Service   ServiceSchema   `json:"service"`
 	Storage   StorageSchema   `json:"storage"`
+}
+
+// SkipFirstRunStepRequest is POST /system/first-run/skip. The guided setup step to leave for
+// later.
+type SkipFirstRunStepRequest struct {
+	Step string `json:"step"`
 }
 
 // SmtpSettings is one SMTP submission endpoint an operator typed in: where to
@@ -4257,6 +4291,7 @@ var SchemaTypes = map[string]any{
 	"ErrorBody":                          ErrorBody{},
 	"ErrorResponse":                      ErrorResponse{},
 	"FirstRunStatusResponse":             FirstRunStatusResponse{},
+	"FirstRunSteps":                      FirstRunSteps{},
 	"ForgotPasswordRequest":              ForgotPasswordRequest{},
 	"HealthResponse":                     HealthResponse{},
 	"HostKeyProbeRequest":                HostKeyProbeRequest{},
@@ -4342,6 +4377,7 @@ var SchemaTypes = map[string]any{
 	"SetReadOnlyRequest":                 SetReadOnlyRequest{},
 	"SettingsResponse":                   SettingsResponse{},
 	"SettingsSchema":                     SettingsSchema{},
+	"SkipFirstRunStepRequest":            SkipFirstRunStepRequest{},
 	"SmtpSettings":                       SmtpSettings{},
 	"SmtpSettingsView":                   SmtpSettingsView{},
 	"Snapshot":                           Snapshot{},

@@ -361,6 +361,12 @@ bash scripts/architecture/check-unowned-go.sh
 gate_step "the e2e drivers' --help is still the text it was (#514)"
 bash scripts/tests/e2e-help.test.sh
 
+# The first-run specs skip on the seeded rig and a skip looks like a pass, so
+# the gate runs them against a fresh rig and refuses a skip (retnd#1049).
+# This pins the judging and that the gate calls it; no Docker, about a second.
+gate_step "a skipped first-run spec fails the gate (#1049)"
+bash scripts/tests/first-run-report.test.sh
+
 # A tests pin must name a commit on retnd-tests main (#1074). The pin once
 # pointed at the head of an open retnd-tests PR, which the gate ran
 # happily, and the bump tool had been written not to check. Both now
