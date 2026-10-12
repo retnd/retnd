@@ -7015,6 +7015,18 @@
             "items": {
               "$ref": "#/components/schemas/ScrubSetResult"
             }
+          },
+          "unknown_objects": {
+            "type": "integer",
+            "format": "int64",
+            "x-go-omitempty": true,
+            "description": "Objects found at keys the journal does not know, across every set (QC-04). A finding, not a copy failure. Absent when there were none."
+          },
+          "unlisted": {
+            "type": "integer",
+            "format": "int64",
+            "x-go-omitempty": true,
+            "description": "Storage media the pass could not enumerate, across every set. Absent when every medium was listed."
           }
         },
         "required": [

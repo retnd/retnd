@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "32a46444c86b9a6790d3c5ddf75f2063bfbd3a5221f3d5514feebb8ee4f41506"
+const ContractSHA256 = "1b29f8134e99ced94a61f805c1eb7e34f034b354f8a313c9bcdc1f16b8b46aed"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -2944,6 +2944,8 @@ type ScrubResult struct {
 	SkippedHeld      int64            `json:"skipped_held"`
 	SkippedLeased    int64            `json:"skipped_leased"`
 	Trigger          string           `json:"trigger"`
+	UnknownObjects   int64            `json:"unknown_objects,omitempty"`
+	Unlisted         int64            `json:"unlisted,omitempty"`
 }
 
 // ScrubSetResult is one backup set's part of a scrub.

@@ -189,6 +189,11 @@ type Options struct {
 	// it is never attempted against an archive-class copy at all.
 	Content     bool
 	AllowEgress bool
+
+	// ListDestinations lists each destination even when nothing was selected.
+	// Without it a pass lists only when it checked something (or was forced),
+	// so an idle scheduled poll costs no listing request.
+	ListDestinations bool
 }
 
 // CopyResult is what a scrub concluded about one copy.
@@ -489,6 +494,9 @@ feed:
 		}
 		return a.Medium < b.Medium
 	})
+	if stopErr == nil {
+		report.Unknown, report.Unlisted = listDestinations(ctx, deps, set, records, opts, report.Selected)
+	}
 	return report, stopErr
 }
 

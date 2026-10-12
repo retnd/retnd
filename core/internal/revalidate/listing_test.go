@@ -189,3 +189,33 @@ func TestQC04Listing_ANarrowedPassDoesNotListTheDestination(t *testing.T) {
 		t.Errorf("a pass narrowed to one artifact listed %v and found %v; the set-wide comparison belongs to a set-wide pass", store.listed, unknownKeys(rep))
 	}
 }
+
+// A scheduled poll that finds nothing due must not cost a listing per medium
+// per tick; an operator's scrub (ListDestinations) asks for one anyway.
+func TestQC04Listing_AnIdlePollDoesNotListAndAManualScrubDoes(t *testing.T) {
+	ctx := context.Background()
+	content := []byte("idle")
+	j, a := onMedium(t, "idle.dump", content)
+	known := mediumCopy(t, j, a).Location
+	store := &listingStore{keyedObjectStore: &keyedObjectStore{objects: map[string]int64{known: int64(len(content)), setNamespace + "/stray.bin": 1}}}
+	deps := Deps{Journal: j, Store: store, Mediums: prefixedMediums{id: "offsite"}}
+
+	if _, err := Run(ctx, deps, a.Set, scrubCfg); err != nil { // first pass checks the copy, so it lists
+		t.Fatalf("Run: %v", err)
+	}
+	before := len(store.listed)
+	rep, err := Run(ctx, deps, a.Set, scrubCfg) // nothing is due now
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if rep.Selected != 0 || len(store.listed) != before || len(rep.Unknown) != 0 {
+		t.Errorf("idle poll: selected %d, listings %d -> %d, unknown %v; want no listing", rep.Selected, before, len(store.listed), unknownKeys(rep))
+	}
+	rep, err = RunWith(ctx, deps, a.Set, scrubCfg, Options{ListDestinations: true})
+	if err != nil {
+		t.Fatalf("RunWith: %v", err)
+	}
+	if len(store.listed) != before+1 || len(rep.Unknown) != 1 {
+		t.Errorf("manual scrub: listings %d -> %d, unknown %v; want one listing and the stray object", before, len(store.listed), unknownKeys(rep))
+	}
+}

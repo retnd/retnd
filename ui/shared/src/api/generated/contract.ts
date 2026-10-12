@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "32a46444c86b9a6790d3c5ddf75f2063bfbd3a5221f3d5514feebb8ee4f41506";
+export const CONTRACT_SHA256 = "1b29f8134e99ced94a61f805c1eb7e34f034b354f8a313c9bcdc1f16b8b46aed";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -3650,6 +3650,8 @@ export interface WireScrubResult {
   skipped_held: number;
   skipped_leased: number;
   trigger: string;
+  unknown_objects?: number;
+  unlisted?: number;
 }
 
 /** One backup set's part of a scrub. */

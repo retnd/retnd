@@ -204,6 +204,10 @@ func (s *Service) Scrub(ctx context.Context, req ScrubRequest) (ScrubSummary, er
 		opts := revalidate.Options{
 			Force: req.forced(), Only: req.Artifact, Medium: req.Medium,
 			Content: req.Content, AllowEgress: req.AllowEgress,
+			// An operator who ran a scrub asked to be told what is there,
+			// even on a day nothing is due. The scheduler lists only when
+			// it checked something, so an idle poll costs no listing.
+			ListDestinations: req.Trigger == state.ScrubByManual,
 		}
 		report, runErr := revalidate.RunWith(setCtx, deps, bs.ID, cfg, opts)
 		cancel()
@@ -214,7 +218,7 @@ func (s *Service) Scrub(ctx context.Context, req ScrubRequest) (ScrubSummary, er
 			runErr = nil
 		}
 		sum.Sets = append(sum.Sets, ScrubSetReport{Set: bs.ID, Report: report, Err: runErr})
-		s.tally(ctx, &sum, report)
+		s.tally(ctx, &sum, bs.ID, report)
 		if runErr != nil && ctx.Err() != nil {
 			return s.finishScrub(ctx, journal, sum, started), fmt.Errorf("app: scrub cancelled: %w", runErr)
 		}
@@ -241,12 +245,14 @@ func (s *Service) Scrub(ctx context.Context, req ScrubRequest) (ScrubSummary, er
 // checked.
 //
 // Every copy that does not pass gets exactly one scrub_failure line, and the
-// count of those lines is the pass's Failed plus CouldNotComplete. That holds
+// count of those lines is the pass's Failed plus CouldNotComplete. Objects at
+// unknown keys and destinations that could not be listed are counted and
+// logged on their own events and never as failures. That holds
 // for an artifact the pass could not finish too: its error carries the
 // outcomes of the copies that were asked, and each is reported as itself, so a
 // copy the journal records as failed is never folded into its neighbour's
 // "could not be checked".
-func (s *Service) tally(ctx context.Context, sum *ScrubSummary, r revalidate.Report) {
+func (s *Service) tally(ctx context.Context, sum *ScrubSummary, set model.BackupSetID, r revalidate.Report) {
 	sum.Selected += r.Selected
 	sum.BytesRead += r.BytesRead
 	for _, f := range r.Findings {
@@ -269,6 +275,17 @@ func (s *Service) tally(ctx context.Context, sum *ScrubSummary, r revalidate.Rep
 		// start). The artifact could not be checked, and it is said once.
 		sum.CouldNotComplete++
 		s.logger().ScrubFailure(ctx, e.Artifact.String(), "", "", e.Err.Error())
+	}
+	// QC-04: what a destination holds that the journal does not know, and the
+	// destinations that could not be asked. Findings, not copy outcomes: none
+	// of it touches Passed, Failed or the scrub_failure lines.
+	for _, u := range r.Unknown {
+		sum.Unknown++
+		s.logger().ScrubUnknownObject(ctx, set.String(), u.Medium, u.Key, u.Size)
+	}
+	for _, u := range r.Unlisted {
+		sum.Unlisted++
+		s.logger().ScrubUnlisted(ctx, set.String(), u.Medium, u.Reason)
 	}
 	for _, sk := range r.Skipped {
 		switch sk.Reason {
