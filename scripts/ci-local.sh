@@ -352,6 +352,15 @@ bash scripts/architecture/check-unowned-go.sh
 gate_step "the e2e drivers' --help is still the text it was (#514)"
 bash scripts/tests/e2e-help.test.sh
 
+# A tests pin must name a commit on retnd-tests main (#1074). The pin once
+# pointed at the head of an open retnd-tests PR, which the gate ran
+# happily, and the bump tool had been written not to check. Both now
+# refuse, and this runs fixture git repositories over file:// (no network,
+# no Docker) to prove it, including a planted check that always passes,
+# which the suite has to notice.
+gate_step "a tests pin must be on retnd-tests main (#1074)"
+bash scripts/tests/pin-on-main.test.sh
+
 # Every Python file under scripts/, held to a linter, and the subset that is
 # clean under a type checker held to that too (EPIC I / I1.6, #672).
 #
@@ -445,6 +454,14 @@ bash scripts/tests/two-machine-ci-verdict.test.sh
 # because nobody asked it. This reads the workflow and refuses that.
 gate_step "the release gate still covers every job in ci.yml (#575)"
 bash scripts/tests/release-gate-covers-every-job.test.sh
+
+# Every Go module resolves its own dependencies without go.work (#1064). The
+# workspace builds the whole tree on the highest version of every requirement,
+# so a dependency bumped in core/ alone is green everywhere the workspace is
+# used and red in the product image and under GOWORK=off. #1003, #797 and #838
+# were all that.
+gate_step "every Go module resolves its own dependencies without go.work (#1064)"
+bash scripts/tests/every-module-builds-on-its-own.test.sh
 
 # The other half of the same gate, and the half that does not need a
 # settings page to be true (#575). A required check gates while branch
@@ -820,6 +837,12 @@ bash scripts/perf/selftest.sh
 # intact.
 gate_step "/api/v1 bindings match the contract, and no implementation type leaks (#166)"
 bash scripts/api/check-contract-drift.sh
+
+# The contract generator answers the same way every time it is run (#1066).
+# check-contract-drift.sh regenerates and compares, so a generator that can
+# answer two ways fails a clean tree about half the time.
+gate_step "the contract generator is deterministic (#1066)"
+bash scripts/tests/api-generator-is-deterministic.test.sh
 
 # The other half of #166's "generated from it or mechanically validated
 # against it": ui/shared/src/api/client.ts is hand-written on top of the
