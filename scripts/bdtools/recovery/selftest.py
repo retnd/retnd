@@ -67,6 +67,7 @@ CLI_PKG = ("core", ("./cmd/retnd/",))
 AUTH_PKG = ("apps/common", ("./auth/local/",))
 SERVE_PKG = ("apps/generic", ("./cmd/retnd-web/",))
 
+RECOVER_STREAM_GO = "core/service/recover_stream.go"
 PLANT = "// PLANTED VIOLATION (scripts/bdtools/recovery/selftest.py): "
 
 
@@ -598,6 +599,106 @@ MUTATIONS = [
         CLI_PKG,
         "TestRecoverIsRefusedBeforeAnythingIsOpened",
     ),
+    (
+        "a download that stages the artifact again before streaming it (Q1.24)",
+        RECOVER_STREAM_GO,
+        "\treader := export.NewVerifiedReader(ctx, src, ix, plan.expect.Origin, plan.expect.Medium)\n",
+        "\t" + PLANT + "the download is staged as a whole file first.\n\t_, _ = b.stageGrant(ctx, g)\n"
+        "\treader := export.NewVerifiedReader(ctx, src, ix, plan.expect.Origin, plan.expect.Medium)\n",
+        "copied the artifact to the staging disk",
+        SERVICE_PKG,
+        "TestADownloadIsStreamedAndStagesNothing",
+    ),
+    (
+        "a download that makes a whole-file temporary copy outside staging (Q1.24)",
+        RECOVER_STREAM_GO,
+        "\treader := export.NewVerifiedReader(ctx, src, ix, plan.expect.Origin, plan.expect.Medium)\n",
+        "\t" + PLANT + "the copy is read in full again, into a temp file nobody checks.\n"
+        "\tif tmp, terr := os.CreateTemp(\"\", \"retnd-planted-\"); terr == nil {\n"
+        "\t\tif rc, oerr := src.OpenAt(ctx, 0); oerr == nil {\n\t\t\t_, _ = io.Copy(tmp, rc)\n\t\t\t_ = rc.Close()\n\t\t}\n"
+        "\t\t_ = tmp.Close()\n\t\t_ = os.Remove(tmp.Name())\n\t}\n"
+        "\treader := export.NewVerifiedReader(ctx, src, ix, plan.expect.Origin, plan.expect.Medium)\n",
+        "read the copy again before sending a byte",
+        SERVICE_PKG,
+        "TestThePreparationReadIsPaidOncePerArtifact",
+    ),
+    (
+        "a recovery path that starts a process",
+        RECOVER_STREAM_GO,
+        "\treader := export.NewVerifiedReader(ctx, src, ix, plan.expect.Origin, plan.expect.Medium)\n",
+        "\t" + PLANT + "recovery shells out.\n\t_ = procseam.CommandContext(ctx, \"true\").Run()\n"
+        "\treader := export.NewVerifiedReader(ctx, src, ix, plan.expect.Origin, plan.expect.Medium)\n",
+        "a process was spawned where none is allowed",
+        SERVICE_PKG,
+        "TestRecoverySpawnsNoProcessFromAnyPathItRuns",
+        [
+            (
+                RECOVER_STREAM_GO,
+                '\t"github.com/retnd/retnd/core/internal/obs"\n',
+                '\t"github.com/retnd/retnd/core/internal/obs"\n\t"github.com/retnd/retnd/core/internal/procseam"\n',
+            )
+        ],
+    ),
+    (
+        "a conditional GET answered 304 that reports the whole file served",
+        HANDLER_GO,
+        "\tif noBodyAsked(r, cw) {",
+        "\t" + PLANT + "a 304 is accounted as a range.\n\tif false && noBodyAsked(r, cw) {",
+        "a 304 sent no byte but told the service",
+        WEB_PKG,
+        "TestAConditionalGetAnswered304SpendsNothing",
+    ),
+    (
+        "a request that wrote nothing counted as a range served",
+        RECOVER_RUN_GO,
+        "\tif err == nil && written == 0 && d.size > 0 {",
+        "\t" + PLANT + "an empty success covers the artifact.\n\tif false {",
+        "after a request that sent no byte",
+        SERVICE_PKG,
+        "TestARequestThatSentNoBytesSpendsNothingAndVerifiesNothing",
+    ),
+    (
+        "a download that stops short with no interrupted row",
+        RECOVER_RUN_GO,
+        "\t\td.recordEnd(start, written, err)\n",
+        "\t\t" + PLANT + "the end of a failed download is not recorded.\n",
+        "left no interrupted row",
+        SERVICE_PKG,
+        "TestADownloadTheClientWalkedAway",
+    ),
+    (
+        "a failed verification recorded as an interruption",
+        RECOVER_STREAM_GO,
+        "&& (re.Code == RecoveryLocalCopyCorrupt || re.Code == RecoveryRemoteCopyCorrupt) {",
+        "&& false && (re.Code == RecoveryLocalCopyCorrupt || re.Code == RecoveryRemoteCopyCorrupt) { " + PLANT.rstrip(),
+        "left no failed-verification row",
+        SERVICE_PKG,
+        "TestACopyThatFailedVerification",
+    ),
+    (
+        "a UI proxy that keeps the engine streaming after the browser aborts",
+        UI_GO,
+        "\t\t\tpr.SetXForwarded()\n",
+        "\t\t\t" + PLANT + "the browser's cancel stops at the proxy.\n"
+        "\t\t\tpr.Out = pr.Out.WithContext(context.WithoutCancel(pr.In.Context()))\n"
+        "\t\t\tpr.SetXForwarded()\n",
+        "kept the engine streaming after the browser went away",
+        UI_PKG,
+        "TestUI_ABrowserThatAbortsMidDownloadStopsTheUpstreamStream",
+        # The proxy also stops the engine another way: the failed write to
+        # the gone browser closes the upstream body. That is defence in depth
+        # working, so both are planted for this control.
+        [
+            (UI_GO, '\t"errors"\n', '\t"context"\n\t"errors"\n'),
+            (
+                UI_GO,
+                "\t\tModifyResponse: func(res *http.Response) error {\n",
+                "\t\tModifyResponse: func(res *http.Response) error {\n"
+                "\t\t\t" + PLANT + "the upstream body is never closed.\n"
+                "\t\t\tres.Body = struct {\n\t\t\t\tio.Reader\n\t\t\t\tio.Closer\n\t\t\t}{res.Body, io.NopCloser(nil)}\n",
+            ),
+        ],
+    ),
 ]
 
 CLEAN_CONTROLS = [
@@ -612,7 +713,7 @@ CLEAN_CONTROLS = [
         WEB_PKG,
         "TestARecoveryCompletes|TestMintCarries|TestMultipleRanges|TestADownloadSlower|TestAMintIsAudited|TestAGrantIsNever",
     ),
-    ("the UI proxy's recovery path", UI_PKG, "TestUI_ARecovery|TestUI_ADownloadsGrant"),
+    ("the UI proxy's recovery path", UI_PKG, "TestUI_ARecovery|TestUI_ADownloadsGrant|TestUI_ABrowserThatAborts"),
     ("the recover verb suite", CLI_PKG, "TestRecoverIsRefusedBeforeAnythingIsOpened"),
     (
         "the grant lifetime suite",
@@ -628,12 +729,12 @@ CLEAN_CONTROLS = [
     (
         "the streamed download suite",
         SERVICE_PKG,
-        "TestADownloadIsStreamed|TestADownloadReadsTheSource|TestTheETagIsTheSame|TestThePreparationReadIsPaid|TestPreflightRefuses|TestACopyThatRots|TestAnInterruptedDownloadResumes|TestACompleteDownloadRecords|TestAPartialDownloadClaims",
+        "TestADownloadIsStreamed|TestADownloadReadsTheSource|TestTheETagIsTheSame|TestThePreparationReadIsPaid|TestPreflightRefuses|TestACopyThatRots|TestAnInterruptedDownloadResumes|TestACompleteDownloadRecords|TestAPartialDownloadClaims|TestADownloadTheClientWalked|TestACopyThatFailedVerification|TestOnlyAFinishedDownload|TestARequestThatSentNoBytes|TestRecoverySpawnsNoProcess",
     ),
     (
         "the streamed download route suite",
         WEB_PKG,
-        "TestADownloadCarriesAStrongETag|TestIfRangeWithTheETag|TestAFirstChunkThatFails|TestAStreamThatFailsMidBody|TestAClientThatGoesAwayMidDownload",
+        "TestADownloadCarriesAStrongETag|TestIfRangeWithTheETag|TestAFirstChunkThatFails|TestAStreamThatFailsMidBody|TestAClientThatGoesAwayMidDownload|TestAConditionalGet|TestAHeadRequest",
     ),
 ]
 
