@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/procseam"
 )
 
 // maxRestoreCheckOutput mirrors verify.go's maxValidatorOutput: it bounds
@@ -71,7 +72,7 @@ func RunRestoreCheck(ctx context.Context, cmd config.Command, localPath string) 
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	c := exec.CommandContext(runCtx, cmd.Executable, localPath)
+	c := procseam.CommandContext(runCtx, cmd.Executable, localPath)
 
 	// A fixed, minimal environment: never this process's own os.Environ(),
 	// which could carry secrets this manager holds (an sftp private key
