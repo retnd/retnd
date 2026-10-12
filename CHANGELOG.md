@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- **A provider checksum mismatch is now written on the copy** (#983). A destination that attested a SHA-256 different from the recorded one refused the recovery and was then forgotten, so the next scrub could call the same copy fine. The refusal now also records a failed attested check on the copy (clearing its verification claims and owing it a re-check), and `internal/reconcile` reports a medium copy recorded as failing as needing investigation instead of "left on a medium, no action". It moves no lifecycle state.
+- **Exit codes 34, 35 and 37 are unallocated** (#983). They were reserved for the per-pass bound, the validator-output bound and scheduled egress, which FR-74 as amended says defer, truncate and refuse elsewhere. Nothing emits them, the budget package says so (`budget.Unused`), and two tests keep every budget and recovery refusal off them.
 - **A serving process now runs its scheduled scrub and its due recovery tests** (#1068).
   The scrub timer and the cycle loop both start with `retnd serve` and repeat every poll
   interval, so a cycle took the single-flight lock at the top of its interval and the
@@ -17,6 +19,7 @@
 
 ### Added
 
+- **The #983 budgets and faults are proved on the real drivers** (#983). A backlog of 1050 due copies runs on `revalidate.Run`, the scrub driver the serve scheduler calls: the pass stays at `DefaultScrubMaxPerCycle`, defers the rest to later passes and never has more than 2 reads in flight (1 per destination), with the numbers and host in `docs/perf/epic-q-recovery.md`. Two concurrent first downloads of an artifact make one whole-copy pre-flight read; a default install refuses the fifth download stream and a recovery that would leave less than the 1 GiB staging reserve; a recovery test cancelled through the operation registry at the provider probe, the read and the write leaves nothing behind; and three operators joining a running recovery test get one execution and a receipt each. `scripts/bdtools/recovery/selftest.py` plants a fault for each, and four stale anchors in it are re-anchored.
 - **`retnd recover --follow` and `retnd recovery-test --follow`** (#1059). Both verbs run the operation in the terminal's own process, so they now print that operation's stage lines (matched on its op_id) on standard error as it passes through them, in the order the engine emits them, and still exit with the operation's own status. Standard output stays the verb's answer, so `recover --to -` keeps piping clean bytes.
 - **Scrub now, cancel, and the validator output of a recovery test** (#980, #1071). Three new
   routes. `POST /api/v1/backup-sets/{source}/{set}/scrub` starts a scrub of one set's copies

@@ -196,3 +196,45 @@ disk     ext4 on /dev/sda7, the artifact and its copies on the same filesystem
 
 The CLI recovered 4 GiB in 33.9 s and the web process staged, verified and sent
 it in 26.7 s including startup and enrollment.
+
+## 1000+ copies due at once, on the real scrub driver (#983)
+
+`TestAThousandDueCopiesDeferPastTheScrubBoundAndTheReadCeilingsAreNeverExceeded`
+runs `revalidate.Run` (the driver the serve scheduler calls) over a real SQLite
+journal holding 1050 copies on three destinations, all due at the same instant,
+with the per-pass bound taken from `config.Assurance.Revalidation` (so
+`DefaultScrubMaxPerCycle`) and the limiter and workers at the product
+defaults. The only double is the medium, which takes 2 ms per existence check
+and counts how many are in flight at once, in total and per destination.
+Existence checks are what an unattended pass makes of a medium copy (reading a
+medium in full is operator-initiated), so the count is of those.
+
+```
+cd core
+SCRUB_SCALE_OUT=/some/dir/scale.json \
+  go test -count=1 -v -run AThousandDue ./internal/revalidate/
+```
+
+```
+host     Apple M5 MacBook, macOS 27.0.1; Docker Desktop, linuxkit kernel 7.0.14, 8 vCPUs
+image    golang:1.27-bookworm, linux/arm64 (go1.27.2), uid 1000, build cache and journal on tmpfs
+```
+
+| | Measured | Line |
+|---|---|---|
+| copies, all due at once | 1050 | |
+| passes to work the backlog off | 21 | 21 (1050 / 50) |
+| copies taken by each pass | 50 (all 21) | 50 |
+| copies still due after pass 1 | 1000 | 1000 |
+| copies checked in the end | 1050 | 1050 |
+| peak reads in flight, overall | 2 | 2 |
+| peak reads in flight, one destination | 1 | 1 |
+| wall time of the 21 passes | 4.6 s (a previous run on the same host: 1.7 s) | |
+
+The peak equals the ceiling, which is the positive control: the harness can see
+concurrency, so "never exceeded" is a reading. Two more tests run the same
+backlog with a bound taken away (no per-pass bound; a limiter at 12) and
+require the harness to report exactly that overrun. Wall time is mostly the
+2 ms of simulated latency times 1050 checks divided by two workers, and says
+nothing about a real bucket. What the numbers are for is the shape: the work is
+spread over passes and the ceilings hold.
