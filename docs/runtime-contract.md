@@ -271,9 +271,11 @@ workflow runner under the contract in
 [the host workflow runner ADR](adr/0020-host-workflow-runner.md), and a recovery itself
 starts no subprocess at all.
 
-Its output is untrusted, and this build keeps none of it: what the engine records is the
-verdict, the hash of the script that ran and a reason in its own words, never the script's
-printed text. A validator that exits 0 without opening the file does not produce a
+Its output is untrusted, and the engine keeps a bounded copy of it: the newest recovery
+test's output per backup set, at most 200 records, 1 KiB per record and 32 KiB in all, with a
+truncation record last when anything was cut and no control byte stored. It sits beside the
+verdict, the hash of the script that ran and a reason in the engine's own words, and it never
+decides the verdict. A validator that exits 0 without opening the file does not produce a
 recovery-test pass, because the digest of the recovered bytes was checked first and is
 what the pass is recorded against.
 

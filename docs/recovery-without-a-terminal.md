@@ -158,6 +158,27 @@ The application cannot tell these apart, and it deliberately does not guess. It 
    already retained is on your own storage, and the application refused to talk to the
    server rather than transferring anything to or from it.
 
+### Starting a check yourself, and stopping one
+
+**Scrub now** on a set re-checks all its copies straight away instead of waiting for the
+schedule, and **Run recovery test** does the same for the stronger test. Either starts in
+the background and answers at once with an operation id, so closing the page does not stop
+it. While one is running it has a **Cancel** button. Pressing it does not stop things on
+the spot: the operation shows as *cancelling* until its own end line arrives. A cancelled
+recovery test finishes as a warning rather than a failure, because nobody saw the
+validator's answer. It is not recorded as a failed copy, and you can simply run it again.
+
+Pressing **Run recovery test** while one is already running for that set does not start a
+second: the press joins the one in progress, the validator runs once, and each press still
+gets its own receipt.
+
+The terminal equivalents are `retnd scrub <source>/<set>`, `retnd recovery-test
+<source>/<set>`, `retnd recovery-test <source>/<set> --show-output` and `retnd assurance
+cancel <operation-id>`. For a recovery or a test run from a terminal, `--follow` prints the
+stages (resolving copy, reading, verifying, writing target, cleaning temporary files,
+complete) on standard error, so `retnd recover <artifact> --to - --follow` still sends
+nothing but the file's bytes down the pipe.
+
 ### While it is unresolved
 
 The set is stale and getting staler, and everything already retained is untouched and
@@ -278,7 +299,9 @@ ended somewhere other than a finished file or a passing result. It reads one of:
 - A download that **stopped partway**: your browser shows it as failed or incomplete, and
   the file in its download folder is smaller than the size the dialog told you to expect.
   The application cut the transfer off on purpose (see below), so that an incomplete file is
-  never mistaken for a whole one.
+  never mistaken for a whole one. The artifact's page also says how it ended, in one of
+  three ways: **completed**, **interrupted at N of M bytes**, or **failed verification**.
+  Only the first is a success.
 - A **cost decision** instead of a download: the copy you chose is archived, or reading it
   is billed, and the dialog is waiting for you to say yes or to back out.
 - **No readable copy**, or **Archived: thaw needed**, on the artifact's page.
@@ -300,7 +323,9 @@ and the difference matters because the fix is different for each:
   not agreed, or its bytes did not match the recorded digest. A mismatch means that copy is
   damaged. It is not a download problem and trying again will not change it.
 - **During the download, because the connection dropped:** the browser disconnected or you
-  cancelled. Nothing is kept on the host, and a second try can carry on from the bytes you
+  cancelled. The application records this as *interrupted at N of M bytes*, where N is how
+  far it got and M is the size of the file, and N is where a resume starts. Nothing is kept
+  on the host, and a second try can carry on from the bytes you
   already have: ask for a new link, and a client that resumes (a command-line tool using
   `Range` and `If-Range` with the file's `ETag`, or a browser that restarts the transfer on
   its own) gets exactly the bytes the first attempt would have. A browser that starts over
@@ -308,7 +333,8 @@ and the difference matters because the fix is different for each:
 - **During the download, because a piece did not match:** the copy changed on its storage
   after the application had checked it, so the transfer was cut off at the first bad piece.
   What you received before that was good, the bad piece was never sent, and the file is
-  incomplete on purpose. That copy is damaged; recover from another copy.
+  incomplete on purpose. The application records this as *failed verification*, which is
+  not the same finding as *interrupted*. That copy is damaged; recover from another copy.
 - **After the file was checked:** a recovery test ran *your* validator, and the validator
   said no. The bytes are intact. The set shows **Content verified** and **Recovery test
   failed** side by side on purpose, because "the file is fine" and "the file is usable by
@@ -332,13 +358,13 @@ path: it can give you the file, and putting it back is yours.
    is marked failed or damaged, recover from another copy instead. If the page says **No
    readable copy**, there is nothing to recover from through the interface, and the next
    step is reaching the destination by whatever route your storage provider gives you.
-4. **Cancelled or disconnected.** Start again. If it keeps dropping, a proxy in front of the
+4. **Cancelled or disconnected (interrupted at N of M).** Start again, or resume from N. If it keeps dropping, a proxy in front of the
    interface is closing long downloads; that is a gateway setting, not this application.
 5. **Recovery test failed, content verified.** The set shows that the test failed and the
-   reason the application recorded. It does not show what your validator printed: this
-   build keeps no copy of that, so the script has to write its findings somewhere you can
-   read them. Fix the validator or the thing it checks. The application is telling you the
-   file is intact.
+   reason the application recorded. Open the **Validator log** on the set to read what your
+   validator printed. It keeps the newest test's output only, cut to 200 lines, 1 KiB a
+   line and 32 KiB in all, and if anything was cut the last line says so. Fix the
+   validator or the thing it checks. The application is telling you the file is intact.
 6. **A cleanup notice.** Nothing is wrong with your result. Free space on the volume that
    holds the staging area, and the leftover is removed on its next sweep.
 
