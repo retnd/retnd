@@ -304,6 +304,8 @@ func (e *fakeEngine) api(w http.ResponseWriter, r *http.Request, path, token str
 		e.setEnabled(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/backup-sets/"), "/enabled"))
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/read-only"):
 		e.setReadOnly(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/backup-sets/"), "/read-only"))
+	case r.Method == http.MethodPost && strings.HasPrefix(path, "/assurance/operations/") && strings.HasSuffix(path, "/cancel"):
+		e.cancelAssuranceOperation(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/assurance/operations/"), "/cancel"))
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/edit-hold"):
 		e.getEditHold(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/backup-sets/"), "/edit-hold"))
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/edit-hold/release"):
@@ -1197,4 +1199,21 @@ func (e *fakeEngine) backupSetAssurance(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	writeJSON(w, http.StatusOK, backupSetAssuranceWire(got))
+}
+
+// cancelAssuranceOperation is POST /assurance/operations/{op}/cancel, off the
+// real service like every other route here.
+func (e *fakeEngine) cancelAssuranceOperation(w http.ResponseWriter, r *http.Request, op string) {
+	got, err := e.svc.CancelAssuranceOperation(r.Context(), op)
+	if err != nil {
+		if errors.Is(err, service.ErrOperationNotFound) {
+			refuse(w, http.StatusNotFound, apicontract.ErrorCodeOperationNotFound, err.Error())
+			return
+		}
+		refuse(w, http.StatusInternalServerError, apicontract.ErrorCodeInternal, "failed to cancel the operation")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, apicontract.AssuranceOperationCancelled{
+		OperationID: got.OperationID, Kind: got.Kind, BackupSetID: got.BackupSetID, Status: got.Status,
+	})
 }

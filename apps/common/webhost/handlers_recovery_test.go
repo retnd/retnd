@@ -376,6 +376,9 @@ func TestEveryRefusalHasItsOwnStatusAndGoesOutUnderItsOwnCode(t *testing.T) {
 		service.RecoveryBusy:                http.StatusConflict,
 		service.RecoveryInterrupted:         http.StatusServiceUnavailable,
 		service.RecoveryFailed:              http.StatusInternalServerError,
+		service.RecoveryReadsBusy:           http.StatusTooManyRequests,
+		service.RecoveryDestinationBusy:     http.StatusTooManyRequests,
+		service.RecoveryDownloadsBusy:       http.StatusTooManyRequests,
 	}
 	for _, code := range service.RecoveryCodes() {
 		status, ok := want[code]

@@ -170,3 +170,25 @@ func TestRunStageWithoutAnEngineSaysSo(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+func TestRunStageDryRunVerifiesAndIdentifiesAndRunsNothing(t *testing.T) {
+	svc, root, set, exec := stageService(t)
+	writeHook(t, root, "recovery-test/production/alpha", "10-check.local.sh", "#!/usr/bin/env bash", "echo ok")
+	res, err := svc.RunStage(context.Background(), app.StageRequest{Set: set, SetDir: "recovery-test/production/alpha", DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Configured || len(res.Scripts) != 1 || len(res.Scripts[0].SHA256) != 64 || res.Scripts[0].State != "" {
+		t.Errorf("result = %+v", res)
+	}
+	if len(exec.calls) != 0 {
+		t.Error("a dry run ran a script")
+	}
+
+	// And the shell verification applies to a dry run too, so "configured"
+	// never means "a script that would be refused when it ran".
+	writeHook(t, root, "recovery-test/production/alpha", "20-bad.local.sh", "#!/usr/bin/env bash", `rm -rf /$UNSET_DIR`)
+	if _, err := svc.RunStage(context.Background(), app.StageRequest{Set: set, SetDir: "recovery-test/production/alpha", DryRun: true}); err == nil {
+		t.Error("a dry run accepted a script the save gate would refuse")
+	}
+}

@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "ca1f3cdd825c3588ad78032271a327346d847d2034cc0b1336c93020fd56b454";
+export const CONTRACT_SHA256 = "f13967ff8e10cbfc5813cb027252dba4efba67cfa1c6e27b555adeedc498228b";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -104,6 +104,9 @@ export const WIRE_ERROR_CODES = [
   "RECOVERY_BUSY",
   "RECOVERY_INTERRUPTED",
   "RECOVERY_FAILED",
+  "RECOVERY_READS_BUSY",
+  "RECOVERY_DESTINATION_BUSY",
+  "RECOVERY_DOWNLOADS_BUSY",
 ] as const;
 
 /** This UI's own presentation vocabulary. No endpoint emits these;
@@ -220,6 +223,9 @@ export const API_ERROR_CODES = [
   "RECOVERY_BUSY",
   "RECOVERY_INTERRUPTED",
   "RECOVERY_FAILED",
+  "RECOVERY_READS_BUSY",
+  "RECOVERY_DESTINATION_BUSY",
+  "RECOVERY_DOWNLOADS_BUSY",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -232,7 +238,7 @@ export const API_ERROR_CLASSES = {
   "conflict": ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "IDEMPOTENCY_KEY_CONFLICT", "CONFIG_REVISION_STALE", "ALREADY_CONFIGURED", "ARTIFACT_NOT_QUARANTINED", "ARTIFACT_IRRECOVERABLE", "REINSTATEMENT_REFUSED", "BACKUP_SET_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED", "ARTIFACT_NOT_FAILED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE", "MEDIUM_IS_DEFAULT", "MEDIUM_CONNECTION_NOT_PROVEN", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED", "REPOSITORY_DOMAIN_EXISTS", "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE", "WORKFLOWS_NOT_CONFIGURED", "WORKFLOW_SCRIPT_REJECTED", "RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_GRANT_USED", "RECOVERY_GRANT_EXPIRED", "RECOVERY_TARGET_EXISTS", "RECOVERY_USE_SNAPSHOT_RESTORE", "RECOVERY_BUSY"],
   "internal": ["INTERNAL", "INTERNAL_ERROR", "RECOVERY_LOCAL_COPY_CORRUPT", "RECOVERY_REMOTE_COPY_CORRUPT", "RECOVERY_NO_SPACE", "RECOVERY_BELOW_RESERVE", "RECOVERY_FAILED"],
   "not-found": ["BACKUP_SET_NOT_FOUND", "OPERATION_NOT_FOUND", "RETENTION_PLAN_NOT_FOUND", "ARTIFACT_NOT_FOUND", "MEDIUM_NOT_FOUND", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_HOLD_NOT_FOUND", "REPOSITORY_DOMAIN_NOT_FOUND", "WORKFLOW_ENV_NOT_FOUND", "WORKFLOW_RUN_NOT_FOUND", "WORKFLOW_STEP_NOT_FOUND", "RECOVERY_COPY_NOT_FOUND", "RECOVERY_GRANT_UNKNOWN"],
-  "throttling": ["RATE_LIMITED", "RECOVERY_TOO_MANY_GRANTS"],
+  "throttling": ["RATE_LIMITED", "RECOVERY_TOO_MANY_GRANTS", "RECOVERY_READS_BUSY", "RECOVERY_DESTINATION_BUSY", "RECOVERY_DOWNLOADS_BUSY"],
   "unavailable": ["NOT_CONFIGURED", "SMTP_SEND_FAILED", "WORKFLOW_ENGINE_UNAVAILABLE", "RECOVERY_UNAVAILABLE", "RECOVERY_INTERRUPTED"],
   "validation": ["INVALID_REQUEST", "INVALID_EMAIL", "SSH_KEY_NOT_FOUND", "HOST_KEY_PROBE_FAILED", "MEDIUM_DISCLOSURE_REQUIRED", "BACKUP_SET_NOT_INCREMENTAL", "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED", "RECOVERY_TARGET_INVALID"],
 } as const satisfies Record<string, readonly ApiErrorCode[]>;
@@ -321,6 +327,26 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
       404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "cancelAssuranceOperation",
+    method: "POST",
+    path: "/assurance/operations/{op}/cancel",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "AssuranceOperationCancelled",
+    successStatus: 202,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["OPERATION_NOT_FOUND"],
       500: ["INTERNAL"],
       503: ["NOT_CONFIGURED"],
     }
@@ -867,6 +893,47 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "startRecoveryTest",
+    method: "POST",
+    path: "/backup-sets/{source}/{set}/recovery-test",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "StartRecoveryTestRequest",
+    responseSchema: "RecoveryTestStarted",
+    successStatus: 202,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND", "ARTIFACT_NOT_FOUND"],
+      409: ["OPERATION_ALREADY_RUNNING"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "getRecoveryTestOutput",
+    method: "GET",
+    path: "/backup-sets/{source}/{set}/recovery-test/output",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "RecoveryTestOutput",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
     id: "clearBackupSetRetention",
     method: "DELETE",
     path: "/backup-sets/{source}/{set}/retention",
@@ -965,6 +1032,28 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
       404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "startScrub",
+    method: "POST",
+    path: "/backup-sets/{source}/{set}/scrub",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ScrubStarted",
+    successStatus: 202,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      409: ["OPERATION_ALREADY_RUNNING"],
       500: ["INTERNAL"],
       503: ["NOT_CONFIGURED"],
     }
@@ -1422,6 +1511,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       409: ["RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_BUSY", "RECOVERY_TARGET_EXISTS"],
       410: ["RECOVERY_GRANT_USED", "RECOVERY_GRANT_EXPIRED"],
       416: ["INVALID_REQUEST"],
+      429: ["RECOVERY_READS_BUSY", "RECOVERY_DESTINATION_BUSY", "RECOVERY_DOWNLOADS_BUSY"],
       500: ["INTERNAL", "RECOVERY_LOCAL_COPY_CORRUPT", "RECOVERY_FAILED"],
       501: ["RECOVERY_UNAVAILABLE"],
       502: ["RECOVERY_REMOTE_COPY_CORRUPT"],
@@ -2373,6 +2463,14 @@ export interface WireAssuranceHostKnob {
   per_set?: boolean;
   reason?: string;
   value?: string;
+}
+
+/** A running scrub or recovery test has been told to stop. */
+export interface WireAssuranceOperationCancelled {
+  backup_set_id: string;
+  kind: "scrub" | "recovery_test";
+  operation_id: string;
+  status: "cancelling";
 }
 
 /** A resolved recovery-test policy. */
@@ -3480,6 +3578,39 @@ export interface WireRecoveryTarget {
   path?: string;
 }
 
+/** What the newest recovery test of a backup set printed. Only the
+ *  newest test is kept per set. */
+export interface WireRecoveryTestOutput {
+  artifact_id: string;
+  backup_set_id: string;
+  medium: string;
+  operation_id: string;
+  recorded: boolean;
+  recorded_at: string;
+  records: WireRecoveryTestOutputRecord[];
+  state: string;
+  truncated: boolean;
+}
+
+/** One line of a validator's output, or the runner's own truncation
+ *  marker. Branch on kind and never on text: only the runner produces
+ *  a truncation record, so a validator that prints the marker's words
+ *  is still an output record. */
+export interface WireRecoveryTestOutputRecord {
+  kind: "output" | "truncation";
+  text: string;
+}
+
+/** A recovery test is under way. operation_id is carried by its
+ *  recovery_test_start, recovery_stage and recovery_test_end lines on
+ *  the activity feed, which is how a client follows it; the verdict
+ *  is the copy's recovery claim once it ends. */
+export interface WireRecoveryTestStarted {
+  backup_set_id: string;
+  coalesced: boolean;
+  operation_id: string;
+}
+
 /** One repository domain's own health, which is a different question
  *  from any backup set's. A set can be perfectly fresh while the
  *  repository holding its snapshots is unwritable, out of
@@ -3830,6 +3961,13 @@ export interface WireScrubSkip {
   reason: string;
 }
 
+/** A scrub is under way. operation_id is what POST
+ *  /assurance/operations/{op}/cancel takes. */
+export interface WireScrubStarted {
+  backup_set_id: string;
+  operation_id: string;
+}
+
 /** An object a storage medium holds under a backup set's namespace at
  *  a key the journal has no placement for (QC-04). It is a finding
  *  for an operator to look at: never a verified copy of anything, and
@@ -4088,6 +4226,16 @@ export interface WireSnapshotVerifyRequest {
   level?: string;
   run_id?: string;
   sample_percent?: number;
+}
+
+/** POST /backup-sets/{source}/{set}/recovery-test. Starts a recovery
+ *  test now. An empty body tests the newest known good copy and
+ *  acknowledges no cost: a copy that costs money to read (a download
+ *  from a billed object store, or an archived object) is refused,
+ *  recorded as refused_for_cost, and nothing is read. */
+export interface WireStartRecoveryTestRequest {
+  acknowledged?: boolean;
+  artifact_id?: string;
 }
 
 /** Where one storage medium's credentials come from. Exactly one of

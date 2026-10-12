@@ -103,6 +103,15 @@ type BackupService struct {
 	// used, so a process that never recovers anything creates nothing.
 	recovery recoveryHost
 
+	// ops is the registry of running operator-started scrubs and recovery
+	// tests (assuranceoperations.go): the single-flight table for both, and
+	// what a cancel reaches them through.
+	ops assuranceOps
+
+	// testRecoverer stages the copy a recovery test reads. One for the life
+	// of the process, so its record of what it staged survives a hot reload.
+	testRecoverer *engineRecoverer
+
 	// activity is the live, in-memory feed of what each backup set is
 	// doing right now (issue #573, liveactivity.go). It is wired as the
 	// logger's obs.Sink in New below, so it follows every event this
@@ -127,6 +136,10 @@ type BackupService struct {
 	// closeDrainTimeout) instead of returning, and closing the journal,
 	// while one is still writing to it.
 	wg sync.WaitGroup
+
+	// activityDone is closed when the activity feed's durable writer has
+	// flushed and stopped (liveactivity_durable.go).
+	activityDone chan struct{}
 
 	// runOnce enforces this package's single-flight invariant: at most one
 	// executeRunCycle call may be inside internal/app.Service.RunCycle at a
@@ -330,7 +343,27 @@ func New(cfg *config.Config, journal *state.Journal, tr transport.Transport, log
 	// it needs no reconciliation: it runs scripts that are not backups, so
 	// there is no quiesced machine for a startup pass to account for.
 	inner.Stages = b
+	// The recovery test stages a copy through the recovery engine, so a
+	// copy on a storage medium can be tested at all.
+	b.testRecoverer = newEngineRecoverer(b)
+	inner.Recoverer = b.testRecoverer
 	b.state.Store(&configState{inner: inner, revision: computeConfigRevision(cfg)})
+
+	// The activity feed's events are durable (liveactivity_durable.go).
+	// The rings are refilled from what the last process stored, and one
+	// goroutine writes what this one files. Close drains it before the
+	// journal goes away.
+	activity.hydrate(ctx, journal, configuredSetIDs(cfg))
+	activity.durable = newActivityDurable(journal, logger)
+	// Not on b.wg: that group is the operations Close drains, and tests
+	// wait on it to mean "the work I started has finished". The writer runs
+	// until the service's context ends, so it has a channel of its own.
+	activityDone := make(chan struct{})
+	b.activityDone = activityDone
+	go func() {
+		defer close(activityDone)
+		activity.durable.run(ctx)
+	}()
 
 	// EPIC L's engine, built here and switched on later. It is
 	// constructed unconditionally, including for a deployment that
@@ -626,6 +659,16 @@ func (b *BackupService) Close() error {
 	case <-time.After(closeDrainTimeout):
 		b.logger.Error(context.Background(), "close",
 			fmt.Errorf("timed out after %s waiting for an in-flight operation to finish", closeDrainTimeout))
+	}
+
+	// The activity writer flushes what it holds before the journal goes.
+	if b.activityDone != nil {
+		select {
+		case <-b.activityDone:
+		case <-time.After(closeDrainTimeout):
+			b.logger.Error(context.Background(), "close",
+				fmt.Errorf("timed out after %s waiting for the activity writer to flush", closeDrainTimeout))
+		}
 	}
 
 	err := b.journal.Close()

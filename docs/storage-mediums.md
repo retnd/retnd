@@ -533,6 +533,21 @@ The rules that matter:
   something, and `retnd scrub` always lists, because a listing is a billed
   request per medium. An upload that finished just before its placement was
   recorded can show up once and clear on the next pass.
+- **A recovery test proves a copy is usable, and the validator is your script.**
+  Put one `NAME.local.sh` in `recovery-test/<source>/<set>` under the workflow
+  root. The engine recovers the newest known good copy to a private staging
+  directory, reads it back and checks its digest against the one recorded for
+  the artifact, and only then runs your script with `RECOVERY_TEST_FILE` (the
+  path), `RECOVERY_TEST_ARTIFACT`, `RECOVERY_TEST_DIGEST` and
+  `RECOVERY_TEST_SIZE` set. It records the result together with the name and
+  the hash of the script that ran. Your script never writes the claim: a script
+  that exits 0 without opening the file still cannot make a pass out of bytes
+  that did not match. The runner's container cannot see the staging directory
+  unless you declare it with `--hook-mount`, and a script that cannot see the
+  file fails rather than passing. A set with no such directory reads `not
+  configured`, which is not a pass and not a failure. A failing test runs the
+  same `assurance-after` scripts the scrub does, with `ASSURANCE_EVENT` set to
+  `recovery_test_failed` and, when it passes again, `recovery_test_recovered`.
 - **A tier whose medium writes an archive class cannot take delivery of an
   artifact, and the move is refused before anything is uploaded.** Both settings
   `upload_verification` accepts need the object read back, a freshly written

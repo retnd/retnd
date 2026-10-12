@@ -125,18 +125,18 @@ type scrubLimitsState struct {
 // It is created once, so the scheduler tick and a manual scrub in the same
 // process draw on one global cap.
 //
-// The two ceilings are the operator's own (assurance.max_concurrent_full_reads
-// and assurance.max_per_destination), as the process first scrubbed. They are
-// read once because a limiter that is resized while reads hold its slots
-// would admit more than either number allows, so a change to them applies
-// from the next start. A hand-built Config that never ran Validate carries
-// zeros, which the limiter fills with the same defaults.
+// Its ceilings are the deployment's own full-read ceilings
+// (assurance.max_concurrent_full_reads and max_per_destination), read when it
+// is first used; zero, as a hand-built configuration has, takes the defaults,
+// which are those settings' defaults.
 func (s *Service) scrubLimitsShared() *revalidate.Limits {
 	s.scrub.once.Do(func() {
-		s.scrub.limits = revalidate.NewLimits(revalidate.Bounds{
-			GlobalConcurrency:         s.Config.Assurance.MaxConcurrentFullReads,
-			PerDestinationConcurrency: s.Config.Assurance.MaxPerDestination,
-		})
+		var b revalidate.Bounds
+		if s.Config != nil {
+			b.GlobalConcurrency = s.Config.Assurance.MaxConcurrentFullReads
+			b.PerDestinationConcurrency = s.Config.Assurance.MaxPerDestination
+		}
+		s.scrub.limits = revalidate.NewLimits(b)
 	})
 	return s.scrub.limits
 }
@@ -399,7 +399,18 @@ func (s *Service) ScrubTick(ctx context.Context) {
 	}
 }
 
-// runScrubTicks repeats ScrubTick every interval until ctx is done, with the
+// AssuranceTick is one scheduled assurance pass: the scrub, then the
+// recovery tests that are due. It is the single entry point both schedulers
+// call (the CLI daemon's loop here and core/service's RunOnSchedule, which is
+// what `retnd serve` runs), so a pass cannot be added to one and forgotten in
+// the other. TestEveryEntryPointInAssuranceTickIsCalledByBothSchedulers holds
+// them to it.
+func (s *Service) AssuranceTick(ctx context.Context) {
+	s.ScrubTick(ctx)
+	s.RecoveryTestTick(ctx)
+}
+
+// runScrubTicks repeats AssuranceTick every interval until ctx is done, with the
 // timer shape the alert ticks use: one timer, reset only after the pass
 // returns, so a slow pass makes the next late and never overlaps it.
 func (s *Service) runScrubTicks(ctx context.Context, interval time.Duration) {
@@ -424,5 +435,5 @@ func (s *Service) scrubTickRecovered(ctx context.Context) {
 			s.logger().Error(context.Background(), "scrub-tick-panic", fmt.Errorf("recovered panic: %v", r))
 		}
 	}()
-	s.ScrubTick(ctx)
+	s.AssuranceTick(ctx)
 }

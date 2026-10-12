@@ -49,6 +49,20 @@ type recoveryStore struct {
 	restoreState *transport.RestoreState
 	restoreErr   error
 	statuses     atomic.Int32
+
+	// openGate, when set, makes OpenObject wait until it is closed or the
+	// caller's context ends, so a test can hold a read in flight. failAfter
+	// and failErr make a read die partway, the way a destination does when
+	// it disappears under a copy.
+	openGate   chan struct{}
+	failAfter  int
+	failErr    error
+	uploadGate chan struct{}
+
+	// attest, when set, is what the provider says its own checksum for an
+	// object is. Unset, the medium cannot attest, which is what the shipped
+	// S3 adapter reports for SHA-256.
+	attest func() (transport.ChecksumAttestation, error)
 }
 
 func newRecoveryStore() *recoveryStore {
@@ -64,7 +78,14 @@ func (s *recoveryStore) StatObject(_ context.Context, _ transport.Medium, key st
 	return transport.ObjectInfo{}, transport.NewError(transport.NotFound, "stat", errors.New("no such key"))
 }
 
-func (s *recoveryStore) UploadFromLocal(_ context.Context, _ transport.Medium, localPath, key string, _ transport.UploadOptions) (transport.UploadResult, error) {
+func (s *recoveryStore) UploadFromLocal(ctx context.Context, _ transport.Medium, localPath, key string, _ transport.UploadOptions) (transport.UploadResult, error) {
+	if s.uploadGate != nil {
+		select {
+		case <-s.uploadGate:
+		case <-ctx.Done():
+			return transport.UploadResult{}, ctx.Err()
+		}
+	}
 	b, err := os.ReadFile(localPath)
 	if err != nil {
 		return transport.UploadResult{}, err
@@ -76,8 +97,15 @@ func (s *recoveryStore) UploadFromLocal(_ context.Context, _ transport.Medium, l
 	return transport.UploadResult{Key: key, BytesUploaded: int64(len(b))}, nil
 }
 
-func (s *recoveryStore) OpenObject(_ context.Context, _ transport.Medium, key string) (io.ReadCloser, error) {
+func (s *recoveryStore) OpenObject(ctx context.Context, _ transport.Medium, key string) (io.ReadCloser, error) {
 	s.opens.Add(1)
+	if s.openGate != nil {
+		select {
+		case <-s.openGate:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	s.mu.Lock()
 	b, ok := s.objects[key]
 	s.mu.Unlock()
@@ -87,6 +115,9 @@ func (s *recoveryStore) OpenObject(_ context.Context, _ transport.Medium, key st
 	d := append([]byte(nil), b...)
 	if s.flipAt >= 0 {
 		d[s.flipAt] ^= 1
+	}
+	if s.failErr != nil {
+		return io.NopCloser(io.MultiReader(bytes.NewReader(d[:s.failAfter]), &failingReader{err: s.failErr})), nil
 	}
 	return io.NopCloser(bytes.NewReader(d)), nil
 }
@@ -124,7 +155,10 @@ func (c *countedReader) Read(p []byte) (int, error) {
 }
 
 func (s *recoveryStore) ObjectChecksum(context.Context, transport.Medium, string, transport.HashAlgorithm) (transport.ChecksumAttestation, error) {
-	return transport.ChecksumAttestation{}, errors.New("not used")
+	if s.attest != nil {
+		return s.attest()
+	}
+	return transport.ChecksumAttestation{}, errors.New("this endpoint cannot attest a full-object SHA-256")
 }
 func (s *recoveryStore) DeleteObject(context.Context, transport.Medium, string) error {
 	return errors.New("recovery must never delete")
@@ -179,6 +213,10 @@ type fixtureOpts struct {
 	remoteClass string // "" for no remote copy
 	engine      string
 	pollEvery   time.Duration // PollInterval for tests that run the scheduler loop
+
+	// cfg, when set, adjusts the hand-built configuration before the service
+	// is built from it (an assurance policy, an extra medium).
+	cfg func(*config.Config)
 }
 
 // newRecoveryFixture builds a service whose journal holds one artifact,
@@ -204,6 +242,10 @@ func newRecoveryFixture(t *testing.T, opts fixtureOpts) *recoveryFixture {
 		{ID: "cold", Type: config.StorageMediumTypeS3, Region: "us-east-1", Bucket: "b", StorageClass: config.StorageClassDeepArchive, Credentials: config.MediumCredentials{File: "/x"}},
 		{ID: "warm", Type: config.StorageMediumTypeS3, Region: "us-east-1", Bucket: "w", StorageClass: config.StorageClassStandard, Credentials: config.MediumCredentials{File: "/x"}},
 		{ID: "other", Type: config.StorageMediumTypeS3, Region: "us-east-1", Bucket: "o", StorageClass: config.StorageClassStandard, Credentials: config.MediumCredentials{File: "/x"}},
+	}
+
+	if opts.cfg != nil {
+		opts.cfg(cfg)
 	}
 
 	store := newRecoveryStore()
@@ -270,7 +312,7 @@ func (f *recoveryFixture) session() RecoverySession {
 
 func (f *recoveryFixture) stagingEntries(t *testing.T) []string {
 	t.Helper()
-	root := filepath.Join(f.dir, "state", "recovery")
+	root := filepath.Join(f.dir, "state", "recovery-staging")
 	var out []string
 	_ = filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
 		if err == nil && info.Mode().IsRegular() {
@@ -323,7 +365,7 @@ func TestRecoverALocalCopyToStagingEndToEnd(t *testing.T) {
 	if res.SHA256 != sha(f.data) || res.Bytes != int64(len(f.data)) {
 		t.Fatalf("result = %+v", res)
 	}
-	if !strings.Contains(res.Path, filepath.Join("state", "recovery")) {
+	if !strings.Contains(res.Path, filepath.Join("state", "recovery-staging")) {
 		t.Fatalf("output %s is not under the staging root", res.Path)
 	}
 }
@@ -967,3 +1009,7 @@ func TestADownloadStillBeingServedKeepsItsGrantPastTheGrantTTL(t *testing.T) {
 	}
 	dl.Close()
 }
+
+type failingReader struct{ err error }
+
+func (f *failingReader) Read([]byte) (int, error) { return 0, f.err }

@@ -44,6 +44,45 @@
   lists only when it checked something; `retnd scrub` always lists. Additive to the
   API contract: `ScrubSetResult` gains optional `unknown_objects` and `unlisted`.
 
+- **`retnd recover --follow` and `retnd recovery-test --follow`** (#1059). Both verbs run the operation in the terminal's own process, so they now print that operation's stage lines (matched on its op_id) on standard error as it passes through them, in the order the engine emits them, and still exit with the operation's own status. Standard output stays the verb's answer, so `recover --to -` keeps piping clean bytes.
+
+- **Scrub now, cancel, and the validator output of a recovery test** (#980, #1071). Three new
+  routes. `POST /api/v1/backup-sets/{source}/{set}/scrub` starts a scrub of one set's copies
+  in the background and answers 202 with an operation id, one at a time per set.
+  `POST /api/v1/assurance/operations/{op}/cancel` stops a running scrub or recovery test: the
+  validator's whole process group is killed, the staged copy is removed, and a cancel records
+  no verdict on the copy. It is deliberately not under `/operations`, which the destructive
+  gate owns, so it answers on a deployment whose gate is shut. `GET
+  /api/v1/backup-sets/{source}/{set}/recovery-test/output` returns what the newest recovery
+  test of the set printed. The output is kept per set (two new tables in migration 0016, which
+  has not shipped, so its recorded checksum moved), sanitised, and bounded to 200 records, 1 KiB
+  a record and 32 KiB in all; the truncation marker is a record of its own kind that only the
+  runner writes, so a validator that prints the marker's words is still an output line. The
+  CLI gains `retnd assurance cancel <operation-id>` (needs `RETND_API_URL`, since the operation
+  lives in the serving process) and `retnd recovery-test <set> --show-output`.
+
+- **Two operators asking for the same recovery test share one execution.** A second identical
+  `POST .../recovery-test` while one is running no longer gets a 409: it answers 202 with the
+  running test's operation id and `coalesced: true`, and writes a receipt row of its own
+  (who asked, when, what for). A request for something different from what is running (another
+  artifact, or a different cost acknowledgement) is still a 409.
+
+- **The activity feed's events survive a restart** (#1071, migration 0018). The feed
+  behind the operation panel and the dashboard strips was an in-memory ring, so a
+  restart emptied it: a scrub that failed an hour before a deploy, or a recovery that was
+  running when the process died, left nothing on the screen built to show it. The events
+  are now also written to a new `activity_events` table (additive; nothing that exists
+  changes) by one goroutine that batches them off the cycle's path, and the rings are
+  refilled from it at start with the numbering continuing. Scrub passes and failures,
+  recovery and recovery-test events and their `op_id` are kept. Periodic samples
+  (`transfer_stats`, `snapshot_stats`) and a download's per-range lines are not, and
+  `recovery_stage` lines are coalesced to the last stage each operation reached, so a
+  recovery costs a start row, one stage row and an end row however many stages it passes
+  through. Rows are kept 30 days and the table 50,000 rows, oldest first, pruned at start,
+  hourly and after every 5,000 inserts. A writer that falls behind drops from the durable
+  record and counts it; it never slows a cycle. `GET /api/v1/activity/live` takes
+  `before=<sequence>` to page backwards past the ring.
+
 - **The scheduled scrub follows `assurance.scrub.*`** (#978). A default install now
   scrubs: the cadence is `assurance.scrub.cadence` (7 days unless you say otherwise)
   and the strategy decides whether a local copy is re-hashed (`auto` and `content`
@@ -106,6 +145,37 @@
     the CLI and the browser, a scrub pass that costs two feed rows however many copies
     it reads, and six new alert kinds: scrub overdue and failing, recovery test overdue
     and failing, no readable copy, and archive-only recoverability.
+    under it on its next read with no restart. The CLI writes beside a serving engine
+    are refused with the file untouched, like `settings workflow`.
+  - **Feed and alerts.** New catalog events for recovery and recovery-test runs
+    (additions only, each completion states a `Result`) with one stage list shared by
+    the CLI and the browser, and four new alert kinds: scrub overdue and failing, and
+    recovery test overdue and failing. They are raised through the alert dispatcher a
+    configured notifier already has, with its de-duplication, so a failing scrub or
+    recovery test reaches you without anybody writing an `assurance-after` script; the
+    scripts stay as the extension point beside it. (A scrub pass is the existing
+    `scrub_pass` and `scrub_failure` events.)
+
+- **Recovery tests follow the assurance policy, run under `retnd serve`, and can be
+  started** (#980). The scheduled test now runs in the process the product actually
+  runs (`serve`, not only `daemon`), for a set whose resolved `recovery_test.mode` is
+  `required` or `custom`, on that policy's cadence (30 days by default) instead of a
+  fixed seven. `validator_id` names the script: `pg-check` runs
+  `recovery-test/<source>/<set>/pg-check.local.sh` and nothing else, and a name that
+  is not there is `could_not_complete`, never another script in its place. A set
+  that requires a test is DEGRADED until one passes. A copy on a storage medium can
+  now be tested: it is staged by the same engine `retnd recover` uses, so it is
+  verified against the recorded digest first, honours the read ceilings, and costs
+  nothing unattended (a free `local_volume` runs, a billed download is refused for
+  cost and an archived object is never thawed). `retnd recovery-test
+  <source/backup-set>` and `POST /api/v1/backup-sets/{source}/{set}/recovery-test`
+  start one now. A real recovery, and every recovery test, writes `recovery_start`, a
+  `recovery_stage` line per stage and `recovery_end` under one operation id.
+  `assurance.staging_root`, `staging_ttl`, `max_concurrent_full_reads` and
+  `max_per_destination` are now read: recovered copies and recovery tests stage in
+  one directory, `<state dir>/recovery-staging` unless you say otherwise (the
+  `<state dir>/recovery` of the draft is gone), and the scrub reads under the same
+  ceilings (2 and 1 by default; the draft scrub's 4 and 2 are gone).
 
 ## [0.5.1] - 2026-10-04
 

@@ -752,7 +752,16 @@ There is no role on `AuthContext`, so every authenticated caller can recover eve
 - **A staging or storage target answers `200` JSON** (`RecoveryResult`) on the first request and streams nothing.
 - **The memory it needs is one chunk** (4 MiB), whatever the artifact's size, and a download uses no staging disk at all. (`RECOVERY_BELOW_RESERVE` and `RECOVERY_NO_SPACE` still apply to the staging and storage targets, which do stage.) `docs/perf/epic-q-recovery.md` has the measured peak resident set size for a 4 GiB artifact in both processes.
 
-A reverse proxy in front of the engine has to stream rather than buffer a response for this to hold; `docs/acceptance/` records what a gateway's buffering changes where it does.
+### What it costs, and what refuses
+
+Recovery runs inside written budgets (`core/internal/recovery/budget`, #983), and every one is a refusal at the moment of spend:
+
+- **`429` with `Retry-After`** when a budget is full. `RECOVERY_READS_BUSY` (this host already runs its ceiling of full reads of retained copies), `RECOVERY_DESTINATION_BUSY` (the same, against that one destination) and `RECOVERY_DOWNLOADS_BUSY` (the process already streams its ceiling of downloads). Nothing was read, nothing was billed, and the grant is not spent: ask again with the same link.
+- **`507`** for `RECOVERY_BELOW_RESERVE`, when staging the copy would take the staging filesystem under its free-space reserve, and `RECOVERY_NO_SPACE` when it filled anyway.
+- Two operators asking for the same copy at the same moment share one read: a staged recovery shares the staging read, and a download shares the preparation read that builds its chunk index. Each is handed their own file or stream and writes their own audit row. The preparation read takes a read slot for its duration; the streaming after it takes none, because it is paced by the client and can take hours. It is bounded by the download-stream ceiling instead, which the first request takes and the grant keeps until it is spent.
+- The limits are properties of the host, not of a backup set. A platform adjusts them for every set at once through `capabilities.HostLimits`.
+
+The UI host (`retnd-ui`) is the front door in the two-container topology, so a download goes through its reverse proxy. That proxy bounds the wait for the engine's first response byte at five seconds and its server bounds a whole response at thirty, both right for JSON and both fatal to a download whose first request has to make the preparation read of the whole copy before the first byte. `/api/v1/recoveries/` gets its own proxy with no header bound and a write deadline that rolls with the client accepting bytes. A different gateway in front of that one needs the same treatment: a read timeout longer than the time to read the copy, and no response buffering.
 
 ## Migration record: what was removed and what replaced it
 

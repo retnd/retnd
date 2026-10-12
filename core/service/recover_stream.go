@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/recovery/budget"
 	"github.com/retnd/retnd/core/internal/recovery/export"
 	"github.com/retnd/retnd/core/internal/transport"
 )
@@ -71,12 +72,6 @@ import (
 // download (one to prepare, one to send), which is the price of refusing a
 // rotted copy before the client's bandwidth is spent and not after. The mint
 // already carries the cost acknowledgement.
-
-// recoveryDownloadState is what a started download keeps on its grant: the
-// index its continuations use without a second look at the disk.
-type recoveryDownloadState struct {
-	index *export.ChunkIndex
-}
 
 // RecoveryValidator is what a download offers a client that wants to resume
 // it or check it: a strong validator and the digest the journal records.
@@ -245,23 +240,32 @@ func (d *downloadIndexes) build(ctx context.Context, key string, fn func() (*exp
 // preflightDownload is everything that can be learned about a download
 // without sending it. It returns the plan, the source and the chunk index,
 // or a coded refusal; it has written nothing to a client.
-func (b *BackupService) preflightDownload(ctx context.Context, h *recoveryHost, g export.Grant, attached *export.ChunkIndex) (recoveryPlan, rangeSource, *export.ChunkIndex, error) {
+//
+// The preparation read, when one is needed, takes a read slot (the host's
+// bound on simultaneous full reads, per destination and overall) for its
+// duration. A refusal for want of a slot is transient (RECOVERY_READS_BUSY
+// with a Retry-After) and spends neither the grant nor the stream slot.
+func (b *BackupService) preflightDownload(ctx context.Context, h *recoveryHost, g export.Grant, attached *export.ChunkIndex, trace *recoveryTrace) (pf downloadPreflight, err error) {
 	// The grant already carries the cost acknowledgement: a chargeable copy
 	// could not have been minted without it.
+	trace.stage(ctx, "resolving_copy")
 	plan, err := b.planRecovery(ctx, g.Artifact, g.Copy, true)
 	if err != nil {
-		return recoveryPlan{}, rangeSource{}, nil, err
+		return downloadPreflight{}, err
 	}
 	if plan.resolved.NeedsThaw {
-		return recoveryPlan{}, rangeSource{}, nil, recoveryErr(RecoveryNotReadable, "the copy on %s needs a provider restore before it can be read", g.Copy)
+		return downloadPreflight{}, recoveryErr(RecoveryNotReadable, "the copy on %s needs a provider restore before it can be read", g.Copy)
 	}
 	if err := export.CheckExpect(plan.expect); err != nil {
-		return recoveryPlan{}, rangeSource{}, nil, mapRecoveryError(err)
+		return downloadPreflight{}, mapRecoveryError(err)
 	}
 	st := b.state.Load()
+	if err := b.checkProviderChecksum(ctx, st, plan); err != nil {
+		return downloadPreflight{}, err
+	}
 	raw, err := b.sourceFor(st, plan)
 	if err != nil {
-		return recoveryPlan{}, rangeSource{}, nil, err
+		return downloadPreflight{}, err
 	}
 	src := rangeSource{recoverySource: raw.(recoverySource)}
 
@@ -269,20 +273,34 @@ func (b *BackupService) preflightDownload(ctx context.Context, h *recoveryHost, 
 	// the journal recorded. Metadata only.
 	size, err := src.stat(ctx)
 	if err != nil {
-		return recoveryPlan{}, rangeSource{}, nil, err
+		return downloadPreflight{}, err
 	}
 	if plan.expect.Size != nil && size != *plan.expect.Size {
-		return recoveryPlan{}, rangeSource{}, nil, &export.IntegrityError{Origin: plan.expect.Origin, Medium: plan.expect.Medium, Kind: export.KindSize}
+		return downloadPreflight{}, &export.IntegrityError{Origin: plan.expect.Origin, Medium: plan.expect.Medium, Kind: export.KindSize}
 	}
 
 	key := export.IndexKey(g.Artifact, plan.expect.Hash, recoveryChunkSize)
 	if attached != nil && attached.Matches(plan.expect) && attached.Size == size {
-		return plan, src, attached, nil
+		return downloadPreflight{plan: plan, src: src, index: attached}, nil
 	}
 	if ix, ok := h.indexes.store.Load(key, plan.expect); ok && ix.Size == size {
-		return plan, src, ix, nil
+		return downloadPreflight{plan: plan, src: src, index: ix}, nil
 	}
+
+	// The one full read a download can cost is the preparation, and that is
+	// what takes a read slot, taken after every cheap refusal above so a
+	// request that was going to be refused anyway never queues for one. The
+	// streaming that follows takes none: it is paced by the client, can take
+	// hours, and is bounded by the host's download-stream ceiling instead. A
+	// slot held for the length of a slow download would shut every scrub and
+	// recovery on that destination out for as long as the client took.
 	ix, err := h.indexes.build(ctx, key, func() (*export.ChunkIndex, error) {
+		release, rerr := h.reads.Acquire(plan.expect.Medium)
+		if rerr != nil {
+			return nil, rerr
+		}
+		defer release()
+		trace.stage(ctx, "reading")
 		rc, oerr := src.OpenAt(ctx, 0)
 		if oerr != nil {
 			return nil, oerr
@@ -292,6 +310,10 @@ func (b *BackupService) preflightDownload(ctx context.Context, h *recoveryHost, 
 		if berr != nil {
 			return nil, berr
 		}
+		// BuildIndex reads and hashes in one pass and refuses on a mismatch
+		// before it returns, so this stage is entered with the verdict in
+		// hand.
+		trace.stage(ctx, "verifying")
 		// A cache that cannot be written costs the next download another
 		// read, not this one.
 		if serr := h.indexes.store.Save(key, built); serr != nil {
@@ -300,9 +322,16 @@ func (b *BackupService) preflightDownload(ctx context.Context, h *recoveryHost, 
 		return built, nil
 	})
 	if err != nil {
-		return recoveryPlan{}, rangeSource{}, nil, err
+		return downloadPreflight{}, err
 	}
-	return plan, src, ix, nil
+	return downloadPreflight{plan: plan, src: src, index: ix}, nil
+}
+
+// downloadPreflight is what a passed pre-flight hands the reader.
+type downloadPreflight struct {
+	plan  recoveryPlan
+	src   rangeSource
+	index *export.ChunkIndex
 }
 
 // redeemDownload is RedeemRecovery for a download target: pre-flight, then a
@@ -311,27 +340,67 @@ func (b *BackupService) preflightDownload(ctx context.Context, h *recoveryHost, 
 // a refusal on the second and not a hang.
 func (b *BackupService) redeemDownload(ctx context.Context, h *recoveryHost, sess RecoverySession, token string, red export.Redemption, ev recoveryEvent) (RecoveryStream, error) {
 	g := red.Grant
-	var attached *export.ChunkIndex
-	if st, ok := red.Attached.(*recoveryDownloadState); ok && st != nil {
-		attached = st.index
+
+	// A download holds a stream slot against the host's ceiling from its
+	// first request until the grant is spent. Taken before anything is
+	// read, so a refusal has read nothing, and the grant is handed back
+	// unspent: the holder can come for it again.
+	var releaseStream func()
+	if red.First {
+		rel, aerr := h.streams.Acquire()
+		if aerr != nil {
+			h.grants.Revert(token)
+			b.auditRecovery(ctx, &ev, aerr)
+			return nil, mapRecoveryError(aerr)
+		}
+		releaseStream = rel
 	}
-	plan, src, ix, err := b.preflightDownload(ctx, h, g, attached)
+
+	// One recovery is one trace on the activity feed, started by the first
+	// request and carried by the grant for the ranges that follow.
+	var (
+		attached *export.ChunkIndex
+		trace    *recoveryTrace
+	)
+	if st, ok := red.Attached.(*recoveryDownloadState); ok && st != nil {
+		attached, trace = st.index, st.trace
+	}
+	if red.First {
+		trace = b.newRecoveryTrace(ctx, g.Artifact)
+	}
+	pf, err := b.preflightDownload(ctx, h, g, attached, trace)
 	if err != nil {
+		b.auditRecovery(ctx, &ev, err)
+		if errors.Is(err, budget.ErrOverBudget) {
+			// Transient: nobody did anything wrong and nothing was read.
+			if red.First {
+				releaseStream()
+				h.grants.Revert(token)
+				trace.fail(ctx, err)
+			} else {
+				h.grants.Done(token)
+			}
+			return nil, mapRecoveryError(err)
+		}
 		// A refusal before the first byte spends the grant: whatever it
 		// found is not going to be different on a second try with the same
 		// link, and a new one is one click.
-		h.grants.Close(token)
-		b.auditRecovery(ctx, &ev, err)
+		if red.First {
+			releaseStream()
+			trace.fail(ctx, err)
+		}
+		b.finishRecoveryDownload(token)
 		return nil, mapRecoveryError(err)
 	}
-	if attached == nil {
-		h.grants.Attach(token, &recoveryDownloadState{index: ix})
+	if red.First {
+		h.grants.Attach(token, &recoveryDownloadState{index: pf.index, release: releaseStream, trace: trace})
 	}
-	reader := export.NewVerifiedReader(ctx, src, ix, plan.expect.Origin, plan.expect.Medium)
+	trace.stage(ctx, "writing_target")
+	reader := export.NewVerifiedReader(ctx, pf.src, pf.index, pf.plan.expect.Origin, pf.plan.expect.Medium)
 	return &RecoveryDownload{
-		name: filepath.Base(g.Artifact), size: ix.Size, content: reader, index: ix,
-		etag: export.ETag(g.Artifact, ix.SHA256),
-		b:    b, token: token, actor: sess.Actor, ev: ev,
+		name: filepath.Base(g.Artifact), size: pf.index.Size, content: reader, index: pf.index,
+		etag: export.ETag(g.Artifact, pf.index.SHA256), trace: trace,
+		b: b, token: token, actor: sess.Actor, ev: ev,
 	}, nil
 }
 

@@ -116,6 +116,7 @@ func (b *BackupService) adoptConfig(cfg *config.Config) string {
 	// a reload that forgot it would silence every assurance notification
 	// and turn every recovery test validator into "not configured".
 	newInner.Stages = prevInner.Stages
+	newInner.Recoverer = prevInner.Recoverer
 	// What has been announced is a property of the process, not of one
 	// configuration: a reload that dropped it would announce every standing
 	// failure again.

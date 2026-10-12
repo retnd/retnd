@@ -14,6 +14,7 @@ import (
 	"github.com/retnd/retnd/core/cliecho"
 	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/recovery/budget"
 	"github.com/retnd/retnd/core/service"
 )
 
@@ -54,7 +55,7 @@ var recoverExitCodes = map[string]int{
 	service.RecoveryRemoteCopyCorrupt:   15,
 	service.RecoveryNoDigest:            16,
 	service.RecoveryNoSpace:             17,
-	service.RecoveryBelowReserve:        18,
+	service.RecoveryBelowReserve:        budget.ExitCode(budget.StagingReserve),
 	service.RecoveryUseSnapshotRestore:  19,
 	service.RecoveryTargetInvalid:       20,
 	service.RecoveryTargetExists:        21,
@@ -67,6 +68,9 @@ var recoverExitCodes = map[string]int{
 	service.RecoveryBusy:                28,
 	service.RecoveryInterrupted:         29,
 	service.RecoveryFailed:              30,
+	service.RecoveryReadsBusy:           budget.ExitCode(budget.ConcurrentReads),
+	service.RecoveryDestinationBusy:     budget.ExitCode(budget.DestinationReads),
+	service.RecoveryDownloadsBusy:       budget.ExitCode(budget.DownloadStreams),
 }
 
 // exitRecoverThawStarted: nothing was recovered, because the only copy is
@@ -80,6 +84,7 @@ func cmdRecover(args []string) int {
 	to := fs.String("to", "", "where the bytes go: - for standard output, a name under the recovery staging root, or medium:ID[/KEY] (required)")
 	ack := fs.Bool("acknowledge-cost", false, "accept a chargeable retrieval (a billed download, or a provider restore first)")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
+	follow := fs.Bool("follow", false, "print the recovery's stages on standard error as it passes through them; the exit status is the recovery's")
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
 		return exitUsage
@@ -118,7 +123,17 @@ func cmdRecover(args []string) int {
 	if target.Kind == "download" {
 		out = os.Stdout
 	}
-	res, thaw, err := svc.RecoverNow(ctx, sess, req, out)
+	var (
+		res  service.RecoveryResult
+		thaw *service.RecoveryThaw
+	)
+	if *follow {
+		followWhile(ctx, svc, opByFirstStart(operands[0]), os.Stderr, os.Stderr, func() {
+			res, thaw, err = svc.RecoverNow(ctx, sess, req, out)
+		})
+	} else {
+		res, thaw, err = svc.RecoverNow(ctx, sess, req, out)
+	}
 	if err != nil {
 		return reportRecoverError(err, *asJSON)
 	}

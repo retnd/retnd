@@ -100,6 +100,12 @@ const (
 // no local copy at all after one, and neither of those is expressible in a
 // single local_path column.
 type Placement struct {
+	// ID is this copy's row id in the placements table, the "placement id" a
+	// recovery test and a support conversation name a copy by. It is zero on
+	// a Placement built by hand and never part of an identity: a copy is
+	// still (artifact, medium).
+	ID int64
+
 	// Medium is MediumLocal or the id of a configured storage medium.
 	Medium string
 
@@ -280,7 +286,7 @@ func (r Record) ActiveMediumPlacements() []Placement {
 // artifact_id, to key its map by, which is why it does its own Scan rather
 // than calling scanPlacement.
 const placementColumns = `
-	p.medium, p.location, p.size_bytes, p.hash, p.hash_alg,
+	p.id, p.medium, p.location, p.size_bytes, p.hash, p.hash_alg,
 	p.verification_class, p.verified_at, p.status, p.created_at, p.updated_at,
 	` + assuranceColumns
 
@@ -391,6 +397,7 @@ func scanPlacement(row scanRow) (Placement, error) {
 // know the order, and placementColumns (with assuranceColumns) is the third,
 // kept beside them.
 type placementFields struct {
+	id                              int64
 	medium, location, hash, hashAlg string
 	verificationClass, status       string
 	size                            sql.NullInt64
@@ -401,7 +408,7 @@ type placementFields struct {
 
 func (f *placementFields) dests() []any {
 	return append([]any{
-		&f.medium, &f.location, &f.size, &f.hash, &f.hashAlg,
+		&f.id, &f.medium, &f.location, &f.size, &f.hash, &f.hashAlg,
 		&f.verificationClass, &f.verifiedAt, &f.status, &f.createdAt, &f.updatedAt,
 	}, f.assurance.dests()...)
 }
@@ -432,6 +439,7 @@ func (f *placementFields) build() (Placement, error) {
 		return Placement{}, err
 	}
 	return Placement{
+		ID:                f.id,
 		Medium:            f.medium,
 		Location:          f.location,
 		Size:              scanOptionalInt64(f.size),

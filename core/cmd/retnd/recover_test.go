@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/retnd/retnd/core/internal/recovery/budget"
 	"github.com/retnd/retnd/core/service"
 )
 
@@ -224,6 +225,19 @@ func TestRecoverSpawnsNoProcessOfItsOwn(t *testing.T) {
 	for _, banned := range []string{"os/exec", "exec.Command", "os.StartProcess"} {
 		if bytes.Contains(src, []byte(banned)) {
 			t.Errorf("recover.go mentions %s", banned)
+		}
+	}
+}
+
+func TestTheRecoveryBudgetsExitWithTheCodesTheBudgetTableGivesThem(t *testing.T) {
+	for code, name := range map[string]budget.Name{
+		service.RecoveryReadsBusy:       budget.ConcurrentReads,
+		service.RecoveryDestinationBusy: budget.DestinationReads,
+		service.RecoveryDownloadsBusy:   budget.DownloadStreams,
+		service.RecoveryBelowReserve:    budget.StagingReserve,
+	} {
+		if recoverExitCodes[code] != budget.ExitCode(name) {
+			t.Errorf("%s exits %d and budget %s says %d: one refusal, two numbers", code, recoverExitCodes[code], name, budget.ExitCode(name))
 		}
 	}
 }

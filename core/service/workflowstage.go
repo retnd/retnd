@@ -126,6 +126,17 @@ func (b *BackupService) RunStage(ctx context.Context, req app.StageRequest) (app
 		}
 	}
 
+	if req.DryRun {
+		out := app.StageResult{Configured: true}
+		for _, step := range steps {
+			out.Scripts = append(out.Scripts, app.StageScript{
+				Dir: dirOf[step.Scope], Name: step.ScriptName, SHA256: step.ScriptSHA256, Target: string(step.Target),
+			})
+		}
+
+		return out, nil
+	}
+
 	rt := b.runtime()
 	if rt == nil || rt.engine == nil {
 		return app.StageResult{}, ErrWorkflowsNotWired

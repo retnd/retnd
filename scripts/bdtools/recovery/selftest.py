@@ -57,15 +57,40 @@ RECOVER_RUN_GO = "core/service/recover_run.go"
 ROUTER_GO = "apps/common/webhost/router.go"
 HANDLER_GO = "apps/common/webhost/handlers_recovery.go"
 CLI_GO = "core/cmd/retnd/recover.go"
+BUDGET_GO = "core/internal/recovery/budget/budget.go"
+FLIGHT_GO = f"{EXPORT}/flight.go"
+CAPS_GO = "apps/common/platform/capabilities/hostlimits.go"
+WEBMAIN_GO = "apps/generic/cmd/retnd-web/main.go"
+APP_RT_GO = "core/internal/app/recoverytest.go"
+APP_SCRUB_GO = "core/internal/app/scrub.go"
+APP_ALERTS_GO = "core/internal/app/alerts.go"
+SVC_RT_GO = "core/service/recoverytest.go"
+RT_GO = "core/internal/recoverytest/recoverytest.go"
+LOCALREC_GO = "core/internal/recoverytest/localrecoverer.go"
+STATE_RT_GO = "core/internal/state/recoverytest.go"
+FSOPEN_GO = "core/internal/fsopen/fsopen.go"
+CONFIG_ASSURANCE_GO = "core/internal/config/assurance.go"
+ALERT_GO = "core/internal/alert/alert.go"
+OBS_ASSURANCE_GO = "core/internal/obs/assurance_events.go"
 
 # (module directory under the tree root, package patterns)
 EXPORT_PKG = ("core", ("./internal/recovery/export/",))
 SERVICE_PKG = ("core", ("./service/",))
+DEPLOY_PKG = ("core", ("./tests/deploymentdiff/",))
+BUDGET_PKG = ("core", ("./internal/recovery/budget/",))
+CAPS_PKG = ("apps/common", ("./platform/capabilities/",))
+WEBMAIN_PKG = ("apps/generic", ("./cmd/retnd-web/",))
 WEB_PKG = ("apps/common", ("./webhost/",))
 UI_PKG = ("apps/common", ("./webhost/serve/",))
 CLI_PKG = ("core", ("./cmd/retnd/",))
 AUTH_PKG = ("apps/common", ("./auth/local/",))
 SERVE_PKG = ("apps/generic", ("./cmd/retnd-web/",))
+APP_PKG = ("core", ("./internal/app/",))
+STATE_PKG = ("core", ("./internal/state/",))
+FSOPEN_PKG = ("core", ("./internal/fsopen/",))
+RT_PKG = ("core", ("./internal/recoverytest/",))
+ALERT_PKG = ("core", ("./internal/alert/",))
+OBS_PKG = ("core", ("./internal/obs/",))
 
 RECOVER_STREAM_GO = "core/service/recover_stream.go"
 PLANT = "// PLANTED VIOLATION (scripts/bdtools/recovery/selftest.py): "
@@ -242,8 +267,8 @@ MUTATIONS = [
     (
         "a publish of a file the staging area never created",
         STAGE_GO,
-        "\tif filepath.Dir(from) != filepath.Clean(s.Root) || !isPartial(filepath.Base(from)) {",
-        "\t" + PLANT + "any path may be moved into place.\n\tif false {",
+        "func (s *Staging) Publish(from, rel string) (string, error) {\n\tif filepath.Dir(from) != filepath.Clean(s.Root) || !isPartial(filepath.Base(from)) {",
+        "func (s *Staging) Publish(from, rel string) (string, error) {\n\t" + PLANT + "any path may be moved into place.\n\tif false {",
         "Publish must only move files this staging area created",
         EXPORT_PKG,
         "TestStagingPublishRefusesToPublishAForeignFile",
@@ -269,8 +294,8 @@ MUTATIONS = [
     (
         "a served range that writes no action-log row",
         RECOVER_RUN_GO,
-        "\td.b.auditRecovery(context.Background(), &ev, err)\n\tif err != nil {\n\t\td.b.finishRecoveryDownload(d.token)\n\t\treturn\n\t}",
-        "\t" + PLANT + "a served range is not audited.\n\t_ = &ev\n\tif err != nil {\n\t\td.b.finishRecoveryDownload(d.token)\n\t\treturn\n\t}",
+        "\td.b.auditRecovery(context.Background(), &ev, err)\n\tif err != nil {\n\t\td.endTrace(err)\n\t\td.b.finishRecoveryDownload(d.token)\n\t\treturn\n\t}",
+        "\t" + PLANT + "a served range is not audited.\n\t_ = &ev\n\tif err != nil {\n\t\td.endTrace(err)\n\t\td.b.finishRecoveryDownload(d.token)\n\t\treturn\n\t}",
         "should write 52 rows",
         SERVICE_PKG,
         "TestEveryMintAndEveryServedRange",
@@ -278,7 +303,7 @@ MUTATIONS = [
     (
         "a download whose grant is not spent when the client goes away",
         RECOVER_RUN_GO,
-        "\tif err != nil {\n\t\td.b.finishRecoveryDownload(d.token)\n\t\treturn\n\t}\n\tif d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {",
+        "\tif err != nil {\n\t\td.endTrace(err)\n\t\td.b.finishRecoveryDownload(d.token)\n\t\treturn\n\t}\n\tif d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {",
         "\t" + PLANT + "only a complete download spends the grant.\n\tif d.b.recoveryHost().grants.Served(d.token, start, end, d.size) {",
         "still redeemable",
         SERVICE_PKG,
@@ -575,11 +600,20 @@ MUTATIONS = [
     (
         "a local copy that is a symlink or a fifo, opened anyway",
         RECOVER_GO,
-        "\t\tif !fi.Mode().IsRegular() {\n\t\t\treturn nil, recoveryErr(RecoveryNotReadable,",
-        "\t\t" + PLANT + "any file type is opened.\n\t\tif false && !fi.Mode().IsRegular() {\n\t\t\treturn nil, recoveryErr(RecoveryNotReadable,",
-        "must be refused",
+        "\t\tf, err := fsopen.OpenRegular(s.local)\n\t\tif errors.Is(err, fsopen.ErrNotRegular) {",
+        "\t\tf, err := fsopen.OpenRegular(s.local)\n\t\t" + PLANT + "a refusal is not recognised.\n\t\tif false && errors.Is(err, fsopen.ErrNotRegular) {",
+        "must be refused as not readable",
         SERVICE_PKG,
         "TestALocalCopyThatIsASymlink",
+    ),
+    (
+        "an opener that follows a fifo or a link to whatever is behind it",
+        FSOPEN_GO,
+        "\tif !fi.Mode().IsRegular() {",
+        "\t" + PLANT + "any file type is opened.\n\tif false {",
+        "OpenRegular opened a fifo",
+        FSOPEN_PKG,
+        "TestOpenRegularRefusesAFifoWithoutBlocking_C11|TestOpenRegularRefusesWhatIsNotARegularFile_C11",
     ),
     (
         "a client's bad range offset that spends the grant",
@@ -591,6 +625,168 @@ MUTATIONS = [
         "TestAnUnsatisfiableRangeIsReportedAsARefusal",
     ),
     (
+        "a read budget that never refuses",
+        BUDGET_GO,
+        "\tdefault:\n\t\treturn nil, &Refusal{Budget: g.name, Limit: int64(g.limit), Destination: g.dest}\n",
+        "\tdefault:\n\t\t" + PLANT + "the line is not enforced.\n\t\treturn func() {}, nil\n",
+        "over the line",
+        BUDGET_PKG,
+        "TestAGateRefusesPastItsLine",
+    ),
+    (
+        "a per-destination budget that is not applied",
+        BUDGET_GO,
+        "\treleaseDest, err := dg.Acquire()",
+        "\t" + PLANT + "one destination may take every slot.\n\treleaseDest, err := func() (func(), error) { _ = dg; return func() {}, nil }()",
+        "a third read of one destination",
+        BUDGET_PKG,
+        "TestReadsRefusesPerDestination",
+    ),
+    (
+        "a budget the product never reads",
+        BUDGET_GO,
+        '\tDownloadStreams Name = "download_streams"\n',
+        '\tDownloadStreams Name = "download_streams"\n\n\t' + PLANT + 'a budget with a name, a default and an exit code and no reader.\n\tUnreadBudget Name = "unread_budget"\n',
+        "UnreadBudget is declared",
+        BUDGET_PKG,
+        "TestEveryBudgetIsReadByAProductCodePath",
+    ),
+    (
+        "read ceilings that disagree with the configuration's documented defaults",
+        CONFIG_ASSURANCE_GO,
+        "\tDefaultMaxConcurrentReads = 2",
+        "\tDefaultMaxConcurrentReads = 4 // " + PLANT.rstrip(),
+        "documented defaults are 2 and 1",
+        BUDGET_PKG,
+        "TestTheReadCeilingDefaultsAreTheOnesTheOperatorIsTold",
+    ),
+    (
+        "an abandoned download whose stream slot the reaper keeps",
+        RECOVER_RUN_GO,
+        "	if st.release != nil {\n\t\tst.release()\n\t}",
+        "	" + PLANT + "the slot is not given back.\n\t_ = st.release",
+        "kept its slot",
+        SERVICE_PKG,
+        "TestTheReaperGivesBackAnAbandonedDownloadsStreamSlot",
+    ),
+    (
+        "a full read that never takes a read slot",
+        ENGINE_GO,
+        "\tif e.Reads != nil {",
+        "\t" + PLANT + "reads are unbounded.\n\tif false && e.Reads != nil {",
+        "want a per-destination refusal",
+        EXPORT_PKG,
+        "TestStageOverTheReadBudgetIsRefusedBeforeTheCopyIsOpened",
+    ),
+    (
+        "a full read that never gives its slot back",
+        ENGINE_GO,
+        "\t	defer release()\n",
+        "\t	// " + PLANT.rstrip() + "\n\t\t_ = release\n",
+        "is still held",
+        EXPORT_PKG,
+        "TestAStageGivesBackItsReadSlotWhateverHappens",
+    ),
+    (
+        "two operators asking for the same copy each reading it",
+        FLIGHT_GO,
+        "\tif c, ok := f.calls[key]; ok {",
+        "\t" + PLANT + "nothing is shared.\n\tif c, ok := f.calls[key]; ok && false {",
+        "read 2 times",
+        EXPORT_PKG,
+        "TestTwoOperatorsAskingForTheSameCopyShareOneRead",
+    ),
+    (
+        "a shared copy removed by the first operator to finish",
+        FLIGHT_GO,
+        "\t	staged.addRefs(c.waiters)\n",
+        "\t	// " + PLANT.rstrip() + "\n",
+        "removed the copy the second is still using",
+        EXPORT_PKG,
+        "TestTwoOperatorsAskingForTheSameCopyShareOneRead",
+    ),
+    (
+        "a download ceiling that is not enforced",
+        "core/service/recover_stream.go",
+        "\t\trel, aerr := h.streams.Acquire()",
+        "\t\t" + PLANT + "any number of streams.\n\t\trel, aerr := func() (func(), error) { return func() {}, nil }()",
+        "a second stream over a ceiling of one",
+        SERVICE_PKG,
+        "TestTheDownloadCeilingRefusesTheNextStream",
+    ),
+    (
+        "a provider checksum that disagrees and is read anyway",
+        RECOVER_RUN_GO,
+        "\tif !res.Passed {",
+        "\t" + PLANT + "a disagreement is ignored.\n\tif false && !res.Passed {",
+        "positive finding of corruption",
+        SERVICE_PKG,
+        "TestAProviderChecksumThatDisagrees",
+    ),
+    (
+        "a cancelled recovery that places its output anyway",
+        RECOVER_RUN_GO,
+        "\tif serr == nil && ctx.Err() != nil {",
+        "\t" + PLANT + "cancellation after verifying is ignored.\n\tif false {",
+        "was ignored",
+        SERVICE_PKG,
+        "TestCancellationBetweenVerifyingAndPlacing",
+    ),
+    (
+        "a destination that loses an object mid-read blamed on nobody",
+        RECOVER_GO,
+        "\tcase isNotFoundCategory(err):",
+        "\t" + PLANT + "a vanished object is a generic failure.\n\tcase false && isNotFoundCategory(err):",
+        "mid-read",
+        SERVICE_PKG,
+        "TestADestinationThatDisappearsMidRead",
+    ),
+    (
+        "a budget refusal that maps to the wrong code",
+        RECOVER_GO,
+        "\tcase errors.As(err, &ref):",
+        "\t" + PLANT + "budget refusals are not recognised.\n\tcase false && errors.As(err, &ref):",
+        "refusal maps to",
+        SERVICE_PKG,
+        "TestEveryBudgetRefusalMapsToACode",
+    ),
+    (
+        "host limits changed under live grants",
+        RECOVER_GO,
+        "\tif h.started {",
+        "\t" + PLANT + "limits may change at any time.\n\tif false && h.started {",
+        "limits changed under live grants",
+        SERVICE_PKG,
+        "TestHostLimitsCannotChangeOnceRecoveryHasStarted",
+    ),
+    (
+        "host limits that cannot mean anything accepted from a platform",
+        CAPS_GO,
+        "\tif err := l.Validate(); err != nil {",
+        "\t" + PLANT + "nothing is validated.\n\tif err := l.Validate(); err != nil && false {",
+        "was accepted",
+        CAPS_PKG,
+        "TestHostLimitsThatCannotMeanAnythingAreRefused",
+    ),
+    (
+        "a platform's host limits never handed to the engine",
+        WEBMAIN_GO,
+        "\tif err := applyHostLimits(backend, platformAdapter); err != nil {",
+        "\t" + PLANT + "the limits are never applied.\n\tif err := error(nil); err != nil {",
+        "the engine runs with",
+        WEBMAIN_PKG,
+        "TestAPlatformsHostLimitsReach",
+    ),
+    (
+        "the shipped container quietly made privileged",
+        "container/compose.yaml",
+        "x-security: &security\n  privileged: false\n",
+        "x-security: &security\n  privileged: true # " + PLANT.rstrip() + "\n",
+        "container/compose.yaml has changed",
+        DEPLOY_PKG,
+        "TestTheCanonicalDeploymentIsExactlyWhatItWasBeforeEpicQ",
+    ),
+    (
         "a recover verb that takes no explicit target",
         CLI_GO,
         '\tif *to == "" {',
@@ -598,6 +794,288 @@ MUTATIONS = [
         "--to is required",
         CLI_PKG,
         "TestRecoverIsRefusedBeforeAnythingIsOpened",
+    ),
+    # --- the panel's findings on the recovery-test side (C2, C3, C13, C14) ---
+    (
+        "a scheduled recovery test that ignores the policy's mode",
+        APP_RT_GO,
+        "\t\t\tif !bs.Assurance.RecoveryTestEnabled() || s.Stages == nil {",
+        "\t\t\t" + PLANT + "the mode is not consulted.\n\t\t\tif s.Stages == nil {",
+        "under mode off",
+        APP_PKG,
+        "TestRecoveryTest_ModeOffRunsNothingEvenWithAScript",
+    ),
+    (
+        "a recovery test cadence that is a constant and not the setting",
+        APP_RT_GO,
+        "recoverytest.Config{Cadence: bs.Assurance.RecoveryTestInterval()}",
+        "recoverytest.Config{Cadence: 7 * 24 * time.Hour /* " + PLANT.rstrip() + " */}",
+        "the cadence the operator wrote",
+        APP_PKG,
+        "TestRecoveryTest_UsesTheResolvedCadence",
+    ),
+    (
+        "a validator_id that selects no script",
+        APP_RT_GO,
+        "\t\treq.Only = v.scriptFile\n",
+        "\t\t_ = v.scriptFile // " + PLANT.rstrip() + "\n",
+        "asking for exactly pg-check.local.sh",
+        APP_PKG,
+        "TestRecoveryTest_ValidatorIDSelectsTheScript",
+    ),
+    (
+        "a named validator that is missing, run as another script",
+        APP_RT_GO,
+        "\tif v.scriptFile != \"\" && !(res.Configured && len(res.Scripts) == 1 && res.Scripts[0].Name == v.scriptFile) {",
+        "\t" + PLANT + "an absent named script reads as not configured.\n\tif false {",
+        "no directory but a declared validator",
+        APP_PKG,
+        "TestRecoveryTest_ANamedValidatorThatIsNotThereFailsClosed",
+    ),
+    (
+        "a pass that sets no recovery requirement on a set's health",
+        "core/internal/app/health.go",
+        "\t\t\t\tRecoveryTestRequired: bs.Assurance.RecoveryTestEnabled(),",
+        "\t\t\t\t// " + PLANT.rstrip(),
+        "want DEGRADED",
+        APP_PKG,
+        "TestHealth_RequiredModeDegradesASetWithNoPass",
+    ),
+    (
+        "a scheduled assurance tick that scrubs and never tests",
+        APP_SCRUB_GO,
+        "\ts.ScrubTick(ctx)\n\ts.RecoveryTestTick(ctx)\n}",
+        "\ts.ScrubTick(ctx)\n\t" + PLANT + "the recovery test is not run.\n}",
+        "the tick that scrubs must also test",
+        APP_PKG,
+        "TestAssuranceTick_ScrubsAndRecoveryTestsInOneCall",
+    ),
+    (
+        "a serving scheduler that scrubs and never tests",
+        SCHEDULER_GO,
+        "b.state.Load().inner.AssuranceTick(app.WithBackupSetHolds(ctx, b.holds))",
+        "b.state.Load().inner.ScrubTick(app.WithBackupSetHolds(ctx, b.holds)) // " + PLANT.rstrip(),
+        "RecoveryTestTick had no caller under serve",
+        SERVICE_PKG,
+        "TestServeSchedulerRunsADueRecoveryTest",
+    ),
+    (
+        "a failing recovery test or scrub that reaches no notifier",
+        APP_ALERTS_GO,
+        "\tconditions = append(conditions, alert.AssuranceConditions(s.assuranceSignals(healthReport, alertable))...)",
+        "\t_ = s.assuranceSignals // " + PLANT.rstrip(),
+        "RECOVERY_TEST_FAILING alerts",
+        APP_PKG,
+        "TestARecoveryTestFailureRaisesRecoveryTestFailingThroughTheDispatcher|TestAScrubFailureRaisesTheScrubFailingAlertThroughTheDispatcher",
+    ),
+    (
+        "a recovery test verdict stamped on bytes the copy no longer has",
+        STATE_RT_GO,
+        "\tif expect != nil && *expect != cur {",
+        "\t" + PLANT + "the bytes are not compared.\n\tif false {",
+        "want ErrCopyChanged",
+        STATE_PKG,
+        "TestRecordRecoveryTestRefusesAVerdictForDifferentBytes",
+    ),
+    (
+        "a recovery test that records its verdict without the identity it read",
+        RT_GO,
+        "\t\trt.Expect = &identity\n",
+        "\t\t// " + PLANT.rstrip() + "\n",
+        "guarded by the identity of the copy that was read",
+        RT_PKG,
+        "TestEveryRecordedVerdictCarriesTheIdentityOfTheCopyItRead",
+    ),
+    (
+        "a recoverer's integrity refusal recorded as an attempt that could not complete",
+        RT_GO,
+        "\t\tif errors.Is(err, ErrCorruptCopy) {",
+        "\t\t" + PLANT + "corrupt bytes are not a digest failure.\n\t\tif false && errors.Is(err, ErrCorruptCopy) {",
+        "want failed with the digest not matched",
+        RT_PKG,
+        "TestARecoverersIntegrityRefusalIsADigestFailure",
+    ),
+    (
+        "a recovery test that stages a local copy through a plain open",
+        LOCALREC_GO,
+        "\tsrc, err := fsopen.OpenRegular(req.Copy.Location)",
+        "\tsrc, err := os.Open(req.Copy.Location) // " + PLANT.rstrip(),
+        "Recover blocked on a fifo",
+        RT_PKG,
+        "TestLocalRecovererRefusesAFifoWithoutBlocking",
+    ),
+    (
+        "a free local volume priced as a download",
+        RT_GO,
+        "\t\t\tif m.Type == transport.MediumTypeLocalDir {",
+        "\t\t\t" + PLANT + "a directory costs money to read.\n\t\t\tif false && m.Type == transport.MediumTypeLocalDir {",
+        "nothing is charged for reading it",
+        SERVICE_PKG,
+        "TestAScheduledRecoveryTestOfAFreeLocalDirMediumRuns",
+    ),
+    (
+        "a recovery test that cannot reach a copy on a storage medium",
+        SVC_RT_GO,
+        "\tcase RecoveryLocalCopyCorrupt, RecoveryRemoteCopyCorrupt:",
+        "\t" + PLANT + "corruption is not recognised.\n\tcase \"\":",
+        "want a failure at the digest gate",
+        SERVICE_PKG,
+        "TestARecoveryTestOfAMediumCopyWithWrongBytesFailsAtTheDigestGate",
+    ),
+    (
+        "an unattended recovery test that pays for a download",
+        RT_GO,
+        "\tack := req.AcknowledgeCost && !req.Scheduled",
+        "\t" + PLANT + "a scheduled test carries the yes.\n\tack := req.AcknowledgeCost",
+        "a scheduled test never pays",
+        RT_PKG,
+        "TestAScheduledTestOfAMediumCopyIsRefusedForCostAndNothingIsRead",
+    ),
+    (
+        "a real recovery that says nothing about its stages",
+        RECOVER_RUN_GO,
+        "\t\ttrace.stage(ctx, \"reading\")\n",
+        "\t\t// " + PLANT.rstrip() + "\n",
+        "stages =",
+        SERVICE_PKG,
+        "TestARealRecoveryEmitsTheStageEventsTheUIRenders",
+    ),
+    (
+        "a failed recovery that still says Complete",
+        RECOVER_RUN_GO,
+        "\t\tt.b.logger.RecoveryEnd(ctx, t.opID, t.set, t.artifact, 0, now().Sub(t.started), result, reason)",
+        "\t\tt.b.logger.RecoveryStage(ctx, t.opID, t.set, \"complete\") // " + PLANT.rstrip() + "\n\t\tt.b.logger.RecoveryEnd(ctx, t.opID, t.set, t.artifact, 0, now().Sub(t.started), result, reason)",
+        "reported the Complete stage",
+        SERVICE_PKG,
+        "TestAFailedRecoveryEndsWithAnErrorAndNeverSaysComplete",
+    ),
+    (
+        "a configured staging root nothing reads",
+        RECOVER_GO,
+        "\t\troot := cfg.Assurance.StagingRoot\n",
+        "\t\troot := \"\" // " + PLANT.rstrip() + "\n",
+        "staging root =",
+        SERVICE_PKG,
+        "TestAssuranceHostKnobsReachTheEngine",
+    ),
+    (
+        "a configured read ceiling nothing reads",
+        RECOVER_GO,
+        "\tlim.MaxConcurrentReads = smallerPositive(lim.MaxConcurrentReads, explicit(a.MaxConcurrentFullReads, a.MaxConcurrentFullReadsWritten, config.DefaultMaxConcurrentReads))",
+        "\t_ = explicit // " + PLANT.rstrip(),
+        "effective read ceilings",
+        SERVICE_PKG,
+        "TestAssuranceHostKnobsReachTheEngine",
+    ),
+    (
+        "a staging root that fails custody and is written to anyway",
+        RECOVER_GO,
+        "\t\tif err := ValidateStagingRoot(root); err != nil {",
+        "\t\t" + PLANT + "custody is not checked.\n\t\tif err := ValidateStagingRoot(root); err != nil && false {",
+        "a world-writable staging root",
+        SERVICE_PKG,
+        "TestAStagingRootThatFailsCustody",
+    ),
+    (
+        "a scrub that runs under its own read ceilings and not the settings'",
+        APP_SCRUB_GO,
+        "\t\t\tb.GlobalConcurrency = s.Config.Assurance.MaxConcurrentFullReads\n",
+        "\t\t\t// " + PLANT.rstrip() + "\n",
+        "admitted under assurance.max_concurrent_full_reads = 1",
+        APP_PKG,
+        "TestAssuranceHostKnobsReachTheScrubLimits",
+    ),
+    (
+        "a route that starts a recovery test and is not registered",
+        ROUTER_GO,
+        '\t\tr.With(requireCSRF).Post("/backup-sets/{source}/{set}/recovery-test", h.startRecoveryTest)',
+        "\t\t_ = h.startRecoveryTest // " + PLANT.rstrip(),
+        "= 405",
+        WEB_PKG,
+        "TestAssuranceRoute_StartRecoveryTest",
+    ),
+    (
+        "a scheduled pass that neither scheduler can reach",
+        APP_SCRUB_GO,
+        "// AssuranceTick is one scheduled assurance pass:",
+        "// " + PLANT.rstrip() + "\n// NewPassTick is a pass nobody schedules.\nfunc (s *Service) NewPassTick(ctx context.Context) {}\n\n// AssuranceTick is one scheduled assurance pass:",
+        "is a scheduled pass that AssuranceTick does not call",
+        APP_PKG,
+        "TestEveryEntryPointInAssuranceTickIsCalledByBothSchedulers",
+    ),
+    (
+        "an alert kind nothing ever raises",
+        ALERT_GO,
+        '\tRecoveryTestFailing Kind = "RECOVERY_TEST_FAILING"\n',
+        '\tRecoveryTestFailing Kind = "RECOVERY_TEST_FAILING"\n\n\t' + PLANT + 'a kind with a name, a title and no producer.\n\tUnraised Kind = "UNRAISED"\n',
+        "the kind Unraised is produced by no function",
+        ALERT_PKG,
+        "TestEveryAlertKindHasAProducerAndEveryProducerHasACaller",
+    ),
+    (
+        "an assurance event nothing emits",
+        OBS_ASSURANCE_GO,
+        "// validatorRef renders a validator reference for the feed.",
+        "// " + PLANT.rstrip() + "\n// Dormant is an event with an emitter and no caller.\nfunc (l *Logger) Dormant() {}\n\n// validatorRef renders a validator reference for the feed.",
+        "events nothing emits",
+        OBS_PKG,
+        "TestEveryAssuranceEventHasAProductionEmitter",
+    ),
+    (
+        "a second recovery test of one set started while the first runs",
+        SVC_RT_GO,
+        "\tif b.recoveryTests.running[set.String()] {",
+        "\t" + PLANT + "any number at once.\n\tif false && b.recoveryTests.running[set.String()] {",
+        "already running",
+        SERVICE_PKG,
+        "TestStartRecoveryTestRunsOneAtATimePerSet",
+    ),
+    # The activity feed is durable (migration 0018). Seven controls, one per
+    # promise: it survives a restart, it does not store samples or per-range
+    # lines, it coalesces stages, it prunes, it never blocks the cycle, and a
+    # backwards page stays behind its cursor.
+    (
+        "an activity feed that forgets everything at a restart",
+        "core/service/service.go",
+        "\tactivity.hydrate(ctx, journal, configuredSetIDs(cfg))\n",
+        "\t" + PLANT + "the rings are not refilled from the journal.\n\t_ = configuredSetIDs\n",
+        "after a restart the feed holds",
+        SERVICE_PKG,
+        "TestTheFeedSurvivesARestartAndTheNumberingContinues",
+    ),
+    (
+        "a periodic sample written to the journal",
+        "core/service/liveactivity_durable.go",
+        "\tif d == nil || activityNotStored[e.Event] {",
+        "\t" + PLANT + "samples are stored like everything else.\n\tif d == nil || (false && activityNotStored[e.Event]) {",
+        "rows stored for 150 samples",
+        SERVICE_PKG,
+        "TestPeriodicSamplesAndPerRangeDownloadLinesAreNotStored",
+    ),
+    (
+        "a per-range download line written for every range",
+        "core/service/liveactivity_durable.go",
+        '\t\tif f.Key == "operation" && f.Value == "recovery range" {',
+        "\t\t" + PLANT + "every range is stored.\n\t\tif false && f.Key == \"operation\" && f.Value == \"recovery range\" {",
+        "rows stored for 150 samples",
+        SERVICE_PKG,
+        "TestPeriodicSamplesAndPerRangeDownloadLinesAreNotStored",
+    ),
+    (
+        "a recovery whose every stage costs a row",
+        "core/service/liveactivity_durable.go",
+        "\t	Coalesce: it.e.Event == obs.EventRecoveryStage,",
+        "\t\t" + PLANT + "stages are never replaced.\n\t\tCoalesce: false && it.e.Event == obs.EventRecoveryStage,",
+        "stored 4 stage rows",
+        SERVICE_PKG,
+        "TestRecoveryStagesAreCoalescedToTheLastOneReached|TestACoalescedStageReplaces",
+        [
+            (
+                "core/service/liveactivity_durable.go",
+                '\t\tif it.e.Event == obs.EventRecoveryStage && it.e.ActionID != "" && lastStage[it.e.ActionID] != i {',
+                "\t\t" + PLANT + "every stage in a batch is written.\n\t\tif false && it.e.Event == obs.EventRecoveryStage && it.e.ActionID != \"\" && lastStage[it.e.ActionID] != i {",
+            )
+        ],
     ),
     (
         "a download that stages the artifact again before streaming it (Q1.24)",
@@ -638,6 +1116,33 @@ MUTATIONS = [
                 '\t"github.com/retnd/retnd/core/internal/obs"\n\t"github.com/retnd/retnd/core/internal/procseam"\n',
             )
         ],
+    ),
+    (
+        "activity retention that never prunes by age",
+        "core/internal/state/activity_events.go",
+        "`DELETE FROM activity_events WHERE at < ?`",
+        "`DELETE FROM activity_events WHERE 0 AND at < ?`",
+        "want 20 by age",
+        SERVICE_PKG,
+        "TestRetentionDropsWhatIsOldAndWhatIsOverTheRowBound",
+    ),
+    (
+        "a durable writer that blocks the feed when it falls behind",
+        "core/service/liveactivity_durable.go",
+        "\tdefault:\n\t\td.dropped.Add(1)\n\t}",
+        "\tdefault:\n\t\t" + PLANT + "the feed waits for the writer.\n\t\td.queue <- durableItem{e: e, setID: setID}\n\t}",
+        "blocked on a full durable queue",
+        SERVICE_PKG,
+        "TestTheWriterFallingBehindDropsFromTheRecordAndNeverBlocksTheFeed",
+    ),
+    (
+        "a backwards page that includes the cursor it was asked to stay behind",
+        "core/internal/state/activity_events.go",
+        "AND seq < ? ORDER BY seq DESC LIMIT ?`,",
+        "AND seq <= ? ORDER BY seq DESC LIMIT ?`,",
+        "at or after it",
+        SERVICE_PKG,
+        "TestBeforePagesBackwardsPastWhatTheRingHolds",
     ),
     (
         "a conditional GET answered 304 that reports the whole file served",
@@ -715,6 +1220,9 @@ CLEAN_CONTROLS = [
     ),
     ("the UI proxy's recovery path", UI_PKG, "TestUI_ARecovery|TestUI_ADownloadsGrant|TestUI_ABrowserThatAborts"),
     ("the recover verb suite", CLI_PKG, "TestRecoverIsRefusedBeforeAnythingIsOpened"),
+    ("the budget package", BUDGET_PKG, "."),
+    ("the host-limits contract", CAPS_PKG, "."),
+    ("the deployment tripwire", DEPLOY_PKG, "."),
     (
         "the grant lifetime suite",
         SERVICE_PKG,
@@ -726,6 +1234,27 @@ CLEAN_CONTROLS = [
         "TestAuthenticatorReportsSessionExpiry|TestLogoutTells|TestRotatingThePassword",
     ),
     ("the logout wiring suite", SERVE_PKG, "TestLogoutRevokes|TestServeHandsEveryBackend"),
+    (
+        "the recovery-test policy suite",
+        APP_PKG,
+        "TestRecoveryTest_|TestHealth_RequiredMode|TestAssuranceTick_|TestEveryEntryPoint|TestTheAssuranceTickGuard|TestRecoveryTestTick_|TestARecoveryTest|TestAScrubFailure|TestALapsed|TestAFailedRecoveryTest|TestAssuranceHostKnobsReachTheScrub|TestMediumFor_",
+    ),
+    ("the recovery-test runner suite", RT_PKG, "."),
+    ("the recovery-test journal suite", STATE_PKG, "TestRecordRecovery|TestMarkRecoveryOverdue"),
+    ("the copy opener", FSOPEN_PKG, "."),
+    ("the alert vocabulary guard", ALERT_PKG, "TestEveryAlertKind|TestTheAlertProducerGuard"),
+    ("the assurance event guard", OBS_PKG, "TestEveryAssuranceEvent|TestTheAssuranceEmitterGuard"),
+    (
+        "the recovery-test service suite",
+        SERVICE_PKG,
+        "TestAssuranceHostKnobs|TestADefaultDeployment|TestAStagingRoot|TestRecoveryTestOf|TestAScheduledRecovery|TestARecoveryTestOf|TestARealRecovery|TestAFailedRecovery|TestServeScheduler|TestAServeTick|TestStartRecoveryTest",
+    ),
+    ("the assurance route suite", WEB_PKG, "TestAssuranceRoute_StartRecoveryTest"),
+    (
+        "the durable activity feed suite",
+        SERVICE_PKG,
+        "TestTheFeedSurvivesARestart|TestRecoveryAndRecoveryTestEvents|TestPeriodicSamples|TestRecoveryStagesAreCoalesced|TestACoalescedStage|TestRetentionDrops|TestTheWriterFallingBehind|TestBeforePagesBackwards|TestAnOverlongMessage",
+    ),
     (
         "the streamed download suite",
         SERVICE_PKG,
@@ -746,12 +1275,19 @@ def body(root: Path, dry_run: bool) -> int:
         tmp = Path(tmp_name)
         tracker = selftest_swap.AnchorTracker(dry_run=dry_run, root=root, tmp=tmp)
 
+        # RECOVERY_SELFTEST_ONLY=<substring> runs only the controls whose label
+        # contains it (and no negative controls), for re-running the control
+        # you just wrote. Unset, everything runs, and that is the gate.
+        only = os.environ.get("RECOVERY_SELFTEST_ONLY", "")
+
         print("==> negative controls: each slice is clean on the real tree")
-        for label, where, pattern in CLEAN_CONTROLS:
+        for label, where, pattern in ([] if only else CLEAN_CONTROLS):
             expect_passes(tracker, tally, f"{label} on an unmutated tree", root, where, pattern)
 
         for i, entry in enumerate(MUTATIONS):
             label, rel, old, new, needle, where, pattern = entry[:7]
+            if only and only not in label:
+                continue
             extras = entry[7] if len(entry) > 7 else []
             print()
             print(f"==> {label}")

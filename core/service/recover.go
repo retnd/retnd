@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -17,8 +16,10 @@ import (
 	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/internal/archive"
 	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/fsopen"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/recovery/budget"
 	"github.com/retnd/retnd/core/internal/recovery/export"
 	"github.com/retnd/retnd/core/internal/state"
 	"github.com/retnd/retnd/core/internal/transport"
@@ -58,14 +59,14 @@ import (
 // says what that does and does not prove). It is not staged, so it cannot
 // fill the staging disk and has nothing to clean up if the client leaves.
 
-// Recovery staging defaults. They are constants here and not configuration
-// because the settings surface for them is its own work (the staging root,
-// the TTL and the ceilings are global-only knobs); these are the values it
-// will default to.
+// Recovery staging. The root, how long a leftover survives and the read
+// ceilings are the deployment's assurance settings (assurance.staging_root,
+// staging_ttl, max_concurrent_full_reads, max_per_destination), read when the
+// recovery machinery is first used by this process. Two things stay constants
+// because nothing exposes them: how long an unfinished partial may sit (an
+// hour, and never longer than staging_ttl) and the grant table's limits.
 const (
 	recoveryPartialTTL = time.Hour
-	recoveryOutputTTL  = 7 * 24 * time.Hour
-	recoveryReserve    = 1 << 30 // keep 1 GiB free on the staging filesystem
 	recoveryGrantTTL   = export.DefaultGrantTTL
 	recoveryMaxGrants  = 32
 )
@@ -157,6 +158,20 @@ type recoveryHost struct {
 	staging *export.Staging
 	engine  *export.Engine
 
+	// limits are this host's budgets (core/internal/recovery/budget), and
+	// reads and streams the gates built from them. Zero fields take the
+	// defaults; a test or a host sets them before first use.
+	limitsMu sync.Mutex
+	started  bool
+	limits   budget.Limits
+	reads    *budget.Reads
+	streams  *budget.Gate
+
+	// afterStage, when set, runs once a copy is staged and verified and
+	// before it is delivered. A test hook for the write stage.
+	afterStage func()
+
+	flight export.Flight
 	// indexes is the cache of chunk indexes a streamed download is checked
 	// against, and the single-flight in front of making one; verified is
 	// what the server remembers of finished downloads.
@@ -164,8 +179,10 @@ type recoveryHost struct {
 	verified verifiedLog
 
 	// unavailable is set when there is nowhere to stage; every recovery
-	// entry point then refuses with RecoveryUnavailable.
-	unavailable bool
+	// entry point then refuses with RecoveryUnavailable. unavailableWhy is
+	// the sentence for the log.
+	unavailable    bool
+	unavailableWhy string
 
 	// now is the clock the grants use; nil means time.Now. A field so a
 	// test can expire a grant without sleeping.
@@ -186,16 +203,50 @@ func (b *BackupService) recoveryHost() *recoveryHost {
 			// No state directory means no place to stage. Refusing is
 			// better than staging under the working directory.
 			h.unavailable = true
+			h.unavailableWhy = "this deployment has no state directory to stage a recovery in"
 			return
 		}
-		root := filepath.Join(filepath.Dir(cfg.State.Database), "recovery")
+		root := cfg.Assurance.StagingRoot
+		if root == "" {
+			root = filepath.Join(filepath.Dir(cfg.State.Database), config.DefaultStagingDirName)
+		}
+		// The settings write validated this when it was saved, but the file
+		// can be edited by hand and the directory can change under it. The
+		// engine creates files here, so a root that fails custody is a
+		// refusal and not a place to write.
+		if err := ValidateStagingRoot(root); err != nil {
+			h.unavailable = true
+			h.unavailableWhy = "assurance.staging_root: " + err.Error()
+			b.logger.Error(context.Background(), "recovery_staging_root", errors.New(h.unavailableWhy))
+			return
+		}
+		outputTTL := cfg.Assurance.StagingTTL
+		if outputTTL <= 0 {
+			outputTTL = config.DefaultStagingTTL
+		}
+		partialTTL := recoveryPartialTTL
+		if outputTTL < partialTTL {
+			partialTTL = outputTTL
+		}
+		h.limitsMu.Lock()
+		h.started = true
+		lim := h.hostLimits(cfg).WithDefaults()
+		h.limitsMu.Unlock()
+		if lim.Validate() != nil {
+			// SetRecoveryLimits refuses these before they get here; this
+			// is the backstop for a value set some other way.
+			lim = budget.Defaults()
+		}
+		h.limits = lim
 		h.staging = &export.Staging{
 			Root:       root,
-			PartialTTL: recoveryPartialTTL,
-			OutputTTL:  recoveryOutputTTL,
-			Reserve:    recoveryReserve,
+			PartialTTL: partialTTL,
+			OutputTTL:  outputTTL,
+			Reserve:    lim.StagingReserveBytes,
 		}
-		h.engine = &export.Engine{Staging: h.staging}
+		h.reads = budget.NewReads(lim)
+		h.streams = budget.NewGate(budget.DownloadStreams, lim.MaxDownloadStreams)
+		h.engine = &export.Engine{Staging: h.staging, Reads: h.reads}
 		h.indexes.store = &export.IndexStore{Dir: filepath.Join(filepath.Dir(cfg.State.Database), "recovery-index")}
 		h.grants = export.NewGrants(export.GrantOptions{TTL: recoveryGrantTTL, MaxOutstanding: recoveryMaxGrants, Now: h.now})
 		if h.thaw == nil {
@@ -210,7 +261,11 @@ func (b *BackupService) recoveryHost() *recoveryHost {
 func (b *BackupService) recoveryReady() (*recoveryHost, error) {
 	h := b.recoveryHost()
 	if h.unavailable {
-		return nil, recoveryErr(RecoveryUnavailable, "this deployment has no state directory to stage a recovery in")
+		why := h.unavailableWhy
+		if why == "" {
+			why = "this deployment has no state directory to stage a recovery in"
+		}
+		return nil, recoveryErr(RecoveryUnavailable, "%s", why)
 	}
 	return h, nil
 }
@@ -249,6 +304,9 @@ const (
 	RecoveryUnavailable          = "RECOVERY_UNAVAILABLE"
 	RecoveryBusy                 = "RECOVERY_BUSY"
 	RecoveryInterrupted          = "RECOVERY_INTERRUPTED"
+	RecoveryReadsBusy            = "RECOVERY_READS_BUSY"
+	RecoveryDestinationBusy      = "RECOVERY_DESTINATION_BUSY"
+	RecoveryDownloadsBusy        = "RECOVERY_DOWNLOADS_BUSY"
 	RecoveryFailed               = "RECOVERY_FAILED"
 	recoveryArtifactNotFoundCode = "ARTIFACT_NOT_FOUND"
 )
@@ -262,6 +320,7 @@ func RecoveryCodes() []string {
 		RecoveryBelowReserve, RecoveryGrantUnknown, RecoveryGrantUsed, RecoveryGrantExpired,
 		RecoveryGrantSessionEnded, RecoveryTooManyGrants, RecoveryTargetInvalid, RecoveryTargetExists,
 		RecoveryUseSnapshotRestore, RecoveryUnavailable, RecoveryBusy, RecoveryInterrupted, RecoveryFailed,
+		RecoveryReadsBusy, RecoveryDestinationBusy, RecoveryDownloadsBusy,
 	}
 }
 
@@ -290,7 +349,21 @@ func mapRecoveryError(err error) error {
 	}
 	var ie *export.IntegrityError
 	var ce *export.CleanupError
+	var ref *budget.Refusal
 	switch {
+	case errors.As(err, &ref):
+		code := RecoveryBusy
+		switch ref.Budget {
+		case budget.ConcurrentReads:
+			code = RecoveryReadsBusy
+		case budget.DestinationReads:
+			code = RecoveryDestinationBusy
+		case budget.DownloadStreams:
+			code = RecoveryDownloadsBusy
+		case budget.StagingReserve:
+			code = RecoveryBelowReserve
+		}
+		return &RecoveryError{Code: code, Message: ref.Error() + "; nothing was read", Cause: err}
 	case errors.As(err, &ie):
 		code := RecoveryRemoteCopyCorrupt
 		where := "the copy on " + ie.Medium
@@ -332,6 +405,8 @@ func mapRecoveryError(err error) error {
 		return &RecoveryError{Code: RecoveryTargetInvalid, Message: "that target name is too long", Cause: err}
 	case errors.Is(err, export.ErrTargetOutsideRoot):
 		return &RecoveryError{Code: RecoveryTargetInvalid, Message: "that target name does not stay inside the recovery staging root", Cause: err}
+	case isNotFoundCategory(err):
+		return &RecoveryError{Code: RecoveryNotReadable, Message: "the destination no longer has this copy, or lost it while it was being read; nothing was delivered", Cause: err}
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return &RecoveryError{Code: RecoveryInterrupted, Message: "the recovery was interrupted before it finished; nothing was delivered and its staging file was removed", Cause: err}
 	}
@@ -484,19 +559,21 @@ type recoverySource struct {
 
 func (s recoverySource) Open(ctx context.Context) (io.ReadCloser, error) {
 	if s.store == nil {
-		// Lstat before Open, and a symlink is refused: opening a fifo
-		// blocks until a writer appears, and a link is how a path under a
-		// backup root becomes a read of something else. (The SHA-256 check
-		// would refuse bytes that are not the artifact's, but not before
-		// the read had begun, and not a read that never ends.)
-		fi, err := os.Lstat(s.local)
+		// A fifo blocks an open until a writer appears, and a link is how a
+		// path under a backup root becomes a read of something else.
+		// fsopen.OpenRegular refuses both without blocking, and checks the
+		// kind on the open descriptor, so there is no window between the
+		// check and the read in which the path can be swapped. (The SHA-256
+		// check would refuse bytes that are not the artifact's, but not
+		// before the read had begun, and not a read that never ends.)
+		f, err := fsopen.OpenRegular(s.local)
+		if errors.Is(err, fsopen.ErrNotRegular) {
+			return nil, recoveryErr(RecoveryNotReadable, "the local copy is not a regular file, so it is not read")
+		}
 		if err != nil {
 			return nil, err
 		}
-		if !fi.Mode().IsRegular() {
-			return nil, recoveryErr(RecoveryNotReadable, "the local copy is not a regular file, so it is not read")
-		}
-		return os.Open(s.local)
+		return f, nil
 	}
 	return s.store.OpenObject(ctx, s.medium, s.key)
 }
@@ -726,7 +803,7 @@ func isRefusal(code string) bool {
 	case RecoveryCostNotAcknowledged, RecoveryNoCopy, RecoveryCopyNotFound, RecoveryNotReadable,
 		RecoveryGrantUnknown, RecoveryGrantUsed, RecoveryGrantExpired, RecoveryGrantSessionEnded,
 		RecoveryTooManyGrants, RecoveryTargetInvalid, RecoveryTargetExists, RecoveryUseSnapshotRestore,
-		RecoveryBelowReserve, RecoveryBusy, recoveryArtifactNotFoundCode, "RECOVERY_RANGE_NOT_SATISFIABLE":
+		RecoveryBelowReserve, RecoveryBusy, RecoveryReadsBusy, RecoveryDestinationBusy, RecoveryDownloadsBusy, recoveryArtifactNotFoundCode, "RECOVERY_RANGE_NOT_SATISFIABLE":
 		return true
 	}
 	return false
@@ -756,6 +833,112 @@ func (b *BackupService) observeRestore(ctx context.Context, st *configState, m t
 		return archive.Observation{Probe: archive.DidNotAnswer}
 	}
 	return archive.Observation{Probe: archive.Answered, Restore: rs}
+}
+
+// RecoveryLimits are the budgets a host may adjust for every backup set at
+// once. A zero field takes the engine's default. They are properties of the
+// host and the process, never of one set: one staging filesystem and one
+// HTTP server cannot honour a per-set override.
+type RecoveryLimits struct {
+	StagingReserveBytes    int64
+	MaxConcurrentReads     int
+	MaxReadsPerDestination int
+	MaxDownloadStreams     int
+}
+
+// hostLimits merges what the platform imposed (SetRecoveryLimits) with what
+// the operator configured (assurance.max_concurrent_full_reads and
+// max_per_destination). An operator who wrote a number gets it unless the
+// platform's own limit is lower, which wins because it is what the host can
+// bear. An operator who wrote nothing has the product's default, which is not
+// an opinion, so a platform that declares a limit of its own is not held to
+// it. A zero from both sides is the engine's default. The caller holds
+// limitsMu.
+func (h *recoveryHost) hostLimits(cfg *config.Config) budget.Limits {
+	lim := h.limits
+	a := cfg.Assurance
+	// Whether the operator wrote a number comes off the resolved policy, not
+	// off the raw block: only config/ and the assurance service files may
+	// read the pointers (TestAssurance_NoConsumerReadsThePointers).
+	explicit := func(resolved int, written bool, def int) int {
+		if written || (resolved > 0 && resolved != def) {
+			return resolved
+		}
+		return 0
+	}
+	lim.MaxConcurrentReads = smallerPositive(lim.MaxConcurrentReads, explicit(a.MaxConcurrentFullReads, a.MaxConcurrentFullReadsWritten, config.DefaultMaxConcurrentReads))
+	lim.MaxReadsPerDestination = smallerPositive(lim.MaxReadsPerDestination, explicit(a.MaxPerDestination, a.MaxPerDestinationWritten, config.DefaultMaxPerDestination))
+	// A per-destination ceiling above the global one could never bind, and
+	// the budget refuses it; the global one, if smaller, caps it.
+	if lim.MaxConcurrentReads > 0 && lim.MaxReadsPerDestination > lim.MaxConcurrentReads {
+		lim.MaxReadsPerDestination = lim.MaxConcurrentReads
+	}
+	return lim
+}
+
+func smallerPositive(a, b int) int {
+	switch {
+	case a <= 0:
+		return b
+	case b <= 0:
+		return a
+	case a < b:
+		return a
+	}
+	return b
+}
+
+// SetRecoveryLimits applies the host's limits to the recovery engine. It is
+// called once, by the process that serves, before anything is served: the
+// gates are built from the limits on first use and are not resized under live
+// grants, so a later call is refused rather than half applied.
+func (b *BackupService) SetRecoveryLimits(l RecoveryLimits) error {
+	h := &b.recovery
+	merged := budget.Limits{
+		StagingReserveBytes:    l.StagingReserveBytes,
+		MaxConcurrentReads:     l.MaxConcurrentReads,
+		MaxReadsPerDestination: l.MaxReadsPerDestination,
+		MaxDownloadStreams:     l.MaxDownloadStreams,
+	}.WithDefaults()
+	if err := merged.Validate(); err != nil {
+		return err
+	}
+	h.limitsMu.Lock()
+	defer h.limitsMu.Unlock()
+	if h.started {
+		return errors.New("service: recovery has already started, so its limits are fixed for the life of this process")
+	}
+	// Keep the zero fields zero here: the defaults are applied when the
+	// gates are built, and a limit the host left alone should keep tracking
+	// the engine's default rather than freezing today's.
+	h.limits = budget.Limits{
+		StagingReserveBytes:    l.StagingReserveBytes,
+		MaxConcurrentReads:     l.MaxConcurrentReads,
+		MaxReadsPerDestination: l.MaxReadsPerDestination,
+		MaxDownloadStreams:     l.MaxDownloadStreams,
+	}
+	return nil
+}
+
+// RecoveryLimits reports the limits recovery runs under: the host's where it
+// gave one, the engine's defaults where it did not.
+func (b *BackupService) RecoveryLimits() RecoveryLimits {
+	h := &b.recovery
+	cfg := b.state.Load().inner.Config
+	h.limitsMu.Lock()
+	lim := h.hostLimits(cfg).WithDefaults()
+	h.limitsMu.Unlock()
+	return RecoveryLimits{
+		StagingReserveBytes:    lim.StagingReserveBytes,
+		MaxConcurrentReads:     lim.MaxConcurrentReads,
+		MaxReadsPerDestination: lim.MaxReadsPerDestination,
+		MaxDownloadStreams:     lim.MaxDownloadStreams,
+	}
+}
+
+func isNotFoundCategory(err error) bool {
+	cat, ok := transport.CategoryOf(err)
+	return ok && cat == transport.NotFound
 }
 
 // RecoveryErrorFor is the coded form of any error a recovery can hit, for
