@@ -123,3 +123,23 @@ func TestTheAssuranceEmitterGuardCanFail(t *testing.T) {
 		t.Errorf("uncalled = %v, want only Dormant", got)
 	}
 }
+
+// The scrub and recovery-test events EPIC Q added to events.go sit outside
+// assurance_events.go, so the guard above never looked at them. They are held
+// to the same rule by name, and the test fails if one of them is renamed or
+// deleted, so a rename cannot make it pass by looking at nothing.
+func TestTheScrubAndRecoveryTestEventsHaveAProductionEmitterToo(t *testing.T) {
+	want := []string{"RecoveryTest", "ScrubFailure", "ScrubPass"}
+	declared := map[string]bool{}
+	for _, name := range assuranceEmitters(t, "events.go") {
+		declared[name] = true
+	}
+	for _, name := range want {
+		if !declared[name] {
+			t.Fatalf("events.go no longer declares Logger.%s: update this guard with the rename, do not let it look at nothing", name)
+		}
+	}
+	if got := uncalled(t, filepath.Join("..", ".."), ".", want); len(got) != 0 {
+		t.Fatalf("events nothing emits: %v. A catalog entry with no emitter is a promise the product does not keep; call it or delete it", got)
+	}
+}

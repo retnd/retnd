@@ -197,6 +197,33 @@ disk     ext4 on /dev/sda7, the artifact and its copies on the same filesystem
 The CLI recovered 4 GiB in 33.9 s and the web process staged, verified and sent
 it in 26.7 s including startup and enrollment.
 
+## Re-measured for the release gate (#988)
+
+The release gate asks for the large-download budget as a measured number with the host it was
+measured on, so it was run again on the composed EPIC Q tree, after the other lanes' work had
+landed in it, rather than quoting the run above. One difference from the run above, stated rather
+than hidden: it is 2 GiB, not 4 GiB, because the shared host's disk had about 14 GB free and the
+4 GiB run writes about twelve, so the artifact lived on a 12 GB tmpfs instead. The ceilings below
+are the harness's own and are size-independent (a fixed 256 KiB buffer either holds or it does not).
+
+```
+host     MARS (devshell@192.168.0.100), shared, other containers running
+cpu      Intel Core i7-14700F, 28 hardware threads
+memory   32 GB
+os       linux/amd64, golang:1.27-bookworm, artifact and staging on tmpfs
+command  RECOVERY_PERF_BYTES=2147483648 go test ./tests/recoveryperf/ -run Memory -v -count=1
+```
+
+| Process | Peak RSS | Control (nothing recovered) | Attributable to the stream |
+|---|---|---|---|
+| `retnd recover --to -` | 47.5 MiB | 45.8 MiB (`retnd status`) | none measurable |
+| `retnd-web serve` | 112.1 MiB | 112.9 MiB (served nothing) | none measurable (-0.7 MiB) |
+
+Both recovered hashes equalled the ingested artifact's. The harness builds the two binaries with
+`GOWORK=off`, and on a tree that has taken the SQLite bump in `core` that build of `apps/generic`
+fails (`go: updates to go.mod needed`), which is also true of a clean `main`; this run built them
+under the workspace instead, by pointing the harness at `go.work`, and nothing else in it changed.
+
 ## 1000+ copies due at once, on the real scrub driver (#983)
 
 `TestAThousandDueCopiesDeferPastTheScrubBoundAndTheReadCeilingsAreNeverExceeded`
