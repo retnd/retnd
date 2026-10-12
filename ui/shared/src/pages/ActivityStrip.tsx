@@ -47,6 +47,10 @@ import { bytes, clock, rate, relativeAge } from "@shared/utilities/format";
 import { StatusBadge } from "@shared/components/StatusBadge";
 import type { StatusTone } from "@shared/components/StatusBadge";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
+import {
+  recoveryEndText, recoveryStageText, recoveryStartText, recoveryTestEndText, recoveryTestStartText,
+  scrubFailureText, scrubPassText
+} from "@shared/assurance/feedText";
 
 /** How each line is coloured in the log. It is a display decision made
  *  here on purpose: the service carries the engine's own level, outcome
@@ -377,6 +381,34 @@ export function activityLine(e: SetActivityEvent): ActivityLine {
       text = parts.join("\n");
       break;
     }
+    // EPIC Q (issue #985): the events a scrub, a recovery and a recovery test
+    // produce. Each has its own sentence (assurance/feedText.ts, shared with
+    // the operation panel) rather than the fallback below, because the
+    // fallback prints `trigger=manual scope=set a/b selected=3 ...` and a
+    // scrub that found a copy wrong must read as that, in words, in the same
+    // place a passing one does. The colour is the line's stated result, as
+    // for every line.
+    case "scrub_pass":
+      text = scrubPassText(e);
+      break;
+    case "scrub_failure":
+      text = scrubFailureText(e);
+      break;
+    case "recovery_start":
+      text = recoveryStartText(e);
+      break;
+    case "recovery_stage":
+      text = recoveryStageText(e);
+      break;
+    case "recovery_end":
+      text = recoveryEndText(e);
+      break;
+    case "recovery_test_start":
+      text = recoveryTestStartText(e);
+      break;
+    case "recovery_test_end":
+      text = recoveryTestEndText(e);
+      break;
     default: {
       // An event name this build has no rendering for. Its own message
       // plus its own fields is a worse line, not a broken one, and it is
@@ -579,6 +611,14 @@ function stepSentence(activity: SetActivity, stale: boolean): { lead: string; su
   return { lead: "Idle", subject: null, trail: "no cycle has run since this service started" };
 }
 
+/** An action's name as a person says it. The two EPIC Q actions are said in
+ *  words; any other name is shown as the engine spelled it, never hidden. */
+function actionWords(action: string): string {
+  if (action === "recovery_test") return "Recovery test";
+  if (action === "recovery") return "Recovery";
+  return action;
+}
+
 /**
  * The line above the log for an action that announced itself and has not
  * said how it went (issue #625).
@@ -602,7 +642,7 @@ export function UnfinishedActionsNotice({ actions }: { actions: UnfinishedAction
       <div style={{ padding: "0 var(--space-5) var(--space-3)", color: "var(--warn)", fontSize: "var(--text-xs)" }}>
         {actions.map((a) => (
           <div key={a.actionId}>
-            {a.action} started {relativeAge(a.startedAt)} and has not reported an outcome.
+            {actionWords(a.action)} started {relativeAge(a.startedAt)} and has not reported an outcome.
           </div>
         ))}
       </div>

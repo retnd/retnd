@@ -192,6 +192,33 @@ describe("an engine restart", () => {
     expect(all[3].kind === "event" && all[3].event.event).toBe("startup");
   });
 
+  it("does not show a line twice when the engine kept its events across the restart", () => {
+    // Events are durable (migration 0017): the new process refills its feed
+    // from the journal and its numbering continues, so its first reading
+    // carries lines this panel already froze above the rule.
+    const before = foldReading(undefined, reading({ sets: [set("a/b", [event(1), event(2)])] }));
+    const history: DockEntry[] = [...dockEntries([], before), { kind: "restart", at: "2026-09-07T14:02:41Z" }];
+    const after = foldReading(
+      undefined,
+      reading({ epoch: "second-process", sets: [set("a/b", [event(1), event(2), event(3, { event: "startup" })])] })
+    );
+    const all = dockEntries(history, after);
+
+    expect(all.map((e) => (e.kind === "event" ? e.event.sequence : e.kind))).toEqual([1, 2, "restart", 3]);
+  });
+
+  it("still keeps a different line that happens to reuse a number", () => {
+    // An engine that does not keep its events restarts at 1. Its line 1 is
+    // not the dead process's line 1: they differ in time.
+    const before = foldReading(undefined, reading({ sets: [set("a/b", [event(1)])] }));
+    const history: DockEntry[] = [...dockEntries([], before), { kind: "restart", at: "2026-09-07T14:02:41Z" }];
+    const after = foldReading(
+      undefined,
+      reading({ epoch: "second-process", sets: [set("a/b", [event(1, { at: "2026-09-07T14:05:00Z" })])] })
+    );
+    expect(dockEntries(history, after).filter((e) => e.kind === "event")).toHaveLength(2);
+  });
+
   it("says what the rule means rather than drawing a bare line", () => {
     expect(restartRule("2026-09-07T14:02:41Z")).toContain("engine restarted");
     expect(restartRule("2026-09-07T14:02:41Z")).toContain("a process that has gone");

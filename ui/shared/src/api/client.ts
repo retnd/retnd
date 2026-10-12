@@ -51,6 +51,10 @@ import type {
   WireAssuranceDueResponse,
   WireAssuranceSettingsResponse,
   WireBackupSetAssurance,
+  WireRecoveryMintRequest,
+  WireRecoveryMintResponse,
+  WireRecoveryResult,
+  WireRecoveryTarget,
   WireUpdateAssuranceSettingsRequest,
   WireUpdateBackupSetAssuranceRequest,
   WireArtifact,
@@ -90,6 +94,10 @@ import type {
   WireStorageMediumUsageResponse,
   WireOperation,
   WirePlacement,
+  WireRecoveryTestStarted,
+  WireRecoveryTestOutput,
+  WireScrubStarted,
+  WireAssuranceOperationCancelled,
   WireRecoverySettingsResponse,
   WireRecoverySettingsUpdate,
   WireRetentionOverride,
@@ -136,7 +144,12 @@ import type {
 } from "./generated/contract";
 import type {
   AppSettings,
+  RecoveryMint,
+  RecoveryMintRequest,
+  RecoveryPlacement,
+  RecoveryTargetSpec,
   AssuranceDue,
+  RecoveryTestOutput,
   AssuranceSettings,
   AssuranceSettingsPatch,
   BackupSetAssurance,
@@ -1750,7 +1763,17 @@ function fromWirePlacement(p: WirePlacement): BackupPlacement {
     verificationClass: p.verification_class ?? null,
     verifiedAt: stampOrNull(p.verified_at),
     access: p.access,
-    status: p.status
+    status: p.status,
+    // The copy's own scrub and recovery-test record. Absent on the wire stays
+    // absent here: an unevaluated copy is not a passing one.
+    assuranceState: p.assurance_state ?? null,
+    lastCheckedAt: stampOrNull(p.last_checked_at),
+    lastFailureAt: stampOrNull(p.last_failure_at),
+    lastFailureReason: p.last_failure_reason ?? "",
+    consecutiveFailures: p.consecutive_failures ?? 0,
+    recoveryState: p.recovery_state ?? null,
+    recoveryTestedAt: stampOrNull(p.recovery_tested_at),
+    recoveryFailureReason: p.recovery_failure_reason ?? ""
   };
 }
 
@@ -2616,6 +2639,25 @@ function fromWireBackupSetAssurance(s: WireBackupSetAssurance): BackupSetAssuran
   return { ...fromWireAssurancePolicy(s), backupSetId: s.backup_set_id ?? "", isOverride: s.is_override === true };
 }
 
+/** The validator output, with the two absences made explicit: a null or
+ *  missing list is an empty one, and a record kind this build does not name
+ *  is plain output. Only the exact word "truncation" is the runner's marker,
+ *  so nothing a script prints, and nothing a newer server invents, can pose
+ *  as one. */
+function fromWireRecoveryTestOutput(r: WireRecoveryTestOutput): RecoveryTestOutput {
+  return {
+    backupSetId: r.backup_set_id,
+    recorded: r.recorded === true,
+    operationId: r.operation_id ?? "",
+    artifactId: r.artifact_id ?? "",
+    medium: r.medium ?? "",
+    state: (r.state ?? "") as RecoveryTestOutput["state"],
+    recordedAt: r.recorded_at ?? "",
+    truncated: r.truncated === true,
+    records: (r.records ?? []).map((x) => ({ kind: x.kind === "truncation" ? "truncation" : "output", text: x.text ?? "" }))
+  };
+}
+
 function fromWireAssuranceDue(s: WireAssuranceDueResponse): AssuranceDue {
   return {
     generatedAt: s.generated_at ?? "",
@@ -2653,6 +2695,65 @@ function wireAssurancePatch(
 }
 
 const assurancePath = (source: string, set: string) => backupSetPath(source, set) + "/assurance";
+
+function fromWireRecoveryTarget(t: WireRecoveryTarget | undefined): RecoveryTargetSpec {
+  return {
+    kind: t?.kind ?? "download",
+    ...(t?.path ? { path: t.path } : {}),
+    ...(t?.medium ? { medium: t.medium } : {}),
+    ...(t?.key ? { key: t.key } : {})
+  };
+}
+
+function fromWireRecoveryMint(m: WireRecoveryMintResponse): RecoveryMint {
+  // A grant and a restore never share a response. The restore wins when
+  // both were somehow named, because a grant with a restore beside it would
+  // be offering a download of a copy that cannot be read yet.
+  if (m.restore) {
+    return {
+      kind: "restore",
+      artifactId: m.artifact_id,
+      copy: m.copy,
+      operationId: m.restore.operation_id,
+      ...(m.restore.wait ? { wait: m.restore.wait } : {}),
+      ...(m.restore.billing ? { billing: m.restore.billing } : {})
+    };
+  }
+  return {
+    kind: "grant",
+    artifactId: m.artifact_id,
+    copy: m.copy,
+    grant: m.grant ?? "",
+    downloadUrl: m.download_url ?? "",
+    expiresAt: m.expires_at ?? "",
+    target: fromWireRecoveryTarget(m.target),
+    ...(m.size_bytes !== undefined ? { sizeBytes: m.size_bytes } : {})
+  };
+}
+
+function toWireRecoveryMint(req: RecoveryMintRequest): WireRecoveryMintRequest {
+  const target: WireRecoveryTarget = { kind: req.target.kind };
+  if (req.target.path) target.path = req.target.path;
+  if (req.target.medium) target.medium = req.target.medium;
+  if (req.target.key) target.key = req.target.key;
+  return {
+    target,
+    ...(req.copy ? { copy: req.copy } : {}),
+    ...(req.acknowledged ? { acknowledged: true } : {})
+  };
+}
+
+function fromWireRecoveryResult(r: WireRecoveryResult): RecoveryPlacement {
+  return {
+    artifactId: r.artifact_id,
+    copy: r.copy,
+    target: fromWireRecoveryTarget(r.target),
+    ...(r.path ? { path: r.path } : {}),
+    ...(r.key ? { key: r.key } : {}),
+    bytes: r.bytes,
+    sha256: r.sha256
+  };
+}
 
 function fromWireBackupSetWorkflow(s: WireBackupSetWorkflowResponse): BackupSetWorkflow {
   return {
@@ -3117,6 +3218,7 @@ export const httpApi: RetndApi = {
       "/activity/live?" +
         (options?.setId ? "backup_set=" + encodeURIComponent(options.setId) + "&" : "") +
         (options?.since ? "since=" + options.since + "&" : "") +
+        (options?.before ? "before=" + options.before + "&" : "") +
         (options?.limit ? "limit=" + options.limit : "")
     ).then(fromWireLiveActivity),
   listQuarantine: () =>
@@ -3587,6 +3689,37 @@ export const httpApi: RetndApi = {
   // 204, so there is nothing to map.
   acknowledgeWorkflowRecovery: (runId, reason) =>
     post(workflowRecoveryPath(runId) + "/acknowledge", { reason }),
+
+  mintRecovery: (artifactId, req) =>
+    request<WireRecoveryMintResponse>(artifactPath(artifactId) + "/recovery", {
+      method: "POST",
+      body: JSON.stringify(toWireRecoveryMint(req))
+    }).then(fromWireRecoveryMint),
+  redeemRecovery: (grant) =>
+    request<WireRecoveryResult>("/recoveries/" + encodeURIComponent(grant)).then(fromWireRecoveryResult),
+
+  startRecoveryTest: (source, set, req) =>
+    request<WireRecoveryTestStarted>(backupSetPath(source, set) + "/recovery-test", {
+      method: "POST",
+      body: JSON.stringify({
+        ...(req?.artifactId ? { artifact_id: req.artifactId } : {}),
+        ...(req?.acknowledged ? { acknowledged: true } : {})
+      })
+    }).then((r) => ({ backupSetId: r.backup_set_id, operationId: r.operation_id, coalesced: r.coalesced === true })),
+
+  startScrub: (source, set) =>
+    request<WireScrubStarted>(backupSetPath(source, set) + "/scrub", { method: "POST" }).then((r) => ({
+      backupSetId: r.backup_set_id,
+      operationId: r.operation_id
+    })),
+
+  cancelAssuranceOperation: (operationId) =>
+    request<WireAssuranceOperationCancelled>("/assurance/operations/" + encodeURIComponent(operationId) + "/cancel", {
+      method: "POST"
+    }).then((r) => ({ operationId: r.operation_id, kind: r.kind, backupSetId: r.backup_set_id, status: r.status })),
+
+  getRecoveryTestOutput: (source, set) =>
+    request<WireRecoveryTestOutput>(backupSetPath(source, set) + "/recovery-test/output").then(fromWireRecoveryTestOutput),
 
   getAssuranceSettings: () =>
     request<WireAssuranceSettingsResponse>("/settings/assurance").then(fromWireAssuranceSettings),
