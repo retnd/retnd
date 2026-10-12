@@ -191,6 +191,16 @@ func (b *BackupService) RunOnSchedule(ctx context.Context) error {
 	}()
 	defer func() { <-reaperStopped }()
 
+	// EPIC Q's scrub runs on its own timer too (#978), beside the alerting
+	// one and for the same reason: a long content scrub must not hold up a
+	// backup, and a wedged cycle must not stop copies being checked.
+	scrubsStopped := make(chan struct{})
+	go func() {
+		defer close(scrubsStopped)
+		b.runScrubTicks(ctx, b.PollInterval())
+	}()
+	defer func() { <-scrubsStopped }()
+
 	for {
 		b.runScheduledCycle(ctx)
 
@@ -372,4 +382,53 @@ func (b *BackupService) tickAlerts(ctx context.Context) {
 	}()
 
 	b.state.Load().inner.AlertTick(ctx)
+}
+
+// runScrubTicks repeats one scheduled scrub pass at interval until ctx is
+// done, against whatever Service the latest configuration hot-reload left in
+// place.
+func (b *BackupService) runScrubTicks(ctx context.Context, interval time.Duration) {
+	for {
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		b.tickScrub(ctx)
+	}
+}
+
+// tickScrub runs one pass, with the panic recovery the other two timers
+// document: this goroutine shares a process with a persistent API server.
+//
+// # How it relates to the single-flight lock
+//
+// It does NOT hold runOnce while it scrubs. A content scrub of a large copy
+// is long, and holding the lock that API-submitted operations and the
+// scheduled cycle both wait on would let a scrub block a backup, which is
+// the wrong way round. It does look at the lock once, at the start, and
+// skips the tick when an operation is running: an operator who just asked
+// for a run should not have the same disk read out from under it. What makes
+// an overlap that starts later safe is below this layer, in the copy lease
+// and in revalidate's re-read before any failure is acted on.
+//
+// A set that is held for editing is skipped copy by copy inside the pass, and
+// reported, because the hold is handed to the pass through its context.
+func (b *BackupService) tickScrub(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			b.logger.Error(context.Background(), "scrub-tick-panic", fmt.Errorf("recovered panic: %v", r))
+		}
+	}()
+
+	if !b.runOnce.TryLock() {
+		b.logger.Event(ctx, obs.LevelInfo, "scrub_tick_skipped",
+			"skipped scheduled scrub: an operation is already in progress")
+		return
+	}
+	b.runOnce.Unlock()
+
+	b.state.Load().inner.ScrubTick(app.WithBackupSetHolds(ctx, b.holds))
 }

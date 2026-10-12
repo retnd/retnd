@@ -486,6 +486,53 @@ The rules that matter:
   the artifact having been "revalidated" in the sense a local artifact is.
 - An artifact on `GLACIER` or `DEEP_ARCHIVE` is `existence`-checkable only, until
   an explicit restore makes anything stronger possible.
+- **The scheduled scrub runs this, and `retnd scrub` runs it by hand.** The
+  daemon (and the web host) check each copy on its own schedule, which lives on
+  the copy: `next_due_at` in the journal, not the artifact row's clock, so a
+  reconciliation or a catalog rebuild cannot make a copy nobody re-read look
+  fresh. A rebuilt catalog reads `unknown` and every copy in it is due. The
+  result is recorded on the copy with the class that ran, and `Content verified`
+  only ever moves when the bytes were read. A copy in an archive class is
+  recorded as `requires_restore`: I never read it and never start a restore.
+  `retnd scrub --content --allow-egress` reads a copy on a medium in full, and
+  without both flags the read is refused.
+  The schedule is the `assurance:` policy: `assurance.scrub.cadence` (weekly
+  unless you say otherwise) is how often a copy is owed a look, and
+  `assurance.scrub.strategy` says what the look is (`auto` and `content` re-hash
+  a local copy, `existence` does not). A default install scrubs with no other
+  configuration. A set's older `revalidation:` block still works, and when it
+  turns hashing or a restore hook on it wins over the policy for that set.
+  Changing the cadence changes what is due on the next tick, and `/assurance/due`
+  reads the same per-copy schedule the scrub keeps.
+  Pacing is bounded: four copies at once overall, two per destination, jitter
+  on every due time, and a capped backoff for a copy that fails or cannot be
+  reached. A copy that fails three scheduled checks in a row degrades its
+  set's health, and the next passing check clears that. You hear about it
+  through a script of your own: put `NAME.local.sh` scripts in
+  `assurance-after/sets/<source>/<set>` or `assurance-after/global` under the
+  workflow root and they run once when the episode opens (`ASSURANCE_EVENT` is
+  `scrub_failing`) and once when it closes (`scrub_recovered`), with the same
+  custody, shell verification and runner container as any other hook. That
+  directory is not the set's `after_dir`, whose scripts undo what a `before`
+  hook did to the source machine and have no business running because a scrub
+  failed. A set held for editing is skipped, and the skip is reported.
+- **A scrub also asks each medium what it holds, and tells you about anything
+  the journal does not know.** The journal is still the only thing that says
+  what is a copy: the scrub checks the keys the journal records and nothing
+  else, so an object sitting at some other key can never stand in for a copy
+  that has gone missing, and a copy that is missing is still a failed copy, counted
+  once, with one `scrub_failure` line. What the listing adds is the other
+  direction. For each medium that holds or held a copy for the set, the scrub
+  lists the set's own namespace (`<prefix>/<source>/<set>/`) and reports every
+  object whose key no placement names, as a `scrub_unknown_object` line, a count
+  in the summary, and an `unknown_objects` entry in `retnd scrub --json`. It
+  only reports: it never reads, moves or deletes the object, and it is not a
+  failure of any copy. A medium I could not list (the store cannot, or the listing
+  failed) is said so in `unlisted` and a `scrub_unlisted` line, so a quiet result
+  is never mistaken for a clean one. A scheduled pass lists only when it checked
+  something, and `retnd scrub` always lists, because a listing is a billed
+  request per medium. An upload that finished just before its placement was
+  recorded can show up once and clear on the next pass.
 - **A tier whose medium writes an archive class cannot take delivery of an
   artifact, and the move is refused before anything is uploaded.** Both settings
   `upload_verification` accepts need the object read back, a freshly written

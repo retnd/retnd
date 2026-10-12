@@ -219,30 +219,28 @@ func TestRevalidationOfAMediumPlacementIsExistenceAndSaysSo(t *testing.T) {
 	// And the durable record says the same thing the Finding does. This is
 	// the half that matters six months later, when nobody has the Finding
 	// any more and an operator is reading the journal to find out when
-	// this artifact was last actually looked at.
-	// Read out of the append-only transition log rather than through
-	// LastEnteredDetail, which deliberately ignores a same-state write:
-	// a revalidation pass IS a same-state write, which is exactly why it
-	// does not count as the artifact having freshly "entered" anything.
-	activity, err := j.RecentActivity(ctx, 10)
+	// this copy was last actually looked at, and by what.
+	//
+	// It is on the COPY, in the assurance record, and not a same-state
+	// transition on the artifact: a transition per passed copy per pass is
+	// feed volume the epic rules out.
+	rec, err := j.Get(ctx, artifact)
 	if err != nil {
-		t.Fatalf("RecentActivity: %v", err)
+		t.Fatalf("Get: %v", err)
 	}
-	detail := ""
-	for _, a := range activity {
-		if a.Artifact == artifact && strings.Contains(a.Detail, "revalidation") {
-			detail = a.Detail
-			break
-		}
+	ps := rec.ActiveMediumPlacements()
+	if len(ps) != 1 {
+		t.Fatalf("ActiveMediumPlacements = %d, want 1", len(ps))
 	}
-	if detail == "" {
-		t.Fatalf("no revalidation transition was recorded for the pass; the log holds %+v", activity)
+	p := ps[0]
+	if p.AssuranceState != state.AssurancePassed || p.LastCheckedClass != state.VerificationExistence {
+		t.Errorf("the copy records state=%q class=%q, want passed at existence", p.AssuranceState, p.LastCheckedClass)
 	}
-	if !strings.Contains(detail, string(placement.Existence)) {
-		t.Errorf("the recorded detail %q does not name the class that ran", detail)
+	if p.ContentVerifiedAt != nil {
+		t.Errorf("ContentVerifiedAt = %v: a HEAD must never set the age that Content verified renders from", p.ContentVerifiedAt)
 	}
-	if strings.Contains(detail, string(placement.Content)) {
-		t.Errorf("the recorded detail %q names content verification for a pass that only HEADed the object", detail)
+	if p.LastBytesRead != nil && *p.LastBytesRead != 0 {
+		t.Errorf("LastBytesRead = %d for a pass that only HEADed the object", *p.LastBytesRead)
 	}
 }
 
@@ -562,21 +560,14 @@ func TestAConfiguredRestoreTestSaysItDidNotRunOnAMedium(t *testing.T) {
 		t.Errorf("the restore-test hook downloaded the object %d times", store.opens)
 	}
 
-	// And the journal says it too, because the Finding is gone in an hour
-	// and the audit trail is what somebody reads in six months.
-	activity, err := j.RecentActivity(ctx, 10)
+	// The restore test not running is in the Finding's reason, and the copy
+	// is recorded at the class that actually ran.
+	rec, err := j.Get(ctx, artifact)
 	if err != nil {
-		t.Fatalf("RecentActivity: %v", err)
+		t.Fatalf("Get: %v", err)
 	}
-	found := false
-	for _, a := range activity {
-		if a.Artifact == artifact && strings.Contains(a.Detail, "restore-test hook did not run") {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("no recorded transition says the restore test did not run; the log holds %+v", activity)
+	if ps := rec.ActiveMediumPlacements(); len(ps) != 1 || ps[0].LastCheckedClass != state.VerificationExistence {
+		t.Errorf("the copy's record = %+v, want one copy last checked at existence", ps)
 	}
 }
 

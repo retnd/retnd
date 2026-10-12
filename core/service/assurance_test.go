@@ -159,26 +159,26 @@ func TestUpdateBackupSetAssurance_PatchThenResetReturnsTheSetToInheritance(t *te
 	}
 }
 
-func TestAssuranceDue_NextDueFollowsTheResolvedCadenceAndUnknownIsDue(t *testing.T) {
+func TestAssuranceDue_ClassifiesTheCopysOwnDueTimeAndNoScheduleIsDue(t *testing.T) {
 	now := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
-	verified := now.Add(-10 * time.Hour)
 	day := 24 * time.Hour
 
-	item := assuranceDueFor(now, "s/a", dueSubject{ID: "a1", Name: "a.dump", LastAssured: verified, Basis: DueBasisVerifiedAt}, day)
-	if want := verified.Add(day); !item.NextDueAt.Equal(want) || item.Due || item.Overdue {
-		t.Errorf("fresh copy = %+v, want next due %s and not due", item, want)
+	next := now.Add(14 * time.Hour)
+	item := assuranceDueFor(now, "s/a", dueSubject{ID: "a1", Name: "a.dump", LastAssured: now.Add(-10 * time.Hour), NextDue: next}, day)
+	if !item.NextDueAt.Equal(next) || item.Due || item.Overdue || item.Basis != DueBasisCopyRecord {
+		t.Errorf("a fresh copy = %+v, want next due %s and not due", item, next)
 	}
-	item = assuranceDueFor(now, "s/a", dueSubject{ID: "a1", LastAssured: verified}, 6*time.Hour)
+	item = assuranceDueFor(now, "s/a", dueSubject{ID: "a1", NextDue: now.Add(-time.Hour)}, day)
 	if !item.Due || item.Overdue {
-		t.Errorf("a shorter cadence must make the same copy due but not overdue: %+v", item)
+		t.Errorf("a copy past its own due time is due but not yet overdue: %+v", item)
 	}
-	item = assuranceDueFor(now, "s/a", dueSubject{ID: "a1", LastAssured: now.Add(-3 * day)}, day)
+	item = assuranceDueFor(now, "s/a", dueSubject{ID: "a1", NextDue: now.Add(-3 * day)}, day)
 	if !item.Due || !item.Overdue {
 		t.Errorf("a copy a whole cadence past due is overdue: %+v", item)
 	}
 	item = assuranceDueFor(now, "s/a", dueSubject{ID: "a1"}, day)
 	if !item.Due || !item.Overdue || item.Basis != DueBasisNever {
-		t.Errorf("a copy nobody has looked at is due and overdue, never green: %+v", item)
+		t.Errorf("a copy with no schedule is due and overdue, never green: %+v", item)
 	}
 }
 

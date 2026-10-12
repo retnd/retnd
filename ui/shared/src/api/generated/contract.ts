@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "3570b6976eb262d374acbd7971e97045d38fd00120493927d4bb2e6574a6380b";
+export const CONTRACT_SHA256 = "ca1f3cdd825c3588ad78032271a327346d847d2034cc0b1336c93020fd56b454";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -3766,6 +3766,85 @@ export interface WireSSHKeyDiscoveryLocation {
   kind: string;
   path: string;
   problem?: string;
+}
+
+/** An artifact the pass could not give a verdict at all, with the
+ *  infrastructure problem that stopped it. The copies it did get a
+ *  verdict for are in the set's copies, each once. */
+export interface WireScrubArtifactError {
+  artifact_id: string;
+  error: string;
+}
+
+/** What a scrub learned about one copy of one artifact. The class is
+ *  the class that RAN, never the class asked for: a HEAD is reported
+ *  as a HEAD. */
+export interface WireScrubCopyOutcome {
+  artifact_id: string;
+  class?: string;
+  medium: string;
+  reason?: string;
+  refused: boolean;
+  verdict: string;
+}
+
+/** What one scrub did: the counts the pass recorded plus the per-set
+ *  detail. It is the body `retnd scrub --json` prints, and the one
+ *  result shape every route that reports a scrub reuses. */
+export interface WireScrubResult {
+  bytes_read: number;
+  checked: number;
+  could_not_complete: number;
+  failed: number;
+  pass_id?: number;
+  passed: number;
+  refused: number;
+  requires_restore: number;
+  scope: string;
+  selected: number;
+  sets: WireScrubSetResult[];
+  skipped_held: number;
+  skipped_leased: number;
+  trigger: string;
+  unknown_objects?: number;
+  unlisted?: number;
+}
+
+/** One backup set's part of a scrub. */
+export interface WireScrubSetResult {
+  backup_set_id: string;
+  copies: WireScrubCopyOutcome[];
+  error?: string;
+  errors: WireScrubArtifactError[];
+  skipped: WireScrubSkip[];
+  unknown_objects?: WireScrubUnknownObject[];
+  unlisted?: WireScrubUnlistedMedium[];
+}
+
+/** Work a scrub was asked to do and did not. A skip is always
+ *  reported: a copy that was due and silently not looked at is the
+ *  same failure as one never scheduled. */
+export interface WireScrubSkip {
+  artifact_id?: string;
+  medium?: string;
+  reason: string;
+}
+
+/** An object a storage medium holds under a backup set's namespace at
+ *  a key the journal has no placement for (QC-04). It is a finding
+ *  for an operator to look at: never a verified copy of anything, and
+ *  a scrub never reads, moves or deletes it. */
+export interface WireScrubUnknownObject {
+  key: string;
+  medium: string;
+  size: number;
+}
+
+/** A storage medium the pass could not enumerate, so that no unknown
+ *  objects reported for it does not read as nothing being there. */
+export interface WireScrubUnlistedMedium {
+  medium: string;
+  reason: string;
 }
 
 /** The rules the service-behaviour settings are validated against,

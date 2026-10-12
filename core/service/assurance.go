@@ -13,6 +13,7 @@ import (
 
 	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // Assurance configuration and the due list (EPIC Q, Q1.4 / #982).
@@ -41,15 +42,13 @@ import (
 // performance decision as much as a display one.
 const MaxScrubCopyRows = 50
 
-// Due bases: where a copy's last-assured time came from.
+// Due bases: where an item's next-due time came from.
 const (
-	// DueBasisVerifiedAt is a placement's own verified_at.
-	DueBasisVerifiedAt = "verified_at"
-	// DueBasisJournal is the artifact row's last update, the interim stand-in
-	// the existing revalidation selector already uses until the per-copy
-	// assurance record (migration 0016) is the source.
-	DueBasisJournal = "journal_updated_at"
-	// DueBasisNever is a copy nobody has looked at. It is due, never fine.
+	// DueBasisCopyRecord is the copy's own next_due_at (migration 0016), the
+	// schedule the scrub driver keeps. It is the only clock there is.
+	DueBasisCopyRecord = "copy_next_due_at"
+	// DueBasisNever is a copy nobody has scheduled or looked at. It is due,
+	// never fine.
 	DueBasisNever = "never"
 )
 
@@ -176,13 +175,18 @@ type AssuranceDueItem struct {
 }
 
 type dueSubject struct {
-	ID          string
-	Name        string
+	ID   string
+	Name string
+	// LastAssured is when the copy last ran a check to a verdict, or zero.
 	LastAssured time.Time
-	Basis       string
+	// NextDue is the copy's own effective due time, or zero when the copy has
+	// no schedule (which is due now).
+	NextDue time.Time
 }
 
-// assuranceDueFor is the pure schedule arithmetic. It reads no clock.
+// assuranceDueFor is the pure schedule arithmetic. It reads no clock, and it
+// does not compute a due time: the due time is the copy's own, and this only
+// classifies it against now and the cadence.
 func assuranceDueFor(now time.Time, setID string, s dueSubject, cadence time.Duration) AssuranceDueItem {
 	item := AssuranceDueItem{
 		BackupSetID:   setID,
@@ -190,18 +194,60 @@ func assuranceDueFor(now time.Time, setID string, s dueSubject, cadence time.Dur
 		ArtifactName:  s.Name,
 		LastAssuredAt: s.LastAssured,
 		Cadence:       cadence,
-		Basis:         s.Basis,
+		Basis:         DueBasisCopyRecord,
 	}
-	if s.LastAssured.IsZero() {
+	if s.NextDue.IsZero() {
 		item.Basis = DueBasisNever
 		item.NextDueAt = now
 		item.Due, item.Overdue = true, true
 		return item
 	}
-	item.NextDueAt = s.LastAssured.Add(cadence)
+	item.NextDueAt = s.NextDue
 	item.Due = !now.Before(item.NextDueAt)
 	item.Overdue = !now.Before(item.NextDueAt.Add(cadence))
 	return item
+}
+
+// scrubDueOf is when the artifact's earliest-due scrub target is next owed a
+// check, under cadence, read from the copies themselves. The targets are the
+// ones the driver checks (revalidate.ScrubTargets): the ACTIVE local copy
+// when there is one, otherwise every ACTIVE copy on a medium. A target with
+// no schedule makes the artifact due now.
+func scrubDueOf(a Artifact, cadence time.Duration, now time.Time) dueSubject {
+	subject := dueSubject{ID: a.ID, Name: a.Name}
+	var targets []Placement
+	for _, p := range a.Placements {
+		if p.Status == state.PlacementActive && p.Medium == state.MediumLocal {
+			targets = []Placement{p}
+			break
+		}
+	}
+	if targets == nil {
+		for _, p := range a.Placements {
+			if p.Status == state.PlacementActive {
+				targets = append(targets, p)
+			}
+		}
+	}
+	first := true
+	for _, p := range targets {
+		var as state.Assurance
+		as.AssuranceState = p.ScrubState
+		if !p.ScrubNextDueAt.IsZero() {
+			t := p.ScrubNextDueAt
+			as.NextDueAt = &t
+		}
+		if !p.ScrubLastCheckedAt.IsZero() {
+			t := p.ScrubLastCheckedAt
+			as.LastCheckedAt = &t
+		}
+		at, _ := as.DueUnder(cadence, now)
+		if first || at.Before(subject.NextDue) {
+			subject.NextDue, subject.LastAssured = at, p.ScrubLastCheckedAt
+			first = false
+		}
+	}
+	return subject
 }
 
 var assuranceNow = time.Now
@@ -472,13 +518,14 @@ func (b *BackupService) ResetBackupSetAssurance(ctx context.Context, id string) 
 	return b.BackupSetAssurance(ctx, id)
 }
 
-// AssuranceDue lists every copy's place in the scrub schedule, most overdue
-// first, computed from each set's RESOLVED policy.
+// AssuranceDue lists every artifact's place in the scrub schedule, most
+// overdue first.
 //
-// The last-assured time is the newest placement verified_at, falling back to
-// the artifact row's last update, and the Basis on each row says which. That
-// fallback is the interim stand-in the existing revalidation selector uses;
-// the per-copy assurance record replaces it without changing this shape.
+// The due time is read from the copies themselves (their own next_due_at, the
+// schedule the scrub driver keeps), judged under each set's RESOLVED cadence.
+// It used to be recomputed from the newest verified_at or the artifact row's
+// updated_at, which is a second clock the driver never followed and that
+// migration 0016 exists to retire.
 func (b *BackupService) AssuranceDue(ctx context.Context, filter AssuranceDueFilter) ([]AssuranceDueItem, error) {
 	cfg := b.state.Load().inner.Config
 	now := assuranceNow()
@@ -510,16 +557,8 @@ func (b *BackupService) AssuranceDue(ctx context.Context, filter AssuranceDueFil
 			if !scrubEligibleStates[a.State] {
 				continue
 			}
-			subject := dueSubject{ID: a.ID, Name: a.Name}
-			for _, p := range a.Placements {
-				if p.VerifiedAt.After(subject.LastAssured) {
-					subject.LastAssured, subject.Basis = p.VerifiedAt, DueBasisVerifiedAt
-				}
-			}
-			if subject.LastAssured.IsZero() && !a.UpdatedAt.IsZero() {
-				subject.LastAssured, subject.Basis = a.UpdatedAt, DueBasisJournal
-			}
-			item := assuranceDueFor(now, id, subject, effectiveScrubCadence(bs.Assurance.Scrub.Cadence.Duration()))
+			cadence := effectiveScrubCadence(bs.Assurance.Scrub.Cadence.Duration())
+			item := assuranceDueFor(now, id, scrubDueOf(a, cadence, now), cadence)
 			if (filter.DueOnly && !item.Due) || (filter.OverdueOnly && !item.Overdue) {
 				continue
 			}
