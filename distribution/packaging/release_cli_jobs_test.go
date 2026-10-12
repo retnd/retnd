@@ -12,6 +12,7 @@ package packaging
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"image/gif"
 	"os"
 	"reflect"
 	"strings"
@@ -231,5 +232,54 @@ func TestReadmeKeepsItsStatusBadgeRow(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(rest), "homebrew") {
 		t.Errorf("no Homebrew badge")
+	}
+}
+
+// The tour sits under the logo and the badge row and ahead of the first
+// paragraph, so someone landing on the repo sees the product before they
+// read about it (#1084).
+func TestReadmeOpensWithTheTourGif(t *testing.T) {
+	b, err := os.ReadFile(Path("README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	const tour = "docs/assets/readme-tour.gif"
+	img := strings.Index(s, tour)
+	badges := strings.Index(s, "actions/workflows/ci.yml/badge.svg")
+	first := strings.Index(s, "A backup producer somewhere writes a dump")
+	if img < 0 {
+		t.Fatalf("README does not show %s", tour)
+	}
+	if badges < 0 || first < 0 || !(badges < img && img < first) {
+		t.Errorf("the tour must come after the badge row and before the first paragraph (badges %d, tour %d, first paragraph %d)", badges, img, first)
+	}
+	tag := s[strings.LastIndex(s[:img], "<img"):]
+	tag = tag[:strings.Index(tag, ">")]
+	if !strings.Contains(tag, ` alt="`) || strings.Contains(tag, ` alt=""`) {
+		t.Errorf("the tour needs alt text that says what it shows: %s", tag)
+	}
+
+	f, err := os.Open(Path(tour))
+	if err != nil {
+		t.Fatalf("the tour file is missing: %v", err)
+	}
+	defer f.Close()
+	g, err := gif.DecodeAll(f)
+	if err != nil {
+		t.Fatalf("%s is not a GIF: %v", tour, err)
+	}
+	var cs int
+	for _, d := range g.Delay {
+		cs += d
+	}
+	if secs := float64(cs) / 100; secs < 28 || secs > 32 {
+		t.Errorf("the tour runs %.1fs, want about 30s", secs)
+	}
+	if g.LoopCount != 0 {
+		t.Errorf("the tour should loop forever, loop count is %d", g.LoopCount)
+	}
+	if fi, err := os.Stat(Path(tour)); err != nil || fi.Size() > 6<<20 {
+		t.Errorf("the tour must stay under 6 MB so the README loads, got %v (%v)", fi, err)
 	}
 }
