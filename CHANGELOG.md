@@ -108,6 +108,12 @@
   recorded as `recovery verified` in the action log. The first download of an
   artifact reads the copy twice (once to prepare, once to send); later downloads and
   resumes reuse the stored digests. Staging and storage targets are unchanged.
+  A conditional request answered `304` no longer spends the download grant or
+  records a verification that did not happen. A download that does not finish now
+  ends in a `recovery interrupted` or a `recovery failed verification` row in the
+  action log (the latter with the copy's error code), each with `bytes` sent,
+  `total_bytes` and the `reached` offset, so a client can tell a cut link from a
+  copy that stopped matching; `recovery verified` carries `total_bytes` too.
 
 ## [0.5.1] - 2026-10-04
 
