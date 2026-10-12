@@ -122,19 +122,17 @@ describe("the Recovery claim comes from the copies' own recovery records", () =>
 describe("the production composition offers what exists and no more", () => {
   const fakeRoot = (over: Partial<RetndApi> = {}) => ({ ...createMockApi("assurance-unavailable"), ...over }) as RetndApi;
 
-  it("offers a recovery test, no scrub route and no cancel", () => {
+  it("offers a recovery test, a scrub, a cancel and the validator's output, because each has a route", () => {
     const a = createHttpAssurance(fakeRoot());
-    expect(a.offers).toEqual({ operations: false, recoveryTest: true, recoveryClaim: true });
+    expect(a.offers).toEqual({ operations: true, recoveryTest: true, recoveryClaim: true });
   });
 
   it("starts a recovery test through POST .../recovery-test, with no cost acknowledged", async () => {
-    const startRecoveryTest = vi.fn().mockResolvedValue({ backupSetId: SET, operationId: "op-1" });
+    const startRecoveryTest = vi.fn().mockResolvedValue({ backupSetId: SET, operationId: "op-1", coalesced: false });
     const a = createHttpAssurance(fakeRoot({ startRecoveryTest }));
     const op = await a.startRecoveryTest(SET);
     expect(startRecoveryTest).toHaveBeenCalledWith("production", "postgres-primary");
     expect(op).toMatchObject({ id: "op-1", kind: "recovery_test", state: "running", setId: SET });
-    await expect(a.startScrub(SET)).rejects.toThrow(/no route to start a scrub/);
-    await expect(a.cancelOperation("op-1")).rejects.toThrow(/no route to cancel/);
   });
 
   describe("following a recovery test on the live feed", () => {
@@ -203,14 +201,14 @@ describe("the set's Assurance section on a production-shaped server", () => {
     return root;
   }
 
-  it("Run recovery test calls startRecoveryTest; there is no Scrub now button", async () => {
-    const startRecoveryTest = vi.fn().mockResolvedValue({ backupSetId: SET, operationId: "op-1" });
+  it("Run recovery test calls startRecoveryTest, and Scrub now sits beside it", async () => {
+    const startRecoveryTest = vi.fn().mockResolvedValue({ backupSetId: SET, operationId: "op-1", coalesced: false });
     renderSection({
       startRecoveryTest,
       getLiveActivity: vi.fn().mockResolvedValue({ observedAt: T, epoch: "e", pollAfterMs: 1000, deployment: null, sets: [] })
     });
     const run = await screen.findByRole("button", { name: "Run recovery test" });
-    expect(screen.queryByRole("button", { name: "Scrub now" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Scrub now" })).toBeTruthy();
     await userEvent.click(run);
     await waitFor(() => expect(startRecoveryTest).toHaveBeenCalledWith("production", "postgres-primary"));
   });
@@ -227,10 +225,10 @@ describe("the set's Assurance section on a production-shaped server", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("already running");
   });
 
-  it("says only what the engine does: no route to start a scrub, and the schedule that runs by itself", async () => {
+  it("says only what the engine does: the schedule that runs by itself, and no claim that Scrub now replaces it", async () => {
     renderSection();
-    const note = await screen.findByTestId("no-run-route");
-    expect(note.textContent).toContain("no route to start a scrub");
+    const note = await screen.findByTestId("scrub-schedule-note");
+    expect(screen.queryByTestId("no-run-route")).toBeNull();
     expect(note.textContent).toContain("every poll of the running service checks the copies that are due");
     const test = screen.getByTestId("recovery-test-note");
     expect(test.textContent).toContain("only for a set whose mode is required or custom");
