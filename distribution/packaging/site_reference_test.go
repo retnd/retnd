@@ -210,7 +210,9 @@ var routeSections = map[string]documentedRoute{
 	// and whether a machine is still quiesced. It was mounted without an
 	// entry here, which is the gap this map exists to catch.
 	"/workflow-runs/:runId": {"reference.html", "web-workflow-run"},
-	"/enroll":               {"first-run.html", "enrol"},
+	// The page a running scrub or recovery test opens on (#985).
+	"/assurance/operations/:id": {"reference.html", "web-operation"},
+	"/enroll":                   {"first-run.html", "enrol"},
 	// Both halves of the forgotten-password flow (#830) are documented by
 	// one section, because they are one procedure: the page that asks for
 	// a reset link and the page the emailed link opens. first-run.html's

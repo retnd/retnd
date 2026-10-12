@@ -35,6 +35,7 @@ import { RetentionPolicyCard } from "@shared/pages/RetentionPolicyCard";
 import { CapacityCard } from "@shared/pages/CapacityCard";
 import { ServiceBehaviourCard } from "@shared/pages/ServiceBehaviourCard";
 import { StorageDestinationsCard } from "@shared/pages/StorageDestinationsCard";
+import { AssuranceSettingsCard } from "@shared/assurance/AssuranceSettingsCard";
 import { WorkflowSettingsCard } from "@shared/pages/WorkflowSettingsCard";
 import { HelpField } from "@shared/components/FieldHelp";
 import { PasswordInput } from "@shared/components/PasswordInput";
@@ -169,6 +170,11 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
               per-set half lives on each backup set's own page, because
               what a set pins is a fact about that set. */}
           <WorkflowSettingsCard readOnly={readOnly} />
+
+          {/* EPIC Q (issue #985): the global assurance block, with the four
+              host-scoped knobs shown as readouts. Additive: nothing above
+              or below it moved. */}
+          <AssuranceSettingsCard readOnly={readOnly} />
 
           <section className="card">
             <div className="card__header">

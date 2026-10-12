@@ -349,6 +349,18 @@ func (s *Service) rebuildOne(ctx context.Context, localDir string, artifact mode
 		OccurredAt: m.RetentionTimestamp,
 		Hashes:     &state.HashUpdate{Hash: m.Checksum, Alg: m.ChecksumAlgorithm},
 		Validation: validationUpdateFrom(m),
+		// The local copy gets its placement row here, derived the trusted
+		// way (the set's own root and the artifact's name) and claiming no
+		// verification class: a rebuild read a sidecar, it did not read the
+		// bytes. Without a row the scrub has nowhere to record a verdict,
+		// and with one carrying a class it would start life looking
+		// verified. The row's assurance columns take their defaults, so the
+		// copy reads unknown and is due, which is exactly what it is.
+		Placement: &state.PlacementUpdate{
+			Medium: state.MediumLocal, Location: final, Size: &remoteSize,
+			Hash: m.Checksum, HashAlg: m.ChecksumAlgorithm,
+			Status: state.PlacementActive,
+		},
 	}); err != nil {
 		return CatalogRebuildFinding{}, fmt.Errorf("recovery: populating verification evidence for %s: %w", artifact, err)
 	}

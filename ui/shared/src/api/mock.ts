@@ -38,6 +38,8 @@ import type {
   WorkflowEnvVariableInput,
   WorkflowRecoveryHold,
   WorkflowRun,
+  AssuranceSettings,
+  BackupSetAssurance,
   WorkflowSettings,
   WorkflowStepLogPage,
   WorkflowStepLogRecord,
@@ -58,6 +60,8 @@ import type {
   SystemHealth,
   VersionInfo
 } from "@shared/types/operation";
+import { assuranceLiveEvents, assuranceUnfinished, createMockAssurance, createMockRecovery, overlayAssurance, overlayThaw } from "@shared/assurance/mockAssurance";
+import { createHttpAssurance } from "@shared/assurance/realAssurance";
 import type { DeploymentActivity, SetActivity, SetActivityEvent } from "@shared/types/activity";
 
 /** Development fixtures. Covers every scenario the brief requires (§42):
@@ -94,7 +98,32 @@ export type Scenario =
   // delete-from-source control and say why. It is its own scenario
   // because the interesting state is a PASSING test with one answer
   // inverted, and no other fixture here can produce that.
-  | "read-only-source";
+  | "read-only-source"
+  // EPIC Q (issue #985): fixtures and outcomes for the assurance surfaces.
+  // They only choose which record or which outcome a case needs.
+  | "assurance-split"
+  | "assurance-more"
+  | "assurance-existence"
+  | "assurance-rebuilt"
+  | "assurance-unavailable"
+  | "assurance-scrub-fails"
+  | "assurance-download-slow"
+  | "assurance-download-fails"
+  | "assurance-slow-test"
+  | "assurance-validator-output"
+  | "assurance-no-operations"
+  | "assurance-cleanup-fails"
+  | "assurance-recovery-overdue"
+  | "assurance-snapshot-set"
+  | "assurance-too-many-grants"
+  | "assurance-grant-expired"
+  | "assurance-grant-used"
+  | "assurance-session-ended"
+  | "assurance-staging-full"
+  | "assurance-reads-busy"
+  | "assurance-corrupt-copy"
+  // How a browser download ended, as three artifacts' feed rows (item 14).
+  | "assurance-download-outcomes";
 
 /** Reads the scenario out of the URL, falling back to the default for
  *  anything unrecognised. A closed allow-list rather than a cast, so a
@@ -105,9 +134,22 @@ export function scenarioFromLocation(): Scenario {
   const allowed: Scenario[] = [
     "default", "empty", "storage-critical", "catalog-recovery",
     "version-mismatch", "first-run", "no-medium", "activity-unreadable",
-    "read-only-source"
+    "read-only-source", "assurance-split", "assurance-more", "assurance-existence", "assurance-rebuilt",
+    "assurance-unavailable", "assurance-scrub-fails", "assurance-download-slow",
+    "assurance-download-fails", "assurance-slow-test", "assurance-validator-output",
+    "assurance-no-operations", "assurance-cleanup-fails", "assurance-recovery-overdue",
+    "assurance-snapshot-set", "assurance-too-many-grants", "assurance-grant-expired",
+    "assurance-grant-used", "assurance-session-ended", "assurance-staging-full",
+    "assurance-reads-busy", "assurance-corrupt-copy", "assurance-download-outcomes"
   ];
   return (allowed as string[]).includes(s ?? "") ? (s as Scenario) : "default";
+}
+
+/** `?wire=1` swaps the mock's own assurance seam for the production one
+ *  (realAssurance) reading the mock's routes, which is how the browser specs
+ *  drive the code a built app runs. */
+export function wireFromLocation(): boolean {
+  return new URLSearchParams(window.location.search).get("wire") === "1";
 }
 
 const GB = 1024 ** 3;
@@ -2888,6 +2930,29 @@ function defaultSetWorkflowEnvironment(): WorkflowEnvVariable[] {
   ];
 }
 
+function defaultAssuranceSettings(): AssuranceSettings {
+  return {
+    configured: false,
+    scrub: { cadenceSeconds: 7 * 24 * 3600, strategy: "auto" },
+    recoveryTest: { mode: "off", cadenceSeconds: 30 * 24 * 3600, validatorId: "" },
+    stagingRoot: "/var/lib/retnd/recovery-staging",
+    stagingTtlSeconds: 24 * 3600,
+    maxConcurrentFullReads: 2,
+    maxPerDestination: 1,
+    hostKnobs: [
+      ["staging_root", "the one staging filesystem this process writes to"],
+      ["staging_ttl", "the sweep of that one staging root"],
+      ["max_concurrent_full_reads", "the one process that runs the reads"],
+      ["max_per_destination", "the one process that runs the reads"]
+    ].map(([name, why]) => ({
+      name,
+      value: "",
+      perSet: false,
+      reason: "A per-set value could not be honoured: it bounds " + why + "."
+    }))
+  };
+}
+
 function defaultWorkflowSettings(): WorkflowSettings {
   return {
     configured: true,
@@ -3700,7 +3765,11 @@ function mockEnvUnset(
  * Each instance is independent. Tests that want to read a fixture without
  * disturbing the one under test build a second mock rather than sharing.
  */
-export function createMockApi(scenario: Scenario = "default"): RetndApi {
+export function createMockApi(scenario: Scenario = "default", options: { wire?: boolean } = {}): RetndApi {
+  // What a finished scrub or recovery test writes onto a copy, which the
+  // production composer reads off the placement. The mock's own assurance
+  // seam keeps its verdicts itself, so only the wire flavour needs it.
+  const wireOverlay = options.wire ? overlayAssurance : (a: BackupArtifact) => a;
   const empty = scenario === "empty";
   // Every deployment written before storage mediums existed, which is the
   // compatibility case FR-35 pins: no medium declared anywhere, so every
@@ -3830,6 +3899,28 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
   // which is what the real backend's hot reload does, and a write in one
   // test must not be visible to the next.
   const workflowSettings = defaultWorkflowSettings();
+  const assuranceSettings = defaultAssuranceSettings();
+  const mockRecovery = createMockRecovery(scenario);
+  // Per-set overrides, keyed by source/set. Modelled the way the service
+  // resolves them: a set follows the deployment for every field it does not
+  // pin, so a global patch moves it.
+  const assuranceOverrides = new Map<string, Record<string, number | string>>();
+  const resolveAssurance = (key: string): BackupSetAssurance => {
+    const o = assuranceOverrides.get(key) ?? {};
+    return {
+      backupSetId: key,
+      isOverride: assuranceOverrides.has(key),
+      scrub: {
+        cadenceSeconds: (o.scrubCadenceSeconds as number) || assuranceSettings.scrub.cadenceSeconds,
+        strategy: (o.scrubStrategy as string) || assuranceSettings.scrub.strategy
+      },
+      recoveryTest: {
+        mode: (o.recoveryTestMode as string) || assuranceSettings.recoveryTest.mode,
+        cadenceSeconds: (o.recoveryTestCadenceSeconds as number) || assuranceSettings.recoveryTest.cadenceSeconds,
+        validatorId: (o.recoveryTestValidatorId as string) || assuranceSettings.recoveryTest.validatorId
+      }
+    };
+  };
   const setWorkflows = defaultSetWorkflows();
   const workflowEnv = new Map<string, WorkflowEnvVariable[]>([
     ["", workflowSettings.environment],
@@ -4136,7 +4227,7 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
       delay({ id: "key_mock_" + Math.random().toString(36).slice(2, 10), algorithm: "ssh-ed25519", fingerprint: mockCandidateFingerprint }),
 
     listArtifacts: (setId) =>
-      delay(empty ? [] : artifacts.filter((a) => !a.quarantine && (!setId || a.setId === setId))),
+      delay(empty ? [] : artifacts.filter((a) => !a.quarantine && (!setId || a.setId === setId)).map(overlayThaw).map(wireOverlay)),
     // An id this fixture does not have is a refusal, not the first
     // artifact. The fallback that used to be here answered every wrong id
     // with a real page about somebody else's backup, which is the same
@@ -4147,7 +4238,7 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
     getArtifact: (id) => {
       const found = artifacts.find((a) => a.id === id);
       return found
-        ? delay(found)
+        ? delay(wireOverlay(overlayThaw(found)))
         : delay(null).then(() => {
             throw new RetndError({
               code: "ARTIFACT_NOT_FOUND",
@@ -4514,7 +4605,11 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
         // moving. A mock that answered with the idle one would let a
         // surface be built against a poll that never keeps up.
         pollAfterMs: 1000,
-        sets: (empty ? [] : LIVE_ACTIVITY).filter((a) => !options?.setId || a.setId === options.setId),
+        sets: (empty ? [] : LIVE_ACTIVITY)
+          .filter((a) => !options?.setId || a.setId === options.setId)
+          // A backwards page asks for what the ring no longer holds. The
+          // fixtures hold nothing older than the ring, so there is no page.
+          .map((a) => (options?.before ? { ...a, events: [], truncated: false } : a)),
         // Absent for a reading narrowed to one set, exactly as the
         // service omits it: a caller that named a set asked about that
         // set. Present for a deployment with nothing configured, which is
@@ -5200,6 +5295,57 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
       return delay(undefined, 400);
     },
 
+    // EPIC Q (#976): the recovery mint and redeem, with the fixtures the
+    // assurance scenarios choose between.
+    mintRecovery: (artifactId, req) => mockRecovery.mintRecovery(artifactId, req),
+    redeemRecovery: (grant) => mockRecovery.redeemRecovery(grant),
+    // Replaced below by the assurance mock's own start when the scenario has
+    // one; a server that offers no assurance never has this reached.
+    startRecoveryTest: (source, set) => delay({ backupSetId: source + "/" + set, operationId: "mock-recovery-test", coalesced: false }),
+    startScrub: (source, set) => delay({ backupSetId: source + "/" + set, operationId: "mock-scrub" }),
+    cancelAssuranceOperation: (operationId) =>
+      delay({ operationId, kind: "scrub" as const, backupSetId: "", status: "cancelling" as const }),
+    getRecoveryTestOutput: (source, set) =>
+      delay({
+        backupSetId: source + "/" + set, recorded: false, operationId: "", artifactId: "", medium: "",
+        state: "" as never, recordedAt: "", truncated: false, records: []
+      }),
+
+    getAssuranceSettings: () => delay(structuredClone(assuranceSettings)),
+    patchAssuranceSettings: (patch) => {
+      assuranceSettings.configured = true;
+      if (patch.scrubCadenceSeconds !== undefined) {
+        assuranceSettings.scrub.cadenceSeconds = patch.scrubCadenceSeconds || 7 * 24 * 3600;
+      }
+      if (patch.scrubStrategy !== undefined) assuranceSettings.scrub.strategy = patch.scrubStrategy || "auto";
+      if (patch.recoveryTestMode !== undefined) assuranceSettings.recoveryTest.mode = patch.recoveryTestMode || "off";
+      if (patch.recoveryTestCadenceSeconds !== undefined) {
+        assuranceSettings.recoveryTest.cadenceSeconds = patch.recoveryTestCadenceSeconds || 30 * 24 * 3600;
+      }
+      if (patch.recoveryTestValidatorId !== undefined) {
+        assuranceSettings.recoveryTest.validatorId = patch.recoveryTestValidatorId;
+      }
+      return delay(structuredClone(assuranceSettings));
+    },
+    getBackupSetAssurance: (source, set) => delay(resolveAssurance(source + "/" + set)),
+    patchBackupSetAssurance: (source, set, patch) => {
+      const key = source + "/" + set;
+      const next = { ...(assuranceOverrides.get(key) ?? {}) };
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === undefined) continue;
+        if (v === 0 || v === "") delete next[k];
+        else next[k] = v as number | string;
+      }
+      if (Object.keys(next).length === 0) assuranceOverrides.delete(key);
+      else assuranceOverrides.set(key, next);
+      return delay(resolveAssurance(key));
+    },
+    resetBackupSetAssurance: (source, set) => {
+      assuranceOverrides.delete(source + "/" + set);
+      return delay(resolveAssurance(source + "/" + set));
+    },
+    listAssuranceDue: () => delay({ generatedAt: new Date().toISOString(), items: [] }),
+
     getWorkflowSettings: () => delay(structuredClone(workflowSettings)),
     patchWorkflowSettings: (patch) => {
       // The save GATE, before anything is written. A write that points a
@@ -5310,7 +5456,78 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
     }
   };
 
-  return refusingWhileUnconfigured(api, () => configured);
+  const served = refusingWhileUnconfigured(api, () => configured);
+  // EPIC Q (issue #985). Attached AFTER the unconfigured wrapper because
+  // that wrapper treats every key as a method. `assurance-unavailable` is
+  // the server that does not offer the routes yet, which is what every
+  // production client is until they land.
+  if (scenario === "assurance-unavailable") return served;
+  const assurance = createMockAssurance(scenario);
+  // The docked terminal reads the live feed, so a scrub or recovery test
+  // also shows up there, stage by stage, in the engine's own event names and
+  // with the same sequence on every poll (see assuranceLiveEvents).
+  const live = served.getLiveActivity;
+  const routes: RetndApi = {
+    ...served,
+    startRecoveryTest: async (source, set) => {
+      const o = await assurance.startRecoveryTest(source + "/" + set);
+      return { backupSetId: source + "/" + set, operationId: o.id, coalesced: o.joined === true };
+    },
+    startScrub: async (source, set) => {
+      const o = await assurance.startScrub(source + "/" + set);
+      return { backupSetId: source + "/" + set, operationId: o.id };
+    },
+    cancelAssuranceOperation: async (operationId) => {
+      await assurance.cancelOperation(operationId);
+      return { operationId, kind: "scrub" as const, backupSetId: "", status: "cancelling" as const };
+    },
+    getRecoveryTestOutput: async (source, set) => {
+      const v = await assurance.getValidatorResult(source + "/" + set);
+      return v
+        ? { backupSetId: source + "/" + set, recorded: true, ...v }
+        : { backupSetId: source + "/" + set, recorded: false, operationId: "", artifactId: "", medium: "", state: "" as never, recordedAt: "", truncated: false, records: [] };
+    },
+    getLiveActivity: async (options) => {
+      const base = await live(options);
+      const since = options?.since ?? 0;
+      return {
+        ...base,
+        deployment: scenario === "assurance-download-outcomes" && base.deployment
+          ? { ...base.deployment, events: [...base.deployment.events, ...downloadOutcomeEvents()] }
+          : base.deployment,
+        sets: base.sets.map((s) => {
+          const all = assuranceLiveEvents(s.setId);
+          const extra = all.filter((e) => e.sequence > since);
+          const open = assuranceUnfinished(s.setId);
+          return {
+            ...s,
+            events: extra.length ? [...s.events, ...extra] : s.events,
+            latestSequence: all.reduce((m, e) => Math.max(m, e.sequence), s.latestSequence),
+            unfinishedActions: [...(s.unfinishedActions ?? []), ...open]
+          };
+        })
+      };
+    }
+  };
+  // `wire` is the production composition: the same assurance seam the built
+  // app uses (realAssurance), reading the routes above the way it reads a
+  // server, so the browser specs can drive that code and not the mock's.
+  return { ...routes, assurance: options.wire ? createHttpAssurance(routes) : assurance };
+}
+
+/** The rows a browser download writes when it ends (core/service/recover_stream.go),
+ *  for three artifacts: one finished, one stopped part way, one that failed its
+ *  digest. The sequences sit above the fixture's own so a poll keeps them. */
+function downloadOutcomeEvents(): SetActivityEvent[] {
+  const row = (sequence: number, operation: string, artifact: string, level: SetActivityEvent["level"], fields: Record<string, string>): SetActivityEvent => ({
+    sequence, at: "2026-08-29T02:00:40+02:00", level, event: "api_action", scope: "deployment", message: operation,
+    fields: { actor: "admin", route: "GET /api/v1/recoveries/{grant}", artifact, operation, ...fields }
+  });
+  return [
+    row(901, "recovery verified", "production/postgres-primary/postgres-prod-20260828.dump.zst", "info", { outcome: "ok", bytes: "5000", total_bytes: "5000" }),
+    row(902, "recovery interrupted", "production/billing-mysql/billing-20260827.sql.gz", "warn", { outcome: "interrupted", bytes: "1200", total_bytes: "5000", reached: "1200" }),
+    row(903, "recovery failed verification", "production/auth-config/auth-config-20260826.tar.zst", "error", { outcome: "failed_verification", bytes: "2048", total_bytes: "5000", reached: "2048", error_code: "RECOVERY_LOCAL_COPY_CORRUPT" })
+  ];
 }
 
 // mockPreflightFor builds the report both preflight fixtures answer with,

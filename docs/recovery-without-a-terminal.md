@@ -11,10 +11,16 @@ answers questions the interface does not ask. Neither page replaces the other. I
 a terminal, read that one; if you do not, everything below is reachable from the interface
 and none of it needs one.
 
-Three failures account for almost every message this project receives, and a fourth —
-rarer, and the only one here that stops a backup set until you act — arrives with the
-scripted workflows. Each gets a section below: what you see, what it actually means, and
-what to do about it in the interface.
+Three failures account for almost every message this project receives, a fourth
+(rarer, and the only one here that stops a backup set until you act) arrives with the
+scripted workflows, and a fifth is the day you try to get a backup out through the
+interface and it does not come. Each gets a section below: what you see, what it actually
+means, and what to do about it in the interface.
+
+One sentence sets the boundary for all of them: **this product recovers and exports the
+retained artifact; restoring it into an application remains the operator's
+responsibility.** The interface can hand you the file, checked. It cannot put it back into
+whatever the file came from.
 
 ---
 
@@ -66,6 +72,9 @@ the one you want before you go looking for it.
 Take the newest artifact whose state is retained and verified. Do not take one that is
 still in flight or quarantined: those are exactly the two states that mean the application
 does not vouch for the bytes.
+
+If the share is not reachable, or you would like the file checked on the way out, the
+artifact's page has **Recover artifact**, which is section 5 below.
 
 ---
 
@@ -148,6 +157,23 @@ The application cannot tell these apart, and it deliberately does not guess. It 
 5. If they do not match, stop and treat it as an incident. Nothing is lost: every artifact
    already retained is on your own storage, and the application refused to talk to the
    server rather than transferring anything to or from it.
+
+### Starting a check yourself, and stopping one
+
+**Scrub now** on a set re-checks all its copies straight away instead of waiting for the
+schedule, and **Run recovery test** does the same for the stronger test. Either starts in
+the background and answers at once with an operation id, so closing the page does not stop
+it. While one is running it has a **Cancel** button. Pressing it does not stop things on
+the spot: the operation shows as *Cancelling* until its own end line arrives. A cancelled
+recovery test finishes as a warning rather than a failure, because nobody saw the
+validator's answer. It is not recorded as a failed copy, and you can simply run it again.
+
+Pressing **Run recovery test** while one is already running for that set does not start a
+second: the press joins the one in progress, the validator runs once, and each press still
+gets its own receipt.
+
+Everything above has a command-line equivalent, and `docs/recovery.md` lists them. This page
+stays in the browser on purpose.
 
 ### While it is unresolved
 
@@ -254,6 +280,97 @@ risk — every artifact is on your own storage and still verified — and no new
 set is being taken, which is the same loss staleness costs you. What is different is the
 other end: if the interrupted hook had stopped a database or frozen a filesystem, that is
 still true, and it is true for as long as the banner says *held since*.
+
+---
+
+## 5. A recovery or a recovery test did not complete
+
+### What you see
+
+You pressed **Recover artifact** on an artifact, or **Run recovery test** on a set, and it
+ended somewhere other than a finished file or a passing result. It reads one of:
+
+- **Failed: nothing saved**, or **Cancelled: nothing saved**. No download link, and no
+  file left anywhere that could be mistaken for a complete one.
+- A download that **stopped partway**: your browser shows it as failed or incomplete, and
+  the file in its download folder is smaller than the size the dialog told you to expect.
+  The application cut the transfer off on purpose (see below), so that an incomplete file is
+  never mistaken for a whole one. The artifact's page also says how it ended, in one of
+  three ways: **Completed**, **Interrupted at N of M bytes**, or **Failed verification**.
+  None of the three is drawn as a success. **Completed** is neutral because it means bytes
+  were sent and matched, not that your browser kept the file.
+- A **cost decision** instead of a download: the copy you chose is archived, or reading it
+  is billed, and the dialog is waiting for you to say yes or to back out.
+- **No readable copy**, or **Archived: thaw needed**, on the artifact's page.
+- **Content verified** beside **Recovery test failed** on the set.
+- A cleanup notice, saying a recovered copy could not be removed from the staging area.
+
+### What it means
+
+The recover action reads one retained copy and checks it against the digest the application
+recorded when it was committed. For a download it does that in two steps. First, before it
+sends anything, it checks that the copy is there, that it is the size it recorded, that its
+storage can be read, and (the first time this backup is downloaded, then remembered) it reads
+the whole copy against the recorded digest. Then it sends the copy straight from where it
+lives, 4 MiB at a time, checking each piece again as it goes. Nothing is copied to the host's
+disk first, so a download needs no free space there. The failures sort by where they happened,
+and the difference matters because the fix is different for each:
+
+- **Before any byte left:** the copy was unreadable, was archived, was billed and you had
+  not agreed, or its bytes did not match the recorded digest. A mismatch means that copy is
+  damaged. It is not a download problem and trying again will not change it.
+- **During the download, because the connection dropped:** the browser disconnected or you
+  cancelled. The application records this as *interrupted at N of M bytes*, where N is how
+  far it got and M is the size of the file, and N is where a resume starts. Nothing is kept
+  on the host, and a second try can carry on from the bytes you
+  already have: ask for a new link, and a client that resumes (a command-line tool using
+  `Range` and `If-Range` with the file's `ETag`, or a browser that restarts the transfer on
+  its own) gets exactly the bytes the first attempt would have. A browser that starts over
+  simply downloads it again.
+- **During the download, because a piece did not match:** the copy changed on its storage
+  after the application had checked it, so the transfer was cut off at the first bad piece.
+  What you received before that was good, the bad piece was never sent, and the file is
+  incomplete on purpose. The application records this as *failed verification*, which is
+  not the same finding as *interrupted*. That copy is damaged; recover from another copy.
+- **After the file was checked:** a recovery test ran *your* validator, and the validator
+  said no. The bytes are intact. The set shows **Content verified** and **Recovery test
+  failed** side by side on purpose, because "the file is fine" and "the file is usable by
+  your check" are different claims and are never averaged into one tick.
+- **A cleanup notice** is its own thing. It does not turn a good result into a bad one or
+  the reverse. It says a disk is filling, which is a different problem from not having your
+  file.
+
+None of these is the application restoring anything. The boundary above holds on every
+path: it can give you the file, and putting it back is yours.
+
+### What to do
+
+1. Read which of the five shapes you have before pressing anything again.
+2. **A cost decision.** It names the copy and what reading it costs, and the buttons have
+   equal weight on purpose. Tick **I accept this cost** only if you mean it; backing out
+   starts nothing, and an archived copy is never thawed on a timer or by a scheduled
+   check, only by somebody agreeing here.
+3. **Failed before any byte left.** Open the artifact and look at its copies. If one is
+   marked **Archived: thaw needed**, that is a billed request that takes hours. If a copy
+   is marked failed or damaged, recover from another copy instead. If the page says **No
+   readable copy**, there is nothing to recover from through the interface, and the next
+   step is reaching the destination by whatever route your storage provider gives you.
+4. **Cancelled or disconnected (interrupted at N of M).** Start again, or resume from N. If it keeps dropping, a proxy in front of the
+   interface is closing long downloads; that is a gateway setting, not this application.
+5. **Recovery test failed, content verified.** The set shows that the test failed and the
+   reason the application recorded. Open **Show validator output** on the set to read what your
+   validator printed. It keeps the newest test's output only, cut to 200 lines, 1 KiB a
+   line and 32 KiB in all, and if anything was cut the last line says so. Fix the
+   validator or the thing it checks. The application is telling you the file is intact.
+6. **A cleanup notice.** Nothing is wrong with your result. Free space on the volume that
+   holds the staging area, and the leftover is removed on its next sweep.
+
+### While it is unresolved
+
+Nothing already retained is at risk, and no failure here deletes or changes a retained
+artifact. What is at risk is the claim: a set whose recovery test is failing or overdue is
+honestly shown as untested, and it stays that way until a test passes. It never shows the
+older, better result as if it were current.
 
 ---
 

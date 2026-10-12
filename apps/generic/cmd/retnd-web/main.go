@@ -724,6 +724,7 @@ func cmdServe(args []string) int {
 			// away the surface they would lift it from.
 			fmt.Fprintln(os.Stderr, cliecho.WebBinary+": workflow runs could not be reconciled, so this process refuses to START a backup until they can be; reading, recovery and the rest of the API are unaffected:", err)
 		}
+		endRecoverySessionsOnLogout(authSvc, backend)
 		engineConfig.Backend = backend
 		handler = serve.NewEngine(engineConfig)
 		scheduler = backend
@@ -801,6 +802,7 @@ func cmdServe(args []string) int {
 				return nil, nil, wfErr
 			}
 
+			endRecoverySessionsOnLogout(authSvc, opened)
 			return opened, closeFn, nil
 		}
 
@@ -893,6 +895,14 @@ func enableAlerts(backend *service.BackupService, platformAdapter capabilities.P
 // Outstanding holds are NOT an error -- they are the normal answer after
 // an interrupted run -- so they are announced and nothing else.
 func openWorkflowEngineOn(ctx context.Context, backend *service.BackupService, platformAdapter capabilities.PlatformAdapter) error {
+	// The host's limits for recovery (EPIC Q, #983) before anything can
+	// start one. A platform with no opinion leaves the engine's defaults;
+	// one whose limits cannot mean anything stops the start, because
+	// serving with limits nobody could have meant is how a budget turns
+	// into a suggestion.
+	if err := applyHostLimits(backend, platformAdapter); err != nil {
+		return err
+	}
 	enableAlerts(backend, platformAdapter)
 	backend.SetBuildVersion(version)
 
@@ -904,6 +914,15 @@ func openWorkflowEngineOn(ctx context.Context, backend *service.BackupService, p
 	if len(report.Holds) > 0 {
 		fmt.Fprintf(os.Stderr, cliecho.WebBinary+": %d workflow cleanup(s) from an interrupted run are outstanding; the affected backup sets refuse to run until each is resumed or acknowledged (`%s workflow recovery show`)\n",
 			len(report.Holds), cliecho.Binary)
+	}
+
+	// EPIC Q (#976): a partial recovery file left by a process that died is
+	// an orphan filling the staging disk. This is the one process that can
+	// say so (a terminal command opened beside it cannot tell the engine's
+	// in-flight partials from orphans), and a failure here is reported, not
+	// fatal: recovery staging must never stop backups being served.
+	if _, _, err := backend.ReconcileRecoveryStaging(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, cliecho.WebBinary+": reconciling the recovery staging area: %v\n", err)
 	}
 
 	return nil
@@ -1499,4 +1518,21 @@ func bundleNameFor(p profile.Profile, root string) string {
 		return p.UIBundle
 	}
 	return string(p.ID)
+}
+
+// applyHostLimits hands the platform's recovery limits to the engine.
+func applyHostLimits(backend *service.BackupService, platformAdapter capabilities.PlatformAdapter) error {
+	limits, err := capabilities.LimitsOf(platformAdapter)
+	if err != nil {
+		return fmt.Errorf("the platform's host limits: %w", err)
+	}
+	if err := backend.SetRecoveryLimits(service.RecoveryLimits{
+		StagingReserveBytes:    limits.StagingReserveBytes,
+		MaxConcurrentReads:     limits.MaxConcurrentReads,
+		MaxReadsPerDestination: limits.MaxReadsPerDestination,
+		MaxDownloadStreams:     limits.MaxDownloadStreams,
+	}); err != nil {
+		return fmt.Errorf("the platform's host limits: %w", err)
+	}
+	return nil
 }

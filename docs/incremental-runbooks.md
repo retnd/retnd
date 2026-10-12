@@ -392,6 +392,20 @@ opens nothing.
 
 ### Step 4 — get the data out
 
+This verb is for a backup set on the incremental engine only, and it is one of three
+commands that sound alike. `retnd recover` reads a retained **artifact** (an artifact-engine
+set), and `retnd restore` asks a provider to thaw an archived object. Pointing `recover`
+at a `kopia` set refuses with a sentence naming this command, so you cannot get the wrong
+one by accident... The three are side by side in [recovery.md](recovery.md#three-verbs-that-sound-alike-side-by-side).
+This product recovers and exports the retained artifact; restoring it into an application
+remains the operator's responsibility, and a restored tree is no different: it is files on a
+disk, and putting them back where an application expects them is yours.
+
+For the recovery-test claim, an incremental set does not get a second drill from the new
+assurance machinery. Its existing achieved verification level, including the
+`restore_drill` rung, is read as the claim, so there is one vocabulary and one producer
+for the set.
+
 ```bash
 retnd snapshot restore <source>/<set> --to /var/restore --conflict refuse
 ```

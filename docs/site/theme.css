@@ -14,7 +14,7 @@
 
    So: slate blue for links and rules, a deep navy for the hero, and
    the application's own near-neutral warm greys for surfaces and
-   text (--text #191a19 and --text-2 #5b5d5b are lifted straight out
+   text (--text #191a19 and --text-light #5b5d5b are lifted straight out
    of tokens.css). The primary is pulled a little darker than the
    application's accent, to #3a628f, because the app renders it on
    its own white cards while this page renders it as body-copy links
@@ -31,6 +31,18 @@
    flattened out of oklch, so a caution on this page is the same
    colour as the caution in the screenshot beside it.
 
+   # The contrast rule
+
+   Text meets WCAG 2.x AA against the colour it actually sits on, in
+   both themes: 4.5:1 for normal text, 3:1 for large text (18pt, or
+   14pt bold) and for the boundary of a form control. Two checks hold
+   the line and both fail CI: scripts/contrast/check-tokens.py reads
+   the tokens below and the pairs the CSS combines, and
+   docs/site/tools/check-contrast.mjs loads every page in both themes
+   and measures every visible text node. A colour that carries white
+   text takes a --fill-* token, never --primary or --ok, which are
+   light in the dark theme on purpose.
+
    # Both themes are load-bearing
 
    Every colour is declared as a custom property in both blocks
@@ -42,6 +54,13 @@
 
 :root, [data-theme="light"] {
   --primary: #3a628f;
+  /* Fills that carry white text (a hover chip, the current-page chip).
+     --primary and --ok are text and rule colours: in the dark theme they
+     are LIGHT so they read on a dark page, and white on them is 2.3:1.
+     A fill takes its own token, so white text is never put on a colour
+     chosen to be read as text. */
+  --fill-primary: #3a628f;
+  --fill-ok: #2c6e49;
   /* The hero bar is dark in both themes, and topbar.css paints its
      own text with var(--white). It is a literal, not a surface. */
   --white: #ffffff;
@@ -50,7 +69,7 @@
   --bg: #f4f4f2;
   --text: #191a19;
   --text-light: #5b5d5b;
-  --text-faint: #8b8d8a;
+  --text-faint: #696b68;
   --code-bg: #ececea;
   /* An output block is not a thing you type, so it does not look like
      one. White against the typed block's grey, and the highlight inside
@@ -76,12 +95,14 @@
 
 [data-theme="dark"] {
   --primary: #7fa8d6;
+  --fill-primary: #2f5f93;
+  --fill-ok: #2c6e49;
   --primary-dark: #a9c6e6;
   --accent: #63bdab;
   --bg: #121312;
   --text: #eceeeb;
   --text-light: #a3a6a2;
-  --text-faint: #767976;
+  --text-faint: #8f928e;
   --code-bg: #1e201e;
   /* Inverted relationship on purpose: in the dark scheme the output
      panel goes DEEPER than the typed one rather than lighter, because
@@ -463,7 +484,7 @@ footer p { color: var(--text-faint); margin-bottom: 0.3rem; }
   font-size: 0.7rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-3, var(--text-2));
+  color: var(--text-light);
 }
 /* The bubble hangs BELOW the block, not over it. Anchored inside, it
    covered the line it was describing: you hovered the link, the bubble
@@ -504,13 +525,13 @@ pre.io-out {
   color: inherit;
   text-decoration: none;
 }
-.tip-term:hover, .tip-term:focus { background: var(--ok); color: #fff; }
+.tip-term:hover, .tip-term:focus { background: var(--fill-ok); color: var(--white); }
 .tip-term::after {
   content: " \2139";           /* an information source, not an emoji */
   font-style: normal;
   color: var(--ok);
 }
-.tip-term:hover::after, .tip-term:focus::after { color: #fff; }
+.tip-term:hover::after, .tip-term:focus::after { color: var(--white); }
 .tip-token { font-weight: 600; }
 
 .tip-bubble {
@@ -554,7 +575,7 @@ pre.io-out {
   border: 0;
   border-radius: 4px;
   background: none;
-  color: var(--text-2);
+  color: var(--text-light);
   font-size: 1rem;
   line-height: 1;
   cursor: pointer;
@@ -664,7 +685,7 @@ html:not(.tip-js) .io:has(.tip-bubble:hover) .tip-bubble,
   border: 1px solid var(--border-strong);
   border-radius: 5px;
   background: var(--surface);
-  color: var(--text-2);
+  color: var(--text-light);
   font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.72rem;
   line-height: 1.2;
@@ -679,8 +700,8 @@ html:not(.tip-js) .io:has(.tip-bubble:hover) .tip-bubble,
 .copy-btn:focus,
 .copy-btn.is-copied { opacity: 1; }
 
-.copy-btn:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
-.copy-btn.is-copied { background: var(--ok); color: #fff; border-color: var(--ok); }
+.copy-btn:hover { background: var(--fill-primary); color: var(--white); border-color: var(--fill-primary); }
+.copy-btn.is-copied { background: var(--fill-ok); color: var(--white); border-color: var(--fill-ok); }
 
 /* Touch has no hover, so there is nothing to reveal it with. */
 @media (hover: none) {

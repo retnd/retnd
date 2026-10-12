@@ -37,6 +37,357 @@
   before starting the older binary. An install that already has a configuration is not
   touched by any of this.
 
+- **The "no download" promise is reversed, and the boundary sentence replaces it** (#987,
+  EPIC Q #953). This product recovers and exports the retained artifact; restoring it into
+  an application remains the operator's responsibility. The old claim was made
+  independently in several places (`docs/recovery.md`, two paragraphs and a note on
+  `docs/site/reference.html`, `docs/site/index.html#honest`, the store listing copy) and
+  all of them now say the new thing rather than a softer version of the old one. What the
+  deleted claim was split into, and where each piece landed, is recorded item by item in
+  [ADR 0029](docs/adr/0029-the-recovery-boundary.md). The documents that carry the new
+  material are `docs/recovery.md` (the three restore-shaped verbs side by side, recovering
+  an artifact, the three claims, scrubbing and recovery tests, what to do when the catalog
+  itself is gone, and troubleshooting), `docs/recovery-without-a-terminal.md` (recovery
+  as its own numbered failure-and-fix section), `docs/storage-mediums.md`,
+  `docs/runtime-contract.md`, `docs/incremental-runbooks.md` and
+  `docs/compliance/privacy-policy.md`.
+
+- **One thing to know before you need it: the `assurance:` block is a one-way door.** The
+  configuration loader rejects unknown keys, so a `config.yaml` that carries the new
+  `assurance:` block (globally or on a backup set) is refused outright by a build that
+  predates it, with a message naming the key. An existing deployment that adds nothing sees
+  no change: the global default is good enough to leave alone, and a configuration that
+  mentions nothing new loads and scrubs on that default. Add the block while things are
+  calm, because the moment you reach for this feature is usually an incident, and a
+  downgrade after adding it fails closed...
+
+- **The Backups footer says the recovery boundary, the Content chip says how many copies it covers, and the artifact page says how a download ended** (#985, #1070). The footer reads "This product recovers and exports the retained artifact; restoring it into an application remains the operator's responsibility." in the secondary ink (6.36:1 light, 6.51:1 dark; the old line was 3.35:1 and called every copy verified). The Content chip keeps the strongest class across copies but adds the copy count and the weakest state ("Content verified · 1 of 3 copies, 2 never checked", dashed edge), and a bare "Content verified" only appears when every copy is content verified. The Not configured chip edge was 2.93:1 against its fill in the light theme; the plain chip edge now takes `--text-2` (5.82:1 against the fill, 5.93:1 against the page, light). The artifact page reads the end-of-download rows off the live feed and draws "Completed", "Interrupted at N of M bytes" and "Failed verification" as three shapes, none of them in the success colours.
+
+- **The green "Verified" Validation column is gone** (#1070). The Backups table drew the
+  ingest-time check (FR-13) as a green tick and the word "Verified" in a column of its own
+  beside the Assurance chips, so an operator saw two different things both called verified,
+  and the green one said nothing about whether the bytes are still good. The column and the
+  green badge in the artifact page's title are retired; Stored, Content verified and
+  Recovery tested are the only place those pages say it. A validation that failed is still
+  said, as "Failed validation" in the danger colour, never as a pass. The `validation`
+  field stays on the wire. Measured contrast for the failure badge: label 15.00:1 light
+  and 11.99:1 dark, icon and border 5.11:1 and 4.56:1.
+
+- **The Recover dialog says what the download now does** (#1072). The host prepares the
+  first download of a backup with one read against the recorded digest, then sends the copy
+  from where it lives, 4 MiB at a time, checking each piece, and cuts the transfer off
+  if one fails. It no longer says nothing is sent until the whole copy is staged, or that an
+  interrupted download cannot be resumed.
+
+- **The docked terminal does not show a line twice across a restart** (#1071). The engine
+  keeps its events now, so the first reading from a restarted process carries lines the
+  panel already froze above the restart rule; a line is the same line only if its number,
+  its time and its event all match, so an engine that restarts its numbering still keeps
+  both. `GET /api/v1/activity/live` takes `before=` to page back past the ring.
+
+- **A recovery download is streamed, not staged, and can be resumed** (#976). The
+  browser and `retnd recover --to -` used to copy the whole artifact to the staging
+  disk, hash it there and only then send it. Now the copy is read from where it
+  lives, one verified 4 MiB chunk at a time, so a download uses a chunk of memory
+  and no staging disk, and a client that walks away leaves nothing to clean up.
+  Before the first byte I run a pre-flight (the copy is there, it is the recorded
+  size, its medium can be read, and one verifying read matched the recorded SHA-256
+  and stored a digest per chunk), and a failure there is an error response with its
+  own code, not a `200`. Every chunk is checked against its digest before any of it
+  is sent, so a copy that rots mid-download stops at the bad chunk and the
+  connection is aborted short of the `Content-Length`, never ended cleanly. `ETag`
+  (from the artifact id and the recorded digest, the same for every grant) with
+  `Range` and `If-Range` resumes a download under a new grant, and `Repr-Digest`
+  carries the recorded digest for the client to compare. The end of a download is
+  recorded as `recovery verified` in the action log. The first download of an
+  artifact reads the copy twice (once to prepare, once to send); later downloads and
+  resumes reuse the stored digests. Staging and storage targets are unchanged.
+  A conditional request answered `304` no longer spends the download grant or
+  records a verification that did not happen. A download that does not finish now
+  ends in a `recovery interrupted` or a `recovery failed verification` row in the
+  action log (the latter with the copy's error code), each with `bytes` sent,
+  `total_bytes` and the `reached` offset, so a client can tell a cut link from a
+  copy that stopped matching; `recovery verified` carries `total_bytes` too.
+
+- **The web UI shows what a backup's copies actually claim, and recovers them** (#985,
+  EPIC Q Q2.2). Every backup carries three separate claims on the Backups list, the
+  backup page and the dashboard: Stored (how many copies), Content verified (built
+  from each copy's achieved verification class and time, so an existence check never
+  reads as content verification) and Recovery tested. There is no roll-up. The
+  Recover artifact dialog mints a grant, then has the host prepare the download with
+  one read against the recorded digest and then send it from where it lives, checking
+  each piece; a browser download is handed to the browser and the page does not claim
+  the file arrived, while a staging or
+  destination recovery reports the digest the host placed. An archived copy is a
+  restore request first (cost acknowledged, no price or time shown, because none is
+  known) and a recovery once the provider has made it readable. Settings carries the
+  deployment's assurance block, and each backup set can follow it or pin its own
+  policy.
+  - **Scrub now, Cancel and Show validator output work.** The set page's three
+    operator controls call the routes that exist: `POST
+    /backup-sets/{source}/{set}/scrub`, `POST /assurance/operations/{op}/cancel` and
+    `GET /backup-sets/{source}/{set}/recovery-test/output`, each with its terminal twin
+    printed beside it (`retnd scrub`, `retnd assurance cancel`, `retnd recovery-test
+    --show-output`). A scrub's operation id is on no feed line, so the page follows a
+    scrub by what it leaves behind: this set's manual `scrub_pass` ends it, a
+    `scrub_failure` naming one of the set's copies is a line of it, and a feed that goes
+    quiet or restarts is shown as no longer tracked, never as a pass. A cancel is shown
+    as Cancelling until the run's own end line arrives, and a recovery test that ends
+    with a warning after an accepted cancel is Cancelled. A recovery test started while
+    one is running joins it and says so. The validator's output is drawn as plain text
+    from the server's records: only a record of kind `truncation` is the runner's
+    marker, so a script that prints the marker's words has printed a line of output.
+  - **Every activity surface has its own line for scrub and recovery events.** The
+    dashboard strips, the set page's terminal, the docked terminal and the saved log say
+    `scrub pass found problems (manual, set a/b): 2 checked, 1 passed, 1 failed`,
+    `scrub did not pass: a.dump on offsite (content check): <reason>`,
+    `recovery test stage: Reading`, `recovery test did not complete: a.dump: cancelled
+    before it finished` and the like, instead of a row of `key=value` pairs, and an
+    unfinished recovery is named in words.
+  - **A copy that failed is shown as failed.** A failed scrub clears the copy's
+    verification class and time, so the Backups page used to draw it as Never run.
+    The placement now carries the copy's own record (`assurance_state`,
+    `last_checked_at`, `last_failure_at`, `last_failure_reason`,
+    `consecutive_failures`, `recovery_state`, `recovery_tested_at`,
+    `recovery_failure_reason`), all additive and omitted for a copy nobody has
+    checked, and the chips and a line under them say which copy failed, how many
+    times in a row and why. The Recovery claim is read from the same record.
+  - **A chip being re-checked keeps its contrast.** It was dimmed with
+    `opacity: 0.6`, which put the age text at 2.50:1 (light) and 3.05:1 (dark) and
+    the label at 4.25:1 (light). It is now drawn with a dashed outline, italic type
+    and the word "re-checking", and a unit test reads the real tokens and fails on
+    any dimming.
+
+- **A recovery download is streamed, not staged, and can be resumed** (#976). The
+  browser and `retnd recover --to -` used to copy the whole artifact to the staging
+  disk, hash it there and only then send it. Now the copy is read from where it
+  lives, one verified 4 MiB chunk at a time, so a download uses a chunk of memory
+  and no staging disk, and a client that walks away leaves nothing to clean up.
+  Before the first byte I run a pre-flight (the copy is there, it is the recorded
+  size, its medium can be read, and one verifying read matched the recorded SHA-256
+  and stored a digest per chunk), and a failure there is an error response with its
+  own code, not a `200`. Every chunk is checked against its digest before any of it
+  is sent, so a copy that rots mid-download stops at the bad chunk and the
+  connection is aborted short of the `Content-Length`, never ended cleanly. `ETag`
+  (from the artifact id and the recorded digest, the same for every grant) with
+  `Range` and `If-Range` resumes a download under a new grant, and `Repr-Digest`
+  carries the recorded digest for the client to compare. The end of a download is
+  recorded as `recovery verified` in the action log. The first download of an
+  artifact reads the copy twice (once to prepare, once to send); later downloads and
+  resumes reuse the stored digests. Staging and storage targets are unchanged.
+
+### Fixed
+
+- **A provider checksum mismatch is now written on the copy** (#983). A destination that attested a SHA-256 different from the recorded one refused the recovery and was then forgotten, so the next scrub could call the same copy fine. The refusal now also records a failed attested check on the copy (clearing its verification claims and owing it a re-check), and `internal/reconcile` reports a medium copy recorded as failing as needing investigation instead of "left on a medium, no action". It moves no lifecycle state.
+
+- **Exit codes 34, 35 and 37 are unallocated** (#983). They were reserved for the per-pass bound, the validator-output bound and scheduled egress, which FR-74 as amended says defer, truncate and refuse elsewhere. Nothing emits them, the budget package says so (`budget.Unused`), and two tests keep every budget and recovery refusal off them.
+
+- **A serving process now runs its scheduled scrub and its due recovery tests** (#1068).
+  The scrub timer and the cycle loop both start with `retnd serve` and repeat every poll
+  interval, so a cycle took the single-flight lock at the top of its interval and the
+  scrub tick, arriving a fraction of a millisecond later, skipped and tried again an
+  interval later, into the next cycle's lock. On a default install nothing was ever
+  scrubbed and no due recovery test ever ran. A tick that finds an operation running now
+  waits for that operation to release the lock and runs then, so it cannot miss the short
+  gap between two back-to-back cycles the way a timed retry could. It still never holds
+  the lock while it scrubs, and it stops with the process. `retnd daemon` was not
+  affected.
+
+### Added
+
+- **`retnd recover --follow` and `retnd recovery-test --follow`** (#1059). Both verbs run the operation in the terminal's own process, so they now print that operation's stage lines (matched on its op_id) on standard error as it passes through them, in the order the engine emits them, and still exit with the operation's own status. Standard output stays the verb's answer, so `recover --to -` keeps piping clean bytes.
+
+- **Scrub now, cancel, and the validator output of a recovery test** (#980, #1071). Three new
+  routes. `POST /api/v1/backup-sets/{source}/{set}/scrub` starts a scrub of one set's copies
+  in the background and answers 202 with an operation id, one at a time per set.
+  `POST /api/v1/assurance/operations/{op}/cancel` stops a running scrub or recovery test: the
+  validator's whole process group is killed, the staged copy is removed, and a cancel records
+  no verdict on the copy. It is deliberately not under `/operations`, which the destructive
+  gate owns, so it answers on a deployment whose gate is shut. `GET
+  /api/v1/backup-sets/{source}/{set}/recovery-test/output` returns what the newest recovery
+  test of the set printed. The output is kept per set (two new tables in migration 0016, which
+  has not shipped, so its recorded checksum moved), sanitised, and bounded to 200 records, 1 KiB
+  a record and 32 KiB in all; the truncation marker is a record of its own kind that only the
+  runner writes, so a validator that prints the marker's words is still an output line. The
+  CLI gains `retnd assurance cancel <operation-id>` (needs `RETND_API_URL`, since the operation
+  lives in the serving process) and `retnd recovery-test <set> --show-output`.
+
+- **Two operators asking for the same recovery test share one execution.** A second identical
+  `POST .../recovery-test` while one is running no longer gets a 409: it answers 202 with the
+  running test's operation id and `coalesced: true`, and writes a receipt row of its own
+  (who asked, when, what for). A request for something different from what is running (another
+  artifact, or a different cost acknowledgement) is still a 409.
+
+- **The activity feed's events survive a restart** (#1071, migration 0018). The feed
+  behind the operation panel and the dashboard strips was an in-memory ring, so a
+  restart emptied it: a scrub that failed an hour before a deploy, or a recovery that was
+  running when the process died, left nothing on the screen built to show it. The events
+  are now also written to a new `activity_events` table (additive; nothing that exists
+  changes) by one goroutine that batches them off the cycle's path, and the rings are
+  refilled from it at start with the numbering continuing. Scrub passes and failures,
+  recovery and recovery-test events and their `op_id` are kept. Periodic samples
+  (`transfer_stats`, `snapshot_stats`) and a download's per-range lines are not, and
+  `recovery_stage` lines are coalesced to the last stage each operation reached, so a
+  recovery costs a start row, one stage row and an end row however many stages it passes
+  through. Rows are kept 30 days and the table 50,000 rows, oldest first, pruned at start,
+  hourly and after every 5,000 inserts. A writer that falls behind drops from the durable
+  record and counts it; it never slows a cycle. `GET /api/v1/activity/live` takes
+  `before=<sequence>` to page backwards past the ring.
+
+- **The scheduled scrub follows `assurance.scrub.*`** (#978). A default install now
+  scrubs: the cadence is `assurance.scrub.cadence` (7 days unless you say otherwise)
+  and the strategy decides whether a local copy is re-hashed (`auto` and `content`
+  do, `existence` does not), with no `revalidation:` block needed. A set whose
+  `revalidation:` block turns hashing or a hook on keeps using that block exactly as
+  written. `GET /api/v1/assurance/due` now reads each copy's own `next_due_at`, the
+  schedule the scrub keeps, so what you are shown is what runs. A rotted local copy
+  beside a verified offsite copy no longer quarantines the artifact (the set goes
+  DEGRADED after three failed checks, not FAILING), and a scrub or recovery claim is
+  dropped when the copy is rewritten to different bytes.
+
+- **`retnd scrub --json`, and a scrub beside a serving engine respects its edit hold**
+  (#978). `--json` prints the one result object the API contract defines
+  (`ScrubResult`: the pass counts plus, per set, every copy's verdict and the class
+  that ran, the artifacts that could not be checked, and the skips), with the log
+  lines on standard error so standard output is only the result. When `RETND_API_URL`
+  and its two credential variables reach the engine serving the deployment, the scrub
+  asks that engine whether a set is held for editing and skips a held set the way the
+  engine's own scrub does: the same "skipped, the backup set is held for editing"
+  line, counted as a skip, exit status 1. A hold the command cannot read counts as a
+  hold. An artifact with one copy that was provably gone and another that did not
+  answer now writes a `scrub_failure` line for each copy, instead of one line for the
+  pair, so the lines of a pass match the failures it counted.
+
+- **Assurance has a deployment-wide default and a per-set override** (#982, EPIC Q
+  Q1.4). A new top-level `assurance:` block sets how often a copy is re-read (scrub
+  cadence, default 7 days, floor 1 hour), what a scrub reads (`auto`, `existence` or
+  `content`) and whether a recovery test is required, and a backup set can carry its
+  own `assurance:` block in the same shape `retention:` uses: nil inherits, `Validate`
+  fills a resolved field, and everything reads the resolved field. A config that
+  mentions none of it scrubs on the defaults and comes back from a settings save
+  byte-identical. Per set, the recovery-test mode is `inherit`, `off`, `required` or
+  `custom`; `required` and `custom` need a validator, so a recovery test with nothing
+  to run is refused rather than quietly downgraded. The validator is a script: `validator_id` is the file name
+  of a `NAME.local.sh` in `recovery-test/<source>/<set>`, written without the suffix,
+  and a name that could not be a script's file name is refused when it is saved. The staging root, the staging TTL,
+  and the two concurrency ceilings are global only,
+  and each one carries the written reason a set cannot override it, in the API
+  response, in `settings assurance` and in the field help.
+  - **A one-way door.** `Load` uses `KnownFields(true)`, so a config that carries an
+    `assurance:` key cannot be parsed by an older build at all. Anyone who edits this
+    block during an incident and then rolls back needs to take the block out first. A
+    deployment that never adds it sees no change.
+  - **What an existing deployment sees.** Nothing is written for it. `GET
+    /api/v1/settings/assurance` and `retnd settings assurance` report the defaults with
+    `configured: false`.
+  - **Surfaces.** `GET`/`PATCH /api/v1/settings/assurance`, `GET`/`PATCH`/`DELETE
+    /api/v1/backup-sets/{source}/{set}/assurance` and `GET /api/v1/assurance/due`, with
+    `retnd settings assurance [patch|due]` and `retnd backup-set assurance`, all with
+    `--json` printing the API's own body. A `PATCH` is validated, written and
+    hot-reloaded in one step, so every set that inherits the changed value decides
+    under it on its next read with no restart. The CLI writes beside a serving engine
+    are refused with the file untouched, like `settings workflow`.
+  - **Feed and alerts.** New catalog events for recovery and recovery-test runs
+    (additions only, each completion states a `Result`) with one stage list shared by
+    the CLI and the browser, and four new alert kinds: scrub overdue and failing, and
+    recovery test overdue and failing. They are raised through the alert dispatcher a
+    configured notifier already has, with its de-duplication, so a failing scrub or
+    recovery test reaches you without anybody writing an `assurance-after` script; the
+    scripts stay as the extension point beside it. (A scrub pass is the existing
+    `scrub_pass` and `scrub_failure` events.)
+
+- **Recovery tests follow the assurance policy, run under `retnd serve`, and can be
+  started** (#980). The scheduled test now runs in the process the product actually
+  runs (`serve`, not only `daemon`), for a set whose resolved `recovery_test.mode` is
+  `required` or `custom`, on that policy's cadence (30 days by default) instead of a
+  fixed seven. `validator_id` names the script: `pg-check` runs
+  `recovery-test/<source>/<set>/pg-check.local.sh` and nothing else, and a name that
+  is not there is `could_not_complete`, never another script in its place. A set
+  that requires a test is DEGRADED until one passes. A copy on a storage medium can
+  now be tested: it is staged by the same engine `retnd recover` uses, so it is
+  verified against the recorded digest first, honours the read ceilings, and costs
+  nothing unattended (a free `local_volume` runs, a billed download is refused for
+  cost and an archived object is never thawed). `retnd recovery-test
+  <source/backup-set>` and `POST /api/v1/backup-sets/{source}/{set}/recovery-test`
+  start one now. A real recovery, and every recovery test, writes `recovery_start`, a
+  `recovery_stage` line per stage and `recovery_end` under one operation id.
+  `assurance.staging_root`, `staging_ttl`, `max_concurrent_full_reads` and
+  `max_per_destination` are now read: recovered copies and recovery tests stage in
+  one directory, `<state dir>/recovery-staging` unless you say otherwise (the
+  `<state dir>/recovery` of the draft is gone), and the scrub reads under the same
+  ceilings (2 and 1 by default; the draft scrub's 4 and 2 are gone).
+
+- **The #983 budgets and faults are proved on the real drivers** (#983). A backlog of 1050 due copies runs on `revalidate.Run`, the scrub driver the serve scheduler calls: the pass stays at `DefaultScrubMaxPerCycle`, defers the rest to later passes and never has more than 2 reads in flight (1 per destination), with the numbers and host in `docs/perf/epic-q-recovery.md`. Two concurrent first downloads of an artifact make one whole-copy pre-flight read; a default install refuses the fifth download stream and a recovery that would leave less than the 1 GiB staging reserve; a recovery test cancelled through the operation registry at the provider probe, the read and the write leaves nothing behind; and three operators joining a running recovery test get one execution and a receipt each. `scripts/bdtools/recovery/selftest.py` plants a fault for each, and four stale anchors in it are re-anchored.
+
+- **The activity feed's events survive a restart** (#1071, migration 0017). The feed
+  behind the operation panel and the dashboard strips was an in-memory ring, so a
+  restart emptied it: a scrub that failed an hour before a deploy, or a recovery that was
+  running when the process died, left nothing on the screen built to show it. The events
+  are now also written to a new `activity_events` table (additive; nothing that exists
+  changes) by one goroutine that batches them off the cycle's path, and the rings are
+  refilled from it at start with the numbering continuing. Scrub passes and failures,
+  recovery and recovery-test events and their `op_id` are kept. Periodic samples
+  (`transfer_stats`, `snapshot_stats`) and a download's per-range lines are not, and
+  `recovery_stage` lines are coalesced to the last stage each operation reached, so a
+  recovery costs a start row, one stage row and an end row however many stages it passes
+  through. Rows are kept 30 days and the table 50,000 rows, oldest first, pruned at start,
+  hourly and after every 5,000 inserts. A writer that falls behind drops from the durable
+  record and counts it; it never slows a cycle. `GET /api/v1/activity/live` takes
+  `before=<sequence>` to page backwards past the ring.
+
+- **A scrub lists each storage medium and reports objects the journal does not know**
+  (#978). The scrub still only checks the keys the journal records, so an object at
+  some other key can never stand in for a copy that went missing (that copy is a
+  failed copy, counted, with its own `scrub_failure` line). New is the other
+  direction: for each medium that holds or held a copy for a set, the pass lists the
+  set's namespace and reports every object no placement names, as a
+  `scrub_unknown_object` line and an `unknown_objects` entry per set in
+  `retnd scrub --json` and the scrub result. A medium that could not be listed shows
+  up as `unlisted` with the reason (and a `scrub_unlisted` line), never as a clean
+  result. Both are findings only: nothing is read, moved or deleted, no copy fails
+  because of them, and no `scrub_failure` line is written for them. A scheduled pass
+  lists only when it checked something; `retnd scrub` always lists. Additive to the
+  API contract: `ScrubSetResult` gains optional `unknown_objects` and `unlisted`.
+
+- **Assurance has a deployment-wide default and a per-set override** (#982, EPIC Q
+  Q1.4). A new top-level `assurance:` block sets how often a copy is re-read (scrub
+  cadence, default 7 days, floor 1 hour), what a scrub reads (`auto`, `existence` or
+  `content`) and whether a recovery test is required, and a backup set can carry its
+  own `assurance:` block in the same shape `retention:` uses: nil inherits, `Validate`
+  fills a resolved field, and everything reads the resolved field. A config that
+  mentions none of it scrubs on the defaults and comes back from a settings save
+  byte-identical. Per set, the recovery-test mode is `inherit`, `off`, `required` or
+  `custom`; `required` and `custom` need a validator, so a recovery test with nothing
+  to run is refused rather than quietly downgraded. The validator is a script: `validator_id` is the file name
+  of a `NAME.local.sh` in `recovery-test/<source>/<set>`, written without the suffix,
+  and a name that could not be a script's file name is refused when it is saved. The staging root, the staging TTL,
+  and the two concurrency ceilings are global only,
+  and each one carries the written reason a set cannot override it, in the API
+  response, in `settings assurance` and in the field help.
+  - **A one-way door.** `Load` uses `KnownFields(true)`, so a config that carries an
+    `assurance:` key cannot be parsed by an older build at all. Anyone who edits this
+    block during an incident and then rolls back needs to take the block out first. A
+    deployment that never adds it sees no change.
+  - **What an existing deployment sees.** Nothing is written for it. `GET
+    /api/v1/settings/assurance` and `retnd settings assurance` report the defaults with
+    `configured: false`.
+  - **Surfaces.** `GET`/`PATCH /api/v1/settings/assurance`, `GET`/`PATCH`/`DELETE
+    /api/v1/backup-sets/{source}/{set}/assurance` and `GET /api/v1/assurance/due`, with
+    `retnd settings assurance [patch|due]` and `retnd backup-set assurance`, all with
+    `--json` printing the API's own body. A `PATCH` is validated, written and
+    hot-reloaded in one step, so every set that inherits the changed value decides
+    under it on its next read with no restart. Beside a serving engine, `retnd
+    settings assurance patch` and `retnd backup-set assurance` hand the write to that
+    engine's `PATCH` route when `RETND_API_URL` names it (the engine owns the write and
+    its next-due moves), and a refusal for the request reads the same on both routes;
+    with an engine serving and no address they are still refused with the file untouched,
+    like `settings workflow`.
+  - **Feed and alerts.** New catalog events for scrub, recovery and recovery-test runs
+    (additions only, each completion states a `Result`) with one stage list shared by
+    the CLI and the browser, a scrub pass that costs two feed rows however many copies
+    it reads, and six new alert kinds: scrub overdue and failing, recovery test overdue
+    and failing, no readable copy, and archive-only recoverability.
+
 ## [0.5.1] - 2026-10-04
 
 0.5.1 is 0.5.0 plus the one logo. 0.5.0 was published without it: the logo

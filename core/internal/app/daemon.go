@@ -107,6 +107,16 @@ func (s *Service) Daemon(ctx context.Context) error {
 	}()
 	defer func() { <-alertsStopped }()
 
+	// EPIC Q's scrub runs on its own timer for the reason the alert pass
+	// does: a cycle wedged on one slow transfer must not stop copies being
+	// checked, and a long content scrub must not hold up a backup.
+	scrubsStopped := make(chan struct{})
+	go func() {
+		defer close(scrubsStopped)
+		s.runScrubTicks(ctx, interval)
+	}()
+	defer func() { <-scrubsStopped }()
+
 	for {
 		s.RunCycle(WithScheduledCycle(ctx))
 

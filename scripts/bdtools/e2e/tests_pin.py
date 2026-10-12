@@ -21,7 +21,10 @@ Ported from `scripts/e2e/run-tests-repo-gate.sh` and
 from __future__ import annotations
 
 import re
+import tempfile
 from pathlib import Path
+
+from bdtools import harness
 
 # The path both scripts name, relative to the repository root, as a string
 # because it appears in operator-visible refusals in exactly this form.
@@ -61,3 +64,65 @@ def read_pin(path: Path) -> dict[str, str]:
             value = value[1:-1]
         values[match.group(1)] = value
     return values
+
+
+def require_on_main(url: str, sha: str, branch: str = "main") -> None:
+    """Refuse unless `sha` is an ancestor of the tests repository's `branch` (#1074).
+
+    A pin names a reviewed, merged suite state. A branch head is none of
+    those: it can be force-pushed, deleted, or squashed into a different
+    sha, and the gate runs it just as happily as a merged one, which is how
+    `c75e4dd` (the head of retnd-tests#87, never on main) got pinned.
+
+    The bump tool and the gate both call this, so the two cannot disagree
+    about what "on main" means. It fetches into a throwaway git directory
+    with `--filter=tree:0`, which brings commits and no file contents, so
+    the cost is a few kilobytes rather than a clone, and asks git
+    `merge-base --is-ancestor`. Status 1 from that is the answer "no"; any
+    other non-zero status is git failing, which is reported as that and
+    never read as either answer.
+    """
+    with tempfile.TemporaryDirectory(prefix="retnd-pin-check.") as tmp:
+        git = ["git", "-C", tmp]
+        harness.sh([*git, "init", "-q", "--bare"])
+        fetched_main = harness.sh(
+            [
+                *git,
+                "fetch",
+                "-q",
+                "--no-tags",
+                "--filter=tree:0",
+                url,
+                f"+refs/heads/{branch}:refs/remotes/origin/{branch}",
+            ],
+            check=False,
+        )
+        if fetched_main.returncode != 0:
+            harness.die(
+                f"could not fetch {branch} from {url} to check that {sha} is on it.",
+                *(fetched_main.stderr or "").strip().splitlines()[-5:],
+            )
+        fetched_sha = harness.sh(
+            [*git, "fetch", "-q", "--no-tags", "--filter=tree:0", url, sha], check=False
+        )
+        if fetched_sha.returncode != 0:
+            harness.die(
+                f"{url} has no commit {sha}, so it cannot be on {branch}.",
+                "Pin a commit that has been merged to main and is reachable from it.",
+            )
+        verdict = harness.sh(
+            [*git, "merge-base", "--is-ancestor", sha, f"refs/remotes/origin/{branch}"], check=False
+        )
+        if verdict.returncode == 0:
+            return
+        if verdict.returncode == 1:
+            harness.die(
+                f"{sha} is not on {branch} in {url} (not on main means not an ancestor of {branch}).",
+                "A branch head can be force-pushed, deleted or squashed into a different sha, and the gate",
+                "would run it anyway. Pin the commit that merged to main instead (for a squash merge that is",
+                "the squash commit, not the branch head it came from).",
+            )
+        harness.die(
+            f"git could not decide whether {sha} is an ancestor of {branch} (status {verdict.returncode}).",
+            *(verdict.stderr or "").strip().splitlines()[-5:],
+        )

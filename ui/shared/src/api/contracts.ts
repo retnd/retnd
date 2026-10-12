@@ -2262,6 +2262,208 @@ export interface WorkflowRunnerStatus {
   tokenFile: string;
 }
 
+/** Where one recovery writes its bytes. `download` streams to whoever
+ *  redeems the grant, `staging` places one file under the host's recovery
+ *  staging root, `storage` uploads to another configured destination. */
+export interface RecoveryTargetSpec {
+  kind: "download" | "staging" | "storage";
+  /** staging: a name under the staging root. */
+  path?: string;
+  /** storage: a configured destination id. */
+  medium?: string;
+  /** storage: an object key, defaulting to recovered/<artifact id>. */
+  key?: string;
+}
+
+export interface RecoveryMintRequest {
+  /** A medium id, or empty / "best-available" for the strongest readable copy. */
+  copy?: string;
+  /** The explicit yes to a chargeable retrieval. Absent is a no. */
+  acknowledged?: boolean;
+  target: RecoveryTargetSpec;
+}
+
+/** A grant, or the provider restore that has to finish before there can be
+ *  one. The two never share fields, which is why this is a union. */
+export type RecoveryMint =
+  | {
+      kind: "grant";
+      artifactId: string;
+      copy: string;
+      grant: string;
+      /** GET this path to redeem the grant. */
+      downloadUrl: string;
+      expiresAt: string;
+      target: RecoveryTargetSpec;
+      sizeBytes?: number;
+    }
+  | {
+      kind: "restore";
+      artifactId: string;
+      copy: string;
+      operationId: string;
+      /** The storage class's own published restore time, in words. */
+      wait?: string;
+      /** The plain statement that a bill exists. Never an amount. */
+      billing?: string;
+    };
+
+/** What a redeemed server-side grant answers: verified and placed. */
+export interface RecoveryPlacement {
+  artifactId: string;
+  copy: string;
+  target: RecoveryTargetSpec;
+  path?: string;
+  key?: string;
+  bytes: number;
+  /** The digest of the bytes placed, equal to the one the journal recorded. */
+  sha256: string;
+}
+
+/** What to test. Both fields are optional: with neither, the newest known
+ *  good copy is tested and no cost is acknowledged. */
+export interface RecoveryTestRequest {
+  /** source/set/name, in the same backup set. */
+  artifactId?: string;
+  /** The explicit yes to a read that costs money. Absent is a no. */
+  acknowledged?: boolean;
+}
+
+/** A recovery test is under way. */
+export interface RecoveryTestStart {
+  backupSetId: string;
+  /** Carried as `op_id` by every line of the test on the live feed. */
+  operationId: string;
+  /** True when this request joined a test already running for the set, so
+   *  `operationId` is that test's and no second one was started. */
+  coalesced: boolean;
+}
+
+/** A scrub is under way. The id is NOT on the activity feed: it exists to be
+ *  handed to {@link RetndApi.cancelAssuranceOperation}. */
+export interface ScrubStart {
+  backupSetId: string;
+  operationId: string;
+}
+
+/** A running scrub or recovery test has been told to stop. It has not
+ *  necessarily stopped yet: `cancelling` is a request, and the operation's
+ *  own end line is the fact. */
+export interface AssuranceOperationCancelled {
+  operationId: string;
+  kind: "scrub" | "recovery_test";
+  backupSetId: string;
+  status: "cancelling";
+}
+
+/** One line of a validator's output, or the runner's own truncation marker.
+ *  Branch on `kind` and never on `text`: a validator that prints the marker's
+ *  words is still `output`. */
+export interface RecoveryTestOutputRecord {
+  kind: "output" | "truncation";
+  /** Already made inert by the server (no control byte), and still rendered
+   *  as text only. */
+  text: string;
+}
+
+/** What the newest recovery test of a backup set printed. Always the same
+ *  nine keys: before any test is recorded `recorded` is false, the strings
+ *  are empty and `records` is an empty list, never null. */
+export interface RecoveryTestOutput {
+  backupSetId: string;
+  recorded: boolean;
+  operationId: string;
+  artifactId: string;
+  medium: string;
+  /** passed, failed, refused_for_cost or could_not_complete; empty when
+   *  nothing is recorded. */
+  state: "passed" | "failed" | "refused_for_cost" | "could_not_complete";
+  recordedAt: string;
+  /** Whether the runner dropped output to stay inside its bounds. The
+   *  marker itself is the `truncation` record, which comes last. */
+  truncated: boolean;
+  records: RecoveryTestOutputRecord[];
+}
+
+/** A resolved scrub and recovery-test policy (EPIC Q, Q1.4). Every value is
+ *  RESOLVED: an inherited or defaulted setting is filled in, so a zero here
+ *  is never something to read as "never". */
+export interface AssurancePolicy {
+  scrub: { cadenceSeconds: number; strategy: string };
+  recoveryTest: { mode: string; cadenceSeconds: number; validatorId: string };
+}
+
+/** A global-only setting and the written reason a backup set cannot
+ *  override it. */
+export interface AssuranceHostKnob {
+  name: string;
+  value: string;
+  perSet: boolean;
+  reason: string;
+}
+
+/** The deployment-wide assurance policy. `configured` false means every
+ *  value is a default nobody had to set. */
+export interface AssuranceSettings extends AssurancePolicy {
+  configured: boolean;
+  stagingRoot: string;
+  stagingTtlSeconds: number;
+  maxConcurrentFullReads: number;
+  maxPerDestination: number;
+  hostKnobs: AssuranceHostKnob[];
+}
+
+/** A sparse write. An absent field is "leave this alone"; a zero or empty
+ *  value clears that setting back to its default. */
+export interface AssuranceSettingsPatch {
+  scrubCadenceSeconds?: number;
+  scrubStrategy?: string;
+  recoveryTestMode?: string;
+  recoveryTestCadenceSeconds?: number;
+  recoveryTestValidatorId?: string;
+  stagingRoot?: string;
+  stagingTtlSeconds?: number;
+  maxConcurrentFullReads?: number;
+  maxPerDestination?: number;
+}
+
+/** One backup set's resolved policy. `isOverride` is reported rather than
+ *  derived, because a set that pinned the deployment's own value is not
+ *  inheriting. */
+export interface BackupSetAssurance extends AssurancePolicy {
+  backupSetId: string;
+  isOverride: boolean;
+}
+
+/** The per-set subset of a write. The host-scoped settings are not here
+ *  because the per-set answer to each is no. */
+export interface BackupSetAssurancePatch {
+  scrubCadenceSeconds?: number;
+  scrubStrategy?: string;
+  recoveryTestMode?: string;
+  recoveryTestCadenceSeconds?: number;
+  recoveryTestValidatorId?: string;
+}
+
+/** One copy's place in the scrub schedule. A copy nobody has looked at has
+ *  no `lastAssuredAt` and is overdue, never fine. */
+export interface AssuranceDueItem {
+  backupSetId: string;
+  artifactId: string;
+  artifactName: string;
+  lastAssuredAt?: string;
+  nextDueAt: string;
+  cadenceSeconds: number;
+  due: boolean;
+  overdue: boolean;
+  basis: string;
+}
+
+export interface AssuranceDue {
+  generatedAt: string;
+  items: AssuranceDueItem[];
+}
+
 /** The deployment-wide workflow configuration, RESOLVED: the timeout a
  *  hook will actually get, the stages that will actually run, the
  *  environment a hook will actually see. That is why this read exists
@@ -2573,6 +2775,13 @@ export interface WorkflowValidation {
  * wrong, and none of them are visible in the types.
  */
 export interface RetndApi {
+  /**
+   * EPIC Q (issue #985): recovery, scrub and recovery-test. OPTIONAL on
+   * purpose. The routes belong to the epic's backend work, and a client for
+   * a server that does not offer them leaves this undefined; every surface
+   * then renders `unknown` and says why, rather than a tick nobody earned.
+   */
+  assurance?: import("@shared/assurance/types").AssuranceApi;
   getVersion(): Promise<VersionInfo>;
   getHealth(): Promise<SystemHealth>;
 
@@ -2802,6 +3011,64 @@ export interface RetndApi {
   listArtifacts(setId?: string): Promise<BackupArtifact[]>;
   getArtifact(id: string): Promise<BackupArtifact>;
 
+  /**
+   * EPIC Q (#976, issue #985): ask for one read of one backup's copy.
+   *
+   * A mint authorises nothing by itself. It answers in one of two shapes: a
+   * short-lived single-use grant, or (when the only copy is on an archive
+   * class and the request acknowledged the cost) the id of the one provider
+   * restore it started, with no grant yet. A request that would cost money
+   * and did not acknowledge it REJECTS with RECOVERY_COST_NOT_ACKNOWLEDGED
+   * and starts nothing.
+   */
+  mintRecovery(artifactId: string, req: RecoveryMintRequest): Promise<RecoveryMint>;
+  /**
+   * Redeem a grant whose target is on the host (staging or storage). The
+   * request stays open while the host re-reads the copy, matches it to the
+   * digest the journal recorded and only then places it, so it can take a
+   * long time and it carries no progress. A browser download is NOT redeemed
+   * through here: the browser follows the grant's `downloadUrl` itself, so
+   * the bytes never pass through this page's memory.
+   */
+  redeemRecovery(grant: string): Promise<RecoveryPlacement>;
+
+  /**
+   * EPIC Q (#980, issue #985): start a recovery test of this backup set now,
+   * in the background. An empty request tests the newest known good copy and
+   * acknowledges no cost, so a copy that would cost money to read is refused
+   * and recorded as such rather than read. Answers as soon as the test is
+   * accepted: the `operationId` is carried by its start, stage and end lines
+   * on the live activity feed (`op_id`), and the verdict lands on the copy's
+   * recovery claim. A second request while one is running JOINS it: the
+   * answer is the running test's id with `coalesced` true, and nothing new
+   * starts.
+   */
+  startRecoveryTest(source: string, set: string, req?: RecoveryTestRequest): Promise<RecoveryTestStart>;
+
+  /**
+   * POST /backup-sets/{source}/{set}/scrub: scrub the set's recorded copies
+   * now, in the background. Answers 202 at once. The `operationId` is not on
+   * the activity feed; it exists to cancel the scrub. REJECTS with
+   * OPERATION_ALREADY_RUNNING (409) while one runs for the set, INVALID_REQUEST
+   * for a disabled or incremental set and BACKUP_SET_NOT_FOUND for an unknown
+   * one. Not behind the destructive gate: a read deletes nothing.
+   */
+  startScrub(source: string, set: string): Promise<ScrubStart>;
+
+  /**
+   * POST /assurance/operations/{op}/cancel: ask a running scrub or recovery
+   * test to stop. Deliberately not under /operations, which the destructive
+   * gate owns. REJECTS with OPERATION_NOT_FOUND (404) for an id that is not
+   * running, which includes one that has just ended.
+   */
+  cancelAssuranceOperation(operationId: string): Promise<AssuranceOperationCancelled>;
+
+  /**
+   * GET /backup-sets/{source}/{set}/recovery-test/output: what the newest
+   * recovery test of the set printed.
+   */
+  getRecoveryTestOutput(source: string, set: string): Promise<RecoveryTestOutput>;
+
   listOperations(): Promise<Operation[]>;
   /**
    * One page of the durable lifecycle record, newest first (issue #730).
@@ -2834,7 +3101,13 @@ export interface RetndApi {
    * to hunt for it, and its absence then means either nothing is running
    * or nothing is reporting, with no way to tell which.
    */
-  getLiveActivity(options?: { setId?: string; since?: number; limit?: number }): Promise<LiveActivity>;
+  /**
+   * `before`, when positive, pages BACKWARDS through the durable record
+   * (events are kept for 30 days and at most 50,000 rows): each bucket
+   * answers with its events below that sequence, oldest first, and
+   * `truncated` says older ones remain. `since` is ignored then.
+   */
+  getLiveActivity(options?: { setId?: string; since?: number; before?: number; limit?: number }): Promise<LiveActivity>;
   listQuarantine(): Promise<BackupArtifact[]>;
   revalidate(artifactId: string): Promise<void>;
   retryIngestion(artifactId: string): Promise<void>;
@@ -3343,6 +3616,17 @@ export interface RetndApi {
    *  form re-renders from what was persisted rather than from what it
    *  hoped it had written. */
   patchWorkflowSettings(patch: WorkflowSettingsPatch): Promise<WorkflowSettings>;
+
+  /** EPIC Q's assurance policy (Q1.4): the deployment's, one backup set's,
+   *  and the scrub schedule computed from those resolved policies. A write
+   *  is validated, persisted and hot-reloaded in one step, so every set
+   *  that inherits the change decides under it on its next read. */
+  getAssuranceSettings(): Promise<AssuranceSettings>;
+  patchAssuranceSettings(patch: AssuranceSettingsPatch): Promise<AssuranceSettings>;
+  getBackupSetAssurance(source: string, set: string): Promise<BackupSetAssurance>;
+  patchBackupSetAssurance(source: string, set: string, patch: BackupSetAssurancePatch): Promise<BackupSetAssurance>;
+  resetBackupSetAssurance(source: string, set: string): Promise<BackupSetAssurance>;
+  listAssuranceDue(filter?: { backupSetId?: string; status?: "all" | "due" | "overdue" }): Promise<AssuranceDue>;
 
   /** The deployment-wide environment, and its two writes. Every one of
    *  the three answers with the whole list, because a set or an unset is

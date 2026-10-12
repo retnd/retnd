@@ -683,6 +683,46 @@ var routes = map[string]entry{
 		build:    func(a Action) *cmd { return newCmd("artifacts", artifactID(a)) },
 		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar"}}},
 	},
+	key("POST", "/backups/{source}/{set}/{name}/recovery"): {
+		build: func(a Action) *cmd {
+			var req apicontract.RecoveryMintRequest
+			c := newCmd("recover", artifactID(a))
+			if !decode(a.Body, &req) {
+				return c
+			}
+			if req.Copy != "" && req.Copy != "best-available" {
+				c.flag("copy", req.Copy)
+			}
+			switch req.Target.Kind {
+			case "download":
+				c.flag("to", "-")
+			case "staging":
+				c.flag("to", req.Target.Path)
+			case "storage":
+				to := "medium:" + req.Target.Medium
+				if req.Target.Key != "" {
+					to += "/" + req.Target.Key
+				}
+				c.flag("to", to)
+			}
+			if req.Acknowledged {
+				c.bare("acknowledge-cost")
+			}
+			return c
+		},
+		examples: []Action{
+			{Params: map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar"},
+				Body: []byte(`{"target":{"kind":"download"}}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar"},
+				Body: []byte(`{"copy":"offsite_s3","acknowledged":true,"target":{"kind":"staging","path":"restore/dump.tar"}}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar"},
+				Body: []byte(`{"target":{"kind":"storage","medium":"offsite_s3","key":"recovered/dump.tar"}}`)},
+		},
+	},
+	key("GET", "/recoveries/{grant}"): {
+		why:               "a grant is minted and redeemed in one step by `" + Binary + " recover`, in your own shell, so there is no verb that redeems a grant somebody else minted: the token belongs to the browser session that asked for it",
+		namesShippedVerbs: []string{"recover"},
+	},
 	key("POST", "/backups/{source}/{set}/{name}/retry"): {
 		build: func(a Action) *cmd {
 			var req apicontract.RetryFailedRequest
@@ -1274,6 +1314,162 @@ var routes = map[string]entry{
 	key("GET", "/backup-sets/{source}/{set}/workflow/validation"): {
 		build:    func(a Action) *cmd { return newCmd("validate", "workflow", setID(a)) },
 		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
+	},
+	// ------------------------------------------------------- assurance ---
+	//
+	// EPIC Q, Q1.4 (#982). Every route is a real command. The patch
+	// builders print on nil-ness rather than non-zero for the reason the
+	// workflow ones do: an explicit zero or empty value CLEARS a setting
+	// back to its default, and a builder that dropped it would echo a
+	// command that does not make the edit the operator asked for.
+	key("GET", "/settings/assurance"): {
+		build:    func(Action) *cmd { return newCmd("settings", "assurance") },
+		examples: []Action{{}},
+	},
+	key("PATCH", "/settings/assurance"): {
+		build: func(a Action) *cmd {
+			var req apicontract.UpdateAssuranceSettingsRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("settings", "assurance", "patch")
+			if req.ScrubCadenceSeconds != nil {
+				c.flag("scrub-cadence", seconds(*req.ScrubCadenceSeconds))
+			}
+			if req.ScrubStrategy != nil {
+				c.flag("scrub-strategy", *req.ScrubStrategy)
+			}
+			if req.RecoveryTestMode != nil {
+				c.flag("recovery-test-mode", *req.RecoveryTestMode)
+			}
+			if req.RecoveryTestCadenceSeconds != nil {
+				c.flag("recovery-test-cadence", seconds(*req.RecoveryTestCadenceSeconds))
+			}
+			if req.RecoveryTestValidatorID != nil {
+				c.flag("recovery-test-validator", *req.RecoveryTestValidatorID)
+			}
+			if req.StagingRoot != nil {
+				c.flag("staging-root", *req.StagingRoot)
+			}
+			if req.StagingTtlSeconds != nil {
+				c.flag("staging-ttl", seconds(*req.StagingTtlSeconds))
+			}
+			if req.MaxConcurrentFullReads != nil {
+				c.flag("max-concurrent-full-reads", itoa64(*req.MaxConcurrentFullReads))
+			}
+			if req.MaxPerDestination != nil {
+				c.flag("max-per-destination", itoa64(*req.MaxPerDestination))
+			}
+			return c
+		},
+		why: "there is no verb that patches the deployment's assurance policy from a request body",
+		examples: []Action{
+			{Body: []byte(`{"scrub_cadence_seconds":43200}`)},
+			{Body: []byte(`{"recovery_test_mode":"required","recovery_test_validator_id":"pg-restore-check","recovery_test_cadence_seconds":2592000}`)},
+			{Body: []byte(`{"staging_ttl_seconds":3600,"max_concurrent_full_reads":4,"max_per_destination":2}`)},
+			{Body: []byte(`{"scrub_cadence_seconds":0,"scrub_strategy":"","staging_root":"/var/lib/retnd/staging"}`)},
+		},
+	},
+	key("GET", "/backup-sets/{source}/{set}/assurance"): {
+		build:    func(a Action) *cmd { return newCmd("backup-set", "assurance", setID(a)) },
+		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
+	},
+	key("PATCH", "/backup-sets/{source}/{set}/assurance"): {
+		build: func(a Action) *cmd {
+			var req apicontract.UpdateBackupSetAssuranceRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("backup-set", "assurance", setID(a))
+			if req.ScrubCadenceSeconds != nil {
+				c.flag("scrub-cadence", seconds(*req.ScrubCadenceSeconds))
+			}
+			if req.ScrubStrategy != nil {
+				c.flag("scrub-strategy", *req.ScrubStrategy)
+			}
+			if req.RecoveryTestMode != nil {
+				c.flag("recovery-test-mode", *req.RecoveryTestMode)
+			}
+			if req.RecoveryTestCadenceSeconds != nil {
+				c.flag("recovery-test-cadence", seconds(*req.RecoveryTestCadenceSeconds))
+			}
+			if req.RecoveryTestValidatorID != nil {
+				c.flag("recovery-test-validator", *req.RecoveryTestValidatorID)
+			}
+			return c
+		},
+		why: "there is no verb that patches a backup set's assurance policy from a request body",
+		examples: []Action{
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}, Body: []byte(`{"scrub_cadence_seconds":7200}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"},
+				Body: []byte(`{"recovery_test_mode":"custom","recovery_test_cadence_seconds":172800,"recovery_test_validator_id":"pg-restore-check"}`)},
+		},
+	},
+	key("DELETE", "/backup-sets/{source}/{set}/assurance"): {
+		build: func(a Action) *cmd {
+			return newCmd("backup-set", "assurance", setID(a)).bare("reset")
+		},
+		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
+	},
+	key("POST", "/backup-sets/{source}/{set}/recovery-test"): {
+		build: func(a Action) *cmd {
+			c := newCmd("recovery-test", setID(a))
+			var req apicontract.StartRecoveryTestRequest
+			if !decode(a.Body, &req) {
+				return c
+			}
+			if req.ArtifactID != "" {
+				c.flag("artifact", req.ArtifactID)
+			}
+			if req.Acknowledged {
+				c.bare("acknowledge-cost")
+			}
+			return c
+		},
+		examples: []Action{
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}, Body: []byte(`{}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"},
+				Body: []byte(`{"artifact_id":"api-server/var-backups/dump.tar","acknowledged":true}`)},
+		},
+	},
+	key("GET", "/backup-sets/{source}/{set}/recovery-test/output"): {
+		build: func(a Action) *cmd {
+			return newCmd("recovery-test", setID(a)).bare("show-output")
+		},
+		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
+	},
+	key("POST", "/backup-sets/{source}/{set}/scrub"): {
+		build: func(a Action) *cmd {
+			return newCmd("scrub", setID(a))
+		},
+		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
+	},
+	key("POST", "/assurance/operations/{op}/cancel"): {
+		build: func(a Action) *cmd {
+			return newCmd("assurance", "cancel", a.Params["op"])
+		},
+		examples: []Action{{Params: map[string]string{"op": "7b0c9a1e-0000-4000-8000-000000000001"}}},
+	},
+	key("GET", "/assurance/due"): {
+		build: func(a Action) *cmd {
+			c := newCmd("settings", "assurance", "due")
+			if set := a.Query.Get("backup_set"); set != "" {
+				c.flag("backup-set", set)
+			}
+			switch a.Query.Get("status") {
+			case "due":
+				c.bare("due")
+			case "overdue":
+				c.bare("overdue")
+			}
+			return c
+		},
+		examples: []Action{
+			{},
+			{Query: mustQuery("backup_set=api-server%2Fvar-backups&status=overdue")},
+			{Query: mustQuery("status=due")},
+		},
 	},
 	key("GET", "/workflow-runs"): {
 		build: func(a Action) *cmd {

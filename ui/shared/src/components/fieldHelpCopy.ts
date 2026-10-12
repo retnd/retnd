@@ -96,6 +96,57 @@ export interface FieldHelpCopy {
  * its pop-up and a missing one is a field that never had it.
  */
 export const FIELD_HELP = {
+  // ------------------------------------------------------------ assurance
+
+  assuranceScrubEvery: {
+    what: "How often every backup set that follows the deployment re-reads its recorded copies and compares their digests.",
+    example: "7d",
+    effect:
+      "Saves 7d as the deployment's cadence. Every set that follows the deployment then scrubs every 7d, and a set with its own policy keeps its value. A whole number with a unit of s, m, h or d, and nothing under 1h, is the only shape accepted; anything else is refused and nothing changes."
+  },
+
+  assuranceScrubStrategy: {
+    what: "What a scrub reads. Auto picks the strongest read the copy's destination allows at no cost, existence only checks the copy is still there and the right size, content re-reads and re-hashes every byte.",
+    example: "auto",
+    effect:
+      "Saves the choice. An existence check is never reported as content verification, and a content read of a copy on a storage medium costs egress, so a scheduled scrub never does it on its own."
+  },
+
+  assuranceRecoveryTestMode: {
+    what: "Whether a recovery test runs on a schedule. Off never runs one. Required runs one on its cadence, and a set that requires one is degraded until one passes.",
+    example: "required",
+    effect:
+      "Saves the mode. Required needs a validator, and the server refuses the save until one is named. A scheduled test never thaws an archive."
+  },
+
+  assuranceRecoveryTestEvery: {
+    what: "How often a recovery test is due.",
+    example: "30d",
+    effect:
+      "Saves the cadence. A whole number with a unit of s, m, h or d, and nothing under 24h, because a recovery test reads a whole copy back. Empty returns to the default."
+  },
+
+  assuranceValidator: {
+    what: "The name of the script a recovery test runs, without its .local.sh suffix. A name is never a path, and the server asks for one when the mode is required.",
+    example: "pg-restore-check",
+    effect:
+      "Saves the name. The name selects the script: the engine runs NAME.local.sh from the set's recovery-test directory under the workflow root, after it has re-read the recovered copy and matched its digest, and it records the claim and the script's hash itself. A name that could not be a script's file name is refused when you save, and the script can never write Content verified or Recovery tested."
+  },
+
+  assuranceSetScrubEvery: {
+    what: "How often this one backup set scrubs, instead of following the deployment's cadence.",
+    example: "12h",
+    effect:
+      "Saves 12h for this set only, as part of the set's own policy. Changing the deployment's cadence afterwards does not move this set, which is the point of an own policy."
+  },
+
+  assuranceSetValidator: {
+    what: "The name of the script this set's recovery test runs, without its .local.sh suffix. A name is never a path.",
+    example: "pg-restore-check",
+    effect:
+      "Saves the name as part of this set's own policy. The name selects the script: NAME.local.sh under recovery-test/<source>/<set> in the workflow root, started by the engine after it has re-read the copy and matched its digest. Show validator output displays the newest test's recorded verdict and what the script printed, as bounded plain text; it runs no test, and the same text is `retnd recovery-test <set> --show-output`."
+  },
+
   // ---------------------------------------------------------------- auth
 
   loginUsername: {

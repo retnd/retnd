@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strings"
 )
 
 // Issue #598. The one place a 500 is written, and the reason there is a
@@ -88,6 +89,13 @@ func (h *handlers) logRefusal(r *http.Request, status int, code, correlationID s
 func routeOf(r *http.Request) string {
 	if r == nil || r.URL == nil {
 		return ""
+	}
+	// A recovery grant is a bearer credential and it sits in the path. The
+	// path is logged so an operator can repeat the request; for this one
+	// route the pattern is logged instead, because repeating it is exactly
+	// what a leaked log line must not allow.
+	if strings.HasPrefix(r.URL.Path, recoveryGrantPathPrefix) {
+		return recoveryGrantPathPrefix + "{grant}"
 	}
 	return r.URL.Path
 }
