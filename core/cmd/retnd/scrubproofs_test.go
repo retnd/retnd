@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/retnd/retnd/core/apicontract"
 )
 
 // EPIC Q panel 2 (W-07) on #978: `retnd scrub --json` speaks the contract's
@@ -55,6 +57,28 @@ func TestScrubJSON_IsOneContractObjectWithTheCountsAndTheCopyDetail(t *testing.T
 	}
 	if got["failed"] != float64(1) {
 		t.Errorf("failed = %v, want 1", got["failed"])
+	}
+	// Strictly the contract's own type: a field the contract does not name,
+	// or one named with another type, is a --json that has drifted from the
+	// shape the API reports a scrub in.
+	var typed apicontract.ScrubResult
+	strict := json.NewDecoder(bytes.NewReader([]byte(stdout)))
+	strict.DisallowUnknownFields()
+	if err := strict.Decode(&typed); err != nil {
+		t.Fatalf("stdout is not an apicontract.ScrubResult: %v\n%s", err, stdout)
+	}
+	if typed.Trigger != "manual" || typed.Failed != 1 || typed.Passed != 0 || len(typed.Sets) != 1 {
+		t.Errorf("result = %+v, want a manual pass with the one failure in one set", typed)
+	}
+	if len(typed.Sets) == 1 {
+		cs := typed.Sets[0].Copies
+		if len(cs) != 1 || cs[0].ArtifactID != "production/postgres-primary/backup.dump" || cs[0].Medium != "local" ||
+			cs[0].Verdict != "failed" || cs[0].Class != "content" {
+			t.Errorf("copies = %+v, want the one local copy, failed at content class", cs)
+		}
+		if typed.Sets[0].Errors == nil || typed.Sets[0].Skipped == nil {
+			t.Errorf("an empty list must be [] and not null: %+v", typed.Sets[0])
+		}
 	}
 	if strings.Contains(stdout, "scrub (") {
 		t.Errorf("the human summary line leaked into --json output:\n%s", stdout)
