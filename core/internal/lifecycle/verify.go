@@ -133,6 +133,7 @@ import (
 
 	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/procseam"
 	"github.com/retnd/retnd/core/internal/state"
 	"github.com/retnd/retnd/core/internal/transport"
 	"github.com/retnd/retnd/core/internal/transport/retry"
@@ -716,7 +717,7 @@ func runValidator(ctx context.Context, cmd config.Command, localPath string) (pa
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	c := exec.CommandContext(runCtx, cmd.Executable, localPath)
+	c := procseam.CommandContext(runCtx, cmd.Executable, localPath)
 
 	// A fixed, minimal environment: never the ambient os.Environ() this
 	// process is running with. RETND_ARTIFACT_PATH duplicates argv[1] for

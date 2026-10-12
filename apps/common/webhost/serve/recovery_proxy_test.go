@@ -1,11 +1,15 @@
 package serve_test
 
 import (
+	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -116,5 +120,83 @@ func TestUI_ADownloadsGrantIsNeverLoggedWhenTheProxyFails(t *testing.T) {
 				t.Fatalf("a bearer grant reached the log in %q: %q", k, v)
 			}
 		}
+	}
+}
+
+// The abort hop. A browser that cancels a download closes its connection to
+// the UI host; the proxy has to carry that to the engine, or the engine keeps
+// reading a multi-gigabyte copy off disk (or a billed provider) and writing
+// it into a socket nobody is draining. The upstream here never ends on its own,
+// so it only stops if the cancel reaches it. The engine's own half of this
+// (an aborted response is a failed range on the service) is in webhost's
+// handlers_recovery_test.go; this is the hop in between.
+func TestUI_ABrowserThatAbortsMidDownloadStopsTheUpstreamStream(t *testing.T) {
+	var (
+		inflight atomic.Int32
+		sent     atomic.Int64
+		first    sync.Once
+		started  = make(chan struct{})
+	)
+	upstream := fakeUpstream(t, func(w http.ResponseWriter, r *http.Request) {
+		inflight.Add(1)
+		defer inflight.Add(-1)
+		fl := w.(http.Flusher)
+		rc := http.NewResponseController(w)
+		chunk := bytes.Repeat([]byte("x"), 32<<10)
+		for r.Context().Err() == nil {
+			// A write nobody drains blocks for good, and then so does the
+			// server's Close at the end of the test. Longer than the wait
+			// below, so a stream the abort never reached is still seen as
+			// one, and shorter than forever, so the failure can be reported.
+			_ = rc.SetWriteDeadline(time.Now().Add(6 * time.Second))
+			n, err := w.Write(chunk)
+			sent.Add(int64(n))
+			fl.Flush()
+			first.Do(func() { close(started) })
+			if err != nil {
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	})
+	ui := uiOver(t, upstream, 0, 0)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ui.URL+"/api/v1/recoveries/tok_abc", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	if _, err := io.CopyN(io.Discard, resp.Body, 256<<10); err != nil {
+		t.Fatalf("the download did not start: %v", err)
+	}
+
+	// The control: while the browser is there the stream really is running,
+	// so "it stopped" below is the abort and not a stream that was never going.
+	before := sent.Load()
+	time.Sleep(100 * time.Millisecond)
+	if sent.Load() == before || inflight.Load() != 1 {
+		t.Fatalf("the upstream was not streaming before the abort (sent %d -> %d, %d in flight)", before, sent.Load(), inflight.Load())
+	}
+
+	cancel() // the browser's cancel button
+	_ = resp.Body.Close()
+
+	deadline := time.Now().Add(4 * time.Second)
+	for inflight.Load() != 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := inflight.Load(); n != 0 {
+		t.Fatalf("the proxy kept the engine streaming after the browser went away (%d handlers still in flight, %d bytes sent)", n, sent.Load())
+	}
+	settled := sent.Load()
+	time.Sleep(200 * time.Millisecond)
+	if sent.Load() != settled {
+		t.Fatalf("the upstream wrote %d more bytes after it stopped", sent.Load()-settled)
 	}
 }
