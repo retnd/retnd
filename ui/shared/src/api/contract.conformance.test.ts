@@ -487,6 +487,17 @@ describe("every request the shared client makes is a declared operation", () => 
       ["resumeWorkflowCleanup", () => httpApi.resumeWorkflowCleanup("wfr_1")],
       ["acknowledgeWorkflowRecovery", () =>
         httpApi.acknowledgeWorkflowRecovery("wfr_1", "thawed the database by hand")],
+      // EPIC Q's recovery pair (#976), reached by the Recover artifact dialog.
+      ["mintRecovery", () => httpApi.mintRecovery("src/set-1/a.tar.gz", { target: { kind: "staging", path: "restore-1" }, acknowledged: true })],
+      ["redeemRecovery", () => httpApi.redeemRecovery("grant-token")],
+      // EPIC Q's "run a recovery test now" (#980, issue #985): reached by the
+      // Run recovery test control on the set's Assurance section.
+      ["startRecoveryTest", () => httpApi.startRecoveryTest("src", "set-1", { acknowledged: true })],
+      // The three operator controls the set page's Assurance section draws
+      // (#985): Scrub now, Cancel and Show validator output.
+      ["startScrub", () => httpApi.startScrub("src", "set-1")],
+      ["cancelAssuranceOperation", () => httpApi.cancelAssuranceOperation("op-1")],
+      ["getRecoveryTestOutput", () => httpApi.getRecoveryTestOutput("src", "set-1")],
       // EPIC Q's assurance surface (Q1.4, #982).
       ["getAssuranceSettings", () => httpApi.getAssuranceSettings()],
       ["patchAssuranceSettings", () => httpApi.patchAssuranceSettings({ scrubCadenceSeconds: 43_200 })],
@@ -669,22 +680,14 @@ describe("every request the shared client makes is a declared operation", () => 
     // could call them without this list shrinking, which is the property
     // the exact assertion below enforces in both directions.
     "getSession",
-    "getSystemCapabilities",
+    "getSystemCapabilities"
     //
-    // EPIC Q's recovery pair (#976): the mint and the redeem. The API and
-    // the CLI halves land first, and the browser's half is its own issue
-    // (#985, the download dialog and its progress). They leave this list
-    // the commit a screen calls them, which is the mechanism working as
-    // the paragraph above describes: adding a contract operation forces a
-    // line here, and wiring a screen to it forces the line back out.
-    "mintRecovery",
-    "redeemRecovery",
-    //
-    // EPIC Q's "run a recovery test now" (#980): POST
-    // /backup-sets/{source}/{set}/recovery-test. The API and the CLI verb
-    // (`retnd recovery-test`) are the engine's half; the Run button is the
-    // assurance screens' (#985) and takes this line out when it calls it.
-    "startRecoveryTest"
+    // EPIC Q's recovery pair (#976), mintRecovery and redeemRecovery, used to
+    // be pinned here as "unreached until a screen calls them". The Recover
+    // artifact dialog (#985) calls both, so they left this list in the same
+    // commit as the screen, which is the mechanism working as the paragraph
+    // above describes. startRecoveryTest (#980) followed the same way: the
+    // Run recovery test control calls it, so it is not pinned here either.
   ];
 
   it("pins the contract operations no client call reaches", () => {

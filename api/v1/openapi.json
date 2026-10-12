@@ -3447,6 +3447,64 @@
               "DELETE_PENDING"
             ],
             "description": "ACTIVE means the copy is meant to be there. DELETE_PENDING means a delete has been decided and durably recorded and may not have happened yet, so the bytes are probably still there and are on their way out. There is no third value here: a copy the journal knows is gone is not served at all, because a row for it would read as a copy."
+          },
+          "assurance_state": {
+            "type": "string",
+            "enum": [
+              "passed",
+              "failed",
+              "requires_restore",
+              "could_not_complete"
+            ],
+            "description": "The outcome of the most recent scrub of THIS copy. ABSENT means no scrub has evaluated the copy, which is a different fact from a pass and must never be rendered as one. \"failed\" is a failed check: a failed scrub clears verification_class and verified_at, so without this field a copy that failed reads exactly like one nobody has looked at. \"could_not_complete\" is a fact about the endpoint and not about the copy. \"requires_restore\" is an archive-class copy that cannot be read without a restore this product never starts by itself.",
+            "x-go-omitempty": true
+          },
+          "last_checked_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When a scrub of this copy last ran to a verdict. Absent when none has. A check that could not complete does not set it, because nothing was checked.",
+            "x-go-omitempty": true
+          },
+          "last_failure_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When a scrub of this copy last failed or could not complete. It survives a later pass; only consecutive_failures resets.",
+            "x-go-omitempty": true
+          },
+          "last_failure_reason": {
+            "type": "string",
+            "description": "Why that scrub failed or could not complete, in the journal's bounded plain words. It names no path and no credential.",
+            "x-go-omitempty": true
+          },
+          "consecutive_failures": {
+            "type": "integer",
+            "description": "How many scrubs of this copy in a row failed or could not complete. Any pass resets it to zero (and so omits it).",
+            "x-go-omitempty": true
+          },
+          "recovery_state": {
+            "type": "string",
+            "enum": [
+              "not_configured",
+              "never_run",
+              "passed",
+              "overdue",
+              "failed",
+              "refused_for_cost",
+              "could_not_complete"
+            ],
+            "description": "The outcome of the most recent recovery test of THIS copy, a different claim from assurance_state because passing one says nothing about the other. ABSENT means no test has evaluated the copy.",
+            "x-go-omitempty": true
+          },
+          "recovery_tested_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When a recovery test of this copy last concluded. Absent when none has.",
+            "x-go-omitempty": true
+          },
+          "recovery_failure_reason": {
+            "type": "string",
+            "description": "Why the last recovery test of this copy failed or could not complete, in the journal's bounded plain words. Never the validator's output.",
+            "x-go-omitempty": true
           }
         },
         "required": [

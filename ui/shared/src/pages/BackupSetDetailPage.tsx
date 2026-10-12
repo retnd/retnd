@@ -75,6 +75,7 @@ import { Cell, Row } from "@shared/components/Definitions";
 import { BackupSetConfigurationCard } from "@shared/pages/BackupSetConfigurationCard";
 import type { TooltipId } from "@shared/tooltips/tooltips";
 import { RetentionPreviewDialog } from "./RetentionPreviewDialog";
+import { AssuranceSection } from "@shared/assurance/AssuranceSection";
 import { BackupSetRetentionCard } from "./BackupSetRetentionCard";
 import { EDIT_FIELDS, readEditFields, visibleEditFields, withCompanions } from "./backupSetEditFields";
 import type { EditField, EditFieldKey } from "./backupSetEditFields";
@@ -1260,6 +1261,8 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
               onPreview={() => setPreviewOpen(true)}
             />
           </Section>
+
+          <AssuranceSection setId={s.id} readOnly={readOnly} />
 
           <Section title="Validation" tip="sets.detail.validation">
             <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 10, fontSize: 13 }}>

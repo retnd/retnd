@@ -220,9 +220,34 @@ export function dockPrefix(e: SetActivityEvent, viewer: string | null): DockPref
   return { label: setId || "set", setId, action: false };
 }
 
-/** Every line the dock is holding, oldest first, bounded. */
+/** What makes an event the same event: its number, when it happened and what
+ *  it was. The number alone is not enough, which is the point of the other
+ *  two (see dockEntries). */
+function eventKey(e: SetActivityEvent): string {
+  return e.sequence + "|" + e.at + "|" + e.event;
+}
+
+/**
+ * Every line the dock is holding, oldest first, bounded.
+ *
+ * The engine's events are durable (migration 0017): a restart refills the
+ * feed from the journal and the sequence continues, so the first reading
+ * from the new process carries lines this panel already froze above the
+ * restart rule. They are the same lines, not new ones, and showing them
+ * twice would tell an operator the crash happened twice. So a live line that
+ * is already in the frozen history is dropped here.
+ *
+ * "Already in" means the same number, the same time and the same event, not
+ * the number alone. An engine that does not keep its events restarts its
+ * counter at 1, and its line 1 is a different line from the dead process's
+ * line 1: they differ in time, so both stay.
+ */
 export function dockEntries(history: DockEntry[], current: SetActivity | undefined): DockEntry[] {
-  const live: DockEntry[] = (current?.events ?? []).map((event) => ({ kind: "event", event }));
+  const frozen = new Set<string>();
+  for (const entry of history) if (entry.kind === "event") frozen.add(eventKey(entry.event));
+  const live: DockEntry[] = (current?.events ?? [])
+    .filter((event) => !frozen.has(eventKey(event)))
+    .map((event) => ({ kind: "event", event }));
   return [...history, ...live].slice(-DOCK_BUFFER);
 }
 

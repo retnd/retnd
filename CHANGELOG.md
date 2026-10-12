@@ -27,6 +27,29 @@
   calm, because the moment you reach for this feature is usually an incident, and a
   downgrade after adding it fails closed...
 
+- **The Backups footer says the recovery boundary, the Content chip says how many copies it covers, and the artifact page says how a download ended** (#985, #1070). The footer reads "This product recovers and exports the retained artifact; restoring it into an application remains the operator's responsibility." in the secondary ink (6.36:1 light, 6.51:1 dark; the old line was 3.35:1 and called every copy verified). The Content chip keeps the strongest class across copies but adds the copy count and the weakest state ("Content verified · 1 of 3 copies, 2 never checked", dashed edge), and a bare "Content verified" only appears when every copy is content verified. The Not configured chip edge was 2.93:1 against its fill in the light theme; the plain chip edge now takes `--text-2` (5.82:1 against the fill, 5.93:1 against the page, light). The artifact page reads the end-of-download rows off the live feed and draws "Completed", "Interrupted at N of M bytes" and "Failed verification" as three shapes, none of them in the success colours.
+
+- **The green "Verified" Validation column is gone** (#1070). The Backups table drew the
+  ingest-time check (FR-13) as a green tick and the word "Verified" in a column of its own
+  beside the Assurance chips, so an operator saw two different things both called verified,
+  and the green one said nothing about whether the bytes are still good. The column and the
+  green badge in the artifact page's title are retired; Stored, Content verified and
+  Recovery tested are the only place those pages say it. A validation that failed is still
+  said, as "Failed validation" in the danger colour, never as a pass. The `validation`
+  field stays on the wire. Measured contrast for the failure badge: label 15.00:1 light
+  and 11.99:1 dark, icon and border 5.11:1 and 4.56:1.
+
+- **The Recover dialog says what the download now does** (#1072). The host prepares the
+  first download of a backup with one read against the recorded digest, then sends the copy
+  from where it lives, 4 MiB at a time, checking each piece, and cuts the transfer off
+  if one fails. It no longer says nothing is sent until the whole copy is staged, or that an
+  interrupted download cannot be resumed.
+
+- **The docked terminal does not show a line twice across a restart** (#1071). The engine
+  keeps its events now, so the first reading from a restarted process carries lines the
+  panel already froze above the restart rule; a line is the same line only if its number,
+  its time and its event all match, so an engine that restarts its numbering still keeps
+  both. `GET /api/v1/activity/live` takes `before=` to page back past the ring.
 
 ### Added
 
@@ -173,6 +196,55 @@
   action log (the latter with the copy's error code), each with `bytes` sent,
   `total_bytes` and the `reached` offset, so a client can tell a cut link from a
   copy that stopped matching; `recovery verified` carries `total_bytes` too.
+
+- **The web UI shows what a backup's copies actually claim, and recovers them** (#985,
+  EPIC Q Q2.2). Every backup carries three separate claims on the Backups list, the
+  backup page and the dashboard: Stored (how many copies), Content verified (built
+  from each copy's achieved verification class and time, so an existence check never
+  reads as content verification) and Recovery tested. There is no roll-up. The
+  Recover artifact dialog mints a grant, then has the host prepare the download with
+  one read against the recorded digest and then send it from where it lives, checking
+  each piece; a browser download is handed to the browser and the page does not claim
+  the file arrived, while a staging or
+  destination recovery reports the digest the host placed. An archived copy is a
+  restore request first (cost acknowledged, no price or time shown, because none is
+  known) and a recovery once the provider has made it readable. Settings carries the
+  deployment's assurance block, and each backup set can follow it or pin its own
+  policy.
+  - **Scrub now, Cancel and Show validator output work.** The set page's three
+    operator controls call the routes that exist: `POST
+    /backup-sets/{source}/{set}/scrub`, `POST /assurance/operations/{op}/cancel` and
+    `GET /backup-sets/{source}/{set}/recovery-test/output`, each with its terminal twin
+    printed beside it (`retnd scrub`, `retnd assurance cancel`, `retnd recovery-test
+    --show-output`). A scrub's operation id is on no feed line, so the page follows a
+    scrub by what it leaves behind: this set's manual `scrub_pass` ends it, a
+    `scrub_failure` naming one of the set's copies is a line of it, and a feed that goes
+    quiet or restarts is shown as no longer tracked, never as a pass. A cancel is shown
+    as Cancelling until the run's own end line arrives, and a recovery test that ends
+    with a warning after an accepted cancel is Cancelled. A recovery test started while
+    one is running joins it and says so. The validator's output is drawn as plain text
+    from the server's records: only a record of kind `truncation` is the runner's
+    marker, so a script that prints the marker's words has printed a line of output.
+  - **Every activity surface has its own line for scrub and recovery events.** The
+    dashboard strips, the set page's terminal, the docked terminal and the saved log say
+    `scrub pass found problems (manual, set a/b): 2 checked, 1 passed, 1 failed`,
+    `scrub did not pass: a.dump on offsite (content check): <reason>`,
+    `recovery test stage: Reading`, `recovery test did not complete: a.dump: cancelled
+    before it finished` and the like, instead of a row of `key=value` pairs, and an
+    unfinished recovery is named in words.
+  - **A copy that failed is shown as failed.** A failed scrub clears the copy's
+    verification class and time, so the Backups page used to draw it as Never run.
+    The placement now carries the copy's own record (`assurance_state`,
+    `last_checked_at`, `last_failure_at`, `last_failure_reason`,
+    `consecutive_failures`, `recovery_state`, `recovery_tested_at`,
+    `recovery_failure_reason`), all additive and omitted for a copy nobody has
+    checked, and the chips and a line under them say which copy failed, how many
+    times in a row and why. The Recovery claim is read from the same record.
+  - **A chip being re-checked keeps its contrast.** It was dimmed with
+    `opacity: 0.6`, which put the age text at 2.50:1 (light) and 3.05:1 (dark) and
+    the label at 4.25:1 (light). It is now drawn with a dashed outline, italic type
+    and the word "re-checking", and a unit test reads the real tokens and fails on
+    any dimming.
 
 ## [0.5.1] - 2026-10-04
 

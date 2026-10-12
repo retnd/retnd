@@ -245,14 +245,14 @@
 
     <h3 id="web-backups">Backups</h3>
     <figure>
-      <img src="screens/ref-03-backups.png" alt="The Backups screen: a table of retained artifacts with Time, Backup set, Artifact, Size, Validation, Retention, Medium and Status columns, a backup-set filter, and a Preview retention button" loading="lazy">
+      <img src="screens/ref-03-backups.png" alt="The Backups screen: a table of retained artifacts with Time, Backup set, Artifact, Size, Assurance, Retention, Medium and Status columns, a backup-set filter, and a Preview retention button" loading="lazy">
       <figcaption>Every retained copy this deployment knows about, and which retention tiers are keeping each one.</figcaption>
     </figure>
     <div class="scroll-x">
       <table class="fields">
         <thead><tr><th>Column</th><th>Example</th><th>What it means</th></tr></thead>
         <tbody>
-          <tr><td><strong>Validation</strong></td><td>Verified</td><td>The checksum matched and the validator, if the set names one, accepted it. An artifact that failed is not here, it is in <a href="#web-quarantine">Quarantine</a>.</td></tr>
+          <tr><td><strong>Assurance</strong></td><td>Stored, Content verified, Recovery tested</td><td>Three separate claims, each with its own age, and no single tick that stands for all of them. <strong>Stored</strong> says a copy is recorded. <strong>Content verified</strong> says the bytes were last read and matched the checksum recorded at ingestion, and when; a copy that was only checked for existence does not earn it. <strong>Recovery tested</strong> says a copy was last restored and passed the set's validator, and when. A claim nobody has checked says so instead of showing a mark. This column replaces the old Validation column, which drew a green Verified for the check made at ingestion and so looked like the second claim without saying anything about whether the bytes are still good. A backup whose ingestion validation failed shows <strong>Failed validation</strong> under its name.</td></tr>
           <tr><td><strong>Retention</strong></td><td>Daily, Weekly, Protected</td><td>Which tiers keep this copy. <strong>Protected</strong> is FR-19's newest known-good, which no tier may delete.</td></tr>
           <tr><td><strong>Nothing will delete this</strong></td><td>a warning chip</td><td>The set's configuration was removed, so no policy selects the copy. It occupies space for ever until the set is recreated or the file is removed by hand.</td></tr>
           <tr><td><strong>Medium</strong></td><td><code>local, offsite_s3</code></td><td>Where the copies are. <strong>No copy yet</strong> means the tier that should hold one has not moved it.</td></tr>
