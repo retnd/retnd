@@ -65,8 +65,13 @@ func TestAProviderChecksumMismatchIsRecordedOnTheCopyAndReconcileFlagsIt(t *test
 	if got.LastCheckedClass != state.VerificationAttested {
 		t.Errorf("LastCheckedClass = %q: the check that ran was the provider's attestation", got.LastCheckedClass)
 	}
-	if !equalTimePtr(got.ContentVerifiedAt, before.ContentVerifiedAt) {
-		t.Errorf("a failed attestation moved the content-verified age from %v to %v", before.ContentVerifiedAt, got.ContentVerifiedAt)
+	// The finding contradicts the earlier claim: a copy a provider says is not
+	// the recorded bytes is no longer "content verified", whatever it was.
+	if before.ContentVerifiedAt == nil || before.VerificationClass == "" {
+		t.Fatalf("the fixture did not start with a verified copy: %+v", before)
+	}
+	if got.ContentVerifiedAt != nil || got.VerificationClass != "" {
+		t.Errorf("the copy still claims verification (%v, class %q) beside a positive finding of corruption", got.ContentVerifiedAt, got.VerificationClass)
 	}
 	if got.NextDueAt == nil || got.NextDueAt.After(f.clock.Now().Add(time.Hour)) {
 		t.Errorf("a copy with a positive finding is owed a re-check soon, NextDueAt = %v", got.NextDueAt)
@@ -123,13 +128,6 @@ func TestAProviderThatAgreesLeavesTheCopysClaimAloneAndReconcileQuiet(t *testing
 			t.Errorf("reconcile flagged %s with nothing wrong: %s", fd.Artifact, fd.Reason)
 		}
 	}
-}
-
-func equalTimePtr(a, b *time.Time) bool {
-	if a == nil || b == nil {
-		return a == b
-	}
-	return a.Equal(*b)
 }
 
 // --- two concurrent first downloads cost one whole-copy read ---
@@ -403,7 +401,9 @@ func TestTwoOperatorsOnTheSameRecoveryTestGetOneExecutionAndAReceiptEach(t *test
 	withStages(f, stages)
 	a := seedComplete(t, f, "shared.dump", state.MediumLocal)
 
-	opts := func(actor string) RecoveryTestOptions { return RecoveryTestOptions{Actor: actor, ArtifactID: a.String()} }
+	opts := func(actor string) RecoveryTestOptions {
+		return RecoveryTestOptions{Actor: actor, ArtifactID: a.String()}
+	}
 	first, err := f.b.StartRecoveryTest(ctx, "production/postgres", opts("alice"))
 	if err != nil {
 		t.Fatal(err)
