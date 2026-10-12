@@ -64,6 +64,8 @@ func TestEventNamesAreStable(t *testing.T) {
 		{"EventWorkflowBypassed", EventWorkflowBypassed, "workflow_bypassed"},
 		{"EventScrubPass", EventScrubPass, "scrub_pass"},
 		{"EventScrubFailure", EventScrubFailure, "scrub_failure"},
+		{"EventScrubUnknownObject", EventScrubUnknownObject, "scrub_unknown_object"},
+		{"EventScrubUnlisted", EventScrubUnlisted, "scrub_unlisted"},
 		{"EventError", EventError, "error"},
 	}
 	seen := make(map[string]string, len(cases))

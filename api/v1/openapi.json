@@ -6843,6 +6843,48 @@
           "reason"
         ]
       },
+      "ScrubUnknownObject": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "An object a storage medium holds under a backup set's namespace at a key the journal has no placement for (QC-04). It is a finding for an operator to look at: never a verified copy of anything, and a scrub never reads, moves or deletes it.",
+        "properties": {
+          "medium": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string",
+            "description": "The object's key, as the medium lists it."
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes, as the medium lists it."
+          }
+        },
+        "required": [
+          "medium",
+          "key",
+          "size"
+        ]
+      },
+      "ScrubUnlistedMedium": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A storage medium the pass could not enumerate, so that no unknown objects reported for it does not read as nothing being there.",
+        "properties": {
+          "medium": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why the medium was not listed: its store cannot list, it is not configured, or the listing failed."
+          }
+        },
+        "required": [
+          "medium",
+          "reason"
+        ]
+      },
       "ScrubSetResult": {
         "type": "object",
         "additionalProperties": false,
@@ -6874,6 +6916,22 @@
             "items": {
               "$ref": "#/components/schemas/ScrubSkip"
             }
+          },
+          "unknown_objects": {
+            "type": "array",
+            "x-go-omitempty": true,
+            "items": {
+              "$ref": "#/components/schemas/ScrubUnknownObject"
+            },
+            "description": "Objects found at keys the journal does not know, on the media this set's copies live on. Absent when there are none."
+          },
+          "unlisted": {
+            "type": "array",
+            "x-go-omitempty": true,
+            "items": {
+              "$ref": "#/components/schemas/ScrubUnlistedMedium"
+            },
+            "description": "Media the pass could not enumerate. Absent when every medium was listed."
           }
         },
         "required": [

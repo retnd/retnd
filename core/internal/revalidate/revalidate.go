@@ -342,6 +342,16 @@ type Report struct {
 
 	// BytesRead is the total read off storage by checks that read bytes.
 	BytesRead int64
+
+	// Unknown is every object a destination holds under this set's
+	// namespace at a key the journal has no placement for (QC-04). Each is a
+	// reconciliation finding for an operator to look at: it is never a
+	// verified copy of anything and is never acted on.
+	Unknown []UnknownObject
+
+	// Unlisted is every destination the pass could not enumerate, and why,
+	// so that "nothing unknown" is never mistaken for "nothing looked at".
+	Unlisted []UnlistedMedium
 }
 
 // Run performs one scheduled-revalidation pass over set: it loads set's

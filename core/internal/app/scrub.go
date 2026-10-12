@@ -86,6 +86,12 @@ type ScrubSummary struct {
 	SkippedHeld, SkippedLeased, Refused                                  int
 	BytesRead                                                            int64
 
+	// Unknown counts objects destinations hold at keys the journal does not
+	// know (QC-04), and Unlisted the destinations a pass could not enumerate.
+	// Neither is a copy outcome: an unknown object is never Passed, and
+	// neither adds to Failed or to the scrub_failure lines.
+	Unknown, Unlisted int
+
 	// PassID is the durable pass row, or 0 when the pass had nothing to
 	// record (an idle tick writes no row, or a quiet deployment would grow
 	// an append-only table by one row per poll for ever).

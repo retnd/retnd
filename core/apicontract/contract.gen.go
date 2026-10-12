@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "6aea2ffc855cdbb52da192b8903c054a94792ef445ecdfa74f12a884addf12de"
+const ContractSHA256 = "32a46444c86b9a6790d3c5ddf75f2063bfbd3a5221f3d5514feebb8ee4f41506"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -2948,11 +2948,13 @@ type ScrubResult struct {
 
 // ScrubSetResult is one backup set's part of a scrub.
 type ScrubSetResult struct {
-	BackupSetID string               `json:"backup_set_id"`
-	Copies      []ScrubCopyOutcome   `json:"copies"`
-	Error       string               `json:"error,omitempty"`
-	Errors      []ScrubArtifactError `json:"errors"`
-	Skipped     []ScrubSkip          `json:"skipped"`
+	BackupSetID    string                `json:"backup_set_id"`
+	Copies         []ScrubCopyOutcome    `json:"copies"`
+	Error          string                `json:"error,omitempty"`
+	Errors         []ScrubArtifactError  `json:"errors"`
+	Skipped        []ScrubSkip           `json:"skipped"`
+	UnknownObjects []ScrubUnknownObject  `json:"unknown_objects,omitempty"`
+	Unlisted       []ScrubUnlistedMedium `json:"unlisted,omitempty"`
 }
 
 // ScrubSkip is work a scrub was asked to do and did not. A skip is always
@@ -2962,6 +2964,23 @@ type ScrubSkip struct {
 	ArtifactID string `json:"artifact_id,omitempty"`
 	Medium     string `json:"medium,omitempty"`
 	Reason     string `json:"reason"`
+}
+
+// ScrubUnknownObject is an object a storage medium holds under a backup set's namespace at
+// a key the journal has no placement for (QC-04). It is a finding
+// for an operator to look at: never a verified copy of anything, and
+// a scrub never reads, moves or deletes it.
+type ScrubUnknownObject struct {
+	Key    string `json:"key"`
+	Medium string `json:"medium"`
+	Size   int64  `json:"size"`
+}
+
+// ScrubUnlistedMedium is A storage medium the pass could not enumerate, so that no unknown
+// objects reported for it does not read as nothing being there.
+type ScrubUnlistedMedium struct {
+	Medium string `json:"medium"`
+	Reason string `json:"reason"`
 }
 
 // ServiceSchema is the rules the service-behaviour settings are validated against,
@@ -4014,6 +4033,8 @@ var SchemaTypes = map[string]any{
 	"ScrubResult":                        ScrubResult{},
 	"ScrubSetResult":                     ScrubSetResult{},
 	"ScrubSkip":                          ScrubSkip{},
+	"ScrubUnknownObject":                 ScrubUnknownObject{},
+	"ScrubUnlistedMedium":                ScrubUnlistedMedium{},
 	"ServiceSchema":                      ServiceSchema{},
 	"ServiceSettings":                    ServiceSettings{},
 	"SessionResponse":                    SessionResponse{},
