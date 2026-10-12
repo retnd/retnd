@@ -331,6 +331,51 @@ def browser_half(root: Path, checkout: Path) -> None:
         raise
 
 
+def fresh_first_run_half(root: Path, checkout: Path) -> None:
+    """The first-run specs (*.1049.spec.ts), against a rig nobody configured.
+
+    They guard themselves with `needs(isFresh(...))`, so on the seeded rig
+    above they skip, and a skip looks like a pass (retnd#1049). This runs
+    them where they can run, through three-machine-web-ui.sh --fresh, and
+    fails on the report rather than the exit status: any skipped case, no
+    case at all, or no report is a failure.
+    """
+    from bdtools.e2e import first_run_report  # local, so the import block stays untouched
+
+    web_ui = checkout / "suites" / "web-ui"
+    if not any((web_ui / "e2e").glob("*" + first_run_report.SPEC_SUFFIX)):
+        refuse(
+            f"the pinned tests checkout has no *{first_run_report.SPEC_SUFFIX} specs.",
+            "The first-run cases are what this step runs, so a pin that predates them gates nothing.",
+            "Move the pin to a retnd-tests commit that carries them.",
+        )
+    artifacts = root / ".e2e-gate" / "fresh-artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    report_path = artifacts / "playwright-report.json"
+    report_path.unlink(missing_ok=True)
+
+    harness.step("first-run specs, against a fresh rig (no backup set): none may skip")
+    rig = root / "scripts" / "e2e" / "three-machine-web-ui.sh"
+    try:
+        harness.sh(
+            [
+                "bash", str(rig), "--fresh", "--break-engine", "--suite", str(web_ui),
+                "--artifacts", str(artifacts), "--",
+                first_run_report.SPEC_FILTER, "--reporter=list,json",
+            ],
+            capture=False,
+        )
+    except harness.CommandFailed as failed:
+        if failed.status == 3:
+            refuse("three-machine-web-ui.sh --fresh could not perform the proof on this machine (exit 3).")
+        raise
+    if not report_path.is_file():
+        refuse(f"the fresh rig run left no Playwright report at {report_path}.")
+    problems = first_run_report.judge(first_run_report.load(report_path))
+    if problems:
+        refuse("the first-run specs did not all run and pass against the fresh rig.", *problems)
+
+
 def body(root: Path) -> int:
     pin = read_the_pin(root)
     require_the_tools()
@@ -338,6 +383,7 @@ def body(root: Path) -> int:
     build = build_under_test(root)
     smoke_slice(root, checkout, build)
     browser_half(root, checkout)
+    fresh_first_run_half(root, checkout)
     return harness.EXIT_OK
 
 
