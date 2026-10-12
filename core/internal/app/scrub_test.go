@@ -336,6 +336,16 @@ type unreachableStore struct {
 	size int64
 }
 
+// ListObjects holds nothing, and does not answer while the medium is down.
+func (s *unreachableStore) ListObjects(context.Context, transport.Medium, string) ([]transport.ObjectInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.down {
+		return nil, transport.NewError(transport.Transient, "list_objects", errors.New("dial tcp: i/o timeout"))
+	}
+	return nil, nil
+}
+
 func (s *unreachableStore) StatObject(_ context.Context, _ transport.Medium, key string) (transport.ObjectInfo, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -196,6 +196,31 @@ func (c *Client) UpdateSettings(ctx context.Context, req apicontract.UpdateSetti
 	return out, err
 }
 
+// UpdateAssuranceSettings is PATCH /settings/assurance (EPIC Q, #982): the
+// deployment-wide assurance policy, written by the engine that is deciding
+// with it. It is here for UpdateSettings's reason: a change left in
+// config.yaml beside a serving engine is one that process never reads.
+func (c *Client) UpdateAssuranceSettings(ctx context.Context, req apicontract.UpdateAssuranceSettingsRequest) (apicontract.AssuranceSettingsResponse, error) {
+	var out apicontract.AssuranceSettingsResponse
+	err := c.call(ctx, "updateAssuranceSettings", nil, req, &out)
+	return out, err
+}
+
+// UpdateBackupSetAssurance is PATCH /backup-sets/{source}/{set}/assurance.
+func (c *Client) UpdateBackupSetAssurance(ctx context.Context, source, set string, req apicontract.UpdateBackupSetAssuranceRequest) (apicontract.BackupSetAssurance, error) {
+	var out apicontract.BackupSetAssurance
+	err := c.call(ctx, "updateBackupSetAssurance", []string{source, set}, req, &out)
+	return out, err
+}
+
+// ResetBackupSetAssurance is DELETE /backup-sets/{source}/{set}/assurance,
+// which answers with the policy the set falls back to.
+func (c *Client) ResetBackupSetAssurance(ctx context.Context, source, set string) (apicontract.BackupSetAssurance, error) {
+	var out apicontract.BackupSetAssurance
+	err := c.call(ctx, "resetBackupSetAssurance", []string{source, set}, nil, &out)
+	return out, err
+}
+
 // SystemHealth is GET /system/health, half of what `status` reports.
 func (c *Client) SystemHealth(ctx context.Context) (apicontract.HealthResponse, error) {
 	var out apicontract.HealthResponse
