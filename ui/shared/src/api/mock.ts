@@ -5263,7 +5263,15 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
     redeemRecovery: (grant) => mockRecovery.redeemRecovery(grant),
     // Replaced below by the assurance mock's own start when the scenario has
     // one; a server that offers no assurance never has this reached.
-    startRecoveryTest: (source, set) => delay({ backupSetId: source + "/" + set, operationId: "mock-recovery-test" }),
+    startRecoveryTest: (source, set) => delay({ backupSetId: source + "/" + set, operationId: "mock-recovery-test", coalesced: false }),
+    startScrub: (source, set) => delay({ backupSetId: source + "/" + set, operationId: "mock-scrub" }),
+    cancelAssuranceOperation: (operationId) =>
+      delay({ operationId, kind: "scrub" as const, backupSetId: "", status: "cancelling" as const }),
+    getRecoveryTestOutput: (source, set) =>
+      delay({
+        backupSetId: source + "/" + set, recorded: false, operationId: "", artifactId: "", medium: "",
+        state: "" as never, recordedAt: "", truncated: false, records: []
+      }),
 
     getAssuranceSettings: () => delay(structuredClone(assuranceSettings)),
     patchAssuranceSettings: (patch) => {
@@ -5426,7 +5434,21 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
     assurance,
     startRecoveryTest: async (source, set) => {
       const o = await assurance.startRecoveryTest(source + "/" + set);
+      return { backupSetId: source + "/" + set, operationId: o.id, coalesced: o.joined === true };
+    },
+    startScrub: async (source, set) => {
+      const o = await assurance.startScrub(source + "/" + set);
       return { backupSetId: source + "/" + set, operationId: o.id };
+    },
+    cancelAssuranceOperation: async (operationId) => {
+      await assurance.cancelOperation(operationId);
+      return { operationId, kind: "scrub" as const, backupSetId: "", status: "cancelling" as const };
+    },
+    getRecoveryTestOutput: async (source, set) => {
+      const v = await assurance.getValidatorResult(source + "/" + set);
+      return v
+        ? { backupSetId: source + "/" + set, recorded: true, ...v }
+        : { backupSetId: source + "/" + set, recorded: false, operationId: "", artifactId: "", medium: "", state: "" as never, recordedAt: "", truncated: false, records: [] };
     },
     getLiveActivity: async (options) => {
       const base = await live(options);

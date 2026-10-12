@@ -15,14 +15,16 @@
  * The four host-scoped knobs are not among the fields, and the section says
  * why in words: they belong to the host.
  *
- * # Starting a scrub or a recovery test
+ * # Starting, cancelling and reading
  *
- * The contract has a route to start a recovery test (POST
- * /backup-sets/{source}/{set}/recovery-test) and none to start a scrub. So
- * "Run recovery test" is a real control whenever the server offers it, and
- * "Scrub now" is only drawn on a server that offers `operations`; elsewhere
- * this shows the terminal command that exists and says what the schedule does.
- * It never starts a fake run.
+ * Four routes back the controls: POST /backup-sets/{source}/{set}/recovery-test
+ * (Run recovery test), POST .../scrub (Scrub now), POST
+ * /assurance/operations/{op}/cancel (Cancel) and GET
+ * .../recovery-test/output (Show validator output). "Run recovery test" is a
+ * real control whenever the server offers it, and the other three are drawn
+ * only on a server that offers `operations`; elsewhere this shows the
+ * terminal command that exists and says what the schedule does. It never
+ * starts a fake run. Each button prints its terminal twin beside it.
  *
  * # What it says the schedule does
  *
@@ -44,7 +46,7 @@ import { stamp } from "@shared/utilities/format";
 import { ClaimChips } from "./ClaimChips";
 import { OperationPanel } from "./OperationPanel";
 import { ValidatorLog } from "./ValidatorLog";
-import { recoveryTestCommand, scrubCommand, scrubContentCommand } from "./assuranceCommands";
+import { recoveryTestCommand, scrubCommand, scrubContentCommand, showOutputCommand } from "./assuranceCommands";
 import { MIN_RECOVERY_TEST_CADENCE_SECONDS, cadenceProblem, formatCadence, parseCadence } from "./duration";
 import { useOperation } from "./useOperation";
 import type { ArtifactAssurance, OperationKind, ValidatorResult } from "./types";
@@ -310,10 +312,19 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
                   <button className="btn" disabled={readOnly || running || starting} onClick={() => void start("recovery_test")}>Run recovery test</button>
                 </InfoTooltip>
               ) : null}
-              {operations ? <button className="btn btn--quiet" onClick={() => void showValidator()}>Show validator output</button> : null}
+              {operations ? (
+                <InfoTooltip id="assurance.validator.show">
+                  <button className="btn btn--quiet" onClick={() => void showValidator()}>Show validator output</button>
+                </InfoTooltip>
+              ) : null}
             </div>
             {operations ? (
-              <CommandEcho label="Same thing from the terminal" commands={[scrubCommand(setId), recoveryTestCommand(setId)]} />
+              <>
+                <CommandEcho label="Same thing from the terminal" commands={[scrubCommand(setId), recoveryTestCommand(setId), showOutputCommand(setId)]} />
+                <div data-testid="scrub-schedule-note" style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
+                  Scrub now does not replace the schedule: every poll of the running service checks the copies that are due, at the cadence above. A scrub started here reads this set&apos;s copies now and is stopped with Cancel.
+                </div>
+              </>
             ) : (
               <div data-testid="no-run-route" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <div style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
@@ -327,7 +338,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
                 A recovery test also runs on its own, at its cadence, but only for a set whose mode is required or custom and whose validator script is in place; with the mode off none runs. Run recovery test starts one now and acknowledges no cost: a copy that would cost money to read is refused and recorded as skipped, and nothing is read.
               </div>
             ) : null}
-            <OperationPanel operation={op.operation} events={op.events} error={op.error} onCancel={() => void op.cancel()} readOnly={readOnly} detailLink={operations} cancellable={operations} />
+            <OperationPanel operation={op.operation} events={op.events} error={op.error} onCancel={() => void op.cancel()} readOnly={readOnly} detailLink={operations} cancellable={operations} cancelError={op.cancelError} />
             {validatorResult === null ? <div role="status">No recovery test has run for this set yet.</div> : null}
             {validatorResult ? <ValidatorLog result={validatorResult} /> : null}
           </>

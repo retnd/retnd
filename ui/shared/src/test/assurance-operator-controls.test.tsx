@@ -20,9 +20,12 @@ import type { RecoveryTestOutput, RetndApi } from "@shared/api/contracts";
 import { AssuranceSection } from "@shared/assurance/AssuranceSection";
 import { createHttpAssurance, withHttpAssurance } from "@shared/assurance/realAssurance";
 import { ValidatorLog } from "@shared/assurance/ValidatorLog";
-import { activityLine, UnfinishedActionsNotice } from "@shared/pages/ActivityStrip";
+import { stageLabel } from "@shared/assurance/stages";
+import { activityLine, logText, UnfinishedActionsNotice } from "@shared/pages/ActivityStrip";
+import { DashboardActivity } from "@shared/pages/DashboardActivity";
+import { SetActivityPanel } from "@shared/pages/SetActivityPanel";
 import { resetGraphForTests } from "@shared/state/graph";
-import { TOOLTIPS_KEY, TOOLTIP_PROMPTED_KEY, setTooltipsEnabled } from "@shared/state/tooltipNodes";
+import { TOOLTIPS_KEY, setTooltipsEnabled } from "@shared/state/tooltipNodes";
 import { TOOLTIPS } from "@shared/tooltips/tooltips";
 import { TooltipOptOutDialog } from "@shared/components/TooltipOptOutDialog";
 import type { SetActivity, SetActivityEvent } from "@shared/types/activity";
@@ -39,11 +42,12 @@ const emptyLive = () => ({ observedAt: T, epoch: "e", pollAfterMs: 1000, deploym
 const ev = (sequence: number, event: string, fields: Record<string, string>, result?: SetActivityEvent["result"], level: SetActivityEvent["level"] = "info"): SetActivityEvent => ({
   sequence, at: T, level, event, scope: "set", message: event, fields, ...(result ? { result } : {})
 });
+const top = (events: SetActivityEvent[]) => events.reduce((m, e) => Math.max(m, e.sequence), 0);
 const live = (events: SetActivityEvent[], over: { open?: boolean; deployment?: SetActivityEvent[]; opId?: string } = {}) => ({
   observedAt: T, epoch: "e", pollAfterMs: 1000,
-  deployment: over.deployment ? { events: over.deployment, truncated: false, dropped: false, oldestSequence: 1, latestSequence: 99 } : null,
+  deployment: over.deployment ? { events: over.deployment, truncated: false, dropped: false, oldestSequence: 1, latestSequence: top(over.deployment) } : null,
   sets: [{
-    setId: SET, events, truncated: false, dropped: false, oldestSequence: 1, latestSequence: 99,
+    setId: SET, events, truncated: false, dropped: false, oldestSequence: 1, latestSequence: top(events),
     unfinishedActions: over.open ? [{ action: "recovery_test", actionId: over.opId ?? "op-1", startedAt: T, sequence: 1 }] : []
   } as unknown as SetActivity]
 });
@@ -306,9 +310,10 @@ describe("the terminal and the browser follow the same stages in the same order"
     const lines = asLines(recorded.recover, "rec-1");
     const rendered = lines.filter((l) => l.event === "recovery_stage").map((l) => activityLine(l).text);
     expect(rendered).toHaveLength(recorded.recover.stages.length);
+    // Held against the stage ids, not against the feed's own labels, so a
+    // label the engine and this build disagree on would show here too.
     recorded.recover.stages.forEach((stage, i) => {
-      const label = (lines.filter((l) => l.event === "recovery_stage")[i].fields.stage_label) as string;
-      expect(rendered[i]).toContain(label);
+      expect(rendered[i]).toBe("recovery stage: " + stageLabel(stage));
     });
   });
 
@@ -439,6 +444,58 @@ describe("dedicated renderings of the events the controls produce", () => {
   });
 });
 
+describe("every activity surface draws the new events with their dedicated lines", () => {
+  beforeEach(() => resetGraphForTests());
+  afterEach(() => cleanup());
+
+  const lines = (): SetActivityEvent[] => [
+    ev(1, "scrub_failure", { artifact: SET + "/a.dump", medium: "offsite", class: "content", reason: "sha256 differs from the one recorded at ingest" }, "warn", "warn"),
+    ev(2, "scrub_pass", { trigger: "manual", scope: "set " + SET, selected: "2", checked: "2", passed: "1", failed: "1", could_not_complete: "0", requires_restore: "0", skipped_held: "0", skipped_leased: "0", bytes_read: "0" }, "warn", "warn"),
+    { ...ev(3, "recovery_stage", { op_id: "t", stage: "reading", stage_label: "Reading" }), action: "recovery_test", actionId: "t" },
+    ev(4, "recovery_test_end", { op_id: "t", artifact: SET + "/a.dump", reason: "cancelled before it finished; no result was recorded" }, "warn", "warn")
+  ];
+  const wanted = [
+    "scrub did not pass: a.dump on offsite (content check): sha256 differs from the one recorded at ingest",
+    "scrub pass found problems",
+    "recovery test stage: Reading",
+    "recovery test did not complete: a.dump: cancelled before it finished"
+  ];
+  const setOf = async () => (await createMockApi("default").listSets()).find((x) => x.id === SET)!;
+  const activity = (events: SetActivityEvent[]) => ({
+    setId: SET, active: false, stage: null, artifact: null, artifactsCompleted: 0, artifactsTotal: null, progressBasis: "unknown" as const,
+    bytesTransferred: null, bytesTotal: null, bytesPerSecond: null, failures: 0, outcome: null, startedAt: null, finishedAt: null,
+    events, truncated: false, dropped: false, oldestSequence: 1, latestSequence: top(events)
+  });
+
+  it("the dashboard strip", async () => {
+    const set = await setOf();
+    const api = rootWith({ getLiveActivity: vi.fn().mockResolvedValue({ observedAt: T, epoch: "e", pollAfterMs: 60_000, deployment: null, sets: [activity(lines())] }) });
+    render(<MemoryRouter><ApiProvider api={api}><DashboardActivity sets={[set]} /></ApiProvider></MemoryRouter>);
+    const log = await screen.findByRole("log");
+    for (const w of wanted) expect(log.textContent).toContain(w);
+    expect(log.textContent).not.toMatch(/(trigger|scope|op_id|stage_label)=/);
+  });
+
+  it("the set page's terminal", async () => {
+    const set = await setOf();
+    const held = new Map([[SET, activity(lines())]]);
+    render(
+      <MemoryRouter>
+        <ApiProvider api={rootWith()}>
+          <SetActivityPanel set={set} feed={{ held, reading: null, pollAfterMs: 60_000, error: null, refresh: () => {} } as never} />
+        </ApiProvider>
+      </MemoryRouter>
+    );
+    const log = await screen.findByRole("log");
+    for (const w of wanted) expect(log.textContent).toContain(w);
+  });
+
+  it("the copied and saved text, which the strips and the docked terminal share", () => {
+    const text = logText(lines());
+    for (const w of wanted) expect(text).toContain(w);
+  });
+});
+
 describe("Scrub now, Cancel and Show validator output on the set page", () => {
   beforeEach(() => resetGraphForTests());
   afterEach(() => cleanup());
@@ -536,8 +593,9 @@ describe("Scrub now, Cancel and Show validator output on the set page", () => {
 describe("the new controls' tooltips, preference explicitly ON", () => {
   beforeEach(() => {
     resetGraphForTests();
+    // Explicitly ON, and the one-time opt-out question NOT yet asked, so the
+    // x on a pop-up raises it.
     localStorage.setItem(TOOLTIPS_KEY, "on");
-    localStorage.setItem(TOOLTIP_PROMPTED_KEY, "1");
     setTooltipsEnabled(true);
   });
   afterEach(() => { cleanup(); localStorage.clear(); });

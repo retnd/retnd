@@ -30,6 +30,7 @@ export function OperationDetailPage({ readOnly }: { readOnly: boolean }) {
           events={op.events}
           error={op.error}
           onCancel={() => void op.cancel()}
+          cancelError={op.cancelError}
           readOnly={readOnly}
           detailLink={false}
           following={following}

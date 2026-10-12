@@ -144,7 +144,7 @@ export const FIELD_HELP = {
     what: "The name of the script this set's recovery test runs, without its .local.sh suffix. A name is never a path.",
     example: "pg-restore-check",
     effect:
-      "Saves the name as part of this set's own policy. The name selects the script: NAME.local.sh under recovery-test/<source>/<set> in the workflow root, started by the engine after it has re-read the copy and matched its digest. Where the server offers it, Show validator output displays the script's exit status and bounded output beside the hash the engine recorded for it."
+      "Saves the name as part of this set's own policy. The name selects the script: NAME.local.sh under recovery-test/<source>/<set> in the workflow root, started by the engine after it has re-read the copy and matched its digest. Show validator output displays the newest test's recorded verdict and what the script printed, as bounded plain text; it runs no test, and the same text is `retnd recovery-test <set> --show-output`."
   },
 
   // ---------------------------------------------------------------- auth

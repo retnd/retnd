@@ -2319,6 +2319,55 @@ export interface RecoveryTestStart {
   backupSetId: string;
   /** Carried as `op_id` by every line of the test on the live feed. */
   operationId: string;
+  /** True when this request joined a test already running for the set, so
+   *  `operationId` is that test's and no second one was started. */
+  coalesced: boolean;
+}
+
+/** A scrub is under way. The id is NOT on the activity feed: it exists to be
+ *  handed to {@link RetndApi.cancelAssuranceOperation}. */
+export interface ScrubStart {
+  backupSetId: string;
+  operationId: string;
+}
+
+/** A running scrub or recovery test has been told to stop. It has not
+ *  necessarily stopped yet: `cancelling` is a request, and the operation's
+ *  own end line is the fact. */
+export interface AssuranceOperationCancelled {
+  operationId: string;
+  kind: "scrub" | "recovery_test";
+  backupSetId: string;
+  status: "cancelling";
+}
+
+/** One line of a validator's output, or the runner's own truncation marker.
+ *  Branch on `kind` and never on `text`: a validator that prints the marker's
+ *  words is still `output`. */
+export interface RecoveryTestOutputRecord {
+  kind: "output" | "truncation";
+  /** Already made inert by the server (no control byte), and still rendered
+   *  as text only. */
+  text: string;
+}
+
+/** What the newest recovery test of a backup set printed. Always the same
+ *  nine keys: before any test is recorded `recorded` is false, the strings
+ *  are empty and `records` is an empty list, never null. */
+export interface RecoveryTestOutput {
+  backupSetId: string;
+  recorded: boolean;
+  operationId: string;
+  artifactId: string;
+  medium: string;
+  /** passed, failed, refused_for_cost or could_not_complete; empty when
+   *  nothing is recorded. */
+  state: "passed" | "failed" | "refused_for_cost" | "could_not_complete";
+  recordedAt: string;
+  /** Whether the runner dropped output to stay inside its bounds. The
+   *  marker itself is the `truncation` record, which comes last. */
+  truncated: boolean;
+  records: RecoveryTestOutputRecord[];
 }
 
 /** A resolved scrub and recovery-test policy (EPIC Q, Q1.4). Every value is
@@ -2972,10 +3021,35 @@ export interface RetndApi {
    * and recorded as such rather than read. Answers as soon as the test is
    * accepted: the `operationId` is carried by its start, stage and end lines
    * on the live activity feed (`op_id`), and the verdict lands on the copy's
-   * recovery claim. A second request while one is running REJECTS with
-   * OPERATION_ALREADY_RUNNING.
+   * recovery claim. A second request while one is running JOINS it: the
+   * answer is the running test's id with `coalesced` true, and nothing new
+   * starts.
    */
   startRecoveryTest(source: string, set: string, req?: RecoveryTestRequest): Promise<RecoveryTestStart>;
+
+  /**
+   * POST /backup-sets/{source}/{set}/scrub: scrub the set's recorded copies
+   * now, in the background. Answers 202 at once. The `operationId` is not on
+   * the activity feed; it exists to cancel the scrub. REJECTS with
+   * OPERATION_ALREADY_RUNNING (409) while one runs for the set, INVALID_REQUEST
+   * for a disabled or incremental set and BACKUP_SET_NOT_FOUND for an unknown
+   * one. Not behind the destructive gate: a read deletes nothing.
+   */
+  startScrub(source: string, set: string): Promise<ScrubStart>;
+
+  /**
+   * POST /assurance/operations/{op}/cancel: ask a running scrub or recovery
+   * test to stop. Deliberately not under /operations, which the destructive
+   * gate owns. REJECTS with OPERATION_NOT_FOUND (404) for an id that is not
+   * running, which includes one that has just ended.
+   */
+  cancelAssuranceOperation(operationId: string): Promise<AssuranceOperationCancelled>;
+
+  /**
+   * GET /backup-sets/{source}/{set}/recovery-test/output: what the newest
+   * recovery test of the set printed.
+   */
+  getRecoveryTestOutput(source: string, set: string): Promise<RecoveryTestOutput>;
 
   listOperations(): Promise<Operation[]>;
   /**
