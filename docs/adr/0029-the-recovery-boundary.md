@@ -98,7 +98,7 @@ is still true).
 
 | Where | What happened |
 |---|---|
-| `ui/shared/src/pages/BackupsPage.tsx`, the table footer ("does not perform application restore") | Left alone: it is the non-goal, it is still true, and it is code owned by the UI lane. The reference note quotes the same boundary |
+| `ui/shared/src/pages/BackupsPage.tsx`, the table footer (formerly "does not perform application restore") | Changed by the UI work in #985: the footer now reads the boundary sentence itself ("This product recovers and exports the retained artifact; restoring it into an application remains the operator's responsibility."), and the reference note quotes the same sentence |
 | `docs/design/Backup Manager.dc.html` | Left alone: a design record, "deliberately not kept in step with later work" (`docs/epic-checklist.md` §5) |
 | `docs/EPIC-E-alternative-storage.md` ("not a restore browser ... a full restore workflow remains future work") | Left alone: it is that EPIC's own scope statement, dated to it, and still accurate about what EPIC E built |
 | `docs/runtime-contract.md` | New section on validators and recovery staging, because a recovery test is the first thing that runs an operator's executable against recovered data |

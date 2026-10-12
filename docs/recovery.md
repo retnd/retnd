@@ -619,7 +619,9 @@ What happens, in order, and why the order is the point:
    | Interrupted at N of M | `recovery interrupted` | Something other than a bad byte stopped it, most often the client going away. `bytes` is what this request had sent, `total_bytes` is M, and `reached` is the offset N where a resume starts |
    | Failed verification | `recovery failed verification` | A piece or the whole did not match what the journal recorded, or the copy lost bytes. `bytes` and `total_bytes` say how far it got, and `error_code` says which copy is damaged |
 
-   Only the first is a success. An interrupted download is not a failed copy, and a failed
+   The page draws these as the badges **Completed**, **Interrupted at N of M bytes** and
+   **Failed verification**, and none of them is drawn as a success: **Completed** is neutral
+   because it means bytes were sent and matched, not that the browser kept the file. An interrupted download is not a failed copy, and a failed
    verification is not a dropped connection: the first calls for asking again, the second
    for recovering from another copy.
 
@@ -673,7 +675,10 @@ three places, with three ages, and nothing is allowed to merge them:
 | **Content verified**, with an age | A check **read the bytes** and they matched the recorded digest | That the file is usable by your application |
 | **Recovery tested**, with an age | The newest known good copy was recovered to an isolated path, its digest matched the artifact's, and then **your validator** accepted it | That your application will come up, or that older copies are good |
 
-A checksum pass with a validator failure therefore reads as **Content verified / Recovery
+The Content chip says how many copies stand behind it. A bare **Content verified** is drawn
+only when every copy is content verified; otherwise it reads, for example, **Content
+verified · 1 of 3 copies, 2 never checked**, with a dashed edge. A checksum pass with a
+validator failure therefore reads as **Content verified / Recovery
 test failed**, and never as one green tick. A class achieved without reading bytes (an
 `existence` check) is recorded as what it was and is never shown as content verification;
 the scheduled pass cannot go above `existence` against a storage medium.

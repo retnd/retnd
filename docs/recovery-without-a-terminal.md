@@ -164,7 +164,7 @@ The application cannot tell these apart, and it deliberately does not guess. It 
 schedule, and **Run recovery test** does the same for the stronger test. Either starts in
 the background and answers at once with an operation id, so closing the page does not stop
 it. While one is running it has a **Cancel** button. Pressing it does not stop things on
-the spot: the operation shows as *cancelling* until its own end line arrives. A cancelled
+the spot: the operation shows as *Cancelling* until its own end line arrives. A cancelled
 recovery test finishes as a warning rather than a failure, because nobody saw the
 validator's answer. It is not recorded as a failed copy, and you can simply run it again.
 
@@ -296,8 +296,9 @@ ended somewhere other than a finished file or a passing result. It reads one of:
   the file in its download folder is smaller than the size the dialog told you to expect.
   The application cut the transfer off on purpose (see below), so that an incomplete file is
   never mistaken for a whole one. The artifact's page also says how it ended, in one of
-  three ways: **completed**, **interrupted at N of M bytes**, or **failed verification**.
-  Only the first is a success.
+  three ways: **Completed**, **Interrupted at N of M bytes**, or **Failed verification**.
+  None of the three is drawn as a success. **Completed** is neutral because it means bytes
+  were sent and matched, not that your browser kept the file.
 - A **cost decision** instead of a download: the copy you chose is archived, or reading it
   is billed, and the dialog is waiting for you to say yes or to back out.
 - **No readable copy**, or **Archived: thaw needed**, on the artifact's page.
@@ -357,7 +358,7 @@ path: it can give you the file, and putting it back is yours.
 4. **Cancelled or disconnected (interrupted at N of M).** Start again, or resume from N. If it keeps dropping, a proxy in front of the
    interface is closing long downloads; that is a gateway setting, not this application.
 5. **Recovery test failed, content verified.** The set shows that the test failed and the
-   reason the application recorded. Open the **Validator log** on the set to read what your
+   reason the application recorded. Open **Show validator output** on the set to read what your
    validator printed. It keeps the newest test's output only, cut to 200 lines, 1 KiB a
    line and 32 KiB in all, and if anything was cut the last line says so. Fix the
    validator or the thing it checks. The application is telling you the file is intact.
