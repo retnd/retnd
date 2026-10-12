@@ -25,7 +25,7 @@ import type {
   OperationFeed, OperationKind, OperationState, ValidatorResult
 } from "./types";
 import { stageLabel } from "./stages";
-import type { SetActivityEvent } from "@shared/types/activity";
+import type { SetActivityEvent, UnfinishedAction } from "@shared/types/activity";
 
 const DAY = 86_400_000;
 const KEY = "retnd.mock.assurance";
@@ -253,6 +253,44 @@ export function assuranceLiveEvents(setId: string): SetActivityEvent[] {
     }
   });
   return out;
+}
+
+/**
+ * What finished operations have written onto a backup's copies, in the
+ * placement fields a real server serves (assurance_state, last_failure_*,
+ * recovery_state, verification_class). The production composer builds its
+ * claims from these and from nothing else, so a mock server that did not
+ * write them would show a scrub that changed nothing.
+ */
+export function overlayAssurance(a: BackupArtifact): BackupArtifact {
+  if (SET_LATEST[a.setId] !== a.id) return a;
+  const now = Date.now();
+  let placements = a.placements;
+  for (const op of Object.values(load().ops).filter((o) => o.setId === a.setId && !o.cancelledAt)) {
+    const v = view(op, activeScenario === "assurance-scrub-fails", now).operation;
+    if (v.state !== "complete" && v.state !== "failed") continue;
+    const at = new Date(op.startedAt + total(op.kind) * 1000).toISOString();
+    placements = placements.map((p) => {
+      if (p.medium !== "local") return p;
+      if (op.kind === "scrub") {
+        return v.state === "failed"
+          ? { ...p, verificationClass: null, verifiedAt: null, assuranceState: "failed" as const, lastCheckedAt: at, lastFailureAt: at, lastFailureReason: FAIL_REASON, consecutiveFailures: 1 }
+          : { ...p, verificationClass: "content" as const, verifiedAt: at, assuranceState: "passed" as const, lastCheckedAt: at };
+      }
+      return { ...p, recoveryState: "passed" as const, recoveryTestedAt: at };
+    });
+  }
+  return placements === a.placements ? a : { ...a, placements };
+}
+
+/** The recovery tests still running, as the engine's unfinished-action list
+ *  reports them: a start with no end. A scrub has no start line, so it is
+ *  never here. */
+export function assuranceUnfinished(setId: string): UnfinishedAction[] {
+  const now = Date.now();
+  return Object.values(load().ops)
+    .filter((o) => o.setId === setId && o.kind !== "scrub" && view(o, activeScenario === "assurance-scrub-fails", now).operation.state === "running")
+    .map((o, i) => ({ action: o.kind, actionId: o.id, startedAt: new Date(o.startedAt).toISOString(), sequence: 100_000 + i * 1_000 + 1 }));
 }
 
 export function createMockAssurance(scenario: string): AssuranceApi {

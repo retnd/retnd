@@ -93,3 +93,12 @@
    .input rule and the token are untouched. */
 [data-assurance] .input,
 [data-assurance] select.input { border-color: var(--text-3); }
+
+/* The same holds for the operator controls (Scrub now, Run recovery test,
+   Show validator output, Save policy): a plain button's edge is --border,
+   1.33:1 on the surface. Inside the assurance surfaces, and on the operation
+   page that mounts the panel outside them, the edge takes --text-3 (3.39:1
+   light, 3.85:1 dark). The primary and destructive buttons keep the edge
+   they already have. */
+[data-assurance] .btn:not(.btn--primary):not(.btn--destructive),
+.aop .btn:not(.btn--primary):not(.btn--destructive) { border-color: var(--text-3); }

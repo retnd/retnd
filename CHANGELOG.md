@@ -186,15 +186,27 @@
   known) and a recovery once the provider has made it readable. Settings carries the
   deployment's assurance block, and each backup set can follow it or pin its own
   policy.
-  - **Not offered, and not faked.** The API has a route to start a recovery test
-    (`POST /backup-sets/{source}/{set}/recovery-test`) and none to start a scrub,
-    cancel anything or read a validator's output. The set page's Run recovery test
-    control calls that route and follows the test on the live feed (its lines carry
-    the operation id); a test whose lines have fallen off the feed is shown as no
-    longer tracked, never as a pass. There is no Scrub now button: the page shows
-    the `retnd scrub` command and says what runs by itself, which is a scrub pass
-    over the copies that are due at every poll of the running service, and a
-    recovery test only for a set whose mode is required or custom.
+  - **Scrub now, Cancel and Show validator output work.** The set page's three
+    operator controls call the routes that exist: `POST
+    /backup-sets/{source}/{set}/scrub`, `POST /assurance/operations/{op}/cancel` and
+    `GET /backup-sets/{source}/{set}/recovery-test/output`, each with its terminal twin
+    printed beside it (`retnd scrub`, `retnd assurance cancel`, `retnd recovery-test
+    --show-output`). A scrub's operation id is on no feed line, so the page follows a
+    scrub by what it leaves behind: this set's manual `scrub_pass` ends it, a
+    `scrub_failure` naming one of the set's copies is a line of it, and a feed that goes
+    quiet or restarts is shown as no longer tracked, never as a pass. A cancel is shown
+    as Cancelling until the run's own end line arrives, and a recovery test that ends
+    with a warning after an accepted cancel is Cancelled. A recovery test started while
+    one is running joins it and says so. The validator's output is drawn as plain text
+    from the server's records: only a record of kind `truncation` is the runner's
+    marker, so a script that prints the marker's words has printed a line of output.
+  - **Every activity surface has its own line for scrub and recovery events.** The
+    dashboard strips, the set page's terminal, the docked terminal and the saved log say
+    `scrub pass found problems (manual, set a/b): 2 checked, 1 passed, 1 failed`,
+    `scrub did not pass: a.dump on offsite (content check): <reason>`,
+    `recovery test stage: Reading`, `recovery test did not complete: a.dump: cancelled
+    before it finished` and the like, instead of a row of `key=value` pairs, and an
+    unfinished recovery is named in words.
   - **A copy that failed is shown as failed.** A failed scrub clears the copy's
     verification class and time, so the Backups page used to draw it as Never run.
     The placement now carries the copy's own record (`assurance_state`,

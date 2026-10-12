@@ -1,13 +1,15 @@
 import type { Page } from "@playwright/test";
 
 /** Opens a path in the development build with the named mock scenario. */
-export async function open(page: Page, path: string, scenario = "default") {
+export async function open(page: Page, path: string, scenario = "default", opts: { wire?: boolean } = {}) {
   // The development build has no service behind it, so the one call that is
   // not served by the in-process mock (the session read) is answered here:
   // signed in as the operator the fixtures describe.
   await page.route("**/api/v1/auth/session", (r) => r.fulfill({ json: { username: "admin" } }));
   const sep = path.includes("?") ? "&" : "?";
-  await page.goto(path + sep + "scenario=" + scenario);
+  // `wire` runs the production assurance seam (realAssurance) over the mock's
+  // routes, so a spec can drive the code a built app runs.
+  await page.goto(path + sep + "scenario=" + scenario + (opts.wire ? "&wire=1" : ""));
 }
 
 /** The Backups page lists a row per artifact; this finds one by file name. */

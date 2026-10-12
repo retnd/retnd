@@ -58,7 +58,8 @@ import type {
   SystemHealth,
   VersionInfo
 } from "@shared/types/operation";
-import { assuranceLiveEvents, createMockAssurance, createMockRecovery, overlayThaw } from "@shared/assurance/mockAssurance";
+import { assuranceLiveEvents, assuranceUnfinished, createMockAssurance, createMockRecovery, overlayAssurance, overlayThaw } from "@shared/assurance/mockAssurance";
+import { createHttpAssurance } from "@shared/assurance/realAssurance";
 import type { DeploymentActivity, SetActivity, SetActivityEvent } from "@shared/types/activity";
 
 /** Development fixtures. Covers every scenario the brief requires (§42):
@@ -138,6 +139,13 @@ export function scenarioFromLocation(): Scenario {
     "assurance-reads-busy", "assurance-corrupt-copy"
   ];
   return (allowed as string[]).includes(s ?? "") ? (s as Scenario) : "default";
+}
+
+/** `?wire=1` swaps the mock's own assurance seam for the production one
+ *  (realAssurance) reading the mock's routes, which is how the browser specs
+ *  drive the code a built app runs. */
+export function wireFromLocation(): boolean {
+  return new URLSearchParams(window.location.search).get("wire") === "1";
 }
 
 const GB = 1024 ** 3;
@@ -3752,7 +3760,11 @@ function mockEnvUnset(
  * Each instance is independent. Tests that want to read a fixture without
  * disturbing the one under test build a second mock rather than sharing.
  */
-export function createMockApi(scenario: Scenario = "default"): RetndApi {
+export function createMockApi(scenario: Scenario = "default", options: { wire?: boolean } = {}): RetndApi {
+  // What a finished scrub or recovery test writes onto a copy, which the
+  // production composer reads off the placement. The mock's own assurance
+  // seam keeps its verdicts itself, so only the wire flavour needs it.
+  const wireOverlay = options.wire ? overlayAssurance : (a: BackupArtifact) => a;
   const empty = scenario === "empty";
   // Every deployment written before storage mediums existed, which is the
   // compatibility case FR-35 pins: no medium declared anywhere, so every
@@ -4189,7 +4201,7 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
       delay({ id: "key_mock_" + Math.random().toString(36).slice(2, 10), algorithm: "ssh-ed25519", fingerprint: mockCandidateFingerprint }),
 
     listArtifacts: (setId) =>
-      delay(empty ? [] : artifacts.filter((a) => !a.quarantine && (!setId || a.setId === setId)).map(overlayThaw)),
+      delay(empty ? [] : artifacts.filter((a) => !a.quarantine && (!setId || a.setId === setId)).map(overlayThaw).map(wireOverlay)),
     // An id this fixture does not have is a refusal, not the first
     // artifact. The fallback that used to be here answered every wrong id
     // with a real page about somebody else's backup, which is the same
@@ -4200,7 +4212,7 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
     getArtifact: (id) => {
       const found = artifacts.find((a) => a.id === id);
       return found
-        ? delay(overlayThaw(found))
+        ? delay(wireOverlay(overlayThaw(found)))
         : delay(null).then(() => {
             throw new RetndError({
               code: "ARTIFACT_NOT_FOUND",
@@ -5426,12 +5438,11 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
   if (scenario === "assurance-unavailable") return served;
   const assurance = createMockAssurance(scenario);
   // The docked terminal reads the live feed, so a scrub or recovery test
-  // also shows up there, stage by stage, with the same sequence on every
-  // poll (see assuranceLiveEvents).
+  // also shows up there, stage by stage, in the engine's own event names and
+  // with the same sequence on every poll (see assuranceLiveEvents).
   const live = served.getLiveActivity;
-  return {
+  const routes: RetndApi = {
     ...served,
-    assurance,
     startRecoveryTest: async (source, set) => {
       const o = await assurance.startRecoveryTest(source + "/" + set);
       return { backupSetId: source + "/" + set, operationId: o.id, coalesced: o.joined === true };
@@ -5456,12 +5467,23 @@ export function createMockApi(scenario: Scenario = "default"): RetndApi {
       return {
         ...base,
         sets: base.sets.map((s) => {
-          const extra = assuranceLiveEvents(s.setId).filter((e) => e.sequence > since);
-          return extra.length ? { ...s, events: [...s.events, ...extra] } : s;
+          const all = assuranceLiveEvents(s.setId);
+          const extra = all.filter((e) => e.sequence > since);
+          const open = assuranceUnfinished(s.setId);
+          return {
+            ...s,
+            events: extra.length ? [...s.events, ...extra] : s.events,
+            latestSequence: all.reduce((m, e) => Math.max(m, e.sequence), s.latestSequence),
+            unfinishedActions: [...(s.unfinishedActions ?? []), ...open]
+          };
         })
       };
     }
   };
+  // `wire` is the production composition: the same assurance seam the built
+  // app uses (realAssurance), reading the routes above the way it reads a
+  // server, so the browser specs can drive that code and not the mock's.
+  return { ...routes, assurance: options.wire ? createHttpAssurance(routes) : assurance };
 }
 
 // mockPreflightFor builds the report both preflight fixtures answer with,

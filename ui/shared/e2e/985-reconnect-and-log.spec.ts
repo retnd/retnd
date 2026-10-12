@@ -94,13 +94,14 @@ test.describe("#985 reconnect and continuity", () => {
     const section = region(page);
     await section.getByRole("button", { name: "Run recovery test" }).click();
     const log = page.getByLabel("Terminal", { exact: true }).getByRole("log");
-    await expect(log).toContainText("recovery test: Verifying", { timeout: 20_000 });
+    await expect(log).toContainText("recovery test stage: Verifying", { timeout: 20_000 });
     // a few more polls, and a dropped connection in the middle
     await page.evaluate(() => sessionStorage.setItem("retnd.mock.assurance.drop", "1"));
     await page.waitForTimeout(3000);
-    // the line carries the engine's stage id beside its label, once per stage
-    for (const [label, id] of [["Resolving copy", "resolving_copy"], ["Reading", "reading"], ["Verifying", "verifying"]]) {
-      await expect(log.getByText(new RegExp("recovery test: " + label + " stage=" + id))).toHaveCount(1);
+    // one dedicated line per stage, in words, and the id is not printed as a
+    // key=value pair
+    for (const label of ["Resolving copy", "Reading", "Verifying"]) {
+      await expect(log.getByText("recovery test stage: " + label, { exact: true })).toHaveCount(1);
     }
   });
 
@@ -112,7 +113,8 @@ test.describe("#985 reconnect and continuity", () => {
     await expect(page.getByRole("checkbox", { name: "Following" })).toBeChecked();
     await page.getByRole("button", { name: "Cancel" }).click();
     await expect(page.getByTestId("operation-progress")).toHaveAttribute("data-state", "cancelled");
-    // no terminal command is echoed for a cancel: the CLI has no such verb
+    // the terminal twin of Cancel is `retnd assurance cancel`, and the CLI has
+    // no `operations cancel` verb for a read
     await expect(page.getByText("retnd operations cancel", { exact: false })).toHaveCount(0);
   });
 });
@@ -136,14 +138,12 @@ test.describe("#985 validator output", () => {
     await expect(log.locator('[data-testid="truncation-marker"]')).toHaveCount(0);
   });
 
-  test("says the script is the operator's and the engine recorded the claim and the script's hash", async ({ page }) => {
+  test("says the engine recorded the verdict, not the script, and what the script printed is plain text under it", async ({ page }) => {
     await open(page, SET, "assurance-validator-output");
     await region(page).getByRole("button", { name: "Show validator output" }).click();
     const facts = page.getByTestId("validator-facts");
-    await expect(facts).toContainText("Your script pg-restore-check.local.sh exited 3");
-    await expect(facts).toContainText(/engine records the claim, not the script/);
-    await expect(facts).toContainText(/re-read the recovered copy and checked its digest before it ran the script/);
-    await expect(page.getByTestId("validator-hash")).toContainText("Script hash recorded by the engine: 5c1e9a07");
+    await expect(facts).toContainText(/newest recovery test of this set failed, on the local copy of production\/postgres-primary\/postgres-prod-20260828\.dump\.zst/);
+    await expect(facts).toContainText(/The engine records that verdict, not the script/);
     // reading what a script printed changes no claim: the Recovery chip is still
     // the one the engine recorded twelve days ago
     const recovery = page.getByRole("region", { name: "Assurance" }).locator('[data-claim="recovery"]');

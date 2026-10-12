@@ -204,11 +204,11 @@ describe("following a scrub, whose operation id is not on the feed", () => {
     expect(read.events.map((e) => e.text).join("\n")).toContain("sha256 differs from the one recorded at ingest");
   });
 
-  it("ignores another set's pass and a scheduled one", async () => {
+  it("ignores another set's pass and any pass a schedule wrote", async () => {
     const getLiveActivity = vi.fn()
       .mockResolvedValueOnce(live([]))
       .mockResolvedValueOnce(live([], {
-        deployment: [scrubPass(6, { scope: "set other/set" }), scrubPass(7, { trigger: "schedule", scope: "all due" })]
+        deployment: [scrubPass(6, { scope: "set other/set" }), scrubPass(7, { trigger: "schedule" }), scrubPass(8, { trigger: "schedule", scope: "all due" })]
       }));
     const a = scrubApi(getLiveActivity);
     await a.startScrub(SET);
