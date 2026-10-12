@@ -1060,8 +1060,8 @@ MUTATIONS = [
     (
         "a scrub tick that gives up when an operation is running",
         SCHEDULER_GO,
-        "\t\tb.tickScrubWhenFree(ctx, interval)\n",
-        "\t\t" + PLANT + "a busy tick is simply lost until the next interval.\n\t\tb.tickScrub(ctx)\n",
+        "\t\tb.tickScrubWhenFree(ctx)\n",
+        "\t\t" + PLANT + "a busy tick is simply lost until the next interval.\n\t\t_ = b.tickScrub(ctx, true)\n",
         "scrub ticks that each arrive while a cycle holds the lock",
         SERVICE_PKG,
         "TestAScrubTickThatFindsTheLockHeldRunsAsSoonAsItIsFree",
