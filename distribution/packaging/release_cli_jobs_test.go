@@ -101,8 +101,14 @@ func TestOnlyPublishHoldsAnIDToken(t *testing.T) {
 			t.Errorf("job %q declares id-token; only publish may, it is the signing identity", name)
 		}
 	}
-	if n := strings.Count(readReleaseWorkflowRaw(t), "id-token: write"); n != 1 {
-		t.Errorf("id-token: write appears %d times in the workflow (comments included), want exactly the one in publish", n)
+	n := 0
+	for _, line := range strings.Split(readReleaseWorkflowRaw(t), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "id-token:") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("id-token is set on %d lines of the workflow, want exactly the one in publish", n)
 	}
 }
 
