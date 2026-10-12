@@ -31,6 +31,19 @@
   DEGRADED after three failed checks, not FAILING), and a scrub or recovery claim is
   dropped when the copy is rewritten to different bytes.
 
+- **`retnd scrub --json`, and a scrub beside a serving engine respects its edit hold**
+  (#978). `--json` prints the one result object the API contract defines
+  (`ScrubResult`: the pass counts plus, per set, every copy's verdict and the class
+  that ran, the artifacts that could not be checked, and the skips), with the log
+  lines on standard error so standard output is only the result. When `RETND_API_URL`
+  and its two credential variables reach the engine serving the deployment, the scrub
+  asks that engine whether a set is held for editing and skips a held set the way the
+  engine's own scrub does: the same "skipped, the backup set is held for editing"
+  line, counted as a skip, exit status 1. A hold the command cannot read counts as a
+  hold. An artifact with one copy that was provably gone and another that did not
+  answer now writes a `scrub_failure` line for each copy, instead of one line for the
+  pair, so the lines of a pass match the failures it counted.
+
 - **Assurance has a deployment-wide default and a per-set override** (#982, EPIC Q
   Q1.4). A new top-level `assurance:` block sets how often a copy is re-read (scrub
   cadence, default 7 days, floor 1 hour), what a scrub reads (`auto`, `existence` or

@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "a94763e05df70fa8cad1353e363e67b45946e9fbfd4d00ea58a44857c683756c"
+const ContractSHA256 = "0772f3e969d2268d0e80c953df2b3d9616f94759a76241afcf7de82646004c69"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -948,7 +948,7 @@ var Endpoints = []Endpoint{
 	{
 		ID: "mintRecovery", Method: "POST", Path: "/backups/{source}/{set}/{name}/recovery",
 		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "RecoveryMintRequest", ResponseSchema: "RecoveryMintResponse", SuccessStatus: 201,
+		RequestSchema: "RecoveryMintRequest", ResponseSchema: "RecoveryMintResponse", SuccessStatus: 202,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeRecoveryTargetInvalid},
 			401: {ErrorCodeUnauthenticated},
@@ -3100,6 +3100,64 @@ type SSHKeyDiscoveryLocation struct {
 	Problem string `json:"problem,omitempty"`
 }
 
+// ScrubArtifactError is an artifact the pass could not give a verdict at all, with the
+// infrastructure problem that stopped it. The copies it did get a
+// verdict for are in the set's copies, each once.
+type ScrubArtifactError struct {
+	ArtifactID string `json:"artifact_id"`
+	Error      string `json:"error"`
+}
+
+// ScrubCopyOutcome is what a scrub learned about one copy of one artifact. The class is
+// the class that RAN, never the class asked for: a HEAD is reported
+// as a HEAD.
+type ScrubCopyOutcome struct {
+	ArtifactID string `json:"artifact_id"`
+	Class      string `json:"class,omitempty"`
+	Medium     string `json:"medium"`
+	Reason     string `json:"reason,omitempty"`
+	Refused    bool   `json:"refused"`
+	Verdict    string `json:"verdict"`
+}
+
+// ScrubResult is what one scrub did: the counts the pass recorded plus the per-set
+// detail. It is the body `retnd scrub --json` prints, and the one
+// result shape every route that reports a scrub reuses.
+type ScrubResult struct {
+	BytesRead        int64            `json:"bytes_read"`
+	Checked          int64            `json:"checked"`
+	CouldNotComplete int64            `json:"could_not_complete"`
+	Failed           int64            `json:"failed"`
+	PassID           int64            `json:"pass_id,omitempty"`
+	Passed           int64            `json:"passed"`
+	Refused          int64            `json:"refused"`
+	RequiresRestore  int64            `json:"requires_restore"`
+	Scope            string           `json:"scope"`
+	Selected         int64            `json:"selected"`
+	Sets             []ScrubSetResult `json:"sets"`
+	SkippedHeld      int64            `json:"skipped_held"`
+	SkippedLeased    int64            `json:"skipped_leased"`
+	Trigger          string           `json:"trigger"`
+}
+
+// ScrubSetResult is one backup set's part of a scrub.
+type ScrubSetResult struct {
+	BackupSetID string               `json:"backup_set_id"`
+	Copies      []ScrubCopyOutcome   `json:"copies"`
+	Error       string               `json:"error,omitempty"`
+	Errors      []ScrubArtifactError `json:"errors"`
+	Skipped     []ScrubSkip          `json:"skipped"`
+}
+
+// ScrubSkip is work a scrub was asked to do and did not. A skip is always
+// reported: a copy that was due and silently not looked at is the
+// same failure as one never scheduled.
+type ScrubSkip struct {
+	ArtifactID string `json:"artifact_id,omitempty"`
+	Medium     string `json:"medium,omitempty"`
+	Reason     string `json:"reason"`
+}
+
 // ServiceSchema is the rules the service-behaviour settings are validated against,
 // served so a form does not keep its own copy of a bound the engine
 // enforces.
@@ -4161,6 +4219,11 @@ var SchemaTypes = map[string]any{
 	"SSHKey":                             SSHKey{},
 	"SSHKeyCandidate":                    SSHKeyCandidate{},
 	"SSHKeyDiscoveryLocation":            SSHKeyDiscoveryLocation{},
+	"ScrubArtifactError":                 ScrubArtifactError{},
+	"ScrubCopyOutcome":                   ScrubCopyOutcome{},
+	"ScrubResult":                        ScrubResult{},
+	"ScrubSetResult":                     ScrubSetResult{},
+	"ScrubSkip":                          ScrubSkip{},
 	"ServiceSchema":                      ServiceSchema{},
 	"ServiceSettings":                    ServiceSettings{},
 	"SessionResponse":                    SessionResponse{},
