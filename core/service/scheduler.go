@@ -181,6 +181,16 @@ func (b *BackupService) RunOnSchedule(ctx context.Context) error {
 	}()
 	defer func() { <-alertsStopped }()
 
+	// Abandoned downloads and staging leftovers are swept on their own
+	// timer too, so a staged copy does not wait for the next recovery
+	// request to go away.
+	reaperStopped := make(chan struct{})
+	go func() {
+		defer close(reaperStopped)
+		b.runRecoveryReaper(ctx)
+	}()
+	defer func() { <-reaperStopped }()
+
 	// EPIC Q's scrub runs on its own timer too (#978), beside the alerting
 	// one and for the same reason: a long content scrub must not hold up a
 	// backup, and a wedged cycle must not stop copies being checked.

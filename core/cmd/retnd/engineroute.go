@@ -1034,3 +1034,129 @@ func wireTime(s string) time.Time {
 
 	return at
 }
+
+// The assurance policy (EPIC Q, #982), over the engine's PATCH routes.
+//
+// Every field crosses as a pointer, as in UpdateSettings, because zero is a
+// request here: a zero cadence clears it back to the default, and a mapping
+// that read values would turn "clear this" into "leave it alone". A
+// duration the wire cannot carry is refused rather than rounded, for
+// wireSeconds's reason.
+
+func assuranceSecondsPtr(d *time.Duration, flag string) (*int64, error) {
+	if d == nil {
+		return nil, nil
+	}
+	n, err := wireSeconds(*d, flag)
+	if err != nil {
+		return nil, err
+	}
+	v := int64(n)
+	return &v, nil
+}
+
+func int64Ptr(n *int) *int64 {
+	if n == nil {
+		return nil
+	}
+	v := int64(*n)
+	return &v
+}
+
+// UpdateAssuranceSettings is PATCH /settings/assurance.
+func (r *engineRoute) UpdateAssuranceSettings(ctx context.Context, req service.UpdateAssuranceSettingsRequest) (service.AssuranceSettings, error) {
+	scrub, err := assuranceSecondsPtr(req.ScrubCadence, "--scrub-cadence")
+	if err != nil {
+		return service.AssuranceSettings{}, err
+	}
+	rt, err := assuranceSecondsPtr(req.RecoveryTestCadence, "--recovery-test-cadence")
+	if err != nil {
+		return service.AssuranceSettings{}, err
+	}
+	ttl, err := assuranceSecondsPtr(req.StagingTTL, "--staging-ttl")
+	if err != nil {
+		return service.AssuranceSettings{}, err
+	}
+	resp, err := r.client.UpdateAssuranceSettings(ctx, apicontract.UpdateAssuranceSettingsRequest{
+		ScrubCadenceSeconds:        scrub,
+		ScrubStrategy:              req.ScrubStrategy,
+		RecoveryTestMode:           req.RecoveryTestMode,
+		RecoveryTestCadenceSeconds: rt,
+		RecoveryTestValidatorID:    req.RecoveryTestValidatorID,
+		StagingRoot:                req.StagingRoot,
+		StagingTtlSeconds:          ttl,
+		MaxConcurrentFullReads:     int64Ptr(req.MaxConcurrentFullReads),
+		MaxPerDestination:          int64Ptr(req.MaxPerDestination),
+	})
+	if err != nil {
+		return service.AssuranceSettings{}, err
+	}
+	return assuranceSettingsFromWire(resp), nil
+}
+
+// UpdateBackupSetAssurance is PATCH /backup-sets/{source}/{set}/assurance.
+func (r *engineRoute) UpdateBackupSetAssurance(ctx context.Context, id string, req service.UpdateBackupSetAssuranceRequest) (service.BackupSetAssurance, error) {
+	source, set, ok := splitBackupSetID(id)
+	if !ok {
+		return service.BackupSetAssurance{}, fmt.Errorf("%q is not a backup set id; a backup set id is exactly source/name", id)
+	}
+	scrub, err := assuranceSecondsPtr(req.ScrubCadence, "--scrub-cadence")
+	if err != nil {
+		return service.BackupSetAssurance{}, err
+	}
+	rt, err := assuranceSecondsPtr(req.RecoveryTestCadence, "--recovery-test-cadence")
+	if err != nil {
+		return service.BackupSetAssurance{}, err
+	}
+	resp, err := r.client.UpdateBackupSetAssurance(ctx, source, set, apicontract.UpdateBackupSetAssuranceRequest{
+		ScrubCadenceSeconds:        scrub,
+		ScrubStrategy:              req.ScrubStrategy,
+		RecoveryTestMode:           req.RecoveryTestMode,
+		RecoveryTestCadenceSeconds: rt,
+		RecoveryTestValidatorID:    req.RecoveryTestValidatorID,
+	})
+	if err != nil {
+		return service.BackupSetAssurance{}, err
+	}
+	return backupSetAssuranceFromWire(resp), nil
+}
+
+// ResetBackupSetAssurance is DELETE /backup-sets/{source}/{set}/assurance.
+func (r *engineRoute) ResetBackupSetAssurance(ctx context.Context, id string) (service.BackupSetAssurance, error) {
+	source, set, ok := splitBackupSetID(id)
+	if !ok {
+		return service.BackupSetAssurance{}, fmt.Errorf("%q is not a backup set id; a backup set id is exactly source/name", id)
+	}
+	resp, err := r.client.ResetBackupSetAssurance(ctx, source, set)
+	if err != nil {
+		return service.BackupSetAssurance{}, err
+	}
+	return backupSetAssuranceFromWire(resp), nil
+}
+
+func assurancePolicyFromWire(s apicontract.AssuranceScrubPolicy, rt apicontract.AssuranceRecoveryTestPolicy) service.AssurancePolicy {
+	return service.AssurancePolicy{
+		Scrub:        service.AssuranceScrubPolicy{Cadence: time.Duration(s.CadenceSeconds) * time.Second, Strategy: s.Strategy},
+		RecoveryTest: service.AssuranceRecoveryTestPolicy{Mode: rt.Mode, Cadence: time.Duration(rt.CadenceSeconds) * time.Second, ValidatorID: rt.ValidatorID},
+	}
+}
+
+func assuranceSettingsFromWire(w apicontract.AssuranceSettingsResponse) service.AssuranceSettings {
+	knobs := make([]service.AssuranceHostKnob, 0, len(w.HostKnobs))
+	for _, k := range w.HostKnobs {
+		knobs = append(knobs, service.AssuranceHostKnob{Name: k.Name, Value: k.Value, PerSet: k.PerSet, Reason: k.Reason})
+	}
+	return service.AssuranceSettings{
+		Configured:             w.Configured,
+		Policy:                 assurancePolicyFromWire(w.Scrub, w.RecoveryTest),
+		StagingRoot:            w.StagingRoot,
+		StagingTTL:             time.Duration(w.StagingTtlSeconds) * time.Second,
+		MaxConcurrentFullReads: int(w.MaxConcurrentFullReads),
+		MaxPerDestination:      int(w.MaxPerDestination),
+		HostKnobs:              knobs,
+	}
+}
+
+func backupSetAssuranceFromWire(w apicontract.BackupSetAssurance) service.BackupSetAssurance {
+	return service.BackupSetAssurance{BackupSetID: w.BackupSetID, Override: w.IsOverride, Policy: assurancePolicyFromWire(w.Scrub, w.RecoveryTest)}
+}

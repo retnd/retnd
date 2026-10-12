@@ -295,7 +295,13 @@ func flatten(doc document) []endpoint {
 				refuseOneOf(e.ID, "request body", body)
 				e.RequestSchema = refName(body)
 			}
-			for status, r := range o.Responses {
+			// In sorted order, so the answer is the same on every run. An
+			// operation that declares more than one success status is bound
+			// to the numerically highest, with that response's schema: the
+			// loop below keeps the last success it sees, and a Go map has
+			// no order to be last in (#1066).
+			for _, status := range sortedStatuses(o.Responses) {
+				r := o.Responses[status]
 				n, err := strconv.Atoi(status)
 				if err != nil {
 					fatal("operation %s has a non-numeric response status %q", e.ID, status)
@@ -355,6 +361,29 @@ func objectSchemaNames(doc document) []string {
 		}
 	}
 	sort.Strings(out)
+	return out
+}
+
+// sortedStatuses orders response statuses numerically, so "99" does not sort
+// after "404" the way it would as a string. Non-numeric keys sort last and are
+// refused by the caller with a message naming them.
+func sortedStatuses(m map[string]*response) []string {
+	out := sortedKeys(m)
+	sort.SliceStable(out, func(i, j int) bool {
+		a, errA := strconv.Atoi(out[i])
+		b, errB := strconv.Atoi(out[j])
+		switch {
+		case errA != nil && errB != nil:
+			return out[i] < out[j]
+		case errA != nil:
+			return false
+		case errB != nil:
+			return true
+		}
+
+		return a < b
+	})
+
 	return out
 }
 

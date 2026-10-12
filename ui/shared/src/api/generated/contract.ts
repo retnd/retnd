@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "1b29f8134e99ced94a61f805c1eb7e34f034b354f8a313c9bcdc1f16b8b46aed";
+export const CONTRACT_SHA256 = "89c37f2a222e2a06705ae9fc8a7758fabc46ad289bcd9c36fa816363ea05368d";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -83,6 +83,27 @@ export const WIRE_ERROR_CODES = [
   "WORKFLOW_STEP_NOT_FOUND",
   "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED",
   "WORKFLOW_ENGINE_UNAVAILABLE",
+  "RECOVERY_COST_NOT_ACKNOWLEDGED",
+  "RECOVERY_NO_COPY",
+  "RECOVERY_COPY_NOT_FOUND",
+  "RECOVERY_NOT_READABLE",
+  "RECOVERY_LOCAL_COPY_CORRUPT",
+  "RECOVERY_REMOTE_COPY_CORRUPT",
+  "RECOVERY_NO_DIGEST",
+  "RECOVERY_NO_SPACE",
+  "RECOVERY_BELOW_RESERVE",
+  "RECOVERY_GRANT_UNKNOWN",
+  "RECOVERY_GRANT_USED",
+  "RECOVERY_GRANT_EXPIRED",
+  "RECOVERY_GRANT_SESSION_ENDED",
+  "RECOVERY_TOO_MANY_GRANTS",
+  "RECOVERY_TARGET_INVALID",
+  "RECOVERY_TARGET_EXISTS",
+  "RECOVERY_USE_SNAPSHOT_RESTORE",
+  "RECOVERY_UNAVAILABLE",
+  "RECOVERY_BUSY",
+  "RECOVERY_INTERRUPTED",
+  "RECOVERY_FAILED",
 ] as const;
 
 /** This UI's own presentation vocabulary. No endpoint emits these;
@@ -178,6 +199,27 @@ export const API_ERROR_CODES = [
   "WORKFLOW_STEP_NOT_FOUND",
   "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED",
   "WORKFLOW_ENGINE_UNAVAILABLE",
+  "RECOVERY_COST_NOT_ACKNOWLEDGED",
+  "RECOVERY_NO_COPY",
+  "RECOVERY_COPY_NOT_FOUND",
+  "RECOVERY_NOT_READABLE",
+  "RECOVERY_LOCAL_COPY_CORRUPT",
+  "RECOVERY_REMOTE_COPY_CORRUPT",
+  "RECOVERY_NO_DIGEST",
+  "RECOVERY_NO_SPACE",
+  "RECOVERY_BELOW_RESERVE",
+  "RECOVERY_GRANT_UNKNOWN",
+  "RECOVERY_GRANT_USED",
+  "RECOVERY_GRANT_EXPIRED",
+  "RECOVERY_GRANT_SESSION_ENDED",
+  "RECOVERY_TOO_MANY_GRANTS",
+  "RECOVERY_TARGET_INVALID",
+  "RECOVERY_TARGET_EXISTS",
+  "RECOVERY_USE_SNAPSHOT_RESTORE",
+  "RECOVERY_UNAVAILABLE",
+  "RECOVERY_BUSY",
+  "RECOVERY_INTERRUPTED",
+  "RECOVERY_FAILED",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -186,13 +228,13 @@ export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
  *  the RIGHT refusal rather than any refusal. */
 export const API_ERROR_CLASSES = {
   "authentication": ["UNAUTHENTICATED", "BOOTSTRAP_TOKEN_INVALID", "RESET_TOKEN_INVALID", "VERIFY_TOKEN_INVALID"],
-  "authorization": ["ENROLLMENT_CLOSED", "DESTRUCTIVE_OPERATIONS_DISABLED", "CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
-  "conflict": ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "IDEMPOTENCY_KEY_CONFLICT", "CONFIG_REVISION_STALE", "ALREADY_CONFIGURED", "ARTIFACT_NOT_QUARANTINED", "ARTIFACT_IRRECOVERABLE", "REINSTATEMENT_REFUSED", "BACKUP_SET_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED", "ARTIFACT_NOT_FAILED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE", "MEDIUM_IS_DEFAULT", "MEDIUM_CONNECTION_NOT_PROVEN", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED", "REPOSITORY_DOMAIN_EXISTS", "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE", "WORKFLOWS_NOT_CONFIGURED", "WORKFLOW_SCRIPT_REJECTED"],
-  "internal": ["INTERNAL", "INTERNAL_ERROR"],
-  "not-found": ["BACKUP_SET_NOT_FOUND", "OPERATION_NOT_FOUND", "RETENTION_PLAN_NOT_FOUND", "ARTIFACT_NOT_FOUND", "MEDIUM_NOT_FOUND", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_HOLD_NOT_FOUND", "REPOSITORY_DOMAIN_NOT_FOUND", "WORKFLOW_ENV_NOT_FOUND", "WORKFLOW_RUN_NOT_FOUND", "WORKFLOW_STEP_NOT_FOUND"],
-  "throttling": ["RATE_LIMITED"],
-  "unavailable": ["NOT_CONFIGURED", "SMTP_SEND_FAILED", "WORKFLOW_ENGINE_UNAVAILABLE"],
-  "validation": ["INVALID_REQUEST", "INVALID_EMAIL", "SSH_KEY_NOT_FOUND", "HOST_KEY_PROBE_FAILED", "MEDIUM_DISCLOSURE_REQUIRED", "BACKUP_SET_NOT_INCREMENTAL", "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED"],
+  "authorization": ["ENROLLMENT_CLOSED", "DESTRUCTIVE_OPERATIONS_DISABLED", "CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "RECOVERY_GRANT_SESSION_ENDED"],
+  "conflict": ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "IDEMPOTENCY_KEY_CONFLICT", "CONFIG_REVISION_STALE", "ALREADY_CONFIGURED", "ARTIFACT_NOT_QUARANTINED", "ARTIFACT_IRRECOVERABLE", "REINSTATEMENT_REFUSED", "BACKUP_SET_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED", "ARTIFACT_NOT_FAILED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE", "MEDIUM_IS_DEFAULT", "MEDIUM_CONNECTION_NOT_PROVEN", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED", "REPOSITORY_DOMAIN_EXISTS", "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE", "WORKFLOWS_NOT_CONFIGURED", "WORKFLOW_SCRIPT_REJECTED", "RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_GRANT_USED", "RECOVERY_GRANT_EXPIRED", "RECOVERY_TARGET_EXISTS", "RECOVERY_USE_SNAPSHOT_RESTORE", "RECOVERY_BUSY"],
+  "internal": ["INTERNAL", "INTERNAL_ERROR", "RECOVERY_LOCAL_COPY_CORRUPT", "RECOVERY_REMOTE_COPY_CORRUPT", "RECOVERY_NO_SPACE", "RECOVERY_BELOW_RESERVE", "RECOVERY_FAILED"],
+  "not-found": ["BACKUP_SET_NOT_FOUND", "OPERATION_NOT_FOUND", "RETENTION_PLAN_NOT_FOUND", "ARTIFACT_NOT_FOUND", "MEDIUM_NOT_FOUND", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_HOLD_NOT_FOUND", "REPOSITORY_DOMAIN_NOT_FOUND", "WORKFLOW_ENV_NOT_FOUND", "WORKFLOW_RUN_NOT_FOUND", "WORKFLOW_STEP_NOT_FOUND", "RECOVERY_COPY_NOT_FOUND", "RECOVERY_GRANT_UNKNOWN"],
+  "throttling": ["RATE_LIMITED", "RECOVERY_TOO_MANY_GRANTS"],
+  "unavailable": ["NOT_CONFIGURED", "SMTP_SEND_FAILED", "WORKFLOW_ENGINE_UNAVAILABLE", "RECOVERY_UNAVAILABLE", "RECOVERY_INTERRUPTED"],
+  "validation": ["INVALID_REQUEST", "INVALID_EMAIL", "SSH_KEY_NOT_FOUND", "HOST_KEY_PROBE_FAILED", "MEDIUM_DISCLOSURE_REQUIRED", "BACKUP_SET_NOT_INCREMENTAL", "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED", "RECOVERY_TARGET_INVALID"],
 } as const satisfies Record<string, readonly ApiErrorCode[]>;
 
 /** The platform-capability set GET /system/capabilities reports, as wire
@@ -1147,6 +1189,30 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "mintRecovery",
+    method: "POST",
+    path: "/backups/{source}/{set}/{name}/recovery",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "RecoveryMintRequest",
+    responseSchema: "RecoveryMintResponse",
+    successStatus: 202,
+    errorCodes: {
+      400: ["INVALID_REQUEST", "RECOVERY_TARGET_INVALID"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["ARTIFACT_NOT_FOUND", "RECOVERY_COPY_NOT_FOUND"],
+      409: ["RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_USE_SNAPSHOT_RESTORE"],
+      429: ["RECOVERY_TOO_MANY_GRANTS"],
+      500: ["INTERNAL", "RECOVERY_FAILED"],
+      501: ["RECOVERY_UNAVAILABLE"],
+      503: ["RECOVERY_UNAVAILABLE"],
+    }
+  },
+  {
     id: "retryFailedIngestion",
     method: "POST",
     path: "/backups/{source}/{set}/{name}/retry",
@@ -1335,6 +1401,32 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       404: ["ARTIFACT_NOT_FOUND", "BACKUP_SET_NOT_FOUND"],
       409: ["ARTIFACT_NOT_QUARANTINED"],
       500: ["INTERNAL"],
+    }
+  },
+  {
+    id: "redeemRecovery",
+    method: "GET",
+    path: "/recoveries/{grant}",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "RecoveryResult",
+    successStatus: 206,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["RECOVERY_GRANT_SESSION_ENDED"],
+      404: ["ARTIFACT_NOT_FOUND", "RECOVERY_COPY_NOT_FOUND", "RECOVERY_GRANT_UNKNOWN"],
+      409: ["RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_BUSY", "RECOVERY_TARGET_EXISTS"],
+      410: ["RECOVERY_GRANT_USED", "RECOVERY_GRANT_EXPIRED"],
+      416: ["INVALID_REQUEST"],
+      500: ["INTERNAL", "RECOVERY_LOCAL_COPY_CORRUPT", "RECOVERY_FAILED"],
+      501: ["RECOVERY_UNAVAILABLE"],
+      502: ["RECOVERY_REMOTE_COPY_CORRUPT"],
+      503: ["RECOVERY_UNAVAILABLE", "RECOVERY_INTERRUPTED"],
+      507: ["RECOVERY_NO_SPACE", "RECOVERY_BELOW_RESERVE"],
     }
   },
   {
@@ -3292,6 +3384,54 @@ export interface WirePlacement {
   verified_at?: string;
 }
 
+/** POST /backups/{source}/{set}/{name}/recovery. Asks for one
+ *  retained copy of one backup to be read once, to one target. It
+ *  authorises nothing by itself beyond minting a short-lived,
+ *  single-use grant bound to the session that asked. */
+export interface WireRecoveryMintRequest {
+  acknowledged?: boolean;
+  copy?: string;
+  target: WireRecoveryTarget;
+}
+
+/** The answer to a mint, in one of two shapes. A grant (201): the
+ *  token is shown once, is bound to the minting session, dies when
+ *  that session ends, expires within minutes, and is spent when the
+ *  download completes, fails or is abandoned. Or (202), when the only
+ *  copy is on an archive class and an acknowledged request started
+ *  exactly one provider restore: no grant yet, ask again once the
+ *  copy is readable. Carries no percentage, finishing time or amount,
+ *  because this product knows none of them. */
+export interface WireRecoveryMintResponse {
+  artifact_id: string;
+  copy: string;
+  download_url?: string;
+  expires_at?: string;
+  grant?: string;
+  restore?: WireRecoveryRestoreOperation;
+  size_bytes?: number;
+  target?: WireRecoveryTarget;
+}
+
+export interface WireRecoveryRestoreOperation {
+  billing?: string;
+  operation_id: string;
+  wait?: string;
+}
+
+/** What a redeemed grant answers when its target is server-side
+ *  (staging or storage): the bytes were verified and placed, and
+ *  nothing was streamed. */
+export interface WireRecoveryResult {
+  artifact_id: string;
+  bytes: number;
+  copy: string;
+  key?: string;
+  path?: string;
+  sha256: string;
+  target: WireRecoveryTarget;
+}
+
 /** GET /auth/recovery and PATCH /auth/recovery: the recovery address,
  *  the two proofs about it, the deadline an unverified one lapses at,
  *  and the SMTP endpoint without its password. `smtp` is ABSENT on a
@@ -3322,6 +3462,22 @@ export interface WireRecoverySettingsUpdate {
   currentPassword: string;
   recoveryEmail?: string;
   smtp?: WireSmtpSettings;
+}
+
+/** Where one recovery writes its bytes. The set is closed: download
+ *  streams to the caller that redeems the grant, staging places one
+ *  file under the configured recovery staging root, storage uploads
+ *  to another configured storage destination. A staging or storage
+ *  target is written only after the whole copy has been read and has
+ *  matched the SHA-256 the journal recorded. A download is not
+ *  staged: it is refused before its first byte unless a read of the
+ *  whole copy has matched that digest, and each chunk is checked
+ *  again as it is sent. */
+export interface WireRecoveryTarget {
+  key?: string;
+  kind: "download" | "staging" | "storage";
+  medium?: string;
+  path?: string;
 }
 
 /** One repository domain's own health, which is a different question
