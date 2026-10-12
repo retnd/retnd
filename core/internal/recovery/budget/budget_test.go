@@ -286,3 +286,13 @@ func TestReadsAcquireWaitHoldsBothCeilingsUnderContention(t *testing.T) {
 		t.Fatalf("peak global = %d: the test never exercised the ceiling", g)
 	}
 }
+
+func TestNoBudgetTakesAnExitCodeFR74SaysIsUnused(t *testing.T) {
+	for _, n := range All {
+		for _, u := range Unused {
+			if ExitCode(n) == u {
+				t.Errorf("budget %s carries exit code %d, which FR-74 leaves unused", n, u)
+			}
+		}
+	}
+}

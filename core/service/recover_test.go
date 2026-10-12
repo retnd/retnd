@@ -63,6 +63,46 @@ type recoveryStore struct {
 	// object is. Unset, the medium cannot attest, which is what the shipped
 	// S3 adapter reports for SHA-256.
 	attest func() (transport.ChecksumAttestation, error)
+
+	// rangeGate holds a ranged read (the preparation read of a download)
+	// until it is closed or the caller's context ends. probeGate does the
+	// same to the provider's checksum probe, and probeEntered is closed
+	// when one is waiting. stallAfter makes OpenObject hand out that many
+	// bytes and then wait for the caller's context, which is what a
+	// destination that goes quiet partway through a read looks like; the
+	// stalled channel is closed when the reader reaches the wait.
+	rangeGate    chan struct{}
+	probeGate    chan struct{}
+	probeEntered chan struct{}
+	stallAfter   int
+	stalled      chan struct{}
+}
+
+// stallingReader yields n bytes of r and then waits for ctx.
+type stallingReader struct {
+	ctx     context.Context
+	r       io.Reader
+	left    int
+	stalled chan struct{}
+	once    sync.Once
+}
+
+func (s *stallingReader) Read(p []byte) (int, error) {
+	if s.left <= 0 {
+		s.once.Do(func() {
+			if s.stalled != nil {
+				close(s.stalled)
+			}
+		})
+		<-s.ctx.Done()
+		return 0, s.ctx.Err()
+	}
+	if len(p) > s.left {
+		p = p[:s.left]
+	}
+	n, err := s.r.Read(p)
+	s.left -= n
+	return n, err
 }
 
 func newRecoveryStore() *recoveryStore {
@@ -116,6 +156,9 @@ func (s *recoveryStore) OpenObject(ctx context.Context, _ transport.Medium, key 
 	if s.flipAt >= 0 {
 		d[s.flipAt] ^= 1
 	}
+	if s.stallAfter > 0 {
+		return io.NopCloser(&stallingReader{ctx: ctx, r: bytes.NewReader(d), left: s.stallAfter, stalled: s.stalled}), nil
+	}
 	if s.failErr != nil {
 		return io.NopCloser(io.MultiReader(bytes.NewReader(d[:s.failAfter]), &failingReader{err: s.failErr})), nil
 	}
@@ -125,8 +168,15 @@ func (s *recoveryStore) OpenObject(ctx context.Context, _ transport.Medium, key 
 // OpenObjectRange is the ranged read a streamed download needs: from off to
 // the end of the object, with the bytes it hands out counted, so a test can
 // see how much of a copy a download really read.
-func (s *recoveryStore) OpenObjectRange(_ context.Context, _ transport.Medium, key string, off int64) (io.ReadCloser, error) {
+func (s *recoveryStore) OpenObjectRange(ctx context.Context, _ transport.Medium, key string, off int64) (io.ReadCloser, error) {
 	s.rangeOpens.Add(1)
+	if s.rangeGate != nil {
+		select {
+		case <-s.rangeGate:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 	s.mu.Lock()
 	b, ok := s.objects[key]
 	s.mu.Unlock()
@@ -154,7 +204,21 @@ func (c *countedReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func (s *recoveryStore) ObjectChecksum(context.Context, transport.Medium, string, transport.HashAlgorithm) (transport.ChecksumAttestation, error) {
+func (s *recoveryStore) ObjectChecksum(ctx context.Context, _ transport.Medium, _ string, _ transport.HashAlgorithm) (transport.ChecksumAttestation, error) {
+	if s.probeGate != nil {
+		if s.probeEntered != nil {
+			select {
+			case <-s.probeEntered:
+			default:
+				close(s.probeEntered)
+			}
+		}
+		select {
+		case <-s.probeGate:
+		case <-ctx.Done():
+			return transport.ChecksumAttestation{}, ctx.Err()
+		}
+	}
 	if s.attest != nil {
 		return s.attest()
 	}
