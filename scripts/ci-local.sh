@@ -1038,6 +1038,17 @@ if [ "$FAST" != "1" ]; then
   gate_step "the recovery guards can actually fail (mutation self-test, #976)"
   bash scripts/recovery/selftest.sh
 
+  # EPIC Q (#988): the other half of the same promise. The recovery
+  # self-test above plants violations in the route, the grant and the
+  # budgets; this one plants them in what keeps Stored, Content verified
+  # and Recovery tested three claims: an existence check relabelled as
+  # content, a recovery test stored as a pass with no digest match, a copy
+  # nobody scheduled read as fresh, a per-set override that forgets the
+  # deployment, a feed row per copy, a crash that leaves staging behind, the
+  # no-download promise made again. No Docker, a few minutes.
+  gate_step "the assurance guards can actually fail (mutation self-test, #988)"
+  bash scripts/assurance/selftest.sh
+
   gate_step "repository-structure dependency rules (§7.1), by actual deletion"
   bash scripts/architecture/check-core-dependency-rule.sh
   bash scripts/architecture/verify-core-without-apps.sh

@@ -536,6 +536,7 @@ The rules that matter:
   same `assurance-after` scripts the scrub does, with `ASSURANCE_EVENT` set to
   `recovery_test_failed` and, when it passes again, `recovery_test_recovered`.
 
+
 - **A scrub also asks each medium what it holds, and tells you about anything
   the journal does not know.** The journal is still the only thing that says
   what is a copy: the scrub checks the keys the journal records and nothing

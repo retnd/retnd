@@ -91,3 +91,21 @@ icons and the release notes were rewritten in the tree (#892, #893); whether eac
 still accepts the listing under a new product name — the name in the submission form, the
 catalog slug, the existing registration — is an external decision this repository cannot
 record, and §75 says so.
+
+## EPIC Q (#953) changed two of the four screens, so those two are outstanding again
+
+The recovery and assurance work changes the **Dashboard** (it gains an Assurance summary card
+with what is due, overdue and degraded) and the **Backup set detail** (it gains the Assurance
+section: the three claims, the per-set policy control and the
+recovery actions). Items 1 and 2 in the list above therefore show something that no longer
+matches the product, and any picture of either taken before this epic is stale however good it
+was. Both rows stay outstanding, and so does every `Store screenshots` cell in
+`docs/conformance/submission-preflight.md`: nothing here was ever captured, so there is no row to
+move, and the point of saying it is that a screenshot taken from an older build must not be
+reused for the new screens.
+
+The eleven recovery and assurance surfaces in `docs/site/screens/recovery-*.png` come from the
+mock API through `docs/site/tools/capture-recovery-assurance.mjs`, are reproducible, and are
+documentation pictures only. They are not a substitute for item 1 or item 2, for the reason in
+the previous section, and they show Scrub now, Run recovery test and the operation views that the
+mock offers and a real deployment's web client does not yet (there is no route to start either).

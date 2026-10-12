@@ -6642,59 +6642,6 @@
           "reason"
         ]
       },
-      "SkipFirstRunStepRequest": {
-        "type": "object",
-        "description": "POST /system/first-run/skip. The guided setup step to leave for later.",
-        "additionalProperties": false,
-        "properties": {
-          "step": {
-            "type": "string",
-            "enum": [
-              "email",
-              "backup_set"
-            ]
-          }
-        },
-        "required": [
-          "step"
-        ]
-      },
-      "FirstRunSteps": {
-        "type": "object",
-        "description": "Each guided setup step mapped to its state: done, pending or skipped.",
-        "additionalProperties": false,
-        "properties": {
-          "administrator": {
-            "type": "string",
-            "enum": [
-              "done",
-              "pending",
-              "skipped"
-            ]
-          },
-          "email": {
-            "type": "string",
-            "enum": [
-              "done",
-              "pending",
-              "skipped"
-            ]
-          },
-          "backup_set": {
-            "type": "string",
-            "enum": [
-              "done",
-              "pending",
-              "skipped"
-            ]
-          }
-        },
-        "required": [
-          "administrator",
-          "email",
-          "backup_set"
-        ]
-      },
       "RecoveryTarget": {
         "type": "object",
         "additionalProperties": false,
@@ -7125,6 +7072,122 @@
           "coalesced"
         ]
       },
+      "AssuranceDueItem": {
+        "type": "object",
+        "description": "One copy's place in the scrub schedule.",
+        "additionalProperties": false,
+        "properties": {
+          "backup_set_id": {
+            "type": "string"
+          },
+          "artifact_id": {
+            "type": "string"
+          },
+          "artifact_name": {
+            "type": "string"
+          },
+          "last_assured_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the copy that is next due last ran a check to a verdict. Absent for a copy nobody has looked at.",
+            "x-go-omitempty": true
+          },
+          "next_due_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the copy is next owed a scrub, read from the copy's own schedule (the one the scrub driver keeps). For a copy with no schedule, the moment of the read."
+          },
+          "cadence_seconds": {
+            "type": "integer",
+            "description": "The set's resolved scrub cadence this row was computed from.",
+            "format": "int64"
+          },
+          "due": {
+            "type": "boolean",
+            "description": "next_due_at has passed."
+          },
+          "overdue": {
+            "type": "boolean",
+            "description": "A whole cadence past next_due_at, or never assured. A copy nobody has looked at is overdue, never fine."
+          },
+          "basis": {
+            "type": "string",
+            "description": "Where next_due_at came from: copy_next_due_at (the copy's own scrub schedule, the one the scrub driver keeps), or never (a copy with no schedule, which is due now)."
+          }
+        }
+      },
+      "AssuranceDueResponse": {
+        "type": "object",
+        "description": "The scrub schedule, most overdue first, computed from each set's resolved policy.",
+        "additionalProperties": false,
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The clock this schedule was computed against."
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssuranceDueItem"
+            },
+            "description": "One row per scrub-eligible copy that matches the filter."
+          }
+        }
+      },
+      "SkipFirstRunStepRequest": {
+        "type": "object",
+        "description": "POST /system/first-run/skip. The guided setup step to leave for later.",
+        "additionalProperties": false,
+        "properties": {
+          "step": {
+            "type": "string",
+            "enum": [
+              "email",
+              "backup_set"
+            ]
+          }
+        },
+        "required": [
+          "step"
+        ]
+      },
+      "FirstRunSteps": {
+        "type": "object",
+        "description": "Each guided setup step mapped to its state: done, pending or skipped.",
+        "additionalProperties": false,
+        "properties": {
+          "administrator": {
+            "type": "string",
+            "enum": [
+              "done",
+              "pending",
+              "skipped"
+            ]
+          },
+          "email": {
+            "type": "string",
+            "enum": [
+              "done",
+              "pending",
+              "skipped"
+            ]
+          },
+          "backup_set": {
+            "type": "string",
+            "enum": [
+              "done",
+              "pending",
+              "skipped"
+            ]
+          }
+        },
+        "required": [
+          "administrator",
+          "email",
+          "backup_set"
+        ]
+      },
       "ScrubStarted": {
         "type": "object",
         "description": "A scrub is under way. operation_id is what POST /assurance/operations/{op}/cancel takes.",
@@ -7256,69 +7319,6 @@
           "records"
         ]
       },
-      "AssuranceDueItem": {
-        "type": "object",
-        "description": "One copy's place in the scrub schedule.",
-        "additionalProperties": false,
-        "properties": {
-          "backup_set_id": {
-            "type": "string"
-          },
-          "artifact_id": {
-            "type": "string"
-          },
-          "artifact_name": {
-            "type": "string"
-          },
-          "last_assured_at": {
-            "type": "string",
-            "format": "date-time",
-            "description": "When the copy that is next due last ran a check to a verdict. Absent for a copy nobody has looked at.",
-            "x-go-omitempty": true
-          },
-          "next_due_at": {
-            "type": "string",
-            "format": "date-time",
-            "description": "When the copy is next owed a scrub, read from the copy's own schedule (the one the scrub driver keeps). For a copy with no schedule, the moment of the read."
-          },
-          "cadence_seconds": {
-            "type": "integer",
-            "description": "The set's resolved scrub cadence this row was computed from.",
-            "format": "int64"
-          },
-          "due": {
-            "type": "boolean",
-            "description": "next_due_at has passed."
-          },
-          "overdue": {
-            "type": "boolean",
-            "description": "A whole cadence past next_due_at, or never assured. A copy nobody has looked at is overdue, never fine."
-          },
-          "basis": {
-            "type": "string",
-            "description": "Where next_due_at came from: copy_next_due_at (the copy's own scrub schedule, the one the scrub driver keeps), or never (a copy with no schedule, which is due now)."
-          }
-        }
-      },
-      "AssuranceDueResponse": {
-        "type": "object",
-        "description": "The scrub schedule, most overdue first, computed from each set's resolved policy.",
-        "additionalProperties": false,
-        "properties": {
-          "generated_at": {
-            "type": "string",
-            "format": "date-time",
-            "description": "The clock this schedule was computed against."
-          },
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AssuranceDueItem"
-            },
-            "description": "One row per scrub-eligible copy that matches the filter."
-          }
-        }
-      },
       "ScrubCopyOutcome": {
         "type": "object",
         "additionalProperties": false,
@@ -7395,6 +7395,48 @@
           }
         },
         "required": [
+          "reason"
+        ]
+      },
+      "ScrubUnknownObject": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "An object a storage medium holds under a backup set's namespace at a key the journal has no placement for (QC-04). It is a finding for an operator to look at: never a verified copy of anything, and a scrub never reads, moves or deletes it.",
+        "properties": {
+          "medium": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string",
+            "description": "The object's key, as the medium lists it."
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes, as the medium lists it."
+          }
+        },
+        "required": [
+          "medium",
+          "key",
+          "size"
+        ]
+      },
+      "ScrubUnlistedMedium": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A storage medium the pass could not enumerate, so that no unknown objects reported for it does not read as nothing being there.",
+        "properties": {
+          "medium": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why the medium was not listed: its store cannot list, it is not configured, or the listing failed."
+          }
+        },
+        "required": [
+          "medium",
           "reason"
         ]
       },
@@ -7556,48 +7598,6 @@
           "refused",
           "bytes_read",
           "sets"
-        ]
-      },
-      "ScrubUnknownObject": {
-        "type": "object",
-        "additionalProperties": false,
-        "description": "An object a storage medium holds under a backup set's namespace at a key the journal has no placement for (QC-04). It is a finding for an operator to look at: never a verified copy of anything, and a scrub never reads, moves or deletes it.",
-        "properties": {
-          "medium": {
-            "type": "string"
-          },
-          "key": {
-            "type": "string",
-            "description": "The object's key, as the medium lists it."
-          },
-          "size": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Bytes, as the medium lists it."
-          }
-        },
-        "required": [
-          "medium",
-          "key",
-          "size"
-        ]
-      },
-      "ScrubUnlistedMedium": {
-        "type": "object",
-        "additionalProperties": false,
-        "description": "A storage medium the pass could not enumerate, so that no unknown objects reported for it does not read as nothing being there.",
-        "properties": {
-          "medium": {
-            "type": "string"
-          },
-          "reason": {
-            "type": "string",
-            "description": "Why the medium was not listed: its store cannot list, it is not configured, or the listing failed."
-          }
-        },
-        "required": [
-          "medium",
-          "reason"
         ]
       }
     },
@@ -17070,102 +17070,6 @@
         "x-authenticated": true
       }
     },
-    "/system/first-run/skip": {
-      "post": {
-        "operationId": "skipFirstRunStep",
-        "summary": "Leave a guided setup step for later.",
-        "tags": [
-          "system"
-        ],
-        "security": [
-          {
-            "session": [],
-            "csrf": [],
-            "csrfCookie": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SkipFirstRunStepRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Success. The first-run status after the skip.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FirstRunStatusResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Refused: INVALID_REQUEST.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "x-error-codes": [
-              "INVALID_REQUEST"
-            ]
-          },
-          "401": {
-            "description": "Refused: UNAUTHENTICATED.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "x-error-codes": [
-              "UNAUTHENTICATED"
-            ]
-          },
-          "403": {
-            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "x-error-codes": [
-              "CSRF_TOKEN_MISSING",
-              "CSRF_TOKEN_MISMATCH"
-            ]
-          },
-          "500": {
-            "description": "Refused: INTERNAL.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "x-error-codes": [
-              "INTERNAL"
-            ]
-          }
-        },
-        "x-destructive-gate": false,
-        "x-idempotency-key": "none",
-        "x-optimistic-concurrency": null,
-        "x-csrf-required": true,
-        "x-authenticated": true
-      }
-    },
     "/backups/{source}/{set}/{name}/recovery": {
       "post": {
         "operationId": "mintRecovery",
@@ -18293,6 +18197,218 @@
         "x-authenticated": true
       }
     },
+    "/assurance/due": {
+      "get": {
+        "operationId": "listAssuranceDue",
+        "summary": "The scrub schedule: every scrub-eligible copy with when it is next due, computed from its set's resolved cadence. Read-only.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "backup_set",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Narrow the schedule to one backup set, by its source/backup-set id. Omitted means every configured set."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "all (the default), due or overdue."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssuranceDueResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. The configuration validator refused the resulting policy, or the patch named nothing. Nothing is written when it does.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "404": {
+            "description": "Refused: BACKUP_SET_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "BACKUP_SET_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      }
+    },
+    "/system/first-run/skip": {
+      "post": {
+        "operationId": "skipFirstRunStep",
+        "summary": "Leave a guided setup step for later.",
+        "tags": [
+          "system"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SkipFirstRunStepRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success. The first-run status after the skip.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FirstRunStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
     "/backup-sets/{source}/{set}/scrub": {
       "post": {
         "operationId": "startScrub",
@@ -18590,122 +18706,6 @@
                 }
               }
             }
-          },
-          "401": {
-            "description": "Refused: UNAUTHENTICATED.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "x-error-codes": [
-              "UNAUTHENTICATED"
-            ]
-          },
-          "404": {
-            "description": "Refused: BACKUP_SET_NOT_FOUND.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "x-error-codes": [
-              "BACKUP_SET_NOT_FOUND"
-            ]
-          },
-          "500": {
-            "description": "Refused: INTERNAL.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "x-error-codes": [
-              "INTERNAL"
-            ]
-          },
-          "503": {
-            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "x-error-codes": [
-              "NOT_CONFIGURED"
-            ]
-          }
-        },
-        "x-destructive-gate": false,
-        "x-idempotency-key": "none",
-        "x-optimistic-concurrency": null,
-        "x-csrf-required": false,
-        "x-authenticated": true
-      }
-    },
-    "/assurance/due": {
-      "get": {
-        "operationId": "listAssuranceDue",
-        "summary": "The scrub schedule: every scrub-eligible copy with when it is next due, computed from its set's resolved cadence. Read-only.",
-        "tags": [
-          "assurance"
-        ],
-        "security": [
-          {
-            "session": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "backup_set",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            },
-            "description": "Narrow the schedule to one backup set, by its source/backup-set id. Omitted means every configured set."
-          },
-          {
-            "name": "status",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            },
-            "description": "all (the default), due or overdue."
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AssuranceDueResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Refused: INVALID_REQUEST. The configuration validator refused the resulting policy, or the patch named nothing. Nothing is written when it does.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "x-error-codes": [
-              "INVALID_REQUEST"
-            ]
           },
           "401": {
             "description": "Refused: UNAUTHENTICATED.",

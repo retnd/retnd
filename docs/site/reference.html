@@ -243,6 +243,9 @@
     <p><strong>Place a hold</strong> stops retention deleting one snapshot until somebody releases it, and a reason is required: a hold nobody explained is one nobody dares release, which makes it permanent by accident. A hold names who placed it and why, and separately who released it and when. <strong>Release this hold</strong> deletes nothing &mdash; it returns the snapshot to whatever the policy already said about it. <code>retnd snapshot retention</code>, <code>snapshot hold</code>, <code>snapshot holds</code>, <code>snapshot unhold</code>.</p>
 
 
+    <h3 id="web-assurance-operation">Operation (a scrub or a recovery test)</h3>
+    <p>The page a set's <strong>Operation detail</strong> link opens, at <code>/assurance/operations/&lt;id&gt;</code>: the live stage of one scrub or recovery test, the durable lines it has written so far, a <strong>Following</strong> toggle and <strong>Cancel</strong>. It is the same panel the set page mounts, so a reload shows the stage the set page showed. A deployment whose web client cannot start either (there is no <code>api/v1</code> route that does) says <strong>Not available</strong> here instead, and the set page shows the equivalent <code>retnd scrub</code> command.</p>
+
     <h3 id="web-backups">Backups</h3>
     <figure>
       <img src="screens/ref-03-backups.png" alt="The Backups screen: a table of retained artifacts with Time, Backup set, Artifact, Size, Assurance, Retention, Medium and Status columns, a backup-set filter, and a Preview retention button" loading="lazy">

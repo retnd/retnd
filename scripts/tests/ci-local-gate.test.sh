@@ -372,6 +372,12 @@ make_full_tree() {
   mkdir -p "$tree/scripts/recovery"
   printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/recovery/selftest.sh"
 
+  # EPIC Q's assurance mutation self-test (#988), stubbed for the same
+  # reason: the real one copies the tree a dozen times and builds core/ in
+  # each copy.
+  mkdir -p "$tree/scripts/assurance"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/assurance/selftest.sh"
+
   # The race detector's own mutation self-test (#417), stubbed for the
   # seventh time for the seventh identical reason: the real one copies the
   # tree twice, plants a data race in core/service and runs the detector

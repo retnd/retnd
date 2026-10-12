@@ -58,6 +58,9 @@ ROUTER_GO = "apps/common/webhost/router.go"
 HANDLER_GO = "apps/common/webhost/handlers_recovery.go"
 CLI_GO = "core/cmd/retnd/recover.go"
 BUDGET_GO = "core/internal/recovery/budget/budget.go"
+APP_SCRUB_GO = "core/internal/app/scrub.go"
+REVALIDATE_GO = "core/internal/revalidate/revalidate.go"
+PLACEMENTS_GO = "core/internal/state/placements.go"
 FLIGHT_GO = f"{EXPORT}/flight.go"
 CAPS_GO = "apps/common/platform/capabilities/hostlimits.go"
 WEBMAIN_GO = "apps/generic/cmd/retnd-web/main.go"
@@ -1037,6 +1040,65 @@ MUTATIONS = [
         SERVICE_PKG,
         "TestStartRecoveryTestRunsOneAtATimePerSet",
     ),
+    # Panel finding C10 (#988): the matrix said a default deployment scrubs and
+    # recovery-tests on the strength of tests that call one tick by hand or only
+    # import the package. These plant the break one hop out, in the process the
+    # product actually runs, and the suites that go red are the ones that start
+    # RunOnSchedule (what `retnd serve` runs) and read the `serve` command.
+    (
+        "a serving scheduler that never starts the scrub timer",
+        SCHEDULER_GO,
+        "\t\tb.runScrubTicks(ctx, b.PollInterval())\n",
+        "\t\t" + PLANT + "the serving scheduler never starts the scrub timer.\n\t\t<-ctx.Done()\n",
+        "nothing the serving process runs scrubs it",
+        SERVICE_PKG,
+        "TestRunOnScheduleScrubsADefaultInstall",
+    ),
+    (
+        "a scheduled pass that drops the recovery tests",
+        APP_SCRUB_GO,
+        "\ts.ScrubTick(ctx)\n\ts.RecoveryTestTick(ctx)\n",
+        "\ts.ScrubTick(ctx)\n\t" + PLANT + "the scheduled pass skips the recovery tests.\n",
+        "nothing the serving process runs starts it",
+        SERVICE_PKG,
+        "TestRunOnScheduleRunsTheDueRecoveryTest",
+    ),
+    (
+        "a scrub tick that gives up when an operation is running",
+        SCHEDULER_GO,
+        "\t\tb.tickScrubWhenFree(ctx)\n",
+        "\t\t" + PLANT + "a busy tick is simply lost until the next interval.\n\t\t_ = b.tickScrub(ctx, true)\n",
+        "scrub ticks that each arrive while a cycle holds the lock",
+        SERVICE_PKG,
+        "TestAScrubTickThatFindsTheLockHeldRunsAsSoonAsItIsFree",
+    ),
+    (
+        "a serve command that hands the engine no scheduler",
+        WEB_MAIN_GO,
+        "\t\tscheduler = backend\n",
+        "\t\t" + PLANT + "the process serves and never runs a scrub.\n\t\tscheduler = nil\n",
+        "assigns a nil scheduler",
+        SERVE_PKG,
+        "TestServeHandsTheEngineAScheduler",
+    ),
+    (
+        "a forced scrub that obeys an empty schedule",
+        REVALIDATE_GO,
+        "\tif cfg.MaxPerCycle <= 0 && !opts.Force {\n",
+        "\t" + PLANT + "Force is ignored.\n\tif cfg.MaxPerCycle <= 0 {\n",
+        "a forced pass selected 0 artifacts",
+        REVALIDATE_PKG,
+        "TestRunWith_AForcedPass",
+    ),
+    (
+        "a placement upsert that lets any class move the content age",
+        PLACEMENTS_GO,
+        "\tif p.VerificationClass == VerificationContent && p.VerifiedAt != nil && status == PlacementActive {\n",
+        "\t" + PLANT + "an existence write moves the content age.\n\tif p.VerificationClass != \"\" && p.VerifiedAt != nil && status == PlacementActive {\n",
+        "an existence write moved the content age",
+        STATE_PKG,
+        "TestUpsertOfAnExistenceClassCannotMoveTheContentAge",
+    ),
     # The activity feed is durable (migration 0018). Seven controls, one per
     # promise: it survives a restart, it does not store samples or per-range
     # lines, it coalesces stages, it prunes, it never blocks the cycle, and a
@@ -1334,7 +1396,10 @@ CLEAN_CONTROLS = [
     ("the recovery-test journal suite", STATE_PKG, "TestRecordRecovery|TestMarkRecoveryOverdue"),
     ("the copy opener", FSOPEN_PKG, "."),
     ("the alert vocabulary guard", ALERT_PKG, "TestEveryAlertKind|TestTheAlertProducerGuard"),
-    ("the assurance event guard", OBS_PKG, "TestEveryAssuranceEvent|TestTheAssuranceEmitterGuard"),
+    ("the assurance event guard", OBS_PKG, "TestEveryAssuranceEvent|TestTheAssuranceEmitterGuard|TestTheScrubAndRecoveryTestEvents"),
+    ("the default-deployment wiring suite", SERVICE_PKG, "TestRunOnSchedule"),
+    ("the serve command's scheduler guard", SERVE_PKG, "TestServeHandsTheEngineAScheduler|TestTheServeSchedulerGuardCanFail"),
+    ("the forced-pass contract", REVALIDATE_PKG, "TestRunWith_"),
     (
         "the recovery-test service suite",
         SERVICE_PKG,
