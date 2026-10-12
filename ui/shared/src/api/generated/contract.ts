@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "0772f3e969d2268d0e80c953df2b3d9616f94759a76241afcf7de82646004c69";
+export const CONTRACT_SHA256 = "ad08c2e9631df3e7c70e0d00c0924d736c85cb2b22be1bb6e0540bf817b61015";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -327,6 +327,26 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
       404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "cancelAssuranceOperation",
+    method: "POST",
+    path: "/assurance/operations/{op}/cancel",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "AssuranceOperationCancelled",
+    successStatus: 202,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["OPERATION_NOT_FOUND"],
       500: ["INTERNAL"],
       503: ["NOT_CONFIGURED"],
     }
@@ -895,6 +915,25 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "getRecoveryTestOutput",
+    method: "GET",
+    path: "/backup-sets/{source}/{set}/recovery-test/output",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "RecoveryTestOutput",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
     id: "clearBackupSetRetention",
     method: "DELETE",
     path: "/backup-sets/{source}/{set}/retention",
@@ -993,6 +1032,28 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
       404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "startScrub",
+    method: "POST",
+    path: "/backup-sets/{source}/{set}/scrub",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ScrubStarted",
+    successStatus: 202,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      409: ["OPERATION_ALREADY_RUNNING"],
       500: ["INTERNAL"],
       503: ["NOT_CONFIGURED"],
     }
@@ -1227,7 +1288,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     concurrency: "",
     requestSchema: "RecoveryMintRequest",
     responseSchema: "RecoveryMintResponse",
-    successStatus: 202,
+    successStatus: 201,
     errorCodes: {
       400: ["INVALID_REQUEST", "RECOVERY_TARGET_INVALID"],
       401: ["UNAUTHENTICATED"],
@@ -1442,7 +1503,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     concurrency: "",
     requestSchema: "",
     responseSchema: "RecoveryResult",
-    successStatus: 206,
+    successStatus: 200,
     errorCodes: {
       401: ["UNAUTHENTICATED"],
       403: ["RECOVERY_GRANT_SESSION_ENDED"],
@@ -2402,6 +2463,14 @@ export interface WireAssuranceHostKnob {
   per_set?: boolean;
   reason?: string;
   value?: string;
+}
+
+/** A running scrub or recovery test has been told to stop. */
+export interface WireAssuranceOperationCancelled {
+  backup_set_id: string;
+  kind: "scrub" | "recovery_test";
+  operation_id: string;
+  status: "cancelling";
 }
 
 /** A resolved recovery-test policy. */
@@ -3509,12 +3578,36 @@ export interface WireRecoveryTarget {
   path?: string;
 }
 
+/** What the newest recovery test of a backup set printed. Only the
+ *  newest test is kept per set. */
+export interface WireRecoveryTestOutput {
+  artifact_id?: string;
+  backup_set_id: string;
+  medium?: string;
+  operation_id?: string;
+  recorded: boolean;
+  recorded_at?: string;
+  records: WireRecoveryTestOutputRecord[];
+  state?: string;
+  truncated?: boolean;
+}
+
+/** One line of a validator's output, or the runner's own truncation
+ *  marker. Branch on kind and never on text: only the runner produces
+ *  a truncation record, so a validator that prints the marker's words
+ *  is still an output record. */
+export interface WireRecoveryTestOutputRecord {
+  kind: "output" | "truncation";
+  text: string;
+}
+
 /** A recovery test is under way. operation_id is carried by its
  *  recovery_test_start, recovery_stage and recovery_test_end lines on
  *  the activity feed, which is how a client follows it; the verdict
  *  is the copy's recovery claim once it ends. */
 export interface WireRecoveryTestStarted {
   backup_set_id: string;
+  coalesced: boolean;
   operation_id: string;
 }
 
@@ -3862,6 +3955,13 @@ export interface WireScrubSkip {
   artifact_id?: string;
   medium?: string;
   reason: string;
+}
+
+/** A scrub is under way. operation_id is what POST
+ *  /assurance/operations/{op}/cancel takes. */
+export interface WireScrubStarted {
+  backup_set_id: string;
+  operation_id: string;
 }
 
 /** The rules the service-behaviour settings are validated against,
