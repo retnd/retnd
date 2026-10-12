@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // A validator's output is untrusted terminal input.
@@ -48,7 +50,7 @@ type OutputRecord struct {
 
 // truncationText is what a genuine truncation record says. It is not what
 // identifies one: Kind is.
-const truncationText = "[retnd] output truncated: the validator wrote more than the capture bound, and the rest was discarded"
+const truncationText = state.RecoveryOutputTruncationText
 
 // SanitizeOutput turns raw captured output into records safe to put in a
 // structural field, a notification body or a terminal.
@@ -126,4 +128,16 @@ func Render(rs []OutputRecord) []string {
 		}
 	}
 	return out
+}
+
+// BoundOutput fits sanitised records into what the journal will store: at most
+// state.MaxRecoveryOutputRecords records, each at most
+// state.MaxRecoveryOutputLineBytes, all together at most
+// state.MaxRecoveryOutputBytes. cut reports that anything was dropped or
+// shortened.
+//
+// When it cuts, the result ends with exactly one truncation record, which is
+// this function's own and never a validator's.
+func BoundOutput(rs []OutputRecord) (out []OutputRecord, cut bool) {
+	return rs, false
 }

@@ -39,6 +39,9 @@ type stubStages struct {
 
 	// gate, when set, holds a validator run until it is closed.
 	gate chan struct{}
+
+	// output is what the validator printed.
+	output []byte
 }
 
 func (s *stubStages) RunStage(_ context.Context, req app.StageRequest) (app.StageResult, error) {
@@ -53,6 +56,7 @@ func (s *stubStages) RunStage(_ context.Context, req app.StageRequest) (app.Stag
 	}
 	res := app.StageResult{Configured: true, Scripts: []app.StageScript{{
 		Name: s.script, SHA256: strings.Repeat("ab", 32), Target: "local", State: "success", Disposition: "exited", ExitCode: &s.exit,
+		Output: s.output,
 	}}}
 	if req.DryRun {
 		res.Scripts[0].State = ""
@@ -518,8 +522,12 @@ func TestStartRecoveryTestRunsOneAtATimePerSet(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if _, err := f.b.StartRecoveryTest(context.Background(), "production/postgres", RecoveryTestOptions{}); !errors.Is(err, ErrRecoveryTestRunning) {
-		t.Errorf("a second start while one runs: err = %v, want ErrRecoveryTestRunning (already running)", err)
+	// An identical request joins the running test (see
+	// TestTwoConcurrentRecoveryTestRequests...). One that asks for something
+	// else is still refused: it would be a second read, of a copy that may be
+	// billed.
+	if _, err := f.b.StartRecoveryTest(context.Background(), "production/postgres", RecoveryTestOptions{AcknowledgeCost: true}); !errors.Is(err, ErrRecoveryTestRunning) {
+		t.Errorf("a different start while one runs: err = %v, want ErrRecoveryTestRunning (already running)", err)
 	}
 	close(gate)
 	f.b.wg.Wait() // the background test is tracked like every other goroutine the service starts

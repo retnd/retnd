@@ -42,6 +42,10 @@ type RecoveryTestOptions struct {
 	// carry on the activity feed, so a caller that wants to follow this one
 	// test can choose the id before it starts. Empty means a fresh one.
 	OperationID string
+
+	// Actor is who asked, for the receipt. Empty for a caller with no
+	// session (the scheduler never goes through StartRecoveryTest).
+	Actor string
 }
 
 // RecoveryTestOutcome is what a recovery test concluded, reduced to what a
@@ -73,6 +77,11 @@ type RecoveryTestOutcome struct {
 type RecoveryTestStarted struct {
 	BackupSetID string
 	OperationID string
+
+	// Coalesced is true when the request joined a test of the same set that
+	// was already running, so OperationID is that test's and nothing new
+	// started.
+	Coalesced bool
 }
 
 // RunRecoveryTest runs one recovery test now and waits for it. It is the same
