@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-12
+
+0.6.0 is the first release that also ships the `retnd` command line as plain
+tarballs. Each GitHub Release carries Linux and macOS builds (amd64 and arm64) and a
+`SHA256SUMS` file. The tarballs are checksummed and not signed: the signed artefact
+is still the container image (#1078).
+
+### Added
+
+- **A GitHub Release with CLI tarballs** (#1078). After the image is published, the
+  release workflow builds `retnd` for linux/amd64, linux/arm64, darwin/amd64 and
+  darwin/arm64, smoke-tests the macOS build on a hosted macOS runner, and attaches
+  the tarballs plus `SHA256SUMS` to a `v0.6.0` release.
+
 ### Changed
 
 - **A fresh install configures itself and leads you through setup** (#1049). On its

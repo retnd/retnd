@@ -164,6 +164,21 @@ The jobs run in this order:
    canonical published state and installer pin, regenerates provenance, runs
    the focused consistency suites, creates one merge commit and pushes it to
    `main`.
+6. `cli-binaries` runs after `publish` and builds the `retnd` command line for
+   linux/amd64, linux/arm64, darwin/amd64 and darwin/arm64 (static, `CGO_ENABLED=0`,
+   stamped with the tag and the commit), packs each as `retnd_<tag>_<os>_<arch>.tar.gz`
+   and writes one `SHA256SUMS` over the four. It holds `contents: read` and nothing
+   else.
+7. `cli-darwin-smoke` runs the arm64 tarball on a `macos-latest` runner: it
+   checks the sum, unpacks it and runs `retnd version`.
+8. `github-release` (`contents: write`, the only job that gets it besides
+   `merge-back-to-main`) creates the `v<tag>` release on the published commit and
+   uploads the four tarballs and `SHA256SUMS`.
+
+The three CLI jobs only run when this run publishes, and none of them holds
+`id-token`. They are downstream of `publish` on purpose: a release that failed to
+push the image never gets a GitHub Release. The tarballs are checksummed and not
+signed (see `docs/compliance/release-provenance.md`).
 
 Merging the reviewed pull request into `release` is the only publication
 action. Do not edit registry digests, run a second publish dispatch or open a
@@ -214,8 +229,12 @@ Also confirm:
   digest;
 - `merge-back-to-main` is green and its automated merge commit is on `main`.
 
-The workflow does not create a Git tag or a GitHub Release. Do not report either
-as published unless a separate, observed process created it.
+Download a tarball from the `v<tag>` GitHub Release and check it against
+`SHA256SUMS` (`sha256sum -c --ignore-missing SHA256SUMS`, or `shasum -a 256 -c` on
+macOS). The tarballs are not signed, so the checksum file proves the download is
+intact and nothing more; the image signature above is what proves provenance.
+`github-release` creates the Git tag `v<tag>`; confirm the release page lists the
+four tarballs and `SHA256SUMS` before reporting it as published.
 
 ## Failure and recovery
 
