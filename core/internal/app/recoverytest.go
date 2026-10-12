@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/obs"
@@ -50,13 +51,6 @@ import (
 // and records the result and the hash of the bytes that ran. A script never
 // writes "Content verified" or "Recovery tested".
 
-// DefaultRecoveryTestCadence is how often the newest known good copy of a
-// set is owed a recovery test until a per-set setting exists. It is a named
-// constant with a default, as every budget in this epic is; the per-set key
-// (inherit, off, custom) is the configuration work's to add, and this is the
-// value it will inherit.
-const DefaultRecoveryTestCadence = 7 * 24 * time.Hour
-
 // RecoveryTestSetDir is a backup set's validator stage directory, relative
 // to the workflow root.
 func RecoveryTestSetDir(set model.BackupSetID) string {
@@ -72,6 +66,11 @@ type RecoveryTestRequest struct {
 	// is the operator's agreement to pay for reading a copy that costs money.
 	Scheduled       bool
 	AcknowledgeCost bool
+
+	// OperationID, when set, is the id the start, stage and end events carry,
+	// so a caller that returned it to somebody (a route) can be followed on
+	// the activity feed. Empty means a fresh one.
+	OperationID string
 }
 
 // RecoveryTestResult is a test's outcome. For an incremental (engine: kopia)
@@ -88,13 +87,32 @@ type RecoveryTestResult struct {
 var ErrRecoveryTestUnavailable = errors.New("app: this journal cannot record a recovery test")
 
 // stageValidator is recoverytest.Validator over the stage runner.
+//
+// scriptFile is the validator_id turned into the file name it selects
+// (config.RecoveryTestScriptName), or "" when the policy names none, in which
+// case the directory must hold exactly one script and that one is the
+// validator. A named script that is not there is an error and never "not
+// configured": the operator declared a validator, so its absence is the
+// reason the test could not run.
 type stageValidator struct {
-	stages StageRunner
-	bs     config.BackupSet
+	stages     StageRunner
+	bs         config.BackupSet
+	scriptFile string
 }
 
 func (v stageValidator) request() StageRequest {
-	return StageRequest{Set: v.bs, SetDir: RecoveryTestSetDir(v.bs.ID), LocalOnly: true, MaxScripts: 1}
+	req := StageRequest{Set: v.bs, SetDir: RecoveryTestSetDir(v.bs.ID), LocalOnly: true, MaxScripts: 1}
+	if v.scriptFile != "" {
+		req.Only = v.scriptFile
+		// The directory may hold other validators (one per id); only the
+		// named one is read or run.
+		req.MaxScripts = 0
+	}
+	return req
+}
+
+func (v stageValidator) missing() error {
+	return fmt.Errorf("the declared validator %s was not found in %s", v.scriptFile, RecoveryTestSetDir(v.bs.ID))
 }
 
 func (v stageValidator) Configured(ctx context.Context, _ model.BackupSetID) (bool, error) {
@@ -102,11 +120,20 @@ func (v stageValidator) Configured(ctx context.Context, _ model.BackupSetID) (bo
 	req.DryRun = true
 	res, err := v.stages.RunStage(ctx, req)
 	if err != nil {
+		if errors.Is(err, ErrStageScriptMissing) && v.scriptFile != "" {
+			return false, v.missing()
+		}
 		if isNotConfigured(err) {
+			if v.scriptFile != "" {
+				return false, v.missing()
+			}
 			return false, nil
 		}
 
 		return false, err
+	}
+	if v.scriptFile != "" && !(res.Configured && len(res.Scripts) == 1 && res.Scripts[0].Name == v.scriptFile) {
+		return false, v.missing()
 	}
 
 	return res.Configured && len(res.Scripts) > 0, nil
@@ -129,6 +156,9 @@ func (v stageValidator) Validate(ctx context.Context, in recoverytest.ValidatorI
 		return recoverytest.ValidatorOutcome{}, fmt.Errorf("the validator directory held %d scripts when the test ran, and a recovery test has exactly one", len(res.Scripts))
 	}
 	sc := res.Scripts[0]
+	if v.scriptFile != "" && sc.Name != v.scriptFile {
+		return recoverytest.ValidatorOutcome{}, v.missing()
+	}
 
 	return recoverytest.ValidatorOutcome{
 		ID: sc.Name, Hash: sc.SHA256, Disposition: sc.Disposition, ExitCode: sc.ExitCode,
@@ -136,7 +166,27 @@ func (v stageValidator) Validate(ctx context.Context, in recoverytest.ValidatorI
 	}, nil
 }
 
+// validatorFor resolves a set's policy into the validator its tests use.
+func (s *Service) validatorFor(bs config.BackupSet) (stageValidator, error) {
+	v := stageValidator{stages: s.Stages, bs: bs}
+	if id := bs.Assurance.RecoveryTest.ValidatorID; id != "" {
+		file, err := config.RecoveryTestScriptName(id)
+		if err != nil {
+			return v, fmt.Errorf("the recovery-test validator_id of %s is not usable: %w", bs.ID, err)
+		}
+		v.scriptFile = file
+	}
+
+	return v, nil
+}
+
 // RecoveryTest runs a recovery test as req describes.
+//
+// The cadence and the validator come from the set's resolved assurance
+// policy (bs.Assurance), the same value the settings surfaces report, so what
+// an operator is shown is what runs. A manual request runs whatever the mode
+// says: asking is the operator's decision. Only the scheduled tick honours
+// the mode (RecoveryTestTick).
 func (s *Service) RecoveryTest(ctx context.Context, req RecoveryTestRequest) (RecoveryTestResult, error) {
 	bs, ok := s.backupSet(req.Set)
 	if !ok {
@@ -157,32 +207,83 @@ func (s *Service) RecoveryTest(ctx context.Context, req RecoveryTestRequest) (Re
 		return RecoveryTestResult{}, ErrRecoveryTestUnavailable
 	}
 
-	// The default staging place is a subdirectory of the backup set's own
-	// root, as the move engine's staging copy is: that disk is the one the
-	// artifact already fits on, ScanManifests and discovery never look in a
-	// subdirectory, and the free-space check is made against the volume the
-	// backups are written to. The system temporary directory is often memory.
+	// The staging place is the deployment's one staging root
+	// (assurance.staging_root), the same directory an operator's recovery
+	// writes in. Fixtures and hand-built configs that name none fall back to
+	// a subdirectory of the backup set's own root, so a copy is never staged
+	// in memory.
 	root := s.recoveryStagingRoot(bs)
 	var recoverer recoverytest.Recoverer = recoverytest.LocalRecoverer{Root: root}
 	if s.Recoverer != nil {
 		recoverer = s.Recoverer
 	}
 
+	validator, verr := s.validatorFor(bs)
+	opID := req.OperationID
+	if opID == "" {
+		opID = uuid.NewString()
+	}
+	started := s.now()
+	validatorID := bs.Assurance.RecoveryTest.ValidatorID
+	artifactLabel := ""
+	if req.Artifact != nil {
+		artifactLabel = req.Artifact.String()
+	}
+	s.logger().RecoveryTestStart(ctx, opID, bs.ID.String(), artifactLabel, validatorID)
+
 	deps := recoverytest.Deps{
 		Journal: journal, Recoverer: recoverer, Mediums: configMediums{s.Config},
 		Limits: s.scrubLimitsShared(), Now: s.Now,
+		Stage: func(id string) { s.logger().RecoveryStage(ctx, opID, bs.ID.String(), id) },
 	}
-	if s.Stages != nil {
-		deps.Validator = stageValidator{stages: s.Stages, bs: bs}
+	if s.Stages != nil && verr == nil {
+		deps.Validator = validator
 	}
-	res, err := recoverytest.Run(ctx, deps, bs.ID, recoverytest.Config{Cadence: DefaultRecoveryTestCadence}, recoverytest.Request{
-		Artifact: req.Artifact, Scheduled: req.Scheduled, AcknowledgeCost: req.AcknowledgeCost,
-	})
+	var res recoverytest.Result
+	var err error
+	if verr != nil {
+		err = verr
+	} else {
+		res, err = recoverytest.Run(ctx, deps, bs.ID, recoverytest.Config{Cadence: bs.Assurance.RecoveryTestInterval()}, recoverytest.Request{
+			Artifact: req.Artifact, Scheduled: req.Scheduled, AcknowledgeCost: req.AcknowledgeCost,
+		})
+	}
+	if res.Artifact.Name != "" {
+		artifactLabel = res.Artifact.String()
+	}
+	s.logger().RecoveryTestEnd(ctx, opID, bs.ID.String(), artifactLabel, validatorID, s.now().Sub(started), recoveryTestResult(res, err), recoveryTestReason(res, err))
 	if err == nil {
 		s.logRecoveryTest(ctx, res)
 		s.settleRecoveryEpisode(ctx, bs, res)
 	}
 	return RecoveryTestResult{Result: res}, err
+}
+
+// recoveryTestResult maps a test's outcome onto the result a completion line
+// states. Only a pass is a success: a refusal for cost or an attempt that
+// could not complete is a warning (nothing is known about the copy), and a
+// failure is an error.
+func recoveryTestResult(r recoverytest.Result, err error) obs.Result {
+	switch {
+	case err != nil:
+		return obs.ResultError
+	case r.State == state.RecoveryPassed:
+		return obs.ResultSuccess
+	case r.State == state.RecoveryFailed:
+		return obs.ResultError
+	default:
+		return obs.ResultWarn
+	}
+}
+
+func recoveryTestReason(r recoverytest.Result, err error) string {
+	if err != nil {
+		return recoverytest.SanitizeLabel(err.Error(), 200)
+	}
+	if r.State == state.RecoveryPassed {
+		return ""
+	}
+	return r.Reason
 }
 
 // settleRecoveryEpisode announces a recovery test failing, and later passing
@@ -231,14 +332,30 @@ func (s *Service) logRecoveryTest(ctx context.Context, r recoverytest.Result) {
 	})
 }
 
+// DefaultRecoveryTickBound is how long one RecoveryTestTick may keep starting
+// tests. A recovery test reads a whole artifact and runs an operator's
+// script, the tick walks every set one after another, and it runs behind the
+// scrub on the same timer, so an unbounded tick lets one slow validator hold
+// up the next scrub pass for as long as it likes. When the bound is spent the
+// tick stops starting new tests; what is still due waits for the next tick.
+// A test that is already running is not cut short by the bound, only by its
+// own validator timeout.
+const DefaultRecoveryTickBound = 30 * time.Minute
+
 // RecoveryTestTick is the scheduled half: it ages passes that have outlived
 // their cadence into overdue, sweeps staging a crash left behind, and runs
-// one unattended test for each artifact set that declares a validator and
-// whose newest known good copy is due.
+// one unattended test for each set whose resolved policy asks for recovery
+// tests (mode required or custom) and whose newest known good copy is due.
+//
+// A set under mode off is left alone even when a validator script sits in
+// its directory: the directory is a convention, the mode is the decision. The
+// cadence is the set's resolved cadence, and a named validator_id selects the
+// script by file name.
 //
 // An unattended test never pays. A set whose newest copy is on a storage
-// medium reads refused_for_cost every time this runs, which is the honest
-// answer and is recorded as one; it does not thaw anything.
+// medium reads refused_for_cost every time this runs when the cost gate
+// stops it, which is the honest answer and is recorded as one; it does not
+// thaw anything.
 func (s *Service) RecoveryTestTick(ctx context.Context) {
 	journal, ok := s.Journal.(interface {
 		recoverytest.Journal
@@ -247,6 +364,16 @@ func (s *Service) RecoveryTestTick(ctx context.Context) {
 	if !ok {
 		return
 	}
+	// The bound is wall-clock work, so it uses the real clock and not the
+	// injectable one the journal's timestamps use. Zero is the default and a
+	// negative value is unbounded.
+	bound := s.RecoveryTickBound
+	if bound == 0 {
+		bound = DefaultRecoveryTickBound
+	}
+	started := time.Now()
+	spent := func() bool { return bound > 0 && time.Since(started) >= bound }
+
 	if _, err := journal.MarkRecoveryOverdue(ctx, s.now()); err != nil {
 		s.logger().Error(ctx, "recovery-test-overdue", err)
 	}
@@ -260,13 +387,29 @@ func (s *Service) RecoveryTestTick(ctx context.Context) {
 				continue
 			}
 			// A crash mid-test leaves a staged copy nothing refers to. The
-			// sweep runs for every set, validator or not, because the copy
-			// outlives a configuration change that removed the validator.
+			// sweep runs for every set, policy or not, because the copy
+			// outlives a configuration change that turned the policy off.
 			s.sweepRecoveryStaging(ctx, bs)
-			if s.Stages == nil {
+			if !bs.Assurance.RecoveryTestEnabled() || s.Stages == nil {
 				continue
 			}
-			if configured, err := (stageValidator{stages: s.Stages, bs: bs}).Configured(ctx, bs.ID); err != nil || !configured {
+			if spent() {
+				// The tick's bound is spent: no new test starts.
+				continue
+			}
+			validator, verr := s.validatorFor(bs)
+			if verr != nil {
+				s.logger().Error(ctx, "recovery-test-validator", verr)
+				continue
+			}
+			if configured, err := validator.Configured(ctx, bs.ID); err != nil {
+				// A declared validator that is not there is a finding the
+				// test itself records (could_not_complete); let it run once
+				// per cadence like any other so the claim says why.
+				if validator.scriptFile == "" {
+					continue
+				}
+			} else if !configured {
 				continue
 			}
 			if holds != nil && holds.Held(bs.ID.String()) {
@@ -282,18 +425,23 @@ func (s *Service) RecoveryTestTick(ctx context.Context) {
 			if !due {
 				continue
 			}
-			if _, err := s.RecoveryTest(ctx, RecoveryTestRequest{Set: bs.ID, Scheduled: true}); err != nil && ctx.Err() == nil {
+			if _, err := s.RecoveryTest(ctx, RecoveryTestRequest{Set: bs.ID, Scheduled: true}); err != nil && ctx.Err() == nil && !errors.Is(err, state.ErrCopyChanged) {
 				s.logger().Error(ctx, "recovery-test-tick", err)
 			}
 		}
 	}
 }
 
-// staleStagingAge is how old a staging directory has to be before the sweep
-// treats it as abandoned. A test in progress touches its directory when it
-// creates it and holds it for as long as the validator's timeout, so a day
-// is far past anything live.
-const staleStagingAge = 24 * time.Hour
+// stagingTTL is how old a staging directory has to be before the sweep treats
+// it as abandoned: assurance.staging_ttl, which is how long a staged leftover
+// survives. A test in progress holds its directory for as long as the
+// validator's timeout, far inside the default day.
+func (s *Service) stagingTTL() time.Duration {
+	if s.Config != nil && s.Config.Assurance.StagingTTL > 0 {
+		return s.Config.Assurance.StagingTTL
+	}
+	return config.DefaultStagingTTL
+}
 
 func (s *Service) sweepRecoveryStaging(ctx context.Context, bs config.BackupSet) {
 	root := s.recoveryStagingRoot(bs)
@@ -303,7 +451,7 @@ func (s *Service) sweepRecoveryStaging(ctx context.Context, bs config.BackupSet)
 	if _, ok := s.Recoverer.(recoverytest.LocalRecoverer); s.Recoverer != nil && !ok {
 		return // somebody else's recoverer owns its own cleanup
 	}
-	if n, err := (recoverytest.LocalRecoverer{Root: root}).Sweep(ctx, staleStagingAge); err != nil {
+	if n, err := (recoverytest.LocalRecoverer{Root: root}).Sweep(ctx, s.stagingTTL()); err != nil {
 		s.logger().Error(ctx, "recovery-staging-sweep", err)
 	} else if n > 0 {
 		s.logger().Event(ctx, obs.LevelWarn, "recovery_staging_swept",
@@ -311,11 +459,16 @@ func (s *Service) sweepRecoveryStaging(ctx context.Context, bs config.BackupSet)
 	}
 }
 
-// recoveryStagingRoot is where a set's recovery tests stage: the configured
-// root when there is one, and otherwise a subdirectory of the set's own root.
+// recoveryStagingRoot is where a recovery test stages: the one staging root
+// the deployment configured (assurance.staging_root, which defaults beside the
+// state database), and, for a configuration that was built by hand and names
+// none, a subdirectory of the set's own root.
 func (s *Service) recoveryStagingRoot(bs config.BackupSet) string {
 	if s.RecoveryStagingRoot != "" {
 		return s.RecoveryStagingRoot
+	}
+	if s.Config != nil && s.Config.Assurance.StagingRoot != "" {
+		return s.Config.Assurance.StagingRoot
 	}
 	if bs.LocalPath != "" {
 		return filepath.Join(bs.LocalPath, ".retnd-recovery-test")

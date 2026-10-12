@@ -458,10 +458,10 @@ def body(root: Path, dry_run: bool) -> int:
         d = mutant("phase1-revalidation-claims-content-verification")
         tracker.swap(
             d / "core/internal/revalidate/checks.go",
-            "\treturn true, anyPassed, automatic, detail, nil\n}",
+            "\treturn checkResult{checked: true, passed: anyPassed, class: want, reason: detail, copies: copies}, nil",
             "\t// PLANTED VIOLATION (scripts/conformance/selftest.sh): a HEAD,\n"
             "\t// reported as content verification.\n"
-            "\treturn true, anyPassed, placement.Content, detail, nil\n}",
+            "\treturn checkResult{checked: true, passed: anyPassed, class: placement.Content, reason: detail, copies: copies}, nil",
         )
         expect_unit_check_fails(
             tracker,

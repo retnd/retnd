@@ -7,12 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strconv"
 	"strings"
 
 	"github.com/retnd/retnd/core/internal/archive"
 	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/fsopen"
 	"github.com/retnd/retnd/core/internal/lifecycle"
 	"github.com/retnd/retnd/core/internal/placement"
 	"github.com/retnd/retnd/core/internal/state"
@@ -162,6 +162,10 @@ type copyOutcome struct {
 	// money nobody agreed to. A refusal is not a fact about the copy, so it
 	// is reported and not recorded.
 	refused bool
+	// rewritten is set when the verdict was refused because the copy no
+	// longer holds the bytes that were read (state.ErrCopyChanged). A failure
+	// about bytes that are gone is not a failure of the copy that is there.
+	rewritten bool
 }
 
 func int64p(n int64) *int64 { return &n }
@@ -579,8 +583,12 @@ func checkLocalCopy(ctx context.Context, deps Deps, cfg config.Revalidation, rec
 // package boundary for ten lines, and this package follows that same,
 // already-established convention rather than introduce a new shared
 // dependency for it.
+//
+// It opens through fsopen.OpenRegular, not os.Open: a FIFO placed at the
+// copy's path would otherwise block this call for ever, holding the copy's
+// lease and a read slot with it, in a way no context can interrupt.
 func recomputeLocalHash(ctx context.Context, path string) (sum string, n int64, err error) {
-	f, err := os.Open(path)
+	f, err := fsopen.OpenRegular(path)
 	if err != nil {
 		return "", 0, err
 	}

@@ -431,6 +431,27 @@ func (a *Adapter) UploadFromLocal(ctx context.Context, medium transport.Medium, 
 // all.
 func (a *Adapter) OpenObject(ctx context.Context, medium transport.Medium, key string) (io.ReadCloser, error) {
 	ctx = mediumContext(ctx)
+	return a.openObject(ctx, medium, key, 0)
+}
+
+// OpenObjectRange is OpenObject starting at off (transport.RangeOpener). The
+// provider is asked for the bytes from off on, so a resumed read is billed
+// for what it still needs and not for what the client already has.
+func (a *Adapter) OpenObjectRange(ctx context.Context, medium transport.Medium, key string, off int64) (io.ReadCloser, error) {
+	if off < 0 {
+		return nil, transport.NewError(transport.Permanent, "open_object", fmt.Errorf("negative offset %d", off))
+	}
+	ctx = mediumContext(ctx)
+	return a.openObject(ctx, medium, key, off)
+}
+
+var _ transport.RangeOpener = (*Adapter)(nil)
+
+// openObject is OpenObject and OpenObjectRange's shared body. Both bound
+// rclone's low-level retries (mediumContext) BEFORE they get here, because the
+// retry-bound scan holds each exported operation to that, and the Fs is built
+// below with the already-bounded context.
+func (a *Adapter) openObject(ctx context.Context, medium transport.Medium, key string, off int64) (io.ReadCloser, error) {
 	f, err := a.mediumFs(ctx, medium)
 	if err != nil {
 		return nil, err
@@ -444,7 +465,11 @@ func (a *Adapter) OpenObject(ctx context.Context, medium transport.Medium, key s
 		shutdownFs(ctx, f)
 		return nil, wrapped
 	}
-	rc, err := o.Open(ctx)
+	var opts []fs.OpenOption
+	if off > 0 {
+		opts = append(opts, &fs.RangeOption{Start: off, End: -1})
+	}
+	rc, err := o.Open(ctx, opts...)
 	if err != nil {
 		shutdownFs(ctx, f)
 		return nil, WrapCtx(ctx, "open_object", err)
