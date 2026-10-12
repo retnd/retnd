@@ -172,12 +172,8 @@ Pressing **Run recovery test** while one is already running for that set does no
 second: the press joins the one in progress, the validator runs once, and each press still
 gets its own receipt.
 
-The terminal equivalents are `retnd scrub <source>/<set>`, `retnd recovery-test
-<source>/<set>`, `retnd recovery-test <source>/<set> --show-output` and `retnd assurance
-cancel <operation-id>`. For a recovery or a test run from a terminal, `--follow` prints the
-stages (resolving copy, reading, verifying, writing target, cleaning temporary files,
-complete) on standard error, so `retnd recover <artifact> --to - --follow` still sends
-nothing but the file's bytes down the pipe.
+Everything above has a command-line equivalent, and `docs/recovery.md` lists them. This page
+stays in the browser on purpose.
 
 ### While it is unresolved
 
