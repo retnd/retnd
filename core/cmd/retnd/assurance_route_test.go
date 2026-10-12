@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/retnd/retnd/core/internal/state"
 	"github.com/retnd/retnd/core/service"
 )
 
@@ -23,6 +24,13 @@ func seedAssuredCopy(t *testing.T, configPath string) {
 	t.Helper()
 	if code := run([]string{"run", "--config", configPath}); code != 0 {
 		t.Fatalf("seeding a verified copy: run exited %d", code)
+	}
+	// A cycle only verifies the transfer; since #1059 a copy counts as
+	// assured once a scrub has read it back, and one that was never scrubbed
+	// is due now with basis "never". A schedule that moves with the cadence
+	// needs a last-assured time to move from, so scrub it once.
+	if code := run([]string{"scrub", "--config", configPath}); code != 0 {
+		t.Fatalf("seeding a verified copy: scrub exited %d", code)
 	}
 }
 
@@ -91,8 +99,13 @@ func TestSettingsAssurancePatchReachesTheAttachedEngineAndMovesNextDue(t *testin
 	if after.Cadence != 12*time.Hour {
 		t.Errorf("the engine schedules this copy on %s, want 12h", after.Cadence)
 	}
-	if want := after.LastAssuredAt.Add(12 * time.Hour); !after.NextDueAt.Equal(want) {
-		t.Errorf("next due is %s, want last assured + 12h = %s", after.NextDueAt, want)
+	// Next due is one cadence after the last assured time plus the scrub's own
+	// jitter (state.ScrubJitterFraction of the cadence), so it is a window
+	// and not a point.
+	lo := after.LastAssuredAt.Add(12 * time.Hour)
+	hi := lo.Add(time.Duration(state.ScrubJitterFraction * float64(12*time.Hour)))
+	if after.NextDueAt.Before(lo) || after.NextDueAt.After(hi) {
+		t.Errorf("next due is %s, want last assured + 12h plus jitter = [%s, %s]", after.NextDueAt, lo, hi)
 	}
 	if after.NextDueAt.Equal(before.NextDueAt) {
 		t.Errorf("the engine's next-due did not move (still %s)", before.NextDueAt)
