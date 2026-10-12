@@ -101,7 +101,37 @@ type startRecoveryTestRequest struct {
 
 type recoveryTestStartedResponse struct {
 	BackupSetID string `json:"backup_set_id"`
+	Coalesced   bool   `json:"coalesced"`
 	OperationID string `json:"operation_id"`
+}
+
+type scrubStartedResponse struct {
+	BackupSetID string `json:"backup_set_id"`
+	OperationID string `json:"operation_id"`
+}
+
+type assuranceOperationCancelledResponse struct {
+	BackupSetID string `json:"backup_set_id"`
+	Kind        string `json:"kind"`
+	OperationID string `json:"operation_id"`
+	Status      string `json:"status"`
+}
+
+type recoveryTestOutputRecordBody struct {
+	Kind string `json:"kind"`
+	Text string `json:"text"`
+}
+
+type recoveryTestOutputResponse struct {
+	ArtifactID  string                         `json:"artifact_id,omitempty"`
+	BackupSetID string                         `json:"backup_set_id"`
+	Medium      string                         `json:"medium,omitempty"`
+	OperationID string                         `json:"operation_id,omitempty"`
+	Recorded    bool                           `json:"recorded"`
+	RecordedAt  string                         `json:"recorded_at,omitempty"`
+	Records     []recoveryTestOutputRecordBody `json:"records"`
+	State       string                         `json:"state,omitempty"`
+	Truncated   bool                           `json:"truncated"`
 }
 
 type assuranceDueItemBody struct {
@@ -260,7 +290,7 @@ func (h *handlers) startRecoveryTest(w http.ResponseWriter, r *http.Request) {
 		h.writeAssuranceError(w, r, err, "failed to start the recovery test")
 		return
 	}
-	writeJSON(w, http.StatusAccepted, recoveryTestStartedResponse{BackupSetID: started.BackupSetID, OperationID: started.OperationID})
+	writeJSON(w, http.StatusAccepted, recoveryTestStartedResponse{BackupSetID: started.BackupSetID, OperationID: started.OperationID, Coalesced: started.Coalesced})
 }
 
 func (h *handlers) writeAssuranceError(w http.ResponseWriter, r *http.Request, err error, internal string) {
