@@ -370,6 +370,12 @@ bash scripts/tests/e2e-help.test.sh
 gate_step "a tests pin must be on retnd-tests main (#1074)"
 bash scripts/tests/pin-on-main.test.sh
 
+# The first-run specs skip on the seeded rig and a skip looks like a pass, so
+# the gate runs them against a fresh rig and refuses a skip (retnd#1049).
+# This pins the judging and that the gate calls it; no Docker, about a second.
+gate_step "a skipped first-run spec fails the gate (#1049)"
+bash scripts/tests/first-run-report.test.sh
+
 # Every Python file under scripts/, held to a linter, and the subset that is
 # clean under a type checker held to that too (EPIC I / I1.6, #672).
 #

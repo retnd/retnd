@@ -144,7 +144,7 @@ describe("the deployment-wide workflow card", () => {
     await loaded();
 
     expect(
-      onCard("This deployment has not been told how to reach the Host Workflow Runner").length
+      onCard("The Host Workflow Runner is not set up on this deployment").length
     ).toBe(1);
     expect(onCard(/a .local.sh hook has nothing to run on/).length).toBe(1);
     expect(onCard("Not configured").length).toBeGreaterThan(0);

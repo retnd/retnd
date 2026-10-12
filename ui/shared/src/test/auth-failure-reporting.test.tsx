@@ -62,6 +62,7 @@ async function enroll() {
   await userEvent.type(username, "bm-admin");
   await userEvent.type(password, "a-long-enough-passphrase");
   await userEvent.type(confirm, "a-long-enough-passphrase");
+  await userEvent.click(screen.getByRole("checkbox", { name: /set up email recovery now/i }));
   await userEvent.type(screen.getByLabelText("Recovery email"), "ops@example.com");
   await userEvent.type(screen.getByLabelText("SMTP host"), "smtp.example.net");
   await userEvent.type(screen.getByLabelText("From address"), "retnd@example.com");

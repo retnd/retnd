@@ -183,6 +183,23 @@ func (f *FirstRun) Configured() bool {
 	return !errors.Is(err, os.ErrNotExist)
 }
 
+// ConfigDirProblem reports, for the first-run guide, that this deployment
+// has no configuration and the directory its default would be written into
+// cannot be written (retnd#1049). It returns that directory and the
+// operator-facing sentence (ConfigDirUnwritableMessage), or two empty
+// strings when there is nothing to report: a configuration already exists,
+// or the directory is fine.
+func (f *FirstRun) ConfigDirProblem() (dir, message string) {
+	if f.Configured() {
+		return "", ""
+	}
+	if err := ConfigDirWritable(f.defaults.ConfigPath); err == nil {
+		return "", ""
+	}
+	dir = filepath.Dir(f.defaults.ConfigPath)
+	return dir, ConfigDirUnwritableMessage(dir)
+}
+
 // ImportSSHKey is BackupService.ImportSSHKey for an instance that has no
 // BackupService yet: the same validation (including #269's passphrase
 // check), the same 0600 file, in the same directory beside the config
@@ -290,6 +307,12 @@ func (f *FirstRun) CreateInitialConfig(ctx context.Context, req CreateBackupSetR
 
 	if f.Configured() {
 		return BackupSet{}, ErrAlreadyConfigured
+	}
+	// The wizard writes the first configuration there has ever been; over a
+	// journal that holds backups it would be the default-config overwrite
+	// again, through the other door (retnd#1049).
+	if err := CheckJournalIsFresh(ctx, f.defaults.StateDatabase); err != nil {
+		return BackupSet{}, err
 	}
 	if err := validateCreateRequest(req); err != nil {
 		return BackupSet{}, fmt.Errorf("%w: %v", ErrInvalidRequest, err)

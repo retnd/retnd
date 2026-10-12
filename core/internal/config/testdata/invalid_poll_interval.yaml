@@ -1,4 +1,5 @@
-poll_interval: 15m
+poll_interval: 5s
 
 state:
   database: /var/lib/retnd/state.db
+sources: []

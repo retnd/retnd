@@ -440,3 +440,33 @@ func (s *Service) PrintBootstrapNotice(w io.Writer, baseURL string) error {
 func (s *Service) OnSessionEnd(fn func(username string, expiresAt time.Time)) {
 	s.sessions.setOnEnd(fn)
 }
+
+// AdministratorCreated reports whether enrollment has happened, for the
+// first-run guide (retnd#1049). A store that cannot be read reports false:
+// the guide would rather offer a step that turns out to be done than hide
+// one that is not.
+func (s *Service) AdministratorCreated() bool {
+	admin, err := s.store.Admin()
+	return err == nil && admin != nil
+}
+
+// EmailConfigured reports whether a mail server has been set up for
+// account recovery, for the first-run guide (retnd#1049).
+func (s *Service) EmailConfigured() bool {
+	rec, err := s.store.SMTP()
+	return err == nil && rec != nil
+}
+
+// SetupSkips returns the guide steps that were skipped, durably.
+func (s *Service) SetupSkips() []string {
+	skips, err := s.store.SetupSkips()
+	if err != nil {
+		return nil
+	}
+	return skips
+}
+
+// SkipSetupStep records a skipped guide step so it survives a restart.
+func (s *Service) SkipSetupStep(step string) error {
+	return s.store.SkipSetupStep(step)
+}

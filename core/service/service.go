@@ -593,7 +593,14 @@ func OpenWithLog(ctx context.Context, configPath string, logTo io.Writer) (*Back
 		// this line is the only record of WHY it did: without it an
 		// operator diagnosing a container that will not come up has a
 		// non-zero exit code and nothing else.
-		logger.Error(ctx, "startup", err)
+		//
+		// An absent configuration is the exception (retnd#1049). It is a
+		// fresh install, not a failed start: the caller reads
+		// ErrConfigAbsent and chooses what to say, so an expected first
+		// run never reaches `docker logs` as an ERROR line.
+		if !errors.Is(err, ErrConfigAbsent) {
+			logger.Error(ctx, "startup", err)
+		}
 		return nil, nil, err
 	}
 
