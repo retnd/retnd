@@ -212,25 +212,17 @@ func TestScrubBusyRetryBounds(t *testing.T) {
 	}
 }
 
-// KNOWN GAP, pinned as it is today (not as it should be): the retry polls, so
-// it only catches a lock that is free at the instant of a poll. The cycle loop
-// frees the lock for as little as minPollWake (5s) between back-to-back cycles
-// when a set is overdue, and the retry period is 6s at the minimum one-minute
-// interval and 30s at the default fifteen. A cycle of 55s with its 5s gap
-// against the 6s retry is a period of 60s that the 6s polls never land in the
-// gap of, so the scrub waits for as long as the pattern lasts.
+// Regression for the starvation in #1068's retry: a polling retry only catches
+// the lock if it is free at the instant of a poll. The cycle loop frees the
+// lock for as little as minPollWake (5s) between back-to-back cycles when a set
+// is overdue, and the retry period was 6s at the minimum one-minute interval. A
+// cycle of 55s with its 5s gap against 6s polls is a period of 60s that the
+// polls never land in the gap of, so the scrub waited for as long as the
+// pattern lasted.
 //
-// The loop below is the deterministic version of that: the virtual clock
-// advances one retry per fire, the lock is free for the last 5s of every 60s,
-// and ten virtual days of polls never see it free. In a real process the
-// phase drifts, so the miss is probabilistic (roughly gap/retry chance per
-// cycle of catching it: 5 in 6 at a one-minute interval, 1 in 6 at the
-// default), but a configuration whose cycles always overrun its interval
-// waits several cycles for a pass that is due now.
-//
-// When the retry stops polling (waits for the lock to free, say), this test
-// goes red on purpose: invert the assertion then.
-func TestKnownGapAPollingScrubRetryCanMissEveryBriefGapBetweenBackToBackCycles(t *testing.T) {
+// Virtual clock: one retry per fire, the lock free for the last 5s of every
+// 60s, ten virtual days of polls. The scrub has to run in one of those gaps.
+func TestAScrubTickRunsInTheBriefGapBetweenBackToBackCycles(t *testing.T) {
 	f, probe := newSlowCycleFixture(t)
 	clock := installRetryClock(t)
 	const interval = time.Minute
@@ -262,23 +254,29 @@ func TestKnownGapAPollingScrubRetryCanMissEveryBriefGapBetweenBackToBackCycles(t
 	}()
 
 	const polls = 10 * 24 * 60 * 10 // ten virtual days of 6s polls
-	for i := 0; i < polls; i++ {
-		if got := clock.next(t); got != retry {
-			t.Fatalf("retry waited %v, want %v", got, retry)
-		}
+	ran := false
+	armed := clock.armed
+	<-armed // the first wait
+	for i := 0; i < polls && !ran; i++ {
 		now += retry
 		setHeld(lockedAt(now))
+		clock.elapse()
+		// Either the tick found the lock free and ran, or it asked to wait again.
 		select {
 		case <-done:
-			t.Fatalf("the pass ran at virtual t=%v, so the gap was caught: the known gap is closed, invert this test", now)
-		default:
+			ran = true
+		case <-armed:
+		case <-time.After(10 * time.Second):
+			t.Fatal("the tick neither ran nor waited again")
 		}
-		clock.elapse()
 	}
-	// Free the lock for good and let the tick finish, so nothing leaks. The
-	// tick has to be waiting again first, or it could still be mid-attempt.
-	clock.next(t)
-	setHeld(false)
-	clock.elapse()
-	<-done
+	if !ran {
+		t.Errorf("ten virtual days of back-to-back cycles (55s held, 5s free) and the scrub never ran: the retry only polls, and every poll landed while the lock was held")
+		setHeld(false)
+		clock.elapse()
+		<-done
+	}
+	if starts := probe.startsSeen(); ran && (len(starts) != 1 || starts[0]) {
+		t.Errorf("the pass ran %d times, starts-under-lock=%v: want once, never under the lock", len(starts), starts)
+	}
 }
