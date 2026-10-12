@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "f8cc9c340ef96db68d0ba4cc31405c45a542d5a736c2ba763373a5db61dca57d"
+const ContractSHA256 = "27e60ba1d9b6b86a4dcc8762d5ef1e585f4265d68def0383660b62c587fc8497"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -337,6 +337,18 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "listAssuranceDue", Method: "GET", Path: "/assurance/due",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AssuranceDueResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
 		ID: "enrollAdministrator", Method: "POST", Path: "/auth/enroll",
 		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "EnrollRequest", ResponseSchema: "", SuccessStatus: 204,
@@ -545,6 +557,42 @@ var Endpoints = []Endpoint{
 			404: {ErrorCodeBackupSetNotFound},
 			409: {ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable},
 			500: {ErrorCodeInternal},
+		},
+	},
+	{
+		ID: "resetBackupSetAssurance", Method: "DELETE", Path: "/backup-sets/{source}/{set}/assurance",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "BackupSetAssurance", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "getBackupSetAssurance", Method: "GET", Path: "/backup-sets/{source}/{set}/assurance",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "BackupSetAssurance", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "updateBackupSetAssurance", Method: "PATCH", Path: "/backup-sets/{source}/{set}/assurance",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "UpdateBackupSetAssuranceRequest", ResponseSchema: "BackupSetAssurance", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
 		},
 	},
 	{
@@ -973,6 +1021,28 @@ var Endpoints = []Endpoint{
 		RequestSchema: "UpdateSettingsRequest", ResponseSchema: "SettingsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeMediumDisclosureRequired},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "getAssuranceSettings", Method: "GET", Path: "/settings/assurance",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AssuranceSettingsResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "updateAssuranceSettings", Method: "PATCH", Path: "/settings/assurance",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "UpdateAssuranceSettingsRequest", ResponseSchema: "AssuranceSettingsResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
 			401: {ErrorCodeUnauthenticated},
 			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
 			500: {ErrorCodeInternal},
@@ -1474,6 +1544,65 @@ type ArtifactReinstateResponse struct {
 	State      string `json:"state,omitempty"`
 }
 
+// AssuranceDueItem is one copy's place in the scrub schedule.
+type AssuranceDueItem struct {
+	ArtifactID     string `json:"artifact_id"`
+	ArtifactName   string `json:"artifact_name"`
+	BackupSetID    string `json:"backup_set_id"`
+	Basis          string `json:"basis"`
+	CadenceSeconds int64  `json:"cadence_seconds"`
+	Due            bool   `json:"due"`
+	LastAssuredAt  string `json:"last_assured_at,omitempty"`
+	NextDueAt      string `json:"next_due_at"`
+	Overdue        bool   `json:"overdue"`
+}
+
+// AssuranceDueResponse is the scrub schedule, most overdue first, computed from each set's
+// resolved policy.
+type AssuranceDueResponse struct {
+	GeneratedAt string             `json:"generated_at"`
+	Items       []AssuranceDueItem `json:"items"`
+}
+
+// AssuranceHostKnob is A setting that is global only, with the reason a backup set cannot
+// override it. The per-set answer is written down for every
+// host-scoped knob so nobody looks for a per-set switch that could
+// not work.
+type AssuranceHostKnob struct {
+	Name   string `json:"name"`
+	PerSet bool   `json:"per_set"`
+	Reason string `json:"reason"`
+	Value  string `json:"value"`
+}
+
+// AssuranceRecoveryTestPolicy is A resolved recovery-test policy.
+type AssuranceRecoveryTestPolicy struct {
+	CadenceSeconds int64  `json:"cadence_seconds"`
+	Mode           string `json:"mode"`
+	ValidatorID    string `json:"validator_id"`
+}
+
+// AssuranceScrubPolicy is A resolved scrub policy: how often a copy is re-read and how much
+// of it is read.
+type AssuranceScrubPolicy struct {
+	CadenceSeconds int64  `json:"cadence_seconds"`
+	Strategy       string `json:"strategy"`
+}
+
+// AssuranceSettingsResponse is the deployment-wide assurance policy, RESOLVED. A config that
+// never mentions assurance reports the defaults here, which is the
+// point: the default is good enough that nobody has to set it.
+type AssuranceSettingsResponse struct {
+	Configured             bool                        `json:"configured"`
+	HostKnobs              []AssuranceHostKnob         `json:"host_knobs"`
+	MaxConcurrentFullReads int64                       `json:"max_concurrent_full_reads"`
+	MaxPerDestination      int64                       `json:"max_per_destination"`
+	RecoveryTest           AssuranceRecoveryTestPolicy `json:"recovery_test"`
+	Scrub                  AssuranceScrubPolicy        `json:"scrub"`
+	StagingRoot            string                      `json:"staging_root"`
+	StagingTtlSeconds      int64                       `json:"staging_ttl_seconds"`
+}
+
 // AuthErrorResponse is the FLAT error body the /auth operations return, with the
 // correlation id in the body as well as the header. Deliberately
 // recorded as a second shape rather than pretended away:
@@ -1579,6 +1708,16 @@ type BackupSet struct {
 	VerificationLevel                    string           `json:"verification_level,omitempty"`
 	VerificationRestoreDrillEverySeconds int64            `json:"verification_restore_drill_every_seconds,omitempty"`
 	VerificationSamplePercent            int              `json:"verification_sample_percent,omitempty"`
+}
+
+// BackupSetAssurance is one backup set's resolved assurance policy and whether it is the
+// set's own. Served together because 'what is deciding' and 'is that
+// this set's own or the deployment's' are one question.
+type BackupSetAssurance struct {
+	BackupSetID  string                      `json:"backup_set_id"`
+	IsOverride   bool                        `json:"is_override"`
+	RecoveryTest AssuranceRecoveryTestPolicy `json:"recovery_test"`
+	Scrub        AssuranceScrubPolicy        `json:"scrub"`
 }
 
 // BackupSetEditHold is POST /backup-sets/{source}/{set}/edit-hold. The lease just taken
@@ -3195,6 +3334,34 @@ type UnregisteredBackend struct {
 	Transport string `json:"transport"`
 }
 
+// UpdateAssuranceSettingsRequest is PATCH the deployment-wide assurance block. Every field is nullable
+// because this is a PATCH: omitted leaves the setting alone, and a
+// zero or empty value clears it back to its default. A body that
+// names nothing is refused.
+type UpdateAssuranceSettingsRequest struct {
+	MaxConcurrentFullReads     *int64  `json:"max_concurrent_full_reads"`
+	MaxPerDestination          *int64  `json:"max_per_destination"`
+	RecoveryTestCadenceSeconds *int64  `json:"recovery_test_cadence_seconds"`
+	RecoveryTestMode           *string `json:"recovery_test_mode"`
+	RecoveryTestValidatorID    *string `json:"recovery_test_validator_id"`
+	ScrubCadenceSeconds        *int64  `json:"scrub_cadence_seconds"`
+	ScrubStrategy              *string `json:"scrub_strategy"`
+	StagingRoot                *string `json:"staging_root"`
+	StagingTtlSeconds          *int64  `json:"staging_ttl_seconds"`
+}
+
+// UpdateBackupSetAssuranceRequest is PATCH one backup set's own assurance block. Omitted leaves a field
+// alone and a zero or empty value clears it, so the set inherits it
+// again. Clearing every field is the same as a reset. A body that
+// names nothing is refused.
+type UpdateBackupSetAssuranceRequest struct {
+	RecoveryTestCadenceSeconds *int64  `json:"recovery_test_cadence_seconds"`
+	RecoveryTestMode           *string `json:"recovery_test_mode"`
+	RecoveryTestValidatorID    *string `json:"recovery_test_validator_id"`
+	ScrubCadenceSeconds        *int64  `json:"scrub_cadence_seconds"`
+	ScrubStrategy              *string `json:"scrub_strategy"`
+}
+
 // UpdateBackupSetRequest is PATCH /backup-sets/{source}/{set}. A SPARSE edit of one
 // already-persisted backup set (issue #350): every property is
 // optional, and a property this body omits is left exactly as it is
@@ -3685,6 +3852,12 @@ var SchemaTypes = map[string]any{
 	"Artifact":                           Artifact{},
 	"ArtifactCheckResponse":              ArtifactCheckResponse{},
 	"ArtifactReinstateResponse":          ArtifactReinstateResponse{},
+	"AssuranceDueItem":                   AssuranceDueItem{},
+	"AssuranceDueResponse":               AssuranceDueResponse{},
+	"AssuranceHostKnob":                  AssuranceHostKnob{},
+	"AssuranceRecoveryTestPolicy":        AssuranceRecoveryTestPolicy{},
+	"AssuranceScrubPolicy":               AssuranceScrubPolicy{},
+	"AssuranceSettingsResponse":          AssuranceSettingsResponse{},
 	"AuthErrorResponse":                  AuthErrorResponse{},
 	"BackendEnumValue":                   BackendEnumValue{},
 	"BackendManifest":                    BackendManifest{},
@@ -3692,6 +3865,7 @@ var SchemaTypes = map[string]any{
 	"BackendProbe":                       BackendProbe{},
 	"BackendProbeStep":                   BackendProbeStep{},
 	"BackupSet":                          BackupSet{},
+	"BackupSetAssurance":                 BackupSetAssurance{},
 	"BackupSetEditHold":                  BackupSetEditHold{},
 	"BackupSetEditHoldState":             BackupSetEditHoldState{},
 	"BackupSetHealth":                    BackupSetHealth{},
@@ -3809,6 +3983,8 @@ var SchemaTypes = map[string]any{
 	"TestConnectionResponse":             TestConnectionResponse{},
 	"TrustedHostKey":                     TrustedHostKey{},
 	"UnregisteredBackend":                UnregisteredBackend{},
+	"UpdateAssuranceSettingsRequest":     UpdateAssuranceSettingsRequest{},
+	"UpdateBackupSetAssuranceRequest":    UpdateBackupSetAssuranceRequest{},
 	"UpdateBackupSetRequest":             UpdateBackupSetRequest{},
 	"UpdateBackupSetWorkflowRequest":     UpdateBackupSetWorkflowRequest{},
 	"UpdateCapacitySettings":             UpdateCapacitySettings{},

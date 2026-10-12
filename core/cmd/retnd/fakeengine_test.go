@@ -275,6 +275,15 @@ func (e *fakeEngine) api(w http.ResponseWriter, r *http.Request, path, token str
 	}
 
 	switch {
+	// The assurance policy (EPIC Q, #982), ahead of the generic
+	// /backup-sets/ cases below because a set's assurance path ends in
+	// /assurance and would otherwise be read as a set edit.
+	case path == "/settings/assurance" && r.Method == http.MethodGet:
+		e.getAssuranceSettings(w, r)
+	case path == "/settings/assurance" && r.Method == http.MethodPatch:
+		e.updateAssuranceSettings(w, r)
+	case strings.HasPrefix(path, "/backup-sets/") && strings.HasSuffix(path, "/assurance"):
+		e.backupSetAssurance(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/backup-sets/"), "/assurance"))
 	case r.Method == http.MethodGet && path == "/system/version":
 		e.systemVersion(w, r)
 	case r.Method == http.MethodPost && path == "/ssh-keys":
@@ -1095,4 +1104,97 @@ func (e *fakeEngine) workflowStepLogs(w http.ResponseWriter, r *http.Request, re
 		})
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// secondsPtr and durationPtr mirror webhost's whole-seconds conversion for
+// the assurance bodies: nil stays nil, and a number is a count of seconds.
+func durationFromSeconds(v *int64) *time.Duration {
+	if v == nil {
+		return nil
+	}
+	d := time.Duration(*v) * time.Second
+	return &d
+}
+
+func intFromInt64(v *int64) *int {
+	if v == nil {
+		return nil
+	}
+	n := int(*v)
+	return &n
+}
+
+func (e *fakeEngine) getAssuranceSettings(w http.ResponseWriter, r *http.Request) {
+	s, err := e.svc.AssuranceSettings(r.Context())
+	if err != nil {
+		refuseServiceError(w, "getAssuranceSettings", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, assuranceSettingsWire(s))
+}
+
+func (e *fakeEngine) updateAssuranceSettings(w http.ResponseWriter, r *http.Request) {
+	var body apicontract.UpdateAssuranceSettingsRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		refuse(w, http.StatusBadRequest, apicontract.ErrorCodeInvalidRequest, err.Error())
+		return
+	}
+	if body == (apicontract.UpdateAssuranceSettingsRequest{}) {
+		refuse(w, http.StatusBadRequest, apicontract.ErrorCodeInvalidRequest, "an assurance settings write must name at least one setting to change")
+		return
+	}
+	s, err := e.svc.UpdateAssuranceSettings(r.Context(), service.UpdateAssuranceSettingsRequest{
+		ScrubCadence:            durationFromSeconds(body.ScrubCadenceSeconds),
+		ScrubStrategy:           body.ScrubStrategy,
+		RecoveryTestMode:        body.RecoveryTestMode,
+		RecoveryTestCadence:     durationFromSeconds(body.RecoveryTestCadenceSeconds),
+		RecoveryTestValidatorID: body.RecoveryTestValidatorID,
+		StagingRoot:             body.StagingRoot,
+		StagingTTL:              durationFromSeconds(body.StagingTtlSeconds),
+		MaxConcurrentFullReads:  intFromInt64(body.MaxConcurrentFullReads),
+		MaxPerDestination:       intFromInt64(body.MaxPerDestination),
+	})
+	if err != nil {
+		refuseServiceError(w, "updateAssuranceSettings", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, assuranceSettingsWire(s))
+}
+
+func (e *fakeEngine) backupSetAssurance(w http.ResponseWriter, r *http.Request, id string) {
+	var (
+		got service.BackupSetAssurance
+		err error
+	)
+	switch r.Method {
+	case http.MethodGet:
+		got, err = e.svc.BackupSetAssurance(r.Context(), id)
+	case http.MethodDelete:
+		got, err = e.svc.ResetBackupSetAssurance(r.Context(), id)
+	case http.MethodPatch:
+		var body apicontract.UpdateBackupSetAssuranceRequest
+		if derr := json.NewDecoder(r.Body).Decode(&body); derr != nil {
+			refuse(w, http.StatusBadRequest, apicontract.ErrorCodeInvalidRequest, derr.Error())
+			return
+		}
+		if body == (apicontract.UpdateBackupSetAssuranceRequest{}) {
+			refuse(w, http.StatusBadRequest, apicontract.ErrorCodeInvalidRequest, "an assurance write must name at least one setting to change")
+			return
+		}
+		got, err = e.svc.UpdateBackupSetAssurance(r.Context(), id, service.UpdateBackupSetAssuranceRequest{
+			ScrubCadence:            durationFromSeconds(body.ScrubCadenceSeconds),
+			ScrubStrategy:           body.ScrubStrategy,
+			RecoveryTestMode:        body.RecoveryTestMode,
+			RecoveryTestCadence:     durationFromSeconds(body.RecoveryTestCadenceSeconds),
+			RecoveryTestValidatorID: body.RecoveryTestValidatorID,
+		})
+	default:
+		refuse(w, http.StatusMethodNotAllowed, apicontract.ErrorCodeInternal, "this fake engine serves no "+r.Method+" on a set's assurance")
+		return
+	}
+	if err != nil {
+		refuseServiceError(w, "backupSetAssurance", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, backupSetAssuranceWire(got))
 }

@@ -335,6 +335,20 @@ type repositoryRoute interface {
 	CreateRepositoryDomain(ctx context.Context, req service.CreateRepositoryDomainRequest) (service.RepositoryHealth, error)
 }
 
+// assuranceRoute is the assurance policy's half of the same seam (EPIC Q,
+// #982), for settingsRoute's reason restated for a fourth noun in
+// config.yaml: `settings assurance patch` and `backup-set assurance` write
+// the file, so beside a serving engine a write left there is one that
+// process never reads. The engine's PATCH route validates, writes and
+// hot-reloads in one step, so its next-due moves with the answer.
+//
+// *service.BackupService satisfies it as it already stands.
+type assuranceRoute interface {
+	UpdateAssuranceSettings(ctx context.Context, req service.UpdateAssuranceSettingsRequest) (service.AssuranceSettings, error)
+	UpdateBackupSetAssurance(ctx context.Context, id string, req service.UpdateBackupSetAssuranceRequest) (service.BackupSetAssurance, error)
+	ResetBackupSetAssurance(ctx context.Context, id string) (service.BackupSetAssurance, error)
+}
+
 // configWriteRoute is where a routed configuration write goes: every half
 // together, because they are reached through one door and one claim.
 //
@@ -349,6 +363,7 @@ type configWriteRoute interface {
 	settingsRoute
 	mediumRoute
 	repositoryRoute
+	assuranceRoute
 }
 
 // attachToEngine builds this invocation's route to the serving process,

@@ -492,6 +492,16 @@ type BackupServiceClient interface {
 	WorkflowSettings(ctx context.Context) (service.WorkflowSettings, error)
 	UpdateWorkflowSettings(ctx context.Context, req service.UpdateWorkflowSettingsRequest) (service.WorkflowSettings, error)
 	BackupSetWorkflow(ctx context.Context, id string) (service.BackupSetWorkflow, error)
+
+	// EPIC Q's assurance configuration (Q1.4, #982): the deployment-wide
+	// policy, one set's resolved policy with its override patched or
+	// reset, and the scrub schedule computed from those resolved policies.
+	AssuranceSettings(ctx context.Context) (service.AssuranceSettings, error)
+	UpdateAssuranceSettings(ctx context.Context, req service.UpdateAssuranceSettingsRequest) (service.AssuranceSettings, error)
+	BackupSetAssurance(ctx context.Context, id string) (service.BackupSetAssurance, error)
+	UpdateBackupSetAssurance(ctx context.Context, id string, req service.UpdateBackupSetAssuranceRequest) (service.BackupSetAssurance, error)
+	ResetBackupSetAssurance(ctx context.Context, id string) (service.BackupSetAssurance, error)
+	AssuranceDue(ctx context.Context, filter service.AssuranceDueFilter) ([]service.AssuranceDueItem, error)
 	UpdateBackupSetWorkflow(ctx context.Context, id string, req service.UpdateBackupSetWorkflowRequest) (service.BackupSetWorkflow, error)
 
 	// The environment, at either scope: an empty id is the
