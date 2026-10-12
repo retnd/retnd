@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "f55c06980d237acd4af1e8a1d5b1cd295bffbc24579691af311d9031d848fafb"
+const ContractSHA256 = "0b6394421e19432bd5da2114307d12b93eb1d8517f79d136722e3f0001460f69"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -3239,15 +3239,19 @@ type ScrubResult struct {
 	SkippedHeld      int64            `json:"skipped_held"`
 	SkippedLeased    int64            `json:"skipped_leased"`
 	Trigger          string           `json:"trigger"`
+	UnknownObjects   int64            `json:"unknown_objects,omitempty"`
+	Unlisted         int64            `json:"unlisted,omitempty"`
 }
 
 // ScrubSetResult is one backup set's part of a scrub.
 type ScrubSetResult struct {
-	BackupSetID string               `json:"backup_set_id"`
-	Copies      []ScrubCopyOutcome   `json:"copies"`
-	Error       string               `json:"error,omitempty"`
-	Errors      []ScrubArtifactError `json:"errors"`
-	Skipped     []ScrubSkip          `json:"skipped"`
+	BackupSetID    string                `json:"backup_set_id"`
+	Copies         []ScrubCopyOutcome    `json:"copies"`
+	Error          string                `json:"error,omitempty"`
+	Errors         []ScrubArtifactError  `json:"errors"`
+	Skipped        []ScrubSkip           `json:"skipped"`
+	UnknownObjects []ScrubUnknownObject  `json:"unknown_objects,omitempty"`
+	Unlisted       []ScrubUnlistedMedium `json:"unlisted,omitempty"`
 }
 
 // ScrubSkip is work a scrub was asked to do and did not. A skip is always
@@ -3264,6 +3268,23 @@ type ScrubSkip struct {
 type ScrubStarted struct {
 	BackupSetID string `json:"backup_set_id"`
 	OperationID string `json:"operation_id"`
+}
+
+// ScrubUnknownObject is an object a storage medium holds under a backup set's namespace at
+// a key the journal has no placement for (QC-04). It is a finding
+// for an operator to look at: never a verified copy of anything, and
+// a scrub never reads, moves or deletes it.
+type ScrubUnknownObject struct {
+	Key    string `json:"key"`
+	Medium string `json:"medium"`
+	Size   int64  `json:"size"`
+}
+
+// ScrubUnlistedMedium is A storage medium the pass could not enumerate, so that no unknown
+// objects reported for it does not read as nothing being there.
+type ScrubUnlistedMedium struct {
+	Medium string `json:"medium"`
+	Reason string `json:"reason"`
 }
 
 // ServiceSchema is the rules the service-behaviour settings are validated against,
@@ -4345,6 +4366,8 @@ var SchemaTypes = map[string]any{
 	"ScrubSetResult":                     ScrubSetResult{},
 	"ScrubSkip":                          ScrubSkip{},
 	"ScrubStarted":                       ScrubStarted{},
+	"ScrubUnknownObject":                 ScrubUnknownObject{},
+	"ScrubUnlistedMedium":                ScrubUnlistedMedium{},
 	"ServiceSchema":                      ServiceSchema{},
 	"ServiceSettings":                    ServiceSettings{},
 	"SessionResponse":                    SessionResponse{},
