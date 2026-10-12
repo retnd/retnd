@@ -103,9 +103,10 @@ type BackupService struct {
 	// used, so a process that never recovers anything creates nothing.
 	recovery recoveryHost
 
-	// recoveryTests is the single-flight table for operator-started
-	// recovery tests (recoverytest.go).
-	recoveryTests recoveryTestRuns
+	// ops is the registry of running operator-started scrubs and recovery
+	// tests (assuranceoperations.go): the single-flight table for both, and
+	// what a cancel reaches them through.
+	ops assuranceOps
 
 	// testRecoverer stages the copy a recovery test reads. One for the life
 	// of the process, so its record of what it staged survives a hot reload.

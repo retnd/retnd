@@ -18,6 +18,7 @@ import (
 	"github.com/retnd/retnd/core/internal/lifecycle"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/recoverytest"
 	"github.com/retnd/retnd/core/internal/state"
 )
 
@@ -38,6 +39,9 @@ type stubStages struct {
 
 	// gate, when set, holds a validator run until it is closed.
 	gate chan struct{}
+
+	// output is what the validator printed.
+	output []byte
 }
 
 func (s *stubStages) RunStage(_ context.Context, req app.StageRequest) (app.StageResult, error) {
@@ -52,6 +56,7 @@ func (s *stubStages) RunStage(_ context.Context, req app.StageRequest) (app.Stag
 	}
 	res := app.StageResult{Configured: true, Scripts: []app.StageScript{{
 		Name: s.script, SHA256: strings.Repeat("ab", 32), Target: "local", State: "success", Disposition: "exited", ExitCode: &s.exit,
+		Output: s.output,
 	}}}
 	if req.DryRun {
 		res.Scripts[0].State = ""
@@ -517,8 +522,12 @@ func TestStartRecoveryTestRunsOneAtATimePerSet(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if _, err := f.b.StartRecoveryTest(context.Background(), "production/postgres", RecoveryTestOptions{}); !errors.Is(err, ErrRecoveryTestRunning) {
-		t.Errorf("a second start while one runs: err = %v, want ErrRecoveryTestRunning (already running)", err)
+	// An identical request joins the running test (see
+	// TestTwoConcurrentRecoveryTestRequests...). One that asks for something
+	// else is still refused: it would be a second read, of a copy that may be
+	// billed.
+	if _, err := f.b.StartRecoveryTest(context.Background(), "production/postgres", RecoveryTestOptions{AcknowledgeCost: true}); !errors.Is(err, ErrRecoveryTestRunning) {
+		t.Errorf("a different start while one runs: err = %v, want ErrRecoveryTestRunning (already running)", err)
 	}
 	close(gate)
 	f.b.wg.Wait() // the background test is tracked like every other goroutine the service starts
@@ -558,5 +567,62 @@ func TestStartRecoveryTestRefusesWhatCouldNotBeTested(t *testing.T) {
 		if _, err := f.b.StartRecoveryTest(context.Background(), tc.set, tc.opts); !errors.Is(err, tc.want) {
 			t.Errorf("%s: err = %v, want %v", name, err, tc.want)
 		}
+	}
+}
+
+// The daemon runs the data plane that service.Open builds (BackupDataPlane),
+// not the BackupService wrapper a route calls. A recovery test on a medium
+// copy has to work on that object too, or the scheduled test in `retnd
+// daemon` answers ErrUnsupportedCopy for every set whose copy is not local.
+func TestTheDataPlaneTheDaemonRunsRecoversAMediumCopy(t *testing.T) {
+	ctx := context.Background()
+	f := newRecoveryFixture(t, fixtureOpts{cfg: requireRecoveryTest})
+	withStages(f, &stubStages{script: "pg-check.local.sh"})
+	a := seedComplete(t, f, "away.dump", "warm")
+
+	plane := f.b.BackupDataPlane()
+	if plane == nil {
+		t.Fatal("no data plane")
+	}
+	res, err := plane.RecoveryTest(ctx, app.RecoveryTestRequest{Set: setID(t), Artifact: &a, AcknowledgeCost: true})
+	if errors.Is(err, recoverytest.ErrUnsupportedCopy) {
+		t.Fatalf("the daemon's data plane cannot recover a medium copy: %v", err)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Result.State != state.RecoveryPassed {
+		t.Fatalf("state = %q (%s), want a pass", res.Result.State, res.Result.Reason)
+	}
+}
+
+// A scrub pass lands on the activity feed, however it was asked for. The
+// brief for W-09 named service.EmitScrubPass and a scrub_start / scrub_end
+// pair; neither exists in the merged tree. The driver emits one scrub_pass
+// row when a pass finishes (app.finishScrub), the scheduler and the CLI both
+// reach it through app.Service.Scrub, and this pins both doors.
+func TestAScheduledAndAManualScrubPassEachLandOneScrubPassRowOnTheFeed(t *testing.T) {
+	ctx := context.Background()
+	f := newRecoveryFixture(t, fixtureOpts{})
+	if err := f.b.state.Load().inner.Config.ResolveAssurance(); err != nil {
+		t.Fatal(err)
+	}
+	seedComplete(t, f, "scrubbed.dump", state.MediumLocal)
+
+	f.b.tickScrub(ctx)
+	if got := len(f.eventsNamed(t, obs.EventScrubPass)); got != 1 {
+		t.Fatalf("a scheduled pass left %d scrub_pass rows, want 1", got)
+	}
+
+	set := setID(t)
+	if _, err := f.b.state.Load().inner.Scrub(ctx, app.ScrubRequest{Trigger: state.ScrubByManual, Set: &set}); err != nil {
+		t.Fatal(err)
+	}
+	rows := f.eventsNamed(t, obs.EventScrubPass)
+	if len(rows) != 2 {
+		t.Fatalf("after a manual pass there are %d scrub_pass rows, want 2", len(rows))
+	}
+	if rows[0]["trigger"] == rows[1]["trigger"] {
+		t.Errorf("the two rows do not say who asked: %v / %v", rows[0]["trigger"], rows[1]["trigger"])
 	}
 }

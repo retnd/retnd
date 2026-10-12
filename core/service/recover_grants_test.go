@@ -198,3 +198,23 @@ func TestEndingTheSessionRevokesItsGrantsAndStagedCopy(t *testing.T) {
 	f.b.EndRecoverySession(f.session())
 	requireGrantSpent(t, f, token, "after the session ended")
 }
+
+// A request that wrote nothing (a conditional GET answered 304) is not a
+// range served. Reported as "the whole file, no error" it covered the
+// artifact, so the grant was spent and the trail said the download had
+// verified when not one byte had left (#1072).
+func TestARequestThatSentNoBytesSpendsNothingAndVerifiesNothing(t *testing.T) {
+	smallChunks(t)
+	f := newRecoveryFixture(t, fixtureOpts{localCopy: true})
+	token, dl := redeemDownload(t, f)
+	size := dl.Length()
+	dl.Close()
+	dl.Served(0, size-1, 0, nil)
+
+	requireGrantStillGood(t, f, token, "after a request that sent no byte")
+	for _, r := range f.rows(t) {
+		if r["operation"] == "recovery verified" {
+			t.Fatalf("nothing was sent and the trail says the download verified: %v", r)
+		}
+	}
+}

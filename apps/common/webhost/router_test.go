@@ -446,6 +446,13 @@ var destructiveGateExemptRoutes = map[string]bool{
 	// claim on that copy. It deletes and overwrites nothing, so it sits in the
 	// tier the recovery mint does: CSRF, and no destructive gate.
 	"POST /api/v1/backup-sets/{source}/{set}/recovery-test": true,
+
+	// Scrub now reads a set's copies and writes a verdict on each, and
+	// deletes nothing. Cancel stops one of those reads, or a recovery test,
+	// and is not under /operations for exactly that reason: stopping a read
+	// has to work on a deployment whose destructive gate is shut.
+	"POST /api/v1/backup-sets/{source}/{set}/scrub": true,
+	"POST /api/v1/assurance/operations/{op}/cancel": true,
 }
 
 // TestEveryMutatingAPIRouteRefusesARequestWithNoCSRFPair walks the route

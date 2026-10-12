@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/retnd/retnd/core/internal/app"
@@ -37,6 +38,15 @@ type RecoveryTestOptions struct {
 	// download from a storage medium, or the restore of an archived object.
 	// A scheduled test never has it.
 	AcknowledgeCost bool
+
+	// OperationID, when set, is the id the test's start, stage and end lines
+	// carry on the activity feed, so a caller that wants to follow this one
+	// test can choose the id before it starts. Empty means a fresh one.
+	OperationID string
+
+	// Actor is who asked, for the receipt. Empty for a caller with no
+	// session (the scheduler never goes through StartRecoveryTest).
+	Actor string
 }
 
 // RecoveryTestOutcome is what a recovery test concluded, reduced to what a
@@ -68,6 +78,11 @@ type RecoveryTestOutcome struct {
 type RecoveryTestStarted struct {
 	BackupSetID string
 	OperationID string
+
+	// Coalesced is true when the request joined a test of the same set that
+	// was already running, so OperationID is that test's and nothing new
+	// started.
+	Coalesced bool
 }
 
 // RunRecoveryTest runs one recovery test now and waits for it. It is the same
@@ -75,7 +90,7 @@ type RecoveryTestStarted struct {
 // stop it (asking is the decision), and a read that costs money needs
 // AcknowledgeCost.
 func (b *BackupService) RunRecoveryTest(ctx context.Context, set model.BackupSetID, opts RecoveryTestOptions) (RecoveryTestOutcome, error) {
-	return b.runRecoveryTest(ctx, set, opts, "")
+	return b.runRecoveryTest(ctx, set, opts, opts.OperationID)
 }
 
 func (b *BackupService) runRecoveryTest(ctx context.Context, set model.BackupSetID, opts RecoveryTestOptions, opID string) (RecoveryTestOutcome, error) {
@@ -129,7 +144,7 @@ func recoveryTestArtifact(set model.BackupSetID, id string) (*model.ArtifactID, 
 // open, and a browser that navigates away must not cancel it, so the test runs
 // under the service's own lifetime and is followed on the activity feed by the
 // operation id this returns.
-func (b *BackupService) StartRecoveryTest(_ context.Context, id string, opts RecoveryTestOptions) (RecoveryTestStarted, error) {
+func (b *BackupService) StartRecoveryTest(ctx context.Context, id string, opts RecoveryTestOptions) (RecoveryTestStarted, error) {
 	set, err := model.ParseBackupSetID(id)
 	if err != nil {
 		return RecoveryTestStarted{}, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
@@ -157,42 +172,56 @@ func (b *BackupService) StartRecoveryTest(_ context.Context, id string, opts Rec
 		}
 	}
 
-	b.recoveryTests.mu.Lock()
-	if b.recoveryTests.running == nil {
-		b.recoveryTests.running = map[string]bool{}
+	receipt := state.RecoveryReceipt{
+		Set: set, RequestedAt: time.Now().UTC(), RequestedBy: opts.Actor,
+		ArtifactID: opts.ArtifactID, AcknowledgedCost: opts.AcknowledgeCost,
 	}
-	if b.recoveryTests.running[set.String()] {
-		b.recoveryTests.mu.Unlock()
-		return RecoveryTestStarted{}, ErrRecoveryTestRunning
-	}
-	b.recoveryTests.running[set.String()] = true
-	b.recoveryTests.mu.Unlock()
 
+	// One execution per set at a time. A request for exactly what is already
+	// running joins it: it answers with the running operation's id and gets a
+	// receipt of its own. A request for anything else is refused, because it
+	// would be a second read of a copy that may be billed.
+	b.ops.mu.Lock()
+	if cur := b.ops.running(opKindRecoveryTest, set.String()); cur != nil {
+		if cur.artifact != opts.ArtifactID || cur.ack != opts.AcknowledgeCost {
+			b.ops.mu.Unlock()
+			return RecoveryTestStarted{}, ErrRecoveryTestRunning
+		}
+		opID := cur.id
+		b.ops.mu.Unlock()
+		receipt.OperationID, receipt.Coalesced = opID, true
+		if err := b.journal.RecordRecoveryReceipt(context.WithoutCancel(ctx), receipt); err != nil {
+			return RecoveryTestStarted{}, fmt.Errorf("service: recording the receipt for a recovery test of %s: %w", id, err)
+		}
+		return RecoveryTestStarted{BackupSetID: set.String(), OperationID: opID, Coalesced: true}, nil
+	}
 	opID := uuid.NewString()
+	runCtx, cancel := context.WithCancel(b.ctx)
+	b.ops.add(&assuranceOp{
+		id: opID, kind: opKindRecoveryTest, set: set.String(), artifact: opts.ArtifactID, ack: opts.AcknowledgeCost, cancel: cancel,
+	})
+	b.ops.mu.Unlock()
+
+	receipt.OperationID = opID
+	if err := b.journal.RecordRecoveryReceipt(context.WithoutCancel(ctx), receipt); err != nil {
+		b.ops.finish(opID)
+		return RecoveryTestStarted{}, fmt.Errorf("service: recording the receipt for a recovery test of %s: %w", id, err)
+	}
+
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
-		defer func() {
-			b.recoveryTests.mu.Lock()
-			delete(b.recoveryTests.running, set.String())
-			b.recoveryTests.mu.Unlock()
-		}()
+		defer b.ops.finish(opID)
 		defer func() {
 			if r := recover(); r != nil {
 				b.logger.Error(context.Background(), "recovery-test-panic", fmt.Errorf("recovered panic: %v", r))
 			}
 		}()
-		if _, err := b.runRecoveryTest(b.ctx, set, opts, opID); err != nil && b.ctx.Err() == nil {
+		if _, err := b.runRecoveryTest(runCtx, set, opts, opID); err != nil && runCtx.Err() == nil {
 			b.logger.Error(context.Background(), "recovery-test", err)
 		}
 	}()
 	return RecoveryTestStarted{BackupSetID: set.String(), OperationID: opID}, nil
-}
-
-// recoveryTestRuns is the per-set single-flight table for StartRecoveryTest.
-type recoveryTestRuns struct {
-	mu      sync.Mutex
-	running map[string]bool
 }
 
 // engineRecoverer is recoverytest.Recoverer over the recovery engine

@@ -240,6 +240,16 @@ func (h *handlers) redeemRecovery(w http.ResponseWriter, r *http.Request) {
 	// back; a deadline left extended would outlive this download.
 	_ = cw.rc.SetWriteDeadline(time.Time{})
 
+	// A request that asks for no bytes (a conditional GET answered 304, or a
+	// HEAD should the route ever answer one) has no range to account for.
+	// Reported as "the whole file, nothing written" it either spends the
+	// grant as a failed download or, worse, as a complete and verified one.
+	// The stream's Close, deferred above, restarts the grant's idle clock and
+	// that is all it needs.
+	if noBodyAsked(r, cw) {
+		return
+	}
+
 	size := stream.Length()
 	start, end := int64(0), size-1
 	if cw.status == http.StatusPartialContent {
@@ -281,6 +291,16 @@ func (h *handlers) redeemRecovery(w http.ResponseWriter, r *http.Request) {
 	if serr != nil && cw.status >= 200 && cw.status < 300 && cw.written != end-start+1 {
 		panic(http.ErrAbortHandler)
 	}
+}
+
+// noBodyAsked is true when the response was always going to carry no body
+// and nothing went wrong writing it. A write error or a failed stream is
+// never "no body asked": those still reach the service.
+func noBodyAsked(r *http.Request, cw *recoveryResponseWriter) bool {
+	if cw.err != nil || cw.written != 0 {
+		return false
+	}
+	return r.Method == http.MethodHead || cw.status == http.StatusNotModified
 }
 
 // reprDigest renders the recorded SHA-256 as an RFC 9530 Repr-Digest value:

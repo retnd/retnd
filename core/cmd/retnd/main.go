@@ -86,6 +86,7 @@ var commands = map[string]func([]string) int{
 	"validate":        cmdValidate,
 	"scrub":           cmdScrub,
 	"recovery-test":   cmdRecoveryTest,
+	"assurance":       cmdAssurance,
 	"catalog":         cmdCatalog,
 	"quarantine":      cmdQuarantine,
 	"unconfigured":    cmdUnconfigured,
@@ -277,6 +278,21 @@ commands:
                                                   1 otherwise (failed, or could not be completed). The same test as
                                                   POST /api/v1/backup-sets/{source}/{set}/recovery-test, which starts
                                                   it in the background (EPIC Q)
+                                                  --follow prints the test's stages on standard error as it passes
+                                                  through them; the exit status is unchanged
+  recovery-test <source/backup-set> --show-output [--json]
+                                                  print what the newest recovery test of the set printed, as the
+                                                  engine stored it: sanitised, bounded, one line each, with the
+                                                  runner's own marker if the capture was cut. It reads and runs no
+                                                  test, so it takes none of the flags above. The same body as
+                                                  GET /api/v1/backup-sets/{source}/{set}/recovery-test/output
+                                                  (EPIC Q)
+  assurance cancel <operation-id> [--json]
+                                                  stop a running scrub or recovery test by the operation id its start
+                                                  returned. The operation lives in the memory of the process serving
+                                                  this deployment, so this needs RETND_API_URL and the two credential
+                                                  variables beside it and is refused without them. The same as
+                                                  POST /api/v1/assurance/operations/{op}/cancel (EPIC Q)
   catalog rebuild [--dry-run]                    reconstruct a lost/corrupted state database from sidecar recovery manifests
   quarantine <revalidate|retry|reinstate> <source/backup-set/artifact> [--note T]
                                                   act on one quarantined artifact: revalidate re-checks it and moves
@@ -385,6 +401,9 @@ commands:
                                                   (the archival thaw above, which writes nothing) nor snapshot
                                                   restore (a kopia restore point), and a kopia set is refused with
                                                   a sentence naming that verb
+                                                  --follow prints the recovery's stages on standard error as it
+                                                  passes through them, in the engine's order; the exit status is the
+                                                  recovery's own
   backup-set enabled <source/backup-set> <on|off>
                                                   turn one already-configured backup set on or off, which
                                                   --disabled can only do at creation. "off" stops the scheduler

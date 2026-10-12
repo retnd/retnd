@@ -507,6 +507,19 @@ type BackupServiceClient interface {
 	// background and returns the operation id it can be followed by. One at
 	// a time per set (service.ErrRecoveryTestRunning).
 	StartRecoveryTest(ctx context.Context, id string, opts service.RecoveryTestOptions) (service.RecoveryTestStarted, error)
+
+	// StartScrub scrubs one backup set's copies now, in the background, and
+	// returns the operation id it can be cancelled by. One at a time per set
+	// (service.ErrScrubRunning).
+	StartScrub(ctx context.Context, id string, opts service.ScrubOptions) (service.ScrubStarted, error)
+
+	// CancelAssuranceOperation stops a running scrub or recovery test;
+	// service.ErrOperationNotFound when nothing is running under that id.
+	CancelAssuranceOperation(ctx context.Context, id string) (service.AssuranceOperationCancelled, error)
+
+	// RecoveryTestOutput is what the newest recovery test of a backup set
+	// printed, as the runner's sanitised and bounded records.
+	RecoveryTestOutput(ctx context.Context, id string) (service.RecoveryTestOutput, error)
 	UpdateBackupSetWorkflow(ctx context.Context, id string, req service.UpdateBackupSetWorkflowRequest) (service.BackupSetWorkflow, error)
 
 	// The environment, at either scope: an empty id is the
