@@ -49,6 +49,13 @@ type slowJournal struct {
 }
 
 func (j *slowJournal) ListByBackupSet(ctx context.Context, set model.BackupSetID) ([]state.Record, error) {
+	// Only a processing cycle's reads are counted. The scrub tick is a
+	// separate timer on purpose (a wedged cycle must not stop copies being
+	// checked), and since a default install scrubs it reads the journal
+	// beside the cycle; that is not an overlap of cycles.
+	if !IsScheduledCycle(ctx) {
+		return j.Journal.ListByBackupSet(ctx, set)
+	}
 	cur := atomic.AddInt32(&j.inFlight, 1)
 	for {
 		max := atomic.LoadInt32(&j.maxInFlight)

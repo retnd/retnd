@@ -6724,6 +6724,670 @@
           "bytes",
           "sha256"
         ]
+      },
+      "AssuranceScrubPolicy": {
+        "type": "object",
+        "description": "A resolved scrub policy: how often a copy is re-read and how much of it is read.",
+        "additionalProperties": false,
+        "properties": {
+          "cadence_seconds": {
+            "type": "integer",
+            "description": "How long after a copy was last assured it is next due. RESOLVED: inherited or defaulted values are filled in, so this is never a zero an operator would read as 'never'.",
+            "format": "int64"
+          },
+          "strategy": {
+            "type": "string",
+            "description": "What a scrub reads: auto lets the engine pick the strongest read the copy's destination allows without cost, existence checks the copy is still there and the right size, content re-reads and re-hashes every byte."
+          }
+        }
+      },
+      "AssuranceRecoveryTestPolicy": {
+        "type": "object",
+        "description": "A resolved recovery-test policy.",
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "type": "string",
+            "description": "off never runs a recovery test; required runs one on the cadence and the set is not assured without it; custom is required with the set's own cadence and validator."
+          },
+          "cadence_seconds": {
+            "type": "integer",
+            "description": "How often a recovery test is due. RESOLVED.",
+            "format": "int64"
+          },
+          "validator_id": {
+            "type": "string",
+            "description": "The recovery-test script to run over the recovered copy, named by its file name without the .local.sh suffix, in recovery-test/<source>/<set> under the workflow root. Not an entry in GET /validators. A name, never a path. Empty when the mode is off and none is configured."
+          }
+        }
+      },
+      "AssuranceHostKnob": {
+        "type": "object",
+        "description": "A setting that is global only, with the reason a backup set cannot override it. The per-set answer is written down for every host-scoped knob so nobody looks for a per-set switch that could not work.",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The setting's key in the assurance block."
+          },
+          "value": {
+            "type": "string",
+            "description": "Its current resolved value, rendered as text."
+          },
+          "per_set": {
+            "type": "boolean",
+            "description": "Whether a backup set may override it. Always false for the knobs listed here."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why not: what about the host or the process a per-set value could not be honoured by."
+          }
+        }
+      },
+      "AssuranceSettingsResponse": {
+        "type": "object",
+        "description": "The deployment-wide assurance policy, RESOLVED. A config that never mentions assurance reports the defaults here, which is the point: the default is good enough that nobody has to set it.",
+        "additionalProperties": false,
+        "properties": {
+          "configured": {
+            "type": "boolean",
+            "description": "Whether config.yaml carries an assurance block at all. False means every value here is a default nobody had to set."
+          },
+          "scrub": {
+            "$ref": "#/components/schemas/AssuranceScrubPolicy"
+          },
+          "recovery_test": {
+            "$ref": "#/components/schemas/AssuranceRecoveryTestPolicy"
+          },
+          "staging_root": {
+            "type": "string",
+            "description": "Where recovered copies are staged. Global only."
+          },
+          "staging_ttl_seconds": {
+            "type": "integer",
+            "description": "How long a staged leftover survives before it is swept. Global only.",
+            "format": "int64"
+          },
+          "max_concurrent_full_reads": {
+            "type": "integer",
+            "description": "The ceiling on full reads running at once across the deployment. Global only.",
+            "format": "int64"
+          },
+          "max_per_destination": {
+            "type": "integer",
+            "description": "The ceiling on concurrent reads against one destination. Global only.",
+            "format": "int64"
+          },
+          "host_knobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssuranceHostKnob"
+            },
+            "description": "The four host-scoped settings and the staging root, each with its written 'no' for a per-set override."
+          }
+        }
+      },
+      "UpdateAssuranceSettingsRequest": {
+        "type": "object",
+        "description": "PATCH the deployment-wide assurance block. Every field is nullable because this is a PATCH: omitted leaves the setting alone, and a zero or empty value clears it back to its default. A body that names nothing is refused.",
+        "additionalProperties": false,
+        "properties": {
+          "scrub_cadence_seconds": {
+            "type": "integer",
+            "description": "The default scrub cadence. Zero clears it back to the product default. Below the one-hour floor is refused.",
+            "format": "int64",
+            "x-go-pointer": true
+          },
+          "scrub_strategy": {
+            "type": "string",
+            "description": "auto, existence or content. Empty clears it back to auto.",
+            "x-go-pointer": true
+          },
+          "recovery_test_mode": {
+            "type": "string",
+            "description": "off or required. Empty clears it back to off. Required needs a validator.",
+            "x-go-pointer": true
+          },
+          "recovery_test_cadence_seconds": {
+            "type": "integer",
+            "description": "The default recovery-test cadence. Zero clears it.",
+            "format": "int64",
+            "x-go-pointer": true
+          },
+          "recovery_test_validator_id": {
+            "type": "string",
+            "description": "The default recovery-test script, by file name without .local.sh. Empty clears it.",
+            "x-go-pointer": true
+          },
+          "staging_root": {
+            "type": "string",
+            "description": "An absolute path. Empty returns to the directory beside the state database.",
+            "x-go-pointer": true
+          },
+          "staging_ttl_seconds": {
+            "type": "integer",
+            "description": "Zero clears it back to the default.",
+            "format": "int64",
+            "x-go-pointer": true
+          },
+          "max_concurrent_full_reads": {
+            "type": "integer",
+            "description": "Zero clears it back to the default.",
+            "format": "int64",
+            "x-go-pointer": true
+          },
+          "max_per_destination": {
+            "type": "integer",
+            "description": "Zero clears it back to the default.",
+            "format": "int64",
+            "x-go-pointer": true
+          }
+        }
+      },
+      "BackupSetAssurance": {
+        "type": "object",
+        "description": "One backup set's resolved assurance policy and whether it is the set's own. Served together because 'what is deciding' and 'is that this set's own or the deployment's' are one question.",
+        "additionalProperties": false,
+        "properties": {
+          "backup_set_id": {
+            "type": "string"
+          },
+          "is_override": {
+            "type": "boolean",
+            "description": "True when this set carries its own assurance block. Reported rather than derived by comparing values: a set that pinned the same cadence as the deployment is not inheriting, and a later change to the deployment will not move it."
+          },
+          "scrub": {
+            "$ref": "#/components/schemas/AssuranceScrubPolicy"
+          },
+          "recovery_test": {
+            "$ref": "#/components/schemas/AssuranceRecoveryTestPolicy"
+          }
+        },
+        "required": [
+          "backup_set_id",
+          "is_override",
+          "scrub",
+          "recovery_test"
+        ]
+      },
+      "UpdateBackupSetAssuranceRequest": {
+        "type": "object",
+        "description": "PATCH one backup set's own assurance block. Omitted leaves a field alone and a zero or empty value clears it, so the set inherits it again. Clearing every field is the same as a reset. A body that names nothing is refused.",
+        "additionalProperties": false,
+        "properties": {
+          "scrub_cadence_seconds": {
+            "type": "integer",
+            "description": "This set's scrub cadence. Zero clears it.",
+            "format": "int64",
+            "x-go-pointer": true
+          },
+          "scrub_strategy": {
+            "type": "string",
+            "description": "auto, existence or content. Empty clears it.",
+            "x-go-pointer": true
+          },
+          "recovery_test_mode": {
+            "type": "string",
+            "description": "inherit, off, required or custom. Empty clears it, which is inherit.",
+            "x-go-pointer": true
+          },
+          "recovery_test_cadence_seconds": {
+            "type": "integer",
+            "description": "Only with mode custom. Zero clears it.",
+            "format": "int64",
+            "x-go-pointer": true
+          },
+          "recovery_test_validator_id": {
+            "type": "string",
+            "description": "The recovery-test script, by file name without .local.sh. Required with mode custom, and with mode required unless the deployment names one. Empty clears it.",
+            "x-go-pointer": true
+          }
+        }
+      },
+      "StartRecoveryTestRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "POST /backup-sets/{source}/{set}/recovery-test. Starts a recovery test now. An empty body tests the newest known good copy and acknowledges no cost: a copy that costs money to read (a download from a billed object store, or an archived object) is refused, recorded as refused_for_cost, and nothing is read.",
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "Test this artifact (source/set/name, in the same backup set) instead of the newest known good one."
+          },
+          "acknowledged": {
+            "type": "boolean",
+            "x-go-omitempty": true,
+            "description": "The explicit yes to a read that costs money. An absent value is a no, never an implied yes."
+          }
+        }
+      },
+      "RecoveryTestStarted": {
+        "type": "object",
+        "description": "A recovery test is under way. operation_id is carried by its recovery_test_start, recovery_stage and recovery_test_end lines on the activity feed, which is how a client follows it; the verdict is the copy's recovery claim once it ends.",
+        "properties": {
+          "backup_set_id": {
+            "type": "string",
+            "description": "source/set."
+          },
+          "operation_id": {
+            "type": "string",
+            "description": "The id every line of this test carries, in the op_id field. When coalesced is true it is the id of the test that was already running."
+          },
+          "coalesced": {
+            "type": "boolean",
+            "description": "True when a test of this set with the same artifact and cost acknowledgement was already running, so this request joined it instead of starting a second read. The request still has its own receipt row."
+          }
+        },
+        "required": [
+          "backup_set_id",
+          "operation_id",
+          "coalesced"
+        ]
+      },
+      "ScrubStarted": {
+        "type": "object",
+        "description": "A scrub is under way. operation_id is what POST /assurance/operations/{op}/cancel takes.",
+        "additionalProperties": false,
+        "properties": {
+          "backup_set_id": {
+            "type": "string",
+            "description": "source/set."
+          },
+          "operation_id": {
+            "type": "string",
+            "description": "This scrub's id."
+          }
+        },
+        "required": [
+          "backup_set_id",
+          "operation_id"
+        ]
+      },
+      "AssuranceOperationCancelled": {
+        "type": "object",
+        "description": "A running scrub or recovery test has been told to stop.",
+        "additionalProperties": false,
+        "properties": {
+          "operation_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "scrub",
+              "recovery_test"
+            ],
+            "description": "What was running."
+          },
+          "backup_set_id": {
+            "type": "string",
+            "description": "source/set."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "cancelling"
+            ],
+            "description": "Always cancelling: the stop is asynchronous."
+          }
+        },
+        "required": [
+          "operation_id",
+          "kind",
+          "backup_set_id",
+          "status"
+        ]
+      },
+      "RecoveryTestOutputRecord": {
+        "type": "object",
+        "description": "One line of a validator's output, or the runner's own truncation marker. Branch on kind and never on text: only the runner produces a truncation record, so a validator that prints the marker's words is still an output record.",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "output",
+              "truncation"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "description": "Inert text: every control byte was replaced before it was stored. Show it as text, never as markup."
+          }
+        },
+        "required": [
+          "kind",
+          "text"
+        ]
+      },
+      "RecoveryTestOutput": {
+        "type": "object",
+        "description": "What the newest recovery test of a backup set printed. Only the newest test is kept per set.",
+        "additionalProperties": false,
+        "properties": {
+          "backup_set_id": {
+            "type": "string"
+          },
+          "recorded": {
+            "type": "boolean",
+            "description": "False when no recovery test of this set has ended yet; every other field is then empty (empty strings, false, an empty records array) and none is omitted."
+          },
+          "operation_id": {
+            "type": "string",
+            "description": "The test's operation id, as on the activity feed."
+          },
+          "artifact_id": {
+            "type": "string"
+          },
+          "medium": {
+            "type": "string",
+            "description": "The copy that was tested."
+          },
+          "state": {
+            "type": "string",
+            "description": "The test's verdict: passed, failed, refused_for_cost or could_not_complete."
+          },
+          "recorded_at": {
+            "type": "string",
+            "description": "When the test ended, RFC 3339."
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "The validator wrote more than the capture bound and the rest was discarded. The records then end with a truncation record."
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RecoveryTestOutputRecord"
+            },
+            "description": "Empty when the validator did not run, or printed nothing."
+          }
+        },
+        "required": [
+          "backup_set_id",
+          "recorded",
+          "operation_id",
+          "artifact_id",
+          "medium",
+          "state",
+          "recorded_at",
+          "truncated",
+          "records"
+        ]
+      },
+      "AssuranceDueItem": {
+        "type": "object",
+        "description": "One copy's place in the scrub schedule.",
+        "additionalProperties": false,
+        "properties": {
+          "backup_set_id": {
+            "type": "string"
+          },
+          "artifact_id": {
+            "type": "string"
+          },
+          "artifact_name": {
+            "type": "string"
+          },
+          "last_assured_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the copy that is next due last ran a check to a verdict. Absent for a copy nobody has looked at.",
+            "x-go-omitempty": true
+          },
+          "next_due_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the copy is next owed a scrub, read from the copy's own schedule (the one the scrub driver keeps). For a copy with no schedule, the moment of the read."
+          },
+          "cadence_seconds": {
+            "type": "integer",
+            "description": "The set's resolved scrub cadence this row was computed from.",
+            "format": "int64"
+          },
+          "due": {
+            "type": "boolean",
+            "description": "next_due_at has passed."
+          },
+          "overdue": {
+            "type": "boolean",
+            "description": "A whole cadence past next_due_at, or never assured. A copy nobody has looked at is overdue, never fine."
+          },
+          "basis": {
+            "type": "string",
+            "description": "Where next_due_at came from: copy_next_due_at (the copy's own scrub schedule, the one the scrub driver keeps), or never (a copy with no schedule, which is due now)."
+          }
+        }
+      },
+      "AssuranceDueResponse": {
+        "type": "object",
+        "description": "The scrub schedule, most overdue first, computed from each set's resolved policy.",
+        "additionalProperties": false,
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The clock this schedule was computed against."
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssuranceDueItem"
+            },
+            "description": "One row per scrub-eligible copy that matches the filter."
+          }
+        }
+      },
+      "ScrubCopyOutcome": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "What a scrub learned about one copy of one artifact. The class is the class that RAN, never the class asked for: a HEAD is reported as a HEAD.",
+        "properties": {
+          "artifact_id": {
+            "type": "string"
+          },
+          "medium": {
+            "type": "string",
+            "description": "The copy's medium: local for the local copy, otherwise a storage medium id."
+          },
+          "verdict": {
+            "type": "string",
+            "description": "passed, failed, could_not_complete, requires_restore or not_checked."
+          },
+          "class": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The verification class that ran. Absent when nothing ran."
+          },
+          "reason": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "Why, for every verdict except passed."
+          },
+          "refused": {
+            "type": "boolean",
+            "description": "The check was not made because it would have spent money nobody agreed to. A refusal is not a fact about the copy and is not recorded on it."
+          }
+        },
+        "required": [
+          "artifact_id",
+          "medium",
+          "verdict",
+          "refused"
+        ]
+      },
+      "ScrubArtifactError": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "An artifact the pass could not give a verdict at all, with the infrastructure problem that stopped it. The copies it did get a verdict for are in the set's copies, each once.",
+        "properties": {
+          "artifact_id": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifact_id",
+          "error"
+        ]
+      },
+      "ScrubSkip": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Work a scrub was asked to do and did not. A skip is always reported: a copy that was due and silently not looked at is the same failure as one never scheduled.",
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "Absent when the whole backup set was skipped."
+          },
+          "medium": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "Absent when the whole artifact or set was skipped."
+          },
+          "reason": {
+            "type": "string",
+            "description": "held (the backup set is held for editing) or leased (another scrub is checking it right now)."
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "ScrubSetResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "One backup set's part of a scrub.",
+        "properties": {
+          "backup_set_id": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "Set when the set's pass stopped on an infrastructure problem."
+          },
+          "copies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScrubCopyOutcome"
+            },
+            "description": "One entry per copy that reached an outcome."
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScrubArtifactError"
+            }
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScrubSkip"
+            }
+          }
+        },
+        "required": [
+          "backup_set_id",
+          "copies",
+          "errors",
+          "skipped"
+        ]
+      },
+      "ScrubResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "What one scrub did: the counts the pass recorded plus the per-set detail. It is the body `retnd scrub --json` prints, and the one result shape every route that reports a scrub reuses.",
+        "properties": {
+          "trigger": {
+            "type": "string",
+            "description": "schedule or manual."
+          },
+          "scope": {
+            "type": "string",
+            "description": "What the pass covered, for example all due, set X, artifact X or copy X on M."
+          },
+          "selected": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Artifacts the pass set out to look at."
+          },
+          "checked": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Copies that reached a verdict by being read or asked."
+          },
+          "passed": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Copies that passed, at the class stated beside each."
+          },
+          "failed": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Copies found wrong."
+          },
+          "could_not_complete": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Copies that could not be asked."
+          },
+          "requires_restore": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Copies in an archive class whose bytes cannot be read without a restore. No restore was started."
+          },
+          "skipped_held": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Sets skipped because they are held for editing."
+          },
+          "skipped_leased": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Copies skipped because another scrub holds them."
+          },
+          "refused": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Copies refused because the read would have cost money nobody agreed to."
+          },
+          "bytes_read": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes read off storage by checks that read bytes."
+          },
+          "pass_id": {
+            "type": "integer",
+            "format": "int64",
+            "x-go-omitempty": true,
+            "description": "The durable pass row, absent when the pass had nothing to record."
+          },
+          "sets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScrubSetResult"
+            }
+          }
+        },
+        "required": [
+          "trigger",
+          "scope",
+          "selected",
+          "checked",
+          "passed",
+          "failed",
+          "could_not_complete",
+          "requires_restore",
+          "skipped_held",
+          "skipped_leased",
+          "refused",
+          "bytes_read",
+          "sets"
+        ]
       }
     },
     "responses": {}
@@ -12034,7 +12698,17 @@
               "type": "integer",
               "format": "int64"
             },
-            "description": "The highest sequence the caller has already seen. Only events after it come back, which is what makes polling this cheap, and they come back oldest first so this cursor is always safe to advance to the last one handed over. Omitted, unparseable or non-positive means whatever the server still holds. Compare the response's epoch before reusing a cursor: the sequence counter is per process and starts again at zero, so a cursor kept across a restart asks for what the new process has not reached yet."
+            "description": "The highest sequence the caller has already seen. Only events after it come back, which is what makes polling this cheap, and they come back oldest first so this cursor is always safe to advance to the last one handed over. Omitted, unparseable or non-positive means whatever the server still holds. Events are durable: the sequence continues across a restart (the counter starts again from the highest stored one), so a cursor never repeats a number. The response's epoch still names the process that answered; a client that sees it change should drop what it holds and read again, because the ring it was following has been refilled from the journal."
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "description": "Page BACKWARDS through the durable record. When positive, each bucket answers with its events whose sequence is below this, the newest limit of them, oldest first, and truncated says older ones remain; since is ignored. It is how a client reaches events the in-memory ring no longer holds. Events are kept for 30 days and at most 50,000 rows, oldest pruned first; periodic samples and per-range download lines are not stored, and a recovery keeps its start, its last stage and its end. Omitted, unparseable or non-positive means the ordinary live reading."
           },
           {
             "name": "limit",
@@ -16609,6 +17283,1173 @@
               "RECOVERY_READS_BUSY",
               "RECOVERY_DESTINATION_BUSY",
               "RECOVERY_DOWNLOADS_BUSY"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      }
+    },
+    "/settings/assurance": {
+      "get": {
+        "operationId": "getAssuranceSettings",
+        "summary": "The deployment-wide assurance policy as this process is actually running it: scrub cadence and strategy, recovery-test mode, the global-only host settings and the written reason none of them is per set. Read-only.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssuranceSettingsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      },
+      "patch": {
+        "operationId": "updateAssuranceSettings",
+        "summary": "Patch the deployment-wide assurance block. The patch is validated, written and hot-reloaded in one step, so every backup set that inherits the changed value decides under it on its next read, with no restart.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAssuranceSettingsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success. The whole resolved policy as it now stands, rather than an echo of the patch.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssuranceSettingsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. The configuration validator refused the resulting policy, or the patch named nothing. Nothing is written when it does.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/backup-sets/{source}/{set}/assurance": {
+      "get": {
+        "operationId": "getBackupSetAssurance",
+        "summary": "Which assurance policy one backup set decides under, and whether it is the set's own.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "source",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The configured source this backup set belongs to."
+          },
+          {
+            "name": "set",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The backup set's own name within that source."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupSetAssurance"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "404": {
+            "description": "Refused: BACKUP_SET_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "BACKUP_SET_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      },
+      "patch": {
+        "operationId": "updateBackupSetAssurance",
+        "summary": "Patch this backup set's own assurance block, creating it if the set was inheriting.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "source",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The configured source this backup set belongs to."
+          },
+          {
+            "name": "set",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The backup set's own name within that source."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateBackupSetAssuranceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success. The set's resolved policy as it now stands.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupSetAssurance"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. The configuration validator refused the resulting policy, or the patch named nothing. Nothing is written when it does.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "404": {
+            "description": "Refused: BACKUP_SET_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "BACKUP_SET_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      },
+      "delete": {
+        "operationId": "resetBackupSetAssurance",
+        "summary": "Remove this backup set's own assurance block so it follows the deployment's policy again. Resetting a set that already inherits is not an error.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "source",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The configured source this backup set belongs to."
+          },
+          {
+            "name": "set",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The backup set's own name within that source."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success. The set now reports is_override false.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupSetAssurance"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "404": {
+            "description": "Refused: BACKUP_SET_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "BACKUP_SET_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/backup-sets/{source}/{set}/recovery-test": {
+      "post": {
+        "operationId": "startRecoveryTest",
+        "summary": "Start a recovery test of this backup set's newest known good copy, now, in the background.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "source",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The configured source this backup set belongs to."
+          },
+          {
+            "name": "set",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The backup set's own name within that source."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartRecoveryTestRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted. The test is running in the background under the returned operation id: its start, stage and end lines carry that id on the activity feed, and its result lands on the copy's recovery claim. Nothing waits for it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryTestStarted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. The artifact id is malformed or belongs to another backup set, or this backup set is stored by the incremental engine, whose restore drill is its own.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "404": {
+            "description": "Refused: BACKUP_SET_NOT_FOUND, ARTIFACT_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "BACKUP_SET_NOT_FOUND",
+              "ARTIFACT_NOT_FOUND"
+            ]
+          },
+          "409": {
+            "description": "Refused: OPERATION_ALREADY_RUNNING. A recovery test of this backup set is already running and this request asks for something different from it (another artifact, or a different cost acknowledgement). One at a time per set: a test reads a whole artifact, and two at once would be two reads of a copy that may be billed. An identical request does not get this: it joins the running test and answers 202 with coalesced true.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "OPERATION_ALREADY_RUNNING"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/backup-sets/{source}/{set}/scrub": {
+      "post": {
+        "operationId": "startScrub",
+        "summary": "Scrub this backup set's durable copies now, in the background.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "source",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The configured source this backup set belongs to."
+          },
+          {
+            "name": "set",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The backup set's own name within that source."
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted. The scrub is running in the background under the returned operation id; POST /assurance/operations/{op}/cancel stops it. The verdicts land on the copies and the pass lands as one scrub-pass row. Nothing waits for it. Naming a set is an operator saying now, so every copy of the set is checked whether or not it is due, at the strongest class that costs nothing (never a billed download, never an archive restore).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScrubStarted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. This backup set is disabled, or is stored by the incremental engine, whose verification ladder is its own.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "404": {
+            "description": "Refused: BACKUP_SET_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "BACKUP_SET_NOT_FOUND"
+            ]
+          },
+          "409": {
+            "description": "Refused: OPERATION_ALREADY_RUNNING. A scrub of this backup set is already running; its operation id is not returned here, follow the one you started.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "OPERATION_ALREADY_RUNNING"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/assurance/operations/{op}/cancel": {
+      "post": {
+        "operationId": "cancelAssuranceOperation",
+        "summary": "Ask a running scrub or recovery test to stop. It is not under /operations, which the destructive gate owns: stopping a read deletes nothing.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "op",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The operation id a scrub or a recovery test returned when it started."
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted. The operation was running on this engine and has been told to stop: the validator's whole process group is killed, the staged copy is removed, and the operation's end line on the activity feed says it was cancelled. The stop is asynchronous, so the operation may still be winding down when this answers.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssuranceOperationCancelled"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "404": {
+            "description": "Refused: OPERATION_NOT_FOUND. No scrub or recovery test with that id is running on this engine: it never existed, it already finished, or it runs in another process.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "OPERATION_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/backup-sets/{source}/{set}/recovery-test/output": {
+      "get": {
+        "operationId": "getRecoveryTestOutput",
+        "summary": "The validator output of the newest recovery test of this backup set, sanitised and bounded. Read-only.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "source",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The configured source this backup set belongs to."
+          },
+          {
+            "name": "set",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The backup set's own name within that source."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success. recorded is false, with no records, when no recovery test of this set has ended yet.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryTestOutput"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "404": {
+            "description": "Refused: BACKUP_SET_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "BACKUP_SET_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      }
+    },
+    "/assurance/due": {
+      "get": {
+        "operationId": "listAssuranceDue",
+        "summary": "The scrub schedule: every scrub-eligible copy with when it is next due, computed from its set's resolved cadence. Read-only.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "backup_set",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Narrow the schedule to one backup set, by its source/backup-set id. Omitted means every configured set."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "all (the default), due or overdue."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssuranceDueResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. The configuration validator refused the resulting policy, or the patch named nothing. Nothing is written when it does.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "404": {
+            "description": "Refused: BACKUP_SET_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "BACKUP_SET_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
             ]
           }
         },

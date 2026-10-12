@@ -63,7 +63,27 @@ type followOptions struct {
 	minSeverity int
 	limit       int
 	asJSON      bool
+
+	// onlyOp, when set, keeps the events it accepts and drops the rest. It
+	// is how `recover --follow` and `recovery-test --follow` print one
+	// operation's lines (matched on the event's action id, which is the
+	// op_id) out of a feed every other operation also writes to.
+	onlyOp func(apicontract.LiveActivityEvent) bool
+
+	// until, when set and closed, ends the follow after one last reading.
+	// The operation being followed runs in this process, so it is the one
+	// thing that knows the feed has nothing more to say.
+	until <-chan struct{}
+
+	// pollEvery overrides how long to wait between readings. Zero means
+	// whatever the engine suggests.
+	pollEvery time.Duration
 }
+
+// liveReader is one reading of the live feed: over HTTP from the process
+// serving a deployment, or straight from this process's own feed when the
+// operation being followed runs here.
+type liveReader func(ctx context.Context, backupSetID, scope string, since int64, limit int) (apicontract.LiveActivityResponse, error)
 
 // defaultFollowInterval is the wait between readings when the engine did
 // not say. It never should not say, but a zero here would spin.
@@ -83,13 +103,20 @@ func followActivity(ctx context.Context, mode readDecision, opts followOptions, 
 	if !mode.attached() {
 		return fmt.Errorf("--follow needs a route to the process serving this deployment and this command has none, so there is nothing to follow: the live feed is that process's own in-memory event stream and no file holds it. `activity` without --follow reads the durable transition log instead, which answers from this host's own journal and says so")
 	}
+	return followFeed(ctx, mode, mode.client.LiveActivity, opts, out, errOut)
+}
+
+// followFeed is followActivity's loop over any reader. mode is only used to
+// word a failed request.
+func followFeed(ctx context.Context, mode readDecision, read liveReader, opts followOptions, out, errOut io.Writer) error {
+	final := false
 
 	var (
 		since int64
 		epoch string
 	)
 	for {
-		reading, err := mode.client.LiveActivity(ctx, opts.backupSetID, opts.scope, since, opts.limit)
+		reading, err := read(ctx, opts.backupSetID, opts.scope, since, opts.limit)
 		if err != nil {
 			// A cancelled context surfaces here as a failed request, and
 			// it is not one: the operator ended the follow.
@@ -115,6 +142,15 @@ func followActivity(ctx context.Context, mode readDecision, opts followOptions, 
 		}
 
 		printed := collectFollowEvents(reading, opts.minSeverity)
+		if opts.onlyOp != nil {
+			kept := printed[:0]
+			for _, e := range printed {
+				if opts.onlyOp(e) {
+					kept = append(kept, e)
+				}
+			}
+			printed = kept
+		}
 		for _, e := range printed {
 			if opts.asJSON {
 				if err := writeFollowJSON(out, e); err != nil {
@@ -128,13 +164,23 @@ func followActivity(ctx context.Context, mode readDecision, opts followOptions, 
 			since = high
 		}
 
+		if final {
+			return nil
+		}
 		wait := time.Duration(reading.PollAfterMs) * time.Millisecond
+		if opts.pollEvery > 0 {
+			wait = opts.pollEvery
+		}
 		if wait <= 0 {
 			wait = defaultFollowInterval
 		}
 		select {
 		case <-ctx.Done():
 			return nil
+		case <-opts.until:
+			// One more reading, so the lines the operation wrote on its
+			// way out are not lost to the wait that was in progress.
+			final = true
 		case <-time.After(wait):
 		}
 	}

@@ -137,6 +137,10 @@ func TestNoRequestFieldReachesTheArgvUnlessItIsEchoedOnPurpose(t *testing.T) {
 // secret can arrive in is not knowable, and the set of flags this package
 // prints is right here.
 var flagsThatEchoWhatTheRequestSaid = map[string]string{
+	// The artifact a recovery test was asked about: a backup's own id
+	// (source/set/name), which an operator retyping the command has to say
+	// and which is a name, not material.
+	"--artifact": "the backup the test was asked about, by its id",
 	// A backup set's own description. Every one of these is a
 	// connection detail an operator types when they create the set by
 	// hand, and none of them is a secret: the key is named by id and the
@@ -165,6 +169,14 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 	"--credentials-id":      "an id this deployment minted for credentials it already holds, never the credentials",
 	"--credentials-file":    "a PATH to a credentials file, never its contents",
 	"--credentials-env":     "the NAME of an environment variable, never its value",
+
+	// The assurance policy (EPIC Q, Q1.4). Policy vocabulary and a validator
+	// NAME; none is credential material, and the validator is a bare id the
+	// service refuses to accept as a path.
+	"--scrub-strategy":          "which read a scrub does: auto, existence or content",
+	"--recovery-test-mode":      "off, required, inherit or custom",
+	"--recovery-test-validator": "the id of a registered validator, never a path",
+	"--staging-root":            "an absolute directory on this deployment, never a secret",
 
 	// Retention and settings scalars.
 	"--timezone":       "the IANA zone retention decisions are made in",

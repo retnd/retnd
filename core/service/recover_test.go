@@ -24,6 +24,7 @@ import (
 	"github.com/retnd/retnd/core/internal/lifecycle"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/procseam"
 	"github.com/retnd/retnd/core/internal/state"
 	"github.com/retnd/retnd/core/internal/transport"
 )
@@ -212,6 +213,10 @@ type fixtureOpts struct {
 	remoteClass string // "" for no remote copy
 	engine      string
 	pollEvery   time.Duration // PollInterval for tests that run the scheduler loop
+
+	// cfg, when set, adjusts the hand-built configuration before the service
+	// is built from it (an assurance policy, an extra medium).
+	cfg func(*config.Config)
 }
 
 // newRecoveryFixture builds a service whose journal holds one artifact,
@@ -237,6 +242,10 @@ func newRecoveryFixture(t *testing.T, opts fixtureOpts) *recoveryFixture {
 		{ID: "cold", Type: config.StorageMediumTypeS3, Region: "us-east-1", Bucket: "b", StorageClass: config.StorageClassDeepArchive, Credentials: config.MediumCredentials{File: "/x"}},
 		{ID: "warm", Type: config.StorageMediumTypeS3, Region: "us-east-1", Bucket: "w", StorageClass: config.StorageClassStandard, Credentials: config.MediumCredentials{File: "/x"}},
 		{ID: "other", Type: config.StorageMediumTypeS3, Region: "us-east-1", Bucket: "o", StorageClass: config.StorageClassStandard, Credentials: config.MediumCredentials{File: "/x"}},
+	}
+
+	if opts.cfg != nil {
+		opts.cfg(cfg)
 	}
 
 	store := newRecoveryStore()
@@ -303,7 +312,7 @@ func (f *recoveryFixture) session() RecoverySession {
 
 func (f *recoveryFixture) stagingEntries(t *testing.T) []string {
 	t.Helper()
-	root := filepath.Join(f.dir, "state", "recovery")
+	root := filepath.Join(f.dir, "state", "recovery-staging")
 	var out []string
 	_ = filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
 		if err == nil && info.Mode().IsRegular() {
@@ -356,7 +365,7 @@ func TestRecoverALocalCopyToStagingEndToEnd(t *testing.T) {
 	if res.SHA256 != sha(f.data) || res.Bytes != int64(len(f.data)) {
 		t.Fatalf("result = %+v", res)
 	}
-	if !strings.Contains(res.Path, filepath.Join("state", "recovery")) {
+	if !strings.Contains(res.Path, filepath.Join("state", "recovery-staging")) {
 		t.Fatalf("output %s is not under the staging root", res.Path)
 	}
 }
@@ -803,6 +812,47 @@ func TestTheRecoveryPathSpawnsNoSubprocess(t *testing.T) {
 			case "os/exec", "plugin":
 				t.Errorf("%s imports %s", name, imp.Path.Value)
 			}
+		}
+	}
+}
+
+// The import scan above shows the recovery files do not call os/exec. This
+// shows the product code recovery RUNS does not: every spawn site in the
+// module goes through internal/procseam, and while Forbid is in force a spawn
+// fails this test and cannot start. The paths are the ones an operator uses,
+// a local and a remote copy, to a download and to staging, plus
+// the corrupt copy that stops partway. A target on another storage destination is the one path not driven here.
+func TestRecoverySpawnsNoProcessFromAnyPathItRuns(t *testing.T) {
+	smallChunks(t)
+	ctx := context.Background()
+	local := newRecoveryFixture(t, fixtureOpts{localCopy: true})
+	remote := newRecoveryFixture(t, fixtureOpts{remoteClass: "warm"})
+	rotted := newRecoveryFixture(t, fixtureOpts{localCopy: true})
+	p := filepath.Join(rotted.localDir, "dump.zst")
+	b, _ := os.ReadFile(p)
+	b[3*streamTestChunk+5] ^= 1
+	if err := os.WriteFile(p, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	procseam.Forbid(t)
+
+	for _, c := range []struct {
+		name string
+		f    *recoveryFixture
+		req  RecoveryRequest
+		want bool // the recovery is expected to succeed
+	}{
+		{"a local copy to a download", local, RecoveryRequest{Target: RecoveryTarget{Kind: "download"}}, true},
+		{"a local copy to staging", local, RecoveryRequest{Target: stagingTo("a/dump.zst")}, true},
+		{"a remote copy to a download", remote, RecoveryRequest{Target: RecoveryTarget{Kind: "download"}, AcknowledgeCost: true}, true},
+		{"a remote copy to staging", remote, RecoveryRequest{Target: stagingTo("b/dump.zst"), AcknowledgeCost: true}, true},
+		{"a copy that rots partway", rotted, RecoveryRequest{Target: RecoveryTarget{Kind: "download"}}, false},
+	} {
+		c.req.ArtifactID = c.f.artifact
+		_, _, err := c.f.b.RecoverNow(ctx, c.f.session(), c.req, io.Discard)
+		if (err == nil) != c.want {
+			t.Errorf("%s: err = %v, want success=%v (a recovery that did not run proves nothing about spawning)", c.name, err, c.want)
 		}
 	}
 }

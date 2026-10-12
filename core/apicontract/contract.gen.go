@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "3b73d5d3d2eaf6ac9985ebac3ff172e3df1613abbcede9981d151a21a3b50f62"
+const ContractSHA256 = "71ab3f49187fcdc37410240a57d295d065bac46c97f817e3669489ebb9135056"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -409,6 +409,30 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "listAssuranceDue", Method: "GET", Path: "/assurance/due",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AssuranceDueResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "cancelAssuranceOperation", Method: "POST", Path: "/assurance/operations/{op}/cancel",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AssuranceOperationCancelled", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeOperationNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
 		ID: "enrollAdministrator", Method: "POST", Path: "/auth/enroll",
 		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "EnrollRequest", ResponseSchema: "", SuccessStatus: 204,
@@ -620,6 +644,42 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "resetBackupSetAssurance", Method: "DELETE", Path: "/backup-sets/{source}/{set}/assurance",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "BackupSetAssurance", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "getBackupSetAssurance", Method: "GET", Path: "/backup-sets/{source}/{set}/assurance",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "BackupSetAssurance", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "updateBackupSetAssurance", Method: "PATCH", Path: "/backup-sets/{source}/{set}/assurance",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "UpdateBackupSetAssuranceRequest", ResponseSchema: "BackupSetAssurance", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
 		ID: "getBackupSetEditHold", Method: "GET", Path: "/backup-sets/{source}/{set}/edit-hold",
 		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "BackupSetEditHoldState", SuccessStatus: 200,
@@ -690,6 +750,31 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "startRecoveryTest", Method: "POST", Path: "/backup-sets/{source}/{set}/recovery-test",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "StartRecoveryTestRequest", ResponseSchema: "RecoveryTestStarted", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound, ErrorCodeArtifactNotFound},
+			409: {ErrorCodeOperationAlreadyRunning},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "getRecoveryTestOutput", Method: "GET", Path: "/backup-sets/{source}/{set}/recovery-test/output",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "RecoveryTestOutput", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
 		ID: "clearBackupSetRetention", Method: "DELETE", Path: "/backup-sets/{source}/{set}/retention",
 		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "BackupSetRetention", SuccessStatus: 200,
@@ -748,6 +833,20 @@ var Endpoints = []Endpoint{
 			400: {ErrorCodeInvalidRequest},
 			401: {ErrorCodeUnauthenticated},
 			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "startScrub", Method: "POST", Path: "/backup-sets/{source}/{set}/scrub",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound},
+			409: {ErrorCodeOperationAlreadyRunning},
 			500: {ErrorCodeInternal},
 			503: {ErrorCodeNotConfigured},
 		},
@@ -1080,6 +1179,28 @@ var Endpoints = []Endpoint{
 		RequestSchema: "UpdateSettingsRequest", ResponseSchema: "SettingsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeMediumDisclosureRequired},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "getAssuranceSettings", Method: "GET", Path: "/settings/assurance",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AssuranceSettingsResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "updateAssuranceSettings", Method: "PATCH", Path: "/settings/assurance",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "UpdateAssuranceSettingsRequest", ResponseSchema: "AssuranceSettingsResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
 			401: {ErrorCodeUnauthenticated},
 			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
 			500: {ErrorCodeInternal},
@@ -1581,6 +1702,73 @@ type ArtifactReinstateResponse struct {
 	State      string `json:"state,omitempty"`
 }
 
+// AssuranceDueItem is one copy's place in the scrub schedule.
+type AssuranceDueItem struct {
+	ArtifactID     string `json:"artifact_id"`
+	ArtifactName   string `json:"artifact_name"`
+	BackupSetID    string `json:"backup_set_id"`
+	Basis          string `json:"basis"`
+	CadenceSeconds int64  `json:"cadence_seconds"`
+	Due            bool   `json:"due"`
+	LastAssuredAt  string `json:"last_assured_at,omitempty"`
+	NextDueAt      string `json:"next_due_at"`
+	Overdue        bool   `json:"overdue"`
+}
+
+// AssuranceDueResponse is the scrub schedule, most overdue first, computed from each set's
+// resolved policy.
+type AssuranceDueResponse struct {
+	GeneratedAt string             `json:"generated_at"`
+	Items       []AssuranceDueItem `json:"items"`
+}
+
+// AssuranceHostKnob is A setting that is global only, with the reason a backup set cannot
+// override it. The per-set answer is written down for every
+// host-scoped knob so nobody looks for a per-set switch that could
+// not work.
+type AssuranceHostKnob struct {
+	Name   string `json:"name"`
+	PerSet bool   `json:"per_set"`
+	Reason string `json:"reason"`
+	Value  string `json:"value"`
+}
+
+// AssuranceOperationCancelled is A running scrub or recovery test has been told to stop.
+type AssuranceOperationCancelled struct {
+	BackupSetID string `json:"backup_set_id"`
+	Kind        string `json:"kind"`
+	OperationID string `json:"operation_id"`
+	Status      string `json:"status"`
+}
+
+// AssuranceRecoveryTestPolicy is A resolved recovery-test policy.
+type AssuranceRecoveryTestPolicy struct {
+	CadenceSeconds int64  `json:"cadence_seconds"`
+	Mode           string `json:"mode"`
+	ValidatorID    string `json:"validator_id"`
+}
+
+// AssuranceScrubPolicy is A resolved scrub policy: how often a copy is re-read and how much
+// of it is read.
+type AssuranceScrubPolicy struct {
+	CadenceSeconds int64  `json:"cadence_seconds"`
+	Strategy       string `json:"strategy"`
+}
+
+// AssuranceSettingsResponse is the deployment-wide assurance policy, RESOLVED. A config that
+// never mentions assurance reports the defaults here, which is the
+// point: the default is good enough that nobody has to set it.
+type AssuranceSettingsResponse struct {
+	Configured             bool                        `json:"configured"`
+	HostKnobs              []AssuranceHostKnob         `json:"host_knobs"`
+	MaxConcurrentFullReads int64                       `json:"max_concurrent_full_reads"`
+	MaxPerDestination      int64                       `json:"max_per_destination"`
+	RecoveryTest           AssuranceRecoveryTestPolicy `json:"recovery_test"`
+	Scrub                  AssuranceScrubPolicy        `json:"scrub"`
+	StagingRoot            string                      `json:"staging_root"`
+	StagingTtlSeconds      int64                       `json:"staging_ttl_seconds"`
+}
+
 // AuthErrorResponse is the FLAT error body the /auth operations return, with the
 // correlation id in the body as well as the header. Deliberately
 // recorded as a second shape rather than pretended away:
@@ -1686,6 +1874,16 @@ type BackupSet struct {
 	VerificationLevel                    string           `json:"verification_level,omitempty"`
 	VerificationRestoreDrillEverySeconds int64            `json:"verification_restore_drill_every_seconds,omitempty"`
 	VerificationSamplePercent            int              `json:"verification_sample_percent,omitempty"`
+}
+
+// BackupSetAssurance is one backup set's resolved assurance policy and whether it is the
+// set's own. Served together because 'what is deciding' and 'is that
+// this set's own or the deployment's' are one question.
+type BackupSetAssurance struct {
+	BackupSetID  string                      `json:"backup_set_id"`
+	IsOverride   bool                        `json:"is_override"`
+	RecoveryTest AssuranceRecoveryTestPolicy `json:"recovery_test"`
+	Scrub        AssuranceScrubPolicy        `json:"scrub"`
 }
 
 // BackupSetEditHold is POST /backup-sets/{source}/{set}/edit-hold. The lease just taken
@@ -2650,6 +2848,39 @@ type RecoveryTarget struct {
 	Path   string `json:"path,omitempty"`
 }
 
+// RecoveryTestOutput is what the newest recovery test of a backup set printed. Only the
+// newest test is kept per set.
+type RecoveryTestOutput struct {
+	ArtifactID  string                     `json:"artifact_id"`
+	BackupSetID string                     `json:"backup_set_id"`
+	Medium      string                     `json:"medium"`
+	OperationID string                     `json:"operation_id"`
+	Recorded    bool                       `json:"recorded"`
+	RecordedAt  string                     `json:"recorded_at"`
+	Records     []RecoveryTestOutputRecord `json:"records"`
+	State       string                     `json:"state"`
+	Truncated   bool                       `json:"truncated"`
+}
+
+// RecoveryTestOutputRecord is one line of a validator's output, or the runner's own truncation
+// marker. Branch on kind and never on text: only the runner produces
+// a truncation record, so a validator that prints the marker's words
+// is still an output record.
+type RecoveryTestOutputRecord struct {
+	Kind string `json:"kind"`
+	Text string `json:"text"`
+}
+
+// RecoveryTestStarted is A recovery test is under way. operation_id is carried by its
+// recovery_test_start, recovery_stage and recovery_test_end lines on
+// the activity feed, which is how a client follows it; the verdict
+// is the copy's recovery claim once it ends.
+type RecoveryTestStarted struct {
+	BackupSetID string `json:"backup_set_id"`
+	Coalesced   bool   `json:"coalesced"`
+	OperationID string `json:"operation_id"`
+}
+
 // RepositoryHealth is one repository domain's own health, which is a different question
 // from any backup set's. A set can be perfectly fresh while the
 // repository holding its snapshots is unwritable, out of
@@ -2938,6 +3169,71 @@ type SSHKeyDiscoveryLocation struct {
 	Problem string `json:"problem,omitempty"`
 }
 
+// ScrubArtifactError is an artifact the pass could not give a verdict at all, with the
+// infrastructure problem that stopped it. The copies it did get a
+// verdict for are in the set's copies, each once.
+type ScrubArtifactError struct {
+	ArtifactID string `json:"artifact_id"`
+	Error      string `json:"error"`
+}
+
+// ScrubCopyOutcome is what a scrub learned about one copy of one artifact. The class is
+// the class that RAN, never the class asked for: a HEAD is reported
+// as a HEAD.
+type ScrubCopyOutcome struct {
+	ArtifactID string `json:"artifact_id"`
+	Class      string `json:"class,omitempty"`
+	Medium     string `json:"medium"`
+	Reason     string `json:"reason,omitempty"`
+	Refused    bool   `json:"refused"`
+	Verdict    string `json:"verdict"`
+}
+
+// ScrubResult is what one scrub did: the counts the pass recorded plus the per-set
+// detail. It is the body `retnd scrub --json` prints, and the one
+// result shape every route that reports a scrub reuses.
+type ScrubResult struct {
+	BytesRead        int64            `json:"bytes_read"`
+	Checked          int64            `json:"checked"`
+	CouldNotComplete int64            `json:"could_not_complete"`
+	Failed           int64            `json:"failed"`
+	PassID           int64            `json:"pass_id,omitempty"`
+	Passed           int64            `json:"passed"`
+	Refused          int64            `json:"refused"`
+	RequiresRestore  int64            `json:"requires_restore"`
+	Scope            string           `json:"scope"`
+	Selected         int64            `json:"selected"`
+	Sets             []ScrubSetResult `json:"sets"`
+	SkippedHeld      int64            `json:"skipped_held"`
+	SkippedLeased    int64            `json:"skipped_leased"`
+	Trigger          string           `json:"trigger"`
+}
+
+// ScrubSetResult is one backup set's part of a scrub.
+type ScrubSetResult struct {
+	BackupSetID string               `json:"backup_set_id"`
+	Copies      []ScrubCopyOutcome   `json:"copies"`
+	Error       string               `json:"error,omitempty"`
+	Errors      []ScrubArtifactError `json:"errors"`
+	Skipped     []ScrubSkip          `json:"skipped"`
+}
+
+// ScrubSkip is work a scrub was asked to do and did not. A skip is always
+// reported: a copy that was due and silently not looked at is the
+// same failure as one never scheduled.
+type ScrubSkip struct {
+	ArtifactID string `json:"artifact_id,omitempty"`
+	Medium     string `json:"medium,omitempty"`
+	Reason     string `json:"reason"`
+}
+
+// ScrubStarted is A scrub is under way. operation_id is what POST
+// /assurance/operations/{op}/cancel takes.
+type ScrubStarted struct {
+	BackupSetID string `json:"backup_set_id"`
+	OperationID string `json:"operation_id"`
+}
+
 // ServiceSchema is the rules the service-behaviour settings are validated against,
 // served so a form does not keep its own copy of a bound the engine
 // enforces.
@@ -3181,6 +3477,16 @@ type SnapshotVerifyRequest struct {
 	SamplePercent int    `json:"sample_percent,omitempty"`
 }
 
+// StartRecoveryTestRequest is POST /backup-sets/{source}/{set}/recovery-test. Starts a recovery
+// test now. An empty body tests the newest known good copy and
+// acknowledges no cost: a copy that costs money to read (a download
+// from a billed object store, or an archived object) is refused,
+// recorded as refused_for_cost, and nothing is read.
+type StartRecoveryTestRequest struct {
+	Acknowledged bool   `json:"acknowledged,omitempty"`
+	ArtifactID   string `json:"artifact_id,omitempty"`
+}
+
 // StorageMediumCredentialsReference is where one storage medium's credentials come from. Exactly one of
 // the four must be set, and none of them is credential MATERIAL:
 // this is a reference in all four spellings. credentials_id is the
@@ -3364,6 +3670,34 @@ type TrustedHostKey struct {
 // since a create request naming one is refused by the registry.
 type UnregisteredBackend struct {
 	Transport string `json:"transport"`
+}
+
+// UpdateAssuranceSettingsRequest is PATCH the deployment-wide assurance block. Every field is nullable
+// because this is a PATCH: omitted leaves the setting alone, and a
+// zero or empty value clears it back to its default. A body that
+// names nothing is refused.
+type UpdateAssuranceSettingsRequest struct {
+	MaxConcurrentFullReads     *int64  `json:"max_concurrent_full_reads"`
+	MaxPerDestination          *int64  `json:"max_per_destination"`
+	RecoveryTestCadenceSeconds *int64  `json:"recovery_test_cadence_seconds"`
+	RecoveryTestMode           *string `json:"recovery_test_mode"`
+	RecoveryTestValidatorID    *string `json:"recovery_test_validator_id"`
+	ScrubCadenceSeconds        *int64  `json:"scrub_cadence_seconds"`
+	ScrubStrategy              *string `json:"scrub_strategy"`
+	StagingRoot                *string `json:"staging_root"`
+	StagingTtlSeconds          *int64  `json:"staging_ttl_seconds"`
+}
+
+// UpdateBackupSetAssuranceRequest is PATCH one backup set's own assurance block. Omitted leaves a field
+// alone and a zero or empty value clears it, so the set inherits it
+// again. Clearing every field is the same as a reset. A body that
+// names nothing is refused.
+type UpdateBackupSetAssuranceRequest struct {
+	RecoveryTestCadenceSeconds *int64  `json:"recovery_test_cadence_seconds"`
+	RecoveryTestMode           *string `json:"recovery_test_mode"`
+	RecoveryTestValidatorID    *string `json:"recovery_test_validator_id"`
+	ScrubCadenceSeconds        *int64  `json:"scrub_cadence_seconds"`
+	ScrubStrategy              *string `json:"scrub_strategy"`
 }
 
 // UpdateBackupSetRequest is PATCH /backup-sets/{source}/{set}. A SPARSE edit of one
@@ -3856,6 +4190,13 @@ var SchemaTypes = map[string]any{
 	"Artifact":                           Artifact{},
 	"ArtifactCheckResponse":              ArtifactCheckResponse{},
 	"ArtifactReinstateResponse":          ArtifactReinstateResponse{},
+	"AssuranceDueItem":                   AssuranceDueItem{},
+	"AssuranceDueResponse":               AssuranceDueResponse{},
+	"AssuranceHostKnob":                  AssuranceHostKnob{},
+	"AssuranceOperationCancelled":        AssuranceOperationCancelled{},
+	"AssuranceRecoveryTestPolicy":        AssuranceRecoveryTestPolicy{},
+	"AssuranceScrubPolicy":               AssuranceScrubPolicy{},
+	"AssuranceSettingsResponse":          AssuranceSettingsResponse{},
 	"AuthErrorResponse":                  AuthErrorResponse{},
 	"BackendEnumValue":                   BackendEnumValue{},
 	"BackendManifest":                    BackendManifest{},
@@ -3863,6 +4204,7 @@ var SchemaTypes = map[string]any{
 	"BackendProbe":                       BackendProbe{},
 	"BackendProbeStep":                   BackendProbeStep{},
 	"BackupSet":                          BackupSet{},
+	"BackupSetAssurance":                 BackupSetAssurance{},
 	"BackupSetEditHold":                  BackupSetEditHold{},
 	"BackupSetEditHoldState":             BackupSetEditHoldState{},
 	"BackupSetHealth":                    BackupSetHealth{},
@@ -3934,6 +4276,9 @@ var SchemaTypes = map[string]any{
 	"RecoverySettingsResponse":           RecoverySettingsResponse{},
 	"RecoverySettingsUpdate":             RecoverySettingsUpdate{},
 	"RecoveryTarget":                     RecoveryTarget{},
+	"RecoveryTestOutput":                 RecoveryTestOutput{},
+	"RecoveryTestOutputRecord":           RecoveryTestOutputRecord{},
+	"RecoveryTestStarted":                RecoveryTestStarted{},
 	"RepositoryHealth":                   RepositoryHealth{},
 	"RepositoryMaintenance":              RepositoryMaintenance{},
 	"RepositoryPassphraseReference":      RepositoryPassphraseReference{},
@@ -3953,6 +4298,12 @@ var SchemaTypes = map[string]any{
 	"SSHKey":                             SSHKey{},
 	"SSHKeyCandidate":                    SSHKeyCandidate{},
 	"SSHKeyDiscoveryLocation":            SSHKeyDiscoveryLocation{},
+	"ScrubArtifactError":                 ScrubArtifactError{},
+	"ScrubCopyOutcome":                   ScrubCopyOutcome{},
+	"ScrubResult":                        ScrubResult{},
+	"ScrubSetResult":                     ScrubSetResult{},
+	"ScrubSkip":                          ScrubSkip{},
+	"ScrubStarted":                       ScrubStarted{},
 	"ServiceSchema":                      ServiceSchema{},
 	"ServiceSettings":                    ServiceSettings{},
 	"SessionResponse":                    SessionResponse{},
@@ -3973,6 +4324,7 @@ var SchemaTypes = map[string]any{
 	"SnapshotRetentionVerdict":           SnapshotRetentionVerdict{},
 	"SnapshotTransition":                 SnapshotTransition{},
 	"SnapshotVerifyRequest":              SnapshotVerifyRequest{},
+	"StartRecoveryTestRequest":           StartRecoveryTestRequest{},
 	"StorageMediumCredentialsReference":  StorageMediumCredentialsReference{},
 	"StorageMediumRequest":               StorageMediumRequest{},
 	"StorageMediumSummary":               StorageMediumSummary{},
@@ -3985,6 +4337,8 @@ var SchemaTypes = map[string]any{
 	"TestConnectionResponse":             TestConnectionResponse{},
 	"TrustedHostKey":                     TrustedHostKey{},
 	"UnregisteredBackend":                UnregisteredBackend{},
+	"UpdateAssuranceSettingsRequest":     UpdateAssuranceSettingsRequest{},
+	"UpdateBackupSetAssuranceRequest":    UpdateBackupSetAssuranceRequest{},
 	"UpdateBackupSetRequest":             UpdateBackupSetRequest{},
 	"UpdateBackupSetWorkflowRequest":     UpdateBackupSetWorkflowRequest{},
 	"UpdateCapacitySettings":             UpdateCapacitySettings{},

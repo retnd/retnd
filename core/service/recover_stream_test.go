@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/retnd/retnd/core/internal/obs"
 	"github.com/retnd/retnd/core/internal/recovery/export"
 )
 
@@ -338,4 +340,189 @@ func TestAPreparationReadThatCannotGetASlotIsARetryAndSpendsNothing(t *testing.T
 		t.Fatalf("the same link was spent by a refusal that read nothing: %v", err)
 	}
 	dl.Close()
+}
+
+// A streamed download is one recovery on the activity feed: a start, the
+// stages it really passes through, and one end (#980's trace, carried by the
+// grant across the ranges).
+
+func stagesOf(t *testing.T, f *recoveryFixture) []string {
+	t.Helper()
+	var got []string
+	for _, ev := range f.eventsNamed(t, obs.EventRecoveryStage) {
+		got = append(got, ev["stage"].(string))
+	}
+	return got
+}
+
+// The end of a download as the feed has to tell it (EPIC Q, W-12b): a page
+// shows "completed", "interrupted at N of M bytes" or "failed verification"
+// from the server's own record, and the three must not be confusable. The
+// first already existed as the `recovery verified` row. A failed range wrote
+// only a `recovery range failed` row, which says failed for a client that
+// walked away and for a chunk that did not match alike, and carries the
+// range asked for, not the size.
+
+func outcomeRows(t *testing.T, f *recoveryFixture) map[string]map[string]any {
+	t.Helper()
+	got := map[string]map[string]any{}
+	for _, r := range f.rows(t) {
+		switch op, _ := r["operation"].(string); op {
+		case "recovery verified", "recovery interrupted", "recovery failed verification":
+			if _, dup := got[op]; dup {
+				t.Fatalf("%q was written twice: %v", op, f.rows(t))
+			}
+			got[op] = r
+		}
+	}
+	return got
+}
+
+func TestAStreamedDownloadEmitsTheStagesItReallyPassesThrough(t *testing.T) {
+	smallChunks(t)
+	f := newRecoveryFixture(t, fixtureOpts{remoteClass: "warm"})
+	var out bytes.Buffer
+	if _, _, err := f.b.RecoverNow(context.Background(), f.session(),
+		RecoveryRequest{ArtifactID: f.artifact, Target: RecoveryTarget{Kind: "download"}, AcknowledgeCost: true}, &out); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"resolving_copy", "reading", "verifying", "writing_target", "cleaning_temporary_files", "complete"}
+	if got := stagesOf(t, f); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("first download stages = %v, want %v", got, want)
+	}
+	if ends := f.eventsNamed(t, obs.EventRecoveryEnd); len(ends) != 1 || ends[0]["result"] != "success" {
+		t.Errorf("recovery_end = %v", ends)
+	}
+}
+
+func TestASecondDownloadOfTheSameArtifactSkipsThePreparationStages(t *testing.T) {
+	smallChunks(t)
+	f := newRecoveryFixture(t, fixtureOpts{remoteClass: "warm"})
+	req := RecoveryRequest{ArtifactID: f.artifact, Target: RecoveryTarget{Kind: "download"}, AcknowledgeCost: true}
+	if _, _, err := f.b.RecoverNow(context.Background(), f.session(), req, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	f.log.Reset()
+	if _, _, err := f.b.RecoverNow(context.Background(), f.session(), req, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"resolving_copy", "writing_target", "cleaning_temporary_files", "complete"}
+	if got := stagesOf(t, f); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("second download stages = %v, want %v (no second read to prepare)", got, want)
+	}
+}
+
+func TestAFailedStreamedDownloadEndsWithAnErrorAndNeverSaysComplete(t *testing.T) {
+	smallChunks(t)
+	f := newRecoveryFixture(t, fixtureOpts{remoteClass: "warm"})
+	f.store.flipAt = 3
+	if _, _, err := f.b.RecoverNow(context.Background(), f.session(),
+		RecoveryRequest{ArtifactID: f.artifact, Target: RecoveryTarget{Kind: "download"}, AcknowledgeCost: true}, io.Discard); err == nil {
+		t.Fatal("a corrupt copy was downloaded")
+	}
+	for _, st := range stagesOf(t, f) {
+		if st == "complete" {
+			t.Error("a failed download reported the Complete stage")
+		}
+	}
+	if ends := f.eventsNamed(t, obs.EventRecoveryEnd); len(ends) != 1 || ends[0]["result"] == "success" {
+		t.Errorf("recovery_end = %v, want one non-success line", ends)
+	}
+}
+
+func TestADownloadAbandonedMidWayEndsItsTraceWhenTheReaperLetsGo(t *testing.T) {
+	smallChunks(t)
+	f := newRecoveryFixture(t, fixtureOpts{localCopy: true})
+	_, dl := redeemDownload(t, f)
+	dl.Close()
+	dl.Served(0, 99, 100, nil) // started, then abandoned
+	f.clock.Advance(10 * time.Minute)
+	f.b.sweepRecoveryIfDue(context.Background())
+	ends := f.eventsNamed(t, obs.EventRecoveryEnd)
+	if len(ends) != 1 || ends[0]["result"] == "success" {
+		t.Fatalf("an abandoned download should end its trace once, as a failure: %v", ends)
+	}
+}
+
+func TestADownloadTheClientWalkedAwayFromIsRecordedAsInterruptedWithBytesSentAndTotal(t *testing.T) {
+	smallChunks(t)
+	f := newRecoveryFixture(t, fixtureOpts{localCopy: true})
+	_, dl := redeemDownload(t, f)
+	buf := make([]byte, 100_000)
+	n, _ := io.ReadFull(dl.Reader(), buf)
+	dl.Close()
+	dl.Served(0, dl.Length()-1, int64(n), errors.New("write: broken pipe"))
+
+	rows := outcomeRows(t, f)
+	r, ok := rows["recovery interrupted"]
+	if !ok {
+		t.Fatalf("a download cut at %d of %d bytes left no interrupted row; rows: %v", n, dl.Length(), f.rows(t))
+	}
+	if r["bytes"] != float64(n) || r["total_bytes"] != float64(dl.Length()) {
+		t.Fatalf("the interrupted row must say how far it got and how far it was going: %v", r)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("an interrupted download is also recorded as %v", rows)
+	}
+}
+
+func TestACopyThatFailedVerificationIsRecordedAsThatAndNotAsInterrupted(t *testing.T) {
+	smallChunks(t)
+	f := newRecoveryFixture(t, fixtureOpts{localCopy: true})
+	_, dl := redeemDownload(t, f)
+	defer dl.Close()
+	p := filepath.Join(f.localDir, "dump.zst")
+	b, _ := os.ReadFile(p)
+	b[3*streamTestChunk+5] ^= 1
+	if err := os.WriteFile(p, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(dl.Reader())
+	if err == nil {
+		t.Fatal("the rotted chunk was not detected")
+	}
+	dl.Close()
+	dl.Served(0, dl.Length()-1, int64(len(got)), err)
+
+	rows := outcomeRows(t, f)
+	r, ok := rows["recovery failed verification"]
+	if !ok {
+		t.Fatalf("a chunk that did not match left no failed-verification row; rows: %v", f.rows(t))
+	}
+	if r["error_code"] != RecoveryLocalCopyCorrupt || r["bytes"] != float64(len(got)) || r["total_bytes"] != float64(dl.Length()) {
+		t.Fatalf("the failed-verification row must name the code and say how many good bytes went out of how many: %v", r)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("a failed verification is also recorded as %v", rows)
+	}
+}
+
+func TestOnlyAFinishedDownloadIsRecordedAsVerifiedAndARefusedRangeIsNoOutcome(t *testing.T) {
+	smallChunks(t)
+	f := newRecoveryFixture(t, fixtureOpts{localCopy: true})
+	token, dl := redeemDownload(t, f)
+	dl.Close()
+	// A bad offset is the client's typo: no outcome, and the grant stays.
+	dl.Served(0, 0, 0, ErrRecoveryRangeNotSatisfiable)
+	if rows := outcomeRows(t, f); len(rows) != 0 {
+		t.Fatalf("a refused range is recorded as an outcome: %v", rows)
+	}
+	requireGrantStillGood(t, f, token, "after a refused range")
+
+	d2, _, err := f.b.RedeemRecovery(context.Background(), f.session(), token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(io.Discard, d2.Reader()); err != nil {
+		t.Fatal(err)
+	}
+	d2.Close()
+	d2.Served(0, d2.Length()-1, d2.Length(), nil)
+	rows := outcomeRows(t, f)
+	if _, ok := rows["recovery verified"]; !ok || len(rows) != 1 {
+		t.Fatalf("a finished download must be recorded as verified and nothing else: %v", rows)
+	}
+	if rows["recovery verified"]["total_bytes"] != float64(d2.Length()) {
+		t.Fatalf("the verified row does not say the total: %v", rows["recovery verified"])
+	}
 }

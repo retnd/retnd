@@ -84,6 +84,9 @@ var commands = map[string]func([]string) int{
 	"retention":       cmdRetention,
 	"reconcile":       cmdReconcile,
 	"validate":        cmdValidate,
+	"scrub":           cmdScrub,
+	"recovery-test":   cmdRecoveryTest,
+	"assurance":       cmdAssurance,
 	"catalog":         cmdCatalog,
 	"quarantine":      cmdQuarantine,
 	"unconfigured":    cmdUnconfigured,
@@ -254,6 +257,42 @@ commands:
                                                   full download and re-hash, which costs egress, so FR-31 makes it
                                                   something an operator asks for rather than something that happens
                                                   (#435)
+  scrub [<source/backup-set> | <source/backup-set/artifact> [--medium ID]] [--content --allow-egress]
+                                                  check the durable copies of what is named now, or every copy that is
+                                                  due when nothing is named: the scrub the daemon runs on a schedule,
+                                                  by hand. Each result prints the class that ran, and an existence
+                                                  check is never called verification of the bytes. A copy in an archive
+                                                  storage class is never read and no restore is started. --content
+                                                  reads a copy on a storage medium in full, which costs egress, so it
+                                                  also needs --allow-egress. Exit 1 when a copy failed, could not be
+                                                  checked, was skipped (held for editing, or being checked by another
+                                                  scrub) or was refused for cost (EPIC Q)
+  recovery-test <source/backup-set> [--artifact <source/backup-set/name>] [--acknowledge-cost] [--json]
+                                                  prove now that the newest known good copy can be got back and used:
+                                                  the copy is staged by the recovery engine, checked against the
+                                                  SHA-256 recorded when it was ingested, and only then handed to the
+                                                  set's validator script (recovery-test/<source>/<set>, selected by the
+                                                  policy's validator_id). A read that costs money is refused unless
+                                                  --acknowledge-cost is given, and no provider restore is ever started.
+                                                  Exit 0 when the copy passed, 10 when the read was refused for cost,
+                                                  1 otherwise (failed, or could not be completed). The same test as
+                                                  POST /api/v1/backup-sets/{source}/{set}/recovery-test, which starts
+                                                  it in the background (EPIC Q)
+                                                  --follow prints the test's stages on standard error as it passes
+                                                  through them; the exit status is unchanged
+  recovery-test <source/backup-set> --show-output [--json]
+                                                  print what the newest recovery test of the set printed, as the
+                                                  engine stored it: sanitised, bounded, one line each, with the
+                                                  runner's own marker if the capture was cut. It reads and runs no
+                                                  test, so it takes none of the flags above. The same body as
+                                                  GET /api/v1/backup-sets/{source}/{set}/recovery-test/output
+                                                  (EPIC Q)
+  assurance cancel <operation-id> [--json]
+                                                  stop a running scrub or recovery test by the operation id its start
+                                                  returned. The operation lives in the memory of the process serving
+                                                  this deployment, so this needs RETND_API_URL and the two credential
+                                                  variables beside it and is refused without them. The same as
+                                                  POST /api/v1/assurance/operations/{op}/cancel (EPIC Q)
   catalog rebuild [--dry-run]                    reconstruct a lost/corrupted state database from sidecar recovery manifests
   quarantine <revalidate|retry|reinstate> <source/backup-set/artifact> [--note T]
                                                   act on one quarantined artifact: revalidate re-checks it and moves
@@ -362,6 +401,9 @@ commands:
                                                   (the archival thaw above, which writes nothing) nor snapshot
                                                   restore (a kopia restore point), and a kopia set is refused with
                                                   a sentence naming that verb
+                                                  --follow prints the recovery's stages on standard error as it
+                                                  passes through them, in the engine's order; the exit status is the
+                                                  recovery's own
   backup-set enabled <source/backup-set> <on|off>
                                                   turn one already-configured backup set on or off, which
                                                   --disabled can only do at creation. "off" stops the scheduler
@@ -562,6 +604,31 @@ commands:
   settings workflow env unset NAME               remove one variable. A name that is not configured is refused rather than
                                                   quietly succeeding: an "unset the credential" that did nothing is
                                                   indistinguishable from one that worked
+  settings assurance [--json]                    report the resolved deployment-wide assurance policy: how often a copy is
+                                                  re-read, what a scrub reads, whether a recovery test is required, and the
+                                                  host-scoped settings that are global only, each with the reason a backup
+                                                  set cannot override it. A config that sets none reports the defaults
+  settings assurance patch [--scrub-cadence D] [--scrub-strategy S] [--recovery-test-mode M]
+                        [--recovery-test-cadence D] [--recovery-test-validator ID]
+                        [--staging-root P] [--staging-ttl D] [--max-concurrent-full-reads N]
+                        [--max-per-destination N] [--json]
+                                                  change the deployment's policy in place. An explicitly zero or empty value
+                                                  clears that setting back to its default. Every set that inherits the
+                                                  changed value decides under it on its next read. This write has no route
+                                                  to a serving engine in this build, so it is refused beside one with the
+                                                  file untouched
+  settings assurance due [--backup-set ID] [--due | --overdue] [--json]
+                                                  the scrub schedule, most overdue first: each copy's last-assured time, when
+                                                  it is next due under its set's resolved cadence, and whether that has
+                                                  passed. A copy nobody has looked at is overdue, never fine
+  backup-set assurance <source/backup-set> [--json]
+                                                  one backup set's resolved assurance policy and whether it is the set's own
+  backup-set assurance <source/backup-set> [--scrub-cadence D] [--scrub-strategy S]
+                          [--recovery-test-mode M] [--recovery-test-cadence D]
+                          [--recovery-test-validator ID] | --reset
+                                                  patch that set's own block, or --reset it to follow the deployment's policy
+                                                  again. The host-scoped settings are refused here by name: they are global
+                                                  only. Refused beside a serving engine, with the file untouched
   backup-set workflow <source/backup-set> [--json]
                                                   one backup set's hook configuration, resolved against the deployment's:
                                                   the stages it will actually run in execution order, which timeout wins

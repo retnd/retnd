@@ -230,6 +230,32 @@ const (
 	// count is the easiest place in the product to do it by accident.
 	EventSnapshotStats = "snapshot_stats"
 
+	// EventScrubPass records one finished scrub pass (EPIC Q, #978): how
+	// many copies it selected, checked, passed and failed, how many it
+	// skipped and why. It is ONE line per pass whatever the pass covered,
+	// because the durable feed is append-only and cursor-paged and a line per
+	// copy over a thousand due copies would be a volume decision made by
+	// accident. Per-copy progress is live-only.
+	EventScrubPass = "scrub_pass"
+
+	// EventScrubFailure records one copy a scrub found wrong, or could not
+	// check. It is the only per-copy line a pass writes, and it exists for
+	// the copies an operator has to do something about.
+	EventScrubFailure = "scrub_failure"
+
+	// EventRecoveryTest records one finished recovery test (EPIC Q, #980):
+	// the newest known good copy of a backup set recovered to isolated
+	// staging, its bytes matched against the artifact's recorded digest, and
+	// the operator's validator run against them.
+	//
+	// It names the validator by the id the operator gave it, never by a
+	// path, and carries the digest gate's outcome and how the validator's
+	// process ended as fields of their own, because a pass and a validator
+	// that exited 0 are not the same claim. The validator's output is not on
+	// this line at all: it is untrusted terminal input, and the sanitised
+	// records a result carries are for the surfaces that render them.
+	EventRecoveryTest = "recovery_test"
+
 	// EventWorkflowRunStart and EventWorkflowRunEnd bracket one EPIC L
 	// workflow run: the five-stage lifecycle internal/workflowrun drives
 	// around a backup set's backup (#811), whether or not that set
@@ -884,5 +910,118 @@ func (l *Logger) WorkflowBypassed(ctx context.Context, runID, backupSet, actor s
 		slog.String("backup_set", backupSet),
 		slog.String("actor", actor),
 		slog.Int("scripts", scripts),
+	)
+}
+
+// ScrubPassCounts is what one scrub pass did, as counts. It names no copy.
+type ScrubPassCounts struct {
+	// Trigger is "schedule" or "manual".
+	Trigger string
+	// Scope is what the pass was asked to cover, in words.
+	Scope string
+
+	Selected, Checked, Passed, Failed, CouldNotComplete, RequiresRestore int
+	SkippedHeld, SkippedLeased                                           int
+	BytesRead                                                            int64
+}
+
+// ScrubPass logs EventScrubPass. A pass that found a failure, could not
+// complete a check, or skipped a copy it was due to scrub completed with
+// something in it worth an operator's attention, so it is a warn: the scrub
+// did its job, which is not an error, and a skip must never read as success.
+func (l *Logger) ScrubPass(ctx context.Context, c ScrubPassCounts) {
+	result := ResultSuccess
+	if c.Failed > 0 || c.CouldNotComplete > 0 || c.SkippedHeld > 0 || c.SkippedLeased > 0 {
+		result = ResultWarn
+	}
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventScrubPass, "scrub pass complete",
+		slog.String("trigger", c.Trigger),
+		slog.String("scope", scrubText(c.Scope)),
+		slog.Int("selected", c.Selected),
+		slog.Int("checked", c.Checked),
+		slog.Int("passed", c.Passed),
+		slog.Int("failed", c.Failed),
+		slog.Int("could_not_complete", c.CouldNotComplete),
+		slog.Int("requires_restore", c.RequiresRestore),
+		slog.Int("skipped_held", c.SkippedHeld),
+		slog.Int("skipped_leased", c.SkippedLeased),
+		slog.Int64("bytes_read", c.BytesRead),
+	)
+}
+
+// ScrubFailure logs EventScrubFailure for one copy. class is the class that
+// ran, never the class asked for.
+func (l *Logger) ScrubFailure(ctx context.Context, artifact, medium, class, reason string) {
+	l.emitMarked(ctx, ResultWarn.Level(), mark{result: ResultWarn}, EventScrubFailure, "scrub found a copy wrong or could not check it",
+		slog.String("artifact", artifact),
+		slog.String("medium", medium),
+		slog.String("class", class),
+		slog.String("reason", scrubText(reason)),
+	)
+}
+
+// scrubText makes free text safe for a structured field: control bytes
+// become spaces and the length is bounded. The reason comes from checks that
+// wrap filesystem and storage errors, and a log line is read in terminals.
+func scrubText(s string) string {
+	const max = 512
+	b := make([]rune, 0, len(s))
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) {
+			r = ' '
+		}
+		b = append(b, r)
+		if len(b) >= max {
+			break
+		}
+	}
+	return string(b)
+}
+
+// RecoveryTestFacts is what a finished recovery test says about itself,
+// restricted to values that are safe in a structured field.
+type RecoveryTestFacts struct {
+	Artifact string
+	Medium   string
+	// PlacementID is the copy's row id in the journal.
+	PlacementID int64
+	// State is one of internal/state's Recovery* values.
+	State string
+	// DigestMatched is "matched", "mismatched" or "not_compared".
+	DigestMatched string
+	// ValidatorID is the operator's name for the validator, never a path.
+	ValidatorID string
+	// Termination says how the validator's process ended.
+	Termination string
+	// Cleanup is "removed", "failed" or empty when nothing was staged.
+	Cleanup         string
+	OutputTruncated bool
+	Reason          string
+}
+
+// RecoveryTest logs EventRecoveryTest. A pass is a success; a failure is a
+// warn (the test did its job and found the copy unusable); a refusal or an
+// attempt that could not complete is a warn too, because "nobody looked" must
+// not read as nothing wrong. A cleanup failure upgrades the line to a warn
+// even on a pass: the claim is fine and a disk is filling.
+func (l *Logger) RecoveryTest(ctx context.Context, f RecoveryTestFacts) {
+	result := ResultWarn
+	if f.State == "passed" && f.Cleanup != "failed" {
+		result = ResultSuccess
+	}
+	if f.State == "not_configured" || f.State == "never_run" {
+		result = ResultInfo
+	}
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventRecoveryTest, "recovery test complete",
+		slog.String("artifact", f.Artifact),
+		slog.String("medium", f.Medium),
+		slog.Int64("placement_id", f.PlacementID),
+		slog.String("state", f.State),
+		slog.String("digest", f.DigestMatched),
+		slog.String("validator", scrubText(f.ValidatorID)),
+		slog.String("termination", f.Termination),
+		slog.String("cleanup", f.Cleanup),
+		slog.Bool("output_truncated", f.OutputTruncated),
+		slog.String("reason", scrubText(f.Reason)),
 	)
 }

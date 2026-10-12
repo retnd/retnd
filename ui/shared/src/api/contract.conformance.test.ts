@@ -487,6 +487,13 @@ describe("every request the shared client makes is a declared operation", () => 
       ["resumeWorkflowCleanup", () => httpApi.resumeWorkflowCleanup("wfr_1")],
       ["acknowledgeWorkflowRecovery", () =>
         httpApi.acknowledgeWorkflowRecovery("wfr_1", "thawed the database by hand")],
+      // EPIC Q's assurance surface (Q1.4, #982).
+      ["getAssuranceSettings", () => httpApi.getAssuranceSettings()],
+      ["patchAssuranceSettings", () => httpApi.patchAssuranceSettings({ scrubCadenceSeconds: 43_200 })],
+      ["getBackupSetAssurance", () => httpApi.getBackupSetAssurance("src", "set-1")],
+      ["patchBackupSetAssurance", () => httpApi.patchBackupSetAssurance("src", "set-1", { scrubCadenceSeconds: 7_200 })],
+      ["resetBackupSetAssurance", () => httpApi.resetBackupSetAssurance("src", "set-1")],
+      ["listAssuranceDue", () => httpApi.listAssuranceDue({ backupSetId: "src/set-1", status: "overdue" })],
       ["getWorkflowSettings", () => httpApi.getWorkflowSettings()],
       ["patchWorkflowSettings", () => httpApi.patchWorkflowSettings({ scriptTimeoutSeconds: 300 })],
       ["listWorkflowEnvironment", () => httpApi.listWorkflowEnvironment()],
@@ -671,7 +678,13 @@ describe("every request the shared client makes is a declared operation", () => 
     // the paragraph above describes: adding a contract operation forces a
     // line here, and wiring a screen to it forces the line back out.
     "mintRecovery",
-    "redeemRecovery"
+    "redeemRecovery",
+    //
+    // EPIC Q's "run a recovery test now" (#980): POST
+    // /backup-sets/{source}/{set}/recovery-test. The API and the CLI verb
+    // (`retnd recovery-test`) are the engine's half; the Run button is the
+    // assurance screens' (#985) and takes this line out when it calls it.
+    "startRecoveryTest"
   ];
 
   it("pins the contract operations no client call reaches", () => {

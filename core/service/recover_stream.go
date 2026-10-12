@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
 
+	"github.com/retnd/retnd/core/internal/obs"
 	"github.com/retnd/retnd/core/internal/recovery/budget"
 	"github.com/retnd/retnd/core/internal/recovery/export"
 	"github.com/retnd/retnd/core/internal/transport"
@@ -243,9 +245,10 @@ func (d *downloadIndexes) build(ctx context.Context, key string, fn func() (*exp
 // bound on simultaneous full reads, per destination and overall) for its
 // duration. A refusal for want of a slot is transient (RECOVERY_READS_BUSY
 // with a Retry-After) and spends neither the grant nor the stream slot.
-func (b *BackupService) preflightDownload(ctx context.Context, h *recoveryHost, g export.Grant, attached *export.ChunkIndex) (pf downloadPreflight, err error) {
+func (b *BackupService) preflightDownload(ctx context.Context, h *recoveryHost, g export.Grant, attached *export.ChunkIndex, trace *recoveryTrace) (pf downloadPreflight, err error) {
 	// The grant already carries the cost acknowledgement: a chargeable copy
 	// could not have been minted without it.
+	trace.stage(ctx, "resolving_copy")
 	plan, err := b.planRecovery(ctx, g.Artifact, g.Copy, true)
 	if err != nil {
 		return downloadPreflight{}, err
@@ -297,6 +300,7 @@ func (b *BackupService) preflightDownload(ctx context.Context, h *recoveryHost, 
 			return nil, rerr
 		}
 		defer release()
+		trace.stage(ctx, "reading")
 		rc, oerr := src.OpenAt(ctx, 0)
 		if oerr != nil {
 			return nil, oerr
@@ -306,6 +310,10 @@ func (b *BackupService) preflightDownload(ctx context.Context, h *recoveryHost, 
 		if berr != nil {
 			return nil, berr
 		}
+		// BuildIndex reads and hashes in one pass and refuses on a mismatch
+		// before it returns, so this stage is entered with the verdict in
+		// hand.
+		trace.stage(ctx, "verifying")
 		// A cache that cannot be written costs the next download another
 		// read, not this one.
 		if serr := h.indexes.store.Save(key, built); serr != nil {
@@ -348,11 +356,19 @@ func (b *BackupService) redeemDownload(ctx context.Context, h *recoveryHost, ses
 		releaseStream = rel
 	}
 
-	var attached *export.ChunkIndex
+	// One recovery is one trace on the activity feed, started by the first
+	// request and carried by the grant for the ranges that follow.
+	var (
+		attached *export.ChunkIndex
+		trace    *recoveryTrace
+	)
 	if st, ok := red.Attached.(*recoveryDownloadState); ok && st != nil {
-		attached = st.index
+		attached, trace = st.index, st.trace
 	}
-	pf, err := b.preflightDownload(ctx, h, g, attached)
+	if red.First {
+		trace = b.newRecoveryTrace(ctx, g.Artifact)
+	}
+	pf, err := b.preflightDownload(ctx, h, g, attached, trace)
 	if err != nil {
 		b.auditRecovery(ctx, &ev, err)
 		if errors.Is(err, budget.ErrOverBudget) {
@@ -360,6 +376,7 @@ func (b *BackupService) redeemDownload(ctx context.Context, h *recoveryHost, ses
 			if red.First {
 				releaseStream()
 				h.grants.Revert(token)
+				trace.fail(ctx, err)
 			} else {
 				h.grants.Done(token)
 			}
@@ -370,18 +387,20 @@ func (b *BackupService) redeemDownload(ctx context.Context, h *recoveryHost, ses
 		// link, and a new one is one click.
 		if red.First {
 			releaseStream()
+			trace.fail(ctx, err)
 		}
 		b.finishRecoveryDownload(token)
 		return nil, mapRecoveryError(err)
 	}
 	if red.First {
-		h.grants.Attach(token, &recoveryDownloadState{index: pf.index, release: releaseStream})
+		h.grants.Attach(token, &recoveryDownloadState{index: pf.index, release: releaseStream, trace: trace})
 	}
+	trace.stage(ctx, "writing_target")
 	reader := export.NewVerifiedReader(ctx, pf.src, pf.index, pf.plan.expect.Origin, pf.plan.expect.Medium)
 	return &RecoveryDownload{
 		name: filepath.Base(g.Artifact), size: pf.index.Size, content: reader, index: pf.index,
-		etag: export.ETag(g.Artifact, pf.index.SHA256),
-		b:    b, token: token, actor: sess.Actor, ev: ev,
+		etag: export.ETag(g.Artifact, pf.index.SHA256), trace: trace,
+		b: b, token: token, actor: sess.Actor, ev: ev,
 	}, nil
 }
 
@@ -409,6 +428,7 @@ func (d *RecoveryDownload) recordVerified() {
 	ev := d.ev
 	ev.op = "verified"
 	ev.bytes = d.size
+	ev.total = d.size
 	ev.rng = ""
 	ev.note = "sha256 " + d.index.SHA256 + ", " + strconv.FormatInt(d.size, 10) + " bytes: " + how
 	d.b.auditRecovery(context.Background(), &ev, nil)
@@ -416,6 +436,43 @@ func (d *RecoveryDownload) recordVerified() {
 		At: time.Now().UTC(), Copy: d.ev.copy, Bytes: d.size, SHA256: d.index.SHA256, ETag: d.etag,
 		WholeStream: d.content.WholeVerified(), Chunks: d.index.Count(),
 	})
+}
+
+// recordEnd writes the row that ends a download that did not finish, so a
+// page can tell the two ways it can stop apart from the feed alone:
+//
+//   - `recovery failed verification`: a chunk or the whole did not match what
+//     the journal recorded (or the copy lost bytes). `bytes` is how many
+//     verified bytes this request had sent before it stopped, `total_bytes`
+//     the artifact's size, and `error_code` says which copy.
+//   - `recovery interrupted`: anything else stopped it, most often the
+//     client going away. Same two numbers, `reached` is the byte offset it
+//     got to (where a resume would start).
+//
+// The completed case is `recovery verified`. A client's bad range offset is
+// none of the three (Served filters it before this).
+func (d *RecoveryDownload) recordEnd(start, written int64, err error) {
+	ev := d.ev
+	ev.bytes = written
+	ev.total = d.size
+	ev.rng = ""
+	attrs := []slog.Attr{
+		slog.String("actor", ev.actor),
+		slog.String("route", "GET /api/v1/recoveries/{grant}"),
+		slog.String("artifact", ev.artifact),
+		slog.String("copy", ev.copy),
+		slog.String("target", ev.target),
+		slog.Int64("bytes", written),
+		slog.Int64("total_bytes", d.size),
+		slog.Int64("reached", start+written),
+	}
+	op, outcome, level := "interrupted", "interrupted", obs.ResultWarn
+	if re, ok := AsRecoveryError(mapRecoveryError(err)); ok && (re.Code == RecoveryLocalCopyCorrupt || re.Code == RecoveryRemoteCopyCorrupt) {
+		op, outcome, level = "failed verification", "failed_verification", obs.ResultError
+		attrs = append(attrs, slog.String("error_code", re.Code))
+	}
+	attrs = append(attrs, slog.String("operation", "recovery "+op), slog.String("outcome", outcome))
+	d.b.logger.Completed(context.Background(), level, obs.EventAPIAction, "recovery "+op, attrs...)
 }
 
 // recoveryVerification is what the server remembers about the last download

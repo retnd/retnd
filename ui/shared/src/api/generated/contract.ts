@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "3b73d5d3d2eaf6ac9985ebac3ff172e3df1613abbcede9981d151a21a3b50f62";
+export const CONTRACT_SHA256 = "71ab3f49187fcdc37410240a57d295d065bac46c97f817e3669489ebb9135056";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -307,6 +307,46 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     errorCodes: {
       401: ["UNAUTHENTICATED"],
       404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "listAssuranceDue",
+    method: "GET",
+    path: "/assurance/due",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "AssuranceDueResponse",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "cancelAssuranceOperation",
+    method: "POST",
+    path: "/assurance/operations/{op}/cancel",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "AssuranceOperationCancelled",
+    successStatus: 202,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["OPERATION_NOT_FOUND"],
       500: ["INTERNAL"],
       503: ["NOT_CONFIGURED"],
     }
@@ -675,6 +715,66 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "resetBackupSetAssurance",
+    method: "DELETE",
+    path: "/backup-sets/{source}/{set}/assurance",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "BackupSetAssurance",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "getBackupSetAssurance",
+    method: "GET",
+    path: "/backup-sets/{source}/{set}/assurance",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "BackupSetAssurance",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "updateBackupSetAssurance",
+    method: "PATCH",
+    path: "/backup-sets/{source}/{set}/assurance",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "UpdateBackupSetAssuranceRequest",
+    responseSchema: "BackupSetAssurance",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
     id: "getBackupSetEditHold",
     method: "GET",
     path: "/backup-sets/{source}/{set}/edit-hold",
@@ -793,6 +893,47 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "startRecoveryTest",
+    method: "POST",
+    path: "/backup-sets/{source}/{set}/recovery-test",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "StartRecoveryTestRequest",
+    responseSchema: "RecoveryTestStarted",
+    successStatus: 202,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND", "ARTIFACT_NOT_FOUND"],
+      409: ["OPERATION_ALREADY_RUNNING"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "getRecoveryTestOutput",
+    method: "GET",
+    path: "/backup-sets/{source}/{set}/recovery-test/output",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "RecoveryTestOutput",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
     id: "clearBackupSetRetention",
     method: "DELETE",
     path: "/backup-sets/{source}/{set}/retention",
@@ -891,6 +1032,28 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
       404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "startScrub",
+    method: "POST",
+    path: "/backup-sets/{source}/{set}/scrub",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ScrubStarted",
+    successStatus: 202,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      409: ["OPERATION_ALREADY_RUNNING"],
       500: ["INTERNAL"],
       503: ["NOT_CONFIGURED"],
     }
@@ -1447,6 +1610,44 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     successStatus: 200,
     errorCodes: {
       400: ["INVALID_REQUEST", "MEDIUM_DISCLOSURE_REQUIRED"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "getAssuranceSettings",
+    method: "GET",
+    path: "/settings/assurance",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "AssuranceSettingsResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "updateAssuranceSettings",
+    method: "PATCH",
+    path: "/settings/assurance",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "UpdateAssuranceSettingsRequest",
+    responseSchema: "AssuranceSettingsResponse",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
       403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
       500: ["INTERNAL"],
@@ -2233,6 +2434,73 @@ export interface WireArtifactReinstateResponse {
   state?: string;
 }
 
+/** One copy's place in the scrub schedule. */
+export interface WireAssuranceDueItem {
+  artifact_id?: string;
+  artifact_name?: string;
+  backup_set_id?: string;
+  basis?: string;
+  cadence_seconds?: number;
+  due?: boolean;
+  last_assured_at?: string;
+  next_due_at?: string;
+  overdue?: boolean;
+}
+
+/** The scrub schedule, most overdue first, computed from each set's
+ *  resolved policy. */
+export interface WireAssuranceDueResponse {
+  generated_at?: string;
+  items?: WireAssuranceDueItem[];
+}
+
+/** A setting that is global only, with the reason a backup set cannot
+ *  override it. The per-set answer is written down for every
+ *  host-scoped knob so nobody looks for a per-set switch that could
+ *  not work. */
+export interface WireAssuranceHostKnob {
+  name?: string;
+  per_set?: boolean;
+  reason?: string;
+  value?: string;
+}
+
+/** A running scrub or recovery test has been told to stop. */
+export interface WireAssuranceOperationCancelled {
+  backup_set_id: string;
+  kind: "scrub" | "recovery_test";
+  operation_id: string;
+  status: "cancelling";
+}
+
+/** A resolved recovery-test policy. */
+export interface WireAssuranceRecoveryTestPolicy {
+  cadence_seconds?: number;
+  mode?: string;
+  validator_id?: string;
+}
+
+/** A resolved scrub policy: how often a copy is re-read and how much
+ *  of it is read. */
+export interface WireAssuranceScrubPolicy {
+  cadence_seconds?: number;
+  strategy?: string;
+}
+
+/** The deployment-wide assurance policy, RESOLVED. A config that
+ *  never mentions assurance reports the defaults here, which is the
+ *  point: the default is good enough that nobody has to set it. */
+export interface WireAssuranceSettingsResponse {
+  configured?: boolean;
+  host_knobs?: WireAssuranceHostKnob[];
+  max_concurrent_full_reads?: number;
+  max_per_destination?: number;
+  recovery_test?: WireAssuranceRecoveryTestPolicy;
+  scrub?: WireAssuranceScrubPolicy;
+  staging_root?: string;
+  staging_ttl_seconds?: number;
+}
+
 /** The FLAT error body the /auth operations return, with the
  *  correlation id in the body as well as the header. Deliberately
  *  recorded as a second shape rather than pretended away:
@@ -2338,6 +2606,16 @@ export interface WireBackupSet {
   verification_level?: string;
   verification_restore_drill_every_seconds?: number;
   verification_sample_percent?: number;
+}
+
+/** One backup set's resolved assurance policy and whether it is the
+ *  set's own. Served together because 'what is deciding' and 'is that
+ *  this set's own or the deployment's' are one question. */
+export interface WireBackupSetAssurance {
+  backup_set_id: string;
+  is_override: boolean;
+  recovery_test: WireAssuranceRecoveryTestPolicy;
+  scrub: WireAssuranceScrubPolicy;
 }
 
 /** POST /backup-sets/{source}/{set}/edit-hold. The lease just taken
@@ -3300,6 +3578,39 @@ export interface WireRecoveryTarget {
   path?: string;
 }
 
+/** What the newest recovery test of a backup set printed. Only the
+ *  newest test is kept per set. */
+export interface WireRecoveryTestOutput {
+  artifact_id: string;
+  backup_set_id: string;
+  medium: string;
+  operation_id: string;
+  recorded: boolean;
+  recorded_at: string;
+  records: WireRecoveryTestOutputRecord[];
+  state: string;
+  truncated: boolean;
+}
+
+/** One line of a validator's output, or the runner's own truncation
+ *  marker. Branch on kind and never on text: only the runner produces
+ *  a truncation record, so a validator that prints the marker's words
+ *  is still an output record. */
+export interface WireRecoveryTestOutputRecord {
+  kind: "output" | "truncation";
+  text: string;
+}
+
+/** A recovery test is under way. operation_id is carried by its
+ *  recovery_test_start, recovery_stage and recovery_test_end lines on
+ *  the activity feed, which is how a client follows it; the verdict
+ *  is the copy's recovery claim once it ends. */
+export interface WireRecoveryTestStarted {
+  backup_set_id: string;
+  coalesced: boolean;
+  operation_id: string;
+}
+
 /** One repository domain's own health, which is a different question
  *  from any backup set's. A set can be perfectly fresh while the
  *  repository holding its snapshots is unwritable, out of
@@ -3588,6 +3899,71 @@ export interface WireSSHKeyDiscoveryLocation {
   problem?: string;
 }
 
+/** An artifact the pass could not give a verdict at all, with the
+ *  infrastructure problem that stopped it. The copies it did get a
+ *  verdict for are in the set's copies, each once. */
+export interface WireScrubArtifactError {
+  artifact_id: string;
+  error: string;
+}
+
+/** What a scrub learned about one copy of one artifact. The class is
+ *  the class that RAN, never the class asked for: a HEAD is reported
+ *  as a HEAD. */
+export interface WireScrubCopyOutcome {
+  artifact_id: string;
+  class?: string;
+  medium: string;
+  reason?: string;
+  refused: boolean;
+  verdict: string;
+}
+
+/** What one scrub did: the counts the pass recorded plus the per-set
+ *  detail. It is the body `retnd scrub --json` prints, and the one
+ *  result shape every route that reports a scrub reuses. */
+export interface WireScrubResult {
+  bytes_read: number;
+  checked: number;
+  could_not_complete: number;
+  failed: number;
+  pass_id?: number;
+  passed: number;
+  refused: number;
+  requires_restore: number;
+  scope: string;
+  selected: number;
+  sets: WireScrubSetResult[];
+  skipped_held: number;
+  skipped_leased: number;
+  trigger: string;
+}
+
+/** One backup set's part of a scrub. */
+export interface WireScrubSetResult {
+  backup_set_id: string;
+  copies: WireScrubCopyOutcome[];
+  error?: string;
+  errors: WireScrubArtifactError[];
+  skipped: WireScrubSkip[];
+}
+
+/** Work a scrub was asked to do and did not. A skip is always
+ *  reported: a copy that was due and silently not looked at is the
+ *  same failure as one never scheduled. */
+export interface WireScrubSkip {
+  artifact_id?: string;
+  medium?: string;
+  reason: string;
+}
+
+/** A scrub is under way. operation_id is what POST
+ *  /assurance/operations/{op}/cancel takes. */
+export interface WireScrubStarted {
+  backup_set_id: string;
+  operation_id: string;
+}
+
 /** The rules the service-behaviour settings are validated against,
  *  served so a form does not keep its own copy of a bound the engine
  *  enforces. */
@@ -3831,6 +4207,16 @@ export interface WireSnapshotVerifyRequest {
   sample_percent?: number;
 }
 
+/** POST /backup-sets/{source}/{set}/recovery-test. Starts a recovery
+ *  test now. An empty body tests the newest known good copy and
+ *  acknowledges no cost: a copy that costs money to read (a download
+ *  from a billed object store, or an archived object) is refused,
+ *  recorded as refused_for_cost, and nothing is read. */
+export interface WireStartRecoveryTestRequest {
+  acknowledged?: boolean;
+  artifact_id?: string;
+}
+
 /** Where one storage medium's credentials come from. Exactly one of
  *  the four must be set, and none of them is credential MATERIAL:
  *  this is a reference in all four spellings. credentials_id is the
@@ -4014,6 +4400,34 @@ export interface WireTrustedHostKey {
  *  since a create request naming one is refused by the registry. */
 export interface WireUnregisteredBackend {
   transport: string;
+}
+
+/** PATCH the deployment-wide assurance block. Every field is nullable
+ *  because this is a PATCH: omitted leaves the setting alone, and a
+ *  zero or empty value clears it back to its default. A body that
+ *  names nothing is refused. */
+export interface WireUpdateAssuranceSettingsRequest {
+  max_concurrent_full_reads?: number;
+  max_per_destination?: number;
+  recovery_test_cadence_seconds?: number;
+  recovery_test_mode?: string;
+  recovery_test_validator_id?: string;
+  scrub_cadence_seconds?: number;
+  scrub_strategy?: string;
+  staging_root?: string;
+  staging_ttl_seconds?: number;
+}
+
+/** PATCH one backup set's own assurance block. Omitted leaves a field
+ *  alone and a zero or empty value clears it, so the set inherits it
+ *  again. Clearing every field is the same as a reset. A body that
+ *  names nothing is refused. */
+export interface WireUpdateBackupSetAssuranceRequest {
+  recovery_test_cadence_seconds?: number;
+  recovery_test_mode?: string;
+  recovery_test_validator_id?: string;
+  scrub_cadence_seconds?: number;
+  scrub_strategy?: string;
 }
 
 /** PATCH /backup-sets/{source}/{set}. A SPARSE edit of one

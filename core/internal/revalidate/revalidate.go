@@ -50,6 +50,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"sync"
 	"time"
 
 	"github.com/retnd/retnd/core/internal/config"
@@ -70,6 +72,13 @@ import (
 type Journal interface {
 	lifecycle.Journal
 	ListByBackupSet(ctx context.Context, set model.BackupSetID) ([]state.Record, error)
+
+	// The per-copy assurance record (migration 0016). RecordCopyScrub is
+	// where a verdict lands; Claim and Release are the lease that makes two
+	// scrubbers of one copy impossible, across processes.
+	RecordCopyScrub(ctx context.Context, c state.CopyScrub) error
+	ClaimCopyScrub(ctx context.Context, a model.ArtifactID, medium, holder string, now time.Time, ttl time.Duration) (bool, error)
+	ReleaseCopyScrub(ctx context.Context, a model.ArtifactID, medium, holder string) error
 }
 
 // Mediums resolves a placement's medium id into the descriptor a
@@ -113,20 +122,35 @@ type Deps struct {
 	Mediums Mediums
 
 	// Now is injectable so a test can control both what a recorded
-	// transition's OccurredAt is stamped with and, transitively through
-	// UpdatedAt, what a later SelectDue call sees. Nil means time.Now.
+	// transition's OccurredAt is stamped with and what a copy's next due
+	// time is computed from. Nil means time.Now.
 	Now func() time.Time
+
+	// Held reports whether a backup set is held for editing
+	// (core/service/edithold.go). A held set is not scrubbed, and the skip
+	// is reported rather than silent. Nil means nothing is ever held.
+	Held func(set model.BackupSetID) bool
+
+	// Bounds are the pacing knobs (jitter, backoff, lease length). The zero
+	// value means the documented defaults.
+	Bounds Bounds
+
+	// Limits is the shared admission control for reads. Share one across
+	// every Run in a process to make the cap global. Nil means unbounded,
+	// which is only right for a test.
+	Limits *Limits
+
+	// Holder names this process's lease on a copy. It must differ between a
+	// scheduler and a manual scrub so they conflict instead of renewing.
+	Holder string
+
+	// OnResult, when non-nil, is called with each artifact's finding as it
+	// is concluded. It is the live-progress seam: per-copy progress is
+	// delivered here and never persisted.
+	OnResult func(Finding)
 }
 
-// now resolves the clock once per pass, in UTC whichever branch it takes.
-//
-// Run calls this once and hands the instant to SelectDue, rather than
-// letting each artifact ask again. That matters more here than it looks:
-// due-ness is a comparison against UpdatedAt, so a clock read per artifact
-// would make the interval boundary land in a different place for the first
-// record in a batch than for the last, and an artifact sitting exactly on
-// the boundary would be selected or not depending on how long the pass had
-// been running.
+// now resolves the clock, in UTC whichever branch it takes.
 func (d Deps) now() time.Time {
 	if d.Now == nil {
 		return time.Now().UTC()
@@ -137,6 +161,46 @@ func (d Deps) now() time.Time {
 // lifecycleDeps adapts Deps into the lifecycle.Deps shape Advance needs.
 func (d Deps) lifecycleDeps() lifecycle.Deps {
 	return lifecycle.Deps{Journal: d.Journal, Now: d.Now}
+}
+
+func (d Deps) holder() string {
+	if d.Holder != "" {
+		return d.Holder
+	}
+	return "revalidate"
+}
+
+// Options narrows or forces one Run. The zero value is the unattended,
+// scheduled pass: every due copy, bounded by cfg.MaxPerCycle, at the
+// automatic class.
+type Options struct {
+	// Force checks the selected copies whether or not they are due and
+	// without the per-cycle bound, for an operator who named them.
+	Force bool
+
+	// Only restricts the pass to one artifact, and Medium to one of its
+	// copies. Either implies nothing about due-ness: pair them with Force.
+	Only   *model.ArtifactID
+	Medium string
+
+	// Content asks for placement.Content against a copy on a storage
+	// medium: the object is downloaded and re-hashed. It costs egress, so
+	// it is refused unless AllowEgress says the cost was acknowledged, and
+	// it is never attempted against an archive-class copy at all.
+	Content     bool
+	AllowEgress bool
+}
+
+// CopyResult is what a scrub concluded about one copy.
+type CopyResult struct {
+	Medium  string
+	Verdict state.ScrubVerdict
+	// Class is the class that RAN. Empty when nothing ran.
+	Class  placement.Class
+	Reason string
+	// Refused is true when the read was not made because it would have
+	// spent money nobody acknowledged. A refusal is reported, not recorded.
+	Refused bool
 }
 
 // Finding is one artifact Run examined.
@@ -155,10 +219,7 @@ type Finding struct {
 
 	// Checked is false when nothing cfg enables could actually produce a
 	// verdict for this specific artifact (see runChecks's doc). When
-	// false, Passed is meaningless and no journal write happened at all:
-	// From always equals To, and the artifact's due-ness clock (UpdatedAt)
-	// is deliberately left untouched, so it stays selectable next cycle
-	// rather than looking freshly checked.
+	// false, Passed is meaningless and no verdict was recorded on any copy.
 	Checked bool
 	// Passed is this artifact's combined verdict across every tier cfg
 	// enabled. Meaningless when Checked is false.
@@ -180,6 +241,9 @@ type Finding struct {
 	// in the sense the local check means. Carrying the class is what lets
 	// every surface downstream say which one happened.
 	Class placement.Class
+
+	// Copies is one entry per copy the pass looked at.
+	Copies []CopyResult
 }
 
 // ArtifactError is a per-artifact problem that stopped Run from reaching a
@@ -195,6 +259,14 @@ type ArtifactError struct {
 	// and said "this artifact is corrupt" is a Finding with Passed false;
 	// only a check that could not run at all lands here.
 	Err error
+
+	// Copies is what the pass learned about each copy of the artifact before
+	// it hit the problem in Err, and recorded on the copy. It is empty when
+	// the problem came before any copy was asked. Without it an artifact with
+	// one copy provably gone and another that did not answer reports as one
+	// error, and a failed copy the journal holds a verdict for is never
+	// reported to anyone.
+	Copies []CopyResult
 }
 
 // Error renders as "artifact: reason".
@@ -205,6 +277,47 @@ func (e ArtifactError) Error() string { return fmt.Sprintf("%s: %v", e.Artifact,
 // artifact went wrong, and a caller reading a Report needs the same ability
 // for the same reason.
 func (e ArtifactError) Unwrap() error { return e.Err }
+
+// copiesError is an error that also carries what the pass learned about each
+// copy before it stopped. checkArtifact records those verdicts on the copies
+// whatever happens next, so the report has to be able to say them too.
+type copiesError struct {
+	err    error
+	copies []CopyResult
+}
+
+func (e *copiesError) Error() string { return e.err.Error() }
+func (e *copiesError) Unwrap() error { return e.err }
+
+// artifactErrorFrom is the report entry for an artifact whose pass stopped on
+// err, with the per-copy outcomes if err carried any.
+func artifactErrorFrom(a model.ArtifactID, err error) ArtifactError {
+	var ce *copiesError
+	if errors.As(err, &ce) {
+		return ArtifactError{Artifact: a, Err: ce.err, Copies: ce.copies}
+	}
+	return ArtifactError{Artifact: a, Err: err}
+}
+
+// SkipReason says why a due copy was not scrubbed. A skip is always visible:
+// a copy that was due and silently not looked at is the same failure as one
+// that was never scheduled.
+type SkipReason string
+
+const (
+	// SkipHeld means the copy's backup set is held for editing.
+	SkipHeld SkipReason = "held"
+	// SkipLeased means another scrubber holds the copy right now.
+	SkipLeased SkipReason = "leased"
+)
+
+// Skip is one copy a pass did not scrub, and why.
+type Skip struct {
+	Artifact model.ArtifactID
+	// Medium is empty when the whole artifact (or set) was skipped.
+	Medium string
+	Reason SkipReason
+}
 
 // Report is everything one Run call found and did.
 type Report struct {
@@ -220,6 +333,15 @@ type Report struct {
 	// at all. An empty Errors with a short Findings list is the shape of a
 	// pass bounded by MaxPerCycle, not the shape of a pass that failed.
 	Errors []ArtifactError
+
+	// Skipped is every copy or set the pass was due to scrub and did not.
+	Skipped []Skip
+
+	// Selected is how many artifacts the pass set out to look at.
+	Selected int
+
+	// BytesRead is the total read off storage by checks that read bytes.
+	BytesRead int64
 }
 
 // Run performs one scheduled-revalidation pass over set: it loads set's
@@ -243,14 +365,30 @@ type Report struct {
 // the pass, the same convention internal/reconcile.Reconcile already
 // uses.
 func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg config.Revalidation) (Report, error) {
+	return RunWith(ctx, deps, set, cfg, Options{})
+}
+
+// RunWith is Run with an operator's narrowing and forcing. The unattended
+// scheduler never passes anything but the zero Options.
+func RunWith(ctx context.Context, deps Deps, set model.BackupSetID, cfg config.Revalidation, opts Options) (Report, error) {
 	if deps.Journal == nil {
 		return Report{}, fmt.Errorf("revalidate: Deps needs a Journal")
 	}
 	if set.IsZero() {
 		return Report{}, fmt.Errorf("revalidate: needs a backup set id")
 	}
-	if cfg.MaxPerCycle <= 0 {
+	if cfg.MaxPerCycle <= 0 && !opts.Force {
 		return Report{}, nil
+	}
+
+	var report Report
+
+	// An edit hold stops a set's scrub exactly as it stops its cycle, and
+	// the skip is a line in the report: a hold must never read as "nothing
+	// was due".
+	if deps.Held != nil && deps.Held(set) {
+		report.Skipped = append(report.Skipped, Skip{Reason: SkipHeld})
+		return report, nil
 	}
 
 	records, err := deps.Journal.ListByBackupSet(ctx, set)
@@ -258,66 +396,325 @@ func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg config.Reval
 		return Report{}, fmt.Errorf("revalidate: listing %s: %w", set, err)
 	}
 
-	due := SelectDue(records, cfg, deps.now())
-
-	var report Report
-	for _, rec := range due {
-		if err := ctx.Err(); err != nil {
-			return report, fmt.Errorf("revalidate: cancelled: %w", err)
-		}
-
-		finding, err := checkArtifact(ctx, deps, cfg, rec)
-		if err != nil {
-			if isCancelled(err) {
-				return report, fmt.Errorf("revalidate: cancelled: %w", err)
-			}
-			report.Errors = append(report.Errors, ArtifactError{Artifact: rec.Artifact, Err: err})
-			continue
-		}
-		report.Findings = append(report.Findings, finding)
+	now := deps.now()
+	var due []state.Record
+	if opts.Force {
+		due = SelectEligible(records)
+	} else {
+		due = SelectDue(records, cfg, now)
 	}
-	return report, nil
+	if opts.Only != nil {
+		kept := due[:0:0]
+		for _, rec := range due {
+			if rec.Artifact == *opts.Only {
+				kept = append(kept, rec)
+			}
+		}
+		due = kept
+	}
+	report.Selected = len(due)
+
+	var (
+		mu      sync.Mutex
+		wg      sync.WaitGroup
+		stopErr error
+	)
+	workers := deps.Bounds.withDefaults().GlobalConcurrency
+	if workers > len(due) {
+		workers = len(due)
+	}
+	jobs := make(chan state.Record)
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for rec := range jobs {
+				finding, skips, bytes, err := scrubArtifact(ctx, deps, cfg, opts, set, rec, now)
+				mu.Lock()
+				report.Skipped = append(report.Skipped, skips...)
+				report.BytesRead += bytes
+				switch {
+				case err != nil && isCancelled(err):
+					if stopErr == nil {
+						stopErr = fmt.Errorf("revalidate: cancelled: %w", err)
+					}
+				case err != nil:
+					report.Errors = append(report.Errors, artifactErrorFrom(rec.Artifact, err))
+				case finding != nil:
+					report.Findings = append(report.Findings, *finding)
+				}
+				mu.Unlock()
+				if finding != nil && deps.OnResult != nil {
+					deps.OnResult(*finding)
+				}
+			}
+		}()
+	}
+feed:
+	for _, rec := range due {
+		select {
+		case jobs <- rec:
+		case <-ctx.Done():
+			break feed
+		}
+	}
+	close(jobs)
+	wg.Wait()
+
+	if stopErr == nil {
+		if err := ctx.Err(); err != nil {
+			stopErr = fmt.Errorf("revalidate: cancelled: %w", err)
+		}
+	}
+	// Concurrent workers finish in no particular order. Sorting makes the
+	// report, and everything rendered from it, a function of the input.
+	sort.Slice(report.Findings, func(i, j int) bool {
+		return report.Findings[i].Artifact.String() < report.Findings[j].Artifact.String()
+	})
+	sort.Slice(report.Errors, func(i, j int) bool { return report.Errors[i].Artifact.String() < report.Errors[j].Artifact.String() })
+	sort.Slice(report.Skipped, func(i, j int) bool {
+		a, b := report.Skipped[i], report.Skipped[j]
+		if a.Artifact.String() != b.Artifact.String() {
+			return a.Artifact.String() < b.Artifact.String()
+		}
+		return a.Medium < b.Medium
+	})
+	return report, stopErr
 }
 
-// checkArtifact runs runChecks against rec and, only when it actually
-// produced a verdict (checked == true), records exactly one journal
-// transition: a same-state pass, or the same COMMITTED/REMOTE_DELETE_PENDING
-// -> QUARANTINED / COMPLETE -> QUARANTINED_LOST routing reconcile.go
-// already uses for "found invalid after the fact".
+// scrubArtifact is one artifact's whole scrub: adopt a legacy row, take the
+// leases, check, record each copy, and route a failure through the
+// lifecycle. A nil finding with a nil error means every copy was skipped.
+func scrubArtifact(ctx context.Context, deps Deps, cfg config.Revalidation, opts Options, set model.BackupSetID, rec state.Record, now time.Time) (finding *Finding, skips []Skip, bytes int64, err error) {
+	if deps.Held != nil && deps.Held(set) {
+		return nil, []Skip{{Artifact: rec.Artifact, Reason: SkipHeld}}, 0, nil
+	}
+
+	rec, err = adoptLegacyCopy(ctx, deps, rec)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+
+	// Take the lease on every copy this pass would look at. A copy another
+	// scrubber holds is skipped and reported; if that leaves nothing, so is
+	// the artifact. The check below is run against the record as read, so a
+	// leased copy is also removed from it, otherwise the artifact verdict
+	// would be built on a copy this pass never read.
+	holder := deps.holder()
+	bounds := deps.Bounds.withDefaults()
+	var claimed []string
+	filtered := rec
+	filtered.Placements = nil
+	for _, p := range rec.Placements {
+		target := p.Status == state.PlacementActive && (opts.Medium == "" || p.Medium == opts.Medium)
+		if !target {
+			filtered.Placements = append(filtered.Placements, p)
+			continue
+		}
+		if isScrubTarget(rec, p) {
+			ok, claimErr := deps.Journal.ClaimCopyScrub(ctx, rec.Artifact, p.Medium, holder, now, bounds.LeaseTTL)
+			if claimErr != nil {
+				releaseAll(deps, rec.Artifact, claimed, holder)
+				return nil, skips, 0, claimErr
+			}
+			if !ok {
+				skips = append(skips, Skip{Artifact: rec.Artifact, Medium: p.Medium, Reason: SkipLeased})
+				continue
+			}
+			claimed = append(claimed, p.Medium)
+		}
+		filtered.Placements = append(filtered.Placements, p)
+	}
+	// The local copy is all-or-nothing. runChecks reads medium copies only
+	// when there is no ACTIVE local one, so dropping a leased local copy from
+	// the record would not skip the artifact, it would quietly turn the pass
+	// into a check of the medium copies of a mid-move artifact that the local
+	// copy's holder is in the middle of checking.
+	if lp, ok := rec.LocalPlacement(); ok {
+		held := false
+		for _, m := range claimed {
+			held = held || m == lp.Medium
+		}
+		if !held {
+			releaseAll(deps, rec.Artifact, claimed, holder)
+			return nil, skips, 0, nil
+		}
+	}
+	if len(claimed) == 0 {
+		return nil, skips, 0, nil
+	}
+	// Whatever happens next, a lease this call still holds is given back.
+	// RecordCopyScrub releases the ones it writes; this covers an error or
+	// a cancellation before it got there.
+	defer releaseAll(deps, rec.Artifact, claimed, holder)
+
+	f, bytes, err := checkArtifact(ctx, deps, cfg, opts, filtered, now)
+	if err != nil {
+		return nil, skips, bytes, err
+	}
+	return &f, skips, bytes, nil
+}
+
+// isScrubTarget reports whether p is one of the copies a scrub of rec
+// checks, as opposed to an ACTIVE copy the local-first fork leaves alone.
+func isScrubTarget(rec state.Record, p state.Placement) bool {
+	for _, t := range ScrubTargets(rec) {
+		if t.Medium == p.Medium {
+			return true
+		}
+	}
+	return false
+}
+
+func releaseAll(deps Deps, a model.ArtifactID, mediums []string, holder string) {
+	// A cancelled context must not strand a lease, so the release uses its
+	// own short-lived one.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for _, m := range mediums {
+		_ = deps.Journal.ReleaseCopyScrub(ctx, a, m, holder)
+	}
+}
+
+// adoptLegacyCopy gives a durable artifact that has no placement row one,
+// so there is somewhere to record a verdict against.
+//
+// Migration 0007 backfilled a local placement for every artifact that had a
+// durable copy, and lifecycle's Commit records one for every artifact
+// committed since, so this is for the row neither reached. It is derived
+// exactly as the backfill derived it, from the artifact's own recorded
+// path and hash, and it claims no verification class: adopting a row is
+// not checking it. Without this, such an artifact would sort as never
+// scheduled on every pass and spend its slot without any result able to
+// land.
+func adoptLegacyCopy(ctx context.Context, deps Deps, rec state.Record) (state.Record, error) {
+	if len(rec.Placements) > 0 || rec.LocalPath == "" {
+		return rec, nil
+	}
+	cur := lifecycle.State(rec.State)
+	upd := &state.PlacementUpdate{
+		Medium: state.MediumLocal, Location: rec.LocalPath,
+		Hash: rec.LocalHash, HashAlg: rec.LocalHashAlg,
+		Status: state.PlacementActive,
+	}
+	if rec.Transfer != nil {
+		n := rec.Transfer.BytesTransferred
+		upd.Size = &n
+	}
+	if _, err := lifecycle.Advance(ctx, deps.lifecycleDeps(), state.Transition{
+		Artifact:  rec.Artifact,
+		Key:       fmt.Sprintf("revalidate:%s:adopt-local-placement", rec.Artifact),
+		From:      string(cur),
+		To:        string(cur),
+		Detail:    "scrub: recorded the local copy this artifact had no placement row for",
+		Placement: upd,
+	}); err != nil {
+		return rec, fmt.Errorf("adopting the local copy of %s: %w", rec.Artifact, err)
+	}
+	return deps.Journal.Get(ctx, rec.Artifact)
+}
+
+// checkArtifact runs runChecks against rec, records one verdict per copy,
+// and only when the artifact as a whole failed routes the same COMMITTED /
+// REMOTE_DELETE_PENDING -> QUARANTINED and COMPLETE -> QUARANTINED_LOST
+// edges reconcile.go already uses for "found invalid after the fact".
+//
+// A passed artifact writes nothing to state_transitions. It used to write a
+// same-state COMPLETE -> COMPLETE row so the artifact row's clock moved;
+// the clock is the copy's now, and a row per passed copy per pass is the
+// feed volume the epic rules out.
 //
 // A non-nil error here means runChecks hit an infrastructure problem for
-// this one artifact (see that function's doc): the journal is never
-// touched, and the caller (Run) is responsible for deciding whether that
-// is a per-artifact error to record and move on from, or a cancellation to
-// stop the whole pass for.
-func checkArtifact(ctx context.Context, deps Deps, cfg config.Revalidation, rec state.Record) (Finding, error) {
+// this one artifact (see that function's doc): the artifact's lifecycle is
+// never touched, and the caller (Run) decides whether that is a per-artifact
+// error or a cancellation. The copies that could not be asked still record
+// that, with a backoff.
+func checkArtifact(ctx context.Context, deps Deps, cfg config.Revalidation, opts Options, rec state.Record, now time.Time) (Finding, int64, error) {
 	cur := lifecycle.State(rec.State)
+	started := deps.now()
 
-	checked, passed, class, reason, err := runChecks(ctx, deps, cfg, rec)
+	res, err := runChecks(ctx, deps, cfg, opts, rec)
 	if err != nil {
-		return Finding{}, err
-	}
-	if !checked {
-		return Finding{Artifact: rec.Artifact, From: cur, To: cur, Checked: false, Reason: reason}, nil
+		if isCancelled(err) {
+			return Finding{}, 0, err
+		}
+		// The per-copy outcomes that exist (a bucket that did not answer)
+		// are recorded before the error is reported.
+		if rerr := recordCopies(ctx, deps, cfg, rec, res.copies, started); rerr != nil {
+			err = fmt.Errorf("%w (and recording the copies failed: %v)", err, rerr)
+		}
+		return Finding{}, 0, &copiesError{err: err, copies: copyResults(res.copies)}
 	}
 
-	if passed {
-		if _, err := lifecycle.Advance(ctx, deps.lifecycleDeps(), state.Transition{
-			Artifact: rec.Artifact,
-			Key:      revalidateKey(rec.Artifact, "pass", cur, cur, rec.UpdatedAt),
-			From:     string(cur),
-			To:       string(cur),
-			// The class is named in the audit trail, not just in the
-			// returned Finding, because the journal is what an operator
-			// reads six months later when they want to know when this
-			// artifact was last actually looked at. "Revalidation passed"
-			// on its own would let an existence check masquerade there as
-			// the content check the same words used to mean.
-			Detail: fmt.Sprintf("Phase 4: scheduled revalidation passed at %s class: %s", class, reason),
-		}); err != nil {
-			return Finding{}, fmt.Errorf("recording a passed revalidation for %s: %w", rec.Artifact, err)
+	// Before a failure is allowed to stand, look again at what the journal
+	// says about the copy. A scrub reads for a long time, and the cycle that
+	// runs beside it may retire or delete the very copy being read; a file
+	// that vanished because retention removed it on purpose is not rot, and
+	// quarantining the artifact over it would be the scrub inventing a loss.
+	// So a failure only stands if the artifact is still in the state it was
+	// selected in and every copy that failed is still ACTIVE.
+	if res.checked && !res.passed {
+		if changed := copyChangedDuringScrub(ctx, deps, rec, res.copies); changed != "" {
+			for i := range res.copies {
+				if res.copies[i].verdict == state.ScrubFailed {
+					res.copies[i].verdict = state.ScrubCouldNotComplete
+					res.copies[i].class = ""
+					res.copies[i].reason = changed
+				}
+			}
+			res.checked, res.passed, res.class = false, true, ""
+			res.reason = changed
 		}
-		return Finding{Artifact: rec.Artifact, From: cur, To: cur, Checked: true, Passed: true, Reason: reason, Class: class}, nil
+	}
+
+	bytes, err := func() (int64, error) {
+		if err := recordCopies(ctx, deps, cfg, rec, res.copies, started); err != nil {
+			return 0, err
+		}
+		var n int64
+		for _, c := range res.copies {
+			if c.bytesRead != nil {
+				n += *c.bytesRead
+			}
+		}
+		return n, nil
+	}()
+	if err != nil {
+		return Finding{}, bytes, err
+	}
+
+	finding := Finding{
+		Artifact: rec.Artifact, From: cur, To: cur,
+		Checked: res.checked, Passed: res.passed, Reason: res.reason, Class: res.class,
+		Copies: copyResults(res.copies),
+	}
+	if !res.checked || res.passed {
+		return finding, bytes, nil
+	}
+
+	// A failure about bytes that were rewritten while they were being read
+	// is not a failure of the copy that is there now. Its verdict was refused
+	// (the new bytes are unknown and due); acting on it here would quarantine
+	// the artifact over a loss that was already repaired.
+	for _, c := range res.copies {
+		if c.verdict == state.ScrubFailed && c.rewritten {
+			finding.Reason = fmt.Sprintf("%s; the artifact was not quarantined because its copy on %q was rewritten while it was being read", res.reason, c.medium)
+			return finding, bytes, nil
+		}
+	}
+
+	// A failed copy is not a lost artifact while another ACTIVE copy of it
+	// is verified: FR-31 quarantines an artifact "only when no other ACTIVE
+	// verified placement remains", and runChecks only ever reads one copy
+	// (the local one when there is one), so without this rule a rotted
+	// local file beside a good offsite copy sent the artifact to
+	// QUARANTINED_LOST and the set to FAILING while every byte was still
+	// recoverable. The failed copy is already recorded as failed above and
+	// its streak is what degrades the set's health; the artifact's
+	// lifecycle is left alone.
+	if other, ok := otherVerifiedCopy(rec, res.copies); ok {
+		finding.Reason = fmt.Sprintf("%s; the artifact was not quarantined because its copy on %q is still ACTIVE and verified", res.reason, other)
+		return finding, bytes, nil
 	}
 
 	// A failed recheck: route through the exact same edges reconcile.go
@@ -332,18 +729,112 @@ func checkArtifact(ctx context.Context, deps Deps, cfg config.Revalidation, rec 
 	if cur == lifecycle.Complete {
 		to = lifecycle.QuarantinedLost
 	}
-
 	out, err := lifecycle.Advance(ctx, deps.lifecycleDeps(), state.Transition{
 		Artifact: rec.Artifact,
 		Key:      revalidateKey(rec.Artifact, "fail", cur, to, rec.UpdatedAt),
 		From:     string(cur),
 		To:       string(to),
-		Detail:   fmt.Sprintf("Phase 4: scheduled revalidation at %s class found the artifact's durable copy invalid: %s", class, reason),
+		Detail:   fmt.Sprintf("Phase 4: scheduled revalidation at %s class found the artifact's durable copy invalid: %s", res.class, res.reason),
 	})
 	if err != nil {
-		return Finding{}, fmt.Errorf("quarantining %s after a failed revalidation: %w", rec.Artifact, err)
+		return Finding{}, bytes, fmt.Errorf("quarantining %s after a failed revalidation: %w", rec.Artifact, err)
 	}
-	return Finding{Artifact: rec.Artifact, From: cur, To: lifecycle.State(out.Record.State), Checked: true, Passed: false, Reason: reason, Class: class}, nil
+	finding.To = lifecycle.State(out.Record.State)
+	return finding, bytes, nil
+}
+
+// otherVerifiedCopy reports an ACTIVE copy of rec, not among the ones this
+// pass found failing, whose recorded verification class is a claim about the
+// bytes (content or attested). An existence class says an object of the right
+// size was there and nothing more, so it is not enough to keep an artifact
+// alive when its read copy has rotted.
+func otherVerifiedCopy(rec state.Record, copies []copyOutcome) (string, bool) {
+	failed := map[string]bool{}
+	for _, c := range copies {
+		if c.verdict == state.ScrubFailed {
+			failed[c.medium] = true
+		}
+	}
+	for _, p := range rec.Placements {
+		if p.Status != state.PlacementActive || failed[p.Medium] {
+			continue
+		}
+		if p.VerificationClass == state.VerificationContent || p.VerificationClass == state.VerificationAttested {
+			return p.Medium, true
+		}
+	}
+	return "", false
+}
+
+func copyResults(cs []copyOutcome) []CopyResult {
+	out := make([]CopyResult, 0, len(cs))
+	for _, c := range cs {
+		out = append(out, CopyResult{Medium: c.medium, Verdict: c.verdict, Class: c.class, Reason: c.reason, Refused: c.refused})
+	}
+	return out
+}
+
+// recordCopies writes each copy's outcome onto its placements row, with the
+// next due time the pacing rules give it. A refused copy writes nothing: a
+// refusal to spend is not a fact about the copy, and recording it would
+// overwrite the last real answer with a non-answer.
+func recordCopies(ctx context.Context, deps Deps, cfg config.Revalidation, rec state.Record, copies []copyOutcome, started time.Time) error {
+	bounds := deps.Bounds.withDefaults()
+	interval := cfg.Interval.Duration()
+	finished := deps.now()
+	byMedium := map[string]state.Placement{}
+	for _, p := range rec.Placements {
+		byMedium[p.Medium] = p
+	}
+	for i := range copies {
+		c := copies[i]
+		if c.refused {
+			continue
+		}
+		prior := byMedium[c.medium]
+		// The identity of the bytes this pass read, taken from the record
+		// the pass started from. If the copy was rewritten meanwhile the
+		// verdict is about bytes that are gone and is not written.
+		var expect *state.CopyIdentity
+		if _, known := byMedium[c.medium]; known {
+			id := prior.Identity()
+			expect = &id
+		}
+		var next time.Time
+		switch c.verdict {
+		case state.ScrubFailed, state.ScrubCouldNotComplete:
+			next = bounds.NextDueAfterFailure(finished, interval, prior.ConsecutiveFailures+1)
+		default:
+			next = bounds.NextDueAfterCheck(finished, interval)
+		}
+		// The scrub record must be written even when ctx is already done:
+		// the bytes were read, and throwing the verdict away would send the
+		// next pass to read them again.
+		wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		err := deps.Journal.RecordCopyScrub(wctx, state.CopyScrub{
+			Artifact: rec.Artifact, Medium: c.medium, Verdict: c.verdict, Class: string(c.class),
+			Reason: c.reason, At: finished, NextDue: next, BytesRead: c.bytesRead,
+			Duration: finished.Sub(started), Expect: expect,
+		})
+		cancel()
+		if errors.Is(err, state.ErrCopyChanged) {
+			// Rewritten to different bytes while it was being read. The
+			// new bytes are unchecked and owed a check, and the rewrite
+			// already cleared the lease and every claim.
+			copies[i].rewritten = true
+			continue
+		}
+		if errors.Is(err, state.ErrPlacementRetired) {
+			// Retention retired the copy while it was being read. There is
+			// no copy left to hold the verdict, and inventing one would be
+			// the journal asserting something about nothing.
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("recording the scrub of %s on %s: %w", rec.Artifact, c.medium, err)
+		}
+	}
+	return nil
 }
 
 // revalidateKey mirrors internal/reconcile's own reconcileKey exactly: an
@@ -383,4 +874,30 @@ func isCancelled(err error) bool {
 		return category == transport.Cancelled
 	}
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+// copyChangedDuringScrub returns a non-empty explanation when the journal no
+// longer agrees with the record a failed check was made against.
+func copyChangedDuringScrub(ctx context.Context, deps Deps, rec state.Record, copies []copyOutcome) string {
+	fresh, err := deps.Journal.Get(context.WithoutCancel(ctx), rec.Artifact)
+	if err != nil {
+		// If the journal cannot be asked, the failure cannot be confirmed,
+		// and an unconfirmed failure must not quarantine anything.
+		return fmt.Sprintf("the journal could not be re-read to confirm the failure, so it was not acted on: %v", err)
+	}
+	if fresh.State != rec.State {
+		return fmt.Sprintf("the artifact moved from %s to %s while its copy was being read, so the failure was not acted on", rec.State, fresh.State)
+	}
+	active := map[string]bool{}
+	for _, p := range fresh.Placements {
+		if p.Status == state.PlacementActive {
+			active[p.Medium] = true
+		}
+	}
+	for _, c := range copies {
+		if c.verdict == state.ScrubFailed && len(fresh.Placements) > 0 && !active[c.medium] {
+			return fmt.Sprintf("the copy on %s was retired while it was being read, so the failure was not acted on", c.medium)
+		}
+	}
+	return ""
 }
