@@ -5,20 +5,29 @@
   python3 scripts/bdtools/e2e/bump_tests_pin.py main         # a named ref
   python3 scripts/bdtools/e2e/bump_tests_pin.py <full sha>   # an exact commit
 
-The bump is one line in one file, and it does not carry its own proof:
-the commit that lands it runs through .husky/pre-commit like any other,
-which runs the gate, which runs the newly pinned suites. So a pin that
-points at a red or unreachable tests commit cannot be committed without
---no-verify. That is the whole safety story, and it is why this script
-deliberately does not "verify" anything itself: a check that runs here and
-again in the gate would just be a check that can disagree with the gate.
+The bump is one line in one file, and the commit that lands it runs
+through .husky/pre-commit like any other, which runs the gate, which runs
+the newly pinned suites. So a pin that points at a red or unreachable
+tests commit cannot be committed without --no-verify.
 
-Ported from scripts/e2e/bump-tests-pin.sh under #672 (EPIC I / #662),
-which is why the paragraph above is still exactly one paragraph: the
-temptation a port invites is to add the verification the original refuses
-to carry, and the refusal is the design.
+That is NOT enough for one failure, and it is the one check this script
+does carry (#1074): that the target is on retnd-tests main. The gate runs
+whatever commit it is handed, a branch head included, so a pin at the head
+of an open retnd-tests PR goes green and lands, and it is how c75e4dd (the
+head of retnd-tests#87, squashed to 9584fa3 with the same tree) got in. The
+gate cannot be the one to notice, because from where it stands a branch
+head is a perfectly good commit. The question "was this merged?" has to be
+asked when the pin is chosen, so the target must be an ancestor of main,
+by tests_pin.require_on_main, which the gate also calls so a hand edit of
+the pin file meets the same rule.
 
-One check IS added, and it is about this script rather than about the
+Ported from scripts/e2e/bump-tests-pin.sh under #672 (EPIC I / #662).
+The original refused to verify anything, on the argument that a check here
+and again in the gate could only disagree. That held for red and
+unreachable commits and did not hold for "not on main", which the gate
+cannot see, and #1074 is the proof.
+
+Another check IS added, and it is about this script rather than about the
 pin: the rewrite asserts that it replaced exactly one line. The `sed`
 this replaces would have exited 0 having matched nothing, printed the old
 and new shas, and left the file untouched.
@@ -99,6 +108,7 @@ def body(root: Path, target: str) -> int:
         harness.die(f"{tests_pin.PIN_RELATIVE} does not carry TESTS_REPO_URL.")
 
     sha = resolve(url, target)
+    tests_pin.require_on_main(url, sha)
 
     if sha == current:
         print(f"==> already pinned to {sha}, nothing to do", flush=True)

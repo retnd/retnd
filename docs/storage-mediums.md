@@ -535,6 +535,24 @@ The rules that matter:
   configured`, which is not a pass and not a failure. A failing test runs the
   same `assurance-after` scripts the scrub does, with `ASSURANCE_EVENT` set to
   `recovery_test_failed` and, when it passes again, `recovery_test_recovered`.
+
+- **A scrub also asks each medium what it holds, and tells you about anything
+  the journal does not know.** The journal is still the only thing that says
+  what is a copy: the scrub checks the keys the journal records and nothing
+  else, so an object sitting at some other key can never stand in for a copy
+  that has gone missing, and a copy that is missing is still a failed copy, counted
+  once, with one `scrub_failure` line. What the listing adds is the other
+  direction. For each medium that holds or held a copy for the set, the scrub
+  lists the set's own namespace (`<prefix>/<source>/<set>/`) and reports every
+  object whose key no placement names, as a `scrub_unknown_object` line, a count
+  in the summary, and an `unknown_objects` entry in `retnd scrub --json`. It
+  only reports: it never reads, moves or deletes the object, and it is not a
+  failure of any copy. A medium I could not list (the store cannot, or the listing
+  failed) is said so in `unlisted` and a `scrub_unlisted` line, so a quiet result
+  is never mistaken for a clean one. A scheduled pass lists only when it checked
+  something, and `retnd scrub` always lists, because a listing is a billed
+  request per medium. An upload that finished just before its placement was
+  recorded can show up once and clear on the next pass.
 - **A tier whose medium writes an archive class cannot take delivery of an
   artifact, and the move is refused before anything is uploaded.** Both settings
   `upload_verification` accepts need the object read back, a freshly written

@@ -189,6 +189,11 @@ type Options struct {
 	// it is never attempted against an archive-class copy at all.
 	Content     bool
 	AllowEgress bool
+
+	// ListDestinations lists each destination even when nothing was selected.
+	// Without it a pass lists only when it checked something (or was forced),
+	// so an idle scheduled poll costs no listing request.
+	ListDestinations bool
 }
 
 // CopyResult is what a scrub concluded about one copy.
@@ -342,6 +347,16 @@ type Report struct {
 
 	// BytesRead is the total read off storage by checks that read bytes.
 	BytesRead int64
+
+	// Unknown is every object a destination holds under this set's
+	// namespace at a key the journal has no placement for (QC-04). Each is a
+	// reconciliation finding for an operator to look at: it is never a
+	// verified copy of anything and is never acted on.
+	Unknown []UnknownObject
+
+	// Unlisted is every destination the pass could not enumerate, and why,
+	// so that "nothing unknown" is never mistaken for "nothing looked at".
+	Unlisted []UnlistedMedium
 }
 
 // Run performs one scheduled-revalidation pass over set: it loads set's
@@ -479,6 +494,9 @@ feed:
 		}
 		return a.Medium < b.Medium
 	})
+	if stopErr == nil {
+		report.Unknown, report.Unlisted = listDestinations(ctx, deps, set, records, opts, report.Selected)
+	}
 	return report, stopErr
 }
 

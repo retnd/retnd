@@ -42,6 +42,13 @@ import (
 // above the four codes the usage text already publishes, and they are
 // stable: a code is never reused and never renumbered.
 //
+// 34, 35 and 37 are deliberately absent. They were reserved for a per-pass
+// bound, a validator-output bound and scheduled egress. FR-74 as amended says
+// the first two defer or truncate and never refuse, and that scheduled egress
+// is refused at the moment of spend by the placement ladder, so no operator
+// command can hit any of them and a code nothing emits is a promise nobody
+// keeps. They stay unallocated and are not to be reused (budget.Unused).
+//
 // The grant refusals (22 to 26) are reachable here only in the sense that
 // the code table is shared; the terminal redeems its own grant at once.
 // They are still distinct, because the same table is what the HTTP route's

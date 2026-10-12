@@ -27,15 +27,17 @@ func TestScrubSummaryWire_CarriesEveryField(t *testing.T) {
 	sum := ScrubSummary{
 		Trigger: state.ScrubByManual, Scope: "all due",
 		Selected: 1, Checked: 2, Passed: 3, Failed: 4, CouldNotComplete: 5, RequiresRestore: 6,
-		SkippedHeld: 7, SkippedLeased: 8, Refused: 9, BytesRead: 10, PassID: 11,
+		SkippedHeld: 7, SkippedLeased: 8, Refused: 9, BytesRead: 10, PassID: 11, Unknown: 12, Unlisted: 13,
 		Sets: []ScrubSetReport{{
 			Set: set, Err: errors.New("stopped"),
 			Report: revalidate.Report{
 				Findings: []revalidate.Finding{{Artifact: art, Copies: []revalidate.CopyResult{
 					{Medium: "local", Verdict: state.ScrubFailed, Class: placement.Content, Reason: "rotted", Refused: true},
 				}}},
-				Errors:  []revalidate.ArtifactError{{Artifact: art, Err: errors.New("no answer")}},
-				Skipped: []revalidate.Skip{{Artifact: art, Medium: "m", Reason: revalidate.SkipLeased}},
+				Errors:   []revalidate.ArtifactError{{Artifact: art, Err: errors.New("no answer")}},
+				Skipped:  []revalidate.Skip{{Artifact: art, Medium: "m", Reason: revalidate.SkipLeased}},
+				Unknown:  []revalidate.UnknownObject{{Medium: "m", Key: "k", Size: 5}},
+				Unlisted: []revalidate.UnlistedMedium{{Medium: "m", Reason: "no listing"}},
 			},
 		}},
 	}
