@@ -279,12 +279,20 @@ type runResult struct {
 
 func runRetnd(t *testing.T, bin string, args ...string) runResult {
 	t.Helper()
+	return runRetndWithEnv(t, bin, nil, args...)
+}
+
+// runRetndWithEnv is runRetnd with extra NAME=value entries in the binary's
+// environment. The real-S3 cases use it to hand the credentials to the binary
+// through its credentials.env source, in memory only.
+func runRetndWithEnv(t *testing.T, bin string, extraEnv []string, args ...string) runResult {
+	t.Helper()
 	cmd := exec.Command(bin, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	// Nothing ambient may steer the binary: no AWS profile or key, no API
 	// URL that would route the verb to some other engine.
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()}
+	cmd.Env = append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()}, extraEnv...)
 	done := make(chan error, 1)
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("starting %s %v: %v", bin, args, err)
