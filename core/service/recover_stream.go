@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
 
+	"github.com/retnd/retnd/core/internal/obs"
 	"github.com/retnd/retnd/core/internal/recovery/export"
 	"github.com/retnd/retnd/core/internal/transport"
 )
@@ -357,6 +359,7 @@ func (d *RecoveryDownload) recordVerified() {
 	ev := d.ev
 	ev.op = "verified"
 	ev.bytes = d.size
+	ev.total = d.size
 	ev.rng = ""
 	ev.note = "sha256 " + d.index.SHA256 + ", " + strconv.FormatInt(d.size, 10) + " bytes: " + how
 	d.b.auditRecovery(context.Background(), &ev, nil)
@@ -364,6 +367,43 @@ func (d *RecoveryDownload) recordVerified() {
 		At: time.Now().UTC(), Copy: d.ev.copy, Bytes: d.size, SHA256: d.index.SHA256, ETag: d.etag,
 		WholeStream: d.content.WholeVerified(), Chunks: d.index.Count(),
 	})
+}
+
+// recordEnd writes the row that ends a download that did not finish, so a
+// page can tell the two ways it can stop apart from the feed alone:
+//
+//   - `recovery failed verification`: a chunk or the whole did not match what
+//     the journal recorded (or the copy lost bytes). `bytes` is how many
+//     verified bytes this request had sent before it stopped, `total_bytes`
+//     the artifact's size, and `error_code` says which copy.
+//   - `recovery interrupted`: anything else stopped it, most often the
+//     client going away. Same two numbers, `reached` is the byte offset it
+//     got to (where a resume would start).
+//
+// The completed case is `recovery verified`. A client's bad range offset is
+// none of the three (Served filters it before this).
+func (d *RecoveryDownload) recordEnd(start, written int64, err error) {
+	ev := d.ev
+	ev.bytes = written
+	ev.total = d.size
+	ev.rng = ""
+	attrs := []slog.Attr{
+		slog.String("actor", ev.actor),
+		slog.String("route", "GET /api/v1/recoveries/{grant}"),
+		slog.String("artifact", ev.artifact),
+		slog.String("copy", ev.copy),
+		slog.String("target", ev.target),
+		slog.Int64("bytes", written),
+		slog.Int64("total_bytes", d.size),
+		slog.Int64("reached", start+written),
+	}
+	op, outcome, level := "interrupted", "interrupted", obs.ResultWarn
+	if re, ok := AsRecoveryError(mapRecoveryError(err)); ok && (re.Code == RecoveryLocalCopyCorrupt || re.Code == RecoveryRemoteCopyCorrupt) {
+		op, outcome, level = "failed verification", "failed_verification", obs.ResultError
+		attrs = append(attrs, slog.String("error_code", re.Code))
+	}
+	attrs = append(attrs, slog.String("operation", "recovery "+op), slog.String("outcome", outcome))
+	d.b.logger.Completed(context.Background(), level, obs.EventAPIAction, "recovery "+op, attrs...)
 }
 
 // recoveryVerification is what the server remembers about the last download

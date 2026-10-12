@@ -112,6 +112,11 @@ func (d *RecoveryDownload) Served(start, end, written int64, err error) {
 		// download verified.
 		return
 	}
+	if err != nil {
+		// The end of the download, said once and plainly, ahead of the
+		// per-range row below (which stays the last row, as it always was).
+		d.recordEnd(start, written, err)
+	}
 	d.b.auditRecovery(context.Background(), &ev, err)
 	if err != nil {
 		d.b.finishRecoveryDownload(d.token)
