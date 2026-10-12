@@ -37,6 +37,11 @@ type RecoveryTestOptions struct {
 	// download from a storage medium, or the restore of an archived object.
 	// A scheduled test never has it.
 	AcknowledgeCost bool
+
+	// OperationID, when set, is the id the test's start, stage and end lines
+	// carry on the activity feed, so a caller that wants to follow this one
+	// test can choose the id before it starts. Empty means a fresh one.
+	OperationID string
 }
 
 // RecoveryTestOutcome is what a recovery test concluded, reduced to what a
@@ -75,7 +80,7 @@ type RecoveryTestStarted struct {
 // stop it (asking is the decision), and a read that costs money needs
 // AcknowledgeCost.
 func (b *BackupService) RunRecoveryTest(ctx context.Context, set model.BackupSetID, opts RecoveryTestOptions) (RecoveryTestOutcome, error) {
-	return b.runRecoveryTest(ctx, set, opts, "")
+	return b.runRecoveryTest(ctx, set, opts, opts.OperationID)
 }
 
 func (b *BackupService) runRecoveryTest(ctx context.Context, set model.BackupSetID, opts RecoveryTestOptions, opID string) (RecoveryTestOutcome, error) {

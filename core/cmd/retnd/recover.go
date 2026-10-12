@@ -84,6 +84,7 @@ func cmdRecover(args []string) int {
 	to := fs.String("to", "", "where the bytes go: - for standard output, a name under the recovery staging root, or medium:ID[/KEY] (required)")
 	ack := fs.Bool("acknowledge-cost", false, "accept a chargeable retrieval (a billed download, or a provider restore first)")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
+	follow := fs.Bool("follow", false, "print the recovery's stages on standard error as it passes through them; the exit status is the recovery's")
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
 		return exitUsage
@@ -122,7 +123,17 @@ func cmdRecover(args []string) int {
 	if target.Kind == "download" {
 		out = os.Stdout
 	}
-	res, thaw, err := svc.RecoverNow(ctx, sess, req, out)
+	var (
+		res  service.RecoveryResult
+		thaw *service.RecoveryThaw
+	)
+	if *follow {
+		followWhile(ctx, svc, opByFirstStart(operands[0]), os.Stderr, os.Stderr, func() {
+			res, thaw, err = svc.RecoverNow(ctx, sess, req, out)
+		})
+	} else {
+		res, thaw, err = svc.RecoverNow(ctx, sess, req, out)
+	}
 	if err != nil {
 		return reportRecoverError(err, *asJSON)
 	}

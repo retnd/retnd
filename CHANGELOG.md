@@ -4,6 +4,7 @@
 
 ### Added
 
+- **`retnd recover --follow` and `retnd recovery-test --follow`** (#1059). Both verbs run the operation in the terminal's own process, so they now print that operation's stage lines (matched on its op_id) on standard error as it passes through them, in the order the engine emits them, and still exit with the operation's own status. Standard output stays the verb's answer, so `recover --to -` keeps piping clean bytes.
 - **The activity feed's events survive a restart** (#1071, migration 0018). The feed
   behind the operation panel and the dashboard strips was an in-memory ring, so a
   restart emptied it: a scrub that failed an hour before a deploy, or a recovery that was
