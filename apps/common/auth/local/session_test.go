@@ -1,9 +1,14 @@
 package local
 
 import (
+	"context"
+	"net/url"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/retnd/retnd/apps/common/platform/capabilities"
 )
 
 // Session lifetime, exercised through the manager rather than over HTTP,
@@ -165,5 +170,95 @@ func TestSessionManager_TwoSessionsGetDifferentTokens(t *testing.T) {
 	}
 	if a == b {
 		t.Error("two sessions were issued the same token")
+	}
+}
+
+// EPIC Q panel finding C6 (#976): the session a recovery grant is bound to
+// is made of the actor and when that session lapses. If the authenticator
+// never reports the lapse the binding is the actor alone and "a grant never
+// outlives its session" is not true.
+func TestAuthenticatorReportsSessionExpiry(t *testing.T) {
+	svc, err := New(Config{StorePath: filepath.Join(t.TempDir(), "auth.json")})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	token, expires, err := svc.sessions.create("bm-admin")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	authCtx, err := svc.Authenticator().Authenticate(context.Background(), capabilities.AuthRequest{
+		Headers: map[string][]string{"Cookie": {SessionCookieName + "=" + token}},
+	})
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	if authCtx.SessionExpiresAt == "" {
+		t.Fatal("SessionExpiresAt is empty for a local session, so a grant is bound to the actor name alone")
+	}
+	got, err := time.Parse(time.RFC3339, authCtx.SessionExpiresAt)
+	if err != nil {
+		t.Fatalf("SessionExpiresAt %q is not RFC3339: %v", authCtx.SessionExpiresAt, err)
+	}
+	if !got.Equal(expires) {
+		t.Errorf("SessionExpiresAt = %s, want the session's own expiry %s, to the nanosecond, because the grant key compares it exactly", got.Format(time.RFC3339Nano), expires.Format(time.RFC3339Nano))
+	}
+}
+
+// A logout has to reach whoever holds grants for the session. The hook
+// receives the same actor and expiry the authenticator reported before.
+func TestLogoutTellsTheSessionEndHook(t *testing.T) {
+	svc, server, client := testServer(t)
+	seedCSRFCookie(t, client, server)
+	csrf := csrfTokenFromJar(t, client, server)
+	enrollDefaultAdmin(t, svc, server, client, csrf)
+
+	type ended struct {
+		user    string
+		expires time.Time
+	}
+	got := make(chan ended, 4)
+	svc.OnSessionEnd(func(u string, e time.Time) { got <- ended{u, e} })
+
+	u, _ := url.Parse(server.URL)
+	var cookie string
+	for _, c := range client.Jar.Cookies(u) {
+		if c.Name == SessionCookieName {
+			cookie = c.Name + "=" + c.Value
+		}
+	}
+	before, err := svc.Authenticator().Authenticate(context.Background(), capabilities.AuthRequest{Headers: map[string][]string{"Cookie": {cookie}}})
+	if err != nil || !before.Authenticated {
+		t.Fatalf("setup: no live session: %+v %v", before, err)
+	}
+
+	resp := postJSON(t, client, server.URL+"/api/v1/auth/logout", struct{}{}, map[string]string{CSRFHeaderName: csrf})
+	resp.Body.Close()
+	select {
+	case e := <-got:
+		want, _ := time.Parse(time.RFC3339, before.SessionExpiresAt)
+		if e.user != "bm-admin" || !e.expires.Equal(want) {
+			t.Errorf("hook got (%q, %s), want (bm-admin, %s)", e.user, e.expires, want)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("logout never told the session-end hook, so a grant minted in that session lives on")
+	}
+}
+
+// A password rotation drops every other session; their grants go with them.
+func TestRotatingThePasswordTellsTheSessionEndHookForTheDroppedSessions(t *testing.T) {
+	m := newSessionManager(time.Now)
+	var ended []string
+	m.setOnEnd(func(u string, _ time.Time) { ended = append(ended, u) })
+	if _, _, err := m.create("bm-admin"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := m.create("bm-admin"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := m.rotateSession("bm-admin"); err != nil {
+		t.Fatal(err)
+	}
+	if len(ended) != 2 {
+		t.Errorf("rotation dropped 2 sessions and told the hook about %d", len(ended))
 	}
 }

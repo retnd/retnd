@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **A recovery download is streamed, not staged, and can be resumed** (#976). The
+  browser and `retnd recover --to -` used to copy the whole artifact to the staging
+  disk, hash it there and only then send it. Now the copy is read from where it
+  lives, one verified 4 MiB chunk at a time, so a download uses a chunk of memory
+  and no staging disk, and a client that walks away leaves nothing to clean up.
+  Before the first byte I run a pre-flight (the copy is there, it is the recorded
+  size, its medium can be read, and one verifying read matched the recorded SHA-256
+  and stored a digest per chunk), and a failure there is an error response with its
+  own code, not a `200`. Every chunk is checked against its digest before any of it
+  is sent, so a copy that rots mid-download stops at the bad chunk and the
+  connection is aborted short of the `Content-Length`, never ended cleanly. `ETag`
+  (from the artifact id and the recorded digest, the same for every grant) with
+  `Range` and `If-Range` resumes a download under a new grant, and `Repr-Digest`
+  carries the recorded digest for the client to compare. The end of a download is
+  recorded as `recovery verified` in the action log. The first download of an
+  artifact reads the copy twice (once to prepare, once to send); later downloads and
+  resumes reuse the stored digests. Staging and storage targets are unchanged.
+  A conditional request answered `304` no longer spends the download grant or
+  records a verification that did not happen. A download that does not finish now
+  ends in a `recovery interrupted` or a `recovery failed verification` row in the
+  action log (the latter with the copy's error code), each with `bytes` sent,
+  `total_bytes` and the `reached` offset, so a client can tell a cut link from a
+  copy that stopped matching; `recovery verified` carries `total_bytes` too.
+
 ### Added
 
 - **Assurance has a deployment-wide default and a per-set override** (#982, EPIC Q

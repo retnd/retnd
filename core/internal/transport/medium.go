@@ -499,3 +499,17 @@ type mediumKeyError string
 // segment has the artifact id in hand already and a message that echoed it
 // would be the only place an unprintable key segment gets printed.
 func (e mediumKeyError) Error() string { return string(e) }
+
+// RangeOpener is the optional ranged read of a MediumStore: the object's
+// bytes from off to its end.
+//
+// It is a separate interface and not a method on MediumStore because a
+// stream that is stopped and resumed (a browser download, EPIC Q) needs it,
+// and nothing else does. A store without it is still readable: the caller
+// opens the object whole and discards the first off bytes, which is correct
+// and wasteful in exactly the amount that off is large. The rclone adapter
+// implements it, so a resumed download of a remote copy is billed for the
+// bytes it still needs.
+type RangeOpener interface {
+	OpenObjectRange(ctx context.Context, medium Medium, key string, off int64) (io.ReadCloser, error)
+}
