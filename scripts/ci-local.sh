@@ -352,6 +352,15 @@ bash scripts/architecture/check-unowned-go.sh
 gate_step "the e2e drivers' --help is still the text it was (#514)"
 bash scripts/tests/e2e-help.test.sh
 
+# A tests pin must name a commit on retnd-tests main (#1074). The pin once
+# pointed at the head of an open retnd-tests PR, which the gate ran
+# happily, and the bump tool had been written not to check. Both now
+# refuse, and this runs fixture git repositories over file:// (no network,
+# no Docker) to prove it, including a planted check that always passes,
+# which the suite has to notice.
+gate_step "a tests pin must be on retnd-tests main (#1074)"
+bash scripts/tests/pin-on-main.test.sh
+
 # Every Python file under scripts/, held to a linter, and the subset that is
 # clean under a type checker held to that too (EPIC I / I1.6, #672).
 #
