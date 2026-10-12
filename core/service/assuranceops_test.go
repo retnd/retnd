@@ -587,3 +587,34 @@ func TestTheDataPlaneTheDaemonRunsRecoversAMediumCopy(t *testing.T) {
 		t.Fatalf("state = %q (%s), want a pass", res.Result.State, res.Result.Reason)
 	}
 }
+
+// A scrub pass lands on the activity feed, however it was asked for. The
+// brief for W-09 named service.EmitScrubPass and a scrub_start / scrub_end
+// pair; neither exists in the merged tree. The driver emits one scrub_pass
+// row when a pass finishes (app.finishScrub), the scheduler and the CLI both
+// reach it through app.Service.Scrub, and this pins both doors.
+func TestAScheduledAndAManualScrubPassEachLandOneScrubPassRowOnTheFeed(t *testing.T) {
+	ctx := context.Background()
+	f := newRecoveryFixture(t, fixtureOpts{})
+	if err := f.b.state.Load().inner.Config.ResolveAssurance(); err != nil {
+		t.Fatal(err)
+	}
+	seedComplete(t, f, "scrubbed.dump", state.MediumLocal)
+
+	f.b.tickScrub(ctx)
+	if got := len(f.eventsNamed(t, obs.EventScrubPass)); got != 1 {
+		t.Fatalf("a scheduled pass left %d scrub_pass rows, want 1", got)
+	}
+
+	set := setID(t)
+	if _, err := f.b.state.Load().inner.Scrub(ctx, app.ScrubRequest{Trigger: state.ScrubByManual, Set: &set}); err != nil {
+		t.Fatal(err)
+	}
+	rows := f.eventsNamed(t, obs.EventScrubPass)
+	if len(rows) != 2 {
+		t.Fatalf("after a manual pass there are %d scrub_pass rows, want 2", len(rows))
+	}
+	if rows[0]["trigger"] == rows[1]["trigger"] {
+		t.Errorf("the two rows do not say who asked: %v / %v", rows[0]["trigger"], rows[1]["trigger"])
+	}
+}

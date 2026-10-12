@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/google/uuid"
 	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/obs"
@@ -41,6 +42,7 @@ func cmdRecoveryTest(args []string) int {
 	artifact := fs.String("artifact", "", "test this artifact (source/backup-set/name) instead of the newest known good one")
 	ack := fs.Bool("acknowledge-cost", false, "accept a read that costs money (a billed download, or an archived object that is already readable)")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
+	follow := fs.Bool("follow", false, "print the test's stages on standard error as it passes through them; the exit status is the test's")
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
 		return exitUsage
@@ -64,7 +66,16 @@ func cmdRecoveryTest(args []string) int {
 
 	logStartup(ctx, obs.New(os.Stderr, obs.LevelFromEnv()), app.BuildVersionInfo(version, commit))
 
-	out, err := svc.RunRecoveryTest(ctx, set, service.RecoveryTestOptions{ArtifactID: *artifact, AcknowledgeCost: *ack})
+	opts := service.RecoveryTestOptions{ArtifactID: *artifact, AcknowledgeCost: *ack}
+	var out service.RecoveryTestOutcome
+	if *follow {
+		opts.OperationID = uuid.NewString()
+		followWhile(ctx, svc, opByID(opts.OperationID), os.Stderr, os.Stderr, func() {
+			out, err = svc.RunRecoveryTest(ctx, set, opts)
+		})
+	} else {
+		out, err = svc.RunRecoveryTest(ctx, set, opts)
+	}
 	if err != nil {
 		return fail(err)
 	}

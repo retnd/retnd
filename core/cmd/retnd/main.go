@@ -266,7 +266,7 @@ commands:
                                                   also needs --allow-egress. Exit 1 when a copy failed, could not be
                                                   checked, was skipped (held for editing, or being checked by another
                                                   scrub) or was refused for cost (EPIC Q)
-  recovery-test <source/backup-set> [--artifact <source/backup-set/name>] [--acknowledge-cost] [--json]
+  recovery-test <source/backup-set> [--artifact <source/backup-set/name>] [--acknowledge-cost] [--follow] [--json]
                                                   prove now that the newest known good copy can be got back and used:
                                                   the copy is staged by the recovery engine, checked against the
                                                   SHA-256 recorded when it was ingested, and only then handed to the
@@ -274,7 +274,9 @@ commands:
                                                   policy's validator_id). A read that costs money is refused unless
                                                   --acknowledge-cost is given, and no provider restore is ever started.
                                                   Exit 0 when the copy passed, 10 when the read was refused for cost,
-                                                  1 otherwise (failed, or could not be completed). The same test as
+                                                  1 otherwise (failed, or could not be completed). --follow prints the
+                                                  test's stages on standard error as it passes through them; the exit
+                                                  status is unchanged. The same test as
                                                   POST /api/v1/backup-sets/{source}/{set}/recovery-test, which starts
                                                   it in the background (EPIC Q)
   catalog rebuild [--dry-run]                    reconstruct a lost/corrupted state database from sidecar recovery manifests
@@ -368,7 +370,7 @@ commands:
                                                   to skip, because a restore is billed and takes hours; --days
                                                   defaults to 7 and is bounded to 1..30. artifacts <id> lists
                                                   which medium each copy is on
-  recover <source/backup-set/artifact> --to - | NAME | medium:ID[/KEY] [--copy M] [--acknowledge-cost] [--json]
+  recover <source/backup-set/artifact> --to - | NAME | medium:ID[/KEY] [--copy M] [--acknowledge-cost] [--follow] [--json]
                                                   get the retained bytes of one artifact back (EPIC Q, FR-67). It
                                                   reads one copy, checks all of it against the SHA-256 recorded when
                                                   the backup was ingested, and only then writes it: to standard
@@ -384,7 +386,9 @@ commands:
                                                   putting the application back stays yours. It is neither restore
                                                   (the archival thaw above, which writes nothing) nor snapshot
                                                   restore (a kopia restore point), and a kopia set is refused with
-                                                  a sentence naming that verb
+                                                  a sentence naming that verb. --follow prints the recovery's stages
+                                                  on standard error as it passes through them, in the engine's order;
+                                                  the exit status is the recovery's own
   backup-set enabled <source/backup-set> <on|off>
                                                   turn one already-configured backup set on or off, which
                                                   --disabled can only do at creation. "off" stops the scheduler
