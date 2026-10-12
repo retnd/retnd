@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "0772f3e969d2268d0e80c953df2b3d9616f94759a76241afcf7de82646004c69"
+const ContractSHA256 = "ad08c2e9631df3e7c70e0d00c0924d736c85cb2b22be1bb6e0540bf817b61015"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -421,6 +421,18 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "cancelAssuranceOperation", Method: "POST", Path: "/assurance/operations/{op}/cancel",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AssuranceOperationCancelled", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeOperationNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
 		ID: "enrollAdministrator", Method: "POST", Path: "/auth/enroll",
 		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "EnrollRequest", ResponseSchema: "", SuccessStatus: 204,
@@ -752,6 +764,17 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "getRecoveryTestOutput", Method: "GET", Path: "/backup-sets/{source}/{set}/recovery-test/output",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "RecoveryTestOutput", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
 		ID: "clearBackupSetRetention", Method: "DELETE", Path: "/backup-sets/{source}/{set}/retention",
 		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "BackupSetRetention", SuccessStatus: 200,
@@ -810,6 +833,20 @@ var Endpoints = []Endpoint{
 			400: {ErrorCodeInvalidRequest},
 			401: {ErrorCodeUnauthenticated},
 			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "startScrub", Method: "POST", Path: "/backup-sets/{source}/{set}/scrub",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound},
+			409: {ErrorCodeOperationAlreadyRunning},
 			500: {ErrorCodeInternal},
 			503: {ErrorCodeNotConfigured},
 		},
@@ -948,7 +985,7 @@ var Endpoints = []Endpoint{
 	{
 		ID: "mintRecovery", Method: "POST", Path: "/backups/{source}/{set}/{name}/recovery",
 		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "RecoveryMintRequest", ResponseSchema: "RecoveryMintResponse", SuccessStatus: 202,
+		RequestSchema: "RecoveryMintRequest", ResponseSchema: "RecoveryMintResponse", SuccessStatus: 201,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeRecoveryTargetInvalid},
 			401: {ErrorCodeUnauthenticated},
@@ -1075,7 +1112,7 @@ var Endpoints = []Endpoint{
 	{
 		ID: "redeemRecovery", Method: "GET", Path: "/recoveries/{grant}",
 		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "", ResponseSchema: "RecoveryResult", SuccessStatus: 206,
+		RequestSchema: "", ResponseSchema: "RecoveryResult", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
 			403: {ErrorCodeRecoveryGrantSessionEnded},
@@ -1694,6 +1731,14 @@ type AssuranceHostKnob struct {
 	PerSet bool   `json:"per_set"`
 	Reason string `json:"reason"`
 	Value  string `json:"value"`
+}
+
+// AssuranceOperationCancelled is A running scrub or recovery test has been told to stop.
+type AssuranceOperationCancelled struct {
+	BackupSetID string `json:"backup_set_id"`
+	Kind        string `json:"kind"`
+	OperationID string `json:"operation_id"`
+	Status      string `json:"status"`
 }
 
 // AssuranceRecoveryTestPolicy is A resolved recovery-test policy.
@@ -2803,12 +2848,36 @@ type RecoveryTarget struct {
 	Path   string `json:"path,omitempty"`
 }
 
+// RecoveryTestOutput is what the newest recovery test of a backup set printed. Only the
+// newest test is kept per set.
+type RecoveryTestOutput struct {
+	ArtifactID  string                     `json:"artifact_id"`
+	BackupSetID string                     `json:"backup_set_id"`
+	Medium      string                     `json:"medium"`
+	OperationID string                     `json:"operation_id"`
+	Recorded    bool                       `json:"recorded"`
+	RecordedAt  string                     `json:"recorded_at"`
+	Records     []RecoveryTestOutputRecord `json:"records"`
+	State       string                     `json:"state"`
+	Truncated   bool                       `json:"truncated"`
+}
+
+// RecoveryTestOutputRecord is one line of a validator's output, or the runner's own truncation
+// marker. Branch on kind and never on text: only the runner produces
+// a truncation record, so a validator that prints the marker's words
+// is still an output record.
+type RecoveryTestOutputRecord struct {
+	Kind string `json:"kind"`
+	Text string `json:"text"`
+}
+
 // RecoveryTestStarted is A recovery test is under way. operation_id is carried by its
 // recovery_test_start, recovery_stage and recovery_test_end lines on
 // the activity feed, which is how a client follows it; the verdict
 // is the copy's recovery claim once it ends.
 type RecoveryTestStarted struct {
 	BackupSetID string `json:"backup_set_id"`
+	Coalesced   bool   `json:"coalesced"`
 	OperationID string `json:"operation_id"`
 }
 
@@ -3156,6 +3225,13 @@ type ScrubSkip struct {
 	ArtifactID string `json:"artifact_id,omitempty"`
 	Medium     string `json:"medium,omitempty"`
 	Reason     string `json:"reason"`
+}
+
+// ScrubStarted is A scrub is under way. operation_id is what POST
+// /assurance/operations/{op}/cancel takes.
+type ScrubStarted struct {
+	BackupSetID string `json:"backup_set_id"`
+	OperationID string `json:"operation_id"`
 }
 
 // ServiceSchema is the rules the service-behaviour settings are validated against,
@@ -4117,6 +4193,7 @@ var SchemaTypes = map[string]any{
 	"AssuranceDueItem":                   AssuranceDueItem{},
 	"AssuranceDueResponse":               AssuranceDueResponse{},
 	"AssuranceHostKnob":                  AssuranceHostKnob{},
+	"AssuranceOperationCancelled":        AssuranceOperationCancelled{},
 	"AssuranceRecoveryTestPolicy":        AssuranceRecoveryTestPolicy{},
 	"AssuranceScrubPolicy":               AssuranceScrubPolicy{},
 	"AssuranceSettingsResponse":          AssuranceSettingsResponse{},
@@ -4199,6 +4276,8 @@ var SchemaTypes = map[string]any{
 	"RecoverySettingsResponse":           RecoverySettingsResponse{},
 	"RecoverySettingsUpdate":             RecoverySettingsUpdate{},
 	"RecoveryTarget":                     RecoveryTarget{},
+	"RecoveryTestOutput":                 RecoveryTestOutput{},
+	"RecoveryTestOutputRecord":           RecoveryTestOutputRecord{},
 	"RecoveryTestStarted":                RecoveryTestStarted{},
 	"RepositoryHealth":                   RepositoryHealth{},
 	"RepositoryMaintenance":              RepositoryMaintenance{},
@@ -4224,6 +4303,7 @@ var SchemaTypes = map[string]any{
 	"ScrubResult":                        ScrubResult{},
 	"ScrubSetResult":                     ScrubSetResult{},
 	"ScrubSkip":                          ScrubSkip{},
+	"ScrubStarted":                       ScrubStarted{},
 	"ServiceSchema":                      ServiceSchema{},
 	"ServiceSettings":                    ServiceSettings{},
 	"SessionResponse":                    SessionResponse{},
