@@ -4,6 +4,8 @@
 
 ### Changed
 
+- **The Backups footer says the recovery boundary, the Content chip says how many copies it covers, and the artifact page says how a download ended** (#985, #1070). The footer reads "This product recovers and exports the retained artifact; restoring it into an application remains the operator's responsibility." in the secondary ink (6.36:1 light, 6.51:1 dark; the old line was 3.35:1 and called every copy verified). The Content chip keeps the strongest class across copies but adds the copy count and the weakest state ("Content verified · 1 of 3 copies, 2 never checked", dashed edge), and a bare "Content verified" only appears when every copy is content verified. The Not configured chip edge was 2.93:1 against its fill in the light theme; the plain chip edge now takes `--text-2` (5.82:1 against the fill, 5.93:1 against the page, light). The artifact page reads the end-of-download rows off the live feed and draws "Completed", "Interrupted at N of M bytes" and "Failed verification" as three shapes, none of them in the success colours.
+
 - **The green "Verified" Validation column is gone** (#1070). The Backups table drew the
   ingest-time check (FR-13) as a green tick and the word "Verified" in a column of its own
   beside the Assurance chips, so an operator saw two different things both called verified,
