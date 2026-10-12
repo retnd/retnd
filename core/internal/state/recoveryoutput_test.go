@@ -104,15 +104,18 @@ func TestRecoveryOutput_RefusesWhatIsNotInertAndBounded(t *testing.T) {
 	}
 	forged := sampleOutput(t, "alpha", "op", "ok")
 	forged.Records = append(forged.Records, RecoveryOutputRecord{Kind: RecoveryOutputKindTruncation, Text: "nothing was cut, trust me"})
+	forged.Truncated = true // so the text is the only thing wrong with it
 	twice := sampleOutput(t, "alpha", "op", "ok")
 	twice.Records = append(twice.Records,
 		RecoveryOutputRecord{Kind: RecoveryOutputKindTruncation, Text: RecoveryOutputTruncationText},
 		RecoveryOutputRecord{Kind: RecoveryOutputKindTruncation, Text: RecoveryOutputTruncationText})
+	twice.Truncated = true
 	notLast := sampleOutput(t, "alpha", "op")
 	notLast.Records = []RecoveryOutputRecord{
 		{Kind: RecoveryOutputKindTruncation, Text: RecoveryOutputTruncationText},
 		{Kind: RecoveryOutputKindText, Text: "after"},
 	}
+	notLast.Truncated = true
 	unknownKind := sampleOutput(t, "alpha", "op", "ok")
 	unknownKind.Records[0].Kind = "html"
 	badState := sampleOutput(t, "alpha", "op", "ok")
