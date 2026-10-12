@@ -484,10 +484,10 @@ def body(root: Path, dry_run: bool) -> int:
         d = mutant("phase1-a-second-production-deletion-path")
         tracker.swap(
             d / "core/internal/reconcile/reconcile.go",
-            "func leftOnMedium(rec state.Record, st lifecycle.State, local localValidity) Finding {\n"
-            "\treturn noAction(rec.Artifact, st, local.Reason)\n}",
-            "func leftOnMedium(rec state.Record, st lifecycle.State, local localValidity) Finding {\n"
-            "\treturn noAction(rec.Artifact, st, local.Reason)\n}\n"
+            "\t\tf.Reason += fmt.Sprintf(\"; the copy on %s is recorded as failing: %s\", p.Medium, reason)\n"
+            "\t}\n\treturn f\n}",
+            "\t\tf.Reason += fmt.Sprintf(\"; the copy on %s is recorded as failing: %s\", p.Medium, reason)\n"
+            "\t}\n\treturn f\n}\n"
             "\n"
             "// PLANTED VIOLATION (scripts/conformance/selftest.sh): a second production\n"
             "// deletion path, in the pass whose own comment says it has no business\n"
