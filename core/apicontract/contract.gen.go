@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "f13967ff8e10cbfc5813cb027252dba4efba67cfa1c6e27b555adeedc498228b"
+const ContractSHA256 = "2bbc47655abb5582e3047caf9411a4a677e9172f53417ba4b578f90fb49f6af8"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -2741,15 +2741,23 @@ type OperationRestore struct {
 // verification_class fields are for. Nothing here is a price, a bill
 // or an estimate of how long a restore will take; see access.
 type Placement struct {
-	Access            string `json:"access"`
-	Location          string `json:"location"`
-	Medium            string `json:"medium"`
-	MediumType        string `json:"medium_type"`
-	SizeBytes         *int64 `json:"size_bytes,omitempty"`
-	Status            string `json:"status"`
-	StorageClass      string `json:"storage_class,omitempty"`
-	VerificationClass string `json:"verification_class,omitempty"`
-	VerifiedAt        string `json:"verified_at,omitempty"`
+	Access                string `json:"access"`
+	AssuranceState        string `json:"assurance_state,omitempty"`
+	ConsecutiveFailures   int    `json:"consecutive_failures,omitempty"`
+	LastCheckedAt         string `json:"last_checked_at,omitempty"`
+	LastFailureAt         string `json:"last_failure_at,omitempty"`
+	LastFailureReason     string `json:"last_failure_reason,omitempty"`
+	Location              string `json:"location"`
+	Medium                string `json:"medium"`
+	MediumType            string `json:"medium_type"`
+	RecoveryFailureReason string `json:"recovery_failure_reason,omitempty"`
+	RecoveryState         string `json:"recovery_state,omitempty"`
+	RecoveryTestedAt      string `json:"recovery_tested_at,omitempty"`
+	SizeBytes             *int64 `json:"size_bytes,omitempty"`
+	Status                string `json:"status"`
+	StorageClass          string `json:"storage_class,omitempty"`
+	VerificationClass     string `json:"verification_class,omitempty"`
+	VerifiedAt            string `json:"verified_at,omitempty"`
 }
 
 // RecoveryMintRequest is POST /backups/{source}/{set}/{name}/recovery. Asks for one

@@ -108,6 +108,18 @@ type placementResponse struct {
 
 	Access string `json:"access"`
 	Status string `json:"status"`
+
+	// The copy's own scrub and recovery-test record (EPIC Q, #985). Every one
+	// is ABSENT for a copy nobody has checked: the unknown state is the
+	// absence, never a value a client could read as fine.
+	AssuranceState        string `json:"assurance_state,omitempty"`
+	LastCheckedAt         string `json:"last_checked_at,omitempty"`
+	LastFailureAt         string `json:"last_failure_at,omitempty"`
+	LastFailureReason     string `json:"last_failure_reason,omitempty"`
+	ConsecutiveFailures   int    `json:"consecutive_failures,omitempty"`
+	RecoveryState         string `json:"recovery_state,omitempty"`
+	RecoveryTestedAt      string `json:"recovery_tested_at,omitempty"`
+	RecoveryFailureReason string `json:"recovery_failure_reason,omitempty"`
 }
 
 // listArtifactsResponse is the body of both GET /api/v1/backups and GET
@@ -468,6 +480,16 @@ func (h *handlers) writeArtifactActionError(w http.ResponseWriter, r *http.Reque
 	}
 }
 
+// unlessUnknown turns the journal's zero-value "unknown" into an absent field.
+// The wire's rule for a copy nobody has checked is absence, so a client has one
+// way to read it and no value that could pass for good news.
+func unlessUnknown(s string) string {
+	if s == "unknown" {
+		return ""
+	}
+	return s
+}
+
 // toPlacementResponses projects an artifact's copies onto the wire.
 //
 // The result is always a non-nil slice, so a backup with no copy serves
@@ -488,6 +510,15 @@ func toPlacementResponses(placements []service.Placement) []placementResponse {
 			VerifiedAt:        formatTime(p.VerifiedAt),
 			Access:            p.Access,
 			Status:            p.Status,
+
+			AssuranceState:        unlessUnknown(p.ScrubState),
+			LastCheckedAt:         formatTime(p.ScrubLastCheckedAt),
+			LastFailureAt:         formatTime(p.ScrubLastFailureAt),
+			LastFailureReason:     p.ScrubLastFailureReason,
+			ConsecutiveFailures:   p.ScrubConsecutiveFailures,
+			RecoveryState:         unlessUnknown(p.RecoveryState),
+			RecoveryTestedAt:      formatTime(p.RecoveryTestedAt),
+			RecoveryFailureReason: p.RecoveryFailureReason,
 		})
 	}
 	return out
