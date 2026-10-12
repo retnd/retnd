@@ -838,6 +838,12 @@ bash scripts/perf/selftest.sh
 gate_step "/api/v1 bindings match the contract, and no implementation type leaks (#166)"
 bash scripts/api/check-contract-drift.sh
 
+# The contract generator answers the same way every time it is run (#1066).
+# check-contract-drift.sh regenerates and compares, so a generator that can
+# answer two ways fails a clean tree about half the time.
+gate_step "the contract generator is deterministic (#1066)"
+bash scripts/tests/api-generator-is-deterministic.test.sh
+
 # The other half of #166's "generated from it or mechanically validated
 # against it": ui/shared/src/api/client.ts is hand-written on top of the
 # generated module, so its request paths are string literals that the

@@ -327,6 +327,11 @@ make_full_tree() {
     printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/api/$api.sh"
   done
 
+  # The generator's determinism test (#1066), a static gate step next to the
+  # drift check it protects, stubbed for the same reason.
+  mkdir -p "$tree/scripts/tests"
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$tree/scripts/tests/api-generator-is-deterministic.test.sh"
+
   # EPIC E's FR-35 compatibility mutation self-test (#242), stubbed for the
   # third time for the third identical reason. The real one copies the tree
   # sixteen times and builds core/ in each copy; this fixture measures which
