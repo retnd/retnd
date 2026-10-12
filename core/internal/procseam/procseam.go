@@ -31,9 +31,7 @@ package procseam
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os/exec"
-	"strings"
 	"sync/atomic"
 )
 
@@ -76,7 +74,7 @@ func refuse(cmd *exec.Cmd, name string, args []string) {
 		return
 	}
 	g.t.Helper()
-	g.t.Errorf("a process was spawned where none is allowed: %s", strings.TrimSpace(name+" "+fmt.Sprint(len(args))+" arg(s)"))
+	g.t.Errorf("a process was spawned where none is allowed: %s (%d argument(s), not shown)", name, len(args))
 	cmd.Err = ErrRefused
 }
 

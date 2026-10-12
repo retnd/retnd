@@ -141,8 +141,14 @@ func TestUI_ABrowserThatAbortsMidDownloadStopsTheUpstreamStream(t *testing.T) {
 		inflight.Add(1)
 		defer inflight.Add(-1)
 		fl := w.(http.Flusher)
+		rc := http.NewResponseController(w)
 		chunk := bytes.Repeat([]byte("x"), 32<<10)
 		for r.Context().Err() == nil {
+			// A write nobody drains blocks for good, and then so does the
+			// server's Close at the end of the test. Longer than the wait
+			// below, so a stream the abort never reached is still seen as
+			// one, and shorter than forever, so the failure can be reported.
+			_ = rc.SetWriteDeadline(time.Now().Add(6 * time.Second))
 			n, err := w.Write(chunk)
 			sent.Add(int64(n))
 			fl.Flush()
@@ -181,7 +187,7 @@ func TestUI_ABrowserThatAbortsMidDownloadStopsTheUpstreamStream(t *testing.T) {
 	cancel() // the browser's cancel button
 	_ = resp.Body.Close()
 
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(4 * time.Second)
 	for inflight.Load() != 0 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
