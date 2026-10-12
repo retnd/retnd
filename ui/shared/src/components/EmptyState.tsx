@@ -20,6 +20,7 @@ import { Banner } from "@shared/components/Banner";
 import { copyText } from "@shared/utilities/copyText";
 import { useServiceRecovery } from "@shared/utilities/useServiceRecovery";
 import type { FailureOrigin } from "@shared/api/contracts";
+import { isUnreachableMessage } from "@shared/api/failure";
 import type { CopyOutcome } from "@shared/utilities/copyText";
 import { Icon } from "@shared/design-system/icons";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
@@ -130,7 +131,9 @@ export function ErrorState({
   const [copied, setCopied] = useState<"idle" | CopyOutcome>("idle");
   const detailRef = useRef<HTMLDivElement | null>(null);
 
-  const unreachable = origin === "gateway" || origin === "no-response";
+  // By recorded origin where the caller passed it, and by the headline where
+  // it spread only message/remediation/correlationId (most of them do).
+  const unreachable = origin === "gateway" || origin === "no-response" || isUnreachableMessage(message);
   // Asks again by itself once the service answers, exactly as Try again
   // would. Only when a retry is on offer: with none, there is nothing to
   // run when it recovers.
@@ -175,7 +178,7 @@ export function ErrorState({
           ) : null}
           {/* Advanced details only — never a stack trace (§37). */}
           {advanced ? (
-            <details style={{ marginTop: 8, fontSize: "var(--text-sm)", color: "var(--text-3)" }}>
+            <details style={{ marginTop: 8, fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
               <summary style={{ cursor: "pointer" }}>Advanced details</summary>
               <div ref={detailRef} className="mono" style={{ marginTop: 6, whiteSpace: "pre-wrap" }}>{advanced}</div>
               {/* The next thing an operator does with a failure is paste
@@ -219,7 +222,7 @@ export function ErrorState({
               </InfoTooltip>
               {retriedAt ? (
                 <InfoTooltip id="common.error-retried-at">
-                  <span role="status" style={{ fontSize: "var(--text-sm)", color: "var(--text-3)" }}>
+                  <span role="status" style={{ fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
                     {"Tried again at " + retriedAt + ", and it failed the same way."}
                   </span>
                 </InfoTooltip>

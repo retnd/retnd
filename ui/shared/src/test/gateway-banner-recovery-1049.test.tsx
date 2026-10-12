@@ -122,6 +122,25 @@ describe("an ErrorState that could not reach the service", () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
+  it("is recognised by its headline when the caller passed only message, remediation and id", async () => {
+    // Most cards pass these three one by one and never the recorded origin,
+    // so the sentence has to be enough (the Settings page's cards are the
+    // case the Playwright spec drives).
+    scriptedFetch([502, 200]);
+    const onRetry = vi.fn();
+    render(
+      <ErrorState
+        message={gatewayError.message}
+        remediation="The service settings could not be read, so they cannot be edited here yet."
+        correlationId="cid_proxy502"
+        onRetry={onRetry}
+      />
+    );
+    expect(screen.getByTestId("service-unreachable")).toBeInTheDocument();
+    await tick(POLL_MS * 2);
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
   it("is not marked, and does not poll, when the service itself refused", async () => {
     const { impl } = scriptedFetch([200]);
     const onRetry = vi.fn();

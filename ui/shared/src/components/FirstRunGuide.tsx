@@ -116,7 +116,7 @@ export function FirstRunGuide({
           return (
             <li key={step} data-step={step} data-state={state}>
               <span style={{ fontWeight: step === next ? 600 : 400 }}>{LABEL[step]}</span>{" "}
-              <span style={{ color: "var(--text-3)" }}>({STATE_WORD[state]})</span>
+              <span style={{ color: "var(--text-2)" }}>({STATE_WORD[state]})</span>
               {state !== "done" && action && step !== next ? (
                 <>
                   {" "}
