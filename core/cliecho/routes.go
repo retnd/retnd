@@ -1408,6 +1408,46 @@ var routes = map[string]entry{
 		},
 		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
 	},
+	key("POST", "/backup-sets/{source}/{set}/recovery-test"): {
+		build: func(a Action) *cmd {
+			c := newCmd("recovery-test", setID(a))
+			var req apicontract.StartRecoveryTestRequest
+			if !decode(a.Body, &req) {
+				return c
+			}
+			if req.ArtifactID != "" {
+				c.flag("artifact", req.ArtifactID)
+			}
+			if req.Acknowledged {
+				c.bare("acknowledge-cost")
+			}
+			return c
+		},
+		examples: []Action{
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}, Body: []byte(`{}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"},
+				Body: []byte(`{"artifact_id":"api-server/var-backups/dump.tar","acknowledged":true}`)},
+		},
+	},
+	key("GET", "/backup-sets/{source}/{set}/recovery-test/output"): {
+		build: func(a Action) *cmd {
+			return newCmd("recovery-test", setID(a)).bare("show-output")
+		},
+		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
+	},
+	key("POST", "/backup-sets/{source}/{set}/scrub"): {
+		build: func(a Action) *cmd {
+			return newCmd("scrub", setID(a))
+		},
+		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
+	},
+	key("POST", "/assurance/operations/{op}/cancel"): {
+		build: func(a Action) *cmd {
+			return newCmd("assurance", "cancel", a.Params["op"])
+		},
+		examples: []Action{{Params: map[string]string{"op": "7b0c9a1e-0000-4000-8000-000000000001"}}},
+	},
 	key("GET", "/assurance/due"): {
 		build: func(a Action) *cmd {
 			c := newCmd("settings", "assurance", "due")

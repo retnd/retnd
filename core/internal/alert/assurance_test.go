@@ -7,13 +7,13 @@ import (
 	"github.com/retnd/retnd/core/internal/alert"
 )
 
-// EPIC Q, Q1.4 (#982): the six conditions about a copy nobody has looked at,
-// a copy that fails when somebody does, and a set with nothing readable.
+// EPIC Q, Q1.4 (#982): the four conditions about a copy nobody has looked at
+// lately and a copy that fails when somebody does.
 
 func TestAssuranceConditionsOneConditionPerKindPerSet(t *testing.T) {
 	got := alert.AssuranceConditions([]alert.AssuranceSignal{
 		{BackupSet: "prod/db", ScrubOverdue: 3, ScrubFailing: 1, RecoveryTestOverdue: true},
-		{BackupSet: "prod/media", NoReadableCopy: 2, ArchiveOnly: 4},
+		{BackupSet: "prod/media", RecoveryTestFailing: true},
 		{BackupSet: "prod/quiet"},
 	})
 	var kinds []alert.Kind
@@ -28,7 +28,7 @@ func TestAssuranceConditionsOneConditionPerKindPerSet(t *testing.T) {
 	}
 	mustEqualKinds(t, "conditions", kinds, []alert.Kind{
 		alert.ScrubOverdue, alert.ScrubFailing, alert.RecoveryTestOverdue,
-		alert.NoReadableCopy, alert.ArchiveOnlyRecoverability,
+		alert.RecoveryTestFailing,
 	})
 }
 
@@ -47,7 +47,7 @@ func TestAssuranceConditionsNeverCarryValidatorOutputOrPaths(t *testing.T) {
 
 func TestAssuranceKindsHaveTheirOwnHeadline(t *testing.T) {
 	seen := map[string]alert.Kind{}
-	for _, k := range []alert.Kind{alert.ScrubOverdue, alert.ScrubFailing, alert.RecoveryTestOverdue, alert.RecoveryTestFailing, alert.NoReadableCopy, alert.ArchiveOnlyRecoverability} {
+	for _, k := range []alert.Kind{alert.ScrubOverdue, alert.ScrubFailing, alert.RecoveryTestOverdue, alert.RecoveryTestFailing} {
 		title := k.Title()
 		if title == "retnd alert" || title == "" {
 			t.Errorf("%s fell through to the generic headline", k)

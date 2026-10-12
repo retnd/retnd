@@ -55,6 +55,7 @@ import (
 	"github.com/retnd/retnd/core/internal/lifecycle"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/recoverytest"
 	"github.com/retnd/retnd/core/internal/state"
 	"github.com/retnd/retnd/core/internal/transport"
 	"github.com/retnd/retnd/core/internal/transport/retry"
@@ -296,6 +297,21 @@ type Service struct {
 
 	// scrub is this process's shared scrub admission control (scrub.go).
 	scrub scrubLimitsState
+
+	// Recoverer stages a copy for a recovery test (EPIC Q, #980). Nil means
+	// the local-copy recoverer, which stages a copy on local disk under
+	// RecoveryStagingRoot and refuses a storage-medium copy. The recovery
+	// domain (Q1.1) supplies the one that reads from a medium.
+	Recoverer recoverytest.Recoverer
+
+	// RecoveryStagingRoot is where the local-copy recoverer stages. Empty
+	// means the system temporary directory.
+	RecoveryStagingRoot string
+
+	// RecoveryTickBound is how long one RecoveryTestTick may keep starting
+	// tests. Zero is DefaultRecoveryTickBound and a negative value is no
+	// bound.
+	RecoveryTickBound time.Duration
 
 	// Stages runs the operator's scripts for a purpose that is not a backup
 	// (stage.go). Nil means this process cannot, which every notification

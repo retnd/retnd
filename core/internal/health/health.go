@@ -171,6 +171,21 @@ const ScrubFailureThreshold = 3
 // nothing here is allowed to reach a verdict. That is the opposite of
 // what the placement evidence is for on both counts.
 type BackupSetInputs struct {
+	// ScrubCadence is the set's resolved scrub cadence. It is read for one
+	// thing: a copy whose last scrub passed and whose next one is a whole
+	// cadence late is reported in ScrubOverdueCopies. Zero reports none.
+	ScrubCadence time.Duration
+
+	// RecoveryTestRequired says the operator requires the newest known good
+	// copy to have a current, passing recovery test (EPIC Q, #980). When it
+	// does not, a failed or missing test degrades nothing: it is a claim a
+	// surface shows, and requiring it is a decision.
+	//
+	// It can only turn HEALTHY into DEGRADED and it reads the claim off the
+	// copy's own record. It never reaches back and changes a backup that
+	// already succeeded: that backup is still the newest good one.
+	RecoveryTestRequired bool
+
 	// LastSuccessfulPollAt is when discovery last completed successfully
 	// for this set. It is a liveness signal, not evidence of freshness: a
 	// set can be polled successfully every cycle while its source has
@@ -316,6 +331,25 @@ type BackupSetHealth struct {
 	// HEALTHY set and softens nothing stronger, and it is reported
 	// whatever the verdict turns out to be.
 	ScrubFailingCopies int
+
+	// ScrubOverdueCopies is how many ACTIVE copies passed their last scrub
+	// and are now a whole cadence past the time the next one was due (EPIC
+	// Q, C13). A copy nobody has scrubbed yet is not counted: that is
+	// "unknown", which every surface already shows, and counting it would
+	// raise an alert on every fresh install before the first pass ran. It
+	// degrades nothing; it feeds the SCRUB_OVERDUE alert.
+	ScrubOverdueCopies int
+
+	// RecoveryTestFailed says the newest known good copy's last recovery
+	// test failed. RecoveryTestUnmet is why a REQUIRED recovery test is not
+	// met, or empty when it is met or none is required. Neither reaches the
+	// verdict except through RecoveryTestRequired (see BackupSetInputs).
+	RecoveryTestFailed bool
+	// RecoveryTestLapsed says a test that had passed is past its cadence, or
+	// the last attempt was refused for cost or could not complete. A copy no
+	// test has run on yet is neither failed nor lapsed.
+	RecoveryTestLapsed bool
+	RecoveryTestUnmet  string
 
 	// ReinstatedRemoteRetainedCount is how many artifacts in this set were
 	// reinstated out of quarantine and still have a remote source this

@@ -516,6 +516,22 @@ The rules that matter:
   directory is not the set's `after_dir`, whose scripts undo what a `before`
   hook did to the source machine and have no business running because a scrub
   failed. A set held for editing is skipped, and the skip is reported.
+- **A recovery test proves a copy is usable, and the validator is your script.**
+  Put one `NAME.local.sh` in `recovery-test/<source>/<set>` under the workflow
+  root. The engine recovers the newest known good copy to a private staging
+  directory, reads it back and checks its digest against the one recorded for
+  the artifact, and only then runs your script with `RECOVERY_TEST_FILE` (the
+  path), `RECOVERY_TEST_ARTIFACT`, `RECOVERY_TEST_DIGEST` and
+  `RECOVERY_TEST_SIZE` set. It records the result together with the name and
+  the hash of the script that ran. Your script never writes the claim: a script
+  that exits 0 without opening the file still cannot make a pass out of bytes
+  that did not match. The runner's container cannot see the staging directory
+  unless you declare it with `--hook-mount`, and a script that cannot see the
+  file fails rather than passing. A set with no such directory reads `not
+  configured`, which is not a pass and not a failure. A failing test runs the
+  same `assurance-after` scripts the scrub does, with `ASSURANCE_EVENT` set to
+  `recovery_test_failed` and, when it passes again, `recovery_test_recovered`.
+
 - **A scrub also asks each medium what it holds, and tells you about anything
   the journal does not know.** The journal is still the only thing that says
   what is a copy: the scrub checks the keys the journal records and nothing

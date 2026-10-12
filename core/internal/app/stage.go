@@ -36,6 +36,11 @@ type StageRunner interface {
 // purpose. It is the "not configured" fact, and it is never a failure.
 var ErrStageNotConfigured = errors.New("app: no scripts are configured for this")
 
+// ErrStageScriptMissing is returned when a request names one script (Only)
+// and the stage directory does not hold it. A purpose that was told which
+// script to run never falls back to another.
+var ErrStageScriptMissing = errors.New("app: the named script is not in its stage directory")
+
 // StageRequest says which directories to run and what to tell them.
 type StageRequest struct {
 	Set config.BackupSet
@@ -67,9 +72,21 @@ type StageRequest struct {
 	// them. Zero means no extra bound beyond the workflow engine's own.
 	MaxScripts int
 
+	// Only, when set, is the file name of the one script to run. The other
+	// scripts in the directory are neither read nor run, and a directory
+	// that does not hold it is ErrStageScriptMissing, never another script
+	// in its place. It is how a recovery test's validator_id selects the
+	// validator.
+	Only string
+
 	// MaxOutputBytes bounds the output kept per script. Zero takes the
 	// engine's default.
 	MaxOutputBytes int64
+
+	// DryRun builds and verifies the plan and runs nothing: it answers "is
+	// there something here, and would it be allowed to run" with the
+	// scripts' names and hashes. Scripts come back with an empty State.
+	DryRun bool
 }
 
 // StageScript is one script's outcome.

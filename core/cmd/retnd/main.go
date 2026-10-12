@@ -85,6 +85,8 @@ var commands = map[string]func([]string) int{
 	"reconcile":       cmdReconcile,
 	"validate":        cmdValidate,
 	"scrub":           cmdScrub,
+	"recovery-test":   cmdRecoveryTest,
+	"assurance":       cmdAssurance,
 	"catalog":         cmdCatalog,
 	"quarantine":      cmdQuarantine,
 	"unconfigured":    cmdUnconfigured,
@@ -265,6 +267,32 @@ commands:
                                                   also needs --allow-egress. Exit 1 when a copy failed, could not be
                                                   checked, was skipped (held for editing, or being checked by another
                                                   scrub) or was refused for cost (EPIC Q)
+  recovery-test <source/backup-set> [--artifact <source/backup-set/name>] [--acknowledge-cost] [--json]
+                                                  prove now that the newest known good copy can be got back and used:
+                                                  the copy is staged by the recovery engine, checked against the
+                                                  SHA-256 recorded when it was ingested, and only then handed to the
+                                                  set's validator script (recovery-test/<source>/<set>, selected by the
+                                                  policy's validator_id). A read that costs money is refused unless
+                                                  --acknowledge-cost is given, and no provider restore is ever started.
+                                                  Exit 0 when the copy passed, 10 when the read was refused for cost,
+                                                  1 otherwise (failed, or could not be completed). The same test as
+                                                  POST /api/v1/backup-sets/{source}/{set}/recovery-test, which starts
+                                                  it in the background (EPIC Q)
+                                                  --follow prints the test's stages on standard error as it passes
+                                                  through them; the exit status is unchanged
+  recovery-test <source/backup-set> --show-output [--json]
+                                                  print what the newest recovery test of the set printed, as the
+                                                  engine stored it: sanitised, bounded, one line each, with the
+                                                  runner's own marker if the capture was cut. It reads and runs no
+                                                  test, so it takes none of the flags above. The same body as
+                                                  GET /api/v1/backup-sets/{source}/{set}/recovery-test/output
+                                                  (EPIC Q)
+  assurance cancel <operation-id> [--json]
+                                                  stop a running scrub or recovery test by the operation id its start
+                                                  returned. The operation lives in the memory of the process serving
+                                                  this deployment, so this needs RETND_API_URL and the two credential
+                                                  variables beside it and is refused without them. The same as
+                                                  POST /api/v1/assurance/operations/{op}/cancel (EPIC Q)
   catalog rebuild [--dry-run]                    reconstruct a lost/corrupted state database from sidecar recovery manifests
   quarantine <revalidate|retry|reinstate> <source/backup-set/artifact> [--note T]
                                                   act on one quarantined artifact: revalidate re-checks it and moves
@@ -373,6 +401,9 @@ commands:
                                                   (the archival thaw above, which writes nothing) nor snapshot
                                                   restore (a kopia restore point), and a kopia set is refused with
                                                   a sentence naming that verb
+                                                  --follow prints the recovery's stages on standard error as it
+                                                  passes through them, in the engine's order; the exit status is the
+                                                  recovery's own
   backup-set enabled <source/backup-set> <on|off>
                                                   turn one already-configured backup set on or off, which
                                                   --disabled can only do at creation. "off" stops the scheduler
@@ -709,7 +740,7 @@ to print:
       not be performed at all, a route that was named and did not answer, and a route that
       answered for a different deployment, because none of those gets better by waiting
       (#551, #555)
-  10-31  recover only (EPIC Q), one code per reason so a script can branch without reading the
+  10-36  recover only (EPIC Q), one code per reason so a script can branch without reading the
       sentence: 10 chargeable and not acknowledged, 11 no retained copy, 12 no such copy,
       13 nothing readable right now, 14 the copy on this host's disk failed its checksum,
       15 a remote copy failed its checksum, 16 no recorded SHA-256 to verify against,
@@ -717,6 +748,8 @@ to print:
       snapshot restore), 20 target not allowed, 21 target already exists, 22-26 grant
       refusals (unknown, used, expired, session ended, too many), 27 recovery unavailable,
       28 busy, 29 interrupted, 30 any other failure, 31 an archive restore was started and
-      nothing was recovered yet. In every refusal no byte was delivered anywhere
+      nothing was recovered yet, 32 too many full reads running on this host, 33 too many
+      on that one destination, 36 too many downloads in progress (a budget refusal: try
+      again when one finishes). In every refusal no byte was delivered anywhere
 `)
 }

@@ -63,12 +63,27 @@ func MediumFor(cfg *config.Config, id string) (transport.Medium, string, error) 
 		if m.ID != id {
 			continue
 		}
+		// The transport's type is the backend's ROLE, not the configured
+		// type string: a local_volume is a directory (MediumTypeLocalDir)
+		// whose destination is its Path, the same translation
+		// MediumResolver makes. Casting the string across made the copy on
+		// a local volume look like a download from an object store, to the
+		// cost gate and to the dialer alike. A type this build has no
+		// backend for keeps the configured string, and fails where it is
+		// dialed, as it always did.
+		typ, bucket := transport.MediumType(m.Type), m.Bucket
+		if mapped, err := mediumType(m); err == nil {
+			typ = mapped
+			if typ == transport.MediumTypeLocalDir {
+				bucket = m.Path
+			}
+		}
 		return transport.Medium{
 			ID:           m.ID,
-			Type:         transport.MediumType(m.Type),
+			Type:         typ,
 			Region:       m.Region,
 			Endpoint:     m.Endpoint,
-			Bucket:       m.Bucket,
+			Bucket:       bucket,
 			Prefix:       m.Prefix,
 			StorageClass: m.EffectiveStorageClass(),
 			Credentials: transport.MediumCredentials{

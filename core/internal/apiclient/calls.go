@@ -538,6 +538,15 @@ func (c *Client) ReleaseBackupSetEditHold(ctx context.Context, source, set strin
 	return c.call(ctx, "releaseBackupSetEditHold", []string{source, set}, nil, nil)
 }
 
+// CancelAssuranceOperation is POST /assurance/operations/{op}/cancel: tell a
+// running scrub or recovery test to stop. The operation runs in the engine's
+// own memory, so this is the only way a terminal can reach it.
+func (c *Client) CancelAssuranceOperation(ctx context.Context, operationID string) (apicontract.AssuranceOperationCancelled, error) {
+	var out apicontract.AssuranceOperationCancelled
+	err := c.call(ctx, "cancelAssuranceOperation", []string{operationID}, nil, &out)
+	return out, err
+}
+
 // EPIC L's four routed workflow operations (#813), and the reason they
 // are four rather than eighteen.
 //

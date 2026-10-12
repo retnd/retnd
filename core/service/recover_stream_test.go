@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/retnd/retnd/core/internal/obs"
 	"github.com/retnd/retnd/core/internal/recovery/export"
 )
 
@@ -289,6 +291,70 @@ func TestAPartialDownloadClaimsNoVerification(t *testing.T) {
 	}
 }
 
+// What the budgets bound for a streamed download (#983): the stream ceiling
+// for the whole life of the grant, and the read ceilings for the one
+// preparation read, and nothing else.
+
+func TestAStreamingDownloadHoldsNoReadSlotSoAScrubOrRecoveryOnItsDestinationIsNotShutOut(t *testing.T) {
+	smallChunks(t)
+	f := newRecoveryFixture(t, fixtureOpts{localCopy: true})
+	if err := f.b.SetRecoveryLimits(RecoveryLimits{MaxConcurrentReads: 1, MaxReadsPerDestination: 1, MaxDownloadStreams: 2}); err != nil {
+		t.Fatal(err)
+	}
+	_, dl := redeemDownload(t, f)
+	defer dl.Close()
+	// A slow client: the download is open and being read a little at a time.
+	_, _ = dl.Reader().Read(make([]byte, 16))
+
+	g, err := f.b.MintRecovery(context.Background(), f.session(), RecoveryRequest{ArtifactID: f.artifact, Target: stagingTo("while-streaming")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := f.b.RedeemRecovery(context.Background(), f.session(), g.Token); err != nil {
+		t.Fatalf("a recovery on the destination a download is streaming from was refused: %v", err)
+	}
+}
+
+func TestAPreparationReadThatCannotGetASlotIsARetryAndSpendsNothing(t *testing.T) {
+	smallChunks(t)
+	f := newRecoveryFixture(t, fixtureOpts{localCopy: true})
+	if err := f.b.SetRecoveryLimits(RecoveryLimits{MaxConcurrentReads: 1, MaxReadsPerDestination: 1, MaxDownloadStreams: 1}); err != nil {
+		t.Fatal(err)
+	}
+	h := f.b.recoveryHost()
+	hold, err := h.reads.Acquire("local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := mintDownload(t, f, false)
+	_, _, err = f.b.RedeemRecovery(context.Background(), f.session(), g.Token)
+	if code := codeOf(t, err); code != RecoveryReadsBusy && code != RecoveryDestinationBusy {
+		t.Fatalf("want a read-budget refusal, got %s", code)
+	}
+	if n := h.streams.InFlight(); n != 0 {
+		t.Fatalf("a refused download is holding %d stream slots", n)
+	}
+	hold()
+	dl, _, err := f.b.RedeemRecovery(context.Background(), f.session(), g.Token)
+	if err != nil {
+		t.Fatalf("the same link was spent by a refusal that read nothing: %v", err)
+	}
+	dl.Close()
+}
+
+// A streamed download is one recovery on the activity feed: a start, the
+// stages it really passes through, and one end (#980's trace, carried by the
+// grant across the ranges).
+
+func stagesOf(t *testing.T, f *recoveryFixture) []string {
+	t.Helper()
+	var got []string
+	for _, ev := range f.eventsNamed(t, obs.EventRecoveryStage) {
+		got = append(got, ev["stage"].(string))
+	}
+	return got
+}
+
 // The end of a download as the feed has to tell it (EPIC Q, W-12b): a page
 // shows "completed", "interrupted at N of M bytes" or "failed verification"
 // from the server's own record, and the three must not be confusable. The
@@ -310,6 +376,72 @@ func outcomeRows(t *testing.T, f *recoveryFixture) map[string]map[string]any {
 		}
 	}
 	return got
+}
+
+func TestAStreamedDownloadEmitsTheStagesItReallyPassesThrough(t *testing.T) {
+	smallChunks(t)
+	f := newRecoveryFixture(t, fixtureOpts{remoteClass: "warm"})
+	var out bytes.Buffer
+	if _, _, err := f.b.RecoverNow(context.Background(), f.session(),
+		RecoveryRequest{ArtifactID: f.artifact, Target: RecoveryTarget{Kind: "download"}, AcknowledgeCost: true}, &out); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"resolving_copy", "reading", "verifying", "writing_target", "cleaning_temporary_files", "complete"}
+	if got := stagesOf(t, f); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("first download stages = %v, want %v", got, want)
+	}
+	if ends := f.eventsNamed(t, obs.EventRecoveryEnd); len(ends) != 1 || ends[0]["result"] != "success" {
+		t.Errorf("recovery_end = %v", ends)
+	}
+}
+
+func TestASecondDownloadOfTheSameArtifactSkipsThePreparationStages(t *testing.T) {
+	smallChunks(t)
+	f := newRecoveryFixture(t, fixtureOpts{remoteClass: "warm"})
+	req := RecoveryRequest{ArtifactID: f.artifact, Target: RecoveryTarget{Kind: "download"}, AcknowledgeCost: true}
+	if _, _, err := f.b.RecoverNow(context.Background(), f.session(), req, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	f.log.Reset()
+	if _, _, err := f.b.RecoverNow(context.Background(), f.session(), req, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"resolving_copy", "writing_target", "cleaning_temporary_files", "complete"}
+	if got := stagesOf(t, f); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("second download stages = %v, want %v (no second read to prepare)", got, want)
+	}
+}
+
+func TestAFailedStreamedDownloadEndsWithAnErrorAndNeverSaysComplete(t *testing.T) {
+	smallChunks(t)
+	f := newRecoveryFixture(t, fixtureOpts{remoteClass: "warm"})
+	f.store.flipAt = 3
+	if _, _, err := f.b.RecoverNow(context.Background(), f.session(),
+		RecoveryRequest{ArtifactID: f.artifact, Target: RecoveryTarget{Kind: "download"}, AcknowledgeCost: true}, io.Discard); err == nil {
+		t.Fatal("a corrupt copy was downloaded")
+	}
+	for _, st := range stagesOf(t, f) {
+		if st == "complete" {
+			t.Error("a failed download reported the Complete stage")
+		}
+	}
+	if ends := f.eventsNamed(t, obs.EventRecoveryEnd); len(ends) != 1 || ends[0]["result"] == "success" {
+		t.Errorf("recovery_end = %v, want one non-success line", ends)
+	}
+}
+
+func TestADownloadAbandonedMidWayEndsItsTraceWhenTheReaperLetsGo(t *testing.T) {
+	smallChunks(t)
+	f := newRecoveryFixture(t, fixtureOpts{localCopy: true})
+	_, dl := redeemDownload(t, f)
+	dl.Close()
+	dl.Served(0, 99, 100, nil) // started, then abandoned
+	f.clock.Advance(10 * time.Minute)
+	f.b.sweepRecoveryIfDue(context.Background())
+	ends := f.eventsNamed(t, obs.EventRecoveryEnd)
+	if len(ends) != 1 || ends[0]["result"] == "success" {
+		t.Fatalf("an abandoned download should end its trace once, as a failure: %v", ends)
+	}
 }
 
 func TestADownloadTheClientWalkedAwayFromIsRecordedAsInterruptedWithBytesSentAndTotal(t *testing.T) {

@@ -320,6 +320,25 @@ func (g *Grants) Done(token string) {
 	e.grant.ExpiresAt = g.expiryFor(e.session, now)
 }
 
+// Revert undoes a Redeem that turned out not to be usable yet, so the refusal
+// that followed it (a budget full, say) does not spend the grant: the holder
+// can come back for it. Only meaningful for the first redemption, before
+// anything has been attached.
+func (g *Grants) Revert(token string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	e, ok := g.live[digest(token)]
+	if !ok || e.closed() {
+		return
+	}
+	if e.open > 0 {
+		e.open--
+	}
+	if e.open == 0 && e.attached == nil {
+		e.redeemed = false
+	}
+}
+
 // Served records that the inclusive byte range [start, end] of a copy of
 // size bytes was delivered in full, and reports whether the ranges delivered
 // so far cover the whole copy. Only then is a download finished: a tail
