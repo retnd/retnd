@@ -72,6 +72,11 @@ FSOPEN_GO = "core/internal/fsopen/fsopen.go"
 CONFIG_ASSURANCE_GO = "core/internal/config/assurance.go"
 ALERT_GO = "core/internal/alert/alert.go"
 OBS_ASSURANCE_GO = "core/internal/obs/assurance_events.go"
+REVALIDATE_SELECT_GO = "core/internal/revalidate/select.go"
+REVALIDATE_BOUNDS_GO = "core/internal/revalidate/bounds.go"
+RT_OUTPUT_GO = "core/internal/recoverytest/output.go"
+RECONCILE_GO = "core/internal/reconcile/reconcile.go"
+ASSURANCE_OPS_GO = "core/service/assuranceoperations.go"
 
 # (module directory under the tree root, package patterns)
 EXPORT_PKG = ("core", ("./internal/recovery/export/",))
@@ -89,6 +94,8 @@ APP_PKG = ("core", ("./internal/app/",))
 STATE_PKG = ("core", ("./internal/state/",))
 FSOPEN_PKG = ("core", ("./internal/fsopen/",))
 RT_PKG = ("core", ("./internal/recoverytest/",))
+REVALIDATE_PKG = ("core", ("./internal/revalidate/",))
+RECONCILE_PKG = ("core", ("./internal/reconcile/",))
 ALERT_PKG = ("core", ("./internal/alert/",))
 OBS_PKG = ("core", ("./internal/obs/",))
 
@@ -1024,8 +1031,8 @@ MUTATIONS = [
     (
         "a second recovery test of one set started while the first runs",
         SVC_RT_GO,
-        "\tif b.recoveryTests.running[set.String()] {",
-        "\t" + PLANT + "any number at once.\n\tif false && b.recoveryTests.running[set.String()] {",
+        "\tif cur := b.ops.running(opKindRecoveryTest, set.String()); cur != nil {",
+        "\t" + PLANT + "any number at once.\n\tif cur := b.ops.running(opKindRecoveryTest, set.String()); cur != nil && false {",
         "already running",
         SERVICE_PKG,
         "TestStartRecoveryTestRunsOneAtATimePerSet",
@@ -1080,9 +1087,9 @@ MUTATIONS = [
     (
         "a download that stages the artifact again before streaming it (Q1.24)",
         RECOVER_STREAM_GO,
-        "\treader := export.NewVerifiedReader(ctx, src, ix, plan.expect.Origin, plan.expect.Medium)\n",
-        "\t" + PLANT + "the download is staged as a whole file first.\n\t_, _ = b.stageGrant(ctx, g)\n"
-        "\treader := export.NewVerifiedReader(ctx, src, ix, plan.expect.Origin, plan.expect.Medium)\n",
+        "\treader := export.NewVerifiedReader(ctx, pf.src, pf.index, pf.plan.expect.Origin, pf.plan.expect.Medium)\n",
+        "\t" + PLANT + "the download is staged as a whole file first.\n\t_, _ = b.stageGrant(ctx, g, trace)\n"
+        "\treader := export.NewVerifiedReader(ctx, pf.src, pf.index, pf.plan.expect.Origin, pf.plan.expect.Medium)\n",
         "copied the artifact to the staging disk",
         SERVICE_PKG,
         "TestADownloadIsStreamedAndStagesNothing",
@@ -1090,12 +1097,12 @@ MUTATIONS = [
     (
         "a download that makes a whole-file temporary copy outside staging (Q1.24)",
         RECOVER_STREAM_GO,
-        "\treader := export.NewVerifiedReader(ctx, src, ix, plan.expect.Origin, plan.expect.Medium)\n",
+        "\treader := export.NewVerifiedReader(ctx, pf.src, pf.index, pf.plan.expect.Origin, pf.plan.expect.Medium)\n",
         "\t" + PLANT + "the copy is read in full again, into a temp file nobody checks.\n"
         "\tif tmp, terr := os.CreateTemp(\"\", \"retnd-planted-\"); terr == nil {\n"
-        "\t\tif rc, oerr := src.OpenAt(ctx, 0); oerr == nil {\n\t\t\t_, _ = io.Copy(tmp, rc)\n\t\t\t_ = rc.Close()\n\t\t}\n"
+        "\t\tif rc, oerr := pf.src.OpenAt(ctx, 0); oerr == nil {\n\t\t\t_, _ = io.Copy(tmp, rc)\n\t\t\t_ = rc.Close()\n\t\t}\n"
         "\t\t_ = tmp.Close()\n\t\t_ = os.Remove(tmp.Name())\n\t}\n"
-        "\treader := export.NewVerifiedReader(ctx, src, ix, plan.expect.Origin, plan.expect.Medium)\n",
+        "\treader := export.NewVerifiedReader(ctx, pf.src, pf.index, pf.plan.expect.Origin, pf.plan.expect.Medium)\n",
         "read the copy again before sending a byte",
         SERVICE_PKG,
         "TestThePreparationReadIsPaidOncePerArtifact",
@@ -1103,9 +1110,9 @@ MUTATIONS = [
     (
         "a recovery path that starts a process",
         RECOVER_STREAM_GO,
-        "\treader := export.NewVerifiedReader(ctx, src, ix, plan.expect.Origin, plan.expect.Medium)\n",
+        "\treader := export.NewVerifiedReader(ctx, pf.src, pf.index, pf.plan.expect.Origin, pf.plan.expect.Medium)\n",
         "\t" + PLANT + "recovery shells out.\n\t_ = procseam.CommandContext(ctx, \"true\").Run()\n"
-        "\treader := export.NewVerifiedReader(ctx, src, ix, plan.expect.Origin, plan.expect.Medium)\n",
+        "\treader := export.NewVerifiedReader(ctx, pf.src, pf.index, pf.plan.expect.Origin, pf.plan.expect.Medium)\n",
         "a process was spawned where none is allowed",
         SERVICE_PKG,
         "TestRecoverySpawnsNoProcessFromAnyPathItRuns",
@@ -1204,9 +1211,93 @@ MUTATIONS = [
             ),
         ],
     ),
+    (
+        "a scheduled pass that takes every due copy instead of deferring past the per-pass bound",
+        REVALIDATE_SELECT_GO,
+        "\tif len(due) > cfg.MaxPerCycle {",
+        "\t" + PLANT + "the per-pass bound is never applied.\n\tif false && len(due) > cfg.MaxPerCycle {",
+        "the per-pass bound is 50",
+        REVALIDATE_PKG,
+        "TestAThousandDueCopiesDefer",
+    ),
+    (
+        "a scrub driver that runs more reads at once than the operator-facing ceiling",
+        REVALIDATE_BOUNDS_GO,
+        "\tDefaultGlobalConcurrency = config.DefaultMaxConcurrentReads\n",
+        "\t" + PLANT + "eight reads at once.\n\tDefaultGlobalConcurrency = 8\n",
+        "a default limiter admits 8",
+        REVALIDATE_PKG,
+        "TestAThousandDueCopiesDefer",
+    ),
+    (
+        "validator output kept without its bound, so no runner-only truncation record",
+        RT_OUTPUT_GO,
+        "\t\tif len(out) >= maxRecords || total+len(text) > maxBytes {",
+        "\t\t" + PLANT + "output is never cut.\n\t\tif false && (len(out) >= maxRecords || total+len(text) > maxBytes) {",
+        "records, the bound is",
+        RT_PKG,
+        "TestBoundOutputFitsWhatTheJournalWillStore",
+    ),
+    (
+        "a provider checksum mismatch that is refused and then forgotten",
+        RECOVER_RUN_GO,
+        "\t\tb.recordProviderFinding(ctx, plan, p)\n",
+        "\t\t" + PLANT + "the finding is not written on the copy.\n",
+        "after a positive finding of corruption",
+        SERVICE_PKG,
+        "TestAProviderChecksumMismatchIsRecordedOnTheCopy",
+    ),
+    (
+        "a medium copy recorded as failing that reconcile reports as left alone",
+        RECONCILE_GO,
+        "\t\tf.NeedsInvestigation = true\n\t\treason := p.LastFailureReason",
+        "\t\t" + PLANT + "the failure is not flagged.\n\t\treason := p.LastFailureReason",
+        "does not flag a copy recorded as failing",
+        RECONCILE_PKG,
+        "TestReconcile_AMediumCopyRecordedAsFailing",
+    ),
+    (
+        "two concurrent first downloads that each make the whole-copy pre-flight read",
+        RECOVER_STREAM_GO,
+        "\t\tif c, ok := d.building[key]; ok {",
+        "\t\t" + PLANT + "an index in the making is never joined.\n\t\tif c, ok := d.building[key]; ok && false {",
+        "which is the most one destination is asked for",
+        SERVICE_PKG,
+        "TestTwoConcurrentFirstDownloads",
+    ),
+    (
+        "a second operator asking for a running recovery test refused instead of joined",
+        SVC_RT_GO,
+        "\t\tif cur.artifact != opts.ArtifactID || cur.ack != opts.AcknowledgeCost {",
+        "\t\t" + PLANT + "an identical request is not joined.\n\t\tif true {",
+        "a recovery test of this backup set is already running",
+        SERVICE_PKG,
+        "TestTwoOperatorsOnTheSameRecoveryTest",
+    ),
+    (
+        "a cancel that tells the operator it is cancelling and stops nothing",
+        ASSURANCE_OPS_GO,
+        "\top.cancel()\n\treturn AssuranceOperationCancelled",
+        "\t" + PLANT + "the operation is never told.\n\treturn AssuranceOperationCancelled",
+        "background work did not finish",
+        SERVICE_PKG,
+        "TestCancellingARecoveryTestAtEachStage/the_read",
+    ),
+    (
+        "a default install whose download ceiling is not four",
+        BUDGET_GO,
+        "\tDefaultMaxDownloadStreams     = 4\n",
+        "\t" + PLANT + "the ceiling is raised.\n\tDefaultMaxDownloadStreams     = 40\n",
+        "the default ceiling is 40",
+        SERVICE_PKG,
+        "TestADefaultDeploymentRefusesTheFifth",
+    ),
 ]
 
 CLEAN_CONTROLS = [
+    ("the budget proofs on the real drivers (#983)", REVALIDATE_PKG, "TestAThousandDueCopiesDefer|TestTheBacklogHarness"),
+    ("the budget proofs on the service (#983)", SERVICE_PKG, "TestAProviderChecksumMismatch|TestTwoConcurrentFirstDownloads|TestADefaultDeployment|TestCancellingARecoveryTest|TestTwoOperatorsOnTheSameRecoveryTest"),
+    ("the failing-copy reconcile finding (#983)", RECONCILE_PKG, "TestReconcile_AMediumCopy"),
     ("the recovery domain's own suite", EXPORT_PKG, "."),
     (
         "the recovery service suite",
