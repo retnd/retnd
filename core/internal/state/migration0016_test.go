@@ -303,7 +303,7 @@ func TestMigration0016_TheDueScanHasAnIndex(t *testing.T) {
 
 // TestMigration0016IsTheAssuranceMigration keeps the number honest: 0014 and
 // 0015 belong to other epics, and 0016 is this one's. (It used to say 0016
-// was the latest; 0017, the durable activity feed, is later, and has its own
+// was the latest; 0018, the durable activity feed, is later, and has its own
 // test in activity_events_test.go.)
 func TestMigration0016IsTheAssuranceMigration(t *testing.T) {
 	m := migrationSQL(t, assuranceMigrationVersion)

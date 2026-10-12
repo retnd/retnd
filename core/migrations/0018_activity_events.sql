@@ -1,5 +1,5 @@
--- 0017_activity_events: the durable half of the activity feed (EPIC Q, the
--- owner's decision on "are Activity events durable": yes).
+-- 0018_activity_events: the durable half of the activity feed (EPIC Q, #1071;
+-- EPIC P keeps 0017). The owner's decision on "are Activity events durable": yes.
 --
 -- WHY THIS EXISTS. The feed the operation panel and the dashboard strips read
 -- (service/liveactivity.go) was a bounded in-memory ring per backup set. It

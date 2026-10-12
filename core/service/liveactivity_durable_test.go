@@ -12,7 +12,7 @@ import (
 	"github.com/retnd/retnd/core/internal/state"
 )
 
-// The activity feed's events are durable (migration 0017, the owner's
+// The activity feed's events are durable (migration 0018, the owner's
 // decision). These cases hold what that promises: a restart keeps the feed
 // and the numbering, the write volume is bounded by what is stored and how
 // long, the cycle is never slowed by the writer, and a client can page back
