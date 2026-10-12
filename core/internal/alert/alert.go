@@ -294,6 +294,42 @@ const (
 	// scope, and an operator acts per backup set, so
 	// WorkflowRecoveryConditions folds a set's holds into one.
 	WorkflowRecoveryRequired Kind = "WORKFLOW_RECOVERY_REQUIRED"
+
+	// The six assurance kinds below are EPIC Q's (Q1.4, #982). They are
+	// about whether a backup set can be GOT BACK, and they pass the same
+	// three tests every kind has to: each needs a human, each resolves
+	// when the underlying fact changes, and each names a backup set.
+	//
+	// Overdue and failing are separate kinds for scrub and for recovery
+	// test because the remedies differ: overdue means the scheduler or
+	// its budget is not getting to the copy, failing means it got there
+	// and the bytes (or the operator's validator) said no. Folding them
+	// together hides whichever one is not the headline.
+
+	// ScrubOverdue: at least one copy in the set is past its scrub
+	// cadence. A copy nobody has ever looked at counts as overdue, never
+	// as fine.
+	ScrubOverdue Kind = "SCRUB_OVERDUE"
+
+	// ScrubFailing: a scrub read a copy and it did not pass, repeatedly.
+	ScrubFailing Kind = "SCRUB_FAILING"
+
+	// RecoveryTestOverdue: the set's policy requires a recovery test and
+	// the last one is older than its cadence, or there has never been one.
+	RecoveryTestOverdue Kind = "RECOVERY_TEST_OVERDUE"
+
+	// RecoveryTestFailing: a recovery test recovered the bytes and the
+	// operator's validator refused them, or the digest did not match.
+	RecoveryTestFailing Kind = "RECOVERY_TEST_FAILING"
+
+	// NoReadableCopy: no copy of an artifact in the set can be read right
+	// now, so the product could not hand the bytes back if asked.
+	NoReadableCopy Kind = "NO_READABLE_COPY"
+
+	// ArchiveOnlyRecoverability: the only surviving copy is in an
+	// archive tier, so recovering it needs a thaw that costs time and
+	// money before a single byte can be read.
+	ArchiveOnlyRecoverability Kind = "ARCHIVE_ONLY_RECOVERABILITY"
 )
 
 // Kinds is every Kind this package can produce: §71's four in the order
@@ -309,9 +345,18 @@ var Kinds = []Kind{
 	WorkflowFailed,
 	WorkflowCleanupFailed,
 	WorkflowRecoveryRequired,
+	ScrubOverdue,
+	ScrubFailing,
+	RecoveryTestOverdue,
+	RecoveryTestFailing,
+	NoReadableCopy,
+	ArchiveOnlyRecoverability,
 }
 
 func (k Kind) String() string { return string(k) }
+
+// Title is the short operator-facing headline for this Kind.
+func (k Kind) Title() string { return k.title() }
 
 // title is the short operator-facing headline for this Kind, the first
 // half of what a platform notifier renders.
@@ -335,6 +380,18 @@ func (k Kind) title() string {
 		return "Workflow cleanup failed"
 	case WorkflowRecoveryRequired:
 		return "Backup set is blocked pending recovery"
+	case ScrubOverdue:
+		return "Backups have not been re-read on schedule"
+	case ScrubFailing:
+		return "A backup failed its re-read"
+	case RecoveryTestOverdue:
+		return "No recent recovery test"
+	case RecoveryTestFailing:
+		return "A recovery test failed"
+	case NoReadableCopy:
+		return "No copy can be read"
+	case ArchiveOnlyRecoverability:
+		return "Only an archived copy is left"
 	default:
 		return "retnd alert"
 	}
