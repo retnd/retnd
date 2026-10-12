@@ -23,7 +23,7 @@
 // evidence that it still is.
 //
 // A licence the project has not read is a hard refusal rather than a
-// warning. The premise behind the Apache-2.0 choice is that every
+// warning. The premise behind the licence choice is that every
 // component linked into a shipped binary is either permissive or one of
 // the non-permissive licences this project accepts on purpose, with what
 // that acceptance obliges written down and discharged. That is a fact
@@ -572,7 +572,7 @@ func LinkComplaints(c Compliance, read ReadFileFunc) []string {
 // LicensePolicyComplaints says every way the third-party inventory
 // invalidates the project's own licence choice.
 //
-// The premise behind Apache-2.0 here is that every linked component is
+// The premise behind the licence choice here is that every linked component is
 // either permissive or one of the exact RELEASES this project accepts
 // under a non-permissive licence, with the obligation recorded. This is
 // that premise, executable. A component whose licence could not be

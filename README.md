@@ -7,7 +7,7 @@
   <a href="https://github.com/retnd/retnd/actions/workflows/release.yml"><img src="https://github.com/retnd/retnd/actions/workflows/release.yml/badge.svg" alt="Release workflow status"></a>
   <a href="https://github.com/retnd/retnd/actions/workflows/nightly-e2e.yml"><img src="https://github.com/retnd/retnd/actions/workflows/nightly-e2e.yml/badge.svg" alt="Nightly end-to-end status"></a>
   <a href="https://github.com/retnd/retnd/actions/workflows/pages.yml"><img src="https://github.com/retnd/retnd/actions/workflows/pages.yml/badge.svg" alt="Site deployment status"></a>
-  <a href="https://github.com/retnd/retnd/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0 license"></a>
+  <a href="https://github.com/retnd/retnd/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
   <a href="https://github.com/retnd/retnd/releases/latest"><img src="https://img.shields.io/github/v/release/retnd/retnd?display_name=tag" alt="Latest GitHub release"></a>
   <a href="https://go.dev/"><img src="https://img.shields.io/github/go-mod/go-version/retnd/retnd?filename=core/go.mod" alt="Go version"></a>
 </p>
@@ -332,14 +332,14 @@ container log can be matched up even when the browser never got a response at al
 
 ## Licence
 
-Apache License 2.0. The full text is in [`LICENSE`](LICENSE).
+MIT License. The full text is in [`LICENSE`](LICENSE).
 
 Every third-party component that reaches a shipped artifact is permissive
 (MIT, BSD-2-Clause, BSD-3-Clause, Apache-2.0, CC0-1.0) except two:
 `go-cleanhttp` and `go-retryablehttp` are MPL-2.0 and arrive under
 rclone's `s3` backend, which cannot be registered without them. MPL-2.0 is
 file-level weak copyleft and §3.3 permits this Larger Work to ship under
-Apache-2.0, so the choice stands, and the §3.2 obligation it carries is
+MIT, so the choice stands, and the §3.2 obligation it carries is
 recorded in `compliance.json` and discharged in `NOTICE` and
 [`docs/compliance/source-offer.md`](docs/compliance/source-offer.md), which
 name both modules at their exact versions and give the immutable address their

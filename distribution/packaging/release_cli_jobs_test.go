@@ -219,7 +219,7 @@ func TestReadmeKeepsItsStatusBadgeRow(t *testing.T) {
 		"actions/workflows/release.yml/badge.svg",
 		"actions/workflows/nightly-e2e.yml/badge.svg",
 		"actions/workflows/pages.yml/badge.svg",
-		"Apache--2.0",
+		"badge/license-MIT-blue",
 		"github/v/release/retnd/retnd",
 		"go-mod/go-version/retnd/retnd",
 	} {

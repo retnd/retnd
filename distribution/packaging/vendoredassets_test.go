@@ -239,7 +239,7 @@ func TestTheVendoredSweepActuallyReadsTheTree(t *testing.T) {
 	}
 }
 
-// TestTheShippedNoticeAttributesEveryVendoredAsset is Apache-2.0 §4(d)
+// TestTheShippedNoticeAttributesEveryVendoredAsset is third-party attribution
 // and CC BY 4.0 §3(a) asked of the file a recipient actually reads.
 //
 // It reads the checked-in NOTICE rather than the render, deliberately.

@@ -1,5 +1,5 @@
 retnd
-Copyright 2026 Roman Goldmann
+Copyright (c) 2026 Roman Goldmann
 
 This product includes third-party software. Every dependency, with its version,
 the SPDX identifier of its licence and the SHA-256 of the licence text as that
@@ -12,7 +12,7 @@ some third-party material inside its own SOURCE, where no package manager can
 see it and nothing can derive it from the tree, and that material is listed
 under "Third-party material this project vendors into its own source" below.
 
-This file is the NOTICE file Apache-2.0 section 4(d) refers to. Redistributing
+This file carries the attribution for the third-party components in this work. Redistributing
 this work, or a derivative of it, means carrying this file with it.
 
 Source for the components that are not permissively licensed
