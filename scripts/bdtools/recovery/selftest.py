@@ -1030,7 +1030,7 @@ MUTATIONS = [
         SERVICE_PKG,
         "TestStartRecoveryTestRunsOneAtATimePerSet",
     ),
-    # The activity feed is durable (migration 0017). Seven controls, one per
+    # The activity feed is durable (migration 0018). Seven controls, one per
     # promise: it survives a restart, it does not store samples or per-range
     # lines, it coalesces stages, it prunes, it never blocks the cycle, and a
     # backwards page stays behind its cursor.

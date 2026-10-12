@@ -4,7 +4,7 @@
 
 ### Added
 
-- **The activity feed's events survive a restart** (#1071, migration 0017). The feed
+- **The activity feed's events survive a restart** (#1071, migration 0018). The feed
   behind the operation panel and the dashboard strips was an in-memory ring, so a
   restart emptied it: a scrub that failed an hour before a deploy, or a recovery that was
   running when the process died, left nothing on the screen built to show it. The events

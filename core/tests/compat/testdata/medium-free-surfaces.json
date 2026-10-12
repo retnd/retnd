@@ -141,7 +141,7 @@
         "migration 0012 workflow_runs",
         "migration 0013 workflow_lifecycle",
         "migration 0016 copy_assurance",
-        "migration 0017 activity_events"
+        "migration 0018 activity_events"
       ]
     },
     "04-retention-verdicts": {
