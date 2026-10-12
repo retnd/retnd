@@ -2,18 +2,20 @@ package state
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 )
 
-func TestMigration0017IsAdditiveAndAddsTheActivityTable(t *testing.T) {
-	m := migrationSQL(t, 17)
-	if !strings.HasPrefix(m.filename, "0017_") {
-		t.Fatalf("migration 17 is %s", m.filename)
+func TestMigration0018IsAdditiveAndAddsTheActivityTable(t *testing.T) {
+	m := migrationSQL(t, 18)
+	if !strings.HasPrefix(m.filename, "0018_") {
+		t.Fatalf("migration 18 is %s", m.filename)
 	}
 	sql, err := os.ReadFile(filepath.Join("..", "..", "migrations", m.filename))
 	if err != nil {
@@ -29,7 +31,7 @@ func TestMigration0017IsAdditiveAndAddsTheActivityTable(t *testing.T) {
 		up := strings.ToUpper(stmt)
 		if !strings.HasPrefix(up, "CREATE TABLE ACTIVITY_EVENTS") &&
 			!strings.HasPrefix(up, "CREATE INDEX IDX_ACTIVITY_EVENTS_") {
-			t.Errorf("0017 may only create the activity table and its indexes; it also does: %.80s", stmt)
+			t.Errorf("0018 may only create the activity table and its indexes; it also does: %.80s", stmt)
 		}
 	}
 }
@@ -80,5 +82,36 @@ func TestActivityEventsRoundTripPageAndCoalesce(t *testing.T) {
 	ops, _ := j.ActivityEventsOfOperation(ctx, "op")
 	if len(ops) != 1 || ops[0].Seq != 11 {
 		t.Fatalf("coalescing kept %+v", ops)
+	}
+}
+
+// The planted control for the renumber (#1071): 0018 is the activity feed's
+// number, EPIC P keeps 0017, and a second file claiming 0018 must be refused
+// by the loader rather than quietly ordered. The first half proves the real
+// set loads, so the refusal below is about the planted file and nothing else.
+func TestASecond0018MigrationIsRefusedByTheLoader(t *testing.T) {
+	real := os.DirFS(filepath.Join("..", "..", "migrations"))
+	if _, err := loadMigrationsFrom(real); err != nil {
+		t.Fatalf("the shipped migrations do not load, so the control proves nothing: %v", err)
+	}
+	planted := fstest.MapFS{}
+	entries, err := fs.ReadDir(real, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		b, err := fs.ReadFile(real, e.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		planted[e.Name()] = &fstest.MapFile{Data: b}
+	}
+	planted["0018_another_epic.sql"] = &fstest.MapFile{Data: []byte("CREATE TABLE another_epic (id INTEGER);\n")}
+	_, err = loadMigrationsFrom(planted)
+	if err == nil {
+		t.Fatal("two files claiming version 18 loaded without complaint")
+	}
+	if !strings.Contains(err.Error(), "0018_activity_events.sql") || !strings.Contains(err.Error(), "0018_another_epic.sql") {
+		t.Fatalf("the refusal should name both files: %v", err)
 	}
 }

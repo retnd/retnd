@@ -12,7 +12,7 @@ import (
 	"github.com/retnd/retnd/core/internal/state"
 )
 
-// The durable half of the activity feed (migration 0017).
+// The durable half of the activity feed (migration 0018).
 //
 // # What changed
 //
