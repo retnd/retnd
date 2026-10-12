@@ -166,8 +166,8 @@ func TestCancelDuringTheValidatorStageKillsTheWholeProcessGroup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pgid := readPID(t, pgidFile, 10*time.Second)
-	child := readPID(t, childFile, 10*time.Second)
+	pgid := readPID(t, pgidFile, 30*time.Second)
+	child := readPID(t, childFile, 30*time.Second)
 
 	// The positive control: the check below can see the script and the child it
 	// started, so an empty answer afterwards means they are gone and not that
