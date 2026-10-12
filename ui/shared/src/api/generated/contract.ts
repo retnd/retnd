@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "ad08c2e9631df3e7c70e0d00c0924d736c85cb2b22be1bb6e0540bf817b61015";
+export const CONTRACT_SHA256 = "71ab3f49187fcdc37410240a57d295d065bac46c97f817e3669489ebb9135056";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -1288,7 +1288,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     concurrency: "",
     requestSchema: "RecoveryMintRequest",
     responseSchema: "RecoveryMintResponse",
-    successStatus: 201,
+    successStatus: 202,
     errorCodes: {
       400: ["INVALID_REQUEST", "RECOVERY_TARGET_INVALID"],
       401: ["UNAUTHENTICATED"],
@@ -1503,7 +1503,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     concurrency: "",
     requestSchema: "",
     responseSchema: "RecoveryResult",
-    successStatus: 200,
+    successStatus: 206,
     errorCodes: {
       401: ["UNAUTHENTICATED"],
       403: ["RECOVERY_GRANT_SESSION_ENDED"],
@@ -3581,15 +3581,15 @@ export interface WireRecoveryTarget {
 /** What the newest recovery test of a backup set printed. Only the
  *  newest test is kept per set. */
 export interface WireRecoveryTestOutput {
-  artifact_id?: string;
+  artifact_id: string;
   backup_set_id: string;
-  medium?: string;
-  operation_id?: string;
+  medium: string;
+  operation_id: string;
   recorded: boolean;
-  recorded_at?: string;
+  recorded_at: string;
   records: WireRecoveryTestOutputRecord[];
-  state?: string;
-  truncated?: boolean;
+  state: string;
+  truncated: boolean;
 }
 
 /** One line of a validator's output, or the runner's own truncation

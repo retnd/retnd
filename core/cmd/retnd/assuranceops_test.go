@@ -52,8 +52,8 @@ func TestAssuranceCancelBesideNoServingEngineSaysThereIsNothingToCancel(t *testi
 }
 
 func TestAssuranceCancelOfAnOperationTheEngineDoesNotHoldReportsItsRefusal(t *testing.T) {
-	e := startFakeEngineFor(t, writeTestConfig(t))
-	cli := writeTestConfigFor(t, e.configPath)
+	cli := writeTestConfig(t)
+	e := startFakeEngine(t, cli)
 	e.attach(t)
 
 	var code int
