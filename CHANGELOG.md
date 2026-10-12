@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A serving process now runs its scheduled scrub and its due recovery tests** (#1068).
+  The scrub timer and the cycle loop both start with `retnd serve` and repeat every poll
+  interval, so a cycle took the single-flight lock at the top of its interval and the
+  scrub tick, arriving a fraction of a millisecond later, skipped and tried again an
+  interval later, into the next cycle's lock. On a default install nothing was ever
+  scrubbed and no due recovery test ever ran. A tick that finds an operation running now
+  waits for that operation to release the lock and runs then, so it cannot miss the short
+  gap between two back-to-back cycles the way a timed retry could. It still never holds
+  the lock while it scrubs, and it stops with the process. `retnd daemon` was not
+  affected.
+
 ### Added
 
 - **`retnd recover --follow` and `retnd recovery-test --follow`** (#1059). Both verbs run the operation in the terminal's own process, so they now print that operation's stage lines (matched on its op_id) on standard error as it passes through them, in the order the engine emits them, and still exit with the operation's own status. Standard output stays the verb's answer, so `recover --to -` keeps piping clean bytes.
