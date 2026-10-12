@@ -96,6 +96,16 @@ type Placement struct {
 	// knows is GONE never reaches here at all, because a row for it would
 	// read as a copy.
 	Status string
+
+	// ScrubState, ScrubNextDueAt and ScrubLastCheckedAt are this copy's own
+	// scrub record (migration 0016), read back from the journal. ScrubState
+	// is "unknown" for a copy nobody has scrubbed, and the two times are the
+	// zero time when the copy has none: no due time means due now, never
+	// "never due". The schedule a surface shows (AssuranceDue) is read from
+	// these, so it is the same clock the scrub driver keeps.
+	ScrubState         string
+	ScrubNextDueAt     time.Time
+	ScrubLastCheckedAt time.Time
 }
 
 // StorageMediumSummary is one configured storage medium, described with
@@ -401,6 +411,13 @@ func toServicePlacement(p state.Placement, idx mediumIndex) Placement {
 	}
 	if p.VerifiedAt != nil {
 		out.VerifiedAt = *p.VerifiedAt
+	}
+	out.ScrubState = p.AssuranceState
+	if p.NextDueAt != nil {
+		out.ScrubNextDueAt = *p.NextDueAt
+	}
+	if p.LastCheckedAt != nil {
+		out.ScrubLastCheckedAt = *p.LastCheckedAt
 	}
 	return out
 }

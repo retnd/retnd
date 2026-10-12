@@ -325,7 +325,12 @@ func New(cfg *config.Config, journal *state.Journal, tr transport.Transport, log
 	logger = logger.WithSink(activity)
 	b.logger = logger
 	b.activity = activity
-	b.state.Store(&configState{inner: app.New(cfg, journal, tr, logger), revision: computeConfigRevision(cfg)})
+	inner := app.New(cfg, journal, tr, logger)
+	// The stage runner is wired here, and not with the lifecycle, because
+	// it needs no reconciliation: it runs scripts that are not backups, so
+	// there is no quiesced machine for a startup pass to account for.
+	inner.Stages = b
+	b.state.Store(&configState{inner: inner, revision: computeConfigRevision(cfg)})
 
 	// EPIC L's engine, built here and switched on later. It is
 	// constructed unconditionally, including for a deployment that

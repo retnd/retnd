@@ -30,6 +30,44 @@
 
 ### Added
 
+- **A scrub lists each storage medium and reports objects the journal does not know**
+  (#978). The scrub still only checks the keys the journal records, so an object at
+  some other key can never stand in for a copy that went missing (that copy is a
+  failed copy, counted, with its own `scrub_failure` line). New is the other
+  direction: for each medium that holds or held a copy for a set, the pass lists the
+  set's namespace and reports every object no placement names, as a
+  `scrub_unknown_object` line and an `unknown_objects` entry per set in
+  `retnd scrub --json` and the scrub result. A medium that could not be listed shows
+  up as `unlisted` with the reason (and a `scrub_unlisted` line), never as a clean
+  result. Both are findings only: nothing is read, moved or deleted, no copy fails
+  because of them, and no `scrub_failure` line is written for them. A scheduled pass
+  lists only when it checked something; `retnd scrub` always lists. Additive to the
+  API contract: `ScrubSetResult` gains optional `unknown_objects` and `unlisted`.
+
+- **The scheduled scrub follows `assurance.scrub.*`** (#978). A default install now
+  scrubs: the cadence is `assurance.scrub.cadence` (7 days unless you say otherwise)
+  and the strategy decides whether a local copy is re-hashed (`auto` and `content`
+  do, `existence` does not), with no `revalidation:` block needed. A set whose
+  `revalidation:` block turns hashing or a hook on keeps using that block exactly as
+  written. `GET /api/v1/assurance/due` now reads each copy's own `next_due_at`, the
+  schedule the scrub keeps, so what you are shown is what runs. A rotted local copy
+  beside a verified offsite copy no longer quarantines the artifact (the set goes
+  DEGRADED after three failed checks, not FAILING), and a scrub or recovery claim is
+  dropped when the copy is rewritten to different bytes.
+
+- **`retnd scrub --json`, and a scrub beside a serving engine respects its edit hold**
+  (#978). `--json` prints the one result object the API contract defines
+  (`ScrubResult`: the pass counts plus, per set, every copy's verdict and the class
+  that ran, the artifacts that could not be checked, and the skips), with the log
+  lines on standard error so standard output is only the result. When `RETND_API_URL`
+  and its two credential variables reach the engine serving the deployment, the scrub
+  asks that engine whether a set is held for editing and skips a held set the way the
+  engine's own scrub does: the same "skipped, the backup set is held for editing"
+  line, counted as a skip, exit status 1. A hold the command cannot read counts as a
+  hold. An artifact with one copy that was provably gone and another that did not
+  answer now writes a `scrub_failure` line for each copy, instead of one line for the
+  pair, so the lines of a pass match the failures it counted.
+
 - **Assurance has a deployment-wide default and a per-set override** (#982, EPIC Q
   Q1.4). A new top-level `assurance:` block sets how often a copy is re-read (scrub
   cadence, default 7 days, floor 1 hour), what a scrub reads (`auto`, `existence` or

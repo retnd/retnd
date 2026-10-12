@@ -324,3 +324,63 @@ func resolveSetAssurance(v *validator, path string, o *AssuranceOverride, global
 	}
 	return out
 }
+
+// DefaultScrubMaxPerCycle bounds how many artifacts one backup set's scheduled
+// scrub looks at per tick when the resolved policy, and not an explicit
+// `revalidation:` block, drives it. With the default weekly cadence it is far
+// above what a set owes in a tick; it is the ceiling on a backlog (a freshly
+// rebuilt catalog, a first upgrade), not the pace.
+const DefaultScrubMaxPerCycle = 50
+
+// Revalidation is the scrub configuration this resolved policy implies for one
+// backup set, and the ONE place that derivation is written. The scheduled
+// scrub (internal/app) calls it for every set on every tick; anything else
+// that needs to know what a set's scrub is allowed to do asks here instead of
+// reading assurance.scrub.* again.
+//
+//   - Interval is assurance.scrub.cadence. A hand-built Config that never ran
+//     Validate resolves to zero, and a zero cadence must not read as "due
+//     continuously", so the product default stands in.
+//   - MaxPerCycle is DefaultScrubMaxPerCycle.
+//   - Hash follows assurance.scrub.strategy: auto and content re-hash a local
+//     copy, existence does not. A storage medium is never read in full by an
+//     unattended scrub whatever the strategy says (FR-31: anything that costs
+//     egress is operator-initiated), so strategy content is the local-copy
+//     reading of the word and `retnd scrub --content` is the other.
+//
+// explicit is the set's own `revalidation:` block, which predates the policy
+// and keeps working: a block that turns anything on (Hash or Command) is
+// complete by validation (interval and max_per_cycle are required with it)
+// and is returned unchanged, so a hand-edited config behaves exactly as it
+// did. A block that is absent, or present but off, defers to the policy.
+func (a Assurance) Revalidation(explicit Revalidation) Revalidation {
+	if explicit.Hash || explicit.Command != nil {
+		return explicit
+	}
+	interval := a.Scrub.Cadence.Duration()
+	if interval <= 0 {
+		interval = DefaultScrubCadence
+	}
+	return Revalidation{
+		Interval:    Duration(interval),
+		MaxPerCycle: DefaultScrubMaxPerCycle,
+		Hash:        a.Scrub.Strategy != ScrubStrategyExistence,
+	}
+}
+
+// RecoveryTestEnabled reports whether the policy asks for recovery tests at
+// all (mode required or custom). The recovery-test runner asks here, from the
+// same resolved policy the scrub does, so the two sides cannot disagree about
+// which sets are in scope.
+func (a Assurance) RecoveryTestEnabled() bool {
+	return a.RecoveryTest.Mode == RecoveryTestRequired || a.RecoveryTest.Mode == RecoveryTestCustom
+}
+
+// RecoveryTestInterval is the resolved recovery-test cadence, with the
+// product default standing in for the zero a hand-built Config resolves to.
+func (a Assurance) RecoveryTestInterval() time.Duration {
+	if d := a.RecoveryTest.Cadence.Duration(); d > 0 {
+		return d
+	}
+	return DefaultRecoveryTestCadence
+}

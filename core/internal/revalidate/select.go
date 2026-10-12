@@ -51,63 +51,131 @@ var eligibleStates = map[lifecycle.State]bool{
 	lifecycle.Complete:            true,
 }
 
+// ScrubTargets returns the copies a scrub of rec looks at: its ACTIVE local
+// copy when it has one, and otherwise every ACTIVE copy on a storage medium.
+// A record with no placement rows at all returns nil, which the caller reads
+// as a legacy row to adopt before anything is recorded against it.
+//
+// This is the same fork runChecks makes, and it is written once here so the
+// answer to "what is due" and the answer to "what gets checked" cannot
+// drift: a copy that selection counted and the check then skipped would be
+// selected again every cycle without ever being looked at.
+func ScrubTargets(rec state.Record) []state.Placement {
+	if p, ok := rec.LocalPlacement(); ok {
+		return []state.Placement{p}
+	}
+	return rec.ActiveMediumPlacements()
+}
+
+// dueKey is when rec's earliest-due target became due, and whether it is due
+// at all at now. A target with no recorded due time is due, and sorts before
+// every copy that has one, because "never scheduled" is more overdue than
+// any date: it is the state a rebuilt catalog and an upgraded one leave
+// every copy in.
+//
+// A record with no placement rows at all is due, for the same reason. It is
+// a row the migration backfill or a rebuild never gave a copy, and what the
+// driver does about it is adopt it, not skip it.
+func dueKey(rec state.Record, interval time.Duration, now time.Time) (time.Time, bool) {
+	targets := ScrubTargets(rec)
+	if len(targets) == 0 {
+		return time.Time{}, true
+	}
+	var (
+		earliest time.Time
+		any      bool
+		due      bool
+	)
+	for _, p := range targets {
+		// DueUnder, not DueAt: a cadence the operator shortened after this
+		// copy was scheduled applies to it at once.
+		at, ok := p.DueUnder(interval, now)
+		if !ok {
+			continue
+		}
+		due = true
+		if !any || at.Before(earliest) {
+			earliest, any = at, true
+		}
+	}
+	return earliest, due
+}
+
 // SelectDue is the pure half of scheduling: given records, cfg and now, it
 // returns which artifacts are due for a fresh check, in the order they
 // should be checked in, bounded to at most cfg.MaxPerCycle. It does no I/O
 // and reaches for no clock of its own, the same discipline
-// retention.GFSDecide already follows for the same reason: the same
-// inputs must always produce the same answer.
+// retention.GFSDecide already follows for the same reason: the same inputs
+// must always produce the same answer.
 //
-// An artifact is due when its current state is one of eligibleStates and
-// now.Sub(rec.UpdatedAt) >= cfg.Interval.Duration(). UpdatedAt stands in
-// for "when this artifact was last checked" because, once a record is
-// sitting in one of these four states, nothing touches its journal row
-// afterward except this package's own same-state pass/fail writes (Run)
-// and FR-17 reconciliation at startup, both of which are legitimate
-// "this was looked at" events: a pass leaves UpdatedAt where a fresh check
-// just confirmed things were fine, a fail moves the record out of
-// eligibleStates entirely, and reconciliation either does the same or
-// finds nothing wrong and leaves UpdatedAt unchanged from whenever the
-// artifact last had a legitimate reason to update.
+// # Due-ness is a property of the COPY
 //
-// cfg.MaxPerCycle <= 0 always returns nil, regardless of Interval or how
-// many records are otherwise due: see config.Validate's own rule that this
-// is the only way MaxPerCycle can be non-positive in a validated config,
-// which is this package's way of spelling "revalidation is disabled for
-// this backup set".
+// An artifact is due when its current state is one of eligibleStates and at
+// least one of the copies a scrub would check (ScrubTargets) has a
+// next_due_at that has arrived, or none at all. It used to compare
+// now.Sub(rec.UpdatedAt) against the ARTIFACT row, and that row is touched
+// by FR-17 reconciliation at startup and rewritten by a catalog rebuild, so
+// a copy nobody re-read could look freshly verified. Nothing on the
+// artifact row is consulted any more, which is asserted by rewriting
+// updated_at and checking that nothing about what is due moves.
 //
-// The returned slice is sorted oldest-UpdatedAt-first, so the most
-// overdue artifacts are the ones actually spent within a bounded
-// MaxPerCycle, tie-broken by the artifact's own string form so two calls
-// over identical input always pick the same subset in the same order
-// (see PR#60's own reasoning for why this project treats that kind of
-// determinism as load-bearing, not cosmetic).
+// cfg.MaxPerCycle <= 0 always returns nil, regardless of how many records
+// are otherwise due: see config.Validate's own rule that this is the only
+// way MaxPerCycle can be non-positive in a validated config, which is this
+// package's way of spelling "revalidation is disabled for this backup set".
+//
+// The returned slice is sorted most-overdue-first (never-scheduled copies
+// before any dated one), so the artifacts actually spent within a bounded
+// MaxPerCycle are the ones that have waited longest, tie-broken by the
+// artifact's own string form so two calls over identical input always pick
+// the same subset in the same order (see PR#60's own reasoning for why this
+// project treats that kind of determinism as load-bearing, not cosmetic).
 func SelectDue(records []state.Record, cfg config.Revalidation, now time.Time) []state.Record {
 	if cfg.MaxPerCycle <= 0 {
 		return nil
 	}
-	interval := cfg.Interval.Duration()
 
-	var due []state.Record
+	type candidate struct {
+		rec state.Record
+		key time.Time
+	}
+	var due []candidate
 	for _, rec := range records {
 		if !eligibleStates[lifecycle.State(rec.State)] {
 			continue
 		}
-		if now.Sub(rec.UpdatedAt) < interval {
-			continue
+		if key, ok := dueKey(rec, cfg.Interval.Duration(), now); ok {
+			due = append(due, candidate{rec, key})
 		}
-		due = append(due, rec)
 	}
 
 	sort.SliceStable(due, func(i, j int) bool {
-		if !due[i].UpdatedAt.Equal(due[j].UpdatedAt) {
-			return due[i].UpdatedAt.Before(due[j].UpdatedAt)
+		if !due[i].key.Equal(due[j].key) {
+			return due[i].key.Before(due[j].key)
 		}
-		return due[i].Artifact.String() < due[j].Artifact.String()
+		return due[i].rec.Artifact.String() < due[j].rec.Artifact.String()
 	})
 
 	if len(due) > cfg.MaxPerCycle {
 		due = due[:cfg.MaxPerCycle]
 	}
-	return due
+	out := make([]state.Record, len(due))
+	for i, c := range due {
+		out[i] = c.rec
+	}
+	return out
+}
+
+// SelectEligible returns every record a scrub may look at regardless of
+// due-ness or the per-cycle bound, in the same deterministic order. It is
+// for an operator who asked for specific copies; they have said now.
+func SelectEligible(records []state.Record) []state.Record {
+	var out []state.Record
+	for _, rec := range records {
+		if eligibleStates[lifecycle.State(rec.State)] {
+			out = append(out, rec)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Artifact.String() < out[j].Artifact.String() })
+	return out
 }

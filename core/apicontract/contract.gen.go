@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "fff947098b4b71099c2b33d2e38d3b5f08cd1e250de0ab50bfc48ec721b63ba9"
+const ContractSHA256 = "89c37f2a222e2a06705ae9fc8a7758fabc46ad289bcd9c36fa816363ea05368d"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -3067,6 +3067,85 @@ type SSHKeyDiscoveryLocation struct {
 	Problem string `json:"problem,omitempty"`
 }
 
+// ScrubArtifactError is an artifact the pass could not give a verdict at all, with the
+// infrastructure problem that stopped it. The copies it did get a
+// verdict for are in the set's copies, each once.
+type ScrubArtifactError struct {
+	ArtifactID string `json:"artifact_id"`
+	Error      string `json:"error"`
+}
+
+// ScrubCopyOutcome is what a scrub learned about one copy of one artifact. The class is
+// the class that RAN, never the class asked for: a HEAD is reported
+// as a HEAD.
+type ScrubCopyOutcome struct {
+	ArtifactID string `json:"artifact_id"`
+	Class      string `json:"class,omitempty"`
+	Medium     string `json:"medium"`
+	Reason     string `json:"reason,omitempty"`
+	Refused    bool   `json:"refused"`
+	Verdict    string `json:"verdict"`
+}
+
+// ScrubResult is what one scrub did: the counts the pass recorded plus the per-set
+// detail. It is the body `retnd scrub --json` prints, and the one
+// result shape every route that reports a scrub reuses.
+type ScrubResult struct {
+	BytesRead        int64            `json:"bytes_read"`
+	Checked          int64            `json:"checked"`
+	CouldNotComplete int64            `json:"could_not_complete"`
+	Failed           int64            `json:"failed"`
+	PassID           int64            `json:"pass_id,omitempty"`
+	Passed           int64            `json:"passed"`
+	Refused          int64            `json:"refused"`
+	RequiresRestore  int64            `json:"requires_restore"`
+	Scope            string           `json:"scope"`
+	Selected         int64            `json:"selected"`
+	Sets             []ScrubSetResult `json:"sets"`
+	SkippedHeld      int64            `json:"skipped_held"`
+	SkippedLeased    int64            `json:"skipped_leased"`
+	Trigger          string           `json:"trigger"`
+	UnknownObjects   int64            `json:"unknown_objects,omitempty"`
+	Unlisted         int64            `json:"unlisted,omitempty"`
+}
+
+// ScrubSetResult is one backup set's part of a scrub.
+type ScrubSetResult struct {
+	BackupSetID    string                `json:"backup_set_id"`
+	Copies         []ScrubCopyOutcome    `json:"copies"`
+	Error          string                `json:"error,omitempty"`
+	Errors         []ScrubArtifactError  `json:"errors"`
+	Skipped        []ScrubSkip           `json:"skipped"`
+	UnknownObjects []ScrubUnknownObject  `json:"unknown_objects,omitempty"`
+	Unlisted       []ScrubUnlistedMedium `json:"unlisted,omitempty"`
+}
+
+// ScrubSkip is work a scrub was asked to do and did not. A skip is always
+// reported: a copy that was due and silently not looked at is the
+// same failure as one never scheduled.
+type ScrubSkip struct {
+	ArtifactID string `json:"artifact_id,omitempty"`
+	Medium     string `json:"medium,omitempty"`
+	Reason     string `json:"reason"`
+}
+
+// ScrubUnknownObject is an object a storage medium holds under a backup set's namespace at
+// a key the journal has no placement for (QC-04). It is a finding
+// for an operator to look at: never a verified copy of anything, and
+// a scrub never reads, moves or deletes it.
+type ScrubUnknownObject struct {
+	Key    string `json:"key"`
+	Medium string `json:"medium"`
+	Size   int64  `json:"size"`
+}
+
+// ScrubUnlistedMedium is A storage medium the pass could not enumerate, so that no unknown
+// objects reported for it does not read as nothing being there.
+type ScrubUnlistedMedium struct {
+	Medium string `json:"medium"`
+	Reason string `json:"reason"`
+}
+
 // ServiceSchema is the rules the service-behaviour settings are validated against,
 // served so a form does not keep its own copy of a bound the engine
 // enforces.
@@ -4117,6 +4196,13 @@ var SchemaTypes = map[string]any{
 	"SSHKey":                             SSHKey{},
 	"SSHKeyCandidate":                    SSHKeyCandidate{},
 	"SSHKeyDiscoveryLocation":            SSHKeyDiscoveryLocation{},
+	"ScrubArtifactError":                 ScrubArtifactError{},
+	"ScrubCopyOutcome":                   ScrubCopyOutcome{},
+	"ScrubResult":                        ScrubResult{},
+	"ScrubSetResult":                     ScrubSetResult{},
+	"ScrubSkip":                          ScrubSkip{},
+	"ScrubUnknownObject":                 ScrubUnknownObject{},
+	"ScrubUnlistedMedium":                ScrubUnlistedMedium{},
 	"ServiceSchema":                      ServiceSchema{},
 	"ServiceSettings":                    ServiceSettings{},
 	"SessionResponse":                    SessionResponse{},

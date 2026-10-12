@@ -149,6 +149,13 @@ func NewProcessHealth(in ProcessInputs) ProcessHealth {
 	return ProcessHealth(in)
 }
 
+// ScrubFailureThreshold is how many scheduled checks of one copy have to
+// fail in a row before the set is degraded and an alert is raised. One miss
+// is a blip, and the pacing already retries a struggling copy sooner than a
+// healthy one, so three in a row is a pattern. It is a constant with a
+// default today; making it configurable is the settings work's business.
+const ScrubFailureThreshold = 3
+
 // BackupSetInputs is what one backup set's BackupSetHealth needs that
 // cannot be derived from its journal rows: a connectivity/liveness signal
 // for the most recent discovery poll, when retention last ran, and free
@@ -302,6 +309,13 @@ type BackupSetHealth struct {
 	// merely-recoverable kind.
 	QuarantinedCount     int
 	QuarantinedLostCount int
+
+	// ScrubFailingCopies is how many of this set's ACTIVE copies have
+	// failed, or been unable to complete, their scheduled check
+	// ScrubFailureThreshold times running (EPIC Q, #978). It degrades a
+	// HEALTHY set and softens nothing stronger, and it is reported
+	// whatever the verdict turns out to be.
+	ScrubFailingCopies int
 
 	// ReinstatedRemoteRetainedCount is how many artifacts in this set were
 	// reinstated out of quarantine and still have a remote source this
