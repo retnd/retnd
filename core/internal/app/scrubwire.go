@@ -20,6 +20,7 @@ func (s ScrubSummary) Wire() apicontract.ScrubResult {
 		CouldNotComplete: int64(s.CouldNotComplete), RequiresRestore: int64(s.RequiresRestore),
 		SkippedHeld: int64(s.SkippedHeld), SkippedLeased: int64(s.SkippedLeased), Refused: int64(s.Refused),
 		BytesRead: s.BytesRead, PassID: s.PassID,
+		UnknownObjects: int64(s.Unknown), Unlisted: int64(s.Unlisted),
 		Sets: make([]apicontract.ScrubSetResult, 0, len(s.Sets)),
 	}
 	for _, sr := range s.Sets {
@@ -49,6 +50,12 @@ func (s ScrubSummary) Wire() apicontract.ScrubResult {
 				w.ArtifactID = sk.Artifact.String()
 			}
 			set.Skipped = append(set.Skipped, w)
+		}
+		for _, u := range sr.Report.Unknown {
+			set.UnknownObjects = append(set.UnknownObjects, apicontract.ScrubUnknownObject{Medium: u.Medium, Key: u.Key, Size: u.Size})
+		}
+		for _, u := range sr.Report.Unlisted {
+			set.Unlisted = append(set.Unlisted, apicontract.ScrubUnlistedMedium{Medium: u.Medium, Reason: u.Reason})
 		}
 		out.Sets = append(out.Sets, set)
 	}

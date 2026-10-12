@@ -168,6 +168,14 @@ func printScrub(sum app.ScrubSummary) int {
 			}
 			fmt.Fprintf(os.Stderr, "%s: could not be checked: %v\n", e.Artifact, e.Err)
 		}
+		// QC-04: findings, not copy outcomes. They do not change the exit
+		// status; the lines are how an operator hears about them.
+		for _, u := range sr.Report.Unknown {
+			fmt.Printf("%s: unknown object %q (%d bytes) on %s: the journal has no copy at that key\n", sr.Set, u.Key, u.Size, u.Medium)
+		}
+		for _, u := range sr.Report.Unlisted {
+			fmt.Printf("%s: %s was not listed: %s\n", sr.Set, u.Medium, u.Reason)
+		}
 		for _, sk := range sr.Report.Skipped {
 			target := sr.Set.String()
 			if sk.Artifact.Name != "" {
@@ -187,6 +195,9 @@ func printScrub(sum app.ScrubSummary) int {
 	fmt.Printf("scrub (%s): %d selected, %d passed, %d failed, %d could not be checked, %d need a restore, %d skipped, %d refused; %d bytes read\n",
 		sum.Scope, sum.Selected, sum.Passed, sum.Failed, sum.CouldNotComplete, sum.RequiresRestore,
 		sum.SkippedHeld+sum.SkippedLeased, sum.Refused, sum.BytesRead)
+	if sum.Unknown > 0 || sum.Unlisted > 0 {
+		fmt.Printf("scrub (%s): %d unknown objects found, %d media not listed\n", sum.Scope, sum.Unknown, sum.Unlisted)
+	}
 
 	return scrubStatus(sum)
 }

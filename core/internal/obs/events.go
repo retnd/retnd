@@ -256,6 +256,15 @@ const (
 	// records a result carries are for the surfaces that render them.
 	EventRecoveryTest = "recovery_test"
 
+	// EventScrubUnknownObject records one object a destination holds at a key
+	// the journal has no placement for (QC-04). It is a finding, not a
+	// failure: no copy is wrong, and the scrub never touches the object.
+	EventScrubUnknownObject = "scrub_unknown_object"
+
+	// EventScrubUnlisted records a destination a scrub pass could not
+	// enumerate, so a quiet unknown-object count is never read as a clean one.
+	EventScrubUnlisted = "scrub_unlisted"
+
 	// EventWorkflowRunStart and EventWorkflowRunEnd bracket one EPIC L
 	// workflow run: the five-stage lifecycle internal/workflowrun drives
 	// around a backup set's backup (#811), whether or not that set
@@ -956,6 +965,25 @@ func (l *Logger) ScrubFailure(ctx context.Context, artifact, medium, class, reas
 		slog.String("artifact", artifact),
 		slog.String("medium", medium),
 		slog.String("class", class),
+		slog.String("reason", scrubText(reason)),
+	)
+}
+
+// ScrubUnknownObject logs EventScrubUnknownObject for one object.
+func (l *Logger) ScrubUnknownObject(ctx context.Context, set, medium, key string, size int64) {
+	l.emitMarked(ctx, ResultWarn.Level(), mark{result: ResultWarn}, EventScrubUnknownObject, "a destination holds an object the journal does not know",
+		slog.String("set", set),
+		slog.String("medium", medium),
+		slog.String("key", scrubText(key)),
+		slog.Int64("size", size),
+	)
+}
+
+// ScrubUnlisted logs EventScrubUnlisted for one destination.
+func (l *Logger) ScrubUnlisted(ctx context.Context, set, medium, reason string) {
+	l.emitMarked(ctx, ResultWarn.Level(), mark{result: ResultWarn}, EventScrubUnlisted, "a scrub could not list a destination",
+		slog.String("set", set),
+		slog.String("medium", medium),
 		slog.String("reason", scrubText(reason)),
 	)
 }
