@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/retnd/retnd/core/internal/procseam"
 )
 
 // The ephemeral container every local hook runs in (#865), and the four
@@ -957,7 +959,7 @@ func (c Container) SyntaxCheck(ctx context.Context, script []byte) error {
 	// than this context, which is by then the cancelled one.
 	defer c.reconcileInstance(id.token)
 
-	cmd := exec.CommandContext(ctx, c.Docker, c.syntaxArgs(id)...)
+	cmd := procseam.CommandContext(ctx, c.Docker, c.syntaxArgs(id)...)
 	cmd.Stdin = bytes.NewReader(script)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -1031,7 +1033,7 @@ func (c Container) create(ctx context.Context, timeout time.Duration, env []stri
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, c.Docker, c.hookArgs(spec)...)
+	cmd := procseam.CommandContext(ctx, c.Docker, c.hookArgs(spec)...)
 	cmd.Env = env
 	cmd.Stdin = nil
 	var stdout, stderr bytes.Buffer
@@ -1189,7 +1191,7 @@ func (c Container) output(ctx context.Context, timeout time.Duration, args ...st
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, c.Docker, args...)
+	cmd := procseam.CommandContext(ctx, c.Docker, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

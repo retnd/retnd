@@ -112,6 +112,33 @@ var refusingInputs = []refusingInput{
 			return createArgs(configPath, keyPath, "api/postgres", "--engine", "kopia")
 		},
 	},
+	// W-04 (#982): the assurance writes are routed too. The cadence floor
+	// and the required-without-validator rule are config.Validate's, so a
+	// route that dropped a field would turn one of these into a success.
+	{
+		name: "patch the assurance policy with a cadence under the floor",
+		args: func(configPath, _ string) []string {
+			return []string{"settings", "assurance", "patch", "--scrub-cadence", "1m", "--config", configPath}
+		},
+	},
+	{
+		name: "require a recovery test with no validator",
+		args: func(configPath, _ string) []string {
+			return []string{"settings", "assurance", "patch", "--recovery-test-mode", "required", "--config", configPath}
+		},
+	},
+	{
+		name: "patch the assurance of a set this deployment does not have",
+		args: func(configPath, _ string) []string {
+			return []string{"backup-set", "assurance", "nosuch/set", "--scrub-cadence", "2h", "--config", configPath}
+		},
+	},
+	{
+		name: "reset the assurance of a set this deployment does not have",
+		args: func(configPath, _ string) []string {
+			return []string{"backup-set", "assurance", "nosuch/set", "--reset", "--config", configPath}
+		},
+	},
 	{
 		name: "enable a set this deployment does not have",
 		args: func(configPath, _ string) []string {

@@ -127,7 +127,28 @@
           "WORKFLOW_RUN_NOT_FOUND",
           "WORKFLOW_STEP_NOT_FOUND",
           "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED",
-          "WORKFLOW_ENGINE_UNAVAILABLE"
+          "WORKFLOW_ENGINE_UNAVAILABLE",
+          "RECOVERY_COST_NOT_ACKNOWLEDGED",
+          "RECOVERY_NO_COPY",
+          "RECOVERY_COPY_NOT_FOUND",
+          "RECOVERY_NOT_READABLE",
+          "RECOVERY_LOCAL_COPY_CORRUPT",
+          "RECOVERY_REMOTE_COPY_CORRUPT",
+          "RECOVERY_NO_DIGEST",
+          "RECOVERY_NO_SPACE",
+          "RECOVERY_BELOW_RESERVE",
+          "RECOVERY_GRANT_UNKNOWN",
+          "RECOVERY_GRANT_USED",
+          "RECOVERY_GRANT_EXPIRED",
+          "RECOVERY_GRANT_SESSION_ENDED",
+          "RECOVERY_TOO_MANY_GRANTS",
+          "RECOVERY_TARGET_INVALID",
+          "RECOVERY_TARGET_EXISTS",
+          "RECOVERY_USE_SNAPSHOT_RESTORE",
+          "RECOVERY_UNAVAILABLE",
+          "RECOVERY_BUSY",
+          "RECOVERY_INTERRUPTED",
+          "RECOVERY_FAILED"
         ],
         "x-code-origins": {
           "authentication-failed": "ui",
@@ -202,7 +223,28 @@
           "WORKFLOW_RUN_NOT_FOUND": "wire",
           "WORKFLOW_STEP_NOT_FOUND": "wire",
           "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED": "wire",
-          "WORKFLOW_ENGINE_UNAVAILABLE": "wire"
+          "WORKFLOW_ENGINE_UNAVAILABLE": "wire",
+          "RECOVERY_COST_NOT_ACKNOWLEDGED": "wire",
+          "RECOVERY_NO_COPY": "wire",
+          "RECOVERY_COPY_NOT_FOUND": "wire",
+          "RECOVERY_NOT_READABLE": "wire",
+          "RECOVERY_LOCAL_COPY_CORRUPT": "wire",
+          "RECOVERY_REMOTE_COPY_CORRUPT": "wire",
+          "RECOVERY_NO_DIGEST": "wire",
+          "RECOVERY_NO_SPACE": "wire",
+          "RECOVERY_BELOW_RESERVE": "wire",
+          "RECOVERY_GRANT_UNKNOWN": "wire",
+          "RECOVERY_GRANT_USED": "wire",
+          "RECOVERY_GRANT_EXPIRED": "wire",
+          "RECOVERY_GRANT_SESSION_ENDED": "wire",
+          "RECOVERY_TOO_MANY_GRANTS": "wire",
+          "RECOVERY_TARGET_INVALID": "wire",
+          "RECOVERY_TARGET_EXISTS": "wire",
+          "RECOVERY_USE_SNAPSHOT_RESTORE": "wire",
+          "RECOVERY_UNAVAILABLE": "wire",
+          "RECOVERY_BUSY": "wire",
+          "RECOVERY_INTERRUPTED": "wire",
+          "RECOVERY_FAILED": "wire"
         },
         "x-error-classes": {
           "authentication": [
@@ -215,7 +257,8 @@
             "ENROLLMENT_CLOSED",
             "DESTRUCTIVE_OPERATIONS_DISABLED",
             "CSRF_TOKEN_MISSING",
-            "CSRF_TOKEN_MISMATCH"
+            "CSRF_TOKEN_MISMATCH",
+            "RECOVERY_GRANT_SESSION_ENDED"
           ],
           "validation": [
             "INVALID_REQUEST",
@@ -224,7 +267,8 @@
             "HOST_KEY_PROBE_FAILED",
             "MEDIUM_DISCLOSURE_REQUIRED",
             "BACKUP_SET_NOT_INCREMENTAL",
-            "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED"
+            "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED",
+            "RECOVERY_TARGET_INVALID"
           ],
           "conflict": [
             "RETENTION_PLAN_STALE",
@@ -250,7 +294,16 @@
             "REPOSITORY_DOMAIN_EXISTS",
             "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE",
             "WORKFLOWS_NOT_CONFIGURED",
-            "WORKFLOW_SCRIPT_REJECTED"
+            "WORKFLOW_SCRIPT_REJECTED",
+            "RECOVERY_COST_NOT_ACKNOWLEDGED",
+            "RECOVERY_NO_COPY",
+            "RECOVERY_NOT_READABLE",
+            "RECOVERY_NO_DIGEST",
+            "RECOVERY_GRANT_USED",
+            "RECOVERY_GRANT_EXPIRED",
+            "RECOVERY_TARGET_EXISTS",
+            "RECOVERY_USE_SNAPSHOT_RESTORE",
+            "RECOVERY_BUSY"
           ],
           "not-found": [
             "BACKUP_SET_NOT_FOUND",
@@ -263,19 +316,29 @@
             "REPOSITORY_DOMAIN_NOT_FOUND",
             "WORKFLOW_ENV_NOT_FOUND",
             "WORKFLOW_RUN_NOT_FOUND",
-            "WORKFLOW_STEP_NOT_FOUND"
+            "WORKFLOW_STEP_NOT_FOUND",
+            "RECOVERY_COPY_NOT_FOUND",
+            "RECOVERY_GRANT_UNKNOWN"
           ],
           "throttling": [
-            "RATE_LIMITED"
+            "RATE_LIMITED",
+            "RECOVERY_TOO_MANY_GRANTS"
           ],
           "internal": [
             "INTERNAL",
-            "INTERNAL_ERROR"
+            "INTERNAL_ERROR",
+            "RECOVERY_LOCAL_COPY_CORRUPT",
+            "RECOVERY_REMOTE_COPY_CORRUPT",
+            "RECOVERY_NO_SPACE",
+            "RECOVERY_BELOW_RESERVE",
+            "RECOVERY_FAILED"
           ],
           "unavailable": [
             "NOT_CONFIGURED",
             "SMTP_SEND_FAILED",
-            "WORKFLOW_ENGINE_UNAVAILABLE"
+            "WORKFLOW_ENGINE_UNAVAILABLE",
+            "RECOVERY_UNAVAILABLE",
+            "RECOVERY_INTERRUPTED"
           ]
         }
       },
@@ -6481,6 +6544,459 @@
         "required": [
           "reason"
         ]
+      },
+      "RecoveryTarget": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Where one recovery writes its bytes. The set is closed: download streams to the caller that redeems the grant, staging places one file under the configured recovery staging root, storage uploads to another configured storage destination. A staging or storage target is written only after the whole copy has been read and has matched the SHA-256 the journal recorded. A download is not staged: it is refused before its first byte unless a read of the whole copy has matched that digest, and each chunk is checked again as it is sent.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "download",
+              "staging",
+              "storage"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "For staging: the name to place the recovered file under, relative to the recovery staging root. It may name subdirectories, may not leave the root and may not pass through a symlink. The file is placed under a unique name so nothing is ever replaced."
+          },
+          "medium": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "For storage: the id of a configured storage destination."
+          },
+          "key": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "For storage: the object key. Defaults to recovered/<artifact id>. An existing object is never replaced."
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "RecoveryMintRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "POST /backups/{source}/{set}/{name}/recovery. Asks for one retained copy of one backup to be read once, to one target. It authorises nothing by itself beyond minting a short-lived, single-use grant bound to the session that asked.",
+        "properties": {
+          "copy": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The medium id of the copy to recover, or best-available (also what an empty value means): the readable copy with the strongest recorded verification class, preferring one that costs nothing to read."
+          },
+          "acknowledged": {
+            "type": "boolean",
+            "x-go-omitempty": true,
+            "description": "The explicit yes to a chargeable retrieval. Without it a request that would download from a billed object store, or need a provider restore first, is refused naming the cost and starts nothing. An absent value is a no, never an implied yes."
+          },
+          "target": {
+            "$ref": "#/components/schemas/RecoveryTarget"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      },
+      "RecoveryMintResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "The answer to a mint, in one of two shapes. A grant (201): the token is shown once, is bound to the minting session, dies when that session ends, expires within minutes, and is spent when the download completes, fails or is abandoned. Or (202), when the only copy is on an archive class and an acknowledged request started exactly one provider restore: no grant yet, ask again once the copy is readable. Carries no percentage, finishing time or amount, because this product knows none of them.",
+        "properties": {
+          "artifact_id": {
+            "type": "string"
+          },
+          "copy": {
+            "type": "string",
+            "description": "The medium id of the copy that was chosen."
+          },
+          "grant": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The bearer token that redeems this grant. Treat it like a password for one download."
+          },
+          "download_url": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "GET this path to redeem the grant."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "x-go-omitempty": true
+          },
+          "target": {
+            "$ref": "#/components/schemas/RecoveryTarget",
+            "x-go-omitempty": true,
+            "x-go-pointer": true
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "x-go-omitempty": true,
+            "x-go-pointer": true,
+            "description": "The recorded size, when the journal has one."
+          },
+          "restore": {
+            "$ref": "#/components/schemas/RecoveryRestoreOperation",
+            "x-go-omitempty": true,
+            "x-go-pointer": true,
+            "description": "Present instead of a grant when a provider restore was started."
+          }
+        },
+        "required": [
+          "artifact_id",
+          "copy"
+        ]
+      },
+      "RecoveryRestoreOperation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "operation_id": {
+            "type": "string",
+            "description": "The restore_placement operation to watch, via GET /operations/{id}."
+          },
+          "wait": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The storage class's own published restore time, in words. A property of the class, never an estimate for this restore."
+          },
+          "billing": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The plain statement that a bill exists, with no amount."
+          }
+        },
+        "required": [
+          "operation_id"
+        ]
+      },
+      "RecoveryResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "What a redeemed grant answers when its target is server-side (staging or storage): the bytes were verified and placed, and nothing was streamed.",
+        "properties": {
+          "artifact_id": {
+            "type": "string"
+          },
+          "copy": {
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/components/schemas/RecoveryTarget"
+          },
+          "path": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The full path of the placed file, for a staging target."
+          },
+          "key": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The object key written, for a storage target."
+          },
+          "bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sha256": {
+            "type": "string",
+            "description": "The digest of the bytes placed, equal to the digest the journal recorded."
+          }
+        },
+        "required": [
+          "artifact_id",
+          "copy",
+          "target",
+          "bytes",
+          "sha256"
+        ]
+      },
+      "AssuranceScrubPolicy": {
+        "type": "object",
+        "description": "A resolved scrub policy: how often a copy is re-read and how much of it is read.",
+        "additionalProperties": false,
+        "properties": {
+          "cadence_seconds": {
+            "type": "integer",
+            "description": "How long after a copy was last assured it is next due. RESOLVED: inherited or defaulted values are filled in, so this is never a zero an operator would read as 'never'.",
+            "format": "int64"
+          },
+          "strategy": {
+            "type": "string",
+            "description": "What a scrub reads: auto lets the engine pick the strongest read the copy's destination allows without cost, existence checks the copy is still there and the right size, content re-reads and re-hashes every byte."
+          }
+        }
+      },
+      "AssuranceRecoveryTestPolicy": {
+        "type": "object",
+        "description": "A resolved recovery-test policy.",
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "type": "string",
+            "description": "off never runs a recovery test; required runs one on the cadence and the set is not assured without it; custom is required with the set's own cadence and validator."
+          },
+          "cadence_seconds": {
+            "type": "integer",
+            "description": "How often a recovery test is due. RESOLVED.",
+            "format": "int64"
+          },
+          "validator_id": {
+            "type": "string",
+            "description": "The recovery-test script to run over the recovered copy, named by its file name without the .local.sh suffix, in recovery-test/<source>/<set> under the workflow root. Not an entry in GET /validators. A name, never a path. Empty when the mode is off and none is configured."
+          }
+        }
+      },
+      "AssuranceHostKnob": {
+        "type": "object",
+        "description": "A setting that is global only, with the reason a backup set cannot override it. The per-set answer is written down for every host-scoped knob so nobody looks for a per-set switch that could not work.",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The setting's key in the assurance block."
+          },
+          "value": {
+            "type": "string",
+            "description": "Its current resolved value, rendered as text."
+          },
+          "per_set": {
+            "type": "boolean",
+            "description": "Whether a backup set may override it. Always false for the knobs listed here."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why not: what about the host or the process a per-set value could not be honoured by."
+          }
+        }
+      },
+      "AssuranceSettingsResponse": {
+        "type": "object",
+        "description": "The deployment-wide assurance policy, RESOLVED. A config that never mentions assurance reports the defaults here, which is the point: the default is good enough that nobody has to set it.",
+        "additionalProperties": false,
+        "properties": {
+          "configured": {
+            "type": "boolean",
+            "description": "Whether config.yaml carries an assurance block at all. False means every value here is a default nobody had to set."
+          },
+          "scrub": {
+            "$ref": "#/components/schemas/AssuranceScrubPolicy"
+          },
+          "recovery_test": {
+            "$ref": "#/components/schemas/AssuranceRecoveryTestPolicy"
+          },
+          "staging_root": {
+            "type": "string",
+            "description": "Where recovered copies are staged. Global only."
+          },
+          "staging_ttl_seconds": {
+            "type": "integer",
+            "description": "How long a staged leftover survives before it is swept. Global only.",
+            "format": "int64"
+          },
+          "max_concurrent_full_reads": {
+            "type": "integer",
+            "description": "The ceiling on full reads running at once across the deployment. Global only.",
+            "format": "int64"
+          },
+          "max_per_destination": {
+            "type": "integer",
+            "description": "The ceiling on concurrent reads against one destination. Global only.",
+            "format": "int64"
+          },
+          "host_knobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssuranceHostKnob"
+            },
+            "description": "The four host-scoped settings and the staging root, each with its written 'no' for a per-set override."
+          }
+        }
+      },
+      "UpdateAssuranceSettingsRequest": {
+        "type": "object",
+        "description": "PATCH the deployment-wide assurance block. Every field is nullable because this is a PATCH: omitted leaves the setting alone, and a zero or empty value clears it back to its default. A body that names nothing is refused.",
+        "additionalProperties": false,
+        "properties": {
+          "scrub_cadence_seconds": {
+            "type": "integer",
+            "description": "The default scrub cadence. Zero clears it back to the product default. Below the one-hour floor is refused.",
+            "format": "int64",
+            "x-go-pointer": true
+          },
+          "scrub_strategy": {
+            "type": "string",
+            "description": "auto, existence or content. Empty clears it back to auto.",
+            "x-go-pointer": true
+          },
+          "recovery_test_mode": {
+            "type": "string",
+            "description": "off or required. Empty clears it back to off. Required needs a validator.",
+            "x-go-pointer": true
+          },
+          "recovery_test_cadence_seconds": {
+            "type": "integer",
+            "description": "The default recovery-test cadence. Zero clears it.",
+            "format": "int64",
+            "x-go-pointer": true
+          },
+          "recovery_test_validator_id": {
+            "type": "string",
+            "description": "The default recovery-test script, by file name without .local.sh. Empty clears it.",
+            "x-go-pointer": true
+          },
+          "staging_root": {
+            "type": "string",
+            "description": "An absolute path. Empty returns to the directory beside the state database.",
+            "x-go-pointer": true
+          },
+          "staging_ttl_seconds": {
+            "type": "integer",
+            "description": "Zero clears it back to the default.",
+            "format": "int64",
+            "x-go-pointer": true
+          },
+          "max_concurrent_full_reads": {
+            "type": "integer",
+            "description": "Zero clears it back to the default.",
+            "format": "int64",
+            "x-go-pointer": true
+          },
+          "max_per_destination": {
+            "type": "integer",
+            "description": "Zero clears it back to the default.",
+            "format": "int64",
+            "x-go-pointer": true
+          }
+        }
+      },
+      "BackupSetAssurance": {
+        "type": "object",
+        "description": "One backup set's resolved assurance policy and whether it is the set's own. Served together because 'what is deciding' and 'is that this set's own or the deployment's' are one question.",
+        "additionalProperties": false,
+        "properties": {
+          "backup_set_id": {
+            "type": "string"
+          },
+          "is_override": {
+            "type": "boolean",
+            "description": "True when this set carries its own assurance block. Reported rather than derived by comparing values: a set that pinned the same cadence as the deployment is not inheriting, and a later change to the deployment will not move it."
+          },
+          "scrub": {
+            "$ref": "#/components/schemas/AssuranceScrubPolicy"
+          },
+          "recovery_test": {
+            "$ref": "#/components/schemas/AssuranceRecoveryTestPolicy"
+          }
+        },
+        "required": [
+          "backup_set_id",
+          "is_override",
+          "scrub",
+          "recovery_test"
+        ]
+      },
+      "UpdateBackupSetAssuranceRequest": {
+        "type": "object",
+        "description": "PATCH one backup set's own assurance block. Omitted leaves a field alone and a zero or empty value clears it, so the set inherits it again. Clearing every field is the same as a reset. A body that names nothing is refused.",
+        "additionalProperties": false,
+        "properties": {
+          "scrub_cadence_seconds": {
+            "type": "integer",
+            "description": "This set's scrub cadence. Zero clears it.",
+            "format": "int64",
+            "x-go-pointer": true
+          },
+          "scrub_strategy": {
+            "type": "string",
+            "description": "auto, existence or content. Empty clears it.",
+            "x-go-pointer": true
+          },
+          "recovery_test_mode": {
+            "type": "string",
+            "description": "inherit, off, required or custom. Empty clears it, which is inherit.",
+            "x-go-pointer": true
+          },
+          "recovery_test_cadence_seconds": {
+            "type": "integer",
+            "description": "Only with mode custom. Zero clears it.",
+            "format": "int64",
+            "x-go-pointer": true
+          },
+          "recovery_test_validator_id": {
+            "type": "string",
+            "description": "The recovery-test script, by file name without .local.sh. Required with mode custom, and with mode required unless the deployment names one. Empty clears it.",
+            "x-go-pointer": true
+          }
+        }
+      },
+      "AssuranceDueItem": {
+        "type": "object",
+        "description": "One copy's place in the scrub schedule.",
+        "additionalProperties": false,
+        "properties": {
+          "backup_set_id": {
+            "type": "string"
+          },
+          "artifact_id": {
+            "type": "string"
+          },
+          "artifact_name": {
+            "type": "string"
+          },
+          "last_assured_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When this copy was last assured. Absent for a copy nobody has looked at.",
+            "x-go-omitempty": true
+          },
+          "next_due_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the set's resolved cadence next calls for a scrub. For a copy nobody has looked at, the moment of the read."
+          },
+          "cadence_seconds": {
+            "type": "integer",
+            "description": "The set's resolved scrub cadence this row was computed from.",
+            "format": "int64"
+          },
+          "due": {
+            "type": "boolean",
+            "description": "next_due_at has passed."
+          },
+          "overdue": {
+            "type": "boolean",
+            "description": "A whole cadence past next_due_at, or never assured. A copy nobody has looked at is overdue, never fine."
+          },
+          "basis": {
+            "type": "string",
+            "description": "Where last_assured_at came from: verified_at (a placement's own record), journal_updated_at (the interim stand-in until the per-copy record), or never."
+          }
+        }
+      },
+      "AssuranceDueResponse": {
+        "type": "object",
+        "description": "The scrub schedule, most overdue first, computed from each set's resolved policy.",
+        "additionalProperties": false,
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The clock this schedule was computed against."
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssuranceDueItem"
+            },
+            "description": "One row per scrub-eligible copy that matches the filter."
+          }
+        }
       }
     },
     "responses": {}
@@ -15939,6 +16455,1078 @@
         "x-idempotency-key": "none",
         "x-optimistic-concurrency": null,
         "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/backups/{source}/{set}/{name}/recovery": {
+      "post": {
+        "operationId": "mintRecovery",
+        "summary": "Authorise one read of one retained copy of a backup, and get the short-lived single-use grant that redeems it.",
+        "tags": [
+          "backups"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "source",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The configured source the backup set holding this backup is defined under."
+          },
+          {
+            "name": "set",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The backup set holding this backup, by its own name within that source."
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The backup's own name within that backup set. A backup's identity is exactly source/set/name, and a name never contains a separator, which is why this route declares three parameters rather than taking one value and splitting it."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecoveryMintRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success. A grant was minted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryMintResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Success, and no grant yet: the only copy is on an archive class and an acknowledged request started exactly one provider restore. Ask again once it is readable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryMintResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST, RECOVERY_TARGET_INVALID. The second is a target that does not stay inside the staging root or names a destination this configuration does not declare.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST",
+              "RECOVERY_TARGET_INVALID"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "404": {
+            "description": "Refused: ARTIFACT_NOT_FOUND, RECOVERY_COPY_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ARTIFACT_NOT_FOUND",
+              "RECOVERY_COPY_NOT_FOUND"
+            ]
+          },
+          "409": {
+            "description": "Refused: RECOVERY_COST_NOT_ACKNOWLEDGED, RECOVERY_NO_COPY, RECOVERY_NOT_READABLE, RECOVERY_NO_DIGEST, RECOVERY_USE_SNAPSHOT_RESTORE. The first names the cost and starts nothing. The last is a backup set stored by the kopia engine, whose backups are restore points: use `retnd snapshot restore`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_COST_NOT_ACKNOWLEDGED",
+              "RECOVERY_NO_COPY",
+              "RECOVERY_NOT_READABLE",
+              "RECOVERY_NO_DIGEST",
+              "RECOVERY_USE_SNAPSHOT_RESTORE"
+            ]
+          },
+          "429": {
+            "description": "Refused: RECOVERY_TOO_MANY_GRANTS.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_TOO_MANY_GRANTS"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL, RECOVERY_FAILED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL",
+              "RECOVERY_FAILED"
+            ]
+          },
+          "501": {
+            "description": "Refused: RECOVERY_UNAVAILABLE. The backend behind this router cannot recover backups.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_UNAVAILABLE"
+            ]
+          },
+          "503": {
+            "description": "Refused: RECOVERY_UNAVAILABLE. There is no state directory to stage a recovery in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_UNAVAILABLE"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/recoveries/{grant}": {
+      "get": {
+        "operationId": "redeemRecovery",
+        "summary": "Redeem a recovery grant: stream the verified bytes, or place them at a server-side target.",
+        "tags": [
+          "backups"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "grant",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The grant token a mint returned."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success. For a download target the artifact's bytes, streamed from the retained copy one verified chunk at a time and never staged; for a staging or storage target the placement. A download is refused before the status line when the copy cannot complete it (missing, wrong size, unreadable medium, a verifying read that did not match the journal). A copy that fails verification mid-stream aborts the connection short of the declared Content-Length, so a truncated body is never a clean end. Headers: ETag (a strong validator from the artifact id and the recorded SHA-256, the same for every grant, copy and process, so a download can be resumed with Range and If-Range under a new grant), Repr-Digest (RFC 9530 sha-256 of the whole artifact as the journal recorded it, for the client to compare against), Accept-Ranges: bytes, Content-Length.",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryResult"
+                }
+              }
+            }
+          },
+          "206": {
+            "description": "Success. One byte range of the artifact, read from the copy at the range's chunk boundary. Resume with Range and If-Range set to the ETag. Carries the same ETag and Repr-Digest as the 200; Repr-Digest still describes the whole artifact.",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: RECOVERY_GRANT_SESSION_ENDED. The session that minted this grant has ended, or this is another session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_GRANT_SESSION_ENDED"
+            ]
+          },
+          "404": {
+            "description": "Refused: ARTIFACT_NOT_FOUND, RECOVERY_COPY_NOT_FOUND, RECOVERY_GRANT_UNKNOWN.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ARTIFACT_NOT_FOUND",
+              "RECOVERY_COPY_NOT_FOUND",
+              "RECOVERY_GRANT_UNKNOWN"
+            ]
+          },
+          "409": {
+            "description": "Refused: RECOVERY_NOT_READABLE, RECOVERY_NO_DIGEST, RECOVERY_BUSY, RECOVERY_TARGET_EXISTS. RECOVERY_BUSY is a second request for a server-side (staging or storage) target while the first is still carrying it out; a download has no such state.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_NOT_READABLE",
+              "RECOVERY_NO_DIGEST",
+              "RECOVERY_BUSY",
+              "RECOVERY_TARGET_EXISTS"
+            ]
+          },
+          "410": {
+            "description": "Refused: RECOVERY_GRANT_USED, RECOVERY_GRANT_EXPIRED. Ask for a new grant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_GRANT_USED",
+              "RECOVERY_GRANT_EXPIRED"
+            ]
+          },
+          "416": {
+            "description": "Refused: INVALID_REQUEST. Several ranges in one request, which the audit row could not describe.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL, RECOVERY_LOCAL_COPY_CORRUPT, RECOVERY_FAILED. The first corrupt-copy code means the copy on this host's disk failed verification.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL",
+              "RECOVERY_LOCAL_COPY_CORRUPT",
+              "RECOVERY_FAILED"
+            ]
+          },
+          "501": {
+            "description": "Refused: RECOVERY_UNAVAILABLE.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_UNAVAILABLE"
+            ]
+          },
+          "502": {
+            "description": "Refused: RECOVERY_REMOTE_COPY_CORRUPT. A destination returned bytes that do not match what was recorded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_REMOTE_COPY_CORRUPT"
+            ]
+          },
+          "503": {
+            "description": "Refused: RECOVERY_UNAVAILABLE, RECOVERY_INTERRUPTED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_UNAVAILABLE",
+              "RECOVERY_INTERRUPTED"
+            ]
+          },
+          "507": {
+            "description": "Refused: RECOVERY_NO_SPACE, RECOVERY_BELOW_RESERVE. Nothing was delivered and no partial file remains.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_NO_SPACE",
+              "RECOVERY_BELOW_RESERVE"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      }
+    },
+    "/settings/assurance": {
+      "get": {
+        "operationId": "getAssuranceSettings",
+        "summary": "The deployment-wide assurance policy as this process is actually running it: scrub cadence and strategy, recovery-test mode, the global-only host settings and the written reason none of them is per set. Read-only.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssuranceSettingsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      },
+      "patch": {
+        "operationId": "updateAssuranceSettings",
+        "summary": "Patch the deployment-wide assurance block. The patch is validated, written and hot-reloaded in one step, so every backup set that inherits the changed value decides under it on its next read, with no restart.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAssuranceSettingsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success. The whole resolved policy as it now stands, rather than an echo of the patch.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssuranceSettingsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. The configuration validator refused the resulting policy, or the patch named nothing. Nothing is written when it does.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/backup-sets/{source}/{set}/assurance": {
+      "get": {
+        "operationId": "getBackupSetAssurance",
+        "summary": "Which assurance policy one backup set decides under, and whether it is the set's own.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "source",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The configured source this backup set belongs to."
+          },
+          {
+            "name": "set",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The backup set's own name within that source."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupSetAssurance"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "404": {
+            "description": "Refused: BACKUP_SET_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "BACKUP_SET_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      },
+      "patch": {
+        "operationId": "updateBackupSetAssurance",
+        "summary": "Patch this backup set's own assurance block, creating it if the set was inheriting.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "source",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The configured source this backup set belongs to."
+          },
+          {
+            "name": "set",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The backup set's own name within that source."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateBackupSetAssuranceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success. The set's resolved policy as it now stands.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupSetAssurance"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. The configuration validator refused the resulting policy, or the patch named nothing. Nothing is written when it does.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "404": {
+            "description": "Refused: BACKUP_SET_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "BACKUP_SET_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      },
+      "delete": {
+        "operationId": "resetBackupSetAssurance",
+        "summary": "Remove this backup set's own assurance block so it follows the deployment's policy again. Resetting a set that already inherits is not an error.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "source",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The configured source this backup set belongs to."
+          },
+          {
+            "name": "set",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The backup set's own name within that source."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success. The set now reports is_override false.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupSetAssurance"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "404": {
+            "description": "Refused: BACKUP_SET_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "BACKUP_SET_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/assurance/due": {
+      "get": {
+        "operationId": "listAssuranceDue",
+        "summary": "The scrub schedule: every scrub-eligible copy with when it is next due, computed from its set's resolved cadence. Read-only.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "backup_set",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Narrow the schedule to one backup set, by its source/backup-set id. Omitted means every configured set."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "all (the default), due or overdue."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssuranceDueResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. The configuration validator refused the resulting policy, or the patch named nothing. Nothing is written when it does.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "404": {
+            "description": "Refused: BACKUP_SET_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "BACKUP_SET_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
         "x-authenticated": true
       }
     }

@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/retnd/retnd/core/internal/procseam"
 )
 
 // Running one captured script in an ephemeral container, and the five
@@ -566,7 +568,7 @@ func (e *Executor) run(ctx context.Context, spec runSpec, sink Sink) (Result, er
 	// context kill would leave the hook running with nothing attached to
 	// it, and the Result would still say "canceled". The termination
 	// below is done through the daemon instead.
-	cmd := exec.Command(e.Container.Docker, e.Container.startArgs(spec.id.name)...)
+	cmd := procseam.Command(e.Container.Docker, e.Container.startArgs(spec.id.name)...)
 
 	// The hook's environment is not this client's. The values went to
 	// the daemon at CREATE time, which is what `--env NAME` reads them

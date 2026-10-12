@@ -361,6 +361,15 @@ bash scripts/architecture/check-unowned-go.sh
 gate_step "the e2e drivers' --help is still the text it was (#514)"
 bash scripts/tests/e2e-help.test.sh
 
+# A tests pin must name a commit on retnd-tests main (#1074). The pin once
+# pointed at the head of an open retnd-tests PR, which the gate ran
+# happily, and the bump tool had been written not to check. Both now
+# refuse, and this runs fixture git repositories over file:// (no network,
+# no Docker) to prove it, including a planted check that always passes,
+# which the suite has to notice.
+gate_step "a tests pin must be on retnd-tests main (#1074)"
+bash scripts/tests/pin-on-main.test.sh
+
 # Every Python file under scripts/, held to a linter, and the subset that is
 # clean under a type checker held to that too (EPIC I / I1.6, #672).
 #
@@ -454,6 +463,14 @@ bash scripts/tests/two-machine-ci-verdict.test.sh
 # because nobody asked it. This reads the workflow and refuses that.
 gate_step "the release gate still covers every job in ci.yml (#575)"
 bash scripts/tests/release-gate-covers-every-job.test.sh
+
+# Every Go module resolves its own dependencies without go.work (#1064). The
+# workspace builds the whole tree on the highest version of every requirement,
+# so a dependency bumped in core/ alone is green everywhere the workspace is
+# used and red in the product image and under GOWORK=off. #1003, #797 and #838
+# were all that.
+gate_step "every Go module resolves its own dependencies without go.work (#1064)"
+bash scripts/tests/every-module-builds-on-its-own.test.sh
 
 # The other half of the same gate, and the half that does not need a
 # settings page to be true (#575). A required check gates while branch
@@ -841,6 +858,12 @@ bash scripts/perf/selftest.sh
 gate_step "/api/v1 bindings match the contract, and no implementation type leaks (#166)"
 bash scripts/api/check-contract-drift.sh
 
+# The contract generator answers the same way every time it is run (#1066).
+# check-contract-drift.sh regenerates and compares, so a generator that can
+# answer two ways fails a clean tree about half the time.
+gate_step "the contract generator is deterministic (#1066)"
+bash scripts/tests/api-generator-is-deterministic.test.sh
+
 # The other half of #166's "generated from it or mechanically validated
 # against it": ui/shared/src/api/client.ts is hand-written on top of the
 # generated module, so its request paths are string literals that the
@@ -998,6 +1021,16 @@ if [ "$FAST" != "1" ]; then
   # control is the only thing that can see it. No Docker, a few minutes.
   gate_step "the retention-apply evidence can actually fail (mutation self-test, #602)"
   bash scripts/retention/selftest.sh
+
+  # EPIC Q (#976): recovery is a read path that hands out retained backup
+  # data, and its guards (the cost refusal, the digest compare, a grant that
+  # cannot be used twice or from another session, a target that cannot
+  # leave the staging root, the audit rows, the route's tier) are exactly
+  # the kind that pass on the tree they ship with and could not fail. Each
+  # is planted as a real violation in a real product file and the narrowed
+  # suite has to go red naming the promise. No Docker, a few minutes.
+  gate_step "the recovery guards can actually fail (mutation self-test, #976)"
+  bash scripts/recovery/selftest.sh
 
   gate_step "repository-structure dependency rules (§7.1), by actual deletion"
   bash scripts/architecture/check-core-dependency-rule.sh

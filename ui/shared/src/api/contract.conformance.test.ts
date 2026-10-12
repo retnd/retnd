@@ -487,6 +487,13 @@ describe("every request the shared client makes is a declared operation", () => 
       ["resumeWorkflowCleanup", () => httpApi.resumeWorkflowCleanup("wfr_1")],
       ["acknowledgeWorkflowRecovery", () =>
         httpApi.acknowledgeWorkflowRecovery("wfr_1", "thawed the database by hand")],
+      // EPIC Q's assurance surface (Q1.4, #982).
+      ["getAssuranceSettings", () => httpApi.getAssuranceSettings()],
+      ["patchAssuranceSettings", () => httpApi.patchAssuranceSettings({ scrubCadenceSeconds: 43_200 })],
+      ["getBackupSetAssurance", () => httpApi.getBackupSetAssurance("src", "set-1")],
+      ["patchBackupSetAssurance", () => httpApi.patchBackupSetAssurance("src", "set-1", { scrubCadenceSeconds: 7_200 })],
+      ["resetBackupSetAssurance", () => httpApi.resetBackupSetAssurance("src", "set-1")],
+      ["listAssuranceDue", () => httpApi.listAssuranceDue({ backupSetId: "src/set-1", status: "overdue" })],
       ["getWorkflowSettings", () => httpApi.getWorkflowSettings()],
       ["patchWorkflowSettings", () => httpApi.patchWorkflowSettings({ scriptTimeoutSeconds: 300 })],
       ["listWorkflowEnvironment", () => httpApi.listWorkflowEnvironment()],
@@ -662,7 +669,16 @@ describe("every request the shared client makes is a declared operation", () => 
     // could call them without this list shrinking, which is the property
     // the exact assertion below enforces in both directions.
     "getSession",
-    "getSystemCapabilities"
+    "getSystemCapabilities",
+    //
+    // EPIC Q's recovery pair (#976): the mint and the redeem. The API and
+    // the CLI halves land first, and the browser's half is its own issue
+    // (#985, the download dialog and its progress). They leave this list
+    // the commit a screen calls them, which is the mechanism working as
+    // the paragraph above describes: adding a contract operation forces a
+    // line here, and wiring a screen to it forces the line back out.
+    "mintRecovery",
+    "redeemRecovery"
   ];
 
   it("pins the contract operations no client call reaches", () => {

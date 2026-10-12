@@ -139,9 +139,18 @@ type Config struct {
 	// gate rather than an intention.
 	RepositoryDomains []RepositoryDomainConfig `yaml:"repository_domains,omitempty"`
 
-	Alerts        Alerts        `yaml:"alerts"`
-	Capacity      Capacity      `yaml:"capacity,omitempty"`
-	KeyEncryption KeyEncryption `yaml:"key_encryption,omitempty"`
+	Alerts Alerts `yaml:"alerts"`
+	// AssuranceBlock is the deployment-wide assurance policy (EPIC Q,
+	// Q1.4). Nil means "the operator wrote nothing", which resolves to
+	// good defaults, and omitempty keeps a config that never mentions it
+	// byte-identical through a re-marshal. A config carrying the key is
+	// refused by an older build under Load's KnownFields(true).
+	AssuranceBlock *AssuranceBlock `yaml:"assurance,omitempty"`
+	// Assurance is the resolved deployment-wide policy, filled by
+	// Validate. Read this, never the pointer above.
+	Assurance     AssuranceDefaults `yaml:"-"`
+	Capacity      Capacity          `yaml:"capacity,omitempty"`
+	KeyEncryption KeyEncryption     `yaml:"key_encryption,omitempty"`
 
 	// IncrementalEngine is EPIC K's production feature gate (#789): does
 	// this deployment run the incremental engine at all.
@@ -860,6 +869,15 @@ type BackupSet struct {
 	// are the live instance of this, and were a silent no-op until they
 	// re-resolved.
 	Retention Retention `yaml:"-"`
+
+	// AssuranceConfig is this set's own assurance override (EPIC Q, Q1.4),
+	// in the three-field pattern RetentionConfig uses: nil means inherit
+	// the deployment's, Assurance below is the resolved answer Validate
+	// fills, and every consumer reads that, never this pointer. Any
+	// mutation of the global block must be followed by Validate, or every
+	// inheriting set goes on deciding under the old policy.
+	AssuranceConfig *AssuranceOverride `yaml:"assurance,omitempty"`
+	Assurance       Assurance          `yaml:"-"`
 
 	// ReadOnly is the fully-resolved answer to "may this backup set's
 	// remote source ever be deleted", filled in by Validate from
