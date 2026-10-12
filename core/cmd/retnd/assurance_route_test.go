@@ -69,7 +69,14 @@ func TestSettingsAssurancePatchReachesTheAttachedEngineAndMovesNextDue(t *testin
 			CadenceSeconds int64 `json:"cadence_seconds"`
 		} `json:"scrub"`
 	}
-	if err := json.Unmarshal([]byte(stdout), &doc); err != nil || doc.Scrub.CadenceSeconds != 43200 {
+	// The mode line and the startup log lines share stdout with the body, as
+	// they do on the direct route; the body is the indented object that
+	// starts at the last line that is only an opening brace.
+	body := stdout
+	if i := strings.LastIndex(stdout, "\n{\n"); i >= 0 {
+		body = stdout[i+1:]
+	}
+	if err := json.Unmarshal([]byte(body), &doc); err != nil || doc.Scrub.CadenceSeconds != 43200 {
 		t.Errorf("--json did not print the engine's answer: %q (%v)", stdout, err)
 	}
 

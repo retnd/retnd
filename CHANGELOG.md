@@ -31,8 +31,12 @@
     `retnd settings assurance [patch|due]` and `retnd backup-set assurance`, all with
     `--json` printing the API's own body. A `PATCH` is validated, written and
     hot-reloaded in one step, so every set that inherits the changed value decides
-    under it on its next read with no restart. The CLI writes beside a serving engine
-    are refused with the file untouched, like `settings workflow`.
+    under it on its next read with no restart. Beside a serving engine, `retnd
+    settings assurance patch` and `retnd backup-set assurance` hand the write to that
+    engine's `PATCH` route when `RETND_API_URL` names it (the engine owns the write and
+    its next-due moves), and a refusal for the request reads the same on both routes;
+    with an engine serving and no address they are still refused with the file untouched,
+    like `settings workflow`.
   - **Feed and alerts.** New catalog events for scrub, recovery and recovery-test runs
     (additions only, each completion states a `Result`) with one stage list shared by
     the CLI and the browser, a scrub pass that costs two feed rows however many copies
