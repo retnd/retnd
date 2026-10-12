@@ -172,3 +172,60 @@ export async function measureBorders(page: Page, label: string, selector: string
   }
   return all.filter((m) => m.ratio < 3).map((m) => m.what + " " + m.ratio.toFixed(2));
 }
+
+/** Every bordered element under `selector`: its edge against its own fill and
+ *  against the page it sits on, and its fill against that page. The edge is a
+ *  UI boundary, so it needs 3:1 against the page (WCAG 1.4.11); the states
+ *  named in `strictFill` need it against their own fill as well. Printed lines
+ *  are what the PR quotes. Returns the pairs under 3. */
+export async function measureEdges(page: Page, label: string, selector: string, strictFill: string[] = []) {
+  const all = await page.evaluate((sel) => {
+    const c = document.createElement("canvas").getContext("2d")!;
+    const rgb = (s: string): number[] => {
+      c.clearRect(0, 0, 1, 1);
+      c.fillStyle = "#000";
+      c.fillStyle = s;
+      c.fillRect(0, 0, 1, 1);
+      const d = c.getImageData(0, 0, 1, 1).data;
+      return [d[0], d[1], d[2], d[3] / 255];
+    };
+    const f = (v: number) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+    const lum = (a: number[]) => 0.2126 * f(a[0]) + 0.7152 * f(a[1]) + 0.0722 * f(a[2]);
+    const ratio = (a: number[], b: number[]) => { const [h, l] = [lum(a), lum(b)].sort((x, y) => y - x); return Math.round(((h + 0.05) / (l + 0.05)) * 100) / 100; };
+    const page_ = (e: Element): number[] => {
+      for (let n: Element | null = e.parentElement; n; n = n.parentElement) {
+        const x = rgb(getComputedStyle(n).backgroundColor);
+        if (x[3] > 0.5) return x;
+      }
+      return [255, 255, 255, 1];
+    };
+    // The body background is the page; the nearest opaque ancestor is the card.
+    const out: Array<{ what: string; edgeFill: number; edgePage: number; edgeBody: number; fillPage: number; edge: string; fill: string; card: string }> = [];
+    document.querySelectorAll(sel).forEach((e) => {
+      const cs = getComputedStyle(e);
+      if (cs.display === "none" || parseFloat(cs.borderTopWidth) === 0 || cs.borderTopStyle === "none") return;
+      const edge = rgb(cs.borderTopColor);
+      const fillRaw = rgb(cs.backgroundColor);
+      const card = page_(e);
+      const body = rgb(getComputedStyle(document.body).backgroundColor);
+      const fill = fillRaw[3] > 0.5 ? fillRaw : card;
+      const own = e.closest("[data-state],[data-outcome]");
+      out.push({
+        what: (own?.getAttribute("data-state") ?? own?.getAttribute("data-outcome") ?? e.className) + "",
+        edgeFill: ratio(edge, fill), edgePage: ratio(edge, card), edgeBody: ratio(edge, body), fillPage: ratio(fill, card),
+        edge: edge.slice(0, 3).join(","), fill: fill.slice(0, 3).join(","), card: card.slice(0, 3).join(",")
+      });
+    });
+    return out;
+  }, selector);
+  const seen = new Set<string>();
+  for (const m of all) {
+    const k = m.what + m.edge + m.fill + m.card;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    console.log("EDGE " + label + " | " + m.what + " | edge/fill " + m.edgeFill.toFixed(2) + ":1, edge/card " + m.edgePage.toFixed(2) + ":1, edge/page " + m.edgeBody.toFixed(2) + ":1 | fill/card " + m.fillPage.toFixed(2) + ":1 | rgb(" + m.edge + ") rgb(" + m.fill + ") rgb(" + m.card + ")");
+  }
+  return all
+    .filter((m) => m.edgePage < 3 || m.edgeBody < 3 || (strictFill.includes(m.what) && m.edgeFill < 3))
+    .map((m) => m.what + " " + Math.min(m.edgePage, m.edgeBody, strictFill.includes(m.what) ? m.edgeFill : 99).toFixed(2));
+}
