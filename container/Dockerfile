@@ -220,6 +220,11 @@ RUN --mount=type=cache,target=/root/.npm \
 
 COPY ui/shared/ ./ui/shared/
 COPY apps/ ./apps/
+# One recorded feed that a ui/shared test imports from the Go side
+# (src/test/assurance-operator-controls.test.tsx, #985). `tsc -b` type-checks
+# the test files too, so without this one file the image build stops at
+# "Cannot find module '../../../../core/cmd/retnd/testdata/recovery-follow-feed.json'".
+COPY core/cmd/retnd/testdata/recovery-follow-feed.json ./core/cmd/retnd/testdata/recovery-follow-feed.json
 
 # The per-provider bundles the runtime stage carries (issue #180, packaged
 # by #169). One directory per platform whose distribution adapter has no
