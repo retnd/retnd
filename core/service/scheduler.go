@@ -181,6 +181,16 @@ func (b *BackupService) RunOnSchedule(ctx context.Context) error {
 	}()
 	defer func() { <-alertsStopped }()
 
+	// Abandoned downloads and staging leftovers are swept on their own
+	// timer too, so a staged copy does not wait for the next recovery
+	// request to go away.
+	reaperStopped := make(chan struct{})
+	go func() {
+		defer close(reaperStopped)
+		b.runRecoveryReaper(ctx)
+	}()
+	defer func() { <-reaperStopped }()
+
 	for {
 		b.runScheduledCycle(ctx)
 
