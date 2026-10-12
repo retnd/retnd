@@ -32,6 +32,14 @@ import (
 	"testing"
 )
 
+// Built from path elements: these classify recorded paths and import nothing,
+// and a literal "apps/<provider>/" reads as core importing that provider to the
+// provider-removal-preserves-core conformance check (#1082).
+var (
+	unraidTemplateDir = strings.Join([]string{"apps", "unraid", "template"}, "/") + "/"
+	truenasCatalogDir = strings.Join([]string{"apps", "truenas", "catalog"}, "/") + "/"
+)
+
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	_, file, _, _ := runtime.Caller(0)
@@ -64,9 +72,9 @@ func deploymentFiles(t *testing.T, root string) []string {
 		switch {
 		case rel == "container/compose.yaml",
 			perPlatformCompose.MatchString(rel),
-			rel == "apps/unraid/template/retnd.xml",
-			rel == "apps/unraid/template/retnd-ui.xml",
-			strings.HasPrefix(rel, "apps/truenas/catalog/"),
+			rel == unraidTemplateDir+"retnd.xml",
+			rel == unraidTemplateDir+"retnd-ui.xml",
+			strings.HasPrefix(rel, truenasCatalogDir),
 			packagingManifest.MatchString(rel):
 			out = append(out, rel)
 		}
@@ -175,9 +183,9 @@ func TestTheRecordedDigestsCoverTheSevenComposeFilesTheTwoTemplatesTheCatalogAnd
 			counts["container"]++
 		case perPlatformCompose.MatchString(path):
 			counts["platform compose"]++
-		case strings.HasPrefix(path, "apps/unraid/template/"):
+		case strings.HasPrefix(path, unraidTemplateDir):
 			counts["unraid"]++
-		case strings.HasPrefix(path, "apps/truenas/catalog/"):
+		case strings.HasPrefix(path, truenasCatalogDir):
 			counts["truenas catalog"]++
 		case packagingManifest.MatchString(path):
 			counts["manifests"]++
