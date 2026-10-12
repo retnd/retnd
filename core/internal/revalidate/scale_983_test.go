@@ -178,9 +178,12 @@ func runBacklog(t *testing.T, copies int, cfg config.Revalidation, bounds Bounds
 		Journal: j, Store: store, Mediums: threeMediums{}, Limits: limits, Bounds: bounds,
 		Now: func() time.Time { return clock },
 	}
-	gl, dst := limits.Caps()
+	// The lines are the operator-facing defaults, named in config, and not
+	// whatever the limiter under test says it was built with: a limiter built
+	// wrong must not be able to move the line it is judged against.
 	run := scaleRun{
-		Copies: copies, PerPassBound: cfg.MaxPerCycle, GlobalCeiling: gl, DestCeiling: dst,
+		Copies: copies, PerPassBound: cfg.MaxPerCycle,
+		GlobalCeiling: config.DefaultMaxConcurrentReads, DestCeiling: config.DefaultMaxPerDestination,
 		Host: hostInfo{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, CPUs: runtime.NumCPU(), Go: runtime.Version()},
 	}
 
@@ -256,6 +259,9 @@ func TestAThousandDueCopiesDeferPastTheScrubBoundAndTheReadCeilingsAreNeverExcee
 	bounds := Bounds{}
 	limits := NewLimits(bounds)
 
+	if g, d := limits.Caps(); g != config.DefaultMaxConcurrentReads || d != config.DefaultMaxPerDestination {
+		t.Fatalf("a default limiter admits %d and %d, want the operator-facing defaults %d and %d", g, d, config.DefaultMaxConcurrentReads, config.DefaultMaxPerDestination)
+	}
 	run := runBacklog(t, copies, cfg, bounds, limits)
 
 	if v := run.violations(); len(v) != 0 {
