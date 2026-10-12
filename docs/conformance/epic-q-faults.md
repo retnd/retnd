@@ -15,23 +15,25 @@ local gate, and the run has to go red naming the promise.
 |---|---|---|---|
 | Corrupt local copy | `TestCorruptLocalCopyFailsBeforeAByteReachesTheTarget` | no byte on standard output, no staging entry, its own code (`RECOVERY_LOCAL_COPY_CORRUPT`) | digest never compared |
 | Corrupt remote copy | `TestCorruptRemoteCopyIsDistinguishableFromACorruptLocalOne` | no staging entry, a different code from the local one | digest never compared; local and remote origin conflated |
-| Provider checksum mismatch | `TestAProviderChecksumThatDisagreesIsAFindingBeforeAnyByteIsRead` | no read, no billing, a positive refusal | the attestation never consulted |
+| Provider checksum mismatch | `TestAProviderChecksumThatDisagreesIsAFindingBeforeAnyByteIsRead`, `TestAProviderChecksumMismatchIsRecordedOnTheCopyAndReconcileFlagsIt`, `TestReconcile_AMediumCopyRecordedAsFailingNeedsInvestigationAndIsNotMoved` | no read, no billing, a positive refusal, the copy recorded as a failed attested check (verification claims cleared) and `internal/reconcile` flagging the artifact as needing investigation without moving its state | the attestation never consulted; the finding not written on the copy; reconcile reporting the copy as left alone |
 | Archive copy requiring thaw | `TestArchiveOnlyIsRefusedForCostAndStartsNoProviderJob`, `TestArchiveAcknowledgedStartsExactlyOneProviderJobEvenWhenAskedTwice`, `TestARestoredArchiveCopyIsReadableAndNeedsNoSecondRestore` | zero provider jobs on a refusal, exactly one on yes, none for a copy already restored | archive thaw without the acknowledgement; restored copy still read as needing a restore |
 | Cancellation during thaw | `TestCancellationDuringTheThawLeavesNothingAndStartsNoGrant` | no grant, no staging entry | (see below) |
 | Cancellation during read | `TestCancellationDuringTheReadLeavesNothingAndNoTarget`, `TestStageCancelledHalfwayLeavesNoStagingEntry` | no staging entry, no target | partial never removed |
 | Cancellation during write | `TestCancellationBetweenVerifyingAndPlacingLeavesNoOutputAndNoPartial`, `TestCancellationDuringTheUploadLeavesNoPartialAndNoObject` | no output file, no partial, no object | partial never removed |
 | Cancellation during decrypt | not applicable yet | there is no decrypt stage until EPIC N | owned by N, which must use the same harness |
-| Cancellation during the validator | not in this change | the runner is #980 | owned by #980 |
+| Cancellation, through the operation registry, at the provider probe, the read, the write and the validator | `TestCancellingARecoveryTestAtEachStageLeavesNothingBehind` (probe, read, write), `TestCancelDuringTheValidatorStageKillsTheWholeProcessGroup` (validator) | no staging entry, no verdict and no failure on the copy, no validator run, an end line that is not a success, the operation gone from the registry; for the validator the whole process group dead | a cancel that tells the operator it is cancelling and stops nothing. A recovery test never starts a provider restore, so the probe stands where a thaw would be; the thaw of an operator's recovery is the row above |
 | Browser disconnect mid-download | `TestAFailedRangeWritesARowSayingSoAndRemovesStaging`, `TestAClientThatGoesAwayMidDownloadIsReportedAsAFailedRange` | no staging entry, grant spent, a row saying it failed | grant not spent when the client goes away |
 | Process crash with staging present | `TestAProcessKilledMidWriteLeavesAPartialTheNextStartReconcilesAndReports`, `TestStartupReconcileRemovesAKilledProcessesPartialsAndReportsThem` | nothing after reconcile, and the reconcile says what it removed | (reconcile is not mutation-planted; see "Not planted" below) |
 | Destination disappearing mid-read | `TestADestinationThatDisappearsMidReadFailsCleanlyAndSaysWhy` | no staging entry, the provider's text not in the message | (see below) |
-| Validator hangs, double-forks, floods, or emits hostile control sequences | not in this change | the runner is #980; the output bound is a budget here, equal to EPIC L's | owned by #980 |
+| Validator floods | `TestBoundOutputFitsWhatTheJournalWillStoreAndEndsWithTheRunnersMarker`, `TestARunBoundsAHugeValidatorOutputBeforeAnyoneSeesIt`, `TestRecoveryTestOutputOfACutCaptureEndsWithTheRunnersTruncationRecord` | output cut at `state.MaxRecoveryOutputRecords` / `MaxRecoveryOutputBytes` / `MaxRecoveryOutputLineBytes`, ending in one truncation record that only the runner can produce (a validator that prints the marker's words stays ordinary output) | the bound removed |
+| Validator hangs, double-forks, or emits hostile control sequences | `TestCancelDuringTheValidatorStageKillsTheWholeProcessGroup`, the runner's own suite | process group killed; control bytes become U+FFFD | owned by #980 |
 | Disk fills while staging | `TestStageDiskFullRefusesAndLeavesNothingThatLooksComplete` | no file at all | (engine-level fault double) |
 | Two operators, same recovery | `TestTwoOperatorsRequestingTheSameRecoveryProduceOneReadAndOneReceiptEach` | one read of the copy, an output and a receipt per operator | sharing removed |
-| Two operators, same recovery test | not in this change | the runner is #980; `export.Flight` is what it should key on | owned by #980 |
+| Two operators, same download | `TestTwoConcurrentFirstDownloadsCauseExactlyOneWholeCopyPreflightRead` | two streams, one whole-copy pre-flight read (`downloadIndexes.build`) | an index in the making is never joined |
+| Two operators, same recovery test | `TestTwoConcurrentRecoveryTestRequestsGiveOneExecutionAndTwoReceipts`, `TestTwoOperatorsOnTheSameRecoveryTestGetOneExecutionAndAReceiptEach` | one execution, a receipt each, a different request refused | an identical request refused instead of joined |
 | Catalog rebuilt with unknown verification age | `TestResolveRanksAnUnknownVerificationBelowAnyRecordedClassButStillRecoversIt` | recovery still works and still verifies the bytes | (see below) |
 | One very large artifact | `apps/generic/tests/recoveryperf` (4 GiB, `docs/perf/epic-q-recovery.md`) | RSS inside the stated ceiling, both processes | buffering the copy: the harness's ceilings |
-| 1000+ copies due at once | `TestOneThousandDueCopiesCompleteWithTheReadCeilingsNeverExceeded`, `core/internal/recovery/budget` measurement in `docs/perf/epic-q-recovery.md` | the read concurrency ceilings never exceeded | read ceilings removed |
+| 1000+ copies due at once | `TestAThousandDueCopiesDeferPastTheScrubBoundAndTheReadCeilingsAreNeverExceeded` on `revalidate.Run` (the real scrub driver); numbers and host in `docs/perf/epic-q-recovery.md`. `TestOneThousandDueCopiesCompleteWithTheReadCeilingsNeverExceeded` in `core/internal/recovery/budget` is the model of the limiter and is kept | 1050 copies take 21 passes of at most `DefaultScrubMaxPerCycle`, 1000 still due after pass 1, every copy checked, reads in flight never above 2 overall and 1 per destination | the per-pass bound not applied; a driver that reads more at once than the operator-facing ceiling. `TestTheBacklogHarnessCatchesAPerPassBoundThatIsNotThere` and `...AReadCeilingThatIsNotThere` show the harness itself can fail |
 
 ## The budgets
 
@@ -47,13 +49,28 @@ set. The settings surface for them is #982's; the defaults are
 `core/internal/recovery/budget`'s, and the two read ceilings are the same
 numbers as #982's operator-facing defaults (2 and 1).
 
-Three budgets this document used to list are gone: work per scheduler pass,
-captured validator output and egress per scheduled pass. Nothing in the
-product read them (exit codes 34, 35 and 37, unused now), so they were a table
-row and a unit test and not a limit. A scheduler pass, a validator run or a
-scheduled verification that wants a bound brings its own, in the change that
-makes it read one; `TestEveryBudgetIsReadByAProductCodePath` is what stops one
-from being declared without a reader.
+The default install is tested as it comes, not with a ceiling lowered to make
+it quicker to reach: `TestADefaultDeploymentRefusesTheFifthConcurrentDownload`
+and `TestADefaultDeploymentRefusesARecoveryThatWouldLeaveLessThanTheStagingReserve`.
+
+## Two bounds that defer or truncate, and one that is zero
+
+FR-74 as amended (#1072) is four refusals and two bounds. The bounds never
+refuse, because a refusing per-pass bound would mean the 51st copy is never
+scrubbed, and refusing validator output would throw away the verdict.
+
+| Bound | Constant | What happens past it | Test |
+|---|---|---|---|
+| Copies per scheduled pass | `config.DefaultScrubMaxPerCycle` (50) | the rest are deferred to the next pass | `TestAThousandDueCopiesDeferPastTheScrubBoundAndTheReadCeilingsAreNeverExceeded` |
+| Captured validator output | `state.MaxRecoveryOutputRecords`, `MaxRecoveryOutputBytes`, `MaxRecoveryOutputLineBytes` | cut, with one runner-only truncation record | `TestBoundOutputFitsWhatTheJournalWillStoreAndEndsWithTheRunnersMarker` |
+| Egress per scheduled pass | zero by construction | refused at the moment of spend (`revalidate/checks.go`, `CostsEgress`) | `core/internal/revalidate` automatic-class tests |
+
+Exit codes 34, 35 and 37 were reserved for these three. Nothing emits them and
+nothing is going to: no operator command hits a deferral, a truncation or a
+scheduled pass. They stay unallocated and are not to be reused
+(`budget.Unused`; `TestNoBudgetTakesAnExitCodeFR74SaysIsUnused`,
+`TestNoRecoveryRefusalUsesAnExitCodeFR74LeavesUnused`). The `TestEveryBudgetIsReadByAProductCodePath`
+guard still stops a budget being declared without a reader.
 
 ## Host facts go through the capability contract
 

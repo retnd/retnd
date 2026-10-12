@@ -6,9 +6,10 @@
  * spelling is pinned by assurance.test.tsx against the usage text. CommandEcho
  * prints exactly what is returned, so nothing on screen can disagree with it.
  *
- * There is deliberately NO operations-cancel command: the CLI has none. The
- * recovery test has one (`retnd recovery-test`, the same code the route
- * runs), and so does the scrub (`retnd scrub`).
+ * Every control has a twin: Scrub now is `retnd scrub`, Run recovery test is
+ * `retnd recovery-test`, Cancel is `retnd assurance cancel` (which, like the
+ * route, needs the serving process, so it is reached over RETND_API_URL), and
+ * Show validator output is `retnd recovery-test --show-output`.
  */
 import type { RecoveryTargetSpec } from "@shared/api/contracts";
 
@@ -21,6 +22,19 @@ export function scrubCommand(setId: string): string {
  *  test control starts, with no cost acknowledged unless the flag says so. */
 export function recoveryTestCommand(setId: string): string {
   return "retnd recovery-test " + setId;
+}
+
+/** What Cancel does: `retnd assurance cancel <operation-id>`, the same call
+ *  as POST /assurance/operations/{op}/cancel. The id is the one the scrub or
+ *  recovery test returned when it started. */
+export function assuranceCancelCommand(operationId: string): string {
+  return "retnd assurance cancel " + operationId;
+}
+
+/** What Show validator output does: print the newest test's stored output,
+ *  the body GET .../recovery-test/output serves. It runs no test. */
+export function showOutputCommand(setId: string): string {
+  return "retnd recovery-test " + setId + " --show-output";
 }
 
 /** A read of every copy's bytes on a storage medium costs egress, so the CLI

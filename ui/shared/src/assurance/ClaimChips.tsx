@@ -10,6 +10,14 @@
  * (api.assurance is undefined). Every chip is then `unknown` and the group
  * says why, which is what keeps an old server from looking assured.
  *
+ * # A Content chip that covers only some of the copies
+ *
+ * The claim keeps the strongest class across copies, so the chip adds the
+ * count and the weakest state ("Content verified \u00B7 1 of 3 copies, 2 never
+ * checked") and a dashed edge. A bare "Content verified" is drawn only when
+ * every copy backs it (claims.ts), and `data-coverage="partial"` is the
+ * attribute the rest of the page and its specs read.
+ *
  * # A chip being re-checked
  *
  * It keeps the ink it had. An earlier version dimmed the whole chip with
@@ -46,12 +54,12 @@ export function ClaimChips({
 }) {
   const known = available ? assurance ?? undefined : undefined;
   const stored = renderStored(known?.copies);
-  const content = renderClaim("content", known?.content);
+  const content = renderClaim("content", known?.content, undefined, known?.copyContent, known?.copies);
   const recovery = renderClaim("recovery", known?.recovery);
   const chip = (
-    which: string, lab: string, state: string, glyph: Glyph, label: string, age?: string, check = false
+    which: string, lab: string, state: string, glyph: Glyph, label: string, age?: string, check = false, coverage?: string
   ) => (
-    <div className="aclaim" data-claim={which} data-state={state} data-checking={check ? "true" : undefined} aria-busy={check ? true : undefined}>
+    <div className="aclaim" data-claim={which} data-state={state} data-coverage={coverage} data-checking={check ? "true" : undefined} aria-busy={check ? true : undefined}>
       <span className="aclaim__lab">{lab}</span>
       <span className="achip" data-chip="" role="group" aria-label={lab + ": " + label + (age ? " " + age : "") + (check ? " (re-checking)" : "")}>
         <span className="achip__glyph" data-glyph={glyph.id} aria-hidden="true">{glyph.icon ? <Icon name={glyph.icon} /> : glyph.text}</span>
@@ -68,7 +76,7 @@ export function ClaimChips({
         {chip("stored", "Stored", stored.state, { id: "stored-" + stored.state, text: stored.state === "stored" ? "\u25A0" : stored.state === "no_copy" ? "\u2212" : "?" }, stored.label)}
       </InfoTooltip>
       <InfoTooltip id="assurance.claim.contentVerified">
-        {chip("content", "Content", content.state, content.glyph, content.label, content.age, checking)}
+        {chip("content", "Content", content.state, content.glyph, content.label, content.age, checking, content.coverage)}
       </InfoTooltip>
       <InfoTooltip id="assurance.claim.recoveryTested">
         {chip("recovery", "Recovery", recovery.state, recovery.glyph, recovery.label, recovery.age, checking)}

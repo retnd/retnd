@@ -25,7 +25,7 @@ import type {
   OperationFeed, OperationKind, OperationState, ValidatorResult
 } from "./types";
 import { stageLabel } from "./stages";
-import type { SetActivityEvent } from "@shared/types/activity";
+import type { SetActivityEvent, UnfinishedAction } from "@shared/types/activity";
 
 const DAY = 86_400_000;
 const KEY = "retnd.mock.assurance";
@@ -73,7 +73,7 @@ function baseTable(now: number): ArtifactAssurance[] {
   // on an archive class, a backup with no copy yet, and a copy nobody can
   // reach. Every state below is one a reader can reach by looking.
   return [
-    { artifactId: "production/postgres-primary/postgres-prod-20260828.dump.zst", copies: 2, content: rec("pass", "content", 3 * DAY, now), recovery: rec("pass", "content", 12 * DAY, now) },
+    { artifactId: "production/postgres-primary/postgres-prod-20260828.dump.zst", copies: 2, copyContent: ["content", "existence"], content: rec("pass", "content", 3 * DAY, now), recovery: rec("pass", "content", 12 * DAY, now) },
     { artifactId: "production/billing-mysql/billing-20260827.sql.gz", copies: 1, content: rec("requires_restore", ""), recovery: rec("could_not_complete", "", 1 * DAY, now) },
     { artifactId: "media/weekly-archive/media-week34.tar", copies: 0, content: rec("never_run", ""), recovery: rec("never_configured", "") },
     { artifactId: "production/legacy-redis/redis-20260812.rdb.zst", copies: 1, content: rec("no_readable_copy", ""), recovery: rec("never_configured", "") }
@@ -98,13 +98,22 @@ const PLAN: Record<OperationKind, Array<{ stage: string; secs: number; bytes: bo
     { stage: "verifying", secs: 14, bytes: true },
     { stage: "validating", secs: 3, bytes: false },
     { stage: "cleaning_temporary_files", secs: 1, bytes: false }
+  ],
+  // The browser never starts a recovery it can follow here (a download is the
+  // browser's own), so this exists to keep the closed list total.
+  recovery: [
+    { stage: "resolving_copy", secs: 1, bytes: false },
+    { stage: "reading", secs: 4, bytes: true },
+    { stage: "verifying", secs: 2, bytes: true },
+    { stage: "writing_target", secs: 2, bytes: true },
+    { stage: "cleaning_temporary_files", secs: 1, bytes: false }
   ]
 };
 const TOTAL_BYTES = 4_800_000_000;
 /** What the journal's bounded reason reads like for a copy whose bytes changed. */
 const FAIL_REASON = "sha256 differs from the one recorded at ingest";
 const total = (k: OperationKind) => PLAN[k].reduce((n, p) => n + p.secs, 0);
-const FINAL: Record<OperationKind, string> = { scrub: "complete", recovery_test: "complete" };
+const FINAL: Record<OperationKind, string> = { scrub: "complete", recovery_test: "complete", recovery: "complete" };
 
 function eventsOf(op: StoredOp, upTo: number): OperationEvent[] {
   const out: OperationEvent[] = [];
@@ -161,33 +170,127 @@ function view(op: StoredOp, scrubFails: boolean, now: number): { operation: Oper
 let activeScenario = "default";
 
 /**
- * The docked terminal's view of the same operations: one live line per
- * named stage event, with a sequence that is stable across polls, so the
- * activity strip's merge-by-sequence leaves no duplicate after a reconnect.
+ * The docked terminal's view of the same operations, in the engine's own
+ * event names and fields (obs/assurance_events.go and the scrub events), so
+ * the activity surfaces draw them with their dedicated lines and the
+ * production client follows them exactly as it follows the real feed.
+ *
+ * A recovery test is a start, one stage line per stage it has entered, and
+ * an end, each carrying the operation's id as `op_id`. A scrub is NOT
+ * followable by id (the server keeps its id for cancel), so it writes only
+ * what the engine writes: one `scrub_failure` per copy that did not pass and
+ * one `scrub_pass`. The sequence is stable across polls, so the activity
+ * strip's merge-by-sequence leaves no duplicate after a reconnect.
  * Per-copy progress is live-only and never reaches the durable record; this
  * is the live channel.
  */
 export function assuranceLiveEvents(setId: string): SetActivityEvent[] {
   const out: SetActivityEvent[] = [];
+  const now = Date.now();
+  const artifact = SET_LATEST[setId] ?? setId + "/latest";
   const ops = Object.values(load().ops).filter((o) => o.setId === setId);
   ops.forEach((op, i) => {
-    const v = view(op, activeScenario === "assurance-scrub-fails", Date.now());
-    v.events.forEach((e) => {
-      const last = e.stage === FINAL[op.kind] || e.text.startsWith("Cancelled");
-      const failed = v.operation.state === "failed" && e.stage === FINAL[op.kind];
-      out.push({
-        sequence: 100_000 + i * 1_000 + e.seq,
-        at: e.at,
-        level: failed ? "error" : "info",
-        event: "assurance_stage",
-        scope: "set",
-        message: (op.kind === "scrub" ? "scrub: " : "recovery test: ") + e.text,
-        ...(last ? { result: failed ? ("error" as const) : e.text.startsWith("Cancelled") ? ("warn" as const) : ("success" as const) } : {}),
-        fields: { stage: e.stage, operation: op.id }
-      });
+    const base = 100_000 + i * 1_000;
+    const v = view(op, activeScenario === "assurance-scrub-fails", now);
+    const at = (s: number) => new Date(op.startedAt + s * 1000).toISOString();
+    let seq = 0;
+    const push = (e: Omit<SetActivityEvent, "sequence" | "scope">) => { out.push({ ...e, sequence: base + ++seq, scope: "set" }); };
+    const cancelled = v.operation.state === "cancelled";
+    const endAt = op.cancelledAt ? new Date(op.cancelledAt).toISOString() : at(total(op.kind));
+    if (op.kind === "scrub") {
+      if (v.operation.state === "failed") {
+        push({
+          at: endAt, level: "warn", event: "scrub_failure", result: "warn", message: "scrub found a copy wrong or could not check it",
+          fields: { artifact, medium: "local", class: "content", reason: FAIL_REASON }
+        });
+      }
+      if (v.operation.state === "complete" || v.operation.state === "failed" || cancelled) {
+        const failed = v.operation.state === "failed" ? 1 : 0;
+        push({
+          at: endAt, level: failed ? "warn" : "info", event: "scrub_pass", result: failed ? "warn" : "success", message: "scrub pass complete",
+          fields: {
+            trigger: "manual", scope: "set " + setId, selected: "1", checked: cancelled ? "0" : "1", passed: cancelled || failed ? "0" : "1",
+            failed: String(failed), could_not_complete: "0", requires_restore: "0", skipped_held: "0", skipped_leased: "0", bytes_read: "0"
+          }
+        });
+      }
+      return;
+    }
+    const start = op.kind === "recovery" ? "recovery_start" : "recovery_test_start";
+    const end = op.kind === "recovery" ? "recovery_end" : "recovery_test_end";
+    const action = op.kind;
+    push({
+      at: at(0), level: "info", event: start, action, actionId: op.id, message: op.kind === "recovery" ? "recovery starting" : "recovery test starting",
+      fields: { op_id: op.id, backup_set: setId, artifact, ...(op.kind === "recovery_test" ? { validator: "pg-restore-check" } : {}) }
     });
+    let offset = 0;
+    const elapsed = Math.floor(((op.cancelledAt ?? now) - op.startedAt) / 1000);
+    for (const p of PLAN[op.kind]) {
+      if (offset > elapsed) break;
+      push({
+        at: at(offset), level: "info", event: "recovery_stage", action, actionId: op.id, message: "recovery stage",
+        fields: { op_id: op.id, backup_set: setId, stage: p.stage, stage_label: stageLabel(p.stage) }
+      });
+      offset += p.secs;
+    }
+    if (v.operation.state === "complete" || v.operation.state === "failed" || cancelled) {
+      const failed = v.operation.state === "failed";
+      if (!failed && !cancelled) {
+        push({
+          at: endAt, level: "info", event: "recovery_stage", action, actionId: op.id, message: "recovery stage",
+          fields: { op_id: op.id, backup_set: setId, stage: "complete", stage_label: stageLabel("complete") }
+        });
+      }
+      push({
+        at: endAt, level: cancelled ? "warn" : failed ? "error" : "info", event: end, action, actionId: op.id,
+        result: cancelled ? "warn" : failed ? "error" : "success", message: "recovery test finished",
+        fields: {
+          op_id: op.id, backup_set: setId, artifact, duration: total(op.kind) + "s",
+          ...(op.kind === "recovery_test" ? { validator: "pg-restore-check" } : {}),
+          ...(cancelled ? { reason: "cancelled before it finished; no result was recorded" } : {})
+        }
+      });
+    }
   });
   return out;
+}
+
+/**
+ * What finished operations have written onto a backup's copies, in the
+ * placement fields a real server serves (assurance_state, last_failure_*,
+ * recovery_state, verification_class). The production composer builds its
+ * claims from these and from nothing else, so a mock server that did not
+ * write them would show a scrub that changed nothing.
+ */
+export function overlayAssurance(a: BackupArtifact): BackupArtifact {
+  if (SET_LATEST[a.setId] !== a.id) return a;
+  const now = Date.now();
+  let placements = a.placements;
+  for (const op of Object.values(load().ops).filter((o) => o.setId === a.setId && !o.cancelledAt)) {
+    const v = view(op, activeScenario === "assurance-scrub-fails", now).operation;
+    if (v.state !== "complete" && v.state !== "failed") continue;
+    const at = new Date(op.startedAt + total(op.kind) * 1000).toISOString();
+    placements = placements.map((p) => {
+      if (p.medium !== "local") return p;
+      if (op.kind === "scrub") {
+        return v.state === "failed"
+          ? { ...p, verificationClass: null, verifiedAt: null, assuranceState: "failed" as const, lastCheckedAt: at, lastFailureAt: at, lastFailureReason: FAIL_REASON, consecutiveFailures: 1 }
+          : { ...p, verificationClass: "content" as const, verifiedAt: at, assuranceState: "passed" as const, lastCheckedAt: at };
+      }
+      return { ...p, recoveryState: "passed" as const, recoveryTestedAt: at };
+    });
+  }
+  return placements === a.placements ? a : { ...a, placements };
+}
+
+/** The recovery tests still running, as the engine's unfinished-action list
+ *  reports them: a start with no end. A scrub has no start line, so it is
+ *  never here. */
+export function assuranceUnfinished(setId: string): UnfinishedAction[] {
+  const now = Date.now();
+  return Object.values(load().ops)
+    .filter((o) => o.setId === setId && o.kind !== "scrub" && view(o, activeScenario === "assurance-scrub-fails", now).operation.state === "running")
+    .map((o, i) => ({ action: o.kind, actionId: o.id, startedAt: new Date(o.startedAt).toISOString(), sequence: 100_000 + i * 1_000 + 1 }));
 }
 
 export function createMockAssurance(scenario: string): AssuranceApi {
@@ -302,19 +405,22 @@ export function createMockAssurance(scenario: string): AssuranceApi {
       if (scenario !== "assurance-validator-output") return null;
       return {
         artifactId: "production/postgres-primary/postgres-prod-20260828.dump.zst",
-        copy: "local",
-        validatorName: "pg-restore-check.local.sh",
-        validatorSha256: "5c1e9a07b3d84f26a0c7e1d9b8f34a6572ce0d1b94a7f83e6d205b1c9a47e3f8",
-        exitStatus: 3,
-        durationMs: 4200,
-        truncatedBytes: 41_873,
-        output: [
-          "validate: checking page 14 of 220",
-          "validate: header \u001b]0;pwned\u0007 set the title?",
-          "validate: clear \u001b[2J then home \u001b[H",
-          "[output truncated]",
-          "validate: error: index mismatch"
-        ].join("\n")
+        medium: "local",
+        operationId: "aop_validator_fixture",
+        state: "failed",
+        recordedAt: new Date(Date.now() - 3 * DAY).toISOString(),
+        truncated: true,
+        // Output a hostile script could print: a window-title sequence, a
+        // screen clear, the runner's marker words (which are only output
+        // when they are not the truncation record), and an honest failure.
+        records: [
+          { kind: "output", text: "validate: checking page 14 of 220" },
+          { kind: "output", text: "validate: header \u001b]0;pwned\u0007 set the title?" },
+          { kind: "output", text: "validate: clear \u001b[2J then home \u001b[H" },
+          { kind: "output", text: "[output truncated]" },
+          { kind: "output", text: "validate: error: index mismatch" },
+          { kind: "truncation", text: "output truncated: 41873 bytes were dropped before this point" }
+        ]
       };
     }
   };
@@ -326,7 +432,9 @@ export function createMockAssurance(scenario: string): AssuranceApi {
     const now = Date.now();
     for (const op of Object.values(s.ops)) {
       if (op.setId === setId && op.kind === kind && view(op, scrubFails, now).operation.state === "running") {
-        return view(op, scrubFails, now).operation;
+        // Joined, not started: the service answers a second request with the
+        // running one and says so.
+        return { ...view(op, scrubFails, now).operation, joined: true };
       }
     }
     s.starts += 1;

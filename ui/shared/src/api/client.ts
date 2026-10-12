@@ -95,6 +95,9 @@ import type {
   WireOperation,
   WirePlacement,
   WireRecoveryTestStarted,
+  WireRecoveryTestOutput,
+  WireScrubStarted,
+  WireAssuranceOperationCancelled,
   WireRecoverySettingsResponse,
   WireRecoverySettingsUpdate,
   WireRetentionOverride,
@@ -146,6 +149,7 @@ import type {
   RecoveryPlacement,
   RecoveryTargetSpec,
   AssuranceDue,
+  RecoveryTestOutput,
   AssuranceSettings,
   AssuranceSettingsPatch,
   BackupSetAssurance,
@@ -2636,6 +2640,25 @@ function fromWireBackupSetAssurance(s: WireBackupSetAssurance): BackupSetAssuran
   return { ...fromWireAssurancePolicy(s), backupSetId: s.backup_set_id ?? "", isOverride: s.is_override === true };
 }
 
+/** The validator output, with the two absences made explicit: a null or
+ *  missing list is an empty one, and a record kind this build does not name
+ *  is plain output. Only the exact word "truncation" is the runner's marker,
+ *  so nothing a script prints, and nothing a newer server invents, can pose
+ *  as one. */
+function fromWireRecoveryTestOutput(r: WireRecoveryTestOutput): RecoveryTestOutput {
+  return {
+    backupSetId: r.backup_set_id,
+    recorded: r.recorded === true,
+    operationId: r.operation_id ?? "",
+    artifactId: r.artifact_id ?? "",
+    medium: r.medium ?? "",
+    state: (r.state ?? "") as RecoveryTestOutput["state"],
+    recordedAt: r.recorded_at ?? "",
+    truncated: r.truncated === true,
+    records: (r.records ?? []).map((x) => ({ kind: x.kind === "truncation" ? "truncation" : "output", text: x.text ?? "" }))
+  };
+}
+
 function fromWireAssuranceDue(s: WireAssuranceDueResponse): AssuranceDue {
   return {
     generatedAt: s.generated_at ?? "",
@@ -2936,7 +2959,8 @@ function fromWireFirstRunStatus(r: WireFirstRunStatusResponse): FirstRunStatus {
   return {
     configured: r.configured,
     steps: r.steps,
-    nextStep: r.next_step
+    nextStep: r.next_step,
+    ...(r.config_dir_problem ? { configDir: r.config_dir, configDirProblem: r.config_dir_problem } : {})
   };
 }
 
@@ -3701,7 +3725,21 @@ export const httpApi: RetndApi = {
         ...(req?.artifactId ? { artifact_id: req.artifactId } : {}),
         ...(req?.acknowledged ? { acknowledged: true } : {})
       })
-    }).then((r) => ({ backupSetId: r.backup_set_id, operationId: r.operation_id })),
+    }).then((r) => ({ backupSetId: r.backup_set_id, operationId: r.operation_id, coalesced: r.coalesced === true })),
+
+  startScrub: (source, set) =>
+    request<WireScrubStarted>(backupSetPath(source, set) + "/scrub", { method: "POST" }).then((r) => ({
+      backupSetId: r.backup_set_id,
+      operationId: r.operation_id
+    })),
+
+  cancelAssuranceOperation: (operationId) =>
+    request<WireAssuranceOperationCancelled>("/assurance/operations/" + encodeURIComponent(operationId) + "/cancel", {
+      method: "POST"
+    }).then((r) => ({ operationId: r.operation_id, kind: r.kind, backupSetId: r.backup_set_id, status: r.status })),
+
+  getRecoveryTestOutput: (source, set) =>
+    request<WireRecoveryTestOutput>(backupSetPath(source, set) + "/recovery-test/output").then(fromWireRecoveryTestOutput),
 
   getAssuranceSettings: () =>
     request<WireAssuranceSettingsResponse>("/settings/assurance").then(fromWireAssuranceSettings),

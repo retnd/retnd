@@ -26,14 +26,17 @@ import (
 //
 // # Where a write goes
 //
-// Through openBackupService with writesConfig, which is `settings
-// workflow`'s door: with nothing serving this deployment the change is
-// written here and an engine started afterwards reads it, and beside a
-// serving engine the write is refused with the file untouched, because a
-// change left in the file is one that process would never read. The browser
-// route has no such limit: its PATCH hot-reloads the process that served it.
-// Routing these verbs to a serving engine is the same follow-up
-// settingsworkflow.go records for its own block.
+// Through openConfigWriteRoute, which is `settings patch`'s door: with
+// nothing serving this deployment the change is written here and an engine
+// started afterwards reads it, and beside a serving engine that this
+// command has been told how to reach (RETND_API_URL with the administrator's
+// credentials) the change is handed to the engine's PATCH route, so the
+// engine owns the write, hot-reloads it, and its next-due moves with the
+// answer. Beside a serving engine with no address the write is still
+// refused with the file untouched, exit 3, because a change left in the file
+// is one that process would never read. A refusal for the request itself
+// (a cadence under the floor, a validator that does not exist) is the same
+// sentence and the same exit code on both routes.
 //
 // # Zero clears
 //
@@ -234,13 +237,13 @@ func cmdSettingsAssurance(args []string) int {
 		if req == (service.UpdateAssuranceSettingsRequest{}) {
 			return usageError("settings assurance patch: name at least one setting; a patch that changes nothing would rewrite and reload the configuration to no effect")
 		}
-		svc, cleanup, err := openBackupService(ctx, *cfgPath, writesConfig)
-		defer cleanup()
+		route, cleanup, err := openConfigWriteRoute(ctx, *cfgPath)
 		if err != nil {
 			return fail(err)
 		}
+		defer cleanup()
 		logStartup(ctx, logger(), app.BuildVersionInfo(version, commit))
-		s, err := svc.UpdateAssuranceSettings(ctx, req)
+		s, err := route.UpdateAssuranceSettings(ctx, req)
 		if err != nil {
 			return fail(err)
 		}
@@ -332,29 +335,32 @@ func cmdBackupSetAssurance(args []string) int {
 	}
 
 	ctx := context.Background()
-	intent := readsConfig
-	if *f.reset || named {
-		intent = writesConfig
-	}
-	svc, cleanup, err := openBackupService(ctx, *cfgPath, intent)
-	defer cleanup()
-	if err != nil {
-		return fail(err)
-	}
-
 	var got service.BackupSetAssurance
-	switch {
-	case *f.reset:
+	if *f.reset || named {
+		route, cleanup, err := openConfigWriteRoute(ctx, *cfgPath)
+		if err != nil {
+			return fail(err)
+		}
+		defer cleanup()
 		logStartup(ctx, logger(), app.BuildVersionInfo(version, commit))
-		got, err = svc.ResetBackupSetAssurance(ctx, id)
-	case named:
-		logStartup(ctx, logger(), app.BuildVersionInfo(version, commit))
-		got, err = svc.UpdateBackupSetAssurance(ctx, id, req)
-	default:
+		if *f.reset {
+			got, err = route.ResetBackupSetAssurance(ctx, id)
+		} else {
+			got, err = route.UpdateBackupSetAssurance(ctx, id, req)
+		}
+		if err != nil {
+			return fail(err)
+		}
+	} else {
+		svc, cleanup, err := openBackupService(ctx, *cfgPath, readsConfig)
+		if err != nil {
+			return fail(err)
+		}
+		defer cleanup()
 		got, err = svc.BackupSetAssurance(ctx, id)
-	}
-	if err != nil {
-		return fail(err)
+		if err != nil {
+			return fail(err)
+		}
 	}
 	if *asJSON {
 		return printWorkflowJSON(backupSetAssuranceWire(got))

@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "0b6394421e19432bd5da2114307d12b93eb1d8517f79d136722e3f0001460f69";
+export const CONTRACT_SHA256 = "f7afb2a29aa7bae3024216bc18265748536aa7c6b26ebc48009a65e57dd6ea7b";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -2975,6 +2975,8 @@ export interface WireErrorResponse {
  *  derived from the thing each one sets up, except a skip, which is
  *  stored. */
 export interface WireFirstRunStatusResponse {
+  config_dir?: string;
+  config_dir_problem?: string;
   configured: boolean;
   next_step: "administrator" | "backup_set" | "none";
   steps: WireFirstRunSteps;

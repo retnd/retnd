@@ -1997,7 +1997,7 @@
   },
   "assurance.scrub.now": {
     "label": "Scrub now",
-    "html": "Reads this set's recorded copies and compares their digests now, instead of waiting for the schedule. It never restores an archive."
+    "html": "Reads this set's recorded copies and compares their digests now, without waiting for the schedule, which keeps running. It never restores an archive. A set that is disabled, or stored by the snapshot engine, is refused. The scrub's result is in the Activity log and on the <strong>Content</strong> chip."
   },
   "assurance.recoveryTest.run": {
     "label": "Run recovery test",
@@ -2025,7 +2025,19 @@
   },
   "assurance.operation.cancel": {
     "label": "Cancel operation",
-    "html": "Stops the run. The claims keep their previous answer until a run finishes."
+    "html": "Asks the running scrub or recovery test to stop. It is a <strong>request</strong>: the run says <em>Cancelling</em> until it has really ended, and a run that stops early records no result, so the claims keep their previous answer. The same thing from a terminal is <code>retnd assurance cancel</code>."
+  },
+  "assurance.operation.detail": {
+    "label": "Operation detail",
+    "html": "Opens this run on its own page, with the same stage, lines and Cancel. A run you did not start can be opened here too, as long as its lines are still on the live feed. A scrub is never on that feed, so only the page that started it can follow it."
+  },
+  "assurance.validator.show": {
+    "label": "Show validator output",
+    "html": "Reads what the newest recovery test of this set printed, as the server stored it. It runs <strong>no</strong> test. The text is shown as plain text, bounded, with anything that could act on a terminal made visible. It is not the verdict: the engine records that itself."
+  },
+  "assurance.validator.log": {
+    "label": "Validator output",
+    "html": "The engine's recorded verdict for the newest test comes first, then what your script printed. A line of output that quotes the truncation notice is still output; only the notice the runner adds, below the log, says output was dropped."
   },
   "assurance.dashboard.card": {
     "label": "Assurance summary",

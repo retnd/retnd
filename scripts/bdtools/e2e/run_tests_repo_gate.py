@@ -125,6 +125,32 @@ def read_the_pin(root: Path) -> dict[str, str]:
 
 
 
+def require_on_main(pin: dict[str, str]) -> None:
+    """Refuse a pinned sha that is not on the tests repository's main (#1074).
+
+    This is what catches a hand edit of the pin file that skipped
+    bump_tests_pin.py. A branch head runs perfectly well, which is the
+    problem: nothing downstream can tell it was never merged.
+
+    A passing check is remembered per sha in a marker next to the checkout
+    cache, so the commit hook does not go to the network on every commit
+    once a pin has been shown to be on main. A sha on main stays on main,
+    so the marker never goes stale. The check is also done BEFORE the tools
+    check and the clone, so a bad pin is refused in the first second.
+    """
+    cache_home = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
+    marker = Path(cache_home) / "retnd-tests-gate" / f"{pin['sha']}.on-main"
+    if marker.is_file():
+        return
+    harness.step(f"checking that the pinned tests commit {pin['sha'][:12]} is on main")
+    try:
+        tests_pin.require_on_main(pin["url"], pin["sha"])
+    except harness.Failure as failure:
+        refuse(failure.message, *failure.details)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(pin["url"] + "\n", encoding="utf-8")
+
+
 def require_the_tools() -> None:
     """git, go, node and npm, refused as a FAILURE rather than as a verdict.
 
@@ -331,13 +357,60 @@ def browser_half(root: Path, checkout: Path) -> None:
         raise
 
 
+def fresh_first_run_half(root: Path, checkout: Path) -> None:
+    """The first-run specs (*.1049.spec.ts), against a rig nobody configured.
+
+    They guard themselves with `needs(isFresh(...))`, so on the seeded rig
+    above they skip, and a skip looks like a pass (retnd#1049). This runs
+    them where they can run, through three-machine-web-ui.sh --fresh, and
+    fails on the report rather than the exit status: any skipped case, no
+    case at all, or no report is a failure.
+    """
+    from bdtools.e2e import first_run_report  # local, so the import block stays untouched
+
+    web_ui = checkout / "suites" / "web-ui"
+    if not any((web_ui / "e2e").glob("*" + first_run_report.SPEC_SUFFIX)):
+        refuse(
+            f"the pinned tests checkout has no *{first_run_report.SPEC_SUFFIX} specs.",
+            "The first-run cases are what this step runs, so a pin that predates them gates nothing.",
+            "Move the pin to a retnd-tests commit that carries them.",
+        )
+    artifacts = root / ".e2e-gate" / "fresh-artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    report_path = artifacts / "playwright-report.json"
+    report_path.unlink(missing_ok=True)
+
+    harness.step("first-run specs, against a fresh rig (no backup set): none may skip")
+    rig = root / "scripts" / "e2e" / "three-machine-web-ui.sh"
+    try:
+        harness.sh(
+            [
+                "bash", str(rig), "--fresh", "--break-engine", "--suite", str(web_ui),
+                "--artifacts", str(artifacts), "--",
+                first_run_report.SPEC_FILTER, "--reporter=list,json",
+            ],
+            capture=False,
+        )
+    except harness.CommandFailed as failed:
+        if failed.status == 3:
+            refuse("three-machine-web-ui.sh --fresh could not perform the proof on this machine (exit 3).")
+        raise
+    if not report_path.is_file():
+        refuse(f"the fresh rig run left no Playwright report at {report_path}.")
+    problems = first_run_report.judge(first_run_report.load(report_path))
+    if problems:
+        refuse("the first-run specs did not all run and pass against the fresh rig.", *problems)
+
+
 def body(root: Path) -> int:
     pin = read_the_pin(root)
+    require_on_main(pin)
     require_the_tools()
     checkout = pinned_checkout(pin)
     build = build_under_test(root)
     smoke_slice(root, checkout, build)
     browser_half(root, checkout)
+    fresh_first_run_half(root, checkout)
     return harness.EXIT_OK
 
 
@@ -388,6 +461,14 @@ if __name__ == "__main__":
 #   held by:          tests_pin.read_pin being the only reader; an
 #                     environment variable now cannot reach the sha at
 #                     all, so there is no path left to watch.
+#
+# the pinned sha is on the tests repository's main (#1074, new in the port)
+#   hazard in bash:   ABSENT. The bash fetched whatever sha it was given, so
+#                     a branch head such as c75e4dd ran green and landed.
+#   hazard in python: STILL EXISTS: a require_on_main that returns without
+#                     looking would leave the pin unguarded and every run green.
+#   held by:          scripts/bdtools/tests/pin_on_main.py, which plants
+#                     exactly that no-op and asserts the suite notices.
 #
 # git, go, node and npm are on PATH
 #   hazard in bash:   a machine missing one of them fails somewhere deep

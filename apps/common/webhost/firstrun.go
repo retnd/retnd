@@ -80,6 +80,20 @@ type FirstRunClient interface {
 
 var _ FirstRunClient = (*service.FirstRun)(nil)
 
+// ConfigDirReporter is the optional half of the first-run surface that
+// knows whether the directory the default configuration would be written
+// into can be written (retnd#1049). It is separate from FirstRunClient so
+// a client that has no such knowledge (a test double, a platform with its
+// own configuration) needs nothing, and the answer is simply absent.
+// *service.FirstRun satisfies it.
+type ConfigDirReporter interface {
+	// ConfigDirProblem returns the directory and an operator-facing
+	// sentence, or two empty strings when there is nothing to report.
+	ConfigDirProblem() (dir, message string)
+}
+
+var _ ConfigDirReporter = (*service.FirstRun)(nil)
+
 // SetupClient is the part of the wizard's surface that works identically
 // before and after a configuration exists: import a key, probe a host
 // key, test a candidate connection. Both a configured backend and the
@@ -165,6 +179,14 @@ type firstRunStatusResponse struct {
 	Configured bool          `json:"configured"`
 	Steps      firstRunSteps `json:"steps"`
 	NextStep   string        `json:"next_step"`
+
+	// ConfigDir and ConfigDirProblem are set together, and only when this
+	// instance has no configuration and could not write its default one
+	// because the directory is not writable (retnd#1049). The sentence is
+	// the first-run surface's own (service.ConfigDirUnwritableMessage), the
+	// one `retnd check` prints, so the guide and the command line agree.
+	ConfigDir        string `json:"config_dir,omitempty"`
+	ConfigDirProblem string `json:"config_dir_problem,omitempty"`
 }
 
 // firstRunSteps is the contract's FirstRunSteps: each step's state.
@@ -264,7 +286,7 @@ func (h *handlers) stepStates(ctx context.Context) (map[string]string, string) {
 // tell apart from a wrong URL or an older server.
 func (h *handlers) firstRunStatus(w http.ResponseWriter, r *http.Request) {
 	steps, next := h.stepStates(r.Context())
-	writeJSON(w, http.StatusOK, firstRunStatusResponse{
+	resp := firstRunStatusResponse{
 		Configured: h.configured(),
 		Steps: firstRunSteps{
 			Administrator: steps[stepAdministrator],
@@ -272,7 +294,11 @@ func (h *handlers) firstRunStatus(w http.ResponseWriter, r *http.Request) {
 			BackupSet:     steps[stepBackupSet],
 		},
 		NextStep: next,
-	})
+	}
+	if reporter, ok := h.firstRun.(ConfigDirReporter); ok {
+		resp.ConfigDir, resp.ConfigDirProblem = reporter.ConfigDirProblem()
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // skipFirstRunRequest is POST /api/v1/system/first-run/skip's body.

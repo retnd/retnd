@@ -316,9 +316,26 @@ export function isServiceUnreachable(api: ApiError | null | undefined): boolean 
   return api?.origin === "no-response" || api?.origin === "gateway";
 }
 
+/**
+ * The two headlines that mean "nothing from the service reached this
+ * browser" (retnd#1049). Most of the places that draw a failure pass
+ * `message`, `remediation` and `correlationId` to ErrorState one by one
+ * rather than spreading the whole failure, so the recorded `origin` does not
+ * reach it; the sentence does. Naming the sentences here, once, is what lets
+ * ErrorState recognise the unreachable state from either, and it keeps the
+ * wording and the recognition in one place so they cannot drift apart.
+ */
+export const GATEWAY_REFUSAL_MESSAGE = "retnd's web interface could not reach the retnd service.";
+export const NO_RESPONSE_MESSAGE = "retnd did not answer.";
+
+/** Whether a failure headline is one of the two unreachable sentences. */
+export function isUnreachableMessage(message: string | undefined): boolean {
+  return message === GATEWAY_REFUSAL_MESSAGE || message === NO_RESPONSE_MESSAGE;
+}
+
 function describeGatewayRefusal(api: ApiError): OperatorFailure {
   return {
-    message: "retnd's web interface could not reach the retnd service.",
+    message: GATEWAY_REFUSAL_MESSAGE,
     // Says which half is known to be working, because that is what makes
     // this actionable: the operator is reading a page, so the web
     // interface is up, and the thing to go and look at is the service
@@ -350,7 +367,7 @@ function describeGatewayRefusal(api: ApiError): OperatorFailure {
 function describeRequestFailure(e: RequestFailure): OperatorFailure {
   if (e.kind === "no-response") {
     return {
-      message: "retnd did not answer.",
+      message: NO_RESPONSE_MESSAGE,
       remediation:
         "The request got no reply at all, so whether it was carried out is unknown. Check that the retnd service is still running, then try again.",
       // No response, so no id. apiErrorOf's own rule, one failure over: an

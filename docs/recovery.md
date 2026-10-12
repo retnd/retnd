@@ -608,9 +608,22 @@ What happens, in order, and why the order is the point:
    on a TTL and reconciled at startup, and a failure to clean up is reported separately from
    a failure to recover, because one means you did not get your bytes and the other means a
    disk is filling. A download that fails partway is cut off: the connection is aborted
-   short of the length it promised, so an incomplete file is never mistaken for a whole one,
-   and the end of a download that went through is written to the action log as `recovery
-   verified`, naming the digest it matched.
+   short of the length it promised, so an incomplete file is never mistaken for a whole one.
+   Every download ends in exactly one of three ways, and each writes its own row to the
+   action log and the activity feed, so a page never has to guess which one it is looking
+   at:
+
+   | Outcome | Logged as | Means |
+   |---|---|---|
+   | Completed | `recovery verified` | The ranges served added up to the whole artifact and the digest matched. The row names it |
+   | Interrupted at N of M | `recovery interrupted` | Something other than a bad byte stopped it, most often the client going away. `bytes` is what this request had sent, `total_bytes` is M, and `reached` is the offset N where a resume starts |
+   | Failed verification | `recovery failed verification` | A piece or the whole did not match what the journal recorded, or the copy lost bytes. `bytes` and `total_bytes` say how far it got, and `error_code` says which copy is damaged |
+
+   The page draws these as the badges **Completed**, **Interrupted at N of M bytes** and
+   **Failed verification**, and none of them is drawn as a success: **Completed** is neutral
+   because it means bytes were sent and matched, not that the browser kept the file. An interrupted download is not a failed copy, and a failed
+   verification is not a dropped connection: the first calls for asking again, the second
+   for recovering from another copy.
 
 What a download's checks prove, and what they do not. They prove each piece sent matched the
 digest of the same piece when the whole copy was last read, and that whole read matched the
@@ -662,7 +675,10 @@ three places, with three ages, and nothing is allowed to merge them:
 | **Content verified**, with an age | A check **read the bytes** and they matched the recorded digest | That the file is usable by your application |
 | **Recovery tested**, with an age | The newest known good copy was recovered to an isolated path, its digest matched the artifact's, and then **your validator** accepted it | That your application will come up, or that older copies are good |
 
-A checksum pass with a validator failure therefore reads as **Content verified / Recovery
+The Content chip says how many copies stand behind it. A bare **Content verified** is drawn
+only when every copy is content verified; otherwise it reads, for example, **Content
+verified · 1 of 3 copies, 2 never checked**, with a dashed edge. A checksum pass with a
+validator failure therefore reads as **Content verified / Recovery
 test failed**, and never as one green tick. A class achieved without reading bytes (an
 `existence` check) is recorded as what it was and is never shown as content verification;
 the scheduled pass cannot go above `existence` against a storage medium.
@@ -742,6 +758,55 @@ unattended scrub reaches at most `existence` against a storage medium, never dow
 never starts a thaw; an archived copy is recorded as `requires_restore`. Recovering an
 archived copy is always a person saying yes to a named cost.
 
+### Running one by hand: scrub now, recovery test, follow and cancel
+
+The scheduler is not the only way to start either check. Both can be started on demand, and
+a running one can be stopped.
+
+- **Scrub now.** `POST /api/v1/backup-sets/{source}/{set}/scrub`, or `retnd scrub
+  <source>/<set>`, which runs the same code. It checks every copy of the set whether or not
+  the copy is due, at the strongest class that costs nothing, and skips a set that is held
+  for editing, exactly as the scheduler does. The route answers `202` at once with an
+  operation id, and the pass carries on in the background: a browser that navigates away does
+  not cancel it. Only one scrub of a set runs at a time, so a double click does not become
+  two passes over the same copies.
+- **Recovery test now.** `POST /api/v1/backup-sets/{source}/{set}/recovery-test`, or `retnd
+  recovery-test <source>/<set>`. It also answers `202` with an operation id. If a test of
+  that set is already running and the new request asks for the same thing (same artifact,
+  same cost acknowledgement), the request **coalesces**: it gets `202` with the *running*
+  operation's id, the validator runs once, and every caller still gets a receipt of its own.
+  A request that asks for something different is refused rather than quietly joined.
+- **Follow.** `retnd recover <artifact> --follow` and `retnd recovery-test <set> --follow`
+  print the stages as the engine passes through them, in the order it emits them:
+  `resolving_copy`, `reading`, `verifying`, `writing_target`, `cleaning_temporary_files`,
+  `complete`. The stage lines go to **standard error**, so `retnd recover <artifact> --to -
+  --follow` still writes nothing but the artifact's bytes to standard output, and a pipe
+  into `sha256sum` stays right. `--follow` leaves the exit status alone.
+- **Cancel.** `retnd assurance cancel <operation-id>`, or `POST
+  /api/v1/assurance/operations/{op}/cancel`. The operation's kind is `scrub` or
+  `recovery_test`. The answer carries `status: "cancelling"`: it says the operation was told
+  to stop, not that it has stopped, and the operation's own end line on the activity feed is
+  what says it did. A cancel stops the read, the hash of the staged copy and the validator's
+  whole process group. A cancelled recovery test ends with the result `warn`: it is not
+  recorded as a failed copy, because nobody saw the validator answer. An id that nothing is
+  running under (never started, already finished, or another process's) is not found, never
+  a success. Operations live in the memory of the process serving the deployment, so the CLI
+  needs `RETND_API_URL` and the two credential variables. The route is deliberately not
+  under `/operations`, so it answers on a deployment whose destructive gate is shut.
+
+### What the validator printed
+
+The newest recovery test's output is kept, one test's worth per backup set: a later test of
+the same set replaces it. It is bounded, because it is untrusted: at most 200 records, at
+most 1 KiB per record, at most 32 KiB in all, and when anything was cut a single
+`truncation` record is the **last** one. Only the runner writes a truncation record, so a
+reader can branch on a record's `kind` (`output` or `truncation`). No raw control byte is
+stored.
+
+Read it with `retnd recovery-test <source>/<set> --show-output`, which runs no test, or
+`GET /api/v1/backup-sets/{source}/{set}/recovery-test/output`. Before any test of the set has
+ended, the answer says nothing was recorded.
+
 ### Validators are untrusted
 
 The validator is a script of yours: `validator_id` is the file name of a `NAME.local.sh` in
@@ -754,7 +819,8 @@ path**, never against the durable file, and the path reaches it as `RECOVERY_TES
 The runner's container cannot see the staging directory unless you declare it with
 `--hook-mount`, and a script that cannot open the file fails rather than passing. Its output is untrusted terminal input: no raw control byte reaches a
 structured field, a notification or the docked terminal, and a truncation is marked in a
-way its own output cannot forge. What it can and cannot reach is in
+way its own output cannot forge. The newest test's output is kept
+and bounded (see *What the validator printed* above). What it can and cannot reach is in
 [the runtime contract](runtime-contract.md#validators-and-recovery-staging).
 
 ## When the catalog itself is gone
@@ -781,7 +847,10 @@ ways forward, in this order:
 | Scrub: `could not complete` | The endpoint did not answer. It says nothing about the copy | Fix reachability. Three failed or incomplete checks in a row degrade the set's health and raise `SCRUB_FAILING` once through your alert channels, and it clears on a later pass |
 | Scrub: `requires_restore` | The copy is archived | `retnd restore` (billed, hours), then `recover`. A scrub never starts that for you |
 | Scrub skipped for a set | The set is under an edit hold | The skip is visible; release the hold |
-| Recovery test: `Content verified`, `Recovery test failed` | The bytes are right and your validator said no | `RECOVERY_TEST_FAILING` is raised through your alert channels. The browser and `retnd recovery-test <source/backup-set>` show the verdict and the reason the engine recorded. This build keeps no copy of the validator's own output, so have the script write its findings somewhere you can read them. The product is telling you the file is intact and your check disagrees |
+| Recovery test: `Content verified`, `Recovery test failed` | The bytes are right and your validator said no | `RECOVERY_TEST_FAILING` is raised through your alert channels. The browser and `retnd recovery-test <source/backup-set>` show the verdict and the reason the engine recorded, and `retnd recovery-test <source/backup-set> --show-output` shows what the validator printed. The product is telling you the file is intact and your check disagrees |
+| Recovery test: ended `warn` after a cancel | Someone ran `retnd assurance cancel`, so nobody saw the validator answer | Not a failed copy. Run the test again if you still want the answer |
+| Download: `recovery interrupted` | The transfer stopped short, most often because the client went away | Ask for a new link and resume from the `reached` offset. The copy is not implicated |
+| Download: `recovery failed verification` | A piece or the whole did not match the recorded digest | Treat that copy as damaged and recover from another copy |
 | Recovery test: failed before the validator ran | The digest did not match | Treat the copy as damaged. This is a content failure, not a validator one |
 | Recovery test: pass, but a cleanup failure is shown | The recovered copy could not be removed from staging | The claim is unaffected; the staging disk is filling. Clear it and check the staging TTL |
 | A validator that always exits 0 | It never opened the file, and the digest gate is what the pass was recorded against | Fix the validator; it proves nothing about the application |

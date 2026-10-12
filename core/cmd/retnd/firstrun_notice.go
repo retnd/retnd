@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/retnd/retnd/core/cliecho"
 	"github.com/retnd/retnd/core/internal/config"
@@ -57,8 +58,10 @@ func printFirstRunNotice(out io.Writer, cfgPath, verb string) int {
 	if verb == "check" {
 		fmt.Fprintf(out, "config: none yet at %s (fresh install; the engine writes a default configuration on its first start)\n", path)
 		if writable != nil {
-			fmt.Fprintf(os.Stderr, cliecho.Binary+": the configuration directory is not writable, so the engine cannot write its default configuration there: %v\n", writable)
-			fmt.Fprintf(os.Stderr, "Next step: mount the configuration directory writable, then run check again.\n")
+			// The same sentence the web interface's first-run guide shows
+			// (service.ConfigDirUnwritableMessage), so the two agree.
+			fmt.Fprintf(os.Stderr, cliecho.Binary+": %s\n", service.ConfigDirUnwritableMessage(filepath.Dir(path)))
+			fmt.Fprintf(os.Stderr, "Reason: %v\nRun check again once it is fixed.\n", writable)
 			return exitFailure
 		}
 		fmt.Fprintln(out, "config directory writable: yes")
@@ -66,7 +69,7 @@ func printFirstRunNotice(out io.Writer, cfgPath, verb string) int {
 		fmt.Fprintf(out, cliecho.Binary+" is installed and not configured yet (first run, fresh install). Nothing is being backed up.\n")
 		fmt.Fprintf(out, "The engine writes a default configuration to %s on its first start.\n", path)
 		if writable != nil {
-			fmt.Fprintf(out, "Note: that directory is not writable right now: %v\n", writable)
+			fmt.Fprintf(out, "Note: %s (%v)\n", service.ConfigDirUnwritableMessage(filepath.Dir(path)), writable)
 		}
 	}
 	fmt.Fprintf(out, "Next step: add the first backup set in the web interface, or with `%s backup-set create ...`.\n", cliecho.Binary)

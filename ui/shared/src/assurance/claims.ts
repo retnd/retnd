@@ -19,7 +19,7 @@
  */
 import type { IconName } from "@shared/design-system/icons";
 import { stamp } from "@shared/utilities/format";
-import type { AchievedClass, ClaimRecord, ClaimStatus, CopyFailure } from "./types";
+import type { AchievedClass, ClaimRecord, ClaimStatus, CopyContent, CopyFailure } from "./types";
 
 export type RenderState = ClaimStatus | "existence_only" | "attested_only";
 export type ClaimKind = "content" | "recovery";
@@ -27,6 +27,9 @@ export type ClaimKind = "content" | "recovery";
 export interface RenderedClaim {
   state: RenderState;
   label: string;
+  /** "partial" when a pass covers fewer copies than the backup has, or when
+   *  the server did not say which. Absent when every copy backs the claim. */
+  coverage?: "partial";
   /** "3d ago", for the states that carry a time. */
   age?: string;
   glyph: Glyph;
@@ -114,8 +117,41 @@ const LABELS: Record<ClaimKind, Record<RenderState, string>> = {
   }
 };
 
-/** What one claim may render, from the record or from nothing at all. */
-export function renderClaim(kind: ClaimKind, record: ClaimRecord | undefined, now: number = Date.now()): RenderedClaim {
+/** The weaker copies of a content pass, in words: "2 never checked". The
+ *  order is the order of how little each says. */
+const WEAKER: Array<[CopyContent, string]> = [
+  ["failed", "failed"], ["could_not_complete", "could not complete"], ["unchecked", "never checked"],
+  ["existence", "existence only"], ["attested", "attested only"]
+];
+
+/** "Content verified" qualified by the copies behind it, or bare when every
+ *  copy backs it. A bare label is a statement about all of them, so it needs
+ *  every copy to be content-verified; one copy that is the whole backup is
+ *  the only case that can say it without itemising. `copies` is how many
+ *  copies the backup has. */
+function contentPassLabel(copyContent: readonly CopyContent[] | undefined, copies: number | undefined): { label: string; partial: boolean } {
+  const bare = LABELS.content.pass;
+  if (!copyContent) {
+    // Not itemised: with more than one copy, the other copies are unknown.
+    if (copies === undefined || copies <= 1) return { label: bare, partial: false };
+    return { label: bare + " \u00B7 " + copies + " copies, which of them is not reported", partial: true };
+  }
+  const total = copyContent.length;
+  const good = copyContent.filter((c) => c === "content").length;
+  if (good === total) return { label: bare, partial: false };
+  const parts = WEAKER.map(([c, words]) => [copyContent.filter((x) => x === c).length, words] as const).filter(([k]) => k > 0).map(([k, w]) => k + " " + w);
+  return { label: bare + " \u00B7 " + good + " of " + total + (total === 1 ? " copy" : " copies") + ", " + parts.join(", "), partial: true };
+}
+
+/** What one claim may render, from the record or from nothing at all.
+ *
+ *  `copyContent` and `copies` qualify a Content pass (D3): the claim keeps the
+ *  strongest class across copies, so without them a backup with one verified
+ *  copy and two nobody has read would be drawn exactly like one with three. */
+export function renderClaim(
+  kind: ClaimKind, record: ClaimRecord | undefined, now: number = Date.now(),
+  copyContent?: readonly CopyContent[], copies?: number
+): RenderedClaim {
   const make = (state: RenderState, withAge: boolean): RenderedClaim => ({
     state,
     label: LABELS[kind][state],
@@ -131,7 +167,10 @@ export function renderClaim(kind: ClaimKind, record: ClaimRecord | undefined, no
     if (!validTime(record.at)) return make("unknown", false);
     if (kind === "content") {
       const cls: AchievedClass = record.achievedClass;
-      if (cls === "content") return make("pass", true);
+      if (cls === "content") {
+        const q = contentPassLabel(copyContent, copies ?? copyContent?.length);
+        return { ...make("pass", true), label: q.label, ...(q.partial ? { coverage: "partial" as const } : {}) };
+      }
       if (cls === "existence") return make("existence_only", true);
       if (cls === "attested") return make("attested_only", true);
       return make("unknown", false);
