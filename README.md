@@ -12,6 +12,9 @@
   <a href="https://go.dev/"><img src="https://img.shields.io/github/go-mod/go-version/retnd/retnd?filename=core/go.mod" alt="Go version"></a>
 </p>
 
+<p align="center">
+  <img src="docs/assets/readme-tour.gif" alt="A 30 second tour of the retnd web UI: the dashboard with its docked terminal, backup sets, one set's detail, retained backups and a single backup's lifecycle, the activity timeline, quarantine, catalog recovery and settings, then the dashboard and a set again in the dark theme" width="800">
+</p>
 
 A backup producer somewhere writes a dump, an archive or a snapshot to disk. That machine
 has finite space, so something has to move the artifact off it and something has to delete
