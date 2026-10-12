@@ -114,6 +114,12 @@ func cmdSettings(args []string) int {
 		if a == settingsWorkflowOperand {
 			return cmdSettingsWorkflow(args)
 		}
+		// EPIC Q's assurance policy (Q1.4, #982), dispatched before
+		// anything parses for the same reason the workflow block is: its
+		// flags are not declared on this command's flag set.
+		if a == settingsAssuranceOperand {
+			return cmdSettingsAssurance(args)
+		}
 	}
 
 	fs, cfgPath := newFlagSet("settings")
