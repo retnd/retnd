@@ -2454,6 +2454,16 @@
               "backup_set",
               "none"
             ]
+          },
+          "config_dir": {
+            "type": "string",
+            "description": "The directory the engine would write its default configuration into. Present only together with config_dir_problem.",
+            "x-go-omitempty": true
+          },
+          "config_dir_problem": {
+            "type": "string",
+            "description": "Present only when the engine has no configuration and could not write one because config_dir is not writable. A sentence an operator can act on: it names the directory and says to mount it writable and restart. It is the same sentence `retnd check` prints. Absent on every healthy deployment.",
+            "x-go-omitempty": true
           }
         },
         "required": [

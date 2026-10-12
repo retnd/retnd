@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "1bfa421954b16a00f1743be987a23b450bb6497df425028d65f4138b004b7dba"
+const ContractSHA256 = "ea5c917dbea40e579ff85cf89e5a35b71b6b4756bda0bdeabdb33913000c8407"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -1932,9 +1932,11 @@ type ErrorResponse struct {
 // derived from the thing each one sets up, except a skip, which is
 // stored.
 type FirstRunStatusResponse struct {
-	Configured bool          `json:"configured"`
-	NextStep   string        `json:"next_step"`
-	Steps      FirstRunSteps `json:"steps"`
+	ConfigDir        string        `json:"config_dir,omitempty"`
+	ConfigDirProblem string        `json:"config_dir_problem,omitempty"`
+	Configured       bool          `json:"configured"`
+	NextStep         string        `json:"next_step"`
+	Steps            FirstRunSteps `json:"steps"`
 }
 
 // FirstRunSteps is each guided setup step mapped to its state: done, pending or

@@ -281,6 +281,32 @@ secret a hook resolves, so a spec can assert it appears NOWHERE.
                        Not handed over under --keep-up, for the reason
                        the engine channel is not.
 
+  --fresh          hand the suite a deployment nobody has configured: the
+                   administrator is enrolled and nothing else is. No backup
+                   set is created, no backup cycle is run, and the engine
+                   starts against an empty configuration directory, so
+                   what a browser meets is a first install (retnd#1049).
+                   Implies --no-workflows (every workflow scenario is a
+                   backup set), and RETND_BACKUP_SET is left unset. A
+                   suite whose cases need a fresh install (the ones that
+                   `needs(isFresh(...))`) RUNS here; against the default
+                   seeded rig the same cases skip, and a skip is the same
+                   colour as a pass, which is why
+                   scripts/bdtools/e2e/run_tests_repo_gate.py runs them
+                   against this mode and fails if any of them skipped.
+                   Combines with --break-engine, which the Copy details
+                   and unreachable-banner cases also need.
+
+  -- ARGS...       everything after a bare -- is appended to the
+                   `npx playwright test` the client container runs, so
+                   `--suite DIR -- first-run --reporter=list,json` runs
+                   only the specs whose path matches "first-run". With no
+                   --suite there is no Playwright command and the
+                   arguments are refused. The JSON reporter writes to
+                   $PLAYWRIGHT_JSON_OUTPUT_NAME, which the client
+                   container has set to /artifacts/playwright-report.json,
+                   that is playwright-report.json in --artifacts.
+
   --no-workflows   leave all of it out. For a machine whose daemon
                    cannot host the runner, and it is honest rather than
                    quiet: none of the variables above is set, so every

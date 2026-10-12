@@ -2775,7 +2775,8 @@ function fromWireFirstRunStatus(r: WireFirstRunStatusResponse): FirstRunStatus {
   return {
     configured: r.configured,
     steps: r.steps,
-    nextStep: r.next_step
+    nextStep: r.next_step,
+    ...(r.config_dir_problem ? { configDir: r.config_dir, configDirProblem: r.config_dir_problem } : {})
   };
 }
 

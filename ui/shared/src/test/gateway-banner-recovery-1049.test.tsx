@@ -29,7 +29,7 @@ import type { ApiError, FirstRunStatus } from "@shared/api/contracts";
 const POLL_MS = 3_000;
 
 const gatewayError: ApiError = {
-  code: "UNAVAILABLE",
+  code: "INTERNAL",
   message: "retnd's web interface could not reach the retnd service.",
   correlationId: "cid_proxy502",
   origin: "gateway"

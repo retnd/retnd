@@ -22,6 +22,16 @@
   origin by falling back to the browser's older copy command and then to selecting the
   text, and only says Copied when it did.
 
+  I also finished the failure side of that first install (#1049): the "could not reach
+  the retnd service" banner now checks `/health/live` every few seconds and clears
+  itself when the service answers, so nobody has to reload; the two states carry
+  different `data-testid`s (`first-run-not-configured` for a fresh install,
+  `service-unreachable` for a service that is really down); and when the engine cannot
+  write its default configuration because the directory is read-only, the first-run
+  guide shows an alert naming the directory and the fix, in the same sentence
+  `retnd check` prints. `scripts/e2e/three-machine-web-ui.sh --fresh` stands up a
+  deployment with no backup set so the first-run specs run instead of skipping.
+
   **Rolling back a never-configured install:** an older release refuses a configuration
   with no backup set, so delete the default `config.yaml` (or add a backup set first)
   before starting the older binary. An install that already has a configuration is not

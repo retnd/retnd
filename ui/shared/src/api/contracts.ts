@@ -1743,6 +1743,12 @@ export interface FirstRunStatus {
   steps?: Record<FirstRunStep, FirstRunStepState>;
   /** The first step that is pending, or "none". */
   nextStep?: FirstRunStep | "none";
+  /** retnd#1049: set together, and only when the engine has no
+   *  configuration and could not write its default one because the
+   *  directory is not writable. `configDirProblem` is the sentence to show
+   *  as it stands (the same one `retnd check` prints). */
+  configDir?: string;
+  configDirProblem?: string;
 }
 
 export type FirstRunStep = "administrator" | "email" | "backup_set";

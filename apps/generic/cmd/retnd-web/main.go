@@ -1381,6 +1381,18 @@ func (g firstRunGate) CreateInitialConfig(ctx context.Context, req service.Creat
 	return g.FirstRunClient.CreateInitialConfig(ctx, req)
 }
 
+// ConfigDirProblem forwards the optional half of the first-run surface
+// (webhost.ConfigDirReporter, retnd#1049). Embedding the interface does not
+// promote it, because an embedded interface only carries its own methods, so
+// without this the guide would never be told the configuration directory is
+// read-only.
+func (g firstRunGate) ConfigDirProblem() (dir, message string) {
+	if r, ok := g.FirstRunClient.(webhost.ConfigDirReporter); ok {
+		return r.ConfigDirProblem()
+	}
+	return "", ""
+}
+
 // envOrDefault returns the environment variable key's value if set and
 // non-empty, or def otherwise. Used for --listen/--upstream's defaults
 // (container/compose.yaml sets LISTEN_ADDR/UPSTREAM_ADDR; a bare `go run`
