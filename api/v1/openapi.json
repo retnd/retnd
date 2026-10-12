@@ -7070,7 +7070,7 @@
           },
           "recorded": {
             "type": "boolean",
-            "description": "False when no recovery test of this set has ended yet; every other field except backup_set_id and records is then absent."
+            "description": "False when no recovery test of this set has ended yet; every other field is then empty (empty strings, false, an empty records array) and none is omitted."
           },
           "operation_id": {
             "type": "string",
@@ -7106,6 +7106,12 @@
         "required": [
           "backup_set_id",
           "recorded",
+          "operation_id",
+          "artifact_id",
+          "medium",
+          "state",
+          "recorded_at",
+          "truncated",
           "records"
         ]
       },

@@ -202,7 +202,7 @@ func TestRecoveryTestOutputIsReadableOnAShutGateWhileOperationsStaysRefused(t *t
 	}
 }
 
-func TestRecoveryTestOutputBeforeAnyTestIsRecordedFalseWithNoInventedFields(t *testing.T) {
+func TestRecoveryTestOutputBeforeAnyTestIsRecordedFalseWithEmptyFieldsAndTheSameShape(t *testing.T) {
 	be := newOpsFake()
 	be.output = service.RecoveryTestOutput{BackupSetID: "production/alpha"}
 	router := opsRouter(be, alwaysPassGate{})
@@ -210,11 +210,15 @@ func TestRecoveryTestOutputBeforeAnyTestIsRecordedFalseWithNoInventedFields(t *t
 	if rec.Code != http.StatusOK {
 		t.Fatalf("= %d %s", rec.Code, rec.Body.String())
 	}
-	if got := fmt.Sprint(keysOf(t, rec.Body.String())); got != "[backup_set_id recorded records truncated]" {
-		t.Errorf("keys = %s, want only backup_set_id, recorded, records and truncated", got)
+	if got := fmt.Sprint(keysOf(t, rec.Body.String())); got != "[artifact_id backup_set_id medium operation_id recorded recorded_at records state truncated]" {
+		t.Errorf("keys = %s, want the same nine keys as a recorded answer: the shape never changes", got)
 	}
-	if !strings.Contains(rec.Body.String(), `"records":[]`) || !strings.Contains(rec.Body.String(), `"recorded":false`) {
-		t.Errorf("body = %s, want recorded false and an empty array (never null)", rec.Body.String())
+	want := `{"artifact_id":"","backup_set_id":"production/alpha","medium":"","operation_id":"","recorded":false,"recorded_at":"","records":[],"state":"","truncated":false}`
+	var gotAny, wantAny any
+	_ = json.Unmarshal(rec.Body.Bytes(), &gotAny)
+	_ = json.Unmarshal([]byte(want), &wantAny)
+	if fmt.Sprint(gotAny) != fmt.Sprint(wantAny) || !strings.Contains(rec.Body.String(), `"records":[]`) {
+		t.Errorf("body = %s\nwant   %s (an empty array, never null)", rec.Body.String(), want)
 	}
 }
 

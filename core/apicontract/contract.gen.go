@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "ad08c2e9631df3e7c70e0d00c0924d736c85cb2b22be1bb6e0540bf817b61015"
+const ContractSHA256 = "71ab3f49187fcdc37410240a57d295d065bac46c97f817e3669489ebb9135056"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -985,7 +985,7 @@ var Endpoints = []Endpoint{
 	{
 		ID: "mintRecovery", Method: "POST", Path: "/backups/{source}/{set}/{name}/recovery",
 		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "RecoveryMintRequest", ResponseSchema: "RecoveryMintResponse", SuccessStatus: 201,
+		RequestSchema: "RecoveryMintRequest", ResponseSchema: "RecoveryMintResponse", SuccessStatus: 202,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeRecoveryTargetInvalid},
 			401: {ErrorCodeUnauthenticated},
@@ -1112,7 +1112,7 @@ var Endpoints = []Endpoint{
 	{
 		ID: "redeemRecovery", Method: "GET", Path: "/recoveries/{grant}",
 		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "", ResponseSchema: "RecoveryResult", SuccessStatus: 200,
+		RequestSchema: "", ResponseSchema: "RecoveryResult", SuccessStatus: 206,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
 			403: {ErrorCodeRecoveryGrantSessionEnded},
