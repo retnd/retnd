@@ -18,6 +18,7 @@ import (
 	"github.com/retnd/retnd/core/internal/lifecycle"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/recoverytest"
 	"github.com/retnd/retnd/core/internal/state"
 )
 
@@ -558,5 +559,31 @@ func TestStartRecoveryTestRefusesWhatCouldNotBeTested(t *testing.T) {
 		if _, err := f.b.StartRecoveryTest(context.Background(), tc.set, tc.opts); !errors.Is(err, tc.want) {
 			t.Errorf("%s: err = %v, want %v", name, err, tc.want)
 		}
+	}
+}
+
+// The daemon runs the data plane that service.Open builds (BackupDataPlane),
+// not the BackupService wrapper a route calls. A recovery test on a medium
+// copy has to work on that object too, or the scheduled test in `retnd
+// daemon` answers ErrUnsupportedCopy for every set whose copy is not local.
+func TestTheDataPlaneTheDaemonRunsRecoversAMediumCopy(t *testing.T) {
+	ctx := context.Background()
+	f := newRecoveryFixture(t, fixtureOpts{cfg: requireRecoveryTest})
+	withStages(f, &stubStages{script: "pg-check.local.sh"})
+	a := seedComplete(t, f, "away.dump", "warm")
+
+	plane := f.b.BackupDataPlane()
+	if plane == nil {
+		t.Fatal("no data plane")
+	}
+	res, err := plane.RecoveryTest(ctx, app.RecoveryTestRequest{Set: setID(t), Artifact: &a, AcknowledgeCost: true})
+	if errors.Is(err, recoverytest.ErrUnsupportedCopy) {
+		t.Fatalf("the daemon's data plane cannot recover a medium copy: %v", err)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Result.State != state.RecoveryPassed {
+		t.Fatalf("state = %q (%s), want a pass", res.Result.State, res.Result.Reason)
 	}
 }
