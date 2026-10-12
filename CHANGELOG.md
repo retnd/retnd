@@ -28,7 +28,27 @@
 
 ### Added
 
-- **The activity feed's events survive a restart** (#1071, migration 0017). The feed
+- **`retnd recover --follow` and `retnd recovery-test --follow`** (#1059). Both verbs run the operation in the terminal's own process, so they now print that operation's stage lines (matched on its op_id) on standard error as it passes through them, in the order the engine emits them, and still exit with the operation's own status. Standard output stays the verb's answer, so `recover --to -` keeps piping clean bytes.
+- **Scrub now, cancel, and the validator output of a recovery test** (#980, #1071). Three new
+  routes. `POST /api/v1/backup-sets/{source}/{set}/scrub` starts a scrub of one set's copies
+  in the background and answers 202 with an operation id, one at a time per set.
+  `POST /api/v1/assurance/operations/{op}/cancel` stops a running scrub or recovery test: the
+  validator's whole process group is killed, the staged copy is removed, and a cancel records
+  no verdict on the copy. It is deliberately not under `/operations`, which the destructive
+  gate owns, so it answers on a deployment whose gate is shut. `GET
+  /api/v1/backup-sets/{source}/{set}/recovery-test/output` returns what the newest recovery
+  test of the set printed. The output is kept per set (two new tables in migration 0016, which
+  has not shipped, so its recorded checksum moved), sanitised, and bounded to 200 records, 1 KiB
+  a record and 32 KiB in all; the truncation marker is a record of its own kind that only the
+  runner writes, so a validator that prints the marker's words is still an output line. The
+  CLI gains `retnd assurance cancel <operation-id>` (needs `RETND_API_URL`, since the operation
+  lives in the serving process) and `retnd recovery-test <set> --show-output`.
+- **Two operators asking for the same recovery test share one execution.** A second identical
+  `POST .../recovery-test` while one is running no longer gets a 409: it answers 202 with the
+  running test's operation id and `coalesced: true`, and writes a receipt row of its own
+  (who asked, when, what for). A request for something different from what is running (another
+  artifact, or a different cost acknowledgement) is still a 409.
+- **The activity feed's events survive a restart** (#1071, migration 0018). The feed
   behind the operation panel and the dashboard strips was an in-memory ring, so a
   restart emptied it: a scrub that failed an hour before a deploy, or a recovery that was
   running when the process died, left nothing on the screen built to show it. The events
@@ -54,6 +74,19 @@
   beside a verified offsite copy no longer quarantines the artifact (the set goes
   DEGRADED after three failed checks, not FAILING), and a scrub or recovery claim is
   dropped when the copy is rewritten to different bytes.
+
+- **`retnd scrub --json`, and a scrub beside a serving engine respects its edit hold**
+  (#978). `--json` prints the one result object the API contract defines
+  (`ScrubResult`: the pass counts plus, per set, every copy's verdict and the class
+  that ran, the artifacts that could not be checked, and the skips), with the log
+  lines on standard error so standard output is only the result. When `RETND_API_URL`
+  and its two credential variables reach the engine serving the deployment, the scrub
+  asks that engine whether a set is held for editing and skips a held set the way the
+  engine's own scrub does: the same "skipped, the backup set is held for editing"
+  line, counted as a skip, exit status 1. A hold the command cannot read counts as a
+  hold. An artifact with one copy that was provably gone and another that did not
+  answer now writes a `scrub_failure` line for each copy, instead of one line for the
+  pair, so the lines of a pass match the failures it counted.
 
 - **Assurance has a deployment-wide default and a per-set override** (#982, EPIC Q
   Q1.4). A new top-level `assurance:` block sets how often a copy is re-read (scrub
@@ -132,6 +165,12 @@
   recorded as `recovery verified` in the action log. The first download of an
   artifact reads the copy twice (once to prepare, once to send); later downloads and
   resumes reuse the stored digests. Staging and storage targets are unchanged.
+  A conditional request answered `304` no longer spends the download grant or
+  records a verification that did not happen. A download that does not finish now
+  ends in a `recovery interrupted` or a `recovery failed verification` row in the
+  action log (the latter with the copy's error code), each with `bytes` sent,
+  `total_bytes` and the `reached` offset, so a client can tell a cut link from a
+  copy that stopped matching; `recovery verified` carries `total_bytes` too.
 
 - **The web UI shows what a backup's copies actually claim, and recovers them** (#985,
   EPIC Q Q2.2). Every backup carries three separate claims on the Backups list, the

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // A validator's output is untrusted terminal input.
@@ -48,7 +50,7 @@ type OutputRecord struct {
 
 // truncationText is what a genuine truncation record says. It is not what
 // identifies one: Kind is.
-const truncationText = "[retnd] output truncated: the validator wrote more than the capture bound, and the rest was discarded"
+const truncationText = state.RecoveryOutputTruncationText
 
 // SanitizeOutput turns raw captured output into records safe to put in a
 // structural field, a notification body or a terminal.
@@ -126,4 +128,58 @@ func Render(rs []OutputRecord) []string {
 		}
 	}
 	return out
+}
+
+// BoundOutput fits sanitised records into what the journal will store: at most
+// state.MaxRecoveryOutputRecords records, each at most
+// state.MaxRecoveryOutputLineBytes, all together at most
+// state.MaxRecoveryOutputBytes. cut reports that anything was dropped or
+// shortened, or that the input already ended in a truncation record.
+//
+// When it cuts, the result ends with exactly one truncation record, which is
+// this function's own and never a validator's: a record of the output kind is
+// never promoted to a truncation, whatever its text says.
+func BoundOutput(rs []OutputRecord) (out []OutputRecord, cut bool) {
+	// Room for the runner's own record is reserved up front, so appending it
+	// can never push the result over a bound it was just held to.
+	maxRecords := state.MaxRecoveryOutputRecords - 1
+	maxBytes := state.MaxRecoveryOutputBytes - len(truncationText)
+
+	out = make([]OutputRecord, 0, len(rs)+1)
+	total := 0
+	truncated := false
+	for _, r := range rs {
+		if r.Kind == OutputTruncation {
+			// The capture was already cut upstream. Its record is re-added
+			// once, last.
+			truncated = true
+			continue
+		}
+		text := r.Text
+		if len(text) > state.MaxRecoveryOutputLineBytes {
+			text, cut = cutRunes(text, state.MaxRecoveryOutputLineBytes), true
+		}
+		if len(out) >= maxRecords || total+len(text) > maxBytes {
+			cut = true
+			break
+		}
+		out = append(out, OutputRecord{Kind: OutputText, Text: text})
+		total += len(text)
+	}
+	if cut || truncated {
+		out = append(out, OutputRecord{Kind: OutputTruncation, Text: truncationText})
+	}
+	return out, cut || truncated
+}
+
+// cutRunes shortens s to at most max bytes without splitting a character.
+func cutRunes(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	cut := max
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
 }

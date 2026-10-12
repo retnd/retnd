@@ -66,3 +66,27 @@ func (f *syncFakeBackend) StartRecoveryTest(_ context.Context, id string, _ serv
 func (f *asyncFakeBackend) StartRecoveryTest(_ context.Context, id string, _ service.RecoveryTestOptions) (service.RecoveryTestStarted, error) {
 	return service.RecoveryTestStarted{BackupSetID: id, OperationID: "op"}, nil
 }
+
+func (f *syncFakeBackend) StartScrub(_ context.Context, id string, _ service.ScrubOptions) (service.ScrubStarted, error) {
+	return service.ScrubStarted{BackupSetID: id, OperationID: "op"}, nil
+}
+
+func (f *syncFakeBackend) CancelAssuranceOperation(_ context.Context, id string) (service.AssuranceOperationCancelled, error) {
+	return service.AssuranceOperationCancelled{OperationID: id, Kind: "scrub", BackupSetID: "src/set-1", Status: "cancelling"}, nil
+}
+
+func (f *syncFakeBackend) RecoveryTestOutput(_ context.Context, id string) (service.RecoveryTestOutput, error) {
+	return service.RecoveryTestOutput{BackupSetID: id}, nil
+}
+
+func (f *asyncFakeBackend) StartScrub(_ context.Context, id string, _ service.ScrubOptions) (service.ScrubStarted, error) {
+	return service.ScrubStarted{BackupSetID: id, OperationID: "op"}, nil
+}
+
+func (f *asyncFakeBackend) CancelAssuranceOperation(_ context.Context, id string) (service.AssuranceOperationCancelled, error) {
+	return service.AssuranceOperationCancelled{OperationID: id, Kind: "scrub", BackupSetID: "src/set-1", Status: "cancelling"}, nil
+}
+
+func (f *asyncFakeBackend) RecoveryTestOutput(_ context.Context, id string) (service.RecoveryTestOutput, error) {
+	return service.RecoveryTestOutput{BackupSetID: id}, nil
+}

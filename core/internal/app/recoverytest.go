@@ -253,10 +253,45 @@ func (s *Service) RecoveryTest(ctx context.Context, req RecoveryTestRequest) (Re
 	}
 	s.logger().RecoveryTestEnd(ctx, opID, bs.ID.String(), artifactLabel, validatorID, s.now().Sub(started), recoveryTestResult(res, err), recoveryTestReason(res, err))
 	if err == nil {
+		s.keepRecoveryOutput(ctx, journal, opID, bs.ID, res)
 		s.logRecoveryTest(ctx, res)
 		s.settleRecoveryEpisode(ctx, bs, res)
 	}
 	return RecoveryTestResult{Result: res}, err
+}
+
+// keepRecoveryOutput stores what the test printed, replacing the set's older
+// output. Only a test that was recorded on a copy has output to keep: a set
+// with no validator reads not_configured and ran nothing, so the older
+// output stays the newest there is.
+//
+// The records are the runner's own (sanitised and bounded in
+// internal/recoverytest) and the journal refuses anything else, so what is
+// stored here is what every surface may show. A failure to store it is logged
+// and is not the test's failure: the verdict is already on the copy.
+func (s *Service) keepRecoveryOutput(ctx context.Context, journal recoverytest.Journal, opID string, set model.BackupSetID, r recoverytest.Result) {
+	switch r.State {
+	case state.RecoveryPassed, state.RecoveryFailed, state.RecoveryRefusedForCost, state.RecoveryCouldNotComplete:
+	default:
+		return
+	}
+	keeper, ok := journal.(interface {
+		RecordRecoveryOutput(ctx context.Context, o state.RecoveryOutput) error
+	})
+	if !ok {
+		return
+	}
+	records := make([]state.RecoveryOutputRecord, 0, len(r.Output))
+	for _, rec := range r.Output {
+		records = append(records, state.RecoveryOutputRecord{Kind: string(rec.Kind), Text: rec.Text})
+	}
+	err := keeper.RecordRecoveryOutput(context.WithoutCancel(ctx), state.RecoveryOutput{
+		Set: set, OperationID: opID, Artifact: r.Artifact.String(), Medium: r.Medium, State: r.State,
+		RecordedAt: s.now(), Truncated: r.OutputTruncated, Records: records,
+	})
+	if err != nil {
+		s.logger().Error(ctx, "recovery-test-output", err)
+	}
 }
 
 // recoveryTestResult maps a test's outcome onto the result a completion line
@@ -265,6 +300,10 @@ func (s *Service) RecoveryTest(ctx context.Context, req RecoveryTestRequest) (Re
 // failure is an error.
 func recoveryTestResult(r recoverytest.Result, err error) obs.Result {
 	switch {
+	case errors.Is(err, context.Canceled):
+		// Stopped on request (or by shutdown): nothing is known about the
+		// copy, which is what a warning says and an error does not.
+		return obs.ResultWarn
 	case err != nil:
 		return obs.ResultError
 	case r.State == state.RecoveryPassed:
@@ -277,6 +316,9 @@ func recoveryTestResult(r recoverytest.Result, err error) obs.Result {
 }
 
 func recoveryTestReason(r recoverytest.Result, err error) string {
+	if errors.Is(err, context.Canceled) {
+		return "cancelled before it finished; no result was recorded"
+	}
 	if err != nil {
 		return recoverytest.SanitizeLabel(err.Error(), 200)
 	}

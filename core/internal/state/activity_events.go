@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// The durable half of the activity feed (migration 0017). service/
+// The durable half of the activity feed (migration 0018). service/
 // liveactivity_durable.go decides what is worth keeping and how often to
 // write it; this file is only the table's reads and writes.
 

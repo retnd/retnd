@@ -222,3 +222,57 @@ CREATE TABLE scrub_passes (
     skipped_leased      INTEGER NOT NULL CHECK (skipped_leased >= 0),
     bytes_read          INTEGER NOT NULL CHECK (bytes_read >= 0)
 );
+
+-- ---------------------------------------------------------------------
+-- THE NEWEST RECOVERY TEST'S OUTPUT, AND A RECEIPT PER REQUEST (#980, #1071)
+-- ---------------------------------------------------------------------
+
+-- recovery_test_output is what the newest recovery test of a BACKUP SET
+-- printed: one row per set, replaced by the next test (a next test that
+-- printed nothing replaces it with an empty list, so a reader is never shown
+-- an older run's lines as the newest result's). It holds no verdict. The
+-- verdict is the recovery claim on the copy (placement_assurance), and this
+-- table is only the text an operator reads to find out why.
+--
+-- records is a JSON array of {"k": kind, "t": text}. The text is
+-- untrusted terminal input that internal/recoverytest has already
+-- sanitised and bounded, and internal/state refuses to write anything that
+-- is not: no control byte, at most 200 records, 1 KiB a record, 32 KiB in
+-- all. kind is "output" or "truncation"; only the runner writes the second,
+-- with one fixed text, and only as the last record.
+--
+-- The set is the key, not the placement: the output of a test that failed at
+-- the digest gate belongs to the test, and a copy that is later replaced
+-- must not take the text of the last test with it.
+CREATE TABLE recovery_test_output (
+    source       TEXT NOT NULL,
+    backup_set   TEXT NOT NULL,
+    operation_id TEXT NOT NULL,
+    artifact     TEXT NOT NULL,
+    medium       TEXT NOT NULL,
+    state        TEXT NOT NULL
+        CHECK (state IN ('passed', 'failed', 'refused_for_cost', 'could_not_complete')),
+    recorded_at  TEXT NOT NULL,
+    truncated    INTEGER NOT NULL CHECK (truncated IN (0, 1)),
+    records      TEXT NOT NULL,
+    PRIMARY KEY (source, backup_set)
+);
+
+-- recovery_test_receipts is one row per REQUEST for a recovery test. Two
+-- operators who ask for the same test while it runs share one execution (and
+-- one operation id), and each still has a receipt of their own: who asked,
+-- when, what they asked for, and whether the request started the execution
+-- or joined it.
+CREATE TABLE recovery_test_receipts (
+    id                INTEGER PRIMARY KEY,
+    operation_id      TEXT NOT NULL,
+    source            TEXT NOT NULL,
+    backup_set        TEXT NOT NULL,
+    requested_at      TEXT NOT NULL,
+    requested_by      TEXT NOT NULL DEFAULT '',
+    artifact_id       TEXT NOT NULL DEFAULT '',
+    acknowledged_cost INTEGER NOT NULL CHECK (acknowledged_cost IN (0, 1)),
+    coalesced         INTEGER NOT NULL CHECK (coalesced IN (0, 1))
+);
+
+CREATE INDEX idx_recovery_test_receipts_op ON recovery_test_receipts (operation_id, id);
