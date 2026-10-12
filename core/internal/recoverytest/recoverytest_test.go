@@ -753,3 +753,67 @@ func TestARecoveryTestTakesASlotFromTheSharedLimit(t *testing.T) {
 		t.Errorf("recovered %d copies without a slot", rc.recovered)
 	}
 }
+
+// --- the verdict is about the bytes that were read (C5's rule, #980's side) ---
+
+// capturingJournal remembers what Run asked the journal to record.
+type capturingJournal struct {
+	*state.Journal
+	recorded []state.RecoveryTest
+}
+
+func (c *capturingJournal) RecordRecoveryTest(ctx context.Context, r state.RecoveryTest) error {
+	c.recorded = append(c.recorded, r)
+	return c.Journal.RecordRecoveryTest(ctx, r)
+}
+
+func TestEveryRecordedVerdictCarriesTheIdentityOfTheCopyItRead(t *testing.T) {
+	j, a, rc := newEnv(t)
+	cj := &capturingJournal{Journal: j}
+	if _, err := Run(context.Background(), Deps{Journal: cj, Recoverer: rc, Validator: accepting(), Now: func() time.Time { return testNow }},
+		setID(t), cfgFor(), Request{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(cj.recorded) != 1 || cj.recorded[0].Expect == nil {
+		t.Fatalf("recorded = %+v, want one verdict guarded by the identity of the copy that was read", cj.recorded)
+	}
+	if want := copyOf(t, j, a, state.MediumLocal).Identity(); *cj.recorded[0].Expect != want {
+		t.Errorf("Expect = %+v, want %+v", *cj.recorded[0].Expect, want)
+	}
+}
+
+// --- an integrity error from the recoverer is the digest gate talking ---
+
+func TestARecoverersIntegrityRefusalIsADigestFailureAndNotAnIncompleteAttempt(t *testing.T) {
+	j, a, rc := newEnv(t)
+	rc.recoverErr = fmt.Errorf("the copy failed verification: %w", ErrCorruptCopy)
+	v := accepting()
+
+	res := run(t, j, rc, v, Request{})
+	if res.State != state.RecoveryFailed || res.DigestMatched == nil || *res.DigestMatched {
+		t.Fatalf("result = %q / %v, want failed with the digest not matched", res.State, res.DigestMatched)
+	}
+	if len(v.calls) != 0 {
+		t.Error("the validator ran after the recoverer refused the bytes")
+	}
+	if p := copyOf(t, j, a, state.MediumLocal); p.RecoveryState != state.RecoveryFailed {
+		t.Errorf("recorded %q", p.RecoveryState)
+	}
+}
+
+// --- stage reporting (C2) ---
+
+func TestRunReportsEachStageItEntersInTheOrderTheCatalogNames(t *testing.T) {
+	j, _, rc := newEnv(t)
+	var got []string
+	if _, err := Run(context.Background(), Deps{
+		Journal: j, Recoverer: rc, Validator: accepting(), Now: func() time.Time { return testNow },
+		Stage: func(id string) { got = append(got, id) },
+	}, setID(t), cfgFor(), Request{}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"resolving_copy", "reading", "verifying", "validating", "cleaning_temporary_files", "complete"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("stages = %v, want %v", got, want)
+	}
+}

@@ -118,8 +118,20 @@ type scrubLimitsState struct {
 // scrubLimits is this process's shared admission control for scrub reads.
 // It is created once, so the scheduler tick and a manual scrub in the same
 // process draw on one global cap.
+//
+// Its ceilings are the deployment's own full-read ceilings
+// (assurance.max_concurrent_full_reads and max_per_destination), read when it
+// is first used; zero, as a hand-built configuration has, takes the defaults,
+// which are those settings' defaults.
 func (s *Service) scrubLimitsShared() *revalidate.Limits {
-	s.scrub.once.Do(func() { s.scrub.limits = revalidate.NewLimits(revalidate.Bounds{}) })
+	s.scrub.once.Do(func() {
+		var b revalidate.Bounds
+		if s.Config != nil {
+			b.GlobalConcurrency = s.Config.Assurance.MaxConcurrentFullReads
+			b.PerDestinationConcurrency = s.Config.Assurance.MaxPerDestination
+		}
+		s.scrub.limits = revalidate.NewLimits(b)
+	})
 	return s.scrub.limits
 }
 
@@ -171,7 +183,11 @@ func (s *Service) Scrub(ctx context.Context, req ScrubRequest) (ScrubSummary, er
 		if err := ctx.Err(); err != nil {
 			return s.finishScrub(ctx, journal, sum, started), fmt.Errorf("app: scrub cancelled: %w", err)
 		}
-		cfg := bs.Revalidation
+		// The scrub's configuration comes from the set's RESOLVED assurance
+		// policy, so a default install scrubs and assurance.scrub.cadence is
+		// the schedule the driver actually keeps. An explicit, enabled
+		// `revalidation:` block still wins (config.Assurance.Revalidation).
+		cfg := bs.Assurance.Revalidation(bs.Revalidation)
 		if req.forced() {
 			// An operator who names a copy has asked for the bytes to be
 			// read, and re-reading a local file costs nothing, so the hash
@@ -217,31 +233,34 @@ func (s *Service) Scrub(ctx context.Context, req ScrubRequest) (ScrubSummary, er
 // tally folds one set's report into the pass counts and emits the one
 // per-copy line a pass writes: for a copy that failed or could not be
 // checked.
+//
+// Every copy that does not pass gets exactly one scrub_failure line, and the
+// count of those lines is the pass's Failed plus CouldNotComplete. That holds
+// for an artifact the pass could not finish too: its error carries the
+// outcomes of the copies that were asked, and each is reported as itself, so a
+// copy the journal records as failed is never folded into its neighbour's
+// "could not be checked".
 func (s *Service) tally(ctx context.Context, sum *ScrubSummary, r revalidate.Report) {
 	sum.Selected += r.Selected
 	sum.BytesRead += r.BytesRead
 	for _, f := range r.Findings {
 		for _, c := range f.Copies {
-			switch {
-			case c.Refused:
-				sum.Refused++
-			case c.Verdict == state.ScrubPassed:
-				sum.Checked++
-				sum.Passed++
-			case c.Verdict == state.ScrubRequiresRestore:
-				sum.Checked++
-				sum.RequiresRestore++
-			case c.Verdict == state.ScrubFailed:
-				sum.Checked++
-				sum.Failed++
-				s.logger().ScrubFailure(ctx, f.Artifact.String(), c.Medium, string(c.Class), c.Reason)
-			case c.Verdict == state.ScrubCouldNotComplete:
-				sum.CouldNotComplete++
-				s.logger().ScrubFailure(ctx, f.Artifact.String(), c.Medium, string(c.Class), c.Reason)
-			}
+			s.tallyCopy(ctx, sum, f.Artifact, c)
 		}
 	}
 	for _, e := range r.Errors {
+		reported := false
+		for _, c := range e.Copies {
+			if s.tallyCopy(ctx, sum, e.Artifact, c) {
+				reported = true
+			}
+		}
+		if reported {
+			continue
+		}
+		// The problem came before any copy was asked, or every copy that was
+		// asked passed and the trouble was elsewhere (a hook that would not
+		// start). The artifact could not be checked, and it is said once.
 		sum.CouldNotComplete++
 		s.logger().ScrubFailure(ctx, e.Artifact.String(), "", "", e.Err.Error())
 	}
@@ -253,6 +272,31 @@ func (s *Service) tally(ctx context.Context, sum *ScrubSummary, r revalidate.Rep
 			sum.SkippedLeased++
 		}
 	}
+}
+
+// tallyCopy counts one copy's outcome and writes its scrub_failure line when
+// it failed or could not be checked. It reports whether it wrote one.
+func (s *Service) tallyCopy(ctx context.Context, sum *ScrubSummary, a model.ArtifactID, c revalidate.CopyResult) bool {
+	switch {
+	case c.Refused:
+		sum.Refused++
+	case c.Verdict == state.ScrubPassed:
+		sum.Checked++
+		sum.Passed++
+	case c.Verdict == state.ScrubRequiresRestore:
+		sum.Checked++
+		sum.RequiresRestore++
+	case c.Verdict == state.ScrubFailed:
+		sum.Checked++
+		sum.Failed++
+		s.logger().ScrubFailure(ctx, a.String(), c.Medium, string(c.Class), c.Reason)
+		return true
+	case c.Verdict == state.ScrubCouldNotComplete:
+		sum.CouldNotComplete++
+		s.logger().ScrubFailure(ctx, a.String(), c.Medium, string(c.Class), c.Reason)
+		return true
+	}
+	return false
 }
 
 // finishScrub writes the durable pass row, when the pass did anything worth
@@ -332,7 +376,18 @@ func (s *Service) ScrubTick(ctx context.Context) {
 	}
 }
 
-// runScrubTicks repeats ScrubTick every interval until ctx is done, with the
+// AssuranceTick is one scheduled assurance pass: the scrub, then the
+// recovery tests that are due. It is the single entry point both schedulers
+// call (the CLI daemon's loop here and core/service's RunOnSchedule, which is
+// what `retnd serve` runs), so a pass cannot be added to one and forgotten in
+// the other. TestEveryEntryPointInAssuranceTickIsCalledByBothSchedulers holds
+// them to it.
+func (s *Service) AssuranceTick(ctx context.Context) {
+	s.ScrubTick(ctx)
+	s.RecoveryTestTick(ctx)
+}
+
+// runScrubTicks repeats AssuranceTick every interval until ctx is done, with the
 // timer shape the alert ticks use: one timer, reset only after the pass
 // returns, so a slow pass makes the next late and never overlaps it.
 func (s *Service) runScrubTicks(ctx context.Context, interval time.Duration) {
@@ -357,6 +412,5 @@ func (s *Service) scrubTickRecovered(ctx context.Context) {
 			s.logger().Error(context.Background(), "scrub-tick-panic", fmt.Errorf("recovered panic: %v", r))
 		}
 	}()
-	s.ScrubTick(ctx)
-	s.RecoveryTestTick(ctx)
+	s.AssuranceTick(ctx)
 }

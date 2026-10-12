@@ -6,6 +6,9 @@ import (
 	"math/rand/v2"
 	"sync"
 	"time"
+
+	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // This file is the driver's bounds: how much of the deployment a scrub is
@@ -21,22 +24,23 @@ const (
 	// DefaultGlobalConcurrency is how many copies one process scrubs at the
 	// same moment, across every backup set. A scrub that re-hashes local
 	// disk competes with the backups it exists to protect, so the default is
-	// small: four readers is enough to keep a NAS's disks busy and few
-	// enough that a cycle running beside it still finishes.
-	DefaultGlobalConcurrency = 4
+	// small. It is the settings' own number
+	// (assurance.max_concurrent_full_reads), because a scrub read is a full
+	// read and the card names one ceiling for all of them.
+	DefaultGlobalConcurrency = config.DefaultMaxConcurrentReads
 
 	// DefaultPerDestinationConcurrency is how many of those may be reading
 	// the same destination (the local disk, or one storage medium). One
 	// medium is one set of credentials, one rate limit and one egress meter,
 	// and hammering it with every slot is how a scrub earns a provider's
-	// throttling.
-	DefaultPerDestinationConcurrency = 2
+	// throttling. It is assurance.max_per_destination's default.
+	DefaultPerDestinationConcurrency = config.DefaultMaxPerDestination
 
 	// DefaultJitterFraction spreads due times: a pass that finishes at T
 	// schedules the next at T + interval + up to this fraction of the
 	// interval, so a thousand copies checked together are not all due
 	// together again.
-	DefaultJitterFraction = 0.10
+	DefaultJitterFraction = state.ScrubJitterFraction
 
 	// DefaultBackoffBase and DefaultBackoffCap bound the retry of a copy
 	// that could not be checked or failed: base, then double each time the
@@ -165,6 +169,16 @@ func NewLimits(b Bounds) *Limits {
 		perDst: b.PerDestinationConcurrency,
 		dest:   map[string]chan struct{}{},
 	}
+}
+
+// Caps reports the global and the per-destination ceiling this limiter was
+// built with, so a caller (and a test) can see which numbers a read is
+// admitted under.
+func (l *Limits) Caps() (global, perDestination int) {
+	if l == nil {
+		return 0, 0
+	}
+	return cap(l.global), l.perDst
 }
 
 func (l *Limits) destSem(dst string) chan struct{} {

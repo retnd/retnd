@@ -180,6 +180,10 @@ func TestKindsAreExactlyTheDeliberatelyChosenConditions(t *testing.T) {
 		alert.WorkflowFailed,
 		alert.WorkflowCleanupFailed,
 		alert.WorkflowRecoveryRequired,
+		alert.ScrubOverdue,
+		alert.ScrubFailing,
+		alert.RecoveryTestOverdue,
+		alert.RecoveryTestFailing,
 	}
 
 	if len(alert.Kinds) != len(want) {
