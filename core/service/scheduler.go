@@ -416,6 +416,15 @@ func scrubBusyRetry(interval time.Duration) time.Duration {
 	return d
 }
 
+// scrubRetryTimer is the wait between a busy scrub tick's attempts, as a seam
+// for the same reason scheduleTimer is one: a test about a cycle that holds the
+// lock for many retries cannot wait them out, and shrinking the interval until
+// it can would test a cadence no deployment runs.
+var scrubRetryTimer = func(d time.Duration) (<-chan time.Time, func() bool) {
+	timer := time.NewTimer(d)
+	return timer.C, timer.Stop
+}
+
 // tickScrubWhenFree runs one scheduled pass, and when an operation holds the
 // single-flight lock it looks again shortly instead of giving up until the
 // next interval.
@@ -437,12 +446,12 @@ func (b *BackupService) tickScrubWhenFree(ctx context.Context, interval time.Dur
 			return
 		}
 		deferred = true
-		timer := time.NewTimer(retry)
+		fire, stop := scrubRetryTimer(retry)
 		select {
 		case <-ctx.Done():
-			timer.Stop()
+			stop()
 			return
-		case <-timer.C:
+		case <-fire:
 		}
 	}
 }
