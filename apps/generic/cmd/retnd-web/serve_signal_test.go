@@ -360,3 +360,102 @@ reading:
 		t.Fatalf("serve exited %d after the SIGTERM that stopped it, want 0", exitErr.ExitCode())
 	}
 }
+
+// TestServe_ADefaultConfigurationScrubsItsOwnCopyWithoutAnyoneAskingForOne is
+// panel finding C10 (matrix rows Q1.6 and Q1.21) at the level that finding is
+// about: the process. Every other proof that "a default install scrubs" calls
+// a tick, or RunOnSchedule, from inside a test; none of them can notice that
+// `serve` stopped starting the scheduler, or that the scheduler stopped
+// starting the scrub. This re-executes the shipped entry point on the same
+// default configuration the signal test uses (no `revalidation:` block, no
+// `assurance:` block, nothing new), lets its first cycle commit a real copy,
+// and waits for the scheduled pass the process runs on its own.
+//
+// The wait is one poll interval (the configuration's minimum, a minute),
+// because the scrub timer first fires an interval after start. That is slow
+// for a unit test and the reason it skips under -short; it is the only
+// honest way to see the timer, and a faster fake would be a test of the fake.
+func TestServe_ADefaultConfigurationScrubsItsOwnCopyWithoutAnyoneAskingForOne(t *testing.T) {
+	if testing.Short() {
+		t.Skip("waits one minimum poll interval for the scheduled scrub")
+	}
+	cfg := writeServeTestConfig(t)
+	raw, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "poll_interval: 15m\n") {
+		t.Fatal("the shared test configuration no longer names a 15m poll interval, so this test would wait on the wrong clock")
+	}
+	if err := os.WriteFile(cfg, []byte(strings.Replace(string(raw), "poll_interval: 15m\n", "poll_interval: 1m\n", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestServeChildProcess$")
+	cmd.Env = append(os.Environ(),
+		serveChildEnv+"=1",
+		serveChildConfig+"="+cfg,
+		serveChildAuthStore+"="+filepath.Join(t.TempDir(), "local-auth.json"),
+	)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("StdoutPipe: %v", err)
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("starting the serve child: %v", err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill() })
+
+	lines := make(chan string, 256)
+	go func() {
+		defer close(lines)
+		sc := bufio.NewScanner(stdout)
+		sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
+		for sc.Scan() {
+			lines <- sc.Text()
+		}
+	}()
+
+	var log []string
+	committed, scrubbed := false, false
+	deadline := time.After(150 * time.Second)
+waiting:
+	for {
+		select {
+		case line, ok := <-lines:
+			if !ok {
+				break waiting
+			}
+			log = append(log, line)
+			if strings.Contains(line, `"event":"commit"`) {
+				committed = true
+			}
+			// The scheduled pass, with the copy the first cycle committed
+			// in it and passing. A pass that selected nothing writes no
+			// line, so this cannot be satisfied by an idle tick.
+			if committed && strings.Contains(line, `"event":"scrub_pass"`) && strings.Contains(line, `"trigger":"schedule"`) && strings.Contains(line, `"passed":1`) {
+				scrubbed = true
+				_ = cmd.Process.Signal(syscall.SIGTERM)
+				break waiting
+			}
+		case <-deadline:
+			_ = cmd.Process.Kill()
+			t.Fatalf("no scheduled scrub of the committed copy within 150s on a default configuration (committed=%v)\nstdout:\n%s\nstderr:\n%s",
+				committed, strings.Join(log, "\n"), stderr.String())
+		}
+	}
+	go func() {
+		for range lines { // drain, so the child's exit is not held up on a full pipe
+		}
+	}()
+	_ = cmd.Wait()
+
+	if !committed {
+		t.Fatalf("the serve child never committed a copy, so there was nothing to scrub\nstdout:\n%s\nstderr:\n%s", strings.Join(log, "\n"), stderr.String())
+	}
+	if !scrubbed {
+		t.Errorf("the serve child committed a copy and never scrubbed it on its own schedule\nstdout:\n%s\nstderr:\n%s", strings.Join(log, "\n"), stderr.String())
+	}
+}
