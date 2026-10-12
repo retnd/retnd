@@ -274,7 +274,7 @@ TESTS_REPO_URL=https://github.com/retnd/retnd-tests.git
 # `git cat-file -p` on both: tree 24832df8), so no suite sees a difference.
 # bump_tests_pin.py and the gate now both refuse a sha that is not an
 # ancestor of their main, so this cannot happen again.
-TESTS_REPO_SHA=3aa1b92ef474926f63f5e3cfd2d61357d858a765
+TESTS_REPO_SHA=e91b356c9b287a0bbc75cb197e9a031ec5299003
 #
 # Moved to bccd71c, retnd-tests#65, off their merged main and not
 # off the branch, for the reason the paragraph about a794c38 above already
@@ -616,3 +616,17 @@ TESTS_REPO_SHA=3aa1b92ef474926f63f5e3cfd2d61357d858a765
 # exit 0, and the two *.1049.spec.ts Suite B specs are in. It carries none of
 # EPIC Q's suites, those wait for retnd-tests#89. This replaces 9584fa3, and
 # #88's merge descends from it.
+#
+# Moved to 9584fa3, which is the squash of retnd-tests#87 on their main, and it
+# moves nothing but the name. c75e4dd was that pull request's own head, and the
+# squash left it in no history that main has (git merge-base --is-ancestor says
+# no), which is the case the paragraph about a794c38 above warns about. Both
+# commits carry the same tree, 24832df, so no spec, fixture or harness file
+# differs between the old pin and the new one. This does not carry EPIC Q's
+# suites: those are retnd-tests#88 and #89, both still open, and the pin moves
+# past them in the branch that carries the product change once they have merged.
+#
+# Moved to e91b356, the merge of retnd-tests#89 on their main, for retnd#986. It
+# carries EPIC Q's Suites A, B and C (recovery, scrubbing and assurance), plus the
+# fixes for the two Suite A cases that had drifted from the product. This replaces
+# 3aa1b92, retnd-tests#88's merge, which #89 descends from.
