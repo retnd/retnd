@@ -2,6 +2,16 @@
   <img src="docs/site/assets/logo.svg" alt="retnd mark: a broken ring standing for a transfer cycle in progress, next to the retnd wordmark" width="175">
 </p>
 
+<p align="center">
+  <a href="https://github.com/retnd/retnd/actions/workflows/ci.yml"><img src="https://github.com/retnd/retnd/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status on main"></a>
+  <a href="https://github.com/retnd/retnd/actions/workflows/release.yml"><img src="https://github.com/retnd/retnd/actions/workflows/release.yml/badge.svg" alt="Release workflow status"></a>
+  <a href="https://github.com/retnd/retnd/actions/workflows/nightly-e2e.yml"><img src="https://github.com/retnd/retnd/actions/workflows/nightly-e2e.yml/badge.svg" alt="Nightly end-to-end status"></a>
+  <a href="https://github.com/retnd/retnd/actions/workflows/pages.yml"><img src="https://github.com/retnd/retnd/actions/workflows/pages.yml/badge.svg" alt="Site deployment status"></a>
+  <a href="https://github.com/retnd/retnd/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0 license"></a>
+  <a href="https://github.com/retnd/retnd/releases/latest"><img src="https://img.shields.io/github/v/release/retnd/retnd?display_name=tag" alt="Latest GitHub release"></a>
+  <a href="https://go.dev/"><img src="https://img.shields.io/github/go-mod/go-version/retnd/retnd?filename=core/go.mod" alt="Go version"></a>
+</p>
+
 
 A backup producer somewhere writes a dump, an archive or a snapshot to disk. That machine
 has finite space, so something has to move the artifact off it and something has to delete

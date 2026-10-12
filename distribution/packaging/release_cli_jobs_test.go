@@ -186,3 +186,44 @@ func TestProvenanceDocSaysTarballsAreUnsigned(t *testing.T) {
 		t.Errorf("docs/compliance/release-provenance.md must say the CLI tarballs carry SHA256SUMS and are not signed")
 	}
 }
+
+func TestReadmeKeepsItsStatusBadgeRow(t *testing.T) {
+	b, err := os.ReadFile(Path("README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	logo := strings.Index(s, "docs/site/assets/logo.svg")
+	if logo < 0 {
+		t.Fatal("README has no logo block")
+	}
+	rest := s[logo:]
+	if i := strings.Index(rest, "</p>"); i >= 0 {
+		rest = rest[i+4:]
+	}
+	if i := strings.Index(rest, "</p>"); i >= 0 {
+		rest = rest[:i]
+	}
+	if !strings.Contains(rest, `align="center"`) {
+		t.Errorf("the badge row must be a centred block directly under the logo")
+	}
+	for _, want := range []string{
+		"actions/workflows/ci.yml/badge.svg",
+		"actions/workflows/release.yml/badge.svg",
+		"actions/workflows/nightly-e2e.yml/badge.svg",
+		"actions/workflows/pages.yml/badge.svg",
+		"Apache--2.0",
+		"github/v/release/retnd/retnd",
+		"go-mod/go-version/retnd/retnd",
+	} {
+		if !strings.Contains(rest, want) {
+			t.Errorf("badge row is missing %q", want)
+		}
+	}
+	if n, m := strings.Count(rest, "<img "), strings.Count(rest, ` alt="`); n < 7 || n != m {
+		t.Errorf("want at least 7 badges each with alt text, got %d images and %d alts", n, m)
+	}
+	if strings.Contains(strings.ToLower(rest), "homebrew") {
+		t.Errorf("no Homebrew badge")
+	}
+}
