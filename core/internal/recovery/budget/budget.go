@@ -51,6 +51,13 @@ var exitCodes = map[Name]int{
 	DownloadStreams:  36,
 }
 
+// Unused lists the exit codes that were reserved for budgets FR-74 (as
+// amended, #1072) says defer, truncate or refuse elsewhere: copies per
+// scheduled pass (34), captured validator output (35) and scheduled egress
+// (37). No operator command can hit them, so none is emitted and none is to be
+// reused; a test holds every budget and every recovery refusal away from them.
+var Unused = []int{34, 35, 37}
+
 // ExitCode is the exit code a refusal of budget n carries.
 func ExitCode(n Name) int { return exitCodes[n] }
 

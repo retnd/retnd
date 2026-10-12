@@ -70,6 +70,7 @@ type keyedStore struct {
 	mu      sync.Mutex
 	objects map[string]int64
 	stats   []string
+	listed  []string
 }
 
 func (s *keyedStore) StatObject(_ context.Context, _ transport.Medium, key string) (transport.ObjectInfo, error) {
@@ -84,6 +85,24 @@ func (s *keyedStore) StatObject(_ context.Context, _ transport.Medium, key strin
 }
 func (s *keyedStore) OpenObject(context.Context, transport.Medium, string) (io.ReadCloser, error) {
 	return nil, errors.New("a scrub must not download")
+}
+
+// ListObjects answers the way a bucket does: the keys under prefix.
+func (s *keyedStore) ListObjects(_ context.Context, _ transport.Medium, prefix string) ([]transport.ObjectInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.listed = append(s.listed, prefix)
+	return objectsUnder(s.objects, prefix), nil
+}
+
+func objectsUnder(objects map[string]int64, prefix string) []transport.ObjectInfo {
+	var out []transport.ObjectInfo
+	for k, n := range objects {
+		if strings.HasPrefix(k, prefix+"/") {
+			out = append(out, transport.ObjectInfo{Key: k, Size: n})
+		}
+	}
+	return out
 }
 
 // Q1.18: one scrub_failure line per failure in the pass, no more and no
@@ -151,6 +170,9 @@ func (s *routedStore) StatObject(_ context.Context, _ transport.Medium, key stri
 		return transport.ObjectInfo{}, transport.NewError(transport.NotFound, "stat_object", errors.New("object not found"))
 	}
 	return transport.ObjectInfo{Key: key, Size: n}, nil
+}
+func (s *routedStore) ListObjects(_ context.Context, _ transport.Medium, prefix string) ([]transport.ObjectInfo, error) {
+	return objectsUnder(s.objects, prefix), nil
 }
 func (s *routedStore) OpenObject(context.Context, transport.Medium, string) (io.ReadCloser, error) {
 	return nil, errors.New("a scrub must not download")
@@ -281,6 +303,112 @@ func (s *perMediumStore) StatObject(_ context.Context, m transport.Medium, key s
 	}
 	return transport.ObjectInfo{}, transport.NewError(transport.NotFound, "stat_object", errors.New("object not found"))
 }
+func (s *perMediumStore) ListObjects(context.Context, transport.Medium, string) ([]transport.ObjectInfo, error) {
+	return nil, nil
+}
 func (s *perMediumStore) OpenObject(context.Context, transport.Medium, string) (io.ReadCloser, error) {
 	return nil, errors.New("a scrub must not download")
+}
+
+// scrubUnknownLines decodes the scrub_unknown_object lines of a log.
+func scrubUnknownLines(t *testing.T, buf *bytes.Buffer) []map[string]any {
+	t.Helper()
+	var out []map[string]any
+	for _, raw := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+		if raw == "" {
+			continue
+		}
+		var line map[string]any
+		if err := json.Unmarshal([]byte(raw), &line); err != nil {
+			t.Fatalf("log line is not JSON: %q: %v", raw, err)
+		}
+		if line["event"] == obs.EventScrubUnknownObject {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+// QC-04, the listing half, end to end through the driver: the destination is
+// listed, an object at a key the journal does not know comes out as a finding
+// (counted, logged, on the wire), the expected copy that is absent is still
+// the one counted failure, and the unknown object adds no scrub_failure line.
+func TestScrub_QC04_ListingTurnsAnUnknownKeyIntoAFindingNotACopy(t *testing.T) {
+	ctx := context.Background()
+	bs := testBackupSet(t, t.TempDir())
+	svc, journal := scrubService(t, scrubReval, bs)
+	var buf bytes.Buffer
+	svc.Logger = obs.New(&buf, obs.LevelDebug)
+	ns := "retnd/" + bs.ID.Source + "/" + bs.ID.Set
+	size := int64(len("the bytes of moved.dump"))
+	a := mediumOnlyArtifact(t, ctx, journal, bs, "moved.dump", ns+"/moved.dump", size)
+	store := &keyedStore{objects: map[string]int64{
+		ns + "/stray/moved.dump": size, // right name and size, wrong key
+		"retnd/other/set/x.bin":  3,    // another namespace: not this set's
+	}}
+	svc.MediumStore = store
+
+	sum, err := svc.Scrub(ctx, ScrubRequest{Trigger: state.ScrubBySchedule})
+	if err != nil {
+		t.Fatalf("Scrub: %v", err)
+	}
+	if sum.Passed != 0 || sum.Failed != 1 {
+		t.Errorf("summary = %+v, want the one absent copy failed and nothing passed", sum)
+	}
+	if sum.Unknown != 1 {
+		t.Errorf("Unknown = %d, want 1", sum.Unknown)
+	}
+	if len(store.listed) != 1 || store.listed[0] != ns {
+		t.Errorf("listed %v, want the set's namespace %q once", store.listed, ns)
+	}
+	if lines := scrubFailureLines(t, &buf); len(lines) != sum.Failed+sum.CouldNotComplete {
+		t.Errorf("%d scrub_failure lines for %d failures: an unknown object is not one", len(lines), sum.Failed+sum.CouldNotComplete)
+	}
+	unk := scrubUnknownLines(t, &buf)
+	if len(unk) != 1 || unk[0]["key"] != ns+"/stray/moved.dump" || unk[0]["medium"] != moveTestMedium {
+		t.Errorf("scrub_unknown_object lines = %v, want one for the stray key on %s", unk, moveTestMedium)
+	}
+	w := sum.Wire()
+	if len(w.Sets) != 1 || len(w.Sets[0].UnknownObjects) != 1 {
+		t.Fatalf("wire = %+v, want the one unknown object", w.Sets)
+	}
+	if u := w.Sets[0].UnknownObjects[0]; u.Key != ns+"/stray/moved.dump" || u.Medium != moveTestMedium || u.Size != size {
+		t.Errorf("wire unknown object = %+v", u)
+	}
+	rec, _ := journal.Get(ctx, a)
+	for _, p := range rec.ActiveMediumPlacements() {
+		if p.AssuranceState == state.AssurancePassed {
+			t.Errorf("the copy at %q is recorded as passed", p.Location)
+		}
+	}
+}
+
+// A destination the pass cannot list is counted and said, on the wire too.
+func TestScrub_QC04_AnUnlistableDestinationIsCountedAndNotAFailure(t *testing.T) {
+	ctx := context.Background()
+	bs := testBackupSet(t, t.TempDir())
+	svc, journal := scrubService(t, scrubReval, bs)
+	ns := "retnd/" + bs.ID.Source + "/" + bs.ID.Set
+	size := int64(len("the bytes of kept.dump"))
+	mediumOnlyArtifact(t, ctx, journal, bs, "kept.dump", ns+"/kept.dump", size)
+	svc.MediumStore = &noListStore{keyedStore: &keyedStore{objects: map[string]int64{ns + "/kept.dump": size}}}
+
+	sum, err := svc.Scrub(ctx, ScrubRequest{Trigger: state.ScrubBySchedule})
+	if err != nil {
+		t.Fatalf("Scrub: %v", err)
+	}
+	if sum.Unlisted != 1 || sum.Unknown != 0 || sum.Failed != 0 || sum.Passed != 1 {
+		t.Errorf("summary = %+v, want one unlisted medium and the copy still passed", sum)
+	}
+	w := sum.Wire()
+	if len(w.Sets[0].Unlisted) != 1 || w.Sets[0].Unlisted[0].Medium != moveTestMedium {
+		t.Errorf("wire unlisted = %+v", w.Sets[0].Unlisted)
+	}
+}
+
+// noListStore is a keyedStore whose listing fails the way a down medium does.
+type noListStore struct{ *keyedStore }
+
+func (s *noListStore) ListObjects(context.Context, transport.Medium, string) ([]transport.ObjectInfo, error) {
+	return nil, transport.NewError(transport.Transient, "list_objects", errors.New("dial tcp: i/o timeout"))
 }

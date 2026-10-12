@@ -189,8 +189,32 @@ func flagRecordFault(f Finding, local localValidity) Finding {
 // runs against every artifact on every cycle, and a HEAD per artifact per
 // cycle is a bill internal/revalidate already pays on a schedule the
 // operator chose.
+//
+// One thing is read from the journal about those copies, and it is not a read
+// of the medium: a copy whose last check FAILED (a scrub that found the bytes
+// wrong, a destination that attested a checksum other than the one recorded
+// when a recovery asked, #983) is a positive finding that an operator has to
+// see. Reporting it as "left on a medium, no action" would hide the one copy
+// in the set that is known to be bad behind the sentence that says everything
+// is in order. So the Finding is flagged NeedsInvestigation and its reason
+// names the copy and what was recorded. It is still a no-action finding: the
+// state is unchanged, because whether an artifact is quarantined depends on
+// whether another verified copy survives, and that decision belongs to the
+// scrub (FR-31), not to a pass that cannot read a medium.
 func leftOnMedium(rec state.Record, st lifecycle.State, local localValidity) Finding {
-	return noAction(rec.Artifact, st, local.Reason)
+	f := noAction(rec.Artifact, st, local.Reason)
+	for _, p := range rec.ActiveMediumPlacements() {
+		if p.AssuranceState != state.AssuranceFailed {
+			continue
+		}
+		f.NeedsInvestigation = true
+		reason := p.LastFailureReason
+		if reason == "" {
+			reason = "its last check failed"
+		}
+		f.Reason += fmt.Sprintf("; the copy on %s is recorded as failing: %s", p.Medium, reason)
+	}
+	return f
 }
 
 // reconcileRemoteRetained handles the REMOTE_RETAINED row (issue #315):

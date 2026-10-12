@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "5abe33f3a4b27b3bccf32ca56cffe7925a07c5233cdd430dbc4734ef489acdc5";
+export const CONTRACT_SHA256 = "c78221ee8574664e98bd04e04cc886ead95566deea001fbad0dcd5bf44cb9449";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -3945,6 +3945,8 @@ export interface WireScrubResult {
   skipped_held: number;
   skipped_leased: number;
   trigger: string;
+  unknown_objects?: number;
+  unlisted?: number;
 }
 
 /** One backup set's part of a scrub. */
@@ -3954,6 +3956,8 @@ export interface WireScrubSetResult {
   error?: string;
   errors: WireScrubArtifactError[];
   skipped: WireScrubSkip[];
+  unknown_objects?: WireScrubUnknownObject[];
+  unlisted?: WireScrubUnlistedMedium[];
 }
 
 /** Work a scrub was asked to do and did not. A skip is always
@@ -3970,6 +3974,23 @@ export interface WireScrubSkip {
 export interface WireScrubStarted {
   backup_set_id: string;
   operation_id: string;
+}
+
+/** An object a storage medium holds under a backup set's namespace at
+ *  a key the journal has no placement for (QC-04). It is a finding
+ *  for an operator to look at: never a verified copy of anything, and
+ *  a scrub never reads, moves or deletes it. */
+export interface WireScrubUnknownObject {
+  key: string;
+  medium: string;
+  size: number;
+}
+
+/** A storage medium the pass could not enumerate, so that no unknown
+ *  objects reported for it does not read as nothing being there. */
+export interface WireScrubUnlistedMedium {
+  medium: string;
+  reason: string;
 }
 
 /** The rules the service-behaviour settings are validated against,

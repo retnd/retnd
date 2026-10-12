@@ -319,6 +319,15 @@ bash scripts/brand/selftest.sh
 gate_step "every package's go doc overview still matches its baseline, carriers included (#526)"
 bash scripts/docs/check-package-doc.sh
 
+# The docs site's contrast rule (#1054): WCAG 2.x AA, 4.5:1 for normal text
+# and 3:1 for large text and control boundaries, against the background the
+# text actually sits on, in both themes. The tokens are checked here with no
+# browser (and with the checker's own positive controls first); the rendered
+# pages, which is where an inherited colour or an opacity shows up, are
+# checked in the Docker-backed step further down.
+gate_step "docs site colour tokens meet WCAG AA in both themes, and the checker can still fail (#1054)"
+bash scripts/contrast/check.sh
+
 # The same blind spot, for the checks that actually find bugs (#417). Being
 # outside every module does not only cost those two files their formatting:
 # this gate vets and lints per module too, so nothing has ever vetted or
@@ -351,6 +360,15 @@ bash scripts/architecture/check-unowned-go.sh
 # nothing and needs no Docker, and it costs about a second.
 gate_step "the e2e drivers' --help is still the text it was (#514)"
 bash scripts/tests/e2e-help.test.sh
+
+# A tests pin must name a commit on retnd-tests main (#1074). The pin once
+# pointed at the head of an open retnd-tests PR, which the gate ran
+# happily, and the bump tool had been written not to check. Both now
+# refuse, and this runs fixture git repositories over file:// (no network,
+# no Docker) to prove it, including a planted check that always passes,
+# which the suite has to notice.
+gate_step "a tests pin must be on retnd-tests main (#1074)"
+bash scripts/tests/pin-on-main.test.sh
 
 # Every Python file under scripts/, held to a linter, and the subset that is
 # clean under a type checker held to that too (EPIC I / I1.6, #672).
@@ -446,6 +464,14 @@ bash scripts/tests/two-machine-ci-verdict.test.sh
 gate_step "the release gate still covers every job in ci.yml (#575)"
 bash scripts/tests/release-gate-covers-every-job.test.sh
 
+# Every Go module resolves its own dependencies without go.work (#1064). The
+# workspace builds the whole tree on the highest version of every requirement,
+# so a dependency bumped in core/ alone is green everywhere the workspace is
+# used and red in the product image and under GOWORK=off. #1003, #797 and #838
+# were all that.
+gate_step "every Go module resolves its own dependencies without go.work (#1064)"
+bash scripts/tests/every-module-builds-on-its-own.test.sh
+
 # The other half of the same gate, and the half that does not need a
 # settings page to be true (#575). A required check gates while branch
 # protection says it does, and a direct push, an administrator merging
@@ -536,6 +562,17 @@ gate_step "apps/common go build, vet, test -race"
 
 gate_step "apps/common golangci-lint"
 (cd apps/common && GOWORK=off golangci-lint run --config "$REPO_ROOT/.golangci.yml" ./...)
+
+# The rendered half of the same rule (#1054): every page, light and dark,
+# every visible text node against its composited background, in the Playwright
+# image pinned for the e2e machines. Non-FAST only, like the other
+# Docker-backed browser step, so a FAST run cannot merge on it. It sits after
+# core/'s first Docker-backed step on purpose: ci-local-gate.test.sh's J1 lets
+# exactly one `docker info` answer and expects the run to fail at that step.
+if [ "$FAST" != "1" ]; then
+  gate_docker_step "docs site rendered contrast: every visible text node, both themes (#1054)"
+  bash scripts/contrast/run-browser-check.sh
+fi
 
 gate_docker_step "distribution go build, vet, test -race (every package but packaging, which runs next)"
 (cd distribution && GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test -race $(GOWORK=off go list ./... | grep -v '/packaging$'))
@@ -820,6 +857,12 @@ bash scripts/perf/selftest.sh
 # intact.
 gate_step "/api/v1 bindings match the contract, and no implementation type leaks (#166)"
 bash scripts/api/check-contract-drift.sh
+
+# The contract generator answers the same way every time it is run (#1066).
+# check-contract-drift.sh regenerates and compares, so a generator that can
+# answer two ways fails a clean tree about half the time.
+gate_step "the contract generator is deterministic (#1066)"
+bash scripts/tests/api-generator-is-deterministic.test.sh
 
 # The other half of #166's "generated from it or mechanically validated
 # against it": ui/shared/src/api/client.ts is hand-written on top of the
