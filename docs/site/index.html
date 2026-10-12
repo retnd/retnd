@@ -20,7 +20,15 @@
       font-family: "IBM Plex Mono", monospace;
       font-size: 0.9rem;
       line-height: 1.4;
-      opacity: 0.78;
+      /* The hero bar is dark in both themes, so this line is white in
+         both. It used to set no colour at all and fell through to the
+         page's paragraph colour, which is dark grey in the light theme:
+         1.9:1 on the bar (#1054). */
+      color: var(--white);
+      opacity: 0.85;
+    }
+    .brand-pronunciation strong {
+      color: inherit;
     }
     .brand-pronunciation-word {
       font-weight: 600;

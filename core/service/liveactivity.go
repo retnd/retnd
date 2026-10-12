@@ -53,7 +53,7 @@ import (
 // that.
 //
 // The EVENTS used to share that fate and no longer do: they are also written
-// to the journal (liveactivity_durable.go, migration 0017), so a restart
+// to the journal (liveactivity_durable.go, migration 0018), so a restart
 // refills the ring instead of emptying it, the sequence counter continues
 // instead of starting again, and a client can page back past the ring with
 // before=. What is written, what is not and why, and the retention rule are

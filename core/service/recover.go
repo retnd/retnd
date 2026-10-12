@@ -735,6 +735,7 @@ type recoveryEvent struct {
 	copy     string
 	target   string
 	bytes    int64
+	total    int64 // the artifact's size, on the rows that end a download
 	rng      string
 	note     string
 }
@@ -787,6 +788,9 @@ func (b *BackupService) auditRecovery(ctx context.Context, ev *recoveryEvent, er
 	}
 	if ev.bytes > 0 {
 		attrs = append(attrs, slog.Int64("bytes", ev.bytes))
+	}
+	if ev.total > 0 {
+		attrs = append(attrs, slog.Int64("total_bytes", ev.total))
 	}
 	if ev.note != "" {
 		attrs = append(attrs, slog.String("detail", ev.note))

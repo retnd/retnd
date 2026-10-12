@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "a94763e05df70fa8cad1353e363e67b45946e9fbfd4d00ea58a44857c683756c"
+const ContractSHA256 = "406fef1aa5b638be069843a6c861320bfb05269fe14829c074d07d82c33c23aa"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -421,6 +421,18 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "cancelAssuranceOperation", Method: "POST", Path: "/assurance/operations/{op}/cancel",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AssuranceOperationCancelled", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeOperationNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
 		ID: "enrollAdministrator", Method: "POST", Path: "/auth/enroll",
 		Authenticated: false, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "EnrollRequest", ResponseSchema: "", SuccessStatus: 204,
@@ -752,6 +764,17 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "getRecoveryTestOutput", Method: "GET", Path: "/backup-sets/{source}/{set}/recovery-test/output",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "RecoveryTestOutput", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
 		ID: "clearBackupSetRetention", Method: "DELETE", Path: "/backup-sets/{source}/{set}/retention",
 		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "BackupSetRetention", SuccessStatus: 200,
@@ -810,6 +833,20 @@ var Endpoints = []Endpoint{
 			400: {ErrorCodeInvalidRequest},
 			401: {ErrorCodeUnauthenticated},
 			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "startScrub", Method: "POST", Path: "/backup-sets/{source}/{set}/scrub",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound},
+			409: {ErrorCodeOperationAlreadyRunning},
 			500: {ErrorCodeInternal},
 			503: {ErrorCodeNotConfigured},
 		},
@@ -1075,7 +1112,7 @@ var Endpoints = []Endpoint{
 	{
 		ID: "redeemRecovery", Method: "GET", Path: "/recoveries/{grant}",
 		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "", ResponseSchema: "RecoveryResult", SuccessStatus: 200,
+		RequestSchema: "", ResponseSchema: "RecoveryResult", SuccessStatus: 206,
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
 			403: {ErrorCodeRecoveryGrantSessionEnded},
@@ -1694,6 +1731,14 @@ type AssuranceHostKnob struct {
 	PerSet bool   `json:"per_set"`
 	Reason string `json:"reason"`
 	Value  string `json:"value"`
+}
+
+// AssuranceOperationCancelled is A running scrub or recovery test has been told to stop.
+type AssuranceOperationCancelled struct {
+	BackupSetID string `json:"backup_set_id"`
+	Kind        string `json:"kind"`
+	OperationID string `json:"operation_id"`
+	Status      string `json:"status"`
 }
 
 // AssuranceRecoveryTestPolicy is A resolved recovery-test policy.
@@ -2803,12 +2848,36 @@ type RecoveryTarget struct {
 	Path   string `json:"path,omitempty"`
 }
 
+// RecoveryTestOutput is what the newest recovery test of a backup set printed. Only the
+// newest test is kept per set.
+type RecoveryTestOutput struct {
+	ArtifactID  string                     `json:"artifact_id"`
+	BackupSetID string                     `json:"backup_set_id"`
+	Medium      string                     `json:"medium"`
+	OperationID string                     `json:"operation_id"`
+	Recorded    bool                       `json:"recorded"`
+	RecordedAt  string                     `json:"recorded_at"`
+	Records     []RecoveryTestOutputRecord `json:"records"`
+	State       string                     `json:"state"`
+	Truncated   bool                       `json:"truncated"`
+}
+
+// RecoveryTestOutputRecord is one line of a validator's output, or the runner's own truncation
+// marker. Branch on kind and never on text: only the runner produces
+// a truncation record, so a validator that prints the marker's words
+// is still an output record.
+type RecoveryTestOutputRecord struct {
+	Kind string `json:"kind"`
+	Text string `json:"text"`
+}
+
 // RecoveryTestStarted is A recovery test is under way. operation_id is carried by its
 // recovery_test_start, recovery_stage and recovery_test_end lines on
 // the activity feed, which is how a client follows it; the verdict
 // is the copy's recovery claim once it ends.
 type RecoveryTestStarted struct {
 	BackupSetID string `json:"backup_set_id"`
+	Coalesced   bool   `json:"coalesced"`
 	OperationID string `json:"operation_id"`
 }
 
@@ -3098,6 +3167,92 @@ type SSHKeyDiscoveryLocation struct {
 	Kind    string `json:"kind"`
 	Path    string `json:"path"`
 	Problem string `json:"problem,omitempty"`
+}
+
+// ScrubArtifactError is an artifact the pass could not give a verdict at all, with the
+// infrastructure problem that stopped it. The copies it did get a
+// verdict for are in the set's copies, each once.
+type ScrubArtifactError struct {
+	ArtifactID string `json:"artifact_id"`
+	Error      string `json:"error"`
+}
+
+// ScrubCopyOutcome is what a scrub learned about one copy of one artifact. The class is
+// the class that RAN, never the class asked for: a HEAD is reported
+// as a HEAD.
+type ScrubCopyOutcome struct {
+	ArtifactID string `json:"artifact_id"`
+	Class      string `json:"class,omitempty"`
+	Medium     string `json:"medium"`
+	Reason     string `json:"reason,omitempty"`
+	Refused    bool   `json:"refused"`
+	Verdict    string `json:"verdict"`
+}
+
+// ScrubResult is what one scrub did: the counts the pass recorded plus the per-set
+// detail. It is the body `retnd scrub --json` prints, and the one
+// result shape every route that reports a scrub reuses.
+type ScrubResult struct {
+	BytesRead        int64            `json:"bytes_read"`
+	Checked          int64            `json:"checked"`
+	CouldNotComplete int64            `json:"could_not_complete"`
+	Failed           int64            `json:"failed"`
+	PassID           int64            `json:"pass_id,omitempty"`
+	Passed           int64            `json:"passed"`
+	Refused          int64            `json:"refused"`
+	RequiresRestore  int64            `json:"requires_restore"`
+	Scope            string           `json:"scope"`
+	Selected         int64            `json:"selected"`
+	Sets             []ScrubSetResult `json:"sets"`
+	SkippedHeld      int64            `json:"skipped_held"`
+	SkippedLeased    int64            `json:"skipped_leased"`
+	Trigger          string           `json:"trigger"`
+	UnknownObjects   int64            `json:"unknown_objects,omitempty"`
+	Unlisted         int64            `json:"unlisted,omitempty"`
+}
+
+// ScrubSetResult is one backup set's part of a scrub.
+type ScrubSetResult struct {
+	BackupSetID    string                `json:"backup_set_id"`
+	Copies         []ScrubCopyOutcome    `json:"copies"`
+	Error          string                `json:"error,omitempty"`
+	Errors         []ScrubArtifactError  `json:"errors"`
+	Skipped        []ScrubSkip           `json:"skipped"`
+	UnknownObjects []ScrubUnknownObject  `json:"unknown_objects,omitempty"`
+	Unlisted       []ScrubUnlistedMedium `json:"unlisted,omitempty"`
+}
+
+// ScrubSkip is work a scrub was asked to do and did not. A skip is always
+// reported: a copy that was due and silently not looked at is the
+// same failure as one never scheduled.
+type ScrubSkip struct {
+	ArtifactID string `json:"artifact_id,omitempty"`
+	Medium     string `json:"medium,omitempty"`
+	Reason     string `json:"reason"`
+}
+
+// ScrubStarted is A scrub is under way. operation_id is what POST
+// /assurance/operations/{op}/cancel takes.
+type ScrubStarted struct {
+	BackupSetID string `json:"backup_set_id"`
+	OperationID string `json:"operation_id"`
+}
+
+// ScrubUnknownObject is an object a storage medium holds under a backup set's namespace at
+// a key the journal has no placement for (QC-04). It is a finding
+// for an operator to look at: never a verified copy of anything, and
+// a scrub never reads, moves or deletes it.
+type ScrubUnknownObject struct {
+	Key    string `json:"key"`
+	Medium string `json:"medium"`
+	Size   int64  `json:"size"`
+}
+
+// ScrubUnlistedMedium is A storage medium the pass could not enumerate, so that no unknown
+// objects reported for it does not read as nothing being there.
+type ScrubUnlistedMedium struct {
+	Medium string `json:"medium"`
+	Reason string `json:"reason"`
 }
 
 // ServiceSchema is the rules the service-behaviour settings are validated against,
@@ -4059,6 +4214,7 @@ var SchemaTypes = map[string]any{
 	"AssuranceDueItem":                   AssuranceDueItem{},
 	"AssuranceDueResponse":               AssuranceDueResponse{},
 	"AssuranceHostKnob":                  AssuranceHostKnob{},
+	"AssuranceOperationCancelled":        AssuranceOperationCancelled{},
 	"AssuranceRecoveryTestPolicy":        AssuranceRecoveryTestPolicy{},
 	"AssuranceScrubPolicy":               AssuranceScrubPolicy{},
 	"AssuranceSettingsResponse":          AssuranceSettingsResponse{},
@@ -4141,6 +4297,8 @@ var SchemaTypes = map[string]any{
 	"RecoverySettingsResponse":           RecoverySettingsResponse{},
 	"RecoverySettingsUpdate":             RecoverySettingsUpdate{},
 	"RecoveryTarget":                     RecoveryTarget{},
+	"RecoveryTestOutput":                 RecoveryTestOutput{},
+	"RecoveryTestOutputRecord":           RecoveryTestOutputRecord{},
 	"RecoveryTestStarted":                RecoveryTestStarted{},
 	"RepositoryHealth":                   RepositoryHealth{},
 	"RepositoryMaintenance":              RepositoryMaintenance{},
@@ -4161,6 +4319,14 @@ var SchemaTypes = map[string]any{
 	"SSHKey":                             SSHKey{},
 	"SSHKeyCandidate":                    SSHKeyCandidate{},
 	"SSHKeyDiscoveryLocation":            SSHKeyDiscoveryLocation{},
+	"ScrubArtifactError":                 ScrubArtifactError{},
+	"ScrubCopyOutcome":                   ScrubCopyOutcome{},
+	"ScrubResult":                        ScrubResult{},
+	"ScrubSetResult":                     ScrubSetResult{},
+	"ScrubSkip":                          ScrubSkip{},
+	"ScrubStarted":                       ScrubStarted{},
+	"ScrubUnknownObject":                 ScrubUnknownObject{},
+	"ScrubUnlistedMedium":                ScrubUnlistedMedium{},
 	"ServiceSchema":                      ServiceSchema{},
 	"ServiceSettings":                    ServiceSettings{},
 	"SessionResponse":                    SessionResponse{},

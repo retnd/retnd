@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/retnd/retnd/core/service"
 )
 
@@ -21,6 +23,9 @@ import (
 //	GET/PATCH/DELETE /backup-sets/{source}/{set}/assurance
 //	GET              /assurance/due
 //	POST             /backup-sets/{source}/{set}/recovery-test
+//	GET              /backup-sets/{source}/{set}/recovery-test/output
+//	POST             /backup-sets/{source}/{set}/scrub
+//	POST             /assurance/operations/{op}/cancel
 //
 // The set resource is PATCH plus DELETE rather than PUT. A per-set override
 // merges field by field with the deployment's (a field the set does not name
@@ -101,7 +106,37 @@ type startRecoveryTestRequest struct {
 
 type recoveryTestStartedResponse struct {
 	BackupSetID string `json:"backup_set_id"`
+	Coalesced   bool   `json:"coalesced"`
 	OperationID string `json:"operation_id"`
+}
+
+type scrubStartedResponse struct {
+	BackupSetID string `json:"backup_set_id"`
+	OperationID string `json:"operation_id"`
+}
+
+type assuranceOperationCancelledResponse struct {
+	BackupSetID string `json:"backup_set_id"`
+	Kind        string `json:"kind"`
+	OperationID string `json:"operation_id"`
+	Status      string `json:"status"`
+}
+
+type recoveryTestOutputRecordBody struct {
+	Kind string `json:"kind"`
+	Text string `json:"text"`
+}
+
+type recoveryTestOutputResponse struct {
+	ArtifactID  string                         `json:"artifact_id"`
+	BackupSetID string                         `json:"backup_set_id"`
+	Medium      string                         `json:"medium"`
+	OperationID string                         `json:"operation_id"`
+	Recorded    bool                           `json:"recorded"`
+	RecordedAt  string                         `json:"recorded_at"`
+	Records     []recoveryTestOutputRecordBody `json:"records"`
+	State       string                         `json:"state"`
+	Truncated   bool                           `json:"truncated"`
 }
 
 type assuranceDueItemBody struct {
@@ -254,13 +289,63 @@ func (h *handlers) startRecoveryTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	started, err := h.backend.StartRecoveryTest(r.Context(), backupSetIDFromRoute(r), service.RecoveryTestOptions{
-		ArtifactID: body.ArtifactID, AcknowledgeCost: body.Acknowledged,
+		ArtifactID: body.ArtifactID, AcknowledgeCost: body.Acknowledged, Actor: actorFromContext(r.Context()),
 	})
 	if err != nil {
 		h.writeAssuranceError(w, r, err, "failed to start the recovery test")
 		return
 	}
-	writeJSON(w, http.StatusAccepted, recoveryTestStartedResponse{BackupSetID: started.BackupSetID, OperationID: started.OperationID})
+	writeJSON(w, http.StatusAccepted, recoveryTestStartedResponse{BackupSetID: started.BackupSetID, OperationID: started.OperationID, Coalesced: started.Coalesced})
+}
+
+// startScrub is the operator's "scrub this set now". Like the recovery test it
+// is CSRF and not the destructive gate: it reads the set's copies and writes
+// a verdict on each, and deletes nothing. It answers 202 at once with the
+// operation id POST /assurance/operations/{op}/cancel takes.
+func (h *handlers) startScrub(w http.ResponseWriter, r *http.Request) {
+	started, err := h.backend.StartScrub(r.Context(), backupSetIDFromRoute(r), service.ScrubOptions{Actor: actorFromContext(r.Context())})
+	if err != nil {
+		h.writeAssuranceError(w, r, err, "failed to start the scrub")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, scrubStartedResponse{BackupSetID: started.BackupSetID, OperationID: started.OperationID})
+}
+
+// cancelAssuranceOperation stops a running scrub or recovery test. It is not
+// under /operations, which the destructive gate owns: stopping a read deletes
+// nothing, so it has to work on a deployment whose gate is shut.
+func (h *handlers) cancelAssuranceOperation(w http.ResponseWriter, r *http.Request) {
+	got, err := h.backend.CancelAssuranceOperation(r.Context(), chi.URLParam(r, "op"))
+	if err != nil {
+		h.writeAssuranceError(w, r, err, "failed to cancel the operation")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, assuranceOperationCancelledResponse{
+		BackupSetID: got.BackupSetID, Kind: got.Kind, OperationID: got.OperationID, Status: got.Status,
+	})
+}
+
+// getRecoveryTestOutput is what the newest recovery test of a set printed.
+// The records are the runner's sanitised, bounded ones, so the body holds no
+// control byte; a client shows the text as text.
+func (h *handlers) getRecoveryTestOutput(w http.ResponseWriter, r *http.Request) {
+	out, err := h.backend.RecoveryTestOutput(r.Context(), backupSetIDFromRoute(r))
+	if err != nil {
+		h.writeAssuranceError(w, r, err, "failed to read the recovery test's output")
+		return
+	}
+	body := recoveryTestOutputResponse{
+		BackupSetID: out.BackupSetID, Recorded: out.Recorded, Truncated: out.Truncated,
+		Records: make([]recoveryTestOutputRecordBody, 0, len(out.Records)),
+	}
+	if out.Recorded {
+		body.OperationID, body.ArtifactID, body.Medium, body.State = out.OperationID, out.ArtifactID, out.Medium, out.State
+		body.RecordedAt = out.RecordedAt.UTC().Format(time.RFC3339)
+	}
+	for _, rec := range out.Records {
+		body.Records = append(body.Records, recoveryTestOutputRecordBody{Kind: rec.Kind, Text: rec.Text})
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
 func (h *handlers) writeAssuranceError(w http.ResponseWriter, r *http.Request, err error, internal string) {
@@ -273,6 +358,10 @@ func (h *handlers) writeAssuranceError(w http.ResponseWriter, r *http.Request, e
 			writeError(w, http.StatusNotFound, "ARTIFACT_NOT_FOUND", "no such backup"), err)
 	case errors.Is(err, service.ErrRecoveryTestRunning):
 		writeError(w, http.StatusConflict, "OPERATION_ALREADY_RUNNING", "a recovery test of this backup set is already running")
+	case errors.Is(err, service.ErrScrubRunning):
+		writeError(w, http.StatusConflict, "OPERATION_ALREADY_RUNNING", "a scrub of this backup set is already running")
+	case errors.Is(err, service.ErrOperationNotFound):
+		writeError(w, http.StatusNotFound, "OPERATION_NOT_FOUND", "operation not found: no scrub or recovery test with that id is running on this engine (it may have finished)")
 	case errors.Is(err, service.ErrInvalidRequest):
 		// Safe to echo, on core/service's standing guarantee for this
 		// sentinel: the text is built from config's own field descriptions

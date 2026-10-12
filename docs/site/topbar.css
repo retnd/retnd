@@ -496,11 +496,11 @@ html, body {
 
   /* Highlight the current page with a filled primary chip. */
   .topbar-menu a.is-current {
-    background: var(--primary, #3a628f);
-    border-color: var(--primary, #3a628f);
+    background: var(--fill-primary, #3a628f);
+    border-color: var(--fill-primary, #3a628f);
   }
 
-  .topbar-menu a.is-current:hover { opacity: 0.9; background: var(--primary, #3a628f); }
+  .topbar-menu a.is-current:hover { opacity: 0.9; background: var(--fill-primary, #3a628f); }
 
   /* The mobile-only divider has no purpose in the inline strip. */
   .topbar-menu .menu-divider { display: none; }

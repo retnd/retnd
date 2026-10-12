@@ -86,6 +86,12 @@ type ScrubSummary struct {
 	SkippedHeld, SkippedLeased, Refused                                  int
 	BytesRead                                                            int64
 
+	// Unknown counts objects destinations hold at keys the journal does not
+	// know (QC-04), and Unlisted the destinations a pass could not enumerate.
+	// Neither is a copy outcome: an unknown object is never Passed, and
+	// neither adds to Failed or to the scrub_failure lines.
+	Unknown, Unlisted int
+
 	// PassID is the durable pass row, or 0 when the pass had nothing to
 	// record (an idle tick writes no row, or a quiet deployment would grow
 	// an append-only table by one row per poll for ever).
@@ -198,6 +204,10 @@ func (s *Service) Scrub(ctx context.Context, req ScrubRequest) (ScrubSummary, er
 		opts := revalidate.Options{
 			Force: req.forced(), Only: req.Artifact, Medium: req.Medium,
 			Content: req.Content, AllowEgress: req.AllowEgress,
+			// An operator who ran a scrub asked to be told what is there,
+			// even on a day nothing is due. The scheduler lists only when
+			// it checked something, so an idle poll costs no listing.
+			ListDestinations: req.Trigger == state.ScrubByManual,
 		}
 		report, runErr := revalidate.RunWith(setCtx, deps, bs.ID, cfg, opts)
 		cancel()
@@ -208,7 +218,7 @@ func (s *Service) Scrub(ctx context.Context, req ScrubRequest) (ScrubSummary, er
 			runErr = nil
 		}
 		sum.Sets = append(sum.Sets, ScrubSetReport{Set: bs.ID, Report: report, Err: runErr})
-		s.tally(ctx, &sum, report)
+		s.tally(ctx, &sum, bs.ID, report)
 		if runErr != nil && ctx.Err() != nil {
 			return s.finishScrub(ctx, journal, sum, started), fmt.Errorf("app: scrub cancelled: %w", runErr)
 		}
@@ -233,33 +243,49 @@ func (s *Service) Scrub(ctx context.Context, req ScrubRequest) (ScrubSummary, er
 // tally folds one set's report into the pass counts and emits the one
 // per-copy line a pass writes: for a copy that failed or could not be
 // checked.
-func (s *Service) tally(ctx context.Context, sum *ScrubSummary, r revalidate.Report) {
+//
+// Every copy that does not pass gets exactly one scrub_failure line, and the
+// count of those lines is the pass's Failed plus CouldNotComplete. Objects at
+// unknown keys and destinations that could not be listed are counted and
+// logged on their own events and never as failures. That holds
+// for an artifact the pass could not finish too: its error carries the
+// outcomes of the copies that were asked, and each is reported as itself, so a
+// copy the journal records as failed is never folded into its neighbour's
+// "could not be checked".
+func (s *Service) tally(ctx context.Context, sum *ScrubSummary, set model.BackupSetID, r revalidate.Report) {
 	sum.Selected += r.Selected
 	sum.BytesRead += r.BytesRead
 	for _, f := range r.Findings {
 		for _, c := range f.Copies {
-			switch {
-			case c.Refused:
-				sum.Refused++
-			case c.Verdict == state.ScrubPassed:
-				sum.Checked++
-				sum.Passed++
-			case c.Verdict == state.ScrubRequiresRestore:
-				sum.Checked++
-				sum.RequiresRestore++
-			case c.Verdict == state.ScrubFailed:
-				sum.Checked++
-				sum.Failed++
-				s.logger().ScrubFailure(ctx, f.Artifact.String(), c.Medium, string(c.Class), c.Reason)
-			case c.Verdict == state.ScrubCouldNotComplete:
-				sum.CouldNotComplete++
-				s.logger().ScrubFailure(ctx, f.Artifact.String(), c.Medium, string(c.Class), c.Reason)
-			}
+			s.tallyCopy(ctx, sum, f.Artifact, c)
 		}
 	}
 	for _, e := range r.Errors {
+		reported := false
+		for _, c := range e.Copies {
+			if s.tallyCopy(ctx, sum, e.Artifact, c) {
+				reported = true
+			}
+		}
+		if reported {
+			continue
+		}
+		// The problem came before any copy was asked, or every copy that was
+		// asked passed and the trouble was elsewhere (a hook that would not
+		// start). The artifact could not be checked, and it is said once.
 		sum.CouldNotComplete++
 		s.logger().ScrubFailure(ctx, e.Artifact.String(), "", "", e.Err.Error())
+	}
+	// QC-04: what a destination holds that the journal does not know, and the
+	// destinations that could not be asked. Findings, not copy outcomes: none
+	// of it touches Passed, Failed or the scrub_failure lines.
+	for _, u := range r.Unknown {
+		sum.Unknown++
+		s.logger().ScrubUnknownObject(ctx, set.String(), u.Medium, u.Key, u.Size)
+	}
+	for _, u := range r.Unlisted {
+		sum.Unlisted++
+		s.logger().ScrubUnlisted(ctx, set.String(), u.Medium, u.Reason)
 	}
 	for _, sk := range r.Skipped {
 		switch sk.Reason {
@@ -269,6 +295,31 @@ func (s *Service) tally(ctx context.Context, sum *ScrubSummary, r revalidate.Rep
 			sum.SkippedLeased++
 		}
 	}
+}
+
+// tallyCopy counts one copy's outcome and writes its scrub_failure line when
+// it failed or could not be checked. It reports whether it wrote one.
+func (s *Service) tallyCopy(ctx context.Context, sum *ScrubSummary, a model.ArtifactID, c revalidate.CopyResult) bool {
+	switch {
+	case c.Refused:
+		sum.Refused++
+	case c.Verdict == state.ScrubPassed:
+		sum.Checked++
+		sum.Passed++
+	case c.Verdict == state.ScrubRequiresRestore:
+		sum.Checked++
+		sum.RequiresRestore++
+	case c.Verdict == state.ScrubFailed:
+		sum.Checked++
+		sum.Failed++
+		s.logger().ScrubFailure(ctx, a.String(), c.Medium, string(c.Class), c.Reason)
+		return true
+	case c.Verdict == state.ScrubCouldNotComplete:
+		sum.CouldNotComplete++
+		s.logger().ScrubFailure(ctx, a.String(), c.Medium, string(c.Class), c.Reason)
+		return true
+	}
+	return false
 }
 
 // finishScrub writes the durable pass row, when the pass did anything worth

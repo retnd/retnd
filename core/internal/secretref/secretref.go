@@ -69,7 +69,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -77,6 +76,7 @@ import (
 	"time"
 
 	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/procseam"
 )
 
 // maxSecretSize bounds how many bytes this package will accept as secret
@@ -592,7 +592,7 @@ func fromCommand(ctx context.Context, argv []string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
 
-	c := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	c := procseam.CommandContext(ctx, argv[0], argv[1:]...)
 	c.Env = []string{"PATH=/usr/local/bin:/usr/bin:/bin"}
 	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	c.Cancel = func() error {
