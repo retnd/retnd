@@ -484,6 +484,30 @@ jobs:
       # needing one tool, not this workflow taking on the linting the local
       # gate does.
 
+  docs-site-contrast:
+    name: docs site meets WCAG AA contrast in both themes (#1054)
+    runs-on: ubuntu-latest
+    # Its own job: it is the docs site's question, not a Go module's, and it
+    # needs a browser that no other job here has. The rule is WCAG 2.x AA,
+    # 4.5:1 for normal text and 3:1 for large text and control boundaries,
+    # against the colour of the background the text actually sits on, in
+    # BOTH themes. Two halves, because each catches what the other cannot:
+    # the token check names the token to change, and the rendered check sees
+    # the inherited colour, the opacity and the overlay that no token pair
+    # names (the pronunciation line shipped unreadable past a token check).
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: the colour tokens meet the rule, and the checker can still fail
+        run: bash scripts/contrast/check.sh
+
+      # The Playwright image is the one scripts/e2e/client-machine.Dockerfile
+      # pins by digest, and run-browser-check.sh passes that same digest, so
+      # the browsers are not downloaded here.
+      - name: every visible text node on every page, in both themes
+        run: bash scripts/contrast/run-browser-check.sh
+
   modules-self-contained:
     name: every Go module resolves its own dependencies without go.work (#1064)
     runs-on: ubuntu-latest
@@ -975,6 +999,7 @@ jobs:
       - gofmt
       - modules-self-contained
       - brand-drift
+      - docs-site-contrast
       - api-contract
       - api-generator-deterministic
       - dependency-rules

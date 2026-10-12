@@ -319,6 +319,15 @@ bash scripts/brand/selftest.sh
 gate_step "every package's go doc overview still matches its baseline, carriers included (#526)"
 bash scripts/docs/check-package-doc.sh
 
+# The docs site's contrast rule (#1054): WCAG 2.x AA, 4.5:1 for normal text
+# and 3:1 for large text and control boundaries, against the background the
+# text actually sits on, in both themes. The tokens are checked here with no
+# browser (and with the checker's own positive controls first); the rendered
+# pages, which is where an inherited colour or an opacity shows up, are
+# checked in the Docker-backed step further down.
+gate_step "docs site colour tokens meet WCAG AA in both themes, and the checker can still fail (#1054)"
+bash scripts/contrast/check.sh
+
 # The same blind spot, for the checks that actually find bugs (#417). Being
 # outside every module does not only cost those two files their formatting:
 # this gate vets and lints per module too, so nothing has ever vetted or
@@ -553,6 +562,17 @@ gate_step "apps/common go build, vet, test -race"
 
 gate_step "apps/common golangci-lint"
 (cd apps/common && GOWORK=off golangci-lint run --config "$REPO_ROOT/.golangci.yml" ./...)
+
+# The rendered half of the same rule (#1054): every page, light and dark,
+# every visible text node against its composited background, in the Playwright
+# image pinned for the e2e machines. Non-FAST only, like the other
+# Docker-backed browser step, so a FAST run cannot merge on it. It sits after
+# core/'s first Docker-backed step on purpose: ci-local-gate.test.sh's J1 lets
+# exactly one `docker info` answer and expects the run to fail at that step.
+if [ "$FAST" != "1" ]; then
+  gate_docker_step "docs site rendered contrast: every visible text node, both themes (#1054)"
+  bash scripts/contrast/run-browser-check.sh
+fi
 
 gate_docker_step "distribution go build, vet, test -race (every package but packaging, which runs next)"
 (cd distribution && GOWORK=off go build ./... && GOWORK=off go vet ./... && GOWORK=off go test -race $(GOWORK=off go list ./... | grep -v '/packaging$'))
