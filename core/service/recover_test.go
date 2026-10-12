@@ -24,6 +24,7 @@ import (
 	"github.com/retnd/retnd/core/internal/lifecycle"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/procseam"
 	"github.com/retnd/retnd/core/internal/state"
 	"github.com/retnd/retnd/core/internal/transport"
 )
@@ -769,6 +770,47 @@ func TestTheRecoveryPathSpawnsNoSubprocess(t *testing.T) {
 			case "os/exec", "plugin":
 				t.Errorf("%s imports %s", name, imp.Path.Value)
 			}
+		}
+	}
+}
+
+// The import scan above shows the recovery files do not call os/exec. This
+// shows the product code recovery RUNS does not: every spawn site in the
+// module goes through internal/procseam, and while Forbid is in force a spawn
+// fails this test and cannot start. The paths are the ones an operator uses,
+// a local and a remote copy, to a download and to staging, plus
+// the corrupt copy that stops partway. A target on another storage destination is the one path not driven here.
+func TestRecoverySpawnsNoProcessFromAnyPathItRuns(t *testing.T) {
+	smallChunks(t)
+	ctx := context.Background()
+	local := newRecoveryFixture(t, fixtureOpts{localCopy: true})
+	remote := newRecoveryFixture(t, fixtureOpts{remoteClass: "warm"})
+	rotted := newRecoveryFixture(t, fixtureOpts{localCopy: true})
+	p := filepath.Join(rotted.localDir, "dump.zst")
+	b, _ := os.ReadFile(p)
+	b[3*streamTestChunk+5] ^= 1
+	if err := os.WriteFile(p, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	procseam.Forbid(t)
+
+	for _, c := range []struct {
+		name string
+		f    *recoveryFixture
+		req  RecoveryRequest
+		want bool // the recovery is expected to succeed
+	}{
+		{"a local copy to a download", local, RecoveryRequest{Target: RecoveryTarget{Kind: "download"}}, true},
+		{"a local copy to staging", local, RecoveryRequest{Target: stagingTo("a/dump.zst")}, true},
+		{"a remote copy to a download", remote, RecoveryRequest{Target: RecoveryTarget{Kind: "download"}, AcknowledgeCost: true}, true},
+		{"a remote copy to staging", remote, RecoveryRequest{Target: stagingTo("b/dump.zst"), AcknowledgeCost: true}, true},
+		{"a copy that rots partway", rotted, RecoveryRequest{Target: RecoveryTarget{Kind: "download"}}, false},
+	} {
+		c.req.ArtifactID = c.f.artifact
+		_, _, err := c.f.b.RecoverNow(ctx, c.f.session(), c.req, io.Discard)
+		if (err == nil) != c.want {
+			t.Errorf("%s: err = %v, want success=%v (a recovery that did not run proves nothing about spawning)", c.name, err, c.want)
 		}
 	}
 }
