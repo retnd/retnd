@@ -484,6 +484,28 @@ jobs:
       # needing one tool, not this workflow taking on the linting the local
       # gate does.
 
+  modules-self-contained:
+    name: every Go module resolves its own dependencies without go.work (#1064)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.0"
+          cache: true
+          cache-dependency-path: core/go.sum
+
+      # go.work builds the tree on the highest version of every requirement,
+      # so a dependency bumped in core/ and not in the module that depends on
+      # it is green in every job above and red in the product image and under
+      # GOWORK=off (#1003, #797, #838). This is the same script
+      # scripts/ci-local.sh runs, so the two cannot drift apart.
+      - name: each module lists its dependency graph with GOWORK=off
+        run: bash scripts/tests/every-module-builds-on-its-own.test.sh
+
   brand-drift:
     name: no new RM_/BM_/bm_/rbm_/retnd/retndproject/rclone[-_ ]manager/retnd identifier (#794, #887)
     runs-on: ubuntu-latest
@@ -930,6 +952,7 @@ jobs:
       - frontend
       - provider-conformance
       - gofmt
+      - modules-self-contained
       - brand-drift
       - api-contract
       - dependency-rules
