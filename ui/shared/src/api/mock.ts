@@ -119,7 +119,9 @@ export type Scenario =
   | "assurance-session-ended"
   | "assurance-staging-full"
   | "assurance-reads-busy"
-  | "assurance-corrupt-copy";
+  | "assurance-corrupt-copy"
+  // How a browser download ended, as three artifacts' feed rows (item 14).
+  | "assurance-download-outcomes";
 
 /** Reads the scenario out of the URL, falling back to the default for
  *  anything unrecognised. A closed allow-list rather than a cast, so a
@@ -136,7 +138,7 @@ export function scenarioFromLocation(): Scenario {
     "assurance-no-operations", "assurance-cleanup-fails", "assurance-recovery-overdue",
     "assurance-snapshot-set", "assurance-too-many-grants", "assurance-grant-expired",
     "assurance-grant-used", "assurance-session-ended", "assurance-staging-full",
-    "assurance-reads-busy", "assurance-corrupt-copy"
+    "assurance-reads-busy", "assurance-corrupt-copy", "assurance-download-outcomes"
   ];
   return (allowed as string[]).includes(s ?? "") ? (s as Scenario) : "default";
 }
@@ -5466,6 +5468,9 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
       const since = options?.since ?? 0;
       return {
         ...base,
+        deployment: scenario === "assurance-download-outcomes" && base.deployment
+          ? { ...base.deployment, events: [...base.deployment.events, ...downloadOutcomeEvents()] }
+          : base.deployment,
         sets: base.sets.map((s) => {
           const all = assuranceLiveEvents(s.setId);
           const extra = all.filter((e) => e.sequence > since);
@@ -5484,6 +5489,21 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   // app uses (realAssurance), reading the routes above the way it reads a
   // server, so the browser specs can drive that code and not the mock's.
   return { ...routes, assurance: options.wire ? createHttpAssurance(routes) : assurance };
+}
+
+/** The rows a browser download writes when it ends (core/service/recover_stream.go),
+ *  for three artifacts: one finished, one stopped part way, one that failed its
+ *  digest. The sequences sit above the fixture's own so a poll keeps them. */
+function downloadOutcomeEvents(): SetActivityEvent[] {
+  const row = (sequence: number, operation: string, artifact: string, level: SetActivityEvent["level"], fields: Record<string, string>): SetActivityEvent => ({
+    sequence, at: "2026-08-29T02:00:40+02:00", level, event: "api_action", scope: "deployment", message: operation,
+    fields: { actor: "admin", route: "GET /api/v1/recoveries/{grant}", artifact, operation, ...fields }
+  });
+  return [
+    row(901, "recovery verified", "production/postgres-primary/postgres-prod-20260828.dump.zst", "info", { outcome: "ok", bytes: "5000", total_bytes: "5000" }),
+    row(902, "recovery interrupted", "production/billing-mysql/billing-20260827.sql.gz", "warn", { outcome: "interrupted", bytes: "1200", total_bytes: "5000", reached: "1200" }),
+    row(903, "recovery failed verification", "production/auth-config/auth-config-20260826.tar.zst", "error", { outcome: "failed_verification", bytes: "2048", total_bytes: "5000", reached: "2048", error_code: "RECOVERY_LOCAL_COPY_CORRUPT" })
+  ];
 }
 
 // mockPreflightFor builds the report both preflight fixtures answer with,

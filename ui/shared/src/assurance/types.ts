@@ -82,10 +82,22 @@ export interface CopyFailure {
   at?: string;
 }
 
+/** What one copy has on record for the Content claim. `unchecked` is a copy
+ *  nobody has read back (no class, no time), which is not the same fact as a
+ *  copy whose check came back wrong. */
+export type CopyContent = "content" | "attested" | "existence" | "could_not_complete" | "failed" | "unchecked";
+
 export interface ArtifactAssurance {
   artifactId: string;
   /** How many copies are recorded. Zero is "no copy yet", not an error. */
   copies: number;
+  /** Each live copy's own Content record, one entry per copy. The `content`
+   *  claim below keeps the strongest class across copies (that is how FR-68
+   *  resolves it), so on its own it would read "Content verified" for a
+   *  backup whose other copies nobody has looked at. This is what lets the
+   *  chip say how many copies the claim covers and what the weakest is
+   *  (FR-72, D3). Absent means the server did not itemise them. */
+  copyContent?: CopyContent[];
   content: ClaimRecord;
   recovery: ClaimRecord;
   /** Every copy whose last scrub or recovery test failed or could not

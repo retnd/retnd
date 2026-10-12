@@ -37,7 +37,7 @@ import type { LiveActivity, SetActivityEvent } from "@shared/types/activity";
 import type { BackupArtifact, BackupPlacement } from "@shared/types/backup";
 import { scrubFailureText, scrubPassText, stageWords } from "./feedText";
 import type {
-  AchievedClass, ArtifactAssurance, AssuranceApi, ClaimRecord, CopyFailure, Operation, OperationEvent, OperationFeed,
+  AchievedClass, ArtifactAssurance, AssuranceApi, ClaimRecord, CopyContent, CopyFailure, Operation, OperationEvent, OperationFeed,
   OperationKind, ValidatorResult
 } from "./types";
 
@@ -67,6 +67,18 @@ function strongest(a: BackupArtifact): { cls: AchievedClass; at?: string } {
     if ((RANK[p.verificationClass] ?? 0) > (RANK[best.cls] ?? 0)) best = { cls: p.verificationClass, at: p.verifiedAt };
   }
   return best;
+}
+
+/** What each live copy has on record for the Content claim, in the copies'
+ *  own order. A failed scrub clears a copy's class and time, so the recorded
+ *  state is read first, exactly as `contentClaim` does. */
+export function copyContentOf(a: BackupArtifact): CopyContent[] {
+  return liveCopies(a).map((p): CopyContent => {
+    if (p.assuranceState === "failed") return "failed";
+    if (p.verificationClass && p.verifiedAt) return p.verificationClass;
+    if (p.assuranceState === "could_not_complete") return "could_not_complete";
+    return "unchecked";
+  });
 }
 
 /** One backup's Content claim. `overdue` and `neverAssured` come from the
@@ -333,6 +345,7 @@ export function createHttpAssurance(api: RetndApi): AssuranceApi {
     return artifacts.map((a) => ({
       artifactId: a.id,
       copies: liveCopies(a).length,
+      copyContent: copyContentOf(a),
       content: contentClaim(a, dueById.get(a.id)),
       recovery: recoveryClaim(a, off.get(a.setId) ?? false, true),
       copyFailures: copyFailures(a)

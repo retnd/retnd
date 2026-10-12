@@ -73,7 +73,7 @@ function baseTable(now: number): ArtifactAssurance[] {
   // on an archive class, a backup with no copy yet, and a copy nobody can
   // reach. Every state below is one a reader can reach by looking.
   return [
-    { artifactId: "production/postgres-primary/postgres-prod-20260828.dump.zst", copies: 2, content: rec("pass", "content", 3 * DAY, now), recovery: rec("pass", "content", 12 * DAY, now) },
+    { artifactId: "production/postgres-primary/postgres-prod-20260828.dump.zst", copies: 2, copyContent: ["content", "existence"], content: rec("pass", "content", 3 * DAY, now), recovery: rec("pass", "content", 12 * DAY, now) },
     { artifactId: "production/billing-mysql/billing-20260827.sql.gz", copies: 1, content: rec("requires_restore", ""), recovery: rec("could_not_complete", "", 1 * DAY, now) },
     { artifactId: "media/weekly-archive/media-week34.tar", copies: 0, content: rec("never_run", ""), recovery: rec("never_configured", "") },
     { artifactId: "production/legacy-redis/redis-20260812.rdb.zst", copies: 1, content: rec("no_readable_copy", ""), recovery: rec("never_configured", "") }

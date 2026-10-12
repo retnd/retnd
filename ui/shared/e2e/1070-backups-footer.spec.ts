@@ -14,12 +14,13 @@ test.describe("#1070 the Backups footer", () => {
     const note = page.getByTestId("backups-boundary");
     await expect(note).toBeVisible();
     await expect(note).toHaveText(BOUNDARY.replace("’", "'"));
-    await expect(page.locator(".card__footer")).not.toContainText(/verified copies|does not perform application restore/);
+    await expect(page.getByTestId("backups-footer")).not.toContainText(/verified copies|does not perform application restore/);
   });
 
   test("is drawn in --text-2, the same ink as the count beside it", async ({ page }) => {
     await open(page, "/backups");
     const note = page.getByTestId("backups-boundary");
+    await expect(note).toBeVisible();
     const same = await page.evaluate(() => {
       const probe = document.createElement("span");
       probe.style.color = "var(--text-2)";
@@ -37,7 +38,7 @@ test.describe("#1070 the Backups footer", () => {
       await open(page, "/backups");
       await expect(page.getByTestId("backups-boundary")).toBeVisible();
       await setTheme(page, theme);
-      expect(await measureContrast(page, `Backups footer, ${theme}`, ".card__footer")).toEqual([]);
+      expect(await measureContrast(page, `Backups footer, ${theme}`, '[data-testid="backups-footer"]')).toEqual([]);
     });
   }
 });

@@ -48,7 +48,7 @@ test.describe("#985 the download outcome on the artifact page", () => {
       await open(page, "/backups/" + c.id, SCENARIO, { wire: true });
       shapes.push(await page.getByTestId("download-outcome").locator("[data-badge]").evaluate((e) => {
         const s = getComputedStyle(e);
-        return [s.borderTopStyle, s.borderTopWidth, e.closest("[data-outcome]")!.querySelector("[data-glyph]")?.getAttribute("data-glyph")].join("|");
+        return [s.borderTopStyle, s.borderTopWidth, getComputedStyle(e, "::before").content].join("|");
       }));
     }
     expect(new Set(shapes).size).toBe(3);

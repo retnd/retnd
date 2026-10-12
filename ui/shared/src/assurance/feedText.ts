@@ -120,3 +120,86 @@ export function recoveryTestEndText(e: SetActivityEvent): string {
   if (e.result === "warn") return "recovery test did not complete: " + name + why;
   return "recovery test finished: " + name;
 }
+
+/** How a browser download of an artifact ended, as the engine recorded it
+ *  (core/service/recover_stream.go). */
+export type DownloadOutcomeKind = "completed" | "interrupted" | "failed_verification";
+
+export interface DownloadOutcome {
+  kind: DownloadOutcomeKind;
+  artifact: string;
+  /** Verified bytes this request had sent when it stopped. Null when the row
+   *  did not say, which is left out of the words and never printed as zero. */
+  bytes: number | null;
+  /** The artifact's size, M in "N of M". Null when the row did not say. */
+  total: number | null;
+  /** The byte offset a resume starts from (N). Null when the row did not say. */
+  reached: number | null;
+  /** Which copy was damaged, for a failed verification. */
+  errorCode?: string;
+  at: string;
+  sequence: number;
+}
+
+/** The three rows a download writes when it ends, by the `operation` field.
+ *  The per-range row ("recovery range failed") and the mint and refusal rows
+ *  say nothing about how a download ended and are not in this table. */
+const DOWNLOAD_END: Record<string, DownloadOutcomeKind> = {
+  "recovery verified": "completed",
+  "recovery interrupted": "interrupted",
+  "recovery failed verification": "failed_verification"
+};
+
+/** The newest outcome the feed holds for one artifact, or null when it holds
+ *  none (a fresh process, a ring that has moved on, or no download yet): a
+ *  page with no row to read says nothing, it does not guess "completed". */
+export function downloadOutcomeOf(events: readonly SetActivityEvent[], artifactId: string): DownloadOutcome | null {
+  let best: SetActivityEvent | null = null;
+  for (const e of events) {
+    if (e.event !== "api_action" || e.fields.artifact !== artifactId) continue;
+    if (!(e.fields.operation in DOWNLOAD_END)) continue;
+    if (!best || e.sequence > best.sequence) best = e;
+  }
+  if (!best) return null;
+  const f = best.fields;
+  return {
+    kind: DOWNLOAD_END[f.operation], artifact: artifactId,
+    bytes: count(f.bytes), total: count(f.total_bytes), reached: count(f.reached),
+    ...(f.error_code ? { errorCode: f.error_code } : {}), at: best.at, sequence: best.sequence
+  };
+}
+
+/** The "N of M bytes" phrase, or "" when either number is missing. */
+function ofTotal(n: number | null, total: number | null): string {
+  return n !== null && total !== null ? n + " of " + total + " bytes" : "";
+}
+
+/** The short label on the outcome's badge. These three strings are the ones
+ *  the docs quote: "Completed", "Interrupted at N of M bytes", "Failed
+ *  verification". */
+export function downloadOutcomeBadge(o: DownloadOutcome): string {
+  if (o.kind === "completed") return "Completed";
+  if (o.kind === "failed_verification") return "Failed verification";
+  const where = ofTotal(o.reached ?? o.bytes, o.total);
+  return where ? "Interrupted at " + where : "Interrupted";
+}
+
+/** The sentence under the badge: what happened and what to do about it. A
+ *  completed download says the bytes were sent and matched, which is as far
+ *  as the engine can see: whether the browser kept the file is the browser's. */
+export function downloadOutcomeText(o: DownloadOutcome): string {
+  if (o.kind === "completed") {
+    const size = o.total !== null ? bytes(o.total) + " sent, and " : "";
+    return "The last download of this artifact finished: " + size + "every chunk matched the recorded digest. Whether your browser kept the file is the browser's to say.";
+  }
+  if (o.kind === "interrupted") {
+    const at = o.reached ?? o.bytes;
+    const where = ofTotal(at, o.total);
+    return "The last download of this artifact stopped" + (where ? " at " + where : "") +
+      " before the end. Nothing was wrong with the copy." + (at !== null ? " Start it again, or resume from byte " + at + "." : " Start it again.");
+  }
+  const got = ofTotal(o.bytes, o.total);
+  return "The last download of this artifact failed verification" + (got ? " after " + got : "") +
+    ": a piece did not match what was recorded, so the copy is damaged" + (o.errorCode ? " (" + o.errorCode + ")" : "") +
+    ". Do not trust what arrived; recover from another copy.";
+}

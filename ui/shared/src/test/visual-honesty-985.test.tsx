@@ -78,11 +78,11 @@ describe("D3 a bare 'Content verified' is never drawn while a copy is unknown", 
     expect(r.label).toBe("Content verified · 1 of 3 copies, 2 never checked");
   });
 
-  it("names the weakest state: existence only, attested only, could not complete", () => {
+  it("names the weaker states, the least a copy says first: could not complete, then attested only", () => {
     expect(renderClaim("content", base.content, NOW, ["content", "existence"]).label)
       .toBe("Content verified · 1 of 2 copies, 1 existence only");
     expect(renderClaim("content", base.content, NOW, ["content", "attested", "could_not_complete"]).label)
-      .toBe("Content verified · 1 of 3 copies, 1 attested only, 1 could not complete");
+      .toBe("Content verified · 1 of 3 copies, 1 could not complete, 1 attested only");
   });
 
   it("is bare only when every copy is content verified, or when the one copy is", () => {
