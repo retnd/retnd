@@ -13,48 +13,11 @@ import (
 )
 
 // The audit of #1069 found that nothing tested a cycle that holds the
-// single-flight lock for LONGER than the scrub retry interval. The test above
-// it (TestAScrubTickThatFindsTheLockHeldRunsAsSoonAsItIsFree) uses a cycle that
-// holds the lock for 70ms of a 100ms interval, so the first retry already finds
-// it free. A real backup holds the lock for many retries, and what matters
-// then is that the tick keeps waiting, does not pile up, does not start while
-// the lock is held, and runs the pass exactly once when the lock frees.
-//
-// These tests drive tickScrubWhenFree on a fake clock (scrubRetryTimer), so the
-// "cycle" is many retries long in virtual time and the test takes milliseconds.
-
-// retryClock hands the test control of every retry wait: each wait the tick
-// asks for arrives on armed, and the test lets it elapse by sending on fire.
-type retryClock struct {
-	armed chan time.Duration
-	fire  chan time.Time
-}
-
-func installRetryClock(t *testing.T) *retryClock {
-	t.Helper()
-	c := &retryClock{armed: make(chan time.Duration, 64), fire: make(chan time.Time, 1)}
-	orig := scrubRetryTimer
-	t.Cleanup(func() { scrubRetryTimer = orig })
-	scrubRetryTimer = func(d time.Duration) (<-chan time.Time, func() bool) {
-		c.armed <- d
-		return c.fire, func() bool { return true }
-	}
-	return c
-}
-
-// next waits for the tick to ask for its next retry wait.
-func (c *retryClock) next(t *testing.T) time.Duration {
-	t.Helper()
-	select {
-	case d := <-c.armed:
-		return d
-	case <-time.After(5 * time.Second):
-		t.Fatal("the scrub tick never asked for another retry: it gave up, or ran its pass, while the cycle still held the lock")
-		return 0
-	}
-}
-
-func (c *retryClock) elapse() { c.fire <- time.Time{} }
+// single-flight lock for longer than a scrub tick is willing to wait, nor the
+// short gaps between back-to-back cycles. The first fix polled the lock on a
+// timer and could miss every gap; the tick now queues on the lock itself
+// (waitForCycleLock). These tests drive tickScrubWhenFree against a fake cycle
+// that holds the real lock, and watch the validator to see when the pass starts.
 
 // lockProbeStages is a validator that records, at the moment it starts, whether
 // the cycle was holding the single-flight lock. A recovery test runs from the
@@ -89,7 +52,7 @@ func (s *lockProbeStages) startsSeen() []bool {
 
 func newSlowCycleFixture(t *testing.T) (f *recoveryFixture, probe *lockProbeStages) {
 	t.Helper()
-	f = newRecoveryFixture(t, fixtureOpts{pollEvery: 100 * time.Millisecond, cfg: requireRecoveryTest})
+	f = newRecoveryFixture(t, fixtureOpts{pollEvery: time.Minute, cfg: requireRecoveryTest})
 	if err := f.b.state.Load().inner.Config.ResolveAssurance(); err != nil {
 		t.Fatal(err)
 	}
@@ -100,57 +63,46 @@ func newSlowCycleFixture(t *testing.T) (f *recoveryFixture, probe *lockProbeStag
 	return f, probe
 }
 
-// A cycle that holds the lock for twenty retries: the tick waits it out one
-// retry at a time, runs nothing while the lock is held, never has more than one
-// wait pending, and runs the pass exactly once, after the lock is released.
-func TestAScrubTickBehindACycleLongerThanTheRetryRunsOnceWhenTheLockFrees(t *testing.T) {
-	f, probe := newSlowCycleFixture(t)
-	clock := installRetryClock(t)
-	const interval = 100 * time.Millisecond
-	const cycleRetries = 20 // the cycle outlasts twenty retries (two intervals)
-
-	// The cycle takes the lock before the tick arrives, as the cycle loop does.
-	f.b.runOnce.Lock()
-	probe.held.Store(true)
-
+func runTick(f *recoveryFixture, ctx context.Context) <-chan struct{} {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		f.b.tickScrubWhenFree(context.Background(), interval)
+		f.b.tickScrubWhenFree(ctx)
 	}()
+	return done
+}
 
-	want := scrubBusyRetry(interval)
-	for i := 0; i < cycleRetries; i++ {
-		if got := clock.next(t); got != want {
-			t.Fatalf("retry %d waited %v, want %v (the retry must not grow or shrink while the lock is held)", i, got, want)
-		}
-		if n := len(probe.startsSeen()); n != 0 {
-			t.Fatalf("the pass started %d time(s) while the cycle still held the lock", n)
-		}
-		select {
-		case <-done:
-			t.Fatalf("the tick gave up after %d retries with the cycle still running", i)
-		default:
-		}
-		// Exactly one wait is pending: the retry is sequential, so a long
-		// cycle cannot stack ticks behind it.
-		if n := len(clock.armed); n != 0 {
-			t.Fatalf("%d extra waits were armed while one was pending", n)
-		}
-		if i < cycleRetries-1 {
-			clock.elapse()
-		}
+// A cycle that holds the lock far longer than the tick has been waiting: the
+// tick runs nothing while the lock is held, gives up on nothing, and runs the
+// pass exactly once, promptly, after the lock is released. The wait is not a
+// timer, so it does not matter that the interval is a minute.
+func TestAScrubTickBehindALongCycleRunsOnceWhenTheLockFrees(t *testing.T) {
+	f, probe := newSlowCycleFixture(t)
+
+	f.b.runOnce.Lock()
+	probe.held.Store(true)
+	done := runTick(f, context.Background())
+
+	time.Sleep(300 * time.Millisecond) // the cycle is still running
+	if n := len(probe.startsSeen()); n != 0 {
+		t.Fatalf("the pass started %d time(s) while the cycle still held the lock", n)
+	}
+	select {
+	case <-done:
+		t.Fatal("the tick gave up with the cycle still running")
+	default:
 	}
 
-	// The cycle ends. The tick is waiting on its last retry, which now fires.
+	released := time.Now()
 	probe.held.Store(false)
 	f.b.runOnce.Unlock()
-	clock.elapse()
-
 	select {
 	case <-done:
 	case <-time.After(10 * time.Second):
 		t.Fatal("the lock was released and the tick did not run its pass")
+	}
+	if d := time.Since(released); d > 5*time.Second {
+		t.Errorf("the pass took %v to start after the release: the wait must be woken by the release", d)
 	}
 	starts := probe.startsSeen()
 	if len(starts) != 1 {
@@ -159,26 +111,58 @@ func TestAScrubTickBehindACycleLongerThanTheRetryRunsOnceWhenTheLockFrees(t *tes
 	if starts[0] {
 		t.Error("the pass started while the lock was held: it ran concurrently with the cycle")
 	}
-	if len(clock.armed) != 0 {
-		t.Error("the tick armed another wait after it had run: a finished tick must wait for the next interval, not retry")
+}
+
+// Regression for the starvation in the timed retry: the cycle loop frees the
+// lock for only a short gap between back-to-back cycles, and a poll can land in
+// the held part of every one of them. The tick has to run in one of the gaps.
+func TestAScrubTickRunsInTheBriefGapBetweenBackToBackCycles(t *testing.T) {
+	f, probe := newSlowCycleFixture(t)
+
+	stop := make(chan struct{})
+	var cycles sync.WaitGroup
+	cycles.Add(1)
+	go func() {
+		defer cycles.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			f.b.runOnce.Lock()
+			probe.held.Store(true)
+			time.Sleep(20 * time.Millisecond)
+			probe.held.Store(false)
+			f.b.runOnce.Unlock()
+			time.Sleep(time.Millisecond) // the gap
+		}
+	}()
+	defer func() { close(stop); cycles.Wait() }()
+
+	done := runTick(f, context.Background())
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("back-to-back cycles with a 1ms gap and the scrub never ran: the tick missed every gap")
+	}
+	// Not asserted here: whether the lock was held when the validator began.
+	// The next cycle takes the lock a millisecond after the pass is let
+	// through, and a cycle starting beside a running pass is by design (see
+	// the last test), so the probe would be measuring that and not the start.
+	if n := len(probe.startsSeen()); n != 1 {
+		t.Errorf("the pass ran %d times, want exactly once", n)
 	}
 }
 
-// The same tick must stop when the process does, even mid-wait behind a cycle
-// that never ends.
+// A cycle that never ends must not keep the tick, or the process, alive.
 func TestAScrubTickBehindACycleThatNeverEndsStopsWithItsContext(t *testing.T) {
 	f, probe := newSlowCycleFixture(t)
-	clock := installRetryClock(t)
 
 	f.b.runOnce.Lock()
-	defer f.b.runOnce.Unlock()
 	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		f.b.tickScrubWhenFree(ctx, 100*time.Millisecond)
-	}()
-	clock.next(t)
+	done := runTick(f, ctx)
+	time.Sleep(50 * time.Millisecond)
 	cancel()
 	select {
 	case <-done:
@@ -188,95 +172,54 @@ func TestAScrubTickBehindACycleThatNeverEndsStopsWithItsContext(t *testing.T) {
 	if n := len(probe.startsSeen()); n != 0 {
 		t.Errorf("the pass ran %d times behind a held lock", n)
 	}
-}
 
-// The retry's bounds, so a change to either end is a decision and not an
-// accident. The interval itself is never below config.MinPollInterval (one
-// minute) in a real deployment, which makes the real range 6s to 30s.
-func TestScrubBusyRetryBounds(t *testing.T) {
-	for _, tc := range []struct {
-		interval, want time.Duration
-	}{
-		{0, time.Millisecond},
-		{time.Nanosecond, time.Millisecond},
-		{5 * time.Millisecond, time.Millisecond},
-		{100 * time.Millisecond, 10 * time.Millisecond},
-		{time.Minute, 6 * time.Second},
-		{5 * time.Minute, 30 * time.Second},
-		{15 * time.Minute, 30 * time.Second},
-		{24 * time.Hour, 30 * time.Second},
-	} {
-		if got := scrubBusyRetry(tc.interval); got != tc.want {
-			t.Errorf("scrubBusyRetry(%v) = %v, want %v", tc.interval, got, tc.want)
-		}
+	// The cycle finally ends. The goroutine the cancelled wait left queued on
+	// the lock takes it and gives it back, so the lock is usable again.
+	f.b.runOnce.Unlock()
+	locked := make(chan struct{})
+	go func() { f.b.runOnce.Lock(); f.b.runOnce.Unlock(); close(locked) }()
+	select {
+	case <-locked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the lock stayed taken after the cancelled tick's waiter should have released it")
+	}
+	if n := len(probe.startsSeen()); n != 0 {
+		t.Errorf("a cancelled tick ran its pass (%d) once the lock freed", n)
 	}
 }
 
-// Regression for the starvation in #1068's retry: a polling retry only catches
-// the lock if it is free at the instant of a poll. The cycle loop frees the
-// lock for as little as minPollWake (5s) between back-to-back cycles when a set
-// is overdue, and the retry period was 6s at the minimum one-minute interval. A
-// cycle of 55s with its 5s gap against 6s polls is a period of 60s that the
-// polls never land in the gap of, so the scrub waited for as long as the
-// pattern lasted.
-//
-// Virtual clock: one retry per fire, the lock free for the last 5s of every
-// 60s, ten virtual days of polls. The scrub has to run in one of those gaps.
-func TestAScrubTickRunsInTheBriefGapBetweenBackToBackCycles(t *testing.T) {
+// A cycle that starts while the pass is running is by design (tickScrub does
+// not hold the lock while it scrubs). It must neither block on the pass nor
+// deadlock with it, and the pass still finishes.
+func TestACycleThatStartsDuringAScrubPassIsNotBlockedByIt(t *testing.T) {
 	f, probe := newSlowCycleFixture(t)
-	clock := installRetryClock(t)
-	const interval = time.Minute
-	retry := scrubBusyRetry(interval) // 6s
-	const period, gap = 60 * time.Second, 5 * time.Second
+	gate := make(chan struct{})
+	probe.stubStages.gate = gate
 
-	lockedAt := func(now time.Duration) bool { return now%period < period-gap }
-	var now time.Duration
-	f.b.runOnce.Lock()
-	probe.held.Store(true)
-	held := true
-	setHeld := func(want bool) {
-		if want == held {
-			return
+	done := runTick(f, context.Background())
+	deadline := time.Now().Add(10 * time.Second)
+	for len(probe.startsSeen()) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the pass never started")
 		}
-		if want {
-			f.b.runOnce.Lock()
-		} else {
-			f.b.runOnce.Unlock()
-		}
-		probe.held.Store(want)
-		held = want
+		time.Sleep(5 * time.Millisecond)
 	}
 
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		f.b.tickScrubWhenFree(context.Background(), interval)
-	}()
+	cycle := make(chan struct{})
+	go func() { f.b.runOnce.Lock(); f.b.runOnce.Unlock(); close(cycle) }()
+	select {
+	case <-cycle:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a cycle could not take the lock while a scrub pass was running")
+	}
 
-	const polls = 10 * 24 * 60 * 10 // ten virtual days of 6s polls
-	ran := false
-	armed := clock.armed
-	<-armed // the first wait
-	for i := 0; i < polls && !ran; i++ {
-		now += retry
-		setHeld(lockedAt(now))
-		clock.elapse()
-		// Either the tick found the lock free and ran, or it asked to wait again.
-		select {
-		case <-done:
-			ran = true
-		case <-armed:
-		case <-time.After(10 * time.Second):
-			t.Fatal("the tick neither ran nor waited again")
-		}
+	close(gate)
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the pass did not finish after a cycle ran beside it")
 	}
-	if !ran {
-		t.Errorf("ten virtual days of back-to-back cycles (55s held, 5s free) and the scrub never ran: the retry only polls, and every poll landed while the lock was held")
-		setHeld(false)
-		clock.elapse()
-		<-done
-	}
-	if starts := probe.startsSeen(); ran && (len(starts) != 1 || starts[0]) {
-		t.Errorf("the pass ran %d times, starts-under-lock=%v: want once, never under the lock", len(starts), starts)
+	if n := len(probe.startsSeen()); n != 1 {
+		t.Errorf("the pass ran %d times, want once", n)
 	}
 }

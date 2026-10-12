@@ -396,63 +396,79 @@ func (b *BackupService) runScrubTicks(ctx context.Context, interval time.Duratio
 			return
 		case <-timer.C:
 		}
-		b.tickScrubWhenFree(ctx, interval)
+		b.tickScrubWhenFree(ctx)
 	}
-}
-
-// scrubBusyRetry is how soon a scrub tick that found an operation running
-// looks again: a tenth of the poll interval, so a one-minute interval retries
-// every six seconds, and never longer than 30 seconds so a long interval does
-// not leave a tick waiting half a minute behind an operation that has already
-// finished. The floor only keeps a test's tiny interval from spinning.
-func scrubBusyRetry(interval time.Duration) time.Duration {
-	d := interval / 10
-	if d > 30*time.Second {
-		d = 30 * time.Second
-	}
-	if d < time.Millisecond {
-		d = time.Millisecond
-	}
-	return d
-}
-
-// scrubRetryTimer is the wait between a busy scrub tick's attempts, as a seam
-// for the same reason scheduleTimer is one: a test about a cycle that holds the
-// lock for many retries cannot wait them out, and shrinking the interval until
-// it can would test a cadence no deployment runs.
-var scrubRetryTimer = func(d time.Duration) (<-chan time.Time, func() bool) {
-	timer := time.NewTimer(d)
-	return timer.C, timer.Stop
 }
 
 // tickScrubWhenFree runs one scheduled pass, and when an operation holds the
-// single-flight lock it looks again shortly instead of giving up until the
-// next interval.
+// single-flight lock it waits for that operation to finish instead of giving up
+// until the next interval.
 //
-// That retry is the point of this function (#1068). The scrub timer and the
+// That wait is the point of this function (#1068). The scrub timer and the
 // cycle loop both start with the process and both repeat every poll
 // interval, so a cycle takes the lock at the top of its interval and the scrub
 // tick arrives a fraction of a millisecond later, every time. A tick that
 // skipped and waited a whole interval therefore met the next cycle's lock
 // again, and a serving process never scrubbed and never ran a due recovery
-// test. The retry loop is sequential with the timer in runScrubTicks, so ticks
-// cannot pile up behind a long operation; it ends when the pass has run or the
-// context is done.
-func (b *BackupService) tickScrubWhenFree(ctx context.Context, interval time.Duration) {
-	retry := scrubBusyRetry(interval)
-	deferred := false
+// test.
+//
+// The first version of the fix looked again after a tenth of the interval. A
+// poll only catches the lock if it is free at the instant it looks, and the
+// cycle loop frees it for as little as five seconds between back-to-back
+// cycles, so a poll could miss every gap for as long as cycles overran their
+// interval. The wait below is queued on the lock itself (waitForCycleLock), so
+// it is woken by the release and cannot miss it.
+//
+// The wait is sequential with the timer in runScrubTicks, so ticks cannot pile
+// up behind a long operation. It ends when the pass has run or ctx is done.
+func (b *BackupService) tickScrubWhenFree(ctx context.Context) {
+	announce := true
 	for {
-		if b.tickScrub(ctx, !deferred) {
+		if b.tickScrub(ctx, announce) {
 			return
 		}
-		deferred = true
-		fire, stop := scrubRetryTimer(retry)
-		select {
-		case <-ctx.Done():
-			stop()
+		announce = false
+		if !b.waitForCycleLock(ctx) {
 			return
-		case <-fire:
 		}
+		// The lock was free at the instant the wait ended. Another operation
+		// can take it before tickScrub looks, in which case the loop waits
+		// again rather than starting a pass under it.
+	}
+}
+
+// waitForCycleLock blocks until the single-flight lock has been released by
+// whoever held it, or ctx is done, and reports whether it was released. It
+// takes the lock and gives it straight back: the scrub never runs holding it,
+// for the reasons tickScrub gives.
+//
+// It queues on the mutex rather than polling TryLock, so it is handed the lock
+// at a release even when the next cycle is already waiting to start (sync.Mutex
+// moves a waiter that has waited over a millisecond to the front, so a cycle
+// that re-locks immediately cannot starve it). It holds nothing while it
+// waits, so it cannot deadlock with the cycle or with an API operation; an
+// operation that starts during the pass itself is by design (tickScrub).
+//
+// sync.Mutex cannot be waited on with a context, so the Lock runs in its own
+// goroutine. If ctx ends first, that goroutine stays behind until the holder
+// releases (a cycle also stops with ctx), and then unlocks at once; at most one
+// is left per cancelled tick.
+func (b *BackupService) waitForCycleLock(ctx context.Context) bool {
+	got := make(chan struct{})
+	go func() {
+		b.runOnce.Lock()
+		close(got)
+	}()
+	select {
+	case <-got:
+		b.runOnce.Unlock()
+		return true
+	case <-ctx.Done():
+		go func() {
+			<-got
+			b.runOnce.Unlock()
+		}()
+		return false
 	}
 }
 
@@ -474,7 +490,7 @@ func (b *BackupService) tickScrubWhenFree(ctx context.Context, interval time.Dur
 // reported, because the hold is handed to the pass through its context.
 //
 // It reports whether the pass ran. False means an operation held the lock, and
-// tickScrubWhenFree looks again soon (#1068): skipping until the next interval
+// tickScrubWhenFree waits for the lock (#1068): skipping until the next interval
 // is how the cycle that starts at the same instant used to win every time.
 // announce says whether to write the one "deferred" line for this tick, so a
 // long operation is one line and not one per retry.
@@ -489,7 +505,7 @@ func (b *BackupService) tickScrub(ctx context.Context, announce ...bool) (ran bo
 	if !b.runOnce.TryLock() {
 		if len(announce) == 0 || announce[0] {
 			b.logger.Event(ctx, obs.LevelInfo, "scrub_tick_deferred",
-				"deferred scheduled scrub: an operation is already in progress, trying again shortly")
+				"deferred scheduled scrub: an operation is already in progress, waiting for it to finish")
 		}
 		return false
 	}

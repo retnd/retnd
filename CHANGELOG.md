@@ -10,8 +10,10 @@
   scrub tick, arriving a fraction of a millisecond later, skipped and tried again an
   interval later, into the next cycle's lock. On a default install nothing was ever
   scrubbed and no due recovery test ever ran. A tick that finds an operation running now
-  looks again shortly (a tenth of the poll interval, at most 30 seconds) and runs when it
-  is free. `retnd daemon` was not affected.
+  waits for that operation to release the lock and runs then, so it cannot miss the short
+  gap between two back-to-back cycles the way a timed retry could. It still never holds
+  the lock while it scrubs, and it stops with the process. `retnd daemon` was not
+  affected.
 
 ### Added
 
