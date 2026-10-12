@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "a94763e05df70fa8cad1353e363e67b45946e9fbfd4d00ea58a44857c683756c";
+export const CONTRACT_SHA256 = "0772f3e969d2268d0e80c953df2b3d9616f94759a76241afcf7de82646004c69";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -1227,7 +1227,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     concurrency: "",
     requestSchema: "RecoveryMintRequest",
     responseSchema: "RecoveryMintResponse",
-    successStatus: 201,
+    successStatus: 202,
     errorCodes: {
       400: ["INVALID_REQUEST", "RECOVERY_TARGET_INVALID"],
       401: ["UNAUTHENTICATED"],
@@ -3804,6 +3804,64 @@ export interface WireSSHKeyDiscoveryLocation {
   kind: string;
   path: string;
   problem?: string;
+}
+
+/** An artifact the pass could not give a verdict at all, with the
+ *  infrastructure problem that stopped it. The copies it did get a
+ *  verdict for are in the set's copies, each once. */
+export interface WireScrubArtifactError {
+  artifact_id: string;
+  error: string;
+}
+
+/** What a scrub learned about one copy of one artifact. The class is
+ *  the class that RAN, never the class asked for: a HEAD is reported
+ *  as a HEAD. */
+export interface WireScrubCopyOutcome {
+  artifact_id: string;
+  class?: string;
+  medium: string;
+  reason?: string;
+  refused: boolean;
+  verdict: string;
+}
+
+/** What one scrub did: the counts the pass recorded plus the per-set
+ *  detail. It is the body `retnd scrub --json` prints, and the one
+ *  result shape every route that reports a scrub reuses. */
+export interface WireScrubResult {
+  bytes_read: number;
+  checked: number;
+  could_not_complete: number;
+  failed: number;
+  pass_id?: number;
+  passed: number;
+  refused: number;
+  requires_restore: number;
+  scope: string;
+  selected: number;
+  sets: WireScrubSetResult[];
+  skipped_held: number;
+  skipped_leased: number;
+  trigger: string;
+}
+
+/** One backup set's part of a scrub. */
+export interface WireScrubSetResult {
+  backup_set_id: string;
+  copies: WireScrubCopyOutcome[];
+  error?: string;
+  errors: WireScrubArtifactError[];
+  skipped: WireScrubSkip[];
+}
+
+/** Work a scrub was asked to do and did not. A skip is always
+ *  reported: a copy that was due and silently not looked at is the
+ *  same failure as one never scheduled. */
+export interface WireScrubSkip {
+  artifact_id?: string;
+  medium?: string;
+  reason: string;
 }
 
 /** The rules the service-behaviour settings are validated against,

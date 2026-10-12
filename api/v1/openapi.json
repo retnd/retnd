@@ -7041,6 +7041,217 @@
             "description": "One row per scrub-eligible copy that matches the filter."
           }
         }
+      },
+      "ScrubCopyOutcome": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "What a scrub learned about one copy of one artifact. The class is the class that RAN, never the class asked for: a HEAD is reported as a HEAD.",
+        "properties": {
+          "artifact_id": {
+            "type": "string"
+          },
+          "medium": {
+            "type": "string",
+            "description": "The copy's medium: local for the local copy, otherwise a storage medium id."
+          },
+          "verdict": {
+            "type": "string",
+            "description": "passed, failed, could_not_complete, requires_restore or not_checked."
+          },
+          "class": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The verification class that ran. Absent when nothing ran."
+          },
+          "reason": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "Why, for every verdict except passed."
+          },
+          "refused": {
+            "type": "boolean",
+            "description": "The check was not made because it would have spent money nobody agreed to. A refusal is not a fact about the copy and is not recorded on it."
+          }
+        },
+        "required": [
+          "artifact_id",
+          "medium",
+          "verdict",
+          "refused"
+        ]
+      },
+      "ScrubArtifactError": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "An artifact the pass could not give a verdict at all, with the infrastructure problem that stopped it. The copies it did get a verdict for are in the set's copies, each once.",
+        "properties": {
+          "artifact_id": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifact_id",
+          "error"
+        ]
+      },
+      "ScrubSkip": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Work a scrub was asked to do and did not. A skip is always reported: a copy that was due and silently not looked at is the same failure as one never scheduled.",
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "Absent when the whole backup set was skipped."
+          },
+          "medium": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "Absent when the whole artifact or set was skipped."
+          },
+          "reason": {
+            "type": "string",
+            "description": "held (the backup set is held for editing) or leased (another scrub is checking it right now)."
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "ScrubSetResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "One backup set's part of a scrub.",
+        "properties": {
+          "backup_set_id": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "Set when the set's pass stopped on an infrastructure problem."
+          },
+          "copies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScrubCopyOutcome"
+            },
+            "description": "One entry per copy that reached an outcome."
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScrubArtifactError"
+            }
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScrubSkip"
+            }
+          }
+        },
+        "required": [
+          "backup_set_id",
+          "copies",
+          "errors",
+          "skipped"
+        ]
+      },
+      "ScrubResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "What one scrub did: the counts the pass recorded plus the per-set detail. It is the body `retnd scrub --json` prints, and the one result shape every route that reports a scrub reuses.",
+        "properties": {
+          "trigger": {
+            "type": "string",
+            "description": "schedule or manual."
+          },
+          "scope": {
+            "type": "string",
+            "description": "What the pass covered, for example all due, set X, artifact X or copy X on M."
+          },
+          "selected": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Artifacts the pass set out to look at."
+          },
+          "checked": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Copies that reached a verdict by being read or asked."
+          },
+          "passed": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Copies that passed, at the class stated beside each."
+          },
+          "failed": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Copies found wrong."
+          },
+          "could_not_complete": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Copies that could not be asked."
+          },
+          "requires_restore": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Copies in an archive class whose bytes cannot be read without a restore. No restore was started."
+          },
+          "skipped_held": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Sets skipped because they are held for editing."
+          },
+          "skipped_leased": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Copies skipped because another scrub holds them."
+          },
+          "refused": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Copies refused because the read would have cost money nobody agreed to."
+          },
+          "bytes_read": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bytes read off storage by checks that read bytes."
+          },
+          "pass_id": {
+            "type": "integer",
+            "format": "int64",
+            "x-go-omitempty": true,
+            "description": "The durable pass row, absent when the pass had nothing to record."
+          },
+          "sets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScrubSetResult"
+            }
+          }
+        },
+        "required": [
+          "trigger",
+          "scope",
+          "selected",
+          "checked",
+          "passed",
+          "failed",
+          "could_not_complete",
+          "requires_restore",
+          "skipped_held",
+          "skipped_leased",
+          "refused",
+          "bytes_read",
+          "sets"
+        ]
       }
     },
     "responses": {}
