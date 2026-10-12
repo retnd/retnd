@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "f8cc9c340ef96db68d0ba4cc31405c45a542d5a736c2ba763373a5db61dca57d"
+const ContractSHA256 = "c78221ee8574664e98bd04e04cc886ead95566deea001fbad0dcd5bf44cb9449"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -120,6 +120,30 @@ const (
 	ErrorCodeWorkflowStepNotFound                   ErrorCode = "WORKFLOW_STEP_NOT_FOUND"
 	ErrorCodeWorkflowAcknowledgementReasonRequired  ErrorCode = "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED"
 	ErrorCodeWorkflowEngineUnavailable              ErrorCode = "WORKFLOW_ENGINE_UNAVAILABLE"
+	ErrorCodeRecoveryCostNotAcknowledged            ErrorCode = "RECOVERY_COST_NOT_ACKNOWLEDGED"
+	ErrorCodeRecoveryNoCopy                         ErrorCode = "RECOVERY_NO_COPY"
+	ErrorCodeRecoveryCopyNotFound                   ErrorCode = "RECOVERY_COPY_NOT_FOUND"
+	ErrorCodeRecoveryNotReadable                    ErrorCode = "RECOVERY_NOT_READABLE"
+	ErrorCodeRecoveryLocalCopyCorrupt               ErrorCode = "RECOVERY_LOCAL_COPY_CORRUPT"
+	ErrorCodeRecoveryRemoteCopyCorrupt              ErrorCode = "RECOVERY_REMOTE_COPY_CORRUPT"
+	ErrorCodeRecoveryNoDigest                       ErrorCode = "RECOVERY_NO_DIGEST"
+	ErrorCodeRecoveryNoSpace                        ErrorCode = "RECOVERY_NO_SPACE"
+	ErrorCodeRecoveryBelowReserve                   ErrorCode = "RECOVERY_BELOW_RESERVE"
+	ErrorCodeRecoveryGrantUnknown                   ErrorCode = "RECOVERY_GRANT_UNKNOWN"
+	ErrorCodeRecoveryGrantUsed                      ErrorCode = "RECOVERY_GRANT_USED"
+	ErrorCodeRecoveryGrantExpired                   ErrorCode = "RECOVERY_GRANT_EXPIRED"
+	ErrorCodeRecoveryGrantSessionEnded              ErrorCode = "RECOVERY_GRANT_SESSION_ENDED"
+	ErrorCodeRecoveryTooManyGrants                  ErrorCode = "RECOVERY_TOO_MANY_GRANTS"
+	ErrorCodeRecoveryTargetInvalid                  ErrorCode = "RECOVERY_TARGET_INVALID"
+	ErrorCodeRecoveryTargetExists                   ErrorCode = "RECOVERY_TARGET_EXISTS"
+	ErrorCodeRecoveryUseSnapshotRestore             ErrorCode = "RECOVERY_USE_SNAPSHOT_RESTORE"
+	ErrorCodeRecoveryUnavailable                    ErrorCode = "RECOVERY_UNAVAILABLE"
+	ErrorCodeRecoveryBusy                           ErrorCode = "RECOVERY_BUSY"
+	ErrorCodeRecoveryInterrupted                    ErrorCode = "RECOVERY_INTERRUPTED"
+	ErrorCodeRecoveryFailed                         ErrorCode = "RECOVERY_FAILED"
+	ErrorCodeRecoveryReadsBusy                      ErrorCode = "RECOVERY_READS_BUSY"
+	ErrorCodeRecoveryDestinationBusy                ErrorCode = "RECOVERY_DESTINATION_BUSY"
+	ErrorCodeRecoveryDownloadsBusy                  ErrorCode = "RECOVERY_DOWNLOADS_BUSY"
 )
 
 // WireErrorCodes is codes a server may put on the wire. Every one of these is emitted by real handler code, and apps/common/webhost's TestContract_EveryWireErrorCodeIsRegistered holds that both ways.
@@ -187,6 +211,30 @@ var WireErrorCodes = []ErrorCode{
 	ErrorCodeWorkflowStepNotFound,
 	ErrorCodeWorkflowAcknowledgementReasonRequired,
 	ErrorCodeWorkflowEngineUnavailable,
+	ErrorCodeRecoveryCostNotAcknowledged,
+	ErrorCodeRecoveryNoCopy,
+	ErrorCodeRecoveryCopyNotFound,
+	ErrorCodeRecoveryNotReadable,
+	ErrorCodeRecoveryLocalCopyCorrupt,
+	ErrorCodeRecoveryRemoteCopyCorrupt,
+	ErrorCodeRecoveryNoDigest,
+	ErrorCodeRecoveryNoSpace,
+	ErrorCodeRecoveryBelowReserve,
+	ErrorCodeRecoveryGrantUnknown,
+	ErrorCodeRecoveryGrantUsed,
+	ErrorCodeRecoveryGrantExpired,
+	ErrorCodeRecoveryGrantSessionEnded,
+	ErrorCodeRecoveryTooManyGrants,
+	ErrorCodeRecoveryTargetInvalid,
+	ErrorCodeRecoveryTargetExists,
+	ErrorCodeRecoveryUseSnapshotRestore,
+	ErrorCodeRecoveryUnavailable,
+	ErrorCodeRecoveryBusy,
+	ErrorCodeRecoveryInterrupted,
+	ErrorCodeRecoveryFailed,
+	ErrorCodeRecoveryReadsBusy,
+	ErrorCodeRecoveryDestinationBusy,
+	ErrorCodeRecoveryDownloadsBusy,
 }
 
 // UIErrorCodes is the shared UI's own presentation vocabulary. No endpoint emits these; they are registered here so there is one registry rather than a second hand-maintained list in ui/shared.
@@ -278,19 +326,43 @@ var ErrorCodes = []ErrorCode{
 	ErrorCodeWorkflowStepNotFound,
 	ErrorCodeWorkflowAcknowledgementReasonRequired,
 	ErrorCodeWorkflowEngineUnavailable,
+	ErrorCodeRecoveryCostNotAcknowledged,
+	ErrorCodeRecoveryNoCopy,
+	ErrorCodeRecoveryCopyNotFound,
+	ErrorCodeRecoveryNotReadable,
+	ErrorCodeRecoveryLocalCopyCorrupt,
+	ErrorCodeRecoveryRemoteCopyCorrupt,
+	ErrorCodeRecoveryNoDigest,
+	ErrorCodeRecoveryNoSpace,
+	ErrorCodeRecoveryBelowReserve,
+	ErrorCodeRecoveryGrantUnknown,
+	ErrorCodeRecoveryGrantUsed,
+	ErrorCodeRecoveryGrantExpired,
+	ErrorCodeRecoveryGrantSessionEnded,
+	ErrorCodeRecoveryTooManyGrants,
+	ErrorCodeRecoveryTargetInvalid,
+	ErrorCodeRecoveryTargetExists,
+	ErrorCodeRecoveryUseSnapshotRestore,
+	ErrorCodeRecoveryUnavailable,
+	ErrorCodeRecoveryBusy,
+	ErrorCodeRecoveryInterrupted,
+	ErrorCodeRecoveryFailed,
+	ErrorCodeRecoveryReadsBusy,
+	ErrorCodeRecoveryDestinationBusy,
+	ErrorCodeRecoveryDownloadsBusy,
 }
 
 // ErrorClasses groups codes by the refusal they represent, so a caller (or
 // a red team) can assert the RIGHT refusal rather than any refusal.
 var ErrorClasses = map[string][]ErrorCode{
 	"authentication": {ErrorCodeUnauthenticated, ErrorCodeBootstrapTokenInvalid, ErrorCodeResetTokenInvalid, ErrorCodeVerifyTokenInvalid},
-	"authorization":  {ErrorCodeEnrollmentClosed, ErrorCodeDestructiveOperationsDisabled, ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
-	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected},
-	"internal":       {ErrorCodeInternal, ErrorCodeInternalError},
-	"not-found":      {ErrorCodeBackupSetNotFound, ErrorCodeOperationNotFound, ErrorCodeRetentionPlanNotFound, ErrorCodeArtifactNotFound, ErrorCodeMediumNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound, ErrorCodeRepositoryDomainNotFound, ErrorCodeWorkflowEnvNotFound, ErrorCodeWorkflowRunNotFound, ErrorCodeWorkflowStepNotFound},
-	"throttling":     {ErrorCodeRateLimited},
-	"unavailable":    {ErrorCodeNotConfigured, ErrorCodeSmtpSendFailed, ErrorCodeWorkflowEngineUnavailable},
-	"validation":     {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail, ErrorCodeSSHKeyNotFound, ErrorCodeHostKeyProbeFailed, ErrorCodeMediumDisclosureRequired, ErrorCodeBackupSetNotIncremental, ErrorCodeWorkflowAcknowledgementReasonRequired},
+	"authorization":  {ErrorCodeEnrollmentClosed, ErrorCodeDestructiveOperationsDisabled, ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeRecoveryGrantSessionEnded},
+	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy},
+	"internal":       {ErrorCodeInternal, ErrorCodeInternalError, ErrorCodeRecoveryLocalCopyCorrupt, ErrorCodeRecoveryRemoteCopyCorrupt, ErrorCodeRecoveryNoSpace, ErrorCodeRecoveryBelowReserve, ErrorCodeRecoveryFailed},
+	"not-found":      {ErrorCodeBackupSetNotFound, ErrorCodeOperationNotFound, ErrorCodeRetentionPlanNotFound, ErrorCodeArtifactNotFound, ErrorCodeMediumNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound, ErrorCodeRepositoryDomainNotFound, ErrorCodeWorkflowEnvNotFound, ErrorCodeWorkflowRunNotFound, ErrorCodeWorkflowStepNotFound, ErrorCodeRecoveryCopyNotFound, ErrorCodeRecoveryGrantUnknown},
+	"throttling":     {ErrorCodeRateLimited, ErrorCodeRecoveryTooManyGrants, ErrorCodeRecoveryReadsBusy, ErrorCodeRecoveryDestinationBusy, ErrorCodeRecoveryDownloadsBusy},
+	"unavailable":    {ErrorCodeNotConfigured, ErrorCodeSmtpSendFailed, ErrorCodeWorkflowEngineUnavailable, ErrorCodeRecoveryUnavailable, ErrorCodeRecoveryInterrupted},
+	"validation":     {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail, ErrorCodeSSHKeyNotFound, ErrorCodeHostKeyProbeFailed, ErrorCodeMediumDisclosureRequired, ErrorCodeBackupSetNotIncremental, ErrorCodeWorkflowAcknowledgementReasonRequired, ErrorCodeRecoveryTargetInvalid},
 }
 
 // Endpoint is one operation of the contract, with the requirements a
@@ -332,6 +404,30 @@ var Endpoints = []Endpoint{
 		ErrorCodes: map[int][]ErrorCode{
 			401: {ErrorCodeUnauthenticated},
 			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "listAssuranceDue", Method: "GET", Path: "/assurance/due",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AssuranceDueResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "cancelAssuranceOperation", Method: "POST", Path: "/assurance/operations/{op}/cancel",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AssuranceOperationCancelled", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeOperationNotFound},
 			500: {ErrorCodeInternal},
 			503: {ErrorCodeNotConfigured},
 		},
@@ -548,6 +644,42 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "resetBackupSetAssurance", Method: "DELETE", Path: "/backup-sets/{source}/{set}/assurance",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "BackupSetAssurance", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "getBackupSetAssurance", Method: "GET", Path: "/backup-sets/{source}/{set}/assurance",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "BackupSetAssurance", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "updateBackupSetAssurance", Method: "PATCH", Path: "/backup-sets/{source}/{set}/assurance",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "UpdateBackupSetAssuranceRequest", ResponseSchema: "BackupSetAssurance", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
 		ID: "getBackupSetEditHold", Method: "GET", Path: "/backup-sets/{source}/{set}/edit-hold",
 		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "BackupSetEditHoldState", SuccessStatus: 200,
@@ -618,6 +750,31 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "startRecoveryTest", Method: "POST", Path: "/backup-sets/{source}/{set}/recovery-test",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "StartRecoveryTestRequest", ResponseSchema: "RecoveryTestStarted", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound, ErrorCodeArtifactNotFound},
+			409: {ErrorCodeOperationAlreadyRunning},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "getRecoveryTestOutput", Method: "GET", Path: "/backup-sets/{source}/{set}/recovery-test/output",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "RecoveryTestOutput", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
 		ID: "clearBackupSetRetention", Method: "DELETE", Path: "/backup-sets/{source}/{set}/retention",
 		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "BackupSetRetention", SuccessStatus: 200,
@@ -676,6 +833,20 @@ var Endpoints = []Endpoint{
 			400: {ErrorCodeInvalidRequest},
 			401: {ErrorCodeUnauthenticated},
 			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "startScrub", Method: "POST", Path: "/backup-sets/{source}/{set}/scrub",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "ScrubStarted", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeBackupSetNotFound},
+			409: {ErrorCodeOperationAlreadyRunning},
 			500: {ErrorCodeInternal},
 			503: {ErrorCodeNotConfigured},
 		},
@@ -812,6 +983,22 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "mintRecovery", Method: "POST", Path: "/backups/{source}/{set}/{name}/recovery",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "RecoveryMintRequest", ResponseSchema: "RecoveryMintResponse", SuccessStatus: 202,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest, ErrorCodeRecoveryTargetInvalid},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeArtifactNotFound, ErrorCodeRecoveryCopyNotFound},
+			409: {ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryUseSnapshotRestore},
+			429: {ErrorCodeRecoveryTooManyGrants},
+			500: {ErrorCodeInternal, ErrorCodeRecoveryFailed},
+			501: {ErrorCodeRecoveryUnavailable},
+			503: {ErrorCodeRecoveryUnavailable},
+		},
+	},
+	{
 		ID: "retryFailedIngestion", Method: "POST", Path: "/backups/{source}/{set}/{name}/retry",
 		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "RetryFailedRequest", ResponseSchema: "", SuccessStatus: 204,
@@ -923,6 +1110,25 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "redeemRecovery", Method: "GET", Path: "/recoveries/{grant}",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "RecoveryResult", SuccessStatus: 206,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeRecoveryGrantSessionEnded},
+			404: {ErrorCodeArtifactNotFound, ErrorCodeRecoveryCopyNotFound, ErrorCodeRecoveryGrantUnknown},
+			409: {ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryBusy, ErrorCodeRecoveryTargetExists},
+			410: {ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired},
+			416: {ErrorCodeInvalidRequest},
+			429: {ErrorCodeRecoveryReadsBusy, ErrorCodeRecoveryDestinationBusy, ErrorCodeRecoveryDownloadsBusy},
+			500: {ErrorCodeInternal, ErrorCodeRecoveryLocalCopyCorrupt, ErrorCodeRecoveryFailed},
+			501: {ErrorCodeRecoveryUnavailable},
+			502: {ErrorCodeRecoveryRemoteCopyCorrupt},
+			503: {ErrorCodeRecoveryUnavailable, ErrorCodeRecoveryInterrupted},
+			507: {ErrorCodeRecoveryNoSpace, ErrorCodeRecoveryBelowReserve},
+		},
+	},
+	{
 		ID: "listRepositories", Method: "GET", Path: "/repositories",
 		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListRepositoriesResponse", SuccessStatus: 200,
@@ -973,6 +1179,28 @@ var Endpoints = []Endpoint{
 		RequestSchema: "UpdateSettingsRequest", ResponseSchema: "SettingsResponse", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest, ErrorCodeMediumDisclosureRequired},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "getAssuranceSettings", Method: "GET", Path: "/settings/assurance",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AssuranceSettingsResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "updateAssuranceSettings", Method: "PATCH", Path: "/settings/assurance",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "UpdateAssuranceSettingsRequest", ResponseSchema: "AssuranceSettingsResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
 			401: {ErrorCodeUnauthenticated},
 			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
 			500: {ErrorCodeInternal},
@@ -1474,6 +1702,73 @@ type ArtifactReinstateResponse struct {
 	State      string `json:"state,omitempty"`
 }
 
+// AssuranceDueItem is one copy's place in the scrub schedule.
+type AssuranceDueItem struct {
+	ArtifactID     string `json:"artifact_id"`
+	ArtifactName   string `json:"artifact_name"`
+	BackupSetID    string `json:"backup_set_id"`
+	Basis          string `json:"basis"`
+	CadenceSeconds int64  `json:"cadence_seconds"`
+	Due            bool   `json:"due"`
+	LastAssuredAt  string `json:"last_assured_at,omitempty"`
+	NextDueAt      string `json:"next_due_at"`
+	Overdue        bool   `json:"overdue"`
+}
+
+// AssuranceDueResponse is the scrub schedule, most overdue first, computed from each set's
+// resolved policy.
+type AssuranceDueResponse struct {
+	GeneratedAt string             `json:"generated_at"`
+	Items       []AssuranceDueItem `json:"items"`
+}
+
+// AssuranceHostKnob is A setting that is global only, with the reason a backup set cannot
+// override it. The per-set answer is written down for every
+// host-scoped knob so nobody looks for a per-set switch that could
+// not work.
+type AssuranceHostKnob struct {
+	Name   string `json:"name"`
+	PerSet bool   `json:"per_set"`
+	Reason string `json:"reason"`
+	Value  string `json:"value"`
+}
+
+// AssuranceOperationCancelled is A running scrub or recovery test has been told to stop.
+type AssuranceOperationCancelled struct {
+	BackupSetID string `json:"backup_set_id"`
+	Kind        string `json:"kind"`
+	OperationID string `json:"operation_id"`
+	Status      string `json:"status"`
+}
+
+// AssuranceRecoveryTestPolicy is A resolved recovery-test policy.
+type AssuranceRecoveryTestPolicy struct {
+	CadenceSeconds int64  `json:"cadence_seconds"`
+	Mode           string `json:"mode"`
+	ValidatorID    string `json:"validator_id"`
+}
+
+// AssuranceScrubPolicy is A resolved scrub policy: how often a copy is re-read and how much
+// of it is read.
+type AssuranceScrubPolicy struct {
+	CadenceSeconds int64  `json:"cadence_seconds"`
+	Strategy       string `json:"strategy"`
+}
+
+// AssuranceSettingsResponse is the deployment-wide assurance policy, RESOLVED. A config that
+// never mentions assurance reports the defaults here, which is the
+// point: the default is good enough that nobody has to set it.
+type AssuranceSettingsResponse struct {
+	Configured             bool                        `json:"configured"`
+	HostKnobs              []AssuranceHostKnob         `json:"host_knobs"`
+	MaxConcurrentFullReads int64                       `json:"max_concurrent_full_reads"`
+	MaxPerDestination      int64                       `json:"max_per_destination"`
+	RecoveryTest           AssuranceRecoveryTestPolicy `json:"recovery_test"`
+	Scrub                  AssuranceScrubPolicy        `json:"scrub"`
+	StagingRoot            string                      `json:"staging_root"`
+	StagingTtlSeconds      int64                       `json:"staging_ttl_seconds"`
+}
+
 // AuthErrorResponse is the FLAT error body the /auth operations return, with the
 // correlation id in the body as well as the header. Deliberately
 // recorded as a second shape rather than pretended away:
@@ -1579,6 +1874,16 @@ type BackupSet struct {
 	VerificationLevel                    string           `json:"verification_level,omitempty"`
 	VerificationRestoreDrillEverySeconds int64            `json:"verification_restore_drill_every_seconds,omitempty"`
 	VerificationSamplePercent            int              `json:"verification_sample_percent,omitempty"`
+}
+
+// BackupSetAssurance is one backup set's resolved assurance policy and whether it is the
+// set's own. Served together because 'what is deciding' and 'is that
+// this set's own or the deployment's' are one question.
+type BackupSetAssurance struct {
+	BackupSetID  string                      `json:"backup_set_id"`
+	IsOverride   bool                        `json:"is_override"`
+	RecoveryTest AssuranceRecoveryTestPolicy `json:"recovery_test"`
+	Scrub        AssuranceScrubPolicy        `json:"scrub"`
 }
 
 // BackupSetEditHold is POST /backup-sets/{source}/{set}/edit-hold. The lease just taken
@@ -2436,15 +2741,71 @@ type OperationRestore struct {
 // verification_class fields are for. Nothing here is a price, a bill
 // or an estimate of how long a restore will take; see access.
 type Placement struct {
-	Access            string `json:"access"`
-	Location          string `json:"location"`
-	Medium            string `json:"medium"`
-	MediumType        string `json:"medium_type"`
-	SizeBytes         *int64 `json:"size_bytes,omitempty"`
-	Status            string `json:"status"`
-	StorageClass      string `json:"storage_class,omitempty"`
-	VerificationClass string `json:"verification_class,omitempty"`
-	VerifiedAt        string `json:"verified_at,omitempty"`
+	Access                string `json:"access"`
+	AssuranceState        string `json:"assurance_state,omitempty"`
+	ConsecutiveFailures   int    `json:"consecutive_failures,omitempty"`
+	LastCheckedAt         string `json:"last_checked_at,omitempty"`
+	LastFailureAt         string `json:"last_failure_at,omitempty"`
+	LastFailureReason     string `json:"last_failure_reason,omitempty"`
+	Location              string `json:"location"`
+	Medium                string `json:"medium"`
+	MediumType            string `json:"medium_type"`
+	RecoveryFailureReason string `json:"recovery_failure_reason,omitempty"`
+	RecoveryState         string `json:"recovery_state,omitempty"`
+	RecoveryTestedAt      string `json:"recovery_tested_at,omitempty"`
+	SizeBytes             *int64 `json:"size_bytes,omitempty"`
+	Status                string `json:"status"`
+	StorageClass          string `json:"storage_class,omitempty"`
+	VerificationClass     string `json:"verification_class,omitempty"`
+	VerifiedAt            string `json:"verified_at,omitempty"`
+}
+
+// RecoveryMintRequest is POST /backups/{source}/{set}/{name}/recovery. Asks for one
+// retained copy of one backup to be read once, to one target. It
+// authorises nothing by itself beyond minting a short-lived,
+// single-use grant bound to the session that asked.
+type RecoveryMintRequest struct {
+	Acknowledged bool           `json:"acknowledged,omitempty"`
+	Copy         string         `json:"copy,omitempty"`
+	Target       RecoveryTarget `json:"target"`
+}
+
+// RecoveryMintResponse is the answer to a mint, in one of two shapes. A grant (201): the
+// token is shown once, is bound to the minting session, dies when
+// that session ends, expires within minutes, and is spent when the
+// download completes, fails or is abandoned. Or (202), when the only
+// copy is on an archive class and an acknowledged request started
+// exactly one provider restore: no grant yet, ask again once the
+// copy is readable. Carries no percentage, finishing time or amount,
+// because this product knows none of them.
+type RecoveryMintResponse struct {
+	ArtifactID  string                    `json:"artifact_id"`
+	Copy        string                    `json:"copy"`
+	DownloadURL string                    `json:"download_url,omitempty"`
+	ExpiresAt   string                    `json:"expires_at,omitempty"`
+	Grant       string                    `json:"grant,omitempty"`
+	Restore     *RecoveryRestoreOperation `json:"restore,omitempty"`
+	SizeBytes   *int64                    `json:"size_bytes,omitempty"`
+	Target      *RecoveryTarget           `json:"target,omitempty"`
+}
+
+type RecoveryRestoreOperation struct {
+	Billing     string `json:"billing,omitempty"`
+	OperationID string `json:"operation_id"`
+	Wait        string `json:"wait,omitempty"`
+}
+
+// RecoveryResult is what a redeemed grant answers when its target is server-side
+// (staging or storage): the bytes were verified and placed, and
+// nothing was streamed.
+type RecoveryResult struct {
+	ArtifactID string         `json:"artifact_id"`
+	Bytes      int64          `json:"bytes"`
+	Copy       string         `json:"copy"`
+	Key        string         `json:"key,omitempty"`
+	Path       string         `json:"path,omitempty"`
+	Sha256     string         `json:"sha256"`
+	Target     RecoveryTarget `json:"target"`
 }
 
 // RecoverySettingsResponse is GET /auth/recovery and PATCH /auth/recovery: the recovery address,
@@ -2477,6 +2838,55 @@ type RecoverySettingsUpdate struct {
 	CurrentPassword string        `json:"currentPassword"`
 	RecoveryEmail   *string       `json:"recoveryEmail"`
 	Smtp            *SmtpSettings `json:"smtp"`
+}
+
+// RecoveryTarget is where one recovery writes its bytes. The set is closed: download
+// streams to the caller that redeems the grant, staging places one
+// file under the configured recovery staging root, storage uploads
+// to another configured storage destination. A staging or storage
+// target is written only after the whole copy has been read and has
+// matched the SHA-256 the journal recorded. A download is not
+// staged: it is refused before its first byte unless a read of the
+// whole copy has matched that digest, and each chunk is checked
+// again as it is sent.
+type RecoveryTarget struct {
+	Key    string `json:"key,omitempty"`
+	Kind   string `json:"kind"`
+	Medium string `json:"medium,omitempty"`
+	Path   string `json:"path,omitempty"`
+}
+
+// RecoveryTestOutput is what the newest recovery test of a backup set printed. Only the
+// newest test is kept per set.
+type RecoveryTestOutput struct {
+	ArtifactID  string                     `json:"artifact_id"`
+	BackupSetID string                     `json:"backup_set_id"`
+	Medium      string                     `json:"medium"`
+	OperationID string                     `json:"operation_id"`
+	Recorded    bool                       `json:"recorded"`
+	RecordedAt  string                     `json:"recorded_at"`
+	Records     []RecoveryTestOutputRecord `json:"records"`
+	State       string                     `json:"state"`
+	Truncated   bool                       `json:"truncated"`
+}
+
+// RecoveryTestOutputRecord is one line of a validator's output, or the runner's own truncation
+// marker. Branch on kind and never on text: only the runner produces
+// a truncation record, so a validator that prints the marker's words
+// is still an output record.
+type RecoveryTestOutputRecord struct {
+	Kind string `json:"kind"`
+	Text string `json:"text"`
+}
+
+// RecoveryTestStarted is A recovery test is under way. operation_id is carried by its
+// recovery_test_start, recovery_stage and recovery_test_end lines on
+// the activity feed, which is how a client follows it; the verdict
+// is the copy's recovery claim once it ends.
+type RecoveryTestStarted struct {
+	BackupSetID string `json:"backup_set_id"`
+	Coalesced   bool   `json:"coalesced"`
+	OperationID string `json:"operation_id"`
 }
 
 // RepositoryHealth is one repository domain's own health, which is a different question
@@ -2767,6 +3177,92 @@ type SSHKeyDiscoveryLocation struct {
 	Problem string `json:"problem,omitempty"`
 }
 
+// ScrubArtifactError is an artifact the pass could not give a verdict at all, with the
+// infrastructure problem that stopped it. The copies it did get a
+// verdict for are in the set's copies, each once.
+type ScrubArtifactError struct {
+	ArtifactID string `json:"artifact_id"`
+	Error      string `json:"error"`
+}
+
+// ScrubCopyOutcome is what a scrub learned about one copy of one artifact. The class is
+// the class that RAN, never the class asked for: a HEAD is reported
+// as a HEAD.
+type ScrubCopyOutcome struct {
+	ArtifactID string `json:"artifact_id"`
+	Class      string `json:"class,omitempty"`
+	Medium     string `json:"medium"`
+	Reason     string `json:"reason,omitempty"`
+	Refused    bool   `json:"refused"`
+	Verdict    string `json:"verdict"`
+}
+
+// ScrubResult is what one scrub did: the counts the pass recorded plus the per-set
+// detail. It is the body `retnd scrub --json` prints, and the one
+// result shape every route that reports a scrub reuses.
+type ScrubResult struct {
+	BytesRead        int64            `json:"bytes_read"`
+	Checked          int64            `json:"checked"`
+	CouldNotComplete int64            `json:"could_not_complete"`
+	Failed           int64            `json:"failed"`
+	PassID           int64            `json:"pass_id,omitempty"`
+	Passed           int64            `json:"passed"`
+	Refused          int64            `json:"refused"`
+	RequiresRestore  int64            `json:"requires_restore"`
+	Scope            string           `json:"scope"`
+	Selected         int64            `json:"selected"`
+	Sets             []ScrubSetResult `json:"sets"`
+	SkippedHeld      int64            `json:"skipped_held"`
+	SkippedLeased    int64            `json:"skipped_leased"`
+	Trigger          string           `json:"trigger"`
+	UnknownObjects   int64            `json:"unknown_objects,omitempty"`
+	Unlisted         int64            `json:"unlisted,omitempty"`
+}
+
+// ScrubSetResult is one backup set's part of a scrub.
+type ScrubSetResult struct {
+	BackupSetID    string                `json:"backup_set_id"`
+	Copies         []ScrubCopyOutcome    `json:"copies"`
+	Error          string                `json:"error,omitempty"`
+	Errors         []ScrubArtifactError  `json:"errors"`
+	Skipped        []ScrubSkip           `json:"skipped"`
+	UnknownObjects []ScrubUnknownObject  `json:"unknown_objects,omitempty"`
+	Unlisted       []ScrubUnlistedMedium `json:"unlisted,omitempty"`
+}
+
+// ScrubSkip is work a scrub was asked to do and did not. A skip is always
+// reported: a copy that was due and silently not looked at is the
+// same failure as one never scheduled.
+type ScrubSkip struct {
+	ArtifactID string `json:"artifact_id,omitempty"`
+	Medium     string `json:"medium,omitempty"`
+	Reason     string `json:"reason"`
+}
+
+// ScrubStarted is A scrub is under way. operation_id is what POST
+// /assurance/operations/{op}/cancel takes.
+type ScrubStarted struct {
+	BackupSetID string `json:"backup_set_id"`
+	OperationID string `json:"operation_id"`
+}
+
+// ScrubUnknownObject is an object a storage medium holds under a backup set's namespace at
+// a key the journal has no placement for (QC-04). It is a finding
+// for an operator to look at: never a verified copy of anything, and
+// a scrub never reads, moves or deletes it.
+type ScrubUnknownObject struct {
+	Key    string `json:"key"`
+	Medium string `json:"medium"`
+	Size   int64  `json:"size"`
+}
+
+// ScrubUnlistedMedium is A storage medium the pass could not enumerate, so that no unknown
+// objects reported for it does not read as nothing being there.
+type ScrubUnlistedMedium struct {
+	Medium string `json:"medium"`
+	Reason string `json:"reason"`
+}
+
 // ServiceSchema is the rules the service-behaviour settings are validated against,
 // served so a form does not keep its own copy of a bound the engine
 // enforces.
@@ -3010,6 +3506,16 @@ type SnapshotVerifyRequest struct {
 	SamplePercent int    `json:"sample_percent,omitempty"`
 }
 
+// StartRecoveryTestRequest is POST /backup-sets/{source}/{set}/recovery-test. Starts a recovery
+// test now. An empty body tests the newest known good copy and
+// acknowledges no cost: a copy that costs money to read (a download
+// from a billed object store, or an archived object) is refused,
+// recorded as refused_for_cost, and nothing is read.
+type StartRecoveryTestRequest struct {
+	Acknowledged bool   `json:"acknowledged,omitempty"`
+	ArtifactID   string `json:"artifact_id,omitempty"`
+}
+
 // StorageMediumCredentialsReference is where one storage medium's credentials come from. Exactly one of
 // the four must be set, and none of them is credential MATERIAL:
 // this is a reference in all four spellings. credentials_id is the
@@ -3193,6 +3699,34 @@ type TrustedHostKey struct {
 // since a create request naming one is refused by the registry.
 type UnregisteredBackend struct {
 	Transport string `json:"transport"`
+}
+
+// UpdateAssuranceSettingsRequest is PATCH the deployment-wide assurance block. Every field is nullable
+// because this is a PATCH: omitted leaves the setting alone, and a
+// zero or empty value clears it back to its default. A body that
+// names nothing is refused.
+type UpdateAssuranceSettingsRequest struct {
+	MaxConcurrentFullReads     *int64  `json:"max_concurrent_full_reads"`
+	MaxPerDestination          *int64  `json:"max_per_destination"`
+	RecoveryTestCadenceSeconds *int64  `json:"recovery_test_cadence_seconds"`
+	RecoveryTestMode           *string `json:"recovery_test_mode"`
+	RecoveryTestValidatorID    *string `json:"recovery_test_validator_id"`
+	ScrubCadenceSeconds        *int64  `json:"scrub_cadence_seconds"`
+	ScrubStrategy              *string `json:"scrub_strategy"`
+	StagingRoot                *string `json:"staging_root"`
+	StagingTtlSeconds          *int64  `json:"staging_ttl_seconds"`
+}
+
+// UpdateBackupSetAssuranceRequest is PATCH one backup set's own assurance block. Omitted leaves a field
+// alone and a zero or empty value clears it, so the set inherits it
+// again. Clearing every field is the same as a reset. A body that
+// names nothing is refused.
+type UpdateBackupSetAssuranceRequest struct {
+	RecoveryTestCadenceSeconds *int64  `json:"recovery_test_cadence_seconds"`
+	RecoveryTestMode           *string `json:"recovery_test_mode"`
+	RecoveryTestValidatorID    *string `json:"recovery_test_validator_id"`
+	ScrubCadenceSeconds        *int64  `json:"scrub_cadence_seconds"`
+	ScrubStrategy              *string `json:"scrub_strategy"`
 }
 
 // UpdateBackupSetRequest is PATCH /backup-sets/{source}/{set}. A SPARSE edit of one
@@ -3685,6 +4219,13 @@ var SchemaTypes = map[string]any{
 	"Artifact":                           Artifact{},
 	"ArtifactCheckResponse":              ArtifactCheckResponse{},
 	"ArtifactReinstateResponse":          ArtifactReinstateResponse{},
+	"AssuranceDueItem":                   AssuranceDueItem{},
+	"AssuranceDueResponse":               AssuranceDueResponse{},
+	"AssuranceHostKnob":                  AssuranceHostKnob{},
+	"AssuranceOperationCancelled":        AssuranceOperationCancelled{},
+	"AssuranceRecoveryTestPolicy":        AssuranceRecoveryTestPolicy{},
+	"AssuranceScrubPolicy":               AssuranceScrubPolicy{},
+	"AssuranceSettingsResponse":          AssuranceSettingsResponse{},
 	"AuthErrorResponse":                  AuthErrorResponse{},
 	"BackendEnumValue":                   BackendEnumValue{},
 	"BackendManifest":                    BackendManifest{},
@@ -3692,6 +4233,7 @@ var SchemaTypes = map[string]any{
 	"BackendProbe":                       BackendProbe{},
 	"BackendProbeStep":                   BackendProbeStep{},
 	"BackupSet":                          BackupSet{},
+	"BackupSetAssurance":                 BackupSetAssurance{},
 	"BackupSetEditHold":                  BackupSetEditHold{},
 	"BackupSetEditHoldState":             BackupSetEditHoldState{},
 	"BackupSetHealth":                    BackupSetHealth{},
@@ -3756,8 +4298,16 @@ var SchemaTypes = map[string]any{
 	"OperationProgress":                  OperationProgress{},
 	"OperationRestore":                   OperationRestore{},
 	"Placement":                          Placement{},
+	"RecoveryMintRequest":                RecoveryMintRequest{},
+	"RecoveryMintResponse":               RecoveryMintResponse{},
+	"RecoveryRestoreOperation":           RecoveryRestoreOperation{},
+	"RecoveryResult":                     RecoveryResult{},
 	"RecoverySettingsResponse":           RecoverySettingsResponse{},
 	"RecoverySettingsUpdate":             RecoverySettingsUpdate{},
+	"RecoveryTarget":                     RecoveryTarget{},
+	"RecoveryTestOutput":                 RecoveryTestOutput{},
+	"RecoveryTestOutputRecord":           RecoveryTestOutputRecord{},
+	"RecoveryTestStarted":                RecoveryTestStarted{},
 	"RepositoryHealth":                   RepositoryHealth{},
 	"RepositoryMaintenance":              RepositoryMaintenance{},
 	"RepositoryPassphraseReference":      RepositoryPassphraseReference{},
@@ -3777,6 +4327,14 @@ var SchemaTypes = map[string]any{
 	"SSHKey":                             SSHKey{},
 	"SSHKeyCandidate":                    SSHKeyCandidate{},
 	"SSHKeyDiscoveryLocation":            SSHKeyDiscoveryLocation{},
+	"ScrubArtifactError":                 ScrubArtifactError{},
+	"ScrubCopyOutcome":                   ScrubCopyOutcome{},
+	"ScrubResult":                        ScrubResult{},
+	"ScrubSetResult":                     ScrubSetResult{},
+	"ScrubSkip":                          ScrubSkip{},
+	"ScrubStarted":                       ScrubStarted{},
+	"ScrubUnknownObject":                 ScrubUnknownObject{},
+	"ScrubUnlistedMedium":                ScrubUnlistedMedium{},
 	"ServiceSchema":                      ServiceSchema{},
 	"ServiceSettings":                    ServiceSettings{},
 	"SessionResponse":                    SessionResponse{},
@@ -3797,6 +4355,7 @@ var SchemaTypes = map[string]any{
 	"SnapshotRetentionVerdict":           SnapshotRetentionVerdict{},
 	"SnapshotTransition":                 SnapshotTransition{},
 	"SnapshotVerifyRequest":              SnapshotVerifyRequest{},
+	"StartRecoveryTestRequest":           StartRecoveryTestRequest{},
 	"StorageMediumCredentialsReference":  StorageMediumCredentialsReference{},
 	"StorageMediumRequest":               StorageMediumRequest{},
 	"StorageMediumSummary":               StorageMediumSummary{},
@@ -3809,6 +4368,8 @@ var SchemaTypes = map[string]any{
 	"TestConnectionResponse":             TestConnectionResponse{},
 	"TrustedHostKey":                     TrustedHostKey{},
 	"UnregisteredBackend":                UnregisteredBackend{},
+	"UpdateAssuranceSettingsRequest":     UpdateAssuranceSettingsRequest{},
+	"UpdateBackupSetAssuranceRequest":    UpdateBackupSetAssuranceRequest{},
 	"UpdateBackupSetRequest":             UpdateBackupSetRequest{},
 	"UpdateBackupSetWorkflowRequest":     UpdateBackupSetWorkflowRequest{},
 	"UpdateCapacitySettings":             UpdateCapacitySettings{},

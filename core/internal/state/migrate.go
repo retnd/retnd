@@ -64,7 +64,13 @@ type migration struct {
 // malformed filename, or two files claiming the same version, would make
 // "which migration is version 3" ambiguous, and this journal does not guess.
 func loadMigrations() ([]migration, error) {
-	entries, err := migrations.FS.ReadDir(".")
+	return loadMigrationsFrom(migrations.FS)
+}
+
+// loadMigrationsFrom is loadMigrations over any file system, so a test can
+// plant a file and watch the loader refuse it.
+func loadMigrationsFrom(fsys fs.FS) ([]migration, error) {
+	entries, err := fs.ReadDir(fsys, ".")
 	if err != nil {
 		return nil, fmt.Errorf("state: read embedded migrations: %w", err)
 	}
@@ -80,7 +86,7 @@ func loadMigrations() ([]migration, error) {
 			return nil, err
 		}
 
-		content, err := migrations.FS.ReadFile(entry.Name())
+		content, err := fs.ReadFile(fsys, entry.Name())
 		if err != nil {
 			return nil, fmt.Errorf("state: read migration %s: %w", entry.Name(), err)
 		}

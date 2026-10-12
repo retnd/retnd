@@ -810,10 +810,21 @@ var surfaces = []surface{
 		argv: func(f fixture) []string { return []string{"reconcile", "--config", f.configPath} }},
 	{verb: "validate", name: "one durable copy", mode: "", exit: 0, needsArtifacts: true,
 		argv: func(f fixture) []string { return []string{"validate", "--config", f.configPath, f.artifactID} }},
+	{verb: "scrub", name: "one named backup, checked now whether or not it is due", mode: "", exit: 0, needsArtifacts: true,
+		note: "scrub reads copies and records what it found in the journal, like validate beside it, so it writes no configuration and names no mode. Naming the artifact is the operator saying now, which makes the pass check it even though nothing is due yet, so the row proves work happened rather than an empty schedule",
+		argv: func(f fixture) []string { return []string{"scrub", "--config", f.configPath, f.artifactID} }},
 	{verb: "catalog", name: "rebuild, previewed", mode: "", exit: 0, needsArtifacts: true,
 		argv: func(f fixture) []string {
 			return []string{"catalog", "--config", f.configPath, "rebuild", "--dry-run"}
 		}},
+	{verb: "recovery-test", name: "the newest good copy of one set, refused because the fixture declares no validator", mode: "", exit: 1, needsArtifacts: true,
+		says: "no recovery-test validator is declared for this backup set",
+		note: "the terminal's door to the test the scheduler runs. It finds the newest known good copy and then stops, because the test is only worth running against a script the operator named and this fixture names none; that is the refusal an unconfigured deployment gets, and it is worth pinning for what it is not, which is a pass. It records its outcome in the journal and touches no configuration, and it names no mode",
+		argv: func(f fixture) []string { return []string{"recovery-test", "--config", f.configPath, f.setID} }},
+	{verb: "assurance", name: "cancel, with no engine serving to hold the operation", mode: "direct", exit: 1,
+		says: "has no route to one",
+		note: "a running scrub or recovery test is the work of the serving process and its cancel function lives in that process's memory, so with nothing serving there is nothing to cancel. It refuses, naming how to reach an engine, rather than answering not-found from a world where the question has no meaning",
+		argv: func(f fixture) []string { return []string{"assurance", "cancel", "--config", f.configPath, "00000000-0000-4000-8000-000000000001"} }},
 	{verb: "quarantine", name: "revalidate", mode: "", exit: 1, needsArtifacts: true,
 		note: "nothing here is quarantined, so this refuses for the missing subject",
 		argv: func(f fixture) []string {
@@ -838,6 +849,9 @@ var surfaces = []surface{
 		argv: func(f fixture) []string {
 			return []string{"restore", "--config", f.configPath, f.artifactID, "--medium", "no-such-medium", "--acknowledge"}
 		}},
+	{verb: "recover", name: "one backup, streamed to standard output", mode: "", exit: 0, needsArtifacts: true,
+		note: "--to - sends the bytes to standard output, so the row leaves nothing on disk to clean up; recovery reads a copy and writes no configuration, and it names no mode",
+		argv: func(f fixture) []string { return []string{"recover", "--config", f.configPath, f.artifactID, "--to", "-"} }},
 	{verb: "snapshot", name: "list, refused because this deployment's incremental engine is switched off", mode: "", exit: 1,
 		says: "the incremental (kopia) backup engine is disabled in this deployment",
 		note: "EPIC K's whole surface sits behind a gate that is shut until a deployment opts in, and this fixture is an ordinary artifact-engine deployment, so the honest outcome here is that refusal and not a snapshot history. It is worth pinning for what it is not: an empty list would tell an operator this backup set has taken no snapshots, when what is true is that nothing in this deployment could have taken one",

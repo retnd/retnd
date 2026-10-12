@@ -69,6 +69,29 @@ type sessionManager struct {
 	mu    sync.Mutex
 	byTok map[string]sessionRecord
 	now   func() time.Time
+
+	// onEnd is told about a session the moment it is ended on purpose
+	// (logout, a password rotation, a reset), never about one that merely
+	// lapsed: a lapse is something a holder of the expiry already knows.
+	// Always called with m.mu released.
+	onEnd func(username string, expiresAt time.Time)
+}
+
+// setOnEnd installs the callback sessions-ended-on-purpose are reported to.
+func (m *sessionManager) setOnEnd(fn func(username string, expiresAt time.Time)) {
+	m.mu.Lock()
+	m.onEnd = fn
+	m.mu.Unlock()
+}
+
+// ended reports recs to the callback, outside the lock.
+func (m *sessionManager) ended(fn func(string, time.Time), recs ...sessionRecord) {
+	if fn == nil {
+		return
+	}
+	for _, r := range recs {
+		fn(r.username, r.expiresAt)
+	}
 }
 
 func newSessionManager(now func() time.Time) *sessionManager {
@@ -112,8 +135,9 @@ func (m *sessionManager) lookup(token string) (string, bool) {
 	return rec.username, ok
 }
 
-// live is lookup with the record, for the one caller that needs the
-// EXPIRY as well as the username: reissueRenamedSessionCookie, which
+// live is lookup with the record, for the callers that need the EXPIRY
+// as well as the username: sessionAuthenticator, which reports it so a
+// grant can be bound to it, and reissueRenamedSessionCookie, which
 // re-writes an existing session's cookie under the current name and must
 // not extend its lifetime while doing so. Nothing else may use this to
 // refresh a credential -- a read that silently extended a session is the
@@ -142,8 +166,13 @@ func (m *sessionManager) live(token string) (sessionRecord, bool) {
 // revoke invalidates token immediately, regardless of its expiry.
 func (m *sessionManager) revoke(token string) {
 	m.mu.Lock()
+	rec, ok := m.byTok[token]
 	delete(m.byTok, token)
+	fn := m.onEnd
 	m.mu.Unlock()
+	if ok && !m.now().After(rec.expiresAt) {
+		m.ended(fn, rec)
+	}
 }
 
 // revokeAll invalidates every live session, leaving none behind.
@@ -159,8 +188,23 @@ func (m *sessionManager) revoke(token string) {
 // the request, and the new password is what gets somebody back in.
 func (m *sessionManager) revokeAll() {
 	m.mu.Lock()
+	dropped := m.liveLocked()
 	m.byTok = map[string]sessionRecord{}
+	fn := m.onEnd
 	m.mu.Unlock()
+	m.ended(fn, dropped...)
+}
+
+// liveLocked is every record that has not lapsed. m.mu must be held.
+func (m *sessionManager) liveLocked() []sessionRecord {
+	var out []sessionRecord
+	now := m.now()
+	for _, r := range m.byTok {
+		if !now.After(r.expiresAt) {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // rotateSession atomically revokes every live session and installs a
@@ -191,8 +235,11 @@ func (m *sessionManager) rotateSession(username string) (token string, expiresAt
 	expiresAt = m.now().Add(sessionTTL)
 
 	m.mu.Lock()
+	dropped := m.liveLocked()
 	m.byTok = map[string]sessionRecord{token: {username: username, expiresAt: expiresAt}}
+	fn := m.onEnd
 	m.mu.Unlock()
+	m.ended(fn, dropped...)
 	return token, expiresAt, nil
 }
 

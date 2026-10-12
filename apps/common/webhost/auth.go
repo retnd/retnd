@@ -34,6 +34,16 @@ import (
 // can never collide with, or be set by, any other package's key.
 type actorContextKey struct{}
 
+type authContextKey struct{}
+
+// authContextFrom is the full AuthContext the request authenticated with.
+// Recovery binds a grant to it: the context carries who and when that
+// authentication lapses, and nothing else is a session id here.
+func authContextFrom(ctx context.Context) capabilities.AuthContext {
+	a, _ := ctx.Value(authContextKey{}).(capabilities.AuthContext)
+	return a
+}
+
 // actorFromContext returns the authenticated caller's identity, as
 // resolved by authMiddleware below. Empty if called from anywhere that
 // did not go through that middleware — every handler in this package
@@ -83,6 +93,7 @@ func authMiddleware(platform capabilities.PlatformAdapter) func(http.Handler) ht
 			}
 
 			ctx := context.WithValue(r.Context(), actorContextKey{}, authCtx.Username)
+			ctx = context.WithValue(ctx, authContextKey{}, authCtx)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

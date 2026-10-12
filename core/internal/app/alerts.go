@@ -6,6 +6,7 @@ import (
 
 	"github.com/retnd/retnd/core/internal/alert"
 	"github.com/retnd/retnd/core/internal/capacity"
+	"github.com/retnd/retnd/core/internal/health"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/transport"
 )
@@ -285,6 +286,14 @@ func (s *Service) evaluateAlerts(ctx context.Context, report CycleReport) {
 	// as often.
 	conditions = append(conditions, s.RepositoryAlertConditions(ctx)...)
 
+	// EPIC Q's assurance conditions, from the same health report: a copy
+	// that keeps failing its scrub, a scrub that has lapsed, and a required
+	// recovery test that failed or has lapsed. They ride the dispatcher a
+	// configured notifier already has, with its de-duplication, so a failing
+	// scrub reaches the operator without anybody having written a script.
+	// The assurance-after scripts stay as the extension point beside this.
+	conditions = append(conditions, alert.AssuranceConditions(s.assuranceSignals(healthReport, alertable))...)
+
 	s.Alerts.Observe(ctx, conditions, unevaluated, s.now())
 }
 
@@ -310,6 +319,32 @@ func (s *Service) alertableBackupSets() map[model.BackupSetID]bool {
 				continue
 			}
 			out[bs.ID] = true
+		}
+	}
+	return out
+}
+
+// assuranceSignals reduces the health report to what the alert layer is
+// allowed to say about assurance: counts and flags, never a path or a
+// validator's output (alert.AssuranceSignal has no field for either).
+func (s *Service) assuranceSignals(r health.Report, alertable map[model.BackupSetID]bool) []alert.AssuranceSignal {
+	var out []alert.AssuranceSignal
+	for _, bs := range r.BackupSets {
+		if !alertable[bs.Set] {
+			continue
+		}
+		sig := alert.AssuranceSignal{
+			BackupSet:           bs.Set.String(),
+			ScrubFailing:        bs.ScrubFailingCopies,
+			ScrubOverdue:        bs.ScrubOverdueCopies,
+			RecoveryTestFailing: bs.RecoveryTestFailed,
+			RecoveryTestOverdue: bs.RecoveryTestLapsed,
+		}
+		if cfg, ok := s.backupSet(bs.Set); ok {
+			sig.ValidatorID = cfg.Assurance.RecoveryTest.ValidatorID
+		}
+		if sig.ScrubFailing > 0 || sig.ScrubOverdue > 0 || sig.RecoveryTestFailing || sig.RecoveryTestOverdue {
+			out = append(out, sig)
 		}
 	}
 	return out

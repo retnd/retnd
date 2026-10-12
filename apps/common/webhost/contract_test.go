@@ -133,6 +133,11 @@ var contractBindings = map[string]contractBinding{
 	// 204 leaves no resource to describe.
 	"retryFailedIngestion": {retryFailedIngestionRequest{}, nil, "/api/v1/backups/src/set-1/backup.dump/retry"},
 	"reinstateArtifact":    {nil, artifactReinstateResponse{}, "/api/v1/quarantine/src/set-1/backup.dump/reinstate"},
+	// EPIC Q (#976): the recovery pair. The redeem's contract names two
+	// success shapes (the verified bytes, or the placement for a
+	// server-side target); the JSON one is the one with fields to hold.
+	"mintRecovery":   {recoveryMintRequest{}, recoveryMintResponse{}, "/api/v1/backups/src/set-1/backup.dump/recovery"},
+	"redeemRecovery": {nil, recoveryResultResponse{}, "/api/v1/recoveries/tok_abc"},
 	// Issue #443's medium preflight. Its path parameter is a single
 	// segment, unlike the artifact routes above, because a medium id is a
 	// single segment: config refuses one carrying a separator.
@@ -236,6 +241,17 @@ var contractBindings = map[string]contractBinding{
 	// that sends nothing gets this deployment's whole history, which is
 	// the reading an operator asking "what is stuck here" makes.
 	"listWorkflowRuns":     {nil, listWorkflowRunsResponse{}, "/api/v1/workflow-runs"},
+	// EPIC Q, Q1.4 (#982).
+	"getAssuranceSettings":      {nil, assuranceSettingsResponse{}, "/api/v1/settings/assurance"},
+	"updateAssuranceSettings":   {updateAssuranceSettingsRequest{}, assuranceSettingsResponse{}, "/api/v1/settings/assurance"},
+	"getBackupSetAssurance":     {nil, backupSetAssuranceResponse{}, "/api/v1/backup-sets/src/set-1/assurance"},
+	"updateBackupSetAssurance":  {updateBackupSetAssuranceRequest{}, backupSetAssuranceResponse{}, "/api/v1/backup-sets/src/set-1/assurance"},
+	"resetBackupSetAssurance":   {nil, backupSetAssuranceResponse{}, "/api/v1/backup-sets/src/set-1/assurance"},
+	"listAssuranceDue":          {nil, assuranceDueResponse{}, "/api/v1/assurance/due"},
+	"startRecoveryTest":         {startRecoveryTestRequest{}, recoveryTestStartedResponse{}, "/api/v1/backup-sets/src/set-1/recovery-test"},
+	"startScrub":                {nil, scrubStartedResponse{}, "/api/v1/backup-sets/src/set-1/scrub"},
+	"cancelAssuranceOperation":  {nil, assuranceOperationCancelledResponse{}, "/api/v1/assurance/operations/op_1/cancel"},
+	"getRecoveryTestOutput":     {nil, recoveryTestOutputResponse{}, "/api/v1/backup-sets/src/set-1/recovery-test/output"},
 	"getWorkflowRun":       {nil, workflowRunResponse{}, "/api/v1/workflow-runs/run_1"},
 	"listWorkflowRunSteps": {nil, listWorkflowStepsResponse{}, "/api/v1/workflow-runs/run_1/steps"},
 	"getWorkflowStepLogs":  {nil, workflowStepLogPageResponse{}, "/api/v1/workflow-runs/run_1/steps/step_1/logs"},
@@ -1358,6 +1374,18 @@ func TestContract_APathBuiltFromTheContractReachesTheResourceItNames(t *testing.
 				_ = json.Unmarshal(rec.Body.Bytes(), &body)
 				if rec.Code != http.StatusOK || body.ID != artifactID {
 					t.Errorf("reading the backup %q answered %d %q, want 200 and that id back", artifactID, rec.Code, rec.Body.String())
+				}
+			},
+		},
+		{
+			operation: "mintRecovery",
+			identity:  artifactID,
+			body:      `{"target":{"kind":"download"}}`,
+			csrf:      true,
+			arrange:   func(*backupSetFakeBackend) {},
+			reached: func(t *testing.T, b *backupSetFakeBackend, rec *httptest.ResponseRecorder) {
+				if got := b.lastRecoveryMint.ArtifactID; got != artifactID {
+					t.Errorf("the mint reached the backend for artifact %q, want %q (response %d %q)", got, artifactID, rec.Code, rec.Body.String())
 				}
 			},
 		},

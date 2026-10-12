@@ -96,6 +96,35 @@ type Placement struct {
 	// knows is GONE never reaches here at all, because a row for it would
 	// read as a copy.
 	Status string
+
+	// ScrubState, ScrubNextDueAt and ScrubLastCheckedAt are this copy's own
+	// scrub record (migration 0016), read back from the journal. ScrubState
+	// is "unknown" for a copy nobody has scrubbed, and the two times are the
+	// zero time when the copy has none: no due time means due now, never
+	// "never due". The schedule a surface shows (AssuranceDue) is read from
+	// these, so it is the same clock the scrub driver keeps.
+	ScrubState         string
+	ScrubNextDueAt     time.Time
+	ScrubLastCheckedAt time.Time
+
+	// ScrubLastFailureAt, ScrubLastFailureReason and ScrubConsecutiveFailures
+	// are why a surface can say a copy FAILED instead of "never run": a failed
+	// scrub clears the copy's class and time, so without these the failure is
+	// invisible at this boundary (panel finding C8, #985). The reason is the
+	// journal's bounded, stripped text, the same one the scrub logged. They
+	// survive a later pass except the streak, which a pass resets to zero.
+	ScrubLastFailureAt       time.Time
+	ScrubLastFailureReason   string
+	ScrubConsecutiveFailures int
+
+	// RecoveryState is this copy's recovery-test claim, one of the
+	// state.Recovery* verdicts ("unknown" for a copy no test has evaluated),
+	// with when it was last tested and, for a failure, the journal's reason.
+	// A separate home from ScrubState because passing one says nothing about
+	// the other.
+	RecoveryState         string
+	RecoveryTestedAt      time.Time
+	RecoveryFailureReason string
 }
 
 // StorageMediumSummary is one configured storage medium, described with
@@ -402,6 +431,23 @@ func toServicePlacement(p state.Placement, idx mediumIndex) Placement {
 	if p.VerifiedAt != nil {
 		out.VerifiedAt = *p.VerifiedAt
 	}
+	out.ScrubState = p.AssuranceState
+	if p.NextDueAt != nil {
+		out.ScrubNextDueAt = *p.NextDueAt
+	}
+	if p.LastCheckedAt != nil {
+		out.ScrubLastCheckedAt = *p.LastCheckedAt
+	}
+	if p.LastFailureAt != nil {
+		out.ScrubLastFailureAt = *p.LastFailureAt
+	}
+	out.ScrubLastFailureReason = p.LastFailureReason
+	out.ScrubConsecutiveFailures = p.ConsecutiveFailures
+	out.RecoveryState = p.RecoveryState
+	if p.RecoveryTestedAt != nil {
+		out.RecoveryTestedAt = *p.RecoveryTestedAt
+	}
+	out.RecoveryFailureReason = p.RecoveryFailureReason
 	return out
 }
 

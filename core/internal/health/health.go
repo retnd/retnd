@@ -149,6 +149,13 @@ func NewProcessHealth(in ProcessInputs) ProcessHealth {
 	return ProcessHealth(in)
 }
 
+// ScrubFailureThreshold is how many scheduled checks of one copy have to
+// fail in a row before the set is degraded and an alert is raised. One miss
+// is a blip, and the pacing already retries a struggling copy sooner than a
+// healthy one, so three in a row is a pattern. It is a constant with a
+// default today; making it configurable is the settings work's business.
+const ScrubFailureThreshold = 3
+
 // BackupSetInputs is what one backup set's BackupSetHealth needs that
 // cannot be derived from its journal rows: a connectivity/liveness signal
 // for the most recent discovery poll, when retention last ran, and free
@@ -164,6 +171,21 @@ func NewProcessHealth(in ProcessInputs) ProcessHealth {
 // nothing here is allowed to reach a verdict. That is the opposite of
 // what the placement evidence is for on both counts.
 type BackupSetInputs struct {
+	// ScrubCadence is the set's resolved scrub cadence. It is read for one
+	// thing: a copy whose last scrub passed and whose next one is a whole
+	// cadence late is reported in ScrubOverdueCopies. Zero reports none.
+	ScrubCadence time.Duration
+
+	// RecoveryTestRequired says the operator requires the newest known good
+	// copy to have a current, passing recovery test (EPIC Q, #980). When it
+	// does not, a failed or missing test degrades nothing: it is a claim a
+	// surface shows, and requiring it is a decision.
+	//
+	// It can only turn HEALTHY into DEGRADED and it reads the claim off the
+	// copy's own record. It never reaches back and changes a backup that
+	// already succeeded: that backup is still the newest good one.
+	RecoveryTestRequired bool
+
 	// LastSuccessfulPollAt is when discovery last completed successfully
 	// for this set. It is a liveness signal, not evidence of freshness: a
 	// set can be polled successfully every cycle while its source has
@@ -302,6 +324,32 @@ type BackupSetHealth struct {
 	// merely-recoverable kind.
 	QuarantinedCount     int
 	QuarantinedLostCount int
+
+	// ScrubFailingCopies is how many of this set's ACTIVE copies have
+	// failed, or been unable to complete, their scheduled check
+	// ScrubFailureThreshold times running (EPIC Q, #978). It degrades a
+	// HEALTHY set and softens nothing stronger, and it is reported
+	// whatever the verdict turns out to be.
+	ScrubFailingCopies int
+
+	// ScrubOverdueCopies is how many ACTIVE copies passed their last scrub
+	// and are now a whole cadence past the time the next one was due (EPIC
+	// Q, C13). A copy nobody has scrubbed yet is not counted: that is
+	// "unknown", which every surface already shows, and counting it would
+	// raise an alert on every fresh install before the first pass ran. It
+	// degrades nothing; it feeds the SCRUB_OVERDUE alert.
+	ScrubOverdueCopies int
+
+	// RecoveryTestFailed says the newest known good copy's last recovery
+	// test failed. RecoveryTestUnmet is why a REQUIRED recovery test is not
+	// met, or empty when it is met or none is required. Neither reaches the
+	// verdict except through RecoveryTestRequired (see BackupSetInputs).
+	RecoveryTestFailed bool
+	// RecoveryTestLapsed says a test that had passed is past its cadence, or
+	// the last attempt was refused for cost or could not complete. A copy no
+	// test has run on yet is neither failed nor lapsed.
+	RecoveryTestLapsed bool
+	RecoveryTestUnmet  string
 
 	// ReinstatedRemoteRetainedCount is how many artifacts in this set were
 	// reinstated out of quarantine and still have a remote source this
