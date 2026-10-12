@@ -2,10 +2,10 @@
   "spdxVersion": "SPDX-2.3",
   "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
-  "name": "retnd 0.5.1",
-  "documentNamespace": "https://github.com/retnd/retnd/spdx/e91f5cc7178ee413955ded4f472aa76180b304aa",
+  "name": "retnd 0.6.0",
+  "documentNamespace": "https://github.com/retnd/retnd/spdx/8097bae28b789acba1419a8ff94f3497f8a987fe",
   "creationInfo": {
-    "created": "2026-10-04T07:37:13Z",
+    "created": "2026-10-12T21:47:38Z",
     "creators": [
       "Tool: retnd-provenance",
       "Organization: Roman Goldmann"
@@ -2681,9 +2681,9 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-go-modernc.org-libc-v1.75.6",
+      "SPDXID": "SPDXRef-Package-go-modernc.org-libc-v1.77.1",
       "name": "modernc.org/libc",
-      "versionInfo": "v1.75.6",
+      "versionInfo": "v1.77.1",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "BSD-3-Clause",
@@ -2693,7 +2693,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/modernc.org/libc@v1.75.6"
+          "referenceLocator": "pkg:golang/modernc.org/libc@v1.77.1"
         }
       ],
       "checksums": [
@@ -2750,9 +2750,9 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-go-modernc.org-sqlite-v1.58.0",
+      "SPDXID": "SPDXRef-Package-go-modernc.org-sqlite-v1.60.1",
       "name": "modernc.org/sqlite",
-      "versionInfo": "v1.58.0",
+      "versionInfo": "v1.60.1",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "BSD-3-Clause",
@@ -2762,7 +2762,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/modernc.org/sqlite@v1.58.0"
+          "referenceLocator": "pkg:golang/modernc.org/sqlite@v1.60.1"
         }
       ],
       "checksums": [
@@ -3579,7 +3579,7 @@
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-Package-go-modernc.org-libc-v1.75.6"
+      "relatedSpdxElement": "SPDXRef-Package-go-modernc.org-libc-v1.77.1"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
@@ -3594,7 +3594,7 @@
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-Package-go-modernc.org-sqlite-v1.58.0"
+      "relatedSpdxElement": "SPDXRef-Package-go-modernc.org-sqlite-v1.60.1"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",

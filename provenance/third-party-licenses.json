@@ -1413,7 +1413,7 @@
     },
     {
       "name": "modernc.org/libc",
-      "version": "v1.75.6",
+      "version": "v1.77.1",
       "ecosystem": "go",
       "licenseId": "BSD-3-Clause",
       "licenseFile": "LICENSE",
@@ -1449,7 +1449,7 @@
     },
     {
       "name": "modernc.org/sqlite",
-      "version": "v1.58.0",
+      "version": "v1.60.1",
       "ecosystem": "go",
       "licenseId": "BSD-3-Clause",
       "licenseFile": "LICENSE",
