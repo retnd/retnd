@@ -3914,7 +3914,7 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
       return {
         backupSetId: key, isOverride: false,
         scrub: { cadenceSeconds: assuranceSettings.scrub.cadenceSeconds, strategy: assuranceSettings.scrub.strategy },
-        recoveryTest: { mode: "off", cadenceSeconds: 0, validatorId: "" }
+        recoveryTest: { mode: "off", cadenceSeconds: 0, validatorId: "", validatorDeclared: false }
       };
     }
     return {
