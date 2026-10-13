@@ -139,8 +139,28 @@ func compare(recorded, actual map[string]string) []string {
 }
 
 func TestTheCanonicalDeploymentIsExactlyWhatItWasBeforeEpicQ(t *testing.T) {
-	root := repoRoot(t)
-	recorded := readRecorded(t)
+	skip, failures := verdict(t, repoRoot(t), readRecorded(t))
+	if skip != "" {
+		t.Skip(skip)
+	}
+	if len(failures) > 0 {
+		t.Fatal(strings.Join(failures, "\n"))
+	}
+}
+
+// verdict is the whole decision, separate from the test so the controls
+// below can hand it a tree. skip is non-empty only when the apps tree is
+// genuinely absent; failures are what the test reports otherwise.
+func verdict(t *testing.T, root string, recorded map[string]string) (skip string, failures []string) {
+	t.Helper()
+	// scripts/architecture/verify-core-without-apps.sh deletes apps/ on
+	// purpose and runs core's whole suite, and the recorded digests name
+	// files that live under it. Skip only when the directory is genuinely
+	// absent: a tree that HAS apps/ is checked in full, so a drifted or
+	// missing file there still fails.
+	if info, err := os.Stat(filepath.Join(root, "apps")); err != nil || !info.IsDir() {
+		return "the apps/ tree is absent (verify-core-without-apps removes it on purpose), so the per-platform compose files, templates and catalog this test digests do not exist; the full check runs in every tree that has apps/", nil
+	}
 	actual := map[string]string{}
 	for _, rel := range deploymentFiles(t, root) {
 		sum, err := digestOf(filepath.Join(root, rel))
@@ -150,11 +170,76 @@ func TestTheCanonicalDeploymentIsExactlyWhatItWasBeforeEpicQ(t *testing.T) {
 		actual[rel] = sum
 	}
 	if len(actual) < 18 {
-		t.Fatalf("only %d deployment files found; the seven compose files, two templates, the catalog and four manifests are at least 18, so the walk is not finding them", len(actual))
+		return "", []string{fmt.Sprintf("only %d deployment files found; the seven compose files, two templates, the catalog and four manifests are at least 18, so the walk is not finding them", len(actual))}
 	}
 	if complaints := compare(recorded, actual); len(complaints) > 0 {
-		t.Fatalf("the deployment moved:\n  %s\n\nEPIC Q adds no container, port, mount or capability. If this change is meant to alter what an operator deploys, update core/tests/deploymentdiff/testdata/digests.txt in the same commit so the line shows up in review; if it is not, take the edit out of this change.",
-			strings.Join(complaints, "\n  "))
+		return "", []string{"the deployment moved:\n  " + strings.Join(complaints, "\n  ") + "\n\nEPIC Q adds no container, port, mount or capability. If this change is meant to alter what an operator deploys, update core/tests/deploymentdiff/testdata/digests.txt in the same commit so the line shows up in review; if it is not, take the edit out of this change."}
+	}
+	return "", nil
+}
+
+// fakeRepo builds a tree holding the recorded deployment files with the
+// given content; withApps controls whether the apps directory exists.
+func fakeRepo(t *testing.T, withApps bool, drift string) string {
+	t.Helper()
+	root := t.TempDir()
+	for rel := range readRecorded(t) {
+		if !withApps && strings.HasPrefix(rel, "apps/") {
+			continue
+		}
+		full := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if withApps {
+		if err := os.MkdirAll(filepath.Join(root, "apps"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if drift != "" {
+		if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(drift)), []byte("drifted"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+// TestAbsentAppsTreeSkipsWithAReason is the control for the skip: it fires
+// for a tree with no apps directory (the verify-core-without-apps check
+// deletes it on purpose) and says why.
+func TestAbsentAppsTreeSkipsWithAReason(t *testing.T) {
+	skip, failures := verdict(t, fakeRepo(t, false, ""), readRecorded(t))
+	if skip == "" || len(failures) != 0 {
+		t.Fatalf("a tree with no apps directory must skip with a reason, got skip=%q failures=%v", skip, failures)
+	}
+	if !strings.Contains(skip, "apps") {
+		t.Errorf("the skip reason does not say what is missing: %q", skip)
+	}
+}
+
+// TestPresentAppsTreeNeverSkips is the control that the skip cannot hide a
+// real failure: with apps/ present, a drifted file and a missing file both
+// fail, and nothing skips.
+func TestPresentAppsTreeNeverSkips(t *testing.T) {
+	recorded := readRecorded(t)
+	drifted := fakeRepo(t, true, "container/compose.yaml")
+	if skip, failures := verdict(t, drifted, recorded); skip != "" || len(failures) == 0 {
+		t.Errorf("a drifted file with apps/ present must fail, got skip=%q failures=%v", skip, failures)
+	}
+	partial := fakeRepo(t, true, "")
+	for rel := range recorded {
+		if strings.HasPrefix(rel, "apps/") {
+			if err := os.Remove(filepath.Join(partial, filepath.FromSlash(rel))); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if skip, failures := verdict(t, partial, recorded); skip != "" || len(failures) == 0 {
+		t.Errorf("apps/ present but its deployment files gone must fail, got skip=%q failures=%v", skip, failures)
 	}
 }
 

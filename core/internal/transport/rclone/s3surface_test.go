@@ -171,57 +171,10 @@ func TestS3OptionsAreExactlyThisAllowlist(t *testing.T) {
 // go.mod cannot tell the two apart, and the one that matters is who writes
 // the import line.
 func TestNoCloudProviderSDKIsImportedDirectly(t *testing.T) {
-	forbidden := []string{
-		"github.com/aws/aws-sdk-go",
-		"github.com/aws/aws-sdk-go-v2",
-		"github.com/aws/smithy-go",
-		"cloud.google.com/go/storage",
-		"github.com/Azure/azure-sdk-for-go",
-		"github.com/minio/minio-go",
-	}
-
 	root := coreModuleRootForRclonePackage(t)
 	repo := filepath.Dir(root)
 
-	var offenders []string
-	scanned := 0
-	err := filepath.WalkDir(repo, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			switch d.Name() {
-			case ".git", "node_modules", "vendor", "dist", "build":
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(path, ".go") {
-			return nil
-		}
-		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
-		if err != nil {
-			// A file this repository cannot parse is not a file whose
-			// imports have been checked, so it is reported rather than
-			// skipped.
-			offenders = append(offenders, path+": could not be parsed: "+err.Error())
-			return nil
-		}
-		scanned++
-		for _, imported := range file.Imports {
-			p, err := strconv.Unquote(imported.Path.Value)
-			if err != nil {
-				continue
-			}
-			for _, bad := range forbidden {
-				if p == bad || strings.HasPrefix(p, bad+"/") {
-					rel, _ := filepath.Rel(repo, path)
-					offenders = append(offenders, rel+" imports "+p)
-				}
-			}
-		}
-		return nil
-	})
+	offenders, scanned, err := scanSDKImports(repo, sdkImportAllowed)
 	if err != nil {
 		t.Fatalf("walking the repository: %v", err)
 	}
@@ -235,6 +188,143 @@ func TestNoCloudProviderSDKIsImportedDirectly(t *testing.T) {
 	for _, offender := range offenders {
 		t.Errorf("%s. rclone's s3 backend is the whole S3 implementation (FR-28); a direct SDK import is a second one, "+
 			"outside the boundary that keeps upstream churn in one adapter", offender)
+	}
+}
+
+var forbiddenSDKImports = []string{
+	"github.com/aws/aws-sdk-go",
+	"github.com/aws/aws-sdk-go-v2",
+	"github.com/aws/smithy-go",
+	"cloud.google.com/go/storage",
+	"github.com/Azure/azure-sdk-for-go",
+	"github.com/minio/minio-go",
+}
+
+// sdkImportAllowed names, by exact repo-relative path, the only files allowed
+// to import a provider SDK.
+//
+// core/tests/reals3/reals3.go is the harness for the opt-in tests that run
+// against REAL AWS S3 (EPIC Q). It is test support without a _test.go suffix
+// because other packages' tests import it. It exists to create and delete
+// throw-away buckets and to check the account (sts), which rclone's backend
+// cannot do: it only moves objects. It is not a second S3 implementation of
+// the product: nothing in production imports it, and it never runs unless
+// RETND_TEST_S3_REAL=1 and credentials are present.
+//
+// It stays in core's module because a separate module would make
+// core/internal/revalidate and core/tests/miniointegration require it back
+// (a cycle), and would add the SDK to core's graph anyway through that
+// require. The exemption is one file: a sibling in the same directory, or
+// any production file, importing an SDK is still refused.
+var sdkImportAllowed = map[string]bool{
+	"core/tests/reals3/reals3.go": true,
+}
+
+// scanSDKImports walks repo and returns one line per forbidden import found
+// in a file not named in allowed (keys are slash-separated paths relative to
+// repo), plus the number of Go files it parsed.
+func scanSDKImports(repo string, allowed map[string]bool) (offenders []string, scanned int, err error) {
+	err = filepath.WalkDir(repo, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", "node_modules", "vendor", "dist", "build":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		file, perr := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		if perr != nil {
+			// A file this repository cannot parse is not a file whose
+			// imports have been checked, so it is reported rather than
+			// skipped.
+			offenders = append(offenders, path+": could not be parsed: "+perr.Error())
+			return nil
+		}
+		scanned++
+		rel, _ := filepath.Rel(repo, path)
+		if allowed[filepath.ToSlash(rel)] {
+			return nil
+		}
+		for _, imported := range file.Imports {
+			p, uerr := strconv.Unquote(imported.Path.Value)
+			if uerr != nil {
+				continue
+			}
+			for _, bad := range forbiddenSDKImports {
+				if p == bad || strings.HasPrefix(p, bad+"/") {
+					offenders = append(offenders, rel+" imports "+p)
+				}
+			}
+		}
+		return nil
+	})
+	return offenders, scanned, err
+}
+
+// TestSDKImportAllowListIsExact is the control for the allow-list: it names
+// one file, so a sibling in the same directory importing the SDK is still
+// refused, and an entry whose file no longer imports the SDK is itself a
+// failure rather than a permission left lying around.
+func TestSDKImportAllowListIsExact(t *testing.T) {
+	repo := t.TempDir()
+	write := func(rel, body string) {
+		t.Helper()
+		full := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const imp = "package x\n\nimport _ \"github.com/aws/aws-sdk-go-v2/service/s3\"\n"
+	write("core/tests/reals3/reals3.go", imp)
+	write("core/tests/reals3/sibling.go", imp)
+	write("core/internal/other/other.go", imp)
+
+	allowed := map[string]bool{"core/tests/reals3/reals3.go": true}
+	got, scanned, err := scanSDKImports(repo, allowed)
+	if err != nil || scanned != 3 {
+		t.Fatalf("scan = %v, %d files, %v", got, scanned, err)
+	}
+	joined := strings.Join(got, "\n")
+	if strings.Contains(joined, "core/tests/reals3/reals3.go") {
+		t.Errorf("the allow-listed file was reported: %s", joined)
+	}
+	for _, must := range []string{"core/tests/reals3/sibling.go", "core/internal/other/other.go"} {
+		if !strings.Contains(joined, must) {
+			t.Errorf("%s imports the SDK, is not allow-listed, and was not reported: %q", must, joined)
+		}
+	}
+}
+
+// TestSDKImportAllowListEntriesStillImportTheSDK keeps the real list minimal.
+func TestSDKImportAllowListEntriesStillImportTheSDK(t *testing.T) {
+	repo := filepath.Dir(coreModuleRootForRclonePackage(t))
+	for rel := range sdkImportAllowed {
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(repo, filepath.FromSlash(rel)), nil, parser.ImportsOnly)
+		if err != nil {
+			t.Errorf("the allow-list names %s, which cannot be parsed: %v", rel, err)
+			continue
+		}
+		found := false
+		for _, imported := range file.Imports {
+			p, _ := strconv.Unquote(imported.Path.Value)
+			for _, bad := range forbiddenSDKImports {
+				if p == bad || strings.HasPrefix(p, bad+"/") {
+					found = true
+				}
+			}
+		}
+		if !found {
+			t.Errorf("the allow-list names %s, which no longer imports a provider SDK; drop it", rel)
+		}
 	}
 }
 
