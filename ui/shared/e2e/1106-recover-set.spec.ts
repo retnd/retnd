@@ -127,7 +127,7 @@ test.describe("#1106 Recover this backup set: cost and room", () => {
   test("a set on the incremental engine is a snapshot restore, with the command, and cannot be run from here", async ({ page }) => {
     await openDialog(page, "default");
     const dlg = dialog(page);
-    await expect(dlg.getByTestId("kopia-set")).toContainText("snapshot restore");
+    await expect(dlg.getByTestId("incremental-engine-set")).toContainText("snapshot restore");
     await expect(dlg.getByText("retnd snapshot restore production/postgres-primary --to <dir>", { exact: true })).toBeVisible();
     await expect(go(page)).toHaveCount(0);
   });
