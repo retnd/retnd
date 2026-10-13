@@ -6,7 +6,7 @@
  * shipped without and nobody notices until a hook misbehaves:
  *
  *   - PRECEDENCE is visible. `sanitized baseline < deployment < backup
- *     set < BACKUPD_* built-ins`. An operator who cannot see that a
+ *     set < RETND_* built-ins`. An operator who cannot see that a
  *     set-scope PGHOST is hiding the deployment's has no way to explain a
  *     hook connecting to the wrong database.
  *   - a SECRET is never shown. Not in the editor, not in the preview, not
@@ -128,15 +128,20 @@ describe("the merge", () => {
     expect(row?.entry).toBeUndefined();
   });
 
-  it("reserves the whole BACKUPD_ namespace and the bare name, not just today's list", () => {
-    expect(isReservedEnvName("BACKUPD")).toBe(true);
+  it("reserves the whole RETND_ namespace and the bare name, not just today's list", () => {
+    expect(isReservedEnvName("RETND")).toBe(true);
     expect(isReservedEnvName("RETND_RUN_ID")).toBe(true);
     // The point of a prefix rule: a name this build has never heard of is
     // reserved too, so an operator cannot configure one that silently
     // stops working when the product starts setting it.
     expect(isReservedEnvName("RETND_SOMETHING_NEW")).toBe(true);
     expect(isReservedEnvName("PGHOST")).toBe(false);
-    expect(isReservedEnvName("MY_BACKUPD_FLAG")).toBe(false);
+    expect(isReservedEnvName("MY_RETND_FLAG")).toBe(false);
+    // The product's former name is an ordinary name now (#1109). Built from
+    // pieces so this file carries no occurrence of it.
+    const former = ["BACK", "UPD"].join("");
+    expect(isReservedEnvName(former)).toBe(false);
+    expect(isReservedEnvName(former + "_RUN_ID")).toBe(false);
   });
 });
 

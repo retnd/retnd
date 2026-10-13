@@ -217,3 +217,16 @@ func TestIncrementalEngineDisabledErrorNamesTheFlagAndSparesArtifactSets(t *test
 		}
 	}
 }
+
+// The previous product name's variable for this gate is not read any more:
+// a process that still has it set sees the gate exactly as if it were not.
+// The name is built from pieces so this file does not spell it.
+func TestThePreviousNamesIncrementalEngineVariableHasNoEffect(t *testing.T) {
+	t.Setenv(IncrementalEngineEnvVar, "")
+	t.Setenv(strings.Join([]string{"BACK", "UPD"}, "")+"_INCREMENTAL_ENGINE", "1")
+
+	c := validConfig()
+	if c.IncrementalEngineEnabled() {
+		t.Fatal("the gate opened because of a variable under the previous product name")
+	}
+}

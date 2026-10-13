@@ -34,14 +34,12 @@ import (
 // LevelInfo rather than refusing to start: a typo in a diagnostic knob
 // must never take a backup host down.
 //
-// Two DEPRECATED spellings of that shortcut are still read, both under
-// names this project used before (EPIC R, #885, FR-37): BACKUPD_DEBUG,
-// which is the name docs/deployment.md and the compose files named until
-// this rename, and RM_DEBUG, which comes from the first product name (#794). Both are
-// still honoured so an upgrade does not silently turn a diagnosing
-// operator's logs back off, and each produces one deprecation notice per
-// process the first time it is read. RETND_DEBUG is the only spelling
-// this product writes or documents.
+// One DEPRECATED spelling of that shortcut is still read, RM_DEBUG, which
+// comes from the first product name (#794). It is still honoured so an
+// upgrade does not silently turn a diagnosing operator's logs back off,
+// and it produces one deprecation notice per process the first time it is
+// read. RETND_DEBUG is the only spelling this product writes or documents.
+// The previous product name's spelling is not read at all.
 func LevelFromEnv() Level {
 	if debugShortcut() {
 		return LevelDebug
@@ -58,26 +56,26 @@ func LevelFromEnv() Level {
 	}
 }
 
-// debugEnv is the one-variable debug shortcut and the two deprecated
-// names it has had. Package-level so both this file's reader and its test
+// debugEnv is the one-variable debug shortcut and the deprecated name it
+// has had. Package-level so both this file's reader and its test
 // name the same thing, and so webhost's copy can be compared against it
 // by eye in a review.
 var debugEnv = envcompat.Rename{
 	Current: "RETND_DEBUG",
-	Legacy:  []string{"BACKUPD_DEBUG", "RM_DEBUG"},
+	Legacy:  []string{"RM_DEBUG"},
 }
 
 // debugShortcut reports whether the one-variable debug shortcut is set,
-// under its own name or under either deprecated alias. Only the
+// under its own name or under its deprecated alias. Only the
 // documented "1" counts, under every name: a knob whose typos mean
 // something is a knob that surprises the operator reading it back.
 //
-// The three names are OR'd rather than ranked (envcompat.Any), which is
-// the rule this knob has always had and the reason it exists: none of
-// them has ever had an "off" value, so a deployment that sets two of
-// them, or the old one on one container and the new one on the other,
-// gets debug either way. Ranking them would make an operator who asked
-// for debug twice get INFO, which is a behaviour change and not a
+// The two names are OR'd rather than ranked (envcompat.Any), which is
+// the rule this knob has always had and the reason it exists: neither
+// has ever had an "off" value, so a deployment that sets both, or the
+// old one on one container and the new one on the other, gets debug
+// either way. Ranking them would make an operator who asked for debug
+// twice get INFO, which is a behaviour change and not a
 // rename. The variables whose values mean something in both directions
 // are ranked instead (core/internal/config's incremental-engine gate).
 func debugShortcut() bool {

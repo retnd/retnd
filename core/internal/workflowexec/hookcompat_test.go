@@ -8,22 +8,22 @@ import (
 	"github.com/retnd/retnd/core/internal/workflow"
 )
 
-// EPIC R's hook-environment compat window (#889, FR-37), proved the only
-// way it can be: by running an operator's script under a real bash and
-// reading what the script saw.
+// The hook environment, proved the only way it can be: by running an
+// operator's script under a real bash and reading what the script saw.
 //
-// This is the epic's silent class. A hook is somebody else's Bash file,
-// `$BACKUPD_BACKUP_STATUS` against a build that stopped exporting that
-// name is the empty string and not an error, and a hook that notifies on
-// failure would go quiet without anything reporting it. So both names
-// are exported for one release with identical values, and the evidence
-// that has to exist is a hook printing each one.
+// A hook gets the RETND_* built-ins and nothing under the product's former
+// name. The former name is never written out in this file: it is assembled
+// from pieces, so this test cannot be the thing that keeps it alive.
 //
 // Everything below goes through the real assembly path --
 // workflow.Environment.Resolve, then ProcessEnv and StdinPayload, then
 // `bash --noprofile --norc -s` -- because the mistake worth catching is
-// not "the map has two keys": it is a name that survives the map and is
-// lost by the envelope, the quoting or the baseline sanitiser.
+// not "the map has the right keys": it is a name that survives the map and
+// is lost, or invented, by the envelope, the quoting or the baseline
+// sanitiser.
+
+// formerPrefix is the prefix hooks used to receive, built from pieces.
+func formerPrefix() string { return strings.Join([]string{"BACK", "UPD"}, "") + "_" }
 
 // hookFacts is one step's built-ins, as internal/workflowrun writes them:
 // every documented name, with a value distinct enough that a mix-up
@@ -82,61 +82,51 @@ func runHook(t *testing.T, script string) string {
 	return stdout
 }
 
-// The acceptance case in its own words: one hook prints the deprecated
-// name, another prints the current one, both run against this build, and
-// the two have to print the same thing.
-//
-// Two separate executions rather than one script printing both, because
-// the two scripts are what an operator actually has: one written before
-// the rename and one written after.
-func TestAHookReadingTheDeprecatedNameSeesWhatTheCurrentNameSays(t *testing.T) {
+// A hook reads the current name and sees what this product observed.
+func TestAHookReadingTheCurrentNameSeesTheRunsFact(t *testing.T) {
 	t.Parallel()
 
-	deprecated := runHook(t, `printf 'status=%s\n' "$BACKUPD_BACKUP_STATUS"`)
-	current := runHook(t, `printf 'status=%s\n' "$RETND_BACKUP_STATUS"`)
-
-	if deprecated != current {
-		t.Fatalf("a hook reading $BACKUPD_BACKUP_STATUS printed %q and one reading $RETND_BACKUP_STATUS printed %q; the compat window is identical values",
-			deprecated, current)
-	}
-	if strings.TrimSpace(deprecated) != "status=failed" {
-		t.Fatalf("hook printed %q, want status=failed: an empty value is exactly the silent failure this window exists to prevent", deprecated)
+	got := runHook(t, `printf 'status=%s\n' "$RETND_BACKUP_STATUS"`)
+	if strings.TrimSpace(got) != "status=failed" {
+		t.Fatalf("hook printed %q, want status=failed", got)
 	}
 }
 
-// The same property for the whole documented set, including the bare
-// name, so a variable cannot be missed by not being the one the case
-// above happened to pick.
-func TestEveryBuiltinReachesAHookUnderBothNames(t *testing.T) {
+// A script still reading the former name gets the empty string, and the
+// product does not export it behind the operator's back.
+func TestAHookReadingTheFormerNameSeesNothing(t *testing.T) {
 	t.Parallel()
 
-	var script strings.Builder
-	for _, name := range workflow.BuiltinEnvNames() {
-		legacy := workflow.LegacyEnvName(name)
-		if legacy == "" {
-			t.Fatalf("%s has no deprecated spelling, so this test cannot check it", name)
-		}
-		script.WriteString(`printf '` + name + `=%s\n' "$` + name + "\"\n")
-		script.WriteString(`printf '` + legacy + `=%s\n' "$` + legacy + "\"\n")
+	former := formerPrefix() + "BACKUP_STATUS"
+	got := runHook(t, `printf 'status=[%s]\n' "${`+former+`-}"`)
+	if strings.TrimSpace(got) != "status=[]" {
+		t.Fatalf("a hook reading $%s printed %q; the former name must not be exported", former, got)
 	}
+}
 
+// The same property for the whole environment block: every documented
+// built-in arrives under its RETND name with its value, and no variable at
+// all carries the former prefix or the former bare name.
+func TestAHooksEnvironmentHoldsOnlyTheCurrentNames(t *testing.T) {
+	t.Parallel()
+
+	bare := strings.TrimSuffix(formerPrefix(), "_")
 	printed := map[string]string{}
-	for _, line := range strings.Split(strings.TrimSpace(runHook(t, script.String())), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(runHook(t, `for n in $(compgen -e); do printf '%s=%s\n' "$n" "${!n}"; done`)), "\n") {
 		name, value, ok := strings.Cut(line, "=")
 		if !ok {
-			t.Fatalf("unparseable hook output line %q", line)
+			continue
 		}
 		printed[name] = value
+		if name == bare || strings.HasPrefix(name, formerPrefix()) {
+			t.Errorf("the hook's environment carries %s, a name under the former brand", name)
+		}
 	}
 
 	facts := hookFacts()
 	for _, name := range workflow.BuiltinEnvNames() {
-		legacy := workflow.LegacyEnvName(name)
-		switch {
-		case printed[name] != facts[name]:
+		if printed[name] != facts[name] {
 			t.Errorf("$%s = %q, want %q", name, printed[name], facts[name])
-		case printed[legacy] != facts[name]:
-			t.Errorf("$%s = %q, want %q (the deprecated name has to carry the same value)", legacy, printed[legacy], facts[name])
 		}
 	}
 }

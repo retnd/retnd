@@ -180,9 +180,8 @@ func TestReleaseCutIsZeroPointSixZero(t *testing.T) {
 	if u < 0 || r < 0 || u > r {
 		t.Fatalf("CHANGELOG needs an [Unreleased] heading above [0.6.0] - 2026-10-12 (unreleased at %d, 0.6.0 at %d)", u, r)
 	}
-	if strings.TrimSpace(s[u+len("## [Unreleased]"):r]) != "" {
-		t.Errorf("[Unreleased] must be empty after the cut")
-	}
+	// [Unreleased] is not asserted empty: once 0.6.0 is out it holds the next
+	// release's entries, so pinning it empty fails the first change after the cut.
 }
 
 func TestProvenanceDocSaysTarballsAreUnsigned(t *testing.T) {

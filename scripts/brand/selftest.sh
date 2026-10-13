@@ -37,6 +37,18 @@ set -uo pipefail
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
 svg_check="$repo_root/scripts/brand/check-svg-text.sh"
 manifest_check="$repo_root/scripts/brand/check-brand-assets.sh"
+name_check="$repo_root/scripts/rename/check-no-former-name.sh"
+
+# The former product name is never written out in this tree (#1109), so the
+# planted faults build it from fragments at runtime, the way
+# core/tests/deploymentdiff builds apps/<provider>/.
+fn_stem_up="BACKUP"
+fn_stem_cap="Backup"
+fn_stem_low="backup"
+FN_UP="${fn_stem_up}D"
+FN_CAP="${fn_stem_cap}d"
+FN_CAPD="${fn_stem_cap}D"
+FN_LOW="${fn_stem_low}d"
 
 checks=0
 failures=0
@@ -134,7 +146,7 @@ green "a source SVG whose name is on aria-label is accepted" "$tree" "$svg_check
 tree="$(new_repo)"
 {
   echo '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">'
-  echo '  <title>backupd</title>'
+  echo "  <title>${FN_LOW}</title>"
   echo '  <circle cx="24" cy="24" r="17"/>'
   echo '</svg>'
 } | write "$tree" docs/site/assets/icon.svg
@@ -179,12 +191,12 @@ green "the store icon's required <title> is accepted when it reads the product n
 tree="$(new_repo)"
 {
   echo '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" role="img" aria-label="retnd">'
-  echo '  <title>backupd</title>'
+  echo "  <title>${FN_LOW}</title>"
   echo '</svg>'
 } | write "$tree" docs/submission/icon.svg
 commit "$tree"
 red "the same <title> carrying the old name goes red in the exempt file too" \
-  "$tree" "$svg_check" "docs/submission/icon.svg:2:" "backupd" "has to read retnd"
+  "$tree" "$svg_check" "docs/submission/icon.svg:2:" "${FN_LOW}" "has to read retnd"
 
 tree="$(new_repo)"
 {
@@ -361,6 +373,35 @@ clean_svg | write "$tree" assets/logo-mark.svg
 commit "$tree"
 red "a missing manifest is refused" "$tree" "$manifest_check" \
   "docs/design/brand-assets.md does not exist"
+
+# ---------------------------------------------------------------------------
+# The former-name guard (#1109), planted from this side too: the brand checks
+# are where the name last lived in an SVG <title>, so the same selftest proves
+# the repo-wide guard still sees every spelling there and stays quiet on the
+# protected look-alikes.
+# ---------------------------------------------------------------------------
+echo "==> check-no-former-name.sh"
+
+for spelling in "$FN_UP" "$FN_CAP" "$FN_CAPD" "$FN_LOW"; do
+  tree="$(new_repo)"
+  {
+    echo '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">'
+    echo "  <title>${spelling}</title>"
+    echo '</svg>'
+  } | write "$tree" assets/logo-mark.svg
+  commit "$tree"
+  red "a planted <title> in the spelling '${spelling:0:6}...' goes red in the repo-wide guard" \
+    "$tree" "$name_check" "assets/logo-mark.svg:2"
+done
+
+tree="$(new_repo)"
+{
+  echo '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">'
+  echo '  <desc>BackupDetailPage BackupDefaultsPage openBackupDataPlane BackupDomain backupDataPath</desc>'
+  echo '</svg>'
+} | write "$tree" assets/logo-mark.svg
+commit "$tree"
+green "the protected look-alikes stay green in the repo-wide guard" "$tree" "$name_check"
 
 echo "==> brand-asset self-test: $checks checks, $failures failure(s)"
 [ "$failures" -eq 0 ] || exit 1

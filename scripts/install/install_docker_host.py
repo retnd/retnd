@@ -2991,10 +2991,9 @@ services:
       #
       # RETND_DEBUG=1 is the same switch as LOG_LEVEL=debug, kept as
       # the shortcut an operator can be told over a phone call; it wins
-      # if both are set. BACKUPD_DEBUG=1 (before EPIC R, #885) and
-      # RM_DEBUG=1 (before #794) are its deprecated older names: both
-      # still read, for one release, so an upgrade does not turn a
-      # diagnosing operator's logs back off.
+      # if both are set. RM_DEBUG=1 (before #794) is its deprecated
+      # older name: still read, for one release, so an upgrade does not
+      # turn a diagnosing operator's logs back off.
       # An unparseable value falls back to `info` rather than refusing
       # to start, because a typo in a diagnostic knob must never take a
       # backup host down. See docs/deployment.md's "Turning on
@@ -3299,8 +3298,7 @@ services:
       # and how much of it actually got copied to the browser - which is
       # only half of each story without the engine's own line for the
       # same request. RETND_DEBUG=1 is the shortcut, and wins over
-      # this; BACKUPD_DEBUG=1 and RM_DEBUG=1 are its deprecated older
-      # names (EPIC R #885, and #794).
+      # this; RM_DEBUG=1 is its deprecated older name (#794).
       LOG_LEVEL: ${LOG_LEVEL:-info}
       # Published to the host (see `ports:` below); LISTEN_ADDR is this
       # container's own internal bind address, always :8080 regardless of
@@ -3389,7 +3387,7 @@ services:
 """
 
 # Written by scripts/install/embed_compose.py alongside the blob above.
-EMBEDDED_COMPOSE_SHA256 = "8e7f7837d3d7beb75cc310a55857a64d9d43615020436caa97c4a2d1b0c80d03"
+EMBEDDED_COMPOSE_SHA256 = "ff83ed975be6d5d0eea4df8c7d4b635da7cf2c34c723000a493e0993b65d5296"
 
 
 def embedded_compose_bytes() -> bytes:

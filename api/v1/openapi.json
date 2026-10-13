@@ -5720,7 +5720,7 @@
         "properties": {
           "name": {
             "type": "string",
-            "description": "The variable name a hook will see. Held to the engine's own name rule, which refuses this product's reserved RETND_ prefix, and its deprecated BACKUPD_ spelling for as long as the runtime still exports that too: a hook cannot be given a variable that would shadow the run facts the engine injects."
+            "description": "The variable name a hook will see. Held to the engine's own name rule, which refuses this product's reserved RETND_ prefix: a hook cannot be given a variable that would shadow the run facts the engine injects."
           },
           "value": {
             "type": "string",

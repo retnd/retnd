@@ -102,7 +102,7 @@ start)
     # failed start that says why.
     sleep 3
     if ! pid_alive "${ENGINE_PID}"; then
-        say "Backupd's engine exited immediately. Last lines of ${ENGINE_LOG}:"
+        say "retnd's engine exited immediately. Last lines of ${ENGINE_LOG}:"
         tail -n 20 "${ENGINE_LOG}" 2>/dev/null | while IFS= read -r line; do say "  ${line}"; done
         say "A fresh install needs at least one source in ${CONFIG_FILE} before it can start."
         rm -f "${ENGINE_PID}"
@@ -128,7 +128,7 @@ start)
 
     sleep 1
     if ! pid_alive "${UI_PID}"; then
-        say "Backupd's web UI failed to start. Last lines of ${UI_LOG}:"
+        say "retnd's web UI failed to start. Last lines of ${UI_LOG}:"
         tail -n 20 "${UI_LOG}" 2>/dev/null | while IFS= read -r line; do say "  ${line}"; done
         stop_daemon "${ENGINE_PID}" "engine"
         rm -f "${ENGINE_PID}"

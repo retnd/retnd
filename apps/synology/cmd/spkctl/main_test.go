@@ -69,7 +69,7 @@ func stagedUIBundle(t *testing.T) string {
 	dir := t.TempDir()
 	files := map[string]string{
 		spk.UIBundleMarkerName: `{"schema":"retnd/ui-bundle/1","platform":"` + spk.UIBundlePlatform + `"}`,
-		"index.html":           "<!doctype html><title>Backupd</title>",
+		"index.html":           "<!doctype html><title>retnd</title>",
 	}
 	for name, body := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
