@@ -380,7 +380,7 @@ func TestValidateRefusesUnusableWorkflowConfigurations(t *testing.T) {
 		},
 		{
 			what:    "a reserved environment name on a backup set",
-			mutate:  func(c *Config) { c.Sources[0].BackupSets[0].Environment[0].Name = "BACKUPD" },
+			mutate:  func(c *Config) { c.Sources[0].BackupSets[0].Environment[0].Name = "RETND" },
 			mustSay: "reserved",
 		},
 		{

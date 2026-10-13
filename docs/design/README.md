@@ -3,7 +3,7 @@
 Design artifacts, kept because the decisions in them are still the ones the
 product ships. Nothing here is generated and nothing here is a build input.
 
-`Backupd.dc.html` is the interactive design the shared frontend was built
+The first `.dc.html` canvas in this directory is the interactive design the shared frontend was built
 from: every screen, both themes, every provider treatment and the risk states.
 `docs/deployment.md` cites it as the source for what the UI is supposed to do
 when the two disagree.

@@ -662,6 +662,67 @@ Two optional features change what a "copy" can be, and `recover` works with both
   page does not restate or second-guess it. What `recover` guarantees is only that a copy it
   cannot read is never counted as one it could.
 
+## Getting a whole backup set back with `retnd recover --set`
+
+```bash
+retnd recover --set <source/backup-set> --to <folder-under-the-staging-root>
+retnd recover --set <source/backup-set> --newest-only --to <folder>
+retnd recover --set <source/backup-set> --since 2026-10-01 --to medium:<id>/<prefix>
+retnd recover <id> <id> ... --to <folder>
+retnd recover --set <source/backup-set> --to <folder> --preflight
+```
+
+This is the same recovery as above, done for every retained restore point of a set (or for
+a list of ids) into **one** destination, as one operation. It is the **Recover this backup
+set** button on the set's page, and `POST /api/v1/recoveries` over the API. I did not write
+a second restore path: each file is planned from the journal, read through the same bounded
+buffer, compared with the digest recorded at ingestion and only then handed over, exactly
+as a single recovery does it, so every refusal and budget above applies to every file.
+
+What it does that a shell loop over single recoveries does not:
+
+- **A pre-flight before byte one.** It prints how many backups there are and how big they
+  are, how many are quarantined, lost or not a restore point, how many need a thaw, what
+  reading them costs, and the staging disk's free space against the total. If the files do
+  not fit it refuses with the numbers (`RECOVERY_NO_SPACE` or `RECOVERY_BELOW_RESERVE`),
+  and if any read is billed it refuses (`RECOVERY_COST_NOT_ACKNOWLEDGED`) with the count and
+  the total, until `--acknowledge-cost` gives **one** yes for the whole set. Nothing is
+  read or thawed before that. `--preflight` stops there.
+- **Which backups.** A restore point is a backup in `COMMITTED`, `REMOTE_DELETE_PENDING`,
+  `COMPLETE` or `REMOTE_RETAINED` (Step 2 above). `--newest-only` takes the newest one,
+  `--since` the ones updated at or after a date. Quarantined and lost backups are listed in
+  the pre-flight and the summary and are never included, and neither is a backup that is
+  not yet a restore point.
+- **A folder per set.** Files land under `<folder>/<source>/<backup-set>/`, each with the
+  unique name a single recovery gives its file, so two runs cannot collide and nothing is
+  ever replaced. For a storage destination the key is `<prefix>/<source>/<backup-set>/<name>`
+  and an object that is already there fails that one file.
+- **One operation.** One progress line per file with a running total, one cancel (Ctrl-C in
+  the terminal, **Cancel the recovery** in the browser) that discards the file being read
+  and leaves nothing that looks finished, and one result summary: recovered, failed,
+  skipped, needs a thaw, quarantined, lost.
+- **A manifest.** `recovery-manifest.json` is written beside the files, listing every row of
+  the request (recovered or not) with its status, size and SHA-256. It and the summary are
+  built from the same rows, so they agree with each other, and the files named in it are
+  the files on disk. A cancelled run still writes it, with `"outcome": "cancelled"`.
+- **One failing file does not stop the rest.** A copy that fails its digest is reported
+  failed, is not written, and the other files still arrive. The exit status is 0 when every
+  row was recovered and **32** when some were not (failed, needs a thaw, quarantined or
+  lost). A pre-flight refusal exits with the same per-code number a single recovery uses.
+- **An archived copy is still a thaw first.** With `--acknowledge-cost` one provider restore
+  is started per archived backup and those rows are reported as *needs a thaw*; run the
+  command again when they are readable.
+
+There is no browser download of a set. Many files would have to be built into one archive
+that the host keeps until it is collected, and the host does not hold that much for you; a
+set goes to a folder under the staging root or to another storage destination, and each
+backup can still be downloaded from its own page. `--to -` is refused for the same reason.
+
+**A set on the incremental (`kopia`) engine** has no files to copy. Its backups are
+restore points inside an encrypted repository, so the whole set is a snapshot restore, and
+`recover --set` refuses with a sentence naming `retnd snapshot restore <source/backup-set>`
+rather than pretend the two are one operation.
+
 ## What "verified" does and does not mean: three claims, not one
 
 A tick that says "verified" is the dangerous thing here, because a HEAD request that found
@@ -875,6 +936,7 @@ ways forward, in this order:
 | `REMOTE_DELETE_PENDING` stuck, `remote_delete_error` set | Expected refusal under a hardened SFTP account | Monitor remote disk directly; this is not corrupting anything |
 | `Keep: false` from GFS but the file is still there | Expected; a verdict is not a deletion, and nothing applies one on a timer | Apply a retention plan through the API if the space is needed |
 | You need the file now and the share is not an option | The artifact still exists | `retnd recover <artifact-id>` (see above), after `retnd restore` if the only copy is archived |
+| You need the whole backup set back | Its restore points are retained | `retnd recover --set <source/backup-set> --to <folder>`; add `--preflight` first to see the size, the cost and whether it fits |
 | A copy reads `unknown` after a catalog rebuild | Nothing has checked it since | Expected; it is due, and a scrub settles it |
 | A `workflow_cleanup_obligations` row is `recovery_required` | An interrupted run's cleanup is unaccounted for, and that set is blocked | `retnd workflow recovery show`, then resume or acknowledge (Step 8) |
 | A `workflow_steps` row is `interrupted`, `exit_code` NULL | Nobody saw that script exit; its side effects may be half-applied | Look at the source machine before clearing anything (Step 8) |

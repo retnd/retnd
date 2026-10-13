@@ -2,6 +2,44 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Select backups on the Backups list and recover them to one destination** (#1107). Every
+  row has a checkbox, the header box selects everything the current filter matches, and a bar
+  shows the count, the total size, the destination and the equivalent `retnd recover` command.
+  A filter change clears the selection. The list gains "received after" and "received before"
+  filters. The run uses the multi-file recovery from #1106, so each file is checked against the
+  digest recorded at ingest and one bad copy does not stop the rest.
+- **The activity dock's Errors and Warnings counts are filters** (#1115). Press one to show
+  only those lines, press it again to clear it; the count line reads "3 of 41 lines" while it
+  is on. A count of zero is shown and cannot be pressed.
+- **Recover an entire backup set from the set itself** (#1106). `retnd recover --set
+  <source/backup-set> --to <folder>` and the **Recover this backup set** button on the set's
+  page bring back every retained restore point (or `--newest-only`, or those `--since` a
+  date) into one destination under a per-set folder, with a pre-flight (size, cost, what is
+  quarantined, lost or needs a thaw, and whether it fits), one cancel, one summary and a
+  manifest of every file with its digest. Each file goes through the same checks as a single
+  recovery, a copy that fails its digest is reported and not written, and `retnd recover <id>
+  <id> ...` uses the same call for a list of backups. The route is `POST /api/v1/recoveries`.
+
+### Removed
+
+- **The previous name is gone from the tree, and with it every compatibility shim
+  that still answered to it** (#1109). This one is breaking, so read it before you
+  upgrade... I took out the previous-name hook variables (hooks only get the
+  `RETND_*` names now, and a script that still reads an old one will see an empty
+  string, not an error), the legacy debug and engine switches (the older debug
+  variables and the old incremental-engine variable are no longer read, so set
+  `RETND_DEBUG` and `RETND_INCREMENTAL_ENGINE`), and the old Synology package id.
+  The same sweep cleaned the name out of the docs, the design notes, the scripts and
+  this changelog's own history, and a new guard
+  (`scripts/rename/check-no-former-name.sh`, wired into CI and the local gate) fails
+  on any tracked file that brings it back.
+  **Upgrading on Synology:** the package id changed, so DSM will not upgrade in
+  place. Uninstall the old package but keep its data share (say no when DSM offers
+  to delete it), then install the new `retnd` package and point it at the same
+  share.
+
 ### Fixed
 
 - **A recovery test on a set with no validator no longer says it completed** (#1108).
@@ -787,7 +825,7 @@ re-recorded hashes rather than an edit to a published tag (#1042).
   environment editor shows a variable's name and the LOCATION its value comes
   from — a file, an environment variable, an argv — because that is all the
   contract carries; the merged preview shows precedence (deployment < backup
-  set < reserved `BACKUPD_*` built-ins, which are read-only) and says where a
+  set < reserved `RETND_*` built-ins, which are read-only) and says where a
   secret will be read from rather than what it is. An empty literal stays
   distinct from no literal at all in both directions.
 
@@ -890,7 +928,7 @@ re-recorded hashes rather than an edit to a published tag (#1042).
   content, not a second 100 GB copy.
 
   It is **gated and off by default**: `incremental_engine.enabled: true` in
-  `config.yaml`, or `BACKUPD_INCREMENTAL_ENGINE=1` in the environment, which
+  `config.yaml`, or `RETND_INCREMENTAL_ENGINE=1` in the environment, which
   overrides the file in both directions. With the gate off, a configuration
   that declares incremental sets still loads and still backs up every artifact
   set on schedule — the incremental ones refuse with one sentence naming both
@@ -1166,7 +1204,7 @@ re-recorded hashes rather than an edit to a published tag (#1042).
   `LOG_LEVEL` to BOTH services — with `container/.env.example`, the provider
   adapters and the Portainer template carrying it too — because the two halves
   of one request are recorded in two containers and one of them at `debug`
-  gives half of every story. `BACKUPD_DEBUG=1` stays as the shortcut, and
+  gives half of every story. `RETND_DEBUG=1` stays as the shortcut, and
   `docs/deployment.md`'s new "Turning on diagnostics" covers all three
   switches, the browser's `?debug=1`/`?debug=0` included.
 
@@ -1372,7 +1410,7 @@ re-recorded hashes rather than an edit to a published tag (#1042).
   and starts normally); and a host with both spellings of a renamed systemd unit
   enabled is refused with the `systemctl disable` line it needs.
 
-  **The one-release windows, all of which close in #895.** `BACKUPD_*` hook
+  **The one-release windows, all of which close in #895.** the previous-name hook
   exports and input reads alongside `RETND_*` with identical values;
   `retnd_session` / `retnd_csrf` accepted on a read and re-issued under the
   current names; the fourteen `retnd_*` metric **gauges** emitted a second
@@ -1492,7 +1530,7 @@ re-recorded hashes rather than an edit to a published tag (#1042).
   files inside the image were still `/retnd` and `/retnd-web`, the compose
   services were still `retnd`, the configuration directory was still
   `/etc/retnd` and the environment, metrics and cookies were still
-  `BACKUPD_*` / `retnd_*`: those are renames an upgraded deployment has to
+  the previous-name variables and `retnd_*`: those are renames an upgraded deployment has to
   survive rather than renames of a printed word, so they landed with their own
   back-compat windows in #889 and #890, both of which are in this same
   release. What #888 itself changed is only what the program calls itself when
@@ -1522,15 +1560,16 @@ re-recorded hashes rather than an edit to a published tag (#1042).
 
   - **Hook environment: both names, identical values.** Every one of the
     nineteen built-ins a hook receives is exported twice, `RETND_RUN_ID`
-    beside `BACKUPD_RUN_ID` and the bare `RETND` beside `BACKUPD`, from the
+    beside its previous-name twin and the bare `RETND` beside the previous
+    bare name, from the
     same values in the same loop. A hook is an operator's own Bash script:
-    `$BACKUPD_BACKUP_STATUS` against a build that stopped exporting it is the
+    the previous-name twin of `$RETND_BACKUP_STATUS` against a build that stopped exporting it is the
     empty string rather than an error, so a hook that notifies on failure
     would simply have stopped notifying. Both prefixes stay reserved in
     configuration for as long as both are exported.
   - **Input environment: both read, current name wins, one notice per
     process.** `RETND_DEBUG` and `RETND_INCREMENTAL_ENGINE` are the names;
-    `BACKUPD_DEBUG`, `BACKUPD_INCREMENTAL_ENGINE` and (still) `RM_DEBUG` are
+    their previous-name twins and (still) `RM_DEBUG` are
     read, and each prints one deprecation notice per process start on stderr
     -- not one per read, which is a log an operator silences. The debug
     shortcut's three spellings are OR'd rather than ranked, exactly as
@@ -1568,15 +1607,15 @@ re-recorded hashes rather than an edit to a published tag (#1042).
   list with the issue that deletes it (#895) and its removal release, "the
   release after the one that ships this EPIC" (FR-43); that list now refuses
   an entry carrying neither. The guard also grew the pattern for the bare
-  `BACKUPD`, which no prefix rule could ever match and which had been green
+  the bare previous name, which no prefix rule could ever match and which had been green
   through two renames.
 
-- **The debug shortcut is `BACKUPD_DEBUG`, and `RM_DEBUG` is deprecated**
+- **The debug shortcut is `RETND_DEBUG`, and `RM_DEBUG` is deprecated**
   (#794). The one-variable diagnostics switch still carried the project's
   old `RM_` prefix, from before the rename to retnd, which is the wrong
   name to read out over the phone call this knob exists for. The engine
   (`obs.LevelFromEnv`) and the web host (`webhost.envLogLevel`) now both
-  accept `BACKUPD_DEBUG=1`, and `container/compose.yaml`,
+  accept `RETND_DEBUG=1`, and `container/compose.yaml`,
   `container/.env.example`, every provider adapter's compose file and
   `docs/deployment.md` name that spelling.
 
@@ -1585,7 +1624,7 @@ re-recorded hashes rather than an edit to a published tag (#1042).
   value — only the documented `1` means anything — so a deployment that
   upgrades one container before the other, or that still has the old name
   in a compose file nobody re-derived, does not go quiet in the middle of
-  a diagnosis. Set `BACKUPD_DEBUG` on new deployments; `RM_DEBUG` will be
+  a diagnosis. Set `RETND_DEBUG` on new deployments; `RM_DEBUG` will be
   removed a release after this one.
 
 - **The session and CSRF cookies are named `retnd_session` and
@@ -1829,9 +1868,9 @@ re-recorded hashes rather than an edit to a published tag (#1042).
   the container an operator has to go and look at. A refusal now carries the
   response status, and — because a status cannot say which hop wrote it —
   `serve-ui` now marks the responses its own proxy writes
-  (`X-Backupd-Proxy-Error`, deleted from any upstream response so it can only
+  (`X-Retnd-Proxy-Error`, deleted from any upstream response so it can only
   ever mean this hop). A refusal identified that way is described as what it
-  is: Backupd's web interface could not reach the Backupd service, with the
+  is: retnd's web interface could not reach the retnd service, with the
   correlation id that 502 really carried (it is inherited from the request
   scope, so it matches the `proxy_error` line in the same container's log). A
   5xx that carries its own **typed** reason is untouched, whether or not this
@@ -1847,8 +1886,8 @@ re-recorded hashes rather than an edit to a published tag (#1042).
   means signed out, and everything else is a failure to ask. A **403** is a
   policy denial that no sign-in can lift, so it goes down the typed path with
   every other refusal. The app records the failure and replaces the login form
-  with a page that says only what is known: "Backupd is not answering" when
-  nothing came back, and "Backupd could not check your session" — over the
+  with a page that says only what is known: "retnd is not answering" when
+  nothing came back, and "retnd could not check your session" — over the
   service's own words — when something did. Both offer Try again.
 
   And there was no reproduction. `scripts/e2e/three-machine-web-ui.sh

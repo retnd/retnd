@@ -1,11 +1,11 @@
 {
     ".url": {
-        "SYNO.SDS._ThirdParty.App.Backupd": {
+        "SYNO.SDS._ThirdParty.App.retnd": {
             "type": "url",
-            "title": "Backupd",
+            "title": "retnd",
             "desc": "Pull-based retnd",
             "icon": "images/retnd_{0}.png",
-            "url": "/webman/3rdparty/Backupd/index.html",
+            "url": "/webman/3rdparty/retnd/index.html",
             "allUsers": true
         }
     }

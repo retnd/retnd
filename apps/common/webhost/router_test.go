@@ -108,6 +108,10 @@ var destructiveGateExemptRoutes = map[string]bool{
 	// ship recovery refused on every deployment this repository builds.
 	// The authorisation is a bound, single-use, audited grant instead.
 	"POST /api/v1/backups/{source}/{set}/{name}/recovery": true,
+	// #1106 and #1107: the same read, for several backups or a whole set,
+	// to one destination. It deletes and overwrites nothing (a recovery
+	// never replaces an object or a file) and is audited by the service.
+	"POST /api/v1/recoveries": true,
 
 	// Issue #146 (B2.7): every one of these is "state-changing but
 	// non-destructive" or outright read-only under

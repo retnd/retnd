@@ -151,11 +151,17 @@ func TestResolveRefusesAnUndocumentedBuiltin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the documented built-in set was refused: %v", err)
 	}
-	// Every built-in, plus the compat block: one deprecated spelling per
-	// name (LegacyEnvName), and nothing else.
-	if want := 2 * len(all); len(resolved.Names()) != want {
-		t.Errorf("Resolve carried %d names for %d built-ins, want %d (each name plus its deprecated spelling)",
+	// Every built-in exactly once, and nothing else: no second spelling
+	// of any name.
+	if want := len(all); len(resolved.Names()) != want {
+		t.Errorf("Resolve carried %d names for %d built-ins, want %d (each name once)",
 			len(resolved.Names()), len(all), want)
+	}
+	former := strings.Join([]string{"BACK", "UPD"}, "")
+	for _, name := range resolved.Names() {
+		if strings.HasPrefix(name, former) {
+			t.Errorf("Resolve exported %s, a name under the former brand", name)
+		}
 	}
 }
 
@@ -180,13 +186,8 @@ func TestValidateEnvNameRefusesUnusableAndReservedNames(t *testing.T) {
 		{"a NUL", "MY\x00VAR", "NUL"},
 		{"non-ASCII", "MYVAR\u00e9", EnvNamePattern},
 		{"the bare reserved name", "RETND", "is reserved"},
-		{"the bare reserved name's deprecated spelling", "BACKUPD", "is reserved"},
 		{"a reserved built-in", "RETND_RUN_ID", "is reserved"},
 		{"a reserved name this product does not set yet", "RETND_ANYTHING_AT_ALL", "is reserved"},
-		// Reserved for as long as it is still exported: a key an
-		// operator saved under the deprecated prefix would be
-		// overwritten by the compat block with no word said.
-		{"a name under the deprecated prefix", "BACKUPD_BACKUP_STATUS", "is reserved"},
 	}
 
 	for _, tc := range cases {
@@ -208,7 +209,10 @@ func TestValidateEnvNameRefusesUnusableAndReservedNames(t *testing.T) {
 
 	// The positive control. Without it every row above would pass against
 	// a function that refused everything.
-	for _, name := range []string{"PATH", "_", "_X", "PGDATABASE", "a", "A1_b2"} {
+	// The former brand's names are ordinary names now: nothing exports
+	// them, so nothing is shadowed by an operator writing one.
+	former := strings.Join([]string{"BACK", "UPD"}, "")
+	for _, name := range []string{"PATH", "_", "_X", "PGDATABASE", "a", "A1_b2", former, former + "_BACKUP_STATUS"} {
 		if err := ValidateEnvName(name); err != nil {
 			t.Errorf("ValidateEnvName(%q) refused a perfectly ordinary name: %v", name, err)
 		}

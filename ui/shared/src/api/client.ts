@@ -51,6 +51,12 @@ import type {
   WireAssuranceDueResponse,
   WireAssuranceSettingsResponse,
   WireBackupSetAssurance,
+  WireRecoveryManyEvent,
+  WireRecoveryManyItem,
+  WireRecoveryManyPlan,
+  WireRecoveryManyRequest,
+  WireRecoveryManyResult,
+  WireRecoveryManyTotals,
   WireRecoveryMintRequest,
   WireRecoveryMintResponse,
   WireRecoveryResult,
@@ -144,6 +150,11 @@ import type {
 } from "./generated/contract";
 import type {
   AppSettings,
+  RecoverManyItem,
+  RecoverManyPlan,
+  RecoverManyRequest,
+  RecoverManyResult,
+  RecoverManyTotals,
   RecoveryMint,
   RecoveryMintRequest,
   RecoveryPlacement,
@@ -307,7 +318,7 @@ export function bootstrapTokenFromLocation(): string | null {
  * read `fetch(BASE + path` literally so it can prove which URLs this
  * bundle is able to request.
  */
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit, onLine?: (line: unknown) => void): Promise<T> {
   const headers: Record<string, string> = {
     "content-type": "application/json",
     ...((init?.headers as Record<string, string> | undefined) ?? {})
@@ -408,11 +419,45 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   if (res.status === 204) return undefined as T;
+  // A response that is a stream of JSON lines (POST /recoveries, #1106) is
+  // handed to the caller one line at a time as it arrives; what the call
+  // returns is whatever the caller collected from them.
+  if (onLine && (res.headers.get("content-type") ?? "").startsWith("application/x-ndjson")) {
+    try {
+      await readJSONLines(res, onLine);
+    } catch (cause) {
+      if (init?.signal?.aborted) throw cause;
+      throw unreadableBody({ path, res, attemptId, cause });
+    }
+    return undefined as T;
+  }
   try {
     return (await res.json()) as T;
   } catch (cause) {
     throw unreadableBody({ path, res, attemptId, cause });
   }
+}
+
+/** Reads a response body as JSON lines, calling `onLine` for each as soon as
+ *  it is complete. A body that ends part way through a line is an error, not
+ *  a shorter stream. */
+async function readJSONLines(res: Response, onLine: (line: unknown) => void): Promise<void> {
+  if (!res.body) throw new Error("the response has no body to read");
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let pending = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    pending += decoder.decode(value ?? new Uint8Array(), { stream: !done });
+    let at: number;
+    while ((at = pending.indexOf("\n")) >= 0) {
+      const line = pending.slice(0, at).trim();
+      pending = pending.slice(at + 1);
+      if (line) onLine(JSON.parse(line));
+    }
+    if (done) break;
+  }
+  if (pending.trim()) throw new Error("the stream ended in the middle of a line");
 }
 
 /**
@@ -2747,6 +2792,109 @@ function toWireRecoveryMint(req: RecoveryMintRequest): WireRecoveryMintRequest {
   };
 }
 
+function fromWireRecoverManyItem(i: WireRecoveryManyItem): RecoverManyItem {
+  return {
+    artifactId: i.artifact_id,
+    name: i.name,
+    status: i.status,
+    ...(i.copy ? { copy: i.copy } : {}),
+    ...(i.size_bytes !== undefined ? { sizeBytes: i.size_bytes } : {}),
+    ...(i.chargeable ? { chargeable: true } : {}),
+    ...(i.bytes ? { bytes: i.bytes } : {}),
+    ...(i.sha256 ? { sha256: i.sha256 } : {}),
+    ...(i.path ? { path: i.path } : {}),
+    ...(i.key ? { key: i.key } : {}),
+    ...(i.file ? { file: i.file } : {}),
+    ...(i.code ? { code: i.code } : {}),
+    ...(i.message ? { message: i.message } : {}),
+    ...(i.restore ? { restoreOperationId: i.restore.operation_id } : {})
+  };
+}
+
+function fromWireRecoverManyTotals(t: WireRecoveryManyTotals): RecoverManyTotals {
+  return {
+    count: t.count, ready: t.ready, recovered: t.recovered, failed: t.failed, skipped: t.skipped,
+    needsThaw: t.needs_thaw, quarantined: t.quarantined, unrecoverable: t.unrecoverable, bytes: t.bytes
+  };
+}
+
+function fromWireRecoverManyPlan(p: WireRecoveryManyPlan & { refusal?: { code: string; message: string } }): RecoverManyPlan {
+  return {
+    ...(p.set ? { set: p.set } : {}),
+    target: fromWireRecoveryTarget(p.target),
+    folder: p.folder,
+    items: (p.items ?? []).map(fromWireRecoverManyItem),
+    totals: fromWireRecoverManyTotals(p.totals),
+    chargeableCount: p.chargeable_count,
+    chargeableBytes: p.chargeable_bytes,
+    unknownSizes: p.unknown_sizes,
+    ...(p.free_bytes !== undefined ? { freeBytes: p.free_bytes } : {}),
+    reserveBytes: p.reserve_bytes,
+    ...(p.refusal ? { refusal: { code: p.refusal.code, message: p.refusal.message } } : {})
+  };
+}
+
+function fromWireRecoverManyResult(r: WireRecoveryManyResult, error?: { code: string; message: string }): RecoverManyResult {
+  return {
+    operationId: r.operation_id,
+    ...(r.set ? { set: r.set } : {}),
+    target: fromWireRecoveryTarget(r.target),
+    folder: r.folder,
+    items: (r.items ?? []).map(fromWireRecoverManyItem),
+    totals: fromWireRecoverManyTotals(r.totals),
+    cancelled: r.cancelled === true,
+    ...(r.manifest_path ? { manifestPath: r.manifest_path } : {}),
+    ...(r.manifest_key ? { manifestKey: r.manifest_key } : {}),
+    ...(r.manifest_sha256 ? { manifestSha256: r.manifest_sha256 } : {}),
+    ...(error ? { error } : {})
+  };
+}
+
+function toWireRecoverMany(req: RecoverManyRequest, preflight: boolean): WireRecoveryManyRequest {
+  const target: WireRecoveryTarget = { kind: req.target.kind };
+  if (req.target.path) target.path = req.target.path;
+  if (req.target.medium) target.medium = req.target.medium;
+  if (req.target.key) target.key = req.target.key;
+  return {
+    target,
+    ...(req.set ? { set: req.set } : {}),
+    ...(req.artifacts?.length ? { artifacts: req.artifacts } : {}),
+    ...(req.newestOnly ? { newest_only: true } : {}),
+    ...(req.since ? { since: req.since } : {}),
+    ...(req.copy ? { copy: req.copy } : {}),
+    ...(req.acknowledged ? { acknowledged: true } : {}),
+    ...(preflight ? { preflight: true } : {})
+  };
+}
+
+/** What a cancelled run looks like to the browser. Closing the connection is
+ *  how the run is cancelled, so the host's own closing line cannot reach this
+ *  page; the result is rebuilt from the lines that did. Rows never reported as
+ *  finished are `skipped`, and no manifest is claimed: the host writes it
+ *  beside the files. */
+function cancelledResult(plan: RecoverManyPlan, finished: Map<string, RecoverManyItem>): RecoverManyResult {
+  const items = plan.items.map((i): RecoverManyItem => {
+    const done = finished.get(i.artifactId);
+    if (done) return done;
+    if (i.status !== "ready" && i.status !== "needs_thaw") return i;
+    return { ...i, status: "skipped", code: "RECOVERY_INTERRUPTED", message: "the run was cancelled before this file was finished; nothing of it was kept" };
+  });
+  const count = (s: RecoverManyItem["status"]) => items.filter((i) => i.status === s).length;
+  return {
+    operationId: "",
+    ...(plan.set ? { set: plan.set } : {}),
+    target: plan.target,
+    folder: plan.folder,
+    items,
+    cancelled: true,
+    totals: {
+      count: items.length, ready: 0, recovered: count("recovered"), failed: count("failed"), skipped: count("skipped"),
+      needsThaw: count("needs_thaw"), quarantined: count("quarantined"), unrecoverable: count("unrecoverable"),
+      bytes: items.reduce((n, i) => n + (i.status === "recovered" ? (i.bytes ?? 0) : 0), 0)
+    }
+  };
+}
+
 function fromWireRecoveryResult(r: WireRecoveryResult): RecoveryPlacement {
   return {
     artifactId: r.artifact_id,
@@ -3720,6 +3868,48 @@ export const httpApi: RetndApi = {
     }).then(fromWireRecoveryMint),
   redeemRecovery: (grant) =>
     request<WireRecoveryResult>("/recoveries/" + encodeURIComponent(grant)).then(fromWireRecoveryResult),
+
+  planRecoverMany: (req) =>
+    request<WireRecoveryManyPlan>("/recoveries", {
+      method: "POST",
+      body: JSON.stringify(toWireRecoverMany(req, true))
+    }).then(fromWireRecoverManyPlan),
+  recoverMany: async (req, opts) => {
+    let plan: RecoverManyPlan | undefined;
+    let result: RecoverManyResult | undefined;
+    const finished = new Map<string, RecoverManyItem>();
+    const onLine = (raw: unknown) => {
+      const ev = raw as WireRecoveryManyEvent;
+      if (ev.event === "plan" && ev.plan) {
+        plan = fromWireRecoverManyPlan(ev.plan);
+        opts?.onProgress?.({ kind: "plan", plan, totalBytes: ev.total_bytes ?? plan.totals.bytes });
+      } else if ((ev.event === "start" || ev.event === "item") && ev.item) {
+        const item = fromWireRecoverManyItem(ev.item);
+        if (ev.event === "item") finished.set(item.artifactId, item);
+        opts?.onProgress?.({
+          kind: ev.event, index: ev.index ?? 0, total: ev.total ?? 0, item,
+          doneBytes: ev.done_bytes ?? 0, totalBytes: ev.total_bytes ?? 0
+        });
+      } else if (ev.event === "result" && ev.result) {
+        result = fromWireRecoverManyResult(ev.result, ev.error);
+      }
+    };
+    try {
+      await request<void>("/recoveries", {
+        method: "POST",
+        body: JSON.stringify(toWireRecoverMany(req, false)),
+        signal: opts?.signal
+      }, onLine);
+    } catch (e) {
+      if (opts?.signal?.aborted && plan) return cancelledResult(plan, finished);
+      throw e;
+    }
+    if (!result) {
+      if (opts?.signal?.aborted && plan) return cancelledResult(plan, finished);
+      throw new Error("The recovery's stream ended without saying how it finished, so what was recovered is not known. Check the destination and the manifest on the host.");
+    }
+    return result;
+  },
 
   startRecoveryTest: (source, set, req) =>
     request<WireRecoveryTestStarted>(backupSetPath(source, set) + "/recovery-test", {

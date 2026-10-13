@@ -84,7 +84,7 @@ This is the section that decided the epic's shape. Three of the five review verd
 - 27 event constants, `EventValidation = "validation"` among them (`core/internal/obs/events.go:141`; the count is `grep -c '^	Event[A-Za-z]* *= "'`).
 - A cursor-paged, append-only activity read (`core/service/activity.go:109-141`, with the cursor's reasoning at `:33`).
 - Nine alert kinds, none about assurance (`core/internal/alert/alert.go:128-296`).
-- Per-set gauges are built from `namePrefix + "backup_set_"` (`core/internal/metrics/metrics.go:63`, `:397`, `:418`). #953 also cites a legacy `backupd_` alias at `:88`; at `1cd17849` I find no `backupd_` string in `core/internal/metrics/`, so that alias is gone or I cannot find it, and I am treating #947's "deprecation window" as unknown.
+- Per-set gauges are built from `namePrefix + "backup_set_"` (`core/internal/metrics/metrics.go:63`, `:397`, `:418`). #953 also cites a legacy previous-name metric alias at `:88`; at `1cd17849` I find no previous-name string in `core/internal/metrics/`, so that alias is gone or I cannot find it, and I am treating #947's "deprecation window" as unknown.
 - Health carries `VerificationStatus`, `VerificationLevel` and `VerificationAchieved` (`core/internal/health/health.go:500-513`) and `LastKnownGoodAt` (`:515-518`), computed in `core/internal/health/compute.go:323`. I read the first three as the incremental engine's. I found no field for an artifact-engine copy's content-verified age, and whether some other caller derives one is unknown.
 - No event, alert kind or gauge names a scrub, a recovery or a recovery test.
 
@@ -453,7 +453,7 @@ Four decisions the review in section 9 put to the owner, and what each one chang
 - #953's quotation "writes nothing anywhere" is on the reference page (`docs/site/reference.html:234`), not in `core/service/restore.go`.
 - The incremental ladder's rungs are `content_sample` and `content_full`, not `sample` and `full` (`core/internal/model/verificationlevel.go:58`, `:69`).
 - `reference.html` line references `:235`, `:264` and `:275` are now `:234`, `:263` and `:274`.
-- #953's legacy `backupd_` metric alias at `metrics.go:88` is not in the package any more (section 2.8).
+- #953's legacy previous-name metric alias at `metrics.go:88` is not in the package any more (section 2.8).
 - #953 and #954 count EPIC O's FR block as FR-45 to FR-50, which overlaps EPIC L's FR-45 to FR-48 (`docs/EPIC-L-scripted-backup-workflows.md:255-292`). That overlap is between O and L, not between either and Q, and it is not mine to resolve, but it means the checklist's "next free number" line cannot be derived by adding up the specs on `main`. I bumped it to FR-75 as the issue asks.
 - The two sub-issue titles and bodies that name a design tool describe a step, not a requirement of the repository; this document refers to that step as the design step of checklist section 5.
 

@@ -1,7 +1,7 @@
-# Backupd configuration, seeded by the DSM package on first
+# retnd configuration, seeded by the DSM package on first
 # install. Edit it, then start the package from Package Center.
 #
-# This file lives at /var/packages/Backupd/etc/config.yaml, which
+# This file lives at /var/packages/retnd/etc/config.yaml, which
 # Synology's package FHS documents as surviving both an upgrade and an
 # uninstall. The package never overwrites it once it exists.
 #
@@ -15,7 +15,7 @@ poll_interval: 15m
 
 state:
   # The SQLite lifecycle journal. Under var/, which survives upgrades.
-  database: /var/packages/Backupd/var/state/retnd.db
+  database: /var/packages/retnd/var/state/retnd.db
 
 sources: []
 
@@ -32,8 +32,8 @@ sources: []
 #           type: sftp
 #           host: production.example.internal
 #           user: backup
-#           key_file: /var/packages/Backupd/etc/id_ed25519
-#           known_hosts: /var/packages/Backupd/etc/known_hosts
+#           key_file: /var/packages/retnd/etc/id_ed25519
+#           known_hosts: /var/packages/retnd/etc/known_hosts
 #         remote_path: /backups/postgres
 #         local_path: /volume1/retnd/production/postgres
 #         completion:

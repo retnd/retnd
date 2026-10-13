@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "4ee9fef0041f3bfcca8b0d44e5575eb44a078cd5e25a693825e69f4b3b1d1e69";
+export const CONTRACT_SHA256 = "419d2a696ea18ab123f55aed3b228af4cd0842c2329f9c0426e2a35a6399d4f4";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -1490,6 +1490,31 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       404: ["ARTIFACT_NOT_FOUND", "BACKUP_SET_NOT_FOUND"],
       409: ["ARTIFACT_NOT_QUARANTINED"],
       500: ["INTERNAL"],
+    }
+  },
+  {
+    id: "recoverMany",
+    method: "POST",
+    path: "/recoveries",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "RecoveryManyRequest",
+    responseSchema: "RecoveryManyPlan",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST", "RECOVERY_TARGET_INVALID"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["ARTIFACT_NOT_FOUND", "BACKUP_SET_NOT_FOUND"],
+      409: ["RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_USE_SNAPSHOT_RESTORE"],
+      429: ["RECOVERY_READS_BUSY", "RECOVERY_DESTINATION_BUSY"],
+      500: ["INTERNAL", "RECOVERY_FAILED"],
+      501: ["RECOVERY_UNAVAILABLE"],
+      503: ["RECOVERY_UNAVAILABLE"],
+      507: ["RECOVERY_NO_SPACE", "RECOVERY_BELOW_RESERVE"],
     }
   },
   {
@@ -3523,6 +3548,115 @@ export interface WirePlacement {
   storage_class?: string;
   verification_class?: "content" | "attested" | "existence";
   verified_at?: string;
+}
+
+export interface WireRecoveryManyError {
+  code: string;
+  message: string;
+}
+
+/** One line of the application/x-ndjson stream a non-pre-flight POST
+ *  /recoveries answers with. `plan` comes once, after the pre-flight
+ *  passed and before any byte is read; `start` and `item` come per
+ *  file (item carries its outcome and the running total); `result` is
+ *  last. A refusal from the pre-flight is an ordinary error response
+ *  before the first line. */
+export interface WireRecoveryManyEvent {
+  done_bytes?: number;
+  error?: WireRecoveryManyError;
+  event: "plan" | "start" | "item" | "result";
+  index?: number;
+  item?: WireRecoveryManyItem;
+  plan?: WireRecoveryManyPlan;
+  result?: WireRecoveryManyResult;
+  total?: number;
+  total_bytes?: number;
+}
+
+/** One backup in a plan or a result. Status is ready (plan only),
+ *  recovered, failed, skipped (not a restore point, or the run was
+ *  cancelled before it started), needs_thaw (a provider restore was
+ *  started or is needed), quarantined or unrecoverable (listed, never
+ *  included). */
+export interface WireRecoveryManyItem {
+  artifact_id: string;
+  bytes?: number;
+  chargeable?: boolean;
+  code?: string;
+  copy?: string;
+  file?: string;
+  key?: string;
+  message?: string;
+  name: string;
+  path?: string;
+  restore?: WireRecoveryRestoreOperation;
+  sha256?: string;
+  size_bytes?: number;
+  status: "ready" | "recovered" | "failed" | "skipped" | "needs_thaw" | "quarantined" | "unrecoverable";
+}
+
+/** The pre-flight: what a recovery of several backups would do,
+ *  before a byte is read. */
+export interface WireRecoveryManyPlan {
+  chargeable_bytes: number;
+  chargeable_count: number;
+  folder: string;
+  free_bytes?: number;
+  items: WireRecoveryManyItem[];
+  refusal?: WireRecoveryManyError;
+  reserve_bytes: number;
+  set?: string;
+  target: WireRecoveryTarget;
+  totals: WireRecoveryManyTotals;
+  unknown_sizes: number;
+}
+
+/** POST /recoveries. Recovers several backups, or every restore point
+ *  of one backup set, to ONE destination, as if each had been
+ *  recovered alone: the same checks against the digest recorded at
+ *  ingestion, the same refusals and budgets, nothing half-written.
+ *  Name exactly one of `set` and `artifacts`. The target is `staging`
+ *  or `storage`; `download` is refused, because many files do not fit
+ *  one browser download. */
+export interface WireRecoveryManyRequest {
+  acknowledged?: boolean;
+  artifacts?: string[];
+  copy?: string;
+  newest_only?: boolean;
+  preflight?: boolean;
+  set?: string;
+  since?: string;
+  target: WireRecoveryTarget;
+}
+
+/** What a run did. The summary and the manifest file written beside
+ *  the recovered files are built from the same rows, so they agree
+ *  with each other and with the disk. */
+export interface WireRecoveryManyResult {
+  cancelled: boolean;
+  folder: string;
+  items: WireRecoveryManyItem[];
+  manifest_key?: string;
+  manifest_path?: string;
+  manifest_sha256?: string;
+  operation_id: string;
+  set?: string;
+  target: WireRecoveryTarget;
+  totals: WireRecoveryManyTotals;
+}
+
+/** Counts of the rows of a plan or a result, and the bytes they come
+ *  to. */
+export interface WireRecoveryManyTotals {
+  bytes: number;
+  count: number;
+  failed: number;
+  needs_thaw: number;
+  quarantined: number;
+  ready: number;
+  recovered: number;
+  skipped: number;
+  unrecoverable: number;
 }
 
 /** POST /backups/{source}/{set}/{name}/recovery. Asks for one

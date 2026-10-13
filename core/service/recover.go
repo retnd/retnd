@@ -729,7 +729,7 @@ const defaultRecoveryThawDays = 7
 
 // recoveryEvent is one action-log row.
 type recoveryEvent struct {
-	op       string // mint, range, run, abort
+	op       string // mint, range, run, abort, many
 	actor    string
 	artifact string
 	copy     string
@@ -768,8 +768,11 @@ func (b *BackupService) auditRecovery(ctx context.Context, ev *recoveryEvent, er
 		b.logger.Error(ctx, "recovery_failure", err)
 	}
 	route := "GET /api/v1/recoveries/{grant}"
-	if ev.op == "mint" {
+	switch ev.op {
+	case "mint":
 		route = "POST /api/v1/backups/{id}/recovery"
+	case "many":
+		route = "POST /api/v1/recoveries"
 	}
 	attrs := []slog.Attr{
 		slog.String("actor", ev.actor),
