@@ -18,6 +18,10 @@ is still the container image (#1078).
 
 ### Changed
 
+- **Every publish keeps a versioned GitHub Release** (#1102). The release notes now link
+  the package page, https://github.com/retnd/retnd/pkgs/container/retnd, and a publish of a
+  version that already has a release refreshes its tarballs and notes instead of failing on
+  the existing tag.
 - **retnd is MIT licensed from 0.6.0** (#1086). The licence moves from Apache-2.0 to
   MIT, matching libviprs, so the two projects are used and combined under one set of
   terms. `LICENSE`, the image's `org.opencontainers.image.licenses` label,

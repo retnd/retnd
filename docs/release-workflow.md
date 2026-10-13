@@ -233,8 +233,11 @@ Download a tarball from the `v<tag>` GitHub Release and check it against
 `SHA256SUMS` (`sha256sum -c --ignore-missing SHA256SUMS`, or `shasum -a 256 -c` on
 macOS). The tarballs are not signed, so the checksum file proves the download is
 intact and nothing more; the image signature above is what proves provenance.
-`github-release` creates the Git tag `v<tag>`; confirm the release page lists the
-four tarballs and `SHA256SUMS` before reporting it as published.
+`github-release` creates the Git tag `v<tag>` on the first publish of a version and
+refreshes that release (tarballs and notes) on any later publish of the same version,
+so every publish of the package has a versioned release. Its notes link the package
+page, https://github.com/retnd/retnd/pkgs/container/retnd. Confirm the release page
+lists the four tarballs and `SHA256SUMS` before reporting it as published.
 
 ## Failure and recovery
 
