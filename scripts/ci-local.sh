@@ -296,6 +296,8 @@ bash scripts/format/check-gofmt.sh
 gate_step "no new RM_/BM_/bm_/rbm_/retnd/retndproject/rclone[-_ ]manager/retnd identifier, no brand asset unaccounted for or carrying a text node, and all three of those guards can still fail (#794, #887, #893)"
 bash scripts/rename/check-brand-drift.sh
 bash scripts/rename/selftest.sh
+bash scripts/rename/check-no-former-name.sh
+bash scripts/rename/selftest-former-name.sh
 bash scripts/brand/check-svg-text.sh
 bash scripts/brand/check-brand-assets.sh
 bash scripts/brand/selftest.sh
