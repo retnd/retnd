@@ -129,3 +129,8 @@
 [data-outcome="failed_verification"] .adl__badge::before { content: "\00D7"; }
 [data-outcome="interrupted"] .adl__badge { border-style: dashed; border-width: 2px; border-color: var(--warn); background: var(--warn-quiet); }
 [data-outcome="failed_verification"] .adl__badge { border-style: double; border-width: 4px; border-color: var(--danger); background: var(--danger-quiet); }
+
+/* The reason beside a disabled Run recovery test (#1108). Ink is --text and the
+   links take the app's link colour; both are measured in the PR. */
+.arefuse { margin: 0; color: var(--text); font-size: var(--text-sm); }
+.arefuse a { text-decoration: underline; }

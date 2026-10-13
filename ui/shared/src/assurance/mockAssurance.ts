@@ -114,8 +114,8 @@ const TOTAL_BYTES = 4_800_000_000;
 const FAIL_REASON = "sha256 differs from the one recorded at ingest";
 /** assurance-no-validator (issue: a recovery test on a set that declares no
  *  validator): the engine resolves the copy, finds nothing to run, and stops.
- *  The mock reproduces what the engine prints today, including the stage line
- *  it should not print, so a spec can pin the defect and later its absence. */
+ *  Like the engine since #1108 it stops after the first stage: no Complete
+ *  stage, and a closing line worded "not run". */
 const NO_VALIDATOR_PLAN = [{ stage: "resolving_copy", secs: 1, bytes: false }];
 const NO_VALIDATOR_REASON = "no recovery-test validator is declared for this backup set";
 const noValidator = (k: OperationKind) => k === "recovery_test" && activeScenario === "assurance-no-validator";
@@ -250,7 +250,7 @@ export function assuranceLiveEvents(setId: string): SetActivityEvent[] {
     }
     if (v.operation.state === "complete" || v.operation.state === "failed" || cancelled) {
       const failed = v.operation.state === "failed";
-      if ((!failed || refused) && !cancelled) {
+      if (!failed && !refused && !cancelled) {
         push({
           at: endAt, level: "info", event: "recovery_stage", action, actionId: op.id, message: "recovery stage",
           fields: { op_id: op.id, backup_set: setId, stage: "complete", stage_label: stageLabel("complete") }
@@ -268,9 +268,9 @@ export function assuranceLiveEvents(setId: string): SetActivityEvent[] {
       });
       if (refused) {
         // The engine's one summary line for the run (obs.Logger.RecoveryTest),
-        // in the words it prints today.
+        // worded by the state.
         push({
-          at: endAt, level: "info", event: "recovery_test", result: "info", message: "recovery test complete",
+          at: endAt, level: "info", event: "recovery_test", result: "info", message: "recovery test not run",
           fields: {
             artifact, medium: "local", placement_id: "99", state: "not_configured", digest: "not_compared", validator: "",
             termination: "", cleanup: "", output_truncated: "false", reason: NO_VALIDATOR_REASON, backup_set: setId
