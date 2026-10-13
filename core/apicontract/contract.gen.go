@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "f7afb2a29aa7bae3024216bc18265748536aa7c6b26ebc48009a65e57dd6ea7b"
+const ContractSHA256 = "4ee9fef0041f3bfcca8b0d44e5575eb44a078cd5e25a693825e69f4b3b1d1e69"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -1754,9 +1754,10 @@ type AssuranceOperationCancelled struct {
 
 // AssuranceRecoveryTestPolicy is A resolved recovery-test policy.
 type AssuranceRecoveryTestPolicy struct {
-	CadenceSeconds int64  `json:"cadence_seconds"`
-	Mode           string `json:"mode"`
-	ValidatorID    string `json:"validator_id"`
+	CadenceSeconds    int64  `json:"cadence_seconds"`
+	Mode              string `json:"mode"`
+	ValidatorDeclared *bool  `json:"validator_declared,omitempty"`
+	ValidatorID       string `json:"validator_id"`
 }
 
 // AssuranceScrubPolicy is A resolved scrub policy: how often a copy is re-read and how much

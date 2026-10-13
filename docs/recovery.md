@@ -775,11 +775,19 @@ a running one can be stopped.
   that set is already running and the new request asks for the same thing (same artifact,
   same cost acknowledgement), the request **coalesces**: it gets `202` with the *running*
   operation's id, the validator runs once, and every caller still gets a receipt of its own.
-  A request that asks for something different is refused rather than quietly joined.
+  A request that asks for something different is refused rather than quietly joined. A set
+  that declares no validator (none named by `validator_id` and none found in its
+  recovery-test directory) can only be refused: the answer is `not_configured` with the
+  reason, and the page disables **Run recovery test** for it, with that reason beside the
+  button, because the per-set assurance answer carries `recovery_test.validator_declared`
+  from the same dry run the test makes first.
 - **Follow.** `retnd recover <artifact> --follow` and `retnd recovery-test <set> --follow`
   print the stages as the engine passes through them, in the order it emits them:
   `resolving_copy`, `reading`, `verifying`, `writing_target`, `cleaning_temporary_files`,
-  `complete`. The stage lines go to **standard error**, so `retnd recover <artifact> --to -
+  `complete`. `complete` is the stage of a run that recorded a pass: a recovery test that
+  was refused, failed or could not finish stops on the last stage it entered, and its closing
+  line says so (`recovery test passed`, `failed`, `not run` or `did not complete`, with the
+  same `state=` field as before). The stage lines go to **standard error**, so `retnd recover <artifact> --to -
   --follow` still writes nothing but the artifact's bytes to standard output, and a pipe
   into `sha256sum` stays right. `--follow` leaves the exit status alone.
 - **Cancel.** `retnd assurance cancel <operation-id>`, or `POST

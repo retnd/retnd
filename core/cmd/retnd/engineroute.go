@@ -1158,5 +1158,8 @@ func assuranceSettingsFromWire(w apicontract.AssuranceSettingsResponse) service.
 }
 
 func backupSetAssuranceFromWire(w apicontract.BackupSetAssurance) service.BackupSetAssurance {
-	return service.BackupSetAssurance{BackupSetID: w.BackupSetID, Override: w.IsOverride, Policy: assurancePolicyFromWire(w.Scrub, w.RecoveryTest)}
+	return service.BackupSetAssurance{
+		BackupSetID: w.BackupSetID, Override: w.IsOverride, Policy: assurancePolicyFromWire(w.Scrub, w.RecoveryTest),
+		ValidatorDeclared: w.RecoveryTest.ValidatorDeclared != nil && *w.RecoveryTest.ValidatorDeclared,
+	}
 }

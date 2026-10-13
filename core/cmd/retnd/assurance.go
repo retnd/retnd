@@ -149,6 +149,10 @@ func assuranceSettingsWire(s service.AssuranceSettings) apicontract.AssuranceSet
 
 func backupSetAssuranceWire(s service.BackupSetAssurance) apicontract.BackupSetAssurance {
 	scrub, rt := assurancePolicyWire(s.Policy)
+	// validator_declared belongs to a set's answer: the deployment-wide policy
+	// has no set to look in and leaves it out.
+	declared := s.ValidatorDeclared
+	rt.ValidatorDeclared = &declared
 	return apicontract.BackupSetAssurance{BackupSetID: s.BackupSetID, IsOverride: s.Override, RecoveryTest: rt, Scrub: scrub}
 }
 
