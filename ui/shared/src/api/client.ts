@@ -53,6 +53,11 @@ import type {
   WireBackupSetAssurance,
   WireRecoveryMintRequest,
   WireRecoveryMintResponse,
+  WireRecoveryManyEvent,
+  WireRecoveryManyItem,
+  WireRecoveryManyPlan,
+  WireRecoveryManyRequest,
+  WireRecoveryManyTotals,
   WireRecoveryResult,
   WireRecoveryTarget,
   WireUpdateAssuranceSettingsRequest,
@@ -146,6 +151,11 @@ import type {
   AppSettings,
   RecoveryMint,
   RecoveryMintRequest,
+  RecoverManyEvent,
+  RecoverManyItem,
+  RecoverManyPlan,
+  RecoverManyResult,
+  RecoverManyTotals,
   RecoveryPlacement,
   RecoveryTargetSpec,
   AssuranceDue,
@@ -307,7 +317,7 @@ export function bootstrapTokenFromLocation(): string | null {
  * read `fetch(BASE + path` literally so it can prove which URLs this
  * bundle is able to request.
  */
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit, stream = false): Promise<T> {
   const headers: Record<string, string> = {
     "content-type": "application/json",
     ...((init?.headers as Record<string, string> | undefined) ?? {})
@@ -408,6 +418,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   if (res.status === 204) return undefined as T;
+  // A streamed answer (application/x-ndjson, POST /recoveries) is read line
+  // by line by the caller; the refusal path above has already run.
+  if (stream) return res as unknown as T;
   try {
     return (await res.json()) as T;
   } catch (cause) {
@@ -2744,6 +2757,65 @@ function toWireRecoveryMint(req: RecoveryMintRequest): WireRecoveryMintRequest {
   };
 }
 
+function fromWireManyItem(i: WireRecoveryManyItem): RecoverManyItem {
+  return {
+    artifactId: i.artifact_id,
+    name: i.name,
+    status: i.status,
+    ...(i.size_bytes !== undefined ? { sizeBytes: i.size_bytes } : {}),
+    ...(i.bytes !== undefined ? { bytes: i.bytes } : {}),
+    ...(i.sha256 ? { sha256: i.sha256 } : {}),
+    ...(i.path ? { path: i.path } : {}),
+    ...(i.key ? { key: i.key } : {}),
+    ...(i.code ? { code: i.code } : {}),
+    ...(i.message ? { message: i.message } : {}),
+    ...(i.chargeable ? { chargeable: true } : {})
+  };
+}
+
+function fromWireManyTotals(t: WireRecoveryManyTotals): RecoverManyTotals {
+  return {
+    bytes: t.bytes, count: t.count, failed: t.failed, needsThaw: t.needs_thaw, quarantined: t.quarantined,
+    ready: t.ready, recovered: t.recovered, skipped: t.skipped, unrecoverable: t.unrecoverable
+  };
+}
+
+function fromWireManyPlan(p: WireRecoveryManyPlan): RecoverManyPlan {
+  return {
+    items: p.items.map(fromWireManyItem),
+    totals: fromWireManyTotals(p.totals),
+    chargeableBytes: p.chargeable_bytes,
+    chargeableCount: p.chargeable_count,
+    folder: p.folder,
+    ...(p.free_bytes !== undefined ? { freeBytes: p.free_bytes } : {}),
+    reserveBytes: p.reserve_bytes
+  };
+}
+
+/** A line this build does not know is dropped rather than guessed at. */
+function fromWireManyEvent(e: WireRecoveryManyEvent): RecoverManyEvent | null {
+  if (e.event === "plan" && e.plan) return { event: "plan", plan: fromWireManyPlan(e.plan) };
+  if ((e.event === "start" || e.event === "item") && e.item) {
+    const base = { index: e.index ?? 0, total: e.total ?? 0, item: fromWireManyItem(e.item) };
+    return e.event === "start"
+      ? { event: "start", ...base }
+      : { event: "item", ...base, doneBytes: e.done_bytes ?? 0, totalBytes: e.total_bytes ?? 0 };
+  }
+  if (e.event === "result" && e.result) {
+    const r = e.result;
+    return {
+      event: "result",
+      result: {
+        items: r.items.map(fromWireManyItem), totals: fromWireManyTotals(r.totals), cancelled: r.cancelled, folder: r.folder,
+        ...(r.manifest_path ? { manifestPath: r.manifest_path } : {}),
+        ...(r.manifest_key ? { manifestKey: r.manifest_key } : {}),
+        operationId: r.operation_id
+      }
+    };
+  }
+  return null;
+}
+
 function fromWireRecoveryResult(r: WireRecoveryResult): RecoveryPlacement {
   return {
     artifactId: r.artifact_id,
@@ -3717,6 +3789,39 @@ export const httpApi: RetndApi = {
     }).then(fromWireRecoveryMint),
   redeemRecovery: (grant) =>
     request<WireRecoveryResult>("/recoveries/" + encodeURIComponent(grant)).then(fromWireRecoveryResult),
+
+  recoverMany: async (req, onEvent, signal) => {
+    const body: WireRecoveryManyRequest = {
+      artifacts: req.artifactIds,
+      target: toWireRecoveryMint({ target: req.target }).target,
+      ...(req.acknowledged ? { acknowledged: true } : {})
+    };
+    const res = await request<Response>("/recoveries", { method: "POST", body: JSON.stringify(body), signal }, true);
+    if (!res.body) throw unreadableBody({ path: "/recoveries", res, attemptId: "", cause: new Error("no body") });
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffered = "";
+    let last: RecoverManyResult | null = null;
+    const line = (text: string) => {
+      if (!text.trim()) return;
+      const ev = fromWireManyEvent(JSON.parse(text) as WireRecoveryManyEvent);
+      if (!ev) return;
+      if (ev.event === "result") last = ev.result;
+      onEvent(ev);
+    };
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffered += decoder.decode(value, { stream: true });
+      let nl: number;
+      while ((nl = buffered.indexOf("\n")) >= 0) {
+        line(buffered.slice(0, nl));
+        buffered = buffered.slice(nl + 1);
+      }
+    }
+    line(buffered + decoder.decode());
+    return last;
+  },
 
   startRecoveryTest: (source, set, req) =>
     request<WireRecoveryTestStarted>(backupSetPath(source, set) + "/recovery-test", {

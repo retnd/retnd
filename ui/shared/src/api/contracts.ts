@@ -2320,6 +2320,79 @@ export interface RecoveryPlacement {
   sha256: string;
 }
 
+/**
+ * Recover several backups to ONE destination, as if each were recovered alone
+ * (issue #1106's service call, used by the Backups list for #1107).
+ *
+ * The target is `staging` or `storage`: `download` is refused, because many
+ * files do not fit one browser download. Files land under
+ * `<target>/<source>/<set>/` with a manifest beside them.
+ */
+export interface RecoverManyRequest {
+  /** source/set/name ids, exactly as the list shows them. */
+  artifactIds: string[];
+  target: RecoveryTargetSpec;
+  /** One yes for the whole request, for chargeable (archive-class) copies. */
+  acknowledged?: boolean;
+}
+
+/** ready is a plan-only status; skipped also covers "cancelled before it started". */
+export type RecoverManyStatus = "ready" | "recovered" | "failed" | "skipped" | "needs_thaw" | "quarantined" | "unrecoverable";
+
+export interface RecoverManyItem {
+  artifactId: string;
+  name: string;
+  status: RecoverManyStatus;
+  sizeBytes?: number;
+  bytes?: number;
+  sha256?: string;
+  path?: string;
+  key?: string;
+  /** The service's refusal code and its own sentence, for a failed or excluded row. */
+  code?: string;
+  message?: string;
+  chargeable?: boolean;
+}
+
+export interface RecoverManyTotals {
+  bytes: number;
+  count: number;
+  failed: number;
+  needsThaw: number;
+  quarantined: number;
+  ready: number;
+  recovered: number;
+  skipped: number;
+  unrecoverable: number;
+}
+
+export interface RecoverManyPlan {
+  items: RecoverManyItem[];
+  totals: RecoverManyTotals;
+  chargeableBytes: number;
+  chargeableCount: number;
+  folder: string;
+  freeBytes?: number;
+  reserveBytes: number;
+}
+
+export interface RecoverManyResult {
+  items: RecoverManyItem[];
+  totals: RecoverManyTotals;
+  cancelled: boolean;
+  folder: string;
+  manifestPath?: string;
+  manifestKey?: string;
+  operationId: string;
+}
+
+/** One line of the run's progress stream. */
+export type RecoverManyEvent =
+  | { event: "plan"; plan: RecoverManyPlan }
+  | { event: "start"; index: number; total: number; item: RecoverManyItem }
+  | { event: "item"; index: number; total: number; doneBytes: number; totalBytes: number; item: RecoverManyItem }
+  | { event: "result"; result: RecoverManyResult };
+
 /** What to test. Both fields are optional: with neither, the newest known
  *  good copy is tested and no cost is acknowledged. */
 export interface RecoveryTestRequest {
@@ -3031,6 +3104,14 @@ export interface RetndApi {
    * the bytes never pass through this page's memory.
    */
   redeemRecovery(grant: string): Promise<RecoveryPlacement>;
+  /**
+   * Issue #1107, over #1106's `POST /recoveries`: recover several backups to
+   * one destination. A refusal before any byte is read (cost not acknowledged,
+   * no space, a bad target) REJECTS; once the run starts, every line is handed
+   * to `onEvent` and the final result is returned. Aborting `signal` closes the
+   * connection, which cancels the run on the host.
+   */
+  recoverMany(req: RecoverManyRequest, onEvent: (e: RecoverManyEvent) => void, signal?: AbortSignal): Promise<RecoverManyResult | null>;
 
   /**
    * EPIC Q (#980, issue #985): start a recovery test of this backup set now,

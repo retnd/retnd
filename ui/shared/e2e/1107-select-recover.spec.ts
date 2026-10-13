@@ -202,6 +202,20 @@ test.describe("#1107 recovering a selection", () => {
     await expect(dlg.getByRole("alert")).toContainText("billing-mysql-20260805.bak");
   });
 
+  test("a refusal before byte one names the numbers, recovers nothing and shows no per-file lines as done", async ({ page }) => {
+    await open(page, "/backups", "assurance-staging-full");
+    await rowBox(page, "postgres-prod-20260828.dump.zst").check();
+    await rowBox(page, "redis-20260812.rdb.zst").check();
+    await chooseStaging(page, "too-big");
+    await bar(page).getByRole("button", { name: "Recover selected" }).click();
+    const dlg = progress(page);
+    await expect(dlg.getByTestId("run-refusal")).toContainText("28.6 GB");
+    await expect(dlg.getByTestId("run-refusal")).toContainText("12.0 GB free");
+    await expect(dlg.getByTestId("run-refusal")).toContainText("Nothing was written");
+    await expect(dlg.locator('[data-state="recovered"]')).toHaveCount(0);
+    await expect(dlg.getByTestId("run-summary")).toHaveCount(0);
+  });
+
   test("cancel stops the files not yet started and says how many were left", async ({ page }) => {
     await open(page, "/backups", MANY);
     await headerBox(page).check();

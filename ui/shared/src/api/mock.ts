@@ -5345,6 +5345,8 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
     // assurance scenarios choose between.
     mintRecovery: (artifactId, req) => mockRecovery.mintRecovery(artifactId, req),
     redeemRecovery: (grant) => mockRecovery.redeemRecovery(grant),
+    recoverMany: (req, onEvent, signal) =>
+      mockRecovery.recoverMany((id) => artifacts.find((a) => a.id === id && !a.quarantine), req, onEvent, signal),
     // Replaced below by the assurance mock's own start when the scenario has
     // one; a server that offers no assurance never has this reached.
     startRecoveryTest: (source, set) => delay({ backupSetId: source + "/" + set, operationId: "mock-recovery-test", coalesced: false }),

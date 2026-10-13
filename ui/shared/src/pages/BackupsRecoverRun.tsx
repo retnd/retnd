@@ -2,14 +2,15 @@
  * The progress of one multi-file recovery (issue #1107): a line per backup, a
  * running total, one cancel, and a summary that says which failed and why.
  *
- * Cancel stops the backups that have not started. The one being read cannot be
- * taken back (the host is mid-comparison against its recorded digest and
- * either places the whole file or nothing), so it finishes and is reported as
- * whatever it became.
+ * Cancel closes the connection, and the host stops after discarding the file it
+ * was on: it either places a whole verified file or nothing, so a cancelled
+ * run never leaves a half-written one. The page cannot see the host's last
+ * word once the connection is gone, so every line that had not finished is
+ * reported as not started.
  */
 import { useEffect, useRef, useState } from "react";
 import { useApi } from "@shared/api/ApiContext";
-import { recoverMany } from "@shared/assurance/recoverMany";
+import { runRecoverMany } from "@shared/assurance/recoverMany";
 import type { RunItem, RunTarget } from "@shared/assurance/recoverMany";
 import { bytes } from "@shared/utilities/format";
 
@@ -19,7 +20,8 @@ const WORDS: Record<RunItem["state"], string> = {
   recovered: "Recovered",
   failed: "Failed",
   restoring: "Provider restore requested",
-  cancelled: "Not started"
+  cancelled: "Not started",
+  excluded: "Not included"
 };
 
 export function BackupsRecoverRun({
@@ -33,8 +35,11 @@ export function BackupsRecoverRun({
   const api = useApi();
   const [items, setItems] = useState<RunItem[]>(() => files.map((f) => ({ id: f.id, filename: f.filename, state: "queued" as const })));
   const [finished, setFinished] = useState(false);
-  const stop = useRef(false);
+  const abort = useRef(new AbortController());
   const [stopped, setStopped] = useState(false);
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const [manifest, setManifest] = useState<string | null>(null);
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
   const box = useRef<HTMLDivElement>(null);
   const started = useRef(false);
 
@@ -48,16 +53,23 @@ export function BackupsRecoverRun({
     // Strict mode runs effects twice; a recovery must start once.
     if (started.current) return;
     started.current = true;
-    void recoverMany(api, files.map((f) => f.id), target, acknowledged, {
+    void runRecoverMany(api, files.map((f) => f.id), target, acknowledged, abort.current.signal, {
       update: (id, patch) => setItems((cur) => cur.map((x) => (x.id === id ? { ...x, ...patch } : x))),
-      cancelled: () => stop.current
-    }).then(() => setFinished(true));
+      progress: (done, total) => setProgress({ done, total })
+    }).then((o) => {
+      if (o.refusal) setRefusal(o.refusal);
+      // A closed connection ends the stream without a last word: whatever
+      // had not finished did not happen as far as this page can say.
+      if (o.aborted || o.refusal) setItems((cur) => cur.map((x) => (x.state === "queued" || x.state === "running" ? { ...x, state: "cancelled" as const } : x)));
+      if (o.result) setManifest(o.result.manifestPath ?? o.result.manifestKey ?? null);
+      setFinished(true);
+    });
   }, [api, files, target, acknowledged]);
 
   const n = (s: RunItem["state"]) => items.filter((x) => x.state === s).length;
-  const done = n("recovered") + n("failed") + n("restoring");
+  const done = n("recovered") + n("failed") + n("restoring") + n("excluded");
   const failed = items.filter((x) => x.state === "failed");
-  const bytesDone = items.reduce((t, x) => t + (x.bytes ?? 0), 0);
+  const bytesDone = progress.done;
 
   return (
     <div className="dialog-scrim" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
@@ -89,19 +101,28 @@ export function BackupsRecoverRun({
                 <span className="mono" style={{ wordBreak: "break-all" }}>{x.filename}</span>
                 <span className="runitem__state">{WORDS[x.state]}</span>
                 {x.state === "failed" ? <span className="runitem__why">{x.reason}</span> : null}
+                {x.state === "excluded" ? <span className="runitem__why">{x.reason}</span> : null}
                 {x.state === "recovered" ? (
                   <span className="mono runitem__why" data-testid="placed-digest">{"sha256:" + x.sha256}</span>
                 ) : null}
               </li>
             ))}
           </ul>
-          {finished ? (
+          {finished && refusal ? (
+            <div role="alert" className="runfail" data-testid="run-refusal">
+              <strong>Nothing was recovered</strong>
+              <div>{refusal}</div>
+            </div>
+          ) : null}
+          {finished && !refusal ? (
             <div data-testid="run-summary" role="status" className="aop">
               <strong>
                 {n("recovered") + " recovered, " + failed.length + " failed" +
                   (n("restoring") ? ", " + n("restoring") + " restore requested" : "") +
+                  (n("excluded") ? ", " + n("excluded") + " not included" : "") +
                   (n("cancelled") ? ", " + n("cancelled") + " not started (cancelled)" : "")}
               </strong>
+              {manifest ? <div className="mono" style={{ wordBreak: "break-all" }}>{"Manifest: " + manifest}</div> : null}
               {n("restoring") ? <div>A restore was asked of the provider for each archived backup. Recover those again once they are readable.</div> : null}
               <div style={{ color: "var(--text-2)" }}>Each recovered file was matched to the digest recorded at ingest before the host placed it. Putting an application back stays yours to do.</div>
             </div>
@@ -117,7 +138,7 @@ export function BackupsRecoverRun({
         </div>
         <div className="card__footer" style={{ display: "flex", justifyContent: "flex-end", gap: 9, borderRadius: "0 0 10px 10px" }}>
           {!finished ? (
-            <button type="button" className="btn" disabled={stopped} onClick={() => { stop.current = true; setStopped(true); }}>Cancel remaining</button>
+            <button type="button" className="btn" disabled={stopped} onClick={() => { abort.current.abort(); setStopped(true); }}>Cancel remaining</button>
           ) : (
             <button type="button" className="btn btn--primary" onClick={onClose}>Close</button>
           )}

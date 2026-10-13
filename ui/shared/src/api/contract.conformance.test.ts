@@ -491,6 +491,11 @@ describe("every request the shared client makes is a declared operation", () => 
       // EPIC Q's recovery pair (#976), reached by the Recover artifact dialog.
       ["mintRecovery", () => httpApi.mintRecovery("src/set-1/a.tar.gz", { target: { kind: "staging", path: "restore-1" }, acknowledged: true })],
       ["redeemRecovery", () => httpApi.redeemRecovery("grant-token")],
+      // #1106's multi-file recovery, reached by the Backups list's selection bar (#1107).
+      ["recoverMany", () => httpApi.recoverMany(
+        { artifactIds: ["src/set-1/a.tar.gz", "src/set-1/b.tar.gz"], target: { kind: "staging", path: "restore-1" }, acknowledged: true },
+        () => undefined
+      )],
       // EPIC Q's "run a recovery test now" (#980, issue #985): reached by the
       // Run recovery test control on the set's Assurance section.
       ["startRecoveryTest", () => httpApi.startRecoveryTest("src", "set-1", { acknowledged: true })],
