@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-13
+
+0.6.1 is mostly the work of getting a whole backup set back in one go. You can now
+recover a set from the CLI or its page (#1106) and recover a hand-picked selection of
+backups to one destination (#1107), the activity dock's Errors and Warnings counts
+filter the log (#1115), a set with no validator gets a built-in structure check (#1111),
+and a recovery test on such a set no longer says it completed (#1108).
+The big one to read before you upgrade is #1109... I removed the former project name
+from the tree, and that is breaking for hook environment variables, the legacy debug
+and engine switches, and the Synology package id. Every entry below is new since 0.6.0.
+
 ### Added
 
 - **A built-in structure check for recovery tests of sets with no validator** (#1111).

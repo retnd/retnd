@@ -12,9 +12,11 @@ package packaging
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"image/gif"
 	"os"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -157,30 +159,66 @@ func TestReleaseWorkflowHasTheCLIReleaseJobs(t *testing.T) {
 	}
 }
 
-func TestReleaseCutIsZeroPointSixZero(t *testing.T) {
+// TestReleaseCutNamesOneVersionEverywhere holds the cut together without
+// naming a version: whatever canonical.json says the image tag is, the
+// release manifest, the installer and the newest dated CHANGELOG heading must
+// say the same, and [Unreleased] must sit above that heading. It used to
+// assert 0.6.0 literally, which meant every release had to edit the test
+// that guards the cut.
+func TestReleaseCutNamesOneVersionEverywhere(t *testing.T) {
 	c, err := Load()
 	if err != nil {
 		t.Fatalf("LoadCanonical: %v", err)
 	}
-	if c.Image.Tag != "0.6.0" {
-		t.Errorf("canonical image tag = %q, want 0.6.0", c.Image.Tag)
+	tag := c.Image.Tag
+	if !regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(tag) {
+		t.Fatalf("canonical image tag = %q, want a semantic version with no leading v", tag)
+	}
+	if want := "ghcr.io/retnd/retnd:" + tag; c.Image.Reference != want {
+		t.Errorf("canonical image reference = %q, want %q", c.Image.Reference, want)
 	}
 	// image.published is not asserted here. It is false from the cut until the
 	// release workflow records the push and true afterwards, and the merge-back
 	// job runs this test after setting it, so pinning either value fails one of
 	// the two moments (#1104). TestReleaseManifestRegistryDigestTracksTheCanonicalPublishFlag
 	// is the check that the flag and the recorded digests agree.
+
+	mb, err := os.ReadFile(Path("container/release-manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(mb, &m); err != nil {
+		t.Fatalf("release manifest: %v", err)
+	}
+	if m.Version != tag {
+		t.Errorf("container/release-manifest.json version = %q, canonical image tag = %q", m.Version, tag)
+	}
+
+	ib, err := os.ReadFile(Path("scripts/install/install_docker_host.py"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `CARRIED_RELEASE = "` + tag + `"`; !strings.Contains(string(ib), want) {
+		t.Errorf("scripts/install/install_docker_host.py does not carry %s", want)
+	}
+
 	cl, err := os.ReadFile(Path("CHANGELOG.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(cl)
 	u := strings.Index(s, "## [Unreleased]")
-	r := strings.Index(s, "## [0.6.0] - 2026-10-12")
-	if u < 0 || r < 0 || u > r {
-		t.Fatalf("CHANGELOG needs an [Unreleased] heading above [0.6.0] - 2026-10-12 (unreleased at %d, 0.6.0 at %d)", u, r)
+	loc := regexp.MustCompile(`(?m)^## \[(\d+\.\d+\.\d+)\] - \d{4}-\d{2}-\d{2}$`).FindStringSubmatchIndex(s)
+	if u < 0 || loc == nil || u > loc[0] {
+		t.Fatalf("CHANGELOG needs an [Unreleased] heading above the newest dated release heading (unreleased at %d, heading at %v)", u, loc)
 	}
-	// [Unreleased] is not asserted empty: once 0.6.0 is out it holds the next
+	if got := s[loc[2]:loc[3]]; got != tag {
+		t.Errorf("newest dated CHANGELOG heading is %s, canonical image tag is %s", got, tag)
+	}
+	// [Unreleased] is not asserted empty: once a release is out it holds the next
 	// release's entries, so pinning it empty fails the first change after the cut.
 }
 
