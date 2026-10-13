@@ -194,6 +194,10 @@ type Deps struct {
 	// it into the stage lines the CLI's --follow and the browser render. Nil
 	// reports nothing.
 	Stage func(id string)
+
+	// Builtin is the built-in structure checker (#1111). Nil means the
+	// product's own (StructureCheck); a test swaps in a spy.
+	Builtin BuiltinChecker
 }
 
 func (d Deps) stage(id string) {
@@ -213,6 +217,11 @@ func (d Deps) now() time.Time {
 type Config struct {
 	// Cadence is how often the newest known good copy is owed a test.
 	Cadence time.Duration
+
+	// BuiltinCheck is the set's resolved builtin_check: "structure" (or empty,
+	// which resolves the same) lets the built-in run when no validator is
+	// declared, "off" refuses instead.
+	BuiltinCheck string
 }
 
 // Request narrows one Run.
@@ -258,6 +267,14 @@ type Result struct {
 
 	// Reason is a short sanitised sentence for a failure or a refusal.
 	Reason string
+
+	// Check says which check produced the verdict: "builtin" for the
+	// product's structure check, "" for the operator's validator (or when
+	// nothing ran). CheckFormat is the one-line account of what the built-in
+	// read, e.g. "zstd, 1 frame, content checksum verified, 48.2 GiB decoded
+	// and discarded".
+	Check       string
+	CheckFormat string
 
 	BytesRead int64
 	Duration  time.Duration

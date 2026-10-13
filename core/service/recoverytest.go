@@ -69,6 +69,12 @@ type RecoveryTestOutcome struct {
 	ValidatorID  string
 	CleanupState string
 	Reason       string
+
+	// Check is "builtin" when the product's structure check produced the
+	// verdict, empty for the operator's validator. CheckFormat is the one
+	// line account of what the built-in read (#1111).
+	Check       string
+	CheckFormat string
 }
 
 // RecoveryTestStarted is what starting a test returns at once. The test runs

@@ -125,6 +125,12 @@ type Placement struct {
 	RecoveryState         string
 	RecoveryTestedAt      time.Time
 	RecoveryFailureReason string
+
+	// RecoveryCheck says which check produced the verdict in RecoveryState:
+	// "validator" (the operator's script) or "builtin" (the product's
+	// structure check), empty when there is no passed or failed verdict to
+	// attribute (#1111).
+	RecoveryCheck string
 }
 
 // StorageMediumSummary is one configured storage medium, described with

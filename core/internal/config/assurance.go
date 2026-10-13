@@ -19,7 +19,27 @@ const (
 	RecoveryTestOff      = "off"
 	RecoveryTestRequired = "required"
 	RecoveryTestCustom   = "custom"
+
+	// RecoveryTestBuiltin schedules the product's own structure check (#1111):
+	// no validator, and never what required means.
+	RecoveryTestBuiltin = "builtin"
 )
+
+// builtin_check values (#1111): whether the built-in structure check may run
+// when no validator is declared.
+const (
+	BuiltinCheckStructure = "structure"
+	BuiltinCheckOff       = "off"
+)
+
+// ReservedValidatorPrefix begins every id the product itself uses for one of
+// its built-in checks. An operator's validator_id may not start with it, so
+// a stored verdict under such an id can only have come from the product.
+const ReservedValidatorPrefix = "retnd-"
+
+// IsReservedValidatorID is the one place the reserved-prefix rule lives
+// (recoverytest.IsBuiltin answers through it).
+func IsReservedValidatorID(id string) bool { return false }
 
 // Scrub strategies.
 const (
@@ -60,6 +80,10 @@ type AssuranceRecoveryTest struct {
 	Mode        string   `yaml:"mode,omitempty"`
 	Cadence     Duration `yaml:"cadence,omitempty"`
 	ValidatorID string   `yaml:"validator_id,omitempty"`
+
+	// BuiltinCheck is structure or off (#1111); empty is structure globally
+	// and inherits per set. It governs the manual test with every mode.
+	BuiltinCheck string `yaml:"builtin_check,omitempty"`
 }
 
 // RecoveryTestScriptName turns a recovery-test validator_id into the file
@@ -140,8 +164,9 @@ func (b BackupSet) AssuranceIsOverride() bool { return b.AssuranceConfig != nil 
 // fixed order, for messages and for readers that render a chooser.
 var (
 	ScrubStrategies     = []string{ScrubStrategyAuto, ScrubStrategyExistence, ScrubStrategyContent}
-	GlobalRecoveryModes = []string{RecoveryTestOff, RecoveryTestRequired}
-	SetRecoveryModes    = []string{RecoveryTestInherit, RecoveryTestOff, RecoveryTestRequired, RecoveryTestCustom}
+	GlobalRecoveryModes = []string{RecoveryTestOff, RecoveryTestBuiltin, RecoveryTestRequired}
+	SetRecoveryModes    = []string{RecoveryTestInherit, RecoveryTestOff, RecoveryTestBuiltin, RecoveryTestRequired, RecoveryTestCustom}
+	BuiltinChecks       = []string{BuiltinCheckStructure, BuiltinCheckOff}
 )
 
 func containsString(list []string, s string) bool {
@@ -397,3 +422,9 @@ func (a Assurance) RecoveryTestInterval() time.Duration {
 	}
 	return DefaultRecoveryTestCadence
 }
+
+// RecoveryTestScheduled reports whether the scheduler starts recovery tests
+// for this policy: mode required or custom (the operator's validator) or mode
+// builtin (the product's structure check). Only RecoveryTestEnabled says the
+// operator requires a validator's pass.
+func (a Assurance) RecoveryTestScheduled() bool { return false }

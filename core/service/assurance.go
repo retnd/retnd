@@ -62,6 +62,9 @@ type AssuranceRecoveryTestPolicy struct {
 	Mode        string
 	Cadence     time.Duration
 	ValidatorID string
+
+	// BuiltinCheck is "structure" or "off" (#1111), RESOLVED.
+	BuiltinCheck string
 }
 
 // AssuranceHostKnob is one global-only setting with its written answer to
@@ -95,9 +98,10 @@ type UpdateAssuranceSettingsRequest struct {
 	ScrubCadence  *time.Duration
 	ScrubStrategy *string
 
-	RecoveryTestMode        *string
-	RecoveryTestCadence     *time.Duration
-	RecoveryTestValidatorID *string
+	RecoveryTestMode         *string
+	RecoveryTestCadence      *time.Duration
+	RecoveryTestValidatorID  *string
+	RecoveryTestBuiltinCheck *string
 
 	StagingRoot            *string
 	StagingTTL             *time.Duration
@@ -124,6 +128,12 @@ type BackupSetAssurance struct {
 	// first. It belongs to the set and not to the policy: the deployment-wide
 	// policy has no set to look in.
 	ValidatorDeclared bool
+
+	// EffectiveCheck is which check a recovery test of this set would run
+	// now: "validator", "builtin" or "none" (#1111), and for none the reason
+	// in plain words.
+	EffectiveCheck       string
+	EffectiveCheckReason string
 }
 
 // UpdateBackupSetAssuranceRequest patches one set's override. A nil field is
@@ -132,9 +142,10 @@ type UpdateBackupSetAssuranceRequest struct {
 	ScrubCadence  *time.Duration
 	ScrubStrategy *string
 
-	RecoveryTestMode        *string
-	RecoveryTestCadence     *time.Duration
-	RecoveryTestValidatorID *string
+	RecoveryTestMode         *string
+	RecoveryTestCadence      *time.Duration
+	RecoveryTestValidatorID  *string
+	RecoveryTestBuiltinCheck *string
 }
 
 func (r UpdateBackupSetAssuranceRequest) isEmpty() bool {

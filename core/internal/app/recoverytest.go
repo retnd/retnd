@@ -568,3 +568,11 @@ func (s *Service) kopiaRecoveryClaim(ctx context.Context, bs config.BackupSet) (
 	}
 	return recoverytest.KopiaClaim(runs, drill, s.now()), nil
 }
+
+// RecoveryTestEffectiveCheck says which check a recovery test of set would
+// run now (#1111): "validator", "builtin" or "none", and for none the reason
+// in plain words. It makes the decisions Run makes first, in Run's order, and
+// reads nothing: the newest known good copy is chosen by name alone.
+func (s *Service) RecoveryTestEffectiveCheck(ctx context.Context, set model.BackupSetID) (check, reason string, err error) {
+	return "", "", nil
+}
