@@ -104,11 +104,15 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
   // own dry run says so before the first press (validatorDeclared); a server
   // that does not send it is read from the newest copy's recorded state.
   const declared = policy?.recoveryTest.validatorDeclared;
-  // #1111: a set with no validator can still be tested when the engine says the
-  // built-in structure check applies to its newest copy, so the button is only
-  // withheld when nothing at all would run.
+  // effective_check is the engine's answer to "what would a test run now"
+  // (#1111): "builtin" is a test that can run, so it is never the refusal
+  // state; "none" is, with the engine's reason; absent falls back to the
+  // pre-#1111 reading of validatorDeclared and the newest copy's record.
   const effective = policy?.recoveryTest.effectiveCheck;
-  const noValidator = effective !== "builtin" && (declared === false || (declared === undefined && copyNotConfigured) || effective === "none");
+  const noValidator = effective === "builtin" || effective === "validator" ? false
+    : effective === "none" ? true
+    : declared === false || (declared === undefined && copyNotConfigured);
+  const noCheckReason = effective === "none" ? policy?.recoveryTest.effectiveCheckReason : undefined;
   const reasonId = "recovery-test-no-validator-" + setId.replace(/[^A-Za-z0-9_-]/g, "-");
   const policyRadioName = "assurance-policy-" + setId;
 
@@ -390,8 +394,9 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
             ) : null}
             {canRunTest && noValidator ? (
               <p id={reasonId} data-testid="recovery-test-no-validator" className="arefuse">
-                No recovery-test validator is declared for this set, so a test can only be refused.{" "}
-                {policy?.recoveryTest.effectiveCheckReason ? <>{policy.recoveryTest.effectiveCheckReason.replace(/\.$/, "")}.{" "}</> : null}
+                {noCheckReason
+                  ? <>{noCheckReason[0].toUpperCase() + noCheckReason.slice(1)}, so a test can only be refused.{" "}</>
+                  : <>No recovery-test validator is declared for this set, so a test can only be refused.{" "}</>}
                 To declare one, name a validator in{" "}
                 <a href={"#" + policyRadioName} onClick={(e) => {
                   e.preventDefault();

@@ -61,7 +61,7 @@ import type {
   VersionInfo
 } from "@shared/types/operation";
 import { createMockRecoverMany } from "@shared/assurance/mockRecoverMany";
-import { assuranceLiveEvents, assuranceUnfinished, createMockAssurance, createMockRecovery, overlayAssurance, overlayThaw } from "@shared/assurance/mockAssurance";
+import { BUILTIN_ARTIFACT, assuranceLiveEvents, assuranceUnfinished, createMockAssurance, createMockRecovery, overlayAssurance, overlayThaw } from "@shared/assurance/mockAssurance";
 import { createHttpAssurance } from "@shared/assurance/realAssurance";
 import type { DeploymentActivity, SetActivity, SetActivityEvent } from "@shared/types/activity";
 
@@ -134,6 +134,9 @@ export type Scenario =
   | "assurance-download-outcomes"
   // A set that declares no recovery-test validator: the run is refused.
   | "assurance-no-validator"
+  // #1111: no validator declared, the newest copy is a .tar.zst, and the
+  // built-in structure check runs; the manual run ends "readable".
+  | "assurance-builtin-check"
   // #1106: Recover this backup set. The fixture sets are presented as
   // artifact sets and the mock host recovers a file every 700ms (2.5s when
   // slow), so a spec can watch the total and press Cancel. "recover" gives the
@@ -170,7 +173,7 @@ export function scenarioFromLocation(): Scenario {
     "assurance-grant-used", "assurance-session-ended", "assurance-staging-full",
     "assurance-reads-busy", "assurance-corrupt-copy", "assurance-download-outcomes",
     "assurance-set-recover", "assurance-set-nospace", "assurance-set-corrupt", "assurance-set-slow",
-    "backups-many", "backups-many-corrupt", "backups-many-nospace", "dock-no-warnings", "dock-live-line", "assurance-no-validator"
+    "backups-many", "backups-many-corrupt", "backups-many-nospace", "dock-no-warnings", "dock-live-line", "assurance-no-validator", "assurance-builtin-check"
   ];
   return (allowed as string[]).includes(s ?? "") ? (s as Scenario) : "default";
 }
@@ -3816,6 +3819,25 @@ function mockEnvUnset(
   return { backupSetId: scope, variables: structuredClone(next) };
 }
 
+/** assurance-builtin-check (#1111): the newest backup of the PostgreSQL set is
+ *  a single local .tar.zst copy, a type the built-in structure check reads. */
+const BUILTIN_ARTIFACT_FIXTURE: BackupArtifact = {
+  ...ARTIFACTS[0],
+  id: BUILTIN_ARTIFACT,
+  filename: "postgres-prod-20260829.tar.zst",
+  remoteOriginalPath: "prod-db-01:/backups/postgresql/postgres-prod-20260829.tar.zst",
+  localPath: "/data/backups/production/postgres/2026/08/postgres-prod-20260829.tar.zst",
+  producedAt: "2026-08-29T01:58:44+02:00", receivedAt: "2026-08-29T02:00:53+02:00",
+  checksum: "9a1c4e7b2d6f08351e92ab47c3d5f6018b2e4a7d9c1f30586e2b4d7a91c3e5f0",
+  placements: [{
+    medium: "local", mediumType: "local",
+    location: "/data/backups/production/postgres/2026/08/postgres-prod-20260829.tar.zst",
+    sizeBytes: 15246903296, storageClass: "",
+    verificationClass: "content", verifiedAt: "2026-08-29T02:00:59+02:00",
+    access: "immediate", status: "ACTIVE"
+  }]
+};
+
 /**
  * A whole RetndApi, in memory, for one scenario.
  *
@@ -3914,6 +3936,8 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
           }
         ]
       }))
+    : scenario === "assurance-builtin-check"
+    ? [BUILTIN_ARTIFACT_FIXTURE, ...ARTIFACTS]
     : ARTIFACTS;
   // Issue #176: a fresh app-store install has no configuration at all.
   // Mutable, because completing setup is what makes it configured — the
@@ -3994,6 +4018,15 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
         backupSetId: key, isOverride: false,
         scrub: { cadenceSeconds: assuranceSettings.scrub.cadenceSeconds, strategy: assuranceSettings.scrub.strategy },
         recoveryTest: { mode: "off", cadenceSeconds: 0, validatorId: "", validatorDeclared: false }
+      };
+    }
+    // assurance-builtin-check: no set names a validator, so the engine would
+    // run the built-in structure check (effective_check "builtin").
+    if (scenario === "assurance-builtin-check" && !assuranceOverrides.has(key)) {
+      return {
+        backupSetId: key, isOverride: false,
+        scrub: { cadenceSeconds: assuranceSettings.scrub.cadenceSeconds, strategy: assuranceSettings.scrub.strategy },
+        recoveryTest: { mode: "off", cadenceSeconds: 0, validatorId: "", validatorDeclared: false, builtinCheck: "structure", effectiveCheck: "builtin" }
       };
     }
     return {

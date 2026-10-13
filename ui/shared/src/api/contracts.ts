@@ -2498,15 +2498,12 @@ export interface AssurancePolicy {
      *  dry run, the one a recovery test makes first). Absent when the server
      *  does not say, which is never read as "declared" or as "not declared". */
     validatorDeclared?: boolean;
-    /** #1111: whether the product's own structure check may run when no
-     *  validator is declared. Resolved ("structure" unless set to "off").
-     *  Absent when the server predates the check. */
+    /** The built-in structure check's setting for this set (#1111). */
     builtinCheck?: "structure" | "off";
-    /** #1111: what a recovery test on this policy would run: the operator's
-     *  validator, the built-in check, or nothing at all. */
+    /** Which check a test of this set would run now. Absent when the server
+     *  does not say, which keeps the pre-#1111 reading of validatorDeclared. */
     effectiveCheck?: "validator" | "builtin" | "none";
-    /** #1111: why nothing would run, in the engine's own words. Set when
-     *  `effectiveCheck` is "none". */
+    /** Why, when effectiveCheck is "none". */
     effectiveCheckReason?: string;
   };
 }

@@ -1981,7 +1981,7 @@
   },
   "assurance.claim.recoveryTested": {
     "label": "Recovery tested",
-    "html": "Whether the engine recovered the artifact to an isolated path, re-read it end to end, matched its recorded digest, and only then ran your validator script, and how long ago. The engine records this claim. A script cannot write it, and reachability alone never counts."
+    "html": "Whether the engine recovered the artifact to an isolated path, re-read it end to end, matched its recorded digest, and only then ran your validator script, and how long ago. The engine records this claim. A script cannot write it, and reachability alone never counts. With no validator declared, the built-in check reads the recovered file end to end as its archive or compression format and the chip says Recovered, readable instead; that proves the file decodes, not that an application can use it."
   },
   "assurance.recover.artifact": {
     "label": "Recover artifact",
