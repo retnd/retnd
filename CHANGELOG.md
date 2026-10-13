@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Recover an entire backup set from the set itself** (#1106). `retnd recover --set
+  <source/backup-set> --to <folder>` and the **Recover this backup set** button on the set's
+  page bring back every retained restore point (or `--newest-only`, or those `--since` a
+  date) into one destination under a per-set folder, with a pre-flight (size, cost, what is
+  quarantined, lost or needs a thaw, and whether it fits), one cancel, one summary and a
+  manifest of every file with its digest. Each file goes through the same checks as a single
+  recovery, a copy that fails its digest is reported and not written, and `retnd recover <id>
+  <id> ...` uses the same call for a list of backups. The route is `POST /api/v1/recoveries`.
+
 ## [0.6.0] - 2026-10-12
 
 0.6.0 is the first release that also ships the `retnd` command line as plain

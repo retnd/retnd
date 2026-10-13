@@ -60,6 +60,7 @@ import type {
   SystemHealth,
   VersionInfo
 } from "@shared/types/operation";
+import { createMockRecoverMany } from "@shared/assurance/mockRecoverMany";
 import { assuranceLiveEvents, assuranceUnfinished, createMockAssurance, createMockRecovery, overlayAssurance, overlayThaw } from "@shared/assurance/mockAssurance";
 import { createHttpAssurance } from "@shared/assurance/realAssurance";
 import type { DeploymentActivity, SetActivity, SetActivityEvent } from "@shared/types/activity";
@@ -3901,6 +3902,9 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   const workflowSettings = defaultWorkflowSettings();
   const assuranceSettings = defaultAssuranceSettings();
   const mockRecovery = createMockRecovery(scenario);
+  // #1106: every row the journal holds for a set, quarantined ones included,
+  // which listArtifacts above deliberately leaves out.
+  const mockRecoverMany = createMockRecoverMany(scenario, (setId) => artifacts.filter((a) => a.setId === setId));
   // Per-set overrides, keyed by source/set. Modelled the way the service
   // resolves them: a set follows the deployment for every field it does not
   // pin, so a global patch moves it.
@@ -5299,6 +5303,8 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
     // assurance scenarios choose between.
     mintRecovery: (artifactId, req) => mockRecovery.mintRecovery(artifactId, req),
     redeemRecovery: (grant) => mockRecovery.redeemRecovery(grant),
+    planRecoverMany: (req) => mockRecoverMany.planRecoverMany(req),
+    recoverMany: (req, opts) => mockRecoverMany.recoverMany(req, opts),
     // Replaced below by the assurance mock's own start when the scenario has
     // one; a server that offers no assurance never has this reached.
     startRecoveryTest: (source, set) => delay({ backupSetId: source + "/" + set, operationId: "mock-recovery-test", coalesced: false }),
