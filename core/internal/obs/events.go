@@ -1027,6 +1027,20 @@ type RecoveryTestFacts struct {
 	Reason          string
 }
 
+// recoveryTestMessage words the closing line by what happened, so a line
+// that sits above state=not_configured never reads as a pass.
+func recoveryTestMessage(st string) string {
+	switch st {
+	case "passed":
+		return "recovery test passed"
+	case "failed":
+		return "recovery test failed"
+	case "not_configured", "never_run":
+		return "recovery test not run"
+	}
+	return "recovery test did not complete"
+}
+
 // RecoveryTest logs EventRecoveryTest. A pass is a success; a failure is a
 // warn (the test did its job and found the copy unusable); a refusal or an
 // attempt that could not complete is a warn too, because "nobody looked" must
@@ -1040,7 +1054,7 @@ func (l *Logger) RecoveryTest(ctx context.Context, f RecoveryTestFacts) {
 	if f.State == "not_configured" || f.State == "never_run" {
 		result = ResultInfo
 	}
-	l.emitMarked(ctx, result.Level(), mark{result: result}, EventRecoveryTest, "recovery test complete",
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventRecoveryTest, recoveryTestMessage(f.State),
 		slog.String("artifact", f.Artifact),
 		slog.String("medium", f.Medium),
 		slog.Int64("placement_id", f.PlacementID),

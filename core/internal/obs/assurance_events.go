@@ -59,7 +59,9 @@ type RecoveryStage struct {
 // RecoveryStages is the stage sequence, in order. It is the single list the
 // CLI's --follow and the browser's follow both render from, so the two
 // cannot disagree about a name or an order. "Restoring archive" is skipped
-// when no thaw was requested, and Complete is always last.
+// when no thaw was requested, and Complete is last for a run that reached a
+// verdict it recorded as a pass. A run that stopped early or failed ends on the
+// last stage it entered.
 var RecoveryStages = []RecoveryStage{
 	{ID: "resolving_copy", Label: "Resolving copy"},
 	{ID: "restoring_archive", Label: "Restoring archive"},
