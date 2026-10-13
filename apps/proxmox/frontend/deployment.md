@@ -1,6 +1,6 @@
 # Proxmox VE deployment
 
-Backupd runs as a standalone web app inside a **dedicated guest that acts
+retnd runs as a standalone web app inside a **dedicated guest that acts
 as the container host**: a VM by default, or an unprivileged LXC with nesting if
 you accept the caveats. It runs the canonical OCI image there, never on the
 Proxmox VE host, and it does not integrate with, extend, or modify the Proxmox
@@ -11,7 +11,7 @@ management UI.
 | Platform | Proxmox VE |
 | Deployment | Dedicated container host (VM by default) |
 | Storage mount | `/mnt/retnd/backups` (inside the guest) |
-| Authentication | Backupd local account |
+| Authentication | retnd local account |
 
 The storage mount is the backup root, not the share root. The guest sees the
 shared PVE host directory or dataset at `/mnt/retnd`, and retained

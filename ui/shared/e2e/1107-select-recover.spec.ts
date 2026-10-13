@@ -197,21 +197,20 @@ test.describe("#1107 recovering a selection", () => {
     await expect(dlg.getByTestId("run-summary")).toContainText("1 failed");
     const bad = dlg.locator("li.runitem").filter({ hasText: "billing-mysql-20260805.bak" });
     await expect(bad).toHaveAttribute("data-state", "failed");
-    await expect(bad).toContainText(/failed verification against the digest/);
+    await expect(bad).toContainText(/digest mismatch/);
     await expect(dlg.locator('[data-state="recovered"]')).toHaveCount(4);
     await expect(dlg.getByRole("alert")).toContainText("billing-mysql-20260805.bak");
   });
 
   test("a refusal before byte one names the numbers, recovers nothing and shows no per-file lines as done", async ({ page }) => {
-    await open(page, "/backups", "assurance-staging-full");
-    await rowBox(page, "postgres-prod-20260828.dump.zst").check();
-    await rowBox(page, "redis-20260812.rdb.zst").check();
+    await open(page, "/backups", "backups-many-nospace");
+    await rowBox(page, "postgres-primary-20260801.bak").check();
+    await rowBox(page, "billing-mysql-20260802.bak").check();
     await chooseStaging(page, "too-big");
     await bar(page).getByRole("button", { name: "Recover selected" }).click();
     const dlg = progress(page);
-    await expect(dlg.getByTestId("run-refusal")).toContainText("28.6 GB");
-    await expect(dlg.getByTestId("run-refusal")).toContainText("12.0 GB free");
-    await expect(dlg.getByTestId("run-refusal")).toContainText("Nothing was written");
+    await expect(dlg.getByTestId("run-refusal")).toContainText("the staging disk has 1000000 bytes free");
+    await expect(dlg.getByTestId("run-refusal")).toContainText("nothing was read");
     await expect(dlg.locator('[data-state="recovered"]')).toHaveCount(0);
     await expect(dlg.getByTestId("run-summary")).toHaveCount(0);
   });

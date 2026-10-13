@@ -1905,7 +1905,7 @@
   },
   "workflow.env.add": {
     "label": "Set a variable",
-    "html": "Writes one variable at this scope. Every <code>BACKUPD_*</code> name is reserved: those are set by this product from the run a hook belongs to."
+    "html": "Writes one variable at this scope. Every <code>RETND_*</code> name is reserved: those are set by this product from the run a hook belongs to."
   },
   "workflow.env.save": {
     "label": "Save variable",
@@ -1917,7 +1917,7 @@
   },
   "workflow.env.preview": {
     "label": "What a hook will see",
-    "html": "The merged environment, in precedence order: the sanitized baseline, then the deployment's variables, then this backup set's, then the <code>BACKUPD_*</code> built-ins, which win outright and cannot be overridden."
+    "html": "The merged environment, in precedence order: the sanitized baseline, then the deployment's variables, then this backup set's, then the <code>RETND_*</code> built-ins, which win outright and cannot be overridden."
   },
   "workflow.settings.before-dir": {
     "label": "Global before directory",

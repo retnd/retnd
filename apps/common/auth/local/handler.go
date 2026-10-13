@@ -40,7 +40,7 @@ import (
 // URL the printed bootstrap notice gives the operator
 // (?token=... on /enroll) and attaches it here, rather than adding a
 // visible form field EnrollmentPage.tsx does not have: the design canvas
-// (docs/design/Backupd.dc.html) does not show one either, and a
+// (the product's design mock) does not show one either, and a
 // URL-carried, one-time secret is the same shape 1Password/Grafana/etc.
 // use for exactly this kind of first-run claim link.
 const BootstrapTokenHeader = "X-Bootstrap-Token"

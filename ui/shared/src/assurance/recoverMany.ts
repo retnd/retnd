@@ -1,7 +1,7 @@
 /**
  * Recover several backups to ONE destination, exactly as if each had been
  * recovered on its own (issue #1107), over the service's multi-file call
- * (issue #1106, `POST /recoveries`).
+ * (issue #1106, `POST /recoveries`; `RetndApi.recoverMany`).
  *
  * The service does the work: every file is read in full and matched to the
  * digest recorded at ingest before anything is placed, a failing file is
@@ -39,7 +39,9 @@ function stateOf(i: RecoverManyItem): ItemState {
     case "recovered": return "recovered";
     case "failed": return "failed";
     case "needs_thaw": return "restoring";
-    case "skipped": return "cancelled";
+    // A skipped row is either one the run never started (cancelled) or one
+    // that is not a restore point and was never going to be.
+    case "skipped": return i.code === "RECOVERY_INTERRUPTED" ? "cancelled" : "excluded";
     case "ready": return "queued";
     default: return "excluded";
   }
@@ -58,9 +60,9 @@ function patchOf(i: RecoverManyItem): Partial<RunItem> {
 export interface RunOutcome {
   /** The service's refusal, when it refused before reading a byte. */
   refusal?: string;
-  /** The result line, when the stream got as far as one. */
+  /** The result, when the run got as far as one (a cancelled run has one too). */
   result: RecoverManyResult | null;
-  /** True when this side closed the connection. */
+  /** True when this side asked the run to stop. */
   aborted: boolean;
 }
 
@@ -75,26 +77,27 @@ export async function runRecoverMany(
   try {
     const result = await api.recoverMany(
       {
-        artifactIds: ids,
+        artifacts: ids,
         target: target.kind === "staging" ? { kind: "staging", path: target.where } : { kind: "storage", medium: target.where },
         acknowledged: acknowledged ? true : undefined
       },
-      (e) => {
-        if (e.event === "plan") {
-          for (const i of e.plan.items) if (i.status !== "ready") hooks.update(i.artifactId, patchOf(i));
-        } else if (e.event === "start") {
-          hooks.update(e.item.artifactId, { state: "running" });
-        } else if (e.event === "item") {
-          hooks.update(e.item.artifactId, patchOf(e.item));
-          hooks.progress(e.doneBytes, e.totalBytes);
-        } else {
-          // The result is the authority: the summary and the manifest on disk
-          // are built from these same rows.
-          for (const i of e.result.items) hooks.update(i.artifactId, patchOf(i));
+      {
+        signal,
+        onProgress: (e) => {
+          if (e.kind === "plan") {
+            for (const i of e.plan.items) if (i.status !== "ready" && i.status !== "needs_thaw") hooks.update(i.artifactId, patchOf(i));
+          } else if (e.kind === "start") {
+            hooks.update(e.item.artifactId, { state: "running" });
+          } else {
+            hooks.update(e.item.artifactId, patchOf(e.item));
+            hooks.progress(e.doneBytes, e.totalBytes);
+          }
         }
-      },
-      signal
+      }
     );
+    // The result is the authority: the summary and the manifest on disk are
+    // built from these same rows.
+    for (const i of result.items) hooks.update(i.artifactId, patchOf(i));
     return { result, aborted: signal.aborted };
   } catch (e) {
     if (signal.aborted) return { result: null, aborted: true };

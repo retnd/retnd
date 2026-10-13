@@ -57,8 +57,8 @@ func (f *recoveryFixture) seedMany(t *testing.T, files ...manyFile) []string {
 		tr := state.Transition{
 			Artifact: a, Key: "m-c-" + mf.name, From: string(lifecycle.Discovered), To: string(mf.state), OccurredAt: at,
 		}
-		switch mf.state {
-		case lifecycle.Quarantined, lifecycle.QuarantinedLost, lifecycle.Failed:
+		switch {
+		case mf.data == nil && (mf.state == lifecycle.Quarantined || mf.state == lifecycle.QuarantinedLost || mf.state == lifecycle.Failed):
 			// No copy: the row is what the test is about.
 		default:
 			size := int64(len(mf.data))
@@ -215,6 +215,31 @@ func TestRecoverSetBringsBackEveryKnownGoodFileAndListsTheRest(t *testing.T) {
 	// the rows that were listed and not included.
 	if n := len(f.stagingEntries(t)); n != 4 {
 		t.Fatalf("staging holds %d files (%v), want 3 recovered + 1 manifest", n, f.stagingEntries(t))
+	}
+}
+
+// A quarantined backup can still have a readable copy on disk, which is
+// exactly why it has to be refused by state and not by the absence of a copy.
+func TestRecoverSetNeverIncludesAQuarantinedBackupEvenWhenItsCopyIsReadable(t *testing.T) {
+	f := newRecoveryFixture(t, fixtureOpts{})
+	f.seedMany(t,
+		manyFile{name: "good.zst", data: manyData(1, 30_000), age: 2 * time.Hour},
+		manyFile{name: "suspect.zst", data: manyData(2, 30_000), age: time.Hour, state: lifecycle.Quarantined},
+	)
+	res, err := f.b.RecoverMany(context.Background(), f.session(), setReq("q"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if it := itemByName(t, res.Items, "suspect.zst"); it.Status != RecoverManyQuarantined || it.Path != "" {
+		t.Fatalf("suspect.zst = %+v", it)
+	}
+	if res.Totals.Recovered != 1 {
+		t.Fatalf("totals = %+v", res.Totals)
+	}
+	for _, p := range f.stagingEntries(t) {
+		if strings.HasSuffix(p, "-suspect.zst") {
+			t.Fatalf("a quarantined backup reached the destination: %s", p)
+		}
 	}
 }
 
@@ -377,10 +402,20 @@ func TestRecoverManyOneCorruptCopyFailsAloneAndLeavesNoFile(t *testing.T) {
 		t.Fatalf("half-written files left: %v", p)
 	}
 	m := readManifest(t, res.ManifestPath)
+	if len(m.Files) != len(res.Items) {
+		t.Fatalf("manifest lists %d files, the result %d", len(m.Files), len(res.Items))
+	}
+	seen := false
 	for _, mf := range m.Files {
-		if mf.Name == "b.zst" && (mf.Status != RecoverManyFailed || mf.File != "") {
-			t.Fatalf("manifest entry for the corrupt copy = %+v", mf)
+		if mf.Name == "b.zst" {
+			seen = true
+			if mf.Status != RecoverManyFailed || mf.File != "" || mf.Code != RecoveryLocalCopyCorrupt {
+				t.Fatalf("manifest entry for the corrupt copy = %+v", mf)
+			}
 		}
+	}
+	if !seen {
+		t.Fatal("the manifest does not list the corrupt copy at all, so it does not say what happened to it")
 	}
 }
 
@@ -549,6 +584,28 @@ func TestRecoverManyCancelDuringARemoteReadLeavesNoFile(t *testing.T) {
 	for _, p := range f.stagingEntries(t) {
 		if !strings.Contains(p, "manifest") {
 			t.Fatalf("a file that looks finished exists after a cancel: %s", p)
+		}
+	}
+}
+
+// The window between a copy being read and verified and it being placed is
+// the one place a cancel has a finished staging file to throw away. The hook
+// the single-file path has for exactly this (afterStage) is used to cancel in
+// it, and nothing may be left that looks finished.
+func TestRecoverManyCancelBetweenVerifyingAndPlacingLeavesNothingAtAll(t *testing.T) {
+	f := newRecoveryFixture(t, fixtureOpts{})
+	f.seedMany(t, manyFile{name: "a.zst", data: manyData(1, 40_000), age: time.Hour})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.b.recoveryHost().afterStage = cancel
+	res, err := f.b.RecoverMany(ctx, f.session(), setReq("between"), nil)
+	mustBeInterrupted(t, "the window between verifying and placing", err)
+	if res.Totals.Recovered != 0 {
+		t.Fatalf("totals = %+v", res.Totals)
+	}
+	for _, p := range f.stagingEntries(t) {
+		if !strings.Contains(p, "manifest") {
+			t.Fatalf("a verified file was kept or placed after the cancel: %s", p)
 		}
 	}
 }

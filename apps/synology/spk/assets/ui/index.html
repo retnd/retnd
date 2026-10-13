@@ -11,7 +11,7 @@
 </head>
 <body>
 <!--
-  DSM serves this directory (INFO's dsmuidir) at /webman/3rdparty/Backupd/,
+  DSM serves this directory (INFO's dsmuidir) at /webman/3rdparty/retnd/,
   and the desktop launcher entry in ./config points here. The application
   itself is not served by DSM's own web server: it is this package's own
   retnd-web process, listening on port 8477, so this page's only
@@ -22,7 +22,7 @@
   here would have to run as DSM's web user, and nothing about this package
   needs code executing outside its own package user.
 -->
-<p id="status">Opening Backupd&hellip;</p>
+<p id="status">Opening retnd&hellip;</p>
 <p id="fallback" hidden>
   If nothing happens, open <code id="target"></code> directly.
 </p>
@@ -47,7 +47,7 @@
   })();
 </script>
 <noscript>
-  <p>JavaScript is disabled. Open Backupd on port <code>8477</code> of this NAS.</p>
+  <p>JavaScript is disabled. Open retnd on port <code>8477</code> of this NAS.</p>
 </noscript>
 </body>
 </html>

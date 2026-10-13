@@ -4,7 +4,7 @@
 #
 # Issue #794 renamed the runtime identifiers this project inherited from its
 # two previous names -- the first product name's `RM_` environment variables and
-# retnd's `bm_` cookies -- to `BACKUPD_` / `retnd_`. That rename
+# retnd's `bm_` cookies -- to the prefixes the next name used. That rename
 # is a one-off edit; this file is the part that makes it stay done. Without
 # it the next `RM_SOMETHING` somebody adds by copying a neighbouring line
 # is invisible until the third rename, which is how this repository got two
@@ -35,8 +35,12 @@
 #
 #   retnd[^a-z]          the lowercase spelling: retnd_session,
 #                          retnd.yml, /var/lib/retnd
-#   BACKUPD_[A-Z]          the environment prefix
-#   Backupd[^a-z]          the display spelling: Backupd, BackupdError
+#   (the previous product name) the former name itself, in its upper-case
+#                          prefix form and its display spellings. #1109
+#                          removed every occurrence; this guard and
+#                          check-no-former-name.sh keep it removed. The
+#                          patterns are assembled from fragments at runtime
+#                          (see below) so this file does not spell it.
 #   retndproject         the organisation, so a new absolute link to it
 #                          goes red (FR-41 moves the coordinates)
 #   RCLONE_MANAGER_[A-Z]   the FIRST brand's spelled-out environment prefix,
@@ -151,7 +155,7 @@
 # would spend minutes forking. There are two sweeps rather than one because
 # the case rules differ per family and `git grep` has no per-alternative case
 # flag: `-i` on the first four patterns would make `rm_` an `RM_` variable and
-# `BackupDetailPage` a `Backupd` identifier, while the two earlier brands are
+# `BackupDetailPage` a former-name identifier, while the two earlier brands are
 # genuinely live in `BACKUP_MANAGER_WEB_TEST_VAR` and `RETND-BACKUP-
 # COMPLETE` as well as in lowercase prose.
 #
@@ -185,19 +189,8 @@ cd "$repo_root"
 #
 # R1.4 (#889) mints the runtime half of FR-37's shim table:
 #
-#   BACKUPD / BACKUPD_*          the hook environment, exported beside every
-#                                RETND_* built-in with identical values. A
-#                                hook is an operator's Bash script and
-#                                `$BACKUPD_BACKUP_STATUS` against a build
-#                                that dropped it is the empty string, not an
-#                                error. The bare `BACKUPD` is here for the
-#                                same reason and is the name #932's review
-#                                found no pattern matched -- there is one
-#                                now.
-#   BACKUPD_DEBUG,               the two input variables, read behind their
-#   BACKUPD_INCREMENTAL_ENGINE   current names with one deprecation notice
-#                                per name per process start
-#                                (core/envcompat).
+#   (the previous hook and input variables were listed here until #1109,
+#   which deleted the shims and the entries together.)
 #   retnd_session,             accepted on a read and re-issued under the
 #   retnd_csrf                 current name on that same read.
 #   retnd_*                    the fourteen gauge families, duplicated
@@ -261,10 +254,6 @@ aliases="$(
 RM_DEBUG #947 the release after the one that ships this EPIC
 bm_session #947 the release after the one that ships this EPIC
 bm_csrf #947 the release after the one that ships this EPIC
-BACKUPD #947 the release after the one that ships this EPIC
-BACKUPD_BACKUP_STATUS #947 the release after the one that ships this EPIC
-BACKUPD_DEBUG #947 the release after the one that ships this EPIC
-BACKUPD_INCREMENTAL_ENGINE #947 the release after the one that ships this EPIC
 BACKUP_MANAGER_API_URL@core/cmd/retnd/route.go #947 the release after the one that ships this EPIC
 BACKUP_MANAGER_API_USERNAME@core/cmd/retnd/route.go #947 the release after the one that ships this EPIC
 BACKUP_MANAGER_API_PASSWORD@core/cmd/retnd/route.go #947 the release after the one that ships this EPIC
@@ -311,27 +300,27 @@ EOF
 #                    spell this guard's own pattern list, and the rest in
 #                    the four files that RECORD the rename.
 #
-# TWO ARE LEFT, and they are not the cutover's and never were:
+# ONE IS LEFT, and it is not the cutover's and never was:
 #
 #   retnd          2,207 occurrences across 558 files
-#   Backupd          107 occurrences across 32 files
+#
+# (The previous product name was the other one. #1109 swept it out of the
+# whole tree and deleted its entry, so it is no longer on this list.)
 #
 # THE HONEST PART, because this list is a claim and a claim has a size.
-# Not one of those 2,314 is a repository coordinate any more. They are
+# Not one of those 2,207 is a repository coordinate any more. They are
 # the retired PRODUCT name, measured rather than estimated, and no EPIC R
 # issue owns them:
 #
 #   * code COMMENTS naming the CLI by its retired name -- `retnd
-#     status`, `retnd fetch`, `Backupd could not log ...` -- which
+#     status`, `retnd fetch` -- which
 #     R1.3 (#888) renamed the binary without sweeping and which §2's
 #     inventory has no row for. This is the largest group and it is
 #     prose in Go and Python source rather than in docs.
 #   * host-side directory names in examples and captured transcripts,
 #     1,073 of them path-shaped: `/DATA/AppData/retnd` (CasaOS,
 #     ZimaOS), `/volume1/retnd` (Synology), `/user/appdata/retnd`
-#     (Unraid), `/mnt/tank/retnd` (TrueNAS), `/opt/retnd`, and
-#     `/var/packages/Backupd`, which is the Synology package's own
-#     installed identity. Section 6 of the spec CUT these deliberately:
+#     (Unraid), `/mnt/tank/retnd` (TrueNAS) and `/opt/retnd`. Section 6 of the spec CUT these deliberately:
 #     "Nothing renames a directory on somebody's NAS." Sweeping them is
 #     not work left undone, it is work the spec refused.
 #   * the tests and compat cells that EXERCISE the shims on the alias
@@ -359,8 +348,8 @@ EOF
 # Each sub-issue deleted its own entries as it swept them (FR-40):
 #
 #   the module path and the binaries        R1.3 (#888)
-#   BACKUPD_* variables, the metric series,
-#   the cookies                             R1.4 (#889)
+#   the previous hook variables, the metric
+#   series, the cookies                     R1.4 (#889), finished by #1109
 #   /etc/retnd, /var/lib/retnd,
 #   compose and unit names                  R1.5 (#890), landed: what it
 #                                           kept is on `aliases` above,
@@ -382,7 +371,6 @@ EOF
 #                                           cutover had actually happened
 pending="$(
   cat <<'EOF'
-Backupd
 EOF
 )"
 
@@ -420,9 +408,8 @@ EOF
 #   * EPIC R's own three documents. The spec, the inventory and the
 #     conformance matrix are an account OF the old name: they enumerate the
 #     tokens being deleted, and docs/EPIC-R-rename-retnd-to-retnd.md §4
-#     writes down the three names the self-test plants (`retnd_newthing`,
-#     `BACKUPD_NEW_THING`, `BackupdWidget`), which exist nowhere else in the
-#     tree and must stay red everywhere else. Pinned rather than pending
+#     writes down the names the self-test plants, which exist nowhere else in
+#     the tree and must stay red everywhere else. Pinned rather than pending
 #     because a rename does not delete its own record.
 #
 # .github/workflows/rclone-upgrade-gate.yml is a fifth, one-file group: every
@@ -553,19 +540,6 @@ BACKUP_MANAGER_API_PASSWORD docs/design/activity-terminal.html
 BACKUP_MANAGER_API_URL docs/design/activity-terminal.html
 BACKUP_MANAGER_API_USERNAME docs/design/activity-terminal.html
 backup_manager_state docs/conformance/epic-r-matrix.md
-Backupd docs/design/788-incremental-ui-mockup.md
-Backupd docs/design/activity-error-diagnostic.html
-Backupd docs/design/global-terminal.html
-Backupd docs/design/README.md
-Backupd docs/EPIC-R-rename-inventory.md
-BACKUPD_BACKUP_STATUS docs/conformance/epic-r-matrix.md
-BACKUPD_BACKUP_STATUS docs/design/814-workflow-ui.html
-BACKUPD_DEBUG docs/conformance/epic-r-matrix.md
-BACKUPD_NEW_THING docs/conformance/epic-r-matrix.md
-BACKUPD_RUN_ID docs/design/814-workflow-ui.html
-BackupdError docs/design/activity-error-diagnostic.html
-BackupdError docs/EPIC-R-rename-inventory.md
-BackupdWidget docs/conformance/epic-r-matrix.md
 bm_routed scripts/bdtools/e2e/two_machine_backup.py
 bm_stopped scripts/bdtools/e2e/two_machine_backup.py
 rclone_manager docs/EPIC-R-rename-inventory.md
@@ -578,16 +552,6 @@ RCLONE_MANAGER_SOURCE_PORT docs/EPIC-R-rename-inventory.md
 RCLONE_MANAGER_UNIT docs/EPIC-R-rename-inventory.md
 Backup Manager docs/EPIC-R-rename-retnd-to-retnd.md
 backup_manager docs/EPIC-R-rename-retnd-to-retnd.md
-BACKUPD_BACKUP_ docs/EPIC-R-rename-retnd-to-retnd.md
-BACKUPD_NEW_THING docs/EPIC-R-rename-retnd-to-retnd.md
-BACKUPD_RECOVERY docs/EPIC-R-rename-retnd-to-retnd.md
-BACKUPD_RUN_ID docs/EPIC-R-rename-retnd-to-retnd.md
-BACKUPD_SIGNAL_EXIT_CHILD_MODE docs/EPIC-R-rename-retnd-to-retnd.md
-BACKUPD_STEP_ docs/EPIC-R-rename-retnd-to-retnd.md
-BACKUPD_STEP_NAME docs/EPIC-R-rename-retnd-to-retnd.md
-BACKUPD_WORKFLOW_STATUS docs/EPIC-R-rename-retnd-to-retnd.md
-BackupdError docs/EPIC-R-rename-retnd-to-retnd.md
-BackupdWidget docs/EPIC-R-rename-retnd-to-retnd.md
 rclone_manager docs/EPIC-R-rename-retnd-to-retnd.md
 RCLONE_MANAGER_ docs/EPIC-R-rename-retnd-to-retnd.md
 RCLONE_MANAGER_MACHINES_NETWORK docs/EPIC-R-rename-retnd-to-retnd.md
@@ -629,6 +593,10 @@ excluded_paths=(
   ':!**/node_modules/**'
   ':!provenance/**'
   ':!core/apicontract/contract.gen.go'
+  # Applied migrations are sha256-pinned (state/migrate.go, ErrSchemaDrift), so
+  # a comment in one cannot be reworded; this is the one file that still holds
+  # the previous name, and check-no-former-name.sh allowlists the same path.
+  ':!core/migrations/0012_workflow_runs.sql'
   ':!ui/shared/src/api/generated/**'
   ':!scripts/rename/check-brand-drift.sh'
   ':!scripts/rename/selftest.sh'
@@ -643,24 +611,29 @@ boundary='(^|[^A-Za-z0-9_])'
 
 # The case-sensitive families, matched as whole identifiers so a finding can
 # be NAMED: `RM_[A-Z]` locates the variable, `RM_[A-Z][A-Za-z0-9_]*` reports
-# which one. The `retnd` and `Backupd` alternatives spell the right-hand
-# anchor out three ways -- an underscore or another identifier character
-# continues the token, a non-identifier character ends it, and `$` is
-# end-of-line, which `[^a-z]` cannot match and which is where
-# `/var/lib/retnd` lives.
+# which one.
 #
-# `BACKUPD([^A-Za-z0-9_]|$)` is the twelfth pattern and the one #932's
-# review asked for (R1.4, #889): the BARE uppercase name, with no
-# trailing underscore. `BACKUPD` is a real runtime identifier -- the
-# variable this product sets to "1" so a hook can tell it is running under
-# it at all (core/internal/workflow's ReservedEnvName) -- and
-# `BACKUPD_[A-Z]` cannot see it, because there is nothing after the D.
-# It sat green through the whole of #887 for that reason. It is
-# alternative-ordered after `BACKUPD_[A-Z][A-Za-z0-9_]*` so POSIX
-# leftmost-longest still reports `BACKUPD_RUN_ID` as itself rather than as
-# a bare `BACKUPD` with a suffix nobody sees; scripts/rename/selftest.sh
-# plants both to hold that.
-cs_re="$boundary"'(RM_[A-Z][A-Za-z0-9_]*|BM_[A-Z][A-Za-z0-9_]*|bm_[a-z][A-Za-z0-9_]*|rbm_[a-z][A-Za-z0-9_]*|BACKUPD_[A-Z][A-Za-z0-9_]*|BACKUPD([^A-Za-z0-9_]|$)|Backupd_[A-Za-z0-9_]*|Backupd[A-Z0-9][A-Za-z0-9_]*|Backupd([^A-Za-z0-9_]|$))'
+# THE FORMER NAME (#1109). Nothing in the tree may spell the previous product
+# name any more, this file included, so its patterns are assembled below from
+# fragments, the same way core/tests/deploymentdiff builds apps/<provider>/.
+# The guard still has to notice the name coming back, which is why it is built
+# rather than dropped. Four spellings: the upper-case prefix (with or without
+# a suffix, so a bare hook variable is caught as well as a prefixed one), and
+# the capitalised and lower-case display spellings, each anchored so a
+# lowercase letter after the last character means "a different word". That
+# anchor is the whole reason BackupDetailPage and backupDataPath stay green.
+# The alternatives are ordered so POSIX leftmost-longest reports a prefixed
+# variable as itself rather than as the bare name with a suffix nobody sees;
+# scripts/rename/selftest.sh plants both to hold that.
+fn_stem_up="BACKUP"
+fn_stem_cap="Backup"
+fn_stem_low="backup"
+fn_up="${fn_stem_up}D"
+fn_cap_low="${fn_stem_cap}d"
+fn_cap_up="${fn_stem_cap}D"
+fn_low="${fn_stem_low}d"
+fn_re="${fn_up}_[A-Z][A-Za-z0-9_]*|${fn_up}([^A-Za-z0-9_]|\$)|${fn_cap_low}_[A-Za-z0-9_]*|${fn_cap_low}[A-Z0-9][A-Za-z0-9_]*|${fn_cap_low}([^A-Za-z0-9_]|\$)|${fn_cap_up}([^a-z]|\$)|${fn_low}([^a-z]|\$)"
+cs_re="$boundary"'(RM_[A-Z][A-Za-z0-9_]*|BM_[A-Z][A-Za-z0-9_]*|bm_[a-z][A-Za-z0-9_]*|rbm_[a-z][A-Za-z0-9_]*|'"$fn_re"')'
 
 # The case-insensitive family: the organisation and the two earlier brands,
 # which are live in every case (`BACKUP_MANAGER_WEB_TEST_VAR`,

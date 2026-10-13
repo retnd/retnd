@@ -577,7 +577,7 @@ func TestDelegatedDriftElementsDoNotLaunderANonDecision(t *testing.T) {
 // ---------------------------------------------------------------------
 
 func TestMaterialRulesRefuseADraft(t *testing.T) {
-	const good = `Backupd pulls backup artifacts off a remote SFTP source on a schedule,
+	const good = `retnd pulls backup artifacts off a remote SFTP source on a schedule,
 verifies each one against the hash the source published, and retains them under a
 retention policy the administrator confirms before anything is deleted. It runs on the
 NAS, stores everything on the NAS, and talks to nothing except the sources an
@@ -604,7 +604,7 @@ administrator configured.`
 }
 
 func TestStoreIconRuleRefusesAnInAppMark(t *testing.T) {
-	const good = `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><title>Backupd</title><rect width="256" height="256" fill="#1f3a5f"/></svg>`
+	const good = `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><title>retnd</title><rect width="256" height="256" fill="#1f3a5f"/></svg>`
 	if v := CheckStoreIcon("icon.svg", good, 256); len(v) > 0 {
 		t.Fatalf("a listing icon must be accepted: %s", oneLine(v))
 	}

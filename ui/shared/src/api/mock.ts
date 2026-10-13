@@ -60,6 +60,7 @@ import type {
   SystemHealth,
   VersionInfo
 } from "@shared/types/operation";
+import { createMockRecoverMany } from "@shared/assurance/mockRecoverMany";
 import { assuranceLiveEvents, assuranceUnfinished, createMockAssurance, createMockRecovery, overlayAssurance, overlayThaw } from "@shared/assurance/mockAssurance";
 import { createHttpAssurance } from "@shared/assurance/realAssurance";
 import type { DeploymentActivity, SetActivity, SetActivityEvent } from "@shared/types/activity";
@@ -76,9 +77,11 @@ export type Scenario =
   | "default"
   // Issue #1107: thirty more backups across three sets and thirty days, so a
   // filter has something to narrow and a select-all has something to count.
-  // The "-corrupt" flavour makes one of them fail its digest on recovery.
+  // The "-corrupt" flavour makes one of them fail its digest on recovery, and
+  // the "-nospace" one has a staging disk too small for the selection.
   | "backups-many"
   | "backups-many-corrupt"
+  | "backups-many-nospace"
   | "empty"
   | "storage-critical"
   | "catalog-recovery"
@@ -129,6 +132,16 @@ export type Scenario =
   | "assurance-corrupt-copy"
   // How a browser download ended, as three artifacts' feed rows (item 14).
   | "assurance-download-outcomes"
+  // #1106: Recover this backup set. The fixture sets are presented as
+  // artifact sets and the mock host recovers a file every 700ms (2.5s when
+  // slow), so a spec can watch the total and press Cancel. "recover" gives the
+  // postgres set history to recover; "nospace" has a staging disk too small
+  // for it; "corrupt" has its second file fail its digest; "slow" is the one
+  // to cancel.
+  | "assurance-set-recover"
+  | "assurance-set-nospace"
+  | "assurance-set-corrupt"
+  | "assurance-set-slow"
   // Issue #1115: the docked terminal's level toggles. "dock-no-warnings" is
   // the default feed with its one warning taken out, so the Warnings count is
   // zero and must be shown disabled. "dock-live-line" is the default feed, and
@@ -154,7 +167,8 @@ export function scenarioFromLocation(): Scenario {
     "assurance-snapshot-set", "assurance-too-many-grants", "assurance-grant-expired",
     "assurance-grant-used", "assurance-session-ended", "assurance-staging-full",
     "assurance-reads-busy", "assurance-corrupt-copy", "assurance-download-outcomes",
-    "backups-many", "backups-many-corrupt", "dock-no-warnings", "dock-live-line"
+    "assurance-set-recover", "assurance-set-nospace", "assurance-set-corrupt", "assurance-set-slow",
+    "backups-many", "backups-many-corrupt", "backups-many-nospace", "dock-no-warnings", "dock-live-line"
   ];
   return (allowed as string[]).includes(s ?? "") ? (s as Scenario) : "default";
 }
@@ -3817,6 +3831,14 @@ function mockEnvUnset(
  * disturbing the one under test build a second mock rather than sharing.
  */
 export function createMockApi(scenario: Scenario = "default", options: { wire?: boolean } = {}): RetndApi {
+  // #1106: Recover this backup set is for artifact-engine sets, and every
+  // fixture set but one is incremental. The recover-set scenarios present the
+  // fixture sets as artifact sets (the mock host's recoverMany holds the rows);
+  // the default scenario keeps the incremental ones, which is how the
+  // snapshot-restore branch of the dialog is reached.
+  if (scenario.startsWith("assurance-set-")) {
+    for (const s of SETS) { s.engine = "artifact"; s.incremental = null; }
+  }
   // What a finished scrub or recovery test writes onto a copy, which the
   // production composer reads off the placement. The mock's own assurance
   // seam keeps its verdicts itself, so only the wire flavour needs it.
@@ -3870,7 +3892,7 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   }
   // Every backup keeps exactly one local copy under that scenario: the
   // shape migration 0007's backfill leaves every pre-EPIC-E deployment in.
-  const many = scenario === "backups-many" || scenario === "backups-many-corrupt";
+  const many = scenario.startsWith("backups-many");
   const artifacts = many
     ? [...ARTIFACTS, ...MANY_GENERATED]
     : noMedium
@@ -3955,6 +3977,9 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   const workflowSettings = defaultWorkflowSettings();
   const assuranceSettings = defaultAssuranceSettings();
   const mockRecovery = createMockRecovery(scenario);
+  // #1106: every row the journal holds for a set, quarantined ones included,
+  // which listArtifacts above deliberately leaves out.
+  const mockRecoverMany = createMockRecoverMany(scenario, (setId) => artifacts.filter((a) => a.setId === setId));
   // Per-set overrides, keyed by source/set. Modelled the way the service
   // resolves them: a set follows the deployment for every field it does not
   // pin, so a global patch moves it.
@@ -5353,8 +5378,8 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
     // assurance scenarios choose between.
     mintRecovery: (artifactId, req) => mockRecovery.mintRecovery(artifactId, req),
     redeemRecovery: (grant) => mockRecovery.redeemRecovery(grant),
-    recoverMany: (req, onEvent, signal) =>
-      mockRecovery.recoverMany((id) => artifacts.find((a) => a.id === id && !a.quarantine), req, onEvent, signal),
+    planRecoverMany: (req) => mockRecoverMany.planRecoverMany(req),
+    recoverMany: (req, opts) => mockRecoverMany.recoverMany(req, opts),
     // Replaced below by the assurance mock's own start when the scenario has
     // one; a server that offers no assurance never has this reached.
     startRecoveryTest: (source, set) => delay({ backupSetId: source + "/" + set, operationId: "mock-recovery-test", coalesced: false }),

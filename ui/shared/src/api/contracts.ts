@@ -2320,78 +2320,105 @@ export interface RecoveryPlacement {
   sha256: string;
 }
 
-/**
- * Recover several backups to ONE destination, as if each were recovered alone
- * (issue #1106's service call, used by the Backups list for #1107).
- *
- * The target is `staging` or `storage`: `download` is refused, because many
- * files do not fit one browser download. Files land under
- * `<target>/<source>/<set>/` with a manifest beside them.
- */
-export interface RecoverManyRequest {
-  /** source/set/name ids, exactly as the list shows them. */
-  artifactIds: string[];
-  target: RecoveryTargetSpec;
-  /** One yes for the whole request, for chargeable (archive-class) copies. */
-  acknowledged?: boolean;
-}
-
-/** ready is a plan-only status; skipped also covers "cancelled before it started". */
+/** One backup in a plan or a result of a recovery of several (#1106, #1107).
+ *  `ready` appears only in a plan. `quarantined` and `unrecoverable` rows are
+ *  listed and never included; `skipped` is a backup that is not a restore
+ *  point, or one a cancelled run never started. */
 export type RecoverManyStatus = "ready" | "recovered" | "failed" | "skipped" | "needs_thaw" | "quarantined" | "unrecoverable";
 
 export interface RecoverManyItem {
   artifactId: string;
   name: string;
   status: RecoverManyStatus;
+  copy?: string;
   sizeBytes?: number;
+  /** Reading this file is billed. */
+  chargeable?: boolean;
+  /** Bytes delivered, for a recovered file. */
   bytes?: number;
   sha256?: string;
   path?: string;
   key?: string;
-  /** The service's refusal code and its own sentence, for a failed or excluded row. */
+  /** The name the manifest lists the file under. */
+  file?: string;
+  /** Why it was not recovered: a RECOVERY_* code, or ARTIFACT_QUARANTINED,
+   *  ARTIFACT_IRRECOVERABLE, NOT_A_RESTORE_POINT. */
   code?: string;
   message?: string;
-  chargeable?: boolean;
+  /** A provider restore was started for this file. */
+  restoreOperationId?: string;
 }
 
 export interface RecoverManyTotals {
-  bytes: number;
   count: number;
-  failed: number;
-  needsThaw: number;
-  quarantined: number;
   ready: number;
   recovered: number;
+  failed: number;
   skipped: number;
+  needsThaw: number;
+  quarantined: number;
   unrecoverable: number;
+  bytes: number;
 }
 
+/** The pre-flight: what a recovery would do, before a byte is read. */
 export interface RecoverManyPlan {
+  set?: string;
+  target: RecoveryTargetSpec;
+  /** Where the files go, relative to the destination root. */
+  folder: string;
   items: RecoverManyItem[];
   totals: RecoverManyTotals;
-  chargeableBytes: number;
   chargeableCount: number;
-  folder: string;
+  chargeableBytes: number;
+  unknownSizes: number;
+  /** Free bytes on the staging disk, when it can say. */
   freeBytes?: number;
   reserveBytes: number;
+  /** Present when the run itself would be refused (cost not acknowledged,
+   *  files do not fit): the code and sentence it would be refused with. */
+  refusal?: { code: string; message: string };
+}
+
+export interface RecoverManyRequest {
+  /** A backup set, source/set: every retained restore point of it. */
+  set?: string;
+  /** Or a list of backup ids, source/set/name each. */
+  artifacts?: string[];
+  /** With `set`: only the newest restore point. */
+  newestOnly?: boolean;
+  /** With `set`: only backups updated at or after this RFC 3339 time. */
+  since?: string;
+  copy?: string;
+  /** One yes for the whole request's cost. Absent is a no. */
+  acknowledged?: boolean;
+  /** `staging` or `storage`; a download is refused for several files. */
+  target: RecoveryTargetSpec;
 }
 
 export interface RecoverManyResult {
+  operationId: string;
+  set?: string;
+  target: RecoveryTargetSpec;
+  folder: string;
   items: RecoverManyItem[];
   totals: RecoverManyTotals;
+  /** The run was cancelled: files listed as recovered are complete, the rest
+   *  were not started or were discarded. */
   cancelled: boolean;
-  folder: string;
   manifestPath?: string;
   manifestKey?: string;
-  operationId: string;
+  manifestSha256?: string;
+  /** Set when the files were recovered but the run could not finish, for
+   *  example the manifest could not be written. */
+  error?: { code: string; message: string };
 }
 
-/** One line of the run's progress stream. */
-export type RecoverManyEvent =
-  | { event: "plan"; plan: RecoverManyPlan }
-  | { event: "start"; index: number; total: number; item: RecoverManyItem }
-  | { event: "item"; index: number; total: number; doneBytes: number; totalBytes: number; item: RecoverManyItem }
-  | { event: "result"; result: RecoverManyResult };
+/** One event of a running recovery: the plan once, then a `start` and an
+ *  `item` per file with the running total. */
+export type RecoverManyProgress =
+  | { kind: "plan"; plan: RecoverManyPlan; totalBytes: number }
+  | { kind: "start" | "item"; index: number; total: number; item: RecoverManyItem; doneBytes: number; totalBytes: number };
 
 /** What to test. Both fields are optional: with neither, the newest known
  *  good copy is tested and no cost is acknowledged. */
@@ -3104,14 +3131,23 @@ export interface RetndApi {
    * the bytes never pass through this page's memory.
    */
   redeemRecovery(grant: string): Promise<RecoveryPlacement>;
+
   /**
-   * Issue #1107, over #1106's `POST /recoveries`: recover several backups to
-   * one destination. A refusal before any byte is read (cost not acknowledged,
-   * no space, a bad target) REJECTS; once the run starts, every line is handed
-   * to `onEvent` and the final result is returned. Aborting `signal` closes the
-   * connection, which cancels the run on the host.
+   * #1106, #1107: what recovering several backups, or a whole backup set, to
+   * one destination would do, before a byte is read. Answers even when the
+   * run itself would be refused for its cost or its size (`refusal` says so,
+   * with the numbers); rejects only when nothing could be planned.
    */
-  recoverMany(req: RecoverManyRequest, onEvent: (e: RecoverManyEvent) => void, signal?: AbortSignal): Promise<RecoverManyResult | null>;
+  planRecoverMany(req: RecoverManyRequest): Promise<RecoverManyPlan>;
+  /**
+   * Recover them. Calls `onProgress` for the plan and for each file, and
+   * resolves with the result, which says what was recovered, what failed and
+   * what was not included. Aborting `signal` cancels the run: the file in
+   * flight is discarded and the result comes back marked `cancelled`. A
+   * refusal before the run starts (the cost, the space, a bad destination)
+   * REJECTS and starts nothing.
+   */
+  recoverMany(req: RecoverManyRequest, opts?: { onProgress?: (p: RecoverManyProgress) => void; signal?: AbortSignal }): Promise<RecoverManyResult>;
 
   /**
    * EPIC Q (#980, issue #985): start a recovery test of this backup set now,

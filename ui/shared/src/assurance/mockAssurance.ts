@@ -19,13 +19,12 @@
  */
 import { RetndError } from "@shared/api/contracts";
 import type { BackupArtifact } from "@shared/types/backup";
-import type { ApiErrorCode, RecoverManyEvent, RecoverManyItem, RecoverManyRequest, RecoverManyResult, RecoverManyTotals, RecoveryMint, RecoveryMintRequest, RecoveryPlacement, RecoveryTargetSpec } from "@shared/api/contracts";
+import type { ApiErrorCode, RecoveryMint, RecoveryMintRequest, RecoveryPlacement, RecoveryTargetSpec } from "@shared/api/contracts";
 import type {
   ArtifactAssurance, AssuranceApi, ClaimRecord, Operation, OperationEvent,
   OperationFeed, OperationKind, OperationState, ValidatorResult
 } from "./types";
 import { stageLabel } from "./stages";
-import { planOf } from "./copyPlan";
 import type { SetActivityEvent, UnfinishedAction } from "@shared/types/activity";
 
 const DAY = 86_400_000;
@@ -487,101 +486,6 @@ const GRANTS = new Map<string, { artifactId: string; copy: string; target: Recov
 export function createMockRecovery(scenario: string) {
   const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
   return {
-    /**
-     * The service's multi-file recovery (#1106) as the browser sees it: the
-     * same refusals before a byte, then a plan line, a start and an item line
-     * per backup, and a result. A backup that cannot be recovered is listed
-     * with its status and never included; one failing file does not stop the
-     * others; aborting stops after the file in flight.
-     */
-    recoverMany: async (
-      lookup: (id: string) => BackupArtifact | undefined,
-      req: RecoverManyRequest,
-      onEvent: (e: RecoverManyEvent) => void,
-      signal?: AbortSignal
-    ): Promise<RecoverManyResult> => {
-      if (req.target.kind === "download") {
-        throw refuse("RECOVERY_TARGET_INVALID", "A download holds one file. Recover several backups to a staging name or a configured destination.", 400);
-      }
-      const quick = scenario === "backups-many" || scenario === "backups-many-corrupt";
-      if (scenario === "assurance-staging-full") {
-        // The pre-flight refuses before byte one, and names the numbers.
-        throw refuse("RECOVERY_NO_SPACE", "These " + req.artifactIds.length + " backups need 28.6 GB and the staging filesystem has 12.0 GB free with a 2.0 GB reserve. Nothing was written.", 507);
-      }
-      const rows = req.artifactIds.map((id) => lookup(id));
-      const missing = req.artifactIds.find((_, i) => !rows[i]);
-      if (missing) throw refuse("ARTIFACT_NOT_FOUND", "no backup with id " + missing, 404);
-      const arts = rows as BackupArtifact[];
-      const chargeable = arts.filter((a) => planOf(a).archived);
-      if (chargeable.length > 0 && !req.acknowledged) {
-        throw refuse(
-          "RECOVERY_COST_NOT_ACKNOWLEDGED",
-          chargeable.length + " of these " + arts.length + " backups are on an archive class and cost money to read. Nothing was started.",
-          409
-        );
-      }
-      const folder = req.target.kind === "staging" ? "/data/recover-staging/" + (req.target.path ?? "") : "storage:" + (req.target.medium ?? "");
-      const itemOf = (a: BackupArtifact, status: RecoverManyItem["status"], extra: Partial<RecoverManyItem> = {}): RecoverManyItem => ({
-        artifactId: a.id, name: a.filename, status, sizeBytes: a.sizeBytes, ...(planOf(a).archived ? { chargeable: true } : {}), ...extra
-      });
-      const totalsOf = (items: RecoverManyItem[]): RecoverManyTotals => {
-        const n = (s: RecoverManyItem["status"]) => items.filter((i) => i.status === s).length;
-        return {
-          bytes: items.reduce((t, i) => t + (i.status === "recovered" ? i.bytes ?? 0 : 0), 0), count: items.length,
-          failed: n("failed"), needsThaw: n("needs_thaw"), quarantined: n("quarantined"), ready: n("ready"),
-          recovered: n("recovered"), skipped: n("skipped"), unrecoverable: n("unrecoverable")
-        };
-      };
-      const plan = arts.map((a) => {
-        const p = planOf(a);
-        return p.none || p.unreachable
-          ? itemOf(a, "unrecoverable", { code: "RECOVERY_NO_COPY", message: p.none ? "No copy of this backup is recorded yet." : "No copy of this backup can be reached." })
-          : itemOf(a, "ready");
-      });
-      onEvent({
-        event: "plan",
-        plan: {
-          items: plan, totals: totalsOf(plan), folder, reserveBytes: 0,
-          chargeableCount: chargeable.length, chargeableBytes: chargeable.reduce((t, a) => t + a.sizeBytes, 0)
-        }
-      });
-      const out: RecoverManyItem[] = [];
-      let doneBytes = 0;
-      const totalBytes = arts.reduce((t, a) => t + a.sizeBytes, 0);
-      for (let i = 0; i < arts.length; i++) {
-        const a = arts[i];
-        const planned = plan[i];
-        if (planned.status !== "ready") { out.push(planned); continue; }
-        if (signal?.aborted) { out.push(itemOf(a, "skipped", { code: "RECOVERY_INTERRUPTED", message: "Cancelled before it started." })); continue; }
-        onEvent({ event: "start", index: i + 1, total: arts.length, item: planned });
-        await sleep(quick ? 120 : 600);
-        let done: RecoverManyItem;
-        if (planOf(a).archived) {
-          await createMockRecovery(scenario).mintRecovery(a.id, { target: req.target, acknowledged: true });
-          done = itemOf(a, "needs_thaw", { message: "The provider was asked to restore this copy. Recover it again once it is readable." });
-        } else if (scenario === "backups-many-corrupt" && a.id.endsWith("billing-mysql-20260805.bak")) {
-          done = itemOf(a, "failed", {
-            code: "RECOVERY_LOCAL_COPY_CORRUPT",
-            message: "The copy on this host's disk failed verification against the digest the journal recorded. Nothing was delivered."
-          });
-        } else {
-          const [source, set] = a.id.split("/");
-          done = itemOf(a, "recovered", {
-            bytes: a.sizeBytes, sha256: a.checksum || "9f2c61b7a5e84d03c1b7f60a29e5d8374bc01e6a52d93f8087ab4c6e1d25f390",
-            ...(req.target.kind === "staging" ? { path: folder + "/" + source + "/" + set + "/" + a.filename } : { key: "recovered/" + a.id })
-          });
-          doneBytes += a.sizeBytes;
-        }
-        out.push(done);
-        onEvent({ event: "item", index: i + 1, total: arts.length, doneBytes, totalBytes, item: done });
-      }
-      const result: RecoverManyResult = {
-        items: out, totals: totalsOf(out), cancelled: !!signal?.aborted, folder, operationId: "op_recover_many_mock",
-        ...(req.target.kind === "staging" ? { manifestPath: folder + "/manifest.json" } : { manifestKey: "recovered/manifest.json" })
-      };
-      onEvent({ event: "result", result });
-      return result;
-    },
     mintRecovery: async (artifactId: string, req: RecoveryMintRequest): Promise<RecoveryMint> => {
       if (scenario === "assurance-snapshot-set") {
         throw refuse("RECOVERY_USE_SNAPSHOT_RESTORE", "This backup set is stored by the snapshot engine, so its backups are restore points. Use retnd snapshot restore.", 409);
@@ -627,10 +531,7 @@ export function createMockRecovery(scenario: string) {
       // The host re-reads the copy and matches it to the recorded digest
       // before it writes anything. The mock holds the request open for that
       // long so the "checking on the host" phase can be seen.
-      // Issue #1107: a selection of thirty must not take thirty seconds to
-      // watch, so the scenarios built for a long list answer quickly.
-      const quick = scenario === "backups-many" || scenario === "backups-many-corrupt";
-      await sleep(scenario === "assurance-download-slow" ? 6000 : quick ? 120 : 1200);
+      await sleep(scenario === "assurance-download-slow" ? 6000 : 1200);
       if (scenario === "assurance-grant-expired") throw refuse("RECOVERY_GRANT_EXPIRED", "This grant expired before it was used. Ask for a new one.", 410);
       if (scenario === "assurance-grant-used") throw refuse("RECOVERY_GRANT_USED", "This grant was already used. Ask for a new one.", 410);
       if (scenario === "assurance-session-ended") throw refuse("RECOVERY_GRANT_SESSION_ENDED", "The session that minted this grant has ended.", 403);
@@ -642,10 +543,6 @@ export function createMockRecovery(scenario: string) {
       const g = GRANTS.get(grant);
       if (!g) throw refuse("RECOVERY_GRANT_UNKNOWN", "No such grant.", 404);
       GRANTS.delete(grant);
-      // One copy in the list fails its digest, and nothing else does.
-      if (scenario === "backups-many-corrupt" && g.artifactId.endsWith("billing-mysql-20260805.bak")) {
-        throw refuse("RECOVERY_LOCAL_COPY_CORRUPT", "The copy on this host's disk failed verification against the digest the journal recorded. Nothing was delivered.", 500);
-      }
       const placed = g.target.kind === "storage"
         ? { key: g.target.key || "recovered/" + g.artifactId }
         : { path: "/data/recover-staging/" + (g.target.path || "recovered") + ".k3j9" };

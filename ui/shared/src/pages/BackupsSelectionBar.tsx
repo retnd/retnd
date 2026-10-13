@@ -83,7 +83,7 @@ export function BackupsSelectionBar({
         <label className="field selbar__where">
           <span className="field__label">
             {kind === "staging"
-              ? "Name under the staging root " + (stagingRoot ? stagingRoot + " " : "") + "(files go under it by set, with a manifest)"
+              ? "Name under the staging root " + (stagingRoot ? stagingRoot + " " : "") + "(files go under it, with a manifest)"
               : "Destination id"}
           </span>
           <input

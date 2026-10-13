@@ -103,6 +103,9 @@ type recoverManyPlanBody struct {
 	UnknownSizes    int                   `json:"unknown_sizes"`
 	FreeBytes       *int64                `json:"free_bytes,omitempty"`
 	ReserveBytes    int64                 `json:"reserve_bytes"`
+	// Refusal is set on a pre-flight answer when the run itself would be
+	// refused; the plan beside it is what the refusal is about.
+	Refusal *recoverManyErrorBody `json:"refusal,omitempty"`
 }
 
 type recoverManyResultBody struct {
@@ -215,12 +218,23 @@ func (h *handlers) recoverMany(w http.ResponseWriter, r *http.Request) {
 		}
 		req.Since = t
 	}
-	// The service writes the action-log row itself, with the totals.
-	markSelfAudited(r.Context())
+	// Not self-audited: the action-log middleware records the request with
+	// the `retnd recover ...` command it is equivalent to, which is what the
+	// terminal prints, and the service writes its own row with the totals.
 
 	if body.Preflight {
 		plan, err := rc.PlanRecoverMany(r.Context(), req)
 		if err != nil {
+			// A pre-flight that can say what it found and why the run would
+			// be refused answers with both: the plan is the point of asking,
+			// and the numbers in a refusal mean little without the rows they
+			// count. Anything it could not plan at all is an error response.
+			if re, ok := service.AsRecoveryError(err); ok && len(plan.Items) > 0 {
+				body := planBody(plan)
+				body.Refusal = &recoverManyErrorBody{Code: re.Code, Message: re.Message}
+				writeJSON(w, http.StatusOK, body)
+				return
+			}
 			h.writeRecoverManyError(w, r, err)
 			return
 		}

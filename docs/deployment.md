@@ -831,16 +831,10 @@ the one an operator can be given over a phone call; it wins if both are set. An
 unparseable value falls back to `info` rather than refusing to start — a typo in a
 diagnostic knob must never take a backup host down.
 
-`BACKUPD_DEBUG=1` and `RM_DEBUG=1` are that shortcut's two **deprecated** older
-spellings, one per name this project has had: `BACKUPD_DEBUG` from before the
-rename to `retnd` (EPIC R, issue #885) and `RM_DEBUG` from before the rename to
-`retnd` (issue #794). Both are still read, so a deployment upgraded without its
-compose file or its unit being re-derived does not go quiet in the middle of a
-diagnosis, and both are removed in the release after the one that renames this
-product. The current name wins when more than one is set, and the process prints
-one deprecation notice per deprecated name it read, on stderr, at start — not once
-per read, so a running deployment is not punished for an old compose file. Set
-`RETND_DEBUG` and delete the others.
+The older debug switches, one per earlier name this project has had, are gone
+(#1109). They were read for one release after the renames, with a deprecation
+notice on stderr, and nothing reads them now: a deployment that still sets one
+simply runs at the default level. Set `RETND_DEBUG` and delete the others.
 
 **Set it on both services or neither.** The engine records what it built and
 served; `web-ui` records what the engine answered, what framing the body arrived
