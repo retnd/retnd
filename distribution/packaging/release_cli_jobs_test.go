@@ -283,3 +283,30 @@ func TestReadmeOpensWithTheTourGif(t *testing.T) {
 		t.Errorf("the tour must stay under 6 MB so the README loads, got %v (%v)", fi, err)
 	}
 }
+
+// Every publish of the image keeps a versioned GitHub Release that points at
+// the package page, and a second publish of the same version refreshes that
+// release instead of failing on the tag that already exists (#1102).
+func TestGitHubReleaseLinksThePackageAndSurvivesARepublish(t *testing.T) {
+	raw := readReleaseWorkflowRaw(t)
+	i := strings.Index(raw, "\n  github-release:")
+	if i < 0 {
+		t.Fatal("release.yml has no github-release job")
+	}
+	job := raw[i:]
+	for _, want := range []string{
+		"https://github.com/retnd/retnd/pkgs/container/retnd",
+		"gh release view",
+		"gh release upload",
+		"--clobber",
+		"gh release edit",
+		"gh release create",
+	} {
+		if !strings.Contains(job, want) {
+			t.Errorf("the github-release job must contain %q", want)
+		}
+	}
+	if strings.Index(job, "gh release view") > strings.Index(job, "gh release create") {
+		t.Errorf("the job must look for an existing release before it creates one")
+	}
+}
