@@ -129,3 +129,39 @@
 [data-outcome="failed_verification"] .adl__badge::before { content: "\00D7"; }
 [data-outcome="interrupted"] .adl__badge { border-style: dashed; border-width: 2px; border-color: var(--warn); background: var(--warn-quiet); }
 [data-outcome="failed_verification"] .adl__badge { border-style: double; border-width: 4px; border-color: var(--danger); background: var(--danger-quiet); }
+
+/* The selection bar on the Backups list and the progress of a multi-file
+   recovery (issue #1107). Tokens only; the bar's edge is --text-2 so it clears
+   3:1 against the page in both themes, and the selected row is --accent-quiet
+   under the ordinary --text ink. */
+.selbar {
+  display: flex; flex-direction: column; gap: 10px; margin: 0 0 14px; padding: 12px 16px;
+  background: var(--surface); color: var(--text); border: 1.5px solid var(--text-2); border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+.selbar__row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.selbar__count { margin-right: auto; font-size: var(--text-md); }
+.selbar__targets { display: flex; flex-direction: column; gap: 4px; }
+.selbar__targets label { display: inline-flex; gap: 6px; align-items: center; }
+.selbar__where { flex: 1; min-width: 260px; }
+.selbar__note { color: var(--text-2); }
+.selbar__cmd {
+  display: block; font-size: var(--text-xs); color: var(--text-2); background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 5px 8px; white-space: pre-wrap; word-break: break-all; max-height: 96px; overflow-y: auto;
+}
+.table tbody tr[data-selected="true"] { background: var(--accent-quiet); }
+.table tbody tr[data-selected="true"]:hover { background: var(--accent-quiet); }
+.table input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; }
+.table .selcell { width: 36px; padding-right: 0; }
+.runitem { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-md); }
+.runitem__state { font-weight: 600; margin-left: auto; }
+.runitem__why { flex-basis: 100%; color: var(--text-2); word-break: break-all; font-size: var(--text-xs); }
+.runitem[data-state="failed"] { border-color: var(--danger); background: var(--danger-quiet); }
+.runitem[data-state="failed"] .runitem__why { color: var(--text); }
+.runitem[data-state="cancelled"] { border-style: dashed; }
+.runfail { border: 1px solid var(--danger); background: var(--danger-quiet); border-radius: var(--radius-md); padding: 8px; }
+/* The stock .input edge is --border-strong, under the 3:1 a control boundary
+   needs on the card surface. The fields this feature adds (the destination
+   name and the two date bounds) take --text-2 instead, which clears it in
+   both themes; restyling every input in the app is not this change's call. */
+.input.input--bold { border-color: var(--text-2); }

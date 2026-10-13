@@ -23,7 +23,7 @@
  * rather than threading both through the select is the small price of
  * keeping every picker on this page keyed the same way.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import { useAsync } from "@shared/hooks/useAsync";
@@ -44,6 +44,10 @@ import { useHoverTitle } from "@shared/hooks/useTooltips";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { artifactPath } from "@shared/utilities/routes";
 import type { BackupArtifact } from "@shared/types/backup";
+import type { RunTarget } from "@shared/assurance/recoverMany";
+import { BackupsSelectionBar } from "./BackupsSelectionBar";
+import { BackupsRecoverRun } from "./BackupsRecoverRun";
+import { inReceivedRange, unselectableReason } from "./backupSelection";
 
 /** Called "Backups", never "Restore points" — the product does not perform
  *  application restore (§13). */
@@ -52,6 +56,29 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   const navigate = useNavigate();
   const [setFilter, setSetFilter] = useState("");
   const [previewFor, setPreviewFor] = useState<string | null>(null);
+  // Issue #1107. Received-on-or-after / before bounds, as yyyy-mm-dd.
+  const [after, setAfter] = useState("");
+  const [before, setBefore] = useState("");
+  // The ticked backups, by id. Every filter change CLEARS it (see
+  // `changeFilter`): the list is refetched per filter, so a selected row the
+  // filter has hidden is one this page can no longer name or size, and a bar
+  // that counted it would be describing rows nobody can see.
+  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
+  const [notice, setNotice] = useState("");
+  const [run, setRun] = useState<{ files: Array<{ id: string; filename: string }>; target: RunTarget; acknowledged: boolean } | null>(null);
+  const [stagingRoot, setStagingRoot] = useState<string | null>(null);
+  const canRecover = !!api.assurance;
+  useEffect(() => {
+    if (!canRecover) return;
+    let live = true;
+    void api.getAssuranceSettings().then((x) => { if (live) setStagingRoot(x.stagingRoot); }, () => undefined);
+    return () => { live = false; };
+  }, [api, canRecover]);
+  const changeFilter = (apply: () => void) => {
+    apply();
+    setNotice(picked.size > 0 ? "The selection was cleared because the filter changed." : "");
+    setPicked(new Set());
+  };
   // #829: this button's hover copy says why it is disabled, and it is a
   // tooltip like any other — an operator who turned them off gets the
   // disabled state and no pop-up, which is what they asked for.
@@ -92,7 +119,18 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
 
   if (artifacts.error) return <ErrorState {...artifacts.error} onRetry={artifacts.reload} />;
 
-  const rows = artifacts.data ?? [];
+  const fetched = artifacts.data ?? [];
+  const rows = fetched.filter((a) => inReceivedRange(a, after, before));
+  // Select-all means "everything the filter matches that can be recovered",
+  // and nothing else: the ticked set is always read back through `rows`.
+  const selectable = rows.filter((a) => unselectableReason(a) === null);
+  const ticked = selectable.filter((a) => picked.has(a.id));
+  const toggle = (id: string, on: boolean) => {
+    setNotice("");
+    setPicked((cur) => { const n = new Set(cur); if (on) n.add(id); else n.delete(id); return n; });
+  };
+  const allTicked = selectable.length > 0 && ticked.length === selectable.length;
+  const selectAll = () => { setNotice(""); setPicked(new Set(selectable.map((a) => a.id))); };
   const totalBytes = rows.reduce((n, a) => n + a.sizeBytes, 0);
   // The Medium column exists because a backup on this deployment has a
   // copy somewhere other than the local backup root, and for no other
@@ -127,7 +165,7 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
                   aria-label="Filter by backup set"
                   aria-describedby={helpId}
                   value={setFilter}
-                  onChange={(e) => setSetFilter(e.target.value)}
+                  onChange={(e) => changeFilter(() => setSetFilter(e.target.value))}
                 >
                   <option value="">All backup sets</option>
                   {(sets.data ?? []).map((s) => (
@@ -136,6 +174,22 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
                 </select>
               )}
             </FieldHelp>
+            <label style={{ display: "inline-flex", gap: 6, alignItems: "center", fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
+              After
+              <input
+                type="date" className="input input--bold" style={{ height: 32 }}
+                aria-label="Received on or after" value={after}
+                onChange={(e) => changeFilter(() => setAfter(e.target.value))}
+              />
+            </label>
+            <label style={{ display: "inline-flex", gap: 6, alignItems: "center", fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
+              Before
+              <input
+                type="date" className="input input--bold" style={{ height: 32 }}
+                aria-label="Received on or before" value={before}
+                onChange={(e) => changeFilter(() => setBefore(e.target.value))}
+              />
+            </label>
             <button
               className="btn"
               disabled={readOnly || !setFilter}
@@ -163,7 +217,30 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
         PREVIOUS filter's rows — fully clickable, navigating to the wrong
         artifact — until the new filter's fetch resolved.
       */}
-      {!artifacts.data || artifacts.loading ? null : rows.length === 0 ? (
+      {/* A polite note, outside the table, for the one thing a filter does to a
+          selection: it empties it. */}
+      <div role="status" data-testid="selection-notice" style={notice ? { fontSize: "var(--text-sm)", color: "var(--text-2)", margin: "0 0 10px" } : { position: "absolute", width: 1, height: 1, overflow: "hidden" }}>
+        {notice}
+      </div>
+      {canRecover && ticked.length > 0 && !artifacts.loading ? (
+        <BackupsSelectionBar
+          selected={ticked}
+          matching={selectable.length}
+          stagingRoot={stagingRoot}
+          readOnly={readOnly}
+          readOnlyReason="This session is read-only, so it cannot start a recovery."
+          onSelectAll={selectAll}
+          onClear={() => setPicked(new Set())}
+          onRecover={(target, acknowledged) =>
+            setRun({ files: ticked.map((a) => ({ id: a.id, filename: a.filename })), target, acknowledged })
+          }
+        />
+      ) : null}
+      {!artifacts.data || artifacts.loading ? null : rows.length === 0 && fetched.length > 0 ? (
+        <EmptyState title="No backups in that range">
+          Nothing was received between those dates. Clear a date to widen the list.
+        </EmptyState>
+      ) : rows.length === 0 ? (
         <EmptyState title="No backups yet">
           This backup set has not completed its first successful ingestion.
         </EmptyState>
@@ -181,6 +258,19 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
                     pop-up inside one would be a pop-up whose own click
                     navigates away from the thing it is explaining. */}
                 <tr>
+                  {canRecover ? (
+                    <th scope="col" className="selcell">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all matching backups"
+                        aria-checked={allTicked ? true : ticked.length > 0 ? "mixed" : false}
+                        checked={allTicked}
+                        disabled={selectable.length === 0}
+                        ref={(el) => { if (el) el.indeterminate = ticked.length > 0 && !allTicked; }}
+                        onChange={() => (allTicked ? setPicked(new Set()) : selectAll())}
+                      />
+                    </th>
+                  ) : null}
                   <th scope="col"><InfoTooltip id="backups.col.time"><span>Time</span></InfoTooltip></th>
                   <th scope="col"><InfoTooltip id="backups.col.set"><span>Backup set</span></InfoTooltip></th>
                   <th scope="col"><InfoTooltip id="backups.col.artifact"><span>Artifact</span></InfoTooltip></th>
@@ -200,7 +290,13 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
                     // has to be escaped on its own (issue #677).
                     onClick={() => navigate(artifactPath(a.id))}
                     style={{ cursor: "pointer" }}
+                    data-selected={picked.has(a.id) && unselectableReason(a) === null ? "true" : undefined}
                   >
+                    {canRecover ? (
+                      <td className="selcell" onClick={(e) => e.stopPropagation()}>
+                        <SelectBox artifact={a} on={picked.has(a.id)} onChange={(v) => toggle(a.id, v)} />
+                      </td>
+                    ) : null}
                     <td className="mono" style={{ whiteSpace: "nowrap", color: "var(--text-2)" }}>
                       {stamp(a.receivedAt)}
                     </td>
@@ -282,9 +378,40 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
         </div>
       )}
 
+      {run ? (
+        <BackupsRecoverRun
+          files={run.files}
+          target={run.target}
+          acknowledged={run.acknowledged}
+          onClose={() => { setRun(null); setPicked(new Set()); artifacts.reload(); }}
+        />
+      ) : null}
+
       {previewSet ? (
         <RetentionPreviewDialog source={previewSet.source} set={previewSet.set} open onClose={() => setPreviewFor(null)} />
       ) : null}
+    </>
+  );
+}
+
+/** One row's checkbox. A row that cannot be recovered is disabled and the
+ *  reason is attached to the control, so a screen reader hears it and a
+ *  sighted reader can read it on hover; "select all" never takes it. */
+function SelectBox({ artifact, on, onChange }: { artifact: BackupArtifact; on: boolean; onChange(v: boolean): void }) {
+  const why = unselectableReason(artifact);
+  const reasonId = "unselectable-" + artifact.id;
+  return (
+    <>
+      <input
+        type="checkbox"
+        aria-label={"Select " + artifact.filename}
+        aria-describedby={why ? reasonId : undefined}
+        title={why ?? undefined}
+        disabled={why !== null}
+        checked={on && why === null}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      {why ? <span id={reasonId} style={{ position: "absolute", width: 1, height: 1, overflow: "hidden" }}>{why}</span> : null}
     </>
   );
 }

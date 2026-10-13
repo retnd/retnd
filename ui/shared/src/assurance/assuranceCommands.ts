@@ -60,6 +60,16 @@ export function recoverCommand(artifactId: string, target: RecoveryTargetSpec["k
     : "retnd recover " + artifactId + " " + to + ack;
 }
 
+/**
+ * `retnd recover` for several artifacts to ONE destination (issue #1107).
+ * There is no browser form: a stream of several files has no terminal
+ * spelling, and the page does not offer one.
+ */
+export function recoverManyCommand(artifactIds: string[], target: "staging" | "storage", where: string, acknowledgeCost: boolean): string {
+  const to = target === "staging" ? "--to " + (where || "<name>") : "--to medium:" + (where || "<id>");
+  return "retnd recover " + artifactIds.join(" ") + " " + to + (acknowledgeCost ? " --acknowledge-cost" : "");
+}
+
 /** A backup set stored by the snapshot engine has restore points, not
  *  artifacts, and `recover` refuses it with this verb's name. */
 export function snapshotRestoreCommand(setId: string): string {
