@@ -85,6 +85,12 @@ var recoverExitCodes = map[string]int{
 // Not 0, because a script that sees 0 expects bytes.
 const exitRecoverThawStarted = 31
 
+// exitRecoverPartial: a recovery of several backups finished and at least one
+// was not recovered (failed its check, needs a thaw, was quarantined). Not 0,
+// because a script that sees 0 expects every file; not a refusal code,
+// because the files that could be recovered were.
+const exitRecoverPartial = 32
+
 func cmdRecover(args []string) int {
 	fs, cfgPath := newFlagSet("recover")
 	copySel := fs.String("copy", "", "medium id of the copy to recover (default: the best readable copy)")
