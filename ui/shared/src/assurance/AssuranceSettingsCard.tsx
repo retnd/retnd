@@ -23,18 +23,20 @@ import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { CommandEcho } from "@shared/pages/CommandEcho";
 import { settingsCommand } from "./assuranceCommands";
+import { BUILTIN_CHECKS, asBuiltinCheck, builtinOffProblem, reservedValidatorProblem } from "./builtinCheck";
 import { MIN_RECOVERY_TEST_CADENCE_SECONDS, cadenceProblem, formatCadence, parseCadence } from "./duration";
 
 const STRATEGIES = ["auto", "existence", "content"] as const;
 
-interface Draft { scrubEvery: string; strategy: string; mode: string; testEvery: string; validator: string }
+interface Draft { scrubEvery: string; strategy: string; mode: string; testEvery: string; validator: string; builtinCheck: string }
 
 const draftOf = (s: AssuranceSettings): Draft => ({
   scrubEvery: formatCadence(s.scrub.cadenceSeconds),
   strategy: s.scrub.strategy || "auto",
   mode: s.recoveryTest.mode || "off",
   testEvery: formatCadence(s.recoveryTest.cadenceSeconds),
-  validator: s.recoveryTest.validatorId
+  validator: s.recoveryTest.validatorId,
+  builtinCheck: asBuiltinCheck(s.recoveryTest.builtinCheck)
 });
 
 export function AssuranceSettingsCard({ readOnly }: { readOnly: boolean }) {
@@ -62,6 +64,9 @@ export function AssuranceSettingsCard({ readOnly }: { readOnly: boolean }) {
   const scrubProblem = draft ? cadenceProblem(draft.scrubEvery) : null;
   const testProblem = draft && draft.testEvery !== "" ? cadenceProblem(draft.testEvery, MIN_RECOVERY_TEST_CADENCE_SECONDS) : null;
   const requiredNeedsValidator = !!draft && draft.mode === "required" && draft.validator.trim() === "";
+  // The two refusals the server gives (#1111), said before Save is offered.
+  const builtinProblem = draft ? builtinOffProblem(draft.mode, draft.builtinCheck) : null;
+  const reservedProblem = draft ? reservedValidatorProblem(draft.validator) : null;
 
   const changes = (): AssuranceSettingsPatch => {
     if (!settings || !draft) return {};
@@ -72,6 +77,7 @@ export function AssuranceSettingsCard({ readOnly }: { readOnly: boolean }) {
     if (draft.mode !== was.mode) p.recoveryTestMode = draft.mode;
     if (draft.testEvery !== was.testEvery) p.recoveryTestCadenceSeconds = parseCadence(draft.testEvery) ?? 0;
     if (draft.validator !== was.validator) p.recoveryTestValidatorId = draft.validator;
+    if (draft.builtinCheck !== was.builtinCheck) p.recoveryTestBuiltinCheck = draft.builtinCheck;
     return p;
   };
   const pending = Object.keys(changes()).length > 0;
@@ -105,7 +111,7 @@ export function AssuranceSettingsCard({ readOnly }: { readOnly: boolean }) {
       <div className="card__body" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <p style={{ margin: 0 }} data-testid="assurance-what-runs">
           The running service (and <span className="mono">retnd daemon</span>) scrubs on every poll: it checks each copy that is due, at the cadence below. A copy on this host is re-read and re-hashed; a copy on a storage medium gets an existence check only, with no download. A scheduled pass never thaws an archive and never reads across a link that costs egress.
-          A recovery test runs on its own cadence only when its mode is required and a validator script is named; with the mode off none runs. A set that requires a recovery test is degraded until one passes.
+          A recovery test runs on its own cadence only when its mode is required and a validator script is named, or when its mode is builtin, which runs the product&apos;s own structure check; with the mode off none runs. A set that requires a recovery test is degraded until one passes, and a built-in pass never counts as that.
         </p>
         {notConfigured ? (
           <p style={{ margin: 0 }}>
@@ -142,6 +148,7 @@ export function AssuranceSettingsCard({ readOnly }: { readOnly: boolean }) {
                   <select className="input" aria-label="Recovery test" aria-describedby={helpId} value={draft.mode} disabled={readOnly}
                     onChange={(e) => set({ mode: e.target.value })}>
                     <option value="off">off</option>
+                    <option value="builtin">builtin</option>
                     <option value="required">required</option>
                   </select>
                 )}
@@ -159,7 +166,27 @@ export function AssuranceSettingsCard({ readOnly }: { readOnly: boolean }) {
                 )}
               </FieldHelp>
             </div>
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "flex-start" }}>
+              <FieldHelp label="Built-in check when no validator" help={FIELD_HELP.assuranceBuiltinCheck}>
+                {(helpId) => (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <span aria-hidden="true" style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>Built-in check when no validator</span>
+                    <select className="input" aria-label="Built-in check when no validator" aria-describedby={helpId} value={draft.builtinCheck} disabled={readOnly}
+                    onChange={(e) => set({ builtinCheck: e.target.value })}>
+                    {BUILTIN_CHECKS.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  </div>
+                )}
+              </FieldHelp>
+            </div>
             {testProblem ? <div role="alert" style={{ color: "var(--text)" }}>{testProblem}</div> : null}
+            {builtinProblem ? <div role="alert" style={{ color: "var(--text)" }}>{builtinProblem}</div> : null}
+            {reservedProblem ? <div role="alert" style={{ color: "var(--text)" }}>{reservedProblem}</div> : null}
+            <InfoTooltip id="assurance.settings.builtinCheck" block>
+              <div style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }} data-testid="builtin-check-note">
+                With structure, a set that declares no validator can still be tested: the engine recovers its newest known good copy, matches the digest, and reads the file end to end as gzip, zstd or tar, extracting nothing. It runs when you press Run recovery test or run <span className="mono">retnd recovery-test</span>, and on a schedule only under the builtin mode. It never satisfies the required mode, and a validator you declare always runs instead. A file type it has no reader for is refused before anything is staged.
+              </div>
+            </InfoTooltip>
             {requiredNeedsValidator ? (
               <div role="alert" style={{ color: "var(--text)" }}>A required recovery test needs a validator, so the server will refuse this until one is named.</div>
             ) : null}
@@ -177,10 +204,10 @@ export function AssuranceSettingsCard({ readOnly }: { readOnly: boolean }) {
             <div style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
               These belong to the host and the process. They are read here, changed in the configuration file, take effect when the serving process next starts, and have no per-set control. The staging directory is one place shared by recoveries and recovery tests: unless staging_root says otherwise it is <span className="mono">recovery-staging</span> beside the state database.
             </div>
-            <CommandEcho label="Same thing from the terminal" commands={[settingsCommand()]} />
+            <CommandEcho label="Same thing from the terminal" commands={[settingsCommand(changes())]} />
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <button className="btn btn--primary"
-                disabled={readOnly || !pending || scrubProblem !== null || testProblem !== null || requiredNeedsValidator}
+                disabled={readOnly || !pending || scrubProblem !== null || testProblem !== null || requiredNeedsValidator || builtinProblem !== null || reservedProblem !== null}
                 onClick={() => void save()}>Save</button>
               {saved ? <span role="status">Saved</span> : null}
             </div>
