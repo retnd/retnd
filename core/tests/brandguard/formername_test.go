@@ -8,6 +8,7 @@
 package brandguard
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -63,11 +64,9 @@ func repoRoot() string {
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", ".."))
 }
 
-func TestTheFormerNameAppearsNowhereInTheFilesThisGuardOwns(t *testing.T) {
-	root := repoRoot()
-	var hits []string
-	scanned := 0
-
+// scan walks every root under root and returns the hits and how many files it
+// read. It is a function of the root so a test can hand it a tree of its own.
+func scan(root string) (hits []string, scanned int, err error) {
 	for _, r := range roots {
 		start := filepath.Join(root, r)
 		err := filepath.WalkDir(start, func(p string, d fs.DirEntry, err error) error {
@@ -101,15 +100,59 @@ func TestTheFormerNameAppearsNowhereInTheFilesThisGuardOwns(t *testing.T) {
 			return nil
 		})
 		if err != nil {
-			t.Fatalf("walking %s: %v", r, err)
+			return hits, scanned, fmt.Errorf("walking %s: %w", r, err)
 		}
 	}
 
+	return hits, scanned, nil
+}
+
+func TestTheFormerNameAppearsNowhereInTheFilesThisGuardOwns(t *testing.T) {
+	hits, scanned, err := scan(repoRoot())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if scanned < 100 {
 		t.Fatalf("scanned only %d files; the roots moved and this guard proved nothing", scanned)
 	}
 	if len(hits) > 0 {
 		t.Errorf("the former name is still spelled in %d places:\n%s", len(hits), strings.Join(hits, "\n"))
+	}
+}
+
+// scripts/architecture/verify-core-without-apps.sh deletes apps/ and runs
+// core's tests, so a root under apps/ that is not there is not an error. A
+// root that is not under apps/ still is, or a moved core/ would pass as an
+// empty scan (#1125).
+func TestARootUnderAppsMayBeAbsentButNoOtherRootMay(t *testing.T) {
+	tree := t.TempDir()
+	for _, r := range roots {
+		if strings.HasPrefix(r, "apps/") {
+			continue
+		}
+		p := filepath.Join(tree, r)
+		if filepath.Ext(r) != "" {
+			p = filepath.Join(tree, filepath.Dir(r))
+		}
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if filepath.Ext(r) != "" {
+			if err := os.WriteFile(filepath.Join(tree, r), []byte("clean\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	if _, _, err := scan(tree); err != nil {
+		t.Errorf("a tree with no apps/ must scan clean, got: %v", err)
+	}
+
+	if err := os.RemoveAll(filepath.Join(tree, "core")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := scan(tree); err == nil {
+		t.Errorf("a tree with no core/ must be an error, or a moved root passes as an empty scan")
 	}
 }
 
