@@ -294,10 +294,13 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
                   ) : null}
                   <FieldHelp label="Built-in check when no validator" help={FIELD_HELP.assuranceSetBuiltinCheck}>
                     {(helpId) => (
-                      <select className="input" aria-label="Built-in check when no validator" aria-describedby={helpId} value={draft.builtinCheck} disabled={readOnly}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <span aria-hidden="true" style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>Built-in check when no validator</span>
+                    <select className="input" aria-label="Built-in check when no validator" aria-describedby={helpId} value={draft.builtinCheck} disabled={readOnly}
                         onChange={(e) => set({ builtinCheck: e.target.value })}>
                         {BUILTIN_CHECKS.map((c) => <option key={c} value={c}>{c}</option>)}
                       </select>
+                  </div>
                     )}
                   </FieldHelp>
                   {draft.mode !== "off" && draft.mode !== "builtin" ? (
