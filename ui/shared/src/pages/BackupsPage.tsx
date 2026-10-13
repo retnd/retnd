@@ -24,7 +24,7 @@
  * keeping every picker on this page keyed the same way.
  */
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import { useAsync } from "@shared/hooks/useAsync";
 import { useCausl } from "@shared/state/graph";
@@ -38,6 +38,10 @@ import { Icon } from "@shared/design-system/icons";
 import { EmptyState, ErrorState } from "@shared/components/EmptyState";
 import { isNotConfigured } from "@shared/api/failure";
 import { ClaimChips } from "@shared/assurance/ClaimChips";
+import { BUCKETS } from "@shared/assurance/claims";
+import type { Bucket } from "@shared/assurance/claims";
+import { bucketPhrase } from "@shared/assurance/buckets";
+import { useFactsIndex, useTally } from "@shared/assurance/verificationModel";
 import { RetentionPreviewDialog } from "./RetentionPreviewDialog";
 import { bytes, stamp } from "@shared/utilities/format";
 import { useHoverTitle } from "@shared/hooks/useTooltips";
@@ -89,15 +93,19 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   // node is already populated by the time this page can render.
   const sets = useCausl(setsNode);
   const artifacts = useAsync(() => api.listArtifacts(setFilter || undefined), [api, setFilter]);
-  // EPIC Q (issue #985): the three assurance claims per backup. A server
-  // that does not offer them yields `undefined` here and every row renders
-  // `unknown`; a read that fails does the same, because "could not ask" is
-  // not an answer to draw as one.
-  const assurance = useAsync(
-    () => (api.assurance ? api.assurance.listArtifactAssurance(setFilter || undefined) : Promise.resolve(null)),
-    [api, setFilter]
-  );
-  const assuranceById = new Map((assurance.data ?? []).map((x) => [x.artifactId, x]));
+  // EPIC Q (issue #985): the three assurance claims per backup, read from the
+  // verification model (issue #1134) like every other surface that shows them,
+  // so this list, the backup's own page and the Dashboard count cannot say
+  // different things. A server that does not offer them yields no facts and
+  // every row renders `unknown`; a read that fails does the same, because
+  // "could not ask" is not an answer to draw as one.
+  const facts = useFactsIndex();
+  const tally = useTally();
+  // The Dashboard's counts link here as ?assurance=<bucket>, and the filter
+  // is the same definition the count is made of (claims.bucketsOf).
+  const [params, setParams] = useSearchParams();
+  const asked = params.get("assurance");
+  const bucket: Bucket | null = (BUCKETS as readonly string[]).includes(asked ?? "") ? (asked as Bucket) : null;
   // previewFor is the flat BackupSet.id the <select> below is keyed by
   // (matching every other set-picker in this file); RetentionPreviewDialog
   // itself takes source/set (BackupSetID's own two-part identity — see
@@ -120,7 +128,12 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   if (artifacts.error) return <ErrorState {...artifacts.error} onRetry={artifacts.reload} />;
 
   const fetched = artifacts.data ?? [];
-  const rows = fetched.filter((a) => inReceivedRange(a, after, before));
+  const inRange = fetched.filter((a) => inReceivedRange(a, after, before));
+  // Narrowed to one assurance bucket only once the model has read the claims:
+  // an unread model is not "none of them", and a list that emptied while it
+  // loaded would flash "No backups yet".
+  const bucketIds = bucket && tally.known ? new Set(tally.ids[bucket]) : null;
+  const rows = bucketIds ? inRange.filter((a) => bucketIds.has(a.id)) : inRange;
   // Select-all means "everything the filter matches that can be recovered",
   // and nothing else: the ticked set is always read back through `rows`.
   const selectable = rows.filter((a) => unselectableReason(a) === null);
@@ -236,6 +249,16 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
           }
         />
       ) : null}
+      {bucketIds && !artifacts.loading ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "0 0 10px", fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
+          <span role="status" data-testid="assurance-filter-status">
+            {"Showing " + rows.length + " of " + inRange.length + " backups " + bucketPhrase(bucket as Bucket)}
+          </span>
+          <button className="btn btn--sm" onClick={() => changeFilter(() => setParams((p) => { const n = new URLSearchParams(p); n.delete("assurance"); return n; }))}>
+            Show all backups
+          </button>
+        </div>
+      ) : null}
       {!artifacts.data || artifacts.loading ? null : rows.length === 0 && fetched.length > 0 ? (
         <EmptyState title="No backups in that range">
           Nothing was received between those dates. Clear a date to widen the list.
@@ -318,7 +341,7 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
                     </td>
                     <td className="mono" style={{ textAlign: "right", whiteSpace: "nowrap" }}>{bytes(a.sizeBytes)}</td>
                     <td>
-                      <ClaimChips assurance={assuranceById.get(a.id)} available={!!api.assurance && !assurance.error} />
+                      <ClaimChips facts={facts.byArtifact[a.id]} available={!!api.assurance && !facts.error} />
                     </td>
                     <td><RetentionCell artifact={a} /></td>
                     {showsMedium ? (

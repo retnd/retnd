@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-10-13
+
+0.6.2 is one fix, and it is about trust. The same backup could read "Content verified" on one
+screen and "nothing has validated this backup" on the next, because the Backups list, the backup
+page, the set page, the Backup Sets cards and the Dashboard each worked out the answer on their
+own. I moved it into one derived model, so they all read the same facts now (#1134, #1135).
+There is nothing to migrate and no API change you have to act on.
+
+### Fixed
+
+- **Backup verification reads the same everywhere** (#1134, #1135). Recovery on a set that
+  follows the default now says **Default configuration**, a link to the Assurance card in
+  Settings, with the effective state beside it ("Recovery tests are off, a manual run uses the
+  built-in check"); a set with its own policy says so and links to that set's card, and
+  **Not configured** only appears when the policy could not be read. A backup's lifecycle now
+  shows verification steps from what was recorded (content verified, structure readable, or
+  recovery test passed for a validator), and a backup with no recovery record of its own shows
+  the set's newest test beside it without turning that into the backup's own claim. The Backup
+  Sets cards take Last validation, Last run, Retained and Expected every from the same model,
+  and say "Not recorded" or "size not reported" instead of "never" or a bare zero. On the
+  Dashboard, Due, Overdue and Degraded count through the same buckets the Backups list
+  filters by, each count links to the matching filtered list, and a new **No recovery test**
+  count joins them.
+
 ## [0.6.1] - 2026-10-13
 
 0.6.1 is mostly the work of getting a whole backup set back in one go. You can now

@@ -2475,9 +2475,9 @@ export interface RecoveryTestOutput {
   operationId: string;
   artifactId: string;
   medium: string;
-  /** passed, failed, refused_for_cost or could_not_complete; empty when
-   *  nothing is recorded. */
-  state: "passed" | "failed" | "refused_for_cost" | "could_not_complete";
+  /** passed, readable (the built-in structure check), failed,
+   *  refused_for_cost or could_not_complete; empty when nothing is recorded. */
+  state: "passed" | "readable" | "failed" | "refused_for_cost" | "could_not_complete";
   recordedAt: string;
   /** Whether the runner dropped output to stay inside its bounds. The
    *  marker itself is the `truncation` record, which comes last. */

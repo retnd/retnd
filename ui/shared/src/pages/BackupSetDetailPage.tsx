@@ -77,6 +77,9 @@ import type { TooltipId } from "@shared/tooltips/tooltips";
 import { RetentionPreviewDialog } from "./RetentionPreviewDialog";
 import { RecoverSetDialog } from "@shared/assurance/RecoverSet";
 import { AssuranceSection } from "@shared/assurance/AssuranceSection";
+import { ValidationBlock } from "@shared/assurance/ValidationBlock";
+import { useSetFacts } from "@shared/assurance/verificationModel";
+import { expectedEveryText, lastRunText, retainedText } from "@shared/assurance/setCardText";
 import { BackupSetRetentionCard } from "./BackupSetRetentionCard";
 import { EDIT_FIELDS, readEditFields, visibleEditFields, withCompanions } from "./backupSetEditFields";
 import type { EditField, EditFieldKey } from "./backupSetEditFields";
@@ -112,6 +115,10 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   const setId = source && setName ? source + "/" + setName : "";
   const api = useApi();
   const navigate = useNavigate();
+  // What is known about this set's verification (issue #1134): the Overview's
+  // Retained cell and the Validation block read the same model as the
+  // Assurance card between them.
+  const setFacts = useSetFacts(setId);
   // #829: the two run controls' hover copy is tooltip text like any
   // other, so it goes when the operator has turned tooltips off. Resolved
   // here, above this page's early returns, because that is where a hook
@@ -1059,7 +1066,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
               }}
             >
               <Cell label="Newest known-good" value={relativeAge(s.newestKnownGoodAt)} mono tip="sets.detail.newest-known-good" />
-              <Cell label="Last successful run" value={relativeAge(s.lastRunAt)} mono tip="sets.detail.last-run" />
+              <Cell label="Last successful run" value={lastRunText(s)} mono tip="sets.detail.last-run" />
               {/* "Not reported", not "0 \u00b7 0 B" and not "every 0h". Both
                   of these were literals in api/client.ts on every real
                   deployment, and a zero here is a claim about how much a
@@ -1067,17 +1074,13 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
               <Cell
                 label="Retained"
                 tip="sets.detail.retained"
-                value={
-                  s.retainedCount === null || s.retainedBytes === null
-                    ? "Not reported"
-                    : s.retainedCount + " \u00b7 " + bytes(s.retainedBytes)
-                }
+                value={retainedText(s, setFacts)}
                 mono
               />
               <Cell
                 label="Expected cadence"
                 tip="sets.detail.expected-cadence"
-                value={s.expectedIntervalHours === null ? "Not reported" : "every " + s.expectedIntervalHours + "h"}
+                value={s.expectedIntervalHours === null ? expectedEveryText(s) : "every " + s.expectedIntervalHours + "h"}
                 mono
               />
               <Cell label="State" value={s.stateNote} tip="sets.detail.state" />
@@ -1272,28 +1275,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
           <AssuranceSection setId={s.id} readOnly={readOnly} />
 
           <Section title="Validation" tip="sets.detail.validation">
-            <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 10, fontSize: 13 }}>
-              {(["transfer", "checksum", "application"] as const).map((v) => {
-                const on = s.validations.includes(v);
-                return (
-                  <li key={v} style={{ display: "flex", gap: 9 }}>
-                    {/* The tick is artwork after #621 and the en dash
-                        beside it is still an en dash: one is a verdict
-                        and the other is "this is off", which is a thing
-                        a dash says and a picture does not. */}
-                    <span aria-hidden="true" style={{ color: on ? "var(--ok)" : "var(--text-3)" }}>
-                      {on ? <Icon name="success" /> : "\u2013"}
-                    </span>
-                    <InfoTooltip id={VALIDATION_TIPS[v]}>
-                      <span>
-                        {v === "transfer" ? "Transfer verification" : v === "checksum" ? "Checksum verification (SHA-256)" : "Application validation"}
-                        {on ? null : <span style={{ color: "var(--text-3)" }}> — not enabled</span>}
-                      </span>
-                    </InfoTooltip>
-                  </li>
-                );
-              })}
-            </ul>
+            <ValidationBlock set={s} />
           </Section>
 
           {/* Caution and destructive actions live apart from ordinary ones (§11, §35). */}
@@ -1956,15 +1938,4 @@ function Section({ title, children, tip }: { title: string; children: React.Reac
     </section>
   );
 }
-
-/** Which explanation each validation stage carries. Three ids rather
- *  than one, because "the bytes arrived" and "the application can read
- *  what arrived" are different assurances and an operator deciding which
- *  to turn on is choosing between exactly those. */
-const VALIDATION_TIPS: Record<"transfer" | "checksum" | "application", TooltipId> = {
-  transfer: "sets.detail.validation.transfer",
-  checksum: "sets.detail.validation.checksum",
-  application: "sets.detail.validation.application"
-};
-
 

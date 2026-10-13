@@ -86,9 +86,14 @@ function statusNote(p: BackupPlacement): string {
 
 export function PlacementList({
   placements,
-  storage
+  storage,
+  showRecovery = false
 }: {
   placements: BackupPlacement[];
+  /** Say what each copy's own recovery record is (issue #1134). Off where the
+   *  server offers no assurance, so a page that cannot know does not claim
+   *  that nothing has been tested. */
+  showRecovery?: boolean;
   /** The verification ladder and the retrieval disclosure, as the backend
    *  serves them (GET /settings). Optional: a page that has not loaded
    *  settings renders the copies without the explanatory sentences rather
@@ -211,7 +216,7 @@ export function PlacementList({
                       ) : null}
                     </td>
                     <td>
-                      <PlacementVerification placement={p} storage={storage} />
+                      <PlacementVerification placement={p} storage={storage} showRecovery={showRecovery} />
                     </td>
                   </tr>
                 );
@@ -247,11 +252,14 @@ export function PlacementList({
  */
 function PlacementVerification({
   placement,
-  storage
+  storage,
+  showRecovery
 }: {
   placement: BackupPlacement;
   storage?: StorageSchema;
+  showRecovery: boolean;
 }) {
+  const recovery = showRecovery ? <CopyRecovery placement={placement} /> : null;
   if (placement.verificationClass === null) {
     return (
       <InfoTooltip id="backups.copies.unverified" block>
@@ -260,6 +268,7 @@ function PlacementVerification({
           <div style={{ fontSize: "var(--text-xs)", color: "var(--text-3)", marginTop: 3, maxWidth: "36ch" }}>
             Nothing has checked this copy.
           </div>
+          {recovery}
         </div>
       </InfoTooltip>
     );
@@ -280,8 +289,32 @@ function PlacementVerification({
             {"Proves " + rung.proves + "."}
           </div>
         ) : null}
+        {recovery}
       </div>
     </InfoTooltip>
+  );
+}
+
+/**
+ * What this copy's own recovery record says: the built-in structure check or
+ * a validator's pass with its time, a failure, or that no test has run on it.
+ * It is about THIS copy, so a set whose newest test ran on another backup does
+ * not make this one look tested.
+ */
+function CopyRecovery({ placement: p }: { placement: BackupPlacement }) {
+  const at = p.recoveryTestedAt ? " " + stamp(p.recoveryTestedAt) : "";
+  const text =
+    p.recoveryState === "readable" ? "Structure readable" + at + " (built-in check)"
+    : p.recoveryState === "passed" ? "Recovery test passed" + at + " (validator)"
+    : p.recoveryState === "failed" ? "Recovery test failed" + at
+    : p.recoveryState === "could_not_complete" ? "Recovery test could not complete" + at
+    : p.recoveryState === "refused_for_cost" ? "Recovery test skipped" + at + " (reading it would cost money)"
+    : p.recoveryState === "overdue" ? "Recovery test overdue, last" + at
+    : "No recovery test has run on this copy";
+  return (
+    <div data-testid="copy-structure" style={{ fontSize: "var(--text-xs)", color: "var(--text-2)", marginTop: 3, maxWidth: "36ch" }}>
+      {text}
+    </div>
   );
 }
 

@@ -14,6 +14,15 @@
 /* The plain chip edge was --text-3: 3.35:1 on the card but 2.99:1 on the page
    background the chips also sit on (light), a hair under the 3:1 a boundary
    needs. --text-2 clears it on both surfaces in both themes. */
+/* What a Recovery claim with no result of its own says beside the chip (#1134):
+   the policy's effective state, and the set's newest test when it is on another
+   backup. Secondary ink on the surface the chip sits on. */
+.aclaim__note { font-size: var(--text-xs); color: var(--text-2); max-width: 36ch; overflow-wrap: anywhere; }
+/* A link in this feature is body ink with an underline: the underline is the
+   cue, so the pair is the text ink on its fill, never a hue that has to clear
+   its own contrast on every fill it can land on. */
+.alink { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.alink:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 .achip__glyph { font-weight: 700; width: 14px; text-align: center; color: var(--text); }
 .achip__age { font-weight: 500; color: var(--text-2); }
 [data-state="pass"] > .achip { border-color: var(--ok); background: var(--ok-quiet); }

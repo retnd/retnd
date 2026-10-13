@@ -24,6 +24,8 @@ import { StatusBadge } from "@shared/components/StatusBadge";
 import { RetentionBadges, RetentionPolicyBadge } from "@shared/components/RetentionBadge";
 import { LifecycleTimeline } from "@shared/components/LifecycleTimeline";
 import { ArtifactAssuranceCard } from "@shared/assurance/RecoverArtifact";
+import { useBackupFacts } from "@shared/assurance/verificationModel";
+import type { BackupFacts } from "@shared/assurance/verificationModel";
 import { PlacementList } from "@shared/components/PlacementList";
 import { ErrorState } from "@shared/components/EmptyState";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
@@ -78,6 +80,10 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
   // while somebody reads one backup's detail. When a third reader
   // appears, that is the change to make.
   const settings = useAsync(() => api.getSettings(), [api]);
+  // What is known about this backup's verification (issue #1134): the lifecycle,
+  // the Validation result and the Copies block below read the same facts the
+  // Assurance card above does.
+  const facts = useBackupFacts(artifactId);
 
   if (artifact.error) return <ErrorState {...artifact.error} onRetry={artifact.reload} />;
   // Both checks matter: `data` is null only before the first successful
@@ -209,7 +215,7 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
                 row labelled "Validation result" that reports a failure
                 nothing measured is the same class of untruth as the card
                 below not rendering at all. */}
-            <Row label="Validation result" value={validationResultSentence(a, stuck)} tip="backups.detail.validation" />
+            <Row label="Validation result" value={validationResultSentence(a, stuck, facts)} tip="backups.detail.validation" testId="validation-result" />
             <Row label="Retention classes" value={a.retentionClasses.join(", ") || "unclassified"} tip="backups.detail.retention-classes" />
             {/* Spelled out in the field list as well as badged in the
                 header, because this row is the sentence an operator can
@@ -228,7 +234,7 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
           <div className="card__header">
             <InfoTooltip id="backups.detail.lifecycle-card"><h2 className="eyebrow">Lifecycle</h2></InfoTooltip>
           </div>
-          <LifecycleTimeline artifact={a} />
+          <LifecycleTimeline artifact={a} facts={facts} />
           <p style={{ margin: 0, padding: "0 22px 20px", fontSize: "var(--text-sm)", color: "var(--text-3)", maxWidth: "60ch" }}>
             Remote deletion is a lifecycle consequence of a proven NAS copy — never
             an independent file operation.
@@ -270,7 +276,7 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
       ) : null}
 
       <div style={{ marginTop: 14 }}>
-        <PlacementList placements={a.placements} storage={settings.data?.schema.storage} />
+        <PlacementList placements={a.placements} storage={settings.data?.schema.storage} showRecovery={!!facts} />
       </div>
     </>
   );
@@ -372,13 +378,20 @@ function correlationSuffix(correlationId: string | undefined): string {
  * The pointer is appended rather than substituted for the verdict, for
  * the same reason: where to go is not a verdict.
  */
-function validationResultSentence(a: BackupArtifact, stuck: boolean): string {
+function validationResultSentence(a: BackupArtifact, stuck: boolean, facts: BackupFacts | null): string {
+  // "Pending" is what the wire says for a backup no ingest-time validator ruled
+  // on. That is not the same as nothing having checked it since: a scrub that
+  // read the copy back and matched its hash is a recorded fact (issue #1134),
+  // and this row says so instead of contradicting the Copies block under it.
+  const sinceIngest = facts?.contentAt
+    ? "Not recorded at ingest. Content verified " + stamp(facts.contentAt) + " (the copy was read back and its hash matched)."
+    : null;
   const verdict =
     a.validation === "verified"
       ? "Checksum passed"
       : a.validation === "failed"
         ? "Failed"
-        : "Not recorded — nothing has validated this backup";
+        : sinceIngest ?? "Not recorded — nothing has validated this backup";
   if (stuck) {
     return verdict + " · this backup is FAILED and not quarantined, so it is not on the Quarantine page: see Recovery below";
   }
@@ -422,7 +435,7 @@ function retentionPolicySentence(policy: ArtifactRetentionPolicy): string {
  *  The icon sits beside the label rather than inside it, and the label
  *  keeps an element of its own, so the term a reader searches for is
  *  still exactly the term on screen. */
-function Row({ label, value, mono, tip }: { label: string; value: string; mono?: boolean; tip: TooltipId }) {
+function Row({ label, value, mono, tip, testId }: { label: string; value: string; mono?: boolean; tip: TooltipId; testId?: string }) {
   return (
     <>
       <dt style={{ color: "var(--text-2)" }}>
@@ -431,6 +444,7 @@ function Row({ label, value, mono, tip }: { label: string; value: string; mono?:
       </dt>
       <dd
         className={mono ? "mono" : undefined}
+        data-testid={testId}
         style={{ margin: 0, wordBreak: "break-all" }}
       >
         {value}

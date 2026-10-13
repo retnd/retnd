@@ -228,6 +228,14 @@ export interface BackupSet {
    */
   expectedIntervalHours: number | null;
   /**
+   * How long the health report lets a set go without a known-good backup
+   * before it calls the set stale (GET /system/health's stale_after_seconds),
+   * in seconds, or absent when the report was not read. This is a threshold,
+   * not a cadence, and it is carried on its own so a card that says "within
+   * the stale threshold" can say what the threshold is.
+   */
+  staleAfterSeconds?: number | null;
+  /**
    * How many backups this set is currently retaining, and how many bytes
    * they occupy, or null when the service did not report them.
    *

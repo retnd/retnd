@@ -196,28 +196,54 @@ export function renderStored(copies: number | undefined): { state: "stored" | "n
   return { state: "stored", label: "Stored · " + copies + (copies === 1 ? " copy" : " copies") };
 }
 
+/** The states a Recovery claim is in when nothing has been tested: a test nobody
+ *  asked for, one that was asked for and never ran, and one the server cannot
+ *  say. None of them is a pass, and none of them is a failure. */
+const UNTESTED: readonly RenderState[] = ["never_configured", "never_run", "unknown"];
+
+export type Bucket = "due" | "overdue" | "degraded" | "untested";
+export const BUCKETS: readonly Bucket[] = ["due", "overdue", "degraded", "untested"];
+
+/** Which of the dashboard's counts a backup belongs to. This is the ONE
+ *  definition (issue #1134): the tally counts through it and the Backups list
+ *  filter that each count links to filters through it, so a count and the list
+ *  behind it cannot differ. A backup can be in several (a recovery test that
+ *  never ran is both due and untested). */
+export function bucketsOf(item: { content: ClaimRecord; recovery: ClaimRecord }, now: number = Date.now()): Bucket[] {
+  const bad = (st: RenderState) => st === "failed" || st === "could_not_complete" || st === "no_readable_copy" || st === "cleanup_failed";
+  const c = renderClaim("content", item.content, now).state;
+  const r = renderClaim("recovery", item.recovery, now).state;
+  const out: Bucket[] = [];
+  const contentDue = c === "unknown" || c === "never_run" || c === "overdue";
+  const recoveryDue = r === "never_run" || r === "overdue";
+  if (contentDue || recoveryDue) out.push("due");
+  if (c === "overdue" || r === "overdue") out.push("overdue");
+  if (bad(c) || bad(r)) out.push("degraded");
+  if (UNTESTED.includes(r)) out.push("untested");
+  return out;
+}
+
 /** Counts for the dashboard, in the same vocabulary. Unknown is due.
  *
  *  Due looks at BOTH claims: a recovery test that is overdue or never ran is
  *  as due as a scrub that is, and counting only the content claim would show a
  *  set as fine on the dashboard that the Backups page shows as overdue.
- *  `never_configured` and unknown recovery claims are not counted as due,
- *  because a test nobody asked for or a server that cannot say is not a
- *  deadline. Degraded looks at both as well. */
+ *  `never_configured` and unknown recovery claims are not due, because a test
+ *  nobody asked for or a server that cannot say is not a deadline. They are
+ *  `untested`, which is its own count so that a zero in Due is never the only
+ *  thing said about a deployment nobody has tested. Degraded looks at both as
+ *  well. */
 export function tally(items: Array<{ content: ClaimRecord; recovery: ClaimRecord }>, now: number = Date.now()) {
-  let due = 0, overdue = 0, degraded = 0, unknown = 0;
-  const bad = (s: RenderState) => s === "failed" || s === "could_not_complete" || s === "no_readable_copy" || s === "cleanup_failed";
+  let due = 0, overdue = 0, degraded = 0, unknown = 0, untested = 0;
   for (const it of items) {
-    const c = renderClaim("content", it.content, now).state;
-    const r = renderClaim("recovery", it.recovery, now).state;
-    if (c === "unknown") unknown++;
-    const contentDue = c === "unknown" || c === "never_run" || c === "overdue";
-    const recoveryDue = r === "never_run" || r === "overdue";
-    if (contentDue || recoveryDue) due++;
-    if (c === "overdue" || r === "overdue") overdue++;
-    if (bad(c) || bad(r)) degraded++;
+    if (renderClaim("content", it.content, now).state === "unknown") unknown++;
+    const b = bucketsOf(it, now);
+    if (b.includes("due")) due++;
+    if (b.includes("overdue")) overdue++;
+    if (b.includes("degraded")) degraded++;
+    if (b.includes("untested")) untested++;
   }
-  return { due, overdue, degraded, unknown };
+  return { due, overdue, degraded, unknown, untested };
 }
 
 /** One failed copy as a sentence, in the words the CLI's `retnd artifacts`

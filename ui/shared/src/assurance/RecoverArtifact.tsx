@@ -47,25 +47,33 @@ import { planOf, THAW_POLL_MS } from "./copyPlan";
 import { recoveryRefusal } from "./recoveryMessages";
 import type { RecoveryRefusal } from "./recoveryMessages";
 import type { ArtifactAssurance } from "./types";
+import { useBackupFacts, useFactsIndex } from "./verificationModel";
 
 export function ArtifactAssuranceCard({ artifactId, readOnly }: { artifactId: string; readOnly: boolean }) {
   const api = useApi().assurance;
-  const [a, setA] = useState<ArtifactAssurance | null>(null);
+  // The chips are the verification model's (issue #1134), the same facts the
+  // Backups list, the lifecycle and the Copies block read.
+  const facts = useBackupFacts(artifactId);
+  const index = useFactsIndex();
+  // A backup the model does not list (one the list route leaves out) is read
+  // on its own, so the card never says nothing is known about a backup the
+  // server can answer for.
+  const [single, setSingle] = useState<ArtifactAssurance | null>(null);
+  useEffect(() => {
+    if (!api || !index.ready || facts) return;
+    let live = true;
+    api.getArtifactAssurance(artifactId).then((x) => { if (live) setSingle(x); }, () => { if (live) setSingle(null); });
+    return () => { live = false; };
+  }, [api, artifactId, index.ready, facts]);
   const [open, setOpen] = useState(false);
   const opener = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (!api) return;
-    let live = true;
-    api.getArtifactAssurance(artifactId).then((x) => { if (live) setA(x); }, () => { if (live) setA(null); });
-    return () => { live = false; };
-  }, [api, artifactId]);
   return (
     <section className="card" data-assurance="" aria-label="Assurance" style={{ marginBottom: 14 }}>
       <div className="card__header">
         <InfoTooltip id="assurance.artifact.card"><h2 className="eyebrow">Assurance</h2></InfoTooltip>
       </div>
       <div className="card__body" style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
-        <ClaimChips assurance={a} available={!!api} recoveryReported={!!api?.offers.recoveryClaim} />
+        <ClaimChips facts={facts} assurance={single} available={!!api} recoveryReported={!!api?.offers.recoveryClaim} />
         <span style={{ flex: 1 }} />
         {api ? (
           <InfoTooltip id="assurance.recover.artifact">
