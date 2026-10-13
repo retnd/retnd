@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Select backups on the Backups list and recover them to one destination** (#1107). Every
+  row has a checkbox, the header box selects everything the current filter matches, and a bar
+  shows the count, the total size, the destination and the equivalent `retnd recover` command.
+  A filter change clears the selection. The list gains "received after" and "received before"
+  filters. The run uses the multi-file recovery from #1106, so each file is checked against the
+  digest recorded at ingest and one bad copy does not stop the rest.
+
 ## [0.6.0] - 2026-10-12
 
 0.6.0 is the first release that also ships the `retnd` command line as plain
