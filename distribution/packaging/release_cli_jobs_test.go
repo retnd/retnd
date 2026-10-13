@@ -165,9 +165,11 @@ func TestReleaseCutIsZeroPointSixZero(t *testing.T) {
 	if c.Image.Tag != "0.6.0" {
 		t.Errorf("canonical image tag = %q, want 0.6.0", c.Image.Tag)
 	}
-	if c.Image.Published {
-		t.Errorf("canonical image.published must be false until the release workflow records the push")
-	}
+	// image.published is not asserted here. It is false from the cut until the
+	// release workflow records the push and true afterwards, and the merge-back
+	// job runs this test after setting it, so pinning either value fails one of
+	// the two moments (#1104). TestReleaseManifestRegistryDigestTracksTheCanonicalPublishFlag
+	// is the check that the flag and the recorded digests agree.
 	cl, err := os.ReadFile(Path("CHANGELOG.md"))
 	if err != nil {
 		t.Fatal(err)
