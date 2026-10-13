@@ -763,26 +763,32 @@ The fourth row is the built-in structure check, and it exists so that a set with
 validator can still produce an honest result. When a backup set declares no validator (none
 named by `validator_id` and none found in its recovery-test directory), a recovery test
 recovers the copy and matches the digest exactly as it does for a validator, and then reads
-the recovered file in the engine's own process. It recognises `.gz`, `.tgz`, `.tar.gz`,
-`.zst`, `.tzst`, `.tar.zst` and `.tar` by file name, then picks the reader by the file's
+the recovered file in the engine's own process. It recognises `.tar.gz`, `.tar.zst`,
+`.tgz`, `.tzst`, `.gz`, `.zst` and `.tar` by file name, then picks the reader by the file's
 magic bytes. It verifies the CRC-32 of every gzip member, the content checksum of every zstd
 frame that carries one, and every tar header and entry size, and it extracts nothing and
-prints no member name. The result is stored as `recovery_state` **`readable`**, under the
-reserved check identity `retnd-builtin-structure`, and every surface labels it **Recovered,
-readable**. The value `passed` stays reserved for a validator's acceptance, so the two kinds
-of result can never be confused in the journal, the API or the chip.
+prints no member name. The journal stores a well-formed result as `passed` under the
+reserved check identity `retnd-builtin-structure` (a new stored state would have meant
+rebuilding an existing table, so there is no schema change and no migration). Everything that
+leaves the engine reports it as `recovery_state` **`readable`** instead: the API, the CLI's
+`--json`, the stored output and the chip, which labels it **Recovered, readable**. On the
+wire, `passed` therefore only ever means a validator accepted the copy.
 
 The precedence is fixed. A declared validator that exists runs, and the built-in check is
 never consulted. A declared validator that is missing is `could_not_complete` and never falls
 back. Only a set with no validator at all reaches the built-in check. A file type it has no
 reader for (a `.dump`, say) is refused before anything is staged, as `not_configured` with a
 reason that names the type, so nobody pays for a billed copy to learn the check cannot apply.
-Hitting the check's wall-clock budget or decoded-bytes ceiling, a zstd window or dictionary
-it will not accept, or a decoder panic is `could_not_complete`, never `failed`. A file that
+Hitting the check's bounds is `could_not_complete`, never `failed`: a wall-clock budget of 2
+hours, a ceiling of 4 TiB of decoded bytes, and a zstd window ceiling of 128 MiB (the decoder
+runs on one goroutine in low-memory mode). A zstd dictionary frame and a decoder panic end the
+same way. There is deliberately no decompression-ratio cap, because sparse images legitimately
+compress thousands to one. A file that
 is truncated, fails a checksum, or is not the format its name says is `failed`.
 
 A built-in result never satisfies `mode: required`. That mode still means "the operator's
-validator accepted it", and a set under it stays degraded until a validator pass is recorded.
+validator accepted it", and a set under it stays degraded (the reason reads "the last pass
+was the built-in structure check, not a validator") until a validator pass is recorded.
 
 ## Scrubbing and recovery tests: what runs on its own, and what it costs
 
@@ -810,11 +816,15 @@ Both `retnd serve` and `retnd daemon` run an assurance pass at every poll, with 
 - **The built-in structure check, only where you asked for it.** `assurance.recovery_test.mode`
   also takes the value `builtin`, globally or on a set. A set whose mode is `builtin` is
   recovered and read end to end by the built-in check on the same `cadence` (30 days unless
-  you say otherwise), with no validator needed. `off` and `inherit` (resolving to `off`)
+  you say otherwise), with no validator needed. A set under `builtin` that names a
+  `validator_id` is refused at config load. If the set's newest known good copy has a name
+  the check has no reader for, the tick skips the set and says nothing, because every run
+  would only be refused. `off` and `inherit` (resolving to `off`)
   never run it on a schedule, and `required` and `custom` still need a `validator_id` and
   are never satisfied by a built-in result. `mode: builtin` combined with `builtin_check:
-  off` is refused when the configuration loads, because it would schedule a check that is
-  switched off. An unattended test never pays: if the newest known good copy can only be read
+  off` is refused when the configuration loads ("mode builtin runs the built-in structure
+  check, so builtin_check: off refuses it; set builtin_check to structure or choose another
+  mode"), because it would schedule a check that is switched off. An unattended test never pays: if the newest known good copy can only be read
   at a cost, the test is recorded as refused for cost and nothing is read. Under
   `retnd daemon` the copy tested is a local one.
 - **A set that requires a test is degraded until one passes.** A mode of `required` that
@@ -839,8 +849,8 @@ next starts.
 Writing a block that names nothing under a set is refused, because it would silently mean
 "inherit" under a different spelling. A set whose recovery-test mode is `required` or
 `custom` needs a validator, on the set or on the deployment, and that is checked when the
-configuration loads. A `validator_id` that begins `retnd-` is refused at that point too:
-ids with that prefix are the product's own built-in checks, and the prefix is reserved for
+configuration loads. A `validator_id` that begins `retnd-` is refused at that point too
+("ids beginning retnd- are the product's own built-in checks"), and the prefix is reserved for
 good, so a validator script you name `retnd-anything.local.sh` has to be renamed before it
 can be used.
 
@@ -889,15 +899,17 @@ a running one can be stopped.
   answer carries `builtin_check` and `effective_check` (`validator`, `builtin` or `none`,
   with `effective_check_reason` when `none`), and a placement in the artifact response
   carries `recovery_check` (`validator` or `builtin`) beside its verdict.
-  `retnd recovery-test` prints a `check:` line saying which check ran, `--json` carries
-  `"check": "builtin"` for the built-in one, and `retnd settings assurance patch` (and the
-  per-set patch) take `--recovery-test-builtin-check structure|off`.
+  For a built-in run `retnd recovery-test` prints a `check:` line (`built-in structure check
+  (no validator is declared for this backup set)`) and a `format:` line such as `zstd, 1
+  frame, content checksum verified, 48.2 GiB decoded and discarded`, and `--json` carries
+  `"check": "builtin"`; a validator run prints neither. `retnd settings assurance patch` and
+  `retnd backup-set assurance` take `--recovery-test-builtin-check structure|off`.
 - **Follow.** `retnd recover <artifact> --follow` and `retnd recovery-test <set> --follow`
   print the stages as the engine passes through them, in the order it emits them:
   `resolving_copy`, `reading`, `verifying`, `writing_target`, `cleaning_temporary_files`,
   `complete`. `complete` is the stage of a run that recorded a pass: a recovery test that
   was refused, failed or could not finish stops on the last stage it entered, and its closing
-  line says so (`recovery test passed`, `recovered and readable`, `failed`, `not run` or `did not complete`, with the
+  line says so (`recovery test passed`, `failed`, `not run` or `did not complete`, with the
   same `state=` field as before). The stage lines go to **standard error**, so `retnd recover <artifact> --to -
   --follow` still writes nothing but the artifact's bytes to standard output, and a pipe
   into `sha256sum` stays right. `--follow` leaves the exit status alone.

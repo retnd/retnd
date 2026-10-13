@@ -342,7 +342,7 @@ and the difference matters because the fix is different for each:
   declares no validator reads the recovered file end to end with the built-in structure
   check, inside the application, and records **Recovered, readable** when it is well formed.
   That means the file decodes as the gzip, zstd or tar file it is. It does not mean any
-  application can use it, it is stored as its own state (`readable`, never `passed`), and it
+  application can use it, it is reported as its own state (`readable`, never `passed`), and it
   never satisfies a set whose mode is `required`. If the file is truncated or fails a
   checksum the set shows **Content verified** beside **Recovery test failed**, and the reason
   says the check was the built-in one. A file type the check cannot read (a `.dump`, for

@@ -13,14 +13,17 @@
   runs outside the process: no subprocess, shell, container, port or capability. A declared
   validator always runs instead, a missing one is still `could_not_complete`, and a file type
   with no reader is refused before anything is staged, with the type named. Three things to
-  know. First, the result is a new stored state, `recovery_state: readable`, under the
+  know. First, the result is reported as a new `recovery_state` value, `readable`, under the
   reserved check identity `retnd-builtin-structure`, and the chip says **Recovered, readable**.
-  `passed` still means a validator accepted it, and a `readable` result never satisfies
-  `mode: required`. Second, `assurance.recovery_test.mode` gains `builtin` (global and per
-  set), which runs the check on the cadence; `off` and `inherit` never run it on a schedule,
-  and `mode: builtin` with `builtin_check: off` is refused at config load. The new
-  `builtin_check` key (`structure` or `off`, flag `--recovery-test-builtin-check`) governs
-  the manual run. Third, validator ids beginning `retnd-` are now reserved and refused at
+  The journal still stores it as `passed` under that identity, so there is no schema change
+  and no migration, and on the wire `passed` only means a validator accepted it. A `readable`
+  result never satisfies `mode: required`. Second, `assurance.recovery_test.mode` gains
+  `builtin` (global and per set), which runs the check on the cadence and skips a set whose
+  newest copy has a name the check cannot read; `off` and `inherit` never run it on a
+  schedule, and `mode: builtin` with `builtin_check: off` is refused at config load. The new
+  `builtin_check` key (`structure` or `off`, flag `--recovery-test-builtin-check`) says whether
+  the check may run at all when no validator is declared. It stops at a 2 hour budget, 4 TiB
+  decoded or a 128 MiB zstd window, and any of those is `could_not_complete`, not `failed`. Third, validator ids beginning `retnd-` are now reserved and refused at
   config load. That is a one-way door: a validator you already named `retnd-something` has to
   be renamed before you upgrade, and the prefix will not be handed back. The API gains
   `recovery_check`, `builtin_check` and `effective_check`, and `retnd recovery-test --json`

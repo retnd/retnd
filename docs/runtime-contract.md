@@ -286,8 +286,8 @@ truncation record last when anything was cut and no control byte stored. It sits
 verdict, the hash of the script that ran and a reason in the engine's own words, and it never
 decides the verdict. A validator that exits 0 without opening the file does not produce a
 recovery-test pass, because the digest of the recovered bytes was checked first and is
-what the pass is recorded against. The built-in check's result is a different stored state
-(`readable`) under the reserved identity `retnd-builtin-structure`, and no operator
+what the pass is recorded against. The built-in check's result is stored as `passed` under the reserved
+identity `retnd-builtin-structure` and reported as `readable` on the wire, and no operator
 `validator_id` may begin `retnd-`.
 
 ## Runtime profiles

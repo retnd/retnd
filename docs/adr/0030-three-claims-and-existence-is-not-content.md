@@ -54,11 +54,12 @@ to prevent: nothing is green because nobody looked.
    that declares no validator can still be recovery tested. After the same recovery and digest
    gate, the engine reads the recovered file end to end in its own process as gzip, zstd or
    tar (and tar inside either), verifying every integrity field the format carries, and
-   discards what it decodes. Its outcome is stored as a new `recovery_state` value,
-   `readable`, under the reserved check identity `retnd-builtin-structure`, and is rendered
-   **Recovered, readable**. It is never `passed`: `passed` stays reserved for a validator's
-   acceptance, so the two kinds of result are separate values in the journal rather than one
-   value told apart by an id. A declared validator always runs instead of it, and a declared
+   discards what it decodes. Its outcome is stored as `passed` under the reserved check
+   identity `retnd-builtin-structure`, because a new stored state would be a table rebuild
+   that the compatibility rule forbids, so there is no schema change. Everywhere it leaves the
+   engine (API, CLI, stored output, chip) the one conversion point reports it as `readable`
+   and renders it **Recovered, readable**, so on the wire `passed` only ever means a
+   validator accepted the copy. A declared validator always runs instead of it, and a declared
    validator that is missing is still `could_not_complete` and never falls back. A built-in
    result never satisfies `mode: required` or `custom`, which still need a `validator_id`.
    `assurance.recovery_test.mode` gains `builtin`, globally and per set, which runs the check
