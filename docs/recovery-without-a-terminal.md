@@ -377,9 +377,10 @@ path: it can give you the file, and putting it back is yours.
    validator as `NAME.local.sh` under `recovery-test/<source>/<set>`; ids beginning `retnd-`
    are reserved for the product's own checks and are refused. **Recovery test failed** from
    the built-in check means the stored bytes themselves are damaged or are not what the name
-   says, so look at what produced them. **Not configured, naming a file type** means the
-   check has no reader for that type, and **Not configured, built-in check off** means
-   `builtin_check: off` is set for the set.
+   says, so look at what produced them. **Not configured** with a reason that names a file
+   type means the check has no reader for that type, and **Not configured** with a reason that
+   says the built-in check is off means `builtin_check: off` is set for the set (the chip itself
+   only says Not configured; the reason is beside **Run recovery test**).
 6. **A cleanup notice.** Nothing is wrong with your result. Free space on the volume that
    holds the staging area, and the leftover is removed on its next sweep.
 

@@ -895,10 +895,11 @@ a running one can be stopped.
   recognises. Otherwise the answer is `not_configured` with the reason (which names the file
   type when that is the cause), and the page disables **Run recovery test** for it, with that
   reason beside the button, because the per-set assurance answer carries
-  `recovery_test.validator_declared` from the same dry run the test makes first. The same
-  answer carries `builtin_check` and `effective_check` (`validator`, `builtin` or `none`,
-  with `effective_check_reason` when `none`), and a placement in the artifact response
-  carries `recovery_check` (`validator` or `builtin`) beside its verdict.
+  `effective_check` (`validator`, `builtin` or `none`, with `effective_check_reason` when
+  `none`) from the same dry run the test makes first; the button is withheld only for `none`,
+  and a set the built-in check can read keeps it, with a line saying the built-in structure
+  check will run. The same answer carries `recovery_test.validator_declared` and
+  `builtin_check`, and a placement in the artifact response carries `recovery_check` (`validator` or `builtin`) beside its verdict.
   For a built-in run `retnd recovery-test` prints a `check:` line (`built-in structure check
   (no validator is declared for this backup set)`) and a `format:` line such as `zstd, 1
   frame, content checksum verified, 48.2 GiB decoded and discarded`, and `--json` carries
