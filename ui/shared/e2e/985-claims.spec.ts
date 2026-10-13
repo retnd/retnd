@@ -30,9 +30,12 @@ test.describe("#985 the three claims on the Backups list", () => {
       ["billing-20260827.sql.gz", "content", "requires_restore", /Archived: thaw needed/],
       ["billing-20260827.sql.gz", "recovery", "could_not_complete", /Could not complete/],
       ["media-week34.tar", "content", "never_run", /Never run/],
-      ["media-week34.tar", "recovery", "never_configured", /Not configured/],
+      // The set follows the deployment's default, and the chip says so (#1134).
+      ["media-week34.tar", "recovery", "never_configured", /Default configuration/],
       ["redis-20260812.rdb.zst", "content", "no_readable_copy", /No readable copy/],
-      ["redis-20260812.rdb.zst", "recovery", "never_configured", /Not configured/]
+      // The mock answers a policy read for this removed set; a server that
+      // refuses it leaves the label at Not configured (verificationModel.test).
+      ["redis-20260812.rdb.zst", "recovery", "never_configured", /Default configuration/]
     ];
     const more: Row[] = [
       ["postgres-prod-20260828.dump.zst", "content", "refused_for_cost", /Skipped: read would cost egress/],
