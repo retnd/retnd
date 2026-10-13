@@ -25,7 +25,7 @@
  *
  * # Why the built-ins are in the preview and not in the editor
  *
- * They are not configuration. `BACKUPD_*` is reserved: the service
+ * They are not configuration. `RETND_*` is reserved: the service
  * refuses a write to any name in that namespace, because a hook reading
  * `RETND_BACKUP_STATUS` has to be reading what this product observed
  * rather than a value somebody wrote into a config file. They appear in
@@ -158,9 +158,9 @@ export function WorkflowEnvironmentEditor({
           </div>
         </InfoTooltip>
         {editable.length === 0 ? (
-          <p style={{ margin: 0, fontSize: 13, color: "var(--text-3)" }}>
+          <p data-testid="workflow-env-empty" style={{ margin: 0, fontSize: 13, color: "var(--text-2)" }}>
             {scope === "global"
-              ? "No deployment-wide workflow variables are configured. Hooks still receive the BACKUPD_* built-ins below."
+              ? "No deployment-wide workflow variables are configured. Hooks still receive the RETND_* built-ins below."
               : "This backup set configures no variables of its own, so its hooks receive the deployment-wide ones below."}
           </p>
         ) : (
@@ -280,7 +280,7 @@ export function WorkflowEnvironmentEditor({
         </div>
         {nameRefused ? (
           <p style={{ margin: 0, fontSize: "var(--text-sm)", color: "var(--danger)" }}>
-            {"Every BACKUPD_* name is set by this product from the run it belongs to, so it cannot " +
+            {"Every RETND_* name is set by this product from the run it belongs to, so it cannot " +
               "be configured here. Choose a name outside that namespace."}
           </p>
         ) : null}
@@ -307,7 +307,7 @@ export function WorkflowEnvironmentEditor({
           </div>
         </InfoTooltip>
         <p style={{ margin: "0 0 7px", fontSize: "var(--text-xs)", color: "var(--text-3)" }} className="mono">
-          sanitized baseline &lt; deployment &lt; backup set &lt; BACKUPD_* built-ins
+          sanitized baseline &lt; deployment &lt; backup set &lt; RETND_* built-ins
         </p>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
