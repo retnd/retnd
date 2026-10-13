@@ -208,7 +208,10 @@ describe("#1111 per-set Assurance section", () => {
   it("the CommandEcho prints the per-set flag as core/cliecho does", async () => {
     const sel = await own();
     await userEvent.selectOptions(sel, "off");
-    expect(document.body.textContent).toContain("retnd backup-set assurance " + SET + " --recovery-test-builtin-check off");
+    // a set's own policy is written whole, so the echo carries every flag the
+    // PATCH does, in core/cliecho's order, ending on the builtin_check one
+    const lines = [...document.querySelectorAll("code")].map((c) => c.textContent ?? "");
+    expect(lines.some((l) => l.startsWith("retnd backup-set assurance " + SET + " --scrub-cadence 168h") && l.endsWith(" --recovery-test-builtin-check off")), lines.join("\n")).toBe(true);
     expect(goEchoTestSrc).toContain("backup-set assurance api-server/var-backups --recovery-test-builtin-check structure");
   });
 
