@@ -531,7 +531,10 @@ export function createMockRecovery(scenario: string) {
       // The host re-reads the copy and matches it to the recorded digest
       // before it writes anything. The mock holds the request open for that
       // long so the "checking on the host" phase can be seen.
-      await sleep(scenario === "assurance-download-slow" ? 6000 : 1200);
+      // Issue #1107: a selection of thirty must not take thirty seconds to
+      // watch, so the scenarios built for a long list answer quickly.
+      const quick = scenario === "backups-many" || scenario === "backups-many-corrupt";
+      await sleep(scenario === "assurance-download-slow" ? 6000 : quick ? 120 : 1200);
       if (scenario === "assurance-grant-expired") throw refuse("RECOVERY_GRANT_EXPIRED", "This grant expired before it was used. Ask for a new one.", 410);
       if (scenario === "assurance-grant-used") throw refuse("RECOVERY_GRANT_USED", "This grant was already used. Ask for a new one.", 410);
       if (scenario === "assurance-session-ended") throw refuse("RECOVERY_GRANT_SESSION_ENDED", "The session that minted this grant has ended.", 403);
@@ -543,6 +546,10 @@ export function createMockRecovery(scenario: string) {
       const g = GRANTS.get(grant);
       if (!g) throw refuse("RECOVERY_GRANT_UNKNOWN", "No such grant.", 404);
       GRANTS.delete(grant);
+      // One copy in the list fails its digest, and nothing else does.
+      if (scenario === "backups-many-corrupt" && g.artifactId.endsWith("billing-mysql-20260805.bak")) {
+        throw refuse("RECOVERY_LOCAL_COPY_CORRUPT", "The copy on this host's disk failed verification against the digest the journal recorded. Nothing was delivered.", 500);
+      }
       const placed = g.target.kind === "storage"
         ? { key: g.target.key || "recovered/" + g.artifactId }
         : { path: "/data/recover-staging/" + (g.target.path || "recovered") + ".k3j9" };

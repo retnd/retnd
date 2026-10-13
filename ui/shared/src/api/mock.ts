@@ -74,6 +74,11 @@ import type { DeploymentActivity, SetActivity, SetActivityEvent } from "@shared/
 
 export type Scenario =
   | "default"
+  // Issue #1107: thirty more backups across three sets and thirty days, so a
+  // filter has something to narrow and a select-all has something to count.
+  // The "-corrupt" flavour makes one of them fail its digest on recovery.
+  | "backups-many"
+  | "backups-many-corrupt"
   | "empty"
   | "storage-critical"
   | "catalog-recovery"
@@ -140,7 +145,8 @@ export function scenarioFromLocation(): Scenario {
     "assurance-no-operations", "assurance-cleanup-fails", "assurance-recovery-overdue",
     "assurance-snapshot-set", "assurance-too-many-grants", "assurance-grant-expired",
     "assurance-grant-used", "assurance-session-ended", "assurance-staging-full",
-    "assurance-reads-busy", "assurance-corrupt-copy", "assurance-download-outcomes"
+    "assurance-reads-busy", "assurance-corrupt-copy", "assurance-download-outcomes",
+    "backups-many", "backups-many-corrupt"
   ];
   return (allowed as string[]).includes(s ?? "") ? (s as Scenario) : "default";
 }
@@ -627,6 +633,43 @@ const ARTIFACTS: BackupArtifact[] = [
     ]
   }
 ];
+
+/**
+ * Issue #1107: thirty generated backups, one a day from 2026-08-01, rotating
+ * through three sets, each with one readable local copy. The names carry the
+ * set and the day so a spec can say exactly which rows a filter must keep.
+ */
+const MANY_SETS = [
+  { id: "production/postgres-primary", name: "Production PostgreSQL" },
+  { id: "production/billing-mysql", name: "Billing MySQL" },
+  { id: "production/auth-config", name: "Auth service config" }
+];
+const MANY_GENERATED: BackupArtifact[] = Array.from({ length: 30 }, (_, i) => {
+  const set = MANY_SETS[i % 3];
+  const day = String(i + 1).padStart(2, "0");
+  const filename = set.id.split("/")[1] + "-202608" + day + ".bak";
+  const at = "2026-08-" + day + "T02:00:00+02:00";
+  const size = (i + 1) * 1_000_000;
+  const local = "/data/backups/" + set.id + "/2026/08/" + filename;
+  return {
+    id: set.id + "/" + filename,
+    setId: set.id, setName: set.name, filename,
+    remoteOriginalPath: "prod-01:/backups/" + filename,
+    localPath: local,
+    producedAt: at, receivedAt: at,
+    sizeBytes: size,
+    checksum: String(i).padStart(2, "0").repeat(32),
+    checksumAlgorithm: "sha256", state: "COMPLETE", validation: "verified",
+    retentionClasses: ["daily"], retentionPolicy: "configured",
+    remoteSourceRemovedAt: at, quarantine: null,
+    placements: [
+      {
+        medium: "local", mediumType: "local", location: local, sizeBytes: size, storageClass: "",
+        verificationClass: "content", verifiedAt: at, access: "immediate", status: "ACTIVE"
+      }
+    ]
+  } as BackupArtifact;
+});
 
 // Two operations, chosen to exercise both answers the real API can give:
 // one that is executing and reporting a live reading, and one that is
@@ -3819,7 +3862,10 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   }
   // Every backup keeps exactly one local copy under that scenario: the
   // shape migration 0007's backfill leaves every pre-EPIC-E deployment in.
-  const artifacts = noMedium
+  const many = scenario === "backups-many" || scenario === "backups-many-corrupt";
+  const artifacts = many
+    ? [...ARTIFACTS, ...MANY_GENERATED]
+    : noMedium
     ? ARTIFACTS.map((a) => ({
         ...a,
         placements: [
