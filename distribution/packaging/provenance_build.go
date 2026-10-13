@@ -109,7 +109,7 @@ component ships it, is listed in %s.
 It is generated from the module graph and the frontend lockfile on every run
 rather than maintained by hand.%s
 
-This file is the NOTICE file Apache-2.0 section 4(d) refers to. Redistributing
+This file carries the attribution for the third-party components in this work. Redistributing
 this work, or a derivative of it, means carrying this file with it.
 `
 

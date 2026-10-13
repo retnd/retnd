@@ -343,7 +343,7 @@ than trusting the note, and regenerate the bundle with
 `go run ./cmd/provenance -write` from `distribution/`.
 
 `docs/compliance/source-offer.md` stays either way. A link resolving is not the
-same as an offer having been made, and Apache-2.0 §4a is an obligation to whoever
+same as an offer having been made, and the MPL-2.0 source offer is an obligation to whoever
 received a package, not to whoever visits the repository.
 
 ## The CLI tarballs

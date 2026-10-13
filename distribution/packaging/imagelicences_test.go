@@ -51,7 +51,7 @@ func realDockerignore(t *testing.T) string {
 // TestTheImageCarriesTheLicenceMaterials is #407's first acceptance
 // criterion, as far as it can be asked of the tree.
 //
-// NOTICE is where Apache-2.0 §4(d)'s attribution and MPL-2.0 §3.2's
+// NOTICE is where the third-party attribution and MPL-2.0 §3.2's
 // source offer both live, and TestNoticeAttributesEveryComponent proves
 // it says the right things. Nothing proved it went anywhere. This reads
 // the runtime stage, the way the bundle tests do, and refuses an image
@@ -593,13 +593,13 @@ func TestTheLabelReaderCanRefuse(t *testing.T) {
 	}{
 		{
 			"the licence label is deleted",
-			strings.Replace(real, `LABEL org.opencontainers.image.licenses="Apache-2.0" \`+"\n", "LABEL \\\n", 1),
+			strings.Replace(real, `LABEL org.opencontainers.image.licenses="MIT" \`+"\n", "LABEL \\\n", 1),
 			"sets no such label",
 		},
 		{
 			"the licence label names a different licence",
-			strings.Replace(real, `image.licenses="Apache-2.0"`, `image.licenses="MIT"`, 1),
-			"compliance.json says the project is Apache-2.0",
+			strings.Replace(real, `image.licenses="MIT"`, `image.licenses="Apache-2.0"`, 1),
+			"compliance.json says the project is MIT",
 		},
 		{
 			"the path label points somewhere the files are not",

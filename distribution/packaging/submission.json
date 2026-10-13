@@ -351,7 +351,7 @@
         },
         "materials-support-source-license": {
           "declared": "supported",
-          "reason": "The repository now ships a LICENSE (Apache-2.0) plus the licence inventory and SBOM that B5.2 added, so the support, source and licence materials this listing needs all exist and are checked against the tree rather than asserted."
+          "reason": "The repository now ships a LICENSE (MIT) plus the licence inventory and SBOM that B5.2 added, so the support, source and licence materials this listing needs all exist and are checked against the tree rather than asserted."
         },
         "materials-submission-checklist": {
           "declared": "supported"
@@ -439,7 +439,7 @@
         },
         "materials-support-source-license": {
           "declared": "supported",
-          "reason": "The repository now ships a LICENSE (Apache-2.0) plus the licence inventory and SBOM that B5.2 added, so the support, source and licence materials this listing needs all exist and are checked against the tree rather than asserted."
+          "reason": "The repository now ships a LICENSE (MIT) plus the licence inventory and SBOM that B5.2 added, so the support, source and licence materials this listing needs all exist and are checked against the tree rather than asserted."
         },
         "materials-submission-checklist": {
           "declared": "supported"
@@ -532,7 +532,7 @@
         },
         "materials-support-source-license": {
           "declared": "supported",
-          "reason": "The repository now ships a LICENSE (Apache-2.0) plus the licence inventory and SBOM that B5.2 added, so the support, source and licence materials this listing needs all exist and are checked against the tree rather than asserted."
+          "reason": "The repository now ships a LICENSE (MIT) plus the licence inventory and SBOM that B5.2 added, so the support, source and licence materials this listing needs all exist and are checked against the tree rather than asserted."
         },
         "materials-submission-checklist": {
           "declared": "supported"
@@ -998,7 +998,7 @@
         },
         "materials-support-source-license": {
           "declared": "supported",
-          "reason": "The repository now ships a LICENSE (Apache-2.0) plus the licence inventory and SBOM that B5.2 added, so the support, source and licence materials this listing needs all exist and are checked against the tree rather than asserted."
+          "reason": "The repository now ships a LICENSE (MIT) plus the licence inventory and SBOM that B5.2 added, so the support, source and licence materials this listing needs all exist and are checked against the tree rather than asserted."
         },
         "materials-submission-checklist": {
           "declared": "supported"
@@ -1085,7 +1085,7 @@
         },
         "materials-support-source-license": {
           "declared": "supported",
-          "reason": "The repository now ships a LICENSE (Apache-2.0) plus the licence inventory and SBOM that B5.2 added, so the support, source and licence materials this listing needs all exist and are checked against the tree rather than asserted."
+          "reason": "The repository now ships a LICENSE (MIT) plus the licence inventory and SBOM that B5.2 added, so the support, source and licence materials this listing needs all exist and are checked against the tree rather than asserted."
         },
         "materials-submission-checklist": {
           "declared": "supported"
@@ -1184,7 +1184,7 @@
         },
         "materials-support-source-license": {
           "declared": "supported",
-          "reason": "The repository now ships a LICENSE (Apache-2.0) plus the licence inventory and SBOM that B5.2 added, so the support, source and licence materials this listing needs all exist and are checked against the tree rather than asserted."
+          "reason": "The repository now ships a LICENSE (MIT) plus the licence inventory and SBOM that B5.2 added, so the support, source and licence materials this listing needs all exist and are checked against the tree rather than asserted."
         },
         "materials-submission-checklist": {
           "declared": "supported"

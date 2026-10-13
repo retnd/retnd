@@ -42,7 +42,7 @@ out. The files here came from the packages IBM publishes.
 
 Four places, and each is read on every run rather than trusted.
 
-`NOTICE` is the file Apache-2.0 §4(d) points a recipient of a built
+`NOTICE` is the file that points a recipient of a built
 artifact at, and it is generated from the register by `buildNotice`. This
 file is the full record for somebody who has the repository.
 `ui/shared/index.html` carries a short form in the running page, which is

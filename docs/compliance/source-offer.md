@@ -6,19 +6,18 @@ source-offer material §73 Work Package 5.2 requires, and it is what the
 
 ## The licence
 
-retnd is distributed under the **Apache License, Version 2.0**. The
+retnd is distributed under the **MIT License**. The
 full text is in `LICENSE` at the root of the source tree, and it is the same
 text a distributed package carries.
 
-Apache-2.0 was chosen over the equally available MIT for reasons that are
-specific to how this product ships, and they are recorded in full in
+MIT was chosen to match libviprs, and the reasoning is recorded in full in
 `distribution/packaging/compliance.json` under `license.rationale` rather than
-summarised here. In short: it grants patent rights explicitly and terminates
-them on patent litigation, which is the clause a store's legal review looks for
-before agreeing to redistribute somebody's binary; it defines the NOTICE file,
-which gives the third-party attribution this project owes a defined place; and
-it requires changed files to be marked, which matters for a product built around
-redistributing someone else's compiled packages.
+summarised here. In short: one set of terms across both projects, and the only
+thing it asks of a recipient is the licence text and the copyright line. It has
+no explicit patent grant and no defined NOTICE file, so the third-party
+attribution this project owes is carried by a generated `NOTICE` that a test
+checks for coverage. Releases up to 0.5.1 were distributed under Apache-2.0 and
+stay under it; 0.6.0 is the first under MIT.
 
 That choice is available because every component linked into a shipped
 artifact is either permissively licensed or one of the non-permissive licences
@@ -42,8 +41,7 @@ binaries and the production npm packages built into the embedded web bundle, is
 listed with its version, its SPDX licence identifier and the SHA-256 of its
 licence text in:
 
-- `NOTICE`, the human-readable attribution file Apache-2.0 section 4(d) refers
-  to, grouped by licence;
+- `NOTICE`, the human-readable attribution file, grouped by licence;
 - `provenance/third-party-licenses.json`, the machine-readable
   inventory;
 - `provenance/sbom.spdx.json`, an SPDX 2.3 SBOM of the same set.
@@ -90,11 +88,11 @@ linux/amd64 `retnd` finds 17 `go-retryablehttp` symbols and one
 MPL-2.0 is file-level weak copyleft. Its reciprocity reaches the covered files
 and nothing this project writes, and §3.3 permits a Larger Work that combines
 them with other code to ship under other terms, which is what this release
-does under Apache-2.0.
+does under MIT.
 
 **The obligation.** §3.3 lets a Larger Work ship under terms of our choice
 *provided we also comply with the MPL for the covered software*, so the
-Apache-2.0 choice rests on §3.2 being met rather than on §3.3 alone.
+MIT choice rests on §3.2 being met rather than on §3.3 alone.
 
 §3.2(a) obliges anyone distributing the covered files in executable form to make
 their Source Code Form available as §3.1 describes, and to inform recipients of
@@ -177,7 +175,7 @@ docker rm retnd-licenses
 
 That was not always true. The runtime stage used to copy the two binaries and
 the frontend bundle and nothing else, which was a gap in delivery rather than
-in the offer, and it applied to Apache-2.0 section 4(d) just as much as to the
+in the offer, and it applied to the licence and NOTICE just as much as to the
 MPL. Two checks stand behind the table now, and they are different in kind on
 purpose. `TestTheImageCarriesTheLicenceMaterials` in `distribution/packaging`
 reads the runtime stage and refuses a `COPY` that is missing, comes out of a
@@ -221,8 +219,8 @@ private for a while after the repository stopped being private, which is issue
 #484's finding: a recorded measurement with a note asserting its freshness is
 worse than an unmeasured value, because the note is what stops anyone checking.
 
-Access is a fact about convenience rather than about the licence. Apache-2.0
-obliges the project to pass the licence and the notices along with any
+Access is a fact about convenience rather than about the licence. MIT
+obliges the project to pass the licence and the copyright line along with any
 distributed copy, which the packages do, and it never obliged a public
 repository. So the offer below stands regardless: somebody holding a package
 and no browser is owed the source by the licence, not by the repository being

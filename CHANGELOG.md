@@ -18,6 +18,13 @@ is still the container image (#1078).
 
 ### Changed
 
+- **retnd is MIT licensed from 0.6.0** (#1086). The licence moves from Apache-2.0 to
+  MIT, matching libviprs, so the two projects are used and combined under one set of
+  terms. `LICENSE`, the image's `org.opencontainers.image.licenses` label,
+  `compliance.json`, the generated `NOTICE` and provenance bundle, the README and the
+  site all say MIT, and the tests that pinned Apache-2.0 pin MIT. The check on the
+  linked graph is unchanged. Releases up to 0.5.1 were distributed under Apache-2.0
+  and stay under it.
 - **A fresh install configures itself and leads you through setup** (#1049). On its
   first start, with no `config.yaml` in the configuration directory, the engine now
   writes a small default one (the documented one hour polling interval, the journal

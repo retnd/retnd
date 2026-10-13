@@ -23,20 +23,20 @@
   "project": {
     "displayName": "retnd",
     "appId": "com.iasbuilt.retnd",
-    "copyright": "Copyright 2026 Roman Goldmann",
+    "copyright": "Copyright (c) 2026 Roman Goldmann",
     "copyrightNote": [
       "Roman Goldmann is the author and the copyright holder. This used to read",
       "\"The Backupd Authors\", a collective line chosen because naming a legal",
       "entity was not that issue's call to make. It is this one's: the holder is a",
       "named person, and NOTICE and the LICENSE appendix both render from here so they",
       "cannot disagree with each other.",
-      "Contributors keep their own copyright and license their work in under Apache-2.0",
+      "Contributors keep their own copyright and license their work in under MIT",
       "through CONTRIBUTING.md's agreement, so this line is the project's holder rather",
       "than a claim over anybody else's contribution."
     ]
   },
   "license": {
-    "spdxId": "Apache-2.0",
+    "spdxId": "MIT",
     "file": "LICENSE",
     "noticeFile": "NOTICE",
     "inventory": "provenance/third-party-licenses.json",
@@ -71,7 +71,7 @@
       "",
       "Shipping it is a decision and it was taken on purpose. MPL-2.0 is",
       "FILE-level weak copyleft: it scopes reciprocity to the covered files, and",
-      "§3.3 permits distributing a Larger Work under other terms, so Apache-2.0",
+      "§3.3 permits distributing a Larger Work under other terms, so MIT",
       "over the whole is not foreclosed. The two alternatives both cost more than",
       "they buy. Dropping the s3 backend removes the only non-local storage medium",
       "the product has. Forking rclone to delete ibm_signer.go is a cost on every",
@@ -79,7 +79,7 @@
       "",
       "§3.3's permission is conditional, and the condition is the whole cost:",
       "a Larger Work may ship under terms of this project's choice PROVIDED it",
-      "also complies with the MPL for the covered software. So Apache-2.0 here",
+      "also complies with the MPL for the covered software. So MIT here",
       "rests on §3.2 being met, not merely on §3.3 existing.",
       "",
       "§3.2(a) asks two things, and they are worth keeping apart because they",
@@ -100,7 +100,7 @@
       "copies the files back out of a built image and compares them to the tree,",
       "which is the half that proves delivery rather than intent. Until #407 the",
       "image copied the binaries and the frontend bundle and nothing else, a gap",
-      "that predates this decision and cost Apache-2.0 §4(d) the same way.",
+      "that predates this decision and cost the licence and NOTICE the same way.",
       "",
       "acceptedNonPermissive is a third category rather than two more entries on",
       "permissiveIds, and that is not bookkeeping. permissiveIds says what a",
@@ -115,22 +115,23 @@
       "checked the same way the permissive claim is, and turning it into a",
       "formality takes deleting a test rather than editing a list.",
       "",
-      "Apache-2.0 over MIT for three reasons that all bite in this project's",
-      "specific situation. It grants patent rights explicitly and terminates them",
-      "on patent litigation (§3), which is the clause a commercial store's legal",
-      "review looks for before it agrees to redistribute somebody's binary, and",
-      "this work is submitted to four of them. It defines NOTICE (§4d), so the",
-      "third-party attribution this work package owes has a place inside the",
-      "licence instead of being an extra file with no defined standing. And it",
-      "requires changed files to be marked (§4b), which matters for a product whose",
-      "whole design is redistributing rclone's compiled packages behind a narrow",
-      "adapter.",
+      "MIT, to match libviprs, so the two projects are used and combined under",
+      "one set of terms. It is the shortest permissive licence and it asks a",
+      "recipient for one thing: carry the licence text and the copyright line. What",
+      "it leaves out is worth saying. MIT has no explicit patent grant and no",
+      "defined NOTICE file, so the third-party attribution this work owes does not",
+      "rest on the licence defining a place for it: NOTICE is generated from the",
+      "module graph and the lockfile on every run, shipped beside LICENSE in every",
+      "artifact, and checked by TestNoticeAttributesEveryComponent. The licence",
+      "choice moved from Apache-2.0 to MIT with 0.6.0. Releases up to 0.5.1 were",
+      "distributed under Apache-2.0 and stay under it for anyone who holds them.",
       "",
-      "The known cost: Apache-2.0 is incompatible with GPL-2.0-only. That is free",
-      "here because the graph has no GPL in it, and permissiveIds is what keeps it",
-      "free rather than assumed: an id is admitted by being named, so GPL arriving",
-      "through a new dependency is a red build and not a discrepancy nobody looks",
-      "for. MPL-2.0 raises no such question, because §3.3 is what permits the",
+      "MIT is compatible with everything in the linked graph, GPL-2.0-only",
+      "included, but that is not a reason to relax the check: permissiveIds is",
+      "what keeps the graph permissive rather than assumed, because an id is",
+      "admitted by being named, so GPL arriving through a new dependency is a red",
+      "build and not a discrepancy nobody looks for. MPL-2.0 raises no question",
+      "either, because §3.3 is what permits the",
       "Larger Work to ship under these terms in the first place."
     ],
     "copyleftBlocksTheLicenseChoice": true,
@@ -437,7 +438,7 @@
       "this is in doubt rather than reading the note.",
       "",
       "docs/compliance/source-offer.md stays. It stood in while the repository was",
-      "private and it is still the artifact Apache-2.0 §4a's redistribution obligation",
+      "private and it is still the artifact the MPL-2.0 §3.2 redistribution obligation",
       "is discharged through for a recipient who has a package and no browser: a link",
       "resolving is not the same as an offer having been made, and the two are",
       "different obligations to different people."
@@ -461,7 +462,7 @@
       "repoPath": "docs/compliance/source-offer.md",
       "targetsThisRepository": true,
       "mustMention": [
-        "Apache-2.0",
+        "MIT",
         "source",
         "rclone"
       ]
@@ -487,8 +488,8 @@
       "repoPath": "LICENSE",
       "targetsThisRepository": true,
       "mustMention": [
-        "Apache License",
-        "Version 2.0"
+        "MIT License",
+        "Permission is hereby granted"
       ]
     },
     {
@@ -558,7 +559,7 @@
         "provenance/third-party-licenses.json": "/licenses/third-party-licenses.json"
       },
       "labels": {
-        "org.opencontainers.image.licenses": "Apache-2.0",
+        "org.opencontainers.image.licenses": "MIT",
         "com.iasbuilt.retnd.licenses.path": "/licenses"
       }
     },

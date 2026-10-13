@@ -19,7 +19,7 @@ machine-readable form (`links.publiclyReachable`), derived from
 `distribution/packaging/compliance.json`'s one measured visibility field rather
 than asserted here, so this page and the bundle cannot drift apart.
 `docs/compliance/source-offer.md` still stands for anyone who has a package and
-no browser: Apache-2.0 §4a is owed to a recipient, not to a visitor.
+no browser: the MPL-2.0 source offer is owed to a recipient, not to a visitor.
 
 ## What to include in an issue
 

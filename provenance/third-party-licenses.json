@@ -17,7 +17,7 @@
     "fails on any difference, so an undeclared dependency is a red build rather than",
     "a discrepancy nobody looks for."
   ],
-  "projectLicense": "Apache-2.0",
+  "projectLicense": "MIT",
   "components": [
     {
       "name": "github.com/Azure/azure-sdk-for-go/sdk/azcore",

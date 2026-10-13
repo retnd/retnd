@@ -33,18 +33,18 @@
     "versionIsABuildStamp": false
   },
   "license": {
-    "spdxId": "Apache-2.0",
+    "spdxId": "MIT",
     "file": {
       "path": "LICENSE",
-      "sha256": "cd4073bef12faa71d454d5b38a4df914037af0ee2b48345b7a9250974901583a"
+      "sha256": "3abc6acce9ba2f1574a1b0d7d4ddcf06e8dfa7ae05d2e8e1e22c7a52e9336bfe"
     },
     "notice": {
       "path": "NOTICE",
-      "sha256": "301f90efb0e8f9d11791f50db33aca3ce16147dbba11e5d9309441073576c0cb"
+      "sha256": "203a23c3ae40e9467bad6ea7551e561ed51f58c9bb3d67fb1d96765317bfc5ae"
     },
     "inventory": {
       "path": "provenance/third-party-licenses.json",
-      "sha256": "9d9396588adcec6212f87b792a69169eced10e159de67334efbcb5aeffb4a536",
+      "sha256": "1a37073122217328aa50842196ca1358488921c2d8bd7004912665eb8047e5b2",
       "format": "retnd/third-party-licenses/1"
     },
     "componentCount": 132
@@ -56,7 +56,7 @@
   },
   "checksums": {
     "path": "provenance/checksums.txt",
-    "sha256": "3a2d261179db82a43d5f827d93b49708afe04c5a8e0f2f1412004ccb35d84179",
+    "sha256": "d0b2739c71047f7e086eb1d8aaa40d62d34b45d383d59a551e7a14afee4b09ba",
     "format": "sha256sum"
   },
   "artifacts": [
@@ -163,7 +163,7 @@
     {
       "target": "generic",
       "path": "container/Dockerfile",
-      "sha256": "8afb1cb674dccac0ef6d0e89788192d433399281eb3c99cc34c6266c665d1bc6"
+      "sha256": "5bbb024e056580bf00e5235511a165ea3f0a9e0b2f0af4e8454b5ff8a9c3a74e"
     },
     {
       "target": "generic",
