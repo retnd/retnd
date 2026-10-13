@@ -1818,6 +1818,7 @@ function fromWirePlacement(p: WirePlacement): BackupPlacement {
     lastFailureReason: p.last_failure_reason ?? "",
     consecutiveFailures: p.consecutive_failures ?? 0,
     recoveryState: p.recovery_state ?? null,
+    recoveryCheck: p.recovery_check ?? null,
     recoveryTestedAt: stampOrNull(p.recovery_tested_at),
     recoveryFailureReason: p.recovery_failure_reason ?? ""
   };
@@ -2652,7 +2653,7 @@ function fromWireWorkflowSettings(s: WireWorkflowSettingsResponse): WorkflowSett
 
 function fromWireAssurancePolicy(s: {
   scrub?: { cadence_seconds?: number; strategy?: string };
-  recovery_test?: { mode?: string; cadence_seconds?: number; validator_id?: string; validator_declared?: boolean };
+  recovery_test?: { mode?: string; cadence_seconds?: number; validator_id?: string; validator_declared?: boolean; builtin_check?: "structure" | "off"; effective_check?: "validator" | "builtin" | "none"; effective_check_reason?: string };
 }): Pick<AssuranceSettings, "scrub" | "recoveryTest"> {
   return {
     scrub: { cadenceSeconds: s.scrub?.cadence_seconds ?? 0, strategy: s.scrub?.strategy ?? "" },
@@ -2662,7 +2663,14 @@ function fromWireAssurancePolicy(s: {
       validatorId: s.recovery_test?.validator_id ?? "",
       // Absent stays absent: an older server that does not say is not a
       // server that says "none".
-      ...(typeof s.recovery_test?.validator_declared === "boolean" ? { validatorDeclared: s.recovery_test.validator_declared } : {})
+      ...(typeof s.recovery_test?.validator_declared === "boolean" ? { validatorDeclared: s.recovery_test.validator_declared } : {}),
+      // #1111: absent stays absent here too. Only the two spellings the
+      // engine writes are believed; anything else is not a check this build
+      // knows how to draw.
+      ...(s.recovery_test?.builtin_check === "structure" || s.recovery_test?.builtin_check === "off" ? { builtinCheck: s.recovery_test.builtin_check } : {}),
+      ...(s.recovery_test?.effective_check === "validator" || s.recovery_test?.effective_check === "builtin" || s.recovery_test?.effective_check === "none"
+        ? { effectiveCheck: s.recovery_test.effective_check } : {}),
+      ...(s.recovery_test?.effective_check_reason ? { effectiveCheckReason: s.recovery_test.effective_check_reason } : {})
     }
   };
 }
@@ -2736,6 +2744,7 @@ function wireAssurancePatch(
   if (p.recoveryTestMode !== undefined) body.recovery_test_mode = p.recoveryTestMode;
   if (p.recoveryTestCadenceSeconds !== undefined) body.recovery_test_cadence_seconds = p.recoveryTestCadenceSeconds;
   if (p.recoveryTestValidatorId !== undefined) body.recovery_test_validator_id = p.recoveryTestValidatorId;
+  if (p.recoveryTestBuiltinCheck !== undefined) body.recovery_test_builtin_check = p.recoveryTestBuiltinCheck;
   if (p.stagingRoot !== undefined) body.staging_root = p.stagingRoot;
   if (p.stagingTtlSeconds !== undefined) body.staging_ttl_seconds = p.stagingTtlSeconds;
   if (p.maxConcurrentFullReads !== undefined) body.max_concurrent_full_reads = p.maxConcurrentFullReads;

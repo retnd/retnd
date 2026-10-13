@@ -1981,7 +1981,7 @@
   },
   "assurance.claim.recoveryTested": {
     "label": "Recovery tested",
-    "html": "Whether the engine recovered the artifact to an isolated path, re-read it end to end, matched its recorded digest, and only then ran your validator script, and how long ago. The engine records this claim. A script cannot write it, and reachability alone never counts."
+    "html": "Whether the engine recovered the artifact to an isolated path, re-read it end to end, matched its recorded digest, and only then ran your validator script, and how long ago. The engine records this claim. A script cannot write it, and reachability alone never counts. With no validator declared, the built-in check reads the recovered file end to end as its archive or compression format and the chip says Recovered, readable instead; that proves the file decodes, not that an application can use it."
   },
   "assurance.recover.artifact": {
     "label": "Recover artifact",
@@ -2001,7 +2001,15 @@
   },
   "assurance.recoveryTest.run": {
     "label": "Run recovery test",
-    "html": "Recovers the newest known good copy to an isolated path, re-reads it, checks the digest and only then runs this set's validator script against it. The engine records the result."
+    "html": "Recovers the newest known good copy to an isolated path, re-reads it, checks the digest and only then runs this set's validator script against it. With no validator declared, it runs the built-in structure check instead, unless that is off or the file type has no reader. The engine records the result."
+  },
+  "assurance.settings.builtinCheck": {
+    "label": "Built-in check",
+    "html": "What happens when a set declares no validator. <strong>structure</strong> lets Run recovery test fall back to the product's own check: recover, match the digest, then read the file as gzip, zstd or tar. It runs on a schedule only under the <code>builtin</code> mode, <strong>never satisfies</strong> required, and does not prove an application can use the file."
+  },
+  "assurance.set.builtinCheck": {
+    "label": "Built-in check in use",
+    "html": "This set declares no validator, so a test runs the built-in structure check. It proves the file decodes end to end, <strong>not</strong> that an application can use it, and it never satisfies a required recovery test."
   },
   "assurance.settings.card": {
     "label": "Assurance settings",

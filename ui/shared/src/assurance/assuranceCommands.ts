@@ -100,6 +100,53 @@ export function thawCommand(artifactId: string): string {
   return "retnd restore " + artifactId + " --medium <id> --acknowledge";
 }
 
-export function settingsCommand(): string {
-  return "retnd settings assurance patch --scrub-cadence <duration>";
+/** The flags `retnd settings assurance patch` and `retnd backup-set assurance`
+ *  share, in the order core/cliecho prints them. Only the fields a patch names
+ *  are printed, which is also what the PATCH body carries. */
+interface AssuranceFlags {
+  scrubCadenceSeconds?: number;
+  scrubStrategy?: string;
+  recoveryTestMode?: string;
+  recoveryTestCadenceSeconds?: number;
+  recoveryTestValidatorId?: string;
+  recoveryTestBuiltinCheck?: string;
+}
+
+/** core/cliecho's seconds(): 172800 is 48h and 90 is 1m30s, built from the
+ *  hours, minutes and seconds so a trailing zero is never eaten. */
+export function durationFlag(total: number): string {
+  if (total === 0) return "0s";
+  const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
+  return (h ? h + "h" : "") + (m ? m + "m" : "") + (s ? s + "s" : "");
+}
+
+/** core/cliecho's shellQuote. */
+function shellQuote(v: string): string {
+  if (v === "") return "''";
+  return /^[A-Za-z0-9_@%+=:,./-]+$/.test(v) ? v : "'" + v.replace(/'/g, "'\\''") + "'";
+}
+
+function assuranceFlags(p: AssuranceFlags): string[] {
+  const out: string[] = [];
+  const flag = (name: string, value: string) => out.push("--" + name + " " + shellQuote(value));
+  if (p.scrubCadenceSeconds !== undefined) flag("scrub-cadence", durationFlag(p.scrubCadenceSeconds));
+  if (p.scrubStrategy !== undefined) flag("scrub-strategy", p.scrubStrategy);
+  if (p.recoveryTestMode !== undefined) flag("recovery-test-mode", p.recoveryTestMode);
+  if (p.recoveryTestCadenceSeconds !== undefined) flag("recovery-test-cadence", durationFlag(p.recoveryTestCadenceSeconds));
+  if (p.recoveryTestValidatorId !== undefined) flag("recovery-test-validator", p.recoveryTestValidatorId);
+  if (p.recoveryTestBuiltinCheck !== undefined) flag("recovery-test-builtin-check", p.recoveryTestBuiltinCheck);
+  return out;
+}
+
+/** `retnd settings assurance patch` for the changes the Settings card would
+ *  save. With none pending it shows the shape of the command. */
+export function settingsCommand(patch: AssuranceFlags = {}): string {
+  const flags = assuranceFlags(patch);
+  return ["retnd settings assurance patch", ...(flags.length > 0 ? flags : ["--scrub-cadence <duration>"])].join(" ");
+}
+
+/** `retnd backup-set assurance <set>` for the own policy the per-set Save
+ *  would write (#1111), or its `--reset` when the set goes back to following. */
+export function setAssuranceCommand(setId: string, patch: AssuranceFlags | "reset"): string {
+  return ["retnd backup-set assurance " + setId, ...(patch === "reset" ? ["--reset"] : assuranceFlags(patch))].join(" ");
 }

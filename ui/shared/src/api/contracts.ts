@@ -2498,6 +2498,13 @@ export interface AssurancePolicy {
      *  dry run, the one a recovery test makes first). Absent when the server
      *  does not say, which is never read as "declared" or as "not declared". */
     validatorDeclared?: boolean;
+    /** The built-in structure check's setting for this set (#1111). */
+    builtinCheck?: "structure" | "off";
+    /** Which check a test of this set would run now. Absent when the server
+     *  does not say, which keeps the pre-#1111 reading of validatorDeclared. */
+    effectiveCheck?: "validator" | "builtin" | "none";
+    /** Why, when effectiveCheck is "none". */
+    effectiveCheckReason?: string;
   };
 }
 
@@ -2529,6 +2536,8 @@ export interface AssuranceSettingsPatch {
   recoveryTestMode?: string;
   recoveryTestCadenceSeconds?: number;
   recoveryTestValidatorId?: string;
+  /** #1111: "structure" or "off"; empty clears it back to structure. */
+  recoveryTestBuiltinCheck?: string;
   stagingRoot?: string;
   stagingTtlSeconds?: number;
   maxConcurrentFullReads?: number;
@@ -2551,6 +2560,8 @@ export interface BackupSetAssurancePatch {
   recoveryTestMode?: string;
   recoveryTestCadenceSeconds?: number;
   recoveryTestValidatorId?: string;
+  /** #1111: "structure" or "off"; empty makes the set inherit again. */
+  recoveryTestBuiltinCheck?: string;
 }
 
 /** One copy's place in the scrub schedule. A copy nobody has looked at has

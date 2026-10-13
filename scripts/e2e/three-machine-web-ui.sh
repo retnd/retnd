@@ -852,7 +852,8 @@ teardown() {
 remove_run_dir() {
   [ -d "$run_dir" ] || return 0
   rm -f "$run_dir/upload/payload.bin" "$run_dir/upload/schema.sql" "$run_dir/upload/notes.txt" 2>/dev/null || true
-  rm -f "$run_dir/authorized_keys/engine.pub" "$run_dir/hookdata/marker.txt" 2>/dev/null || true
+  rm -f "$run_dir/authorized_keys/engine.pub" "$run_dir/hookdata/marker.txt" "$run_dir/builtindata/readable-backup.tar.gz" 2>/dev/null || true
+  rmdir "$run_dir/builtindata" 2>/dev/null || true
   # The runner's workspace, which is the one directory here this script
   # does not write itself: `workflow-runner serve` creates one per run
   # and one per step under it and removes each as its step ends, so a
@@ -1337,7 +1338,7 @@ if [ "$workflows" = 1 ]; then
   note "docker socket for the runner: $docker_socket"
 fi
 
-mkdir -p "$run_dir/upload" "$run_dir/authorized_keys" "$run_dir/hookdata" "$artifacts_dir"
+mkdir -p "$run_dir/upload" "$run_dir/authorized_keys" "$run_dir/hookdata" "$run_dir/builtindata" "$artifacts_dir"
 # The client container runs as this host's own uid so the traces and
 # screenshots it writes are owned by the person who has to read them, so
 # this directory only has to be writable by that same uid.
@@ -1466,6 +1467,14 @@ if [ "$workflows" = 1 ]; then
   chmod 644 "$run_dir/hookdata/marker.txt"
   chmod 755 "$run_dir/hookdata"
   note "1 file for the workflow sets: marker.txt"
+  # retnd-tests#91: a readable newest copy for the built-in structure check
+  mkdir -p "$run_dir/bi-src"
+  printf 'a small tarball so the built-in structure check has something it can read.\n' > "$run_dir/bi-src/hello.txt"
+  COPYFILE_DISABLE=1 tar -czf "$run_dir/builtindata/readable-backup.tar.gz" -C "$run_dir/bi-src" hello.txt \
+    || die "could not write the built-in check set's tarball."
+  rm -f "$run_dir/bi-src/hello.txt"; rmdir "$run_dir/bi-src"
+  chmod 644 "$run_dir/builtindata/readable-backup.tar.gz"; chmod 755 "$run_dir/builtindata"
+  note "1 readable tarball for the built-in check set: readable-backup.tar.gz"
 fi
 
 # ------------------------------------------------------------- volumes
@@ -1673,6 +1682,7 @@ if [ "$workflows" = 1 ]; then
     --label "$label" \
     -v "$run_dir/authorized_keys/engine.pub:/etc/ssh/authorized/retnd.pub:ro" \
     -v "$run_dir/hookdata:/home/$exec_user/hookdata" \
+    -v "$run_dir/builtindata:/home/$exec_user/builtindata" \
     --entrypoint sh \
     "$exec_image" -c 'ssh-keygen -A >/dev/null && exec /usr/sbin/sshd -D -e -f /etc/ssh/sshd_config.exec' >/dev/null \
     || die "could not start the exec host."
@@ -1865,6 +1875,19 @@ if [ "$workflows" = 1 ]; then
       || die "creating the backup set $name failed." \
              "The workflow scenarios each need a set of their own, so there is nothing to fall back to."
   done
+  oneshot "$net_backhaul" \
+    /retnd backup-set create e2e/builtin-check \
+      --config /etc/retnd/config \
+      --host exechost \
+      --user "$exec_user" \
+      --ssh-key-file /etc/retnd/keys/id_ed25519 \
+      --trust-host-key \
+      --remote-path "/home/$exec_user/builtindata" \
+      --local-path "/data/backups/builtin-check" \
+      --completion-strategy rename \
+      --read-only \
+      --state-database /data/state/state.db >/dev/null \
+    || die "creating the built-in check set failed."
   note "${#wf_sets[@]} workflow backup sets created, each pulling from $exec_user@exechost:/home/$exec_user/hookdata, read-only"
 fi
 
@@ -2478,6 +2501,7 @@ fi
 # failing against a deployment that has no hooks at all.
 if [ "$workflows" = 1 ]; then
   client_env+=(
+    -e "RETND_BUILTIN_CHECK_SET=e2e/builtin-check"
     -e "RETND_WORKFLOW_SET=$wf_set_happy"
     -e "RETND_EXEC_SET=$wf_set_remote"
     -e "RETND_SFTP_ONLY_SET=$backup_set"

@@ -303,6 +303,8 @@ ended somewhere other than a finished file or a passing result. It reads one of:
   is billed, and the dialog is waiting for you to say yes or to back out.
 - **No readable copy**, or **Archived: thaw needed**, on the artifact's page.
 - **Content verified** beside **Recovery test failed** on the set.
+- **Recovered, readable** on the set, where you expected **Recovery test passed**. This is a
+  success of a smaller kind, described below.
 - A cleanup notice, saying a recovered copy could not be removed from the staging area.
 
 ### What it means
@@ -336,6 +338,15 @@ and the difference matters because the fix is different for each:
   said no. The bytes are intact. The set shows **Content verified** and **Recovery test
   failed** side by side on purpose, because "the file is fine" and "the file is usable by
   your check" are different claims and are never averaged into one tick.
+- **After the file was checked, with no validator declared:** a recovery test of a set that
+  declares no validator reads the recovered file end to end with the built-in structure
+  check, inside the application, and records **Recovered, readable** when it is well formed.
+  That means the file decodes as the gzip, zstd or tar file it is. It does not mean any
+  application can use it, it is reported as its own state (`readable`, never `passed`), and it
+  never satisfies a set whose mode is `required`. If the file is truncated or fails a
+  checksum the set shows **Content verified** beside **Recovery test failed**, and the reason
+  says the check was the built-in one. A file type the check cannot read (a `.dump`, for
+  example) is refused before anything is staged, and the reason names the type.
 - **A cleanup notice** is its own thing. It does not turn a good result into a bad one or
   the reverse. It says a disk is filling, which is a different problem from not having your
   file.
@@ -362,6 +373,14 @@ path: it can give you the file, and putting it back is yours.
    validator printed. It keeps the newest test's output only, cut to 200 lines, 1 KiB a
    line and 32 KiB in all, and if anything was cut the last line says so. Fix the
    validator or the thing it checks. The application is telling you the file is intact.
+   **Recovered, readable.** Nothing to fix. If you want the stronger claim, declare a
+   validator as `NAME.local.sh` under `recovery-test/<source>/<set>`; ids beginning `retnd-`
+   are reserved for the product's own checks and are refused. **Recovery test failed** from
+   the built-in check means the stored bytes themselves are damaged or are not what the name
+   says, so look at what produced them. **Not configured** with a reason that names a file
+   type means the check has no reader for that type, and **Not configured** with a reason that
+   says the built-in check is off means `builtin_check: off` is set for the set (the chip itself
+   only says Not configured; the reason is beside **Run recovery test**).
 6. **A cleanup notice.** Nothing is wrong with your result. Free space on the volume that
    holds the staging area, and the leftover is removed on its next sweep.
 

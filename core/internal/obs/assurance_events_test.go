@@ -116,3 +116,11 @@ func TestFeedReasonsCarryNoControlBytesAndAreBounded(t *testing.T) {
 		}
 	}
 }
+
+// #1111: the reserved identity of the built-in check is a bare name, so the
+// feed carries it and the UI can word the line from it.
+func TestIssue1111_TheBuiltInIdentityReachesTheFeedUnwithheld(t *testing.T) {
+	if got := validatorRef("retnd-builtin-structure"); got != "retnd-builtin-structure" {
+		t.Errorf("validatorRef = %q", got)
+	}
+}

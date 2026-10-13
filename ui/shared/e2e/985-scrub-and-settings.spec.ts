@@ -105,7 +105,7 @@ test.describe("#985 Scrub now on a backup set", () => {
     await section.getByLabel("Recovery test", { exact: true }).selectOption("required");
     await expect(section.getByRole("alert")).toContainText(/needs a validator/);
     await expect(section.getByRole("button", { name: "Save policy" })).toBeDisabled();
-    await section.getByLabel("Validator").fill("pg-restore-check");
+    await section.getByLabel("Validator", { exact: true }).fill("pg-restore-check");
     await expect(section.getByRole("button", { name: "Save policy" })).toBeEnabled();
   });
 

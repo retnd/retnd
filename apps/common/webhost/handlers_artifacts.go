@@ -120,6 +120,9 @@ type placementResponse struct {
 	RecoveryState         string `json:"recovery_state,omitempty"`
 	RecoveryTestedAt      string `json:"recovery_tested_at,omitempty"`
 	RecoveryFailureReason string `json:"recovery_failure_reason,omitempty"`
+	// RecoveryCheck says which check produced the verdict in recovery_state:
+	// "validator" or "builtin" (#1111). Absent when there is none to attribute.
+	RecoveryCheck string `json:"recovery_check,omitempty"`
 }
 
 // listArtifactsResponse is the body of both GET /api/v1/backups and GET
@@ -519,6 +522,7 @@ func toPlacementResponses(placements []service.Placement) []placementResponse {
 			RecoveryState:         unlessUnknown(p.RecoveryState),
 			RecoveryTestedAt:      formatTime(p.RecoveryTestedAt),
 			RecoveryFailureReason: p.RecoveryFailureReason,
+			RecoveryCheck:         p.RecoveryCheck,
 		})
 	}
 	return out

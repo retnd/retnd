@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/retnd/retnd/core/cliecho"
 	"log/slog"
+	"strings"
 	"time"
 )
 
@@ -1054,7 +1055,14 @@ func (l *Logger) RecoveryTest(ctx context.Context, f RecoveryTestFacts) {
 	if f.State == "not_configured" || f.State == "never_run" {
 		result = ResultInfo
 	}
-	l.emitMarked(ctx, result.Level(), mark{result: result}, EventRecoveryTest, recoveryTestMessage(f.State),
+	msg := recoveryTestMessage(f.State)
+	if f.State == "passed" && builtinID(f.ValidatorID) {
+		// A pass under the product's own identity proves the file decodes, not
+		// that the operator's validator accepted it (#1111). The state field
+		// above still says passed.
+		msg = "recovered and readable: " + scrubText(f.Artifact) + " (built-in check)"
+	}
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventRecoveryTest, msg,
 		slog.String("artifact", f.Artifact),
 		slog.String("medium", f.Medium),
 		slog.Int64("placement_id", f.PlacementID),
@@ -1067,3 +1075,7 @@ func (l *Logger) RecoveryTest(ctx context.Context, f RecoveryTestFacts) {
 		slog.String("reason", scrubText(f.Reason)),
 	)
 }
+
+// builtinID says whether a validator id is the product's own built-in check
+// (config's reserved retnd- prefix, which obs cannot import).
+func builtinID(id string) bool { return strings.HasPrefix(id, "retnd-") }

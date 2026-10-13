@@ -62,6 +62,10 @@ export interface ClaimRecord {
   achievedClass: AchievedClass;
   /** RFC 3339. A pass without a timestamp is not a pass (claims.ts). */
   at?: string;
+  /** Which check stands behind a recovery pass (#1111): the operator's
+   *  validator, or the product's built-in structure check. Absent means the
+   *  server did not say, which renders as a validator pass as it always did. */
+  check?: "validator" | "builtin";
 }
 
 /** One copy whose last check did not pass, said about that copy and not

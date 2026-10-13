@@ -19,7 +19,27 @@ const (
 	RecoveryTestOff      = "off"
 	RecoveryTestRequired = "required"
 	RecoveryTestCustom   = "custom"
+
+	// RecoveryTestBuiltin schedules the product's own structure check (#1111):
+	// no validator, and never what required means.
+	RecoveryTestBuiltin = "builtin"
 )
+
+// builtin_check values (#1111): whether the built-in structure check may run
+// when no validator is declared.
+const (
+	BuiltinCheckStructure = "structure"
+	BuiltinCheckOff       = "off"
+)
+
+// ReservedValidatorPrefix begins every id the product itself uses for one of
+// its built-in checks. An operator's validator_id may not start with it, so
+// a stored verdict under such an id can only have come from the product.
+const ReservedValidatorPrefix = "retnd-"
+
+// IsReservedValidatorID is the one place the reserved-prefix rule lives
+// (recoverytest.IsBuiltin answers through it).
+func IsReservedValidatorID(id string) bool { return strings.HasPrefix(id, ReservedValidatorPrefix) }
 
 // Scrub strategies.
 const (
@@ -60,6 +80,10 @@ type AssuranceRecoveryTest struct {
 	Mode        string   `yaml:"mode,omitempty"`
 	Cadence     Duration `yaml:"cadence,omitempty"`
 	ValidatorID string   `yaml:"validator_id,omitempty"`
+
+	// BuiltinCheck is structure or off (#1111); empty is structure globally
+	// and inherits per set. It governs the manual test with every mode.
+	BuiltinCheck string `yaml:"builtin_check,omitempty"`
 }
 
 // RecoveryTestScriptName turns a recovery-test validator_id into the file
@@ -77,6 +101,9 @@ func RecoveryTestScriptName(id string) (string, error) {
 	}
 	if err := validValidatorID(id); err != nil {
 		return "", err
+	}
+	if IsReservedValidatorID(id) {
+		return "", fmt.Errorf("%q is not usable: ids beginning %s are the product's own built-in checks", id, ReservedValidatorPrefix)
 	}
 	if strings.HasSuffix(id, ".sh") {
 		return "", fmt.Errorf("%q is a file name; name the script without its .local.sh suffix", id)
@@ -140,8 +167,9 @@ func (b BackupSet) AssuranceIsOverride() bool { return b.AssuranceConfig != nil 
 // fixed order, for messages and for readers that render a chooser.
 var (
 	ScrubStrategies     = []string{ScrubStrategyAuto, ScrubStrategyExistence, ScrubStrategyContent}
-	GlobalRecoveryModes = []string{RecoveryTestOff, RecoveryTestRequired}
-	SetRecoveryModes    = []string{RecoveryTestInherit, RecoveryTestOff, RecoveryTestRequired, RecoveryTestCustom}
+	GlobalRecoveryModes = []string{RecoveryTestOff, RecoveryTestBuiltin, RecoveryTestRequired}
+	SetRecoveryModes    = []string{RecoveryTestInherit, RecoveryTestOff, RecoveryTestBuiltin, RecoveryTestRequired, RecoveryTestCustom}
+	BuiltinChecks       = []string{BuiltinCheckStructure, BuiltinCheckOff}
 )
 
 func containsString(list []string, s string) bool {
@@ -231,6 +259,15 @@ func (c *Config) resolveGlobalAssurance(v *validator) AssuranceDefaults {
 	if rt.Mode == RecoveryTestRequired && rt.ValidatorID == "" {
 		v.addf("%s.recovery_test.validator_id: mode required needs a validator; a recovery test with nothing to run proves only that the bytes came back", p)
 	}
+	rt.BuiltinCheck = b.RecoveryTest.BuiltinCheck
+	if rt.BuiltinCheck == "" {
+		rt.BuiltinCheck = BuiltinCheckStructure
+	}
+	if !containsString(BuiltinChecks, rt.BuiltinCheck) {
+		v.addf("%s.recovery_test.builtin_check: %q is not one of %v", p, rt.BuiltinCheck, BuiltinChecks)
+	} else if rt.Mode == RecoveryTestBuiltin && rt.BuiltinCheck == BuiltinCheckOff {
+		v.addf("%s.recovery_test: mode %s runs the built-in structure check, so builtin_check: %s refuses it; set builtin_check to %s or choose another mode", p, RecoveryTestBuiltin, BuiltinCheckOff, BuiltinCheckStructure)
+	}
 
 	out.StagingRoot = b.StagingRoot
 	if out.StagingRoot != "" && !filepath.IsAbs(out.StagingRoot) {
@@ -302,6 +339,16 @@ func resolveSetAssurance(v *validator, path string, o *AssuranceOverride, global
 			v.addf("%s: cadence and validator_id are only used when the mode is required or custom; remove them", rp)
 		}
 		out.RecoveryTest.Mode = RecoveryTestOff
+	case RecoveryTestBuiltin:
+		out.RecoveryTest.Mode = RecoveryTestBuiltin
+		if rt.ValidatorID != "" {
+			v.addf("%s.validator_id: mode %s runs no validator; remove it, or use mode required or custom", rp, RecoveryTestBuiltin)
+		}
+		out.RecoveryTest.ValidatorID = ""
+		if rt.Cadence != 0 {
+			checkCadence(v, rp+".cadence", rt.Cadence, MinRecoveryTestCadence)
+			out.RecoveryTest.Cadence = rt.Cadence
+		}
 	case RecoveryTestRequired:
 		if rt.Cadence != 0 {
 			v.addf("%s.cadence: mode required runs on the deployment's cadence; use mode custom for the set's own", rp)
@@ -324,6 +371,16 @@ func resolveSetAssurance(v *validator, path string, o *AssuranceOverride, global
 		out.RecoveryTest.ValidatorID = rt.ValidatorID
 	default:
 		v.addf("%s.mode: %q is not one of %v", rp, rt.Mode, SetRecoveryModes)
+	}
+	if rt.BuiltinCheck != "" {
+		if !containsString(BuiltinChecks, rt.BuiltinCheck) {
+			v.addf("%s.builtin_check: %q is not one of %v", rp, rt.BuiltinCheck, BuiltinChecks)
+		} else {
+			out.RecoveryTest.BuiltinCheck = rt.BuiltinCheck
+		}
+	}
+	if (rt.Mode == RecoveryTestBuiltin || rt.BuiltinCheck != "") && out.RecoveryTest.Mode == RecoveryTestBuiltin && out.RecoveryTest.BuiltinCheck == BuiltinCheckOff {
+		v.addf("%s: mode %s runs the built-in structure check, so builtin_check: %s refuses it; set builtin_check to %s or choose another mode", rp, RecoveryTestBuiltin, BuiltinCheckOff, BuiltinCheckStructure)
 	}
 	if rt.ValidatorID != "" {
 		if _, err := RecoveryTestScriptName(rt.ValidatorID); err != nil {
@@ -396,4 +453,12 @@ func (a Assurance) RecoveryTestInterval() time.Duration {
 		return d
 	}
 	return DefaultRecoveryTestCadence
+}
+
+// RecoveryTestScheduled reports whether the scheduler starts recovery tests
+// for this policy: mode required or custom (the operator's validator) or mode
+// builtin (the product's structure check). Only RecoveryTestEnabled says the
+// operator requires a validator's pass.
+func (a Assurance) RecoveryTestScheduled() bool {
+	return a.RecoveryTestEnabled() || a.RecoveryTest.Mode == RecoveryTestBuiltin
 }

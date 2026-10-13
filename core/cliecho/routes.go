@@ -1393,6 +1393,9 @@ var routes = map[string]entry{
 			if req.RecoveryTestValidatorID != nil {
 				c.flag("recovery-test-validator", *req.RecoveryTestValidatorID)
 			}
+			if req.RecoveryTestBuiltinCheck != nil {
+				c.flag("recovery-test-builtin-check", *req.RecoveryTestBuiltinCheck)
+			}
 			if req.StagingRoot != nil {
 				c.flag("staging-root", *req.StagingRoot)
 			}
@@ -1413,6 +1416,8 @@ var routes = map[string]entry{
 			{Body: []byte(`{"recovery_test_mode":"required","recovery_test_validator_id":"pg-restore-check","recovery_test_cadence_seconds":2592000}`)},
 			{Body: []byte(`{"staging_ttl_seconds":3600,"max_concurrent_full_reads":4,"max_per_destination":2}`)},
 			{Body: []byte(`{"scrub_cadence_seconds":0,"scrub_strategy":"","staging_root":"/var/lib/retnd/staging"}`)},
+			{Body: []byte(`{"recovery_test_mode":"builtin","recovery_test_cadence_seconds":2592000}`)},
+			{Body: []byte(`{"recovery_test_builtin_check":"off"}`)},
 		},
 	},
 	key("GET", "/backup-sets/{source}/{set}/assurance"): {
@@ -1440,6 +1445,9 @@ var routes = map[string]entry{
 			}
 			if req.RecoveryTestValidatorID != nil {
 				c.flag("recovery-test-validator", *req.RecoveryTestValidatorID)
+			}
+			if req.RecoveryTestBuiltinCheck != nil {
+				c.flag("recovery-test-builtin-check", *req.RecoveryTestBuiltinCheck)
 			}
 			return c
 		},

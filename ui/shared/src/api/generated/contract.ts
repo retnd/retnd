@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "419d2a696ea18ab123f55aed3b228af4cd0842c2329f9c0426e2a35a6399d4f4";
+export const CONTRACT_SHA256 = "272316648514052df34fc015038dd7eccab5cda29c29b5588357ecbb43315f8f";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -2519,7 +2519,10 @@ export interface WireAssuranceOperationCancelled {
 
 /** A resolved recovery-test policy. */
 export interface WireAssuranceRecoveryTestPolicy {
+  builtin_check?: "structure" | "off";
   cadence_seconds?: number;
+  effective_check?: "validator" | "builtin" | "none";
+  effective_check_reason?: string;
   mode?: string;
   validator_declared?: boolean;
   validator_id?: string;
@@ -3540,8 +3543,9 @@ export interface WirePlacement {
   location: string;
   medium: string;
   medium_type: "local" | "s3";
+  recovery_check?: "validator" | "builtin";
   recovery_failure_reason?: string;
-  recovery_state?: "not_configured" | "never_run" | "passed" | "overdue" | "failed" | "refused_for_cost" | "could_not_complete";
+  recovery_state?: "not_configured" | "never_run" | "passed" | "readable" | "overdue" | "failed" | "refused_for_cost" | "could_not_complete";
   recovery_tested_at?: string;
   size_bytes?: number;
   status: "ACTIVE" | "DELETE_PENDING";
@@ -4615,6 +4619,7 @@ export interface WireUnregisteredBackend {
 export interface WireUpdateAssuranceSettingsRequest {
   max_concurrent_full_reads?: number;
   max_per_destination?: number;
+  recovery_test_builtin_check?: string;
   recovery_test_cadence_seconds?: number;
   recovery_test_mode?: string;
   recovery_test_validator_id?: string;
@@ -4629,6 +4634,7 @@ export interface WireUpdateAssuranceSettingsRequest {
  *  again. Clearing every field is the same as a reset. A body that
  *  names nothing is refused. */
 export interface WireUpdateBackupSetAssuranceRequest {
+  recovery_test_builtin_check?: string;
   recovery_test_cadence_seconds?: number;
   recovery_test_mode?: string;
   recovery_test_validator_id?: string;

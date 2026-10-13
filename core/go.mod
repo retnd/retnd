@@ -4,6 +4,7 @@ go 1.27.0
 
 require (
 	github.com/google/uuid v1.6.0
+	github.com/klauspost/compress v1.19.0
 	github.com/kopia/kopia v0.23.1
 	github.com/rclone/rclone v1.75.1
 	golang.org/x/crypto v0.57.0
@@ -70,7 +71,6 @@ require (
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-retryablehttp v0.7.8 // indirect
 	github.com/jzelinskie/whirlpool v0.0.0-20201016144138-0675e54bb004 // indirect
-	github.com/klauspost/compress v1.19.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/klauspost/crc32 v1.3.0 // indirect
 	github.com/klauspost/pgzip v1.2.6 // indirect
