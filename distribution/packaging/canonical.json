@@ -347,7 +347,7 @@
         "sshKey": "/volume1/docker/retnd/secrets/id_ed25519",
         "knownHosts": "/volume1/docker/retnd/secrets/known_hosts"
       },
-      "hostPathNote": "These are the CONTAINER MANAGER project's paths (issue #169), not the .spk's. The .spk keeps its state under the DSM package FHS at /var/packages/Backupd/{etc,var} and is untouched by this entry; the two are alternative ways to install the same release on the same NAS, and apps/synology/README.md says which to pick. /volume1/docker is Container Manager's own default project location and /volume1/retnd is the shared folder the .spk's data-share worker already asks DSM for, so an operator who has run either one recognises both. Substitute your own volume number.",
+      "hostPathNote": "These are the CONTAINER MANAGER project's paths (issue #169), not the .spk's. The .spk keeps its state under the DSM package FHS at /var/packages/retnd/{etc,var} and is untouched by this entry; the two are alternative ways to install the same release on the same NAS, and apps/synology/README.md says which to pick. /volume1/docker is Container Manager's own default project location and /volume1/retnd is the shared folder the .spk's data-share worker already asks DSM for, so an operator who has run either one recognises both. Substitute your own volume number.",
       "profile": "synology",
       "derivesFrom": {
         "source": "container/compose.yaml",

@@ -69,7 +69,7 @@ const RemovalRelease = "the release after the one that renames this product"
 //
 // The name is the part a refusal needs. A gate that cannot parse what it
 // was handed has to name the variable the operator actually set, not the
-// one this release prefers: "RM_OLD_NAME=ture is not a
+// one this release prefers: "ENVCOMPAT_TEST_X=ture is not a
 // value this gate understands" is actionable, and the same sentence
 // naming RETND_INCREMENTAL_ENGINE sends them looking for a variable that
 // is not in their compose file.

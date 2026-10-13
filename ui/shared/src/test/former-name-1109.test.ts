@@ -1,6 +1,10 @@
 /**
  * Issue #1109: the project's former name is gone from the UI, the
- * Synology package and the UGOS / generic / Proxmox frontends.
+ * Synology package and the provider frontends.
+ *
+ * This file only reads ui/shared: core never reaches into a provider tree
+ * (the provider-removal conformance check fails on it). The provider
+ * directories are covered by scripts/rename/check-no-former-name.sh.
  *
  * The name is built from pieces on purpose. A literal here would make this
  * file the one place the sweep it asserts cannot reach.
@@ -27,16 +31,6 @@ const uiSources = import.meta.glob("../**/*.{ts,tsx,css,json,html}", {
   eager: true
 }) as Record<string, string>;
 
-const appSources = import.meta.glob(
-  [
-    "../../../../apps/ugos/frontend/**/*",
-    "../../../../apps/generic/frontend/**/*",
-    "../../../../apps/proxmox/frontend/**/*",
-    "../../../../apps/synology/frontend/**/*"
-  ],
-  { query: "?raw", import: "default", eager: true }
-) as Record<string, string>;
-
 function offenders(sources: Record<string, string>): string[] {
   const out: string[] = [];
   for (const [path, text] of Object.entries(sources)) {
@@ -50,15 +44,10 @@ function offenders(sources: Record<string, string>): string[] {
 describe("#1109 the former name is gone", () => {
   it("scans a real set of files, so an empty glob cannot pass", () => {
     expect(Object.keys(uiSources).length).toBeGreaterThan(100);
-    expect(Object.keys(appSources).length).toBeGreaterThan(0);
   });
 
   it("is not in any file under ui/shared/src", () => {
     expect(offenders(uiSources)).toEqual([]);
-  });
-
-  it("is not in the ugos, generic, proxmox or synology frontends", () => {
-    expect(offenders(appSources)).toEqual([]);
   });
 
   it("the occurrence rule itself still recognises each spelling", () => {

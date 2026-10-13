@@ -593,6 +593,10 @@ excluded_paths=(
   ':!**/node_modules/**'
   ':!provenance/**'
   ':!core/apicontract/contract.gen.go'
+  # Applied migrations are sha256-pinned (state/migrate.go, ErrSchemaDrift), so
+  # a comment in one cannot be reworded; this is the one file that still holds
+  # the previous name, and check-no-former-name.sh allowlists the same path.
+  ':!core/migrations/0012_workflow_runs.sql'
   ':!ui/shared/src/api/generated/**'
   ':!scripts/rename/check-brand-drift.sh'
   ':!scripts/rename/selftest.sh'
