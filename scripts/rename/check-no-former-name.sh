@@ -53,7 +53,15 @@ former_low="${stem_low}${tail_low}"
 # ([^a-z]|$).
 re="(${former_up}|(${former_cap_low}|${former_cap_up}|${former_low})([^a-z]|\$))"
 
-hits="$(git grep -n -I -E -- "$re" -- . || true)"
+# The ONE exception. core/migrations/0012_workflow_runs.sql carries the name in
+# a comment, and that file is sha256-pinned in three places (migrate.go's
+# ErrSchemaDrift check, migrationimmutability_test.go and
+# migrationanchor_test.go), so editing it would brick every existing database.
+# Allowlisted by its exact path and nothing else: no glob, no directory, so a
+# new migration or a copy of the file elsewhere is still scanned.
+frozen_migration="core/migrations/0012_workflow_runs.sql"
+
+hits="$(git grep -n -I -E -- "$re" -- . ":!${frozen_migration}" || true)"
 
 if [ -n "$hits" ]; then
   echo "check-no-former-name: FAILED: the previous product name is still in the tree (#1109):" >&2

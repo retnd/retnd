@@ -163,6 +163,23 @@ printf '\000\001%s\000' "$former_up" >"$tree/blob.bin"
 (cd "$tree" && git add -A && git -c user.email=s@example.invalid -c user.name=s commit -q -m bin)
 green "a binary file containing the name is skipped" "$tree"
 
+# The one frozen migration is allowlisted by exact path, and only that path.
+tree="$(new_repo)"
+commit "$tree" core/migrations/0012_workflow_runs.sql "-- ${former_cap_low} comment in a hash-pinned file"
+green "the sha256-pinned migration is allowlisted" "$tree"
+
+tree="$(new_repo)"
+commit "$tree" core/migrations/0013_other.sql "-- ${former_cap_low}"
+red "a different migration is not allowlisted" "$tree" "core/migrations/0013_other.sql:1"
+
+tree="$(new_repo)"
+commit "$tree" docs/core/migrations/0012_workflow_runs.sql "-- ${former_cap_low}"
+red "the same file name under another directory is not allowlisted" "$tree" "docs/core/migrations/0012_workflow_runs.sql:1"
+
+tree="$(new_repo)"
+commit "$tree" core/migrations/0012_workflow_runs.sql.bak "-- ${former_cap_low}"
+red "a sibling of the pinned file is not allowlisted" "$tree" "0012_workflow_runs.sql.bak:1"
+
 # The look-alikes: real identifiers that begin with the same letters.
 tree="$(new_repo)"
 commit "$tree" ui/pages.tsx 'export function BackupDetailPage() {}
