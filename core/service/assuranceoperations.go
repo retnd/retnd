@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/retnd/retnd/core/internal/recoverytest"
 	"sync"
 	"time"
 
@@ -245,6 +246,9 @@ func (b *BackupService) RecoveryTestOutput(ctx context.Context, id string) (Reco
 		return out, nil
 	}
 	out.Recorded, out.OperationID, out.ArtifactID, out.Medium, out.State = true, stored.OperationID, stored.Artifact, stored.Medium, stored.State
+	if recoverytest.RecordsAreBuiltin(stored.Records) {
+		out.State = WireRecoveryState(stored.State, recoverytest.BuiltinValidatorID)
+	}
 	out.RecordedAt, out.Truncated = stored.RecordedAt, stored.Truncated
 	for _, r := range stored.Records {
 		out.Records = append(out.Records, RecoveryTestOutputRecord{Kind: r.Kind, Text: r.Text})

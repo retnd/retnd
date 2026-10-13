@@ -7,7 +7,7 @@
 // Nothing reports it: the process starts, the variable the operator set
 // is not the variable the process reads, and the setting reverts to its
 // default. A deployment that was running with the incremental engine
-// turned on by BACKUPD_INCREMENTAL_ENGINE=1 comes back up with the engine
+// turned on by an old-named variable comes back up with the engine
 // off, and the only evidence is the behaviour the operator turned the
 // knob to change. EPIC R (#885) classifies every renamed runtime
 // identifier by exactly that question (FR-37), and this is the mechanism
@@ -69,7 +69,7 @@ const RemovalRelease = "the release after the one that renames this product"
 //
 // The name is the part a refusal needs. A gate that cannot parse what it
 // was handed has to name the variable the operator actually set, not the
-// one this release prefers: "BACKUPD_INCREMENTAL_ENGINE=ture is not a
+// one this release prefers: "ENVCOMPAT_TEST_X=ture is not a
 // value this gate understands" is actionable, and the same sentence
 // naming RETND_INCREMENTAL_ENGINE sends them looking for a variable that
 // is not in their compose file.
@@ -140,7 +140,7 @@ func Value(r Rename) string {
 // means anything under any spelling. Precedence would be the wrong rule
 // there and would be a behaviour change rather than a rename -- an
 // operator whose compose file says RETND_DEBUG=true (a typo; only "1"
-// counts) and whose unit still says BACKUPD_DEBUG=1 has asked for debug
+// counts) and whose unit still says RM_DEBUG=1 has asked for debug
 // twice, and Which would answer "the current name says `true`, which is
 // not `1`, so no". EPIC R renames things; it does not change what a
 // deployment does (spec §1).

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/lifecycle"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/state"
@@ -457,6 +458,13 @@ func recoveryUnmet(records []state.Record, now time.Time) (reason, kind string) 
 	}
 	switch copy_.RecoveryState {
 	case state.RecoveryPassed:
+		// A pass under the product's own identity is the built-in structure
+		// check reading the file (#1111). It proves the file decodes, not that
+		// the operator's validator accepted it, which is what "required"
+		// means, so it never satisfies the requirement.
+		if config.IsReservedValidatorID(copy_.RecoveryValidatorID) {
+			return "the last pass was the built-in structure check, not a validator", recoveryNever
+		}
 		if copy_.RecoveryNextDueAt != nil && !copy_.RecoveryNextDueAt.After(now) {
 			return "the last pass is overdue", recoveryLapsed
 		}

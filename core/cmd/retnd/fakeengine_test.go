@@ -1163,15 +1163,16 @@ func (e *fakeEngine) updateAssuranceSettings(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	s, err := e.svc.UpdateAssuranceSettings(r.Context(), service.UpdateAssuranceSettingsRequest{
-		ScrubCadence:            durationFromSeconds(body.ScrubCadenceSeconds),
-		ScrubStrategy:           body.ScrubStrategy,
-		RecoveryTestMode:        body.RecoveryTestMode,
-		RecoveryTestCadence:     durationFromSeconds(body.RecoveryTestCadenceSeconds),
-		RecoveryTestValidatorID: body.RecoveryTestValidatorID,
-		StagingRoot:             body.StagingRoot,
-		StagingTTL:              durationFromSeconds(body.StagingTtlSeconds),
-		MaxConcurrentFullReads:  intFromInt64(body.MaxConcurrentFullReads),
-		MaxPerDestination:       intFromInt64(body.MaxPerDestination),
+		ScrubCadence:             durationFromSeconds(body.ScrubCadenceSeconds),
+		ScrubStrategy:            body.ScrubStrategy,
+		RecoveryTestMode:         body.RecoveryTestMode,
+		RecoveryTestCadence:      durationFromSeconds(body.RecoveryTestCadenceSeconds),
+		RecoveryTestValidatorID:  body.RecoveryTestValidatorID,
+		RecoveryTestBuiltinCheck: body.RecoveryTestBuiltinCheck,
+		StagingRoot:              body.StagingRoot,
+		StagingTTL:               durationFromSeconds(body.StagingTtlSeconds),
+		MaxConcurrentFullReads:   intFromInt64(body.MaxConcurrentFullReads),
+		MaxPerDestination:        intFromInt64(body.MaxPerDestination),
 	})
 	if err != nil {
 		refuseServiceError(w, "updateAssuranceSettings", err)
@@ -1201,11 +1202,12 @@ func (e *fakeEngine) backupSetAssurance(w http.ResponseWriter, r *http.Request, 
 			return
 		}
 		got, err = e.svc.UpdateBackupSetAssurance(r.Context(), id, service.UpdateBackupSetAssuranceRequest{
-			ScrubCadence:            durationFromSeconds(body.ScrubCadenceSeconds),
-			ScrubStrategy:           body.ScrubStrategy,
-			RecoveryTestMode:        body.RecoveryTestMode,
-			RecoveryTestCadence:     durationFromSeconds(body.RecoveryTestCadenceSeconds),
-			RecoveryTestValidatorID: body.RecoveryTestValidatorID,
+			ScrubCadence:             durationFromSeconds(body.ScrubCadenceSeconds),
+			ScrubStrategy:            body.ScrubStrategy,
+			RecoveryTestMode:         body.RecoveryTestMode,
+			RecoveryTestCadence:      durationFromSeconds(body.RecoveryTestCadenceSeconds),
+			RecoveryTestValidatorID:  body.RecoveryTestValidatorID,
+			RecoveryTestBuiltinCheck: body.RecoveryTestBuiltinCheck,
 		})
 	default:
 		refuse(w, http.StatusMethodNotAllowed, apicontract.ErrorCodeInternal, "this fake engine serves no "+r.Method+" on a set's assurance")

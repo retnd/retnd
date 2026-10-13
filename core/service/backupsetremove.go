@@ -11,7 +11,7 @@
 // contract the Web UI's own confirmation dialog has been promising since
 // before this operation existed:
 //
-//	Backupd will stop collecting backups for <name>.
+//	retnd will stop collecting backups for <name>.
 //	<n> retained backups (<size>) stay on NAS storage and remain listed
 //	under Backups.
 //

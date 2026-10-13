@@ -53,6 +53,7 @@ type assuranceFlags struct {
 	rtMode        *string
 	rtCadence     *time.Duration
 	rtValidator   *string
+	rtBuiltin     *string
 	stagingRoot   *string
 	stagingTTL    *time.Duration
 	maxFullReads  *int
@@ -62,7 +63,7 @@ type assuranceFlags struct {
 
 // setScopeAssuranceFlags are the flags a backup set may carry. The rest are
 // global only, and the per-set answer to each is no (see service.AssuranceHostKnob).
-var setScopeAssuranceFlags = []string{"scrub-cadence", "scrub-strategy", "recovery-test-mode", "recovery-test-cadence", "recovery-test-validator"}
+var setScopeAssuranceFlags = []string{"scrub-cadence", "scrub-strategy", "recovery-test-mode", "recovery-test-cadence", "recovery-test-validator", "recovery-test-builtin-check"}
 
 var globalOnlyAssuranceFlags = []string{"staging-root", "staging-ttl", "max-concurrent-full-reads", "max-per-destination"}
 
@@ -70,9 +71,10 @@ func declareAssuranceFlags(fs *flag.FlagSet) assuranceFlags {
 	return assuranceFlags{
 		scrubCadence:  fs.Duration("scrub-cadence", 0, "how long after a copy was last assured it is next due, e.g. 168h. Zero clears it back to the default; under 1h is refused"),
 		scrubStrategy: fs.String("scrub-strategy", "", "what a scrub reads: auto, existence or content. Empty clears it"),
-		rtMode:        fs.String("recovery-test-mode", "", "off, required, or (per set only) inherit or custom. Empty clears it. required needs a validator"),
+		rtMode:        fs.String("recovery-test-mode", "", "off, builtin, required, or (per set only) inherit or custom. Empty clears it. required needs a validator; builtin runs the product's own structure check on the cadence and needs none"),
 		rtCadence:     fs.Duration("recovery-test-cadence", 0, "how often a recovery test is due, e.g. 720h. Per set, only with mode custom. Zero clears it"),
 		rtValidator:   fs.String("recovery-test-validator", "", "the recovery-test script to run, by file name without .local.sh and never a path. Empty clears it"),
+		rtBuiltin:     fs.String("recovery-test-builtin-check", "", "structure or off: whether the built-in structure check may run when no validator is declared. Empty clears it back to structure"),
 		stagingRoot:   fs.String("staging-root", "", "global only: where recovered copies are staged; an absolute path. Empty returns to the directory beside the state database"),
 		stagingTTL:    fs.Duration("staging-ttl", 0, "global only: how long a staged leftover survives. Zero clears it to the default"),
 		maxFullReads:  fs.Int("max-concurrent-full-reads", 0, "global only: the ceiling on full reads running at once. Zero clears it"),
@@ -95,6 +97,8 @@ func assuranceSetRequest(fs *flag.FlagSet, f assuranceFlags) service.UpdateBacku
 			req.RecoveryTestCadence = f.rtCadence
 		case "recovery-test-validator":
 			req.RecoveryTestValidatorID = f.rtValidator
+		case "recovery-test-builtin-check":
+			req.RecoveryTestBuiltinCheck = f.rtBuiltin
 		}
 	})
 	return req
@@ -114,6 +118,8 @@ func assuranceGlobalRequest(fs *flag.FlagSet, f assuranceFlags) service.UpdateAs
 			req.RecoveryTestCadence = f.rtCadence
 		case "recovery-test-validator":
 			req.RecoveryTestValidatorID = f.rtValidator
+		case "recovery-test-builtin-check":
+			req.RecoveryTestBuiltinCheck = f.rtBuiltin
 		case "staging-root":
 			req.StagingRoot = f.stagingRoot
 		case "staging-ttl":
@@ -131,7 +137,7 @@ func secs(d time.Duration) int64 { return int64(d / time.Second) }
 
 func assurancePolicyWire(p service.AssurancePolicy) (apicontract.AssuranceScrubPolicy, apicontract.AssuranceRecoveryTestPolicy) {
 	return apicontract.AssuranceScrubPolicy{CadenceSeconds: secs(p.Scrub.Cadence), Strategy: p.Scrub.Strategy},
-		apicontract.AssuranceRecoveryTestPolicy{CadenceSeconds: secs(p.RecoveryTest.Cadence), Mode: p.RecoveryTest.Mode, ValidatorID: p.RecoveryTest.ValidatorID}
+		apicontract.AssuranceRecoveryTestPolicy{CadenceSeconds: secs(p.RecoveryTest.Cadence), Mode: p.RecoveryTest.Mode, ValidatorID: p.RecoveryTest.ValidatorID, BuiltinCheck: p.RecoveryTest.BuiltinCheck}
 }
 
 func assuranceSettingsWire(s service.AssuranceSettings) apicontract.AssuranceSettingsResponse {
@@ -149,6 +155,13 @@ func assuranceSettingsWire(s service.AssuranceSettings) apicontract.AssuranceSet
 
 func backupSetAssuranceWire(s service.BackupSetAssurance) apicontract.BackupSetAssurance {
 	scrub, rt := assurancePolicyWire(s.Policy)
+	// validator_declared belongs to a set's answer: the deployment-wide policy
+	// has no set to look in and leaves it out.
+	declared := s.ValidatorDeclared
+	rt.ValidatorDeclared = &declared
+	// The same dry decision POST /recovery-test makes first (#1111). Like
+	// validator_declared it is a set's answer only.
+	rt.EffectiveCheck, rt.EffectiveCheckReason = s.EffectiveCheck, s.EffectiveCheckReason
 	return apicontract.BackupSetAssurance{BackupSetID: s.BackupSetID, IsOverride: s.Override, RecoveryTest: rt, Scrub: scrub}
 }
 
@@ -161,7 +174,7 @@ func orDash(s string) string {
 
 func printAssurancePolicy(p service.AssurancePolicy) {
 	fmt.Printf("  scrub: every %s, strategy %s\n", p.Scrub.Cadence, p.Scrub.Strategy)
-	fmt.Printf("  recovery test: %s, every %s, validator %s\n", p.RecoveryTest.Mode, p.RecoveryTest.Cadence, orDash(p.RecoveryTest.ValidatorID))
+	fmt.Printf("  recovery test: %s, every %s, validator %s, built-in check %s\n", p.RecoveryTest.Mode, p.RecoveryTest.Cadence, orDash(p.RecoveryTest.ValidatorID), orDash(p.RecoveryTest.BuiltinCheck))
 }
 
 func printAssuranceSettings(s service.AssuranceSettings) {

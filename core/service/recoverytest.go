@@ -69,6 +69,12 @@ type RecoveryTestOutcome struct {
 	ValidatorID  string
 	CleanupState string
 	Reason       string
+
+	// Check is "builtin" when the product's structure check produced the
+	// verdict, empty for the operator's validator. CheckFormat is the one
+	// line account of what the built-in read (#1111).
+	Check       string
+	CheckFormat string
 }
 
 // RecoveryTestStarted is what starting a test returns at once. The test runs
@@ -115,8 +121,9 @@ func (b *BackupService) runRecoveryTest(ctx context.Context, set model.BackupSet
 	}
 	r := res.Result
 	out.Artifact, out.Medium = r.Artifact.String(), r.Medium
-	out.State, out.DigestMatched = r.State, r.DigestMatched
+	out.State, out.DigestMatched = WireRecoveryState(r.State, r.ValidatorID), r.DigestMatched
 	out.ValidatorID, out.CleanupState, out.Reason = r.ValidatorID, r.CleanupState, r.Reason
+	out.Check, out.CheckFormat = r.Check, r.CheckFormat
 	return out, nil
 }
 

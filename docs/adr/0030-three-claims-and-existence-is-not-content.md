@@ -49,6 +49,26 @@ to prevent: nothing is green because nobody looked.
    existing untrusted-subprocess boundary. Reachability (a HEAD, a listing, a resolving URL, a
    completed thaw) is never a pass. A validator that exits 0 without opening the file does not
    produce one, because the digest gate is what the pass is recorded against.
+
+   *Addendum (issue 1111): a built-in structure check when no validator is declared.* A set
+   that declares no validator can still be recovery tested. After the same recovery and digest
+   gate, the engine reads the recovered file end to end in its own process as gzip, zstd or
+   tar (and tar inside either), verifying every integrity field the format carries, and
+   discards what it decodes. Its outcome is stored as `passed` under the reserved check
+   identity `retnd-builtin-structure`, because a new stored state would be a table rebuild
+   that the compatibility rule forbids, so there is no schema change. Everywhere it leaves the
+   engine (API, CLI, stored output, chip) the one conversion point reports it as `readable`
+   and renders it **Recovered, readable**, so on the wire `passed` only ever means a
+   validator accepted the copy. A declared validator always runs instead of it, and a declared
+   validator that is missing is still `could_not_complete` and never falls back. A built-in
+   result never satisfies `mode: required` or `custom`, which still need a `validator_id`.
+   `assurance.recovery_test.mode` gains `builtin`, globally and per set, which runs the check
+   on the cadence; `off` and `inherit` never run it on a schedule, and `mode: builtin` with
+   `builtin_check: off` is refused when the configuration loads. The prefix `retnd-` is
+   reserved for validator ids and refused at config load, which is a one-way door: once an
+   id space is claimed it cannot be given back without breaking whoever relied on it. A file
+   type with no reader is refused before staging as `not_configured`, naming the type.
+   Nothing here moves the scrub's content claim.
 5. **Journal truth stays journal truth.** A scrub's work list is `placements` rows, and a
    destination listing is only ever evidence about a row, never a source of rows.
 6. **One vocabulary for two engines.** An `engine: kopia` set already has a verification

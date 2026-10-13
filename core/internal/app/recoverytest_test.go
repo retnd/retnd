@@ -164,7 +164,7 @@ func TestRecoveryTest_TheValidatorIsAskedAsALocalSingleScriptStageAndHandedTheMa
 		t.Errorf("variables = %v", req.Vars)
 	}
 	for name := range req.Vars {
-		if strings.HasPrefix(name, "RETND_") || strings.HasPrefix(name, "BACKUPD_") {
+		if strings.HasPrefix(name, "RETND_") {
 			t.Errorf("the request sets %s, which is the product's own namespace", name)
 		}
 	}

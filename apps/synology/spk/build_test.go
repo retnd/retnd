@@ -29,8 +29,8 @@ import (
 // pkg_make_spk produces: "<package>-<arch>-<version>.spk".
 func TestBuild_NamesTheArtifactTheWayTheToolkitDoes(t *testing.T) {
 	for _, tc := range []struct{ goarch, want string }{
-		{"amd64", "Backupd-x86_64-1.0.0-1.spk"},
-		{"arm64", "Backupd-armv8-1.0.0-1.spk"},
+		{"amd64", "retnd-x86_64-1.0.0-1.spk"},
+		{"arm64", "retnd-armv8-1.0.0-1.spk"},
 	} {
 		t.Run(tc.goarch, func(t *testing.T) {
 			path, _ := buildFixture(t, tc.goarch)

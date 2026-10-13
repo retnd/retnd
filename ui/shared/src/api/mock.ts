@@ -60,7 +60,8 @@ import type {
   SystemHealth,
   VersionInfo
 } from "@shared/types/operation";
-import { assuranceLiveEvents, assuranceUnfinished, createMockAssurance, createMockRecovery, overlayAssurance, overlayThaw } from "@shared/assurance/mockAssurance";
+import { createMockRecoverMany } from "@shared/assurance/mockRecoverMany";
+import { BUILTIN_ARTIFACT, assuranceLiveEvents, assuranceUnfinished, createMockAssurance, createMockRecovery, overlayAssurance, overlayThaw } from "@shared/assurance/mockAssurance";
 import { createHttpAssurance } from "@shared/assurance/realAssurance";
 import type { DeploymentActivity, SetActivity, SetActivityEvent } from "@shared/types/activity";
 
@@ -74,6 +75,13 @@ import type { DeploymentActivity, SetActivity, SetActivityEvent } from "@shared/
 
 export type Scenario =
   | "default"
+  // Issue #1107: thirty more backups across three sets and thirty days, so a
+  // filter has something to narrow and a select-all has something to count.
+  // The "-corrupt" flavour makes one of them fail its digest on recovery, and
+  // the "-nospace" one has a staging disk too small for the selection.
+  | "backups-many"
+  | "backups-many-corrupt"
+  | "backups-many-nospace"
   | "empty"
   | "storage-critical"
   | "catalog-recovery"
@@ -123,7 +131,30 @@ export type Scenario =
   | "assurance-reads-busy"
   | "assurance-corrupt-copy"
   // How a browser download ended, as three artifacts' feed rows (item 14).
-  | "assurance-download-outcomes";
+  | "assurance-download-outcomes"
+  // A set that declares no recovery-test validator: the run is refused.
+  | "assurance-no-validator"
+  // #1111: no validator declared, the newest copy is a .tar.zst, and the
+  // built-in structure check runs; the manual run ends "readable".
+  | "assurance-builtin-check"
+  // #1106: Recover this backup set. The fixture sets are presented as
+  // artifact sets and the mock host recovers a file every 700ms (2.5s when
+  // slow), so a spec can watch the total and press Cancel. "recover" gives the
+  // postgres set history to recover; "nospace" has a staging disk too small
+  // for it; "corrupt" has its second file fail its digest; "slow" is the one
+  // to cancel.
+  | "assurance-set-recover"
+  | "assurance-set-nospace"
+  | "assurance-set-corrupt"
+  | "assurance-set-slow"
+  // Issue #1115: the docked terminal's level toggles. "dock-no-warnings" is
+  // the default feed with its one warning taken out, so the Warnings count is
+  // zero and must be shown disabled. "dock-live-line" is the default feed, and
+  // once a spec sets sessionStorage "retnd.mock.dock.live" a warning and a
+  // plain note arrive on the next poll, which is how a spec watches a new line
+  // meet an active filter.
+  | "dock-no-warnings"
+  | "dock-live-line";
 
 /** Reads the scenario out of the URL, falling back to the default for
  *  anything unrecognised. A closed allow-list rather than a cast, so a
@@ -140,7 +171,9 @@ export function scenarioFromLocation(): Scenario {
     "assurance-no-operations", "assurance-cleanup-fails", "assurance-recovery-overdue",
     "assurance-snapshot-set", "assurance-too-many-grants", "assurance-grant-expired",
     "assurance-grant-used", "assurance-session-ended", "assurance-staging-full",
-    "assurance-reads-busy", "assurance-corrupt-copy", "assurance-download-outcomes"
+    "assurance-reads-busy", "assurance-corrupt-copy", "assurance-download-outcomes",
+    "assurance-set-recover", "assurance-set-nospace", "assurance-set-corrupt", "assurance-set-slow",
+    "backups-many", "backups-many-corrupt", "backups-many-nospace", "dock-no-warnings", "dock-live-line", "assurance-no-validator", "assurance-builtin-check"
   ];
   return (allowed as string[]).includes(s ?? "") ? (s as Scenario) : "default";
 }
@@ -627,6 +660,43 @@ const ARTIFACTS: BackupArtifact[] = [
     ]
   }
 ];
+
+/**
+ * Issue #1107: thirty generated backups, one a day from 2026-08-01, rotating
+ * through three sets, each with one readable local copy. The names carry the
+ * set and the day so a spec can say exactly which rows a filter must keep.
+ */
+const MANY_SETS = [
+  { id: "production/postgres-primary", name: "Production PostgreSQL" },
+  { id: "production/billing-mysql", name: "Billing MySQL" },
+  { id: "production/auth-config", name: "Auth service config" }
+];
+const MANY_GENERATED: BackupArtifact[] = Array.from({ length: 30 }, (_, i) => {
+  const set = MANY_SETS[i % 3];
+  const day = String(i + 1).padStart(2, "0");
+  const filename = set.id.split("/")[1] + "-202608" + day + ".bak";
+  const at = "2026-08-" + day + "T02:00:00+02:00";
+  const size = (i + 1) * 1_000_000;
+  const local = "/data/backups/" + set.id + "/2026/08/" + filename;
+  return {
+    id: set.id + "/" + filename,
+    setId: set.id, setName: set.name, filename,
+    remoteOriginalPath: "prod-01:/backups/" + filename,
+    localPath: local,
+    producedAt: at, receivedAt: at,
+    sizeBytes: size,
+    checksum: String(i).padStart(2, "0").repeat(32),
+    checksumAlgorithm: "sha256", state: "COMPLETE", validation: "verified",
+    retentionClasses: ["daily"], retentionPolicy: "configured",
+    remoteSourceRemovedAt: at, quarantine: null,
+    placements: [
+      {
+        medium: "local", mediumType: "local", location: local, sizeBytes: size, storageClass: "",
+        verificationClass: "content", verifiedAt: at, access: "immediate", status: "ACTIVE"
+      }
+    ]
+  } as BackupArtifact;
+});
 
 // Two operations, chosen to exercise both answers the real API can give:
 // one that is executing and reporting a live reading, and one that is
@@ -2934,7 +3004,7 @@ function defaultAssuranceSettings(): AssuranceSettings {
   return {
     configured: false,
     scrub: { cadenceSeconds: 7 * 24 * 3600, strategy: "auto" },
-    recoveryTest: { mode: "off", cadenceSeconds: 30 * 24 * 3600, validatorId: "" },
+    recoveryTest: { mode: "off", cadenceSeconds: 30 * 24 * 3600, validatorId: "", builtinCheck: "structure" },
     stagingRoot: "/var/lib/retnd/recovery-staging",
     stagingTtlSeconds: 24 * 3600,
     maxConcurrentFullReads: 2,
@@ -3749,6 +3819,25 @@ function mockEnvUnset(
   return { backupSetId: scope, variables: structuredClone(next) };
 }
 
+/** assurance-builtin-check (#1111): the newest backup of the PostgreSQL set is
+ *  a single local .tar.zst copy, a type the built-in structure check reads. */
+const BUILTIN_ARTIFACT_FIXTURE: BackupArtifact = {
+  ...ARTIFACTS[0],
+  id: BUILTIN_ARTIFACT,
+  filename: "postgres-prod-20260829.tar.zst",
+  remoteOriginalPath: "prod-db-01:/backups/postgresql/postgres-prod-20260829.tar.zst",
+  localPath: "/data/backups/production/postgres/2026/08/postgres-prod-20260829.tar.zst",
+  producedAt: "2026-08-29T01:58:44+02:00", receivedAt: "2026-08-29T02:00:53+02:00",
+  checksum: "9a1c4e7b2d6f08351e92ab47c3d5f6018b2e4a7d9c1f30586e2b4d7a91c3e5f0",
+  placements: [{
+    medium: "local", mediumType: "local",
+    location: "/data/backups/production/postgres/2026/08/postgres-prod-20260829.tar.zst",
+    sizeBytes: 15246903296, storageClass: "",
+    verificationClass: "content", verifiedAt: "2026-08-29T02:00:59+02:00",
+    access: "immediate", status: "ACTIVE"
+  }]
+};
+
 /**
  * A whole RetndApi, in memory, for one scenario.
  *
@@ -3766,6 +3855,14 @@ function mockEnvUnset(
  * disturbing the one under test build a second mock rather than sharing.
  */
 export function createMockApi(scenario: Scenario = "default", options: { wire?: boolean } = {}): RetndApi {
+  // #1106: Recover this backup set is for artifact-engine sets, and every
+  // fixture set but one is incremental. The recover-set scenarios present the
+  // fixture sets as artifact sets (the mock host's recoverMany holds the rows);
+  // the default scenario keeps the incremental ones, which is how the
+  // snapshot-restore branch of the dialog is reached.
+  if (scenario.startsWith("assurance-set-")) {
+    for (const s of SETS) { s.engine = "artifact"; s.incremental = null; }
+  }
   // What a finished scrub or recovery test writes onto a copy, which the
   // production composer reads off the placement. The mock's own assurance
   // seam keeps its verdicts itself, so only the wire flavour needs it.
@@ -3819,7 +3916,10 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   }
   // Every backup keeps exactly one local copy under that scenario: the
   // shape migration 0007's backfill leaves every pre-EPIC-E deployment in.
-  const artifacts = noMedium
+  const many = scenario.startsWith("backups-many");
+  const artifacts = many
+    ? [...ARTIFACTS, ...MANY_GENERATED]
+    : noMedium
     ? ARTIFACTS.map((a) => ({
         ...a,
         placements: [
@@ -3836,6 +3936,8 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
           }
         ]
       }))
+    : scenario === "assurance-builtin-check"
+    ? [BUILTIN_ARTIFACT_FIXTURE, ...ARTIFACTS]
     : ARTIFACTS;
   // Issue #176: a fresh app-store install has no configuration at all.
   // Mutable, because completing setup is what makes it configured — the
@@ -3901,12 +4003,32 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   const workflowSettings = defaultWorkflowSettings();
   const assuranceSettings = defaultAssuranceSettings();
   const mockRecovery = createMockRecovery(scenario);
+  // #1106: every row the journal holds for a set, quarantined ones included,
+  // which listArtifacts above deliberately leaves out.
+  const mockRecoverMany = createMockRecoverMany(scenario, (setId) => artifacts.filter((a) => a.setId === setId));
   // Per-set overrides, keyed by source/set. Modelled the way the service
   // resolves them: a set follows the deployment for every field it does not
   // pin, so a global patch moves it.
   const assuranceOverrides = new Map<string, Record<string, number | string>>();
   const resolveAssurance = (key: string): BackupSetAssurance => {
     const o = assuranceOverrides.get(key) ?? {};
+    // assurance-no-validator: no set names a validator and the mode is off.
+    if (scenario === "assurance-no-validator" && !assuranceOverrides.has(key)) {
+      return {
+        backupSetId: key, isOverride: false,
+        scrub: { cadenceSeconds: assuranceSettings.scrub.cadenceSeconds, strategy: assuranceSettings.scrub.strategy },
+        recoveryTest: { mode: "off", cadenceSeconds: 0, validatorId: "", validatorDeclared: false }
+      };
+    }
+    // assurance-builtin-check: no set names a validator, so the engine would
+    // run the built-in structure check (effective_check "builtin").
+    if (scenario === "assurance-builtin-check" && !assuranceOverrides.has(key)) {
+      return {
+        backupSetId: key, isOverride: false,
+        scrub: { cadenceSeconds: assuranceSettings.scrub.cadenceSeconds, strategy: assuranceSettings.scrub.strategy },
+        recoveryTest: { mode: "off", cadenceSeconds: 0, validatorId: "", validatorDeclared: false, builtinCheck: "structure", effectiveCheck: "builtin" }
+      };
+    }
     return {
       backupSetId: key,
       isOverride: assuranceOverrides.has(key),
@@ -3917,7 +4039,10 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
       recoveryTest: {
         mode: (o.recoveryTestMode as string) || assuranceSettings.recoveryTest.mode,
         cadenceSeconds: (o.recoveryTestCadenceSeconds as number) || assuranceSettings.recoveryTest.cadenceSeconds,
-        validatorId: (o.recoveryTestValidatorId as string) || assuranceSettings.recoveryTest.validatorId
+        validatorId: (o.recoveryTestValidatorId as string) || assuranceSettings.recoveryTest.validatorId,
+        // #1111 (settings lane): builtin_check resolves like the other fields, a
+        // set's own value winning over the deployment's.
+        builtinCheck: ((o.recoveryTestBuiltinCheck as string) || assuranceSettings.recoveryTest.builtinCheck || "structure") as "structure" | "off"
       }
     };
   };
@@ -5299,6 +5424,8 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
     // assurance scenarios choose between.
     mintRecovery: (artifactId, req) => mockRecovery.mintRecovery(artifactId, req),
     redeemRecovery: (grant) => mockRecovery.redeemRecovery(grant),
+    planRecoverMany: (req) => mockRecoverMany.planRecoverMany(req),
+    recoverMany: (req, opts) => mockRecoverMany.recoverMany(req, opts),
     // Replaced below by the assurance mock's own start when the scenario has
     // one; a server that offers no assurance never has this reached.
     startRecoveryTest: (source, set) => delay({ backupSetId: source + "/" + set, operationId: "mock-recovery-test", coalesced: false }),
@@ -5324,6 +5451,10 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
       }
       if (patch.recoveryTestValidatorId !== undefined) {
         assuranceSettings.recoveryTest.validatorId = patch.recoveryTestValidatorId;
+      }
+      // #1111 (settings lane): empty clears back to the default, structure.
+      if (patch.recoveryTestBuiltinCheck !== undefined) {
+        assuranceSettings.recoveryTest.builtinCheck = (patch.recoveryTestBuiltinCheck || "structure") as "structure" | "off";
       }
       return delay(structuredClone(assuranceSettings));
     },
@@ -5492,9 +5623,7 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
       const since = options?.since ?? 0;
       return {
         ...base,
-        deployment: scenario === "assurance-download-outcomes" && base.deployment
-          ? { ...base.deployment, events: [...base.deployment.events, ...downloadOutcomeEvents()] }
-          : base.deployment,
+        deployment: dockDeployment(scenario, base.deployment),
         sets: base.sets.map((s) => {
           const all = assuranceLiveEvents(s.setId);
           const extra = all.filter((e) => e.sequence > since);
@@ -5513,6 +5642,37 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   // app uses (realAssurance), reading the routes above the way it reads a
   // server, so the browser specs can drive that code and not the mock's.
   return { ...routes, assurance: options.wire ? createHttpAssurance(routes) : assurance };
+}
+
+/** The deployment bucket for the scenarios that shape the terminal's feed
+ *  (#1115) and for the download rows. Everything else passes through. */
+function dockDeployment(scenario: Scenario, deployment: DeploymentActivity | null): DeploymentActivity | null {
+  if (!deployment) return deployment;
+  if (scenario === "assurance-download-outcomes") {
+    return { ...deployment, events: [...deployment.events, ...downloadOutcomeEvents()] };
+  }
+  if (scenario === "dock-no-warnings") {
+    return { ...deployment, events: deployment.events.filter((e) => e.level !== "warn") };
+  }
+  if (scenario === "dock-live-line") {
+    let arrived = false;
+    try {
+      arrived = window.sessionStorage.getItem("retnd.mock.dock.live") === "1";
+    } catch {
+      /* no storage, no arrival */
+    }
+    if (!arrived) return deployment;
+    return {
+      ...deployment,
+      events: [
+        ...deployment.events,
+        liveEvent(13, "error", { op: "disk-latency", error: "disk latency above threshold" }, "warn", "deployment", "error", "error"),
+        liveEvent(14, "retention", { artifact: "media/weekly-archive/week-32.tar", backup_set: "media/weekly-archive", tier: "weekly", decision: "keep" }, "info", "deployment", "retention decision", "info")
+      ],
+      latestSequence: 14
+    };
+  }
+  return deployment;
 }
 
 /** The rows a browser download writes when it ends (core/service/recover_stream.go),

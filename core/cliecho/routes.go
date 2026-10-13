@@ -719,6 +719,51 @@ var routes = map[string]entry{
 				Body: []byte(`{"target":{"kind":"storage","medium":"offsite_s3","key":"recovered/dump.tar"}}`)},
 		},
 	},
+	key("POST", "/recoveries"): {
+		build: func(a Action) *cmd {
+			var req apicontract.RecoveryManyRequest
+			c := newCmd("recover")
+			if !decode(a.Body, &req) {
+				return c
+			}
+			if req.Set != "" {
+				c.flag("set", req.Set)
+			}
+			for _, id := range req.Artifacts {
+				c.argv = append(c.argv, id)
+			}
+			if req.NewestOnly {
+				c.bare("newest-only")
+			}
+			c.flagIfSet("since", req.Since)
+			if req.Copy != "" && req.Copy != "best-available" {
+				c.flag("copy", req.Copy)
+			}
+			switch req.Target.Kind {
+			case "staging":
+				c.flag("to", req.Target.Path)
+			case "storage":
+				to := "medium:" + req.Target.Medium
+				if req.Target.Key != "" {
+					to += "/" + req.Target.Key
+				}
+				c.flag("to", to)
+			}
+			if req.Preflight {
+				c.bare("preflight")
+			}
+			if req.Acknowledged {
+				c.bare("acknowledge-cost")
+			}
+			return c
+		},
+		examples: []Action{
+			{Body: []byte(`{"set":"api-server/var-backups","target":{"kind":"staging","path":"restore/var-backups"}}`)},
+			{Body: []byte(`{"set":"api-server/var-backups","newest_only":true,"acknowledged":true,"target":{"kind":"storage","medium":"offsite_s3","key":"recovered"}}`)},
+			{Body: []byte(`{"set":"api-server/var-backups","since":"2026-10-01T00:00:00Z","preflight":true,"target":{"kind":"staging","path":"restore/var-backups"}}`)},
+			{Body: []byte(`{"artifacts":["api-server/var-backups/a.tar","api-server/var-backups/b.tar"],"target":{"kind":"staging","path":"restore/picked"}}`)},
+		},
+	},
 	key("GET", "/recoveries/{grant}"): {
 		why:               "a grant is minted and redeemed in one step by `" + Binary + " recover`, in your own shell, so there is no verb that redeems a grant somebody else minted: the token belongs to the browser session that asked for it",
 		namesShippedVerbs: []string{"recover"},
@@ -1348,6 +1393,9 @@ var routes = map[string]entry{
 			if req.RecoveryTestValidatorID != nil {
 				c.flag("recovery-test-validator", *req.RecoveryTestValidatorID)
 			}
+			if req.RecoveryTestBuiltinCheck != nil {
+				c.flag("recovery-test-builtin-check", *req.RecoveryTestBuiltinCheck)
+			}
 			if req.StagingRoot != nil {
 				c.flag("staging-root", *req.StagingRoot)
 			}
@@ -1368,6 +1416,8 @@ var routes = map[string]entry{
 			{Body: []byte(`{"recovery_test_mode":"required","recovery_test_validator_id":"pg-restore-check","recovery_test_cadence_seconds":2592000}`)},
 			{Body: []byte(`{"staging_ttl_seconds":3600,"max_concurrent_full_reads":4,"max_per_destination":2}`)},
 			{Body: []byte(`{"scrub_cadence_seconds":0,"scrub_strategy":"","staging_root":"/var/lib/retnd/staging"}`)},
+			{Body: []byte(`{"recovery_test_mode":"builtin","recovery_test_cadence_seconds":2592000}`)},
+			{Body: []byte(`{"recovery_test_builtin_check":"off"}`)},
 		},
 	},
 	key("GET", "/backup-sets/{source}/{set}/assurance"): {
@@ -1395,6 +1445,9 @@ var routes = map[string]entry{
 			}
 			if req.RecoveryTestValidatorID != nil {
 				c.flag("recovery-test-validator", *req.RecoveryTestValidatorID)
+			}
+			if req.RecoveryTestBuiltinCheck != nil {
+				c.flag("recovery-test-builtin-check", *req.RecoveryTestBuiltinCheck)
 			}
 			return c
 		},

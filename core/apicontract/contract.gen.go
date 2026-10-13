@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "f7afb2a29aa7bae3024216bc18265748536aa7c6b26ebc48009a65e57dd6ea7b"
+const ContractSHA256 = "272316648514052df34fc015038dd7eccab5cda29c29b5588357ecbb43315f8f"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -1110,6 +1110,23 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "recoverMany", Method: "POST", Path: "/recoveries",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "RecoveryManyRequest", ResponseSchema: "RecoveryManyPlan", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest, ErrorCodeRecoveryTargetInvalid},
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			404: {ErrorCodeArtifactNotFound, ErrorCodeBackupSetNotFound},
+			409: {ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryUseSnapshotRestore},
+			429: {ErrorCodeRecoveryReadsBusy, ErrorCodeRecoveryDestinationBusy},
+			500: {ErrorCodeInternal, ErrorCodeRecoveryFailed},
+			501: {ErrorCodeRecoveryUnavailable},
+			503: {ErrorCodeRecoveryUnavailable},
+			507: {ErrorCodeRecoveryNoSpace, ErrorCodeRecoveryBelowReserve},
+		},
+	},
+	{
 		ID: "redeemRecovery", Method: "GET", Path: "/recoveries/{grant}",
 		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "RecoveryResult", SuccessStatus: 206,
@@ -1754,9 +1771,13 @@ type AssuranceOperationCancelled struct {
 
 // AssuranceRecoveryTestPolicy is A resolved recovery-test policy.
 type AssuranceRecoveryTestPolicy struct {
-	CadenceSeconds int64  `json:"cadence_seconds"`
-	Mode           string `json:"mode"`
-	ValidatorID    string `json:"validator_id"`
+	BuiltinCheck         string `json:"builtin_check"`
+	CadenceSeconds       int64  `json:"cadence_seconds"`
+	EffectiveCheck       string `json:"effective_check,omitempty"`
+	EffectiveCheckReason string `json:"effective_check_reason,omitempty"`
+	Mode                 string `json:"mode"`
+	ValidatorDeclared    *bool  `json:"validator_declared,omitempty"`
+	ValidatorID          string `json:"validator_id"`
 }
 
 // AssuranceScrubPolicy is A resolved scrub policy: how often a copy is re-read and how much
@@ -2776,6 +2797,7 @@ type Placement struct {
 	Location              string `json:"location"`
 	Medium                string `json:"medium"`
 	MediumType            string `json:"medium_type"`
+	RecoveryCheck         string `json:"recovery_check,omitempty"`
 	RecoveryFailureReason string `json:"recovery_failure_reason,omitempty"`
 	RecoveryState         string `json:"recovery_state,omitempty"`
 	RecoveryTestedAt      string `json:"recovery_tested_at,omitempty"`
@@ -2784,6 +2806,115 @@ type Placement struct {
 	StorageClass          string `json:"storage_class,omitempty"`
 	VerificationClass     string `json:"verification_class,omitempty"`
 	VerifiedAt            string `json:"verified_at,omitempty"`
+}
+
+type RecoveryManyError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// RecoveryManyEvent is one line of the application/x-ndjson stream a non-pre-flight POST
+// /recoveries answers with. `plan` comes once, after the pre-flight
+// passed and before any byte is read; `start` and `item` come per
+// file (item carries its outcome and the running total); `result` is
+// last. A refusal from the pre-flight is an ordinary error response
+// before the first line.
+type RecoveryManyEvent struct {
+	DoneBytes  *int64              `json:"done_bytes,omitempty"`
+	Error      *RecoveryManyError  `json:"error,omitempty"`
+	Event      string              `json:"event"`
+	Index      int                 `json:"index,omitempty"`
+	Item       *RecoveryManyItem   `json:"item,omitempty"`
+	Plan       *RecoveryManyPlan   `json:"plan,omitempty"`
+	Result     *RecoveryManyResult `json:"result,omitempty"`
+	Total      int                 `json:"total,omitempty"`
+	TotalBytes *int64              `json:"total_bytes,omitempty"`
+}
+
+// RecoveryManyItem is one backup in a plan or a result. Status is ready (plan only),
+// recovered, failed, skipped (not a restore point, or the run was
+// cancelled before it started), needs_thaw (a provider restore was
+// started or is needed), quarantined or unrecoverable (listed, never
+// included).
+type RecoveryManyItem struct {
+	ArtifactID string                    `json:"artifact_id"`
+	Bytes      int64                     `json:"bytes,omitempty"`
+	Chargeable bool                      `json:"chargeable,omitempty"`
+	Code       string                    `json:"code,omitempty"`
+	Copy       string                    `json:"copy,omitempty"`
+	File       string                    `json:"file,omitempty"`
+	Key        string                    `json:"key,omitempty"`
+	Message    string                    `json:"message,omitempty"`
+	Name       string                    `json:"name"`
+	Path       string                    `json:"path,omitempty"`
+	Restore    *RecoveryRestoreOperation `json:"restore,omitempty"`
+	Sha256     string                    `json:"sha256,omitempty"`
+	SizeBytes  *int64                    `json:"size_bytes,omitempty"`
+	Status     string                    `json:"status"`
+}
+
+// RecoveryManyPlan is the pre-flight: what a recovery of several backups would do,
+// before a byte is read.
+type RecoveryManyPlan struct {
+	ChargeableBytes int64              `json:"chargeable_bytes"`
+	ChargeableCount int                `json:"chargeable_count"`
+	Folder          string             `json:"folder"`
+	FreeBytes       *int64             `json:"free_bytes,omitempty"`
+	Items           []RecoveryManyItem `json:"items"`
+	Refusal         *RecoveryManyError `json:"refusal,omitempty"`
+	ReserveBytes    int64              `json:"reserve_bytes"`
+	Set             string             `json:"set,omitempty"`
+	Target          RecoveryTarget     `json:"target"`
+	Totals          RecoveryManyTotals `json:"totals"`
+	UnknownSizes    int                `json:"unknown_sizes"`
+}
+
+// RecoveryManyRequest is POST /recoveries. Recovers several backups, or every restore point
+// of one backup set, to ONE destination, as if each had been
+// recovered alone: the same checks against the digest recorded at
+// ingestion, the same refusals and budgets, nothing half-written.
+// Name exactly one of `set` and `artifacts`. The target is `staging`
+// or `storage`; `download` is refused, because many files do not fit
+// one browser download.
+type RecoveryManyRequest struct {
+	Acknowledged bool           `json:"acknowledged,omitempty"`
+	Artifacts    []string       `json:"artifacts,omitempty"`
+	Copy         string         `json:"copy,omitempty"`
+	NewestOnly   bool           `json:"newest_only,omitempty"`
+	Preflight    bool           `json:"preflight,omitempty"`
+	Set          string         `json:"set,omitempty"`
+	Since        string         `json:"since,omitempty"`
+	Target       RecoveryTarget `json:"target"`
+}
+
+// RecoveryManyResult is what a run did. The summary and the manifest file written beside
+// the recovered files are built from the same rows, so they agree
+// with each other and with the disk.
+type RecoveryManyResult struct {
+	Cancelled      bool               `json:"cancelled"`
+	Folder         string             `json:"folder"`
+	Items          []RecoveryManyItem `json:"items"`
+	ManifestKey    string             `json:"manifest_key,omitempty"`
+	ManifestPath   string             `json:"manifest_path,omitempty"`
+	ManifestSha256 string             `json:"manifest_sha256,omitempty"`
+	OperationID    string             `json:"operation_id"`
+	Set            string             `json:"set,omitempty"`
+	Target         RecoveryTarget     `json:"target"`
+	Totals         RecoveryManyTotals `json:"totals"`
+}
+
+// RecoveryManyTotals is counts of the rows of a plan or a result, and the bytes they come
+// to.
+type RecoveryManyTotals struct {
+	Bytes         int64 `json:"bytes"`
+	Count         int   `json:"count"`
+	Failed        int   `json:"failed"`
+	NeedsThaw     int   `json:"needs_thaw"`
+	Quarantined   int   `json:"quarantined"`
+	Ready         int   `json:"ready"`
+	Recovered     int   `json:"recovered"`
+	Skipped       int   `json:"skipped"`
+	Unrecoverable int   `json:"unrecoverable"`
 }
 
 // RecoveryMintRequest is POST /backups/{source}/{set}/{name}/recovery. Asks for one
@@ -3742,6 +3873,7 @@ type UnregisteredBackend struct {
 type UpdateAssuranceSettingsRequest struct {
 	MaxConcurrentFullReads     *int64  `json:"max_concurrent_full_reads"`
 	MaxPerDestination          *int64  `json:"max_per_destination"`
+	RecoveryTestBuiltinCheck   *string `json:"recovery_test_builtin_check"`
 	RecoveryTestCadenceSeconds *int64  `json:"recovery_test_cadence_seconds"`
 	RecoveryTestMode           *string `json:"recovery_test_mode"`
 	RecoveryTestValidatorID    *string `json:"recovery_test_validator_id"`
@@ -3756,6 +3888,7 @@ type UpdateAssuranceSettingsRequest struct {
 // again. Clearing every field is the same as a reset. A body that
 // names nothing is refused.
 type UpdateBackupSetAssuranceRequest struct {
+	RecoveryTestBuiltinCheck   *string `json:"recovery_test_builtin_check"`
 	RecoveryTestCadenceSeconds *int64  `json:"recovery_test_cadence_seconds"`
 	RecoveryTestMode           *string `json:"recovery_test_mode"`
 	RecoveryTestValidatorID    *string `json:"recovery_test_validator_id"`
@@ -4333,6 +4466,13 @@ var SchemaTypes = map[string]any{
 	"OperationProgress":                  OperationProgress{},
 	"OperationRestore":                   OperationRestore{},
 	"Placement":                          Placement{},
+	"RecoveryManyError":                  RecoveryManyError{},
+	"RecoveryManyEvent":                  RecoveryManyEvent{},
+	"RecoveryManyItem":                   RecoveryManyItem{},
+	"RecoveryManyPlan":                   RecoveryManyPlan{},
+	"RecoveryManyRequest":                RecoveryManyRequest{},
+	"RecoveryManyResult":                 RecoveryManyResult{},
+	"RecoveryManyTotals":                 RecoveryManyTotals{},
 	"RecoveryMintRequest":                RecoveryMintRequest{},
 	"RecoveryMintResponse":               RecoveryMintResponse{},
 	"RecoveryRestoreOperation":           RecoveryRestoreOperation{},

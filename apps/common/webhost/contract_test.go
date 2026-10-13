@@ -139,6 +139,9 @@ var contractBindings = map[string]contractBinding{
 	// server-side target); the JSON one is the one with fields to hold.
 	"mintRecovery":   {recoveryMintRequest{}, recoveryMintResponse{}, "/api/v1/backups/src/set-1/backup.dump/recovery"},
 	"redeemRecovery": {nil, recoveryResultResponse{}, "/api/v1/recoveries/tok_abc"},
+	// #1106 and #1107: several backups, or a whole set, to one destination.
+	// The 200 names two content types; the pre-flight plan is the JSON one.
+	"recoverMany": {recoverManyRequestBody{}, recoverManyPlanBody{}, "/api/v1/recoveries"},
 	// Issue #443's medium preflight. Its path parameter is a single
 	// segment, unlike the artifact routes above, because a medium id is a
 	// single segment: config refuses one carrying a separator.

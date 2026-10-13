@@ -51,8 +51,7 @@
   },
   "recovery_test": {
     "stages": [
-      "resolving_copy",
-      "complete"
+      "resolving_copy"
     ],
     "events": [
       {
@@ -62,11 +61,6 @@
         "event": "recovery_stage",
         "stage": "resolving_copy",
         "stage_label": "Resolving copy"
-      },
-      {
-        "event": "recovery_stage",
-        "stage": "complete",
-        "stage_label": "Complete"
       },
       {
         "event": "recovery_test_end",

@@ -60,11 +60,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/retnd/retnd/core/internal/archive"
+	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/fsopen"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/revalidate"
@@ -189,10 +191,15 @@ type Deps struct {
 	Now    func() time.Time
 
 	// Stage, when set, is told the id of each stage Run enters, using the
-	// names of obs.RecoveryStages and in their order. The application turns
+	// names of obs.RecoveryStages and in their order. Complete is reported
+	// only for a run that recorded a pass. The application turns
 	// it into the stage lines the CLI's --follow and the browser render. Nil
 	// reports nothing.
 	Stage func(id string)
+
+	// Builtin is the built-in structure checker (#1111). Nil means the
+	// product's own (StructureCheck); a test swaps in a spy.
+	Builtin BuiltinChecker
 }
 
 func (d Deps) stage(id string) {
@@ -212,6 +219,11 @@ func (d Deps) now() time.Time {
 type Config struct {
 	// Cadence is how often the newest known good copy is owed a test.
 	Cadence time.Duration
+
+	// BuiltinCheck is the set's resolved builtin_check: "structure" (or empty,
+	// which resolves the same) lets the built-in run when no validator is
+	// declared, "off" refuses instead.
+	BuiltinCheck string
 }
 
 // Request narrows one Run.
@@ -257,6 +269,14 @@ type Result struct {
 
 	// Reason is a short sanitised sentence for a failure or a refusal.
 	Reason string
+
+	// Check says which check produced the verdict: "builtin" for the
+	// product's structure check, "" for the operator's validator (or when
+	// nothing ran). CheckFormat is the one-line account of what the built-in
+	// read, e.g. "zstd, 1 frame, content checksum verified, 48.2 GiB decoded
+	// and discarded".
+	Check       string
+	CheckFormat string
 
 	BytesRead int64
 	Duration  time.Duration
@@ -307,18 +327,42 @@ func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg Config, req 
 			if err := deps.Journal.RecordRecoveryTest(context.WithoutCancel(ctx), rt); err != nil {
 				return res, err
 			}
-			deps.stage("complete")
 			return res, nil
 		}
 	}
+	// Nothing declared and nothing in the directory. Before #1111 this was a
+	// refusal; now it is a refusal only for a set that turned the built-in
+	// check off and for a file name the built-in has no reader for, and both
+	// are decided here, before a byte is staged, so a billed copy is never
+	// paid for to learn the check cannot apply. A declared validator that is
+	// missing or unreadable never reaches this point (it is could_not_complete
+	// above), so the built-in is only ever a stand-in for "no validator".
+	useBuiltin := false
+	var checker BuiltinChecker
 	if !configured {
-		res.State = state.RecoveryNotConfigured
-		res.Reason = "no recovery-test validator is declared for this backup set"
-		if err := deps.Journal.RecordRecoveryEvaluation(ctx, ref, state.RecoveryNotConfigured); err != nil && !errors.Is(err, state.ErrRecoveryHistory) {
-			return res, err
+		checker = deps.Builtin
+		if checker == nil {
+			checker = StructureCheck{}
 		}
-		deps.stage("complete")
-		return res, nil
+		refuse := ""
+		switch {
+		case cfg.BuiltinCheck == config.BuiltinCheckOff:
+			refuse = BuiltinOffReason
+		default:
+			if _, ok := checker.Applies(rec.Artifact.Name); !ok {
+				refuse = NoReaderReason(rec.Artifact.Name)
+			}
+		}
+		if refuse != "" {
+			res.State = state.RecoveryNotConfigured
+			res.Reason = refuse
+			if err := deps.Journal.RecordRecoveryEvaluation(ctx, ref, state.RecoveryNotConfigured); err != nil && !errors.Is(err, state.ErrRecoveryHistory) {
+				return res, err
+			}
+			return res, nil
+		}
+		useBuiltin = true
+		res.Check = CheckBuiltin
 	}
 	cadence := cfg.Cadence
 	retry := retryAfter
@@ -340,7 +384,12 @@ func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg Config, req 
 		if err := deps.Journal.RecordRecoveryTest(context.WithoutCancel(ctx), rt); err != nil {
 			return r, fmt.Errorf("recording the recovery test of %s: %w", ref.Artifact, err)
 		}
-		deps.stage("complete")
+		// Complete is the stage of a run that reached a recorded pass. A
+		// run that was refused, failed or could not finish stops on the
+		// last stage it entered, as a failed recovery does.
+		if r.State == state.RecoveryPassed {
+			deps.stage("complete")
+		}
 		return r, nil
 	}
 
@@ -425,6 +474,14 @@ func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg Config, req 
 
 	// The gate passed. Only now does the validator mean anything.
 	deps.stage("validating")
+	if useBuiltin {
+		rep := checker.Check(ctx, BuiltinInput{File: staged.Path, Name: rec.Artifact.Name})
+		cleanup()
+		if ctx.Err() != nil {
+			return res, fmt.Errorf("recoverytest: cancelled: %w", ctx.Err())
+		}
+		return finishBuiltin(&res, rep, now, cadence, matched, n, finish)
+	}
 	out, vErr := deps.Validator.Validate(ctx, ValidatorInput{
 		Set: set, Artifact: rec.Artifact, Medium: copy_.Medium, File: staged.Path, Digest: sum, Size: n,
 	})
@@ -672,4 +729,70 @@ func (c *ctxReader) Read(p []byte) (int, error) {
 // text out of its errors.
 func safeError(err error) string {
 	return SanitizeLabel(err.Error(), 240)
+}
+
+// CheckBuiltin is Result.Check for a verdict the product's own structure
+// check produced.
+const CheckBuiltin = "builtin"
+
+// fileType names a file's type for a refusal: its extension, or a plain
+// statement that it has none. It is the artifact's own name and never a path.
+func fileType(name string) string {
+	if ext := path.Ext(name); ext != "" {
+		return SanitizeLabel(ext, 24)
+	}
+	return "no file extension"
+}
+
+// finishBuiltin turns a built-in report into the recorded verdict. A pass is a
+// pass under the reserved identity; a file that is not what its name says (or
+// is cut, or corrupt) is a failure of the copy as it was ingested, because
+// the digest already matched; and a bound is could_not_complete, which says
+// the check ran out of room and nothing about the copy.
+func finishBuiltin(res *Result, rep BuiltinReport, now time.Time, cadence time.Duration, matched bool, n int64,
+	finish func(Result, state.RecoveryTest) (Result, error)) (Result, error) {
+	var cut bool
+	res.Output, cut = BoundOutput(rep.Records())
+	res.OutputTruncated = cut
+	res.CheckFormat = rep.Words()
+	rt := state.RecoveryTest{DigestMatched: &matched, OutputTruncated: cut, CleanupState: res.CleanupState, BytesRead: &n}
+	switch rep.Outcome {
+	case BuiltinPass:
+		res.State = state.RecoveryPassed
+		rt.NextDue = now.Add(cadenceOr(cadence))
+	case BuiltinFail:
+		res.State = state.RecoveryFailed
+		why := "it does not read as a complete " + rep.Kind()
+		if len(rep.Layers) == 0 {
+			why = "it is not what its name says"
+		}
+		res.Reason = "the recovered copy matched its recorded digest, so this is what was ingested, and " + why + ": " + SanitizeLabel(rep.Detail, 160)
+	default:
+		res.State = state.RecoveryCouldNotComplete
+		d := rep.Detail
+		if !strings.HasPrefix(d, "stopped") {
+			d = "stopped: " + d
+		}
+		res.Reason = "the built-in check " + SanitizeLabel(d, 200) + ". Declare a validator, or test a smaller artifact"
+		return finish(*res, state.RecoveryTest{CleanupState: res.CleanupState, BytesRead: &n, OutputTruncated: cut})
+	}
+	res.ValidatorID, res.ValidatorHash, res.Termination = BuiltinValidatorID, BuiltinValidatorHash(), state.RecoveryTerminationExited
+	rt.ValidatorID, rt.ValidatorHash, rt.Termination = res.ValidatorID, res.ValidatorHash, res.Termination
+	return finish(*res, rt)
+}
+
+// BuiltinOffReason is why a set with builtin_check: off and no validator is
+// refused. The effective-check answer a button reads uses the same words.
+const BuiltinOffReason = "the built-in check is off for this backup set and no validator is declared"
+
+// NoReaderReason is why a file the built-in has no reader for is refused
+// before anything is staged.
+func NoReaderReason(name string) string {
+	return fmt.Sprintf("no recovery-test validator is declared for this backup set, and the built-in check has no reader for this file type (%s); nothing was read. Declare one as NAME.local.sh under recovery-test/<source>/<set>", fileType(name))
+}
+
+// Newest returns the artifact and copy a Run of set would test, without
+// reading or staging anything. ErrNoKnownGoodCopy means there is none.
+func Newest(ctx context.Context, j Journal, set model.BackupSetID) (state.Record, state.Placement, error) {
+	return pickCopy(ctx, Deps{Journal: j}, set, Request{})
 }

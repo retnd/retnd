@@ -46,24 +46,32 @@ import { stamp } from "@shared/utilities/format";
 import { ClaimChips } from "./ClaimChips";
 import { OperationPanel } from "./OperationPanel";
 import { ValidatorLog } from "./ValidatorLog";
-import { recoveryTestCommand, scrubCommand, scrubContentCommand, showOutputCommand } from "./assuranceCommands";
+import { recoveryTestCommand, scrubCommand, scrubContentCommand, setAssuranceCommand, showOutputCommand } from "./assuranceCommands";
+import { BUILTIN_CHECKS, asBuiltinCheck, builtinOffProblem, reservedValidatorProblem } from "./builtinCheck";
 import { MIN_RECOVERY_TEST_CADENCE_SECONDS, cadenceProblem, formatCadence, parseCadence } from "./duration";
 import { useOperation } from "./useOperation";
 import type { ArtifactAssurance, OperationKind, ValidatorResult } from "./types";
 
-type Policy = "follow" | "own";
-type TestMode = "off" | "required" | "custom";
+const RECOVERY_DOCS = "https://github.com/retnd/retnd/blob/main/docs/recovery.md#scrubbing-and-recovery-tests-what-runs-on-its-own-and-what-it-costs";
 
-interface Draft { policy: Policy; scrubEvery: string; strategy: string; mode: TestMode; testEvery: string; validator: string }
+type Policy = "follow" | "own";
+type TestMode = "off" | "builtin" | "required" | "custom";
+
+interface Draft { policy: Policy; scrubEvery: string; strategy: string; mode: TestMode; testEvery: string; validator: string; builtinCheck: string }
 
 const draftOf = (s: BackupSetAssurance): Draft => ({
   policy: s.isOverride ? "own" : "follow",
   scrubEvery: formatCadence(s.scrub.cadenceSeconds),
   strategy: s.scrub.strategy || "auto",
-  mode: s.recoveryTest.mode === "required" || s.recoveryTest.mode === "custom" ? s.recoveryTest.mode : "off",
+  mode: s.recoveryTest.mode === "required" || s.recoveryTest.mode === "custom" || s.recoveryTest.mode === "builtin" ? s.recoveryTest.mode : "off",
   testEvery: formatCadence(s.recoveryTest.cadenceSeconds),
-  validator: s.recoveryTest.validatorId
+  validator: s.recoveryTest.validatorId,
+  builtinCheck: asBuiltinCheck(s.recoveryTest.builtinCheck)
 });
+
+/** The validator an own policy sends: none for off, and none for builtin, which
+ *  the loader refuses to see one beside ("mode builtin runs no validator"). */
+const ownValidator = (d: Draft): string => (d.mode === "off" || d.mode === "builtin" ? "" : d.validator);
 
 function splitSet(setId: string): [string, string] {
   const i = setId.indexOf("/");
@@ -77,6 +85,9 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
   const [policy, setPolicy] = useState<BackupSetAssurance | null>(null);
   const [due, setDue] = useState<AssuranceDue | null>(null);
   const [latest, setLatest] = useState<ArtifactAssurance | undefined>(undefined);
+  // The newest copy's own recovery record, for a server that does not send
+  // validator_declared: true when every live copy was recorded not_configured.
+  const [copyNotConfigured, setCopyNotConfigured] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [opId, setOpId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -89,19 +100,43 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
   // Following a run needs either: a scrub run (operations) or a recovery test
   // run (recoveryTest) both read their progress through the same seam.
   const follow = operations || canRunTest;
+  // A test on a set with no validator can only be refused (#1108). The engine's
+  // own dry run says so before the first press (validatorDeclared); a server
+  // that does not send it is read from the newest copy's recorded state.
+  const declared = policy?.recoveryTest.validatorDeclared;
+  // effective_check is the engine's answer to "what would a test run now"
+  // (#1111): "builtin" is a test that can run, so it is never the refusal
+  // state; "none" is, with the engine's reason; absent falls back to the
+  // pre-#1111 reading of validatorDeclared and the newest copy's record.
+  const effective = policy?.recoveryTest.effectiveCheck;
+  const noValidator = effective === "builtin" || effective === "validator" ? false
+    : effective === "none" ? true
+    : declared === false || (declared === undefined && copyNotConfigured);
+  const noCheckReason = effective === "none" ? policy?.recoveryTest.effectiveCheckReason : undefined;
+  const reasonId = "recovery-test-no-validator-" + setId.replace(/[^A-Za-z0-9_-]/g, "-");
+  const policyRadioName = "assurance-policy-" + setId;
 
   const refresh = useCallback(async () => {
     const p = await root.getBackupSetAssurance(source, setName);
-    setPolicy(p);
-    setDraft(draftOf(p));
     root.listAssuranceDue({ backupSetId: setId }).then(setDue, () => setDue(null));
+    // The copies are read before the policy is shown, so the Run recovery test
+    // button is never drawn enabled for the instant before the copy's own
+    // record (the fallback for a server without validator_declared) is known.
+    let newestClaim: ArtifactAssurance | undefined;
+    let recordedNotConfigured = false;
     if (api) {
       try {
         const [artifacts, claims] = await Promise.all([root.listArtifacts(setId), api.listArtifactAssurance(setId)]);
         const newest = [...artifacts].sort((a, b) => b.producedAt.localeCompare(a.producedAt))[0];
-        setLatest(newest ? claims.find((c) => c.artifactId === newest.id) : undefined);
-      } catch { setLatest(undefined); }
+        newestClaim = newest ? claims.find((c) => c.artifactId === newest.id) : undefined;
+        const recorded = (newest?.placements ?? []).filter((x) => x.status === "ACTIVE" && x.recoveryState).map((x) => x.recoveryState);
+        recordedNotConfigured = recorded.length > 0 && recorded.every((r) => r === "not_configured");
+      } catch { newestClaim = undefined; recordedNotConfigured = false; }
     }
+    setLatest(newestClaim);
+    setCopyNotConfigured(recordedNotConfigured);
+    setPolicy(p);
+    setDraft(draftOf(p));
   }, [root, api, setId, source, setName]);
 
   // Mount: read the set, and attach to a running operation if there is one.
@@ -145,7 +180,9 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
   const own = draft?.policy === "own";
   const scrubProblem = own && draft ? cadenceProblem(draft.scrubEvery) : null;
   const testProblem = own && draft && draft.mode === "custom" ? cadenceProblem(draft.testEvery, MIN_RECOVERY_TEST_CADENCE_SECONDS) : null;
-  const validatorMissing = own && !!draft && draft.mode !== "off" && draft.validator.trim() === "" && !policy?.recoveryTest.validatorId;
+  const validatorMissing = own && !!draft && draft.mode !== "off" && draft.mode !== "builtin" && draft.validator.trim() === "" && !policy?.recoveryTest.validatorId;
+  const builtinProblem = own && draft ? builtinOffProblem(draft.mode, draft.builtinCheck) : null;
+  const reservedProblem = own && draft && draft.mode !== "off" && draft.mode !== "builtin" ? reservedValidatorProblem(draft.validator) : null;
   const customNeedsValidator = own && !!draft && draft.mode === "custom" && draft.validator.trim() === "";
 
   const save = async () => {
@@ -161,7 +198,8 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
           scrubStrategy: draft.strategy,
           recoveryTestMode: draft.mode,
           recoveryTestCadenceSeconds: draft.mode === "custom" ? parseCadence(draft.testEvery) ?? 0 : 0,
-          recoveryTestValidatorId: draft.mode === "off" ? "" : draft.validator
+          recoveryTestValidatorId: ownValidator(draft),
+          recoveryTestBuiltinCheck: draft.builtinCheck
         };
         await root.patchBackupSetAssurance(source, setName, patch);
       }
@@ -203,7 +241,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
                   Follow the deployment
                 </label>
                 <label style={{ display: "inline-flex", gap: 5, alignItems: "center" }}>
-                  <input type="radio" name={"assurance-policy-" + setId} checked={draft.policy === "own"} disabled={readOnly}
+                  <input type="radio" name={"assurance-policy-" + setId} value="own" checked={draft.policy === "own"} disabled={readOnly}
                     onChange={() => set({ policy: "own" })} />
                   This set&apos;s own policy
                 </label>
@@ -214,7 +252,9 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
                 {"Following the deployment: scrub every " + formatCadence(policy.scrub.cadenceSeconds) + ", reading " + (policy.scrub.strategy || "auto") + ". "}
                 {policy.recoveryTest.mode === "off"
                   ? "Recovery tests are off."
-                  : "Recovery test " + policy.recoveryTest.mode + " every " + formatCadence(policy.recoveryTest.cadenceSeconds) + " with " + (policy.recoveryTest.validatorId || "no validator named") + "."}
+                  : policy.recoveryTest.mode === "builtin"
+                    ? "Recovery test builtin (the product's structure check, no validator) every " + formatCadence(policy.recoveryTest.cadenceSeconds) + "."
+                    : "Recovery test " + policy.recoveryTest.mode + " every " + formatCadence(policy.recoveryTest.cadenceSeconds) + " with " + (policy.recoveryTest.validatorId || "no validator named") + "."}
                 {policy.isOverride ? " Saving this removes the set's own policy." : ""}
               </div>
             ) : (
@@ -242,6 +282,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
                       <select className="input" aria-label="Recovery test" aria-describedby={helpId} value={draft.mode} disabled={readOnly}
                         onChange={(e) => set({ mode: e.target.value as TestMode })}>
                         <option value="off">off</option>
+                        <option value="builtin">builtin</option>
                         <option value="required">required</option>
                         <option value="custom">custom</option>
                       </select>
@@ -255,7 +296,18 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
                       )}
                     </FieldHelp>
                   ) : null}
-                  {draft.mode !== "off" ? (
+                  <FieldHelp label="Built-in check when no validator" help={FIELD_HELP.assuranceSetBuiltinCheck}>
+                    {(helpId) => (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    <span aria-hidden="true" style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>Built-in check when no validator</span>
+                    <select className="input" aria-label="Built-in check when no validator" aria-describedby={helpId} value={draft.builtinCheck} disabled={readOnly}
+                        onChange={(e) => set({ builtinCheck: e.target.value })}>
+                        {BUILTIN_CHECKS.map((c) => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                  </div>
+                    )}
+                  </FieldHelp>
+                  {draft.mode !== "off" && draft.mode !== "builtin" ? (
                     <FieldHelp label="Validator" help={FIELD_HELP.assuranceSetValidator}>
                       {(helpId) => (
                         <input className="input input--mono" aria-label="Validator" aria-describedby={helpId}
@@ -268,12 +320,26 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
                   <div style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
                     The recovery test is off for this set, so its Recovery claim reads Not configured rather than passing. Scrubbing still runs.
                   </div>
+                ) : draft.mode === "builtin" ? (
+                  <div style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
+                    The builtin mode runs the product&apos;s own structure check on the schedule, with no validator, and never counts as the required mode. It needs the built-in check set to structure.
+                  </div>
                 ) : (
                   <div style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
                     The validator is the name of a script of yours: <span className="mono">NAME.local.sh</span> under <span className="mono">{"recovery-test/" + source + "/" + setName}</span> in the workflow root. Write the name without the <span className="mono">.local.sh</span> suffix. The engine re-reads the recovered copy and checks its digest, then runs the script and records the claim itself.
                   </div>
                 )}
                 {scrubProblem ? <div role="alert">{scrubProblem}</div> : null}
+                {builtinProblem ? <div role="alert">{builtinProblem}</div> : null}
+                {reservedProblem ? <div role="alert">{reservedProblem}</div> : null}
+                <CommandEcho label="Saving this policy from the terminal" commands={[setAssuranceCommand(setId, {
+                  scrubCadenceSeconds: parseCadence(draft.scrubEvery) ?? 0,
+                  scrubStrategy: draft.strategy,
+                  recoveryTestMode: draft.mode,
+                  recoveryTestCadenceSeconds: draft.mode === "custom" ? parseCadence(draft.testEvery) ?? 0 : 0,
+                  recoveryTestValidatorId: ownValidator(draft),
+                  recoveryTestBuiltinCheck: draft.builtinCheck
+                })]} />
                 {testProblem ? <div role="alert">{testProblem}</div> : null}
                 {customNeedsValidator || validatorMissing ? (
                   <div role="alert">A recovery test needs a validator, so the server will refuse this until one is named.</div>
@@ -285,7 +351,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <button className="btn btn--sm btn--primary"
-                disabled={readOnly || scrubProblem !== null || testProblem !== null || customNeedsValidator || validatorMissing
+                disabled={readOnly || scrubProblem !== null || testProblem !== null || customNeedsValidator || validatorMissing || builtinProblem !== null || reservedProblem !== null
                   || (draft.policy === "follow" && !policy.isOverride)}
                 onClick={() => void save()}>Save policy</button>
               {saved ? <span role="status">Saved</span> : null}
@@ -309,7 +375,8 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
               ) : null}
               {canRunTest ? (
                 <InfoTooltip id="assurance.recoveryTest.run">
-                  <button className="btn" disabled={readOnly || running || starting} onClick={() => void start("recovery_test")}>Run recovery test</button>
+                  <button className="btn" disabled={readOnly || running || starting || noValidator}
+                    aria-describedby={noValidator ? reasonId : undefined} onClick={() => void start("recovery_test")}>Run recovery test</button>
                 </InfoTooltip>
               ) : null}
               {operations ? (
@@ -318,6 +385,27 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
                 </InfoTooltip>
               ) : null}
             </div>
+            {policy?.recoveryTest.effectiveCheck === "builtin" ? (
+              <InfoTooltip id="assurance.set.builtinCheck" block>
+                <p data-testid="effective-check" style={{ margin: 0, color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
+                  No validator is declared for this set, so Run recovery test uses the built-in structure check: it recovers the newest known good copy, matches the digest and reads the file end to end.
+                </p>
+              </InfoTooltip>
+            ) : null}
+            {canRunTest && noValidator ? (
+              <p id={reasonId} data-testid="recovery-test-no-validator" className="arefuse">
+                {noCheckReason
+                  ? <>{noCheckReason[0].toUpperCase() + noCheckReason.slice(1)}, so a test can only be refused.{" "}</>
+                  : <>No recovery-test validator is declared for this set, so a test can only be refused.{" "}</>}
+                To declare one, name a validator in{" "}
+                <a href={"#" + policyRadioName} onClick={(e) => {
+                  e.preventDefault();
+                  document.querySelector<HTMLInputElement>('input[type="radio"][name="' + policyRadioName + '"][value="own"]')?.focus();
+                }}>this set&apos;s policy settings</a>
+                {" "}or put one script in its recovery-test directory; see{" "}
+                <a href={RECOVERY_DOCS} target="_blank" rel="noreferrer">docs/recovery.md</a>.
+              </p>
+            ) : null}
             {operations ? (
               <>
                 <CommandEcho label="Same thing from the terminal" commands={[scrubCommand(setId), recoveryTestCommand(setId), showOutputCommand(setId)]} />
@@ -335,7 +423,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
             )}
             {canRunTest ? (
               <div data-testid="recovery-test-note" style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
-                A recovery test also runs on its own, at its cadence, but only for a set whose mode is required or custom and whose validator script is in place; with the mode off none runs. Run recovery test starts one now and acknowledges no cost: a copy that would cost money to read is refused and recorded as skipped, and nothing is read.
+                A recovery test also runs on its own, at its cadence, but only for a set whose mode is required or custom and whose validator script is in place, or whose mode is builtin; with the mode off none runs. Run recovery test starts one now and acknowledges no cost: a copy that would cost money to read is refused and recorded as skipped, and nothing is read.
               </div>
             ) : null}
             <OperationPanel operation={op.operation} events={op.events} error={op.error} onCancel={() => void op.cancel()} readOnly={readOnly} detailLink={operations} cancellable={operations} cancelError={op.cancelError} />

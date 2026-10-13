@@ -35,6 +35,11 @@ async function setFixture(overrides: Partial<BackupSet> = {}): Promise<BackupSet
 function renderDetail(set: BackupSet) {
   const api = createMockApi();
   vi.spyOn(api, "getSet").mockResolvedValue(set);
+  // The mock holds its first set for an unfinished workflow run and the page
+  // raises a role="alert" banner for it. That banner is covered in
+  // workflow-run-page.test.tsx and has nothing to do with a halt reason, so
+  // pin it off here: otherwise "no halt banner" is a race with that promise (#1123).
+  vi.spyOn(api, "workflowRecovery").mockResolvedValue([]);
   return render(
     <MemoryRouter initialEntries={[backupSetPath(set.source, set.set)]}>
       <ApiProvider api={api}>
@@ -115,6 +120,33 @@ describe("the halt banners fire from a reason the service reported (issue #245)"
 
     // The page has rendered, so a missing banner is a missing banner.
     expect(await screen.findByText("Overview")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  // Issue #1123. The mock's first set is also the one set it holds for an
+  // unfinished workflow run, so the detail page raises the Workflow recovery
+  // banner (a role="alert" too) once workflowRecovery() resolves. The test
+  // above only waited for "Overview", so it passed when the assertion beat
+  // that promise and failed when it lost. Delaying getSet makes the hold win
+  // every time, which turns a load-dependent failure into a deterministic one.
+  it("the detail page shows no halt banner for a set with no reason, however late the set arrives (#1123)", async () => {
+    const set = await setFixture();
+    const api = createMockApi();
+    vi.spyOn(api, "getSet").mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve(set), 300))
+    );
+    vi.spyOn(api, "workflowRecovery").mockResolvedValue([]);
+    render(
+      <MemoryRouter initialEntries={[backupSetPath(set.source, set.set)]}>
+        <ApiProvider api={api}>
+          <Routes>
+            <Route path="/sets/:source/:set" element={<BackupSetDetailPage readOnly={false} />} />
+          </Routes>
+        </ApiProvider>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("Overview", undefined, { timeout: 3000 })).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
   });
 

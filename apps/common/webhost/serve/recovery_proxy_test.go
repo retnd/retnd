@@ -93,6 +93,39 @@ func TestUI_ARecoveryIsNotCutByTheUIHostsWholeResponseWriteTimeout(t *testing.T)
 	}
 }
 
+// POST /api/v1/recoveries (#1106) answers a stream whose first line comes
+// after the plan has been made and whose last line comes when the last file is
+// done, which is as slow to start and as long to finish as a download. It is
+// the one exact path, with no trailing slash, so the prefix rule above does not
+// cover it.
+func TestUI_ARecoveryOfManyFilesIsNotCutByTheProxyOrTheWriteTimeout(t *testing.T) {
+	upstream := fakeUpstream(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/recoveries" {
+			// A redirect to the subtree pattern turns the POST into a GET.
+			http.Error(w, "reached as "+r.Method+" "+r.URL.Path, http.StatusTeapot)
+			return
+		}
+		fl := w.(http.Flusher)
+		time.Sleep(400 * time.Millisecond) // planning: longer than the proxy header bound
+		for i := 0; i < 4; i++ {
+			_, _ = io.WriteString(w, strings.Repeat("x", 1000))
+			fl.Flush()
+			time.Sleep(150 * time.Millisecond)
+		}
+	})
+	ui := uiOver(t, upstream, 100*time.Millisecond, 300*time.Millisecond)
+
+	resp, err := http.Post(ui.URL+"/api/v1/recoveries", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatalf("the proxy cut a many-file recovery that was still planning: %v", err)
+	}
+	defer resp.Body.Close()
+	n, err := io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode != http.StatusOK || err != nil || n != 4000 {
+		t.Fatalf("status %d, got %d of 4000 bytes, err %v: the recovery was redirected or cut while it was still running", resp.StatusCode, n, err)
+	}
+}
+
 func TestUI_ADownloadsGrantIsNeverLoggedWhenTheProxyFails(t *testing.T) {
 	rec := &recordingLogger{}
 	ui := httptest.NewServer(serve.NewUI(serve.UIConfig{

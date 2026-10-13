@@ -59,7 +59,9 @@ type RecoveryStage struct {
 // RecoveryStages is the stage sequence, in order. It is the single list the
 // CLI's --follow and the browser's follow both render from, so the two
 // cannot disagree about a name or an order. "Restoring archive" is skipped
-// when no thaw was requested, and Complete is always last.
+// when no thaw was requested, and Complete is last for a run that reached a
+// verdict it recorded as a pass. A run that stopped early or failed ends on the
+// last stage it entered.
 var RecoveryStages = []RecoveryStage{
 	{ID: "resolving_copy", Label: "Resolving copy"},
 	{ID: "restoring_archive", Label: "Restoring archive"},
@@ -125,8 +127,12 @@ func (l *Logger) RecoveryEnd(ctx context.Context, opID, backupSet, artifact stri
 // RecoveryTestStart logs EventRecoveryTestStart. The validator is named by
 // id only; see validatorRef.
 func (l *Logger) RecoveryTestStart(ctx context.Context, opID, backupSet, artifact, validatorID string) {
+	msg := "recovery test starting"
+	if builtinID(validatorID) {
+		msg = "recovery test started: " + cleanReason(artifact) + " (built-in structure check)"
+	}
 	l.emitMarked(ctx, LevelInfo, mark{action: ActionRecoveryTest, actionID: opID},
-		EventRecoveryTestStart, "recovery test starting",
+		EventRecoveryTestStart, msg,
 		slog.String("op_id", opID),
 		slog.String("backup_set", backupSet),
 		slog.String("artifact", artifact),

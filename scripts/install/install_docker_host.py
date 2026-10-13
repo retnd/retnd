@@ -328,7 +328,7 @@ SOURCE_PORT_ENV_LEGACY = "RCLONE_MANAGER_SOURCE_PORT"
 # It proves exactly one version: this one. A release cut after this
 # installer was written has no digest here and cannot get one, which is
 # the reason the --image default is pinned rather than floating.
-CARRIED_RELEASE = "0.6.0"
+CARRIED_RELEASE = "0.6.1"
 CARRIED_RELEASE_DIGEST = None
 
 # Where that release lives. Split into two halves rather than written as
@@ -2991,10 +2991,9 @@ services:
       #
       # RETND_DEBUG=1 is the same switch as LOG_LEVEL=debug, kept as
       # the shortcut an operator can be told over a phone call; it wins
-      # if both are set. BACKUPD_DEBUG=1 (before EPIC R, #885) and
-      # RM_DEBUG=1 (before #794) are its deprecated older names: both
-      # still read, for one release, so an upgrade does not turn a
-      # diagnosing operator's logs back off.
+      # if both are set. RM_DEBUG=1 (before #794) is its deprecated
+      # older name: still read, for one release, so an upgrade does not
+      # turn a diagnosing operator's logs back off.
       # An unparseable value falls back to `info` rather than refusing
       # to start, because a typo in a diagnostic knob must never take a
       # backup host down. See docs/deployment.md's "Turning on
@@ -3299,8 +3298,7 @@ services:
       # and how much of it actually got copied to the browser - which is
       # only half of each story without the engine's own line for the
       # same request. RETND_DEBUG=1 is the shortcut, and wins over
-      # this; BACKUPD_DEBUG=1 and RM_DEBUG=1 are its deprecated older
-      # names (EPIC R #885, and #794).
+      # this; RM_DEBUG=1 is its deprecated older name (#794).
       LOG_LEVEL: ${LOG_LEVEL:-info}
       # Published to the host (see `ports:` below); LISTEN_ADDR is this
       # container's own internal bind address, always :8080 regardless of
@@ -3389,7 +3387,7 @@ services:
 """
 
 # Written by scripts/install/embed_compose.py alongside the blob above.
-EMBEDDED_COMPOSE_SHA256 = "8e7f7837d3d7beb75cc310a55857a64d9d43615020436caa97c4a2d1b0c80d03"
+EMBEDDED_COMPOSE_SHA256 = "ff83ed975be6d5d0eea4df8c7d4b635da7cf2c34c723000a493e0993b65d5296"
 
 
 def embedded_compose_bytes() -> bytes:
@@ -7333,7 +7331,7 @@ def _add_install_prereq_groups(sp: argparse.ArgumentParser) -> None:
                               "test, so this installer needs no checkout on the host. Supply it to install "
                               "a locally modified runtime from a checkout; naming a path that does not "
                               "exist is still a refusal.")
-    runtime.add_argument("--image", default="ghcr.io/retnd/retnd:0.6.0",
+    runtime.add_argument("--image", default="ghcr.io/retnd/retnd:0.6.1",
                          action=_RecordsThatItWasSupplied,
                          help="Image reference both services run.")
     runtime.add_argument("--release", default=CARRIED_RELEASE,
@@ -7507,7 +7505,7 @@ def build_parser() -> argparse.ArgumentParser:
             "      --prefix /volume1/retnd \\\n"
             "      --ssh-key /volume1/retnd/secrets/id_ed25519 \\\n"
             "      --known-hosts /volume1/retnd/secrets/known_hosts \\\n"
-            "      --image ghcr.io/retnd/retnd:0.6.0\n"
+            "      --image ghcr.io/retnd/retnd:0.6.1\n"
         ),
     )
     _add_shared_groups(sp_install)

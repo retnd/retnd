@@ -58,3 +58,19 @@ func TestAssuranceKindsHaveTheirOwnHeadline(t *testing.T) {
 		seen[title] = k
 	}
 }
+
+// #1111: the product's own check is named as what it is, not as a validator
+// an operator wrote.
+func TestIssue1111_TheReservedIdentityIsRenderedAsTheBuiltInStructureCheck(t *testing.T) {
+	got := alert.AssuranceConditions([]alert.AssuranceSignal{{BackupSet: "prod/db", RecoveryTestFailing: true, ValidatorID: "retnd-builtin-structure"}})
+	if len(got) != 1 {
+		t.Fatalf("conditions = %+v", got)
+	}
+	if !strings.Contains(got[0].Detail, "(the built-in structure check)") || strings.Contains(got[0].Detail, "validator retnd-builtin-structure") {
+		t.Errorf("detail = %q", got[0].Detail)
+	}
+	other := alert.AssuranceConditions([]alert.AssuranceSignal{{BackupSet: "prod/db", RecoveryTestFailing: true, ValidatorID: "pg-check"}})
+	if !strings.Contains(other[0].Detail, "(validator pg-check)") {
+		t.Errorf("an operator's validator lost its clause: %q", other[0].Detail)
+	}
+}

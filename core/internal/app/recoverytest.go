@@ -180,6 +180,33 @@ func (s *Service) validatorFor(bs config.BackupSet) (stageValidator, error) {
 	return v, nil
 }
 
+// RecoveryTestValidatorDeclared answers, without running anything, whether a
+// recovery test of set would find a validator to run. It makes the dry run
+// RecoveryTest makes first, through the same validatorFor, so a button built
+// on this answer and the test's own "not_configured" refusal cannot disagree.
+//
+// Only a clean "there is none" is false. A validator the operator declared by
+// name but that cannot be found or examined is true, because the test then
+// ends could_not_complete with that reason and not not_configured.
+func (s *Service) RecoveryTestValidatorDeclared(ctx context.Context, set model.BackupSetID) (bool, error) {
+	bs, ok := s.backupSet(set)
+	if !ok {
+		return false, fmt.Errorf("app: backup set %s is not configured", set)
+	}
+	if s.Stages == nil {
+		return false, nil
+	}
+	validator, err := s.validatorFor(bs)
+	if err != nil {
+		return true, nil
+	}
+	configured, err := validator.Configured(ctx, set)
+	if err != nil {
+		return true, nil
+	}
+	return configured, nil
+}
+
 // RecoveryTest runs a recovery test as req describes.
 //
 // The cadence and the validator come from the set's resolved assurance
@@ -229,6 +256,11 @@ func (s *Service) RecoveryTest(ctx context.Context, req RecoveryTestRequest) (Re
 	if req.Artifact != nil {
 		artifactLabel = req.Artifact.String()
 	}
+	// The feed names the check that is about to run: the reserved identity
+	// when it is the built-in, so a surface can word the line from it.
+	if check, _, cerr := s.RecoveryTestEffectiveCheck(ctx, bs.ID); cerr == nil && check == CheckBuiltin {
+		validatorID = recoverytest.BuiltinValidatorID
+	}
 	s.logger().RecoveryTestStart(ctx, opID, bs.ID.String(), artifactLabel, validatorID)
 
 	deps := recoverytest.Deps{
@@ -244,7 +276,7 @@ func (s *Service) RecoveryTest(ctx context.Context, req RecoveryTestRequest) (Re
 	if verr != nil {
 		err = verr
 	} else {
-		res, err = recoverytest.Run(ctx, deps, bs.ID, recoverytest.Config{Cadence: bs.Assurance.RecoveryTestInterval()}, recoverytest.Request{
+		res, err = recoverytest.Run(ctx, deps, bs.ID, recoverytest.Config{Cadence: bs.Assurance.RecoveryTestInterval(), BuiltinCheck: bs.Assurance.RecoveryTest.BuiltinCheck}, recoverytest.Request{
 			Artifact: req.Artifact, Scheduled: req.Scheduled, AcknowledgeCost: req.AcknowledgeCost,
 		})
 	}
@@ -387,7 +419,8 @@ const DefaultRecoveryTickBound = 30 * time.Minute
 // RecoveryTestTick is the scheduled half: it ages passes that have outlived
 // their cadence into overdue, sweeps staging a crash left behind, and runs
 // one unattended test for each set whose resolved policy asks for recovery
-// tests (mode required or custom) and whose newest known good copy is due.
+// tests (mode required or custom, or mode builtin for the product's own
+// structure check) and whose newest known good copy is due.
 //
 // A set under mode off is left alone even when a validator script sits in
 // its directory: the directory is a convention, the mode is the decision. The
@@ -432,27 +465,40 @@ func (s *Service) RecoveryTestTick(ctx context.Context) {
 			// sweep runs for every set, policy or not, because the copy
 			// outlives a configuration change that turned the policy off.
 			s.sweepRecoveryStaging(ctx, bs)
-			if !bs.Assurance.RecoveryTestEnabled() || s.Stages == nil {
+			// Mode required or custom schedules the operator's validator; mode
+			// builtin schedules the product's structure check and needs no
+			// script runner. Mode off and inherit schedule nothing, whatever
+			// sits in the validator directory.
+			builtinMode := bs.Assurance.RecoveryTest.Mode == config.RecoveryTestBuiltin
+			if !bs.Assurance.RecoveryTestScheduled() || (!builtinMode && s.Stages == nil) {
 				continue
 			}
 			if spent() {
 				// The tick's bound is spent: no new test starts.
 				continue
 			}
-			validator, verr := s.validatorFor(bs)
-			if verr != nil {
-				s.logger().Error(ctx, "recovery-test-validator", verr)
-				continue
-			}
-			if configured, err := validator.Configured(ctx, bs.ID); err != nil {
-				// A declared validator that is not there is a finding the
-				// test itself records (could_not_complete); let it run once
-				// per cadence like any other so the claim says why.
-				if validator.scriptFile == "" {
+			if builtinMode {
+				// A set whose newest copy the built-in has no reader for would
+				// be refused on every tick; say nothing and run nothing.
+				if check, _, err := s.RecoveryTestEffectiveCheck(ctx, bs.ID); err != nil || check == CheckNone {
 					continue
 				}
-			} else if !configured {
-				continue
+			} else {
+				validator, verr := s.validatorFor(bs)
+				if verr != nil {
+					s.logger().Error(ctx, "recovery-test-validator", verr)
+					continue
+				}
+				if configured, err := validator.Configured(ctx, bs.ID); err != nil {
+					// A declared validator that is not there is a finding the
+					// test itself records (could_not_complete); let it run once
+					// per cadence like any other so the claim says why.
+					if validator.scriptFile == "" {
+						continue
+					}
+				} else if !configured {
+					continue
+				}
 			}
 			if holds != nil && holds.Held(bs.ID.String()) {
 				continue
@@ -541,3 +587,48 @@ func (s *Service) kopiaRecoveryClaim(ctx context.Context, bs config.BackupSet) (
 	}
 	return recoverytest.KopiaClaim(runs, drill, s.now()), nil
 }
+
+// RecoveryTestEffectiveCheck says which check a recovery test of set would
+// run now (#1111): "validator", "builtin" or "none", and for none the reason
+// in plain words. It makes the decisions Run makes first, in Run's order, and
+// reads nothing: the newest known good copy is judged by its name alone, so a
+// button built on this cannot disagree with the refusal the test would give.
+func (s *Service) RecoveryTestEffectiveCheck(ctx context.Context, set model.BackupSetID) (check, reason string, err error) {
+	bs, ok := s.backupSet(set)
+	if !ok {
+		return "", "", fmt.Errorf("app: backup set %s is not configured", set)
+	}
+	declared, err := s.RecoveryTestValidatorDeclared(ctx, set)
+	if err != nil {
+		return "", "", err
+	}
+	if declared {
+		return CheckValidator, "", nil
+	}
+	if bs.Assurance.RecoveryTest.BuiltinCheck == config.BuiltinCheckOff {
+		return CheckNone, recoverytest.BuiltinOffReason, nil
+	}
+	journal, ok := s.Journal.(recoverytest.Journal)
+	if !ok {
+		return CheckBuiltin, "", nil
+	}
+	rec, _, err := recoverytest.Newest(ctx, journal, set)
+	switch {
+	case errors.Is(err, recoverytest.ErrNoKnownGoodCopy):
+		// Nothing to judge by yet; the test itself will say there is no copy.
+		return CheckBuiltin, "", nil
+	case err != nil:
+		return "", "", err
+	}
+	if _, applies := (recoverytest.StructureCheck{}).Applies(rec.Artifact.Name); !applies {
+		return CheckNone, recoverytest.NoReaderReason(rec.Artifact.Name), nil
+	}
+	return CheckBuiltin, "", nil
+}
+
+// The three answers RecoveryTestEffectiveCheck gives.
+const (
+	CheckValidator = "validator"
+	CheckBuiltin   = "builtin"
+	CheckNone      = "none"
+)

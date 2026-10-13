@@ -62,6 +62,9 @@ type AssuranceRecoveryTestPolicy struct {
 	Mode        string
 	Cadence     time.Duration
 	ValidatorID string
+
+	// BuiltinCheck is "structure" or "off" (#1111), RESOLVED.
+	BuiltinCheck string
 }
 
 // AssuranceHostKnob is one global-only setting with its written answer to
@@ -95,9 +98,10 @@ type UpdateAssuranceSettingsRequest struct {
 	ScrubCadence  *time.Duration
 	ScrubStrategy *string
 
-	RecoveryTestMode        *string
-	RecoveryTestCadence     *time.Duration
-	RecoveryTestValidatorID *string
+	RecoveryTestMode         *string
+	RecoveryTestCadence      *time.Duration
+	RecoveryTestValidatorID  *string
+	RecoveryTestBuiltinCheck *string
 
 	StagingRoot            *string
 	StagingTTL             *time.Duration
@@ -118,6 +122,18 @@ type BackupSetAssurance struct {
 	Override bool
 
 	Policy AssurancePolicy
+
+	// ValidatorDeclared is the engine's own answer to whether a recovery test
+	// of this set would find a validator, from the dry run the test makes
+	// first. It belongs to the set and not to the policy: the deployment-wide
+	// policy has no set to look in.
+	ValidatorDeclared bool
+
+	// EffectiveCheck is which check a recovery test of this set would run
+	// now: "validator", "builtin" or "none" (#1111), and for none the reason
+	// in plain words.
+	EffectiveCheck       string
+	EffectiveCheckReason string
 }
 
 // UpdateBackupSetAssuranceRequest patches one set's override. A nil field is
@@ -126,9 +142,10 @@ type UpdateBackupSetAssuranceRequest struct {
 	ScrubCadence  *time.Duration
 	ScrubStrategy *string
 
-	RecoveryTestMode        *string
-	RecoveryTestCadence     *time.Duration
-	RecoveryTestValidatorID *string
+	RecoveryTestMode         *string
+	RecoveryTestCadence      *time.Duration
+	RecoveryTestValidatorID  *string
+	RecoveryTestBuiltinCheck *string
 }
 
 func (r UpdateBackupSetAssuranceRequest) isEmpty() bool {
@@ -335,6 +352,7 @@ func policyOf(a config.Assurance) AssurancePolicy {
 		Scrub: AssuranceScrubPolicy{Cadence: a.Scrub.Cadence.Duration(), Strategy: a.Scrub.Strategy},
 		RecoveryTest: AssuranceRecoveryTestPolicy{
 			Mode: a.RecoveryTest.Mode, Cadence: a.RecoveryTest.Cadence.Duration(), ValidatorID: a.RecoveryTest.ValidatorID,
+			BuiltinCheck: a.RecoveryTest.BuiltinCheck,
 		},
 	}
 }
@@ -394,6 +412,9 @@ func (b *BackupService) UpdateAssuranceSettings(_ context.Context, req UpdateAss
 	if req.RecoveryTestValidatorID != nil {
 		blk.RecoveryTest.ValidatorID = strings.TrimSpace(*req.RecoveryTestValidatorID)
 	}
+	if req.RecoveryTestBuiltinCheck != nil {
+		blk.RecoveryTest.BuiltinCheck = strings.TrimSpace(*req.RecoveryTestBuiltinCheck)
+	}
 	if req.StagingRoot != nil {
 		blk.StagingRoot = strings.TrimSpace(*req.StagingRoot)
 		if err := ValidateStagingRoot(blk.StagingRoot); err != nil {
@@ -429,12 +450,22 @@ func backupSetAssuranceOf(id string, bs config.BackupSet) BackupSetAssurance {
 }
 
 // BackupSetAssurance reports one set's resolved policy.
-func (b *BackupService) BackupSetAssurance(_ context.Context, id string) (BackupSetAssurance, error) {
-	bs, err := lookupConfiguredBackupSet(b.state.Load().inner.Config, id)
+func (b *BackupService) BackupSetAssurance(ctx context.Context, id string) (BackupSetAssurance, error) {
+	st := b.state.Load()
+	bs, err := lookupConfiguredBackupSet(st.inner.Config, id)
 	if err != nil {
 		return BackupSetAssurance{}, err
 	}
-	return backupSetAssuranceOf(id, bs), nil
+	out := backupSetAssuranceOf(id, bs)
+	out.ValidatorDeclared, err = st.inner.RecoveryTestValidatorDeclared(ctx, bs.ID)
+	if err != nil {
+		return BackupSetAssurance{}, err
+	}
+	out.EffectiveCheck, out.EffectiveCheckReason, err = st.inner.RecoveryTestEffectiveCheck(ctx, bs.ID)
+	if err != nil {
+		return BackupSetAssurance{}, err
+	}
+	return out, nil
 }
 
 // UpdateBackupSetAssurance patches one set's override and hot-reloads.
@@ -475,6 +506,9 @@ func (b *BackupService) UpdateBackupSetAssurance(ctx context.Context, id string,
 	}
 	if req.RecoveryTestValidatorID != nil {
 		o.RecoveryTest.ValidatorID = strings.TrimSpace(*req.RecoveryTestValidatorID)
+	}
+	if req.RecoveryTestBuiltinCheck != nil {
+		o.RecoveryTest.BuiltinCheck = strings.TrimSpace(*req.RecoveryTestBuiltinCheck)
 	}
 	// Clearing the last named field is a reset: config.Validate refuses an
 	// empty block in words, so it is removed rather than written.

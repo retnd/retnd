@@ -165,9 +165,38 @@ describe("where a backup's copies are", () => {
     );
 
     expect(await screen.findByText("Needs a restore")).toBeTruthy();
-    expect(screen.getByText(/cannot be read on demand/i)).toBeTruthy();
+    expect(screen.getByText(/^This storage class cannot be read on demand/i)).toBeTruthy();
     expect(screen.getByText("DEEP_ARCHIVE")).toBeTruthy();
     expect(screen.queryByText("Readable now")).toBeNull();
+  });
+
+  // Issue #1127. Once the storage settings load, the Copies region also
+  // explains where a tier's backups live, and that paragraph says "cannot be
+  // read on demand" too. The test above waits only for "Needs a restore", so
+  // it passes if it asserts before that load and fails after it. Settling
+  // first makes that outcome deterministic.
+  it("says an archive copy needs a restore, still, once the page has settled (#1127)", async () => {
+    renderDetail(
+      artifact({
+        placements: [
+          {
+            medium: "offsite_cold",
+            mediumType: "s3",
+            location: "retnd/production/pg/nightly.dump.zst",
+            sizeBytes: 4096,
+            storageClass: "DEEP_ARCHIVE",
+            verificationClass: null,
+            verifiedAt: null,
+            access: "requires_restore",
+            status: "ACTIVE"
+          }
+        ]
+      })
+    );
+
+    expect(await screen.findByText("Needs a restore")).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 800));
+    expect(screen.getByText(/^This storage class cannot be read on demand/i)).toBeTruthy();
   });
 
   it("says a copy nobody has verified is not verified, and gives it no class and no date", async () => {

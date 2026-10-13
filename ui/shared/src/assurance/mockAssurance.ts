@@ -24,6 +24,7 @@ import type {
   ArtifactAssurance, AssuranceApi, ClaimRecord, Operation, OperationEvent,
   OperationFeed, OperationKind, OperationState, ValidatorResult
 } from "./types";
+import { BUILTIN_CHECK_ID } from "./feedText";
 import { stageLabel } from "./stages";
 import type { SetActivityEvent, UnfinishedAction } from "@shared/types/activity";
 
@@ -67,12 +68,23 @@ const SET_LATEST: Record<string, string> = {
   "media/weekly-archive": "media/weekly-archive/media-week34.tar"
 };
 
+/** assurance-builtin-check (#1111): a set with no validator whose newest copy
+ *  is a .tar.zst, which the built-in structure check can read. The Playwright
+ *  lane for this issue drives this scenario by name. */
+export const BUILTIN_SCENARIO = "assurance-builtin-check";
+export const BUILTIN_ARTIFACT = "production/postgres-primary/postgres-prod-20260829.tar.zst";
+const builtinScenario = () => activeScenario === BUILTIN_SCENARIO;
+/** The set's latest backup, whose claims the set page shows. */
+const latestOf = (setId: string): string | undefined =>
+  builtinScenario() && setId === "production/postgres-primary" ? BUILTIN_ARTIFACT : SET_LATEST[setId];
+
 function baseTable(now: number): ArtifactAssurance[] {
   // Only the backups the Backups page lists, in the shapes their placements
   // have in the fixtures (api/mock.ts): two copies of one dump, a single copy
   // on an archive class, a backup with no copy yet, and a copy nobody can
   // reach. Every state below is one a reader can reach by looking.
   return [
+    ...(builtinScenario() ? [{ artifactId: BUILTIN_ARTIFACT, copies: 1, copyContent: ["content" as const], content: rec("pass", "content", 1 * DAY, now), recovery: rec("never_run", "") }] : []),
     { artifactId: "production/postgres-primary/postgres-prod-20260828.dump.zst", copies: 2, copyContent: ["content", "existence"], content: rec("pass", "content", 3 * DAY, now), recovery: rec("pass", "content", 12 * DAY, now) },
     { artifactId: "production/billing-mysql/billing-20260827.sql.gz", copies: 1, content: rec("requires_restore", ""), recovery: rec("could_not_complete", "", 1 * DAY, now) },
     { artifactId: "media/weekly-archive/media-week34.tar", copies: 0, content: rec("never_run", ""), recovery: rec("never_configured", "") },
@@ -112,7 +124,15 @@ const PLAN: Record<OperationKind, Array<{ stage: string; secs: number; bytes: bo
 const TOTAL_BYTES = 4_800_000_000;
 /** What the journal's bounded reason reads like for a copy whose bytes changed. */
 const FAIL_REASON = "sha256 differs from the one recorded at ingest";
-const total = (k: OperationKind) => PLAN[k].reduce((n, p) => n + p.secs, 0);
+/** assurance-no-validator (issue: a recovery test on a set that declares no
+ *  validator): the engine resolves the copy, finds nothing to run, and stops.
+ *  Like the engine since #1108 it stops after the first stage: no Complete
+ *  stage, and a closing line worded "not run". */
+const NO_VALIDATOR_PLAN = [{ stage: "resolving_copy", secs: 1, bytes: false }];
+const NO_VALIDATOR_REASON = "no recovery-test validator is declared for this backup set";
+const noValidator = (k: OperationKind) => k === "recovery_test" && activeScenario === "assurance-no-validator";
+const planOf = (k: OperationKind) => (noValidator(k) ? NO_VALIDATOR_PLAN : PLAN[k]);
+const total = (k: OperationKind) => planOf(k).reduce((n, p) => n + p.secs, 0);
 const FINAL: Record<OperationKind, string> = { scrub: "complete", recovery_test: "complete", recovery: "complete" };
 
 function eventsOf(op: StoredOp, upTo: number): OperationEvent[] {
@@ -120,7 +140,7 @@ function eventsOf(op: StoredOp, upTo: number): OperationEvent[] {
   let offset = 0;
   let seq = 0;
   const at = (s: number) => new Date(op.startedAt + s * 1000).toISOString();
-  for (const p of PLAN[op.kind]) {
+  for (const p of planOf(op.kind)) {
     if (offset > upTo) break;
     out.push({ seq: ++seq, at: at(offset), stage: p.stage, text: stageLabel(p.stage) });
     if (p.bytes) {
@@ -139,9 +159,9 @@ function view(op: StoredOp, scrubFails: boolean, now: number): { operation: Oper
   const elapsedMs = (op.cancelledAt ?? now) - op.startedAt;
   const elapsed = Math.floor(elapsedMs / 1000);
   const done = !op.cancelledAt && elapsed >= total(op.kind);
-  let stage = PLAN[op.kind][PLAN[op.kind].length - 1].stage;
+  let stage = planOf(op.kind)[planOf(op.kind).length - 1].stage;
   let off = 0;
-  for (const p of PLAN[op.kind]) {
+  for (const p of planOf(op.kind)) {
     if (elapsed < off + p.secs) { stage = p.stage; break; }
     off += p.secs;
   }
@@ -151,7 +171,7 @@ function view(op: StoredOp, scrubFails: boolean, now: number): { operation: Oper
     state = "cancelled";
     events.push({ seq: events.length + 1, at: new Date(op.cancelledAt).toISOString(), stage, text: "Cancelled by the operator" });
   } else if (done) {
-    state = op.kind === "scrub" && scrubFails ? "failed" : "complete";
+    state = (op.kind === "scrub" && scrubFails) || noValidator(op.kind) ? "failed" : "complete";
     events.push({
       seq: events.length + 1, at: new Date(op.startedAt + total(op.kind) * 1000).toISOString(), stage: FINAL[op.kind],
       text: state === "failed" ? "Scrub finished: a digest did not match" : stageLabel(FINAL[op.kind])
@@ -187,7 +207,7 @@ let activeScenario = "default";
 export function assuranceLiveEvents(setId: string): SetActivityEvent[] {
   const out: SetActivityEvent[] = [];
   const now = Date.now();
-  const artifact = SET_LATEST[setId] ?? setId + "/latest";
+  const artifact = latestOf(setId) ?? setId + "/latest";
   const ops = Object.values(load().ops).filter((o) => o.setId === setId);
   ops.forEach((op, i) => {
     const base = 100_000 + i * 1_000;
@@ -219,13 +239,20 @@ export function assuranceLiveEvents(setId: string): SetActivityEvent[] {
     const start = op.kind === "recovery" ? "recovery_start" : "recovery_test_start";
     const end = op.kind === "recovery" ? "recovery_end" : "recovery_test_end";
     const action = op.kind;
+    const refused = noValidator(op.kind);
+    if (refused) {
+      push({
+        at: at(0), level: "info", event: "api_action", result: "success", message: "post /backup-sets/{source}/{set}/recovery-test",
+        fields: { actor: "you", route: "POST /api/v1/backup-sets/{source}/{set}/recovery-test", status: "202", command: "retnd recovery-test " + setId }
+      });
+    }
     push({
       at: at(0), level: "info", event: start, action, actionId: op.id, message: op.kind === "recovery" ? "recovery starting" : "recovery test starting",
-      fields: { op_id: op.id, backup_set: setId, artifact, ...(op.kind === "recovery_test" ? { validator: "pg-restore-check" } : {}) }
+      fields: { op_id: op.id, backup_set: setId, artifact, ...(op.kind === "recovery_test" && !refused ? { validator: builtinScenario() ? BUILTIN_CHECK_ID : "pg-restore-check" } : {}) }
     });
     let offset = 0;
     const elapsed = Math.floor(((op.cancelledAt ?? now) - op.startedAt) / 1000);
-    for (const p of PLAN[op.kind]) {
+    for (const p of planOf(op.kind)) {
       if (offset > elapsed) break;
       push({
         at: at(offset), level: "info", event: "recovery_stage", action, actionId: op.id, message: "recovery stage",
@@ -235,21 +262,33 @@ export function assuranceLiveEvents(setId: string): SetActivityEvent[] {
     }
     if (v.operation.state === "complete" || v.operation.state === "failed" || cancelled) {
       const failed = v.operation.state === "failed";
-      if (!failed && !cancelled) {
+      if (!failed && !refused && !cancelled) {
         push({
           at: endAt, level: "info", event: "recovery_stage", action, actionId: op.id, message: "recovery stage",
           fields: { op_id: op.id, backup_set: setId, stage: "complete", stage_label: stageLabel("complete") }
         });
       }
       push({
-        at: endAt, level: cancelled ? "warn" : failed ? "error" : "info", event: end, action, actionId: op.id,
-        result: cancelled ? "warn" : failed ? "error" : "success", message: "recovery test finished",
+        at: endAt, level: cancelled || refused ? "warn" : failed ? "error" : "info", event: end, action, actionId: op.id,
+        result: cancelled || refused ? "warn" : failed ? "error" : "success", message: "recovery test finished",
         fields: {
           op_id: op.id, backup_set: setId, artifact, duration: total(op.kind) + "s",
-          ...(op.kind === "recovery_test" ? { validator: "pg-restore-check" } : {}),
-          ...(cancelled ? { reason: "cancelled before it finished; no result was recorded" } : {})
+          ...(op.kind === "recovery_test" && !refused ? { validator: builtinScenario() ? BUILTIN_CHECK_ID : "pg-restore-check" } : {}),
+          ...(cancelled ? { reason: "cancelled before it finished; no result was recorded" } : {}),
+          ...(refused ? { reason: NO_VALIDATOR_REASON } : {})
         }
       });
+      if (refused) {
+        // The engine's one summary line for the run (obs.Logger.RecoveryTest),
+        // worded by the state.
+        push({
+          at: endAt, level: "info", event: "recovery_test", result: "info", message: "recovery test not run",
+          fields: {
+            artifact, medium: "local", placement_id: "99", state: "not_configured", digest: "not_compared", validator: "",
+            termination: "", cleanup: "", output_truncated: "false", reason: NO_VALIDATOR_REASON, backup_set: setId
+          }
+        });
+      }
     }
   });
   return out;
@@ -263,7 +302,7 @@ export function assuranceLiveEvents(setId: string): SetActivityEvent[] {
  * write them would show a scrub that changed nothing.
  */
 export function overlayAssurance(a: BackupArtifact): BackupArtifact {
-  if (SET_LATEST[a.setId] !== a.id) return a;
+  if (latestOf(a.setId) !== a.id) return a;
   const now = Date.now();
   let placements = a.placements;
   for (const op of Object.values(load().ops).filter((o) => o.setId === a.setId && !o.cancelledAt)) {
@@ -277,7 +316,11 @@ export function overlayAssurance(a: BackupArtifact): BackupArtifact {
           ? { ...p, verificationClass: null, verifiedAt: null, assuranceState: "failed" as const, lastCheckedAt: at, lastFailureAt: at, lastFailureReason: FAIL_REASON, consecutiveFailures: 1 }
           : { ...p, verificationClass: "content" as const, verifiedAt: at, assuranceState: "passed" as const, lastCheckedAt: at };
       }
-      return { ...p, recoveryState: "passed" as const, recoveryTestedAt: at };
+      if (noValidator(op.kind)) return { ...p, recoveryState: "not_configured" as const };
+      // The built-in structure pass is "readable" on the wire, never "passed",
+      // and recovery_check says which check stood behind it (#1111).
+      if (builtinScenario()) return { ...p, recoveryState: "readable" as const, recoveryCheck: "builtin" as const, recoveryTestedAt: at };
+      return { ...p, recoveryState: "passed" as const, recoveryCheck: "validator" as const, recoveryTestedAt: at };
     });
   }
   return placements === a.placements ? a : { ...a, placements };
@@ -306,6 +349,9 @@ export function createMockAssurance(scenario: string): AssuranceApi {
 
   const table = (now: number): ArtifactAssurance[] => {
     let t = baseTable(now);
+    if (scenario === "assurance-no-validator") {
+      t = t.map((a) => ({ ...a, recovery: rec("never_configured", "") }));
+    }
     if (scenario === "assurance-rebuilt") {
       t = t.map((a) => ({ ...a, content: rec("unknown", ""), recovery: rec("unknown", "") }));
     }
@@ -340,7 +386,7 @@ export function createMockAssurance(scenario: string): AssuranceApi {
       const v = view(op, scrubFails, now).operation;
       if (v.state !== "complete" && v.state !== "failed") continue;
       const endedAt = op.startedAt + total(op.kind) * 1000;
-      const target = SET_LATEST[op.setId];
+      const target = latestOf(op.setId);
       t = t.map((a) => {
         if (a.artifactId !== target) return a;
         const at = new Date(endedAt).toISOString();
@@ -353,7 +399,8 @@ export function createMockAssurance(scenario: string): AssuranceApi {
               : []
           };
         }
-        return { ...a, recovery: { status: cleanupFails ? "cleanup_failed" : "pass", achievedClass: "content", at } };
+        if (noValidator(op.kind)) return a;
+        return { ...a, recovery: { status: cleanupFails ? "cleanup_failed" : "pass", achievedClass: "content", at, ...(builtinScenario() ? { check: "builtin" as const } : {}) } };
       });
     }
     return t;

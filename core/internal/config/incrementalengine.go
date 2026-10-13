@@ -81,22 +81,9 @@ import (
 // without a config edit it may not own.
 const IncrementalEngineEnvVar = "RETND_INCREMENTAL_ENGINE"
 
-// LegacyIncrementalEngineEnvVar is the name IncrementalEngineEnvVar had
-// before the product was renamed to retnd (EPIC R, #885). It is READ for
-// one release and is never documented, written or suggested: a gate whose
-// name changed and whose old name went dead reverts a deployment that had
-// the engine ON to a deployment that refuses every incremental backup,
-// and the only evidence is the refusals (FR-37's silent class).
-//
-// The current name wins when both are set, and reading the deprecated one
-// prints one notice per process (core/envcompat).
-const LegacyIncrementalEngineEnvVar = "BACKUPD_INCREMENTAL_ENGINE"
-
-// incrementalEngineEnv is the pair as the reader consults it.
-var incrementalEngineEnv = envcompat.Rename{
-	Current: IncrementalEngineEnvVar,
-	Legacy:  []string{LegacyIncrementalEngineEnvVar},
-}
+// incrementalEngineEnv is the variable as the reader consults it. The
+// previous product name's spelling of it is not read.
+var incrementalEngineEnv = envcompat.Rename{Current: IncrementalEngineEnvVar}
 
 // ErrIncrementalEngineDisabled is the refusal every surface raises when
 // something would have driven the incremental engine while the gate is

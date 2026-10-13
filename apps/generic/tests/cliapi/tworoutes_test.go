@@ -363,7 +363,6 @@ func runCLI(t *testing.T, bin string, env map[string]string, argv ...string) inv
 		"BACKUP_MANAGER_API_USERNAME=",
 		"BACKUP_MANAGER_API_PASSWORD=",
 		"RETND_INCREMENTAL_ENGINE=",
-		"BACKUPD_INCREMENTAL_ENGINE=",
 	)
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
@@ -855,6 +854,11 @@ var surfaces = []surface{
 		note: "--to - sends the bytes to standard output, so the row leaves nothing on disk to clean up; recovery reads a copy and writes no configuration, and it names no mode",
 		argv: func(f fixture) []string {
 			return []string{"recover", "--config", f.configPath, f.artifactID, "--to", "-"}
+		}},
+	{verb: "recover", name: "a whole backup set to a folder under the staging root", mode: "", exit: 0, needsArtifacts: true,
+		note: "--set recovers every restore point of the set into one destination through the same service call POST /api/v1/recoveries makes (#1106); like the single-backup row it reads copies and writes no configuration, so it names no mode, and what it writes is files under the staging root and a manifest beside them",
+		argv: func(f fixture) []string {
+			return []string{"recover", "--config", f.configPath, "--set", f.setID, "--to", "whole-set"}
 		}},
 	{verb: "snapshot", name: "list, refused because this deployment's incremental engine is switched off", mode: "", exit: 1,
 		says: "the incremental (kopia) backup engine is disabled in this deployment",

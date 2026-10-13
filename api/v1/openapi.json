@@ -3517,12 +3517,13 @@
               "not_configured",
               "never_run",
               "passed",
+              "readable",
               "overdue",
               "failed",
               "refused_for_cost",
               "could_not_complete"
             ],
-            "description": "The outcome of the most recent recovery test of THIS copy, a different claim from assurance_state because passing one says nothing about the other. ABSENT means no test has evaluated the copy.",
+            "description": "The outcome of the most recent recovery test of THIS copy, a different claim from assurance_state because passing one says nothing about the other. ABSENT means no test has evaluated the copy. passed means the operator's validator accepted the recovered bytes. readable means the product's own built-in structure check read the recovered file end to end (it decodes; nothing says an application can use it), and is never an assured recovery test. A readable copy that has gone past its cadence reads overdue, with recovery_check builtin.",
             "x-go-omitempty": true
           },
           "recovery_tested_at": {
@@ -3534,6 +3535,15 @@
           "recovery_failure_reason": {
             "type": "string",
             "description": "Why the last recovery test of this copy failed or could not complete, in the journal's bounded plain words. Never the validator's output.",
+            "x-go-omitempty": true
+          },
+          "recovery_check": {
+            "type": "string",
+            "enum": [
+              "validator",
+              "builtin"
+            ],
+            "description": "Which check produced the verdict in recovery_state: validator is the operator's own script, builtin is the product's structure check (it read the recovered file end to end as its archive or compression format). Absent when there is no passed, readable, failed or overdue verdict to attribute, and from an older server. builtin goes with recovery_state readable (or a failed or overdue built-in verdict): it proves the file decodes, not that an application can use it.",
             "x-go-omitempty": true
           }
         },
@@ -5720,7 +5730,7 @@
         "properties": {
           "name": {
             "type": "string",
-            "description": "The variable name a hook will see. Held to the engine's own name rule, which refuses this product's reserved RETND_ prefix, and its deprecated BACKUPD_ spelling for as long as the runtime still exports that too: a hook cannot be given a variable that would shadow the run facts the engine injects."
+            "description": "The variable name a hook will see. Held to the engine's own name rule, which refuses this product's reserved RETND_ prefix: a hook cannot be given a variable that would shadow the run facts the engine injects."
           },
           "value": {
             "type": "string",
@@ -6813,6 +6823,390 @@
           "sha256"
         ]
       },
+      "RecoveryManyRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "POST /recoveries. Recovers several backups, or every restore point of one backup set, to ONE destination, as if each had been recovered alone: the same checks against the digest recorded at ingestion, the same refusals and budgets, nothing half-written. Name exactly one of `set` and `artifacts`. The target is `staging` or `storage`; `download` is refused, because many files do not fit one browser download.",
+        "properties": {
+          "set": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "A backup set, source/set: every retained, known-good backup of it. Rows that are quarantined, lost or not a restore point are listed in the plan and the result and never included."
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "x-go-omitempty": true,
+            "description": "Backup ids, source/set/name each, to recover. Duplicates are ignored."
+          },
+          "newest_only": {
+            "type": "boolean",
+            "x-go-omitempty": true,
+            "description": "With `set`: only the newest restore point."
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "x-go-omitempty": true,
+            "description": "With `set`: only backups updated at or after this moment."
+          },
+          "copy": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The medium id of the copy to recover for every file, or best-available (also what an empty value means)."
+          },
+          "acknowledged": {
+            "type": "boolean",
+            "x-go-omitempty": true,
+            "description": "The explicit yes to the whole request's cost, shown by the pre-flight: a billed download, or a provider restore first. One answer for the whole request; absent is a no."
+          },
+          "preflight": {
+            "type": "boolean",
+            "x-go-omitempty": true,
+            "description": "Answer with the plan (what would be recovered, what would not and why, the cost, whether it fits) and copy nothing."
+          },
+          "target": {
+            "$ref": "#/components/schemas/RecoveryTarget"
+          }
+        },
+        "required": [
+          "target"
+        ]
+      },
+      "RecoveryManyItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "One backup in a plan or a result. Status is ready (plan only), recovered, failed, skipped (not a restore point, or the run was cancelled before it started), needs_thaw (a provider restore was started or is needed), quarantined or unrecoverable (listed, never included).",
+        "properties": {
+          "artifact_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "recovered",
+              "failed",
+              "skipped",
+              "needs_thaw",
+              "quarantined",
+              "unrecoverable"
+            ]
+          },
+          "copy": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The medium id of the copy chosen."
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "x-go-omitempty": true,
+            "x-go-pointer": true,
+            "description": "The recorded size, when the journal has one."
+          },
+          "chargeable": {
+            "type": "boolean",
+            "x-go-omitempty": true,
+            "description": "True when reading this file is billed."
+          },
+          "bytes": {
+            "type": "integer",
+            "format": "int64",
+            "x-go-omitempty": true,
+            "description": "Bytes delivered, for a recovered file."
+          },
+          "sha256": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The digest of the bytes delivered, equal to the one recorded at ingestion."
+          },
+          "path": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The full path of the file, for a staging target."
+          },
+          "key": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The object key written, for a storage target."
+          },
+          "file": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The name the manifest lists the file under."
+          },
+          "code": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "Why the file was not recovered: a RECOVERY_* code, or ARTIFACT_QUARANTINED, ARTIFACT_IRRECOVERABLE, NOT_A_RESTORE_POINT."
+          },
+          "message": {
+            "type": "string",
+            "x-go-omitempty": true
+          },
+          "restore": {
+            "$ref": "#/components/schemas/RecoveryRestoreOperation",
+            "x-go-omitempty": true,
+            "x-go-pointer": true,
+            "description": "Present when a provider restore was started for this file."
+          }
+        },
+        "required": [
+          "artifact_id",
+          "name",
+          "status"
+        ]
+      },
+      "RecoveryManyTotals": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Counts of the rows of a plan or a result, and the bytes they come to.",
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "ready": {
+            "type": "integer"
+          },
+          "recovered": {
+            "type": "integer"
+          },
+          "failed": {
+            "type": "integer"
+          },
+          "skipped": {
+            "type": "integer"
+          },
+          "needs_thaw": {
+            "type": "integer"
+          },
+          "quarantined": {
+            "type": "integer"
+          },
+          "unrecoverable": {
+            "type": "integer"
+          },
+          "bytes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "count",
+          "ready",
+          "recovered",
+          "failed",
+          "skipped",
+          "needs_thaw",
+          "quarantined",
+          "unrecoverable",
+          "bytes"
+        ]
+      },
+      "RecoveryManyPlan": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "The pre-flight: what a recovery of several backups would do, before a byte is read.",
+        "properties": {
+          "set": {
+            "type": "string",
+            "x-go-omitempty": true
+          },
+          "target": {
+            "$ref": "#/components/schemas/RecoveryTarget"
+          },
+          "folder": {
+            "type": "string",
+            "description": "Where the files go, relative to the destination root: a per-set folder when the request covers one set."
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RecoveryManyItem"
+            }
+          },
+          "totals": {
+            "$ref": "#/components/schemas/RecoveryManyTotals"
+          },
+          "chargeable_count": {
+            "type": "integer"
+          },
+          "chargeable_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "unknown_sizes": {
+            "type": "integer",
+            "description": "Ready files the journal recorded no size for."
+          },
+          "free_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "x-go-omitempty": true,
+            "x-go-pointer": true,
+            "description": "Free bytes on the staging disk, when it can say."
+          },
+          "reserve_bytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "refusal": {
+            "$ref": "#/components/schemas/RecoveryManyError",
+            "x-go-omitempty": true,
+            "x-go-pointer": true,
+            "description": "Present on a pre-flight answer when the run itself would be refused (the cost is not acknowledged, the files do not fit): the code and message the run would be refused with, which carry the numbers. The plan beside it is the same one the refusal is about. A run that is not a pre-flight is refused with an error response instead."
+          }
+        },
+        "required": [
+          "target",
+          "folder",
+          "items",
+          "totals",
+          "chargeable_count",
+          "chargeable_bytes",
+          "unknown_sizes",
+          "reserve_bytes"
+        ]
+      },
+      "RecoveryManyResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "What a run did. The summary and the manifest file written beside the recovered files are built from the same rows, so they agree with each other and with the disk.",
+        "properties": {
+          "operation_id": {
+            "type": "string"
+          },
+          "set": {
+            "type": "string",
+            "x-go-omitempty": true
+          },
+          "target": {
+            "$ref": "#/components/schemas/RecoveryTarget"
+          },
+          "folder": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RecoveryManyItem"
+            }
+          },
+          "totals": {
+            "$ref": "#/components/schemas/RecoveryManyTotals"
+          },
+          "cancelled": {
+            "type": "boolean",
+            "description": "True when the run was cancelled: the files listed as recovered are complete, the rest were not started or were discarded."
+          },
+          "manifest_path": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The manifest's full path, for a staging target."
+          },
+          "manifest_key": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The manifest's object key, for a storage target."
+          },
+          "manifest_sha256": {
+            "type": "string",
+            "x-go-omitempty": true
+          }
+        },
+        "required": [
+          "operation_id",
+          "target",
+          "folder",
+          "items",
+          "totals",
+          "cancelled"
+        ]
+      },
+      "RecoveryManyEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "One line of the application/x-ndjson stream a non-pre-flight POST /recoveries answers with. `plan` comes once, after the pre-flight passed and before any byte is read; `start` and `item` come per file (item carries its outcome and the running total); `result` is last. A refusal from the pre-flight is an ordinary error response before the first line.",
+        "properties": {
+          "event": {
+            "type": "string",
+            "enum": [
+              "plan",
+              "start",
+              "item",
+              "result"
+            ]
+          },
+          "index": {
+            "type": "integer",
+            "x-go-omitempty": true
+          },
+          "total": {
+            "type": "integer",
+            "x-go-omitempty": true
+          },
+          "item": {
+            "$ref": "#/components/schemas/RecoveryManyItem",
+            "x-go-omitempty": true,
+            "x-go-pointer": true
+          },
+          "plan": {
+            "$ref": "#/components/schemas/RecoveryManyPlan",
+            "x-go-omitempty": true,
+            "x-go-pointer": true
+          },
+          "result": {
+            "$ref": "#/components/schemas/RecoveryManyResult",
+            "x-go-omitempty": true,
+            "x-go-pointer": true
+          },
+          "done_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "x-go-omitempty": true,
+            "x-go-pointer": true,
+            "description": "Bytes recovered so far in this run."
+          },
+          "total_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "x-go-omitempty": true,
+            "x-go-pointer": true,
+            "description": "Bytes the run will recover in all, from the plan."
+          },
+          "error": {
+            "$ref": "#/components/schemas/RecoveryManyError",
+            "x-go-omitempty": true,
+            "x-go-pointer": true,
+            "description": "On the result line only: the run finished the files but could not finish, for example the manifest could not be written."
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "RecoveryManyError": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ]
+      },
       "AssuranceScrubPolicy": {
         "type": "object",
         "description": "A resolved scrub policy: how often a copy is re-read and how much of it is read.",
@@ -6836,7 +7230,7 @@
         "properties": {
           "mode": {
             "type": "string",
-            "description": "off never runs a recovery test; required runs one on the cadence and the set is not assured without it; custom is required with the set's own cadence and validator."
+            "description": "off never runs a recovery test; builtin runs the product's own structure check on the cadence, with no validator, and is never what required means; required runs the operator's validator on the cadence and the set is not assured without it; custom is required with the set's own cadence and validator. inherit (a set's spelling only) takes the deployment's."
           },
           "cadence_seconds": {
             "type": "integer",
@@ -6846,6 +7240,35 @@
           "validator_id": {
             "type": "string",
             "description": "The recovery-test script to run over the recovered copy, named by its file name without the .local.sh suffix, in recovery-test/<source>/<set> under the workflow root. Not an entry in GET /validators. A name, never a path. Empty when the mode is off and none is configured."
+          },
+          "builtin_check": {
+            "type": "string",
+            "enum": [
+              "structure",
+              "off"
+            ],
+            "description": "Whether the built-in structure check may run when no validator is declared. structure (the default) lets POST /recovery-test, and the schedule under mode builtin, read a recognised archive or compression file end to end; off refuses with not_configured instead. RESOLVED. It governs the manual test with every mode."
+          },
+          "effective_check": {
+            "type": "string",
+            "enum": [
+              "validator",
+              "builtin",
+              "none"
+            ],
+            "description": "Which check a recovery test of this set would run now: validator when one is declared, builtin when none is and the built-in check applies, none otherwise. Present on a backup set's answer only, from the same decision POST /recovery-test makes first.",
+            "x-go-omitempty": true
+          },
+          "effective_check_reason": {
+            "type": "string",
+            "description": "Why effective_check is none, in plain words: the built-in check is off, or it has no reader for the newest known good copy's file type. Present only when effective_check is none.",
+            "x-go-omitempty": true
+          },
+          "validator_declared": {
+            "type": "boolean",
+            "description": "Whether a recovery test of this set would find a validator to run, from the same dry run the test makes first, so this and the test's own not_configured refusal cannot disagree. Present on a backup set's answer only: the deployment-wide policy has no set to look in, so it leaves this out, and an older server leaves it out too. A validator found by convention in the set's recovery-test directory counts, and so does one named by validator_id whose script is missing (that test ends could_not_complete with its reason, not not_configured). false means POST /recovery-test can only answer not_configured.",
+            "x-go-omitempty": true,
+            "x-go-pointer": true
           }
         }
       },
@@ -6933,7 +7356,7 @@
           },
           "recovery_test_mode": {
             "type": "string",
-            "description": "off or required. Empty clears it back to off. Required needs a validator.",
+            "description": "off, builtin or required. Empty clears it back to off. Required needs a validator. Builtin needs none and is refused with builtin_check off.",
             "x-go-pointer": true
           },
           "recovery_test_cadence_seconds": {
@@ -6945,6 +7368,11 @@
           "recovery_test_validator_id": {
             "type": "string",
             "description": "The default recovery-test script, by file name without .local.sh. Empty clears it.",
+            "x-go-pointer": true
+          },
+          "recovery_test_builtin_check": {
+            "type": "string",
+            "description": "structure or off: whether the built-in structure check may run when no validator is declared. Empty clears it back to structure.",
             "x-go-pointer": true
           },
           "staging_root": {
@@ -7016,7 +7444,7 @@
           },
           "recovery_test_mode": {
             "type": "string",
-            "description": "inherit, off, required or custom. Empty clears it, which is inherit.",
+            "description": "inherit, off, builtin, required or custom. Empty clears it, which is inherit. Builtin needs no validator and is refused with builtin_check off.",
             "x-go-pointer": true
           },
           "recovery_test_cadence_seconds": {
@@ -7028,6 +7456,11 @@
           "recovery_test_validator_id": {
             "type": "string",
             "description": "The recovery-test script, by file name without .local.sh. Required with mode custom, and with mode required unless the deployment names one. Empty clears it.",
+            "x-go-pointer": true
+          },
+          "recovery_test_builtin_check": {
+            "type": "string",
+            "description": "structure or off for this set. Empty clears it, so the set inherits the deployment's. Allowed with every mode.",
             "x-go-pointer": true
           }
         }
@@ -7289,7 +7722,7 @@
           },
           "state": {
             "type": "string",
-            "description": "The test's verdict: passed, failed, refused_for_cost or could_not_complete."
+            "description": "The test's verdict: passed (a validator accepted it), readable (the built-in structure check read it end to end), failed, refused_for_cost or could_not_complete."
           },
           "recorded_at": {
             "type": "string",
@@ -17267,6 +17700,192 @@
             },
             "x-error-codes": [
               "RECOVERY_UNAVAILABLE"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/recoveries": {
+      "post": {
+        "operationId": "recoverMany",
+        "summary": "Recover several backups, or a whole backup set, to one destination in one operation.",
+        "tags": [
+          "backups"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecoveryManyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success. With preflight, the plan. Otherwise an application/x-ndjson stream: one plan line, a start and an item line per file with a running total, and a last result line (cancelled true if the run was cancelled). Plans the whole request first (cost, space, what cannot be recovered), refuses early with the numbers, then recovers file by file through the same code as a single recovery. With preflight true it answers the plan and copies nothing. Otherwise it answers a stream of JSON lines (see RecoveryManyEvent): closing the connection cancels the run, the file in flight is discarded, and the manifest still records what happened. One failing file does not stop the others.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryManyPlan"
+                }
+              },
+              "application/x-ndjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryManyEvent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST, RECOVERY_TARGET_INVALID. The second is a target that does not stay inside the staging root, names a destination this configuration does not declare, or is a download.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST",
+              "RECOVERY_TARGET_INVALID"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "404": {
+            "description": "Refused: ARTIFACT_NOT_FOUND, BACKUP_SET_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "ARTIFACT_NOT_FOUND",
+              "BACKUP_SET_NOT_FOUND"
+            ]
+          },
+          "409": {
+            "description": "Refused: RECOVERY_COST_NOT_ACKNOWLEDGED, RECOVERY_NO_COPY, RECOVERY_USE_SNAPSHOT_RESTORE. The first names the whole request's cost and starts nothing. The last is a backup set stored by the kopia engine, whose whole-set restore is `retnd snapshot restore`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_COST_NOT_ACKNOWLEDGED",
+              "RECOVERY_NO_COPY",
+              "RECOVERY_USE_SNAPSHOT_RESTORE"
+            ]
+          },
+          "429": {
+            "description": "Refused: RECOVERY_READS_BUSY, RECOVERY_DESTINATION_BUSY. The host's read budgets are spent; try again when a read finishes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_READS_BUSY",
+              "RECOVERY_DESTINATION_BUSY"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL, RECOVERY_FAILED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL",
+              "RECOVERY_FAILED"
+            ]
+          },
+          "501": {
+            "description": "Refused: RECOVERY_UNAVAILABLE. The backend behind this router cannot recover backups.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_UNAVAILABLE"
+            ]
+          },
+          "503": {
+            "description": "Refused: RECOVERY_UNAVAILABLE. There is no state directory to stage a recovery in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_UNAVAILABLE"
+            ]
+          },
+          "507": {
+            "description": "Refused: RECOVERY_NO_SPACE, RECOVERY_BELOW_RESERVE. The files do not fit the staging disk; the message carries the numbers and nothing was read.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_NO_SPACE",
+              "RECOVERY_BELOW_RESERVE"
             ]
           }
         },

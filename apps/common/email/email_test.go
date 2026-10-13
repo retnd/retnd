@@ -473,7 +473,7 @@ func TestValidate_RefusesConfigurationsThatCouldNeverSend(t *testing.T) {
 		"port too large":   {Host: "h", Port: 70000, Security: SecurityNone, From: "a@b.com"},
 		"unknown security": {Host: "h", Port: 25, Security: Security("ssl"), From: "a@b.com"},
 		"no from":          {Host: "h", Port: 25, Security: SecurityNone},
-		"from with name":   {Host: "h", Port: 25, Security: SecurityNone, From: "Backupd <a@b.com>"},
+		"from with name":   {Host: "h", Port: 25, Security: SecurityNone, From: "retnd <a@b.com>"},
 		"injected host":    {Host: "h\r\nEHLO evil", Port: 25, Security: SecurityNone, From: "a@b.com"},
 	} {
 		t.Run(name, func(t *testing.T) {

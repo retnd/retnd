@@ -404,3 +404,37 @@ func TestAssuranceRoute_StartRecoveryTestRefusalsHaveTheirOwnCodes(t *testing.T)
 		})
 	}
 }
+
+// Issue #1108: the route a browser reads says whether a recovery test of the
+// set would find a validator, false included, so the page can disable a button
+// that could only be refused. The route's own wire struct is separate from the
+// CLI's (it was the one that dropped the field on the first real-rig run), and
+// the deployment-wide answer, which has no set to look in, leaves it out.
+func TestAssuranceRoute_Issue1108_ASetsAnswerSaysWhetherAValidatorIsDeclared(t *testing.T) {
+	configPath := writeAssuranceRouteConfig(t)
+	router, closeRouter := gatedBoundaryRouter(t, configPath)
+	defer closeRouter()
+
+	code, body := call(t, router, http.MethodGet, "/api/v1/backup-sets/production/alpha/assurance", "")
+	if code != http.StatusOK {
+		t.Fatalf("GET set assurance = %d: %s", code, body)
+	}
+	var set struct {
+		RecoveryTest map[string]any `json:"recovery_test"`
+	}
+	if err := json.Unmarshal([]byte(body), &set); err != nil {
+		t.Fatal(err)
+	}
+	declared, present := set.RecoveryTest["validator_declared"]
+	if !present || declared != false {
+		t.Errorf("a set with no validator answered recovery_test = %v, want validator_declared:false present", set.RecoveryTest)
+	}
+
+	code, body = call(t, router, http.MethodGet, "/api/v1/settings/assurance", "")
+	if code != http.StatusOK {
+		t.Fatalf("GET settings assurance = %d: %s", code, body)
+	}
+	if strings.Contains(body, "validator_declared") {
+		t.Errorf("the deployment-wide policy has no set to look in but answered: %s", body)
+	}
+}

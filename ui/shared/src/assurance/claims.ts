@@ -21,7 +21,7 @@ import type { IconName } from "@shared/design-system/icons";
 import { stamp } from "@shared/utilities/format";
 import type { AchievedClass, ClaimRecord, ClaimStatus, CopyContent, CopyFailure } from "./types";
 
-export type RenderState = ClaimStatus | "existence_only" | "attested_only";
+export type RenderState = ClaimStatus | "existence_only" | "attested_only" | "pass_builtin";
 export type ClaimKind = "content" | "recovery";
 
 export interface RenderedClaim {
@@ -48,6 +48,7 @@ const STATUSES: readonly ClaimStatus[] = [
 export interface Glyph { id: string; icon?: IconName; text?: string }
 export const GLYPH: Record<RenderState, Glyph> = {
   pass: { id: "pass", icon: "success" },
+  pass_builtin: { id: "pass-builtin", icon: "success" },
   failed: { id: "failed", icon: "failure" },
   unknown: { id: "unknown", text: "?" },
   never_configured: { id: "never-configured", text: "\u2212" },
@@ -87,6 +88,7 @@ function validTime(at: string | undefined): boolean {
 const LABELS: Record<ClaimKind, Record<RenderState, string>> = {
   content: {
     pass: "Content verified",
+    pass_builtin: "Unknown",
     failed: "Content check failed",
     unknown: "Unknown",
     never_configured: "Not configured",
@@ -102,6 +104,7 @@ const LABELS: Record<ClaimKind, Record<RenderState, string>> = {
   },
   recovery: {
     pass: "Recovery test passed",
+    pass_builtin: "Recovered, readable",
     failed: "Recovery test failed",
     unknown: "Unknown",
     never_configured: "Not configured",
@@ -175,7 +178,10 @@ export function renderClaim(
       if (cls === "attested") return make("attested_only", true);
       return make("unknown", false);
     }
-    return make("pass", true);
+    // A built-in structure pass proves the file decodes, not that an
+    // application can use it, so it has its own words (#1111) and is never
+    // worded as a recovery test passing.
+    return make(record.check === "builtin" ? "pass_builtin" : "pass", true);
   }
   // Every other state keeps its own age where it has one: "overdue" says
   // how long ago it last passed, "failed" says when it failed.

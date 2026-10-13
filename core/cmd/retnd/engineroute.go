@@ -1083,6 +1083,7 @@ func (r *engineRoute) UpdateAssuranceSettings(ctx context.Context, req service.U
 		RecoveryTestMode:           req.RecoveryTestMode,
 		RecoveryTestCadenceSeconds: rt,
 		RecoveryTestValidatorID:    req.RecoveryTestValidatorID,
+		RecoveryTestBuiltinCheck:   req.RecoveryTestBuiltinCheck,
 		StagingRoot:                req.StagingRoot,
 		StagingTtlSeconds:          ttl,
 		MaxConcurrentFullReads:     int64Ptr(req.MaxConcurrentFullReads),
@@ -1114,6 +1115,7 @@ func (r *engineRoute) UpdateBackupSetAssurance(ctx context.Context, id string, r
 		RecoveryTestMode:           req.RecoveryTestMode,
 		RecoveryTestCadenceSeconds: rt,
 		RecoveryTestValidatorID:    req.RecoveryTestValidatorID,
+		RecoveryTestBuiltinCheck:   req.RecoveryTestBuiltinCheck,
 	})
 	if err != nil {
 		return service.BackupSetAssurance{}, err
@@ -1137,7 +1139,7 @@ func (r *engineRoute) ResetBackupSetAssurance(ctx context.Context, id string) (s
 func assurancePolicyFromWire(s apicontract.AssuranceScrubPolicy, rt apicontract.AssuranceRecoveryTestPolicy) service.AssurancePolicy {
 	return service.AssurancePolicy{
 		Scrub:        service.AssuranceScrubPolicy{Cadence: time.Duration(s.CadenceSeconds) * time.Second, Strategy: s.Strategy},
-		RecoveryTest: service.AssuranceRecoveryTestPolicy{Mode: rt.Mode, Cadence: time.Duration(rt.CadenceSeconds) * time.Second, ValidatorID: rt.ValidatorID},
+		RecoveryTest: service.AssuranceRecoveryTestPolicy{Mode: rt.Mode, Cadence: time.Duration(rt.CadenceSeconds) * time.Second, ValidatorID: rt.ValidatorID, BuiltinCheck: rt.BuiltinCheck},
 	}
 }
 
@@ -1158,5 +1160,9 @@ func assuranceSettingsFromWire(w apicontract.AssuranceSettingsResponse) service.
 }
 
 func backupSetAssuranceFromWire(w apicontract.BackupSetAssurance) service.BackupSetAssurance {
-	return service.BackupSetAssurance{BackupSetID: w.BackupSetID, Override: w.IsOverride, Policy: assurancePolicyFromWire(w.Scrub, w.RecoveryTest)}
+	return service.BackupSetAssurance{
+		BackupSetID: w.BackupSetID, Override: w.IsOverride, Policy: assurancePolicyFromWire(w.Scrub, w.RecoveryTest),
+		ValidatorDeclared: w.RecoveryTest.ValidatorDeclared != nil && *w.RecoveryTest.ValidatorDeclared,
+		EffectiveCheck:    w.RecoveryTest.EffectiveCheck, EffectiveCheckReason: w.RecoveryTest.EffectiveCheckReason,
+	}
 }

@@ -731,16 +731,17 @@ func mustRead(t *testing.T, path string) string {
 // being ledgered is a judgement someone has to make at the moment the
 // field lands rather than a violation to be waved through.
 var exemptFromIsolationFixture = map[string]string{
-	"ID":                                 "assigned by Validate from the source and name, never read off the file, so a fixture cannot set it",
-	"Retention":                          "the RESOLVED policy, filled in by Validate and carrying yaml:\"-\", so it is never on disk to compare",
-	"ReadOnly":                           "the RESOLVED answer, filled in by Validate from ReadOnlyConfig; the override is what the fixture sets",
-	"Disabled":                           "a bool whose zero value IS its ordinary state (an enabled set), so \"non-zero\" cannot be required of it. UpdateBackupSetRequest cannot reach it either: enabling and disabling is POST /enabled's own route",
-	"Assurance.Scrub.Cadence":            "the RESOLVED scrub cadence, filled in by Validate from AssuranceConfig and the deployment's block and carrying yaml:\"-\", so it is never on disk to compare",
-	"Assurance.Scrub.Strategy":           "the RESOLVED scrub strategy, same footing as the cadence",
-	"Assurance.RecoveryTest.Mode":        "the RESOLVED recovery-test mode, same footing",
-	"Assurance.RecoveryTest.Cadence":     "the RESOLVED recovery-test cadence, same footing",
-	"Assurance.RecoveryTest.ValidatorID": "the RESOLVED recovery-test validator, same footing",
-	"Revalidation":                       "issue #315's re-check schedule, which no update-path request field can reach and which config.Validate does not require",
+	"ID":                                  "assigned by Validate from the source and name, never read off the file, so a fixture cannot set it",
+	"Retention":                           "the RESOLVED policy, filled in by Validate and carrying yaml:\"-\", so it is never on disk to compare",
+	"ReadOnly":                            "the RESOLVED answer, filled in by Validate from ReadOnlyConfig; the override is what the fixture sets",
+	"Disabled":                            "a bool whose zero value IS its ordinary state (an enabled set), so \"non-zero\" cannot be required of it. UpdateBackupSetRequest cannot reach it either: enabling and disabling is POST /enabled's own route",
+	"Assurance.Scrub.Cadence":             "the RESOLVED scrub cadence, filled in by Validate from AssuranceConfig and the deployment's block and carrying yaml:\"-\", so it is never on disk to compare",
+	"Assurance.Scrub.Strategy":            "the RESOLVED scrub strategy, same footing as the cadence",
+	"Assurance.RecoveryTest.Mode":         "the RESOLVED recovery-test mode, same footing",
+	"Assurance.RecoveryTest.Cadence":      "the RESOLVED recovery-test cadence, same footing",
+	"Assurance.RecoveryTest.ValidatorID":  "the RESOLVED recovery-test validator, same footing",
+	"Assurance.RecoveryTest.BuiltinCheck": "the RESOLVED builtin_check (#1111), same footing",
+	"Revalidation":                        "issue #315's re-check schedule, which no update-path request field can reach and which config.Validate does not require",
 
 	// EPIC L (#808). The merged environment a hook actually runs with,
 	// filled in by Validate from three layers and carrying yaml:"-", so

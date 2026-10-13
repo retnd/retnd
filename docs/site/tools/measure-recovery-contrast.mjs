@@ -68,6 +68,27 @@ const PAIRS = [
       return '[data-testid="operation-progress"] pre, [data-testid="operation-progress"] [data-testid="operation-line"]';
     },
     false
+  ],
+  // #1108: the reason beside a disabled Run recovery test, and the two links in it.
+  [
+    "no-validator reason, text (worst element of the paragraph)",
+    SET,
+    "assurance-no-validator",
+    async (page) => {
+      await page.getByTestId("recovery-test-no-validator").waitFor();
+      return '[data-testid="recovery-test-no-validator"]';
+    },
+    false
+  ],
+  [
+    "no-validator reason, its links",
+    SET,
+    "assurance-no-validator",
+    async (page) => {
+      await page.getByTestId("recovery-test-no-validator").waitFor();
+      return '[data-testid="recovery-test-no-validator"] a';
+    },
+    false
   ]
 ];
 
