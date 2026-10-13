@@ -165,7 +165,7 @@ describe("where a backup's copies are", () => {
     );
 
     expect(await screen.findByText("Needs a restore")).toBeTruthy();
-    expect(screen.getByText(/cannot be read on demand/i)).toBeTruthy();
+    expect(screen.getByText(/^This storage class cannot be read on demand/i)).toBeTruthy();
     expect(screen.getByText("DEEP_ARCHIVE")).toBeTruthy();
     expect(screen.queryByText("Readable now")).toBeNull();
   });
@@ -196,7 +196,7 @@ describe("where a backup's copies are", () => {
 
     expect(await screen.findByText("Needs a restore")).toBeTruthy();
     await new Promise((r) => setTimeout(r, 800));
-    expect(screen.getByText(/cannot be read on demand/i)).toBeTruthy();
+    expect(screen.getByText(/^This storage class cannot be read on demand/i)).toBeTruthy();
   });
 
   it("says a copy nobody has verified is not verified, and gives it no class and no date", async () => {
