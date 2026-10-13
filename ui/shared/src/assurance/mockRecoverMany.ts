@@ -137,7 +137,7 @@ export function createMockRecoverMany(scenario: string, rowsFor: (setId: string)
     const totals = totalsOf(items);
     const charge = items.filter((i) => i.chargeable && (i.status === "ready" || i.status === "needs_thaw"));
     const chargeableBytes = charge.reduce((t, i) => t + (i.sizeBytes ?? 0), 0);
-    const freeBytes = scenario === "assurance-set-nospace" ? 40_000_000_000 : 2_000_000_000_000;
+    const freeBytes = scenario === "assurance-set-nospace" ? 40_000_000_000 : scenario === "backups-many-nospace" ? 1_000_000 : 2_000_000_000_000;
     const p: RecoverManyPlan = {
       ...(req.set ? { set: req.set } : {}),
       target: req.target, folder: folderOf(req, items), items, totals,
@@ -168,7 +168,8 @@ export function createMockRecoverMany(scenario: string, rowsFor: (setId: string)
       emit?.({ kind: "plan", plan: p, totalBytes: p.totals.bytes });
       const items = p.items.map((i) => ({ ...i }));
       const actionable = items.filter((i) => i.status === "ready" || i.status === "needs_thaw").length;
-      const perFile = scenario === "assurance-set-slow" ? 2500 : 700;
+      // #1107: a selection of thirty must not take half a minute to watch.
+      const perFile = scenario === "assurance-set-slow" ? 2500 : scenario.startsWith("backups-many") ? 120 : 700;
       let index = 0, done = 0, ready = 0, cancelled = false;
       for (const it of items) {
         if (it.status !== "ready" && it.status !== "needs_thaw") continue;
@@ -189,7 +190,7 @@ export function createMockRecoverMany(scenario: string, rowsFor: (setId: string)
           Object.assign(it, { restoreOperationId: "op_restore_mock_" + index, message: "a provider restore was started; run this again once the copy is readable" });
         } else {
           ready++;
-          if (scenario === "assurance-set-corrupt" && ready === 2) {
+          if ((scenario === "assurance-set-corrupt" && ready === 2) || (scenario === "backups-many-corrupt" && it.artifactId.endsWith("billing-mysql-20260805.bak"))) {
             Object.assign(it, { status: "failed", code: "RECOVERY_LOCAL_COPY_CORRUPT", message: "the copy on this host's disk does not match the checksum recorded when this backup was ingested (digest mismatch), so none of it was delivered" });
           } else {
             const folder = p.folder;

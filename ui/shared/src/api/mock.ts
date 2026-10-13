@@ -75,6 +75,13 @@ import type { DeploymentActivity, SetActivity, SetActivityEvent } from "@shared/
 
 export type Scenario =
   | "default"
+  // Issue #1107: thirty more backups across three sets and thirty days, so a
+  // filter has something to narrow and a select-all has something to count.
+  // The "-corrupt" flavour makes one of them fail its digest on recovery, and
+  // the "-nospace" one has a staging disk too small for the selection.
+  | "backups-many"
+  | "backups-many-corrupt"
+  | "backups-many-nospace"
   | "empty"
   | "storage-critical"
   | "catalog-recovery"
@@ -134,7 +141,15 @@ export type Scenario =
   | "assurance-set-recover"
   | "assurance-set-nospace"
   | "assurance-set-corrupt"
-  | "assurance-set-slow";
+  | "assurance-set-slow"
+  // Issue #1115: the docked terminal's level toggles. "dock-no-warnings" is
+  // the default feed with its one warning taken out, so the Warnings count is
+  // zero and must be shown disabled. "dock-live-line" is the default feed, and
+  // once a spec sets sessionStorage "retnd.mock.dock.live" a warning and a
+  // plain note arrive on the next poll, which is how a spec watches a new line
+  // meet an active filter.
+  | "dock-no-warnings"
+  | "dock-live-line";
 
 /** Reads the scenario out of the URL, falling back to the default for
  *  anything unrecognised. A closed allow-list rather than a cast, so a
@@ -152,7 +167,8 @@ export function scenarioFromLocation(): Scenario {
     "assurance-snapshot-set", "assurance-too-many-grants", "assurance-grant-expired",
     "assurance-grant-used", "assurance-session-ended", "assurance-staging-full",
     "assurance-reads-busy", "assurance-corrupt-copy", "assurance-download-outcomes",
-    "assurance-set-recover", "assurance-set-nospace", "assurance-set-corrupt", "assurance-set-slow"
+    "assurance-set-recover", "assurance-set-nospace", "assurance-set-corrupt", "assurance-set-slow",
+    "backups-many", "backups-many-corrupt", "backups-many-nospace", "dock-no-warnings", "dock-live-line"
   ];
   return (allowed as string[]).includes(s ?? "") ? (s as Scenario) : "default";
 }
@@ -639,6 +655,43 @@ const ARTIFACTS: BackupArtifact[] = [
     ]
   }
 ];
+
+/**
+ * Issue #1107: thirty generated backups, one a day from 2026-08-01, rotating
+ * through three sets, each with one readable local copy. The names carry the
+ * set and the day so a spec can say exactly which rows a filter must keep.
+ */
+const MANY_SETS = [
+  { id: "production/postgres-primary", name: "Production PostgreSQL" },
+  { id: "production/billing-mysql", name: "Billing MySQL" },
+  { id: "production/auth-config", name: "Auth service config" }
+];
+const MANY_GENERATED: BackupArtifact[] = Array.from({ length: 30 }, (_, i) => {
+  const set = MANY_SETS[i % 3];
+  const day = String(i + 1).padStart(2, "0");
+  const filename = set.id.split("/")[1] + "-202608" + day + ".bak";
+  const at = "2026-08-" + day + "T02:00:00+02:00";
+  const size = (i + 1) * 1_000_000;
+  const local = "/data/backups/" + set.id + "/2026/08/" + filename;
+  return {
+    id: set.id + "/" + filename,
+    setId: set.id, setName: set.name, filename,
+    remoteOriginalPath: "prod-01:/backups/" + filename,
+    localPath: local,
+    producedAt: at, receivedAt: at,
+    sizeBytes: size,
+    checksum: String(i).padStart(2, "0").repeat(32),
+    checksumAlgorithm: "sha256", state: "COMPLETE", validation: "verified",
+    retentionClasses: ["daily"], retentionPolicy: "configured",
+    remoteSourceRemovedAt: at, quarantine: null,
+    placements: [
+      {
+        medium: "local", mediumType: "local", location: local, sizeBytes: size, storageClass: "",
+        verificationClass: "content", verifiedAt: at, access: "immediate", status: "ACTIVE"
+      }
+    ]
+  } as BackupArtifact;
+});
 
 // Two operations, chosen to exercise both answers the real API can give:
 // one that is executing and reporting a live reading, and one that is
@@ -3839,7 +3892,10 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   }
   // Every backup keeps exactly one local copy under that scenario: the
   // shape migration 0007's backfill leaves every pre-EPIC-E deployment in.
-  const artifacts = noMedium
+  const many = scenario.startsWith("backups-many");
+  const artifacts = many
+    ? [...ARTIFACTS, ...MANY_GENERATED]
+    : noMedium
     ? ARTIFACTS.map((a) => ({
         ...a,
         placements: [
@@ -5517,9 +5573,7 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
       const since = options?.since ?? 0;
       return {
         ...base,
-        deployment: scenario === "assurance-download-outcomes" && base.deployment
-          ? { ...base.deployment, events: [...base.deployment.events, ...downloadOutcomeEvents()] }
-          : base.deployment,
+        deployment: dockDeployment(scenario, base.deployment),
         sets: base.sets.map((s) => {
           const all = assuranceLiveEvents(s.setId);
           const extra = all.filter((e) => e.sequence > since);
@@ -5538,6 +5592,37 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   // app uses (realAssurance), reading the routes above the way it reads a
   // server, so the browser specs can drive that code and not the mock's.
   return { ...routes, assurance: options.wire ? createHttpAssurance(routes) : assurance };
+}
+
+/** The deployment bucket for the scenarios that shape the terminal's feed
+ *  (#1115) and for the download rows. Everything else passes through. */
+function dockDeployment(scenario: Scenario, deployment: DeploymentActivity | null): DeploymentActivity | null {
+  if (!deployment) return deployment;
+  if (scenario === "assurance-download-outcomes") {
+    return { ...deployment, events: [...deployment.events, ...downloadOutcomeEvents()] };
+  }
+  if (scenario === "dock-no-warnings") {
+    return { ...deployment, events: deployment.events.filter((e) => e.level !== "warn") };
+  }
+  if (scenario === "dock-live-line") {
+    let arrived = false;
+    try {
+      arrived = window.sessionStorage.getItem("retnd.mock.dock.live") === "1";
+    } catch {
+      /* no storage, no arrival */
+    }
+    if (!arrived) return deployment;
+    return {
+      ...deployment,
+      events: [
+        ...deployment.events,
+        liveEvent(13, "error", { op: "disk-latency", error: "disk latency above threshold" }, "warn", "deployment", "error", "error"),
+        liveEvent(14, "retention", { artifact: "media/weekly-archive/week-32.tar", backup_set: "media/weekly-archive", tier: "weekly", decision: "keep" }, "info", "deployment", "retention decision", "info")
+      ],
+      latestSequence: 14
+    };
+  }
+  return deployment;
 }
 
 /** The rows a browser download writes when it ends (core/service/recover_stream.go),

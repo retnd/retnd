@@ -414,3 +414,24 @@ input, select, textarea, button {
   .activity-dot--pulse,
   .activity-spinner { animation: none; }
 }
+
+/* The dock's error and warning counts as toggles (issue #1115). The colour
+   says which level it is (--lvl); the STATE is carried by more than colour,
+   so a pressed button differs from a resting one in weight, underline and a
+   ring as well as its fill, and a disabled one by a dashed edge. Text stays
+   in --lvl at rest and goes to --text when pressed, because the danger and
+   warn inks do not clear 4.5:1 on the accent fill in dark; the ring keeps
+   the level colour. The edge is the level colour too, not the shared
+   --border-strong (1.7:1), so the control's boundary clears 3:1. */
+.activity-dock__level { font-family: inherit; color: var(--lvl); border-color: var(--lvl); }
+.activity-dock__level--error { --lvl: var(--danger); }
+.activity-dock__level--warn { --lvl: var(--warn); }
+.activity-dock__level:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }
+.activity-dock__level[aria-pressed="true"] {
+  background: var(--accent-quiet); color: var(--text);
+  font-weight: 700; text-decoration: underline; text-underline-offset: 2px;
+  box-shadow: inset 0 0 0 1px var(--lvl);
+}
+.activity-dock__level:disabled {
+  color: var(--text-2); border-color: var(--text-2); border-style: dashed; cursor: default;
+}

@@ -74,6 +74,16 @@ export function recoverSetCommand(setId: string, narrow: "all" | "newest" | "sin
   return parts.join(" ");
 }
 
+/**
+ * `retnd recover` for several chosen artifacts to ONE destination (issue
+ * #1107). There is no browser form: a stream of several files has no terminal
+ * spelling, and the page does not offer one.
+ */
+export function recoverManyCommand(artifactIds: string[], target: "staging" | "storage", where: string, acknowledgeCost: boolean): string {
+  const to = target === "staging" ? "--to " + (where || "<name>") : "--to medium:" + (where || "<id>");
+  return "retnd recover " + artifactIds.join(" ") + " " + to + (acknowledgeCost ? " --acknowledge-cost" : "");
+}
+
 /** The same pre-flight on its own: nothing is read and nothing is written. */
 export function recoverSetPreflightCommand(setId: string, narrow: "all" | "newest" | "since", since: string, target: "staging" | "storage", where: string): string {
   return recoverSetCommand(setId, narrow, since, target, where, false) + " --preflight";
