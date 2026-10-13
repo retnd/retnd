@@ -17,6 +17,11 @@ const NAME = process.env.CAPTURE_NAME ?? "1108-recovery-test-no-validator-fixed"
 const SET = "/sets/production/postgres-primary";
 const FRAME = { x: 0, y: 0, width: VIEWPORT.width, height: VIEWPORT.height };
 
+// Puts the button 260px below the top of the window, above the terminal dock,
+// so the reason beside it is in the frame and not under the dock.
+const place = (locator) =>
+  locator.evaluate((el) => window.scrollBy(0, el.getBoundingClientRect().top - 260));
+
 let result;
 await withDevServer(async (app) => {
   const { page } = await openApp(app, { path: SET + "?wire=1", scenario: "assurance-no-validator", viewport: VIEWPORT });
@@ -27,9 +32,7 @@ await withDevServer(async (app) => {
   if (!(await run.isDisabled())) throw new Error("the button is enabled on a set with no validator: the fix is not in this build");
   await settle(page, 700);
   const clip = new Clip(page, NAME, { clip: FRAME, width: 1000, colors: 128, outDir: OUT });
-  await section.evaluate((el) => window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 16));
-  await run.scrollIntoViewIfNeeded();
-  await section.getByTestId("recovery-test-no-validator").scrollIntoViewIfNeeded();
+  await place(run);
   await settle(page, 300);
   await clip.frame(3);
   const docs = section.getByRole("link", { name: "docs/recovery.md" });
@@ -41,7 +44,7 @@ await withDevServer(async (app) => {
   await section.getByRole("button", { name: "Run recovery test" }).waitFor({ timeout: 30_000 });
   if (await section.getByRole("button", { name: "Run recovery test" }).isDisabled()) throw new Error("the control set's button is disabled");
   await settle(page, 700);
-  await section.getByRole("button", { name: "Run recovery test" }).scrollIntoViewIfNeeded();
+  await place(section.getByRole("button", { name: "Run recovery test" }));
   await settle(page, 300);
   await clip.frame(3);
   result = await clip.write();
