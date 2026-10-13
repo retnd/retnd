@@ -441,6 +441,19 @@ def body(st: Selftest) -> int:
         "./scripts/architecture/check-layer-manifest.sh",
     )
 
+    # A file at the repository root is the other way to slip through: no
+    # directory prefix to notice, so it is classified by an exact-name row
+    # or by nothing. CNAME did exactly that on main (#1136).
+    d = st.mutant("manifest-unclassified-root-file")
+    (d / "SELFTEST-UNCLASSIFIED-ROOT-FILE").write_text("nobody classified this\n")
+    harness.sh(["git", "-C", str(d), "add", "-A"])
+    st.expect_check_fails(
+        "a new root-level file nobody classified",
+        d,
+        "SELFTEST-UNCLASSIFIED-ROOT-FILE",
+        "./scripts/architecture/check-layer-manifest.sh",
+    )
+
     d = st.mutant("manifest-stale")
     _append(d / arch.MANIFEST, "\ncore            -           a/path/that/does/not/exist\n")
     st.expect_check_fails(
