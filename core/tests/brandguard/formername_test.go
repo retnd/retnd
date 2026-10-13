@@ -8,6 +8,7 @@
 package brandguard
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -100,6 +101,13 @@ func scan(root string) (hits []string, scanned int, err error) {
 			return nil
 		})
 		if err != nil {
+			// The apps/ roots are optional: core is tested with apps/ deleted
+			// (scripts/architecture/verify-core-without-apps.sh). Every other
+			// root is required (#1125).
+			if errors.Is(err, fs.ErrNotExist) && strings.HasPrefix(r, "apps/") {
+				continue
+			}
+
 			return hits, scanned, fmt.Errorf("walking %s: %w", r, err)
 		}
 	}
