@@ -191,7 +191,15 @@ func TestMain(m *testing.M) {
 // configured. The engine serves the first-run setup flow from it, and
 // `retnd status` exits non-zero in it, which every test below
 // reads back rather than assumes.
-func freshInstall(t *testing.T) string {
+//
+// That last sentence stopped being true of the empty directory with #1049:
+// the engine now writes a default config.yaml on its first start, and
+// `retnd status` on an install with no configuration yet prints a
+// first-run notice and exits 0. The negative backup-freshness verdict #206
+// is about now needs a backup set that has never run, so neverRun adds a
+// config.yaml with exactly one (the shape apps/generic/tests/dockercli
+// builds too). Both fixtures are run for every adapter.
+func freshInstall(t *testing.T, neverRun bool) string {
 	t.Helper()
 	dir := t.TempDir()
 	// 0o777 because the runtime image runs as a fixed non-root uid that
@@ -205,6 +213,40 @@ func freshInstall(t *testing.T) string {
 		}
 		if err := os.Chmod(filepath.Join(dir, sub), 0o777); err != nil {
 			t.Fatalf("Chmod %s: %v", sub, err)
+		}
+	}
+	if neverRun {
+		for _, sub := range []string{"backups/remote", "backups/local"} {
+			path := filepath.Join(dir, sub)
+			if err := os.MkdirAll(path, 0o777); err != nil {
+				t.Fatalf("MkdirAll %s: %v", sub, err)
+			}
+			if err := os.Chmod(path, 0o777); err != nil {
+				t.Fatalf("Chmod %s: %v", sub, err)
+			}
+		}
+		config := "" +
+			"poll_interval: 1h\n" +
+			"state:\n" +
+			"  database: /data/state/state.db\n" +
+			"sources:\n" +
+			"  - id: production\n" +
+			"    backup_sets:\n" +
+			"      - id: never-backed-up\n" +
+			"        remote:\n" +
+			"          type: local\n" +
+			"        remote_path: /data/backups/remote\n" +
+			"        local_path: /data/backups/local\n" +
+			"        include:\n" +
+			"          - \"*.dump\"\n" +
+			"        completion:\n" +
+			"          strategy: rename\n" +
+			"        stale_after: 1s\n" +
+			"retention:\n" +
+			"  timezone: UTC\n" +
+			"  week_starts_on: monday\n"
+		if err := os.WriteFile(filepath.Join(dir, "config", "config.yaml"), []byte(config), 0o644); err != nil {
+			t.Fatalf("WriteFile config.yaml: %v", err)
 		}
 	}
 	return dir
@@ -667,61 +709,71 @@ func TestEveryDerivedAdapterBringsUpTheWebUIOnAFreshInstall(t *testing.T) {
 
 	for _, rel := range artifacts {
 		t.Run(rel, func(t *testing.T) {
-			dir := freshInstall(t)
-			file := rewriteAdapterCompose(t, rel, image, dir)
-
-			project, out, err := up(t, file)
-			if err != nil {
-				t.Errorf("%s does not come up on a fresh install: %v\n%s", rel, err, out)
-				engine := project.containerIDIfAny(t, serviceRunning(t, file, "serve"))
-				if engine == "" {
-					t.FailNow()
-				}
-				logs, _ := exec.Command("docker", "logs", engine).CombinedOutput()
-				t.Fatalf("the engine's last health probe said %q; engine logs:\n%s", lastHealthOutput(t, engine), logs)
-			}
-
-			engineName := serviceRunning(t, file, "serve")
-			uiName := serviceRunning(t, file, "serve-ui")
-
-			engineID := project.containerID(t, engineName)
-			if got := healthStatus(t, engineID, 90*time.Second); got != "healthy" {
-				t.Fatalf("%s: the engine's container health is %q on a fresh install, want %q; the web UI waits on it, so anything else means it never starts. The probe's last output was %q",
-					rel, got, "healthy", lastHealthOutput(t, engineID))
-			}
-
-			// The control, per adapter: this fresh install really is one
-			// the backup-freshness verdict refuses, so the web UI came up
-			// THROUGH a negative verdict rather than because the fixture
-			// happened to be healthy.
-			code, statusOut := statusExitCode(t, engineID)
-			if code == 0 {
-				t.Fatalf("%s: `retnd status` exited 0 inside this fixture, so it is not the fresh install this test claims to run:\n%s", rel, statusOut)
-			}
-
-			uiID := project.containerID(t, uiName)
-			if got := containerState(t, uiID); got != "running" {
-				logs, _ := exec.Command("docker", "logs", uiID).CombinedOutput()
-				t.Fatalf("%s: the web UI container is %q, want %q; logs:\n%s", rel, got, "running", logs)
-			}
-
-			base := "http://127.0.0.1:" + publishedPort(t, uiID, "8080/tcp")
-			resp := getWithTransportRetry(t, base+"/", 30*time.Second)
-			resp.Body.Close()
-			if resp.StatusCode != http.StatusOK {
-				t.Errorf("%s: GET %s/ on a fresh install status = %d, want %d (the web UI's own static shell, which is what the first-run flow is served from)",
-					rel, base, resp.StatusCode, http.StatusOK)
-			}
-
-			// The proxy half, which is what makes it a working page rather
-			// than a container that merely started: /health/ is forwarded
-			// to the engine unchanged, so a 200 here is the engine
-			// answering through the UI container on a fresh install.
-			live := getWithTransportRetry(t, base+"/health/live", 30*time.Second)
-			live.Body.Close()
-			if live.StatusCode != http.StatusOK {
-				t.Errorf("%s: GET %s/health/live (proxied to the engine) status = %d, want %d", rel, base, live.StatusCode, http.StatusOK)
-			}
+			t.Run("NoConfigurationYet", func(t *testing.T) { bringsUpTheWebUI(t, rel, image, false) })
+			t.Run("BackupSetNeverRun", func(t *testing.T) { bringsUpTheWebUI(t, rel, image, true) })
 		})
+	}
+}
+
+func bringsUpTheWebUI(t *testing.T, rel, image string, neverRun bool) {
+	dir := freshInstall(t, neverRun)
+	file := rewriteAdapterCompose(t, rel, image, dir)
+
+	project, out, err := up(t, file)
+	if err != nil {
+		t.Errorf("%s does not come up on a fresh install: %v\n%s", rel, err, out)
+		engine := project.containerIDIfAny(t, serviceRunning(t, file, "serve"))
+		if engine == "" {
+			t.FailNow()
+		}
+		logs, _ := exec.Command("docker", "logs", engine).CombinedOutput()
+		t.Fatalf("the engine's last health probe said %q; engine logs:\n%s", lastHealthOutput(t, engine), logs)
+	}
+
+	engineName := serviceRunning(t, file, "serve")
+	uiName := serviceRunning(t, file, "serve-ui")
+
+	engineID := project.containerID(t, engineName)
+	if got := healthStatus(t, engineID, 90*time.Second); got != "healthy" {
+		t.Fatalf("%s: the engine's container health is %q on a fresh install, want %q; the web UI waits on it, so anything else means it never starts. The probe's last output was %q",
+			rel, got, "healthy", lastHealthOutput(t, engineID))
+	}
+
+	// The control, per adapter. With a backup set that has never
+	// run, the backup-freshness verdict refuses, so the web UI came
+	// up THROUGH a negative verdict rather than because the fixture
+	// happened to be healthy. With no configuration yet, #1049 says
+	// `status` is a first-run notice and exits 0, and a failure here
+	// means that notice regressed into a failing health check.
+	code, statusOut := statusExitCode(t, engineID)
+	if neverRun && code == 0 {
+		t.Fatalf("%s: `retnd status` exited 0 inside the fixture whose only backup set has never run, so it is not the negative verdict this test claims to run:\n%s", rel, statusOut)
+	}
+	if !neverRun && (code != 0 || !strings.Contains(statusOut, "first run")) {
+		t.Fatalf("%s: `retnd status` on an install with no configuration yet exited %d and said %q, want exit 0 and the first-run notice (#1049)", rel, code, statusOut)
+	}
+
+	uiID := project.containerID(t, uiName)
+	if got := containerState(t, uiID); got != "running" {
+		logs, _ := exec.Command("docker", "logs", uiID).CombinedOutput()
+		t.Fatalf("%s: the web UI container is %q, want %q; logs:\n%s", rel, got, "running", logs)
+	}
+
+	base := "http://127.0.0.1:" + publishedPort(t, uiID, "8080/tcp")
+	resp := getWithTransportRetry(t, base+"/", 30*time.Second)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("%s: GET %s/ on a fresh install status = %d, want %d (the web UI's own static shell, which is what the first-run flow is served from)",
+			rel, base, resp.StatusCode, http.StatusOK)
+	}
+
+	// The proxy half, which is what makes it a working page rather
+	// than a container that merely started: /health/ is forwarded
+	// to the engine unchanged, so a 200 here is the engine
+	// answering through the UI container on a fresh install.
+	live := getWithTransportRetry(t, base+"/health/live", 30*time.Second)
+	live.Body.Close()
+	if live.StatusCode != http.StatusOK {
+		t.Errorf("%s: GET %s/health/live (proxied to the engine) status = %d, want %d", rel, base, live.StatusCode, http.StatusOK)
 	}
 }
