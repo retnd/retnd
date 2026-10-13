@@ -121,7 +121,7 @@ func (b *BackupService) runRecoveryTest(ctx context.Context, set model.BackupSet
 	}
 	r := res.Result
 	out.Artifact, out.Medium = r.Artifact.String(), r.Medium
-	out.State, out.DigestMatched = r.State, r.DigestMatched
+	out.State, out.DigestMatched = WireRecoveryState(r.State, r.ValidatorID), r.DigestMatched
 	out.ValidatorID, out.CleanupState, out.Reason = r.ValidatorID, r.CleanupState, r.Reason
 	out.Check, out.CheckFormat = r.Check, r.CheckFormat
 	return out, nil

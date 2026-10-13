@@ -3286,6 +3286,7 @@
         "schema Placement.recovery_state enum value=not_configured",
         "schema Placement.recovery_state enum value=overdue",
         "schema Placement.recovery_state enum value=passed",
+        "schema Placement.recovery_state enum value=readable",
         "schema Placement.recovery_state enum value=refused_for_cost",
         "schema Placement.recovery_tested_at type=string/date-time required=false",
         "schema Placement.size_bytes type=integer/int64 required=false",

@@ -449,7 +449,7 @@ func toServicePlacement(p state.Placement, idx mediumIndex) Placement {
 	}
 	out.ScrubLastFailureReason = p.LastFailureReason
 	out.ScrubConsecutiveFailures = p.ConsecutiveFailures
-	out.RecoveryState = p.RecoveryState
+	out.RecoveryState = WireRecoveryState(p.RecoveryState, p.RecoveryValidatorID)
 	if p.RecoveryTestedAt != nil {
 		out.RecoveryTestedAt = *p.RecoveryTestedAt
 	}
@@ -723,3 +723,20 @@ func recoveryCheckOf(p state.Placement) string {
 	}
 	return "validator"
 }
+
+// WireRecoveryState is the ONE place a stored recovery state becomes the one
+// every surface serialises (#1111). Storage keeps a built-in structure pass as
+// "passed" under the reserved validator id, because adding a stored state is a
+// table rebuild the compatibility rule forbids; on the wire that pass is
+// "readable", so "passed" only ever means a validator accepted the copy.
+// Every path that emits a recovery state (placements, the recovery-test
+// outcome, the stored output) goes through here.
+func WireRecoveryState(stored, validatorID string) string {
+	if stored == state.RecoveryPassed && config.IsReservedValidatorID(validatorID) {
+		return WireRecoveryReadable
+	}
+	return stored
+}
+
+// WireRecoveryReadable is the wire spelling of a built-in structure pass.
+const WireRecoveryReadable = "readable"

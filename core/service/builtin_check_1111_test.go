@@ -152,3 +152,33 @@ func TestIssue1111_ACopysVerdictSaysWhichCheckProducedIt(t *testing.T) {
 		})
 	}
 }
+
+// The wire says "readable" for a built-in structure pass, and "passed" only
+// for a validator's, through one function every serialising path uses.
+func TestIssue1111_NoSerialisingPathEmitsPassedForABuiltinID(t *testing.T) {
+	for stored, tc := range map[string]struct{ id, want string }{
+		"validator pass":   {"10-check.local.sh", "passed"},
+		"builtin pass":     {"retnd-builtin-structure", "readable"},
+		"no id (old pass)": {"", "passed"},
+	} {
+		if got := WireRecoveryState(state.RecoveryPassed, tc.id); got != tc.want {
+			t.Errorf("%s: WireRecoveryState = %q, want %q", stored, got, tc.want)
+		}
+	}
+	for _, s := range []string{state.RecoveryFailed, state.RecoveryOverdue, state.RecoveryCouldNotComplete, state.RecoveryNotConfigured} {
+		if got := WireRecoveryState(s, "retnd-builtin-structure"); got != s {
+			t.Errorf("%s was rewritten to %q: only a pass is renamed", s, got)
+		}
+	}
+
+	// Placements.
+	p := state.Placement{Medium: state.MediumLocal, Status: state.PlacementActive}
+	p.RecoveryState, p.RecoveryValidatorID = state.RecoveryPassed, "retnd-builtin-structure"
+	if got := toServicePlacement(p, nil); got.RecoveryState != "readable" || got.RecoveryCheck != "builtin" {
+		t.Errorf("placement = %q / %q", got.RecoveryState, got.RecoveryCheck)
+	}
+	p.RecoveryValidatorID = "10-check.local.sh"
+	if got := toServicePlacement(p, nil); got.RecoveryState != "passed" || got.RecoveryCheck != "validator" {
+		t.Errorf("validator placement = %q / %q", got.RecoveryState, got.RecoveryCheck)
+	}
+}

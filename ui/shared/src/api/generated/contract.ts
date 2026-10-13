@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "14e5dec629d3f9c8552b7662f416dbf0e6d330a6b4a1c34a0c771c9123fd0ed4";
+export const CONTRACT_SHA256 = "272316648514052df34fc015038dd7eccab5cda29c29b5588357ecbb43315f8f";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -3545,7 +3545,7 @@ export interface WirePlacement {
   medium_type: "local" | "s3";
   recovery_check?: "validator" | "builtin";
   recovery_failure_reason?: string;
-  recovery_state?: "not_configured" | "never_run" | "passed" | "overdue" | "failed" | "refused_for_cost" | "could_not_complete";
+  recovery_state?: "not_configured" | "never_run" | "passed" | "readable" | "overdue" | "failed" | "refused_for_cost" | "could_not_complete";
   recovery_tested_at?: string;
   size_bytes?: number;
   status: "ACTIVE" | "DELETE_PENDING";

@@ -92,7 +92,7 @@ func cmdRecoveryTest(args []string) int {
 	}
 	printRecoveryTest(out, *asJSON)
 	switch out.State {
-	case state.RecoveryPassed:
+	case state.RecoveryPassed, service.WireRecoveryReadable:
 		return exitOK
 	case state.RecoveryRefusedForCost:
 		return recoverExitCodes[service.RecoveryCostNotAcknowledged]

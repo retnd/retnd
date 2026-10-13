@@ -3517,12 +3517,13 @@
               "not_configured",
               "never_run",
               "passed",
+              "readable",
               "overdue",
               "failed",
               "refused_for_cost",
               "could_not_complete"
             ],
-            "description": "The outcome of the most recent recovery test of THIS copy, a different claim from assurance_state because passing one says nothing about the other. ABSENT means no test has evaluated the copy.",
+            "description": "The outcome of the most recent recovery test of THIS copy, a different claim from assurance_state because passing one says nothing about the other. ABSENT means no test has evaluated the copy. passed means the operator's validator accepted the recovered bytes. readable means the product's own built-in structure check read the recovered file end to end (it decodes; nothing says an application can use it), and is never an assured recovery test. A readable copy that has gone past its cadence reads overdue, with recovery_check builtin.",
             "x-go-omitempty": true
           },
           "recovery_tested_at": {
@@ -3542,7 +3543,7 @@
               "validator",
               "builtin"
             ],
-            "description": "Which check produced the verdict in recovery_state: validator is the operator's own script, builtin is the product's structure check (it read the recovered file end to end as its archive or compression format). Absent when there is no passed or failed verdict to attribute, and from an older server. A builtin passed is never an assured recovery test: it proves the file decodes, not that an application can use it.",
+            "description": "Which check produced the verdict in recovery_state: validator is the operator's own script, builtin is the product's structure check (it read the recovered file end to end as its archive or compression format). Absent when there is no passed, readable, failed or overdue verdict to attribute, and from an older server. builtin goes with recovery_state readable (or a failed or overdue built-in verdict): it proves the file decodes, not that an application can use it.",
             "x-go-omitempty": true
           }
         },
@@ -7721,7 +7722,7 @@
           },
           "state": {
             "type": "string",
-            "description": "The test's verdict: passed, failed, refused_for_cost or could_not_complete."
+            "description": "The test's verdict: passed (a validator accepted it), readable (the built-in structure check read it end to end), failed, refused_for_cost or could_not_complete."
           },
           "recorded_at": {
             "type": "string",

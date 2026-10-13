@@ -94,7 +94,7 @@ func TestIssue1111_TheWireCarriesBuiltinCheckAndTheEffectiveCheck(t *testing.T) 
 func TestIssue1111_RecoveryTestPrintsTheCheckAndFormatLinesAndJSONNamesTheCheck(t *testing.T) {
 	declared := true
 	out := service.RecoveryTestOutcome{
-		BackupSet: "a/b", Artifact: "a/b/db.tar.zst", Medium: "local", State: "passed", DigestMatched: &declared,
+		BackupSet: "a/b", Artifact: "a/b/db.tar.zst", Medium: "local", State: "readable", DigestMatched: &declared,
 		ValidatorID: "retnd-builtin-structure", CleanupState: "removed",
 		Check: "builtin", CheckFormat: "zstd, 1 frame, content checksum verified, 48.2 GiB decoded and discarded",
 	}

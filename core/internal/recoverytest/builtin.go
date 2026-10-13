@@ -18,6 +18,7 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/fsopen"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // The built-in structure check (#1111).
@@ -870,4 +871,12 @@ func (r BuiltinReport) Records() []OutputRecord {
 		out[i] = OutputRecord{Kind: OutputText, Text: sanitizeText(l)}
 	}
 	return out
+}
+
+// RecordsAreBuiltin says whether stored output records are the built-in
+// check's: the first line is the engine's own header, which a validator could
+// print too, so it is only used to pick the wire spelling of a state the
+// journal already holds as passed. Callers pair it with that state.
+func RecordsAreBuiltin(rs []state.RecoveryOutputRecord) bool {
+	return len(rs) > 0 && rs[0].Kind == string(OutputText) && strings.HasPrefix(rs[0].Text, "built-in structure check v1;")
 }
