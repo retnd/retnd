@@ -219,7 +219,7 @@ export function RecoverSetDialog({
         </div>
         <div style={{ padding: "14px 22px 20px", display: "flex", flexDirection: "column", gap: 12, fontSize: 13.5, overflow: "auto" }}>
           {kopia ? (
-            <div role="status" className="anotice" data-testid="kopia-set">
+            <div role="status" className="anotice" data-testid="incremental-engine-set">
               <strong>This set is stored by the incremental engine.</strong>
               <div style={{ marginTop: 4 }}>
                 Its backups are restore points inside an encrypted repository, not files, so getting the whole set back is a snapshot restore and not a copy of files. That is a different operation, and this page does not pretend the two are the same.

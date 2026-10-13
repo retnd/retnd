@@ -98,7 +98,7 @@ describe("Recover this backup set", () => {
   it("a set on the incremental engine is a snapshot restore, with the command, and cannot be run from here", async () => {
     const planFn = vi.fn();
     renderDialog({ planRecoverMany: planFn }, "kopia");
-    expect(screen.getByTestId("kopia-set").textContent).toContain("snapshot restore");
+    expect(screen.getByTestId("incremental-engine-set").textContent).toContain("snapshot restore");
     expect(screen.getByRole("dialog").textContent).toContain("retnd snapshot restore " + SET);
     expect(screen.queryByRole("button", { name: "Recover this backup set" })).toBeNull();
     expect(planFn).not.toHaveBeenCalled();
