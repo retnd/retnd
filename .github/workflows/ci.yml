@@ -563,6 +563,14 @@ jobs:
       - name: the guard can actually fail (mutation self-test)
         run: bash scripts/rename/selftest.sh
 
+      # #1109: the previous product name is gone from every tracked file, and
+      # unlike the guard above this one has no allowlist to hide in.
+      - name: the previous product name appears nowhere (#1109)
+        run: bash scripts/rename/check-no-former-name.sh
+
+      - name: and that guard can actually fail (planted-fault self-test)
+        run: bash scripts/rename/selftest-former-name.sh
+
       # FR-44 (#893): the half of the same claim `git grep` structurally
       # cannot reach. The guard above passes -I, so it never opens a
       # raster, and it cannot read a letter that has become an SVG

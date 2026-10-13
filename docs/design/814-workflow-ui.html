@@ -426,15 +426,15 @@ tr.ro td{color:var(--text-3)}
         <td><span class="tag tag--local">Backup set</span></td><td><button class="btn">Unset</button></td></tr>
       <tr><td class="mono">DUMP_LEVEL</td><td class="mono"><em>(empty)</em></td>
         <td><span class="tag tag--local">Backup set</span></td><td><button class="btn">Unset</button></td></tr>
-      <tr class="ro"><td class="mono">BACKUPD_RUN_ID</td><td class="mono">set per run</td>
+      <tr class="ro"><td class="mono">RETND_RUN_ID</td><td class="mono">set per run</td>
         <td><span class="pill pill--none">Built-in</span></td><td><span class="meta">read-only</span></td></tr>
-      <tr class="ro"><td class="mono">BACKUPD_BACKUP_STATUS</td><td class="mono">set per run</td>
+      <tr class="ro"><td class="mono">RETND_BACKUP_STATUS</td><td class="mono">set per run</td>
         <td><span class="pill pill--none">Built-in</span></td><td><span class="meta">read-only</span></td></tr>
     </tbody>
   </table>
   <div class="card__header" style="border-top:1px solid var(--border)">
     <h2 class="eyebrow">What a hook will see</h2>
-    <span class="meta">sanitized baseline &lt; deployment &lt; backup set &lt; BACKUPD_* built-ins</span></div>
+    <span class="meta">sanitized baseline &lt; deployment &lt; backup set &lt; RETND_* built-ins</span></div>
   <table>
     <thead><tr><th>Variable</th><th>Effective value</th><th>Comes from</th><th>Overrides</th></tr></thead>
     <tbody>
@@ -444,7 +444,7 @@ tr.ro td{color:var(--text-3)}
         <td><span class="tag tag--remote">Global</span></td><td class="meta">&mdash;</td></tr>
       <tr><td class="mono">DUMP_LEVEL</td><td class="mono"><em>(empty)</em></td>
         <td><span class="tag tag--local">Backup set</span></td><td class="meta">&mdash;</td></tr>
-      <tr class="ro"><td class="mono">BACKUPD_RUN_ID</td><td class="mono">set per run</td>
+      <tr class="ro"><td class="mono">RETND_RUN_ID</td><td class="mono">set per run</td>
         <td><span class="pill pill--none">Built-in</span></td>
         <td class="meta">cannot be shadowed by either scope</td></tr>
     </tbody>
