@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/retnd/retnd/apps/common/platform/capabilities"
+	"github.com/retnd/retnd/core/cliecho"
 	"github.com/retnd/retnd/core/service"
 )
 
@@ -35,6 +36,20 @@ type fakeManyBackend struct {
 	planErr error
 	result  service.RecoverManyResult
 	runErr  error
+
+	// hold, when set, makes a run wait on it after the plan line and before
+	// the first file, so a test can look at what the client has seen so far.
+	hold chan struct{}
+
+	actions []cliecho.APIAction
+}
+
+// RecordAPIAction makes this backend an ActionRecorder, so the action-log
+// middleware wraps the route the way it does in a deployment.
+func (f *fakeManyBackend) RecordAPIAction(_ context.Context, a cliecho.APIAction) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.actions = append(f.actions, a)
 }
 
 func (f *fakeManyBackend) PlanRecoverMany(ctx context.Context, req service.RecoverManyRequest) (service.RecoverManyPlan, error) {
@@ -56,6 +71,13 @@ func (f *fakeManyBackend) RecoverMany(ctx context.Context, sess service.Recovery
 	}
 	if progress != nil {
 		progress(service.RecoverManyProgress{Kind: "plan", Plan: &plan, Total: len(plan.Items), TotalBytes: plan.Totals.Bytes})
+		if f.hold != nil {
+			select {
+			case <-f.hold:
+			case <-ctx.Done():
+				return result, ctx.Err()
+			}
+		}
 		for i, it := range result.Items {
 			progress(service.RecoverManyProgress{Kind: "start", Index: i + 1, Total: len(result.Items), Item: it, TotalBytes: plan.Totals.Bytes})
 			progress(service.RecoverManyProgress{Kind: "item", Index: i + 1, Total: len(result.Items), Item: it, DoneBytes: int64(i+1) * 10, TotalBytes: plan.Totals.Bytes})
@@ -88,6 +110,7 @@ func newManyRouter(t *testing.T) (http.Handler, *fakeManyBackend) {
 	router := NewRouter(RouterConfig{
 		Platform:      fakePlatformAdapter{caps: capabilities.PlatformCapabilities{NativeAuth: true}, auth: recoverySessionAuth{username: "alice"}},
 		Backend:       be,
+		Recorder:      be,
 		Gate:          NotYetImplementedGate{},
 		BinaryVersion: "test",
 		Commit:        "test",
@@ -216,17 +239,43 @@ func TestRecoverManyPreflightAnswersThePlanAndRunsNothing(t *testing.T) {
 	}
 }
 
-func TestRecoverManyRefusedByThePreflightIsAnErrorResponseNotAStream(t *testing.T) {
+func TestRecoverManyRefusedBeforeItStartsIsAnErrorResponseNotAStream(t *testing.T) {
 	router, be := newManyRouter(t)
 	be.planErr = &service.RecoveryError{Code: service.RecoveryCostNotAcknowledged, Message: "2 files, 30000 bytes are billed to read"}
-	for _, body := range []string{manySetBody, `{"set":"production/postgres","preflight":true,"target":{"kind":"staging","path":"out"}}`} {
-		rec := postMany(t, router, body, true)
-		if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "RECOVERY_COST_NOT_ACKNOWLEDGED") || !strings.Contains(rec.Body.String(), "30000") {
-			t.Fatalf("= %d %s", rec.Code, rec.Body.String())
-		}
-		if strings.Contains(rec.Header().Get("Content-Type"), "ndjson") {
-			t.Fatalf("a refusal was sent as a stream: %s", rec.Header().Get("Content-Type"))
-		}
+	rec := postMany(t, router, manySetBody, true)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "RECOVERY_COST_NOT_ACKNOWLEDGED") || !strings.Contains(rec.Body.String(), "30000") {
+		t.Fatalf("= %d %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Header().Get("Content-Type"), "ndjson") {
+		t.Fatalf("a refusal was sent as a stream: %s", rec.Header().Get("Content-Type"))
+	}
+}
+
+func TestRecoverManyPreflightThatWouldBeRefusedAnswersThePlanAndSaysWhy(t *testing.T) {
+	router, be := newManyRouter(t)
+	be.planErr = &service.RecoveryError{Code: service.RecoveryNoSpace, Message: "the files need 20 bytes and the staging disk has 5 bytes free"}
+	rec := postMany(t, router, `{"set":"production/postgres","preflight":true,"target":{"kind":"staging","path":"out"}}`, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("= %d %s", rec.Code, rec.Body.String())
+	}
+	var plan struct {
+		Items   []map[string]any `json:"items"`
+		Refusal struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"refusal"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &plan); err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Items) != 2 || plan.Refusal.Code != "RECOVERY_NO_SPACE" || !strings.Contains(plan.Refusal.Message, "20 bytes") {
+		t.Fatalf("plan = %+v", plan)
+	}
+	// A pre-flight that could not plan at all is still an error response.
+	be.plan.Items = nil
+	rec = postMany(t, router, `{"set":"production/postgres","preflight":true,"target":{"kind":"staging","path":"out"}}`, true)
+	if rec.Code != http.StatusInsufficientStorage {
+		t.Fatalf("an empty plan with a refusal = %d %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -290,5 +339,71 @@ func TestRecoverManyHandsTheRequestContextToTheServiceSoACancelReachesTheRun(t *
 	}
 	if be.ctxs[0].Err() == nil {
 		t.Fatal("the service was not given the request's context, so closing the connection cannot cancel the run")
+	}
+}
+
+// A run is minutes long, so the plan line has to reach the client while the
+// run is still going. Through the real router (the action-log middleware
+// wraps every POST) and a real connection, the first line must arrive before
+// the backend has finished.
+func TestRecoverManyStreamReachesTheClientWhileTheRunIsStillGoing(t *testing.T) {
+	router, be := newManyRouter(t)
+	be.hold = make(chan struct{})
+	srv := httptest.NewServer(router)
+	defer srv.Close()
+	defer func() {
+		select {
+		case <-be.hold:
+		default:
+			close(be.hold)
+		}
+	}()
+
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/recoveries", strings.NewReader(manySetBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	attachValidCSRF(req)
+	// The request goes in a goroutine: a response that is buffered until the
+	// run ends never returns its headers either, so Do itself would block.
+	first := make(chan string, 1)
+	go func() {
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			first <- "error: " + err.Error()
+			return
+		}
+		defer resp.Body.Close()
+		line, _ := bufio.NewReader(resp.Body).ReadString('\n')
+		first <- line
+	}()
+	select {
+	case line := <-first:
+		if !strings.Contains(line, `"event":"plan"`) {
+			t.Fatalf("first line = %q", line)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no line reached the client while the run was held: the response is buffered until the run ends")
+	}
+}
+
+// The terminal shows the command an action is equivalent to, built from the
+// request by core/cliecho and recorded by the action-log middleware, so a
+// recovery of a set prints `retnd recover --set ...`.
+func TestRecoverManyIsRecordedWithTheCommandItIsEquivalentTo(t *testing.T) {
+	router, be := newManyRouter(t)
+	rec := postMany(t, router, manySetBody, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("= %d %s", rec.Code, rec.Body.String())
+	}
+	be.mu.Lock()
+	defer be.mu.Unlock()
+	if len(be.actions) != 1 {
+		t.Fatalf("%d actions recorded, want 1", len(be.actions))
+	}
+	a := be.actions[0]
+	if a.Route != "/recoveries" || a.Command != "retnd recover --set production/postgres --to out --acknowledge-cost" {
+		t.Fatalf("recorded %+v", a)
 	}
 }

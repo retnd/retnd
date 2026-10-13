@@ -230,6 +230,12 @@ type capturingWriter struct {
 	body   bytes.Buffer
 }
 
+// Unwrap lets http.ResponseController reach the real writer. Without it a
+// handler behind this middleware cannot flush or move its write deadline,
+// which a streamed answer (POST /recoveries) needs: the first line would sit
+// in the server's buffer until the whole run had ended.
+func (c *capturingWriter) Unwrap() http.ResponseWriter { return c.ResponseWriter }
+
 func (c *capturingWriter) WriteHeader(status int) {
 	c.status = status
 	c.ResponseWriter.WriteHeader(status)

@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "5c1c414322b2257d1e4ceaf42babb6a34b3e10da383096a0c3a4c2d6357738e8"
+const ContractSHA256 = "10aeb404e73b1bcaf50bb00b000c61b7d080f0892ee23d35d1e1ccabf6bf8500"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -2856,6 +2856,7 @@ type RecoveryManyPlan struct {
 	Folder          string             `json:"folder"`
 	FreeBytes       *int64             `json:"free_bytes,omitempty"`
 	Items           []RecoveryManyItem `json:"items"`
+	Refusal         *RecoveryManyError `json:"refusal,omitempty"`
 	ReserveBytes    int64              `json:"reserve_bytes"`
 	Set             string             `json:"set,omitempty"`
 	Target          RecoveryTarget     `json:"target"`

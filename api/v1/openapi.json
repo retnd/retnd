@@ -7045,6 +7045,12 @@
           "reserve_bytes": {
             "type": "integer",
             "format": "int64"
+          },
+          "refusal": {
+            "$ref": "#/components/schemas/RecoveryManyError",
+            "x-go-omitempty": true,
+            "x-go-pointer": true,
+            "description": "Present on a pre-flight answer when the run itself would be refused (the cost is not acknowledged, the files do not fit): the code and message the run would be refused with, which carry the numbers. The plan beside it is the same one the refusal is about. A run that is not a pre-flight is refused with an error response instead."
           }
         },
         "required": [
