@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "419d2a696ea18ab123f55aed3b228af4cd0842c2329f9c0426e2a35a6399d4f4"
+const ContractSHA256 = "14e5dec629d3f9c8552b7662f416dbf0e6d330a6b4a1c34a0c771c9123fd0ed4"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -1771,10 +1771,13 @@ type AssuranceOperationCancelled struct {
 
 // AssuranceRecoveryTestPolicy is A resolved recovery-test policy.
 type AssuranceRecoveryTestPolicy struct {
-	CadenceSeconds    int64  `json:"cadence_seconds"`
-	Mode              string `json:"mode"`
-	ValidatorDeclared *bool  `json:"validator_declared,omitempty"`
-	ValidatorID       string `json:"validator_id"`
+	BuiltinCheck         string `json:"builtin_check"`
+	CadenceSeconds       int64  `json:"cadence_seconds"`
+	EffectiveCheck       string `json:"effective_check,omitempty"`
+	EffectiveCheckReason string `json:"effective_check_reason,omitempty"`
+	Mode                 string `json:"mode"`
+	ValidatorDeclared    *bool  `json:"validator_declared,omitempty"`
+	ValidatorID          string `json:"validator_id"`
 }
 
 // AssuranceScrubPolicy is A resolved scrub policy: how often a copy is re-read and how much
@@ -2794,6 +2797,7 @@ type Placement struct {
 	Location              string `json:"location"`
 	Medium                string `json:"medium"`
 	MediumType            string `json:"medium_type"`
+	RecoveryCheck         string `json:"recovery_check,omitempty"`
 	RecoveryFailureReason string `json:"recovery_failure_reason,omitempty"`
 	RecoveryState         string `json:"recovery_state,omitempty"`
 	RecoveryTestedAt      string `json:"recovery_tested_at,omitempty"`
@@ -3869,6 +3873,7 @@ type UnregisteredBackend struct {
 type UpdateAssuranceSettingsRequest struct {
 	MaxConcurrentFullReads     *int64  `json:"max_concurrent_full_reads"`
 	MaxPerDestination          *int64  `json:"max_per_destination"`
+	RecoveryTestBuiltinCheck   *string `json:"recovery_test_builtin_check"`
 	RecoveryTestCadenceSeconds *int64  `json:"recovery_test_cadence_seconds"`
 	RecoveryTestMode           *string `json:"recovery_test_mode"`
 	RecoveryTestValidatorID    *string `json:"recovery_test_validator_id"`
@@ -3883,6 +3888,7 @@ type UpdateAssuranceSettingsRequest struct {
 // again. Clearing every field is the same as a reset. A body that
 // names nothing is refused.
 type UpdateBackupSetAssuranceRequest struct {
+	RecoveryTestBuiltinCheck   *string `json:"recovery_test_builtin_check"`
 	RecoveryTestCadenceSeconds *int64  `json:"recovery_test_cadence_seconds"`
 	RecoveryTestMode           *string `json:"recovery_test_mode"`
 	RecoveryTestValidatorID    *string `json:"recovery_test_validator_id"`

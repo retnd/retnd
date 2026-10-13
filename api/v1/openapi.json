@@ -3535,6 +3535,15 @@
             "type": "string",
             "description": "Why the last recovery test of this copy failed or could not complete, in the journal's bounded plain words. Never the validator's output.",
             "x-go-omitempty": true
+          },
+          "recovery_check": {
+            "type": "string",
+            "enum": [
+              "validator",
+              "builtin"
+            ],
+            "description": "Which check produced the verdict in recovery_state: validator is the operator's own script, builtin is the product's structure check (it read the recovered file end to end as its archive or compression format). Absent when there is no passed or failed verdict to attribute, and from an older server. A builtin passed is never an assured recovery test: it proves the file decodes, not that an application can use it.",
+            "x-go-omitempty": true
           }
         },
         "required": [
@@ -7220,7 +7229,7 @@
         "properties": {
           "mode": {
             "type": "string",
-            "description": "off never runs a recovery test; required runs one on the cadence and the set is not assured without it; custom is required with the set's own cadence and validator."
+            "description": "off never runs a recovery test; builtin runs the product's own structure check on the cadence, with no validator, and is never what required means; required runs the operator's validator on the cadence and the set is not assured without it; custom is required with the set's own cadence and validator. inherit (a set's spelling only) takes the deployment's."
           },
           "cadence_seconds": {
             "type": "integer",
@@ -7230,6 +7239,29 @@
           "validator_id": {
             "type": "string",
             "description": "The recovery-test script to run over the recovered copy, named by its file name without the .local.sh suffix, in recovery-test/<source>/<set> under the workflow root. Not an entry in GET /validators. A name, never a path. Empty when the mode is off and none is configured."
+          },
+          "builtin_check": {
+            "type": "string",
+            "enum": [
+              "structure",
+              "off"
+            ],
+            "description": "Whether the built-in structure check may run when no validator is declared. structure (the default) lets POST /recovery-test, and the schedule under mode builtin, read a recognised archive or compression file end to end; off refuses with not_configured instead. RESOLVED. It governs the manual test with every mode."
+          },
+          "effective_check": {
+            "type": "string",
+            "enum": [
+              "validator",
+              "builtin",
+              "none"
+            ],
+            "description": "Which check a recovery test of this set would run now: validator when one is declared, builtin when none is and the built-in check applies, none otherwise. Present on a backup set's answer only, from the same decision POST /recovery-test makes first.",
+            "x-go-omitempty": true
+          },
+          "effective_check_reason": {
+            "type": "string",
+            "description": "Why effective_check is none, in plain words: the built-in check is off, or it has no reader for the newest known good copy's file type. Present only when effective_check is none.",
+            "x-go-omitempty": true
           },
           "validator_declared": {
             "type": "boolean",
@@ -7323,7 +7355,7 @@
           },
           "recovery_test_mode": {
             "type": "string",
-            "description": "off or required. Empty clears it back to off. Required needs a validator.",
+            "description": "off, builtin or required. Empty clears it back to off. Required needs a validator. Builtin needs none and is refused with builtin_check off.",
             "x-go-pointer": true
           },
           "recovery_test_cadence_seconds": {
@@ -7335,6 +7367,11 @@
           "recovery_test_validator_id": {
             "type": "string",
             "description": "The default recovery-test script, by file name without .local.sh. Empty clears it.",
+            "x-go-pointer": true
+          },
+          "recovery_test_builtin_check": {
+            "type": "string",
+            "description": "structure or off: whether the built-in structure check may run when no validator is declared. Empty clears it back to structure.",
             "x-go-pointer": true
           },
           "staging_root": {
@@ -7406,7 +7443,7 @@
           },
           "recovery_test_mode": {
             "type": "string",
-            "description": "inherit, off, required or custom. Empty clears it, which is inherit.",
+            "description": "inherit, off, builtin, required or custom. Empty clears it, which is inherit. Builtin needs no validator and is refused with builtin_check off.",
             "x-go-pointer": true
           },
           "recovery_test_cadence_seconds": {
@@ -7418,6 +7455,11 @@
           "recovery_test_validator_id": {
             "type": "string",
             "description": "The recovery-test script, by file name without .local.sh. Required with mode custom, and with mode required unless the deployment names one. Empty clears it.",
+            "x-go-pointer": true
+          },
+          "recovery_test_builtin_check": {
+            "type": "string",
+            "description": "structure or off for this set. Empty clears it, so the set inherits the deployment's. Allowed with every mode.",
             "x-go-pointer": true
           }
         }
