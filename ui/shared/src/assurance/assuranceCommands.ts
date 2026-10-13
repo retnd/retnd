@@ -60,6 +60,25 @@ export function recoverCommand(artifactId: string, target: RecoveryTargetSpec["k
     : "retnd recover " + artifactId + " " + to + ack;
 }
 
+/**
+ * `retnd recover --set` for the choices the Recover this backup set dialog has
+ * made (#1106). The flags are the ones the CLI has: --newest-only, --since,
+ * --to NAME or medium:ID and --acknowledge-cost, in that order.
+ */
+export function recoverSetCommand(setId: string, narrow: "all" | "newest" | "since", since: string, target: "staging" | "storage", where: string, acknowledgeCost: boolean): string {
+  const parts = ["retnd recover --set " + setId];
+  if (narrow === "newest") parts.push("--newest-only");
+  if (narrow === "since") parts.push("--since " + (since || "<date>"));
+  parts.push(target === "staging" ? "--to " + (where || "<name>") : "--to medium:" + (where || "<id>"));
+  if (acknowledgeCost) parts.push("--acknowledge-cost");
+  return parts.join(" ");
+}
+
+/** The same pre-flight on its own: nothing is read and nothing is written. */
+export function recoverSetPreflightCommand(setId: string, narrow: "all" | "newest" | "since", since: string, target: "staging" | "storage", where: string): string {
+  return recoverSetCommand(setId, narrow, since, target, where, false) + " --preflight";
+}
+
 /** A backup set stored by the snapshot engine has restore points, not
  *  artifacts, and `recover` refuses it with this verb's name. */
 export function snapshotRestoreCommand(setId: string): string {

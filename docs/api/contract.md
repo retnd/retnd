@@ -752,6 +752,16 @@ There is no role on `AuthContext`, so every authenticated caller can recover eve
 - **A staging or storage target answers `200` JSON** (`RecoveryResult`) on the first request and streams nothing.
 - **The memory it needs is one chunk** (4 MiB), whatever the artifact's size, and a download uses no staging disk at all. (`RECOVERY_BELOW_RESERVE` and `RECOVERY_NO_SPACE` still apply to the staging and storage targets, which do stage.) `docs/perf/epic-q-recovery.md` has the measured peak resident set size for a 4 GiB artifact in both processes.
 
+### Several backups, or a whole set, to one destination: `POST /recoveries` (#1106, #1107)
+
+`POST /recoveries` recovers a list of backups (`artifacts`) or every restore point of a set (`set`, optionally `newest_only` or `since`) to one `staging` or `storage` target, as one operation. It is the same recovery as the mint and redeem above, done file by file by the same service code, so every refusal and budget above applies to each file. It carries `requireCSRF` and not the destructive gate, for the same reason the mint does, and it is not a `POST /operations` action.
+
+- **`preflight: true` answers `200` JSON** with the plan: every row with its status (`ready`, `needs_thaw`, `quarantined`, `unrecoverable`, `skipped`), the totals, the cost (`chargeable_count`, `chargeable_bytes`), the staging disk's `free_bytes` and `reserve_bytes`. When the run itself would be refused (the cost is not acknowledged, the files do not fit) the plan carries a `refusal` with the code and the sentence, which has the numbers in it, so a page can draw both.
+- **Without it, a refusal before the run is an ordinary error response** (`409 RECOVERY_COST_NOT_ACKNOWLEDGED`, `507 RECOVERY_NO_SPACE`, `400 RECOVERY_TARGET_INVALID`, `409 RECOVERY_USE_SNAPSHOT_RESTORE`) and nothing was read. A run answers `200 application/x-ndjson`: a `plan` line once the pre-flight passed, a `start` and an `item` line per file with `done_bytes` and `total_bytes`, and a `result` line last (`cancelled: true` when it was cancelled). Closing the connection cancels the run; the file being read is discarded and the manifest still records what was done.
+- **`download` is not a target.** Many files do not fit one browser download without an archive the host would have to build and keep. The refusal says where a set can go.
+- **The manifest** (`recovery-manifest.json`, beside the files, or at the key beside the objects) lists every row of the request with its status, size and SHA-256, and is built from the same rows as the `result` line.
+- **The UI host proxies the exact path `/api/v1/recoveries` on the same rolling-deadline proxy as the grant prefix.** A subtree pattern alone would answer the POST with a redirect, which turns it into a GET.
+
 ### What it costs, and what refuses
 
 Recovery runs inside written budgets (`core/internal/recovery/budget`, #983), and every one is a refusal at the moment of spend:

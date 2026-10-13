@@ -129,3 +129,18 @@
 [data-outcome="failed_verification"] .adl__badge::before { content: "\00D7"; }
 [data-outcome="interrupted"] .adl__badge { border-style: dashed; border-width: 2px; border-color: var(--warn); background: var(--warn-quiet); }
 [data-outcome="failed_verification"] .adl__badge { border-style: double; border-width: 4px; border-color: var(--danger); background: var(--danger-quiet); }
+
+/* Recover this backup set (#1106). The ink is --text or --text-2 on the dialog
+   surface; the status is carried by a glyph and a word, and the colour on the
+   glyph is a redundant cue. */
+.rset__rows { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow: auto; border: 1px solid var(--text-3); border-radius: var(--radius-md); background: var(--surface); }
+.rset__row { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: baseline; padding: 4px 8px; font-size: var(--text-sm); color: var(--text); border-bottom: 1px solid var(--border); }
+.rset__row:last-child { border-bottom: 0; }
+.rset__glyph { width: 14px; text-align: center; font-weight: 700; color: var(--text); }
+.rset__name { overflow-wrap: anywhere; }
+.rset__status { font-weight: 600; }
+.rset__size, .rset__why { color: var(--text-2); overflow-wrap: anywhere; }
+.rset__row[data-status="quarantined"], .rset__row[data-status="unrecoverable"], .rset__row[data-status="failed"] { border-left: 3px solid var(--danger); }
+.rset__row[data-status="needs_thaw"], .rset__row[data-status="skipped"] { border-left: 3px dashed var(--warn); }
+.rset__row[data-status="recovered"] { border-left: 3px solid var(--ok); }
+.rset__counts { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: var(--space-3); color: var(--text); }

@@ -24,7 +24,7 @@
  * fine, and what the operator has is one decision to make about pointing
  * this set at different data.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
@@ -75,6 +75,7 @@ import { Cell, Row } from "@shared/components/Definitions";
 import { BackupSetConfigurationCard } from "@shared/pages/BackupSetConfigurationCard";
 import type { TooltipId } from "@shared/tooltips/tooltips";
 import { RetentionPreviewDialog } from "./RetentionPreviewDialog";
+import { RecoverSetDialog } from "@shared/assurance/RecoverSet";
 import { AssuranceSection } from "@shared/assurance/AssuranceSection";
 import { BackupSetRetentionCard } from "./BackupSetRetentionCard";
 import { EDIT_FIELDS, readEditFields, visibleEditFields, withCompanions } from "./backupSetEditFields";
@@ -168,6 +169,9 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   // connection still gets the explanation rather than a silent no-op.
   const [sourceWritable, setSourceWritable] = useState<boolean | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  // #1106: the Recover this backup set dialog, and the button focus returns to.
+  const [recoverSetOpen, setRecoverSetOpen] = useState(false);
+  const recoverSetButton = useRef<HTMLButtonElement>(null);
   const [removeOpen, setRemoveOpen] = useState(false);
   // Issue #592. The SSH surface used to be two boxes in the edit list
   // above; it is a wizard now, opened from the Connection section, and it
@@ -882,6 +886,9 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
             <InfoTooltip id="sets.detail.preview-retention" alignEnd>
               <button className="btn" disabled={readOnly} onClick={() => setPreviewOpen(true)}>Preview retention</button>
             </InfoTooltip>
+            {/* #1106: get the whole set back from the set itself. Off in the
+                same read-only state the single-backup Recover is off in. */}
+            <button ref={recoverSetButton} className="btn" disabled={readOnly} onClick={() => setRecoverSetOpen(true)}>Recover this backup set</button>
           </>
         }
       />
@@ -1353,6 +1360,9 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
       </div>
 
       <RetentionPreviewDialog source={s.source} set={s.set} open={previewOpen} onClose={() => setPreviewOpen(false)} />
+      {recoverSetOpen ? (
+        <RecoverSetDialog setId={s.id} engine={s.engine} returnFocus={recoverSetButton} onClose={() => setRecoverSetOpen(false)} />
+      ) : null}
 
       {/* Issue #350: entering edit mode stops any cycle running against
           this set, so an operator is told what that discards before it

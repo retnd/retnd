@@ -658,6 +658,10 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// handlers_recovery.go for the whole argument.
 		r.With(requireCSRF).Post("/backups/{source}/{set}/{name}/recovery", h.mintRecovery)
 		r.Get("/recoveries/{grant}", h.redeemRecovery)
+		// #1106 and #1107: several backups, or a whole backup set, to one
+		// destination. The same tier as the mint (CSRF, no destructive
+		// gate) for the same reason; see handlers_recoverymany.go.
+		r.With(requireCSRF).Post("/recoveries", h.recoverMany)
 		r.Get("/activity", h.listActivity)
 		// Issue #573: what each backup set is DOING right now, as
 		// opposed to the durable record of what happened that the route
