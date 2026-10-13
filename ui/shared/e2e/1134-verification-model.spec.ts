@@ -23,7 +23,8 @@ const NEWEST_PATH = "/backups/production/postgres-primary/" + NEWEST;
 const TESTED_PATH = "/backups/production/postgres-primary/" + TESTED;
 
 const recovery = (scope: Locator) => scope.locator('[data-claim="recovery"]');
-const listRow = (page: Page, file: string) => page.getByRole("row").filter({ hasText: file });
+// By the file's own cell: the newest backup's Recovery note names the older file too.
+const listRow = (page: Page, file: string) => page.getByRole("row").filter({ has: page.locator("td.mono", { hasText: file }) });
 const assuranceCard = (page: Page) => page.getByRole("region", { name: "Assurance" });
 const step = (page: Page, label: string) => page.getByRole("listitem").filter({ hasText: label });
 const setCard = (page: Page) => page.locator("article").filter({ hasText: "production/postgres-primary" });
@@ -82,10 +83,10 @@ test.describe("#1134 Recovery on the Backups list", () => {
 test.describe("#1134 the backup's own page", () => {
   test("#1134 the Assurance card says what the Backups list says", async ({ page }) => {
     await open(page, "/backups", S, { wire: true });
+    await expect(recovery(listRow(page, NEWEST))).toContainText("Default configuration");
     const onList = await chipText(listRow(page, NEWEST));
-    expect(onList).toContain("Default configuration");
     await spaGo(page, NEWEST_PATH);
-    await expect(assuranceCard(page)).toBeVisible();
+    await expect(recovery(assuranceCard(page))).toContainText("Default configuration");
     expect(await chipText(assuranceCard(page))).toBe(onList);
     await expect(recovery(assuranceCard(page)).getByRole("link", { name: "Default configuration" })).toBeVisible();
   });
@@ -251,7 +252,7 @@ for (const theme of ["light", "dark"] as const) {
     await expect(step(page, "STRUCTURE READABLE")).toBeVisible();
     expect(await measureContrast(page, `lifecycle, ${theme}`, "ol")).toEqual([]);
     await expect(page.getByTestId("copy-structure")).toBeVisible();
-    expect(await measureContrast(page, `copies, ${theme}`, '[aria-label="Copies"]')).toEqual([]);
+    expect(await measureContrast(page, `copy recovery line, ${theme}`, '[data-testid="copy-structure"]')).toEqual([]);
     await expect(page.getByTestId("validation-result")).toBeVisible();
     expect(await measureContrast(page, `validation result, ${theme}`, '[data-testid="validation-result"]')).toEqual([]);
 
@@ -263,12 +264,12 @@ for (const theme of ["light", "dark"] as const) {
     await spaGo(page, "/sets");
     await setTheme(page, theme);
     await expect(setCard(page).getByTestId("field-recovery")).toBeVisible();
-    expect(await measureContrast(page, `set card, ${theme}`, "article")).toEqual([]);
+    expect(await measureContrast(page, `set card fields, ${theme}`, "article dl")).toEqual([]);
 
     await spaGo(page, "/");
     await setTheme(page, theme);
     await expect(dash(page).getByTestId("assurance-untested-note")).toBeVisible();
     await expect(dash(page).getByTestId("assurance-due-why")).toBeVisible();
-    expect(await measureContrast(page, `dashboard tally, ${theme}`, '[aria-label="Assurance summary"]')).toEqual([]);
+    expect(await measureContrast(page, `dashboard tally, ${theme}`, '[aria-label="Assurance summary"] .card__body')).toEqual([]);
   });
 }

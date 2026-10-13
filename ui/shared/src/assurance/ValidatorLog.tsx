@@ -31,7 +31,7 @@ import type { ValidatorResult } from "./types";
 
 const STATE_WORDS: Record<ValidatorResult["state"], string> = {
   passed: "passed",
-  readable: "has the state readable",
+  readable: "found the copy readable (the built-in structure check)",
   failed: "failed",
   refused_for_cost: "was refused because reading the copy would cost money",
   could_not_complete: "could not complete"

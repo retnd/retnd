@@ -173,9 +173,13 @@ describe("#1134 a subscription moves every surface together", () => {
     state.claims = [claim(NEWEST, rec("pass", "content", 0), rec("pass", "content", 0, "builtin")), tested];
     state.test = { setId: SET, artifactId: NEWEST, medium: "local", state: "readable", at: ago(0) };
     const times: number[] = [];
-    graph.subscribe(factsNode, () => times.push(graph.now));
-    graph.subscribe(tallyNode, () => times.push(graph.now));
-    graph.subscribe(setFactsNode, () => times.push(graph.now));
+    // subscribe reports the current value straight away, which is not a commit
+    let armed = false;
+    const seen = () => { if (armed) times.push(graph.now); };
+    graph.subscribe(factsNode, seen);
+    graph.subscribe(tallyNode, seen);
+    graph.subscribe(setFactsNode, seen);
+    armed = true;
 
     noteAssuranceChanged();
     await waitFor(() => graph.read(tallyNode).untested === 0);

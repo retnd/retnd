@@ -55,7 +55,7 @@ describe("#1111 claims: a built-in pass is Recovered, readable", () => {
 
   it("tally counts it as neither due nor degraded", () => {
     const content = { status: "pass", achievedClass: "content", at: T } as const;
-    expect(tally([{ content, recovery: rec }], NOW)).toEqual({ due: 0, overdue: 0, degraded: 0, unknown: 0 });
+    expect(tally([{ content, recovery: rec }], NOW)).toEqual({ due: 0, overdue: 0, degraded: 0, unknown: 0, untested: 0 });
   });
 
   it("the chip carries data-state=pass_builtin and the label", () => {

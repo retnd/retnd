@@ -775,6 +775,11 @@ function fromWireBackupSet(bs: WireBackupSet, health?: WireBackupSetHealth): Bac
     // where it is read, and the render sites need no second change.
     lastValidation: "unknown",
     expectedIntervalHours: null,
+    // The threshold, not a cadence (issue #1134): the health report already
+    // sends how long a set may go without a known-good backup before it is
+    // called stale, and the card that says "within the stale threshold" can
+    // say what it is. Absent when the report was not read for this set.
+    staleAfterSeconds: health?.stale_after_seconds ?? null,
     retainedCount: null,
     retainedBytes: null,
     // Issue #572: what this set's known_hosts actually pins, read by the

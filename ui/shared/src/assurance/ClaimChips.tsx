@@ -36,14 +36,21 @@
 import "./assurance.css";
 import { Icon } from "@shared/design-system/icons";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
+import { AssuranceLink } from "./AssuranceLink";
+import { RecoveryNotes } from "./RecoveryLine";
 import { failureSentence, renderClaim, renderStored } from "./claims";
 import type { Glyph } from "./claims";
 import type { ArtifactAssurance } from "./types";
+import type { BackupFacts, RecoveryView } from "./verificationModel";
 
 export function ClaimChips({
-  assurance, available = true, checking = false, recoveryReported = true
+  assurance, facts, available = true, checking = false, recoveryReported = true
 }: {
-  assurance: ArtifactAssurance | null | undefined;
+  assurance?: ArtifactAssurance | null | undefined;
+  /** The backup's facts from the verification model (issue #1134). When given,
+   *  the chips are drawn from them, which is what keeps every surface that
+   *  shows a backup's claims saying the same thing about it. */
+  facts?: BackupFacts | null;
   available?: boolean;
   /** A scrub or recovery test is running against this backup, so what the
    *  chips show is the previous answer and is drawn as such. */
@@ -52,21 +59,24 @@ export function ClaimChips({
    *  Unknown Recovery claim says why instead of looking like a failure to ask. */
   recoveryReported?: boolean;
 }) {
-  const known = available ? assurance ?? undefined : undefined;
+  const known = available ? facts?.assurance ?? assurance ?? undefined : undefined;
+  const view: RecoveryView | undefined = available ? facts?.recoveryView : undefined;
   const stored = renderStored(known?.copies);
   const content = renderClaim("content", known?.content, undefined, known?.copyContent, known?.copies);
   const recovery = renderClaim("recovery", known?.recovery);
   const chip = (
-    which: string, lab: string, state: string, glyph: Glyph, label: string, age?: string, check = false, coverage?: string
+    which: string, lab: string, state: string, glyph: Glyph, label: string, age?: string, check = false, coverage?: string,
+    extra?: RecoveryView
   ) => (
     <div className="aclaim" data-claim={which} data-state={state} data-coverage={coverage} data-checking={check ? "true" : undefined} aria-busy={check ? true : undefined}>
       <span className="aclaim__lab">{lab}</span>
       <span className="achip" data-chip="" role="group" aria-label={lab + ": " + label + (age ? " " + age : "") + (check ? " (re-checking)" : "")}>
         <span className="achip__glyph" data-glyph={glyph.id} aria-hidden="true">{glyph.icon ? <Icon name={glyph.icon} /> : glyph.text}</span>
-        {label}
+        {extra?.link ? <AssuranceLink to={extra.link}>{label}</AssuranceLink> : label}
         {age ? <span className="achip__age">{age}</span> : null}
         {check ? <span className="achip__checking">re-checking</span> : null}
       </span>
+      {extra ? <RecoveryNotes view={extra} /> : null}
     </div>
   );
   const failures = known?.copyFailures ?? [];
@@ -79,7 +89,8 @@ export function ClaimChips({
         {chip("content", "Content", content.state, content.glyph, content.label, content.age, checking, content.coverage)}
       </InfoTooltip>
       <InfoTooltip id="assurance.claim.recoveryTested">
-        {chip("recovery", "Recovery", recovery.state, recovery.glyph, recovery.label, recovery.age, checking)}
+        {chip("recovery", "Recovery", recovery.state, recovery.glyph, view?.label ?? recovery.label, recovery.age, checking, undefined,
+          view)}
       </InfoTooltip>
       {failures.length > 0 ? (
         <ul className="afails" data-testid="copy-failures" aria-label="Copies whose last check did not pass">

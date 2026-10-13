@@ -32,3 +32,13 @@ export function useApi(): RetndApi {
   if (!api) throw new Error("useApi must be used inside <ApiProvider>");
   return api;
 }
+
+/**
+ * The API for the surrounding tree, or null where there is none. Only for a
+ * component that is useful without one (a card drawn in isolation), which
+ * then draws what it can without the extra the API would have added. Every
+ * page uses `useApi`.
+ */
+export function useOptionalApi(): RetndApi | null {
+  return useContext(Ctx);
+}

@@ -24,6 +24,7 @@ import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { CommandEcho } from "@shared/pages/CommandEcho";
 import { settingsCommand } from "./assuranceCommands";
 import { BUILTIN_CHECKS, asBuiltinCheck, builtinOffProblem, reservedValidatorProblem } from "./builtinCheck";
+import { DEFAULTS_ANCHOR, noteAssuranceChanged } from "./verificationModel";
 import { MIN_RECOVERY_TEST_CADENCE_SECONDS, cadenceProblem, formatCadence, parseCadence } from "./duration";
 
 const STRATEGIES = ["auto", "existence", "content"] as const;
@@ -88,12 +89,19 @@ export function AssuranceSettingsCard({ readOnly }: { readOnly: boolean }) {
       const s = await api.patchAssuranceSettings(changes());
       setSettings(s);
       setDraft(draftOf(s));
+      // Every set that follows the default now resolves to something else.
+      noteAssuranceChanged();
       setSaved(true);
     } catch (e) {
       setSaved(false);
       setError(describeFailure(e, "could not save").message);
     }
   };
+
+  // A link from a Recovery chip ("Default configuration") lands here.
+  useEffect(() => {
+    if (settings && window.location.hash === "#" + DEFAULTS_ANCHOR) document.getElementById(DEFAULTS_ANCHOR)?.scrollIntoView({ block: "start" });
+  }, [settings]);
 
   const reason = (name: string) => settings?.hostKnobs.find((k) => k.name === name)?.reason ?? "";
   const knobs: Array<[string, string, string | undefined]> = [
@@ -104,7 +112,7 @@ export function AssuranceSettingsCard({ readOnly }: { readOnly: boolean }) {
   ];
 
   return (
-    <section className="card" data-assurance="" aria-label="Assurance">
+    <section className="card" id={DEFAULTS_ANCHOR} tabIndex={-1} data-assurance="" aria-label="Assurance">
       <div className="card__header">
         <InfoTooltip id="assurance.settings.card"><h2 className="eyebrow">Assurance</h2></InfoTooltip>
       </div>
