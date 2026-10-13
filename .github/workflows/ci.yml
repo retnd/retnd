@@ -1006,13 +1006,17 @@ jobs:
   recovery-captures:
     name: the recovery and assurance captures reproduce byte for byte (#988)
     runs-on: ubuntu-latest
-    # Playwright is borrowed, never installed here: the harness reads it out
-    # of the retnd-tests checkout at the sha in scripts/e2e/tests-repo.pin,
-    # exactly as every other capture script does, so this clones that
-    # checkout into the cache path the harness looks in and installs the
-    # browser there. What is asserted is reproducibility (two passes, one dev
-    # server, identical bytes), not equality with the committed files: those
-    # were shot on one machine's fonts and a runner's are another's.
+    # Playwright comes from the public npm registry, not from the retnd-tests
+    # checkout the harness would otherwise borrow it from. That repository is
+    # private, and this job's token cannot read it (the hosted run died in
+    # `git fetch` with "could not read Username", exit 128, before a single
+    # picture was taken), so the job never reached what it exists to check.
+    # playwright-core goes into ui/shared with --no-save, which is the last
+    # candidate the harness looks in, so nothing is added to package.json
+    # (#158 stands) and no credential is involved. What is asserted is
+    # reproducibility (two passes, one dev server, identical bytes), not
+    # equality with the committed files: those were shot on one machine's
+    # fonts and a runner's are another's.
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -1022,17 +1026,14 @@ jobs:
         with:
           node-version: 24
 
-      - name: the pinned retnd-tests checkout, where the harness looks for Playwright
-        run: |
-          sha="$(sed -n 's/^TESTS_REPO_SHA=//p' scripts/e2e/tests-repo.pin)"
-          dest="$HOME/.cache/retnd-tests-gate/$sha"
-          git init -q "$dest"
-          git -C "$dest" fetch -q --depth 1 https://github.com/retnd/retnd-tests.git "$sha"
-          git -C "$dest" checkout -q FETCH_HEAD
-          (cd "$dest/suites/web-ui" && npm ci --silent && npx playwright install --with-deps chromium)
-
       - name: the shared UI's dependencies
         run: cd ui/shared && npm ci --silent
+
+      - name: Playwright and its browser, outside package.json
+        run: |
+          cd ui/shared
+          npm i --no-save --no-audit --no-fund --silent playwright-core@1.61.1
+          npx playwright-core install --with-deps chromium
 
       - name: two passes, one dev server, byte-identical output
         run: node docs/site/tools/capture-recovery-assurance.mjs --check

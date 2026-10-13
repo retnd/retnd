@@ -61,6 +61,41 @@ function renderVerify(api: RetndApi, url: string) {
   );
 }
 
+/**
+ * A mock api that remembers every recovery read it hands out, so a case can
+ * wait for them before it ends.
+ *
+ * VerifyEmailPage re-reads the recovery block after a successful
+ * verification and publishes the answer into the shared graph, and that
+ * read is deliberately not cancelled when the page unmounts (the banner
+ * above the router depends on it). The mock answers after 180ms, so a case
+ * that ends the moment it sees "no longer provisional" leaves a read in
+ * flight that lands in the NEXT case, after the graph reset, and publishes
+ * the default verified account over that case's unverified fixture. The
+ * banner then vanishes between a find and the click that follows (hosted
+ * run: "Unable to find an accessible element with the role button and name
+ * Resend link", an empty body). Fast machines hide it; a loaded runner
+ * does not. Every afterEach drains these before it resets anything.
+ */
+const pendingReads: Promise<unknown>[] = [];
+
+function makeApi(): RetndApi {
+  const api = createMockApi();
+  const read = api.getRecoverySettings.bind(api);
+  api.getRecoverySettings = () => {
+    const p = read();
+    pendingReads.push(p.catch(() => undefined));
+    return p;
+  };
+  return api;
+}
+
+async function drainReads() {
+  // The page chains .then(publish) onto the read it returned, so awaiting
+  // the settled read here runs after that handler, not before it.
+  await Promise.all(pendingReads.splice(0));
+}
+
 function renderBanner(api: RetndApi) {
   render(
     <MemoryRouter>
@@ -72,7 +107,8 @@ function renderBanner(api: RetndApi) {
 }
 
 describe("opening the verification link", () => {
-  afterEach(() => {
+  afterEach(async () => {
+    await drainReads();
     resetMockFixtures();
     // The recovery block lives in the graph (state/appNodes.ts) so the
     // banner and the verification page cannot contradict each other, and
@@ -85,7 +121,7 @@ describe("opening the verification link", () => {
   });
 
   it("spends the token out of the URL exactly once and says the account is no longer provisional", async () => {
-    const api = createMockApi();
+    const api = makeApi();
     const verify = vi.spyOn(api, "verifyRecoveryEmail");
     renderVerify(api, "/verify-email?token=verify-tok-123");
 
@@ -107,7 +143,7 @@ describe("opening the verification link", () => {
   // would pass with the guard deleted, so this is the one that holds
   // it.
   it("spends the token once and renders the success under StrictMode's double mount", async () => {
-    const api = createMockApi();
+    const api = makeApi();
     const verify = vi.spyOn(api, "verifyRecoveryEmail");
     render(
       <StrictMode>
@@ -128,7 +164,7 @@ describe("opening the verification link", () => {
   });
 
   it("offers nothing to submit when the link carried no token", () => {
-    const api = createMockApi();
+    const api = makeApi();
     const verify = vi.spyOn(api, "verifyRecoveryEmail");
     renderVerify(api, "/verify-email");
 
@@ -138,7 +174,7 @@ describe("opening the verification link", () => {
   });
 
   it("routes an expired link to a fresh one instead of leaving a dead end", async () => {
-    const api = createMockApi();
+    const api = makeApi();
     vi.spyOn(api, "verifyRecoveryEmail").mockRejectedValue(
       new RetndError({
         code: "VERIFY_TOKEN_INVALID",
@@ -158,7 +194,8 @@ describe("opening the verification link", () => {
 });
 
 describe("the unverified-recovery banner", () => {
-  afterEach(() => {
+  afterEach(async () => {
+    await drainReads();
     resetMockFixtures();
     // The recovery block lives in the graph (state/appNodes.ts) so the
     // banner and the verification page cannot contradict each other, and
@@ -171,7 +208,7 @@ describe("the unverified-recovery banner", () => {
   });
 
   it("names the address and the deadline, and cannot be dismissed", async () => {
-    const api = createMockApi();
+    const api = makeApi();
     vi.spyOn(api, "getRecoverySettings").mockResolvedValue(UNVERIFIED);
     renderBanner(api);
 
@@ -194,7 +231,7 @@ describe("the unverified-recovery banner", () => {
   });
 
   it("renders nothing for a verified account", async () => {
-    const api = createMockApi();
+    const api = makeApi();
     const read = vi.spyOn(api, "getRecoverySettings");
     renderBanner(api);
 
@@ -207,7 +244,7 @@ describe("the unverified-recovery banner", () => {
 
   it("resends the link, then re-reads the state the service now holds", async () => {
     const user = userEvent.setup();
-    const api = createMockApi();
+    const api = makeApi();
     const read = vi.spyOn(api, "getRecoverySettings").mockResolvedValue(UNVERIFIED);
     const resend = vi.spyOn(api, "resendRecoveryEmailVerification");
     renderBanner(api);
@@ -224,7 +261,7 @@ describe("the unverified-recovery banner", () => {
 
   it("reports a mail server that refused the resend, without clearing the warning", async () => {
     const user = userEvent.setup();
-    const api = createMockApi();
+    const api = makeApi();
     vi.spyOn(api, "getRecoverySettings").mockResolvedValue(UNVERIFIED);
     vi.spyOn(api, "resendRecoveryEmailVerification").mockRejectedValue(
       new RetndError({
@@ -254,7 +291,8 @@ describe("the unverified-recovery banner", () => {
  * same time, one directly above the other.
  */
 describe("verifying in the tab the console is already open in", () => {
-  afterEach(() => {
+  afterEach(async () => {
+    await drainReads();
     resetMockFixtures();
     resetGraphForTests();
     cleanup();
@@ -262,7 +300,7 @@ describe("verifying in the tab the console is already open in", () => {
   });
 
   it("clears the banner the moment the page reports success", async () => {
-    const api = createMockApi();
+    const api = makeApi();
     vi.spyOn(api, "getRecoverySettings").mockResolvedValue(UNVERIFIED);
     render(
       <MemoryRouter initialEntries={["/verify-email?token=abc123"]}>
@@ -281,5 +319,38 @@ describe("verifying in the tab the console is already open in", () => {
     expect(await screen.findByText(/no longer provisional/i)).toBeInTheDocument();
 
     await waitFor(() => expect(screen.queryByText(/Unverified/)).toBeNull());
+  });
+});
+
+/**
+ * The isolation the helpers above exist for, as an ordered pair: the first
+ * case ends the instant the success sentence appears, which leaves the
+ * page's authoritative re-read in flight, and the second case must not
+ * have that read land in it. Without drainReads() in afterEach the second
+ * one goes red every time, rather than only on a loaded runner.
+ */
+describe("a re-read the verification page left in flight", () => {
+  afterEach(async () => {
+    await drainReads();
+    resetMockFixtures();
+    resetGraphForTests();
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("is left behind by a case that stops at the success sentence", async () => {
+    const api = makeApi();
+    renderVerify(api, "/verify-email?token=leaves-a-read");
+    expect(await screen.findByText(/no longer provisional/i)).toBeInTheDocument();
+  });
+
+  it("does not reach the next case and clear its unverified banner", async () => {
+    const api = makeApi();
+    vi.spyOn(api, "getRecoverySettings").mockResolvedValue(UNVERIFIED);
+    renderBanner(api);
+    await screen.findByText(/Unverified/);
+    // Longer than the mock's 180ms answer, so a leaked read has landed.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(screen.getByRole("button", { name: "Resend link" })).toBeInTheDocument();
   });
 });

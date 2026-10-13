@@ -124,7 +124,7 @@ const surfaces = [
       await at(page, 9);
       await page.locator('[data-testid="operation-progress"][data-stage="verifying"]').waitFor({ timeout: 20_000 });
       const terminal = page.getByLabel("Terminal", { exact: true });
-      await terminal.getByRole("log").getByText("recovery test: Verifying", { exact: false }).first().waitFor();
+      await terminal.getByRole("log").getByText("recovery test stage: Verifying", { exact: false }).first().waitFor();
       return ["section[aria-label='Terminal']"];
     }
   },
@@ -139,7 +139,7 @@ const surfaces = [
       await at(page, 9);
       await page.locator('[data-testid="operation-progress"][data-stage="verifying"]').waitFor({ timeout: 20_000 });
       const panel = page.locator("section[aria-label^='Activity for']").first();
-      await panel.getByText("recovery test: Verifying", { exact: false }).first().waitFor({ timeout: 20_000 });
+      await panel.getByText("recovery test stage: Verifying", { exact: false }).first().waitFor({ timeout: 20_000 });
       return ["section[aria-label^='Activity for']"];
     }
   },
