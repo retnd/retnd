@@ -127,8 +127,12 @@ func (l *Logger) RecoveryEnd(ctx context.Context, opID, backupSet, artifact stri
 // RecoveryTestStart logs EventRecoveryTestStart. The validator is named by
 // id only; see validatorRef.
 func (l *Logger) RecoveryTestStart(ctx context.Context, opID, backupSet, artifact, validatorID string) {
+	msg := "recovery test starting"
+	if builtinID(validatorID) {
+		msg = "recovery test started: " + cleanReason(artifact) + " (built-in structure check)"
+	}
 	l.emitMarked(ctx, LevelInfo, mark{action: ActionRecoveryTest, actionID: opID},
-		EventRecoveryTestStart, "recovery test starting",
+		EventRecoveryTestStart, msg,
 		slog.String("op_id", opID),
 		slog.String("backup_set", backupSet),
 		slog.String("artifact", artifact),
