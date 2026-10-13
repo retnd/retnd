@@ -385,6 +385,8 @@ commands:
                                                   defaults to 7 and is bounded to 1..30. artifacts <id> lists
                                                   which medium each copy is on
   recover <source/backup-set/artifact> --to - | NAME | medium:ID[/KEY] [--copy M] [--acknowledge-cost] [--json]
+  recover --set <source/backup-set> [--newest-only] [--since DATE] --to NAME | medium:ID[/PREFIX] [--preflight] [--acknowledge-cost] [--json]
+  recover <id> <id> ... --to NAME | medium:ID[/PREFIX] [--preflight] [--acknowledge-cost] [--json]
                                                   get the retained bytes of one artifact back (EPIC Q, FR-67). It
                                                   reads one copy, checks all of it against the SHA-256 recorded when
                                                   the backup was ingested, and only then writes it: to standard
@@ -404,6 +406,20 @@ commands:
                                                   --follow prints the recovery's stages on standard error as it
                                                   passes through them, in the engine's order; the exit status is the
                                                   recovery's own
+                                                  With --set (a whole backup set) or two or more ids, the same
+                                                  recovery is done for every file into ONE destination, under a
+                                                  per-set folder, never to standard output. A pre-flight comes
+                                                  first: the number and size of the files, what is quarantined,
+                                                  lost or needs a thaw, the cost of the whole set, and whether it
+                                                  fits the destination (refused with the numbers if not, before a
+                                                  byte is read). --newest-only and --since narrow a set;
+                                                  --preflight stops after that. Each file is checked like a single
+                                                  recovery; one failing does not stop the rest. A progress line per
+                                                  file and a running total are printed, Ctrl-C cancels the run and
+                                                  leaves no half-written file, and a manifest listing every file
+                                                  with its digest is written beside them. Exits 0 when every row was
+                                                  recovered and 32 when some were not (failed, needs a thaw,
+                                                  quarantined or lost); a kopia set is refused naming snapshot restore
   backup-set enabled <source/backup-set> <on|off>
                                                   turn one already-configured backup set on or off, which
                                                   --disabled can only do at creation. "off" stops the scheduler

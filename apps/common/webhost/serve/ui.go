@@ -353,6 +353,10 @@ func NewUI(cfg UIConfig) http.Handler {
 	mux.Handle("/health/", proxy)
 	mux.Handle("/api/v1/", proxy)
 	mux.Handle("/api/v1/recoveries/", rollingWriteDeadline(&downloads))
+	// #1106: POST /api/v1/recoveries, the exact path. Registered apart
+	// because the subtree pattern above would otherwise answer it with a
+	// redirect, which turns the POST into a GET.
+	mux.Handle("/api/v1/recoveries", rollingWriteDeadline(&downloads))
 	mux.Handle("/", staticHandler(cfg.StaticFS))
 
 	// false: this container is the actual internet-facing edge (the only

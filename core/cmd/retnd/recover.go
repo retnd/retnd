@@ -85,6 +85,12 @@ var recoverExitCodes = map[string]int{
 // Not 0, because a script that sees 0 expects bytes.
 const exitRecoverThawStarted = 31
 
+// exitRecoverPartial: a recovery of several backups finished and at least one
+// was not recovered (failed its check, needs a thaw, was quarantined). Not 0,
+// because a script that sees 0 expects every file; not a refusal code,
+// because the files that could be recovered were.
+const exitRecoverPartial = 32
+
 func cmdRecover(args []string) int {
 	fs, cfgPath := newFlagSet("recover")
 	copySel := fs.String("copy", "", "medium id of the copy to recover (default: the best readable copy)")
@@ -92,9 +98,25 @@ func cmdRecover(args []string) int {
 	ack := fs.Bool("acknowledge-cost", false, "accept a chargeable retrieval (a billed download, or a provider restore first)")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
 	follow := fs.Bool("follow", false, "print the recovery's stages on standard error as it passes through them; the exit status is the recovery's")
+	set := fs.String("set", "", "recover every retained restore point of this backup set (source/backup-set) into the one destination")
+	newestOnly := fs.Bool("newest-only", false, "with --set: only the newest restore point")
+	since := fs.String("since", "", "with --set: only restore points updated at or after this date (YYYY-MM-DD or RFC 3339)")
+	preflight := fs.Bool("preflight", false, "with --set or several ids: print what would be recovered, what would not and why, and whether it fits; copy nothing")
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
 		return exitUsage
+	}
+	if *set != "" || len(operands) > 1 {
+		return cmdRecoverMany(manyArgs{
+			cfgPath: *cfgPath, set: *set, ids: operands, to: *to, copySel: *copySel, ack: *ack, asJSON: *asJSON,
+			follow: *follow, newestOnly: *newestOnly, since: *since, preflight: *preflight,
+		})
+	}
+	if *newestOnly || *since != "" {
+		return usageError("recover: --newest-only and --since need --set")
+	}
+	if *preflight {
+		return usageError("recover: --preflight is for --set or several backup ids")
 	}
 	if len(operands) != 1 {
 		return usageError("recover: expected <source/backup-set/artifact>")

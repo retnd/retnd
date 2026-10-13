@@ -141,6 +141,11 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 	// (source/set/name), which an operator retyping the command has to say
 	// and which is a name, not material.
 	"--artifact": "the backup the test was asked about, by its id",
+	// A whole-set recovery (#1106). The set is named by its own id and the
+	// date narrows it; both are names and a date, and an operator retyping
+	// the command has to say them.
+	"--set":   "the backup set to recover, by its own id (source/set)",
+	"--since": "the date a set recovery starts from; a date, not material",
 	// A backup set's own description. Every one of these is a
 	// connection detail an operator types when they create the set by
 	// hand, and none of them is a secret: the key is named by id and the
@@ -273,6 +278,7 @@ var operandsThatNameTheSubject = map[string]string{
 	"POST /storage-mediums":             "the destination's own id",
 	"POST /storage-mediums/preflight":   "the candidate destination's id",
 	"POST /repositories":                "the repository domain's own id",
+	"POST /recoveries":                  "the backup ids a multi-backup recovery lists (source/set/name each)",
 }
 
 // A credential in an endpoint URL, which is the leak the name-based test
