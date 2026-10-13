@@ -180,6 +180,33 @@ func (s *Service) validatorFor(bs config.BackupSet) (stageValidator, error) {
 	return v, nil
 }
 
+// RecoveryTestValidatorDeclared answers, without running anything, whether a
+// recovery test of set would find a validator to run. It makes the dry run
+// RecoveryTest makes first, through the same validatorFor, so a button built
+// on this answer and the test's own "not_configured" refusal cannot disagree.
+//
+// Only a clean "there is none" is false. A validator the operator declared by
+// name but that cannot be found or examined is true, because the test then
+// ends could_not_complete with that reason and not not_configured.
+func (s *Service) RecoveryTestValidatorDeclared(ctx context.Context, set model.BackupSetID) (bool, error) {
+	bs, ok := s.backupSet(set)
+	if !ok {
+		return false, fmt.Errorf("app: backup set %s is not configured", set)
+	}
+	if s.Stages == nil {
+		return false, nil
+	}
+	validator, err := s.validatorFor(bs)
+	if err != nil {
+		return true, nil
+	}
+	configured, err := validator.Configured(ctx, set)
+	if err != nil {
+		return true, nil
+	}
+	return configured, nil
+}
+
 // RecoveryTest runs a recovery test as req describes.
 //
 // The cadence and the validator come from the set's resolved assurance

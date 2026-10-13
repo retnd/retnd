@@ -2490,7 +2490,15 @@ export interface RecoveryTestOutput {
  *  is never something to read as "never". */
 export interface AssurancePolicy {
   scrub: { cadenceSeconds: number; strategy: string };
-  recoveryTest: { mode: string; cadenceSeconds: number; validatorId: string };
+  recoveryTest: {
+    mode: string;
+    cadenceSeconds: number;
+    validatorId: string;
+    /** Whether the engine finds a validator it could run for this set (its own
+     *  dry run, the one a recovery test makes first). Absent when the server
+     *  does not say, which is never read as "declared" or as "not declared". */
+    validatorDeclared?: boolean;
+  };
 }
 
 /** A global-only setting and the written reason a backup set cannot

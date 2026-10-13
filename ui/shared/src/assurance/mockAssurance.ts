@@ -112,7 +112,15 @@ const PLAN: Record<OperationKind, Array<{ stage: string; secs: number; bytes: bo
 const TOTAL_BYTES = 4_800_000_000;
 /** What the journal's bounded reason reads like for a copy whose bytes changed. */
 const FAIL_REASON = "sha256 differs from the one recorded at ingest";
-const total = (k: OperationKind) => PLAN[k].reduce((n, p) => n + p.secs, 0);
+/** assurance-no-validator (issue: a recovery test on a set that declares no
+ *  validator): the engine resolves the copy, finds nothing to run, and stops.
+ *  Like the engine since #1108 it stops after the first stage: no Complete
+ *  stage, and a closing line worded "not run". */
+const NO_VALIDATOR_PLAN = [{ stage: "resolving_copy", secs: 1, bytes: false }];
+const NO_VALIDATOR_REASON = "no recovery-test validator is declared for this backup set";
+const noValidator = (k: OperationKind) => k === "recovery_test" && activeScenario === "assurance-no-validator";
+const planOf = (k: OperationKind) => (noValidator(k) ? NO_VALIDATOR_PLAN : PLAN[k]);
+const total = (k: OperationKind) => planOf(k).reduce((n, p) => n + p.secs, 0);
 const FINAL: Record<OperationKind, string> = { scrub: "complete", recovery_test: "complete", recovery: "complete" };
 
 function eventsOf(op: StoredOp, upTo: number): OperationEvent[] {
@@ -120,7 +128,7 @@ function eventsOf(op: StoredOp, upTo: number): OperationEvent[] {
   let offset = 0;
   let seq = 0;
   const at = (s: number) => new Date(op.startedAt + s * 1000).toISOString();
-  for (const p of PLAN[op.kind]) {
+  for (const p of planOf(op.kind)) {
     if (offset > upTo) break;
     out.push({ seq: ++seq, at: at(offset), stage: p.stage, text: stageLabel(p.stage) });
     if (p.bytes) {
@@ -139,9 +147,9 @@ function view(op: StoredOp, scrubFails: boolean, now: number): { operation: Oper
   const elapsedMs = (op.cancelledAt ?? now) - op.startedAt;
   const elapsed = Math.floor(elapsedMs / 1000);
   const done = !op.cancelledAt && elapsed >= total(op.kind);
-  let stage = PLAN[op.kind][PLAN[op.kind].length - 1].stage;
+  let stage = planOf(op.kind)[planOf(op.kind).length - 1].stage;
   let off = 0;
-  for (const p of PLAN[op.kind]) {
+  for (const p of planOf(op.kind)) {
     if (elapsed < off + p.secs) { stage = p.stage; break; }
     off += p.secs;
   }
@@ -151,7 +159,7 @@ function view(op: StoredOp, scrubFails: boolean, now: number): { operation: Oper
     state = "cancelled";
     events.push({ seq: events.length + 1, at: new Date(op.cancelledAt).toISOString(), stage, text: "Cancelled by the operator" });
   } else if (done) {
-    state = op.kind === "scrub" && scrubFails ? "failed" : "complete";
+    state = (op.kind === "scrub" && scrubFails) || noValidator(op.kind) ? "failed" : "complete";
     events.push({
       seq: events.length + 1, at: new Date(op.startedAt + total(op.kind) * 1000).toISOString(), stage: FINAL[op.kind],
       text: state === "failed" ? "Scrub finished: a digest did not match" : stageLabel(FINAL[op.kind])
@@ -219,13 +227,20 @@ export function assuranceLiveEvents(setId: string): SetActivityEvent[] {
     const start = op.kind === "recovery" ? "recovery_start" : "recovery_test_start";
     const end = op.kind === "recovery" ? "recovery_end" : "recovery_test_end";
     const action = op.kind;
+    const refused = noValidator(op.kind);
+    if (refused) {
+      push({
+        at: at(0), level: "info", event: "api_action", result: "success", message: "post /backup-sets/{source}/{set}/recovery-test",
+        fields: { actor: "you", route: "POST /api/v1/backup-sets/{source}/{set}/recovery-test", status: "202", command: "retnd recovery-test " + setId }
+      });
+    }
     push({
       at: at(0), level: "info", event: start, action, actionId: op.id, message: op.kind === "recovery" ? "recovery starting" : "recovery test starting",
-      fields: { op_id: op.id, backup_set: setId, artifact, ...(op.kind === "recovery_test" ? { validator: "pg-restore-check" } : {}) }
+      fields: { op_id: op.id, backup_set: setId, artifact, ...(op.kind === "recovery_test" && !refused ? { validator: "pg-restore-check" } : {}) }
     });
     let offset = 0;
     const elapsed = Math.floor(((op.cancelledAt ?? now) - op.startedAt) / 1000);
-    for (const p of PLAN[op.kind]) {
+    for (const p of planOf(op.kind)) {
       if (offset > elapsed) break;
       push({
         at: at(offset), level: "info", event: "recovery_stage", action, actionId: op.id, message: "recovery stage",
@@ -235,21 +250,33 @@ export function assuranceLiveEvents(setId: string): SetActivityEvent[] {
     }
     if (v.operation.state === "complete" || v.operation.state === "failed" || cancelled) {
       const failed = v.operation.state === "failed";
-      if (!failed && !cancelled) {
+      if (!failed && !refused && !cancelled) {
         push({
           at: endAt, level: "info", event: "recovery_stage", action, actionId: op.id, message: "recovery stage",
           fields: { op_id: op.id, backup_set: setId, stage: "complete", stage_label: stageLabel("complete") }
         });
       }
       push({
-        at: endAt, level: cancelled ? "warn" : failed ? "error" : "info", event: end, action, actionId: op.id,
-        result: cancelled ? "warn" : failed ? "error" : "success", message: "recovery test finished",
+        at: endAt, level: cancelled || refused ? "warn" : failed ? "error" : "info", event: end, action, actionId: op.id,
+        result: cancelled || refused ? "warn" : failed ? "error" : "success", message: "recovery test finished",
         fields: {
           op_id: op.id, backup_set: setId, artifact, duration: total(op.kind) + "s",
-          ...(op.kind === "recovery_test" ? { validator: "pg-restore-check" } : {}),
-          ...(cancelled ? { reason: "cancelled before it finished; no result was recorded" } : {})
+          ...(op.kind === "recovery_test" && !refused ? { validator: "pg-restore-check" } : {}),
+          ...(cancelled ? { reason: "cancelled before it finished; no result was recorded" } : {}),
+          ...(refused ? { reason: NO_VALIDATOR_REASON } : {})
         }
       });
+      if (refused) {
+        // The engine's one summary line for the run (obs.Logger.RecoveryTest),
+        // worded by the state.
+        push({
+          at: endAt, level: "info", event: "recovery_test", result: "info", message: "recovery test not run",
+          fields: {
+            artifact, medium: "local", placement_id: "99", state: "not_configured", digest: "not_compared", validator: "",
+            termination: "", cleanup: "", output_truncated: "false", reason: NO_VALIDATOR_REASON, backup_set: setId
+          }
+        });
+      }
     }
   });
   return out;
@@ -277,6 +304,7 @@ export function overlayAssurance(a: BackupArtifact): BackupArtifact {
           ? { ...p, verificationClass: null, verifiedAt: null, assuranceState: "failed" as const, lastCheckedAt: at, lastFailureAt: at, lastFailureReason: FAIL_REASON, consecutiveFailures: 1 }
           : { ...p, verificationClass: "content" as const, verifiedAt: at, assuranceState: "passed" as const, lastCheckedAt: at };
       }
+      if (noValidator(op.kind)) return { ...p, recoveryState: "not_configured" as const };
       return { ...p, recoveryState: "passed" as const, recoveryTestedAt: at };
     });
   }
@@ -306,6 +334,9 @@ export function createMockAssurance(scenario: string): AssuranceApi {
 
   const table = (now: number): ArtifactAssurance[] => {
     let t = baseTable(now);
+    if (scenario === "assurance-no-validator") {
+      t = t.map((a) => ({ ...a, recovery: rec("never_configured", "") }));
+    }
     if (scenario === "assurance-rebuilt") {
       t = t.map((a) => ({ ...a, content: rec("unknown", ""), recovery: rec("unknown", "") }));
     }
@@ -353,6 +384,7 @@ export function createMockAssurance(scenario: string): AssuranceApi {
               : []
           };
         }
+        if (noValidator(op.kind)) return a;
         return { ...a, recovery: { status: cleanupFails ? "cleanup_failed" : "pass", achievedClass: "content", at } };
       });
     }

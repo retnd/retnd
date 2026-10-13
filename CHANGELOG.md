@@ -40,6 +40,15 @@
   to delete it), then install the new `retnd` package and point it at the same
   share.
 
+### Fixed
+
+- **A recovery test on a set with no validator no longer says it completed** (#1108).
+  The engine now prints the `Complete` stage only for a run that recorded a pass, and the
+  closing line reads `recovery test passed`, `failed`, `not run` or `did not complete` by
+  state (the `state=` field is unchanged). `GET /backup-sets/{source}/{set}/assurance` gains
+  `recovery_test.validator_declared`, and **Run recovery test** is disabled, with the reason
+  beside it, on a set that declares none. The refusal itself is unchanged.
+
 ## [0.6.0] - 2026-10-12
 
 0.6.0 is the first release that also ships the `retnd` command line as plain

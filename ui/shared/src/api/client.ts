@@ -2652,14 +2652,17 @@ function fromWireWorkflowSettings(s: WireWorkflowSettingsResponse): WorkflowSett
 
 function fromWireAssurancePolicy(s: {
   scrub?: { cadence_seconds?: number; strategy?: string };
-  recovery_test?: { mode?: string; cadence_seconds?: number; validator_id?: string };
+  recovery_test?: { mode?: string; cadence_seconds?: number; validator_id?: string; validator_declared?: boolean };
 }): Pick<AssuranceSettings, "scrub" | "recoveryTest"> {
   return {
     scrub: { cadenceSeconds: s.scrub?.cadence_seconds ?? 0, strategy: s.scrub?.strategy ?? "" },
     recoveryTest: {
       mode: s.recovery_test?.mode ?? "",
       cadenceSeconds: s.recovery_test?.cadence_seconds ?? 0,
-      validatorId: s.recovery_test?.validator_id ?? ""
+      validatorId: s.recovery_test?.validator_id ?? "",
+      // Absent stays absent: an older server that does not say is not a
+      // server that says "none".
+      ...(typeof s.recovery_test?.validator_declared === "boolean" ? { validatorDeclared: s.recovery_test.validator_declared } : {})
     }
   };
 }

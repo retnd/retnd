@@ -132,6 +132,8 @@ export type Scenario =
   | "assurance-corrupt-copy"
   // How a browser download ended, as three artifacts' feed rows (item 14).
   | "assurance-download-outcomes"
+  // A set that declares no recovery-test validator: the run is refused.
+  | "assurance-no-validator"
   // #1106: Recover this backup set. The fixture sets are presented as
   // artifact sets and the mock host recovers a file every 700ms (2.5s when
   // slow), so a spec can watch the total and press Cancel. "recover" gives the
@@ -168,7 +170,7 @@ export function scenarioFromLocation(): Scenario {
     "assurance-grant-used", "assurance-session-ended", "assurance-staging-full",
     "assurance-reads-busy", "assurance-corrupt-copy", "assurance-download-outcomes",
     "assurance-set-recover", "assurance-set-nospace", "assurance-set-corrupt", "assurance-set-slow",
-    "backups-many", "backups-many-corrupt", "backups-many-nospace", "dock-no-warnings", "dock-live-line"
+    "backups-many", "backups-many-corrupt", "backups-many-nospace", "dock-no-warnings", "dock-live-line", "assurance-no-validator"
   ];
   return (allowed as string[]).includes(s ?? "") ? (s as Scenario) : "default";
 }
@@ -3986,6 +3988,14 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   const assuranceOverrides = new Map<string, Record<string, number | string>>();
   const resolveAssurance = (key: string): BackupSetAssurance => {
     const o = assuranceOverrides.get(key) ?? {};
+    // assurance-no-validator: no set names a validator and the mode is off.
+    if (scenario === "assurance-no-validator" && !assuranceOverrides.has(key)) {
+      return {
+        backupSetId: key, isOverride: false,
+        scrub: { cadenceSeconds: assuranceSettings.scrub.cadenceSeconds, strategy: assuranceSettings.scrub.strategy },
+        recoveryTest: { mode: "off", cadenceSeconds: 0, validatorId: "", validatorDeclared: false }
+      };
+    }
     return {
       backupSetId: key,
       isOverride: assuranceOverrides.has(key),

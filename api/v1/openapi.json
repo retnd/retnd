@@ -7230,6 +7230,12 @@
           "validator_id": {
             "type": "string",
             "description": "The recovery-test script to run over the recovered copy, named by its file name without the .local.sh suffix, in recovery-test/<source>/<set> under the workflow root. Not an entry in GET /validators. A name, never a path. Empty when the mode is off and none is configured."
+          },
+          "validator_declared": {
+            "type": "boolean",
+            "description": "Whether a recovery test of this set would find a validator to run, from the same dry run the test makes first, so this and the test's own not_configured refusal cannot disagree. Present on a backup set's answer only: the deployment-wide policy has no set to look in, so it leaves this out, and an older server leaves it out too. A validator found by convention in the set's recovery-test directory counts, and so does one named by validator_id whose script is missing (that test ends could_not_complete with its reason, not not_configured). false means POST /recovery-test can only answer not_configured.",
+            "x-go-omitempty": true,
+            "x-go-pointer": true
           }
         }
       },

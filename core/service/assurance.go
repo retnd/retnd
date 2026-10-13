@@ -118,6 +118,12 @@ type BackupSetAssurance struct {
 	Override bool
 
 	Policy AssurancePolicy
+
+	// ValidatorDeclared is the engine's own answer to whether a recovery test
+	// of this set would find a validator, from the dry run the test makes
+	// first. It belongs to the set and not to the policy: the deployment-wide
+	// policy has no set to look in.
+	ValidatorDeclared bool
 }
 
 // UpdateBackupSetAssuranceRequest patches one set's override. A nil field is
@@ -429,12 +435,18 @@ func backupSetAssuranceOf(id string, bs config.BackupSet) BackupSetAssurance {
 }
 
 // BackupSetAssurance reports one set's resolved policy.
-func (b *BackupService) BackupSetAssurance(_ context.Context, id string) (BackupSetAssurance, error) {
-	bs, err := lookupConfiguredBackupSet(b.state.Load().inner.Config, id)
+func (b *BackupService) BackupSetAssurance(ctx context.Context, id string) (BackupSetAssurance, error) {
+	st := b.state.Load()
+	bs, err := lookupConfiguredBackupSet(st.inner.Config, id)
 	if err != nil {
 		return BackupSetAssurance{}, err
 	}
-	return backupSetAssuranceOf(id, bs), nil
+	out := backupSetAssuranceOf(id, bs)
+	out.ValidatorDeclared, err = st.inner.RecoveryTestValidatorDeclared(ctx, bs.ID)
+	if err != nil {
+		return BackupSetAssurance{}, err
+	}
+	return out, nil
 }
 
 // UpdateBackupSetAssurance patches one set's override and hot-reloads.

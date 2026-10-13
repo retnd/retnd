@@ -2676,6 +2676,7 @@
         "schema AssuranceRecoveryTestPolicy type=object",
         "schema AssuranceRecoveryTestPolicy.cadence_seconds type=integer/int64 required=false",
         "schema AssuranceRecoveryTestPolicy.mode type=string required=false",
+        "schema AssuranceRecoveryTestPolicy.validator_declared type=boolean required=false",
         "schema AssuranceRecoveryTestPolicy.validator_id type=string required=false",
         "schema AssuranceScrubPolicy type=object",
         "schema AssuranceScrubPolicy.cadence_seconds type=integer/int64 required=false",

@@ -135,8 +135,11 @@ export function recoveryClaim(a: BackupArtifact, policyOff: boolean, reported: b
   if (states.includes("overdue")) return { status: "overdue", achievedClass: "", at: when("overdue") };
   if (states.includes("refused_for_cost")) return { status: "refused_for_cost", achievedClass: "", at: when("refused_for_cost") };
   if (policyOff) return { status: "never_configured", achievedClass: "" };
-  if (states.includes("never_run") || (reported && live.length > 0)) return { status: "never_run", achievedClass: "" };
+  // not_configured is the engine saying there is no validator to run, which
+  // is more specific than "a test is owed": a test owed to a set that can
+  // only refuse is not owed. It reads before never_run (#1108).
   if (states.includes("not_configured")) return { status: "never_configured", achievedClass: "" };
+  if (states.includes("never_run") || (reported && live.length > 0)) return { status: "never_run", achievedClass: "" };
   return { status: "unknown", achievedClass: "" };
 }
 

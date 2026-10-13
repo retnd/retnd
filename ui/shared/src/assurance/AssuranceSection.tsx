@@ -51,6 +51,8 @@ import { MIN_RECOVERY_TEST_CADENCE_SECONDS, cadenceProblem, formatCadence, parse
 import { useOperation } from "./useOperation";
 import type { ArtifactAssurance, OperationKind, ValidatorResult } from "./types";
 
+const RECOVERY_DOCS = "https://github.com/retnd/retnd/blob/main/docs/recovery.md#scrubbing-and-recovery-tests-what-runs-on-its-own-and-what-it-costs";
+
 type Policy = "follow" | "own";
 type TestMode = "off" | "required" | "custom";
 
@@ -77,6 +79,9 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
   const [policy, setPolicy] = useState<BackupSetAssurance | null>(null);
   const [due, setDue] = useState<AssuranceDue | null>(null);
   const [latest, setLatest] = useState<ArtifactAssurance | undefined>(undefined);
+  // The newest copy's own recovery record, for a server that does not send
+  // validator_declared: true when every live copy was recorded not_configured.
+  const [copyNotConfigured, setCopyNotConfigured] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [opId, setOpId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -89,19 +94,35 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
   // Following a run needs either: a scrub run (operations) or a recovery test
   // run (recoveryTest) both read their progress through the same seam.
   const follow = operations || canRunTest;
+  // A test on a set with no validator can only be refused (#1108). The engine's
+  // own dry run says so before the first press (validatorDeclared); a server
+  // that does not send it is read from the newest copy's recorded state.
+  const declared = policy?.recoveryTest.validatorDeclared;
+  const noValidator = declared === false || (declared === undefined && copyNotConfigured);
+  const reasonId = "recovery-test-no-validator-" + setId.replace(/[^A-Za-z0-9_-]/g, "-");
+  const policyRadioName = "assurance-policy-" + setId;
 
   const refresh = useCallback(async () => {
     const p = await root.getBackupSetAssurance(source, setName);
-    setPolicy(p);
-    setDraft(draftOf(p));
     root.listAssuranceDue({ backupSetId: setId }).then(setDue, () => setDue(null));
+    // The copies are read before the policy is shown, so the Run recovery test
+    // button is never drawn enabled for the instant before the copy's own
+    // record (the fallback for a server without validator_declared) is known.
+    let newestClaim: ArtifactAssurance | undefined;
+    let recordedNotConfigured = false;
     if (api) {
       try {
         const [artifacts, claims] = await Promise.all([root.listArtifacts(setId), api.listArtifactAssurance(setId)]);
         const newest = [...artifacts].sort((a, b) => b.producedAt.localeCompare(a.producedAt))[0];
-        setLatest(newest ? claims.find((c) => c.artifactId === newest.id) : undefined);
-      } catch { setLatest(undefined); }
+        newestClaim = newest ? claims.find((c) => c.artifactId === newest.id) : undefined;
+        const recorded = (newest?.placements ?? []).filter((x) => x.status === "ACTIVE" && x.recoveryState).map((x) => x.recoveryState);
+        recordedNotConfigured = recorded.length > 0 && recorded.every((r) => r === "not_configured");
+      } catch { newestClaim = undefined; recordedNotConfigured = false; }
     }
+    setLatest(newestClaim);
+    setCopyNotConfigured(recordedNotConfigured);
+    setPolicy(p);
+    setDraft(draftOf(p));
   }, [root, api, setId, source, setName]);
 
   // Mount: read the set, and attach to a running operation if there is one.
@@ -203,7 +224,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
                   Follow the deployment
                 </label>
                 <label style={{ display: "inline-flex", gap: 5, alignItems: "center" }}>
-                  <input type="radio" name={"assurance-policy-" + setId} checked={draft.policy === "own"} disabled={readOnly}
+                  <input type="radio" name={"assurance-policy-" + setId} value="own" checked={draft.policy === "own"} disabled={readOnly}
                     onChange={() => set({ policy: "own" })} />
                   This set&apos;s own policy
                 </label>
@@ -309,7 +330,8 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
               ) : null}
               {canRunTest ? (
                 <InfoTooltip id="assurance.recoveryTest.run">
-                  <button className="btn" disabled={readOnly || running || starting} onClick={() => void start("recovery_test")}>Run recovery test</button>
+                  <button className="btn" disabled={readOnly || running || starting || noValidator}
+                    aria-describedby={noValidator ? reasonId : undefined} onClick={() => void start("recovery_test")}>Run recovery test</button>
                 </InfoTooltip>
               ) : null}
               {operations ? (
@@ -318,6 +340,18 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
                 </InfoTooltip>
               ) : null}
             </div>
+            {canRunTest && noValidator ? (
+              <p id={reasonId} data-testid="recovery-test-no-validator" className="arefuse">
+                No recovery-test validator is declared for this set, so a test can only be refused.{" "}
+                To declare one, name a validator in{" "}
+                <a href={"#" + policyRadioName} onClick={(e) => {
+                  e.preventDefault();
+                  document.querySelector<HTMLInputElement>('input[type="radio"][name="' + policyRadioName + '"][value="own"]')?.focus();
+                }}>this set&apos;s policy settings</a>
+                {" "}or put one script in its recovery-test directory; see{" "}
+                <a href={RECOVERY_DOCS} target="_blank" rel="noreferrer">docs/recovery.md</a>.
+              </p>
+            ) : null}
             {operations ? (
               <>
                 <CommandEcho label="Same thing from the terminal" commands={[scrubCommand(setId), recoveryTestCommand(setId), showOutputCommand(setId)]} />

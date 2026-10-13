@@ -189,7 +189,8 @@ type Deps struct {
 	Now    func() time.Time
 
 	// Stage, when set, is told the id of each stage Run enters, using the
-	// names of obs.RecoveryStages and in their order. The application turns
+	// names of obs.RecoveryStages and in their order. Complete is reported
+	// only for a run that recorded a pass. The application turns
 	// it into the stage lines the CLI's --follow and the browser render. Nil
 	// reports nothing.
 	Stage func(id string)
@@ -307,7 +308,6 @@ func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg Config, req 
 			if err := deps.Journal.RecordRecoveryTest(context.WithoutCancel(ctx), rt); err != nil {
 				return res, err
 			}
-			deps.stage("complete")
 			return res, nil
 		}
 	}
@@ -317,7 +317,6 @@ func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg Config, req 
 		if err := deps.Journal.RecordRecoveryEvaluation(ctx, ref, state.RecoveryNotConfigured); err != nil && !errors.Is(err, state.ErrRecoveryHistory) {
 			return res, err
 		}
-		deps.stage("complete")
 		return res, nil
 	}
 	cadence := cfg.Cadence
@@ -340,7 +339,12 @@ func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg Config, req 
 		if err := deps.Journal.RecordRecoveryTest(context.WithoutCancel(ctx), rt); err != nil {
 			return r, fmt.Errorf("recording the recovery test of %s: %w", ref.Artifact, err)
 		}
-		deps.stage("complete")
+		// Complete is the stage of a run that reached a recorded pass. A
+		// run that was refused, failed or could not finish stops on the
+		// last stage it entered, as a failed recovery does.
+		if r.State == state.RecoveryPassed {
+			deps.stage("complete")
+		}
 		return r, nil
 	}
 
