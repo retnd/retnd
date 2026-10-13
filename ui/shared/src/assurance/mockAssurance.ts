@@ -80,7 +80,12 @@ export const BUILTIN_ARTIFACT = "production/postgres-primary/postgres-prod-20260
 export const DEFAULT_POLICY_SCENARIO = "assurance-default-policy";
 export const DEFAULT_POLICY_TESTED = "production/postgres-primary/postgres-prod-20260828.dump.zst";
 export const DEFAULT_POLICY_NEWEST = "production/postgres-primary/postgres-prod-20260829.dump.zst";
-const defaultPolicyScenario = () => activeScenario === DEFAULT_POLICY_SCENARIO;
+/** assurance-default-untested (#1141): the same set on the same default, but
+ *  no recovery test has ever run on either backup, which is the state of a
+ *  deployment nobody has tested. */
+export const DEFAULT_UNTESTED_SCENARIO = "assurance-default-untested";
+export const followsDefault = (scenario: string): boolean => scenario === DEFAULT_POLICY_SCENARIO || scenario === DEFAULT_UNTESTED_SCENARIO;
+const defaultPolicyScenario = () => followsDefault(activeScenario);
 /** Both scenarios run the built-in structure check, which records "readable". */
 const builtinScenario = () => activeScenario === BUILTIN_SCENARIO || defaultPolicyScenario();
 /** The set's latest backup, whose claims the set page shows. */
@@ -461,11 +466,13 @@ export function createMockAssurance(scenario: string): AssuranceApi {
       if (s.ops[id] && !s.ops[id].cancelledAt) { s.ops[id].cancelledAt = Date.now(); save(s); }
     },
     getValidatorResult: async (): Promise<ValidatorResult | null> => {
-      if (scenario === DEFAULT_POLICY_SCENARIO) {
+      if (followsDefault(scenario)) {
         // A test run from this page is the newest one, and it ran on the newest backup.
         const ran = Object.values(load().ops)
           .filter((o) => o.kind === "recovery_test" && !o.cancelledAt && view(o, false, Date.now()).operation.state === "complete")
           .sort((a, b) => b.startedAt - a.startedAt)[0];
+        // Nothing ever ran: there is no result to report.
+        if (scenario === DEFAULT_UNTESTED_SCENARIO && !ran) return null;
         return {
           artifactId: ran ? DEFAULT_POLICY_NEWEST : DEFAULT_POLICY_TESTED, medium: "local", operationId: ran ? ran.id : "aop_default_policy_fixture",
           state: "readable", recordedAt: new Date(ran ? ran.startedAt + total("recovery_test") * 1000 : Date.now() - 5 * 3600_000).toISOString(), truncated: false,

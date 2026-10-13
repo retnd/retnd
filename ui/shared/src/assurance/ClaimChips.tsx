@@ -44,7 +44,7 @@ import type { ArtifactAssurance } from "./types";
 import type { BackupFacts, RecoveryView } from "./verificationModel";
 
 export function ClaimChips({
-  assurance, facts, available = true, checking = false, recoveryReported = true
+  assurance, facts, available = true, checking = false, recoveryReported = true, configuration = "loading"
 }: {
   assurance?: ArtifactAssurance | null | undefined;
   /** The backup's facts from the verification model (issue #1134). When given,
@@ -58,21 +58,27 @@ export function ClaimChips({
   /** False when the server has no route that reports recovery tests, so an
    *  Unknown Recovery claim says why instead of looking like a failure to ask. */
   recoveryReported?: boolean;
+  /** What is known about the set's configuration when the chips are drawn from
+   *  the record alone: still loading, or asked for and not available. */
+  configuration?: "loading" | "unavailable";
 }) {
   const known = available ? facts?.assurance ?? assurance ?? undefined : undefined;
   const view: RecoveryView | undefined = available ? facts?.recoveryView : undefined;
   const stored = renderStored(known?.copies);
-  const content = renderClaim("content", known?.content, undefined, known?.copyContent, known?.copies);
-  const recovery = renderClaim("recovery", known?.recovery);
+  // From the model when it has the backup, so the words around a claim that has
+  // no result come from the set's configuration; from the record alone (the
+  // model has not answered yet) they are the neutral loading wording.
+  const content = (available && facts?.content) || renderClaim("content", known?.content, undefined, known?.copyContent, known?.copies, { basis: configuration });
+  const recovery = (available && facts?.recovery) || renderClaim("recovery", known?.recovery, undefined, undefined, undefined, { basis: configuration });
   const chip = (
     which: string, lab: string, state: string, glyph: Glyph, label: string, age?: string, check = false, coverage?: string,
-    extra?: RecoveryView
+    extra?: RecoveryView, link?: string
   ) => (
     <div className="aclaim" data-claim={which} data-state={state} data-coverage={coverage} data-checking={check ? "true" : undefined} aria-busy={check ? true : undefined}>
       <span className="aclaim__lab">{lab}</span>
       <span className="achip" data-chip="" role="group" aria-label={lab + ": " + label + (age ? " " + age : "") + (check ? " (re-checking)" : "")}>
         <span className="achip__glyph" data-glyph={glyph.id} aria-hidden="true">{glyph.icon ? <Icon name={glyph.icon} /> : glyph.text}</span>
-        {extra?.link ? <AssuranceLink to={extra.link}>{label}</AssuranceLink> : label}
+        {(extra?.link ?? link) ? <AssuranceLink to={(extra?.link ?? link) as string}>{label}</AssuranceLink> : label}
         {age ? <span className="achip__age">{age}</span> : null}
         {check ? <span className="achip__checking">re-checking</span> : null}
       </span>
@@ -86,7 +92,7 @@ export function ClaimChips({
         {chip("stored", "Stored", stored.state, { id: "stored-" + stored.state, text: stored.state === "stored" ? "\u25A0" : stored.state === "no_copy" ? "\u2212" : "?" }, stored.label)}
       </InfoTooltip>
       <InfoTooltip id="assurance.claim.contentVerified">
-        {chip("content", "Content", content.state, content.glyph, content.label, content.age, checking, content.coverage)}
+        {chip("content", "Content", content.state, content.glyph, content.label, content.age, checking, content.coverage, undefined, content.link)}
       </InfoTooltip>
       <InfoTooltip id="assurance.claim.recoveryTested">
         {chip("recovery", "Recovery", recovery.state, recovery.glyph, view?.label ?? recovery.label, recovery.age, checking, undefined,
