@@ -817,13 +817,28 @@ jobs:
           name: cli-tarballs
           path: dist-cli
 
-      - name: Create the release and attach the tarballs
+      # One versioned release per package version, kept in step with the
+      # package. A publish of a new version creates v<version>. A publish of
+      # a version that already has a release (a re-run, or a push that
+      # rebuilds the image under the same tag) refreshes it, because
+      # creating it a second time would fail on the existing tag and leave a
+      # release whose tarballs no longer match the image beside it (#1102).
+      - name: Create or refresh the release and attach the tarballs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.cli-binaries.outputs.tag }}
         run: |
-          gh release create "v${TAG}" dist-cli/*.tar.gz dist-cli/SHA256SUMS \
-            --target "$GITHUB_SHA" \
-            --title "retnd ${TAG}" \
-            --notes "retnd ${TAG}. The container image is ghcr.io/retnd/retnd:${TAG}, signed with cosign (see docs/compliance/release-provenance.md). The tarballs below are checksummed in SHA256SUMS and are not signed."
+          notes="retnd ${TAG}. The container image is ghcr.io/retnd/retnd:${TAG}, published at https://github.com/retnd/retnd/pkgs/container/retnd and signed with cosign (see docs/compliance/release-provenance.md). The tarballs below are checksummed in SHA256SUMS and are not signed."
+          if gh release view "v${TAG}" >/dev/null 2>&1; then
+            gh release upload "v${TAG}" dist-cli/*.tar.gz dist-cli/SHA256SUMS --clobber
+            gh release edit "v${TAG}" --title "retnd ${TAG}" --notes "$notes"
+            echo "Refreshed the existing release v${TAG}." >> "$GITHUB_STEP_SUMMARY"
+          else
+            gh release create "v${TAG}" dist-cli/*.tar.gz dist-cli/SHA256SUMS \
+              --target "$GITHUB_SHA" \
+              --title "retnd ${TAG}" \
+              --notes "$notes"
+            echo "Created release v${TAG}." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "Package: https://github.com/retnd/retnd/pkgs/container/retnd" >> "$GITHUB_STEP_SUMMARY"
