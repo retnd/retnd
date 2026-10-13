@@ -70,7 +70,7 @@ export function AssuranceDashboardCard() {
               ", so a zero in Due does not mean they were tested."}
             {onDefault > 0 ? (
               <>
-                {" " + onDefault + " of them are in sets on the "}
+                {" " + onDefault + (onDefault === 1 ? " of them is in a set on the " : " of them are in sets on the ")}
                 <AssuranceLink to={DEFAULTS_LINK}>default configuration</AssuranceLink>
                 {"."}
               </>

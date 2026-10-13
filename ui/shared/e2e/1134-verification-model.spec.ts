@@ -205,7 +205,7 @@ test.describe("#1134 the Dashboard tally", () => {
     await expect(tile.getByTestId("assurance-degraded")).toContainText("0");
     await expect(tile.getByTestId("assurance-untested")).toContainText("1");
     await expect(tile.getByTestId("assurance-untested-note")).toHaveText(
-      "No recovery test is on record for 1 of 2 backups, so a zero in Due does not mean they were tested."
+      "No recovery test is on record for 1 of 2 backups, so a zero in Due does not mean they were tested. 1 of them is in a set on the default configuration."
     );
   });
 
