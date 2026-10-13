@@ -128,7 +128,15 @@ export type Scenario =
   | "assurance-reads-busy"
   | "assurance-corrupt-copy"
   // How a browser download ended, as three artifacts' feed rows (item 14).
-  | "assurance-download-outcomes";
+  | "assurance-download-outcomes"
+  // Issue #1115: the docked terminal's level toggles. "dock-no-warnings" is
+  // the default feed with its one warning taken out, so the Warnings count is
+  // zero and must be shown disabled. "dock-live-line" is the default feed, and
+  // once a spec sets sessionStorage "retnd.mock.dock.live" a warning and a
+  // plain note arrive on the next poll, which is how a spec watches a new line
+  // meet an active filter.
+  | "dock-no-warnings"
+  | "dock-live-line";
 
 /** Reads the scenario out of the URL, falling back to the default for
  *  anything unrecognised. A closed allow-list rather than a cast, so a
@@ -146,7 +154,7 @@ export function scenarioFromLocation(): Scenario {
     "assurance-snapshot-set", "assurance-too-many-grants", "assurance-grant-expired",
     "assurance-grant-used", "assurance-session-ended", "assurance-staging-full",
     "assurance-reads-busy", "assurance-corrupt-copy", "assurance-download-outcomes",
-    "backups-many", "backups-many-corrupt"
+    "backups-many", "backups-many-corrupt", "dock-no-warnings", "dock-live-line"
   ];
   return (allowed as string[]).includes(s ?? "") ? (s as Scenario) : "default";
 }
@@ -5540,9 +5548,7 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
       const since = options?.since ?? 0;
       return {
         ...base,
-        deployment: scenario === "assurance-download-outcomes" && base.deployment
-          ? { ...base.deployment, events: [...base.deployment.events, ...downloadOutcomeEvents()] }
-          : base.deployment,
+        deployment: dockDeployment(scenario, base.deployment),
         sets: base.sets.map((s) => {
           const all = assuranceLiveEvents(s.setId);
           const extra = all.filter((e) => e.sequence > since);
@@ -5561,6 +5567,37 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   // app uses (realAssurance), reading the routes above the way it reads a
   // server, so the browser specs can drive that code and not the mock's.
   return { ...routes, assurance: options.wire ? createHttpAssurance(routes) : assurance };
+}
+
+/** The deployment bucket for the scenarios that shape the terminal's feed
+ *  (#1115) and for the download rows. Everything else passes through. */
+function dockDeployment(scenario: Scenario, deployment: DeploymentActivity | null): DeploymentActivity | null {
+  if (!deployment) return deployment;
+  if (scenario === "assurance-download-outcomes") {
+    return { ...deployment, events: [...deployment.events, ...downloadOutcomeEvents()] };
+  }
+  if (scenario === "dock-no-warnings") {
+    return { ...deployment, events: deployment.events.filter((e) => e.level !== "warn") };
+  }
+  if (scenario === "dock-live-line") {
+    let arrived = false;
+    try {
+      arrived = window.sessionStorage.getItem("retnd.mock.dock.live") === "1";
+    } catch {
+      /* no storage, no arrival */
+    }
+    if (!arrived) return deployment;
+    return {
+      ...deployment,
+      events: [
+        ...deployment.events,
+        liveEvent(13, "error", { op: "disk-latency", error: "disk latency above threshold" }, "warn", "deployment", "error", "error"),
+        liveEvent(14, "retention", { artifact: "media/weekly-archive/week-32.tar", backup_set: "media/weekly-archive", tier: "weekly", decision: "keep" }, "info", "deployment", "retention decision", "info")
+      ],
+      latestSequence: 14
+    };
+  }
+  return deployment;
 }
 
 /** The rows a browser download writes when it ends (core/service/recover_stream.go),

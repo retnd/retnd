@@ -18,7 +18,7 @@ const NOTE_TEXT = "backup set updated";
 
 const warnBtn = (p: Page) => p.getByRole("button", { name: /^Show \d+ warnings?$/ });
 const errBtn = (p: Page) => p.getByRole("button", { name: /^Show \d+ errors?$/ });
-const countLine = (p: Page) => p.getByText(/^\d+ (of \d+ )?lines?$/);
+const countLine = (p: Page) => p.getByRole("region", { name: "Terminal" }).getByText(/^\d+ (of \d+ )?lines?$/);
 const log = (p: Page) => p.getByRole("region", { name: "Terminal" }).getByRole("log");
 
 async function opened(p: Page, scenario = "default") {
@@ -157,25 +157,28 @@ async function pair(l: Locator) {
 
 for (const theme of ["light", "dark"] as const) {
   test(`#1115 contrast, ${theme} theme: rest, hover, pressed and disabled meet WCAG AA`, async ({ page }) => {
+    await opened(page);
+    await setTheme(page, theme);
+    const report: Record<string, { text: number; edge: number }> = {};
+    for (const [name, btn] of [["errors", errBtn(page)], ["warnings", warnBtn(page)]] as const) {
+      await page.mouse.move(0, 0);
+      report[name + " rest"] = await pair(btn);
+      await btn.hover();
+      report[name + " hover"] = await pair(btn);
+      await btn.click();
+      await page.mouse.move(0, 0);
+      report[name + " pressed"] = await pair(btn);
+      await btn.click();
+    }
     await opened(page, "dock-no-warnings");
     await setTheme(page, theme);
-    const err = errBtn(page);
-    const zero = page.getByRole("button", { name: "Show 0 warnings" });
-    const report: Record<string, { text: number; edge: number }> = {};
-    await page.mouse.move(0, 0);
-    report.rest = await pair(err);
-    await err.hover();
-    report.hover = await pair(err);
-    await err.click();
-    await page.mouse.move(0, 0);
-    report.pressed = await pair(err);
-    report.disabled = await pair(zero);
+    report["warnings disabled"] = await pair(page.getByRole("button", { name: "Show 0 warnings" }));
     for (const [state, m] of Object.entries(report)) {
       console.log(`CONTRAST #1115 ${theme} ${state} | text ${m.text}:1 (needs 4.5) | edge ${m.edge}:1 (needs 3)`);
     }
-    for (const state of ["rest", "hover", "pressed", "disabled"]) {
-      expect(report[state].text, `${theme} ${state} text`).toBeGreaterThanOrEqual(4.5);
-      expect(report[state].edge, `${theme} ${state} edge`).toBeGreaterThanOrEqual(3);
+    for (const [state, m] of Object.entries(report)) {
+      expect(m.text, `${theme} ${state} text`).toBeGreaterThanOrEqual(4.5);
+      expect(m.edge, `${theme} ${state} edge`).toBeGreaterThanOrEqual(3);
     }
   });
 }

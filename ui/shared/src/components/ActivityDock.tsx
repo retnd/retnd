@@ -339,6 +339,45 @@ export function foldReading(previous: SetActivity | undefined, next: LiveActivit
  *  what is drawn, so clearing one brings everything back. */
 export type DockFilter = "all" | "engine" | "mine" | "commands" | string;
 
+/** The two levels the dock counts, and so the two it can filter to (#1115).
+ *  The engine's third level, "info", is not a problem and has no count, so
+ *  it has no button. One at a time: the source chips are one choice too,
+ *  and two levels at once is just "problems", which the pair of counts
+ *  already reads as. */
+export type DockLevel = "warn" | "error";
+
+/** How many held lines are warnings and how many are errors, over the
+ *  WHOLE buffer. Through entryEvent, so a refusal this browser wrote is
+ *  counted as the warning it is. It never looks at a filter in force: a
+ *  count that shrank when it was pressed could not be pressed again to
+ *  see the rest. */
+export function countLevels(all: DockEntry[]): { errors: number; warnings: number } {
+  let errors = 0;
+  let warnings = 0;
+  for (const [i, entry] of all.entries()) {
+    if (entry.kind === "restart") continue;
+    const level = entryEvent(entry, i).level;
+    if (level === "error") errors++;
+    else if (level === "warn") warnings++;
+  }
+  return { errors, warnings };
+}
+
+/** What a level keeps. A restart rule is not a line of either level, so it
+ *  goes while a level is on and comes back with the filter off. (The index
+ *  only feeds a notice's sequence in entryEvent; a notice's level does not
+ *  depend on it.) */
+export function filterByLevel(entries: DockEntry[], level: DockLevel | null): DockEntry[] {
+  if (level === null) return entries;
+  return entries.filter((entry, i) => entry.kind !== "restart" && entryEvent(entry, i).level === level);
+}
+
+/** The sentence read out when a level is switched on or off. */
+export function levelStatus(level: DockLevel | null, shown: number, of: number): string {
+  if (level === null) return "Showing all " + of + " lines";
+  return "Showing " + shown + " of " + of + " lines, " + (level === "warn" ? "warnings" : "errors") + " only";
+}
+
 function passesFilter(entry: DockEntry, filter: DockFilter, viewer: string | null): boolean {
   if (entry.kind === "restart") return true;
   if (entry.kind === "notice") {
@@ -584,6 +623,11 @@ export function ActivityDock() {
   const [height, setHeight] = useState(() => Number(readStored(STORAGE.height)) || DEFAULT_HEIGHT);
   const [filter, setFilter] = useState<DockFilter>(() => readStored(STORAGE.filter) ?? "all");
   const [copied, setCopied] = useState(false);
+  // Not stored, unlike the source chip: a filter to the problems is a
+  // question about right now, and a terminal that comes back showing three
+  // lines of forty with no reason on screen reads as a broken one.
+  const [level, setLevel] = useState<DockLevel | null>(null);
+  const [announcement, setAnnouncement] = useState("");
 
   // Freeze what the dead process left, with a rule under it, and let the
   // loop start a fresh window. Both halves matter: the lines leading up
@@ -632,27 +676,29 @@ export function ActivityDock() {
     () => withoutContradictedGaps(foldBrowserNotices(dockEntries(history, held), notices)),
     [history, held, notices]
   );
-  const shown = useMemo(() => all.filter((e) => passesFilter(e, filter, viewer)), [all, filter, viewer]);
+  // The source chip first, then the level on what it kept.
+  const bySource = useMemo(() => all.filter((e) => passesFilter(e, filter, viewer)), [all, filter, viewer]);
   // The origin this page was loaded from is the address the reader would
   // type, which is the one fact the engine cannot know (see
   // environmentPreamble). Read once per viewer rather than per render.
   const preamble = useMemo(() => environmentPreamble(window.location.origin, viewer), [viewer]);
 
-  const problems = useMemo(() => {
-    let errors = 0;
-    let warnings = 0;
-    // Through entryEvent, so a refusal this browser wrote is counted as
-    // the warning it is. A press that was refused is exactly the thing an
-    // operator is looking for a count of, and it is the one kind of line
-    // the engine's own feed can never contribute.
-    for (const [i, entry] of all.entries()) {
-      if (entry.kind === "restart") continue;
-      const event = entryEvent(entry, i);
-      if (event.level === "error") errors++;
-      else if (event.level === "warn") warnings++;
-    }
-    return { errors, warnings };
-  }, [all]);
+  const problems = useMemo(() => countLevels(all), [all]);
+  // A level whose count has fallen to nothing (the buffer is bounded) has
+  // nothing left to filter to and its button is disabled, so it could not
+  // be un-pressed: treat it as off rather than leave an empty terminal
+  // under a button that cannot be pressed.
+  const activeLevel: DockLevel | null =
+    level === "warn" && problems.warnings > 0 ? "warn" : level === "error" && problems.errors > 0 ? "error" : null;
+  const shown = useMemo(() => filterByLevel(bySource, activeLevel), [bySource, activeLevel]);
+  const toggleLevel = useCallback(
+    (next: DockLevel) => {
+      const target = activeLevel === next ? null : next;
+      setLevel(target);
+      setAnnouncement(levelStatus(target, filterByLevel(bySource, target).length, bySource.length));
+    },
+    [activeLevel, bySource]
+  );
 
   const copy = useCallback(() => {
     // "copied" is shown only when the text really went to the clipboard
@@ -800,15 +846,14 @@ export function ActivityDock() {
           </span>
         )}
 
-        {problems.errors > 0 || problems.warnings > 0 ? (
-          <InfoTooltip id="activity.dock.problems" style={{ flex: "none" }}>
-            <span className="mono" style={{ flex: "none", color: problems.errors > 0 ? "var(--danger)" : "var(--warn)" }}>
-              {problems.errors > 0 ? problems.errors + " error" + (problems.errors === 1 ? "" : "s") : ""}
-              {problems.errors > 0 && problems.warnings > 0 ? " · " : ""}
-              {problems.warnings > 0 ? problems.warnings + " warning" + (problems.warnings === 1 ? "" : "s") : ""}
-            </span>
-          </InfoTooltip>
-        ) : null}
+        {/* Always both, so the bar does not jump when the first warning
+            arrives; a count of zero is drawn and cannot be pressed. */}
+        <InfoTooltip id="activity.dock.problems" style={{ flex: "none" }}>
+          <span role="group" aria-label="Show only problems" className="mono" style={{ flex: "none", display: "flex", gap: 6 }}>
+            <LevelButton level="error" count={problems.errors} pressed={activeLevel === "error"} onPress={toggleLevel} />
+            <LevelButton level="warn" count={problems.warnings} pressed={activeLevel === "warn"} onPress={toggleLevel} />
+          </span>
+        </InfoTooltip>
 
         {/* Never a spinner over a word: while the poll is failing the dock
             says the reading is not refreshing rather than drawing
@@ -819,9 +864,19 @@ export function ActivityDock() {
             clip moved rather than fixed. */}
         <InfoTooltip id="activity.dock.status" style={{ flex: "none" }}>
           <span className="mono" style={{ flex: "none", color: feed.error ? "var(--warn)" : "var(--text-3)" }}>
-            {feed.error ? "not refreshing" : shown.length + (shown.length === 1 ? " line" : " lines")}
+            {feed.error
+              ? "not refreshing"
+              : activeLevel
+                ? shown.length + " of " + bySource.length + (bySource.length === 1 ? " line" : " lines")
+                : shown.length + (shown.length === 1 ? " line" : " lines")}
           </span>
         </InfoTooltip>
+        {/* Said once per press, from the handler, and not derived from the
+            count: a status that changed with every live line would read the
+            tail out a second time on top of the log's own announcements. */}
+        <span role="status" className="visually-hidden">
+          {announcement}
+        </span>
 
         {/* What a line in the scrollback is made of, said once beside the
             log rather than on each of the thousand lines it can hold. */}
@@ -860,6 +915,39 @@ export function ActivityDock() {
         />
       ) : null}
     </section>
+  );
+}
+
+/** One of the two problem counts, as a toggle (#1115).
+ *
+ *  The name states what pressing does ("Show 3 warnings"), not just the
+ *  number, and it is the same whether or not the button is pressed:
+ *  aria-pressed carries that. Pressed is drawn with weight, an underline
+ *  and a ring as well as the fill, so it survives a greyscale screen. */
+function LevelButton({
+  level,
+  count,
+  pressed,
+  onPress
+}: {
+  level: DockLevel;
+  count: number;
+  pressed: boolean;
+  onPress(level: DockLevel): void;
+}) {
+  const noun = level === "error" ? "error" : "warning";
+  const label = count + " " + noun + (count === 1 ? "" : "s");
+  return (
+    <button
+      type="button"
+      className={"activity-toolbar__button activity-dock__level activity-dock__level--" + level}
+      aria-pressed={pressed}
+      aria-label={"Show " + label}
+      disabled={count === 0}
+      onClick={() => onPress(level)}
+    >
+      {label}
+    </button>
   );
 }
 

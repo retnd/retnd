@@ -8,7 +8,6 @@ import { describe, expect, it } from "vitest";
 import { countLevels, filterByLevel, levelStatus } from "@shared/components/ActivityDock";
 import type { DockEntry } from "@shared/components/ActivityDock";
 import type { SetActivityEvent } from "@shared/types/activity";
-import type { BrowserNotice } from "@shared/state/browserNotices";
 
 function ev(sequence: number, level: SetActivityEvent["level"]): DockEntry {
   return {
@@ -24,10 +23,10 @@ describe("#1115 counting", () => {
     expect(countLevels(all)).toEqual({ errors: 1, warnings: 2 });
   });
   it("counts a refusal this browser wrote as the warning it is", () => {
-    const notice = { kind: "notice", notice: { at: "2026-09-07T14:00:00Z", what: "x", status: 403 } } as unknown as DockEntry;
-    expect(countLevels([notice]).warnings).toBe(1);
-    expect(notice).toBeTruthy();
-    void ({} as BrowserNotice);
+    const refused = { kind: "notice", notice: { at: 1788000000000, outcome: "refused", code: "csrf", message: "refused" } } as unknown as DockEntry;
+    const fine = { kind: "notice", notice: { at: 1788000000000, outcome: "ok", code: "", message: "fine" } } as unknown as DockEntry;
+    expect(countLevels([refused, fine])).toEqual({ errors: 0, warnings: 1 });
+    expect(filterByLevel([refused, fine], "warn")).toEqual([refused]);
   });
 });
 
