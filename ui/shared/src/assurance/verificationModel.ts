@@ -47,14 +47,12 @@
 import { useEffect } from "react";
 import { useOptionalApi } from "@shared/api/ApiContext";
 import type { BackupSetAssurance, RetndApi } from "@shared/api/contracts";
-import { backupSetPath } from "@shared/utilities/routes";
 import { graph, registerInput, useCausl } from "@shared/state/graph";
-import { BUCKETS, ageOf, bucketsOf, renderClaim, renderStored } from "./claims";
-import type { Bucket, RenderState, RenderedClaim } from "./claims";
+import { BUCKETS, DEFAULTS_ANCHOR, DEFAULTS_LINK, ageOf, bucketsOf, neverConfiguredWording, renderClaim, renderStored } from "./claims";
+import type { Bucket, PolicyBasis, RenderState, RenderedClaim } from "./claims";
 import type { ArtifactAssurance, ValidatorResult } from "./types";
 
-export const DEFAULTS_ANCHOR = "assurance-defaults";
-export const DEFAULTS_LINK = "/settings#" + DEFAULTS_ANCHOR;
+export { DEFAULTS_ANCHOR, DEFAULTS_LINK };
 
 /** Where a set's resolved policy comes from, and what it says about recovery tests. */
 export interface SetPolicyFact {
@@ -76,8 +74,12 @@ export interface SetTestFact {
 /** Where the model reads from. The production source is `sourceFromApi`. */
 export interface AssuranceSource {
   claims(): Promise<ArtifactAssurance[]>;
+  /** The set's resolved policy; null when it resolves to nothing. A read that
+   *  fails rejects, which the model keeps apart from null (issue #1141). */
   policy(setId: string): Promise<SetPolicyFact | null>;
-  setTest(setId: string): Promise<SetTestFact | null>;
+  /** The set's newest recorded test; null when it is KNOWN that none was
+   *  recorded, undefined when the server cannot say. */
+  setTest(setId: string): Promise<SetTestFact | null | undefined>;
 }
 
 /** What the Recovery chip draws for one backup (or one set). Ages are not
@@ -86,8 +88,12 @@ export interface AssuranceSource {
 export interface RecoveryView {
   state: RenderState;
   label: string;
+  /** What is known about the configuration behind the label. */
+  basis: PolicyBasis;
   /** In-app path the label links to. */
   link?: string;
+  /** "No recovery test has run yet", said only when it is known that none has. */
+  untested?: string;
   /** What the policy does, in words, beside a Recovery claim that has no result. */
   effective?: string;
   /** The set's newest test when it is on another backup (or, for a set, at all). */
@@ -108,8 +114,10 @@ export interface BackupFacts {
   recoveryView: RecoveryView;
   /** The structure check or validator pass on this backup, if one passed. */
   structure: { at: string; check: "builtin" | "validator" } | null;
-  policy: SetPolicyFact | null;
-  setTest: SetTestFact | null;
+  /** null: the set's policy resolves to nothing. undefined: it could not be read. */
+  policy: SetPolicyFact | null | undefined;
+  /** null: no test is on record. undefined: the server cannot say. */
+  setTest: SetTestFact | null | undefined;
 }
 
 export interface FactsIndex {
@@ -128,8 +136,8 @@ export interface LastValidation {
 export interface SetFacts {
   setId: string;
   backups: number;
-  policy: SetPolicyFact | null;
-  setTest: SetTestFact | null;
+  policy: SetPolicyFact | null | undefined;
+  setTest: SetTestFact | null | undefined;
   /** The backup with the newest content verification, and when. */
   newestContent: { artifactId: string; at: string } | null;
   lastValidation: LastValidation;
@@ -159,7 +167,9 @@ export interface Tally {
 interface ClaimsInput { status: "loading" | "ready" | "error"; data: ArtifactAssurance[] }
 
 export const claimsNode = registerInput<ClaimsInput>("app.assurance.claims", { status: "loading", data: [] });
+/** A set absent from policiesNode is one whose policy could not be read; null is a set whose policy resolves to nothing. */
 export const policiesNode = registerInput<Record<string, SetPolicyFact | null>>("app.assurance.policies", {});
+/** A set absent from setTestsNode is one whose newest test the server cannot say; null is "none recorded". */
 export const setTestsNode = registerInput<Record<string, SetTestFact | null>>("app.assurance.setTests", {});
 export const revisionNode = registerInput<number>("app.assurance.revision", 0);
 
@@ -177,7 +187,7 @@ const TEST_WORDS: Record<SetTestFact["state"], string> = {
 };
 
 /** The effective state of a policy, in words, for a claim with no result. */
-function effectiveWords(policy: SetPolicyFact | null): string | undefined {
+function effectiveWords(policy: SetPolicyFact | null | undefined): string | undefined {
   if (!policy) return undefined;
   if (policy.mode !== "off") return "Recovery tests are " + policy.mode;
   if (policy.effectiveCheck === "builtin") return "Recovery tests are off, a manual run uses the built-in check";
@@ -185,31 +195,37 @@ function effectiveWords(policy: SetPolicyFact | null): string | undefined {
   return "Recovery tests are off";
 }
 
-function policyLabel(policy: SetPolicyFact | null, setId: string): { label: string; link?: string } {
-  if (!policy) return { label: "Not configured" };
-  return policy.source === "default"
-    ? { label: "Default configuration", link: DEFAULTS_LINK }
-    : { label: "This set's own policy", link: backupSetPath(...(setId.split("/") as [string, string])) + "#assurance" };
+/** The set's configuration as the one wording rule (claims.ts) reads it. */
+function basisOf(policy: SetPolicyFact | null | undefined): PolicyBasis {
+  return policy === undefined ? "unavailable" : policy === null ? "none" : policy.source;
+}
+
+/** What a never_configured claim says about the set's configuration. Only a
+ *  set whose newest test is KNOWN to be absent may say that nothing has run. */
+function wordingOf(policy: SetPolicyFact | null | undefined, setTest: SetTestFact | null | undefined, setId: string) {
+  return { basis: basisOf(policy), setId, noRunYet: setTest === null };
 }
 
 const NO_RESULT: readonly RenderState[] = ["never_configured", "never_run", "unknown"];
 
-function factsOf(a: ArtifactAssurance, policy: SetPolicyFact | null, setTest: SetTestFact | null, now: number): BackupFacts {
+function factsOf(a: ArtifactAssurance, policy: SetPolicyFact | null | undefined, setTest: SetTestFact | null | undefined, now: number): BackupFacts {
   const setId = setOf(a.artifactId);
-  const content = renderClaim("content", a.content, now, a.copyContent, a.copies);
-  const recovery = renderClaim("recovery", a.recovery, now);
+  const w = wordingOf(policy, setTest, setId);
+  const content = renderClaim("content", a.content, now, a.copyContent, a.copies, { ...w, noRunYet: false });
+  const recovery = renderClaim("recovery", a.recovery, now, undefined, undefined, w);
   const contentAt = a.content.achievedClass === "content" && (a.content.status === "pass" || a.content.status === "overdue") ? a.content.at : undefined;
   const structure = recovery.state === "pass" || recovery.state === "pass_builtin"
     ? (a.recovery.at ? { at: a.recovery.at, check: a.recovery.check === "builtin" ? "builtin" as const : "validator" as const } : null)
     : null;
-  let view: RecoveryView = { state: recovery.state, label: recovery.label };
+  let view: RecoveryView = { state: recovery.state, label: recovery.label, basis: w.basis };
   if (NO_RESULT.includes(recovery.state)) {
     const elsewhere = setTest && setTest.artifactId !== a.artifactId
       ? { artifactId: setTest.artifactId, filename: fileOf(setTest.artifactId), state: setTest.state, at: setTest.at }
       : undefined;
     if (recovery.state === "never_configured") {
-      const named = policyLabel(policy, setId);
-      view = { state: recovery.state, label: named.label, link: named.link, effective: effectiveWords(policy) };
+      view = {
+        state: recovery.state, label: recovery.label, basis: w.basis, link: recovery.link, untested: recovery.note, effective: effectiveWords(policy)
+      };
     }
     if (elsewhere) view = { ...view, elsewhere };
   }
@@ -229,7 +245,7 @@ export function testWords(state: SetTestFact["state"]): string {
   return state === "readable" ? "readable (built-in check)" : state === "passed" ? "passed" : state.replace(/_/g, " ");
 }
 
-function setFactsOf(setId: string, list: BackupFacts[], policy: SetPolicyFact | null, setTest: SetTestFact | null, now: number): SetFacts {
+function setFactsOf(setId: string, list: BackupFacts[], policy: SetPolicyFact | null | undefined, setTest: SetTestFact | null | undefined, now: number): SetFacts {
   let newestContent: SetFacts["newestContent"] = null;
   for (const f of list) {
     if (f.contentAt && (!newestContent || Date.parse(f.contentAt) > Date.parse(newestContent.at))) newestContent = { artifactId: f.artifactId, at: f.contentAt };
@@ -237,9 +253,10 @@ function setFactsOf(setId: string, list: BackupFacts[], policy: SetPolicyFact | 
   const lv: Omit<LastValidation, "text"> = setTest
     ? { kind: "recovery", state: setTest.state, at: setTest.at }
     : newestContent ? { kind: "content", at: newestContent.at } : { kind: "none" };
-  const named = policyLabel(policy, setId);
+  const w = wordingOf(policy, setTest, setId);
+  const named = neverConfiguredWording("recovery", w.basis, w);
   const recoveryView: RecoveryView = {
-    state: "never_configured", label: named.label, link: named.link, effective: effectiveWords(policy),
+    state: "never_configured", label: named.label, basis: w.basis, link: named.link, untested: named.note, effective: effectiveWords(policy),
     ...(setTest ? { elsewhere: { artifactId: setTest.artifactId, filename: fileOf(setTest.artifactId), state: setTest.state, at: setTest.at } } : {})
   };
   return { setId, backups: list.length, policy, setTest, newestContent, lastValidation: { ...lv, text: describeLastValidation(lv, now) }, recoveryView };
@@ -255,7 +272,7 @@ export const factsNode = graph.derived<FactsIndex>("app.assurance.facts", (get) 
   const byArtifact: Record<string, BackupFacts> = {};
   for (const a of claims.data) {
     const setId = setOf(a.artifactId);
-    byArtifact[a.artifactId] = factsOf(a, policies[setId] ?? null, tests[setId] ?? null, now);
+    byArtifact[a.artifactId] = factsOf(a, policies[setId], tests[setId], now);
   }
   return { ready: claims.status === "ready", error: claims.status === "error", byArtifact };
 });
@@ -326,15 +343,17 @@ export function refreshAssuranceModel(): Promise<void> {
       const sets = [...new Set(claims.map((c) => setOf(c.artifactId)))];
       const per = await Promise.all(sets.map(async (id) => ({
         id,
-        policy: await src.policy(id).catch(() => null),
-        test: await src.setTest(id).catch(() => null)
+        // A read that fails is left out, not turned into "none": an absent
+        // policy is drawn as unavailable and an absent test claims nothing.
+        policy: await src.policy(id).catch(() => undefined),
+        test: await src.setTest(id).catch(() => undefined)
       })));
       if (mine !== seq) return;
       loadedAt = Date.now();
       graph.commit("assurance/loaded", (tx) => {
         tx.set(claimsNode, { status: "ready", data: claims });
-        tx.set(policiesNode, Object.fromEntries(per.map((p) => [p.id, p.policy])));
-        tx.set(setTestsNode, Object.fromEntries(per.map((p) => [p.id, p.test])));
+        tx.set(policiesNode, Object.fromEntries(per.filter((p) => p.policy !== undefined).map((p) => [p.id, p.policy as SetPolicyFact | null])));
+        tx.set(setTestsNode, Object.fromEntries(per.filter((p) => p.test !== undefined).map((p) => [p.id, p.test as SetTestFact | null])));
       });
     } catch {
       if (mine !== seq) return;
@@ -384,7 +403,7 @@ export function sourceFromApi(api: RetndApi): AssuranceSource | null {
       return { setId, source: p.isOverride ? "own" : "default", mode: p.recoveryTest.mode, effectiveCheck: p.recoveryTest.effectiveCheck };
     },
     setTest: async (setId) => {
-      if (!seam.offers.operations) return null;
+      if (!seam.offers.operations) return undefined;
       const r = await seam.getValidatorResult(setId);
       return r ? { setId, artifactId: r.artifactId, medium: r.medium, state: r.state, at: r.recordedAt } : null;
     }

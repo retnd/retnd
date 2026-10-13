@@ -249,7 +249,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
         {!api ? (
           <p style={{ margin: 0 }}>This server does not report assurance yet, so nothing here is claimed.</p>
         ) : null}
-        <ClaimChips facts={facts} assurance={latest} available={!!api} checking={checking} recoveryReported={!!api?.offers.recoveryClaim} />
+        <ClaimChips facts={facts} assurance={latest} available={!!api} checking={checking} recoveryReported={!!api?.offers.recoveryClaim} configuration={model.ready ? "unavailable" : "loading"} />
 
         {draft && policy ? (
           <>
