@@ -810,8 +810,8 @@ var surfaces = []surface{
 		argv: func(f fixture) []string { return []string{"reconcile", "--config", f.configPath} }},
 	{verb: "validate", name: "one durable copy", mode: "", exit: 0, needsArtifacts: true,
 		argv: func(f fixture) []string { return []string{"validate", "--config", f.configPath, f.artifactID} }},
-	{verb: "scrub", name: "one named backup, checked now whether or not it is due", mode: "", exit: 0, needsArtifacts: true,
-		note: "scrub reads copies and records what it found in the journal, like validate beside it, so it writes no configuration and names no mode. Naming the artifact is the operator saying now, which makes the pass check it even though nothing is due yet, so the row proves work happened rather than an empty schedule",
+	{verb: "scrub", name: "one named backup, checked now whether or not it is due", mode: "direct", exit: 0, needsArtifacts: true,
+		note: "scrub reads copies and records what it found in the journal, so it writes no configuration, but unlike validate beside it the driver (#978) enters read mode and announces it, which makes it the sixth read that names a mode. Naming the artifact is the operator saying now, which makes the pass check it even though nothing is due yet, so the row proves work happened rather than an empty schedule",
 		argv: func(f fixture) []string { return []string{"scrub", "--config", f.configPath, f.artifactID} }},
 	{verb: "catalog", name: "rebuild, previewed", mode: "", exit: 0, needsArtifacts: true,
 		argv: func(f fixture) []string {
@@ -821,9 +821,9 @@ var surfaces = []surface{
 		says: "no recovery-test validator is declared for this backup set",
 		note: "the terminal's door to the test the scheduler runs. It finds the newest known good copy and then stops, because the test is only worth running against a script the operator named and this fixture names none; that is the refusal an unconfigured deployment gets, and it is worth pinning for what it is not, which is a pass. It records its outcome in the journal and touches no configuration, and it names no mode",
 		argv: func(f fixture) []string { return []string{"recovery-test", "--config", f.configPath, f.setID} }},
-	{verb: "assurance", name: "cancel, with no engine serving to hold the operation", mode: "direct", exit: 1,
+	{verb: "assurance", name: "cancel, with no engine serving to hold the operation", mode: "direct", exit: 1, routed: true,
 		says: "has no route to one",
-		note: "a running scrub or recovery test is the work of the serving process and its cancel function lives in that process's memory, so with nothing serving there is nothing to cancel. It refuses, naming how to reach an engine, rather than answering not-found from a world where the question has no meaning",
+		note: "a running scrub or recovery test is the work of the serving process and its cancel function lives in that process's memory, so with nothing serving there is nothing to cancel. It refuses, naming how to reach an engine, rather than answering not-found from a world where the question has no meaning. It is routed (#980) because it can only ever be carried by an engine, so beside one it cannot reach it refuses and prints nothing, which is the opposite of what the reads test asks of a read",
 		argv: func(f fixture) []string {
 			return []string{"assurance", "cancel", "--config", f.configPath, "00000000-0000-4000-8000-000000000001"}
 		}},
@@ -1413,8 +1413,8 @@ func TestAReadBesideAnEngineItCannotReachSaysSoRatherThanAnsweringAsIfNothingWer
 			}
 		})
 	}
-	if reads != 5 {
-		t.Fatalf("%d rows are recorded as reads that name a mode; #544 gave four surfaces one and #598 made activity the fifth, and a table that has lost or gained one is describing a different product", reads)
+	if reads != 6 {
+		t.Fatalf("%d rows are recorded as reads that name a mode; #544 gave four surfaces one, #598 made activity the fifth and #978 made scrub the sixth, and a table that has lost or gained one is describing a different product", reads)
 	}
 }
 
