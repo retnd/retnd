@@ -35,6 +35,11 @@ async function setFixture(overrides: Partial<BackupSet> = {}): Promise<BackupSet
 function renderDetail(set: BackupSet) {
   const api = createMockApi();
   vi.spyOn(api, "getSet").mockResolvedValue(set);
+  // The mock holds its first set for an unfinished workflow run and the page
+  // raises a role="alert" banner for it. That banner is covered in
+  // workflow-run-page.test.tsx and has nothing to do with a halt reason, so
+  // pin it off here: otherwise "no halt banner" is a race with that promise (#1123).
+  vi.spyOn(api, "workflowRecovery").mockResolvedValue([]);
   return render(
     <MemoryRouter initialEntries={[backupSetPath(set.source, set.set)]}>
       <ApiProvider api={api}>
@@ -130,6 +135,7 @@ describe("the halt banners fire from a reason the service reported (issue #245)"
     vi.spyOn(api, "getSet").mockImplementation(
       () => new Promise((resolve) => setTimeout(() => resolve(set), 300))
     );
+    vi.spyOn(api, "workflowRecovery").mockResolvedValue([]);
     render(
       <MemoryRouter initialEntries={[backupSetPath(set.source, set.set)]}>
         <ApiProvider api={api}>
