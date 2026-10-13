@@ -529,6 +529,12 @@ EOF
 #     cannot be made true by renaming it. It already carries first-brand
 #     and `retnd` pins for precisely that reason.
 #
+# The tenth is #984's recovery note and ADR 0029, which cite
+# `docs/design/Backup Manager.dc.html` by its real filename (the ADR in its
+# table of what #985 left alone, the design note as the authority where it and
+# the build disagree). Same reasoning as the eighth: the file is deliberately
+# not renamed, so the citation is right as written.
+#
 # Every line is <token> <path>, one occurrence-site per line. Adding one of
 # these names to a file that is not listed is a creation, and this guard
 # treats it as one.
@@ -540,6 +546,8 @@ Backup Manager docs/EPIC-R-rename-inventory.md
 backup manager docs/EPIC-R-rename-inventory.md
 backup_manager docs/EPIC-R-rename-inventory.md
 Backup Manager ui/shared/src/api/client.ts
+Backup Manager docs/adr/0029-the-recovery-boundary.md
+Backup Manager docs/design/984-recovery-assurance.html
 BACKUP_MANAGER_ scripts/ci-local.sh
 BACKUP_MANAGER_API_PASSWORD docs/design/activity-terminal.html
 BACKUP_MANAGER_API_URL docs/design/activity-terminal.html
