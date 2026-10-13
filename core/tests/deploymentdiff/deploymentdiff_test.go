@@ -153,6 +153,14 @@ func TestTheCanonicalDeploymentIsExactlyWhatItWasBeforeEpicQ(t *testing.T) {
 // genuinely absent; failures are what the test reports otherwise.
 func verdict(t *testing.T, root string, recorded map[string]string) (skip string, failures []string) {
 	t.Helper()
+	// scripts/architecture/verify-core-without-apps.sh deletes apps/ on
+	// purpose and runs core's whole suite, and the recorded digests name
+	// files that live under it. Skip only when the directory is genuinely
+	// absent: a tree that HAS apps/ is checked in full, so a drifted or
+	// missing file there still fails.
+	if info, err := os.Stat(filepath.Join(root, "apps")); err != nil || !info.IsDir() {
+		return "the apps/ tree is absent (verify-core-without-apps removes it on purpose), so the per-platform compose files, templates and catalog this test digests do not exist; the full check runs in every tree that has apps/", nil
+	}
 	actual := map[string]string{}
 	for _, rel := range deploymentFiles(t, root) {
 		sum, err := digestOf(filepath.Join(root, rel))

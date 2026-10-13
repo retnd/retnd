@@ -200,14 +200,30 @@ var forbiddenSDKImports = []string{
 	"github.com/minio/minio-go",
 }
 
-// sdkImportAllowed is empty until the fix lands.
-var sdkImportAllowed = map[string]bool{}
+// sdkImportAllowed names, by exact repo-relative path, the only files allowed
+// to import a provider SDK.
+//
+// core/tests/reals3/reals3.go is the harness for the opt-in tests that run
+// against REAL AWS S3 (EPIC Q). It is test support without a _test.go suffix
+// because other packages' tests import it. It exists to create and delete
+// throw-away buckets and to check the account (sts), which rclone's backend
+// cannot do: it only moves objects. It is not a second S3 implementation of
+// the product: nothing in production imports it, and it never runs unless
+// RETND_TEST_S3_REAL=1 and credentials are present.
+//
+// It stays in core's module because a separate module would make
+// core/internal/revalidate and core/tests/miniointegration require it back
+// (a cycle), and would add the SDK to core's graph anyway through that
+// require. The exemption is one file: a sibling in the same directory, or
+// any production file, importing an SDK is still refused.
+var sdkImportAllowed = map[string]bool{
+	"core/tests/reals3/reals3.go": true,
+}
 
 // scanSDKImports walks repo and returns one line per forbidden import found
 // in a file not named in allowed (keys are slash-separated paths relative to
 // repo), plus the number of Go files it parsed.
 func scanSDKImports(repo string, allowed map[string]bool) (offenders []string, scanned int, err error) {
-	_ = allowed
 	err = filepath.WalkDir(repo, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -231,6 +247,10 @@ func scanSDKImports(repo string, allowed map[string]bool) (offenders []string, s
 			return nil
 		}
 		scanned++
+		rel, _ := filepath.Rel(repo, path)
+		if allowed[filepath.ToSlash(rel)] {
+			return nil
+		}
 		for _, imported := range file.Imports {
 			p, uerr := strconv.Unquote(imported.Path.Value)
 			if uerr != nil {
@@ -238,7 +258,6 @@ func scanSDKImports(repo string, allowed map[string]bool) (offenders []string, s
 			}
 			for _, bad := range forbiddenSDKImports {
 				if p == bad || strings.HasPrefix(p, bad+"/") {
-					rel, _ := filepath.Rel(repo, path)
 					offenders = append(offenders, rel+" imports "+p)
 				}
 			}

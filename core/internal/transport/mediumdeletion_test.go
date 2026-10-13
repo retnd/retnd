@@ -115,6 +115,14 @@ func TestOnlyTheMoveEngineDeletesFromAMedium(t *testing.T) {
 		// decorates the adapter's DeleteObject to assert the standing
 		// invariant before the call.
 		filepath.Join("tests", "movecrash", "harness", "main.go"): true,
+		// The real-AWS test harness (EPIC Q, #978). Test support without a
+		// _test.go suffix because other packages' tests import it. It calls
+		// DeleteObject and DeleteObjects only on buckets it created itself,
+		// named retnd-test-<runid>-<n> and tagged retnd-test=true, and its
+		// sweep refuses any bucket missing either. It is not a path a
+		// backup copy can reach: nothing in production imports it, and it
+		// does nothing unless RETND_TEST_S3_REAL=1 with credentials.
+		filepath.Join("tests", "reals3", "reals3.go"): true,
 	}
 
 	var offenders []string
