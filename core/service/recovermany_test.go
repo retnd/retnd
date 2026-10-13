@@ -402,10 +402,20 @@ func TestRecoverManyOneCorruptCopyFailsAloneAndLeavesNoFile(t *testing.T) {
 		t.Fatalf("half-written files left: %v", p)
 	}
 	m := readManifest(t, res.ManifestPath)
+	if len(m.Files) != len(res.Items) {
+		t.Fatalf("manifest lists %d files, the result %d", len(m.Files), len(res.Items))
+	}
+	seen := false
 	for _, mf := range m.Files {
-		if mf.Name == "b.zst" && (mf.Status != RecoverManyFailed || mf.File != "") {
-			t.Fatalf("manifest entry for the corrupt copy = %+v", mf)
+		if mf.Name == "b.zst" {
+			seen = true
+			if mf.Status != RecoverManyFailed || mf.File != "" || mf.Code != RecoveryLocalCopyCorrupt {
+				t.Fatalf("manifest entry for the corrupt copy = %+v", mf)
+			}
 		}
+	}
+	if !seen {
+		t.Fatal("the manifest does not list the corrupt copy at all, so it does not say what happened to it")
 	}
 }
 
