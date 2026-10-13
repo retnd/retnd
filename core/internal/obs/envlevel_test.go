@@ -17,9 +17,10 @@ import (
 // The cases below are the precedence and the fallback, because those are
 // the two things a second reader of the same variables can get subtly
 // wrong (apps/common/webhost has one, and cannot import this one - see
-// LevelFromEnv's own doc), plus the two deprecated aliases,
-// BACKUPD_DEBUG (EPIC R, #885) and RM_DEBUG (#794): neither rename may
-// turn a diagnosing operator's logs back off on upgrade.
+// LevelFromEnv's own doc), plus the deprecated alias
+// RM_DEBUG (#794), which may not turn a diagnosing operator's logs back
+// off on upgrade, and the proof that the previous product name's variable
+// no longer does anything.
 
 func TestLevelFromEnv(t *testing.T) {
 	for _, tc := range []struct {

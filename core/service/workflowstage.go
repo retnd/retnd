@@ -184,7 +184,7 @@ func describeBlocking(r workflowlint.ScriptReport) string {
 
 // stageEnvironment layers a request's own variables over the set's merged
 // workflow environment. The names are validated by the environment model, so
-// a RETND_ or BACKUPD_ name is refused here as it is in configuration.
+// a RETND_ name is refused here as it is in configuration.
 func stageEnvironment(req app.StageRequest) (workflow.Environment, error) {
 	layers := [][]workflow.EnvVar{req.Set.WorkflowEnvironment.Vars()}
 

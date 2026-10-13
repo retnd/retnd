@@ -363,7 +363,6 @@ func runCLI(t *testing.T, bin string, env map[string]string, argv ...string) inv
 		"BACKUP_MANAGER_API_USERNAME=",
 		"BACKUP_MANAGER_API_PASSWORD=",
 		"RETND_INCREMENTAL_ENGINE=",
-		"BACKUPD_INCREMENTAL_ENGINE=",
 	)
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)

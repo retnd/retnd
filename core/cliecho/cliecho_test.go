@@ -158,7 +158,7 @@ func TestAStorageMediumWriteEchoesTheSkipOnlyWhenItWasAskedFor(t *testing.T) {
 // implementation gets wrong. `retnd run` exists, and printing it
 // here would print a command that does something different to a different
 // process.
-func TestRunAllDueSetsPrintsTheGapAndNotBackupdRun(t *testing.T) {
+func TestRunAllDueSetsPrintsTheGapAndNotRetndRun(t *testing.T) {
 	line := Echo(Action{Method: "POST", Route: "/operations", Body: []byte(`{"action":"` + apicontract.ActionRunCycle + `","config_revision":"r1"}`)})
 	if len(line.Command) != 0 {
 		t.Fatalf("run_cycle printed the command %v; `"+Binary+" run` opens the service in the operator's own process and runs a cycle THERE, so it is a different act against a different process",
