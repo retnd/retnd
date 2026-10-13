@@ -8,7 +8,7 @@ committed by you.
 
 That is the whole of it, and it is once per contributor rather than once per
 pull request. You keep the copyright in what you write; the agreement licenses
-it in under Apache-2.0 so it can ship with everything else.
+it in under MIT so it can ship with everything else.
 
 If you are contributing as part of your job, your employer may own the
 copyright, in which case a corporate agreement is the right instrument rather

@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
 
 	"github.com/retnd/retnd/core/cliecho"
 	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/service"
 )
 
 // cmdStatus is `retnd status`: FR-24's health surface, rendered
@@ -35,6 +37,12 @@ func cmdStatus(args []string) int {
 	ctx := context.Background()
 	svc, cfg, cleanup, err := openService(ctx, *cfgPath, false)
 	if err != nil {
+		// A deployment nobody has configured yet has no backup set to be
+		// unhealthy, so this is a first-run notice and not a failure
+		// (retnd#1049).
+		if errors.Is(err, service.ErrConfigAbsent) {
+			return printFirstRunNotice(os.Stdout, *cfgPath, "status")
+		}
 		return fail(err)
 	}
 	defer cleanup()
@@ -69,6 +77,30 @@ func cmdStatus(args []string) int {
 		report.Process.BinaryVersion, commit, info.GoVersion, report.Process.RcloneVersion)
 
 	healthy := true
+	// A configuration with no backup set is the fresh install the engine
+	// wrote its own default for (retnd#1049) only while the journal agrees.
+	// With backups in the journal it is one of two other things. If the file
+	// still names a source, the last set was removed through the product,
+	// which is a state and not a failure (issue #418, pinned by
+	// TestRun_Status_ReportsWhatIsRetainedOutsideEveryConfiguredSet). If it
+	// names no source at all, it is the shape a botched edit or the wrong
+	// file leaves, which Validate refused before #1049: that is unhealthy.
+	lostEverySet := false
+	if len(report.BackupSets) == 0 {
+		unconf, uerr := svc.UnconfiguredSets(ctx)
+		if uerr != nil {
+			fmt.Fprintf(os.Stderr, "could not tell whether the journal holds backups for a configuration with no backup sets: %v\n", uerr)
+		}
+		switch populated := uerr != nil || len(unconf) > 0; {
+		case populated && len(cfg.Sources) == 0:
+			lostEverySet = true
+		case populated:
+			fmt.Println("\n" + cliecho.Binary + " has no backup set configured. Nothing new is being backed up.")
+		default:
+			fmt.Println("\n" + cliecho.Binary + " has no backup set configured yet (first run). Nothing is being backed up.")
+			fmt.Println("Next step: add the first backup set in the web interface, or with `" + cliecho.Binary + " backup-set create ...`.")
+		}
+	}
 	for _, bs := range report.BackupSets {
 		if !bs.State.OK() {
 			healthy = false
@@ -197,6 +229,11 @@ func cmdStatus(args []string) int {
 			fmt.Printf("  %s: %d artifact(s), %d byte(s), under no retention policy\n", u.Set, u.Artifacts, u.Bytes)
 		}
 		fmt.Println("  nothing collects, retains, reconciles or deletes these; `" + cliecho.Binary + " unconfigured` says what to do about it.")
+	}
+
+	if lostEverySet {
+		fmt.Println("\n" + cliecho.Binary + ": this configuration names no backup set, but the journal holds backups. The configuration has lost its sources, or the wrong one is mounted.")
+		healthy = false
 	}
 
 	if !healthy {

@@ -259,6 +259,13 @@ func openService(ctx context.Context, configPath string, withTransport bool) (*a
 // and gives the claim back; callers should always `defer cleanup()`
 // immediately.
 func openBackupService(ctx context.Context, configPath string, intent configIntent) (*service.BackupService, func(), error) {
+	return openBackupServiceLoggingTo(ctx, configPath, intent, os.Stdout)
+}
+
+// openBackupServiceLoggingTo is openBackupService with the structured log
+// sent to logTo. Only a command whose standard output is data uses another
+// writer than standard output; see service.OpenWithLog.
+func openBackupServiceLoggingTo(ctx context.Context, configPath string, intent configIntent, logTo io.Writer) (*service.BackupService, func(), error) {
 	switch intent {
 	case readsConfig, writesConfig:
 	default:
@@ -269,7 +276,7 @@ func openBackupService(ctx context.Context, configPath string, intent configInte
 		return nil, func() {}, fmt.Errorf("internal: openBackupService was given no intent for %s; a command has to say whether it writes the configuration", configPath)
 	}
 
-	svc, closeFn, err := service.Open(ctx, configPath)
+	svc, closeFn, err := service.OpenWithLog(ctx, configPath, logTo)
 	if err != nil {
 		return nil, func() {}, err
 	}
@@ -679,6 +686,14 @@ const (
 // exit code is what a script is supposed to branch on so that nothing has
 // to parse the prose.
 func fail(err error) int {
+	if errors.Is(err, service.ErrConfigAbsent) {
+		// A verb that needs a backup set to act on keeps its non-zero exit
+		// on a fresh install, but says what is true and what to do next
+		// rather than "no configuration file" (retnd#1049).
+		fmt.Fprintln(os.Stderr, cliecho.Binary+": no backup set configured yet:", err)
+		fmt.Fprintln(os.Stderr, "Next step: add the first backup set in the web interface, or with `"+cliecho.Binary+" backup-set create ...`.")
+		return exitFailure
+	}
 	fmt.Fprintln(os.Stderr, cliecho.Binary+":", err)
 	if errors.Is(err, errEngineHoldsDeployment) {
 		return exitEngineHoldsDeployment

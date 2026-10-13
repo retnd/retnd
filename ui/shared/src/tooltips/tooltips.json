@@ -275,10 +275,6 @@
     "label": "Size",
     "html": "The size the artifact was received at. A copy held on a storage medium may measure differently, and the artifact's page reports each copy separately."
   },
-  "backups.col.validation": {
-    "label": "Validation",
-    "html": "Whether a checksum has been matched against the producer's manifest. A cell that reports neither a pass nor a failure means nothing has checked this backup yet, which is a gap rather than a verdict."
-  },
   "backups.col.retention": {
     "label": "Retention",
     "html": "Which retention tiers are keeping this artifact, and so what will eventually delete it. A row that names no tier is one nothing will ever expire, and it keeps its space until somebody acts."
@@ -1441,7 +1437,7 @@
   },
   "common.error-copy-details": {
     "label": "Copy details",
-    "html": "Puts the message, the remedy and the advanced detail on the clipboard as text, so none of it has to be retyped off the screen. Where the browser offers no clipboard at all, as on a plain unencrypted origin, it says so rather than appearing to have worked."
+    "html": "Puts the message, the remedy and the advanced detail on the clipboard as text, so none of it has to be retyped off the screen. On a plain unencrypted origin, where the browser offers no clipboard, it falls back to the browser's older copy command, and if that is refused too it selects the details for you to copy with Ctrl+C. It only says Copied when it did."
   },
   "common.error-retry": {
     "label": "Try again",
@@ -1970,5 +1966,81 @@
   "workflow.set.exec-own-source": {
     "label": "This set's own source connection",
     "html": "A backup set may execute its remote hooks over the connection it already backs up from, named as <code>source/set</code>. It is used <strong>only if that connection can execute a command</strong>: an SFTP-only account moves bytes and runs nothing, which the hook check reports as a capability failure rather than as a broken backup set."
+  },
+  "assurance.col.claims": {
+    "label": "Assurance",
+    "html": "Three separate claims per backup: <strong>Stored</strong>, <strong>Content</strong> and <strong>Recovery</strong>. They are never combined into one verdict, because a checksum that passed says nothing about whether the artifact can be recovered and used."
+  },
+  "assurance.claim.stored": {
+    "label": "Stored",
+    "html": "Whether a copy of this backup is recorded, and how many. It says nothing about whether any copy has been <em>read back</em>."
+  },
+  "assurance.claim.contentVerified": {
+    "label": "Content verified",
+    "html": "Whether the retained bytes were read and their digest matched the recorded one, and how long ago. A check that only confirmed an object exists reads <strong>Existence checked only</strong> and is not this."
+  },
+  "assurance.claim.recoveryTested": {
+    "label": "Recovery tested",
+    "html": "Whether the engine recovered the artifact to an isolated path, re-read it end to end, matched its recorded digest, and only then ran your validator script, and how long ago. The engine records this claim. A script cannot write it, and reachability alone never counts."
+  },
+  "assurance.recover.artifact": {
+    "label": "Recover artifact",
+    "html": "Hands you the retained artifact itself, after the host has read all of it and matched it to the digest it recorded. It does not rebuild the application that produced it; that stays yours to do."
+  },
+  "assurance.recover.target": {
+    "label": "Recovery target",
+    "html": "Where the artifact is put: downloaded by this browser, written under the host's staging root, or sent to a destination this deployment already declares. Nothing is written or sent until the whole copy has matched its recorded digest."
+  },
+  "assurance.recover.thawCost": {
+    "label": "Thaw cost",
+    "html": "The provider bills to make an archived copy readable and the restore takes hours it does not predict. retnd knows no price and no finishing time, so it shows neither. Nothing is restored until this is ticked and the button pressed."
+  },
+  "assurance.scrub.now": {
+    "label": "Scrub now",
+    "html": "Reads this set's recorded copies and compares their digests now, without waiting for the schedule, which keeps running. It never restores an archive. A set that is disabled, or stored by the snapshot engine, is refused. The scrub's result is in the Activity log and on the <strong>Content</strong> chip."
+  },
+  "assurance.recoveryTest.run": {
+    "label": "Run recovery test",
+    "html": "Recovers the newest known good copy to an isolated path, re-reads it, checks the digest and only then runs this set's validator script against it. The engine records the result."
+  },
+  "assurance.settings.card": {
+    "label": "Assurance settings",
+    "html": "The deployment-wide defaults for scrubbing and recovery tests. A set that follows the deployment uses them; the host-scoped values are shown here with the reason they cannot be set per set."
+  },
+  "assurance.set.section": {
+    "label": "Set assurance",
+    "html": "What this set claims now and the policy that governs it. Inherit follows the deployment setting; the host-scoped limits are never per set."
+  },
+  "assurance.set.mode": {
+    "label": "Assurance policy",
+    "html": "<strong>Follow the deployment</strong> shows what the deployment setting resolves to for this set. <strong>This set's own policy</strong> pins this set's scrub cadence and reads and its recovery test, and a later change to the deployment does not move it."
+  },
+  "assurance.artifact.card": {
+    "label": "Backup assurance",
+    "html": "The three claims for this backup, each with its own age, and the way to recover the artifact."
+  },
+  "assurance.operation.follow": {
+    "label": "Following",
+    "html": "Keeps the line list scrolled to the newest line. Turn it off to read earlier lines without being moved."
+  },
+  "assurance.operation.cancel": {
+    "label": "Cancel operation",
+    "html": "Asks the running scrub or recovery test to stop. It is a <strong>request</strong>: the run says <em>Cancelling</em> until it has really ended, and a run that stops early records no result, so the claims keep their previous answer. The same thing from a terminal is <code>retnd assurance cancel</code>."
+  },
+  "assurance.operation.detail": {
+    "label": "Operation detail",
+    "html": "Opens this run on its own page, with the same stage, lines and Cancel. A run you did not start can be opened here too, as long as its lines are still on the live feed. A scrub is never on that feed, so only the page that started it can follow it."
+  },
+  "assurance.validator.show": {
+    "label": "Show validator output",
+    "html": "Reads what the newest recovery test of this set printed, as the server stored it. It runs <strong>no</strong> test. The text is shown as plain text, bounded, with anything that could act on a terminal made visible. It is not the verdict: the engine records that itself."
+  },
+  "assurance.validator.log": {
+    "label": "Validator output",
+    "html": "The engine's recorded verdict for the newest test comes first, then what your script printed. A line of output that quotes the truncation notice is still output; only the notice the runner adds, below the log, says output was dropped."
+  },
+  "assurance.dashboard.card": {
+    "label": "Assurance summary",
+    "html": "<strong>Due</strong> counts backups whose content check is unknown, never run or overdue, and those whose recovery test is overdue. <strong>Overdue</strong> counts those where either check last passed too long ago. <strong>Degraded</strong> counts failed, incomplete or unreadable ones. A count is never shown as zero when it could not be read."
   }
 }

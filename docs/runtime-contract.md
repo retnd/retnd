@@ -238,6 +238,47 @@ socket, no host namespace, no added capability, no unbounded host mount, no
 shell in the image. `docs/adr/0020-host-workflow-runner.md` carries the full
 argument.
 
+## Validators and recovery staging
+
+A recovery test runs an operator's own script (a validator, `NAME.local.sh` under
+`recovery-test/<source>/<set>` in the workflow root, chosen by the policy's `validator_id`)
+against a copy that has been recovered to an isolated path. It runs through the host
+workflow runner, the way every hook does. It sits inside the contract above rather than
+beside it, and it adds no privilege.
+
+What the validator can reach:
+
+- **The recovered copy, and nothing else on purpose.** It is run against a path under the
+  recovery staging root, never against the durable file in the backup root. The staging
+  root is host-scoped and global: one filesystem, shared by recoveries and recovery
+  tests, so no backup set can point it elsewhere. Unless `assurance.staging_root` says
+  otherwise it is `recovery-staging` beside the state database. The runner's container
+  sees it only if you declare it with `--hook-mount`; a script that cannot open the file
+  fails, and is not a pass.
+- **The hook environment, not the engine's.** The validator gets the set's resolved
+  workflow environment plus the `RECOVERY_TEST_*` variables. It does not inherit the
+  engine's own environment, so no credential, key or token of the engine's is in it.
+- **Its own process group and a timeout that fails closed.** A validator that never
+  returns is terminated along with its group and the result is a failure. A child that
+  deliberately detaches outside the group is outside what the reaper can reach, so
+  termination is recorded as unconfirmed rather than claimed.
+
+What it cannot do, and why this section adds no exception to the prohibition list: the
+containers stay distroless, non-root and read-only, with `cap_drop: ALL` and
+`no-new-privileges`. No Docker socket and no host-root mount is added for this, no shell is
+added to the engine image, and no new port is opened. The validator runs through the host
+workflow runner under the contract in
+[the host workflow runner ADR](adr/0020-host-workflow-runner.md), and a recovery itself
+starts no subprocess at all.
+
+Its output is untrusted, and the engine keeps a bounded copy of it: the newest recovery
+test's output per backup set, at most 200 records, 1 KiB per record and 32 KiB in all, with a
+truncation record last when anything was cut and no control byte stored. It sits beside the
+verdict, the hash of the script that ran and a reason in the engine's own words, and it never
+decides the verdict. A validator that exits 0 without opening the file does not produce a
+recovery-test pass, because the digest of the recovered bytes was checked first and is
+what the pass is recorded against.
+
 ## Runtime profiles
 
 A runtime profile is how one executable changes host-dependent behaviour

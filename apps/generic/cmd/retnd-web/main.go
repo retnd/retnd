@@ -57,6 +57,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -614,6 +615,14 @@ func cmdServe(args []string) int {
 		BinaryVersion:         version,
 		Commit:                commit,
 	}
+	// The first-run guide's view of the administrator, the mail server and
+	// skipped steps (retnd#1049). Left unset on a gateway profile, where
+	// the platform owns identity and there is no mail step to set up. The
+	// nil check matters: a typed-nil *local.Service in the interface would
+	// not compare equal to nil downstream.
+	if authSvc != nil {
+		engineConfig.Setup = authSvc
+	}
 
 	var handler http.Handler
 	var scheduler serve.Scheduler
@@ -657,6 +666,32 @@ func cmdServe(args []string) int {
 		fmt.Fprintf(os.Stderr, cliecho.WebBinary+": this deployment's state directory cannot be used yet, so nothing has been announced and the setup flow will refuse to complete until it can be: %v\n", blocked)
 	}
 
+	// A fresh install writes its own default configuration here (retnd#1049),
+	// after the announcement above has taken the serving lock and before
+	// the open, so the process below is a configured engine from its
+	// first second and "not configured yet" is not a state anything has
+	// to refuse. EnsureDefaultConfig never overwrites: an existing file
+	// makes it a no-op, and a lost race is "then open what is there".
+	// A directory that cannot be written is one WARN naming it, and the
+	// start carries on into the first-run setup flow exactly as before.
+	switch wrote, written, ensureErr := service.EnsureDefaultConfig(service.FirstRunDefaults{
+		ConfigPath:    *configPath,
+		StateDatabase: *stateDatabase,
+	}); {
+	case errors.Is(ensureErr, service.ErrConfigLostOverJournal):
+		// A missing configuration next to a journal that holds backups is a
+		// lost or unmounted configuration volume. Serving the setup flow
+		// here would let the wizard write a first configuration over the old
+		// state, and a default file would read as a healthy empty
+		// deployment, so the process stops and says why.
+		return fail(fmt.Errorf("no configuration at %s, and this is not a fresh install: %w", written, ensureErr))
+	case ensureErr != nil && !errors.Is(ensureErr, service.ErrDefaultConfigSkipped):
+		fmt.Fprintf(os.Stderr, cliecho.WebBinary+": warning: could not write a default configuration to %s, so the first-run setup flow is served instead; check that the configuration directory %s is mounted writable: %v\n",
+			written, filepath.Dir(written), ensureErr)
+	case wrote:
+		fmt.Fprintf(os.Stderr, cliecho.WebBinary+": first run: wrote a default configuration to %s\n", written)
+	}
+
 	backend, cleanup, err := service.Open(ctx, *configPath)
 	switch {
 	case err == nil:
@@ -689,6 +724,7 @@ func cmdServe(args []string) int {
 			// away the surface they would lift it from.
 			fmt.Fprintln(os.Stderr, cliecho.WebBinary+": workflow runs could not be reconciled, so this process refuses to START a backup until they can be; reading, recovery and the rest of the API are unaffected:", err)
 		}
+		endRecoverySessionsOnLogout(authSvc, backend)
 		engineConfig.Backend = backend
 		handler = serve.NewEngine(engineConfig)
 		scheduler = backend
@@ -766,6 +802,7 @@ func cmdServe(args []string) int {
 				return nil, nil, wfErr
 			}
 
+			endRecoverySessionsOnLogout(authSvc, opened)
 			return opened, closeFn, nil
 		}
 
@@ -858,6 +895,14 @@ func enableAlerts(backend *service.BackupService, platformAdapter capabilities.P
 // Outstanding holds are NOT an error -- they are the normal answer after
 // an interrupted run -- so they are announced and nothing else.
 func openWorkflowEngineOn(ctx context.Context, backend *service.BackupService, platformAdapter capabilities.PlatformAdapter) error {
+	// The host's limits for recovery (EPIC Q, #983) before anything can
+	// start one. A platform with no opinion leaves the engine's defaults;
+	// one whose limits cannot mean anything stops the start, because
+	// serving with limits nobody could have meant is how a budget turns
+	// into a suggestion.
+	if err := applyHostLimits(backend, platformAdapter); err != nil {
+		return err
+	}
 	enableAlerts(backend, platformAdapter)
 	backend.SetBuildVersion(version)
 
@@ -869,6 +914,15 @@ func openWorkflowEngineOn(ctx context.Context, backend *service.BackupService, p
 	if len(report.Holds) > 0 {
 		fmt.Fprintf(os.Stderr, cliecho.WebBinary+": %d workflow cleanup(s) from an interrupted run are outstanding; the affected backup sets refuse to run until each is resumed or acknowledged (`%s workflow recovery show`)\n",
 			len(report.Holds), cliecho.Binary)
+	}
+
+	// EPIC Q (#976): a partial recovery file left by a process that died is
+	// an orphan filling the staging disk. This is the one process that can
+	// say so (a terminal command opened beside it cannot tell the engine's
+	// in-flight partials from orphans), and a failure here is reported, not
+	// fatal: recovery staging must never stop backups being served.
+	if _, _, err := backend.ReconcileRecoveryStaging(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, cliecho.WebBinary+": reconciling the recovery staging area: %v\n", err)
 	}
 
 	return nil
@@ -1346,6 +1400,18 @@ func (g firstRunGate) CreateInitialConfig(ctx context.Context, req service.Creat
 	return g.FirstRunClient.CreateInitialConfig(ctx, req)
 }
 
+// ConfigDirProblem forwards the optional half of the first-run surface
+// (webhost.ConfigDirReporter, retnd#1049). Embedding the interface does not
+// promote it, because an embedded interface only carries its own methods, so
+// without this the guide would never be told the configuration directory is
+// read-only.
+func (g firstRunGate) ConfigDirProblem() (dir, message string) {
+	if r, ok := g.FirstRunClient.(webhost.ConfigDirReporter); ok {
+		return r.ConfigDirProblem()
+	}
+	return "", ""
+}
+
 // envOrDefault returns the environment variable key's value if set and
 // non-empty, or def otherwise. Used for --listen/--upstream's defaults
 // (container/compose.yaml sets LISTEN_ADDR/UPSTREAM_ADDR; a bare `go run`
@@ -1452,4 +1518,21 @@ func bundleNameFor(p profile.Profile, root string) string {
 		return p.UIBundle
 	}
 	return string(p.ID)
+}
+
+// applyHostLimits hands the platform's recovery limits to the engine.
+func applyHostLimits(backend *service.BackupService, platformAdapter capabilities.PlatformAdapter) error {
+	limits, err := capabilities.LimitsOf(platformAdapter)
+	if err != nil {
+		return fmt.Errorf("the platform's host limits: %w", err)
+	}
+	if err := backend.SetRecoveryLimits(service.RecoveryLimits{
+		StagingReserveBytes:    limits.StagingReserveBytes,
+		MaxConcurrentReads:     limits.MaxConcurrentReads,
+		MaxReadsPerDestination: limits.MaxReadsPerDestination,
+		MaxDownloadStreams:     limits.MaxDownloadStreams,
+	}); err != nil {
+		return fmt.Errorf("the platform's host limits: %w", err)
+	}
+	return nil
 }

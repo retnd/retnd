@@ -1,25 +1,25 @@
 {
-  "version": "0.5.1",
-  "commit": "e91f5cc7178ee413955ded4f472aa76180b304aa",
-  "generated_at": "2026-10-04T07:37:13Z",
+  "version": "0.6.0",
+  "commit": "8097bae28b789acba1419a8ff94f3497f8a987fe",
+  "generated_at": "2026-10-12T21:47:38Z",
   "note": "Regenerate with scripts/release/record-release-hashes.sh, and only at a commit that is ALREADY on main. A commit recorded from a feature branch stops existing the moment that branch is squash merged, and the manifest is then pinned to a SHA nobody can check out: that is issue #174, which is why the script now refuses to record a commit that is not an ancestor of origin/main and why distribution/packaging's release-manifest-integrity check re-asks the same question on every run. binary_sha256 is hashed from the two binaries extracted out of the built image, so it is real evidence of what was compiled. registry_digest is the digest ghcr.io assigns ghcr.io/retnd/retnd on push (docker buildx build --push prints it, docker buildx imagetools inspect reads it back). binary_sha256 keys match the two executable paths in the image: retnd and retnd-web. A manifest that already records a published release is historical evidence and must not be rewritten merely to rename a key; a new semantic version records the names its image actually carries.",
   "architectures": [
     {
       "architecture": "amd64",
       "binary_sha256": {
-        "retnd": "dcfaf2b039f697c5166756ea509c1e1935a404da2856dd4d24f4e8f2bb807ab1",
-        "retnd-web": "43310f86a3a25ba9b9b64a99b89c2446fe50c7b9b9c11a270274e0d2c77b7319"
+        "retnd": "b99fa8e1abb9c86633cf85c92886e9fa9ea3c4298c1494093249cd2a7e128f7d",
+        "retnd-web": "59efcae5f58fc319cc6222933b9b684f0025ba9830e7a2150a8b03d2d4227fd5"
       },
-      "local_image_id_sha256": "38b6ebd7c6fbfdecfbc630bef77a6cb8c1ff0700f914295ad57e4ad38c3f9496",
+      "local_image_id_sha256": "b0c2b0241dda5119293c875cb5aa193b3e82de368fba34218c8a46f5ae2073e7",
       "registry_digest": null
     },
     {
       "architecture": "arm64",
       "binary_sha256": {
-        "retnd": "e3bf798eb3e33d987c461d0a9f5ca2c543a5705155f622ac50c311670f449252",
-        "retnd-web": "f460cdb7d0bfea283e2c7ccef93eb33ea3aa4eb318024f3e40fde1935a395d2f"
+        "retnd": "9455b0a15150a1390ada522eb91040dba487bd4a1584bc04a974cc26caf04780",
+        "retnd-web": "ee708815e0356ec9aba92853695d55221bb713c87d37d128807ade440685173b"
       },
-      "local_image_id_sha256": "5d0cc7e47b55d29eeeb6f6cb0ca8af743be43e1ecbba7e0c16ad15e031018833",
+      "local_image_id_sha256": "1b1618acc2487a824945a0cbe6896ee2e3abfcad5c2d847a1ce22adc21819a91",
       "registry_digest": null
     }
   ],

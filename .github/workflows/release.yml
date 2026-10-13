@@ -693,7 +693,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: core/go.mod
           cache-dependency-path: |
@@ -722,3 +722,123 @@ jobs:
             -m "Merge release into main after publishing ${TAG}" \
             -m "Automated by .github/workflows/release.yml after reading the index and platform digests back from GHCR, updating the installer pin, and regenerating the provenance bundle."
           git push origin HEAD:main
+
+  # ---- the GitHub Release (issue #1078) ---------------------------------
+  #
+  # Three jobs that run only after `publish` has pushed, signed and attested
+  # the image, and only when this run publishes. They add CLI tarballs to a
+  # GitHub Release; they change nothing about the image or its signature.
+  #
+  # None of them holds id-token. The signing identity is `publish`'s alone,
+  # and the tarballs are checksummed (SHA256SUMS) and NOT signed:
+  # docs/compliance/release-provenance.md says so in the same words. The
+  # trigger above is untouched, so the identity a verifier pins is too.
+  cli-binaries:
+    name: build the CLI tarballs
+    needs: [decide, publish]
+    if: needs.decide.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Read the tag canonical.json declares
+        id: tag
+        run: |
+          tag="$(python3 -c 'import json; print(json.load(open("distribution/packaging/canonical.json"))["image"]["tag"])')"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: core/go.sum
+
+      - name: Build linux and darwin, amd64 and arm64
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: bash scripts/release/build-cli-tarballs.sh "$TAG" "$GITHUB_SHA" dist-cli
+
+      - name: Upload the tarballs
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-tarballs
+          path: |
+            dist-cli/*.tar.gz
+            dist-cli/SHA256SUMS
+          if-no-files-found: error
+
+  # A darwin binary that builds on Linux can still fail to start on a Mac.
+  # This runs the arm64 tarball on a hosted macOS runner before anything is
+  # attached to a release.
+  cli-darwin-smoke:
+    name: run the macOS tarball on macOS
+    needs: [decide, cli-binaries]
+    if: needs.decide.outputs.publish == 'true'
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Download the tarballs
+        uses: actions/download-artifact@v8
+        with:
+          name: cli-tarballs
+          path: dist-cli
+
+      - name: Check the sum, unpack and run it
+        env:
+          TAG: ${{ needs.cli-binaries.outputs.tag }}
+        run: |
+          cd dist-cli
+          shasum -a 256 -c --ignore-missing SHA256SUMS
+          tar -xzf "retnd_${TAG}_darwin_arm64.tar.gz"
+          out="$(./retnd version)"
+          echo "$out"
+          case "$out" in
+            *"${TAG}"*) ;;
+            *) echo "::error::retnd version did not report ${TAG}"; exit 1 ;;
+          esac
+
+  github-release:
+    name: create the GitHub Release
+    needs: [decide, cli-binaries, cli-darwin-smoke]
+    if: needs.decide.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download the tarballs
+        uses: actions/download-artifact@v8
+        with:
+          name: cli-tarballs
+          path: dist-cli
+
+      # One versioned release per package version, kept in step with the
+      # package. A publish of a new version creates v<version>. A publish of
+      # a version that already has a release (a re-run, or a push that
+      # rebuilds the image under the same tag) refreshes it, because
+      # creating it a second time would fail on the existing tag and leave a
+      # release whose tarballs no longer match the image beside it (#1102).
+      - name: Create or refresh the release and attach the tarballs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.cli-binaries.outputs.tag }}
+        run: |
+          notes="retnd ${TAG}. The container image is ghcr.io/retnd/retnd:${TAG}, published at https://github.com/retnd/retnd/pkgs/container/retnd and signed with cosign (see docs/compliance/release-provenance.md). The tarballs below are checksummed in SHA256SUMS and are not signed."
+          if gh release view "v${TAG}" >/dev/null 2>&1; then
+            gh release upload "v${TAG}" dist-cli/*.tar.gz dist-cli/SHA256SUMS --clobber
+            gh release edit "v${TAG}" --title "retnd ${TAG}" --notes "$notes"
+            echo "Refreshed the existing release v${TAG}." >> "$GITHUB_STEP_SUMMARY"
+          else
+            gh release create "v${TAG}" dist-cli/*.tar.gz dist-cli/SHA256SUMS \
+              --target "$GITHUB_SHA" \
+              --title "retnd ${TAG}" \
+              --notes "$notes"
+            echo "Created release v${TAG}." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "Package: https://github.com/retnd/retnd/pkgs/container/retnd" >> "$GITHUB_STEP_SUMMARY"

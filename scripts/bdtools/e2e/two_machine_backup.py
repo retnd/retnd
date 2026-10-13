@@ -1437,15 +1437,28 @@ class Proof:
                 "configuration was written underneath an engine that will never read it, which is #535.",
                 "the command said: " + _combined(refused),
             )
-        # And nothing was written. `sources` needs a configuration to read,
-        # so on an installation that still has none it refuses, and a zero
-        # here would mean the refused create left one behind after all.
-        if self.bm(mgr, prefix, "sources", "--config", "/etc/retnd/config", check=False).returncode == 0:
+        # And nothing was written. Since #1049 the engine writes a default
+        # configuration on its first start, so "no configuration at all" is
+        # no longer how an untouched install looks. What a refused create
+        # must leave is that default exactly as it was: a configuration
+        # that reads cleanly and holds no backup set. `sources` exiting 0 is
+        # the positive control (there is a configuration to read), and a
+        # count of zero is the claim.
+        listed = self.bm(mgr, prefix, "sources", "--config", "/etc/retnd/config", check=False)
+        if listed.returncode != 0:
             die(
-                'the refused create left a configuration behind, so "nothing was written" '
-                "is not true on a real install.",
+                f"`sources` exited {listed.returncode} after the refused create, so the engine's default "
+                "configuration is not there to be checked.",
+                "the command said: " + _combined(listed),
             )
-        note("refused with exit 3, and this installation still has no configuration")
+        written = sum(1 for line in (listed.stdout or "").splitlines() if "remote_path=" in line)
+        if written != 0:
+            die(
+                f"the refused create left {written} backup set(s) in the configuration, so "
+                '"nothing was written" is not true on a real install.',
+                "the command said: " + _combined(listed),
+            )
+        note("refused with exit 3, and the install's default configuration still holds no backup set")
 
         step("  creating a backup set through the CLI, with the engine stopped")
         self.mgr_compose(mgr, prefix, "stop", "retnd", check=False)

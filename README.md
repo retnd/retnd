@@ -2,6 +2,19 @@
   <img src="docs/site/assets/logo.svg" alt="retnd mark: a broken ring standing for a transfer cycle in progress, next to the retnd wordmark" width="175">
 </p>
 
+<p align="center">
+  <a href="https://github.com/retnd/retnd/actions/workflows/ci.yml"><img src="https://github.com/retnd/retnd/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI status on main"></a>
+  <a href="https://github.com/retnd/retnd/actions/workflows/release.yml"><img src="https://github.com/retnd/retnd/actions/workflows/release.yml/badge.svg" alt="Release workflow status"></a>
+  <a href="https://github.com/retnd/retnd/actions/workflows/nightly-e2e.yml"><img src="https://github.com/retnd/retnd/actions/workflows/nightly-e2e.yml/badge.svg" alt="Nightly end-to-end status"></a>
+  <a href="https://github.com/retnd/retnd/actions/workflows/pages.yml"><img src="https://github.com/retnd/retnd/actions/workflows/pages.yml/badge.svg" alt="Site deployment status"></a>
+  <a href="https://github.com/retnd/retnd/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
+  <a href="https://github.com/retnd/retnd/releases/latest"><img src="https://img.shields.io/github/v/release/retnd/retnd?display_name=tag" alt="Latest GitHub release"></a>
+  <a href="https://go.dev/"><img src="https://img.shields.io/github/go-mod/go-version/retnd/retnd?filename=core/go.mod" alt="Go version"></a>
+</p>
+
+<p align="center">
+  <img src="docs/assets/readme-tour.gif" alt="A 30 second tour of the retnd web UI: the dashboard with its docked terminal, backup sets, one set's detail, retained backups and a single backup's lifecycle, the activity timeline, quarantine, catalog recovery and settings, then the dashboard and a set again in the dark theme" width="800">
+</p>
 
 A backup producer somewhere writes a dump, an archive or a snapshot to disk. That machine
 has finite space, so something has to move the artifact off it and something has to delete
@@ -22,6 +35,14 @@ machine with Docker.
 **If you're here because a backup didn't arrive and it's 3am:** go straight to
 [`docs/recovery.md`](docs/recovery.md) — or, for a backup set on the
 incremental engine, [`docs/incremental-runbooks.md`](docs/incremental-runbooks.md).
+
+**If you need a backup out, not just to know it is there:** this product recovers and
+exports the retained artifact; restoring it into an application remains the operator's
+responsibility. `retnd recover` hands you one retained copy, checked against the digest
+recorded when it was committed. It is not `retnd restore` (which asks a storage provider to
+thaw an archived object) and not `retnd snapshot restore` (which extracts a snapshot on the
+incremental engine), and [`docs/recovery.md`](docs/recovery.md) puts the three side by side
+so you can pick the right one at 3am.
 
 **The same material as pages, with pictures**, is the published site: [the first-run
 tutorial](https://retnd.github.io/retnd/first-run.html), [the web interface in
@@ -186,6 +207,10 @@ what the application used to leave at the browser's default and paint black on b
 
 ![The settings page switching to dark mode, scrolling through a form of native selects and number inputs, then switching back](docs/site/screens/ui-dark-mode.gif)
 
+None of these clips shows recovery or the three assurance claims (Stored, Content
+verified, Recovery tested), because those screens were not recorded when the clips were. The
+pages describe them in words, and they will get clips of their own...
+
 
 ## Two engines: artifacts, and incremental snapshots
 
@@ -307,14 +332,14 @@ container log can be matched up even when the browser never got a response at al
 
 ## Licence
 
-Apache License 2.0. The full text is in [`LICENSE`](LICENSE).
+MIT License. The full text is in [`LICENSE`](LICENSE).
 
 Every third-party component that reaches a shipped artifact is permissive
 (MIT, BSD-2-Clause, BSD-3-Clause, Apache-2.0, CC0-1.0) except two:
 `go-cleanhttp` and `go-retryablehttp` are MPL-2.0 and arrive under
 rclone's `s3` backend, which cannot be registered without them. MPL-2.0 is
 file-level weak copyleft and §3.3 permits this Larger Work to ship under
-Apache-2.0, so the choice stands, and the §3.2 obligation it carries is
+MIT, so the choice stands, and the §3.2 obligation it carries is
 recorded in `compliance.json` and discharged in `NOTICE` and
 [`docs/compliance/source-offer.md`](docs/compliance/source-offer.md), which
 name both modules at their exact versions and give the immutable address their

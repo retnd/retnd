@@ -46,6 +46,7 @@ user-unit coordinate system.
 | `docs/design/893-16px-wordmark-or-monogram.png` | 2240×3660 (1120 CSS px at 2×) | `docs/design/893-16px-wordmark-or-monogram.html` | the picture beside the 16-pixel decision, per the `docs/design/` note convention |
 | `docs/design/814-workflow-ui.png` | export of its `.html` | dated design note | record only: see **Design-note art** below |
 | `docs/design/815-step-terminal.png` | export of its `.html` | dated design note | record only |
+| `docs/design/984-recovery-assurance.png` | export of its `.html` | dated design note | record only |
 | `docs/design/906-shell-verification-findings.png` | export of its `.html` | dated design note | record only |
 | `docs/design/activity-error-diagnostic.png` | export of its `.html` | dated design note | record only |
 | `docs/design/activity-terminal.png` | export of its `.html` | dated design note | record only |

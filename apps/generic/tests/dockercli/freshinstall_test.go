@@ -14,6 +14,17 @@
 // seeded HEALTHY (workingRemoteConfig, and its own doc says why it has
 // to be).
 //
+// # Since #1049
+//
+// A deployment that starts with an empty configuration directory now gets
+// a default config.yaml from the engine on its first start, and
+// `retnd status` on it prints a first-run notice and exits 0, because
+// "nothing is configured yet" is a state and not a failure. So the
+// backup-freshness verdict this file exists for is negative on a different
+// fixture than it used to be: an install whose one backup set has never
+// had anything backed up (neverRun below). Both shapes are covered, and
+// each one reads `retnd status` back rather than assuming what it says.
+//
 // # What "a fresh install" means here
 //
 // Literally what an app-store install produces and nothing softened: an
@@ -56,7 +67,13 @@ import (
 // has configured. The engine serves the first-run setup flow from it, and
 // `retnd status` exits non-zero, which every test below reads
 // back rather than assumes.
-func freshInstall(t *testing.T) (dir string) {
+//
+// neverRun adds the one thing #1049 moved the negative verdict onto: a
+// config.yaml with a single backup set that has never had an artifact
+// discovered, which internal/health reports as DEGRADED and `retnd status`
+// exits 1 for. It is the same shape degradedConfig builds, pointed at
+// directories this stack's canonical mounts actually provide.
+func freshInstall(t *testing.T, neverRun bool) (dir string) {
 	t.Helper()
 	dir = t.TempDir()
 	// 0o777 for the same reason degradedConfig uses it: the runtime image
@@ -79,6 +96,40 @@ func freshInstall(t *testing.T) (dir string) {
 	for _, f := range []string{"id_ed25519", "known_hosts"} {
 		if err := os.WriteFile(filepath.Join(dir, f), nil, 0o644); err != nil {
 			t.Fatalf("WriteFile %s: %v", f, err)
+		}
+	}
+	if neverRun {
+		for _, sub := range []string{"backups/remote", "backups/local"} {
+			path := filepath.Join(dir, sub)
+			if err := os.MkdirAll(path, 0o777); err != nil {
+				t.Fatalf("MkdirAll %s: %v", sub, err)
+			}
+			if err := os.Chmod(path, 0o777); err != nil {
+				t.Fatalf("Chmod %s: %v", sub, err)
+			}
+		}
+		config := "" +
+			"poll_interval: 1h\n" +
+			"state:\n" +
+			"  database: /data/state/state.db\n" +
+			"sources:\n" +
+			"  - id: production\n" +
+			"    backup_sets:\n" +
+			"      - id: never-backed-up\n" +
+			"        remote:\n" +
+			"          type: local\n" +
+			"        remote_path: /data/backups/remote\n" +
+			"        local_path: /data/backups/local\n" +
+			"        include:\n" +
+			"          - \"*.dump\"\n" +
+			"        completion:\n" +
+			"          strategy: rename\n" +
+			"        stale_after: 1s\n" +
+			"retention:\n" +
+			"  timezone: UTC\n" +
+			"  week_starts_on: monday\n"
+		if err := os.WriteFile(filepath.Join(dir, "config", "config.yaml"), []byte(config), 0o644); err != nil {
+			t.Fatalf("WriteFile config.yaml: %v", err)
 		}
 	}
 	return dir
@@ -147,8 +198,17 @@ func containerState(t *testing.T, id string) string {
 // backup-freshness verdict is negative, and the web UI still starts and
 // serves.
 func TestComposeStack_FreshInstallBringsUpTheWebUI(t *testing.T) {
+	// No configuration yet: the engine writes its default, and `status`
+	// says first run and exits 0 (#1049).
+	t.Run("NoConfigurationYet", func(t *testing.T) { freshInstallBringsUpTheWebUI(t, false) })
+	// A backup set that has never run: the verdict #206 was about, still
+	// negative, and the web UI still has to come up.
+	t.Run("BackupSetNeverRun", func(t *testing.T) { freshInstallBringsUpTheWebUI(t, true) })
+}
+
+func freshInstallBringsUpTheWebUI(t *testing.T, neverRun bool) {
 	image := buildImage(t)
-	dir := freshInstall(t)
+	dir := freshInstall(t, neverRun)
 
 	project, out, err := upComposeFiles(t, image, freshInstallEnvFile(t, dir, 0), canonicalComposeFiles(t))
 	if err != nil {
@@ -165,15 +225,24 @@ func TestComposeStack_FreshInstallBringsUpTheWebUI(t *testing.T) {
 			got, "healthy", lastHealthOutput(t, engineID), logs)
 	}
 
-	// The control that makes the line above mean something. If this
-	// exits 0 the fixture is not a fresh install at all, and the test
-	// would pass just as happily against the engine health check that
-	// shipped.
+	// The control that makes the line above mean something. For the
+	// never-run fixture, an exit of 0 means it is not a negative verdict at
+	// all, and the test would pass just as happily against the engine
+	// health check that shipped. For the empty one, #1049 says the opposite:
+	// it must exit 0 and say it is the first run, so a non-zero exit there
+	// means the first-run notice regressed into a failure.
 	code, statusOut := statusExitCode(t, engineID)
-	if code == 0 {
-		t.Fatalf("`retnd status` exited 0 inside the fresh install this test is built on, so the fixture is already healthy and proves nothing about #206; status said:\n%s", statusOut)
+	if neverRun {
+		if code == 0 {
+			t.Fatalf("`retnd status` exited 0 inside the install whose only backup set has never run, so the fixture is already healthy and proves nothing about #206; status said:\n%s", statusOut)
+		}
+		t.Logf("`retnd status` exited %d on this install, as FR-24 intends:\n%s", code, statusOut)
+	} else {
+		if code != 0 || !strings.Contains(statusOut, "first run") {
+			t.Fatalf("`retnd status` on an install with no configuration yet exited %d and said %q, want exit 0 and the first-run notice (#1049)", code, statusOut)
+		}
+		t.Logf("`retnd status` exited 0 with the first-run notice, as #1049 intends:\n%s", statusOut)
 	}
-	t.Logf("`retnd status` exited %d on this fresh install, as FR-24 intends:\n%s", code, statusOut)
 
 	// The web UI container: it exists, it is running, and its own health
 	// check passes.
@@ -272,7 +341,10 @@ func statusGateOverride(t *testing.T, dir string) string {
 // asking about backup freshness.
 func TestComposeStack_TheBackupFreshnessVerdictAsAStartGateKeepsTheWebUIDown(t *testing.T) {
 	image := buildImage(t)
-	dir := freshInstall(t)
+	// The never-run fixture, not the empty one: since #1049 an install with
+	// no configuration yet reports status 0, so only a backup set that has
+	// never run still gives the start gate the negative verdict to trip on.
+	dir := freshInstall(t, true)
 	override := statusGateOverride(t, dir)
 
 	project, out, err := upComposeFiles(t, image, freshInstallEnvFile(t, dir, 0), canonicalComposeFiles(t, override))

@@ -23,6 +23,7 @@ import { PageHeader } from "@shared/components/PageHeader";
 import { StatusBadge } from "@shared/components/StatusBadge";
 import { RetentionBadges, RetentionPolicyBadge } from "@shared/components/RetentionBadge";
 import { LifecycleTimeline } from "@shared/components/LifecycleTimeline";
+import { ArtifactAssuranceCard } from "@shared/assurance/RecoverArtifact";
 import { PlacementList } from "@shared/components/PlacementList";
 import { ErrorState } from "@shared/components/EmptyState";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
@@ -155,12 +156,14 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
         title={
           <span style={{ display: "inline-flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <span className="mono" style={{ fontSize: 19 }}>{a.filename}</span>
-            <StatusBadge
-              tone={a.validation === "verified" ? "ok" : "danger"}
-              icon={a.validation === "verified" ? "success" : "failure"}
-            >
-              {a.validation === "verified" ? "Verified" : "Failed"}
-            </StatusBadge>
+            {/* The green "Verified" that stood here said an ingest-time check had
+                passed, next to the Assurance card below that says what is known now.
+                That badge is retired (EPIC Q). A validation that failed is still said. */}
+            {a.validation === "failed" ? (
+              <StatusBadge tone="danger" icon="failure">
+                Failed validation
+              </StatusBadge>
+            ) : null}
             {/* One or the other, never both (issue #523). A backup whose
                 set was removed still has the tiers the journal last
                 recorded, and showing them here would say a chain is
@@ -173,6 +176,8 @@ export function BackupDetailPage({ readOnly = false }: { readOnly?: boolean }) {
           </span>
         }
       />
+
+      <ArtifactAssuranceCard artifactId={a.id} readOnly={readOnly} />
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 14, alignItems: "start" }}>
         <section className="card">

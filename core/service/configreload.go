@@ -112,6 +112,15 @@ func (b *BackupService) adoptConfig(cfg *config.Config) string {
 	// configuration reload must not be the thing that quietly switches
 	// one on.
 	newInner.Workflow = prevInner.Workflow
+	// And the stage runner, which is this service and so never changes, but
+	// a reload that forgot it would silence every assurance notification
+	// and turn every recovery test validator into "not configured".
+	newInner.Stages = prevInner.Stages
+	newInner.Recoverer = prevInner.Recoverer
+	// What has been announced is a property of the process, not of one
+	// configuration: a reload that dropped it would announce every standing
+	// failure again.
+	newInner.AdoptAssuranceEpisodes(prevInner)
 	// Before the store, deliberately: see this function's doc.
 	newInner.AdoptPollSchedule(prevInner)
 	revision := computeConfigRevision(cfg)

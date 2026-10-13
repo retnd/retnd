@@ -706,8 +706,9 @@ export class Clip {
    * @param {number=} opts.width output width in pixels
    * @param {number=} opts.colors palette size
    * @param {number=} opts.pad padding around the crop selector
+   * @param {string=} opts.outDir where the GIF is written, docs/site/screens/ by default
    */
-  constructor(page, name, { clip = null, width = 900, pad = 0, colors = 64 } = {}) {
+  constructor(page, name, { clip = null, width = 900, pad = 0, colors = 64, outDir = SCREENS } = {}) {
     // Validated, because `name` decides a path. It used to be concatenated
     // into a directory under docs/site/screens/ which the constructor then
     // deleted, so `new Clip(page, "../..")` resolved to docs/site and
@@ -725,6 +726,7 @@ export class Clip {
     this.width = width;
     this.pad = pad;
     this.colors = colors;
+    this.outDir = outDir;
     this.frames = [];
     // Frames go to a fresh temporary directory OUTSIDE the repository.
     // They used to be written to a dot-directory inside
@@ -826,7 +828,7 @@ export class Clip {
     const listFile = resolve(this.dir, "frames.txt");
     writeFileSync(listFile, list.join("\n") + "\n");
 
-    const out = resolve(SCREENS, this.name + ".gif");
+    const out = resolve(this.outDir, this.name + ".gif");
     const bin = ffmpeg();
     const filter =
       "scale=" + this.width + ":-2:flags=lanczos,split[a][b];" +

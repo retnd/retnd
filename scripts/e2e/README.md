@@ -317,3 +317,64 @@ sessions in its own process, so the app may land on the sign-in form, and the
 check signs in again and then requires a real feed (or the healthy empty
 state) with no error alert. An uncaught exception is never excused by the
 outage window, unlike the 502s and failed requests the window asked for.
+
+## EPIC Q's suites, and what this gate runs of them
+
+EPIC Q (#953, recovery and assurance) has black-box cases in all three suites in
+`retnd/retnd-tests`, and this gate runs two of the three, one of them in part. I wrote it down because
+the matrix at `docs/conformance/epic-q-matrix.md` says "Suites A, B and C green at the new pin", and
+that sentence is only as strong as what the gate actually executes.
+
+| Suite | What EPIC Q adds there | What this gate runs |
+|---|---|---|
+| A, the CLI contract | twenty-four cases under `assurance/`, `scrub/` and `recover/`: the default resolver, per-set inherit and override, the cadence floor, a clean and a corrupted local copy, the recover refusals and their exit codes | the `smoke` slice only. Two of the new cases carry the tag; the other twenty-two run under `make suite-a`, which this gate does not call |
+| B, the web UI | `recovery-and-assurance.986.spec.ts`: a browser download completing while `POST /api/v1/operations` is still refused, the assurance cards at their default, the three claims on a backup | all of it, through `three-machine-web-ui.sh`, which is the point of that rig |
+| C, UI to CLI equivalence | `assurance-recovery.986.spec.ts`: the global and per-set policy, a browser download against `--to -`, a staged recovery against `--to NAME`, and a corrupted copy refused on both routes with the same sentence and exit status 14 | not run by this gate at all (`make suite-c` over there) |
+
+So a green gate here is not evidence about Suite C or about the non-smoke part of Suite A, and the
+pull request that moves `tests-repo.pin` for EPIC Q has to say what it ran by hand. What is a gap in
+the gate itself (Suite C absent, Suite A only in part) is recorded here rather than fixed in this
+change, because widening what the per-commit gate runs is a decision about its cost.
+
+The pin moves only to a commit that is on `main` in `retnd-tests`, never to a branch head: a squash
+rewrites the head, and a pin that names a commit in no history cannot be cloned once the branch is
+gone. The pin used to name `c75e4dd`, which was #87's own head and not an ancestor of that
+repository's `main`. #1073 moved it to `9584fa3`, the squash of #87 with the identical tree, and
+every move after that reads off `main` the same way, so `tests-repo.pin` itself is where to look
+for the commit it names today.
+
+## A deployment nobody has configured (`--fresh`)
+
+`retnd#1049` is the first install: the browser opens a deployment that has an
+administrator and nothing else. The default rig cannot show that, because it
+seeds a backup set and runs a cycle before the browser arrives, so every case
+that is about a first install writes `needs(isFresh(facts))` and skips itself
+here. A skip is the same colour as a pass, which is how those cases went
+unrun.
+
+```sh
+scripts/e2e/three-machine-web-ui.sh --fresh --break-engine \
+  --suite ../retnd-tests/suites/web-ui -- .1049.spec.ts
+```
+
+`--fresh` does one thing: it leaves out the seeding. The administrator is
+enrolled (a browser has to sign in), but no backup set is created, no cycle is
+run, and the engine starts against an empty configuration directory, so it
+writes its own default configuration on first start, exactly as it does on a
+real first install. `RETND_BACKUP_SET` is not set, and `--no-workflows` is
+implied, because every workflow scenario is a backup set. `--break-engine` is
+the one flag worth adding: the Copy details and unreachable-banner cases need
+the engine control channel as well as a fresh deployment, and without it they
+skip for that reason instead.
+
+Everything after a bare `--` goes to the `npx playwright test` the client
+container runs, so a run can be narrowed to the specs whose path matches
+(`.1049.spec.ts` above) and can ask for the JSON reporter. The client container
+has `PLAYWRIGHT_JSON_OUTPUT_NAME` set to `/artifacts/playwright-report.json`,
+which is `playwright-report.json` in `--artifacts`.
+
+`scripts/bdtools/e2e/run_tests_repo_gate.py` runs exactly that against the
+pinned tests checkout (the `fresh_first_run_half` step) and **fails the commit if
+any `*.1049.spec.ts` case skipped**, or if none ran, or if the report is
+missing. The report is the check, not the exit status: Playwright exits 0 for a
+run in which every case skipped.

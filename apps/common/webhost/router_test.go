@@ -102,6 +102,13 @@ func TestNoAPIRouteBypassesAuthentication(t *testing.T) {
 // this list, is the CSRF one: see its own doc for why the two are
 // separate tests.)
 var destructiveGateExemptRoutes = map[string]bool{
+	// EPIC Q (#976): recovery reads. The mint authorises one read of one
+	// retained copy and deletes or overwrites nothing; the gate that
+	// guards destruction is not the guard for that, and gating it would
+	// ship recovery refused on every deployment this repository builds.
+	// The authorisation is a bound, single-use, audited grant instead.
+	"POST /api/v1/backups/{source}/{set}/{name}/recovery": true,
+
 	// Issue #146 (B2.7): every one of these is "state-changing but
 	// non-destructive" or outright read-only under
 	// docs/EPIC-B-multi-nas.md §50 ("create/edit backup set", "generate
@@ -271,7 +278,8 @@ var destructiveGateExemptRoutes = map[string]bool{
 	// protects. TestCompleteFirstRun_RefusesOnceConfigured pins that
 	// refusal by its typed code, so this entry's justification is a test
 	// and not just this comment.
-	"POST /api/v1/system/first-run": true,
+	"POST /api/v1/system/first-run":      true,
+	"POST /api/v1/system/first-run/skip": true,
 
 	// Issue #211. Each of these is state-changing but non-destructive
 	// under the same §50 reading, and each handler's own doc carries the
@@ -420,6 +428,32 @@ var destructiveGateExemptRoutes = map[string]bool{
 	"DELETE /api/v1/backup-sets/{source}/{set}/workflow/environment/{name}": true,
 	"POST /api/v1/workflow-recovery/{run}/resume-cleanup":                   true,
 	"POST /api/v1/workflow-recovery/{run}/acknowledge":                      true,
+
+	// EPIC Q's assurance configuration (Q1.4, #982). Three writes, all
+	// configuration: they rewrite one block of config.yaml and hot-reload,
+	// the class PATCH /settings above sits in. None reaches a backup datum.
+	// A scrub cadence or a recovery-test mode changes WHEN the product
+	// reads a copy, never what it keeps, so it is not the deletion class
+	// this list guards. Turning the recovery test off or lengthening a
+	// cadence is a weaker posture, and that is exactly the case
+	// PATCH /settings already settles for turning FR-19's protection off:
+	// the posture is visible in the response and on the feed, and nothing
+	// here can cause an unattended deletion.
+	"PATCH /api/v1/settings/assurance":                    true,
+	"PATCH /api/v1/backup-sets/{source}/{set}/assurance":  true,
+	"DELETE /api/v1/backup-sets/{source}/{set}/assurance": true,
+
+	// A recovery test reads one copy through the recovery engine and writes a
+	// claim on that copy. It deletes and overwrites nothing, so it sits in the
+	// tier the recovery mint does: CSRF, and no destructive gate.
+	"POST /api/v1/backup-sets/{source}/{set}/recovery-test": true,
+
+	// Scrub now reads a set's copies and writes a verdict on each, and
+	// deletes nothing. Cancel stops one of those reads, or a recovery test,
+	// and is not under /operations for exactly that reason: stopping a read
+	// has to work on a deployment whose destructive gate is shut.
+	"POST /api/v1/backup-sets/{source}/{set}/scrub": true,
+	"POST /api/v1/assurance/operations/{op}/cancel": true,
 }
 
 // TestEveryMutatingAPIRouteRefusesARequestWithNoCSRFPair walks the route

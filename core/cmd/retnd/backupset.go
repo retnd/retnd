@@ -54,6 +54,10 @@ var backupSetVerbs = map[string]func([]string) int{
 	// (`workflow env <source/backup-set> list|set|unset`), which is why
 	// its refusals name the whole form rather than the verb.
 	"workflow": cmdBackupSetWorkflow,
+	// The set's assurance policy (EPIC Q, Q1.4, #982). Its own flag set,
+	// like the entries above: --scrub-cadence and friends mean nothing to
+	// declareBackupSetFlags.
+	"assurance": cmdBackupSetAssurance,
 }
 
 // backupSetSharedFlagVerbs are the verbs that share declareBackupSetFlags

@@ -226,6 +226,10 @@ check starts failing, loudly, on the next run rather than months later.
    manifest, flips `image.published` to true, updates the installer's carried
    digest, regenerates and verifies the bundle, and lands one merge commit on
    `main`. There is no manual post-publish metadata pull request.
+8. The same run then builds the CLI tarballs (`cli-binaries`), smoke-tests the macOS
+   one (`cli-darwin-smoke`) and creates the `v<x.y.z>` GitHub Release with the four
+   tarballs and `SHA256SUMS` (`github-release`). That release is the first and only
+   place the Git tag appears, so nobody tags by hand.
 
 ## The first cut, and why it was different
 

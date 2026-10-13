@@ -55,7 +55,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"runtime"
 	"strings"
 	"syscall"
@@ -64,6 +63,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/retnd/retnd/core/internal/obs"
+	"github.com/retnd/retnd/core/internal/procseam"
 )
 
 // keyCommandTimeout bounds how long a `command` key resolver is allowed to
@@ -214,7 +214,7 @@ func runResolverCommand(argv []string, limit int) (*boundedBuffer, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), keyCommandTimeout)
 	defer cancel()
 
-	c := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	c := procseam.CommandContext(ctx, argv[0], argv[1:]...)
 
 	// A fixed, minimal environment, never this process's own os.Environ():
 	// the resolver command is meant to be self-sufficient (an absolute

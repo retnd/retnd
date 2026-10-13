@@ -278,6 +278,7 @@ describe("every request the shared client makes is a declared operation", () => 
       ["getVersion", () => httpApi.getVersion()],
       ["getHealth", () => httpApi.getHealth()],
       ["getFirstRunStatus", () => httpApi.getFirstRunStatus()],
+      ["skipFirstRunStep", () => httpApi.skipFirstRunStep("email")],
       // Issue #176. Driven with the same spec createBackupSet is driven
       // with, deliberately: both operations declare the contract's
       // BackupSetSpec, and this list is what proves each one's REQUEST
@@ -487,6 +488,24 @@ describe("every request the shared client makes is a declared operation", () => 
       ["resumeWorkflowCleanup", () => httpApi.resumeWorkflowCleanup("wfr_1")],
       ["acknowledgeWorkflowRecovery", () =>
         httpApi.acknowledgeWorkflowRecovery("wfr_1", "thawed the database by hand")],
+      // EPIC Q's recovery pair (#976), reached by the Recover artifact dialog.
+      ["mintRecovery", () => httpApi.mintRecovery("src/set-1/a.tar.gz", { target: { kind: "staging", path: "restore-1" }, acknowledged: true })],
+      ["redeemRecovery", () => httpApi.redeemRecovery("grant-token")],
+      // EPIC Q's "run a recovery test now" (#980, issue #985): reached by the
+      // Run recovery test control on the set's Assurance section.
+      ["startRecoveryTest", () => httpApi.startRecoveryTest("src", "set-1", { acknowledged: true })],
+      // The three operator controls the set page's Assurance section draws
+      // (#985): Scrub now, Cancel and Show validator output.
+      ["startScrub", () => httpApi.startScrub("src", "set-1")],
+      ["cancelAssuranceOperation", () => httpApi.cancelAssuranceOperation("op-1")],
+      ["getRecoveryTestOutput", () => httpApi.getRecoveryTestOutput("src", "set-1")],
+      // EPIC Q's assurance surface (Q1.4, #982).
+      ["getAssuranceSettings", () => httpApi.getAssuranceSettings()],
+      ["patchAssuranceSettings", () => httpApi.patchAssuranceSettings({ scrubCadenceSeconds: 43_200 })],
+      ["getBackupSetAssurance", () => httpApi.getBackupSetAssurance("src", "set-1")],
+      ["patchBackupSetAssurance", () => httpApi.patchBackupSetAssurance("src", "set-1", { scrubCadenceSeconds: 7_200 })],
+      ["resetBackupSetAssurance", () => httpApi.resetBackupSetAssurance("src", "set-1")],
+      ["listAssuranceDue", () => httpApi.listAssuranceDue({ backupSetId: "src/set-1", status: "overdue" })],
       ["getWorkflowSettings", () => httpApi.getWorkflowSettings()],
       ["patchWorkflowSettings", () => httpApi.patchWorkflowSettings({ scriptTimeoutSeconds: 300 })],
       ["listWorkflowEnvironment", () => httpApi.listWorkflowEnvironment()],
@@ -663,6 +682,13 @@ describe("every request the shared client makes is a declared operation", () => 
     // the exact assertion below enforces in both directions.
     "getSession",
     "getSystemCapabilities"
+    //
+    // EPIC Q's recovery pair (#976), mintRecovery and redeemRecovery, used to
+    // be pinned here as "unreached until a screen calls them". The Recover
+    // artifact dialog (#985) calls both, so they left this list in the same
+    // commit as the screen, which is the mechanism working as the paragraph
+    // above describes. startRecoveryTest (#980) followed the same way: the
+    // Run recovery test control calls it, so it is not pinned here either.
   ];
 
   it("pins the contract operations no client call reaches", () => {

@@ -186,6 +186,14 @@
   </section>
 
   <section>
+    <h2 id="checks">Checking a copy now, following it, and stopping it</h2>
+    <p>The schedule is not the only thing that checks your copies. <strong>Scrub now</strong> re-checks every copy of a set straight away, and <strong>Run recovery test</strong> recovers the newest known good copy and runs your validator against it. Both start in the background and answer at once with an operation id, which is why closing the page does not stop either. This section has no clip yet, so it describes the controls rather than showing them.</p>
+    <p>While one is running it has a <strong>Cancel</strong> control. Pressing it does not stop the work on the spot: the operation reads <em>Cancelling</em> until its own end line arrives. A cancelled recovery test ends as a warning and not as a failed copy, because nobody saw the validator answer. Pressing <strong>Run recovery test</strong> while one is already running for the set joins the running one: the validator runs once, and each press still gets its own receipt.</p>
+    <p>What the newest recovery test printed is the <strong>Validator output</strong>, opened with <strong>Show validator output</strong>. It is kept, but bounded: 200 lines, 1 KiB a line, 32 KiB in all, with a closing line saying so when anything was cut. The terminal equivalents are <code>retnd scrub</code>, <code>retnd recovery-test --show-output</code> and <code>retnd assurance cancel</code>; the full reference is in <a href="reference.html#web-set-detail">Backup set detail</a>.</p>
+    <p>A download from <strong>Recover artifact</strong> is handled by your browser&rsquo;s own download manager, so the page does not draw a progress bar of its own. What it shows afterwards is how the download ended: a badge reading <strong>Completed</strong>, <strong>Interrupted at N of M bytes</strong> or <strong>Failed verification</strong>. None of the three is drawn as a success. <strong>Completed</strong> is neutral on purpose: it means the bytes were sent and matched the recorded digest, not that your browser kept the file. See <a href="reference.html#web-backup-detail">Backup detail</a> for what each means.</p>
+  </section>
+
+  <section>
     <h2 id="theme">Dark mode</h2>
     <p>The defect <a href="https://github.com/retnd/retnd/issues/618">#618</a> fixed was not that dark mode looked bad. It was that the application painted its own surfaces dark and left every native control at the browser's default, so a <code>select</code>, a number input and a file field drew black text on a dark field. It read correctly in light mode, where the browser's default happens to match, which is why it survived so long.</p>
   <figure class="wide">
@@ -236,7 +244,7 @@
 </main>
 
 <footer>
-  <p>retnd is Apache-2.0 licensed. <a href="https://github.com/retnd/retnd">View on GitHub</a></p>
+  <p>retnd is MIT licensed. <a href="https://github.com/retnd/retnd">View on GitHub</a></p>
   <p>Pictures taken against the development fixture API. No picture or clip on this page is evidence about a running engine.</p>
 </footer>
 

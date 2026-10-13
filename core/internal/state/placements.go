@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -99,6 +100,12 @@ const (
 // no local copy at all after one, and neither of those is expressible in a
 // single local_path column.
 type Placement struct {
+	// ID is this copy's row id in the placements table, the "placement id" a
+	// recovery test and a support conversation name a copy by. It is zero on
+	// a Placement built by hand and never part of an identity: a copy is
+	// still (artifact, medium).
+	ID int64
+
 	// Medium is MediumLocal or the id of a configured storage medium.
 	Medium string
 
@@ -130,6 +137,11 @@ type Placement struct {
 
 	CreatedAt time.Time
 	UpdatedAt time.Time
+
+	// The per-copy assurance record (migration 0016, EPIC Q). Nothing in
+	// it is a claim until a scrub or a recovery test wrote it: the zero
+	// value of every field is the one that cannot look good.
+	Assurance
 }
 
 // IsLocal reports whether this placement is the local one.
@@ -274,13 +286,14 @@ func (r Record) ActiveMediumPlacements() []Placement {
 // artifact_id, to key its map by, which is why it does its own Scan rather
 // than calling scanPlacement.
 const placementColumns = `
-	medium, location, size_bytes, hash, hash_alg,
-	verification_class, verified_at, status, created_at, updated_at`
+	p.id, p.medium, p.location, p.size_bytes, p.hash, p.hash_alg,
+	p.verification_class, p.verified_at, p.status, p.created_at, p.updated_at,
+	` + assuranceColumns
 
 // loadPlacements reads the placements for one artifact row.
 func loadPlacements(ctx context.Context, q querier, artifactRowID int64) ([]Placement, error) {
 	rows, err := q.QueryContext(ctx,
-		`SELECT `+placementColumns+` FROM placements WHERE artifact_id = ? ORDER BY medium`,
+		`SELECT `+placementColumns+` FROM `+placementFrom+` WHERE p.artifact_id = ? ORDER BY p.medium`,
 		artifactRowID)
 	if err != nil {
 		return nil, fmt.Errorf("state: read placements: %w", err)
@@ -336,10 +349,10 @@ func loadPlacements(ctx context.Context, q querier, artifactRowID int64) ([]Plac
 func loadPlacementsFor(ctx context.Context, q querier, artifactWhere string, args ...any) (map[int64][]Placement, error) {
 	out := map[int64][]Placement{}
 	rows, err := q.QueryContext(ctx,
-		`SELECT artifact_id, `+placementColumns+
-			` FROM placements
-			  WHERE artifact_id IN (SELECT a.id FROM artifacts a WHERE `+artifactWhere+`)
-			  ORDER BY artifact_id, medium`,
+		`SELECT p.artifact_id, `+placementColumns+
+			` FROM `+placementFrom+`
+			  WHERE p.artifact_id IN (SELECT a.id FROM artifacts a WHERE `+artifactWhere+`)
+			  ORDER BY p.artifact_id, p.medium`,
 		args...)
 	if err != nil {
 		return nil, fmt.Errorf("state: read placements: %w", err)
@@ -347,19 +360,14 @@ func loadPlacementsFor(ctx context.Context, q querier, artifactWhere string, arg
 	defer rows.Close()
 
 	for rows.Next() {
-		var artifactRowID int64
 		var (
-			medium, location, hash, hashAlg string
-			verificationClass, status       string
-			size                            sql.NullInt64
-			verifiedAt                      sql.NullString
-			createdAt, updatedAt            string
+			artifactRowID int64
+			f             placementFields
 		)
-		if err := rows.Scan(&artifactRowID, &medium, &location, &size, &hash, &hashAlg,
-			&verificationClass, &verifiedAt, &status, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(append([]any{&artifactRowID}, f.dests()...)...); err != nil {
 			return nil, fmt.Errorf("state: scan placement: %w", err)
 		}
-		p, err := buildPlacement(medium, location, size, hash, hashAlg, verificationClass, verifiedAt, status, createdAt, updatedAt)
+		p, err := f.build()
 		if err != nil {
 			return nil, err
 		}
@@ -372,56 +380,77 @@ func loadPlacementsFor(ctx context.Context, q querier, artifactWhere string, arg
 }
 
 func scanPlacement(row scanRow) (Placement, error) {
-	var (
-		medium, location, hash, hashAlg string
-		verificationClass, status       string
-		size                            sql.NullInt64
-		verifiedAt                      sql.NullString
-		createdAt, updatedAt            string
-	)
-	if err := row.Scan(&medium, &location, &size, &hash, &hashAlg,
-		&verificationClass, &verifiedAt, &status, &createdAt, &updatedAt); err != nil {
+	var f placementFields
+	if err := row.Scan(f.dests()...); err != nil {
 		return Placement{}, fmt.Errorf("state: scan placement: %w", err)
 	}
-	return buildPlacement(medium, location, size, hash, hashAlg, verificationClass, verifiedAt, status, createdAt, updatedAt)
+	return f.build()
 }
 
-// buildPlacement is the one place a stored placement becomes a Placement,
-// shared by both readers so the nullable columns are interpreted the same
-// way whichever query produced them.
+// placementFields is one stored placement exactly as the driver hands it
+// back, before the nullable columns are interpreted.
+//
+// It is a struct, and not a long parameter list, because migration 0016
+// took the record from ten columns to over thirty, and a positional list
+// that long is where two readers disagree by one column and hand a failure
+// count back as a byte count. dests and build are the only places that
+// know the order, and placementColumns (with assuranceColumns) is the third,
+// kept beside them.
+type placementFields struct {
+	id                              int64
+	medium, location, hash, hashAlg string
+	verificationClass, status       string
+	size                            sql.NullInt64
+	verifiedAt                      sql.NullString
+	createdAt, updatedAt            string
+	assurance                       assuranceFields
+}
+
+func (f *placementFields) dests() []any {
+	return append([]any{
+		&f.id, &f.medium, &f.location, &f.size, &f.hash, &f.hashAlg,
+		&f.verificationClass, &f.verifiedAt, &f.status, &f.createdAt, &f.updatedAt,
+	}, f.assurance.dests()...)
+}
+
+// build is the one place a stored placement becomes a Placement, shared by
+// both readers so the nullable columns are interpreted the same way
+// whichever query produced them.
 //
 // A stored timestamp that will not parse fails the read rather than
 // becoming a zero time. verified_at in particular is what FR-31 answers
 // "when was this copy last proven" with, and a zero there is not a missing
 // answer, it is a very old one.
-func buildPlacement(
-	medium, location string, size sql.NullInt64, hash, hashAlg string,
-	verificationClass string, verifiedAt sql.NullString, status string,
-	createdAt, updatedAt string,
-) (Placement, error) {
-	created, err := parseTime(createdAt)
+func (f *placementFields) build() (Placement, error) {
+	created, err := parseTime(f.createdAt)
 	if err != nil {
-		return Placement{}, fmt.Errorf("state: stored placement created_at %q is invalid: %w", createdAt, err)
+		return Placement{}, fmt.Errorf("state: stored placement created_at %q is invalid: %w", f.createdAt, err)
 	}
-	updated, err := parseTime(updatedAt)
+	updated, err := parseTime(f.updatedAt)
 	if err != nil {
-		return Placement{}, fmt.Errorf("state: stored placement updated_at %q is invalid: %w", updatedAt, err)
+		return Placement{}, fmt.Errorf("state: stored placement updated_at %q is invalid: %w", f.updatedAt, err)
 	}
-	verified, err := scanOptionalTime(verifiedAt)
+	verified, err := scanOptionalTime(f.verifiedAt)
 	if err != nil {
 		return Placement{}, fmt.Errorf("state: stored placement verified_at is invalid: %w", err)
 	}
+	assurance, err := f.assurance.build()
+	if err != nil {
+		return Placement{}, err
+	}
 	return Placement{
-		Medium:            medium,
-		Location:          location,
-		Size:              scanOptionalInt64(size),
-		Hash:              hash,
-		HashAlg:           hashAlg,
-		VerificationClass: verificationClass,
+		ID:                f.id,
+		Medium:            f.medium,
+		Location:          f.location,
+		Size:              scanOptionalInt64(f.size),
+		Hash:              f.hash,
+		HashAlg:           f.hashAlg,
+		VerificationClass: f.verificationClass,
 		VerifiedAt:        verified,
-		Status:            status,
+		Status:            f.status,
 		CreatedAt:         created,
 		UpdatedAt:         updated,
+		Assurance:         assurance,
 	}, nil
 }
 
@@ -432,6 +461,17 @@ func buildPlacement(
 // the row's created_at is when this copy first came into being, and a
 // resumed upload writing the same placement again must not restart that
 // clock.
+//
+// # A claim dies with the bytes it was made about
+//
+// A scrub or a recovery test is a statement about the bytes a copy held when
+// it ran. When the row is rewritten to different bytes (a changed hash,
+// algorithm, size or location) or leaves ACTIVE, every such claim is deleted
+// with it; the next read of the copy is unknown and due. Rewriting identical
+// bytes (a resumed upload writing the same placement again) keeps what was
+// proven. Only a write that is itself a content verification moves the
+// content age, and it is the only door that does: an existence write for the
+// same bytes leaves it alone.
 func upsertPlacement(ctx context.Context, tx *sql.Tx, artifactRowID int64, p PlacementUpdate, now time.Time) error {
 	if p.Medium == "" {
 		return fmt.Errorf("state: a placement needs a medium")
@@ -445,7 +485,26 @@ func upsertPlacement(ctx context.Context, tx *sql.Tx, artifactRowID int64, p Pla
 	}
 	stamp := formatTime(now)
 
-	_, err := tx.ExecContext(ctx, `
+	var (
+		oldID     int64
+		oldLoc    string
+		oldSize   sql.NullInt64
+		oldHash   string
+		oldAlg    string
+		oldStatus string
+	)
+	existed := true
+	err := tx.QueryRowContext(ctx, `
+		SELECT id, location, size_bytes, hash, hash_alg, status
+		  FROM placements WHERE artifact_id = ? AND medium = ?`, artifactRowID, p.Medium).
+		Scan(&oldID, &oldLoc, &oldSize, &oldHash, &oldAlg, &oldStatus)
+	if errors.Is(err, sql.ErrNoRows) {
+		existed = false
+	} else if err != nil {
+		return fmt.Errorf("state: recording the %s placement: %w", p.Medium, err)
+	}
+
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO placements (
 			artifact_id, medium, location, size_bytes, hash, hash_alg,
 			verification_class, verified_at, status, created_at, updated_at
@@ -464,6 +523,33 @@ func upsertPlacement(ctx context.Context, tx *sql.Tx, artifactRowID int64, p Pla
 	)
 	if err != nil {
 		return fmt.Errorf("state: recording the %s placement: %w", p.Medium, err)
+	}
+
+	var id int64
+	if existed {
+		id = oldID
+		sameBytes := oldLoc == p.Location && oldHash == p.Hash && oldAlg == p.HashAlg &&
+			oldSize.Valid == (p.Size != nil) && (!oldSize.Valid || oldSize.Int64 == *p.Size)
+		if !sameBytes || oldStatus != PlacementActive || status != PlacementActive {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM placement_assurance WHERE placement_id = ?`, id); err != nil {
+				return fmt.Errorf("state: dropping the claims about the old %s copy: %w", p.Medium, err)
+			}
+		}
+	} else if err := tx.QueryRowContext(ctx,
+		`SELECT id FROM placements WHERE artifact_id = ? AND medium = ?`, artifactRowID, p.Medium).Scan(&id); err != nil {
+		return fmt.Errorf("state: recording the %s placement: %w", p.Medium, err)
+	}
+
+	// Ingestion's own verification (FR-13) read the bytes, so a freshly
+	// committed copy genuinely is content verified at that moment. An
+	// attested or existence write is not, whatever its verified_at says.
+	if p.VerificationClass == VerificationContent && p.VerifiedAt != nil && status == PlacementActive {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO placement_assurance (placement_id, content_verified_at) VALUES (?, ?)
+			ON CONFLICT (placement_id) DO UPDATE SET content_verified_at = excluded.content_verified_at`,
+			id, formatTime(*p.VerifiedAt)); err != nil {
+			return fmt.Errorf("state: recording the %s placement: %w", p.Medium, err)
+		}
 	}
 	return nil
 }

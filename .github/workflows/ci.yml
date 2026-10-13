@@ -484,6 +484,52 @@ jobs:
       # needing one tool, not this workflow taking on the linting the local
       # gate does.
 
+  docs-site-contrast:
+    name: docs site meets WCAG AA contrast in both themes (#1054)
+    runs-on: ubuntu-latest
+    # Its own job: it is the docs site's question, not a Go module's, and it
+    # needs a browser that no other job here has. The rule is WCAG 2.x AA,
+    # 4.5:1 for normal text and 3:1 for large text and control boundaries,
+    # against the colour of the background the text actually sits on, in
+    # BOTH themes. Two halves, because each catches what the other cannot:
+    # the token check names the token to change, and the rendered check sees
+    # the inherited colour, the opacity and the overlay that no token pair
+    # names (the pronunciation line shipped unreadable past a token check).
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: the colour tokens meet the rule, and the checker can still fail
+        run: bash scripts/contrast/check.sh
+
+      # The Playwright image is the one scripts/e2e/client-machine.Dockerfile
+      # pins by digest, and run-browser-check.sh passes that same digest, so
+      # the browsers are not downloaded here.
+      - name: every visible text node on every page, in both themes
+        run: bash scripts/contrast/run-browser-check.sh
+
+  modules-self-contained:
+    name: every Go module resolves its own dependencies without go.work (#1064)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.0"
+          cache: true
+          cache-dependency-path: core/go.sum
+
+      # go.work builds the tree on the highest version of every requirement,
+      # so a dependency bumped in core/ and not in the module that depends on
+      # it is green in every job above and red in the product image and under
+      # GOWORK=off (#1003, #797, #838). This is the same script
+      # scripts/ci-local.sh runs, so the two cannot drift apart.
+      - name: each module lists its dependency graph with GOWORK=off
+        run: bash scripts/tests/every-module-builds-on-its-own.test.sh
+
   brand-drift:
     name: no new RM_/BM_/bm_/rbm_/retnd/retndproject/rclone[-_ ]manager/retnd identifier (#794, #887)
     runs-on: ubuntu-latest
@@ -573,6 +619,27 @@ jobs:
 
       - name: the contract gates can actually fail (mutation self-test)
         run: bash scripts/api/selftest.sh
+
+  api-generator-deterministic:
+    name: the contract generator answers the same way every time (#1066)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.0"
+          cache: true
+          cache-dependency-path: core/go.sum
+
+      # check-contract-drift.sh regenerates and compares, so a generator that
+      # can answer two ways fails a clean tree about half the time. This
+      # plants an operation with two success statuses and runs the generator
+      # twelve times over it. It is the same script scripts/ci-local.sh runs.
+      - name: twelve generator runs over a two-success contract agree
+        run: bash scripts/tests/api-generator-is-deterministic.test.sh
 
   dependency-rules:
     name: repository-structure dependency rules (§7.1, three layers per #165)
@@ -899,6 +966,78 @@ jobs:
         run: |
           df -h / /var/lib/docker 2>/dev/null || df -h /
 
+  epic-q-gate:
+    name: EPIC Q assurance matrix, parity gates and mutation self-test (#988)
+    runs-on: ubuntu-latest
+    # A job of its own for the reason workflow-gate gives: core's job already
+    # runs every test here, and what is different is that this is the one
+    # place the epic's closing claims are read together. The matrix at
+    # docs/conformance/epic-q-matrix.md is held to the tree (every proof
+    # resolves, every PASS cites a mutation that exists, no row is BLOCKED),
+    # the parity gates the release gate names run, and the assurance
+    # self-test plants each guard's violation and shows it go red. Full
+    # history, because the state package's migration test anchors to
+    # origin/release.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.0"
+
+      - name: the matrix holds, and its checker can still fail
+        working-directory: core
+        run: go test -count=1 ./tests/assurancegate/
+
+      - name: the parity gates
+        run: |
+          (cd core && GOWORK=off go test -count=1 ./cmd/retnd/ -run 'TestNoGapClaimsAVerbThisBinaryShips|TestARefusalIsTheSameOnBothRoutes')
+          (cd apps/common && go test -count=1 ./webhost/ -run 'TestEveryAPIRouteNamesItsCLIEquivalentOrTheGap')
+          (cd distribution && GOWORK=off go test -count=1 ./packaging/ -run 'TestTheSiteReference')
+          bash scripts/api/check-contract-drift.sh
+
+      - name: the assurance guards can actually fail (mutation self-test, #988)
+        run: bash scripts/assurance/selftest.sh
+
+  recovery-captures:
+    name: the recovery and assurance captures reproduce byte for byte (#988)
+    runs-on: ubuntu-latest
+    # Playwright comes from the public npm registry, not from the retnd-tests
+    # checkout the harness would otherwise borrow it from. That repository is
+    # private, and this job's token cannot read it (the hosted run died in
+    # `git fetch` with "could not read Username", exit 128, before a single
+    # picture was taken), so the job never reached what it exists to check.
+    # playwright-core goes into ui/shared with --no-save, which is the last
+    # candidate the harness looks in, so nothing is added to package.json
+    # (#158 stands) and no credential is involved. What is asserted is
+    # reproducibility (two passes, one dev server, identical bytes), not
+    # equality with the committed files: those were shot on one machine's
+    # fonts and a runner's are another's.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: the shared UI's dependencies
+        run: cd ui/shared && npm ci --silent
+
+      - name: Playwright and its browser, outside package.json
+        run: |
+          cd ui/shared
+          npm i --no-save --no-audit --no-fund --silent playwright-core@1.61.1
+          npx playwright-core install --with-deps chromium
+
+      - name: two passes, one dev server, byte-identical output
+        run: node docs/site/tools/capture-recovery-assurance.mjs --check
+
   release-gate:
     name: release gate
     # The single check to require in branch protection on `release`, and
@@ -930,11 +1069,16 @@ jobs:
       - frontend
       - provider-conformance
       - gofmt
+      - modules-self-contained
       - brand-drift
+      - docs-site-contrast
       - api-contract
+      - api-generator-deterministic
       - dependency-rules
       - gate-guards
       - workflow-gate
+      - epic-q-gate
+      - recovery-captures
       - two-machine-e2e
     runs-on: ubuntu-latest
     steps:

@@ -25,6 +25,7 @@
  * here is the footer naming what it is running on.
  */
 import { useCallback, useEffect, useState } from "react";
+import { OperationDetailPage } from "@shared/assurance/OperationDetailPage";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import "@shared/design-system/tokens.css";
 import "@shared/design-system/typography.css";
@@ -37,6 +38,8 @@ import { useResource } from "@shared/state/resource";
 import { configuredNode, countsNode, healthNode, operationsNode, quarantineNode, readOnlyNode, setsNode, versionNode } from "@shared/state/appNodes";
 import { AppShell } from "@shared/layouts/AppShell";
 import { WarningBanner } from "@shared/components/WarningBanner";
+import { FirstRunGuide } from "@shared/components/FirstRunGuide";
+import type { FirstRunStatus } from "@shared/api/contracts";
 import { RecoveryVerificationBanner } from "@shared/components/RecoveryVerificationBanner";
 import { DashboardPage } from "@shared/pages/DashboardPage";
 import { BackupSetsPage } from "@shared/pages/BackupSetsPage";
@@ -109,6 +112,8 @@ export function App() {
   // cannot be navigated, because the engine is not serving the new
   // configuration yet and a restart is the only thing that helps.
   const [restartRequired, setRestartRequired] = useState(false);
+  // retnd#1049: where the guided setup stands, from the same answer.
+  const [firstRun, setFirstRun] = useState<FirstRunStatus | null>(null);
 
   useEffect(() => {
     if (!auth?.authenticated) return;
@@ -116,7 +121,9 @@ export function App() {
     api
       .getFirstRunStatus()
       .then((status) => {
-        if (!cancelled) setConfigured(status.configured);
+        if (cancelled) return;
+        setConfigured(status.configured);
+        setFirstRun(status);
       })
       .catch(() => {
         // An instance that cannot answer this is far more likely to be an
@@ -146,6 +153,22 @@ export function App() {
   const health = useResource(healthNode, () => api.getHealth(), [api], signedIn);
   const version = useResource(versionNode, () => api.getVersion(), [api], signedIn);
   const sets = useResource(setsNode, () => api.listSets(), [api], signedIn);
+  // retnd#1049: the guide's backup-set step is derived from the sets that
+  // exist, so it is asked again when their number changes.
+  const setCount = sets.data?.length;
+  useEffect(() => {
+    if (!signedIn || setCount === undefined) return;
+    let cancelled = false;
+    api
+      .getFirstRunStatus()
+      .then((status) => {
+        if (!cancelled) setFirstRun(status);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [api, signedIn, setCount]);
   // Owns the one fetch of quarantineNode (#101, matching health/sets
   // above): the header's quarantine badge (countsNode, below) and
   // QuarantinePage's own list both read this same node, via the
@@ -250,28 +273,19 @@ export function App() {
           verified account, which is the overwhelmingly common case. */}
       <RecoveryVerificationBanner />
 
-      {configured ? null : (
-        // Deliberately no button of its own: the two pages that can act on
-        // this (the dashboard and the backup-sets list) already offer
-        // "Add backup set", and a banner repeating it puts the same
-        // primary action on one page twice.
-        // Not dismissible (#620), and for a reason the tone hides: this
-        // sits ABOVE <Routes>, so it is mounted once for the session and
-        // no navigation unmounts it. A dismissal here would last until a
-        // hard reload, and its body says "Until that is done nothing is
-        // backed up". An operator who clears that and forgets believes
-        // they have backups they do not have.
-        <WarningBanner
-          tone="info"
-          eyebrow="First run"
-          title="retnd has no configuration yet"
-          dismissible={false}
-        >
-          {"Add your first backup set, under Backup sets, and retnd writes its " +
-            "configuration for you. Until that is done nothing is backed up, and the " +
-            "pages here have nothing behind them to show."}
-        </WarningBanner>
-      )}
+      {/* retnd#1049: the guide replaces the old one-paragraph banner. It
+          is above <Routes> for the same reason that banner was, and is not
+          dismissible for the same reason (#620). It renders nothing once no
+          step is pending. */}
+      {firstRun ? (
+        <FirstRunGuide
+          status={firstRun}
+          configured={configured !== false}
+          onSkip={async (step) => {
+            setFirstRun(await api.skipFirstRunStep(step));
+          }}
+        />
+      ) : null}
 
       {readOnly && version.data ? (
         // Not dismissible (#620), same position above the outlet and a
@@ -352,6 +366,7 @@ export function App() {
             build the URL with workflowRunPath() (utilities/routes.ts). */}
         <Route path="/workflow-runs/:runId" element={<WorkflowRunPage readOnly={readOnly} />} />
         <Route path="/backups" element={<BackupsPage readOnly={readOnly} />} />
+        <Route path="/assurance/operations/:id" element={<OperationDetailPage readOnly={readOnly} />} />
         {/* And three, not one, for the same reason one route up: an
             artifact id (model.ArtifactID.String()) is a backup set id
             plus the file's name, so it is source, set and name, and the

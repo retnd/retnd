@@ -17,7 +17,7 @@
     "fails on any difference, so an undeclared dependency is a red build rather than",
     "a discrepancy nobody looks for."
   ],
-  "projectLicense": "Apache-2.0",
+  "projectLicense": "MIT",
   "components": [
     {
       "name": "github.com/Azure/azure-sdk-for-go/sdk/azcore",
@@ -1413,7 +1413,7 @@
     },
     {
       "name": "modernc.org/libc",
-      "version": "v1.75.6",
+      "version": "v1.77.1",
       "ecosystem": "go",
       "licenseId": "BSD-3-Clause",
       "licenseFile": "LICENSE",
@@ -1449,7 +1449,7 @@
     },
     {
       "name": "modernc.org/sqlite",
-      "version": "v1.58.0",
+      "version": "v1.60.1",
       "ecosystem": "go",
       "licenseId": "BSD-3-Clause",
       "licenseFile": "LICENSE",

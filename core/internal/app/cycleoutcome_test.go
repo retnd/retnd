@@ -597,15 +597,13 @@ func TestRunCycle_SaysSoWhenNoBackupSetsAreConfigured(t *testing.T) {
 		t.Fatalf("precondition: report.Sets = %+v, want none for a configuration with no backup sets in it", report.Sets)
 	}
 
-	msgs := cycleErrors(t, stream.String())
-	if len(msgs) != 1 {
-		t.Fatalf("op=cycle errors = %v, want exactly one saying this cycle had no backup sets to run at all.\nstream:\n%s", msgs, stream.String())
+	// Since retnd#1049 an empty configuration is a normal first-run state:
+	// it is said once per cycle at INFO, and never at ERROR.
+	if msgs := cycleErrors(t, stream.String()); len(msgs) != 0 {
+		t.Fatalf("op=cycle errors = %v, want none: nothing configured is not a failure\nstream:\n%s", msgs, stream.String())
 	}
-	if !strings.Contains(msgs[0], "no backup sets are configured") {
-		t.Errorf("message = %q, want it to name this reason specifically: there is nothing configured", msgs[0])
-	}
-	if strings.Contains(msgs[0], "disabled") || strings.Contains(msgs[0], "held") {
-		t.Errorf("message = %q, but nothing is configured here; sending an operator to look for switched-off sets that do not exist is a different problem from the one they have", msgs[0])
+	if !strings.Contains(stream.String(), `"event":"cycle_empty"`) || !strings.Contains(stream.String(), "no backup sets are configured") {
+		t.Errorf("the cycle did not say, at INFO, that no backup sets are configured\nstream:\n%s", stream.String())
 	}
 }
 

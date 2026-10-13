@@ -196,7 +196,11 @@ func TestOnlyTheEngineRefusalGetsTheRetryableCode(t *testing.T) {
 		args []string
 		want int
 	}{
-		{"a configuration that is not there", []string{"check", "--config", absent}, exitFailure},
+		// A fresh install is a state and not a failure (retnd#1049), so
+		// check says so and exits 0; a verb that needs a backup set to act
+		// on keeps its non-zero exit.
+		{"a configuration that is not there", []string{"check", "--config", absent}, exitOK},
+		{"a verb that needs a set, on a fresh install", []string{"fetch", "--backup-set", "a/b", "--config", absent}, exitFailure},
 		{"an artifact nobody has", []string{"artifacts", "--config", configPath, "production/postgres-primary/no-such.dump"}, exitFailure},
 		{"an unknown command", []string{"definitely-not-a-command"}, exitUsage},
 		{"an unknown flag", []string{"check", "--config", configPath, "--nope"}, exitUsage},

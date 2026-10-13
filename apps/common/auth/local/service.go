@@ -426,3 +426,47 @@ func (s *Service) PrintBootstrapNotice(w io.Writer, baseURL string) error {
 	}
 	return err
 }
+
+// AdministratorCreated reports whether enrollment has happened, for the
+// first-run guide (retnd#1049). A store that cannot be read reports false:
+// the guide would rather offer a step that turns out to be done than hide
+// one that is not.
+func (s *Service) AdministratorCreated() bool {
+	admin, err := s.store.Admin()
+	return err == nil && admin != nil
+}
+
+// EmailConfigured reports whether a mail server has been set up for
+// account recovery, for the first-run guide (retnd#1049).
+func (s *Service) EmailConfigured() bool {
+	rec, err := s.store.SMTP()
+	return err == nil && rec != nil
+}
+
+// SetupSkips returns the guide steps that were skipped, durably.
+func (s *Service) SetupSkips() []string {
+	skips, err := s.store.SetupSkips()
+	if err != nil {
+		return nil
+	}
+	return skips
+}
+
+// SkipSetupStep records a skipped guide step so it survives a restart.
+func (s *Service) SkipSetupStep(step string) error {
+	return s.store.SkipSetupStep(step)
+}
+
+// OnSessionEnd registers fn to be told, with the user name and the expiry
+// the authenticator reported for it (Authenticator sets
+// AuthContext.SessionExpiresAt from the same value), whenever a session is
+// ended on purpose: logout, a password rotation, a reset. The host uses it
+// to revoke what was granted in that session, such as a recovery download.
+//
+// It is a setter and not a Config field because the host builds this
+// Service before the backup service it needs to tell exists. fn runs on the
+// request's goroutine after the session is already gone, so it must not
+// block; it may be replaced, and nil clears it.
+func (s *Service) OnSessionEnd(fn func(username string, expiresAt time.Time)) {
+	s.sessions.setOnEnd(fn)
+}

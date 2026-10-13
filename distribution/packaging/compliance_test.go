@@ -207,9 +207,9 @@ func TestLinkReachabilityIsNotOverstated(t *testing.T) {
 // "support and source written, licence not chosen", and the missing
 // artifact is literally a LICENSE file in the tree.
 //
-// It asserts the licence is Apache-2.0 by reading the file rather than by
-// trusting the declaration, because a LICENSE file whose contents are MIT
-// under a declaration that says Apache-2.0 is worse than no file at all.
+// It asserts the licence is the declared one by reading the file rather than by
+// trusting the declaration, because a LICENSE file whose contents are a different licence
+// under a declaration that says otherwise is worse than no file at all.
 func TestProjectLicenseIsInTheTreeAndIsWhatItSaysItIs(t *testing.T) {
 	c := MustLoadCompliance()
 	if c.License.SPDXID == "" {
@@ -229,7 +229,7 @@ func TestProjectLicenseIsInTheTreeAndIsWhatItSaysItIs(t *testing.T) {
 }
 
 // TestLicensePolicyComplaints is the executable form of the premise
-// behind choosing Apache-2.0: every linked component is either permissive
+// behind the licence choice: every linked component is either permissive
 // or under one of the non-permissive licences this project accepts on
 // purpose with its obligation recorded. That is a fact about today's
 // go.mod, not a property of the project, so it is checked rather than
@@ -276,7 +276,7 @@ func TestLicensePolicyComplaints(t *testing.T) {
 		{"a permissive npm component", base(Component{Name: "react", Version: "19.0.0", Ecosystem: EcosystemNPM, LicenseID: "MIT"}), ""},
 		{"a component with no version", base(Component{Name: "example.com/n", Ecosystem: EcosystemGo, LicenseID: "MIT"}), "no version"},
 		{"an inventory that lists nothing", base(), "passes by default"},
-		{"an inventory generated against a different licence", Inventory{ProjectLicense: "MIT", Components: []Component{ok}}, "discharges nothing"},
+		{"an inventory generated against a different licence", Inventory{ProjectLicense: "Apache-2.0", Components: []Component{ok}}, "discharges nothing"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -297,7 +297,7 @@ func TestLicensePolicyComplaints(t *testing.T) {
 	}
 
 	// The switch. It used to decide whether a copyleft component was
-	// refused at all, which made the whole premise behind Apache-2.0
+	// refused at all, which made the whole premise behind the licence choice
 	// editable from a data file: one character in compliance.json and
 	// the refusal became a note, with every test still green because
 	// the real inventory has nothing to complain about either way.
@@ -334,7 +334,7 @@ func TestLicensePolicyComplaints(t *testing.T) {
 func TestTheCopyleftSwitchIsOnInTheShippedFile(t *testing.T) {
 	c := MustLoadCompliance()
 	if !c.License.CopyleftBlocksTheLicenseChoice {
-		t.Error("compliance.json has copyleftBlocksTheLicenseChoice false; the Apache-2.0 choice rests on the linked graph being permissive, and turning this off removes the sentence that says so from every complaint")
+		t.Error("compliance.json has copyleftBlocksTheLicenseChoice false; the licence choice rests on the linked graph being permissive, and turning this off removes the sentence that says so from every complaint")
 	}
 	if len(c.License.PermissiveIDs) == 0 {
 		t.Fatal("compliance.json declares no permissive allowlist, so the licence policy has nothing to admit against and would refuse the whole inventory")
@@ -575,7 +575,7 @@ func TestAMissingReaderIsAComplaintAndNotACrash(t *testing.T) {
 	}
 }
 
-// TestNoticeAttributesEveryComponent is Apache-2.0 §4(d) checked for
+// TestNoticeAttributesEveryComponent is third-party attribution checked for
 // coverage. A NOTICE that exists and names nine of fifty-nine components
 // discharges the obligation for nine of them.
 func TestNoticeAttributesEveryComponent(t *testing.T) {

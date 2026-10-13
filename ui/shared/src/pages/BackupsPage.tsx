@@ -37,6 +37,7 @@ import { StatusBadge } from "@shared/components/StatusBadge";
 import { Icon } from "@shared/design-system/icons";
 import { EmptyState, ErrorState } from "@shared/components/EmptyState";
 import { isNotConfigured } from "@shared/api/failure";
+import { ClaimChips } from "@shared/assurance/ClaimChips";
 import { RetentionPreviewDialog } from "./RetentionPreviewDialog";
 import { bytes, stamp } from "@shared/utilities/format";
 import { useHoverTitle } from "@shared/hooks/useTooltips";
@@ -61,6 +62,15 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   // node is already populated by the time this page can render.
   const sets = useCausl(setsNode);
   const artifacts = useAsync(() => api.listArtifacts(setFilter || undefined), [api, setFilter]);
+  // EPIC Q (issue #985): the three assurance claims per backup. A server
+  // that does not offer them yields `undefined` here and every row renders
+  // `unknown`; a read that fails does the same, because "could not ask" is
+  // not an answer to draw as one.
+  const assurance = useAsync(
+    () => (api.assurance ? api.assurance.listArtifactAssurance(setFilter || undefined) : Promise.resolve(null)),
+    [api, setFilter]
+  );
+  const assuranceById = new Map((assurance.data ?? []).map((x) => [x.artifactId, x]));
   // previewFor is the flat BackupSet.id the <select> below is keyed by
   // (matching every other set-picker in this file); RetentionPreviewDialog
   // itself takes source/set (BackupSetID's own two-part identity — see
@@ -161,7 +171,7 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
         <div className="card">
           {/* A small app window must never hide a column (§31). */}
           <div className="table-scroll">
-            <table className="table" style={{ minWidth: 820 }}>
+            <table className="table" style={{ minWidth: 1020 }}>
               <caption className="eyebrow" style={{ textAlign: "left", padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
                 <InfoTooltip id="backups.table"><span>Retained backups</span></InfoTooltip>
               </caption>
@@ -175,7 +185,7 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
                   <th scope="col"><InfoTooltip id="backups.col.set"><span>Backup set</span></InfoTooltip></th>
                   <th scope="col"><InfoTooltip id="backups.col.artifact"><span>Artifact</span></InfoTooltip></th>
                   <th scope="col" style={{ textAlign: "right" }}><InfoTooltip id="backups.col.size"><span>Size</span></InfoTooltip></th>
-                  <th scope="col"><InfoTooltip id="backups.col.validation"><span>Validation</span></InfoTooltip></th>
+                  <th scope="col"><InfoTooltip id="assurance.col.claims"><span>Assurance</span></InfoTooltip></th>
                   <th scope="col"><InfoTooltip id="backups.col.retention"><span>Retention</span></InfoTooltip></th>
                   {showsMedium ? <th scope="col"><InfoTooltip id="backups.col.medium"><span>Medium</span></InfoTooltip></th> : null}
                   <th scope="col"><InfoTooltip id="backups.col.status"><span>Status</span></InfoTooltip></th>
@@ -195,21 +205,24 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
                       {stamp(a.receivedAt)}
                     </td>
                     <td>{a.setName}</td>
-                    <td className="mono" style={{ fontSize: "var(--text-sm)" }}>{a.filename}</td>
+                    <td className="mono" style={{ fontSize: "var(--text-sm)" }}>
+                      {a.filename}
+                      {/* The old Validation column drew a green "Verified" for an ingest-time
+                          check, beside the three claims that say what is known now. That column
+                          is retired. A validation that FAILED is still worth saying, and is
+                          said as the failure it is, in the danger colour, never as a pass. */}
+                      {a.validation === "failed" ? (
+                        <div style={{ color: "var(--danger)", fontFamily: "var(--font-sans, inherit)" }}>
+                          <span aria-hidden="true" style={{ display: "inline-flex", verticalAlign: "middle", marginRight: 4 }}>
+                            <Icon name="warning" />
+                          </span>
+                          Failed validation
+                        </div>
+                      ) : null}
+                    </td>
                     <td className="mono" style={{ textAlign: "right", whiteSpace: "nowrap" }}>{bytes(a.sizeBytes)}</td>
-                    <td style={{ whiteSpace: "nowrap" }}>
-                      <span
-                        style={{
-                          display: "inline-flex", alignItems: "center", gap: 6,
-                          fontSize: "var(--text-sm)",
-                          color: a.validation === "verified" ? "var(--text)" : "var(--danger)"
-                        }}
-                      >
-                        <span aria-hidden="true" style={{ color: a.validation === "verified" ? "var(--ok)" : "var(--danger)", display: "inline-flex" }}>
-                          <Icon name={a.validation === "verified" ? "success" : "warning"} />
-                        </span>
-                        {a.validation === "verified" ? "Verified" : a.validation === "failed" ? "Failed" : "Pending"}
-                      </span>
+                    <td>
+                      <ClaimChips assurance={assuranceById.get(a.id)} available={!!api.assurance && !assurance.error} />
                     </td>
                     <td><RetentionCell artifact={a} /></td>
                     {showsMedium ? (
@@ -252,14 +265,18 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
           ) : null}
           <div
             className="card__footer"
+            data-testid="backups-footer"
             style={{ display: "flex", justifyContent: "space-between", gap: 16, fontSize: "var(--text-sm)", color: "var(--text-2)" }}
           >
             <InfoTooltip id="backups.showing">
               <span>{"Showing " + rows.length + " artifacts"}</span>
             </InfoTooltip>
-            <span style={{ color: "var(--text-3)" }}>
-              retnd does not perform application restore — these are
-              retained, verified copies.
+            {/* The recovery boundary (#987), in the secondary ink: --text-3 is
+                3.35:1 on the light surface and fails AA for text (#1070). The
+                old line called every copy "verified" beside chips that take
+                care not to. */}
+            <span data-testid="backups-boundary" style={{ color: "var(--text-2)" }}>
+              {"This product recovers and exports the retained artifact; restoring it into an application remains the operator's responsibility."}
             </span>
           </div>
         </div>

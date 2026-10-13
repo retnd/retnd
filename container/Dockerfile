@@ -220,6 +220,11 @@ RUN --mount=type=cache,target=/root/.npm \
 
 COPY ui/shared/ ./ui/shared/
 COPY apps/ ./apps/
+# One recorded feed that a ui/shared test imports from the Go side
+# (src/test/assurance-operator-controls.test.tsx, #985). `tsc -b` type-checks
+# the test files too, so without this one file the image build stops at
+# "Cannot find module '../../../../core/cmd/retnd/testdata/recovery-follow-feed.json'".
+COPY core/cmd/retnd/testdata/recovery-follow-feed.json ./core/cmd/retnd/testdata/recovery-follow-feed.json
 
 # The per-provider bundles the runtime stage carries (issue #180, packaged
 # by #169). One directory per platform whose distribution adapter has no
@@ -346,8 +351,8 @@ COPY --from=build-web /out/retnd-web /retnd-web
 # The licence, the notices and the machine-readable inventory the other
 # two point at, at a fixed path a recipient can find without a shell
 # (distroless has none): `docker cp <ctr>:/licenses .` or `docker export
-# | tar -x licenses/`. Apache-2.0 §4(d) says a redistributed copy
-# carries NOTICE, and NOTICE is where the MPL-2.0 §3.2 source offer for
+# | tar -x licenses/`. A redistributed copy has to carry the licence
+# and NOTICE, and NOTICE is where the MPL-2.0 §3.2 source offer for
 # go-cleanhttp and go-retryablehttp lives, so an image without these
 # reached nobody with either.
 #
@@ -376,7 +381,7 @@ COPY provenance/third-party-licenses.json /licenses/third-party-licenses.json
 # does not. Both values are declared in
 # distribution/packaging/compliance.json under distribution.licenceDelivery
 # and checked against these lines.
-LABEL org.opencontainers.image.licenses="Apache-2.0" \
+LABEL org.opencontainers.image.licenses="MIT" \
       com.iasbuilt.retnd.licenses.path="/licenses"
 
 # The per-provider UI bundles (issue #180). Read-only content, served by

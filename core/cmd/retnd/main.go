@@ -84,12 +84,16 @@ var commands = map[string]func([]string) int{
 	"retention":       cmdRetention,
 	"reconcile":       cmdReconcile,
 	"validate":        cmdValidate,
+	"scrub":           cmdScrub,
+	"recovery-test":   cmdRecoveryTest,
+	"assurance":       cmdAssurance,
 	"catalog":         cmdCatalog,
 	"quarantine":      cmdQuarantine,
 	"unconfigured":    cmdUnconfigured,
 	"medium":          cmdMedium,
 	"retry":           cmdRetry,
 	"restore":         cmdRestore,
+	"recover":         cmdRecover,
 	"snapshot":        cmdSnapshot,
 	"repository":      cmdRepository,
 	"settings":        cmdSettings,
@@ -253,6 +257,42 @@ commands:
                                                   full download and re-hash, which costs egress, so FR-31 makes it
                                                   something an operator asks for rather than something that happens
                                                   (#435)
+  scrub [<source/backup-set> | <source/backup-set/artifact> [--medium ID]] [--content --allow-egress]
+                                                  check the durable copies of what is named now, or every copy that is
+                                                  due when nothing is named: the scrub the daemon runs on a schedule,
+                                                  by hand. Each result prints the class that ran, and an existence
+                                                  check is never called verification of the bytes. A copy in an archive
+                                                  storage class is never read and no restore is started. --content
+                                                  reads a copy on a storage medium in full, which costs egress, so it
+                                                  also needs --allow-egress. Exit 1 when a copy failed, could not be
+                                                  checked, was skipped (held for editing, or being checked by another
+                                                  scrub) or was refused for cost (EPIC Q)
+  recovery-test <source/backup-set> [--artifact <source/backup-set/name>] [--acknowledge-cost] [--json]
+                                                  prove now that the newest known good copy can be got back and used:
+                                                  the copy is staged by the recovery engine, checked against the
+                                                  SHA-256 recorded when it was ingested, and only then handed to the
+                                                  set's validator script (recovery-test/<source>/<set>, selected by the
+                                                  policy's validator_id). A read that costs money is refused unless
+                                                  --acknowledge-cost is given, and no provider restore is ever started.
+                                                  Exit 0 when the copy passed, 10 when the read was refused for cost,
+                                                  1 otherwise (failed, or could not be completed). The same test as
+                                                  POST /api/v1/backup-sets/{source}/{set}/recovery-test, which starts
+                                                  it in the background (EPIC Q)
+                                                  --follow prints the test's stages on standard error as it passes
+                                                  through them; the exit status is unchanged
+  recovery-test <source/backup-set> --show-output [--json]
+                                                  print what the newest recovery test of the set printed, as the
+                                                  engine stored it: sanitised, bounded, one line each, with the
+                                                  runner's own marker if the capture was cut. It reads and runs no
+                                                  test, so it takes none of the flags above. The same body as
+                                                  GET /api/v1/backup-sets/{source}/{set}/recovery-test/output
+                                                  (EPIC Q)
+  assurance cancel <operation-id> [--json]
+                                                  stop a running scrub or recovery test by the operation id its start
+                                                  returned. The operation lives in the memory of the process serving
+                                                  this deployment, so this needs RETND_API_URL and the two credential
+                                                  variables beside it and is refused without them. The same as
+                                                  POST /api/v1/assurance/operations/{op}/cancel (EPIC Q)
   catalog rebuild [--dry-run]                    reconstruct a lost/corrupted state database from sidecar recovery manifests
   quarantine <revalidate|retry|reinstate> <source/backup-set/artifact> [--note T]
                                                   act on one quarantined artifact: revalidate re-checks it and moves
@@ -344,6 +384,26 @@ commands:
                                                   to skip, because a restore is billed and takes hours; --days
                                                   defaults to 7 and is bounded to 1..30. artifacts <id> lists
                                                   which medium each copy is on
+  recover <source/backup-set/artifact> --to - | NAME | medium:ID[/KEY] [--copy M] [--acknowledge-cost] [--json]
+                                                  get the retained bytes of one artifact back (EPIC Q, FR-67). It
+                                                  reads one copy, checks all of it against the SHA-256 recorded when
+                                                  the backup was ingested, and only then writes it: to standard
+                                                  output (-), to a new file under the recovery staging root (NAME),
+                                                  or to another configured storage destination, never replacing an
+                                                  object. --copy defaults to the best readable copy, preferring the
+                                                  strongest verification class and one that costs nothing to read.
+                                                  A billed download, or a copy on an archive class that needs a
+                                                  provider restore first, is refused naming the cost unless
+                                                  --acknowledge-cost is given; an acknowledged archive request
+                                                  starts exactly one restore and exits 31 with nothing recovered.
+                                                  It runs no application command: this recovers the artifact, and
+                                                  putting the application back stays yours. It is neither restore
+                                                  (the archival thaw above, which writes nothing) nor snapshot
+                                                  restore (a kopia restore point), and a kopia set is refused with
+                                                  a sentence naming that verb
+                                                  --follow prints the recovery's stages on standard error as it
+                                                  passes through them, in the engine's order; the exit status is the
+                                                  recovery's own
   backup-set enabled <source/backup-set> <on|off>
                                                   turn one already-configured backup set on or off, which
                                                   --disabled can only do at creation. "off" stops the scheduler
@@ -544,6 +604,31 @@ commands:
   settings workflow env unset NAME               remove one variable. A name that is not configured is refused rather than
                                                   quietly succeeding: an "unset the credential" that did nothing is
                                                   indistinguishable from one that worked
+  settings assurance [--json]                    report the resolved deployment-wide assurance policy: how often a copy is
+                                                  re-read, what a scrub reads, whether a recovery test is required, and the
+                                                  host-scoped settings that are global only, each with the reason a backup
+                                                  set cannot override it. A config that sets none reports the defaults
+  settings assurance patch [--scrub-cadence D] [--scrub-strategy S] [--recovery-test-mode M]
+                        [--recovery-test-cadence D] [--recovery-test-validator ID]
+                        [--staging-root P] [--staging-ttl D] [--max-concurrent-full-reads N]
+                        [--max-per-destination N] [--json]
+                                                  change the deployment's policy in place. An explicitly zero or empty value
+                                                  clears that setting back to its default. Every set that inherits the
+                                                  changed value decides under it on its next read. This write has no route
+                                                  to a serving engine in this build, so it is refused beside one with the
+                                                  file untouched
+  settings assurance due [--backup-set ID] [--due | --overdue] [--json]
+                                                  the scrub schedule, most overdue first: each copy's last-assured time, when
+                                                  it is next due under its set's resolved cadence, and whether that has
+                                                  passed. A copy nobody has looked at is overdue, never fine
+  backup-set assurance <source/backup-set> [--json]
+                                                  one backup set's resolved assurance policy and whether it is the set's own
+  backup-set assurance <source/backup-set> [--scrub-cadence D] [--scrub-strategy S]
+                          [--recovery-test-mode M] [--recovery-test-cadence D]
+                          [--recovery-test-validator ID] | --reset
+                                                  patch that set's own block, or --reset it to follow the deployment's policy
+                                                  again. The host-scoped settings are refused here by name: they are global
+                                                  only. Refused beside a serving engine, with the file untouched
   backup-set workflow <source/backup-set> [--json]
                                                   one backup set's hook configuration, resolved against the deployment's:
                                                   the stages it will actually run in execution order, which timeout wins
@@ -655,5 +740,16 @@ to print:
       not be performed at all, a route that was named and did not answer, and a route that
       answered for a different deployment, because none of those gets better by waiting
       (#551, #555)
+  10-36  recover only (EPIC Q), one code per reason so a script can branch without reading the
+      sentence: 10 chargeable and not acknowledged, 11 no retained copy, 12 no such copy,
+      13 nothing readable right now, 14 the copy on this host's disk failed its checksum,
+      15 a remote copy failed its checksum, 16 no recorded SHA-256 to verify against,
+      17 staging disk full, 18 below the staging free-space reserve, 19 a kopia set (use
+      snapshot restore), 20 target not allowed, 21 target already exists, 22-26 grant
+      refusals (unknown, used, expired, session ended, too many), 27 recovery unavailable,
+      28 busy, 29 interrupted, 30 any other failure, 31 an archive restore was started and
+      nothing was recovered yet, 32 too many full reads running on this host, 33 too many
+      on that one destination, 36 too many downloads in progress (a budget refusal: try
+      again when one finishes). In every refusal no byte was delivered anywhere
 `)
 }
