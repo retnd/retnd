@@ -44,6 +44,9 @@ type assuranceRecoveryTestBody struct {
 	CadenceSeconds int64  `json:"cadence_seconds"`
 	Mode           string `json:"mode"`
 	ValidatorID    string `json:"validator_id"`
+	// ValidatorDeclared is a backup set's answer only (#1108): the deployment's
+	// own policy has no set to look in, so it stays nil there and is left out.
+	ValidatorDeclared *bool `json:"validator_declared,omitempty"`
 }
 
 type assuranceHostKnobBody struct {
@@ -433,5 +436,7 @@ func toAssuranceSettingsBody(s service.AssuranceSettings) assuranceSettingsRespo
 
 func toBackupSetAssuranceBody(s service.BackupSetAssurance) backupSetAssuranceResponse {
 	scrub, rt := toAssurancePolicyBodies(s.Policy)
+	declared := s.ValidatorDeclared
+	rt.ValidatorDeclared = &declared
 	return backupSetAssuranceResponse{BackupSetID: s.BackupSetID, IsOverride: s.Override, RecoveryTest: rt, Scrub: scrub}
 }
