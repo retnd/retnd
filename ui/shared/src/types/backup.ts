@@ -435,6 +435,9 @@ export interface BackupPlacement {
   lastFailureReason?: string;
   consecutiveFailures?: number;
   recoveryState?: WirePlacement["recovery_state"] | null;
+  /** Which check produced the verdict: the operator's validator or the
+   *  built-in structure check (#1111). Absent when there is no verdict. */
+  recoveryCheck?: WirePlacement["recovery_check"] | null;
   recoveryTestedAt?: string | null;
   recoveryFailureReason?: string;
 }

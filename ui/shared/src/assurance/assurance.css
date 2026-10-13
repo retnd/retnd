@@ -18,6 +18,11 @@
 .achip__age { font-weight: 500; color: var(--text-2); }
 [data-state="pass"] > .achip { border-color: var(--ok); background: var(--ok-quiet); }
 [data-state="pass"] .achip__glyph { color: var(--ok); }
+/* A built-in structure pass (#1111): the same pass ink as a validator pass, with
+   a dashed edge, so the shape says "weaker than Recovery test passed" and the
+   colour pair stays the contrast-checked --ok on --ok-quiet. */
+[data-state="pass_builtin"] > .achip { border-style: dashed; border-color: var(--ok); background: var(--ok-quiet); }
+[data-state="pass_builtin"] .achip__glyph { color: var(--ok); }
 [data-state="failed"] > .achip { border-color: var(--danger); background: var(--danger-quiet); }
 [data-state="failed"] .achip__glyph { color: var(--danger); }
 [data-state="overdue"] > .achip { border-color: var(--warn); background: var(--warn-quiet); }
