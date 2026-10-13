@@ -3004,7 +3004,7 @@ function defaultAssuranceSettings(): AssuranceSettings {
   return {
     configured: false,
     scrub: { cadenceSeconds: 7 * 24 * 3600, strategy: "auto" },
-    recoveryTest: { mode: "off", cadenceSeconds: 30 * 24 * 3600, validatorId: "" },
+    recoveryTest: { mode: "off", cadenceSeconds: 30 * 24 * 3600, validatorId: "", builtinCheck: "structure" },
     stagingRoot: "/var/lib/retnd/recovery-staging",
     stagingTtlSeconds: 24 * 3600,
     maxConcurrentFullReads: 2,
@@ -4039,7 +4039,10 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
       recoveryTest: {
         mode: (o.recoveryTestMode as string) || assuranceSettings.recoveryTest.mode,
         cadenceSeconds: (o.recoveryTestCadenceSeconds as number) || assuranceSettings.recoveryTest.cadenceSeconds,
-        validatorId: (o.recoveryTestValidatorId as string) || assuranceSettings.recoveryTest.validatorId
+        validatorId: (o.recoveryTestValidatorId as string) || assuranceSettings.recoveryTest.validatorId,
+        // #1111 (settings lane): builtin_check resolves like the other fields, a
+        // set's own value winning over the deployment's.
+        builtinCheck: ((o.recoveryTestBuiltinCheck as string) || assuranceSettings.recoveryTest.builtinCheck || "structure") as "structure" | "off"
       }
     };
   };
@@ -5448,6 +5451,10 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
       }
       if (patch.recoveryTestValidatorId !== undefined) {
         assuranceSettings.recoveryTest.validatorId = patch.recoveryTestValidatorId;
+      }
+      // #1111 (settings lane): empty clears back to the default, structure.
+      if (patch.recoveryTestBuiltinCheck !== undefined) {
+        assuranceSettings.recoveryTest.builtinCheck = (patch.recoveryTestBuiltinCheck || "structure") as "structure" | "off";
       }
       return delay(structuredClone(assuranceSettings));
     },

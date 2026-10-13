@@ -113,10 +113,10 @@ export const FIELD_HELP = {
   },
 
   assuranceRecoveryTestMode: {
-    what: "Whether a recovery test runs on a schedule. Off never runs one. Required runs one on its cadence, and a set that requires one is degraded until one passes.",
+    what: "Whether a recovery test runs on a schedule. Off never runs one. Builtin runs the product's own structure check on its cadence, with no validator. Required runs your validator on its cadence, and a set that requires one is degraded until one passes.",
     example: "required",
     effect:
-      "Saves the mode. Required needs a validator, and the server refuses the save until one is named. A scheduled test never thaws an archive."
+      "Saves the mode. Required needs a validator, and the server refuses the save until one is named. Builtin needs the built-in check set to structure, and the server refuses the pair of builtin with off, naming both keys. A built-in pass never satisfies required: a set that requires a test stays degraded until your validator accepts a copy. A scheduled test never thaws an archive."
   },
 
   assuranceRecoveryTestEvery: {
@@ -131,6 +131,20 @@ export const FIELD_HELP = {
     example: "pg-restore-check",
     effect:
       "Saves the name. The name selects the script: the engine runs NAME.local.sh from the set's recovery-test directory under the workflow root, after it has re-read the recovered copy and matched its digest, and it records the claim and the script's hash itself. A name that could not be a script's file name is refused when you save, and the script can never write Content verified or Recovery tested."
+  },
+
+  assuranceBuiltinCheck: {
+    what: "Whether the product's own structure check may run when a backup set declares no validator. Structure lets it run; off keeps the old answer, that a set with no validator is refused a recovery test.",
+    example: "structure",
+    effect:
+      "Saves the choice for every set that does not pin its own. With structure, Run recovery test (or retnd recovery-test) on a set with no validator recovers the newest known good copy, matches its digest, and then reads the file end to end as gzip, zstd or tar, or a tar inside either, checking every checksum the format carries and extracting nothing. It starts when you press the button or run the command, and on a schedule only when the mode is builtin. It never satisfies required, and a validator you declare always runs instead of it. A file name it has no reader for, a .dump for example, is refused before anything is staged, so no copy is read or paid for. A pass reads Recovered, readable: the file decodes, which is not the same as an application being able to use it. Off with the builtin mode is refused."
+  },
+
+  assuranceSetBuiltinCheck: {
+    what: "Whether the product's own structure check may run for this one backup set when it declares no validator, instead of following the deployment.",
+    example: "off",
+    effect:
+      "Saves the choice as part of this set's own policy. With structure, Run recovery test (or retnd recovery-test) on this set with no validator recovers its newest known good copy, matches the digest and reads the file end to end as gzip, zstd or tar, or a tar inside either, extracting nothing. It runs on a schedule only when this set's mode is builtin, it never satisfies required, and a validator the set declares always runs instead. A file name it has no reader for is refused before anything is staged. Off with the builtin mode is refused, and so is a validator id beginning retnd-."
   },
 
   assuranceSetScrubEvery: {
