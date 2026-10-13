@@ -343,14 +343,14 @@ func TestAPolicySomebodyElseSetCannotExpireThisProductsSnapshots(t *testing.T) {
 	}
 }
 
-// TestBackupdCanStillDeleteAPinnedSnapshot is the other half of the pin.
+// TestRetndCanStillDeleteAPinnedSnapshot is the other half of the pin.
 //
 // A pin that this product could not get past would have replaced an engine
 // that deletes snapshots behind the catalog with a repository whose
 // snapshots can never be removed at all, and retention would report
 // deletions that never happened. The vendor's own DeleteManifest ignores
 // pins, which is why the adapter's delete path uses it.
-func TestBackupdCanStillDeleteAPinnedSnapshot(t *testing.T) {
+func TestRetndCanStillDeleteAPinnedSnapshot(t *testing.T) {
 	ctx := context.Background()
 	opened, source := adapterWithSnapshots(t, 2)
 

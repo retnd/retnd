@@ -553,7 +553,7 @@ func TestThePortainerTemplateCheckFailsOnEveryWayItCanBeWrong(t *testing.T) {
 		Version: "3",
 		Templates: []PortainerTemplate{{
 			Type:        3,
-			Title:       "Backupd",
+			Title:       "retnd",
 			Name:        "retnd",
 			Description: "d",
 			Logo:        "https://example.invalid/logo.svg",

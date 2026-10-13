@@ -543,7 +543,7 @@ func TestScanForOMVPluginCatchesPluginMaterial(t *testing.T) {
 		{"a Debian packaging directory", "debian/control.txt", "Package: openmediavault-backupmanager\n", true},
 		{"a salt state tree", "salt/deploy.yml", "retnd: {}\n", true},
 		{"a Workbench navigation file", "workbench/navigation.yaml", "route: /services/backup\n", true},
-		{"an RPC service", "rpc/backupmanager.json", "{\"service\": \"Backupd\"}\n", true},
+		{"an RPC service", "rpc/backupmanager.json", "{\"service\": \"retnd\"}\n", true},
 		{"an omv-mkconf hook referenced from metadata", "compose/retnd.yml",
 			"services:\n  engine:\n    labels:\n      hook: omv-mkconf backupmanager\n", true},
 		{"a README saying the plugin is deferred", "README.md",

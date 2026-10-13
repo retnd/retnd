@@ -46,7 +46,7 @@ import (
 // reason it was worth adding a second category alongside the first: a
 // rejected login is a question for the remote account, a permission drift
 // is a question for this filesystem, and until KeyPermissions existed both
-// looked identical on an operator's screen, "Backupd could not log
+// looked identical on an operator's screen, "retnd could not log
 // in".
 //
 // It stops there, though, and the boundary is the point. HostVerification,

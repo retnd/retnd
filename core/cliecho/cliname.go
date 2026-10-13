@@ -27,7 +27,7 @@ package cliecho
 //     renaming in place;
 //   - the project, the image and the compose service (ghcr.io/spdrman/
 //     retnd, the "retnd" service in container/
-//     compose.yaml, "Backupd" as the product's name);
+//     compose.yaml, "retnd" as the product's name);
 //   - wire identity that a log or an audit trail may already be matched
 //     on, which is the User-Agent core/internal/apiclient sends.
 //

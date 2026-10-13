@@ -177,13 +177,11 @@ func DebugEnabled() bool { return envLogLevel() == slog.LevelDebug }
 // LOG_LEVEL falls back to INFO rather than refusing to start: a typo in
 // a diagnostic knob must never take a backup host down.
 //
-// Two DEPRECATED spellings are still read, each under a name this
-// project used before (EPIC R, #885, FR-37): BACKUPD_DEBUG, the name
-// this shortcut had until the rename to retnd, and RM_DEBUG,
-// the first product name's (#794). Both are still honoured so an upgrade does
-// not silently turn a diagnosing operator's logs back off, and
-// core/envcompat ranks them behind the current name and prints one
-// deprecation notice per name per process.
+// One DEPRECATED spelling is still read, RM_DEBUG, the first product
+// name's (#794). It is still honoured so an upgrade does not silently
+// turn a diagnosing operator's logs back off, and core/envcompat ranks it
+// behind the current name and prints one deprecation notice per process.
+// The previous product name's spelling is not read at all.
 //
 // core/internal/obs.LevelFromEnv is the other reader of these same
 // variables, with the same precedence and the same fallback, and it is
@@ -215,7 +213,7 @@ func envLogLevel() slog.Level {
 }
 
 // debugShortcutEnv reports whether the one-variable debug shortcut is
-// set, under its own name or under either deprecated alias. Only the
+// set, under its own name or under its deprecated alias. Only the
 // documented "1" counts, under every name: a knob whose typos mean
 // something is a knob that surprises the operator reading it back. The
 // engine's core/internal/obs.debugShortcut is the same two lines over
@@ -224,7 +222,7 @@ func envLogLevel() slog.Level {
 func debugShortcutEnv() bool {
 	return envcompat.Any(envcompat.Rename{
 		Current: "RETND_DEBUG",
-		Legacy:  []string{"BACKUPD_DEBUG", "RM_DEBUG"},
+		Legacy:  []string{"RM_DEBUG"},
 	}, "1")
 }
 

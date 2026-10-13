@@ -55,8 +55,8 @@ type StageRequest struct {
 	GlobalDir string
 
 	// Vars are ordinary environment variables layered over the set's
-	// workflow environment. They may not use the RETND_ or BACKUPD_
-	// prefixes: those are the product's own facts and the environment model
+	// workflow environment. They may not use the RETND_ prefix:
+	// those names are the product's own facts and the environment model
 	// refuses them in configuration for the same reason.
 	Vars map[string]string
 

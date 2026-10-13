@@ -225,24 +225,24 @@ func verificationDeadline(createdAt, linkWindowEnd time.Time) time.Time {
 // cannot know), the bare token is sent with the page to paste it into,
 // the same fallback resetMessage makes.
 func verifyMessage(to, username, token, baseURL string, deadline *time.Time) email.Message {
-	body := "This address is the recovery address for the Backupd administrator " + username +
-		", and this message is the proof that Backupd can reach it.\n\n"
+	body := "This address is the recovery address for the retnd administrator " + username +
+		", and this message is the proof that retnd can reach it.\n\n"
 	if baseURL != "" {
 		body += "Open this link to finish verifying it:\n\n  " + baseURL + "/verify-email?token=" + token + "\n\n"
 	} else {
-		body += "Open Backupd's /verify-email page and enter this token:\n\n  " + token + "\n\n"
+		body += "Open retnd's /verify-email page and enter this token:\n\n  " + token + "\n\n"
 	}
 	body += "The link can be used once and expires in 30 minutes.\n\n"
 	if deadline != nil {
 		body += "IMPORTANT: until it is used, the administrator account is provisional. If this " +
 			"address is not verified by " + deadline.UTC().Format("2006-01-02 15:04 UTC") +
-			", the account will be REMOVED and Backupd will reopen enrollment, so that an " +
+			", the account will be REMOVED and retnd will reopen enrollment, so that an " +
 			"account whose recovery address nobody can read is never the one left in place.\n\n" +
 			"If you did not expect this, you can ignore it: the account removes itself.\n"
 	} else {
 		body += "Until it is used, this address counts as unverified: account recovery would " +
 			"mail a password-reset link to a mailbox nobody has proved they can read, so " +
-			"Backupd keeps saying so in the console until somebody opens this link.\n"
+			"retnd keeps saying so in the console until somebody opens this link.\n"
 	}
 	return email.Message{To: to, Subject: verifySubject, Body: body}
 }

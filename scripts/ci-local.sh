@@ -246,7 +246,7 @@ bash scripts/format/check-gofmt.sh
 # This project is on its third name, and both previous ones left runtime
 # identifiers behind: the first product name's RM_ and RCLONE_MANAGER_ environment
 # variables and retnd's bm_ cookies and BACKUP_MANAGER_ variables.
-# #794 renamed some of them to BACKUPD_ / retnd_, and EPIC R (#885) is
+# #794 renamed some of them, and EPIC R (#885) is
 # renaming the whole `retnd` family to `retnd`; #887 pointed this guard at
 # it. The rename is a one-off edit; this step is what makes it stay done. The
 # way the old prefixes spread in the first place was somebody copying the
@@ -266,7 +266,7 @@ bash scripts/format/check-gofmt.sh
 # The self-test next to it plants each of the eleven patterns in a throwaway
 # repository and requires the guard to go red, and plants the lookalikes it
 # must NOT catch -- CONFIRM_DELETE, rclone's own ibm_signer.go, and the nine
-# `BackupD[a-zA-Z]` identifiers whose 50 occurrences a case-insensitive
+# look-alike identifiers (BackupDetailPage and friends) whose 50 occurrences a case-insensitive
 # `retnd` pattern would flag -- and requires it to stay green. A guard
 # whose only evidence is that it passes on the one tree anybody runs it
 # against has proven nothing (#160's shape again), and it is under five
@@ -296,6 +296,8 @@ bash scripts/format/check-gofmt.sh
 gate_step "no new RM_/BM_/bm_/rbm_/retnd/retndproject/rclone[-_ ]manager/retnd identifier, no brand asset unaccounted for or carrying a text node, and all three of those guards can still fail (#794, #887, #893)"
 bash scripts/rename/check-brand-drift.sh
 bash scripts/rename/selftest.sh
+bash scripts/rename/check-no-former-name.sh
+bash scripts/rename/selftest-former-name.sh
 bash scripts/brand/check-svg-text.sh
 bash scripts/brand/check-brand-assets.sh
 bash scripts/brand/selftest.sh

@@ -17,8 +17,8 @@ re-derives their SHA-256 against `container/release-manifest.json`.
 
 | SPK | INFO `arch` | Go target | DSM platforms | Status |
 |---|---|---|---|---|
-| `Backupd-x86_64-<version>.spk` | `x86_64` | `linux/amd64` | apollolake, avoton, braswell, broadwell, broadwellnk, broadwellntb, broadwellntbap, bromolow, cedarview, coffeelake, denverton, geminilake, grantley, kvmx64, purley, skylaked, v1000 | build-supported, **uncertified** |
-| `Backupd-armv8-<version>.spk` | `armv8` | `linux/arm64` | rtd1296, armada37xx, rtd1619, rtd1619b | build-supported, **uncertified** |
+| `retnd-x86_64-<version>.spk` | `x86_64` | `linux/amd64` | apollolake, avoton, braswell, broadwell, broadwellnk, broadwellntb, broadwellntbap, bromolow, cedarview, coffeelake, denverton, geminilake, grantley, kvmx64, purley, skylaked, v1000 | build-supported, **uncertified** |
+| `retnd-armv8-<version>.spk` | `armv8` | `linux/arm64` | rtd1296, armada37xx, rtd1619, rtd1619b | build-supported, **uncertified** |
 
 Family names and members come from Synology's Appendix A platform/arch
 mapping table, and are pinned in `spk/arch.go` so the table above and the
@@ -75,7 +75,7 @@ go run ./cmd/spkctl build --arch amd64 --version 0.1.0-1 \
     --binaries ../../release/amd64 \
     --ui-bundle ../../ui/shared/dist-bundles/synology \
     --out ../../dist
-go run ./cmd/spkctl verify --spk ../../dist/Backupd-x86_64-0.1.0-1.spk \
+go run ./cmd/spkctl verify --spk ../../dist/retnd-x86_64-0.1.0-1.spk \
     --manifest ../../container/release-manifest.json
 ```
 
@@ -102,7 +102,7 @@ Since issue #169 there are two, and neither replaces the other.
 |---|---|---|
 | What it installs | the two native release binaries | the canonical OCI image, two containers |
 | Where it appears | Package Center, with a DSM desktop launcher | Container Manager → Project |
-| State lives in | `/var/packages/Backupd/{etc,var}` | host paths you choose under `/volume1` |
+| State lives in | `/var/packages/retnd/{etc,var}` | host paths you choose under `/volume1` |
 | Engine isolation | loopback bind, enforced by `start-stop-status` | a compose project network, enforced by topology |
 | Trusts forwarded headers | no, because any local process can reach loopback | yes, because only the Web UI container can reach the engine |
 | Needs Container Manager installed | no | yes |
@@ -170,9 +170,9 @@ here is not attributable to one verified peer.
 
 | Path | Holds | Upgrade | Uninstall |
 |---|---|---|---|
-| `/var/packages/Backupd/target` | the two binaries, the DSM UI files, the config seed | replaced | removed |
-| `/var/packages/Backupd/etc` | `config.yaml`, and the SSH key/known_hosts you put there | kept | kept |
-| `/var/packages/Backupd/var` | SQLite journal, `local-auth.json`, logs, pid files | kept | kept |
+| `/var/packages/retnd/target` | the two binaries, the DSM UI files, the config seed | replaced | removed |
+| `/var/packages/retnd/etc` | `config.yaml`, and the SSH key/known_hosts you put there | kept | kept |
+| `/var/packages/retnd/var` | SQLite journal, `local-auth.json`, logs, pid files | kept | kept |
 | `/volume?/retnd` | backup data (a DSM shared folder) | kept | kept |
 
 Both daemons' logs live under `var/log`, on the DSM system volume, and
@@ -196,6 +196,16 @@ after package uninstallation, since it might delete the user's personal
 data as well". `postuninst` deletes nothing at all, and
 `spk.ScanForUnsafeDeletes` fails the build if any shipped script grows a
 deletion whose target is not provably inside the package's own footprint.
+
+### Upgrading from the previous package id
+
+The package id is now `retnd` (it was the project's former name). To DSM an
+installed package under the previous id is a different package from this
+one, so an in-place upgrade does not happen... I did not write any migration
+code for it. Uninstall the old package first, keeping its data share (the
+shared folder survives an uninstall, as above), then install the `retnd`
+package. State under the old package's `etc` and `var` directories is not
+carried across, so copy `config.yaml` over by hand if you want to keep it.
 
 ### First start
 

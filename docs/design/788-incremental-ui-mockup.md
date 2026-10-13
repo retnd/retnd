@@ -146,7 +146,7 @@ parity honest: the CLI submits the same operations.
 
 New requirement, folded into this gate because it changes two screens.
 
-The connection test reports a **write permission** line: Backupd creates
+The connection test reports a **write permission** line: retnd creates
 a scratch file under the source path and deletes it again. That result,
 and nothing softer, arms *Delete from source after a verified backup*
 (`read_only = false`):

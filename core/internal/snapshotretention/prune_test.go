@@ -616,7 +616,7 @@ func TestNothingIsDeletedWhileTheRestorePointCannotBeFound(t *testing.T) {
 	}
 }
 
-// TestOnlyABackupdApprovedManifestIsEverDeleted is the criterion in its
+// TestOnlyARetndApprovedManifestIsEverDeleted is the criterion in its
 // strongest available form for a unit test: the repository is asked to
 // delete exactly the ids the plan approved, and the run that is still
 // in flight, the run that failed, and the run holding the restore point
@@ -626,7 +626,7 @@ func TestNothingIsDeletedWhileTheRestorePointCannotBeFound(t *testing.T) {
 // real, so an engine that walked the repository rather than the catalog
 // would find it and, seeing no policy keeping it, remove a snapshot whose
 // own run has not finished deciding whether it is any good.
-func TestOnlyABackupdApprovedManifestIsEverDeleted(t *testing.T) {
+func TestOnlyARetndApprovedManifestIsEverDeleted(t *testing.T) {
 	ctx := context.Background()
 	j := openCatalog(t)
 	set := mustSet(t, "production", "postgres")
