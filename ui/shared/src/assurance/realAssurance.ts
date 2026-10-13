@@ -35,7 +35,7 @@
 import type { RetndApi } from "@shared/api/contracts";
 import type { LiveActivity, SetActivityEvent } from "@shared/types/activity";
 import type { BackupArtifact, BackupPlacement } from "@shared/types/backup";
-import { scrubFailureText, scrubPassText, stageWords } from "./feedText";
+import { BUILTIN_CHECK_ID, scrubFailureText, scrubPassText, stageWords } from "./feedText";
 import type {
   AchievedClass, ArtifactAssurance, AssuranceApi, ClaimRecord, CopyContent, CopyFailure, Operation, OperationEvent, OperationFeed,
   OperationKind, ValidatorResult
@@ -131,8 +131,15 @@ export function recoveryClaim(a: BackupArtifact, policyOff: boolean, reported: b
   const when = (state: string) => newest(live.filter((p) => p.recoveryState === state).map((p) => p.recoveryTestedAt));
   if (states.includes("failed")) return { status: "failed", achievedClass: "", at: when("failed") };
   if (states.includes("could_not_complete")) return { status: "could_not_complete", achievedClass: "", at: when("could_not_complete") };
-  if (states.includes("passed")) return { status: "pass", achievedClass: "content", at: when("passed") };
-  if (states.includes("overdue")) return { status: "overdue", achievedClass: "", at: when("overdue") };
+  // A validator's pass is the stronger statement, so it reads first. "readable"
+  // is the wire's spelling of a built-in structure pass (#1111): the file
+  // decodes, which is not what a validator accepting it means.
+  if (states.includes("passed")) return { status: "pass", achievedClass: "content", at: when("passed"), check: "validator" };
+  if (states.includes("readable")) return { status: "pass", achievedClass: "content", at: when("readable"), check: "builtin" };
+  if (states.includes("overdue")) {
+    const builtin = live.some((p) => p.recoveryState === "overdue" && p.recoveryCheck === "builtin");
+    return { status: "overdue", achievedClass: "", at: when("overdue"), ...(builtin ? { check: "builtin" as const } : {}) };
+  }
   if (states.includes("refused_for_cost")) return { status: "refused_for_cost", achievedClass: "", at: when("refused_for_cost") };
   if (policyOff) return { status: "never_configured", achievedClass: "" };
   // not_configured is the engine saying there is no validator to run, which
@@ -234,7 +241,7 @@ function runLineText(kind: OperationKind, e: SetActivityEvent, cancelled: boolea
   const word = KIND_WORDS[kind];
   if (e.event === "recovery_test_start" || e.event === "recovery_start") return word + " started";
   if (e.event === "recovery_test_end" || e.event === "recovery_end") {
-    if (e.result === "success") return word + " finished";
+    if (e.result === "success") return e.fields.validator === BUILTIN_CHECK_ID ? word + " finished: recovered and readable (built-in check)" : word + " finished";
     if (cancelled) return word + " cancelled";
     const reason = e.fields.reason;
     // An error is a verdict that came back wrong; a warning proved nothing
