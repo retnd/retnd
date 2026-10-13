@@ -19,7 +19,7 @@ const NOTE_TEXT = "backup set updated";
 const warnBtn = (p: Page) => p.getByRole("button", { name: /^Show \d+ warnings?$/ });
 const errBtn = (p: Page) => p.getByRole("button", { name: /^Show \d+ errors?$/ });
 const countLine = (p: Page) => p.getByText(/^\d+ (of \d+ )?lines?$/);
-const log = (p: Page) => p.getByRole("log");
+const log = (p: Page) => p.getByRole("region", { name: "Terminal" }).getByRole("log");
 
 async function opened(p: Page, scenario = "default") {
   await open(p, "/", scenario);
@@ -122,12 +122,12 @@ test.describe("#1115 dock level filter", () => {
     await page.evaluate(() => sessionStorage.setItem("retnd.mock.dock.live", "1"));
     await expect(page.getByRole("button", { name: "Show 2 warnings" })).toBeVisible({ timeout: 10_000 });
     await expect(log(page)).toContainText("disk latency above threshold");
-    await expect(log(page)).not.toContainText("retention pass complete");
+    await expect(log(page)).not.toContainText("week-32.tar");
     await expect(countLine(page)).toHaveText(/^2 of \d+ lines$/);
     await expect(warnBtn(page)).toHaveAttribute("aria-pressed", "true");
     // The note was counted even though it is hidden: clearing shows it.
     await warnBtn(page).click();
-    await expect(log(page)).toContainText("retention pass complete");
+    await expect(log(page)).toContainText("week-32.tar");
   });
 });
 

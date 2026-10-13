@@ -12,7 +12,7 @@ for (const theme of ["light", "dark"] as const) {
   test(`#1115 walkthrough (${theme}): filter to warnings, to errors, clear, and a live warning arrives`, async ({ page }) => {
     await open(page, "/", "dock-live-line");
     await setTheme(page, theme);
-    const log = page.getByRole("log");
+    const log = page.getByRole("region", { name: "Terminal" }).getByRole("log");
     await expect(log).toContainText("backup set updated");
     await beat(page);
     await page.getByRole("button", { name: "Show 1 warning" }).click();
@@ -25,10 +25,10 @@ for (const theme of ["light", "dark"] as const) {
     await page.evaluate(() => sessionStorage.setItem("retnd.mock.dock.live", "1"));
     await expect(page.getByRole("button", { name: "Show 2 warnings" })).toBeVisible({ timeout: 10_000 });
     await expect(log).toContainText("disk latency above threshold");
-    await expect(log).not.toContainText("retention pass complete");
+    await expect(log).not.toContainText("week-32.tar");
     await beat(page, 2000);
     await page.getByRole("button", { name: "Show 2 warnings" }).click();
-    await expect(log).toContainText("retention pass complete");
+    await expect(log).toContainText("week-32.tar");
     await beat(page, 1500);
   });
 }
