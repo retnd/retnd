@@ -10,6 +10,9 @@
   A filter change clears the selection. The list gains "received after" and "received before"
   filters. The run uses the multi-file recovery from #1106, so each file is checked against the
   digest recorded at ingest and one bad copy does not stop the rest.
+- **The activity dock's Errors and Warnings counts are filters** (#1115). Press one to show
+  only those lines, press it again to clear it; the count line reads "3 of 41 lines" while it
+  is on. A count of zero is shown and cannot be pressed.
 
 ## [0.6.0] - 2026-10-12
 
