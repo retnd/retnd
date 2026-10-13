@@ -7,7 +7,7 @@
  * `BackupDetailPage` is the domain word `backup` followed by a capital
  * `D`, not the product's name, and so are eight more — 50 occurrences
  * between them, against another 9,800 uses of the word `backup`. R2.4
- * (#894) renamed 757 occurrences of `Backupd` across this workspace and
+ * (#894) renamed 757 occurrences of the former brand across this workspace and
  * had to stop exactly here.
  *
  * scripts/rename/selftest.sh already plants all nine in a throwaway tree
@@ -17,7 +17,7 @@
  * goes red when a sweep takes one of them — rename `BackupDetailPage` to
  * `RetndDetailPage` and every assertion about that row fails.
  *
- * A LITERAL LIST, not a pattern. `/BackupD[a-zA-Z]/` over the tree would
+ * A LITERAL LIST, not a pattern. a capital-D pattern over the tree would
  * pass on a tree where all nine had been renamed to `RetndDetail…` and
  * one new lookalike had been added, which is the failure this is for. So
  * every name below is written out, beside the file that carries it and
@@ -49,7 +49,7 @@ import workflowResumeTest from "../../../../core/internal/workflowrun/resume_tes
  * `TestPrivateStateAndBackupDataAreSeparateMounts`, and the list's
  * `TestBackupDataAreSeparateMounts` is an abbreviation of it. So
  * `lookalike` is the third column and the load-bearing one — the exact
- * `BackupD…` run inside the identifier, which is the text a
+ * capital-D run inside the identifier, which is the text a
  * case-insensitive sweep for the old brand sees and the text a careless
  * rename would rewrite. `declaration` is the line that declares the
  * identifier, so a name surviving only in a comment does not pass.
@@ -156,7 +156,7 @@ describe("the nine identifiers the rename to retnd must not touch", () => {
       });
 
       /** The specific mutation #894's acceptance watches: the sweep
-       *  reading `BackupD…` as the old brand and writing `Retnd…`. */
+       *  reading the capital-D run as the old brand and writing `Retnd…`. */
       it("has not been swept to a retnd spelling", () => {
         const swept = row.lookalike.replace("Backup", "Retnd");
         expect(swept).not.toBe(row.lookalike);

@@ -382,13 +382,6 @@ export const ENV_SOURCE_LABELS: Record<EnvSource, string> = {
  * read-only on every surface: a hook reading `RETND_BACKUP_STATUS` has
  * to be reading what this product observed rather than a value somebody
  * wrote into a config file.
- *
- * Each one is ALSO exported under its previous `BACKUPD_` spelling for
- * one release (EPIC R, #885, FR-37), and that compat block is
- * deliberately absent from this list: it is what a hook written against
- * the old name still reads, not something a new hook should be written
- * against, and a surface that offered both would be documenting the name
- * that is going away.
  */
 export const BUILTIN_ENV_NAMES: readonly string[] = [
   "RETND",
@@ -415,18 +408,11 @@ export const BUILTIN_ENV_NAMES: readonly string[] = [
  *
  *  A name matching either is refused by the service, so the editor
  *  refuses it in front of the request rather than sending one that
- *  cannot succeed. The previous `BACKUPD_` prefix and its bare
- *  `BACKUPD` are refused on the same terms while this release still
- *  exports them (core/internal/workflow.IsReservedEnvName is the rule
+ *  cannot succeed (core/internal/workflow.IsReservedEnvName is the rule
  *  this mirrors): a variable an operator could save under a name the
  *  engine overwrites per run is one that looks like it works. */
 export function isReservedEnvName(name: string): boolean {
-  return (
-    name === "RETND" ||
-    name.startsWith("RETND_") ||
-    name === "BACKUPD" ||
-    name.startsWith("BACKUPD_")
-  );
+  return name === "RETND" || name.startsWith("RETND_");
 }
 
 /** One row of the merged preview: what a hook will actually receive. */

@@ -46,7 +46,7 @@ if [ ! -f "${CONFIG_FILE}" ]; then
     cp "${SYNOPKG_PKGDEST}/share/config.yaml.seed" "${CONFIG_FILE}"
     chmod 0640 "${CONFIG_FILE}"
     say "Wrote a starter configuration to ${CONFIG_FILE}."
-    say "Backupd will not start until it names at least one source."
+    say "retnd will not start until it names at least one source."
 fi
 
 exit 0

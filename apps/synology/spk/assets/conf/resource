@@ -5,7 +5,7 @@
                 "name": "retnd",
                 "once": false,
                 "permission": {
-                    "rw": ["Backupd"]
+                    "rw": ["retnd"]
                 }
             }
         ]

@@ -13,10 +13,10 @@ package spk
 const (
 	// PackageName is INFO's `package` key: the package identity DSM keys
 	// everything else off, including /var/packages/<name>.
-	PackageName = "Backupd"
+	PackageName = "retnd"
 
 	// DisplayName is what Package Center and the DSM desktop show.
-	DisplayName = "Backupd"
+	DisplayName = "retnd"
 
 	// Maintainer is INFO's `maintainer` key.
 	Maintainer = "spdrman"
@@ -54,7 +54,7 @@ const (
 	// PayloadBinDir is where the two release binaries live inside
 	// package.tgz. DSM extracts that archive to
 	// /var/packages/<pkg>/target, so "bin/retnd" lands at
-	// /var/packages/Backupd/target/bin/retnd.
+	// /var/packages/retnd/target/bin/retnd.
 	//
 	// Member names carry no "./" prefix, matching what the toolkit's own
 	// pkg_make_inner_tarball produces: it pipes `ls <dir>` into `tar -C
