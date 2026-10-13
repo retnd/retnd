@@ -4,6 +4,30 @@
 
 ### Added
 
+- **A built-in structure check for recovery tests of sets with no validator** (#1111).
+  Until now `retnd recovery-test` and the **Run recovery test** button could only refuse a
+  set that declared no `NAME.local.sh`, which is every set out of the box. Now, with no
+  validator declared, I recover the newest known good copy, match its digest as before, and
+  read it end to end inside the engine as gzip, zstd or tar (or tar in either), checking
+  every CRC and content checksum, extracting nothing and printing no member name. Nothing
+  runs outside the process: no subprocess, shell, container, port or capability. A declared
+  validator always runs instead, a missing one is still `could_not_complete`, and a file type
+  with no reader is refused before anything is staged, with the type named. Three things to
+  know. First, the result is reported as a new `recovery_state` value, `readable`, under the
+  reserved check identity `retnd-builtin-structure`, and the chip says **Recovered, readable**.
+  The journal still stores it as `passed` under that identity, so there is no schema change
+  and no migration, and on the wire `passed` only means a validator accepted it. A `readable`
+  result never satisfies `mode: required`. Second, `assurance.recovery_test.mode` gains
+  `builtin` (global and per set), which runs the check on the cadence and skips a set whose
+  newest copy has a name the check cannot read; `off` and `inherit` never run it on a
+  schedule, and `mode: builtin` with `builtin_check: off` is refused at config load. The new
+  `builtin_check` key (`structure` or `off`, flag `--recovery-test-builtin-check`) says whether
+  the check may run at all when no validator is declared. It stops at a 2 hour budget, 4 TiB
+  decoded or a 128 MiB zstd window, and any of those is `could_not_complete`, not `failed`. Third, validator ids beginning `retnd-` are now reserved and refused at
+  config load. That is a one-way door: a validator you already named `retnd-something` has to
+  be renamed before you upgrade, and the prefix will not be handed back. The API gains
+  `recovery_check`, `builtin_check` and `effective_check`, and `retnd recovery-test --json`
+  gains `"check": "builtin"`.
 - **Select backups on the Backups list and recover them to one destination** (#1107). Every
   row has a checkbox, the header box selects everything the current filter matches, and a bar
   shows the count, the total size, the destination and the equivalent `retnd recover` command.
