@@ -15,6 +15,7 @@ export function RecoveryNotes({ view }: { view: RecoveryView }) {
   const e = view.elsewhere;
   return (
     <>
+      {view.untested ? <span className="aclaim__note" data-testid="recovery-untested">{view.untested}</span> : null}
       {view.effective ? <span className="aclaim__note" data-testid="recovery-effective">{view.effective}</span> : null}
       {e ? (
         <span className="aclaim__note" data-testid="recovery-elsewhere">

@@ -16,6 +16,7 @@ import {
 } from "./verificationModel";
 import type { AssuranceSource, SetPolicyFact, SetTestFact } from "./verificationModel";
 import type { ArtifactAssurance, ClaimRecord } from "./types";
+import { neverConfiguredWording, renderClaim } from "./claims";
 
 const HOUR = 3_600_000;
 const SET = "production/postgres-primary";
@@ -62,7 +63,7 @@ describe("#1134 the facts of one backup", () => {
     expect(v.effective).toBe("Recovery tests are off, a manual run uses the built-in check");
   });
 
-  it("#1134 the label is Not configured only when the policy could not be read", async () => {
+  it("#1134 the label is Not configured only when the set's policy resolves to nothing", async () => {
     const { src } = source({ policy: null });
     bindAssuranceSource(src);
     await refreshAssuranceModel();
@@ -214,6 +215,78 @@ describe("#1134 a subscription moves every surface together", () => {
     await refreshAssuranceModel();
     expect(graph.read(tallyNode).known).toBe(false);
     expect(graph.read(factsNode).error).toBe(true);
+  });
+});
+
+describe("#1141 the one wording for a claim nobody has configured", () => {
+  const NONE_RAN = "No recovery test has run yet";
+
+  it("#1141 a set on the default, with no test on record, says so and links to the default", async () => {
+    const { src } = source({ test: null });
+    bindAssuranceSource(src);
+    await refreshAssuranceModel();
+    const facts = graph.read(factsNode).byArtifact;
+    for (const id of [NEWEST]) {
+      expect(facts[id].recoveryView.label).toBe("Default configuration");
+      expect(facts[id].recoveryView.link).toBe("/settings#assurance-defaults");
+      expect(facts[id].recoveryView.untested).toBe(NONE_RAN);
+      expect(facts[id].recoveryView.basis).toBe("default");
+    }
+    expect(graph.read(setFactsNode).bySet[SET].recoveryView.untested).toBe(NONE_RAN);
+  });
+
+  it("#1141 the model's label and the claim's label are the same words, from one function", async () => {
+    const { src } = source({ test: null });
+    bindAssuranceSource(src);
+    await refreshAssuranceModel();
+    const f = graph.read(factsNode).byArtifact[NEWEST];
+    const w = neverConfiguredWording("recovery", "default", { setId: SET, noRunYet: true });
+    expect(f.recovery.label).toBe(w.label);
+    expect(f.recovery.link).toBe(w.link);
+    expect(f.recovery.note).toBe(w.note);
+    expect(f.recoveryView.untested).toBe(w.note);
+  });
+
+  it("#1141 a test on another backup of the set means nothing is claimed about none having run", async () => {
+    const { src } = source();
+    bindAssuranceSource(src);
+    await refreshAssuranceModel();
+    expect(graph.read(factsNode).byArtifact[NEWEST].recoveryView.untested).toBeUndefined();
+  });
+
+  it("#1141 a server that cannot say what tests ran is not made to say none did", async () => {
+    const { src } = source();
+    src.setTest = async () => undefined;
+    bindAssuranceSource(src);
+    await refreshAssuranceModel();
+    const v = graph.read(factsNode).byArtifact[NEWEST].recoveryView;
+    expect(v.label).toBe("Default configuration");
+    expect(v.untested).toBeUndefined();
+  });
+
+  it("#1141 a policy that could not be read is unavailable, not Not configured, and claims nothing about tests", async () => {
+    const { src } = source({ test: null });
+    src.policy = async () => { throw new Error("down"); };
+    bindAssuranceSource(src);
+    await refreshAssuranceModel();
+    const v = graph.read(factsNode).byArtifact[NEWEST].recoveryView;
+    expect(v.label).toBe("Configuration unavailable");
+    expect(v.link).toBeUndefined();
+    expect(v.untested).toBeUndefined();
+    expect(graph.read(factsNode).byArtifact[NEWEST].recovery.label).toBe("Configuration unavailable");
+  });
+
+  it("#1141 a claim drawn before the policy has arrived is loading, and only a policy of nothing is Not configured", () => {
+    const none = rec("never_configured", "");
+    expect(renderClaim("recovery", none).label).toBe("Loading configuration");
+    expect(renderClaim("content", none).label).toBe("Loading configuration");
+    expect(renderClaim("recovery", none, undefined, undefined, undefined, { basis: "none" }).label).toBe("Not configured");
+    expect(renderClaim("recovery", none, undefined, undefined, undefined, { basis: "none", noRunYet: true }).note).toBeUndefined();
+  });
+
+  it("#1141 a set with its own policy says that, links to its card, and says none has run", () => {
+    const w = neverConfiguredWording("recovery", "own", { setId: SET, noRunYet: true });
+    expect(w).toEqual({ label: "This set's own policy", link: "/sets/production/postgres-primary#assurance", note: NONE_RAN });
   });
 });
 

@@ -21,7 +21,7 @@ import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { AssuranceLink } from "./AssuranceLink";
 import { BUCKET_NONE, bucketLinkName } from "./buckets";
 import type { Bucket } from "./claims";
-import { useFactsIndex, useTally } from "./verificationModel";
+import { DEFAULTS_LINK, useFactsIndex, useTally } from "./verificationModel";
 
 const LABEL: Record<Bucket, string> = { due: "Due", overdue: "Overdue", degraded: "Degraded", untested: "No recovery test" };
 const ORDER: Bucket[] = ["due", "overdue", "degraded", "untested"];
@@ -32,6 +32,9 @@ export function AssuranceDashboardCard() {
   const facts = useFactsIndex();
   if (!api.assurance) return null;
   const known = tally.known;
+  // How many of the untested backups sit in a set on the default configuration:
+  // the reason there is nothing to test with, said beside the count.
+  const onDefault = tally.ids.untested.filter((id) => facts.byArtifact[id]?.recoveryView.basis === "default").length;
   const cell = (b: Bucket) => {
     const n = tally[b];
     const why = "assurance-" + b + "-why";
@@ -65,6 +68,13 @@ export function AssuranceDashboardCard() {
           <p data-testid="assurance-untested-note" style={{ flexBasis: "100%", margin: 0, color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
             {"No recovery test is on record for " + tally.untested + " of " + tally.total + (tally.total === 1 ? " backup" : " backups") +
               ", so a zero in Due does not mean they were tested."}
+            {onDefault > 0 ? (
+              <>
+                {" " + onDefault + " of them are in sets on the "}
+                <AssuranceLink to={DEFAULTS_LINK}>default configuration</AssuranceLink>
+                {"."}
+              </>
+            ) : null}
           </p>
         ) : null}
       </div>

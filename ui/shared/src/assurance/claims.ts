@@ -19,6 +19,7 @@
  */
 import type { IconName } from "@shared/design-system/icons";
 import { stamp } from "@shared/utilities/format";
+import { backupSetPath } from "@shared/utilities/routes";
 import type { AchievedClass, ClaimRecord, ClaimStatus, CopyContent, CopyFailure } from "./types";
 
 export type RenderState = ClaimStatus | "existence_only" | "attested_only" | "pass_builtin";
@@ -33,6 +34,45 @@ export interface RenderedClaim {
   /** "3d ago", for the states that carry a time. */
   age?: string;
   glyph: Glyph;
+  /** In-app path the label links to (a `never_configured` claim on a set that has a configuration). */
+  link?: string;
+  /** What else is true when the claim has no result: that nothing has run yet. */
+  note?: string;
+}
+
+// ------------------------------------------- a claim nobody has configured
+
+export const DEFAULTS_ANCHOR = "assurance-defaults";
+export const DEFAULTS_LINK = "/settings#" + DEFAULTS_ANCHOR;
+
+/** What is known about the configuration behind a claim that has no result.
+ *  `default` and `own` are a set with a configuration (the deployment's, or
+ *  its own); `none` is a set whose policy really resolves to nothing; `loading`
+ *  is a claim drawn before the set's policy has arrived; `unavailable` is a
+ *  policy that was asked for and could not be read. Only `none` may say "Not
+ *  configured": the other four say what is known and no more. */
+export type PolicyBasis = "default" | "own" | "none" | "loading" | "unavailable";
+
+/** The ONE wording rule for a `never_configured` claim (issue #1141). The
+ *  verification model reads it for the chips' Recovery view and `renderClaim`
+ *  reads it for the label, so a chip drawn from either says the same thing.
+ *  `setId` names the set whose own policy an `own` basis links to, and
+ *  `noRunYet` is true only when it is KNOWN that nothing has run, never when
+ *  the answer is merely absent. */
+export function neverConfiguredWording(
+  kind: ClaimKind, basis: PolicyBasis, opts: { setId?: string; noRunYet?: boolean } = {}
+): { label: string; link?: string; note?: string } {
+  const note = opts.noRunYet ? (kind === "recovery" ? "No recovery test has run yet" : "No content check has run yet") : undefined;
+  switch (basis) {
+    case "default": return { label: "Default configuration", link: DEFAULTS_LINK, ...(note ? { note } : {}) };
+    case "own": {
+      const to = opts.setId ? backupSetPath(...(opts.setId.split("/") as [string, string])) + "#assurance" : undefined;
+      return { label: "This set's own policy", ...(to ? { link: to } : {}), ...(note ? { note } : {}) };
+    }
+    case "loading": return { label: "Loading configuration" };
+    case "unavailable": return { label: "Configuration unavailable" };
+    default: return { label: "Not configured" };
+  }
 }
 
 const STATUSES: readonly ClaimStatus[] = [
@@ -91,7 +131,7 @@ const LABELS: Record<ClaimKind, Record<RenderState, string>> = {
     pass_builtin: "Unknown",
     failed: "Content check failed",
     unknown: "Unknown",
-    never_configured: "Not configured",
+    never_configured: neverConfiguredWording("content", "loading").label,
     never_run: "Never run",
     overdue: "Overdue",
     refused_for_cost: "Skipped: read would cost egress",
@@ -107,7 +147,7 @@ const LABELS: Record<ClaimKind, Record<RenderState, string>> = {
     pass_builtin: "Recovered, readable",
     failed: "Recovery test failed",
     unknown: "Unknown",
-    never_configured: "Not configured",
+    never_configured: neverConfiguredWording("recovery", "loading").label,
     never_run: "Never run",
     overdue: "Overdue",
     refused_for_cost: "Skipped: read would cost egress",
@@ -153,14 +193,23 @@ function contentPassLabel(copyContent: readonly CopyContent[] | undefined, copie
  *  copy and two nobody has read would be drawn exactly like one with three. */
 export function renderClaim(
   kind: ClaimKind, record: ClaimRecord | undefined, now: number = Date.now(),
-  copyContent?: readonly CopyContent[], copies?: number
+  copyContent?: readonly CopyContent[], copies?: number,
+  /** What is known about the configuration behind a `never_configured` claim.
+   *  Left out, nothing is known yet, which is drawn as loading, never as "Not
+   *  configured" (issue #1141). */
+  policy: { basis: PolicyBasis; setId?: string; noRunYet?: boolean } = { basis: "loading" }
 ): RenderedClaim {
-  const make = (state: RenderState, withAge: boolean): RenderedClaim => ({
-    state,
-    label: LABELS[kind][state],
-    age: withAge ? ageOf(record?.at, now) : undefined,
-    glyph: GLYPH[state]
-  });
+  const make = (state: RenderState, withAge: boolean): RenderedClaim => {
+    const w = state === "never_configured" ? neverConfiguredWording(kind, policy.basis, policy) : undefined;
+    return {
+      state,
+      label: w?.label ?? LABELS[kind][state],
+      age: withAge ? ageOf(record?.at, now) : undefined,
+      glyph: GLYPH[state],
+      ...(w?.link ? { link: w.link } : {}),
+      ...(w?.note ? { note: w.note } : {})
+    };
+  };
   if (!record) return make("unknown", false);
   let status = knownStatus(record.status);
   // Cleanup is a fact about a recovery test's staged copy. A content record

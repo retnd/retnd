@@ -73,7 +73,7 @@ export function ArtifactAssuranceCard({ artifactId, readOnly }: { artifactId: st
         <InfoTooltip id="assurance.artifact.card"><h2 className="eyebrow">Assurance</h2></InfoTooltip>
       </div>
       <div className="card__body" style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
-        <ClaimChips facts={facts} assurance={single} available={!!api} recoveryReported={!!api?.offers.recoveryClaim} />
+        <ClaimChips facts={facts} assurance={single} available={!!api} recoveryReported={!!api?.offers.recoveryClaim} configuration="unavailable" />
         <span style={{ flex: 1 }} />
         {api ? (
           <InfoTooltip id="assurance.recover.artifact">

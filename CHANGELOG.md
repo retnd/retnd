@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Recovery says "Default configuration" and that nothing has been tested** (#1141). A set with
+  no policy of its own runs on the built-in default, and where no recovery test has run the
+  Backups list, the backup page, the set page, the Backup Sets cards and the Dashboard now say
+  "Default configuration" (linking to the Settings assurance card) with "No recovery test has run
+  yet" under it, and the Dashboard names how many of the untested backups sit on the default. A
+  claim drawn before the set's policy has arrived reads "Loading configuration", and a policy that
+  could not be read reads "Configuration unavailable". "Not configured" is left for a set whose
+  policy really resolves to nothing. The Dashboard zeros are unchanged, and the "No recovery
+  test" count still sits beside them.
+
 ## [0.6.2] - 2026-10-13
 
 0.6.2 is one fix, and it is about trust. The same backup could read "Content verified" on one

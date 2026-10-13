@@ -86,7 +86,7 @@ test.describe("#1141 Recovery on a set that uses the default and has never been 
 });
 
 test.describe("#1141 while the set's policy has not arrived", () => {
-  test("#1141 a policy that is still loading shows a neutral state, not Not configured", async ({ page }) => {
+  test("#1141 control: a policy that is still loading says nothing about the configuration, then says all of it", async ({ page }) => {
     await page.addInitScript(() => {
       let release!: () => void;
       const gate = new Promise<void>((r) => { release = r; });
@@ -95,8 +95,9 @@ test.describe("#1141 while the set's policy has not arrived", () => {
     });
     await open(page, "/backups", S, { wire: true });
     const chip = recovery(listRow(page, NEWEST));
-    await expect(chip).toContainText("Loading configuration");
+    await expect(chip).toContainText("Unknown");
     await expect(chip).not.toContainText("Not configured");
+    await expect(chip).not.toContainText("Default configuration");
     await page.evaluate(() => (window as unknown as { __retndPolicyRelease: () => void }).__retndPolicyRelease());
     await expectDefaultAndUntested(chip);
   });
@@ -119,6 +120,8 @@ for (const theme of ["light", "dark"] as const) {
     await setTheme(page, theme);
     await expect(recovery(listRow(page, NEWEST)).getByTestId("recovery-untested")).toBeVisible();
     expect(await measureContrast(page, `list recovery chip, ${theme}`, '[data-claim="recovery"]')).toEqual([]);
+    expect(await measureContrast(page, `NEW list note "No recovery test has run yet", ${theme}`, '[data-testid="recovery-untested"]')).toEqual([]);
+    expect(await measureContrast(page, `NEW list link "Default configuration", ${theme}`, '[data-claim="recovery"] a.alink')).toEqual([]);
     await spaGo(page, "/sets");
     await setTheme(page, theme);
     await expect(setCard(page).getByTestId("recovery-untested")).toBeVisible();
@@ -127,5 +130,6 @@ for (const theme of ["light", "dark"] as const) {
     await setTheme(page, theme);
     await expect(dash(page).getByTestId("assurance-untested-note")).toBeVisible();
     expect(await measureContrast(page, `dashboard tally, ${theme}`, '[aria-label="Assurance summary"] .card__body')).toEqual([]);
+    expect(await measureContrast(page, `NEW dashboard sentence and link "default configuration", ${theme}`, '[data-testid="assurance-untested-note"]')).toEqual([]);
   });
 }
