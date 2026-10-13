@@ -33,9 +33,9 @@ test.describe("#1106 Recover this backup set: choosing", () => {
     await expect(pre).toContainText("1 quarantined");
     await expect(dlg.getByTestId("preflight-space")).toContainText("free");
     const rows = dlg.getByRole("list", { name: "Backups in this recovery" });
-    await expect(rows.locator('[data-status="ready"]')).toHaveCount(3);
-    await expect(rows.locator('[data-status="quarantined"]')).toContainText("postgres-prod-20260825.dump.zst");
-    await expect(rows.locator('[data-status="quarantined"]')).toContainText("Quarantined");
+    await expect(rows.locator('li[data-status="ready"]')).toHaveCount(3);
+    await expect(rows.locator('li[data-status="quarantined"]')).toContainText("postgres-prod-20260825.dump.zst");
+    await expect(rows.locator('li[data-status="quarantined"]')).toContainText("Quarantined");
     // nothing may run until a destination is named
     await expect(go(page)).toBeDisabled();
     await toFolder(page, "restore-1");
@@ -64,7 +64,7 @@ test.describe("#1106 Recover this backup set: choosing", () => {
     const dlg = dialog(page);
     await dlg.getByRole("radio", { name: "The newest restore point only" }).check();
     await expect(dlg.getByTestId("preflight-summary")).toContainText("1 to recover");
-    await expect(dlg.getByRole("list", { name: "Backups in this recovery" }).locator('[data-status="ready"]')).toHaveCount(1);
+    await expect(dlg.getByRole("list", { name: "Backups in this recovery" }).locator('li[data-status="ready"]')).toHaveCount(1);
     await dlg.getByRole("radio", { name: "Everything since" }).check();
     await expect(dlg.getByTestId("preflight")).toContainText("Pick a date");
     await expect(go(page)).toBeDisabled();
@@ -110,7 +110,7 @@ test.describe("#1106 Recover this backup set: cost and room", () => {
     await expect(result).toContainText("0 of 2 backups recovered");
     await expect(dlg.getByTestId("result-counts")).toContainText("Needs a thaw: 1");
     await expect(dlg.getByTestId("result-counts")).toContainText("Quarantined: 1");
-    await expect(dlg.getByTestId("result-problems").locator('[data-status="needs_thaw"]')).toContainText("billing-20260827.sql.gz");
+    await expect(dlg.getByTestId("result-problems").locator('li[data-status="needs_thaw"]')).toContainText("billing-20260827.sql.gz");
   });
 
   test("a set that does not fit the staging disk is refused with the numbers before a byte is read", async ({ page }) => {
@@ -124,11 +124,12 @@ test.describe("#1106 Recover this backup set: cost and room", () => {
     await expect(go(page)).toBeDisabled();
   });
 
-  test("a set on the incremental engine is refused by the host with the verb to use instead", async ({ page }) => {
-    await openDialog(page, "assurance-snapshot-set");
+  test("a set on the incremental engine is a snapshot restore, with the command, and cannot be run from here", async ({ page }) => {
+    await openDialog(page, "default");
     const dlg = dialog(page);
-    await expect(dlg.getByTestId("preflight-failure")).toContainText("snapshot restore");
-    await expect(go(page)).toBeDisabled();
+    await expect(dlg.getByTestId("kopia-set")).toContainText("snapshot restore");
+    await expect(dlg.getByText("retnd snapshot restore production/postgres-primary --to <dir>", { exact: true })).toBeVisible();
+    await expect(go(page)).toHaveCount(0);
   });
 });
 
@@ -174,7 +175,7 @@ test.describe("#1106 Recover this backup set: running", () => {
     const counts = dlg.getByTestId("result-counts");
     await expect(counts).toContainText("Recovered: 2");
     await expect(counts).toContainText("Failed: 1");
-    const failed = dlg.getByTestId("result-problems").locator('[data-status="failed"]');
+    const failed = dlg.getByTestId("result-problems").locator('li[data-status="failed"]');
     await expect(failed).toHaveCount(1);
     await expect(failed).toContainText("does not match the checksum recorded");
     await expect(result).toContainText("2 of 4 backups recovered");
@@ -214,7 +215,7 @@ for (const theme of ["light", "dark"] as const) {
     await go(page).click();
     await expect(dlg.getByTestId("result")).toBeVisible({ timeout: 15_000 });
     expect(await measureContrast(page, `recover set dialog (result), ${theme}`, '[role="dialog"][aria-labelledby="recover-set-title"]')).toEqual([]);
-    expect(await measureBorders(page, `recover set result, ${theme}`, '[role="dialog"][aria-labelledby="recover-set-title"] .rset__rows, [role="dialog"][aria-labelledby="recover-set-title"] .aop')).toEqual([]);
+    expect(await measureBorders(page, `recover set result, ${theme}`, '[role="dialog"][aria-labelledby="recover-set-title"] .rset__rows')).toEqual([]);
   });
 
   test(`#1106 contrast, ${theme}: the pre-flight table and the running view`, async ({ page }) => {
@@ -224,7 +225,7 @@ for (const theme of ["light", "dark"] as const) {
     await toFolder(page, "restore-1");
     await expect(dlg.getByTestId("preflight-summary")).toBeVisible();
     expect(await measureContrast(page, `recover set dialog (pre-flight), ${theme}`, '[role="dialog"][aria-labelledby="recover-set-title"]')).toEqual([]);
-    expect(await measureBorders(page, `recover set pre-flight, ${theme}`, '[role="dialog"][aria-labelledby="recover-set-title"] .rset__rows, [role="dialog"][aria-labelledby="recover-set-title"] .aop, [role="dialog"][aria-labelledby="recover-set-title"] .input')).toEqual([]);
+    expect(await measureBorders(page, `recover set pre-flight, ${theme}`, '[role="dialog"][aria-labelledby="recover-set-title"] .rset__rows, [role="dialog"][aria-labelledby="recover-set-title"] .input')).toEqual([]);
     await go(page).click();
     await expect(dlg.getByTestId("running")).toBeVisible();
     await expect(dlg.getByTestId("running-lines").locator("li")).toHaveCount(1, { timeout: 8000 });

@@ -99,7 +99,7 @@ export function createMockRecoverMany(scenario: string, rowsFor: (setId: string)
   const rows = (req: RecoverManyRequest): BackupArtifact[] => {
     if (req.set) {
       const base = rowsFor(req.set);
-      const all = scenario === "assurance-set-recover" && req.set === "production/postgres-primary" ? historyRows(base) : base;
+      const all = scenario.startsWith("assurance-set-") && req.set === "production/postgres-primary" ? historyRows(base) : base;
       let out = all;
       if (req.since) out = out.filter((a) => a.receivedAt >= req.since!);
       if (req.newestOnly) {
@@ -113,7 +113,7 @@ export function createMockRecoverMany(scenario: string, rowsFor: (setId: string)
     const sets = new Set([...wanted].map((id) => id.split("/").slice(0, 2).join("/")));
     const all = [...sets].flatMap((s) => {
       const base = rowsFor(s);
-      return scenario === "assurance-set-recover" && s === "production/postgres-primary" ? historyRows(base) : base;
+      return scenario.startsWith("assurance-set-") && s === "production/postgres-primary" ? historyRows(base) : base;
     });
     return all.filter((a) => wanted.has(a.id));
   };
@@ -203,6 +203,9 @@ export function createMockRecoverMany(scenario: string, rowsFor: (setId: string)
         }
         emit?.({ kind: "item", index, total: actionable, item: { ...it }, doneBytes: done, totalBytes: p.totals.bytes });
       }
+      // A cancelled run takes a moment to discard the file in flight and write
+      // its manifest, and the page says it is cancelling meanwhile.
+      if (cancelled) await sleep(600);
       const totals = totalsOf(items);
       totals.bytes = done;
       const manifest = p.folder + "/rcv-" + digestOf(p.folder).slice(0, 8) + "-recovery-manifest.json";

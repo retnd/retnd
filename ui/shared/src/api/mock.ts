@@ -124,7 +124,17 @@ export type Scenario =
   | "assurance-reads-busy"
   | "assurance-corrupt-copy"
   // How a browser download ended, as three artifacts' feed rows (item 14).
-  | "assurance-download-outcomes";
+  | "assurance-download-outcomes"
+  // #1106: Recover this backup set. The fixture sets are presented as
+  // artifact sets and the mock host recovers a file every 700ms (2.5s when
+  // slow), so a spec can watch the total and press Cancel. "recover" gives the
+  // postgres set history to recover; "nospace" has a staging disk too small
+  // for it; "corrupt" has its second file fail its digest; "slow" is the one
+  // to cancel.
+  | "assurance-set-recover"
+  | "assurance-set-nospace"
+  | "assurance-set-corrupt"
+  | "assurance-set-slow";
 
 /** Reads the scenario out of the URL, falling back to the default for
  *  anything unrecognised. A closed allow-list rather than a cast, so a
@@ -141,7 +151,8 @@ export function scenarioFromLocation(): Scenario {
     "assurance-no-operations", "assurance-cleanup-fails", "assurance-recovery-overdue",
     "assurance-snapshot-set", "assurance-too-many-grants", "assurance-grant-expired",
     "assurance-grant-used", "assurance-session-ended", "assurance-staging-full",
-    "assurance-reads-busy", "assurance-corrupt-copy", "assurance-download-outcomes"
+    "assurance-reads-busy", "assurance-corrupt-copy", "assurance-download-outcomes",
+    "assurance-set-recover", "assurance-set-nospace", "assurance-set-corrupt", "assurance-set-slow"
   ];
   return (allowed as string[]).includes(s ?? "") ? (s as Scenario) : "default";
 }
@@ -3767,6 +3778,14 @@ function mockEnvUnset(
  * disturbing the one under test build a second mock rather than sharing.
  */
 export function createMockApi(scenario: Scenario = "default", options: { wire?: boolean } = {}): RetndApi {
+  // #1106: Recover this backup set is for artifact-engine sets, and every
+  // fixture set but one is incremental. The recover-set scenarios present the
+  // fixture sets as artifact sets (the mock host's recoverMany holds the rows);
+  // the default scenario keeps the incremental ones, which is how the
+  // snapshot-restore branch of the dialog is reached.
+  if (scenario.startsWith("assurance-set-")) {
+    for (const s of SETS) { s.engine = "artifact"; s.incremental = null; }
+  }
   // What a finished scrub or recovery test writes onto a copy, which the
   // production composer reads off the placement. The mock's own assurance
   // seam keeps its verdicts itself, so only the wire flavour needs it.
