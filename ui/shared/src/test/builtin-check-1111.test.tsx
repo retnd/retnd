@@ -200,3 +200,14 @@ describe("#1111 Run recovery test follows effective_check", () => {
     expect(((await runButton()) as HTMLButtonElement).disabled).toBe(false);
   });
 });
+
+describe("#1111 the assurance-builtin-check scenario", () => {
+  it("serves a set with no validator, a .tar.zst newest copy and effective_check builtin", async () => {
+    const api = createMockApi("assurance-builtin-check", { wire: true });
+    const p = await api.getBackupSetAssurance("production", "postgres-primary");
+    expect(p.recoveryTest.validatorDeclared).toBe(false);
+    expect(p.recoveryTest.effectiveCheck).toBe("builtin");
+    const list = (await api.listArtifacts("production/postgres-primary")).sort((a, b) => b.producedAt.localeCompare(a.producedAt));
+    expect(list[0].filename.endsWith(".tar.zst")).toBe(true);
+  });
+});

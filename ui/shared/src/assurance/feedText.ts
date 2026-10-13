@@ -103,9 +103,15 @@ export function recoveryEndText(e: SetActivityEvent): string {
   return "recovery finished: " + name + size + took;
 }
 
+/** The validator identity the engine stamps on a run of the built-in structure
+ *  check (recoverytest.BuiltinValidatorID), which is how the feed tells it
+ *  from an operator's validator (#1111). */
+export const BUILTIN_CHECK_ID = "retnd-builtin-structure";
+
 export function recoveryTestStartText(e: SetActivityEvent): string {
   const f = e.fields;
-  const validator = f.validator && f.validator !== "(withheld)" ? " (validator " + f.validator + ")" : "";
+  const validator = f.validator === BUILTIN_CHECK_ID ? " (built-in structure check)"
+    : f.validator && f.validator !== "(withheld)" ? " (validator " + f.validator + ")" : "";
   return "recovery test started: " + (artifactTail(f.artifact) || "an artifact") + validator;
 }
 
@@ -113,6 +119,9 @@ export function recoveryTestEndText(e: SetActivityEvent): string {
   const f = e.fields;
   const name = artifactTail(f.artifact) || "an artifact";
   const why = f.reason ? ": " + f.reason : "";
+  // A built-in pass proves the file decodes and nothing more, so it is never
+  // worded as a test passing. Error and warn keep their words and the reason.
+  if (e.result === "success" && f.validator === BUILTIN_CHECK_ID) return "recovered and readable: " + name + " (built-in check)";
   if (e.result === "success") return "recovery test passed: " + name;
   if (e.result === "error") return "recovery test failed: " + name + why;
   // A warning is a run that proved nothing either way: cancelled, refused for
