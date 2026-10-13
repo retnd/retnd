@@ -180,7 +180,7 @@ func TestRecoverSetBringsBackEveryKnownGoodFileAndListsTheRest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RecoverMany: %v", err)
 	}
-	if res.Totals.Recovered != 3 || res.Totals.Quarantined != 1 || res.Totals.Unrecoverable != 1 || res.Totals.Skipped != 1 || res.Totals.Failed != 0 {
+	if res.Totals.Recovered != 3 || res.Totals.Quarantined != 1 || res.Totals.Unrecoverable != 1 || res.Totals.Skipped != 2 || res.Totals.Failed != 0 {
 		t.Fatalf("totals = %+v", res.Totals)
 	}
 	for name, want := range map[string][]byte{"a.zst": d1, "b.zst": d2, "c.zst": d3} {
@@ -204,8 +204,12 @@ func TestRecoverSetBringsBackEveryKnownGoodFileAndListsTheRest(t *testing.T) {
 	if l := itemByName(t, res.Items, "lost.zst"); l.Status != RecoverManyUnrecoverable {
 		t.Fatalf("lost row = %+v", l)
 	}
-	if s := itemByName(t, res.Items, "bad.zst"); s.Status != RecoverManySkipped {
-		t.Fatalf("failed-state row = %+v", s)
+	// The fixture's own dump.zst is still transferring, and bad.zst failed:
+	// neither is a restore point, both are listed and neither is read.
+	for _, name := range []string{"bad.zst", "dump.zst"} {
+		if s := itemByName(t, res.Items, name); s.Status != RecoverManySkipped || s.Path != "" {
+			t.Fatalf("%s = %+v", name, s)
+		}
 	}
 	// Exactly the three recovered files and the manifest exist: nothing for
 	// the rows that were listed and not included.
