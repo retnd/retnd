@@ -375,6 +375,14 @@
     "label": "Safe state persisted",
     "html": "The catalogue now records this artifact as known-good, which is what later steps read before acting. Deleting the remote original is gated on this."
   },
+  "backups.lifecycle.content-verified": {
+    "label": "Content verified",
+    "html": "A scrub read this copy back and its hash matched the one recorded at ingest. The time is when that scrub finished, which is later than the transfer, and a dash means no scrub has verified this backup yet."
+  },
+  "backups.lifecycle.structure-readable": {
+    "label": "Structure readable",
+    "html": "A recovery test staged a copy and read it end to end. The built-in check proves the file decodes and matches its digest, <strong>not</strong> that an application can use it; an operator's validator is the step that says that. A dash means no recovery test has run on this backup, whatever the set's newest test says."
+  },
   "backups.lifecycle.remote-deleted": {
     "label": "Remote source deleted",
     "html": "The original was removed from the remote server after the local copy was proven. While this step is pending the remote original is still there, so nothing has been given up."

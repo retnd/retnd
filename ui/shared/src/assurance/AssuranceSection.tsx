@@ -50,6 +50,7 @@ import { recoveryTestCommand, scrubCommand, scrubContentCommand, setAssuranceCom
 import { BUILTIN_CHECKS, asBuiltinCheck, builtinOffProblem, reservedValidatorProblem } from "./builtinCheck";
 import { MIN_RECOVERY_TEST_CADENCE_SECONDS, cadenceProblem, formatCadence, parseCadence } from "./duration";
 import { useOperation } from "./useOperation";
+import { assuranceModelSettled, noteAssuranceChanged, useFactsIndex } from "./verificationModel";
 import type { ArtifactAssurance, OperationKind, ValidatorResult } from "./types";
 
 const RECOVERY_DOCS = "https://github.com/retnd/retnd/blob/main/docs/recovery.md#scrubbing-and-recovery-tests-what-runs-on-its-own-and-what-it-costs";
@@ -85,6 +86,12 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
   const [policy, setPolicy] = useState<BackupSetAssurance | null>(null);
   const [due, setDue] = useState<AssuranceDue | null>(null);
   const [latest, setLatest] = useState<ArtifactAssurance | undefined>(undefined);
+  // The newest backup, whose claims this card shows. The claims themselves are
+  // the verification model's (issue #1134), so this chip row is the same one the
+  // Backups list and the backup's own page draw for that backup.
+  const [newestId, setNewestId] = useState<string | null>(null);
+  const model = useFactsIndex();
+  const facts = newestId ? model.byArtifact[newestId] ?? null : null;
   // The newest copy's own recovery record, for a server that does not send
   // validator_declared: true when every live copy was recorded not_configured.
   const [copyNotConfigured, setCopyNotConfigured] = useState(false);
@@ -134,6 +141,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
       } catch { newestClaim = undefined; recordedNotConfigured = false; }
     }
     setLatest(newestClaim);
+    setNewestId(newestClaim?.artifactId ?? null);
     setCopyNotConfigured(recordedNotConfigured);
     setPolicy(p);
     setDraft(draftOf(p));
@@ -157,7 +165,13 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
   // The old answer stays marked as "being re-checked" from the start of a
   // run until the claims have been re-read AFTER it ended, so a failing
   // scrub never leaves a pass on screen for the gap between the two.
-  const op = useOperation(follow ? api : undefined, opId, (o) => { void refresh().finally(() => setSettled(o.id)); });
+  // The run ended: every surface that shows this set's claims re-reads together
+  // (the model's subscription), and the chip stops saying "re-checking" only
+  // once that read has landed.
+  const op = useOperation(follow ? api : undefined, opId, (o) => {
+    noteAssuranceChanged();
+    void Promise.all([refresh(), assuranceModelSettled()]).finally(() => setSettled(o.id));
+  });
   const running = op.operation?.state === "running";
   const checking = opId !== null && settled !== opId;
 
@@ -176,6 +190,11 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
   };
 
   const set = (p: Partial<Draft>) => { setDraft((d) => (d ? { ...d, ...p } : d)); setSaved(false); };
+
+  // A link from a Recovery chip ("This set's own policy") lands here.
+  useEffect(() => {
+    if (policy && window.location.hash === "#assurance") document.getElementById("assurance")?.scrollIntoView({ block: "start" });
+  }, [policy]);
 
   const own = draft?.policy === "own";
   const scrubProblem = own && draft ? cadenceProblem(draft.scrubEvery) : null;
@@ -204,6 +223,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
         await root.patchBackupSetAssurance(source, setName, patch);
       }
       await refresh();
+      noteAssuranceChanged();
       setSaved(true);
     } catch (e) {
       setError(describeFailure(e, "could not save").message);
@@ -221,7 +241,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
   const never = due?.items.filter((i) => !i.lastAssuredAt).length ?? 0;
 
   return (
-    <section className="card" data-assurance="" aria-label="Assurance">
+    <section className="card" id="assurance" tabIndex={-1} data-assurance="" aria-label="Assurance">
       <div className="card__header">
         <InfoTooltip id="assurance.set.section"><h2 className="eyebrow">Assurance</h2></InfoTooltip>
       </div>
@@ -229,7 +249,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
         {!api ? (
           <p style={{ margin: 0 }}>This server does not report assurance yet, so nothing here is claimed.</p>
         ) : null}
-        <ClaimChips assurance={latest} available={!!api} checking={checking} recoveryReported={!!api?.offers.recoveryClaim} />
+        <ClaimChips facts={facts} assurance={latest} available={!!api} checking={checking} recoveryReported={!!api?.offers.recoveryClaim} />
 
         {draft && policy ? (
           <>

@@ -73,10 +73,22 @@ const SET_LATEST: Record<string, string> = {
  *  lane for this issue drives this scenario by name. */
 export const BUILTIN_SCENARIO = "assurance-builtin-check";
 export const BUILTIN_ARTIFACT = "production/postgres-primary/postgres-prod-20260829.tar.zst";
-const builtinScenario = () => activeScenario === BUILTIN_SCENARIO;
+/** assurance-default-policy (#1134): the PostgreSQL set follows the deployment's
+ *  default, so its recovery test mode is off and a manual run is the built-in
+ *  structure check. Its newest backup has no recovery record; the one before
+ *  it carries the set's only test. */
+export const DEFAULT_POLICY_SCENARIO = "assurance-default-policy";
+export const DEFAULT_POLICY_TESTED = "production/postgres-primary/postgres-prod-20260828.dump.zst";
+export const DEFAULT_POLICY_NEWEST = "production/postgres-primary/postgres-prod-20260829.dump.zst";
+const defaultPolicyScenario = () => activeScenario === DEFAULT_POLICY_SCENARIO;
+/** Both scenarios run the built-in structure check, which records "readable". */
+const builtinScenario = () => activeScenario === BUILTIN_SCENARIO || defaultPolicyScenario();
 /** The set's latest backup, whose claims the set page shows. */
 const latestOf = (setId: string): string | undefined =>
-  builtinScenario() && setId === "production/postgres-primary" ? BUILTIN_ARTIFACT : SET_LATEST[setId];
+  setId !== "production/postgres-primary" ? SET_LATEST[setId]
+  : activeScenario === BUILTIN_SCENARIO ? BUILTIN_ARTIFACT
+  : defaultPolicyScenario() ? DEFAULT_POLICY_NEWEST
+  : SET_LATEST[setId];
 
 function baseTable(now: number): ArtifactAssurance[] {
   // Only the backups the Backups page lists, in the shapes their placements
@@ -449,6 +461,17 @@ export function createMockAssurance(scenario: string): AssuranceApi {
       if (s.ops[id] && !s.ops[id].cancelledAt) { s.ops[id].cancelledAt = Date.now(); save(s); }
     },
     getValidatorResult: async (): Promise<ValidatorResult | null> => {
+      if (scenario === DEFAULT_POLICY_SCENARIO) {
+        // A test run from this page is the newest one, and it ran on the newest backup.
+        const ran = Object.values(load().ops)
+          .filter((o) => o.kind === "recovery_test" && !o.cancelledAt && view(o, false, Date.now()).operation.state === "complete")
+          .sort((a, b) => b.startedAt - a.startedAt)[0];
+        return {
+          artifactId: ran ? DEFAULT_POLICY_NEWEST : DEFAULT_POLICY_TESTED, medium: "local", operationId: ran ? ran.id : "aop_default_policy_fixture",
+          state: "readable", recordedAt: new Date(ran ? ran.startedAt + total("recovery_test") * 1000 : Date.now() - 5 * 3600_000).toISOString(), truncated: false,
+          records: [{ kind: "output", text: "built-in structure check: recovered 1 file, read end to end, digest matched" }]
+        };
+      }
       if (scenario !== "assurance-validator-output") return null;
       return {
         artifactId: "production/postgres-primary/postgres-prod-20260828.dump.zst",

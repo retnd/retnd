@@ -161,7 +161,7 @@ export interface ValidatorResult {
   medium: string;
   operationId: string;
   /** The engine's recorded verdict for that run. */
-  state: "passed" | "failed" | "refused_for_cost" | "could_not_complete";
+  state: "passed" | "readable" | "failed" | "refused_for_cost" | "could_not_complete";
   recordedAt: string;
   /** Whether the runner dropped output to stay inside its bounds. */
   truncated: boolean;

@@ -61,7 +61,7 @@ import type {
   VersionInfo
 } from "@shared/types/operation";
 import { createMockRecoverMany } from "@shared/assurance/mockRecoverMany";
-import { BUILTIN_ARTIFACT, assuranceLiveEvents, assuranceUnfinished, createMockAssurance, createMockRecovery, overlayAssurance, overlayThaw } from "@shared/assurance/mockAssurance";
+import { BUILTIN_ARTIFACT, DEFAULT_POLICY_NEWEST, DEFAULT_POLICY_TESTED, DEFAULT_POLICY_SCENARIO, assuranceLiveEvents, assuranceUnfinished, createMockAssurance, createMockRecovery, overlayAssurance, overlayThaw } from "@shared/assurance/mockAssurance";
 import { createHttpAssurance } from "@shared/assurance/realAssurance";
 import type { DeploymentActivity, SetActivity, SetActivityEvent } from "@shared/types/activity";
 
@@ -137,6 +137,12 @@ export type Scenario =
   // #1111: no validator declared, the newest copy is a .tar.zst, and the
   // built-in structure check runs; the manual run ends "readable".
   | "assurance-builtin-check"
+  // #1118: a set that follows the deployment's default policy (recovery tests
+  // off, the built-in check as the fallback), with a content-verified newest
+  // copy and a readable built-in recovery test recorded against the backup
+  // before it. Run it with wire=1, and the backup sets carry the unreported
+  // fields a real client leaves null.
+  | "assurance-default-policy"
   // #1106: Recover this backup set. The fixture sets are presented as
   // artifact sets and the mock host recovers a file every 700ms (2.5s when
   // slow), so a spec can watch the total and press Cancel. "recover" gives the
@@ -173,7 +179,7 @@ export function scenarioFromLocation(): Scenario {
     "assurance-grant-used", "assurance-session-ended", "assurance-staging-full",
     "assurance-reads-busy", "assurance-corrupt-copy", "assurance-download-outcomes",
     "assurance-set-recover", "assurance-set-nospace", "assurance-set-corrupt", "assurance-set-slow",
-    "backups-many", "backups-many-corrupt", "backups-many-nospace", "dock-no-warnings", "dock-live-line", "assurance-no-validator", "assurance-builtin-check"
+    "backups-many", "backups-many-corrupt", "backups-many-nospace", "dock-no-warnings", "dock-live-line", "assurance-no-validator", "assurance-builtin-check", "assurance-default-policy"
   ];
   return (allowed as string[]).includes(s ?? "") ? (s as Scenario) : "default";
 }
@@ -3838,6 +3844,37 @@ const BUILTIN_ARTIFACT_FIXTURE: BackupArtifact = {
   }]
 };
 
+/** assurance-default-policy (#1118). The two newest backups of the PostgreSQL
+ *  set: the older one carries the set's only recovery test (the built-in
+ *  structure check, recorded as readable five hours ago), the newer one was
+ *  content-verified ten hours ago and has no recovery record, because the
+ *  deployment's tests are off. Neither carries an ingest-time validation. */
+function defaultPolicyArtifacts(): BackupArtifact[] {
+  const h = (n: number) => new Date(Date.now() - n * 3600_000).toISOString();
+  const copy = (name: string, verifiedAgo: number, recovery: Partial<BackupArtifact["placements"][number]>) => ({
+    medium: "local", mediumType: "local",
+    location: "/data/backups/production/postgres/2026/10/" + name,
+    sizeBytes: 15246903296, storageClass: "",
+    verificationClass: "content" as const, verifiedAt: h(verifiedAgo),
+    access: "immediate" as const, status: "ACTIVE" as const, ...recovery
+  });
+  const base = ARTIFACTS[0];
+  const tested: BackupArtifact = {
+    ...base, id: DEFAULT_POLICY_TESTED, validation: "pending", filename: "postgres-prod-20260828.dump.zst",
+    producedAt: h(30), receivedAt: h(29.9),
+    placements: [copy("postgres-prod-20260828.dump.zst", 26, { recoveryState: "readable", recoveryCheck: "builtin", recoveryTestedAt: h(5) })]
+  };
+  const newest: BackupArtifact = {
+    ...base, id: DEFAULT_POLICY_NEWEST, filename: "postgres-prod-20260829.dump.zst",
+    remoteOriginalPath: "prod-db-01:/backups/postgresql/postgres-prod-20260829.dump.zst",
+    localPath: "/data/backups/production/postgres/2026/10/postgres-prod-20260829.dump.zst",
+    checksum: "9a1c4e7b2d6f08351e92ab47c3d5f6018b2e4a7d9c1f30586e2b4d7a91c3e5f0",
+    validation: "pending", producedAt: h(11), receivedAt: h(10.9), remoteSourceRemovedAt: null,
+    placements: [copy("postgres-prod-20260829.dump.zst", 10, { recoveryState: "not_configured" })]
+  };
+  return [newest, tested];
+}
+
 /**
  * A whole RetndApi, in memory, for one scenario.
  *
@@ -3866,6 +3903,18 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   // What a finished scrub or recovery test writes onto a copy, which the
   // production composer reads off the placement. The mock's own assurance
   // seam keeps its verdicts itself, so only the wire flavour needs it.
+  // #1118: under assurance-default-policy a backup set is what the real client
+  // maps from the wire, with every field the server does not report left
+  // null, so a card cannot be tested against a number only a fixture has.
+  const asReportedSet = (set: BackupSet): BackupSet =>
+    scenario !== DEFAULT_POLICY_SCENARIO ? set : {
+      ...set,
+      state: "healthy",
+      stateNote: "A known-good backup exists within the stale threshold and nothing needs attention.",
+      newestKnownGoodAt: new Date(Date.now() - 11 * 3600_000).toISOString(),
+      lastRunAt: null, lastValidation: "unknown", expectedIntervalHours: null, staleAfterSeconds: 36 * 3600,
+      retainedCount: null, retainedBytes: null, validations: []
+    };
   const wireOverlay = options.wire ? overlayAssurance : (a: BackupArtifact) => a;
   const empty = scenario === "empty";
   // Every deployment written before storage mediums existed, which is the
@@ -3938,6 +3987,8 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
       }))
     : scenario === "assurance-builtin-check"
     ? [BUILTIN_ARTIFACT_FIXTURE, ...ARTIFACTS]
+    : scenario === DEFAULT_POLICY_SCENARIO
+    ? defaultPolicyArtifacts()
     : ARTIFACTS;
   // Issue #176: a fresh app-store install has no configuration at all.
   // Mutable, because completing setup is what makes it configured — the
@@ -4018,6 +4069,16 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
         backupSetId: key, isOverride: false,
         scrub: { cadenceSeconds: assuranceSettings.scrub.cadenceSeconds, strategy: assuranceSettings.scrub.strategy },
         recoveryTest: { mode: "off", cadenceSeconds: 0, validatorId: "", validatorDeclared: false }
+      };
+    }
+    // assurance-default-policy: every set follows the deployment, whose recovery
+    // tests are off, and no validator is named, so a manual run would use the
+    // built-in structure check.
+    if (scenario === DEFAULT_POLICY_SCENARIO && !assuranceOverrides.has(key)) {
+      return {
+        backupSetId: key, isOverride: false,
+        scrub: { cadenceSeconds: assuranceSettings.scrub.cadenceSeconds, strategy: assuranceSettings.scrub.strategy },
+        recoveryTest: { mode: "off", cadenceSeconds: 0, validatorId: "", validatorDeclared: false, builtinCheck: "structure", effectiveCheck: "builtin" }
       };
     }
     // assurance-builtin-check: no set names a validator, so the engine would
@@ -4118,9 +4179,9 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
     getStorage: () =>
       delay(empty ? STORAGE_EMPTY : scenario === "storage-critical" ? STORAGE_CRITICAL : STORAGE),
 
-    listSets: () => delay(empty ? [] : withRetentionAttribution(retentionOverrides, SETS)),
+    listSets: () => delay(empty ? [] : withRetentionAttribution(retentionOverrides, SETS).map(asReportedSet)),
     getSet: (id) => {
-      const found = SETS.find((s) => s.id === id);
+      const found = SETS.map(asReportedSet).find((s) => s.id === id);
       // A rejected promise, not a synchronous throw: getSet's own type
       // signature promises Promise<BackupSet>, and every caller (useAsync,
       // useResource/fetchResource) reaches for fetchFn().then/.catch to
