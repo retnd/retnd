@@ -123,7 +123,9 @@ export type Scenario =
   | "assurance-reads-busy"
   | "assurance-corrupt-copy"
   // How a browser download ended, as three artifacts' feed rows (item 14).
-  | "assurance-download-outcomes";
+  | "assurance-download-outcomes"
+  // A set that declares no recovery-test validator: the run is refused.
+  | "assurance-no-validator";
 
 /** Reads the scenario out of the URL, falling back to the default for
  *  anything unrecognised. A closed allow-list rather than a cast, so a
@@ -140,7 +142,7 @@ export function scenarioFromLocation(): Scenario {
     "assurance-no-operations", "assurance-cleanup-fails", "assurance-recovery-overdue",
     "assurance-snapshot-set", "assurance-too-many-grants", "assurance-grant-expired",
     "assurance-grant-used", "assurance-session-ended", "assurance-staging-full",
-    "assurance-reads-busy", "assurance-corrupt-copy", "assurance-download-outcomes"
+    "assurance-reads-busy", "assurance-corrupt-copy", "assurance-download-outcomes", "assurance-no-validator"
   ];
   return (allowed as string[]).includes(s ?? "") ? (s as Scenario) : "default";
 }
@@ -3907,6 +3909,14 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   const assuranceOverrides = new Map<string, Record<string, number | string>>();
   const resolveAssurance = (key: string): BackupSetAssurance => {
     const o = assuranceOverrides.get(key) ?? {};
+    // assurance-no-validator: no set names a validator and the mode is off.
+    if (scenario === "assurance-no-validator" && !assuranceOverrides.has(key)) {
+      return {
+        backupSetId: key, isOverride: false,
+        scrub: { cadenceSeconds: assuranceSettings.scrub.cadenceSeconds, strategy: assuranceSettings.scrub.strategy },
+        recoveryTest: { mode: "off", cadenceSeconds: 0, validatorId: "" }
+      };
+    }
     return {
       backupSetId: key,
       isOverride: assuranceOverrides.has(key),
