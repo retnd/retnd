@@ -271,13 +271,24 @@ workflow runner under the contract in
 [the host workflow runner ADR](adr/0020-host-workflow-runner.md), and a recovery itself
 starts no subprocess at all.
 
+The built-in structure check, which a recovery test runs instead of a validator when the set
+declares none, adds nothing to that list. It runs in the engine process: it uses the gzip
+and tar readers from the standard library and the zstd reader the binary already links, it
+starts no subprocess, no shell and no container, and it opens no port, mount or capability.
+It reads the staged copy once, decodes into a discard sink, writes nothing, extracts nothing,
+and is bounded by a wall-clock budget, a decoded-bytes ceiling and a zstd window ceiling, all
+of which end as `could_not_complete`. A decoder panic is caught at its boundary and recorded
+the same way. The deployment's composed files are unchanged by it.
+
 Its output is untrusted, and the engine keeps a bounded copy of it: the newest recovery
 test's output per backup set, at most 200 records, 1 KiB per record and 32 KiB in all, with a
 truncation record last when anything was cut and no control byte stored. It sits beside the
 verdict, the hash of the script that ran and a reason in the engine's own words, and it never
 decides the verdict. A validator that exits 0 without opening the file does not produce a
 recovery-test pass, because the digest of the recovered bytes was checked first and is
-what the pass is recorded against.
+what the pass is recorded against. The built-in check's result is a different stored state
+(`readable`) under the reserved identity `retnd-builtin-structure`, and no operator
+`validator_id` may begin `retnd-`.
 
 ## Runtime profiles
 

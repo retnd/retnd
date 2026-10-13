@@ -735,6 +735,7 @@ three places, with three ages, and nothing is allowed to merge them:
 | **Stored** | The journal holds a placement for this artifact on that medium | That anyone has read the bytes since |
 | **Content verified**, with an age | A check **read the bytes** and they matched the recorded digest | That the file is usable by your application |
 | **Recovery tested**, with an age | The newest known good copy was recovered to an isolated path, its digest matched the artifact's, and then **your validator** accepted it | That your application will come up, or that older copies are good |
+| **Recovered, readable**, with an age | The newest known good copy was recovered to an isolated path, its digest matched the artifact's, and then the built-in structure check read it end to end as the gzip, zstd or tar file it is and every integrity field it carries checked out. No validator was involved | That an application can use the file. It proves the file decodes, nothing more, and it never counts as **Recovery tested** |
 
 The Content chip says how many copies stand behind it. A bare **Content verified** is drawn
 only when every copy is content verified; otherwise it reads, for example, **Content
@@ -758,12 +759,37 @@ quiet default to good:
 | `failed` | The check finished and the bytes were wrong |
 | `requires_restore` | The copy is archived. It never counts toward a satisfied policy |
 
+The fourth row is the built-in structure check, and it exists so that a set with no
+validator can still produce an honest result. When a backup set declares no validator (none
+named by `validator_id` and none found in its recovery-test directory), a recovery test
+recovers the copy and matches the digest exactly as it does for a validator, and then reads
+the recovered file in the engine's own process. It recognises `.gz`, `.tgz`, `.tar.gz`,
+`.zst`, `.tzst`, `.tar.zst` and `.tar` by file name, then picks the reader by the file's
+magic bytes. It verifies the CRC-32 of every gzip member, the content checksum of every zstd
+frame that carries one, and every tar header and entry size, and it extracts nothing and
+prints no member name. The result is stored as `recovery_state` **`readable`**, under the
+reserved check identity `retnd-builtin-structure`, and every surface labels it **Recovered,
+readable**. The value `passed` stays reserved for a validator's acceptance, so the two kinds
+of result can never be confused in the journal, the API or the chip.
+
+The precedence is fixed. A declared validator that exists runs, and the built-in check is
+never consulted. A declared validator that is missing is `could_not_complete` and never falls
+back. Only a set with no validator at all reaches the built-in check. A file type it has no
+reader for (a `.dump`, say) is refused before anything is staged, as `not_configured` with a
+reason that names the type, so nobody pays for a billed copy to learn the check cannot apply.
+Hitting the check's wall-clock budget or decoded-bytes ceiling, a zstd window or dictionary
+it will not accept, or a decoder panic is `could_not_complete`, never `failed`. A file that
+is truncated, fails a checksum, or is not the format its name says is `failed`.
+
+A built-in result never satisfies `mode: required`. That mode still means "the operator's
+validator accepted it", and a set under it stays degraded until a validator pass is recorded.
+
 ## Scrubbing and recovery tests: what runs on its own, and what it costs
 
 A scrub is a scheduled re-check of the copies the journal records. It is driven from the
 copy's own record (`next_due_at`), so a reconciliation or a catalog rebuild cannot reset
 the clock on a copy nobody re-read. A **recovery test** is the stronger thing: recover,
-digest, then your validator.
+digest, then your validator (or, where you declared none, the built-in structure check).
 
 ### What runs on its own, with nothing configured
 
@@ -780,7 +806,15 @@ Both `retnd serve` and `retnd daemon` run an assurance pass at every poll, with 
 - **The recovery test, only where you asked for one.** The default mode is `off`, and with
   it no test runs. A set whose mode is `required` or `custom` and whose validator script is
   in place is tested on `assurance.recovery_test.cadence`, 30 days unless you say
-  otherwise. An unattended test never pays: if the newest known good copy can only be read
+  otherwise.
+- **The built-in structure check, only where you asked for it.** `assurance.recovery_test.mode`
+  also takes the value `builtin`, globally or on a set. A set whose mode is `builtin` is
+  recovered and read end to end by the built-in check on the same `cadence` (30 days unless
+  you say otherwise), with no validator needed. `off` and `inherit` (resolving to `off`)
+  never run it on a schedule, and `required` and `custom` still need a `validator_id` and
+  are never satisfied by a built-in result. `mode: builtin` combined with `builtin_check:
+  off` is refused when the configuration loads, because it would schedule a check that is
+  switched off. An unattended test never pays: if the newest known good copy can only be read
   at a cost, the test is recorded as refused for cost and nothing is read. Under
   `retnd daemon` the copy tested is a local one.
 - **A set that requires a test is degraded until one passes.** A mode of `required` that
@@ -788,7 +822,7 @@ Both `retnd serve` and `retnd daemon` run an assurance pass at every poll, with 
 
 The deployment-wide `assurance:` block has a default good enough that you should not need
 to set it. A backup set can say `inherit` (the default), `off`, `required` or `custom`
-for its recovery test, and inherits the scrub cadence and strategy unless it names its
+for its recovery test (or `builtin`, described above), and inherits the scrub cadence and strategy unless it names its
 own. Resolution happens in `Validate`, so a change to the global default moves every set
 that inherits it on the next pass, with no restart. The host-scoped settings in the table
 below are the exception: they are read once, so they take effect when the serving process
@@ -797,14 +831,22 @@ next starts.
 | Knob | Per set? |
 |---|---|
 | Scrub cadence and strategy (`auto`, `existence`, `content`) | Yes |
-| Recovery-test mode (`inherit`, `off`, `required`, `custom`) and its validator | Yes |
+| Recovery-test mode (`inherit`, `off`, `builtin`, `required`, `custom`) and its validator | Yes |
+| Built-in check when no validator is declared (`builtin_check`: `structure` or `off`) | Yes |
 | Recovery staging root and TTL | **No.** One staging filesystem, shared by recoveries and recovery tests |
 | Concurrency ceilings (full reads, per destination) | **No.** One host |
 
 Writing a block that names nothing under a set is refused, because it would silently mean
 "inherit" under a different spelling. A set whose recovery-test mode is `required` or
 `custom` needs a validator, on the set or on the deployment, and that is checked when the
-configuration loads.
+configuration loads. A `validator_id` that begins `retnd-` is refused at that point too:
+ids with that prefix are the product's own built-in checks, and the prefix is reserved for
+good, so a validator script you name `retnd-anything.local.sh` has to be renamed before it
+can be used.
+
+`builtin_check` takes `structure` (the default) or `off`. It is allowed with every mode, and
+it governs the manual **Run recovery test** as well as the schedule: `off` means a set with
+no validator is refused as before, with a reason saying the built-in check is off.
 
 **A configuration that uses the `assurance:` key cannot be read by a build that predates
 it.** The loader rejects unknown keys, so downgrading after you have added the block fails
@@ -838,16 +880,24 @@ a running one can be stopped.
   operation's id, the validator runs once, and every caller still gets a receipt of its own.
   A request that asks for something different is refused rather than quietly joined. A set
   that declares no validator (none named by `validator_id` and none found in its
-  recovery-test directory) can only be refused: the answer is `not_configured` with the
-  reason, and the page disables **Run recovery test** for it, with that reason beside the
-  button, because the per-set assurance answer carries `recovery_test.validator_declared`
-  from the same dry run the test makes first.
+  recovery-test directory) runs the built-in structure check instead, provided
+  `builtin_check` is `structure` and the newest known good copy has a name the check
+  recognises. Otherwise the answer is `not_configured` with the reason (which names the file
+  type when that is the cause), and the page disables **Run recovery test** for it, with that
+  reason beside the button, because the per-set assurance answer carries
+  `recovery_test.validator_declared` from the same dry run the test makes first. The same
+  answer carries `builtin_check` and `effective_check` (`validator`, `builtin` or `none`,
+  with `effective_check_reason` when `none`), and a placement in the artifact response
+  carries `recovery_check` (`validator` or `builtin`) beside its verdict.
+  `retnd recovery-test` prints a `check:` line saying which check ran, `--json` carries
+  `"check": "builtin"` for the built-in one, and `retnd settings assurance patch` (and the
+  per-set patch) take `--recovery-test-builtin-check structure|off`.
 - **Follow.** `retnd recover <artifact> --follow` and `retnd recovery-test <set> --follow`
   print the stages as the engine passes through them, in the order it emits them:
   `resolving_copy`, `reading`, `verifying`, `writing_target`, `cleaning_temporary_files`,
   `complete`. `complete` is the stage of a run that recorded a pass: a recovery test that
   was refused, failed or could not finish stops on the last stage it entered, and its closing
-  line says so (`recovery test passed`, `failed`, `not run` or `did not complete`, with the
+  line says so (`recovery test passed`, `recovered and readable`, `failed`, `not run` or `did not complete`, with the
   same `state=` field as before). The stage lines go to **standard error**, so `retnd recover <artifact> --to -
   --follow` still writes nothing but the artifact's bytes to standard output, and a pipe
   into `sha256sum` stays right. `--follow` leaves the exit status alone.
@@ -874,7 +924,10 @@ stored.
 
 Read it with `retnd recovery-test <source>/<set> --show-output`, which runs no test, or
 `GET /api/v1/backup-sets/{source}/{set}/recovery-test/output`. Before any test of the set has
-ended, the answer says nothing was recorded.
+ended, the answer says nothing was recorded. For a built-in structure check the four stored
+records say which check ran, what it recognised (the format and the magic bytes), how many
+frames or members it read and how many bytes it decoded and discarded, and that this proves
+the file decodes end to end and does not prove an application can use it.
 
 ### Validators are untrusted
 
@@ -917,6 +970,8 @@ ways forward, in this order:
 | Scrub: `requires_restore` | The copy is archived | `retnd restore` (billed, hours), then `recover`. A scrub never starts that for you |
 | Scrub skipped for a set | The set is under an edit hold | The skip is visible; release the hold |
 | Recovery test: `Content verified`, `Recovery test failed` | The bytes are right and your validator said no | `RECOVERY_TEST_FAILING` is raised through your alert channels. The browser and `retnd recovery-test <source/backup-set>` show the verdict and the reason the engine recorded, and `retnd recovery-test <source/backup-set> --show-output` shows what the validator printed. The product is telling you the file is intact and your check disagrees |
+| Recovery test: `Recovered, readable` | The built-in structure check read the copy end to end and found it well formed. No validator ran | Nothing is wrong. It is a weaker claim than **Recovery test passed** on purpose, and it does not satisfy `mode: required`. Declare a validator if you need the stronger one |
+| Recovery test: `Recovery test failed` with the built-in check | The copy matched its recorded digest, so it is what was ingested, and it does not read as a complete file of the format it is (truncated, a bad checksum, or not the format its name says) | `RECOVERY_TEST_FAILING` is raised and names the check as the built-in structure check. Look at the source that produced the file, because the bytes are exactly what was backed up |
 | Recovery test: ended `warn` after a cancel | Someone ran `retnd assurance cancel`, so nobody saw the validator answer | Not a failed copy. Run the test again if you still want the answer |
 | Download: `recovery interrupted` | The transfer stopped short, most often because the client went away | Ask for a new link and resume from the `reached` offset. The copy is not implicated |
 | Download: `recovery failed verification` | A piece or the whole did not match the recorded digest | Treat that copy as damaged and recover from another copy |
