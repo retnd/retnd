@@ -183,7 +183,8 @@ describe("#1111 per-set Assurance section", () => {
 
   it("a builtin mode sends no validator, because the loader refuses one beside it", async () => {
     const patch = vi.fn().mockResolvedValue(policy({ mode: "builtin" }));
-    await own({}, { patchBackupSetAssurance: patch });
+    // the set already names a validator, so a draft that merely forgot to clear it would send it
+    await own({ mode: "required", validatorId: "pg-check" }, { patchBackupSetAssurance: patch });
     await userEvent.selectOptions(screen.getByLabelText("Recovery test"), "builtin");
     expect(screen.queryByLabelText("Validator")).toBeNull();
     await userEvent.click(save());
