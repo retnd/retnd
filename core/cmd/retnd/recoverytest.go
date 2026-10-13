@@ -103,12 +103,25 @@ func cmdRecoveryTest(args []string) int {
 	return 1
 }
 
+// checkName is "builtin" for a verdict the product's structure check produced
+// and "validator" for the operator's. A run that reached neither (a refusal
+// before anything ran) names neither.
+func checkName(o service.RecoveryTestOutcome) string {
+	switch {
+	case o.Check == recoverytest.CheckBuiltin:
+		return "builtin"
+	case o.ValidatorID != "":
+		return "validator"
+	}
+	return ""
+}
+
 func printRecoveryTest(o service.RecoveryTestOutcome, asJSON bool) {
 	if asJSON {
 		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
 			"backup_set_id": o.BackupSet, "artifact_id": o.Artifact, "copy": o.Medium, "state": o.State,
 			"digest_matched": o.DigestMatched, "validator": o.ValidatorID, "cleanup": o.CleanupState, "reason": o.Reason,
-			"read_only": o.ReadOnly,
+			"read_only": o.ReadOnly, "check": checkName(o),
 		})
 		return
 	}
@@ -126,6 +139,12 @@ func printRecoveryTest(o service.RecoveryTestOutcome, asJSON bool) {
 		fmt.Printf("digest:              matched what was recorded when the backup was ingested\n")
 	default:
 		fmt.Printf("digest:              DID NOT MATCH what was recorded; the validator was not run\n")
+	}
+	if o.Check == recoverytest.CheckBuiltin {
+		fmt.Printf("check:               built-in structure check (no validator is declared for this backup set)\n")
+		if o.CheckFormat != "" {
+			fmt.Printf("format:              %s\n", o.CheckFormat)
+		}
 	}
 	if o.ValidatorID != "" {
 		fmt.Printf("validator:           %s\n", o.ValidatorID)

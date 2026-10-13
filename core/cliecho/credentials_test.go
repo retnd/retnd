@@ -178,10 +178,11 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 	// The assurance policy (EPIC Q, Q1.4). Policy vocabulary and a validator
 	// NAME; none is credential material, and the validator is a bare id the
 	// service refuses to accept as a path.
-	"--scrub-strategy":          "which read a scrub does: auto, existence or content",
-	"--recovery-test-mode":      "off, required, inherit or custom",
-	"--recovery-test-validator": "the id of a registered validator, never a path",
-	"--staging-root":            "an absolute directory on this deployment, never a secret",
+	"--scrub-strategy":              "which read a scrub does: auto, existence or content",
+	"--recovery-test-mode":          "off, builtin, required, inherit or custom",
+	"--recovery-test-builtin-check": "structure or off",
+	"--recovery-test-validator":     "the id of a registered validator, never a path",
+	"--staging-root":                "an absolute directory on this deployment, never a secret",
 
 	// Retention and settings scalars.
 	"--timezone":       "the IANA zone retention decisions are made in",

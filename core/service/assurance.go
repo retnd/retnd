@@ -352,6 +352,7 @@ func policyOf(a config.Assurance) AssurancePolicy {
 		Scrub: AssuranceScrubPolicy{Cadence: a.Scrub.Cadence.Duration(), Strategy: a.Scrub.Strategy},
 		RecoveryTest: AssuranceRecoveryTestPolicy{
 			Mode: a.RecoveryTest.Mode, Cadence: a.RecoveryTest.Cadence.Duration(), ValidatorID: a.RecoveryTest.ValidatorID,
+			BuiltinCheck: a.RecoveryTest.BuiltinCheck,
 		},
 	}
 }
@@ -411,6 +412,9 @@ func (b *BackupService) UpdateAssuranceSettings(_ context.Context, req UpdateAss
 	if req.RecoveryTestValidatorID != nil {
 		blk.RecoveryTest.ValidatorID = strings.TrimSpace(*req.RecoveryTestValidatorID)
 	}
+	if req.RecoveryTestBuiltinCheck != nil {
+		blk.RecoveryTest.BuiltinCheck = strings.TrimSpace(*req.RecoveryTestBuiltinCheck)
+	}
 	if req.StagingRoot != nil {
 		blk.StagingRoot = strings.TrimSpace(*req.StagingRoot)
 		if err := ValidateStagingRoot(blk.StagingRoot); err != nil {
@@ -457,6 +461,10 @@ func (b *BackupService) BackupSetAssurance(ctx context.Context, id string) (Back
 	if err != nil {
 		return BackupSetAssurance{}, err
 	}
+	out.EffectiveCheck, out.EffectiveCheckReason, err = st.inner.RecoveryTestEffectiveCheck(ctx, bs.ID)
+	if err != nil {
+		return BackupSetAssurance{}, err
+	}
 	return out, nil
 }
 
@@ -498,6 +506,9 @@ func (b *BackupService) UpdateBackupSetAssurance(ctx context.Context, id string,
 	}
 	if req.RecoveryTestValidatorID != nil {
 		o.RecoveryTest.ValidatorID = strings.TrimSpace(*req.RecoveryTestValidatorID)
+	}
+	if req.RecoveryTestBuiltinCheck != nil {
+		o.RecoveryTest.BuiltinCheck = strings.TrimSpace(*req.RecoveryTestBuiltinCheck)
 	}
 	// Clearing the last named field is a reset: config.Validate refuses an
 	// empty block in words, so it is removed rather than written.

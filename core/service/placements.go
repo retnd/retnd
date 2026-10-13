@@ -454,6 +454,7 @@ func toServicePlacement(p state.Placement, idx mediumIndex) Placement {
 		out.RecoveryTestedAt = *p.RecoveryTestedAt
 	}
 	out.RecoveryFailureReason = p.RecoveryFailureReason
+	out.RecoveryCheck = recoveryCheckOf(p)
 	return out
 }
 
@@ -702,4 +703,23 @@ func VerificationClasses() []string {
 // never handed a row it would have to know not to render.
 func PlacementStatuses() []string {
 	return []string{state.PlacementActive, state.PlacementDeletePending}
+}
+
+// recoveryCheckOf says which check produced a copy's recovery verdict: the
+// product's built-in structure check (its reserved identity is stored on the
+// copy) or the operator's validator. A copy with no passed, failed or overdue
+// verdict has nothing to attribute, and a digest failure carries no identity.
+func recoveryCheckOf(p state.Placement) string {
+	switch p.RecoveryState {
+	case state.RecoveryPassed, state.RecoveryFailed, state.RecoveryOverdue:
+	default:
+		return ""
+	}
+	switch {
+	case p.RecoveryValidatorID == "":
+		return ""
+	case config.IsReservedValidatorID(p.RecoveryValidatorID):
+		return "builtin"
+	}
+	return "validator"
 }

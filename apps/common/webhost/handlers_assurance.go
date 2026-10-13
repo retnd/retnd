@@ -44,6 +44,12 @@ type assuranceRecoveryTestBody struct {
 	CadenceSeconds int64  `json:"cadence_seconds"`
 	Mode           string `json:"mode"`
 	ValidatorID    string `json:"validator_id"`
+	// BuiltinCheck is structure or off, resolved (#1111).
+	BuiltinCheck string `json:"builtin_check"`
+	// EffectiveCheck and its reason are a backup set's answer only (#1111), like
+	// ValidatorDeclared: which check a recovery test of the set would run now.
+	EffectiveCheck       string `json:"effective_check,omitempty"`
+	EffectiveCheckReason string `json:"effective_check_reason,omitempty"`
 	// ValidatorDeclared is a backup set's answer only (#1108): the deployment's
 	// own policy has no set to look in, so it stays nil there and is left out.
 	ValidatorDeclared *bool `json:"validator_declared,omitempty"`
@@ -73,6 +79,7 @@ type updateAssuranceSettingsRequest struct {
 	RecoveryTestCadenceSeconds *int64  `json:"recovery_test_cadence_seconds"`
 	RecoveryTestMode           *string `json:"recovery_test_mode"`
 	RecoveryTestValidatorID    *string `json:"recovery_test_validator_id"`
+	RecoveryTestBuiltinCheck   *string `json:"recovery_test_builtin_check"`
 	ScrubCadenceSeconds        *int64  `json:"scrub_cadence_seconds"`
 	ScrubStrategy              *string `json:"scrub_strategy"`
 	StagingRoot                *string `json:"staging_root"`
@@ -94,6 +101,7 @@ type updateBackupSetAssuranceRequest struct {
 	RecoveryTestCadenceSeconds *int64  `json:"recovery_test_cadence_seconds"`
 	RecoveryTestMode           *string `json:"recovery_test_mode"`
 	RecoveryTestValidatorID    *string `json:"recovery_test_validator_id"`
+	RecoveryTestBuiltinCheck   *string `json:"recovery_test_builtin_check"`
 	ScrubCadenceSeconds        *int64  `json:"scrub_cadence_seconds"`
 	ScrubStrategy              *string `json:"scrub_strategy"`
 }
@@ -223,11 +231,12 @@ func (h *handlers) updateBackupSetAssurance(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	s, err := h.backend.UpdateBackupSetAssurance(r.Context(), backupSetIDFromRoute(r), service.UpdateBackupSetAssuranceRequest{
-		ScrubCadence:            cad,
-		ScrubStrategy:           body.ScrubStrategy,
-		RecoveryTestMode:        body.RecoveryTestMode,
-		RecoveryTestCadence:     rcad,
-		RecoveryTestValidatorID: body.RecoveryTestValidatorID,
+		ScrubCadence:             cad,
+		ScrubStrategy:            body.ScrubStrategy,
+		RecoveryTestMode:         body.RecoveryTestMode,
+		RecoveryTestCadence:      rcad,
+		RecoveryTestValidatorID:  body.RecoveryTestValidatorID,
+		RecoveryTestBuiltinCheck: body.RecoveryTestBuiltinCheck,
 	})
 	if err != nil {
 		h.writeAssuranceError(w, r, err, "failed to write the backup set's assurance policy")
@@ -404,21 +413,22 @@ func toUpdateAssuranceSettingsRequest(b updateAssuranceSettingsRequest) (service
 		return &n
 	}
 	return service.UpdateAssuranceSettingsRequest{
-		ScrubCadence:            cad,
-		ScrubStrategy:           b.ScrubStrategy,
-		RecoveryTestMode:        b.RecoveryTestMode,
-		RecoveryTestCadence:     rcad,
-		RecoveryTestValidatorID: b.RecoveryTestValidatorID,
-		StagingRoot:             b.StagingRoot,
-		StagingTTL:              ttl,
-		MaxConcurrentFullReads:  toInt(b.MaxConcurrentFullReads),
-		MaxPerDestination:       toInt(b.MaxPerDestination),
+		ScrubCadence:             cad,
+		ScrubStrategy:            b.ScrubStrategy,
+		RecoveryTestMode:         b.RecoveryTestMode,
+		RecoveryTestCadence:      rcad,
+		RecoveryTestValidatorID:  b.RecoveryTestValidatorID,
+		RecoveryTestBuiltinCheck: b.RecoveryTestBuiltinCheck,
+		StagingRoot:              b.StagingRoot,
+		StagingTTL:               ttl,
+		MaxConcurrentFullReads:   toInt(b.MaxConcurrentFullReads),
+		MaxPerDestination:        toInt(b.MaxPerDestination),
 	}, nil
 }
 
 func toAssurancePolicyBodies(p service.AssurancePolicy) (assuranceScrubBody, assuranceRecoveryTestBody) {
 	return assuranceScrubBody{CadenceSeconds: durationSeconds(p.Scrub.Cadence), Strategy: p.Scrub.Strategy},
-		assuranceRecoveryTestBody{CadenceSeconds: durationSeconds(p.RecoveryTest.Cadence), Mode: p.RecoveryTest.Mode, ValidatorID: p.RecoveryTest.ValidatorID}
+		assuranceRecoveryTestBody{CadenceSeconds: durationSeconds(p.RecoveryTest.Cadence), Mode: p.RecoveryTest.Mode, ValidatorID: p.RecoveryTest.ValidatorID, BuiltinCheck: p.RecoveryTest.BuiltinCheck}
 }
 
 func toAssuranceSettingsBody(s service.AssuranceSettings) assuranceSettingsResponse {
@@ -438,5 +448,6 @@ func toBackupSetAssuranceBody(s service.BackupSetAssurance) backupSetAssuranceRe
 	scrub, rt := toAssurancePolicyBodies(s.Policy)
 	declared := s.ValidatorDeclared
 	rt.ValidatorDeclared = &declared
+	rt.EffectiveCheck, rt.EffectiveCheckReason = s.EffectiveCheck, s.EffectiveCheckReason
 	return backupSetAssuranceResponse{BackupSetID: s.BackupSetID, IsOverride: s.Override, RecoveryTest: rt, Scrub: scrub}
 }

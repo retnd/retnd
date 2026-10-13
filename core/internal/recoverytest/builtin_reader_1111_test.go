@@ -74,7 +74,8 @@ func TestIssue1111_TheReaderOverEveryFixture(t *testing.T) {
 		{"targz-truncated-inner.tar.gz", "a.tar.gz", BuiltinFail, "gzip+tar", 0, 0, -1, "", false},
 		{"tarzst-good.tar.zst", "a.tar.zst", BuiltinPass, "zstd+tar", 1, 3, -1, "", false},
 		{"tarzst-good.tar.zst", "a.tzst", BuiltinPass, "zstd+tar", 1, 3, -1, "", false},
-		{"tarzst-truncated-outer.tar.zst", "a.tar.zst", BuiltinFail, "zstd+tar", 0, 0, -1, "", false},
+		// The frame is one block, so nothing decodes before it fails: the layer inside cannot be told.
+		{"tarzst-truncated-outer.tar.zst", "a.tar.zst", BuiltinFail, "zstd", 0, 0, -1, "", false},
 		{"tarzst-truncated-inner.tar.zst", "a.tar.zst", BuiltinFail, "zstd+tar", 0, 0, -1, "", false},
 		{"gz-holding-zstd.gz", "a.gz", BuiltinPass, "zstd", 1, 0, 300000, "", true},
 		{"targz-good.tar.gz", "a.tar", BuiltinPass, "gzip+tar", 1, 3, -1, "", true},

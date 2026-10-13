@@ -1,6 +1,10 @@
 package alert
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/retnd/retnd/core/internal/config"
+)
 
 // AssuranceSignal is what the assurance layer knows about one backup set,
 // reduced to counts and flags. It deliberately has no field for a
@@ -56,6 +60,11 @@ func AssuranceConditions(signals []AssuranceSignal) []Condition {
 // validatorClause names the validator for a sentence, or says nothing when the
 // policy names none or the name is not a bare token.
 func validatorClause(id string) string {
+	// The product's own check is named as what it is, not as a script an
+	// operator wrote (#1111).
+	if config.IsReservedValidatorID(id) {
+		return " (the built-in structure check)"
+	}
 	t := safeToken(id)
 	if t == withheldField {
 		return ""
