@@ -98,8 +98,8 @@ func TestIssue1154_ConfigureNeedsABackendWhenTheDestinationIsNotDeclaredYet(t *t
 	if code == 0 {
 		t.Error("configuring an undeclared destination with no --backend exited 0")
 	}
-	if !strings.Contains(stderr, "--backend") {
-		t.Errorf("the refusal does not say a --backend is what is missing:\n%s", stderr)
+	if !strings.Contains(stderr, "name the backend it is an instance of") {
+		t.Errorf("the refusal does not say a backend is what is missing:\n%s", stderr)
 	}
 	if !bytes.Equal(before, configBytes(t, cfg)) {
 		t.Error("a refused configure changed the configuration file")
@@ -118,7 +118,10 @@ func TestIssue1154_ConfigurePreflightProvesTheConfigurationAndWritesNothing(t *t
 	if code != 0 {
 		t.Fatalf("medium configure --preflight on a writable directory = %d, want 0:\n%s", code, out)
 	}
-	for _, step := range []string{"reach", "write", "read_back", "delete"} {
+	// The directory's own steps: the free-space and distinct-volume checks a
+	// bucket has no answer to, which the by-id check on a declared
+	// local_volume has always run.
+	for _, step := range []string{"reach", "space", "distinct_volume", "write", "read_back", "delete"} {
 		if !strings.Contains(out, step) {
 			t.Errorf("the report does not show the %q step:\n%s", step, out)
 		}
