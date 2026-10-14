@@ -85,6 +85,7 @@ func everyNamedFieldSet() config.StorageMedium {
 		Region:             "a-region",
 		Endpoint:           "https://an.endpoint",
 		Bucket:             "a-bucket",
+		Path:               "/a/path",
 		Prefix:             "a/prefix",
 		StorageClass:       "A_CLASS",
 		UploadVerification: "readback",
@@ -121,23 +122,22 @@ func TestEveryFieldTheConfigurationReadsCanAlsoBeWritten(t *testing.T) {
 }
 
 func TestAFieldWithNowhereToGoIsRefusedByName(t *testing.T) {
-	// local_volume's `path` is this case today: config.StorageMedium has
-	// no Path field on this branch (#666 adds it), so a configuration
-	// naming it cannot be stored. The refusal has to NAME the field,
-	// because the alternative is a save that reports success having
-	// dropped the one value that decides where the backups go.
+	// A manifest field this manager has no home for. It was local_volume's
+	// `path` until #1154 plumbed that one; the refusal has to NAME the
+	// field, because the alternative is a save that reports success having
+	// dropped a value that decides where the backups go.
 	_, err := storageMediumFromFields(
 		config.StorageMedium{ID: "volume_one", Type: "local_volume"},
 		backend.Manifest{
 			ID:     "local_volume",
-			Fields: []backend.Field{{ID: "path", Kind: backend.KindPath, Required: true}},
+			Fields: []backend.Field{{ID: "mount_options", Kind: backend.KindString}},
 		},
-		StorageMediumConfiguration{Fields: map[string]string{"path": "/mnt/backups"}},
+		StorageMediumConfiguration{Fields: map[string]string{"mount_options": "/mnt/backups"}},
 	)
 	if err == nil {
 		t.Fatal("a field this manager cannot store was accepted; a save would have dropped it silently")
 	}
-	if !strings.Contains(err.Error(), "path") {
+	if !strings.Contains(err.Error(), "mount_options") {
 		t.Errorf("the refusal does not name the field it refused: %v", err)
 	}
 	// And it does not quote the operator's value back, which is

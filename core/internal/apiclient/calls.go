@@ -409,6 +409,25 @@ func (c *Client) SetDefaultStorageMedium(ctx context.Context, id string) (apicon
 	return out, err
 }
 
+// ConfigureStorageMedium is PUT /storage-mediums/{id}/configuration
+// (#1154): create or replace a destination in its backend's own field ids.
+// The engine proves the configuration in front of the write and refuses
+// when it fails, and answers with the destination as it now stands.
+func (c *Client) ConfigureStorageMedium(ctx context.Context, id string, req apicontract.MediumConfigurationRequest) (apicontract.StorageMediumSummary, error) {
+	var out apicontract.StorageMediumSummary
+	err := c.call(ctx, "configureStorageMedium", []string{id}, req, &out)
+	return out, err
+}
+
+// PreflightStorageMediumConfiguration is POST
+// /storage-mediums/{id}/configuration/preflight: prove a configuration that
+// has not been written. It writes nothing whatever the report says.
+func (c *Client) PreflightStorageMediumConfiguration(ctx context.Context, id string, req apicontract.MediumConfigurationRequest) (apicontract.MediumPreflightResponse, error) {
+	var out apicontract.MediumPreflightResponse
+	err := c.call(ctx, "preflightStorageMediumConfiguration", []string{id}, req, &out)
+	return out, err
+}
+
 // CreateRepositoryDomain is POST /repositories (issue #862): declare a
 // repository security boundary.
 //

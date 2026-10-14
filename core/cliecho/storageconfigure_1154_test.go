@@ -52,3 +52,16 @@ func containsAny(s string, subs ...string) bool {
 	}
 	return false
 }
+
+// The one field id a manifest uses for a credential is never echoed, even
+// from a request that (wrongly) carried it, and the line still builds.
+func TestIssue1154_ConfigureEchoesNoCredentialKindField(t *testing.T) {
+	line := Echo(Action{Method: "PUT", Route: "/storage-mediums/{id}/configuration", Params: map[string]string{"id": "cold"},
+		Body: []byte(`{"backend":"s3","fields":[{"field":"bucket","value":"b"},{"field":"credentials","value":"AKIAxxxxSECRET"}],"credentials":{}}`)})
+	if line.Gap != "" {
+		t.Fatalf("the line declined: %q", line.Gap)
+	}
+	if s := line.Shell(); containsAny(s, "AKIAxxxxSECRET", "credentials=") {
+		t.Errorf("a credential-kind field's value was echoed: %q", s)
+	}
+}

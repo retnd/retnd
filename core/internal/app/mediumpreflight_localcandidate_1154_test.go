@@ -2,7 +2,8 @@ package app
 
 import (
 	"context"
-	"os"
+	"io/fs"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -57,18 +58,37 @@ func TestIssue1154_ACandidateLocalVolumeRunsTheLocalSteps(t *testing.T) {
 	}
 }
 
-func TestIssue1154_ACandidateLocalVolumeLeavesNothingBehind(t *testing.T) {
+// filesUnder lists every regular file beneath dir. The empty reserved
+// directory a local check keeps (mediumcheck's localProbeDir, documented as
+// staying on purpose) is not a file, and the probe FILE being removed is the
+// claim StepDelete actually makes.
+func filesUnder(t *testing.T, dir string) []string {
+	t.Helper()
+	var files []string
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			files = append(files, path)
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatalf("walking %s: %v", dir, err)
+	}
+	return files
+}
+
+func TestIssue1154_ACandidateLocalVolumeLeavesNoProbeFileBehind(t *testing.T) {
 	dir := t.TempDir()
 	svc := New(preflightConfig(), nil, nil, nil)
-	if _, err := svc.PreflightMediumCandidate(context.Background(), localVolumeCandidate(dir)); err != nil {
+	report, err := svc.PreflightMediumCandidate(context.Background(), localVolumeCandidate(dir))
+	if err != nil {
 		t.Fatalf("PreflightMediumCandidate: %v", err)
 	}
-	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
-		names := make([]string, 0, len(entries))
-		for _, e := range entries {
-			names = append(names, e.Name())
-		}
-		t.Errorf("the proof left %v in the directory it tested", names)
+	if !report.OK {
+		t.Fatalf("the proof did not pass, so a leftover could mean it stopped half way: %+v", report.Failures())
+	}
+	if files := filesUnder(t, dir); len(files) != 0 {
+		t.Errorf("the proof left %v in the directory it tested", files)
 	}
 }
 

@@ -364,6 +364,15 @@ func openBackupServiceLoggingTo(ctx context.Context, configPath string, intent c
 // The returned cleanup func closes whatever was opened and gives the claim
 // back; callers should always `defer cleanup()` immediately.
 func openConfigWriteRoute(ctx context.Context, configPath string) (configWriteRoute, func(), error) {
+	return openConfigWriteRouteAnnouncingTo(ctx, configPath, os.Stdout)
+}
+
+// openConfigWriteRouteAnnouncingTo is openConfigWriteRoute with the mode
+// announcement written to announce instead of standard output. A verb whose
+// --json promises standard output is one JSON value passes os.Stderr, so
+// the line that says which world the change goes into is still printed and
+// no longer in the way of the data (#1154).
+func openConfigWriteRouteAnnouncingTo(ctx context.Context, configPath string, announce io.Writer) (configWriteRoute, func(), error) {
 	svc, closeFn, err := service.Open(ctx, configPath)
 	if err != nil {
 		return nil, func() {}, err
@@ -374,7 +383,7 @@ func openConfigWriteRoute(ctx context.Context, configPath string) (configWriteRo
 		}
 	}
 
-	write, err := enterConfigWriteMode(ctx, configPath, attachToEngine, os.Stdout, os.Stderr)
+	write, err := enterConfigWriteMode(ctx, configPath, attachToEngine, announce, os.Stderr)
 	if err != nil {
 		closeLocal()
 		return nil, func() {}, err

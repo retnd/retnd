@@ -129,8 +129,17 @@ func TestIssue1154_ConfigurePreflightProvesTheConfigurationAndWritesNothing(t *t
 	if !bytes.Equal(before, configBytes(t, cfg)) {
 		t.Errorf("--preflight wrote the configuration:\n%s", configBytes(t, cfg))
 	}
-	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
-		t.Errorf("the probe left %d entries behind in the directory it tested", len(entries))
+	// The empty reserved directory a local check keeps on purpose is not a
+	// file; the probe file being removed is the claim the delete step makes.
+	var left []string
+	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			left = append(left, path)
+		}
+		return nil
+	})
+	if len(left) != 0 {
+		t.Errorf("the probe left %v behind in the directory it tested", left)
 	}
 }
 

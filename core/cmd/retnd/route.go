@@ -313,6 +313,16 @@ type mediumRoute interface {
 	// that process would never read, and the next tier added through its
 	// web UI would start somewhere else.
 	SetDefaultStorageMedium(ctx context.Context, id string) (service.StorageMediumSummary, error)
+
+	// ConfigureStorageMedium and PreflightStorageMediumConfiguration are
+	// `medium configure` and its --preflight (#1154): a destination in its
+	// backend's own field ids. The write is a configuration write like the
+	// four above and is here for #538's reason; the preflight is here
+	// because it proves what the write would write, and proving this host's
+	// route to a directory or a bucket and then declaring the destination
+	// somewhere else proves nothing about the destination that gets used.
+	ConfigureStorageMedium(ctx context.Context, id string, cfg service.StorageMediumConfiguration) (service.StorageMediumSummary, error)
+	PreflightStorageMediumConfiguration(ctx context.Context, id string, cfg service.StorageMediumConfiguration) (service.MediumPreflight, error)
 }
 
 // repositoryRoute is `repository create`'s half of the same seam (issue

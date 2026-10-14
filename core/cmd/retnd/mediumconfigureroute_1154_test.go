@@ -95,7 +95,11 @@ func (e *fakeEngine) preflightMediumConfiguration(w http.ResponseWriter, r *http
 }
 
 func TestIssue1154_ConfigureBesideAnEngineChangesTheEnginesConfigurationNotTheCLIs(t *testing.T) {
-	cliConfig, e := oneServedDeployment(t)
+	// Two files, one deployment: the only arrangement in which "the engine's
+	// file changed and the CLI's did not" can be asserted at all.
+	cliConfig := writeTestConfig(t)
+	e := startFakeEngineFor(t, cliConfig)
+	e.attach(t)
 	dir := t.TempDir()
 
 	var code int
