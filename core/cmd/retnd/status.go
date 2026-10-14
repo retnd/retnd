@@ -104,6 +104,7 @@ func cmdStatus(args []string) int {
 		default:
 			fmt.Println("\n" + cliecho.Binary + " has no backup set configured yet (first run). Nothing is being backed up.")
 			fmt.Println("Next step: add the first backup set in the web interface, or with `" + cliecho.Binary + " backup-set create ...`.")
+			printEngineFirstRunSteps(os.Stdout)
 		}
 	}
 	for _, bs := range report.BackupSets {

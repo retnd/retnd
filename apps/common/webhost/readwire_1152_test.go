@@ -456,3 +456,10 @@ func TestIssue1152_MediumPreflightWireIsTheHandlersReportFieldForField(t *testin
 		})
 	}
 }
+
+func TestIssue1152_ValidatorsWireIsTheHandlersCatalogFieldForField(t *testing.T) {
+	rs := newReadSurfaceRouter(t)
+	rec := rs.get(t, "/api/v1/validators")
+	mustStatus(t, rec, 200)
+	sameAsTheAPI(t, "validators", rec.Body.Bytes(), service.ValidatorsWire(), 1)
+}

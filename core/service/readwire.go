@@ -460,3 +460,13 @@ func MediumPreflightWire(r MediumPreflight) apicontract.MediumPreflightResponse 
 	}
 	return out
 }
+
+// ValidatorsWire is GET /validators: the catalog this binary carries.
+func ValidatorsWire() apicontract.ListValidatorsResponse {
+	catalog := RegisteredValidators()
+	out := apicontract.ListValidatorsResponse{Validators: make([]apicontract.Validator, 0, len(catalog))}
+	for _, v := range catalog {
+		out.Validators = append(out.Validators, apicontract.Validator{ID: string(v.ID), Summary: v.Summary})
+	}
+	return out
+}
