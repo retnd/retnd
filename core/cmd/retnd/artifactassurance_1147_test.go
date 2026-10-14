@@ -310,7 +310,9 @@ func TestIssue1147_QuarantineListNarrowsToABackupSetAndRefusesAnUnknownOne(t *te
 	// keep meaning "nothing is held".
 	var code int
 	stderr := captureStderr(t, func() {
-		captureStdout(t, func() { code = run([]string{"quarantine", "list", "--config", configPath, "--backup-set", "production/nope"}) })
+		captureStdout(t, func() {
+			code = run([]string{"quarantine", "list", "--config", configPath, "--backup-set", "production/nope"})
+		})
 	})
 	if code == 0 || !strings.Contains(stderr, "production/nope") {
 		t.Errorf("an unknown backup set exited %d, stderr %q; want a refusal naming it", code, stderr)
