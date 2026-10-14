@@ -112,6 +112,23 @@ func TestIssue1154_StorageJSONIsTheContractsListStorageStatusResponse(t *testing
 	}
 }
 
+func TestIssue1154_StorageJSONCarriesTheConfiguredCapAndItsDenominator(t *testing.T) {
+	cfg, _ := storageConfig(t, "capacity:\n  cap_bytes: 1048576\n")
+	var code int
+	out := captureStdout(t, func() { code = run([]string{"storage", "--json", "--config", cfg}) })
+	if code != 0 {
+		t.Fatalf("storage --json = %d:\n%s", code, out)
+	}
+	var got apicontract.ListStorageStatusResponse
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("--json is not the contract's ListStorageStatusResponse: %v\n%s", err, out)
+	}
+	if got.Manager.CapBytes != 1048576 || got.Manager.Denominator != "cap" || got.Manager.LimitBytes != 1048576 {
+		t.Errorf("--json manager = cap %d, denominator %q, limit %d; want the 1 MiB cap the configuration sets, drawn against the cap",
+			got.Manager.CapBytes, got.Manager.Denominator, got.Manager.LimitBytes)
+	}
+}
+
 func TestIssue1154_StorageTakesNoArgumentAndRefusesFlagsOfOtherForms(t *testing.T) {
 	cfg, _ := storageConfig(t, "")
 	for name, args := range map[string][]string{
