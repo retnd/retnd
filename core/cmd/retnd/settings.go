@@ -232,7 +232,7 @@ func cmdSettings(args []string) int {
 	// through openConfigWriteRoute, which hands it to that process where
 	// it can and refuses where it cannot (#543).
 	if !patching {
-		svc, cleanup, err := openBackupService(ctx, *cfgPath, readsConfig)
+		svc, cleanup, err := openBackupServiceForRead(ctx, *cfgPath, *asJSON)
 		if err != nil {
 			return fail(err)
 		}

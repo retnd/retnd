@@ -182,7 +182,7 @@ func repositoryHealth(args []string) int {
 	}
 
 	ctx := context.Background()
-	svc, cleanup, err := openBackupService(ctx, *cfgPath, readsConfig)
+	svc, cleanup, err := openBackupServiceForRead(ctx, *cfgPath, *asJSON)
 	if err != nil {
 		return fail(err)
 	}
@@ -311,7 +311,7 @@ func repositoryMaintenance(args []string) int {
 	}
 
 	ctx := context.Background()
-	svc, cleanup, err := openBackupService(ctx, *cfgPath, readsConfig)
+	svc, cleanup, err := openBackupServiceForRead(ctx, *cfgPath, *asJSON)
 	if err != nil {
 		return fail(err)
 	}

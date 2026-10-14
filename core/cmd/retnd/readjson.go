@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+
+	"github.com/retnd/retnd/core/service"
 )
 
 // emitWireJSON writes one wire object to stdout, indented, the way every
@@ -21,4 +25,18 @@ func emitWireJSON(v any) int {
 		return fail(fmt.Errorf("writing the result: %w", err))
 	}
 	return exitOK
+}
+
+// openBackupServiceForRead is openBackupService for a read that may print
+// JSON. With --json the structured log the service writes while opening (an
+// invalid configuration is logged as an error record before it is returned)
+// goes to stderr, because stdout is then data and one stray log record in it
+// is a document a parser cannot read. Without --json it is exactly
+// openBackupService, so the text forms print what they always did.
+func openBackupServiceForRead(ctx context.Context, configPath string, asJSON bool) (*service.BackupService, func(), error) {
+	var logTo io.Writer = os.Stdout
+	if asJSON {
+		logTo = os.Stderr
+	}
+	return openBackupServiceLoggingTo(ctx, configPath, readsConfig, logTo)
 }

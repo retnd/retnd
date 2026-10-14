@@ -146,7 +146,13 @@ func cmdBackupSetRetention(args []string) int {
 	if *inherit || len(named) > 0 {
 		intent = writesConfig
 	}
-	svc, cleanup, err := openBackupService(ctx, *cfgPath, intent)
+	var svc *service.BackupService
+	var cleanup func()
+	if intent == readsConfig {
+		svc, cleanup, err = openBackupServiceForRead(ctx, *cfgPath, *asJSON)
+	} else {
+		svc, cleanup, err = openBackupService(ctx, *cfgPath, intent)
+	}
 	if err != nil {
 		return fail(err)
 	}

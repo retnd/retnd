@@ -106,7 +106,7 @@ func snapshotList(args []string) int {
 	}
 
 	ctx := context.Background()
-	svc, cleanup, err := openBackupService(ctx, *cfgPath, readsConfig)
+	svc, cleanup, err := openBackupServiceForRead(ctx, *cfgPath, *asJSON)
 	if err != nil {
 		return fail(err)
 	}
@@ -174,7 +174,7 @@ func snapshotShow(args []string) int {
 	}
 
 	ctx := context.Background()
-	svc, cleanup, err := openBackupService(ctx, *cfgPath, readsConfig)
+	svc, cleanup, err := openBackupServiceForRead(ctx, *cfgPath, *asJSON)
 	if err != nil {
 		return fail(err)
 	}
@@ -244,7 +244,7 @@ func snapshotHolds(args []string) int {
 	}
 
 	ctx := context.Background()
-	svc, cleanup, err := openBackupService(ctx, *cfgPath, readsConfig)
+	svc, cleanup, err := openBackupServiceForRead(ctx, *cfgPath, *asJSON)
 	if err != nil {
 		return fail(err)
 	}
@@ -288,7 +288,7 @@ func snapshotRetention(args []string) int {
 	}
 
 	ctx := context.Background()
-	svc, cleanup, err := openBackupService(ctx, *cfgPath, readsConfig)
+	svc, cleanup, err := openBackupServiceForRead(ctx, *cfgPath, *asJSON)
 	if err != nil {
 		return fail(err)
 	}

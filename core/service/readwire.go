@@ -361,3 +361,64 @@ func BackupSetRetentionWire(r BackupSetRetention) apicontract.BackupSetRetention
 	}
 	return out
 }
+
+// RetentionPlanWire is GET .../retention/preview. The plan_id in it is the one
+// ApplyRetentionPlan takes, in the process that minted it.
+func RetentionPlanWire(p RetentionPlan) apicontract.RetentionPlan {
+	verdicts := make([]apicontract.RetentionVerdict, len(p.Verdicts))
+	for i, v := range p.Verdicts {
+		var tiers []string
+		var selections []apicontract.RetentionTierSelection
+		for _, sel := range v.Tiers {
+			tiers = append(tiers, sel.Tier)
+			selections = append(selections, apicontract.RetentionTierSelection{SelectedBy: sel.SelectedBy, Tier: sel.Tier})
+		}
+		medium := ""
+		if v.OnStorageMedium() {
+			medium = v.Medium
+		}
+		verdicts[i] = apicontract.RetentionVerdict{
+			Action:         v.Action,
+			Artifact:       v.Artifact,
+			Medium:         medium,
+			Reason:         v.Reason,
+			TierSelections: selections,
+			Tiers:          tiers,
+		}
+	}
+	var moves []apicontract.RetentionMove
+	for _, m := range p.Moves {
+		moves = append(moves, apicontract.RetentionMove{Artifact: m.Artifact, FromMedium: m.FromMedium, ToMedium: m.ToMedium})
+	}
+	return apicontract.RetentionPlan{
+		BackupSetID:           p.BackupSetID,
+		ConfigRevision:        p.ConfigRevision,
+		DeleteCount:           p.DeleteCount,
+		ExpiresAt:             p.ExpiresAt.Format(time.RFC3339Nano),
+		InventoryRevision:     p.InventoryRevision,
+		KeepCount:             p.KeepCount,
+		Moves:                 moves,
+		OperationID:           p.OperationID,
+		PlanID:                p.PlanID,
+		ReclaimBytes:          p.ReclaimBytes,
+		Retention:             RetentionSettingsWire(p.Retention),
+		RetentionIsOverride:   p.RetentionIsOverride,
+		UnconfirmedPlacements: p.UnconfirmedPlacements,
+		Verdicts:              verdicts,
+	}
+}
+
+// CatalogReportWire is POST /catalog/scan and POST /catalog/rebuild.
+func CatalogReportWire(r CatalogReport) apicontract.CatalogReportResponse {
+	out := apicontract.CatalogReportResponse{
+		AlreadyPresent: r.AlreadyPresent,
+		DryRun:         r.DryRun,
+		Failures:       make([]apicontract.CatalogFailure, 0, len(r.Failures)),
+		Reconstructed:  r.Reconstructed,
+		Scanned:        r.Scanned,
+	}
+	for _, f := range r.Failures {
+		out.Failures = append(out.Failures, apicontract.CatalogFailure{BackupSetID: f.BackupSetID, Path: f.Path, Reason: f.Reason})
+	}
+	return out
+}

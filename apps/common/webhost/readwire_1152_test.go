@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -237,6 +238,31 @@ type wireFixtureBackend struct {
 	settings  service.Settings
 	sets      []service.BackupSet
 	retention service.BackupSetRetention
+	plan      service.RetentionPlan
+	catalog   service.CatalogReport
+}
+
+func (b *wireFixtureBackend) PreviewRetention(context.Context, string, string) (service.RetentionPlan, error) {
+	return b.plan, nil
+}
+
+func (b *wireFixtureBackend) ScanCatalog(context.Context) (service.CatalogReport, error) {
+	return b.catalog, nil
+}
+
+func (b *wireFixtureBackend) RebuildCatalog(context.Context) (service.CatalogReport, error) {
+	return b.catalog, nil
+}
+
+func (b *wireFixtureBackend) post(t *testing.T, target string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, target, strings.NewReader("{}"))
+	req.Header.Set("Content-Type", "application/json")
+	attachValidCSRF(req)
+	rec := httptest.NewRecorder()
+	b.router().ServeHTTP(rec, req)
+	mustStatus(t, rec, 200)
+	return rec
 }
 
 func (b *wireFixtureBackend) Settings(context.Context) (service.Settings, error) {
@@ -336,5 +362,51 @@ func TestIssue1152_BackupSetRetentionWireIsTheHandlersGETFieldForField(t *testin
 			rec := b.get(t, "/api/v1/backup-sets/src/set-1/retention")
 			sameAsTheAPI(t, "backup-set retention", rec.Body.Bytes(), service.BackupSetRetentionWire(r), 5)
 		})
+	}
+}
+
+func TestIssue1152_RetentionPlanWireIsTheHandlersPreviewFieldForField(t *testing.T) {
+	at := readWireAt()
+	chain := service.RetentionSettings{
+		Timezone: "UTC", WeekStartsOn: "monday", ProtectLastKnownGood: true,
+		Tiers: []service.RetentionTier{{Name: "daily", Granularity: "day", Keep: 7, Medium: "local"}},
+	}
+	for name, p := range map[string]service.RetentionPlan{
+		"every optional field set": {
+			PlanID: "retplan_1", BackupSetID: "src/set-1", InventoryRevision: "inv", ConfigRevision: "cfg", ExpiresAt: at,
+			KeepCount: 1, DeleteCount: 2, ReclaimBytes: 4096, OperationID: "op_9", Retention: chain, RetentionIsOverride: true,
+			Verdicts: []service.RetentionArtifactVerdict{
+				{Artifact: "a.dump", Action: "KEEP", Medium: "cold", Reason: "kept", Tiers: []service.RetentionTierSelection{{Tier: "daily", SelectedBy: "DISCOVERED"}, {Tier: "LAST_KNOWN_GOOD", SelectedBy: "PRODUCER"}}},
+				{Artifact: "b.dump", Action: "DELETE", Medium: "local", Reason: "expired"},
+				{Artifact: "c.dump", Action: "REFUSE", Reason: "last known good"},
+			},
+			Moves:                 []service.RetentionMove{{Artifact: "a.dump", FromMedium: "local", ToMedium: "cold"}},
+			UnconfirmedPlacements: []string{"c.dump"},
+		},
+		"every optional field absent": {PlanID: "retplan_2", BackupSetID: "src/set-1", ExpiresAt: at, Retention: chain},
+	} {
+		t.Run(name, func(t *testing.T) {
+			b := &wireFixtureBackend{syncFakeBackend: newSyncFakeBackend(), plan: p}
+			rec := b.get(t, "/api/v1/backup-sets/src/set-1/retention/preview")
+			sameAsTheAPI(t, "retention plan", rec.Body.Bytes(), service.RetentionPlanWire(p), 9)
+		})
+	}
+}
+
+func TestIssue1152_CatalogReportWireIsTheHandlersReportFieldForField(t *testing.T) {
+	for name, r := range map[string]service.CatalogReport{
+		"every optional field set": {Scanned: 5, Reconstructed: 2, AlreadyPresent: 1, Failures: []service.CatalogFailure{
+			{BackupSetID: "src/set-1", Path: "/data/x.json", Reason: "unreadable"},
+			{BackupSetID: "src/set-2", Reason: "the directory is unreadable"},
+		}},
+		"a dry run with nothing wrong": {DryRun: true, Scanned: 1, Reconstructed: 1},
+	} {
+		for _, route := range []string{"/api/v1/catalog/scan", "/api/v1/catalog/rebuild"} {
+			t.Run(name+" "+route, func(t *testing.T) {
+				b := &wireFixtureBackend{syncFakeBackend: newSyncFakeBackend(), catalog: r}
+				rec := b.post(t, route)
+				sameAsTheAPI(t, "catalog report", rec.Body.Bytes(), service.CatalogReportWire(r), 5)
+			})
+		}
 	}
 }
