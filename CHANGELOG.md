@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Usage and the command echo no longer say things the code stopped doing** (#1150). `retnd`'s usage text
+  called `settings assurance patch` and `backup-set assurance` "refused beside" a serving engine, but
+  both are routed to it, and it left `--recovery-test-builtin-check` out of both synopses and `--port`,
+  `--acknowledge-repoint` and `--state-database` out of the `backup-set create` one. The activity panel's
+  deployment scope now echoes `retnd activity --follow --scope deployment` instead of a gap, and the Backups
+  list's set filter echoes from the `setId` the route actually reads. The twelve `/auth` routes and the two
+  health probes now each carry a written reason they have no command.
+
+### Added
+
+- **A guard that every registered route has a command or a reason** (#1150). It walks the engine router, the
+  first-run router and the `/auth` router, fails when a route has neither a `core/cliecho` entry nor a
+  recorded reason, flags a route the spec leaves out, and carries mutation tests that prove it goes red.
+
 ## [0.6.3] - 2026-10-13
 
 0.6.3 is a wording fix, and it follows straight on from 0.6.2. After the verification model

@@ -150,7 +150,7 @@ commands:
                     [--engine artifact|kopia] [--repository-domain D] [--source-consistency S]
                     [--verification-level L] [--verification-sample-percent N]
                     [--verification-full-every D] [--verification-restore-drill-every D]
-                    [--no-verify]
+                    [--port N] [--acknowledge-repoint] [--state-database PATH] [--no-verify]
                                                   create a backup set. Beside a serving engine this command has a
                                                   route to, that is POST /api/v1/backup-sets against the engine
                                                   (#543); with nothing serving, it is the same service layer that
@@ -626,13 +626,14 @@ commands:
                                                   set cannot override it. A config that sets none reports the defaults
   settings assurance patch [--scrub-cadence D] [--scrub-strategy S] [--recovery-test-mode M]
                         [--recovery-test-cadence D] [--recovery-test-validator ID]
+                        [--recovery-test-builtin-check structure|off]
                         [--staging-root P] [--staging-ttl D] [--max-concurrent-full-reads N]
                         [--max-per-destination N] [--json]
                                                   change the deployment's policy in place. An explicitly zero or empty value
                                                   clears that setting back to its default. Every set that inherits the
-                                                  changed value decides under it on its next read. This write has no route
-                                                  to a serving engine in this build, so it is refused beside one with the
-                                                  file untouched
+                                                  changed value decides under it on its next read. Beside a serving engine this
+                                                  command has a route to, that is PATCH /api/v1/settings/assurance against
+                                                  the engine; with nothing serving, the file is written here
   settings assurance due [--backup-set ID] [--due | --overdue] [--json]
                                                   the scrub schedule, most overdue first: each copy's last-assured time, when
                                                   it is next due under its set's resolved cadence, and whether that has
@@ -641,10 +642,13 @@ commands:
                                                   one backup set's resolved assurance policy and whether it is the set's own
   backup-set assurance <source/backup-set> [--scrub-cadence D] [--scrub-strategy S]
                           [--recovery-test-mode M] [--recovery-test-cadence D]
-                          [--recovery-test-validator ID] | --reset
+                          [--recovery-test-validator ID] [--recovery-test-builtin-check structure|off]
+                          | --reset
                                                   patch that set's own block, or --reset it to follow the deployment's policy
                                                   again. The host-scoped settings are refused here by name: they are global
-                                                  only. Refused beside a serving engine, with the file untouched
+                                                  only. Beside a serving engine this command has a route to, that is
+                                                  PATCH or DELETE /api/v1/backup-sets/{source}/{set}/assurance against the
+                                                  engine; with nothing serving, the file is written here
   backup-set workflow <source/backup-set> [--json]
                                                   one backup set's hook configuration, resolved against the deployment's:
                                                   the stages it will actually run in execution order, which timeout wins

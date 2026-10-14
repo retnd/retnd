@@ -46,8 +46,6 @@ const (
 
 	gapRunBackupSet = "`" + Binary + " fetch --backup-set <source/backup-set>` runs that set's cycle in your own shell, not in this engine, so it is a different act against a different process"
 
-	gapDeploymentScope = "there is no flag that narrows `activity --follow` to the deployment's own events: --backup-set names one set, and naming none already means every set"
-
 	// Issue #624. The candidate half of the connection check has no verb
 	// and deliberately gets none, which is a decision rather than the next
 	// gap to close. A candidate is a form somebody is still typing: its
@@ -665,18 +663,17 @@ var routes = map[string]entry{
 	key("GET", "/backups"): {
 		build: func(a Action) *cmd {
 			c := newCmd("artifacts")
-			if set := a.Query.Get("backup_set"); set != "" {
+			// The route's one filter is setId (handlers_artifacts.go). It
+			// reads nothing else, so nothing else is echoed: a printed
+			// --source would show more than the panel being read.
+			if set := a.Query.Get("setId"); set != "" {
 				c.flag("backup-set", set)
-			}
-			if source := a.Query.Get("source"); source != "" {
-				c.flag("source", source)
 			}
 			return c
 		},
 		examples: []Action{
 			{},
-			{Query: mustQuery("backup_set=api-server/var-backups")},
-			{Query: mustQuery("source=api-server")},
+			{Query: mustQuery("setId=api-server/var-backups")},
 		},
 	},
 	key("GET", "/backups/{source}/{set}/{name}"): {
@@ -833,19 +830,15 @@ var routes = map[string]entry{
 	},
 	key("GET", "/activity/live"): {
 		build: func(a Action) *cmd {
-			// scope=deployment narrows the read to the deployment's own
-			// bucket and no set at all, and --backup-set cannot say it:
-			// naming no set already means every set. So this is a real
-			// gap on a route that otherwise has a command, and it is
-			// named as one rather than being answered with the wider
-			// read, which would print a command that shows an operator
-			// more than the panel they are reading does.
-			if a.Query.Get("scope") == "deployment" {
-				return newCmd().refuse(gapDeploymentScope)
-			}
 			c := newCmd("activity").bare("follow")
 			if set := a.Query.Get("backup_set"); set != "" {
+				// A named set wins over scope=deployment, the way the
+				// route answers it (a named set is the narrower
+				// question), and the CLI refuses the pair outright, so
+				// the pair is never echoed.
 				c.flag("backup-set", set)
+			} else if a.Query.Get("scope") == "deployment" {
+				c.flag("scope", "deployment")
 			}
 			if n := positiveQuery(a, "limit"); n > 0 {
 				c.flag("limit", itoa(n))
@@ -856,13 +849,12 @@ var routes = map[string]entry{
 			// now; there is no flag for it and there should not be one.
 			return c
 		},
-		refusals:          []string{gapDeploymentScope},
-		namesShippedVerbs: []string{"activity"},
 		examples: []Action{
 			{},
 			{Query: mustQuery("backup_set=api-server%2Fvar-backups&limit=25")},
 			{Query: mustQuery("since=42")},
 			{Query: mustQuery("scope=deployment")},
+			{Query: mustQuery("scope=deployment&backup_set=api-server%2Fvar-backups")},
 		},
 	},
 
@@ -1611,6 +1603,49 @@ var routes = map[string]entry{
 				Body: []byte(`{"reason":"unmounted the snapshot by hand and checked the database is writable"}`)},
 		},
 	},
+	// ------------------------------------------------------------ auth ---
+	//
+	// The twelve /auth routes are served by a separate router
+	// (apps/common/auth/local, mounted at /api/v1/auth/), so a walk of the
+	// engine router never sees them and this table had no entry for any.
+	// Each now carries one. They are browser-session plumbing or an
+	// account act with no terminal verb, and the reason says which.
+	key("POST", "/auth/login"): {
+		why: "a login opens a browser session, and a terminal holds no session: a routed command signs in with $RETND_API_USERNAME and $RETND_API_PASSWORD for the one invocation, so there is nothing to type",
+	},
+	key("POST", "/auth/enroll"): {
+		why: "there is no verb on the engine's own CLI that creates the first administrator; `" + WebBinary + " auth create-admin --username U --password-stdin` does it offline, against the store, and refuses while a server holds it",
+	},
+	key("POST", "/auth/password"): {
+		why: "there is no verb that rotates the administrator's password from a terminal, and the offline `" + WebBinary + " auth create-admin` will not overwrite an existing account",
+	},
+	key("POST", "/auth/logout"): {
+		why: "a logout ends a browser session, and a terminal holds none",
+	},
+	key("GET", "/auth/session"): {
+		why: "a session read answers a browser's question about its own cookie, and a terminal holds no session to ask about",
+	},
+	key("POST", "/auth/forgot-password"): {
+		why: "there is no verb that asks for a password-reset email from a terminal",
+	},
+	key("POST", "/auth/reset-password"): {
+		why: "there is no verb that redeems a password-reset token from a terminal, so an administrator locked out of a deployment with no mail configured has no terminal route back in",
+	},
+	key("POST", "/auth/verify-email"): {
+		why: "there is no verb that redeems a recovery-email verification token from a terminal",
+	},
+	key("POST", "/auth/verify-email/resend"): {
+		why: "there is no verb that asks for the recovery-email verification message again from a terminal",
+	},
+	key("GET", "/auth/recovery"): {
+		why: "there is no verb that reads the administrator's recovery-email and SMTP settings from a terminal",
+	},
+	key("PATCH", "/auth/recovery"): {
+		why: "there is no verb that changes the administrator's recovery-email and SMTP settings from a terminal",
+	},
+	key("POST", "/auth/recovery/test"): {
+		why: "there is no verb that sends the recovery-email test message from a terminal",
+	},
 }
 
 // workflowEnvSetFlags puts one environment entry's value onto an `env
@@ -1881,7 +1916,17 @@ func onOff(v bool) string {
 }
 
 // RecordedReasons is the written reason each route outside /api/v1 has no
-// verb and no entry in the table above. Nothing here is echoed: these are
-// the two unauthenticated probes an orchestrator calls, which are not
-// operator actions. A stub until #1150 lands.
-func RecordedReasons() map[string]string { return nil }
+// verb and no entry in the table above, and is not in api/v1/openapi.json.
+// Nothing here is echoed: these are the two unauthenticated probes an
+// orchestrator calls, which are infrastructure and not operator actions.
+//
+// It exists so that "registered, with no answer" has two ways to be
+// resolved, an entry or a reason, and so the route-to-verb guard in
+// apps/common/webhost (issue #1150) can tell a probe somebody thought about
+// from a route somebody forgot.
+func RecordedReasons() map[string]string {
+	return map[string]string{
+		"GET /health/live":  "an unauthenticated liveness probe for an orchestrator, deliberately outside /api/v1 and the spec; `" + WebBinary + " healthcheck --url` is the command that calls any probe",
+		"GET /health/ready": "an unauthenticated readiness probe for an orchestrator, deliberately outside /api/v1 and the spec; `" + WebBinary + " healthcheck --url` is the command that calls any probe",
+	}
+}
