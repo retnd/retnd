@@ -445,4 +445,3 @@ func wireOfState(t *testing.T, svc *service.BackupService, name string) map[stri
 	_ = json.Unmarshal(raw, &out)
 	return out
 }
-
