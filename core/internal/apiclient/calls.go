@@ -547,6 +547,21 @@ func (c *Client) CancelAssuranceOperation(ctx context.Context, operationID strin
 	return out, err
 }
 
+// ListOperations is GET /operations: every operation the engine holds,
+// newest first. The API takes no filter, so a caller narrows the answer itself.
+func (c *Client) ListOperations(ctx context.Context) (apicontract.ListOperationsResponse, error) {
+	var out apicontract.ListOperationsResponse
+	err := c.call(ctx, "listOperations", nil, nil, &out)
+	return out, err
+}
+
+// GetOperation is GET /operations/{id}.
+func (c *Client) GetOperation(ctx context.Context, id string) (apicontract.Operation, error) {
+	var out apicontract.Operation
+	err := c.call(ctx, "getOperation", []string{id}, nil, &out)
+	return out, err
+}
+
 // EPIC L's four routed workflow operations (#813), and the reason they
 // are four rather than eighteen.
 //

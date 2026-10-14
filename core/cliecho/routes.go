@@ -250,10 +250,14 @@ var routes = map[string]entry{
 		},
 	},
 	key("GET", "/operations"): {
-		why: "there is no verb that lists submitted operations; a cycle started from a terminal runs in that terminal and reports there",
+		build:    func(Action) *cmd { return newCmd("operation", "list") },
+		examples: []Action{{}},
 	},
 	key("GET", "/operations/{id}"): {
-		why: "there is no verb that polls one submitted operation, for the same reason the list above has none",
+		build: func(a Action) *cmd {
+			return newCmd("operation", "show", a.Params["id"])
+		},
+		examples: []Action{{Params: map[string]string{"id": "7b0c9a1e-0000-4000-8000-000000000002"}}},
 	},
 
 	// ----------------------------------------------------- backup sets ---

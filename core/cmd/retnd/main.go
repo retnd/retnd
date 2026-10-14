@@ -87,6 +87,7 @@ var commands = map[string]func([]string) int{
 	"scrub":           cmdScrub,
 	"recovery-test":   cmdRecoveryTest,
 	"assurance":       cmdAssurance,
+	"operation":       cmdOperation,
 	"catalog":         cmdCatalog,
 	"quarantine":      cmdQuarantine,
 	"unconfigured":    cmdUnconfigured,
@@ -293,6 +294,17 @@ commands:
                                                   this deployment, so this needs RETND_API_URL and the two credential
                                                   variables beside it and is refused without them. The same as
                                                   POST /api/v1/assurance/operations/{op}/cancel (EPIC Q)
+  operation list [--backup-set S] [--action A] [--json]
+                                                  list the operations the engine holds, newest first, so there is an id
+                                                  to hand to assurance cancel. They live in the memory of the process
+                                                  serving this deployment, so this needs RETND_API_URL and the two
+                                                  credential variables beside it and is refused without them. The same
+                                                  body as GET /api/v1/operations; the two filters narrow it here (#1149)
+  operation show <operation-id> [--json] [--follow]
+                                                  one operation as the engine holds it. --follow polls until it finishes,
+                                                  prints each change of status on standard error, and exits 0 for
+                                                  completed and 1 for anything else. The same as
+                                                  GET /api/v1/operations/{id} (#1149)
   catalog rebuild [--dry-run]                    reconstruct a lost/corrupted state database from sidecar recovery manifests
   quarantine <revalidate|retry|reinstate> <source/backup-set/artifact> [--note T]
                                                   act on one quarantined artifact: revalidate re-checks it and moves

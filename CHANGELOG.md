@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`retnd operation list` and `retnd operation show <id> [--follow]`** (#1149). A terminal can now find the id of a scrub, recovery test or run the engine is holding, hand it to `assurance cancel`, and watch it finish. Both verbs need `RETND_API_URL` and the credential variables, since operations live in the serving process's memory, and `--json` prints the same body the API serves.
+
 ## [0.6.3] - 2026-10-13
 
 0.6.3 is a wording fix, and it follows straight on from 0.6.2. After the verification model

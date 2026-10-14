@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/retnd/retnd/core/apicontract"
 	"github.com/retnd/retnd/core/cliecho"
@@ -270,7 +271,15 @@ func TestOperationShow_UnknownIDNamesItAndExitsOne(t *testing.T) {
 	}
 }
 
+func fastPolls(t *testing.T) {
+	t.Helper()
+	old := operationPollEvery
+	operationPollEvery = 5 * time.Millisecond
+	t.Cleanup(func() { operationPollEvery = old })
+}
+
 func TestOperationShow_FollowPollsUntilTerminalAndTakesTheOperationsExit(t *testing.T) {
+	fastPolls(t)
 	for _, c := range []struct {
 		name     string
 		final    string
@@ -306,6 +315,7 @@ func TestOperationShow_FollowPollsUntilTerminalAndTakesTheOperationsExit(t *test
 }
 
 func TestOperationShow_FollowJSONPrintsOnlyTheFinalObject(t *testing.T) {
+	fastPolls(t)
 	cfg := writeTestConfig(t)
 	e := startFakeEngine(t, cfg)
 	e.attach(t)

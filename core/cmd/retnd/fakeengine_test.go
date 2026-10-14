@@ -78,10 +78,10 @@ type fakeEngine struct {
 	liveScope    []string
 
 	// The operations this engine holds (#1149), see operations1149_test.go.
-	opsMu    sync.Mutex
-	ops      []apicontract.Operation
-	opReads  map[string][]apicontract.Operation
-	opQuery  []string
+	opsMu   sync.Mutex
+	ops     []apicontract.Operation
+	opReads map[string][]apicontract.Operation
+	opQuery []string
 }
 
 // startFakeEngine announces that this process serves the deployment
