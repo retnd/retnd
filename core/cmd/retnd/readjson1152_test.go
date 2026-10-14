@@ -11,11 +11,9 @@ import (
 	"time"
 
 	"github.com/retnd/retnd/core/apicontract"
-	"github.com/retnd/retnd/core/internal/backupengine"
-	"github.com/retnd/retnd/core/internal/backupengine/kopia"
 	"github.com/retnd/retnd/core/internal/model"
-	"github.com/retnd/retnd/core/internal/secretref"
 	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/internal/testenv/localrepo"
 )
 
 // Issue #1152 (EPIC S, S2.2). Most read verbs printed text only, so a script
@@ -167,19 +165,7 @@ func aDeploymentWithARepository(t *testing.T) string {
 	if err := os.WriteFile(configPath, append(raw, []byte("capacity:\n  backup_root: "+root+"\n")...), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
-	domain, err := model.NewRepositoryDomainID("production")
-	if err != nil {
-		t.Fatalf("NewRepositoryDomainID: %v", err)
-	}
-	loc := backupengine.RepositoryLocation{
-		Kind:       backupengine.LocationLocal,
-		Domain:     domain,
-		Root:       root,
-		Passphrase: secretref.Ref{File: filepath.Join(dir, "repo.passphrase")},
-	}
-	if err := kopia.New().CreateRepository(t.Context(), loc); err != nil {
-		t.Fatalf("creating the repository: %v", err)
-	}
+	localrepo.CreateLocal(t, root, "production", filepath.Join(dir, "repo.passphrase"))
 	return configPath
 }
 
