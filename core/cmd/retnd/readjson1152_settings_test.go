@@ -59,7 +59,7 @@ func TestSettingsJSON_IsTheSettingsResponse_1152(t *testing.T) {
 func TestSettingsJSON_AFreshDeploymentIsFirstRun_1152(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yaml")
-	body := "poll_interval: 15m\nstate:\n  database: " + filepath.Join(dir, "state.db") + "\nsources: []\n"
+	body := "poll_interval: 1h\nstate:\n  database: " + filepath.Join(dir, "state.db") + "\nsources: []\n"
 	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -110,12 +110,15 @@ func TestBackupSetRetentionJSON_IsTheBackupSetRetentionObject_1152(t *testing.T)
 	requireKeys(t, rawKeys(t, out), "backup_set_id", "is_override", "effective", "deployment", "override")
 }
 
-func TestBackupSetRetentionJSON_ASetAndAClearPrintTheStateTheyLeft_1152(t *testing.T) {
+func TestBackupSetRetentionJSON_ReadsBackWhatASetAndAClearLeft_1152(t *testing.T) {
 	configPath := writeTestConfigWithDeploymentPolicy(t)
 
-	out, code := cliJSON(t, retentionArgs(configPath, "--daily-days", "3", "--weekly-months", "1", "--monthly-months", "2", "--json")...)
+	if got := run(retentionArgs(configPath, "--daily-days", "3", "--weekly-months", "1", "--monthly-months", "2")); got != 0 {
+		t.Fatalf("set = %d", got)
+	}
+	out, code := cliJSON(t, retentionArgs(configPath, "--json")...)
 	if code != exitOK {
-		t.Fatalf("set --json = %d:\n%s", code, out)
+		t.Fatalf("--json after a set = %d:\n%s", code, out)
 	}
 	var set apicontract.BackupSetRetention
 	strictDecode(t, out, &set)
@@ -126,14 +129,41 @@ func TestBackupSetRetentionJSON_ASetAndAClearPrintTheStateTheyLeft_1152(t *testi
 		t.Errorf("the deployment half moved: %+v", set.Deployment)
 	}
 
-	out, code = cliJSON(t, retentionArgs(configPath, "--inherit", "--json")...)
+	if got := run(retentionArgs(configPath, "--inherit")); got != 0 {
+		t.Fatalf("--inherit = %d", got)
+	}
+	out, code = cliJSON(t, retentionArgs(configPath, "--json")...)
 	if code != exitOK {
-		t.Fatalf("--inherit --json = %d:\n%s", code, out)
+		t.Fatalf("--json after a clear = %d:\n%s", code, out)
 	}
 	var cleared apicontract.BackupSetRetention
 	strictDecode(t, out, &cleared)
 	if cleared.IsOverride || cleared.Override != nil {
 		t.Errorf("after a clear: %+v", cleared)
+	}
+}
+
+// A write logs its startup lines on stdout, so a JSON document printed after
+// them would not be one document. --json is therefore the read's, and a write
+// that is handed it is refused before anything is opened or changed.
+func TestBackupSetRetentionJSON_IsReadOnly_1152(t *testing.T) {
+	for _, flags := range [][]string{
+		{"--daily-days", "3", "--weekly-months", "1", "--monthly-months", "2", "--json"},
+		{"--inherit", "--json"},
+	} {
+		configPath := writeTestConfigWithDeploymentPolicy(t)
+		before := readFile(t, configPath)
+		var code int
+		stderr := captureStderr(t, func() { code = run(retentionArgs(configPath, flags...)) })
+		if code != exitUsage {
+			t.Errorf("%v exited %d, want %d", flags, code, exitUsage)
+		}
+		if !strings.Contains(stderr, "--json") {
+			t.Errorf("%v: the refusal does not name the flag:\n%s", flags, stderr)
+		}
+		if readFile(t, configPath) != before {
+			t.Errorf("%v: a refused command changed the configuration", flags)
+		}
 	}
 }
 

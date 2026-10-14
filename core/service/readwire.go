@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"time"
 
 	"github.com/retnd/retnd/core/apicontract"
@@ -216,4 +217,147 @@ func RepositoryMaintenanceWire(m RepositoryMaintenance) apicontract.RepositoryMa
 		ReclaimedBytes: m.ReclaimedBytes,
 		Runs:           m.Runs,
 	}
+}
+
+func retentionTiersWire(tiers []RetentionTier) []apicontract.RetentionTier {
+	out := make([]apicontract.RetentionTier, 0, len(tiers))
+	for _, t := range tiers {
+		out = append(out, apicontract.RetentionTier{
+			Granularity: t.Granularity,
+			Keep:        t.Keep,
+			Medium:      t.Medium,
+			Name:        t.Name,
+			PeriodDays:  t.PeriodDays,
+			WindowUnit:  t.WindowUnit,
+		})
+	}
+	return out
+}
+
+// RetentionSettingsWire is the contract's RetentionSettings: a resolved
+// policy, with the chain always an array.
+func RetentionSettingsWire(r RetentionSettings) apicontract.RetentionSettings {
+	return apicontract.RetentionSettings{
+		ProtectLastKnownGood: r.ProtectLastKnownGood,
+		Tiers:                retentionTiersWire(r.Tiers),
+		Timezone:             r.Timezone,
+		WeekStartsOn:         r.WeekStartsOn,
+	}
+}
+
+// SettingsReadWire is GET /settings. firstRun is the handler's own question
+// (no backup set declared, default settings and an empty journal) and is
+// answered by SettingsAreFirstRun; persisted is true because a CLI that has
+// read these settings read them off a configuration file.
+func SettingsReadWire(s Settings, firstRun bool) apicontract.SettingsResponse {
+	retention := RetentionSchema()
+	storage := StorageSchema()
+	classes := make([]apicontract.VerificationClassInfo, 0, len(storage.VerificationClasses))
+	for _, c := range storage.VerificationClasses {
+		classes = append(classes, apicontract.VerificationClassInfo{
+			Class:           c.Class,
+			DownloadsObject: c.DownloadsObject,
+			Proves:          c.Proves,
+			Requires:        c.Requires,
+		})
+	}
+	mediums := make([]apicontract.StorageMediumSummary, 0, len(s.Mediums))
+	for _, m := range s.Mediums {
+		mediums = append(mediums, apicontract.StorageMediumSummary{
+			Bucket:               m.Bucket,
+			ConnectionUnverified: m.ConnectionUnverified,
+			Endpoint:             m.Endpoint,
+			ID:                   m.ID,
+			IsDefault:            m.IsDefault,
+			IsLocal:              m.IsLocal,
+			Path:                 m.Path,
+			Prefix:               m.Prefix,
+			ReadsRequireRestore:  m.ReadsRequireRestore,
+			Region:               m.Region,
+			StorageClass:         m.StorageClass,
+			Type:                 m.Type,
+			UploadVerification:   m.UploadVerification,
+		})
+	}
+	return apicontract.SettingsResponse{
+		Capacity: apicontract.CapacitySettings{
+			BackupRoot:           s.Capacity.BackupRoot,
+			BackupRootConfigured: s.Capacity.BackupRootConfigured,
+			CapBytes:             s.Capacity.CapBytes,
+			CriticalFreeBytes:    s.Capacity.CriticalFreeBytes,
+			SafetyMarginBytes:    s.Capacity.SafetyMarginBytes,
+			WarningFreeBytes:     s.Capacity.WarningFreeBytes,
+		},
+		FirstRun:  firstRun,
+		Mediums:   mediums,
+		Persisted: true,
+		Retention: RetentionSettingsWire(s.Retention),
+		Schema: apicontract.SettingsSchema{
+			Retention: apicontract.RetentionSchema{
+				DefaultTiers:     retentionTiersWire(retention.DefaultTiers),
+				Granularities:    retention.Granularities,
+				KeepMax:          retention.KeepMax,
+				PeriodDaysMax:    retention.PeriodDaysMax,
+				ReservedTierName: retention.ReservedTierName,
+				TierNamePattern:  retention.TierNamePattern,
+				WindowUnits:      retention.WindowUnits,
+			},
+			Service: apicontract.ServiceSchema{
+				MinPollIntervalSeconds: int(ServiceSchema().MinPollInterval / time.Second),
+			},
+			Storage: apicontract.StorageSchema{
+				MediumDisclosure:    storage.MediumDisclosure,
+				RetrievalDisclosure: storage.RetrievalDisclosure,
+				VerificationClasses: classes,
+			},
+		},
+		Service: apicontract.ServiceSettings{PollIntervalSeconds: int(s.Service.PollInterval / time.Second)},
+	}
+}
+
+// SettingsAreFirstRun is the web host's `first_run` for GET /settings: these
+// are the engine's defaults and nobody has changed anything yet. It needs no
+// backup set declared, the settings still at their defaults, and a journal
+// that holds nothing, because a configuration with no sets over a journal full
+// of backups is a deployment that lost its sets, not one that never had any.
+// A read that fails errs toward the settled reading, false.
+func (b *BackupService) SettingsAreFirstRun(ctx context.Context, s Settings) bool {
+	if !IsDefaultSettings(s) {
+		return false
+	}
+	sets, err := b.ListBackupSets(ctx)
+	if err != nil || len(sets) != 0 {
+		return false
+	}
+	n, err := b.JournalArtifactCount(ctx)
+	return err == nil && n == 0
+}
+
+// BackupSetRetentionWire is GET .../retention, and the body PUT and DELETE
+// answer with. override is present and null for a set that inherits.
+func BackupSetRetentionWire(r BackupSetRetention) apicontract.BackupSetRetention {
+	out := apicontract.BackupSetRetention{
+		BackupSetID: r.BackupSetID,
+		Deployment:  RetentionSettingsWire(r.Deployment),
+		Effective:   RetentionSettingsWire(r.Effective),
+		IsOverride:  r.IsOverride,
+	}
+	if r.Override != nil {
+		o := apicontract.RetentionOverride{
+			DailyDays:     r.Override.DailyDays,
+			MonthlyMonths: r.Override.MonthlyMonths,
+			Timezone:      r.Override.Timezone,
+			WeekStartsOn:  r.Override.WeekStartsOn,
+			WeeklyMonths:  r.Override.WeeklyMonths,
+		}
+		if r.Override.Tiers != nil {
+			o.Tiers = retentionTiersWire(r.Override.Tiers)
+		}
+		if r.Override.ProtectLastKnownGood != nil {
+			protect := *r.Override.ProtectLastKnownGood
+			o.ProtectLastKnownGood = &protect
+		}
+		out.Override = &o
+	}
+	return out
 }

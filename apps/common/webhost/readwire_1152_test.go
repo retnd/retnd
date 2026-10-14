@@ -1,7 +1,10 @@
 package webhost
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"testing"
 	"time"
@@ -223,6 +226,115 @@ func TestIssue1152_RepositoryMaintenanceWireIsTheHandlersObjectFieldForField(t *
 			rec := rs.get(t, "/api/v1/repositories/"+m.Domain+"/maintenance")
 			mustStatus(t, rec, 200)
 			sameAsTheAPI(t, "repository maintenance", rec.Body.Bytes(), service.RepositoryMaintenanceWire(m), 8)
+		})
+	}
+}
+
+// wireFixtureBackend lets a diff test hand the handlers any settings and any
+// per-set retention, which the shared fake's inert Settings cannot.
+type wireFixtureBackend struct {
+	*syncFakeBackend
+	settings  service.Settings
+	sets      []service.BackupSet
+	retention service.BackupSetRetention
+}
+
+func (b *wireFixtureBackend) Settings(context.Context) (service.Settings, error) {
+	return b.settings, nil
+}
+
+func (b *wireFixtureBackend) ListBackupSets(context.Context) ([]service.BackupSet, error) {
+	return b.sets, nil
+}
+
+func (b *wireFixtureBackend) BackupSetRetention(context.Context, string) (service.BackupSetRetention, error) {
+	return b.retention, nil
+}
+
+func (b *wireFixtureBackend) router() http.Handler {
+	return NewRouter(RouterConfig{
+		Platform: allowingPlatform("alice"), Backend: b, Gate: alwaysPassGate{},
+		BinaryVersion: "test", Commit: "test",
+	})
+}
+
+func (b *wireFixtureBackend) get(t *testing.T, target string) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	b.router().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
+	mustStatus(t, rec, 200)
+	return rec
+}
+
+func fullSettings() service.Settings {
+	return service.Settings{
+		Retention: service.RetentionSettings{
+			Timezone: "America/Vancouver", WeekStartsOn: "sunday", ProtectLastKnownGood: false,
+			Tiers: []service.RetentionTier{
+				{Name: "daily", Granularity: "day", Keep: 14, Medium: "local"},
+				{Name: "quarterly", Granularity: "days", PeriodDays: 90, Keep: 8, WindowUnit: "month", Medium: "cold"},
+			},
+		},
+		Capacity: service.CapacitySettings{
+			CapBytes: 1 << 40, WarningFreeBytes: 1 << 30, CriticalFreeBytes: 1 << 29, SafetyMarginBytes: 1 << 20,
+			BackupRoot: "/data/backups", BackupRootConfigured: true,
+		},
+		Service: service.ServiceSettings{PollInterval: 17 * time.Minute},
+		Mediums: []service.StorageMediumSummary{
+			{ID: "local", Type: "local", IsLocal: true, IsDefault: true, Path: "/data/backups", UploadVerification: "readback"},
+			{
+				ID: "cold", Type: "s3", Bucket: "acme", Region: "eu-west-1", Endpoint: "https://s3.example.net", Prefix: "p",
+				StorageClass: "GLACIER", UploadVerification: "attested", ReadsRequireRestore: true, ConnectionUnverified: true,
+			},
+		},
+	}
+}
+
+func TestIssue1152_SettingsReadWireIsTheHandlersGETFieldForField(t *testing.T) {
+	for name, tc := range map[string]struct {
+		settings service.Settings
+		sets     []service.BackupSet
+		firstRun bool
+	}{
+		"every optional field set":    {fullSettings(), []service.BackupSet{{ID: "src/set-1"}}, false},
+		"defaults and no set":         {service.DefaultSettings(), nil, true},
+		"defaults and a set":          {service.DefaultSettings(), []service.BackupSet{{ID: "src/set-1"}}, false},
+		"no mediums and an empty set": {service.Settings{Retention: defaultRetentionSettings()}, nil, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			b := &wireFixtureBackend{syncFakeBackend: newSyncFakeBackend(), settings: tc.settings, sets: tc.sets}
+			rec := b.get(t, "/api/v1/settings")
+			sameAsTheAPI(t, "settings", rec.Body.Bytes(), service.SettingsReadWire(tc.settings, tc.firstRun), 7)
+		})
+	}
+}
+
+func TestIssue1152_BackupSetRetentionWireIsTheHandlersGETFieldForField(t *testing.T) {
+	protect := false
+	deployment := service.RetentionSettings{
+		Timezone: "UTC", WeekStartsOn: "monday", ProtectLastKnownGood: true,
+		Tiers: []service.RetentionTier{{Name: "daily", Granularity: "day", Keep: 7, Medium: "local"}},
+	}
+	for name, r := range map[string]service.BackupSetRetention{
+		"an override with every field": {
+			BackupSetID: "src/set-1", IsOverride: true, Deployment: deployment,
+			Effective: service.RetentionSettings{Timezone: "Europe/Paris", WeekStartsOn: "sunday", Tiers: []service.RetentionTier{{Name: "d", Granularity: "day", Keep: 3}}},
+			Override: &service.RetentionOverride{
+				Timezone: "Europe/Paris", WeekStartsOn: "sunday", DailyDays: 3, WeeklyMonths: 1, MonthlyMonths: 2,
+				Tiers: []service.RetentionTier{{Name: "d", Granularity: "day", Keep: 3}}, ProtectLastKnownGood: &protect,
+				AcknowledgeMediumDisclosure: true,
+			},
+		},
+		"inheriting": {BackupSetID: "src/set-1", Deployment: deployment, Effective: deployment},
+		"an override that names only a calendar": {
+			BackupSetID: "src/set-1", IsOverride: true, Deployment: deployment, Effective: deployment,
+			Override: &service.RetentionOverride{Timezone: "UTC"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			b := &wireFixtureBackend{syncFakeBackend: newSyncFakeBackend(), retention: r}
+			rec := b.get(t, "/api/v1/backup-sets/src/set-1/retention")
+			sameAsTheAPI(t, "backup-set retention", rec.Body.Bytes(), service.BackupSetRetentionWire(r), 5)
 		})
 	}
 }
