@@ -4,13 +4,17 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/retnd/retnd/core/apicontract"
+	"github.com/retnd/retnd/core/internal/backupengine"
+	"github.com/retnd/retnd/core/internal/backupengine/kopia"
 	"github.com/retnd/retnd/core/internal/model"
+	"github.com/retnd/retnd/core/internal/secretref"
 	"github.com/retnd/retnd/core/internal/state"
 )
 
@@ -143,6 +147,42 @@ func placeSnapshotHold(t *testing.T, configPath, holdID, runID, reason string) {
 
 const incSet = "production/uploads-tree"
 
+// aDeploymentWithARepository is aDeploymentWithSnapshots plus a real kopia
+// repository on disk under a backup root the configuration names, so the
+// verbs that open the repository (snapshot retention, repository health)
+// have one to open. It is the same repository the product would have made:
+// same location, same passphrase file, created through the same engine.
+func aDeploymentWithARepository(t *testing.T) string {
+	t.Helper()
+	configPath := aDeploymentWithSnapshots(t)
+	dir := filepath.Dir(configPath)
+	root := filepath.Join(dir, "backups")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if err := os.WriteFile(configPath, append(raw, []byte("capacity:\n  backup_root: "+root+"\n")...), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	domain, err := model.NewRepositoryDomainID("production")
+	if err != nil {
+		t.Fatalf("NewRepositoryDomainID: %v", err)
+	}
+	loc := backupengine.RepositoryLocation{
+		Kind:       backupengine.LocationLocal,
+		Domain:     domain,
+		Root:       root,
+		Passphrase: secretref.Ref{File: filepath.Join(dir, "repo.passphrase")},
+	}
+	if err := kopia.New().CreateRepository(t.Context(), loc); err != nil {
+		t.Fatalf("creating the repository: %v", err)
+	}
+	return configPath
+}
+
 func TestSnapshotListJSON_IsTheListSnapshotsResponse_1152(t *testing.T) {
 	configPath := aDeploymentWithSnapshots(t)
 	seedSucceededSnapshot(t, configPath, "run_a", "k1a2b3c4", time.Date(2026, 10, 1, 3, 0, 0, 0, time.UTC))
@@ -233,9 +273,12 @@ func TestSnapshotShowJSON_IsTheSnapshotResponseWithItsTransitionLog_1152(t *test
 	if len(got.Snapshot.Holds) != 1 || got.Snapshot.Holds[0].HoldID != "hold_1" || !got.Snapshot.Holds[0].Active {
 		t.Errorf("the hold is not on the snapshot: %+v", got.Snapshot.Holds)
 	}
-	// PENDING first, SUCCESS last, every edge in between, oldest first.
-	if n := len(got.Transitions); n < 7 {
-		t.Fatalf("transition log has %d entries, want at least 7:\n%s", n, out)
+	// Six edges (PENDING to SOURCE_SCAN through to SUCCESS), oldest first.
+	if n := len(got.Transitions); n != 6 {
+		t.Fatalf("transition log has %d entries, want 6:\n%s", n, out)
+	}
+	if first := got.Transitions[0]; first.From != "PENDING" || first.To != "SOURCE_SCAN" {
+		t.Errorf("first transition = %+v, want PENDING to SOURCE_SCAN", first)
 	}
 	last := got.Transitions[len(got.Transitions)-1]
 	if last.To != "SUCCESS" || last.At == "" {
@@ -288,7 +331,7 @@ func TestSnapshotHoldsJSON_IsTheListSnapshotHoldsResponse_1152(t *testing.T) {
 }
 
 func TestSnapshotRetentionJSON_IsTheSnapshotRetentionResponse_1152(t *testing.T) {
-	configPath := aDeploymentWithSnapshots(t)
+	configPath := aDeploymentWithARepository(t)
 	seedSucceededSnapshot(t, configPath, "run_a", "k1a2b3c4", time.Date(2026, 10, 1, 3, 0, 0, 0, time.UTC))
 	placeSnapshotHold(t, configPath, "hold_1", "run_a", "legal request 4471")
 

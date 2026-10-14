@@ -94,6 +94,7 @@ func snapshotOperand(verb string, operands []string, want int) ([]string, int) {
 
 func snapshotList(args []string) int {
 	fs, cfgPath := newFlagSet("snapshot list")
+	asJSON := fs.Bool("json", false, "print the API's ListSnapshotsResponse instead of text")
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
 		return 2
@@ -114,6 +115,10 @@ func snapshotList(args []string) int {
 	snapshots, err := svc.ListSnapshots(ctx, rest[0])
 	if err != nil {
 		return fail(err)
+	}
+
+	if *asJSON {
+		return emitWireJSON(service.SnapshotsWire(snapshots))
 	}
 
 	if len(snapshots) == 0 {
@@ -157,6 +162,7 @@ func printSnapshotLine(s service.Snapshot) {
 
 func snapshotShow(args []string) int {
 	fs, cfgPath := newFlagSet("snapshot show")
+	asJSON := fs.Bool("json", false, "print the API's SnapshotResponse (the run and its transition log) instead of text")
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
 		return 2
@@ -177,6 +183,10 @@ func snapshotShow(args []string) int {
 	detail, err := svc.GetSnapshot(ctx, rest[0], rest[1])
 	if err != nil {
 		return fail(err)
+	}
+
+	if *asJSON {
+		return emitWireJSON(service.SnapshotDetailWire(detail))
 	}
 
 	s := detail.Snapshot
@@ -222,6 +232,7 @@ func snapshotShow(args []string) int {
 
 func snapshotHolds(args []string) int {
 	fs, cfgPath := newFlagSet("snapshot holds")
+	asJSON := fs.Bool("json", false, "print the API's ListSnapshotHoldsResponse instead of text")
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
 		return 2
@@ -244,6 +255,10 @@ func snapshotHolds(args []string) int {
 		return fail(err)
 	}
 
+	if *asJSON {
+		return emitWireJSON(service.SnapshotHoldsWire(holds))
+	}
+
 	if len(holds) == 0 {
 		fmt.Printf("%s holds no snapshot\n", rest[0])
 
@@ -261,6 +276,7 @@ func snapshotHolds(args []string) int {
 
 func snapshotRetention(args []string) int {
 	fs, cfgPath := newFlagSet("snapshot retention")
+	asJSON := fs.Bool("json", false, "print the API's SnapshotRetentionResponse instead of text")
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
 		return 2
@@ -281,6 +297,10 @@ func snapshotRetention(args []string) int {
 	preview, err := svc.SnapshotRetention(ctx, rest[0])
 	if err != nil {
 		return fail(err)
+	}
+
+	if *asJSON {
+		return emitWireJSON(service.SnapshotRetentionWire(preview))
 	}
 
 	fmt.Printf("as of %s (this is a preview; nothing is deleted)\n", preview.GeneratedAt.UTC().Format(time.RFC3339))
