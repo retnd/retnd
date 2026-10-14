@@ -76,6 +76,12 @@ type fakeEngine struct {
 	liveReadings []apicontract.LiveActivityResponse
 	liveSince    []int64
 	liveScope    []string
+
+	// The operations this engine holds (#1149), see operations1149_test.go.
+	opsMu    sync.Mutex
+	ops      []apicontract.Operation
+	opReads  map[string][]apicontract.Operation
+	opQuery  []string
 }
 
 // startFakeEngine announces that this process serves the deployment
@@ -306,6 +312,10 @@ func (e *fakeEngine) api(w http.ResponseWriter, r *http.Request, path, token str
 		e.setReadOnly(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/backup-sets/"), "/read-only"))
 	case r.Method == http.MethodPost && strings.HasPrefix(path, "/assurance/operations/") && strings.HasSuffix(path, "/cancel"):
 		e.cancelAssuranceOperation(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/assurance/operations/"), "/cancel"))
+	case r.Method == http.MethodGet && path == "/operations":
+		e.listOperations(w, r)
+	case r.Method == http.MethodGet && strings.HasPrefix(path, "/operations/"):
+		e.getOperation(w, r, strings.TrimPrefix(path, "/operations/"))
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/edit-hold"):
 		e.getEditHold(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/backup-sets/"), "/edit-hold"))
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/edit-hold/release"):
