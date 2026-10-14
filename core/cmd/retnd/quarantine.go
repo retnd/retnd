@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/internal/model"
@@ -24,18 +25,25 @@ import (
 func cmdQuarantine(args []string) int {
 	fs, cfgPath := newFlagSet("quarantine")
 	note := fs.String("note", "", "operator note recorded with a reinstatement (reinstate only; ignored otherwise)")
+	listFlags := declareQuarantineListFlags(fs)
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
 		return 2
 	}
+	if len(operands) > 0 && operands[0] == "list" {
+		return cmdQuarantineList(*cfgPath, fs, listFlags, operands[1:])
+	}
+	if named := quarantineListOnlyFlags(fs); len(named) > 0 {
+		return usageError("quarantine: --%s belongs to `quarantine list`, and the three actions take neither", strings.Join(named, ", --"))
+	}
 	if len(operands) != 2 {
-		return usageError("quarantine: expected <revalidate|retry|reinstate> <source/backup-set/artifact>")
+		return usageError("quarantine: expected <list|revalidate|retry|reinstate> [<source/backup-set/artifact>]")
 	}
 	verb, idArg := operands[0], operands[1]
 	switch verb {
 	case "revalidate", "retry", "reinstate":
 	default:
-		return usageError("quarantine: unknown subcommand %q (expected \"revalidate\", \"retry\" or \"reinstate\")", verb)
+		return usageError("quarantine: unknown subcommand %q (expected \"list\", \"revalidate\", \"retry\" or \"reinstate\")", verb)
 	}
 
 	id, err := app.ParseArtifactID(idArg)

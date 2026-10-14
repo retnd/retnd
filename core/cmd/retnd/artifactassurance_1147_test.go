@@ -25,6 +25,8 @@ import (
 // The scrub cells corrupt a real file and let `scrub` find it, so the failure
 // being read back is one the product wrote itself.
 
+var yes = true
+
 const assuranceID = "production/postgres-primary/backup.dump"
 
 // scrubbedRottedCopy returns a deployment whose only copy has been found
@@ -139,7 +141,8 @@ func TestIssue1147_ARecoveryTestPassShowsAsReadableWithItsCheck(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	recordRecovery(t, configPath, state.RecoveryTest{
 		State: state.RecoveryPassed, At: now, NextDue: now.Add(24 * time.Hour),
-		ValidatorID: "retnd-builtin-structure", CleanupState: "removed",
+		ValidatorID: "retnd-builtin-structure", ValidatorHash: strings.Repeat("a", 64),
+		DigestMatched: &yes, Termination: state.RecoveryTerminationExited, CleanupState: "removed",
 	})
 	out := artifactsOut(t, 0, "artifacts", "--config", configPath, assuranceID)
 	for _, want := range []string{"recovery_state:", "readable", "recovery_tested_at:", "recovery_check:", "builtin"} {
@@ -159,7 +162,8 @@ func TestIssue1147_AFailedRecoveryTestPrintsItsReasonAndValidator(t *testing.T) 
 	now := time.Now().UTC().Truncate(time.Second)
 	recordRecovery(t, configPath, state.RecoveryTest{
 		State: state.RecoveryFailed, At: now, NextDue: now.Add(24 * time.Hour),
-		Reason: "the restored dump would not load: unexpected EOF", ValidatorID: "10-load.local.sh", CleanupState: "removed",
+		Reason: "the restored dump would not load: unexpected EOF", ValidatorID: "10-load.local.sh", ValidatorHash: strings.Repeat("b", 64),
+		DigestMatched: &yes, Termination: state.RecoveryTerminationExited, CleanupState: "removed",
 	})
 	out := artifactsOut(t, 0, "artifacts", "--config", configPath, assuranceID)
 	for _, want := range []string{"recovery_state:", "failed", "recovery_failure_reason:", "unexpected EOF", "recovery_check:", "validator"} {
@@ -177,7 +181,8 @@ func TestIssue1147_ArtifactDetailJSONIsTheArtifactWireObject(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	recordRecovery(t, configPath, state.RecoveryTest{
 		State: state.RecoveryFailed, At: now, NextDue: now.Add(time.Hour),
-		Reason: "boom", ValidatorID: "10-load.local.sh", CleanupState: "removed",
+		Reason: "boom", ValidatorID: "10-load.local.sh", ValidatorHash: strings.Repeat("b", 64),
+		DigestMatched: &yes, Termination: state.RecoveryTerminationExited, CleanupState: "removed",
 	})
 	out := artifactsOut(t, 0, "artifacts", "--json", "--config", configPath, assuranceID)
 
