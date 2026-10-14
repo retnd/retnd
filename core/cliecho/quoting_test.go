@@ -53,7 +53,7 @@ func TestCallerDataShapedLikeAPlaceholderIsStillQuoted(t *testing.T) {
 		{"a path parameter", Action{Method: "DELETE", Route: "/storage-mediums/{id}",
 			Params: map[string]string{"id": attack}}},
 		{"an artifact list's query", Action{Method: "GET", Route: "/backups",
-			Query: url.Values{"source": []string{attack}}}},
+			Query: url.Values{"setId": []string{attack}}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			line := Echo(tc.action)
@@ -94,6 +94,7 @@ func TestEveryRenderedLineReadsBackAsItsArgv(t *testing.T) {
 	}
 	query := url.Values{
 		"backup_set": []string{nasty("backup_set")},
+		"setId":      []string{nasty("setId")},
 		"source":     []string{nasty("source")},
 		"limit":      []string{"25"},
 	}
