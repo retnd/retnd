@@ -143,6 +143,8 @@ commands:
   check                                          validate config and the state database, then exit
   status                                         report process and backup-set health (FR-24)
   sources                                        list configured sources and backup sets
+  sources --json                                 the same read as ListBackupSetsResponse, every field of every set,
+                                                  which is what GET /api/v1/backup-sets returns (#1151)
   backup-set create <source/backup-set> --host H --user U --remote-path P --local-path P
                     --ssh-key-file K|--ssh-key-id ID --known-hosts-line L|--trust-host-key
                     --completion-strategy rename|marker|stable [--include A,B] [--stable-for D]
@@ -150,6 +152,7 @@ commands:
                     [--engine artifact|kopia] [--repository-domain D] [--source-consistency S]
                     [--verification-level L] [--verification-sample-percent N]
                     [--verification-full-every D] [--verification-restore-drill-every D]
+                    [--uuid U] [--source-mount-prefix P]
                     [--no-verify]
                                                   create a backup set. Beside a serving engine this command has a
                                                   route to, that is POST /api/v1/backup-sets against the engine
@@ -162,11 +165,19 @@ commands:
                                                   refused when it cannot be: --no-verify writes it anyway, says in so many
                                                   words that nothing was proven, and leaves the set marked as unverified
                                                   until a connection test passes (#624)
+                                                  --uuid is the durable key an incremental set's snapshot lineage
+                                                  hangs off. Leave it off and one is minted and printed; pass it when
+                                                  re-declaring a set whose configuration was lost, because a second
+                                                  create without it starts a new lineage beside the old one and the
+                                                  next run re-reads the whole source. --source-mount-prefix is the
+                                                  leading part of --remote-path that is how this deployment reaches
+                                                  the source, so moving a bind mount does not fork the lineage (#1151)
   backup-set patch <source/backup-set> [--host H] [--port N] [--user U] [--remote-path P] [--local-path P]
                     [--include "A,B"] [--completion-strategy S] [--stable-for D] [--stale-after D] [--validator-id ID]
                     [--ssh-key-file K|--ssh-key-id ID] [--known-hosts-line L|--trust-host-key]
                     [--source-consistency S] [--verification-level L] [--verification-sample-percent N]
                     [--verification-full-every D] [--verification-restore-drill-every D]
+                    [--poll-interval D]
                     [--acknowledge-repoint] [--acknowledge-host-key-change]
                     [--no-verify]
                                                   change one configured backup set in place; only the flags you pass are
@@ -177,6 +188,15 @@ commands:
                                                   An edit that changes the host, port, user, key, trusted host key or
                                                   remote path is proven before it is written and refused when it cannot
                                                   be; --no-verify writes it anyway and marks the set unverified (#624)
+                                                  --poll-interval D gives this set its own poll interval, 0 returns it
+                                                  to the deployment's, and nothing under a minute is accepted (#1151)
+  backup-set show <source/backup-set> [--json]   print one backup set whole: its host and key, the trusted host
+                                                  keys, whether its connection was ever proven, its own poll interval
+                                                  and the one in force, its engine, lineage key, repository domain,
+                                                  verification budget and mount prefix. --json prints the BackupSet
+                                                  object GET /api/v1/backup-sets/{source}/{set} returns. A read of this
+                                                  host's configuration, checked against a serving engine the way
+                                                  sources is (#1151)
   backup-set remove <source/backup-set>          take one backup set out of the configuration: DELETE
                                                   /api/v1/backup-sets/{source}/{set} against a serving engine this
                                                   command has a route to, and the same service layer that route is
@@ -495,6 +515,10 @@ commands:
                                                   A chain that sends a tier somewhere new needs
                                                   --acknowledge-medium-disclosure, and without it the refusal carries the
                                                   disclosure (#595)
+  settings patch --poll-interval D               set the deployment-wide poll interval, how often each source is checked
+                                                  for new backup files. A backup set follows it unless it pins its own
+                                                  with backup-set patch --poll-interval, and nothing under a minute is
+                                                  accepted. settings prints it in a service: section (#1151)
   settings patch --tier-medium NAME=MEDIUM_ID [--acknowledge-medium-disclosure]
                                                   point one retention tier at a storage destination and leave the rest of
                                                   the chain exactly as it is. Repeatable, at most once per tier, and

@@ -667,7 +667,7 @@ func TestUsageNamesTheNewSurface_1151(t *testing.T) {
 	out := captureStderr(t, usage)
 	for _, want := range []string{
 		"backup-set show <source/backup-set> [--json]",
-		"sources [--json]",
+		"sources --json",
 		"--poll-interval",
 		"--uuid",
 		"--source-mount-prefix",

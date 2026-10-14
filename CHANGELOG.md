@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### Added
+
+- **A whole backup set from the terminal** (#1151). `backup-set show <source/backup-set>` prints every
+  field of one set (the key, the trusted host keys, whether its connection was ever proven, both poll
+  intervals, the engine and its lineage key, the repository domain, the verification budget and the mount
+  prefix), and `--json` prints the `BackupSet` object `GET /api/v1/backup-sets/{source}/{set}` returns.
+  `sources --json` prints `ListBackupSetsResponse`, where the text form prints six columns.
+- **Poll interval from the terminal** (#1151). `backup-set patch --poll-interval D` gives a set its own
+  interval (`0` returns it to the deployment's) and `settings patch --poll-interval D` sets the
+  deployment-wide one. `settings` now prints it in a `service:` section, and `backup-set show` prints the
+  set's own and the one in force.
+- **`backup-set create --uuid` and `--source-mount-prefix`** (#1151). Re-declaring an incremental set
+  after its configuration was lost used to mint a new lineage key, so the next run re-read the whole
+  source and the snapshots already on record were left beside a second history. `--uuid` declares the set
+  under its old key, and `--source-mount-prefix` names the part of `--remote-path` that is how this
+  deployment reaches the source. A create that minted a key now prints it, and the equivalent-command line
+  the web interface shows carries both flags.
+
 ### Fixed
 
 - **Eight config writes now work beside a serving engine** (#1148). `settings workflow patch`,

@@ -262,8 +262,11 @@ var routes = map[string]entry{
 		examples: []Action{{}},
 	},
 	key("GET", "/backup-sets/*"): {
-		why:               "`sources` lists every configured backup set; there is no verb that prints one on its own",
-		namesShippedVerbs: []string{"sources"},
+		// Issue #1151 gave this a verb. It was a gap that said "`sources`
+		// lists every configured backup set; there is no verb that prints
+		// one on its own", and `backup-set show` is that verb.
+		build:    func(a Action) *cmd { return newCmd("backup-set", "show", setID(a)) },
+		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
 	},
 	key("POST", "/backup-sets"): {
 		build: func(a Action) *cmd {
@@ -282,6 +285,8 @@ var routes = map[string]entry{
 			// domain printed a command that makes a whole-file artifact
 			// set under the same id.
 			{Body: []byte(`{"source_name":"api-server","name":"var-backups","host":"10.0.0.14","user":"backups","remote_path":"/var/backups","local_path":"/data/backups","ssh_key_id":"key_1","known_hosts_line":"10.0.0.14 ssh-ed25519 AAAAC3Nz","completion_strategy":"rename","engine":"kopia","repository_domain":"production-vault","source_consistency":"quiesced","verification_level":"sample","verification_sample_percent":10,"verification_full_every_seconds":604800,"verification_restore_drill_every_seconds":2592000}`)},
+			// Re-declaring a set under its old lineage key (#1151).
+			{Body: []byte(`{"source_name":"api-server","name":"var-backups","host":"10.0.0.14","user":"backups","remote_path":"/srv/var-backups","local_path":"/data/backups","ssh_key_id":"key_1","known_hosts_line":"10.0.0.14 ssh-ed25519 AAAAC3Nz","completion_strategy":"rename","engine":"kopia","repository_domain":"production-vault","uuid":"7d1c5a6e-3b8f-4c2a-9e41-0f6b2d8a5c13","source_mount_prefix":"/srv"}`)},
 		},
 	},
 	key("POST", "/backup-sets/test-connection"): {
@@ -358,6 +363,12 @@ var routes = map[string]entry{
 			if req.ValidatorID != nil {
 				c.flag("validator-id", *req.ValidatorID)
 			}
+			// Issue #1151. Zero is the request to inherit the
+			// deployment's cadence and is printed, for the reason the
+			// verification cadences below are.
+			if req.PollIntervalSeconds != nil {
+				c.flag("poll-interval", seconds(int64(*req.PollIntervalSeconds)))
+			}
 			// EPIC K's editable verification budget (#788), with the
 			// nil/non-nil rule every pointer on this body keeps. An
 			// explicit zero cadence is "stop doing this", which is a
@@ -419,6 +430,12 @@ var routes = map[string]entry{
 			// is a flag nothing proves the binary takes back.
 			{Params: map[string]string{"source": "api-server", "set": "var-backups"},
 				Body: []byte(`{"source_consistency":"quiesced","verification_level":"sample","verification_sample_percent":10,"verification_full_every_seconds":604800,"verification_restore_drill_every_seconds":2592000}`)},
+			// The per-set poll interval (#1151), once overriding and once
+			// returning to the deployment's.
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"},
+				Body: []byte(`{"poll_interval_seconds":900}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"},
+				Body: []byte(`{"poll_interval_seconds":0}`)},
 		},
 	},
 	key("DELETE", "/backup-sets/{source}/{set}"): {
@@ -1179,6 +1196,11 @@ var routes = map[string]entry{
 					c.flag("safety-margin-bytes", itoa64(*cap.SafetyMarginBytes))
 				}
 			}
+			// Issue #1151: the deployment-wide poll interval, the one
+			// field of the service section the CLI can set.
+			if svc := req.Service; svc != nil && svc.PollIntervalSeconds != nil {
+				c.flag("poll-interval", seconds(int64(*svc.PollIntervalSeconds)))
+			}
 			// The acknowledgement rides beside a policy write and the CLI
 			// refuses it on a line that writes none.
 			if req.AcknowledgeMediumDisclosure && policy {
@@ -1192,6 +1214,9 @@ var routes = map[string]entry{
 			{Body: []byte(`{"capacity":{"cap_bytes":1099511627776,"warning_free_bytes":107374182400,"critical_free_bytes":53687091200,"safety_margin_bytes":1073741824}}`)},
 			{Body: []byte(`{"retention":{"tiers":[{"name":"daily","granularity":"day","keep":7}],"timezone":"Europe/Berlin"},"acknowledge_medium_disclosure":true}`)},
 			{Body: []byte(`{"retention":{"tiers":[{"name":"daily","granularity":"day","keep":7}]},"capacity":{"cap_bytes":1099511627776}}`)},
+			// The deployment's poll interval (#1151), in the corpus so the
+			// dispatcher parses the flag back end to end.
+			{Body: []byte(`{"service":{"poll_interval_seconds":3600}}`)},
 		},
 	},
 
@@ -1734,11 +1759,15 @@ func backupSetCreateCommand(spec apicontract.BackupSetSpec, runNow, acknowledgeR
 	// an incomplete reproduction of this set, it would be a working
 	// command that makes a DIFFERENT kind of set under the same id.
 	//
-	// The uuid is deliberately not echoed. It is the durable key a
-	// snapshot lineage hangs off, `backup-set create` has no flag for
-	// it, and it is minted by the service precisely so that nobody has
-	// to type one.
+	// The uuid is echoed when the request carried one (#1151). It used to
+	// be left out because `backup-set create` had no flag for it, which
+	// made a printed command mint a second lineage beside the one the
+	// request named. A request that carried none still prints none: the
+	// service mints it, and a placeholder here would be a command that
+	// forks the history on purpose.
 	c.flagIfSet("engine", spec.Engine)
+	c.flagIfSet("uuid", spec.Uuid)
+	c.flagIfSet("source-mount-prefix", spec.SourceMountPrefix)
 	c.flagIfSet("repository-domain", spec.RepositoryDomain)
 	c.flagIfSet("source-consistency", spec.SourceConsistency)
 	c.flagIfSet("verification-level", spec.VerificationLevel)

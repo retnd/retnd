@@ -140,7 +140,14 @@ func (r *engineRoute) CreateBackupSet(ctx context.Context, req service.CreateBac
 			// downstream could ever notice. The two cadences are whole
 			// SECONDS on the wire, refused rather than truncated,
 			// exactly as the two completion windows above are.
-			Engine:                               req.Engine,
+			Engine: req.Engine,
+			// Issue #1151: the lineage key and the mount prefix. A routed
+			// create that dropped them would let the ENGINE mint a fresh
+			// key for a set the operator asked to re-declare under their
+			// old one, which is the fork --uuid exists to prevent, and
+			// nothing on the command line's own exit code would show it.
+			Uuid:                                 req.UUID,
+			SourceMountPrefix:                    req.SourceMountPrefix,
 			RepositoryDomain:                     req.RepositoryDomain,
 			SourceConsistency:                    req.SourceConsistency,
 			VerificationLevel:                    req.VerificationLevel,
@@ -455,7 +462,33 @@ func backupSetFromWire(s apicontract.BackupSet) service.BackupSet {
 		// that back as an explicit override.
 		PollInterval:          durationPointerFromWireSeconds(s.PollIntervalSeconds),
 		EffectivePollInterval: time.Duration(s.EffectivePollIntervalSeconds) * time.Second,
+
+		// Issue #1151. The rest of the object, so a routed write answers
+		// with the whole set and not the subset the first verbs printed.
+		// The lineage key is the one that matters to an operator: a
+		// create that minted it on the engine has to be able to say which.
+		SSHKeyID:                 s.SSHKeyID,
+		TrustedHostKeys:          trustedHostKeysFromWire(s.TrustedHostKeys),
+		TrustedHostKeyRecordedAt: wireInstant(s.TrustedHostKeyRecordedAt),
+
+		Engine:                        s.Engine,
+		UUID:                          s.Uuid,
+		RepositoryDomain:              s.RepositoryDomain,
+		SourceConsistency:             s.SourceConsistency,
+		VerificationLevel:             s.VerificationLevel,
+		VerificationSamplePercent:     s.VerificationSamplePercent,
+		VerificationFullEvery:         time.Duration(s.VerificationFullEverySeconds) * time.Second,
+		VerificationRestoreDrillEvery: time.Duration(s.VerificationRestoreDrillEverySeconds) * time.Second,
+		SourceMountPrefix:             s.SourceMountPrefix,
 	}
+}
+
+func trustedHostKeysFromWire(keys []apicontract.TrustedHostKey) []service.TrustedHostKey {
+	var out []service.TrustedHostKey
+	for _, k := range keys {
+		out = append(out, service.TrustedHostKey{Algorithm: k.Algorithm, Fingerprint: k.Fingerprint})
+	}
+	return out
 }
 
 // durationPointerFromWireSeconds keeps the contract's null ("this set

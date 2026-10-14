@@ -41,7 +41,7 @@ func TestAPollIntervalIsEchoedOnBothScopes_1151(t *testing.T) {
 			action: Action{Method: "PATCH", Route: "/backup-sets/{source}/{set}",
 				Params: map[string]string{"source": "api-server", "set": "var-backups"},
 				Body:   []byte(`{"poll_interval_seconds":0}`)},
-			want: Binary + " backup-set patch api-server/var-backups --poll-interval 0",
+			want: Binary + " backup-set patch api-server/var-backups --poll-interval 0s",
 		},
 		{
 			name: "the deployment's cadence",
