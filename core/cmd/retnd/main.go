@@ -88,6 +88,7 @@ var commands = map[string]func([]string) int{
 	"recovery-test":   cmdRecoveryTest,
 	"assurance":       cmdAssurance,
 	"operation":       cmdOperation,
+	"system":          cmdSystem,
 	"catalog":         cmdCatalog,
 	"quarantine":      cmdQuarantine,
 	"unconfigured":    cmdUnconfigured,
@@ -305,6 +306,15 @@ commands:
                                                   prints each change of status on standard error, and exits 0 for
                                                   completed and 1 for anything else. The same as
                                                   GET /api/v1/operations/{id} (#1149)
+  system capabilities [--json]
+                                                  what the serving engine's platform can do, and whether its
+                                                  destructive gate is open or shut and why (destructive_operations).
+                                                  The gate is the engine's: this CLI has none, so the verbs the web
+                                                  UI sends people to run when it is shut (run, fetch, restore,
+                                                  snapshot restore|verify|hold|unhold, retention apply) work here.
+                                                  Needs RETND_API_URL and the credential variables, because the
+                                                  answer belongs to the process serving the deployment. --json
+                                                  prints the same body as GET /api/v1/system/capabilities (#1165)
   catalog rebuild [--dry-run]                    reconstruct a lost/corrupted state database from sidecar recovery manifests
   quarantine <revalidate|retry|reinstate> <source/backup-set/artifact> [--note T]
                                                   act on one quarantined artifact: revalidate re-checks it and moves

@@ -555,6 +555,14 @@ func (c *Client) ListOperations(ctx context.Context) (apicontract.ListOperations
 	return out, err
 }
 
+// GetCapabilities is GET /system/capabilities: the platform's capabilities and,
+// since #1165, whether the engine's destructive gate is open.
+func (c *Client) GetCapabilities(ctx context.Context) (apicontract.CapabilitiesResponse, error) {
+	var out apicontract.CapabilitiesResponse
+	err := c.call(ctx, "getSystemCapabilities", nil, nil, &out)
+	return out, err
+}
+
 // GetOperation is GET /operations/{id}.
 func (c *Client) GetOperation(ctx context.Context, id string) (apicontract.Operation, error) {
 	var out apicontract.Operation

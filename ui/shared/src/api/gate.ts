@@ -59,7 +59,7 @@ export function gateRefusalNotice(args: {
     why:
       "Retrying will not help. " +
       (args.reason && args.reason !== ""
-        ? args.reason
+        ? "This deployment reports its destructive gate as shut (" + args.reason + ")."
         : "Destructive operations are refused over HTTP in every build of this release, until the trusted-proxy authentication gate (issue #92) has been verified.") +
       " " +
       args.nothingChanged,

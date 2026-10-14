@@ -28,7 +28,9 @@ import type { RetentionPlan, RetentionVerdict } from "@shared/types/backup";
 import { Banner } from "@shared/components/Banner";
 import { ConfirmationDialog } from "@shared/components/ConfirmationDialog";
 import { WarningBanner } from "@shared/components/WarningBanner";
+import { GateNotice } from "@shared/components/GateNotice";
 import { GateRefusal } from "@shared/components/GateRefusal";
+import { useDestructiveGate } from "@shared/hooks/useDestructiveGate";
 import { gateRefusalNotice, isGateRefusal } from "@shared/api/gate";
 import type { GateRefusalNotice } from "@shared/api/gate";
 import { retentionApplyCommand } from "@shared/pages/snapshotCommands";
@@ -67,6 +69,7 @@ export function RetentionPreviewDialog({
   onClose(): void;
 }) {
   const api = useApi();
+  const gate = useDestructiveGate();
   const [confirming, setConfirming] = useState(false);
   // Local and ephemeral, exactly like `confirming` above (issue #96's own
   // "State management" section) — a failed apply's error is this ONE
@@ -181,6 +184,7 @@ export function RetentionPreviewDialog({
               outcome: "Retention was not applied",
               nothingChanged: "Nothing was deleted.",
               command: retentionApplyCommand(source + "/" + set),
+              reason: gate.reason,
               correlationId: refused.correlationId === "unavailable" ? undefined : refused.correlationId
             })
           );
@@ -214,6 +218,16 @@ export function RetentionPreviewDialog({
               </p>
             </InfoTooltip>
           </div>
+
+          {!applyError && gate.state === "shut" ? (
+            <div style={{ padding: "16px 22px 0" }}>
+              <GateNotice
+                gate={gate}
+                headline="Applying a retention plan is refused over HTTP on this deployment."
+                command={retentionApplyCommand(source + "/" + set)}
+              />
+            </div>
+          ) : null}
 
           {applyError && gateNotice ? (
             <div style={{ padding: "16px 22px 0" }}>

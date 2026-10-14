@@ -192,15 +192,34 @@ type capabilitiesResponse struct {
 	StoragePicker       bool   `json:"storage_picker"`
 	EmbeddedWindow      bool   `json:"embedded_window"`
 	AppStorePackaging   bool   `json:"app_store_packaging"`
+
+	// DestructiveOperations is issue #1165's addition, and it is NOT a
+	// platform capability: it is this deployment's own destructive gate,
+	// read from the gate the router was built with at the moment of the
+	// request. It is here, rather than on a route of its own, because this
+	// is the read every client already makes to learn what to offer, and a
+	// client that learns the gate is shut only by being refused by it is
+	// the problem this field exists to end.
+	DestructiveOperations destructiveOperationsResponse `json:"destructive_operations"`
+}
+
+// destructiveOperationsResponse is DestructiveOperationsStatus in the
+// contract: open or shut, and the reason when shut.
+type destructiveOperationsResponse struct {
+	State  string `json:"state"`
+	Reason string `json:"reason"`
 }
 
 // systemCapabilities is GET /api/v1/system/capabilities. It copies the
-// adapter's answer field for field and adds nothing of its own, which is
-// the point: a capability has exactly one place it is declared, and a
-// route that could enrich or override it would be a second one that
-// disagrees.
+// adapter's answer field for field and adds nothing of its own to the
+// platform's capabilities, which is the point: a capability has exactly one
+// place it is declared, and a route that could enrich or override it would
+// be a second one that disagrees. The one thing beside them,
+// destructive_operations (#1165), is not a platform capability and is read
+// from the gate rather than from the adapter.
 func (h *handlers) systemCapabilities(w http.ResponseWriter, r *http.Request) {
 	c := h.platform.Capabilities()
+	gateState, gateReason := gateStatus(h.gate)
 	writeJSON(w, http.StatusOK, capabilitiesResponse{
 		Platform:            string(h.platform.ID()),
 		NativeAuth:          c.NativeAuth,
@@ -208,6 +227,8 @@ func (h *handlers) systemCapabilities(w http.ResponseWriter, r *http.Request) {
 		StoragePicker:       c.StoragePicker,
 		EmbeddedWindow:      c.EmbeddedWindow,
 		AppStorePackaging:   c.AppStorePackaging,
+
+		DestructiveOperations: destructiveOperationsResponse{State: gateState, Reason: gateReason},
 	})
 }
 

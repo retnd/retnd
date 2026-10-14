@@ -108,6 +108,10 @@ func requireDestructiveGate(gate DestructiveGate) func(http.Handler) http.Handle
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !destructiveGatePassed(gate) {
+				// Leaves the note recordActions turns into the audit
+				// entry (issue #1165), before the refusal is written so
+				// the state it records is the one that refused.
+				noteGateRefusal(r.Context(), gate, "")
 				writeDestructiveGateDenied(w)
 				return
 			}

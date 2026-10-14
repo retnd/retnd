@@ -77,6 +77,10 @@ export interface TerminalEquivalent {
   nothingChanged: string;
   /** The `retnd` command that does the same act on the host. */
   command: string;
+  /** The gate's reason as the capability field reported it (#1165). Absent
+   *  when the page could not read it, and then the refusal says what has
+   *  been true of every shipped build. */
+  reason?: string;
 }
 
 /** What the act is doing, as a screen renders it. */

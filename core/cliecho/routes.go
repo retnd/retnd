@@ -108,7 +108,11 @@ var routes = map[string]entry{
 		examples: []Action{{}},
 	},
 	key("GET", "/system/capabilities"): {
-		why: "capabilities are what the PLATFORM this deployment runs on can do, which is a question about the host rather than about backups; nothing on a terminal asks it",
+		// #1165. It used to be a gap ("nothing on a terminal asks it"); the
+		// terminal asks it now, and it is the way to read whether the
+		// engine's destructive gate is open.
+		build:    func(Action) *cmd { return newCmd("system", "capabilities") },
+		examples: []Action{{}},
 	},
 	key("GET", "/system/storage"): {
 		why:               "there is no verb that reports FR-21's capacity reading. `settings` prints the thresholds it is compared against, not the free space measured against them",

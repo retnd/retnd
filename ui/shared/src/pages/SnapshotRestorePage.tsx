@@ -40,7 +40,9 @@ import { useApi } from "@shared/api/ApiContext";
 import { Cell, CellGrid, Note } from "@shared/components/Definitions";
 import { Choice, Toggle } from "@shared/components/Choice";
 import { EmptyState, ErrorState } from "@shared/components/EmptyState";
+import { GateNotice } from "@shared/components/GateNotice";
 import { GateRefusal } from "@shared/components/GateRefusal";
+import { useDestructiveGate } from "@shared/hooks/useDestructiveGate";
 import { snapshotRestoreCommand } from "@shared/pages/snapshotCommands";
 import { VERIFICATION_COPY } from "@shared/components/EngineBadge";
 import { OperationProgress } from "@shared/components/OperationProgress";
@@ -75,6 +77,7 @@ export function SnapshotRestorePage({ readOnly }: { readOnly: boolean }) {
 
   const snapshots = useAsync(() => api.listSnapshots(source, set), [api, source, set]);
   const restore = useSnapshotOperation("Could not start the restore.");
+  const gate = useDestructiveGate();
 
   const [step, setStep] = useState(1);
   const [chosenRun, setChosenRun] = useState<string | null>(query.get("run"));
@@ -185,6 +188,12 @@ export function SnapshotRestorePage({ readOnly }: { readOnly: boolean }) {
         reachable={reachable}
         onSelect={setStep}
         tip="snapshots.restore.step"
+      />
+
+      <GateNotice
+        gate={gate}
+        headline="Restoring from a snapshot is refused over HTTP on this deployment."
+        command={"retnd snapshot restore " + setId + " --to <directory>"}
       />
 
       {restore.gate ? <GateRefusal notice={restore.gate} /> : null}
@@ -485,7 +494,8 @@ export function SnapshotRestorePage({ readOnly }: { readOnly: boolean }) {
                   snapshotId: selected.snapshotId,
                   sourcePath: wholeTree ? undefined : sourcePath.trim(),
                   conflict
-                })
+                }),
+                reason: gate.reason
               }
             );
           }}
