@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "674314b742f0e9367a412d48c13357fc3db411bab317f6ab0f78a5801cb02a0b";
+export const CONTRACT_SHA256 = "5c49e450162fa5aedd863b19c5e5852db80b8046a8884b25e2bcca3f3dbc4acf";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -2802,9 +2802,14 @@ export interface WireBackupSetWorkflowResponse {
 /** GET /system/capabilities. The API expression of the
  *  PlatformCapabilities contract (apps/common/platform/capabilities).
  *  A capability says what a platform CAN do; it never says who MAY do
- *  it, and server-side authorization never consults it. */
+ *  it, and server-side authorization never consults it.
+ *  destructive_operations is the one field here that is not a
+ *  platform capability: it is this deployment's own destructive gate,
+ *  reported so a client can show the right control or message before
+ *  anyone presses a gated one. */
 export interface WireCapabilitiesResponse {
   app_store_packaging: boolean;
+  destructive_operations: WireDestructiveOperationsStatus;
   embedded_window: boolean;
   native_auth: boolean;
   native_notifications: boolean;
@@ -2961,6 +2966,18 @@ export interface WireCycleOutcome {
   artifacts_walked: number;
   backup_sets_processed: number;
   moves?: WireCycleMoveOutcome;
+}
+
+/** Whether this deployment's destructive gate is open, and why it is
+ *  not when it is not (issue #1165). The gate is the one the routes
+ *  marked x-destructive-gate ask before they act, and the state here
+ *  is read from that same gate at the moment of the request, so it
+ *  can change while the process runs. The CLI is not behind it: the
+ *  terminal verbs the gated routes have equivalents for run with no
+ *  gate. */
+export interface WireDestructiveOperationsStatus {
+  reason: string;
+  state: "open" | "shut";
 }
 
 /** POST /auth/enroll. The credentials, and optionally the two things

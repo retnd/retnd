@@ -170,7 +170,11 @@ export type Scenario =
   // read what the screen says back. Every other scenario here leaves those
   // acts working, which is what keeps the existing cases about the screens
   // themselves.
-  | "gate-shut";
+  | "gate-shut"
+  // Issue #1165: the same shut gate with a different reason on the capability
+  // field, which is how a spec proves the screens read the reason from the
+  // field rather than carrying a sentence of their own.
+  | "gate-shut-local-account";
 
 /** Reads the scenario out of the URL, falling back to the default for
  *  anything unrecognised. A closed allow-list rather than a cast, so a
@@ -189,7 +193,7 @@ export function scenarioFromLocation(): Scenario {
     "assurance-grant-used", "assurance-session-ended", "assurance-staging-full",
     "assurance-reads-busy", "assurance-corrupt-copy", "assurance-download-outcomes",
     "assurance-set-recover", "assurance-set-nospace", "assurance-set-corrupt", "assurance-set-slow",
-    "backups-many", "backups-many-corrupt", "backups-many-nospace", "dock-no-warnings", "dock-live-line", "assurance-no-validator", "assurance-builtin-check", "assurance-default-policy", "assurance-default-untested", "gate-shut"
+    "backups-many", "backups-many-corrupt", "backups-many-nospace", "dock-no-warnings", "dock-live-line", "assurance-no-validator", "assurance-builtin-check", "assurance-default-policy", "assurance-default-untested", "gate-shut", "gate-shut-local-account"
   ];
   return (allowed as string[]).includes(s ?? "") ? (s as Scenario) : "default";
 }
@@ -2411,6 +2415,7 @@ function defaultSettings(): AppSettings {
  */
 const SERVED_WHILE_UNCONFIGURED: ReadonlySet<keyof RetndApi> = new Set([
   "getVersion",
+  "getCapabilities",
   "getFirstRunStatus",
   "skipFirstRunStep",
   "completeFirstRun",
@@ -3950,7 +3955,7 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   // FULLY populated instance that simply never heard of the feature.
   const noMedium = scenario === "no-medium";
   // Issue #1157: see the scenario's own note.
-  const gateShut = scenario === "gate-shut";
+  const gateShut = scenario === "gate-shut" || scenario === "gate-shut-local-account";
   // Issue #598. One call fails, and it fails the way the NAS did.
   const activityUnreadable = scenario === "activity-unreadable";
   // Issue #852. One flag, read by both modes of the connection test, so
@@ -4146,6 +4151,27 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   let workflowHolds = WORKFLOW_HOLDS.map((hold) => structuredClone(hold));
 
   const api: RetndApi = {
+    // Issue #1165. Every scenario but the gate-shut ones leaves the gate open,
+    // which is what lets the existing cases about the screens press their
+    // controls; the two shut ones answer what a shipped build answers.
+    getCapabilities: () =>
+      delay({
+        platform: "generic",
+        nativeAuth: false,
+        nativeNotifications: false,
+        storagePicker: false,
+        embeddedWindow: false,
+        appStorePackaging: false,
+        destructiveOperations: !gateShut
+          ? { state: "open", reason: "" }
+          : {
+              state: "shut",
+              reason:
+                scenario === "gate-shut-local-account"
+                  ? "local-account profile: gate shut until #92"
+                  : "gate shut until #92"
+            }
+      }),
     getVersion: () =>
       delay(
         scenario === "version-mismatch"

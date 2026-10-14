@@ -504,7 +504,7 @@
       },
       "CapabilitiesResponse": {
         "type": "object",
-        "description": "GET /system/capabilities. The API expression of the PlatformCapabilities contract (apps/common/platform/capabilities). A capability says what a platform CAN do; it never says who MAY do it, and server-side authorization never consults it.",
+        "description": "GET /system/capabilities. The API expression of the PlatformCapabilities contract (apps/common/platform/capabilities). A capability says what a platform CAN do; it never says who MAY do it, and server-side authorization never consults it. destructive_operations is the one field here that is not a platform capability: it is this deployment's own destructive gate, reported so a client can show the right control or message before anyone presses a gated one.",
         "additionalProperties": false,
         "properties": {
           "platform": {
@@ -534,6 +534,9 @@
           },
           "app_store_packaging": {
             "type": "boolean"
+          },
+          "destructive_operations": {
+            "$ref": "#/components/schemas/DestructiveOperationsStatus"
           }
         },
         "required": [
@@ -542,7 +545,8 @@
           "native_notifications",
           "storage_picker",
           "embedded_window",
-          "app_store_packaging"
+          "app_store_packaging",
+          "destructive_operations"
         ],
         "x-capability-fields": [
           "native_auth",
@@ -550,6 +554,29 @@
           "storage_picker",
           "embedded_window",
           "app_store_packaging"
+        ]
+      },
+      "DestructiveOperationsStatus": {
+        "type": "object",
+        "description": "Whether this deployment's destructive gate is open, and why it is not when it is not (issue #1165). The gate is the one the routes marked x-destructive-gate ask before they act, and the state here is read from that same gate at the moment of the request, so it can change while the process runs. The CLI is not behind it: the terminal verbs the gated routes have equivalents for run with no gate.",
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "type": "string",
+            "description": "open when the gated routes will act, shut when they refuse with DESTRUCTIVE_OPERATIONS_DISABLED. Shut is also what a deployment with no gate wired reports, because the gate fails closed.",
+            "enum": [
+              "open",
+              "shut"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "description": "A short reason for a shut gate, such as \"gate shut until #92\". Always present, and empty when the gate is open."
+          }
+        },
+        "required": [
+          "state",
+          "reason"
         ]
       },
       "StorageStatus": {

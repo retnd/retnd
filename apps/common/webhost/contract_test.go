@@ -1225,8 +1225,14 @@ func TestContract_CapabilitiesAreDataAboutThePlatform(t *testing.T) {
 				t.Errorf("%s: capability %q = %v, want %v (a capability must report what the platform really does, never an emulation)", tc.wantPlatform, field, got, tc.wantAll)
 			}
 		}
-		if len(body) != len(apicontract.CapabilityFields)+1 {
-			t.Errorf("%s: the response carries %d fields; the contract declares %d capabilities plus platform. An undeclared field on this endpoint is drift.", tc.wantPlatform, len(body), len(apicontract.CapabilityFields)+1)
+		// Platform, and (#1165) destructive_operations: the deployment's own
+		// gate state, which is not a platform capability and so is not in
+		// CapabilityFields, but is declared by the contract all the same.
+		if _, ok := body["destructive_operations"].(map[string]any); !ok {
+			t.Errorf("%s: the response has no destructive_operations object: %v", tc.wantPlatform, body)
+		}
+		if len(body) != len(apicontract.CapabilityFields)+2 {
+			t.Errorf("%s: the response carries %d fields; the contract declares %d capabilities plus platform and destructive_operations. An undeclared field on this endpoint is drift.", tc.wantPlatform, len(body), len(apicontract.CapabilityFields)+2)
 		}
 	}
 }

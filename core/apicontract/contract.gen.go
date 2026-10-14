@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "674314b742f0e9367a412d48c13357fc3db411bab317f6ab0f78a5801cb02a0b"
+const ContractSHA256 = "5c49e450162fa5aedd863b19c5e5852db80b8046a8884b25e2bcca3f3dbc4acf"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -2055,13 +2055,18 @@ type BackupSetWorkflowResponse struct {
 // PlatformCapabilities contract (apps/common/platform/capabilities).
 // A capability says what a platform CAN do; it never says who MAY do
 // it, and server-side authorization never consults it.
+// destructive_operations is the one field here that is not a
+// platform capability: it is this deployment's own destructive gate,
+// reported so a client can show the right control or message before
+// anyone presses a gated one.
 type CapabilitiesResponse struct {
-	AppStorePackaging   bool   `json:"app_store_packaging"`
-	EmbeddedWindow      bool   `json:"embedded_window"`
-	NativeAuth          bool   `json:"native_auth"`
-	NativeNotifications bool   `json:"native_notifications"`
-	Platform            string `json:"platform"`
-	StoragePicker       bool   `json:"storage_picker"`
+	AppStorePackaging     bool                        `json:"app_store_packaging"`
+	DestructiveOperations DestructiveOperationsStatus `json:"destructive_operations"`
+	EmbeddedWindow        bool                        `json:"embedded_window"`
+	NativeAuth            bool                        `json:"native_auth"`
+	NativeNotifications   bool                        `json:"native_notifications"`
+	Platform              string                      `json:"platform"`
+	StoragePicker         bool                        `json:"storage_picker"`
 }
 
 // CapacitySettings is FR-21's capacity configuration as it is actually deciding. Every
@@ -2215,6 +2220,18 @@ type CycleOutcome struct {
 	ArtifactsWalked     int               `json:"artifacts_walked"`
 	BackupSetsProcessed int               `json:"backup_sets_processed"`
 	Moves               *CycleMoveOutcome `json:"moves,omitempty"`
+}
+
+// DestructiveOperationsStatus is whether this deployment's destructive gate is open, and why it is
+// not when it is not (issue #1165). The gate is the one the routes
+// marked x-destructive-gate ask before they act, and the state here
+// is read from that same gate at the moment of the request, so it
+// can change while the process runs. The CLI is not behind it: the
+// terminal verbs the gated routes have equivalents for run with no
+// gate.
+type DestructiveOperationsStatus struct {
+	Reason string `json:"reason"`
+	State  string `json:"state"`
 }
 
 // EnrollRequest is POST /auth/enroll. The credentials, and optionally the two things
@@ -4420,6 +4437,7 @@ var SchemaTypes = map[string]any{
 	"CredentialsRequest":                 CredentialsRequest{},
 	"CycleMoveOutcome":                   CycleMoveOutcome{},
 	"CycleOutcome":                       CycleOutcome{},
+	"DestructiveOperationsStatus":        DestructiveOperationsStatus{},
 	"EnrollRequest":                      EnrollRequest{},
 	"ErrorBody":                          ErrorBody{},
 	"ErrorResponse":                      ErrorResponse{},

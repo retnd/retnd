@@ -82,6 +82,12 @@ type fakeEngine struct {
 	ops     []apicontract.Operation
 	opReads map[string][]apicontract.Operation
 	opQuery []string
+
+	// What GET /system/capabilities answers (#1165), see
+	// system_capabilities_1165_test.go. A raw document rather than the typed
+	// response, so the test states the wire it expects the CLI to pass on.
+	capsMu sync.Mutex
+	caps   map[string]any
 }
 
 // startFakeEngine announces that this process serves the deployment
@@ -312,6 +318,8 @@ func (e *fakeEngine) api(w http.ResponseWriter, r *http.Request, path, token str
 		e.setReadOnly(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/backup-sets/"), "/read-only"))
 	case r.Method == http.MethodPost && strings.HasPrefix(path, "/assurance/operations/") && strings.HasSuffix(path, "/cancel"):
 		e.cancelAssuranceOperation(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/assurance/operations/"), "/cancel"))
+	case r.Method == http.MethodGet && path == "/system/capabilities":
+		e.getCapabilities(w, r)
 	case r.Method == http.MethodGet && path == "/operations":
 		e.listOperations(w, r)
 	case r.Method == http.MethodGet && strings.HasPrefix(path, "/operations/"):
