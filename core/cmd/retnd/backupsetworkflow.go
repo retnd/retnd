@@ -221,7 +221,7 @@ func backupSetWorkflowPatch(configPath, id string, fs *flag.FlagSet, f backupSet
 	}
 
 	ctx := context.Background()
-	svc, cleanup, err := openWorkflowService(ctx, configPath, writesConfig)
+	route, cleanup, err := openConfigWriteRoute(ctx, configPath)
 	defer cleanup()
 	if err != nil {
 		return fail(err)
@@ -229,17 +229,31 @@ func backupSetWorkflowPatch(configPath, id string, fs *flag.FlagSet, f backupSet
 
 	logStartup(ctx, logger(), app.BuildVersionInfo(version, commit))
 
-	set, err := svc.UpdateBackupSetWorkflow(ctx, id, req)
+	set, err := route.UpdateBackupSetWorkflow(ctx, id, req)
 	if err != nil {
 		return fail(err)
 	}
 
 	if asJSON {
-		return printWorkflowJSON(set)
+		return printWorkflowJSON(backupSetWorkflowToWire(set))
 	}
-	printBackupSetWorkflow(set, workflowRootOf(ctx, svc))
+	// The root line is decoration read off the deployment's own file, and
+	// beside an engine that file is not the authority, so it is left out
+	// there rather than printed from a view the engine may not share.
+	printBackupSetWorkflow(set, workflowRootBeside(ctx, route))
 
 	return 0
+}
+
+// workflowRootBeside is workflowRootOf for a write that may have gone to an
+// engine: only the direct route holds a service to ask, and a routed one
+// prints no root line rather than one read from a different file.
+func workflowRootBeside(ctx context.Context, route configWriteRoute) string {
+	if svc, ok := route.(*service.BackupService); ok {
+		return workflowRootOf(ctx, svc)
+	}
+
+	return ""
 }
 
 // workflowRootOf reads the deployment's approved root, for the one line

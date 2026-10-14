@@ -250,7 +250,7 @@ func settingsWorkflowPatch(configPath string, fs *flag.FlagSet, f workflowSettin
 	}
 
 	ctx := context.Background()
-	svc, cleanup, err := openWorkflowService(ctx, configPath, writesConfig)
+	route, cleanup, err := openConfigWriteRoute(ctx, configPath)
 	defer cleanup()
 	if err != nil {
 		return fail(err)
@@ -258,13 +258,13 @@ func settingsWorkflowPatch(configPath string, fs *flag.FlagSet, f workflowSettin
 
 	logStartup(ctx, logger(), app.BuildVersionInfo(version, commit))
 
-	settings, err := svc.UpdateWorkflowSettings(ctx, req)
+	settings, err := route.UpdateWorkflowSettings(ctx, req)
 	if err != nil {
 		return fail(err)
 	}
 
 	if asJSON {
-		return printWorkflowJSON(settings)
+		return printWorkflowJSON(workflowSettingsToWire(settings))
 	}
 	printWorkflowSettings(settings)
 
@@ -450,7 +450,7 @@ func workflowEnvSet(s workflowEnvScope, name string) int {
 	}
 
 	ctx := context.Background()
-	svc, cleanup, err := openWorkflowService(ctx, s.configPath, writesConfig)
+	route, cleanup, err := openConfigWriteRoute(ctx, s.configPath)
 	defer cleanup()
 	if err != nil {
 		return fail(err)
@@ -458,17 +458,17 @@ func workflowEnvSet(s workflowEnvScope, name string) int {
 
 	logStartup(ctx, logger(), app.BuildVersionInfo(version, commit))
 
-	vars, err := svc.SetWorkflowEnv(ctx, s.backupSetID, v)
+	vars, err := route.SetWorkflowEnv(ctx, s.backupSetID, v)
 	if err != nil {
 		return fail(err)
 	}
 
-	return reportWorkflowEnv(vars, s.asJSON, s.backupSetID)
+	return reportWorkflowEnvWrite(vars, s.asJSON, s.backupSetID)
 }
 
 func workflowEnvUnset(s workflowEnvScope, name string) int {
 	ctx := context.Background()
-	svc, cleanup, err := openWorkflowService(ctx, s.configPath, writesConfig)
+	route, cleanup, err := openConfigWriteRoute(ctx, s.configPath)
 	defer cleanup()
 	if err != nil {
 		return fail(err)
@@ -476,12 +476,23 @@ func workflowEnvUnset(s workflowEnvScope, name string) int {
 
 	logStartup(ctx, logger(), app.BuildVersionInfo(version, commit))
 
-	vars, err := svc.UnsetWorkflowEnv(ctx, s.backupSetID, name)
+	vars, err := route.UnsetWorkflowEnv(ctx, s.backupSetID, name)
 	if err != nil {
 		return fail(err)
 	}
 
-	return reportWorkflowEnv(vars, s.asJSON, s.backupSetID)
+	return reportWorkflowEnvWrite(vars, s.asJSON, s.backupSetID)
+}
+
+// reportWorkflowEnvWrite is reportWorkflowEnv for a WRITE, whose --json is
+// the wire object the API returned for the same call (#1148). The reads
+// keep their older shape, which their own tests pin.
+func reportWorkflowEnvWrite(vars []service.WorkflowEnvVar, asJSON bool, backupSetID string) int {
+	if asJSON {
+		return printWorkflowJSON(workflowEnvListToWire(backupSetID, vars))
+	}
+
+	return reportWorkflowEnv(vars, false, backupSetID)
 }
 
 // reportWorkflowEnv prints one scope's entries, in either form.

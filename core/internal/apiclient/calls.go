@@ -221,6 +221,50 @@ func (c *Client) ResetBackupSetAssurance(ctx context.Context, source, set string
 	return out, err
 }
 
+// UpdateWorkflowSettings is PATCH /settings/workflow (#1148): the
+// deployment-wide hook configuration, written by the engine that is
+// running the hooks. SetWorkflowEnvironment and UnsetWorkflowEnvironment
+// are PUT and DELETE /settings/workflow/environment/{name}, and answer
+// with the scope's whole list rather than the one entry.
+func (c *Client) UpdateWorkflowSettings(ctx context.Context, req apicontract.UpdateWorkflowSettingsRequest) (apicontract.WorkflowSettingsResponse, error) {
+	var out apicontract.WorkflowSettingsResponse
+	err := c.call(ctx, "updateWorkflowSettings", nil, req, &out)
+	return out, err
+}
+
+func (c *Client) SetWorkflowEnvironment(ctx context.Context, name string, req apicontract.WorkflowEnvironmentVariableRequest) (apicontract.ListWorkflowEnvironmentResponse, error) {
+	var out apicontract.ListWorkflowEnvironmentResponse
+	err := c.call(ctx, "setWorkflowEnvironment", []string{name}, req, &out)
+	return out, err
+}
+
+func (c *Client) UnsetWorkflowEnvironment(ctx context.Context, name string) (apicontract.ListWorkflowEnvironmentResponse, error) {
+	var out apicontract.ListWorkflowEnvironmentResponse
+	err := c.call(ctx, "unsetWorkflowEnvironment", []string{name}, nil, &out)
+	return out, err
+}
+
+// UpdateBackupSetWorkflow is PATCH /backup-sets/{source}/{set}/workflow
+// (#1148), and the two environment calls below it are PUT and DELETE
+// .../workflow/environment/{name} for one set's own layer.
+func (c *Client) UpdateBackupSetWorkflow(ctx context.Context, source, set string, req apicontract.UpdateBackupSetWorkflowRequest) (apicontract.BackupSetWorkflowResponse, error) {
+	var out apicontract.BackupSetWorkflowResponse
+	err := c.call(ctx, "updateBackupSetWorkflow", []string{source, set}, req, &out)
+	return out, err
+}
+
+func (c *Client) SetBackupSetWorkflowEnvironment(ctx context.Context, source, set, name string, req apicontract.WorkflowEnvironmentVariableRequest) (apicontract.ListWorkflowEnvironmentResponse, error) {
+	var out apicontract.ListWorkflowEnvironmentResponse
+	err := c.call(ctx, "setBackupSetWorkflowEnvironment", []string{source, set, name}, req, &out)
+	return out, err
+}
+
+func (c *Client) UnsetBackupSetWorkflowEnvironment(ctx context.Context, source, set, name string) (apicontract.ListWorkflowEnvironmentResponse, error) {
+	var out apicontract.ListWorkflowEnvironmentResponse
+	err := c.call(ctx, "unsetBackupSetWorkflowEnvironment", []string{source, set, name}, nil, &out)
+	return out, err
+}
+
 // SystemHealth is GET /system/health, half of what `status` reports.
 func (c *Client) SystemHealth(ctx context.Context) (apicontract.HealthResponse, error) {
 	var out apicontract.HealthResponse

@@ -68,6 +68,8 @@ func cmdBackupSetRetention(args []string) int {
 	acknowledge := fs.Bool("acknowledge-medium-disclosure", false,
 		"set: acknowledge the storage-medium disclosure, which a policy needs the first time it sends one of this set's tiers to a non-local medium; without it that write is refused, and the refusal is the disclosure")
 
+	asJSON := fs.Bool("json", false, "emit the policy as the API's BackupSetRetention object instead of as text")
+
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
 		return 2
@@ -129,49 +131,53 @@ func cmdBackupSetRetention(args []string) int {
 	}
 
 	ctx := context.Background()
-	// Which of the three branches below this command lands in is already
-	// decided by here, so the intent is too: --inherit clears a policy
-	// and the policy flags write one, both of which rewrite config.yaml,
-	// while naming neither only prints the policy in force. The switch
-	// below reads the same two values, so the two cannot drift apart
-	// without this line being touched.
-	intent := readsConfig
+	// The two writes go through openConfigWriteRoute (#1148), which hands
+	// them to a serving engine when a route to it was named and writes
+	// here when nothing serves. Showing the policy in force stays on this
+	// host's own file through openBackupService, as it always has: only
+	// the writes need to reach the process that would otherwise never
+	// read them.
 	if *inherit || len(named) > 0 {
-		intent = writesConfig
+		route, cleanup, err := openConfigWriteRoute(ctx, *cfgPath)
+		if err != nil {
+			return fail(err)
+		}
+		defer cleanup()
+
+		logStartup(ctx, logger(), app.BuildVersionInfo(version, commit))
+		var got service.BackupSetRetention
+		if *inherit {
+			got, err = route.ClearBackupSetRetention(ctx, id)
+		} else {
+			got, err = route.SetBackupSetRetention(ctx, id, override)
+		}
+		if err != nil {
+			return fail(err)
+		}
+		return reportBackupSetRetention(got, *asJSON)
 	}
-	svc, cleanup, err := openBackupService(ctx, *cfgPath, intent)
+
+	svc, cleanup, err := openBackupService(ctx, *cfgPath, readsConfig)
 	if err != nil {
 		return fail(err)
 	}
 	defer cleanup()
 
-	switch {
-	case *inherit:
-		logStartup(ctx, logger(), app.BuildVersionInfo(version, commit))
-		got, err := svc.ClearBackupSetRetention(ctx, id)
-		if err != nil {
-			return fail(err)
-		}
-		printBackupSetRetention(got)
-		return 0
-
-	case len(named) > 0:
-		logStartup(ctx, logger(), app.BuildVersionInfo(version, commit))
-		got, err := svc.SetBackupSetRetention(ctx, id, override)
-		if err != nil {
-			return fail(err)
-		}
-		printBackupSetRetention(got)
-		return 0
-
-	default:
-		got, err := svc.BackupSetRetention(ctx, id)
-		if err != nil {
-			return fail(err)
-		}
-		printBackupSetRetention(got)
-		return 0
+	got, err := svc.BackupSetRetention(ctx, id)
+	if err != nil {
+		return fail(err)
 	}
+	return reportBackupSetRetention(got, *asJSON)
+}
+
+// reportBackupSetRetention prints the policy, as text or as the wire
+// object the API returns for the same call.
+func reportBackupSetRetention(got service.BackupSetRetention, asJSON bool) int {
+	if asJSON {
+		return printWorkflowJSON(backupSetRetentionToWire(got))
+	}
+	printBackupSetRetention(got)
+	return 0
 }
 
 // retentionPolicyFlagNames lists every flag that WRITES a policy, shared
