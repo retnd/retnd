@@ -513,10 +513,10 @@ commands:
                                                   process and refuses without one. There is no verb that TAKES a
                                                   hold: a hold protects an editing session and a CLI edit is one
                                                   backup-set patch that either runs or does not (#350, #600)
-  backup-set retention <source/backup-set> [--inherit] [--policy-file F] [--json]
+  backup-set retention <source/backup-set> [--inherit] [--policy-file F]
                        [--timezone T] [--week-starts-on D]
                        [--daily-days N] [--weekly-months N] [--monthly-months N]
-                       [--protect-last-known-good=BOOL] [--acknowledge-medium-disclosure]
+                       [--protect-last-known-good=BOOL] [--acknowledge-medium-disclosure] [--json]
                                                   report which retention policy this backup set is retained under and
                                                   where it came from; with a policy flag, give the set a whole policy of
                                                   its own; with --inherit, remove that policy so it is retained under the
