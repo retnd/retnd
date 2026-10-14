@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`retnd status` says why a set is halted, and has `--json`** (#1146). A set refused with
+  `HOST_KEY_CHANGED`, `AUTHENTICATION_FAILED` or `KEY_PERMISSIONS` now prints a `halted:` line
+  under it with when it was last refused and the command that fixes it, where before it read like a
+  slow set until it went STALE. `status --json` prints the object `GET /api/v1/system/health`
+  returns, plus a `process` key, and keeps the exit status.
+
 ## [0.6.3] - 2026-10-13
 
 0.6.3 is a wording fix, and it follows straight on from 0.6.2. After the verification model

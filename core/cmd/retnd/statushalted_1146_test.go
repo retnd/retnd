@@ -45,7 +45,7 @@ func TestRun_Status_PrintsWhyASetIsHalted_1146(t *testing.T) {
 		reason string
 		hint   string
 	}{
-		{state.HaltHostKeyChanged, "backup-set patch --trust-host-key --acknowledge-host-key-change"},
+		{state.HaltHostKeyChanged, "--trust-host-key --acknowledge-host-key-change"},
 		{state.HaltAuthenticationFailed, "credential"},
 		{state.HaltKeyPermissions, "key_file"},
 	}
@@ -124,6 +124,11 @@ func TestRun_Status_JSONIsTheHealthWireObject_1146(t *testing.T) {
 	bs := got.BackupSets[0]
 	if bs.BackupSetID != "production/postgres-primary" || bs.HaltReason != state.HaltHostKeyChanged {
 		t.Errorf("backup set = %q halt_reason = %q, want production/postgres-primary / HOST_KEY_CHANGED", bs.BackupSetID, bs.HaltReason)
+	}
+	// A value, not just a key: a field copied as its zero value is the
+	// quiet way for the two surfaces to drift.
+	if bs.StaleAfterSeconds != 24*60*60 || bs.State != "DEGRADED" || bs.Reason == "" || bs.SetName != "postgres-primary" {
+		t.Errorf("stale_after_seconds = %d, state = %q, reason = %q, set_name = %q; want 86400, DEGRADED, a sentence, postgres-primary", bs.StaleAfterSeconds, bs.State, bs.Reason, bs.SetName)
 	}
 }
 

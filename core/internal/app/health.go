@@ -102,8 +102,10 @@ func (s *Service) BuildHealthReport(ctx context.Context, versionInfo VersionInfo
 		return health.Report{}, fmt.Errorf("app: health: connection refusals: %w", err)
 	}
 	haltReasons := make(map[model.BackupSetID]string, len(halts))
+	haltSeen := make(map[model.BackupSetID]time.Time, len(halts))
 	for _, h := range halts {
 		haltReasons[h.Set] = h.Reason
+		haltSeen[h.Set] = h.ObservedAt
 	}
 
 	// Every relocation this journal still has open, indexed by backup
@@ -171,7 +173,8 @@ func (s *Service) BuildHealthReport(ctx context.Context, versionInfo VersionInfo
 				// Absent from the map means no refusal is on record, which
 				// is the honest empty rather than a claim that this set is
 				// reachable.
-				HaltReason: haltReasons[bs.ID],
+				HaltReason:     haltReasons[bs.ID],
+				HaltObservedAt: haltSeen[bs.ID],
 				// FR-30's own question, asked of every set on every report
 				// (issue #602). See retentionHoldReason.
 				RetentionHoldReason: retentionHoldReason(now, bs, records),

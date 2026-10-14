@@ -141,7 +141,10 @@ commands:
                                                   deployment: it is refused rather than started if another
                                                   process is already serving that state database (#536)
   check                                          validate config and the state database, then exit
-  status                                         report process and backup-set health (FR-24)
+  status [--json]                                report process and backup-set health (FR-24). A set the manager
+                                                  could not connect to prints a "halted:" line under it with the
+                                                  reason and the fix. --json prints GET /system/health's object plus
+                                                  "process" (#1146)
   sources                                        list configured sources and backup sets
   backup-set create <source/backup-set> --host H --user U --remote-path P --local-path P
                     --ssh-key-file K|--ssh-key-id ID --known-hosts-line L|--trust-host-key
