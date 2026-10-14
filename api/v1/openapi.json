@@ -1200,7 +1200,7 @@
             "properties": {
               "run_immediately": {
                 "type": "boolean",
-                "description": "Also submit a run_cycle. This branch, and only this branch, is subject to the destructive gate."
+                "description": "Also submit a run_cycle. This branch, and only this branch, is subject to the destructive gate, and every build of this release refuses it until issue #92 ships a verified gate: the backup set is still created, the response is 201, no run starts, and run_error carries the refusal. Start the first run from a terminal with `retnd fetch --backup-set <source/backup-set>`, after stopping the web service."
               },
               "acknowledge_repoint": {
                 "type": "boolean",
@@ -8199,6 +8199,7 @@
       "post": {
         "operationId": "submitOperation",
         "summary": "Submit a durable operation: a run cycle, one backup set's run, a restore of one archived copy, or one of the incremental engine's four acts (restore a snapshot, verify one, hold one, release a hold).",
+        "description": "In every build of this release this route refuses every action with 403 DESTRUCTIVE_OPERATIONS_DISABLED: the destructive gate is shut until issue #92 ships a verified gate, and retnd-web has no setting that opens it. Nothing here can be retried into working. The same acts run from a terminal on the host, where no gate applies: `retnd run` and `retnd fetch --backup-set` for run_cycle and run_backup_set (both refuse while the web service is serving the deployment, so stop the web service first), `retnd restore` for restore_placement, and `retnd snapshot restore`, `retnd snapshot verify`, `retnd snapshot hold` and `retnd snapshot unhold` for the four snapshot acts.",
         "tags": [
           "operations"
         ],
@@ -8620,6 +8621,7 @@
       "post": {
         "operationId": "applyRetention",
         "summary": "Apply a plan the operator already approved, by id. The one operation in this contract that deletes local restore points.",
+        "description": "In every build of this release this route refuses with 403 DESTRUCTIVE_OPERATIONS_DISABLED: the destructive gate is shut until issue #92 ships a verified gate, and retnd-web has no setting that opens it. The terminal does the same work with no gate: `retnd retention apply <source/backup-set> --acknowledge` previews and applies in one invocation.",
         "tags": [
           "retention"
         ],

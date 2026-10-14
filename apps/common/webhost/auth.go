@@ -144,4 +144,13 @@ func writeDestructiveGateDenied(w http.ResponseWriter) {
 // One string rather than two, because the two surfaces describe the same
 // refusal and an operator who saw both worded differently would
 // reasonably think they were different problems.
-const destructiveGateRefusal = "destructive operations are disabled until the trusted-proxy authentication gate (issue #92) has been verified for this deployment"
+//
+// Issue #1157 reworded it. It used to say "disabled until the gate has been
+// verified for this deployment", which sounds like a step an operator can
+// take. Nothing in this release lets them: every shipped build refuses these
+// over HTTP, and what lifts that is #92 shipping a verified gate, not
+// anything configured here. So the sentence says that, and says where the
+// work can be done today. The status (403) and the code
+// (DESTRUCTIVE_OPERATIONS_DISABLED) are unchanged, so a client keyed on
+// either keeps working; there is deliberately no new envelope field.
+const destructiveGateRefusal = "destructive operations are refused over HTTP in this release, until the trusted-proxy authentication gate (issue #92) has been verified; run the equivalent `retnd` command on the host"

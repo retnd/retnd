@@ -28,6 +28,10 @@ import type { RetentionPlan, RetentionVerdict } from "@shared/types/backup";
 import { Banner } from "@shared/components/Banner";
 import { ConfirmationDialog } from "@shared/components/ConfirmationDialog";
 import { WarningBanner } from "@shared/components/WarningBanner";
+import { GateRefusal } from "@shared/components/GateRefusal";
+import { gateRefusalNotice, isGateRefusal } from "@shared/api/gate";
+import type { GateRefusalNotice } from "@shared/api/gate";
+import { retentionApplyCommand } from "@shared/pages/snapshotCommands";
 import { RetentionTierBadges } from "@shared/components/RetentionBadge";
 import { Icon } from "@shared/design-system/icons";
 import { bytes } from "@shared/utilities/format";
@@ -68,6 +72,11 @@ export function RetentionPreviewDialog({
   // "State management" section) — a failed apply's error is this ONE
   // dialog session's concern, not shared graph state.
   const [applyError, setApplyError] = useState<ApiError | null>(null);
+  // Issue #1157: set beside applyError when the refusal was the destructive
+  // gate's. That refusal is not the plan's fault and a fresh plan will not
+  // change it, so it is drawn as its own notice with the terminal command
+  // rather than as "Could not apply retention".
+  const [gateNotice, setGateNotice] = useState<GateRefusalNotice | null>(null);
 
   const plan = useResource<RetentionPlan>(
     retentionPlanNode,
@@ -120,6 +129,7 @@ export function RetentionPreviewDialog({
   if (planId !== applyErrorForPlanId) {
     setApplyErrorForPlanId(planId);
     if (applyError) setApplyError(null);
+    if (gateNotice) setGateNotice(null);
   }
 
   if (!open) return null;
@@ -163,7 +173,18 @@ export function RetentionPreviewDialog({
       })
       .catch((e: unknown) => {
         setConfirming(false);
-        setApplyError(describeApplyError(e));
+        const refused = describeApplyError(e);
+        setApplyError(refused);
+        if (isGateRefusal(e)) {
+          setGateNotice(
+            gateRefusalNotice({
+              outcome: "Retention was not applied",
+              nothingChanged: "Nothing was deleted.",
+              command: retentionApplyCommand(source + "/" + set),
+              correlationId: refused.correlationId === "unavailable" ? undefined : refused.correlationId
+            })
+          );
+        }
       });
   }
 
@@ -184,7 +205,9 @@ export function RetentionPreviewDialog({
             <InfoTooltip id="retention.preview.plan-id" block>
               <p style={{ margin: "4px 0 0", fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
                 {applyError
-                  ? "Plan rejected"
+                  ? gateNotice
+                    ? "Not applied"
+                    : "Plan rejected"
                   : p
                     ? "Plan " + p.planId + " · issued by the backup service"
                     : "Requesting plan…"}
@@ -192,7 +215,11 @@ export function RetentionPreviewDialog({
             </InfoTooltip>
           </div>
 
-          {applyError ? (
+          {applyError && gateNotice ? (
+            <div style={{ padding: "16px 22px 0" }}>
+              <GateRefusal notice={gateNotice} />
+            </div>
+          ) : applyError ? (
             <div style={{ padding: "16px 22px 0" }}>
               <WarningBanner
                 tone="danger"

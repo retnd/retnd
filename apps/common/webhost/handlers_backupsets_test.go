@@ -426,7 +426,10 @@ func TestCreateBackupSet_RunImmediately_GateNotPassed_PersistsTheSetAndReportsTh
 	if runError == "" {
 		t.Error("run_error is empty; the operator asked for a run that did not happen and nothing in the response says so")
 	}
-	if !strings.Contains(runError, "destructive operations are disabled") {
+	// Reworded by #1157: the sentence now says this release refuses these over
+	// HTTP, which is what the operator can act on. gate_honesty_1157_test.go
+	// holds the full wording; this keeps pinning that it IS the gate's own.
+	if !strings.Contains(runError, "destructive operations are refused over HTTP") {
 		t.Errorf("run_error = %q, want the gate's own sentence: a client that cannot tell WHY the run did not start cannot say anything useful about it", runError)
 	}
 	if respBody["operation"] != nil {

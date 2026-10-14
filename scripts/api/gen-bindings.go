@@ -142,8 +142,12 @@ type schema struct {
 }
 
 type oper struct {
-	OperationID string                `json:"operationId"`
-	Summary     string                `json:"summary"`
+	OperationID string `json:"operationId"`
+	Summary     string `json:"summary"`
+	// Description is read so the contract can carry prose a client author
+	// needs (issue #1157: every build of this release refuses the gated
+	// routes). It is documentation only and reaches no binding.
+	Description string                `json:"description"`
 	Tags        []string              `json:"tags"`
 	Security    []map[string][]string `json:"security"`
 	Parameters  []json.RawMessage     `json:"parameters"`

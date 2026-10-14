@@ -40,6 +40,8 @@ import { useApi } from "@shared/api/ApiContext";
 import { Cell, CellGrid, Note } from "@shared/components/Definitions";
 import { Choice, Toggle } from "@shared/components/Choice";
 import { EmptyState, ErrorState } from "@shared/components/EmptyState";
+import { GateRefusal } from "@shared/components/GateRefusal";
+import { snapshotRestoreCommand } from "@shared/pages/snapshotCommands";
 import { VERIFICATION_COPY } from "@shared/components/EngineBadge";
 import { OperationProgress } from "@shared/components/OperationProgress";
 import { PageHeader } from "@shared/components/PageHeader";
@@ -184,6 +186,8 @@ export function SnapshotRestorePage({ readOnly }: { readOnly: boolean }) {
         onSelect={setStep}
         tip="snapshots.restore.step"
       />
+
+      {restore.gate ? <GateRefusal notice={restore.gate} /> : null}
 
       {restore.failure ? (
         <ErrorState
@@ -470,7 +474,19 @@ export function SnapshotRestorePage({ readOnly }: { readOnly: boolean }) {
                 conflict,
                 configRevision,
                 idempotencyKey
-              })
+              }),
+              undefined,
+              {
+                outcome: "The restore was not started",
+                nothingChanged: "Nothing was written to the destination.",
+                command: snapshotRestoreCommand({
+                  setId,
+                  targetPath: targetPath.trim(),
+                  snapshotId: selected.snapshotId,
+                  sourcePath: wholeTree ? undefined : sourcePath.trim(),
+                  conflict
+                })
+              }
             );
           }}
         />

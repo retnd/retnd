@@ -543,6 +543,24 @@
       <p>Turning it off never stops a daemon: a configuration that declares incremental sets still loads and still backs up every <code>artifact</code> set on schedule. Artifact backup sets are unaffected by this setting in either position, and <strong>nothing ever converts one engine to the other</strong>. See <a href="https://github.com/retnd/retnd/blob/main/docs/incremental-engine.md">docs/incremental-engine.md</a>.</p>
     </div>
 
+    <h3 id="cli-terminal-only">Terminal-only in this release</h3>
+    <p>A handful of acts are refused over HTTP in every build of this release. The web interface still draws their screens and the API still documents their routes, but the destructive gate behind them stays shut until <a href="https://github.com/retnd/retnd/issues/92">#92</a> ships a verified gate, and <code>retnd-web</code> has no setting that opens it. The answer is a 403 with the code <code>DESTRUCTIVE_OPERATIONS_DISABLED</code>, and pressing the button again gets the same answer. The command line has no such gate, so each of these runs from a shell on the host:</p>
+    <div class="scroll-x">
+      <table>
+        <thead><tr><th>The act in the web interface or API</th><th>The terminal does it with</th></tr></thead>
+        <tbody>
+          <tr><td>Run every backup set now (<code>run_cycle</code>)</td><td><code>retnd run</code></td></tr>
+          <tr><td>Run one backup set (<code>run_backup_set</code>), or the run in a create with <code>run_immediately</code>, which saves the set, answers 201 and reports the refusal in <code>run_error</code></td><td><code>retnd fetch --backup-set &lt;source&gt;/&lt;set&gt;</code></td></tr>
+          <tr><td>Ask a provider to make an archived copy readable (<code>restore_placement</code>)</td><td><code>retnd restore &lt;artifact-id&gt; --medium &lt;id&gt; --days &lt;n&gt; --acknowledge</code></td></tr>
+          <tr><td>Restore a snapshot</td><td><code>retnd snapshot restore &lt;source&gt;/&lt;set&gt; --to &lt;directory&gt;</code></td></tr>
+          <tr><td>Verify a snapshot</td><td><code>retnd snapshot verify &lt;source&gt;/&lt;set&gt; [--run &lt;run-id&gt;]</code></td></tr>
+          <tr><td>Place or release a snapshot hold</td><td><code>retnd snapshot hold &lt;source&gt;/&lt;set&gt; --reason &lt;text&gt; [--run &lt;run-id&gt;]</code> and <code>retnd snapshot unhold &lt;source&gt;/&lt;set&gt; &lt;hold-id&gt;</code></td></tr>
+          <tr><td>Apply a retention plan</td><td><code>retnd retention apply &lt;source&gt;/&lt;set&gt; --acknowledge</code>, which previews and applies in one invocation</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>I ran these against a built <code>retnd-web</code> before writing this, and one of them needs care: <code>retnd run</code> and <code>retnd fetch</code> open the deployment in your own shell, so while the web service is serving it they refuse and tell you another process is already serving it. You stop the web service first, run the command, then start it again. The others do not make that check. Verifying, holding, releasing, restoring a snapshot and applying retention are not affected by it.</p>
+
     <h3 id="cli-modes">Where a change is written, and how you know</h3>
     <p>A configuration write goes one of three ways, and every command that makes one says which on a <code>mode:</code> line.</p>
     <div class="scroll-x">

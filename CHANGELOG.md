@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **A shut destructive gate now says what it means** (#1157). Starting a run, restoring or verifying a snapshot, placing or releasing a hold, and applying a retention plan are refused over HTTP in every build of this release, and I ran a built `retnd-web` to confirm it. The refusal keeps its status (403) and its code (`DESTRUCTIVE_OPERATIONS_DISABLED`), and the sentence now says it is refused over HTTP in this release until #92 ships a verified gate and to run the equivalent `retnd` command on the host. The same sentence travels in `run_error` on a create with `run_immediately`, which still saves the set and answers 201. `openapi.json` says it on `POST /operations`, `retention/apply` and `run_immediately`, the snapshot, snapshot detail, snapshot restore and retention preview screens say that retrying will not help and show the command, and the reference lists what is terminal-only. `retnd run` and `retnd fetch` refuse while the web service is serving the deployment, so you stop it first. Nothing here changes a default.
+
 ### Added
 
 - **`retnd operation list` and `retnd operation show <id> [--follow]`** (#1149). A terminal can now find the id of a scrub, recovery test or run the engine is holding, hand it to `assurance cancel`, and watch it finish. Both verbs need `RETND_API_URL` and the credential variables, since operations live in the serving process's memory, and `--json` prints the same body the API serves.

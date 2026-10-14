@@ -22,6 +22,17 @@ retained artifact; restoring it into an application remains the operator's
 responsibility.** The interface can hand you the file, checked. It cannot put it back into
 whatever the file came from.
 
+## Terminal-only in this release: what the interface will not do
+
+Some acts are refused over HTTP in every build of this release, and the interface tells you so
+when you press the control: starting a run, restoring or verifying a snapshot, placing or
+releasing a snapshot hold, and applying a retention plan. The refusal is a 403
+(`DESTRUCTIVE_OPERATIONS_DISABLED`) and pressing again gets the same answer, because the gate
+behind it stays shut until issue #92 ships a verified one. These are terminal-only in this
+release. If you have a shell, `docs/site/reference.html` lists the command for each; if you
+do not, none of the recovery steps below need one, because exporting a retained artifact
+(the `Recover` flow) is not one of the refused acts.
+
 ---
 
 ## 1. A backup has gone stale

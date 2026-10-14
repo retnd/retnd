@@ -29,6 +29,8 @@ import { useNavigate, useParams } from "react-router-dom";
 
 import { useApi } from "@shared/api/ApiContext";
 import { EmptyState, ErrorState } from "@shared/components/EmptyState";
+import { GateRefusal } from "@shared/components/GateRefusal";
+import { snapshotVerifyCommand } from "@shared/pages/snapshotCommands";
 import { EngineBadge, VerificationBadge } from "@shared/components/EngineBadge";
 import { Note, WireField } from "@shared/components/Definitions";
 import { OperationProgress } from "@shared/components/OperationProgress";
@@ -97,7 +99,12 @@ export function SnapshotsPage({ readOnly }: { readOnly: boolean }) {
                 setId,
                 ({ configRevision, idempotencyKey }) =>
                   api.verifySnapshot({ backupSetId: setId, configRevision, idempotencyKey }),
-                () => snapshots.reload()
+                () => snapshots.reload(),
+                {
+                  outcome: "The verification was not started",
+                  nothingChanged: "Nothing was queued and nothing was read.",
+                  command: snapshotVerifyCommand(setId)
+                }
               )
             }
           >
@@ -139,6 +146,12 @@ export function SnapshotsPage({ readOnly }: { readOnly: boolean }) {
   return (
     <>
       {header}
+
+      {verify.gate ? (
+        <div style={{ marginBottom: 14 }}>
+          <GateRefusal notice={verify.gate} />
+        </div>
+      ) : null}
 
       {verify.failure ? (
         <div style={{ marginBottom: 14 }}>
