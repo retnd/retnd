@@ -516,7 +516,7 @@ commands:
   backup-set retention <source/backup-set> [--inherit] [--policy-file F]
                        [--timezone T] [--week-starts-on D]
                        [--daily-days N] [--weekly-months N] [--monthly-months N]
-                       [--protect-last-known-good=BOOL] [--acknowledge-medium-disclosure] [--json]
+                       [--protect-last-known-good=BOOL] [--acknowledge-medium-disclosure]
                                                   report which retention policy this backup set is retained under and
                                                   where it came from; with a policy flag, give the set a whole policy of
                                                   its own; with --inherit, remove that policy so it is retained under the
@@ -524,10 +524,10 @@ commands:
                                                   and is never merged with it, so it has to name a whole one.
                                                   --acknowledge-medium-disclosure is needed when the policy sends one of
                                                   this set's tiers somewhere new, and without it the refusal carries the
-                                                  disclosure. The show form prints each tier's destination. Setting and
-                                                  --inherit are handed to a serving engine when RETND_API_URL names it
-                                                  (PUT and DELETE .../retention), and --json prints the BackupSetRetention
-                                                  object the API returns for the same call
+                                                  disclosure. The show form prints each tier's destination
+                                                  Setting a policy and --inherit are handed to a serving engine when
+                                                  RETND_API_URL names it (PUT and DELETE .../retention). --json, on any
+                                                  form, prints the BackupSetRetention object the API returns
   workflow-runner serve --runtime-dir DIR --workspace-dir DIR --secrets-dir DIR
                        [--docker PATH] [--hook-image REF] [--hook-bash PATH]
                        [--hook-network NAME] [--hook-user UID:GID] [--hook-mount PATH[:ro|:rw]]
@@ -605,7 +605,7 @@ commands:
                                                   connections, the host runner this process will try to reach, and the
                                                   deployment-wide environment
   settings workflow patch [--root P] [--before-dir D] [--after-dir D] [--script-timeout D]
-                        [--max-script-size-bytes N] [--json]
+                        [--max-script-size-bytes N]
                                                   change one of them in place. An explicitly empty value clears:
                                                   --before-dir "" disables that stage and --script-timeout 0 returns hooks
                                                   to the built-in bound, so a flag passed as its zero value is a request
@@ -621,12 +621,12 @@ commands:
                                                   configure one variable, naming exactly one source. Repeat
                                                   --secret-command once per argv word, so no quoting mistake can re-split a
                                                   program's path. --value "" configures an empty string, which is a
-                                                  different thing from configuring nothing. Handed to a serving engine
-                                                  (PUT /settings/workflow/environment/NAME) like the patch above
+                                                  different thing from configuring nothing
+                                                  Handed to a serving engine, like the patch above
   settings workflow env unset NAME               remove one variable. A name that is not configured is refused rather than
                                                   quietly succeeding: an "unset the credential" that did nothing is
-                                                  indistinguishable from one that worked. Handed to a serving engine
-                                                  (DELETE /settings/workflow/environment/NAME) like the patch above
+                                                  indistinguishable from one that worked
+                                                  Handed to a serving engine, like the patch above
   settings assurance [--json]                    report the resolved deployment-wide assurance policy: how often a copy is
                                                   re-read, what a scrub reads, whether a recovery test is required, and the
                                                   host-scoped settings that are global only, each with the reason a backup
@@ -659,18 +659,18 @@ commands:
                                                   and the name of every variable a hook of this set will be handed once
                                                   both layers are merged
   backup-set workflow patch <source/backup-set> [--before-dir D] [--after-dir D]
-                          [--script-timeout D] [--exec-connection REF] [--json]
+                          [--script-timeout D] [--exec-connection REF]
                                                   change that set's own block. An explicitly empty value clears, the same
                                                   rule the deployment-wide patch follows, and clearing the last field
                                                   removes the block rather than leaving one that configures nothing.
                                                   Beside a serving engine it is handed to that process (PATCH
                                                   .../workflow) when RETND_API_URL names it, and refused with the file
-                                                  untouched when it does not
+                                                  untouched when it does not. --json prints the object the API returns
   backup-set workflow env <source/backup-set> list|set NAME ...|unset NAME
                                                   the same three env verbs against one set's own layer, which wins over the
                                                   deployment's for a variable both configure. validate workflow is what
-                                                  reports that a variable is configured in both. set and unset are handed
-                                                  to a serving engine like the patch above
+                                                  reports that a variable is configured in both
+                                                  set and unset are handed to a serving engine like the patch above
   validate workflow <source/backup-set> [--json] everything this product can establish about a backup set's hooks without
                                                   running one: the resolved stage directories, the script names and their
                                                   ordering, each script's sha256 and the timeout it gets, the permissions
@@ -697,8 +697,8 @@ a directory resolves to config.yaml inside it, which is what packaging mounts)
 a configuration write goes one of three ways, and says which on a "mode:" line. With nothing
 serving this deployment it is written here, and an engine started afterwards reads it when it
 starts. With something serving and a route to it, backup-set create, patch and remove,
-backup-set retention (setting or clearing a policy), backup-set workflow patch and env set
-and unset, settings workflow patch and env set and unset, settings patch and medium
+settings patch, settings workflow patch and env set and unset, backup-set workflow patch and
+env set and unset, backup-set retention (setting or clearing a policy) and medium
 import-credentials, add, edit and remove hand the change to that
 process over its API, so it takes effect at once and there is nothing to restart. medium
 preflight --candidate goes the same way, because it is the check medium add runs before it
