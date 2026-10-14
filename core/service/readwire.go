@@ -157,3 +157,63 @@ func SnapshotRetentionWire(p SnapshotRetentionPreview) apicontract.SnapshotReten
 	}
 	return out
 }
+
+// RepositoryHealthWire is the contract's RepositoryHealth for one domain.
+func RepositoryHealthWire(r RepositoryHealth) apicontract.RepositoryHealth {
+	out := apicontract.RepositoryHealth{
+		BackupSets:             r.BackupSets,
+		ClockSane:              r.ClockSane,
+		CredentialsValid:       r.CredentialsValid,
+		Detail:                 r.Detail,
+		Domain:                 r.Domain,
+		LastMaintenanceAt:      readWireTime(r.LastMaintenanceAt),
+		LastMaintenanceResult:  r.LastMaintenanceResult,
+		LastSnapshotAt:         readWireTime(r.LastSnapshotAt),
+		LastSnapshotStatus:     r.LastSnapshotStatus,
+		LastVerificationAt:     readWireTime(r.LastVerificationAt),
+		LastVerificationStatus: r.LastVerificationStatus,
+		MaintenanceOverdue:     r.MaintenanceOverdue,
+		MayShare:               r.MayShare,
+		Reachable:              r.Reachable,
+		Readable:               r.Readable,
+		State:                  r.State,
+		Writable:               r.Writable,
+	}
+	if r.ClockSkew != nil {
+		// Whole seconds, signed, as the handler sends it.
+		seconds := int64(r.ClockSkew.Seconds())
+		out.ClockSkewSeconds = &seconds
+	}
+	return out
+}
+
+// RepositoriesWire is GET /repositories.
+func RepositoriesWire(report RepositoryHealthReport) apicontract.ListRepositoriesResponse {
+	out := apicontract.ListRepositoriesResponse{
+		GeneratedAt:  readWireTime(report.GeneratedAt),
+		Repositories: make([]apicontract.RepositoryHealth, 0, len(report.Repositories)),
+	}
+	for _, r := range report.Repositories {
+		out.Repositories = append(out.Repositories, RepositoryHealthWire(r))
+	}
+	return out
+}
+
+// RepositoryMaintenanceWire is GET /repositories/{domain}/maintenance.
+func RepositoryMaintenanceWire(m RepositoryMaintenance) apicontract.RepositoryMaintenance {
+	return apicontract.RepositoryMaintenance{
+		Domain:         m.Domain,
+		Due:            m.Due,
+		DueMode:        m.DueMode,
+		DueReason:      m.DueReason,
+		Failing:        m.Failing,
+		Failures:       m.Failures,
+		LastFullAt:     readWireTime(m.LastFullAt),
+		LastQuickAt:    readWireTime(m.LastQuickAt),
+		NextEligibleAt: readWireTime(m.NextEligibleAt),
+		Overdue:        m.Overdue,
+		Owner:          m.Owner,
+		ReclaimedBytes: m.ReclaimedBytes,
+		Runs:           m.Runs,
+	}
+}

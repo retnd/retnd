@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -44,6 +45,7 @@ func TestRepositoryHealthJSON_IsTheListRepositoriesResponse_1152(t *testing.T) {
 	// clock_skew_seconds is always sent: null when there is nothing durable
 	// to compare against, a number otherwise.
 	var env struct {
+		GeneratedAt  string                       `json:"generated_at"`
 		Repositories []map[string]json.RawMessage `json:"repositories"`
 	}
 	strictDecode(t, out, &env)
@@ -74,6 +76,18 @@ func TestRepositoryHealthJSON_AFailingRepositoryStillExitsOneAndStillPrintsTheOb
 
 func TestRepositoryHealthJSON_NoDomainsIsAnEmptyArray_1152(t *testing.T) {
 	configPath := writeTestConfig(t)
+	// The engine is on and declares nothing: the one deployment on which the
+	// text form says "declares no repository domain".
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, append(raw, []byte("incremental_engine:\n  enabled: true\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if text, c := cliJSON(t, "repository", "health", "--config", configPath); c != exitOK || !strings.Contains(text, "declares no repository domain") {
+		t.Fatalf("the fixture is not the deployment the text form describes: code=%d %q", c, text)
+	}
 	out, code := cliJSON(t, "repository", "health", "--json", "--config", configPath)
 	if code != exitOK {
 		t.Fatalf("code = %d", code)

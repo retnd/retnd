@@ -174,3 +174,55 @@ func TestIssue1152_SnapshotRetentionWireIsTheHandlersPreviewFieldForField(t *tes
 		})
 	}
 }
+
+func fullRepository() service.RepositoryHealth {
+	at := readWireAt()
+	skew := -90*time.Second - 400*time.Millisecond
+	return service.RepositoryHealth{
+		Domain: "production", MayShare: true, BackupSets: []string{"src/set-1", "src/set-2"}, State: "DEGRADED",
+		Reachable: true, Readable: true, Writable: false, CredentialsValid: true, ClockSane: false, ClockSkew: &skew,
+		LastMaintenanceAt: at, LastMaintenanceResult: "ok", MaintenanceOverdue: true,
+		LastSnapshotAt: at.Add(time.Hour), LastSnapshotStatus: "SUCCESS",
+		LastVerificationAt: at.Add(2 * time.Hour), LastVerificationStatus: "passed", Detail: "writes are refused",
+	}
+}
+
+func sparseRepository() service.RepositoryHealth {
+	return service.RepositoryHealth{Domain: "offsite", State: "FAILING"}
+}
+
+func TestIssue1152_RepositoriesWireIsTheHandlersListFieldForField(t *testing.T) {
+	for name, report := range map[string]service.RepositoryHealthReport{
+		"every optional field set":    {GeneratedAt: readWireAt(), Repositories: []service.RepositoryHealth{fullRepository()}},
+		"every optional field absent": {GeneratedAt: readWireAt(), Repositories: []service.RepositoryHealth{sparseRepository()}},
+		"none":                        {GeneratedAt: readWireAt()},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rs := newReadSurfaceRouter(t)
+			snapshotsOf(rs.backend).repos = report
+			rec := rs.get(t, "/api/v1/repositories")
+			mustStatus(t, rec, 200)
+			sameAsTheAPI(t, "repositories", rec.Body.Bytes(), service.RepositoriesWire(report), 2)
+		})
+	}
+}
+
+func TestIssue1152_RepositoryMaintenanceWireIsTheHandlersObjectFieldForField(t *testing.T) {
+	at := readWireAt()
+	for name, m := range map[string]service.RepositoryMaintenance{
+		"every optional field set": {
+			Domain: "production", Owner: "deployment-a", LastQuickAt: at, LastFullAt: at.Add(time.Hour),
+			NextEligibleAt: at.Add(2 * time.Hour), Due: true, DueMode: "full", DueReason: "never ran",
+			Overdue: true, Runs: 7, Failures: 2, ReclaimedBytes: 1 << 20, Failing: true,
+		},
+		"every optional field absent": {Domain: "offsite"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rs := newReadSurfaceRouter(t)
+			snapshotsOf(rs.backend).maintenance = m
+			rec := rs.get(t, "/api/v1/repositories/"+m.Domain+"/maintenance")
+			mustStatus(t, rec, 200)
+			sameAsTheAPI(t, "repository maintenance", rec.Body.Bytes(), service.RepositoryMaintenanceWire(m), 8)
+		})
+	}
+}

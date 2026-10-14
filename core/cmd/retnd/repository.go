@@ -172,6 +172,7 @@ func (l *stringList) Set(value string) error {
 // and is not a reason to page them.
 func repositoryHealth(args []string) int {
 	fs, cfgPath := newFlagSet("repository health")
+	asJSON := fs.Bool("json", false, "print the API's ListRepositoriesResponse instead of text; the exit code is the verdict either way")
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
 		return 2
@@ -190,6 +191,21 @@ func repositoryHealth(args []string) int {
 	report, err := svc.ListRepositories(ctx)
 	if err != nil {
 		return fail(err)
+	}
+
+	if *asJSON {
+		// The exit code is the verdict in both forms: a monitoring job that
+		// moves to --json must not lose the alarm it had on the text.
+		if code := emitWireJSON(service.RepositoriesWire(report)); code != exitOK {
+			return code
+		}
+		for _, r := range report.Repositories {
+			if r.State == "FAILING" {
+				return 1
+			}
+		}
+
+		return 0
 	}
 
 	if len(report.Repositories) == 0 {
@@ -285,6 +301,7 @@ func eventWords(at time.Time, status string) string {
 // repositoryMaintenance is `retnd repository maintenance <domain>`.
 func repositoryMaintenance(args []string) int {
 	fs, cfgPath := newFlagSet("repository maintenance")
+	asJSON := fs.Bool("json", false, "print the API's RepositoryMaintenance object instead of text")
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
 		return 2
@@ -303,6 +320,10 @@ func repositoryMaintenance(args []string) int {
 	state, err := svc.RepositoryMaintenanceState(ctx, operands[1])
 	if err != nil {
 		return fail(err)
+	}
+
+	if *asJSON {
+		return emitWireJSON(service.RepositoryMaintenanceWire(state))
 	}
 
 	fmt.Printf("%s\n", state.Domain)
