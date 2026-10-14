@@ -1879,3 +1879,9 @@ func onOff(v bool) string {
 
 	return "off"
 }
+
+// RecordedReasons is the written reason each route outside /api/v1 has no
+// verb and no entry in the table above. Nothing here is echoed: these are
+// the two unauthenticated probes an orchestrator calls, which are not
+// operator actions. A stub until #1150 lands.
+func RecordedReasons() map[string]string { return nil }
