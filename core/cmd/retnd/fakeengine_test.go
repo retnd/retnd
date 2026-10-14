@@ -76,6 +76,11 @@ type fakeEngine struct {
 	liveReadings []apicontract.LiveActivityResponse
 	liveSince    []int64
 	liveScope    []string
+
+	// lastBody is the bytes of the last answer to each "METHOD path" in
+	// fakeengine_configwrites_1148_test.go, kept so a test can diff what
+	// the CLI printed against what the engine returned.
+	lastBody map[string][]byte
 }
 
 // startFakeEngine announces that this process serves the deployment
@@ -275,6 +280,9 @@ func (e *fakeEngine) api(w http.ResponseWriter, r *http.Request, path, token str
 	}
 
 	switch {
+	// The eight config writes #1148 routes, ahead of everything below
+	// for the reason fakeengine_configwrites_1148_test.go gives.
+	case e.serveConfigWrite(w, r, path):
 	// The assurance policy (EPIC Q, #982), ahead of the generic
 	// /backup-sets/ cases below because a set's assurance path ends in
 	// /assurance and would otherwise be read as a set edit.
