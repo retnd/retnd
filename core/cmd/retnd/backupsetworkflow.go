@@ -29,11 +29,11 @@ import (
 // # Where a write goes
 //
 // The same door `settings workflow patch` uses and for the same reasons:
-// openBackupService with writesConfig, so a write happens here when
-// nothing is serving this deployment and is REFUSED with the file
-// untouched when something is. settingsworkflow.go's preamble holds the
-// argument, including what it would take to give these writes a route to
-// a serving engine later.
+// openConfigWriteRoute, so a write happens here when nothing is serving
+// this deployment, goes to the serving engine over its API when a route
+// to it is named, and is REFUSED with the file untouched when something
+// serves and no route was named. settingsworkflow.go's preamble holds the
+// argument (#1148).
 //
 // # The set id, and why it is checked before anything opens
 //

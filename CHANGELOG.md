@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Eight config writes now work beside a serving engine** (#1148). `settings workflow patch`,
+  `settings workflow env set|unset`, `backup-set workflow patch`, `backup-set workflow env set|unset`
+  and `backup-set retention` (setting a policy, and `--inherit`) used to be refused with exit 3
+  whenever an engine was serving, although the API had a route for every one of them. They now
+  come through the same door as `settings patch`: with `RETND_API_URL` naming the engine the
+  change lands through the API and the engine's config revision moves, and with no route named
+  the refusal is unchanged. `--json` on all eight prints the object the API returns for the same
+  call, and `backup-set retention` gains `--json`.
+
 ## [0.6.3] - 2026-10-13
 
 0.6.3 is a wording fix, and it follows straight on from 0.6.2. After the verification model

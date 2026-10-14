@@ -31,29 +31,19 @@ import (
 // at -- and a re-serialization of config.yaml cannot, because the whole
 // point of that file is that it omits what it inherits.
 //
-// # Where a write goes, and the one answer this surface does not have
+// # Where a write goes
 //
-// Through openBackupService with writesConfig, which is `backup-set
-// retention`'s door rather than `settings patch`'s: with nothing serving
-// this deployment the change is written here and an engine started
-// afterwards reads it; with something serving, the write is REFUSED with
-// the file untouched, because there is no config watcher and no SIGHUP
-// reload in this build, so a change left in the file is one that process
-// would never read (#538, #543).
+// Through openConfigWriteRoute, which is `settings patch`'s door (#1148):
+// with nothing serving this deployment the change is written here and an
+// engine started afterwards reads it; with something serving and a route
+// named ($RETND_API_URL) the change is handed to that process over
+// PATCH /api/v1/settings/workflow and PUT or DELETE .../environment/NAME,
+// so it takes effect at once; with something serving and no route it is
+// REFUSED with the file untouched, because there is no config watcher and
+// no SIGHUP reload in this build, so a change left in the file is one that
+// process would never read (#538, #543).
 //
-// What `settings patch` has and this does not is a ROUTE. PATCH
-// /api/v1/settings carries a settings patch to the serving engine, so
-// that verb is refused only when no route was named; there is no
-// equivalent for this block in this build, so the refusal is
-// unconditional beside a serving engine. That is a gap in the API surface
-// rather than a decision here, and it is written down so the next person
-// meets it as one: when the workflow routes exist on the wire and in
-// core/internal/apiclient, moving these writes onto openConfigWriteRoute
-// is the same shape #543 already applied to `settings patch`, plus a
-// settingsRoute-style interface and the two engineRoute methods behind
-// it. Nothing in the verbs below would change.
-//
-// Announcing the mode is not optional even so, and openBackupService
+// Announcing the mode is not optional, and openConfigWriteRoute
 // does it: an operator has to be able to see from their scroll back
 // whether the change they just made reached a running engine or a file it
 // has not read (mode.go).
