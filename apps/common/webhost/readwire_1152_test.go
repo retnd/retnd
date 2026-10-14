@@ -240,6 +240,16 @@ type wireFixtureBackend struct {
 	retention service.BackupSetRetention
 	plan      service.RetentionPlan
 	catalog   service.CatalogReport
+	conn      service.ConnectionTestResult
+	preflight service.MediumPreflight
+}
+
+func (b *wireFixtureBackend) TestBackupSetConnection(context.Context, string) (service.ConnectionTestResult, error) {
+	return b.conn, nil
+}
+
+func (b *wireFixtureBackend) PreflightStorageMedium(context.Context, string) (service.MediumPreflight, error) {
+	return b.preflight, nil
 }
 
 func (b *wireFixtureBackend) PreviewRetention(context.Context, string, string) (service.RetentionPlan, error) {
@@ -254,9 +264,9 @@ func (b *wireFixtureBackend) RebuildCatalog(context.Context) (service.CatalogRep
 	return b.catalog, nil
 }
 
-func (b *wireFixtureBackend) post(t *testing.T, target string) *httptest.ResponseRecorder {
+func (b *wireFixtureBackend) post(t *testing.T, target, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, target, strings.NewReader("{}"))
+	req := httptest.NewRequest(http.MethodPost, target, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	attachValidCSRF(req)
 	rec := httptest.NewRecorder()
@@ -404,9 +414,45 @@ func TestIssue1152_CatalogReportWireIsTheHandlersReportFieldForField(t *testing.
 		for _, route := range []string{"/api/v1/catalog/scan", "/api/v1/catalog/rebuild"} {
 			t.Run(name+" "+route, func(t *testing.T) {
 				b := &wireFixtureBackend{syncFakeBackend: newSyncFakeBackend(), catalog: r}
-				rec := b.post(t, route)
+				rec := b.post(t, route, "{}")
 				sameAsTheAPI(t, "catalog report", rec.Body.Bytes(), service.CatalogReportWire(r), 5)
 			})
 		}
+	}
+}
+
+func TestIssue1152_ConnectionTestWireIsTheHandlersReportFieldForField(t *testing.T) {
+	for name, r := range map[string]service.ConnectionTestResult{
+		"every optional field set": {OK: false, Message: "could not authenticate", Writable: false, Checks: []service.ConnectionCheck{
+			{Step: "credentials", Outcome: "passed", Detail: "the key was found", DurationMs: 3},
+			{Step: "connect", Outcome: "passed", Detail: "reached", DurationMs: 40},
+			{Step: "authenticate", Outcome: "failed", Category: "AUTH", Detail: "the host rejected the key"},
+			{Step: "list", Outcome: "skipped", Detail: "not attempted"},
+		}},
+		"a pass":    {OK: true, Writable: true, Checks: []service.ConnectionCheck{{Step: "list", Outcome: "passed", Detail: "listed"}}},
+		"no checks": {OK: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			b := &wireFixtureBackend{syncFakeBackend: newSyncFakeBackend(), conn: r}
+			rec := b.post(t, "/api/v1/backup-sets/test-connection", `{"backup_set_id":"src/set-1"}`)
+			sameAsTheAPI(t, "connection test", rec.Body.Bytes(), service.ConnectionTestWire(r), 2)
+		})
+	}
+}
+
+func TestIssue1152_MediumPreflightWireIsTheHandlersReportFieldForField(t *testing.T) {
+	for name, r := range map[string]service.MediumPreflight{
+		"every optional field set": {Medium: "cold", OK: false, Checks: []service.MediumPreflightCheck{
+			{Step: "reach", Outcome: "passed", Detail: "the bucket answered"},
+			{Step: "write", Outcome: "failed", Category: "PERMISSION", Detail: "access denied"},
+			{Step: "read_back", Outcome: "skipped", Detail: "not attempted"},
+		}},
+		"no checks": {Medium: "local", OK: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			b := &wireFixtureBackend{syncFakeBackend: newSyncFakeBackend(), preflight: r}
+			rec := b.post(t, "/api/v1/storage-mediums/"+r.Medium+"/preflight", "")
+			sameAsTheAPI(t, "medium preflight", rec.Body.Bytes(), service.MediumPreflightWire(r), 3)
+		})
 	}
 }

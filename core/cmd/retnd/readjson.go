@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/retnd/retnd/core/internal/obs"
 	"github.com/retnd/retnd/core/service"
 )
 
@@ -39,4 +40,10 @@ func openBackupServiceForRead(ctx context.Context, configPath string, asJSON boo
 		logTo = os.Stderr
 	}
 	return openBackupServiceLoggingTo(ctx, configPath, readsConfig, logTo)
+}
+
+// jsonLogger is logger() for a verb whose standard output is a JSON document:
+// the same structured sink at the same level, on standard error.
+func jsonLogger() *obs.Logger {
+	return obs.New(os.Stderr, obs.LevelFromEnv())
 }

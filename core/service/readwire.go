@@ -422,3 +422,41 @@ func CatalogReportWire(r CatalogReport) apicontract.CatalogReportResponse {
 	}
 	return out
 }
+
+// ConnectionTestWire is POST /backup-sets/test-connection, in both of its
+// modes. The steps travel exactly as the service reported them, skipped ones
+// included; dropping a skipped step is how a client ends up drawing five
+// steps and letting a reader assume the sixth passed.
+func ConnectionTestWire(r ConnectionTestResult) apicontract.TestConnectionResponse {
+	out := apicontract.TestConnectionResponse{OK: r.OK, Message: r.Message, Writable: r.Writable}
+	for _, c := range r.Checks {
+		out.Checks = append(out.Checks, apicontract.ConnectionCheck{
+			Category:   c.Category,
+			Detail:     c.Detail,
+			DurationMs: c.DurationMs,
+			Outcome:    c.Outcome,
+			Step:       c.Step,
+		})
+	}
+	return out
+}
+
+// MediumPreflightWire is POST /storage-mediums/{id}/preflight and the
+// candidate form of it. Every check is carried, in the engine's order,
+// including the skipped ones.
+func MediumPreflightWire(r MediumPreflight) apicontract.MediumPreflightResponse {
+	out := apicontract.MediumPreflightResponse{
+		Checks: make([]apicontract.MediumPreflightCheck, 0, len(r.Checks)),
+		Medium: r.Medium,
+		OK:     r.OK,
+	}
+	for _, c := range r.Checks {
+		out.Checks = append(out.Checks, apicontract.MediumPreflightCheck{
+			Category: c.Category,
+			Detail:   c.Detail,
+			Outcome:  c.Outcome,
+			Step:     c.Step,
+		})
+	}
+	return out
+}
