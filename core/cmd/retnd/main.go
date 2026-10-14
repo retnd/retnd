@@ -203,6 +203,16 @@ commands:
                                                   of them (#569)
   artifacts <source/backup-set/name>             print one artifact's full detail, including the reason
                                                   recorded for a FAILED/QUARANTINED/QUARANTINED_LOST one (#284)
+  artifacts <source/backup-set/name> --json      print that detail as the API's Artifact object. In either form the detail
+                                                  also prints, for each copy with a record, what its scrubs and recovery
+                                                  tests found: assurance_state, last_checked_at, last_failure_at,
+                                                  last_failure_reason, consecutive_failures, recovery_state (readable
+                                                  for a built-in structure pass), recovery_tested_at,
+                                                  recovery_failure_reason and recovery_check (#1147)
+  artifacts [--source S] [--backup-set B] --state S
+                                                  list only the artifacts in one lifecycle state, e.g. QUARANTINED_LOST
+  artifacts [--source S] [--backup-set B] --json
+                                                  list as the API's ListArtifactsResponse (#1147)
   activity [--backup-set S] [--severity warn|error] [--limit N] [--json]
                                                   list recorded lifecycle events, newest first: the same durable
                                                   transition log the Web UI's Activity page draws. Beside a serving
@@ -298,6 +308,10 @@ commands:
                                                   act on one quarantined artifact: revalidate re-checks it and moves
                                                   nothing; retry re-enters the pipeline from DISCOVERED; reinstate
                                                   trusts it again in place and forfeits any future remote delete
+  quarantine list [--backup-set source/backup-set] [--json]
+                                                  list the artifacts held in quarantine: id, reason, irrecoverable and
+                                                  updated_at. The same as GET /api/v1/quarantine, which --json prints
+                                                  (#1147)
   unconfigured                                   list the backup sets the journal remembers and the configuration no
                                                   longer names, what they still hold on storage, and the retention
                                                   policy governing them, which is none (#418)

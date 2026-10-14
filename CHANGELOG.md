@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`artifacts` shows what a scrub and a recovery test found, `artifacts --json` exists, and `quarantine list` lists what is held** (#1147). `retnd artifacts <id>` prints, for each copy that has a record, `assurance_state`, `last_checked_at`, `last_failure_at`, `last_failure_reason`, `consecutive_failures`, `recovery_state` (a built-in structure pass reads `readable`, as it does on the API), `recovery_tested_at`, `recovery_failure_reason` and `recovery_check`. A copy nobody has checked prints exactly what it printed before. `--json` prints the API's `Artifact` object for one backup and `ListArtifactsResponse` for the list, `artifacts --state S` narrows the list to one lifecycle state, and `quarantine list [--backup-set S] [--json]` prints id, reason, irrecoverable and updated_at for every backup held in quarantine.
+
 ## [0.6.3] - 2026-10-13
 
 0.6.3 is a wording fix, and it follows straight on from 0.6.2. After the verification model

@@ -786,8 +786,8 @@ var routes = map[string]entry{
 
 	// ------------------------------------------------------ quarantine ---
 	key("GET", "/quarantine"): {
-		why:               "there is no verb that lists quarantined backups; `quarantine` only acts on one, and `artifacts` does not filter by quarantine",
-		namesShippedVerbs: []string{"artifacts", "quarantine"},
+		build:    func(a Action) *cmd { return newCmd("quarantine", "list") },
+		examples: []Action{{}},
 	},
 	key("POST", "/quarantine/{source}/{set}/{name}/revalidate"): {
 		build:    func(a Action) *cmd { return newCmd("quarantine", "revalidate", artifactID(a)) },
