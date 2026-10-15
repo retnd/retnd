@@ -20,7 +20,7 @@
 import type { IconName } from "@shared/design-system/icons";
 import { stamp } from "@shared/utilities/format";
 import { backupSetPath } from "@shared/utilities/routes";
-import { SETTINGS_SECTIONS, settingsLink } from "@shared/pages/settingsSections";
+import { SETTINGS_SECTIONS, settingsLink } from "@shared/utilities/routes";
 import type { AchievedClass, ClaimRecord, ClaimStatus, CopyContent, CopyFailure } from "./types";
 
 export type RenderState = ClaimStatus | "existence_only" | "attested_only" | "pass_builtin";

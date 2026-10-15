@@ -61,7 +61,7 @@ import type {
   VersionInfo
 } from "@shared/types/operation";
 import { createMockRecoverMany } from "@shared/assurance/mockRecoverMany";
-import { BUILTIN_ARTIFACT, DEFAULT_POLICY_NEWEST, DEFAULT_POLICY_TESTED, DEFAULT_UNTESTED_SCENARIO, followsDefault, assuranceLiveEvents, assuranceUnfinished, createMockAssurance, createMockRecovery, overlayAssurance, overlayThaw } from "@shared/assurance/mockAssurance";
+import { BUILTIN_ARTIFACT, DEFAULT_POLICY_NEWEST, DEFAULT_POLICY_TESTED, INGEST_FAILED_SCENARIO, followsDefault, untestedScenario, assuranceLiveEvents, assuranceUnfinished, createMockAssurance, createMockRecovery, overlayAssurance, overlayThaw } from "@shared/assurance/mockAssurance";
 import { createHttpAssurance } from "@shared/assurance/realAssurance";
 import type { DeploymentActivity, SetActivity, SetActivityEvent } from "@shared/types/activity";
 
@@ -150,6 +150,7 @@ export type Scenario =
   // #1141: the same default-policy set, but no recovery test has run on any
   // backup, so Recovery has nothing to say beyond "default, none run yet".
   | "assurance-default-untested"
+  | "assurance-ingest-failed-scrubbed"
   // #1106: Recover this backup set. The fixture sets are presented as
   // artifact sets and the mock host recovers a file every 700ms (2.5s when
   // slow), so a spec can watch the total and press Cancel. "recover" gives the
@@ -197,7 +198,7 @@ export function scenarioFromLocation(): Scenario {
     "assurance-grant-used", "assurance-session-ended", "assurance-staging-full",
     "assurance-reads-busy", "assurance-corrupt-copy", "assurance-download-outcomes",
     "assurance-set-recover", "assurance-set-nospace", "assurance-set-corrupt", "assurance-set-slow",
-    "backups-many", "backups-many-corrupt", "backups-many-nospace", "backups-999", "backups-1000", "dock-no-warnings", "dock-live-line", "assurance-no-validator", "assurance-builtin-check", "assurance-default-policy", "assurance-default-untested", "gate-shut", "gate-shut-local-account"
+    "backups-many", "backups-many-corrupt", "backups-many-nospace", "backups-999", "backups-1000", "dock-no-warnings", "dock-live-line", "assurance-no-validator", "assurance-builtin-check", "assurance-default-policy", "assurance-default-untested", "assurance-ingest-failed-scrubbed", "gate-shut", "gate-shut-local-account"
   ];
   return (allowed as string[]).includes(s ?? "") ? (s as Scenario) : "default";
 }
@@ -3917,7 +3918,7 @@ const BUILTIN_ARTIFACT_FIXTURE: BackupArtifact = {
  *  structure check, recorded as readable five hours ago), the newer one was
  *  content-verified ten hours ago and has no recovery record, because the
  *  deployment's tests are off. Neither carries an ingest-time validation. */
-function defaultPolicyArtifacts(untested = false): BackupArtifact[] {
+function defaultPolicyArtifacts(untested = false, ingestFailed = false): BackupArtifact[] {
   const h = (n: number) => new Date(Date.now() - n * 3600_000).toISOString();
   const copy = (name: string, verifiedAgo: number, recovery: Partial<BackupArtifact["placements"][number]>) => ({
     medium: "local", mediumType: "local",
@@ -3937,7 +3938,7 @@ function defaultPolicyArtifacts(untested = false): BackupArtifact[] {
     remoteOriginalPath: "prod-db-01:/backups/postgresql/postgres-prod-20260829.dump.zst",
     localPath: "/data/backups/production/postgres/2026/10/postgres-prod-20260829.dump.zst",
     checksum: "9a1c4e7b2d6f08351e92ab47c3d5f6018b2e4a7d9c1f30586e2b4d7a91c3e5f0",
-    validation: "pending", producedAt: h(11), receivedAt: h(10.9), remoteSourceRemovedAt: null,
+    validation: ingestFailed ? "failed" : "pending", producedAt: h(11), receivedAt: h(10.9), remoteSourceRemovedAt: null,
     placements: [copy("postgres-prod-20260829.dump.zst", 10, { recoveryState: "not_configured" })]
   };
   return [newest, tested];
@@ -4061,7 +4062,7 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
     : scenario === "assurance-builtin-check"
     ? [BUILTIN_ARTIFACT_FIXTURE, ...ARTIFACTS]
     : followsDefault(scenario)
-    ? defaultPolicyArtifacts(scenario === DEFAULT_UNTESTED_SCENARIO)
+    ? defaultPolicyArtifacts(untestedScenario(scenario), scenario === INGEST_FAILED_SCENARIO)
     : ARTIFACTS;
   // Issue #176: a fresh app-store install has no configuration at all.
   // Mutable, because completing setup is what makes it configured — the

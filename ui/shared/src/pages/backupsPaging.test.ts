@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ALL_BELOW, PAGE_SIZE_KEY, allOffered, pageWindow, readPageSize, rememberPageSize } from "./backupsPaging";
+import { ALL_BELOW, PAGE_SIZE_KEY, allOffered, pageWindow, readPageSize, rememberPageSize, isPageSize } from "./backupsPaging";
 
 afterEach(() => { vi.restoreAllMocks(); window.localStorage.clear(); });
 
@@ -55,5 +55,12 @@ describe("#1180 the window of a page", () => {
   it("holds exactly one full page without inventing a second", () => {
     expect(pageWindow(20, 20, 0).pages).toBe(1);
     expect(pageWindow(21, 20, 0).pages).toBe(2);
+  });
+});
+
+describe("isPageSize", () => {
+  it("accepts the three sizes and nothing else, so the select's value narrows without a cast", () => {
+    expect([20, 50, 100].every(isPageSize)).toBe(true);
+    expect([0, 25, 1000, NaN].some(isPageSize)).toBe(false);
   });
 });

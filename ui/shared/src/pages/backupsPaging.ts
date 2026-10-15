@@ -27,7 +27,8 @@ export const DEFAULT_PAGE_SIZE: PageSize = 20;
 export const ALL_BELOW = 1000;
 export const PAGE_SIZE_KEY = "retnd.backups.pageSize";
 
-const isPageSize = (n: number): n is PageSize => (PAGE_SIZES as readonly number[]).includes(n);
+/** Whether a number is one of the three sizes, so a caller narrows rather than casts. */
+export const isPageSize = (n: number): n is PageSize => (PAGE_SIZES as readonly number[]).includes(n);
 
 /** The remembered size, or the default when there is none, it is not one of the
  *  three, or storage cannot be read at all. */

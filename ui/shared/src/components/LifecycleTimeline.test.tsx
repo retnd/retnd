@@ -85,7 +85,17 @@ describe("#1175 VERIFIED agrees with a Content chip that says verified", () => {
   it("is reached, at the scrub's time, for a backup with no ingest verdict that a scrub verified", () => {
     const v = buildPhases(pending, facts).find((p) => p.label === "VERIFIED");
     expect(v?.at).toBe("2026-08-29T05:00:00Z");
-    expect(v?.detail).toBe("A scrub read the copy back and its hash matched");
+    // pending plus a scrub: the scrub matched the digest taken at receipt, so
+    // what it proves is that the content has not changed since then
+    expect(v?.detail).toBe("A scrub found the content intact since receipt");
+  });
+
+  it("stays unreached when the ingest check failed, whatever a scrub found since", () => {
+    const failed: BackupArtifact = { ...BASE, validation: "failed", remoteSourceRemovedAt: null };
+    const v = buildPhases(failed, facts).find((p) => p.label === "VERIFIED");
+    expect(v?.at).toBeNull();
+    expect(v?.detail).toMatch(/^The ingest check failed/);
+    expect(v?.detail).not.toMatch(/intact|hash matched/);
   });
 
   it("stays unreached when nothing verified the backup, at ingest or since", () => {

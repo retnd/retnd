@@ -44,8 +44,22 @@ test.describe("#1175 the verified chip and the Lifecycle list", () => {
 
   test("#1175 the VERIFIED step says what verified it, because nothing at ingest did", async ({ page }) => {
     await open(page, NEWEST_PATH, S, { wire: true });
-    await expect(step(page, "VERIFIED")).toContainText("A scrub read the copy back and its hash matched");
+    // A scrub compares against the digest taken at receipt, so with no ingest
+    // verdict what it proves is that the content is intact since then.
+    await expect(step(page, "VERIFIED")).toContainText("A scrub found the content intact since receipt");
     await expect(step(page, "VERIFIED")).not.toContainText("producer manifest");
+  });
+
+  test("#1175 a scrub does not reach VERIFIED when the ingest check failed", async ({ page }) => {
+    // The newest backup failed its producer-manifest check at ingest, and a
+    // scrub has since read it back and matched the digest taken at receipt.
+    // That only proves the bad file is still the same bad file.
+    await open(page, NEWEST_PATH, "assurance-ingest-failed-scrubbed", { wire: true });
+    await expect(step(page, "CONTENT VERIFIED")).toContainText(/\d\d:\d\d:\d\d/);
+    await expect(step(page, "VERIFIED")).toContainText("\u2014");
+    await expect(step(page, "VERIFIED")).not.toContainText(/\d\d:\d\d:\d\d/);
+    await expect(step(page, "VERIFIED")).toContainText("The ingest check failed");
+    await expect(step(page, "VERIFIED")).not.toContainText("intact since receipt");
   });
 
   test("#1175 the list, the chip and the Lifecycle all say verified for the same backup", async ({ page }) => {

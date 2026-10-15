@@ -28,6 +28,29 @@ const options = async (page: Page) => {
   return (await size(page).locator("option").allTextContents()).map((t) => t.trim());
 };
 
+test.describe("#1180 the notes under the table count the whole list", () => {
+  test("#1180 the removed-set note says how many are on this page and how many in all, on every page", async ({ page }) => {
+    // backups-many holds one backup of a removed set (legacy-redis). Whichever
+    // page it is on, the other page must not read as if there were none.
+    await open(page, "/backups", MANY);
+    const note = page.getByText(/configuration was removed/);
+    const pageOne = await note.textContent();
+    await next(page).click();
+    await expect(where(page)).toContainText("Page 2 of 2");
+    const pageTwo = await note.textContent();
+    const texts = [pageOne, pageTwo].map((t) => t ?? "");
+    for (const t of texts) expect(t).toContain("One backup in this list");
+    expect(texts.filter((t) => t.includes("(1 on this page)"))).toHaveLength(1);
+    expect(texts.filter((t) => t.includes("(none on this page)"))).toHaveLength(1);
+  });
+
+  test("#1180 a page that holds the whole list keeps saying above", async ({ page }) => {
+    await open(page, "/backups", MANY);
+    await size(page).selectOption("50");
+    await expect(page.getByText(/configuration was removed/)).toContainText("One backup above belongs");
+  });
+});
+
 test.describe("#1180 page size", () => {
   test("#1180 the page offers 20, 50, 100 and All, and starts at 20 rows", async ({ page }) => {
     await open(page, "/backups", MANY);

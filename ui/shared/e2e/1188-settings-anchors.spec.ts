@@ -44,6 +44,27 @@ test.describe("#1188 the Default configuration chip lands on the Assurance secti
   });
 });
 
+test.describe("#1188 links that shipped before, and links that are broken", () => {
+  test("#1188 the old #assurance-defaults link still lands on the Assurance section", async ({ page }) => {
+    // The Assurance card answered to #assurance-defaults from #1141 until this
+    // change renamed it, so bookmarks and pasted links carry the old id.
+    await openAt(page, "#assurance-defaults");
+    await page.waitForTimeout(1500);
+    const heading = page.locator("#assurance").getByRole("heading", { name: "Assurance" });
+    await expect(heading).toBeInViewport({ ratio: 1 });
+    await expect(page.locator("#assurance")).toHaveAttribute("data-current", "");
+  });
+
+  test("#1188 a malformed hash leaves Settings standing", async ({ page }) => {
+    // decodeURIComponent throws on a lone %E0; that used to take the page down
+    // with it, password and account recovery cards included.
+    await openAt(page, "#%E0");
+    await expect(page.locator("#password")).toBeVisible();
+    await expect(page.locator("#account-recovery")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Settings", level: 1 })).toBeVisible();
+  });
+});
+
 test.describe("#1188 every Settings section has a stable anchor", () => {
   test("#1188 each id in the table exists exactly once on Settings", async ({ page }) => {
     await open(page, "/settings", S, { wire: true });
@@ -78,6 +99,15 @@ test.describe("#1188 the anchor styling", () => {
     expect(await behaviour()).toBe("smooth");
     await page.emulateMedia({ reducedMotion: "reduce" });
     expect(await behaviour()).toBe("auto");
+  });
+
+  test("#1188 smooth scrolling stays on Settings, so the terminal and the paging buttons snap", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await open(page, "/backups", S, { wire: true });
+    await expect(page.getByRole("table")).toBeVisible();
+    const behaviours = await page.evaluate(() => [document.documentElement, document.querySelector("main")!]
+      .map((el) => getComputedStyle(el).scrollBehavior));
+    expect(behaviours).toEqual(["auto", "auto"]);
   });
 
   for (const theme of ["light", "dark"] as const) {

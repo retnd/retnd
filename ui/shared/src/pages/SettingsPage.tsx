@@ -16,11 +16,12 @@
  * node rather than fetching again, so this page and the compatibility
  * banner above it cannot name two different versions.
  */
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import type { RefObject } from "react";
 import type { ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { SETTINGS_SECTIONS, settingsAnchor } from "./settingsSections";
-import type { SettingsSection } from "./settingsSections";
+import { sectionForHash, settingsAnchor } from "./settingsSections";
+import type { SettingsSection } from "@shared/utilities/routes";
 import { useApi } from "@shared/api/ApiContext";
 import { usePlatform } from "@shared/platform/PlatformContext";
 import type { RecoverySettings } from "@shared/api/contracts";
@@ -85,17 +86,18 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
   // else on this page wants. What actually has to travel between them is
   // one bit, "what you read is now out of date", and this is that bit.
   const [destinationsRevision, setDestinationsRevision] = useState(0);
-  useScrollToHash();
+  const grid = useRef<HTMLDivElement>(null);
+  useScrollToHash(grid);
 
   return (
-    <>
+    <div data-settings-page="">
       <PageHeader
         title="Settings"
         tip="nav.settings"
         subtitle="Service behaviour, platform integration and build information"
       />
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.3fr) minmax(0, 1fr)", gap: 14, alignItems: "start" }}>
+      <div ref={grid} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.3fr) minmax(0, 1fr)", gap: 14, alignItems: "start" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {/* Issue #845. A "Service" card stood here once (#299) holding
               two decorative controls — a "Polling interval" picklist in
@@ -369,7 +371,7 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
           </section>
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -887,11 +889,13 @@ function Anchored({ section, children }: { section: SettingsSection; children: R
  * moment the reader scrolls, presses a key or touches the page, because a page
  * that fights you for the scroll position is worse than one that lands wrong.
  */
-function useScrollToHash() {
+function useScrollToHash(grid: RefObject<HTMLElement>) {
   const { hash } = useLocation();
   useEffect(() => {
-    const id = decodeURIComponent(hash.replace(/^#/, ""));
-    if (!id || !(Object.values(SETTINGS_SECTIONS) as string[]).includes(id)) return;
+    // An old id resolves to its new one, and a hash that does not decode
+    // names nothing (see sectionForHash) rather than throwing out of here.
+    const id = sectionForHash(hash);
+    if (!id) return;
     const target = document.getElementById(id);
     // :target does not follow an element that React draws after the hash was
     // set, which is every card here, so the highlight is also a data attribute.
@@ -905,12 +909,13 @@ function useScrollToHash() {
       first = false;
     };
     go();
-    const content = document.querySelector("main > div");
+    // The grid the cards load into is what grows and pushes the target down.
+    const content = grid.current;
     let live = true;
-    const stop = () => { live = false; observer?.disconnect(); };
     const observer = content && typeof ResizeObserver !== "undefined"
       ? new ResizeObserver(() => { if (live) go(); })
       : null;
+    const stop = () => { live = false; observer?.disconnect(); };
     if (content) observer?.observe(content);
     const timer = window.setTimeout(stop, 2500);
     const events = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
@@ -921,5 +926,5 @@ function useScrollToHash() {
       stop();
       for (const e of events) window.removeEventListener(e, stop);
     };
-  }, [hash]);
+  }, [hash, grid]);
 }

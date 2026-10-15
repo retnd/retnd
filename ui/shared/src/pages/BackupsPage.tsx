@@ -52,7 +52,7 @@ import type { RunTarget } from "@shared/assurance/recoverMany";
 import { BackupsSelectionBar } from "./BackupsSelectionBar";
 import { BackupsRecoverRun } from "./BackupsRecoverRun";
 import { inReceivedRange, unselectableReason } from "./backupSelection";
-import { PAGE_SIZES, allOffered, pageWindow, readPageSize, rememberPageSize } from "./backupsPaging";
+import { PAGE_SIZES, allOffered, isPageSize, pageWindow, readPageSize, rememberPageSize } from "./backupsPaging";
 import type { PageChoice, PageSize } from "./backupsPaging";
 
 /** Called "Backups", never "Restore points" — the product does not perform
@@ -167,7 +167,8 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   const pickSize = (v: string) => {
     setPageAt(0);
     if (v === "all") { setChoice("all"); return; }
-    const n = Number(v) as PageSize;
+    const n = Number(v);
+    if (!isPageSize(n)) return;
     setChoice(n); setRemembered(n); rememberPageSize(n);
   };
   const totalBytes = rows.reduce((n, a) => n + a.sizeBytes, 0);
@@ -177,12 +178,13 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   // page it already had, with the same columns and the same widths, and
   // nothing new to read past.
   const showsMedium = rows.some((a) => a.placements.some((p) => p.medium !== "local"));
-  // Counted off the rows actually LISTED, so the filter dropdown narrowing
-  // the table to a governed set takes the footnote with it. A note about
-  // rows that are not on screen is a note nobody can act on, which is the
-  // same reason the CLI's own footnote checks that a marked row printed.
-  const ungoverned = shown.filter((a) => a.retentionPolicy === "none").length;
-  const unreported = shown.filter((a) => a.retentionPolicy === "unknown").length;
+  // Counted off the rows LISTED, so the filter dropdown narrowing the table
+  // to a governed set takes the footnote with it. When the list runs over
+  // more than one page the note says both numbers, this page's and the
+  // list's, so page two never reads as if there were none (#1180).
+  const paged = shown.length < rows.length;
+  const ungoverned = { page: shown.filter((a) => a.retentionPolicy === "none").length, all: rows.filter((a) => a.retentionPolicy === "none").length };
+  const unreported = { page: shown.filter((a) => a.retentionPolicy === "unknown").length, all: rows.filter((a) => a.retentionPolicy === "unknown").length };
 
   return (
     <>
@@ -381,27 +383,27 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
               </tbody>
             </table>
           </div>
-          {ungoverned > 0 ? (
+          {(paged ? ungoverned.all : ungoverned.page) > 0 ? (
             <div className="card__footer" style={NOTE_STYLE}>
               <span aria-hidden="true" style={{ color: "var(--warn)", lineHeight: 1.5 }}>
                 <Icon name="warning" />
               </span>
               <span>
-                {(ungoverned === 1 ? "One backup above belongs" : ungoverned + " backups above belong") +
+                {backupsCounted(ungoverned, paged) + (ungoverned[paged ? "all" : "page"] === 1 ? " belongs" : " belong") +
                   " to a backup set whose configuration was removed. No retention policy selects them, so" +
                   " nothing here will ever delete them and they keep the space they occupy. Create the backup" +
                   " set again to put them back under a policy, or remove the files yourself."}
               </span>
             </div>
           ) : null}
-          {unreported > 0 ? (
+          {(paged ? unreported.all : unreported.page) > 0 ? (
             <div className="card__footer" style={NOTE_STYLE}>
               <span aria-hidden="true" style={{ color: "var(--warn)", lineHeight: 1.5 }}>
                 <Icon name="warning" />
               </span>
               <span>
                 {"This server did not say which retention policy governs " +
-                  (unreported === 1 ? "one backup above" : unreported + " backups above") +
+                  backupsCounted(unreported, paged).replace(/^One/, "one") +
                   ", so this page cannot tell you which of them nothing will ever delete." +
                   " Updating retnd restores the answer; the retnd unconfigured" +
                   " command has it in the meantime."}
@@ -483,6 +485,14 @@ function SelectBox({ artifact, on, onChange }: { artifact: BackupArtifact; on: b
       {why ? <span id={reasonId} style={{ position: "absolute", width: 1, height: 1, overflow: "hidden" }}>{why}</span> : null}
     </>
   );
+}
+
+/** "One backup above" on a page that holds the whole list, and "300 backups in
+ *  this list (3 on this page)" on one that does not. */
+function backupsCounted(n: { page: number; all: number }, paged: boolean): string {
+  if (!paged) return n.page === 1 ? "One backup above" : n.page + " backups above";
+  return (n.all === 1 ? "One backup in this list" : n.all + " backups in this list") +
+    " (" + (n.page === 0 ? "none" : n.page) + " on this page)";
 }
 
 /** The two footnotes under the table read as one voice, so they share one
