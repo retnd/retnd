@@ -14,21 +14,21 @@
     "manifest without regenerating this bundle changes that digest and",
     "TestProvenanceBundleIsTiedToTheReleaseManifest goes red."
   ],
-  "semanticVersion": "0.6.3",
-  "imageReference": "ghcr.io/retnd/retnd:0.6.3",
+  "semanticVersion": "0.6.4",
+  "imageReference": "ghcr.io/retnd/retnd:0.6.4",
   "releaseManifest": {
     "path": "container/release-manifest.json",
-    "sha256": "aeca13fcced6a78060b17ef3bb4b559839fac61705993b5248d1023f70baef17",
-    "commit": "8894bb76a6bb82e0c1859df43ce4e5f8462b9884",
-    "recordedBuildVersion": "0.6.3",
+    "sha256": "82f02ac812f7096e20d56c76cb84f5df47ef07a2e9506a9ebbb2080a90454880",
+    "commit": "577fcde3d461eeb0a14bfb3875c00f09a275c0e1",
+    "recordedBuildVersion": "0.6.4",
     "architectures": [
       "amd64",
       "arm64"
     ],
-    "published": true,
+    "published": false,
     "registryDigests": {
-      "amd64": "sha256:832534c46aa827dccc2952b5e47f3a21e55037ef9d1e29c855dd88fef4355636",
-      "arm64": "sha256:ed991d6b388696a9bd9d3d9f2682429902bb01557d4a23dbc02a86944b45cf5e"
+      "amd64": null,
+      "arm64": null
     },
     "versionIsABuildStamp": false
   },
@@ -51,19 +51,19 @@
   },
   "sbom": {
     "path": "provenance/sbom.spdx.json",
-    "sha256": "45f3c9372d6896219715f22966dd70a13278e1a5773314f3a14ff3e6bbabd95e",
+    "sha256": "0b4d7c3b3167b4f8f916300ef30a55ec71d1ea47eeaddcb98b65d7052e872978",
     "format": "SPDX-2.3"
   },
   "checksums": {
     "path": "provenance/checksums.txt",
-    "sha256": "9be77d568ff1684efe1552d0d16679600e2dc2b161f631c5b9e6b2648046f66d",
+    "sha256": "8759ca89ae43847f11e686af0a2805ed5afc2b63a3213fe33cd3611b328ba9a4",
     "format": "sha256sum"
   },
   "artifacts": [
     {
       "target": "casaos",
       "path": "apps/casaos/compose/retnd.yml",
-      "sha256": "c8ae628bf23bfd9621e890b3b2ac16c61887900e59558f181ee77fddc6290109"
+      "sha256": "acae34223880bf9ce6fe507dff53cd91a9f1ba62943999d7461243c7dd445750"
     },
     {
       "target": "casaos",
@@ -73,22 +73,22 @@
     {
       "target": "openmediavault",
       "path": "apps/openmediavault/compose/retnd.env",
-      "sha256": "7124a525e3c669f2f0b07b294083a79b874b39dc0762a5dc6ff34e2d066a7b49"
+      "sha256": "17bb9042f32f9ce2233ea332463a7a4af171c015e84941f911471a941ee1bbcb"
     },
     {
       "target": "openmediavault",
       "path": "apps/openmediavault/compose/retnd.yml",
-      "sha256": "5f729596a498132d34bbf4ff0f1a60343286012f766d2537c33466004808d2c8"
+      "sha256": "39e59cd5ed182c8d3e22745212393d517397316c0ffed815a708cc7236fae5ca"
     },
     {
       "target": "portainer",
       "path": "apps/portainer/compose/retnd.env",
-      "sha256": "ef59dce90609129623d1c9ce2fecc818fa605900b5ce12e55591c9ac9c3dc26c"
+      "sha256": "8245ecb997faf5ba5a94aca01f6a2c835a5fd57a25728ab5dca5c3e3211f2429"
     },
     {
       "target": "portainer",
       "path": "apps/portainer/compose/retnd.yml",
-      "sha256": "31e84062049eb497a759d80b09ea9a6874b4a508a5dbdd11eaa5a6512f434cd1"
+      "sha256": "10a7683ab0f771492fb6f4d29584108edf8007704747c84c273b18080401ccca"
     },
     {
       "target": "portainer",
@@ -98,17 +98,17 @@
     {
       "target": "portainer",
       "path": "apps/portainer/templates.json",
-      "sha256": "d552b7119ac3e4fd161c2b87cfb14a5e68bacf0f97290163554f248f120f8761"
+      "sha256": "13227ef33f43196d1bbc2aa37bddb360490312fa17e07afbfcb73cfb59cc4015"
     },
     {
       "target": "proxmox",
       "path": "apps/proxmox/compose/retnd.env",
-      "sha256": "ede67e8002e318f3841379da258ec654788c27274a79e4cf3e498c1d4d156392"
+      "sha256": "15c12cc729f491e80f51920fd6858577fb882d3dd57b53f5c4ec59560bd568b0"
     },
     {
       "target": "proxmox",
       "path": "apps/proxmox/compose/retnd.yml",
-      "sha256": "b7f14def1611233c959cef942c0cbb03e1c79ba861da965162eb9b5b3e94da51"
+      "sha256": "16aa26e0f7ace7972850d164a71027b5461db1f9639aa7c19e51c568bc6f4aa3"
     },
     {
       "target": "truenas",
@@ -118,12 +118,12 @@
     {
       "target": "truenas",
       "path": "apps/truenas/catalog/ix_values.yaml",
-      "sha256": "ef1b21848851611368a53782297124ec83de5ebf1e767cbcbd2a55770d0aa1d7"
+      "sha256": "ba25e891786576b9b335e498403937f13fffbcbaf1b52c214c0420785b3a277a"
     },
     {
       "target": "truenas",
       "path": "apps/truenas/catalog/questions.yaml",
-      "sha256": "02979313f7e52e9994128554c2ddd2d53b5327d35ecc058a355468b4c1d41472"
+      "sha256": "b19fa8be027d1bbdca18c7f47320eed1c113524e0a0c46abe171bdd8522af882"
     },
     {
       "target": "truenas",
@@ -133,22 +133,22 @@
     {
       "target": "truenas",
       "path": "apps/truenas/compose/retnd.yaml",
-      "sha256": "438d03ad7c858c83824c225a594b64bf16bc0c8f44caed87bb7f5ca555da1628"
+      "sha256": "98c768e31576cfeb5c9d0aa80b18b38a7b1ba593fc9c1e66decb886b4903c1fa"
     },
     {
       "target": "unraid",
       "path": "apps/unraid/template/retnd-ui.xml",
-      "sha256": "b55ca403491a8a52a721913f518c786a4aaf439ec412641880229076ef94bba3"
+      "sha256": "289806aab60e2f7e0de4caa81e6a924cd61284eb360ddb5b5addbc28143657c3"
     },
     {
       "target": "unraid",
       "path": "apps/unraid/template/retnd.xml",
-      "sha256": "2717dde817449464f5852f71f353333c2ba3c96df4a56314d9e5c546909d2db9"
+      "sha256": "343e110b9554139e85bff67da078183c8a46d21e2f53afba35d5b2b481649dff"
     },
     {
       "target": "zimaos",
       "path": "apps/zimaos/compose/retnd.yml",
-      "sha256": "7791da32866d4b132ce535ea6679f7c9ae40385d90b4bedd0a57f74b9aee7d51"
+      "sha256": "06e26c98707dc723143872612682db657969f9a74b9056ac52f7e5b2a5bd7e59"
     },
     {
       "target": "zimaos",
@@ -190,12 +190,14 @@
     "reason": "the source repository is public, so every declared link resolves for a reviewer outside the project"
   },
   "signing": {
-    "status": "signed",
+    "status": "unsigned",
     "method": "sigstore-keyless",
     "identity": "https://github.com/retnd/retnd/.github/workflows/release.yml@refs/heads/release",
     "transparencyLog": "https://rekor.sigstore.dev",
     "note": [
-      "Verify with: cosign verify --certificate-oidc-issuer https://token.actions.githubusercontent.com --certificate-identity https://github.com/retnd/retnd/.github/workflows/release.yml@refs/heads/release ghcr.io/retnd/retnd:0.6.3"
+      "Nothing has been pushed to ghcr.io/retnd/retnd:0.6.4, so there is no digest to sign and no signature to verify.",
+      "The mechanism is scripts/release/publish-image.sh; the key design is in docs/compliance/release-provenance.md.",
+      "There is no signing key to store, rotate or leak: the workflow's OIDC identity is exchanged for a short-lived Fulcio certificate at signing time."
     ]
   },
   "performance": {
