@@ -33,7 +33,7 @@
  * runner is not answering rather than showing a green global-scripts
  * list.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { useApi } from "@shared/api/ApiContext";
 import { Banner } from "@shared/components/Banner";
@@ -81,15 +81,17 @@ export function WorkflowSettingsCard({ readOnly }: { readOnly: boolean }) {
   // The draft is seeded from what was persisted, and re-seeded whenever a
   // read lands: a box showing a value the service does not have is the
   // defect a settings form is most likely to ship with.
-  useEffect(() => {
-    if (settings.data) {
-      setDraft({
-        beforeDir: settings.data.beforeDir,
-        afterDir: settings.data.afterDir,
-        scriptTimeoutSeconds: String(settings.data.scriptTimeoutSeconds)
-      });
-    }
-  }, [settings.data]);
+  // Re-seeded while rendering, against the read it was last seeded from,
+  // rather than in an effect that renders the stale draft first.
+  const [seededFrom, setSeededFrom] = useState<typeof settings.data | null>(null);
+  if (settings.data && settings.data !== seededFrom) {
+    setSeededFrom(settings.data);
+    setDraft({
+      beforeDir: settings.data.beforeDir,
+      afterDir: settings.data.afterDir,
+      scriptTimeoutSeconds: String(settings.data.scriptTimeoutSeconds)
+    });
+  }
 
   const save = useCallback(
     (box: Box) => {

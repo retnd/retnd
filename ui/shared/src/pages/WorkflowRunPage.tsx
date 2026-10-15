@@ -137,11 +137,11 @@ export function WorkflowRunPage({ readOnly }: { readOnly: boolean }) {
   // pointing at nothing: a run being re-planned changes its step ids, and
   // a slot holding a stale one would poll a log route that answers
   // WORKFLOW_STEP_NOT_FOUND for as long as the page stayed open.
-  useEffect(() => {
-    if (selectedStepId !== null && !stepList.some((step) => step.stepId === selectedStepId)) {
-      setSelectedStepId(null);
-    }
-  }, [selectedStepId, stepList]);
+  // Dropped while rendering rather than in an effect, so no frame renders
+  // with the stale id and nothing cascades a second render pass.
+  if (selectedStepId !== null && !stepList.some((step) => step.stepId === selectedStepId)) {
+    setSelectedStepId(null);
+  }
 
   // Bound once, because the header reads it several times and TypeScript
   // cannot know a field it re-read is still the same object.
