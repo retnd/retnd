@@ -8,6 +8,8 @@ import { MemoryRouter } from "react-router-dom";
 import { AppShell } from "@shared/layouts/AppShell";
 import { PlatformProvider } from "@shared/platform/PlatformContext";
 import { genericBridge } from "../../../../apps/generic/frontend/platform";
+import { ApiProvider } from "@shared/api/ApiContext";
+import { createMockApi } from "@shared/api/mock";
 import { graph, resetGraphForTests } from "@shared/state/graph";
 import { artifactsNode, countsNode, healthNode, setsNode } from "@shared/state/appNodes";
 import type { BackupArtifact } from "@shared/types/backup";
@@ -15,6 +17,7 @@ import type { BackupArtifact } from "@shared/types/backup";
 function shell(backups: number | undefined) {
   render(
     <PlatformProvider bridge={genericBridge}>
+      <ApiProvider api={createMockApi()}>
       <MemoryRouter>
         <AppShell
           health={null} version={null} theme="light"
@@ -24,6 +27,7 @@ function shell(backups: number | undefined) {
           <div />
         </AppShell>
       </MemoryRouter>
+      </ApiProvider>
     </PlatformProvider>
   );
 }
