@@ -74,6 +74,68 @@ func (r *engineRoute) ImportSSHKey(ctx context.Context, raw []byte, passphrase s
 	}, nil
 }
 
+// ListSSHKeys is GET /ssh-keys, read back into the service's vocabulary.
+//
+// The CLI prints from service.SSHKeyListing and converts to the wire object
+// with service.SSHKeysToWire for --json, which is the conversion the
+// engine's own handler is held to. Converting here and back is lossless
+// for every field the wire carries (the one time field is RFC 3339 to the
+// second on both sides), and it is what lets one printer serve a store
+// read from this host's disk and one read from an engine.
+func (r *engineRoute) ListSSHKeys(ctx context.Context) ([]service.SSHKeyListing, error) {
+	resp, err := r.client.ListSSHKeys(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]service.SSHKeyListing, 0, len(resp.Keys))
+	for _, k := range resp.Keys {
+		listing := service.SSHKeyListing{
+			ID: k.ID, Algorithm: k.Algorithm, Fingerprint: k.Fingerprint, PublicKey: k.PublicKey,
+			PassphraseProtected: k.PassphraseProtected, Problem: k.Problem, UsedBy: k.UsedBy,
+		}
+		if k.ImportedAt != "" {
+			if at, err := time.Parse(time.RFC3339, k.ImportedAt); err == nil {
+				listing.ImportedAt = at
+			}
+		}
+		out = append(out, listing)
+	}
+	return out, nil
+}
+
+// DiscoverSSHKeyCandidates is GET /ssh/key-candidates: the keys the ENGINE
+// can see on its own machine, which is the only scan that says anything
+// about the keys it could use.
+func (r *engineRoute) DiscoverSSHKeyCandidates(ctx context.Context) (service.SSHKeyDiscovery, error) {
+	resp, err := r.client.ListSSHKeyCandidates(ctx)
+	if err != nil {
+		return service.SSHKeyDiscovery{}, err
+	}
+	var out service.SSHKeyDiscovery
+	for _, l := range resp.Locations {
+		out.Locations = append(out.Locations, service.SSHKeyDiscoveryLocation{Path: l.Path, Kind: l.Kind, Found: l.Found, Problem: l.Problem})
+	}
+	for _, c := range resp.Candidates {
+		out.Candidates = append(out.Candidates, service.SSHKeyCandidate{
+			ID: c.ID, Path: c.Path, Location: c.Location, Algorithm: c.Algorithm, Fingerprint: c.Fingerprint,
+			PublicKey: c.PublicKey, Mode: c.Mode, InStore: c.InStore, InStoreID: c.InStoreID,
+			Selectable: c.Selectable, Reason: c.Reason,
+		})
+	}
+	return out, nil
+}
+
+// ImportSSHKeyCandidate is POST /ssh-keys/from-candidate: an opaque handle
+// and no key material, so nothing crosses the wire that was not already on
+// the engine's machine.
+func (r *engineRoute) ImportSSHKeyCandidate(ctx context.Context, candidateID string) (service.SSHKeyRef, error) {
+	resp, err := r.client.ImportSSHKeyFromCandidate(ctx, apicontract.ImportSSHKeyFromCandidateRequest{CandidateID: candidateID})
+	if err != nil {
+		return service.SSHKeyRef{}, err
+	}
+	return service.SSHKeyRef{ID: resp.ID, Algorithm: resp.Algorithm, Fingerprint: resp.Fingerprint}, nil
+}
+
 // ProbeHostKey asks the ENGINE to dial the source and report what
 // answered, which is the only end whose answer is worth trusting: the
 // engine is the process that will be pulling backups over that connection.

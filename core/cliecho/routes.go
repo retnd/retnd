@@ -46,8 +46,6 @@ const (
 
 	gapRunBackupSet = "`" + Binary + " fetch --backup-set <source/backup-set>` runs that set's cycle in your own shell, not in this engine, so it is a different act against a different process"
 
-	gapDeploymentScope = "there is no flag that narrows `activity --follow` to the deployment's own events: --backup-set names one set, and naming none already means every set"
-
 	// Issue #624. The candidate half of the connection check has no verb
 	// and deliberately gets none, which is a decision rather than the next
 	// gap to close. A candidate is a form somebody is still typing: its
@@ -673,18 +671,17 @@ var routes = map[string]entry{
 	key("GET", "/backups"): {
 		build: func(a Action) *cmd {
 			c := newCmd("artifacts")
-			if set := a.Query.Get("backup_set"); set != "" {
+			// The route's one filter is setId (handlers_artifacts.go). It
+			// reads nothing else, so nothing else is echoed: a printed
+			// --source would show more than the panel being read.
+			if set := a.Query.Get("setId"); set != "" {
 				c.flag("backup-set", set)
-			}
-			if source := a.Query.Get("source"); source != "" {
-				c.flag("source", source)
 			}
 			return c
 		},
 		examples: []Action{
 			{},
-			{Query: mustQuery("backup_set=api-server/var-backups")},
-			{Query: mustQuery("source=api-server")},
+			{Query: mustQuery("setId=api-server/var-backups")},
 		},
 	},
 	key("GET", "/backups/{source}/{set}/{name}"): {
@@ -843,19 +840,15 @@ var routes = map[string]entry{
 	},
 	key("GET", "/activity/live"): {
 		build: func(a Action) *cmd {
-			// scope=deployment narrows the read to the deployment's own
-			// bucket and no set at all, and --backup-set cannot say it:
-			// naming no set already means every set. So this is a real
-			// gap on a route that otherwise has a command, and it is
-			// named as one rather than being answered with the wider
-			// read, which would print a command that shows an operator
-			// more than the panel they are reading does.
-			if a.Query.Get("scope") == "deployment" {
-				return newCmd().refuse(gapDeploymentScope)
-			}
 			c := newCmd("activity").bare("follow")
 			if set := a.Query.Get("backup_set"); set != "" {
+				// A named set wins over scope=deployment, the way the
+				// route answers it (a named set is the narrower
+				// question), and the CLI refuses the pair outright, so
+				// the pair is never echoed.
 				c.flag("backup-set", set)
+			} else if a.Query.Get("scope") == "deployment" {
+				c.flag("scope", "deployment")
 			}
 			if n := positiveQuery(a, "limit"); n > 0 {
 				c.flag("limit", itoa(n))
@@ -866,13 +859,12 @@ var routes = map[string]entry{
 			// now; there is no flag for it and there should not be one.
 			return c
 		},
-		refusals:          []string{gapDeploymentScope},
-		namesShippedVerbs: []string{"activity"},
 		examples: []Action{
 			{},
 			{Query: mustQuery("backup_set=api-server%2Fvar-backups&limit=25")},
 			{Query: mustQuery("since=42")},
 			{Query: mustQuery("scope=deployment")},
+			{Query: mustQuery("scope=deployment&backup_set=api-server%2Fvar-backups")},
 		},
 	},
 
@@ -1117,46 +1109,78 @@ var routes = map[string]entry{
 	},
 
 	// ------------------------------------------------------------- ssh ---
+	//
+	// The key store and the host-key probe had no verb until #1153, and
+	// each of these five entries was a written gap saying so. They name
+	// their verbs now. Key material and the passphrase are in the body
+	// and stay there: the key is a FILE on the command line and the
+	// passphrase is the first line of stdin, so the line is exportable.
 	key("POST", "/ssh-keys"): {
-		// Never a command, and the reason is the interesting half. This
-		// request carries private_key_pem and a passphrase, and the only
-		// place a key reaches the CLI is as a FILE on
-		// `backup-set create --ssh-key-file`. There is no import verb, so
-		// there is nothing to print, and what is printed instead names
-		// the flag and never the material.
-		why:               "a key reaches the CLI as a file on `backup-set create --ssh-key-file <the private key file you chose>`; there is no verb that imports one on its own, and the key itself never goes on a command line",
-		namesShippedVerbs: []string{"backup-set"},
+		build: func(a Action) *cmd {
+			var req struct {
+				Passphrase string `json:"passphrase"`
+			}
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("ssh-key", "import").placeholderFlag("file", "the private key file you chose")
+			if req.Passphrase != "" {
+				c.bare("passphrase-stdin")
+			}
+			return c
+		},
+		why: "the request body would not decode, so there is no command that says what it imported",
+		examples: []Action{
+			{Body: []byte(`{"private_key_pem":"x"}`)},
+			{Body: []byte(`{"private_key_pem":"x","passphrase":"y"}`)},
+		},
 	},
-	// The other import (#592), and a DIFFERENT gap from the one above,
-	// which is why it is a separate sentence rather than a clause on that
-	// one. A pasted key has nowhere to go on a command line at all. A
-	// selected candidate has an opaque id that would sit on one
-	// perfectly well, and the only thing missing is a verb that takes it.
+	// Selecting a candidate (#592). An opaque handle that sits on a command
+	// line perfectly well, and `ssh-key import --candidate` is the verb
+	// that takes it.
 	key("POST", "/ssh-keys/from-candidate"): {
-		why: "there is no verb that imports a key this machine already holds; the id is an opaque handle that would sit on a command line perfectly well, and `" + Binary + " ssh-key import --candidate ID` would be it",
+		build: func(a Action) *cmd {
+			var req struct {
+				CandidateID string `json:"candidate_id"`
+			}
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			return newCmd("ssh-key", "import").flagIfSet("candidate", req.CandidateID)
+		},
+		why: "the request body would not decode, so there is no command that says which candidate it selected",
+		examples: []Action{
+			{Body: []byte(`{"candidate_id":"cand_1"}`)},
+		},
 	},
 	key("POST", "/ssh/host-key-probe"): {
-		why: "there is no verb that probes a host key on its own; a terminal settles it with --trust-host-key or --known-hosts-line while creating or patching a set",
+		build: func(a Action) *cmd {
+			var req struct {
+				Host string `json:"host"`
+				Port int    `json:"port"`
+			}
+			if !decode(a.Body, &req) || req.Host == "" {
+				return nil
+			}
+			c := newCmd("ssh", "host-key-probe", req.Host)
+			if req.Port > 0 {
+				c.flag("port", itoa(req.Port))
+			}
+			return c
+		},
+		why: "the request names no host, so there is nothing to probe and no command that says what was probed",
+		examples: []Action{
+			{Body: []byte(`{"host":"source.example.internal","port":2222}`)},
+			{Body: []byte(`{"host":"source.example.internal","port":22}`)},
+		},
 	},
-
-	// The two reads the wizard's first step is built on (#592). Both are
-	// gaps rather than commands, and the gap sentence is doing real work
-	// here: `backup-set patch --ssh-key-id ID` has existed since #572 and
-	// takes an id nobody has, because nothing on either surface would
-	// print one. So this is the exact shape EPIC G's parity rule exists
-	// to make visible, and it names the verbs that would close it rather
-	// than saying "no equivalent".
-	//
-	// They stay gaps until those verbs exist. Printing a command this
-	// binary does not declare would be printing something an operator
-	// pastes and gets exit 2 from, which the dispatcher-driven parity
-	// test in core/cmd/retnd catches on purpose.
 	key("GET", "/ssh-keys"): {
-		why:               "there is no verb that lists the key store, which is why `backup-set patch --ssh-key-id ID` currently takes an id nothing will print for you. `" + Binary + " ssh-key list` would be it",
-		namesShippedVerbs: []string{"backup-set"},
+		build:    func(Action) *cmd { return newCmd("ssh-key", "list") },
+		examples: []Action{{}},
 	},
 	key("GET", "/ssh/key-candidates"): {
-		why: "there is no verb that scans this machine for keys it can offer, so the key the installer generated and mounted is reachable from the browser and not from a terminal. `" + Binary + " ssh-key discover` would be it",
+		build:    func(Action) *cmd { return newCmd("ssh-key", "discover") },
+		examples: []Action{{}},
 	},
 
 	// -------------------------------------------------------- settings ---
@@ -1656,6 +1680,112 @@ var routes = map[string]entry{
 				Body: []byte(`{"reason":"unmounted the snapshot by hand and checked the database is writable"}`)},
 		},
 	},
+	// ------------------------------------------------------------ auth ---
+	//
+	// The twelve /auth routes are served by a separate router
+	// (apps/common/auth/local, mounted at /api/v1/auth/), so a walk of the
+	// engine router never sees them and this table had no entry for any.
+	// Each now carries one. They are browser-session plumbing or an
+	// account act with no terminal verb, and the reason says which.
+	key("POST", "/auth/login"): {
+		why: "a login opens a browser session, and a terminal holds no session: a routed command signs in with $RETND_API_USERNAME and $RETND_API_PASSWORD for the one invocation, so there is nothing to type",
+	},
+	key("POST", "/auth/enroll"): {
+		why: "the first administrator is made by `" + WebBinary + " auth create-admin --username U --password-stdin`, offline, against the store, and it refuses while a server holds the store or once an administrator exists; there is no routed verb for it, because there is no engine account to sign in as yet",
+	},
+	key("POST", "/auth/password"): {
+		build: func(Action) *cmd {
+			// Both passwords are in the body and neither goes on the line:
+			// the verb reads the current one and then the new one from stdin.
+			return newCmd("auth", "password").bare("password-stdin")
+		},
+		examples: []Action{{}},
+	},
+	key("POST", "/auth/logout"): {
+		why: "a logout ends a browser session, and a terminal holds none",
+	},
+	key("GET", "/auth/session"): {
+		why: "a session read answers a browser's question about its own cookie, and a terminal holds no session to ask about",
+	},
+	key("POST", "/auth/forgot-password"): {
+		why:               "there is no verb that asks for a password-reset email from a terminal; it is the browser's path for an account with a working mail server, and a terminal that can reach the engine at all can change the password with `" + Binary + " auth password`",
+		namesShippedVerbs: []string{"auth"},
+	},
+	key("POST", "/auth/reset-password"): {
+		why: "there is no verb that redeems a password-reset token from a terminal. An administrator locked out with no mail configured does have a way back in: `" + WebBinary + " auth set-password --username U --password-stdin`, offline, with the server stopped",
+	},
+	key("POST", "/auth/verify-email"): {
+		build: func(Action) *cmd {
+			return newCmd("auth", "verify-email").bare("token-stdin")
+		},
+		examples: []Action{{}},
+	},
+	key("POST", "/auth/verify-email/resend"): {
+		build: func(Action) *cmd {
+			return newCmd("auth", "verify-email").bare("resend")
+		},
+		examples: []Action{{}},
+	},
+	key("GET", "/auth/recovery"): {
+		build:    func(Action) *cmd { return newCmd("auth", "recovery", "show") },
+		examples: []Action{{}},
+	},
+	key("PATCH", "/auth/recovery"): {
+		why: "the request body would not decode, so there is no command that says what it changed",
+		build: func(a Action) *cmd {
+			// The current password and the SMTP password are in the body
+			// and stay there: the verb takes them from stdin. The values
+			// that remain are an address and an endpoint an operator
+			// typed, which are shown as stand-ins all the same, because
+			// the line is exportable and a recovery address is the one
+			// thing an account's owner may not want in a pasted log.
+			var req struct {
+				RecoveryEmail *string `json:"recoveryEmail"`
+				Smtp          *struct {
+					Host     string `json:"host"`
+					Port     int    `json:"port"`
+					Security string `json:"security"`
+					Username string `json:"username"`
+					From     string `json:"from"`
+					Password string `json:"password"`
+				} `json:"smtp"`
+			}
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("auth", "recovery", "set").bare("current-password-stdin")
+			if req.RecoveryEmail != nil {
+				c.placeholderFlag("recovery-email", "the recovery address")
+			}
+			if s := req.Smtp; s != nil {
+				c.placeholderFlag("smtp-host", "the SMTP host")
+				if s.Port > 0 {
+					c.flag("smtp-port", itoa(s.Port))
+				}
+				if s.Security != "" {
+					c.placeholderFlag("smtp-security", "starttls, tls or none")
+				}
+				if s.Username != "" {
+					c.placeholderFlag("smtp-username", "the SMTP username")
+				}
+				if s.From != "" {
+					c.placeholderFlag("smtp-from", "the sender address")
+				}
+				if s.Password != "" {
+					c.bare("smtp-password-stdin")
+				}
+			}
+			return c
+		},
+		examples: []Action{
+			{Body: []byte(`{"currentPassword":"x","recoveryEmail":"ops@example.org"}`)},
+			{Body: []byte(`{"currentPassword":"x","smtp":{"host":"smtp.example.org","port":2525,"security":"tls","username":"mailer","from":"retnd@example.org","password":"y"}}`)},
+		},
+	},
+	key("POST", "/auth/recovery/test"): {
+		build:    func(Action) *cmd { return newCmd("auth", "recovery", "test") },
+		examples: []Action{{}},
+	},
 }
 
 // workflowEnvSetFlags puts one environment entry's value onto an `env
@@ -1961,4 +2091,20 @@ func onOff(v bool) string {
 	}
 
 	return "off"
+}
+
+// RecordedReasons is the written reason each route outside /api/v1 has no
+// verb and no entry in the table above, and is not in api/v1/openapi.json.
+// Nothing here is echoed: these are the two unauthenticated probes an
+// orchestrator calls, which are infrastructure and not operator actions.
+//
+// It exists so that "registered, with no answer" has two ways to be
+// resolved, an entry or a reason, and so the route-to-verb guard in
+// apps/common/webhost (issue #1150) can tell a probe somebody thought about
+// from a route somebody forgot.
+func RecordedReasons() map[string]string {
+	return map[string]string{
+		"GET /health/live":  "an unauthenticated liveness probe for an orchestrator, deliberately outside /api/v1 and the spec; `" + WebBinary + " healthcheck --url` is the command that calls any probe",
+		"GET /health/ready": "an unauthenticated readiness probe for an orchestrator, deliberately outside /api/v1 and the spec; `" + WebBinary + " healthcheck --url` is the command that calls any probe",
+	}
 }

@@ -347,10 +347,14 @@ type backupSetFlags struct {
 	// the two SSH-facing things a backup set has: which key it
 	// authenticates with, and which host key it trusts. Within each pair
 	// the two flags are alternatives, never a preference order.
-	keyFile        *string
-	keyID          *string
-	knownHostsLine *string
-	trustHostKey   *bool
+	keyFile *string
+	// keyPassphraseStdin says the passphrase that unlocks --ssh-key-file is
+	// the first line of stdin. It is a bool and never a value: a passphrase
+	// in a flag is in the process list and the shell history (issue #1153).
+	keyPassphraseStdin *bool
+	keyID              *string
+	knownHostsLine     *string
+	trustHostKey       *bool
 
 	// create only.
 	disabled      *bool
@@ -440,6 +444,7 @@ func declareBackupSetFlags() *backupSetFlags {
 	f.validatorID = fs.String("validator-id", "", `create, patch: validation.validator_id, an id the validator catalog lists, or "" for none`)
 
 	f.keyFile = fs.String("ssh-key-file", "", "create, patch: path to the SSH PRIVATE KEY to use for this set. Read once, validated, and copied into this deployment's own key store; the original is left alone. On patch this is a key rotation")
+	f.keyPassphraseStdin = fs.Bool("ssh-key-passphrase-stdin", false, "create, patch: the key named by --ssh-key-file is passphrase-protected, and its passphrase is the first line of stdin. Never a flag, so it is not in the process list or the shell history, and nothing prints it")
 	f.keyID = fs.String("ssh-key-id", "", "create, patch: the id of a key this deployment has already imported, instead of importing another copy")
 	f.knownHostsLine = fs.String("known-hosts-line", "", "create, patch: the exact known_hosts line to trust for this host, as `ssh-keyscan` prints it. On patch, one that pins a different key from the one on record needs --acknowledge-host-key-change")
 	f.trustHostKey = fs.Bool("trust-host-key", false, "create, patch: probe the host now and trust whatever key answers. Trust on first use, and a real trust decision: use --known-hosts-line when the key is already known. On patch it needs --host to say what to probe")
@@ -544,6 +549,9 @@ func backupSetCreate(f *backupSetFlags, sourceName, name string) int {
 	if *f.keyFile == "" && *f.keyID == "" {
 		return usageError("backup-set create: name a key with --ssh-key-file (to import one) or --ssh-key-id (to reuse one already imported)")
 	}
+	if *f.keyPassphraseStdin && *f.keyFile == "" {
+		return usageError("backup-set create: --ssh-key-passphrase-stdin unlocks the key named by --ssh-key-file, and none was named")
+	}
 	if *f.knownHostsLine != "" && *f.trustHostKey {
 		return usageError("backup-set create: --known-hosts-line and --trust-host-key are alternatives; pass one")
 	}
@@ -600,6 +608,11 @@ func backupSetCreate(f *backupSetFlags, sourceName, name string) int {
 		VerificationRestoreDrillEvery: *f.verificationRestoreDrillEvery,
 	}
 
+	keyPassphrase, err := readKeyPassphrase(*f.keyPassphraseStdin, "backup-set create")
+	if err != nil {
+		return fail(err)
+	}
+
 	ctx := context.Background()
 	// Resolved before the stat, never as supplied: --config may name the
 	// configuration DIRECTORY the packaging mounts (#196), and statting
@@ -610,9 +623,9 @@ func backupSetCreate(f *backupSetFlags, sourceName, name string) int {
 	// the same decision before it opens anything.
 	configFile := config.ResolvePath(*f.cfgPath)
 	if _, statErr := os.Stat(configFile); errors.Is(statErr, os.ErrNotExist) {
-		return createFirstConfig(ctx, configFile, *f.stateDatabase, *f.keyFile, *f.trustHostKey, *f.noVerify, req)
+		return createFirstConfig(ctx, configFile, *f.stateDatabase, *f.keyFile, keyPassphrase, *f.trustHostKey, *f.noVerify, req)
 	}
-	return createIntoExistingConfig(ctx, *f.cfgPath, *f.keyFile, *f.trustHostKey, *f.noVerify, req)
+	return createIntoExistingConfig(ctx, *f.cfgPath, *f.keyFile, keyPassphrase, *f.trustHostKey, *f.noVerify, req)
 }
 
 // backupSetPatch is the `patch` verb, and openConfigWriteRoute settles
@@ -633,6 +646,9 @@ func backupSetPatch(f *backupSetFlags, id string) int {
 	// nobody looked at.
 	if *f.keyFile != "" && *f.keyID != "" {
 		return usageError("backup-set patch: --ssh-key-file and --ssh-key-id are alternatives; pass one")
+	}
+	if *f.keyPassphraseStdin && *f.keyFile == "" {
+		return usageError("backup-set patch: --ssh-key-passphrase-stdin unlocks the key named by --ssh-key-file, and none was named")
 	}
 	if *f.knownHostsLine != "" && *f.trustHostKey {
 		return usageError("backup-set patch: --known-hosts-line and --trust-host-key are alternatives; pass one")
@@ -662,6 +678,11 @@ func backupSetPatch(f *backupSetFlags, id string) int {
 		return usageError("backup-set patch: name at least one field to change (see --help); a patch that changes nothing would rewrite and reload the configuration to no effect")
 	}
 
+	keyPassphrase, err := readKeyPassphrase(*f.keyPassphraseStdin, "backup-set patch")
+	if err != nil {
+		return fail(err)
+	}
+
 	ctx := context.Background()
 	route, cleanup, err := openConfigWriteRoute(ctx, *f.cfgPath)
 	if err != nil {
@@ -675,7 +696,7 @@ func backupSetPatch(f *backupSetFlags, id string) int {
 	// key imported for a routed patch lands in the key store of the
 	// process that will go on serving the set rather than this one's.
 	if *f.keyFile != "" {
-		keyID, err := importKeyFile(ctx, route, *f.keyFile)
+		keyID, err := importKeyFile(ctx, route, *f.keyFile, keyPassphrase)
 		if err != nil {
 			return fail(err)
 		}
@@ -847,7 +868,7 @@ const cliActor = "cli"
 // createIntoExistingConfig folds one new backup set into a configuration
 // that already exists, through the same BackupService method POST
 // /api/v1/backup-sets calls, in this process.
-func createIntoExistingConfig(ctx context.Context, configPath, keyFile string, trustHostKey, noVerify bool, req service.CreateBackupSetRequest) int {
+func createIntoExistingConfig(ctx context.Context, configPath, keyFile, keyPassphrase string, trustHostKey, noVerify bool, req service.CreateBackupSetRequest) int {
 	route, cleanup, err := openConfigWriteRoute(ctx, configPath)
 	if err != nil {
 		return fail(err)
@@ -856,7 +877,7 @@ func createIntoExistingConfig(ctx context.Context, configPath, keyFile string, t
 
 	logStartup(ctx, logger(), app.BuildVersionInfo(version, commit))
 
-	if err := resolveKeyAndTrust(ctx, route, keyFile, trustHostKey, &req); err != nil {
+	if err := resolveKeyAndTrust(ctx, route, keyFile, keyPassphrase, trustHostKey, &req); err != nil {
 		return fail(err)
 	}
 
@@ -885,7 +906,7 @@ func createIntoExistingConfig(ctx context.Context, configPath, keyFile string, t
 // (issue #176: a fresh install serves a setup flow rather than refusing
 // to start), so this is the path a machine the installer has just set up
 // actually takes, and the two-machine end-to-end test walks it.
-func createFirstConfig(ctx context.Context, configFile, stateDatabase, keyFile string, trustHostKey, noVerify bool, req service.CreateBackupSetRequest) int {
+func createFirstConfig(ctx context.Context, configFile, stateDatabase, keyFile, keyPassphrase string, trustHostKey, noVerify bool, req service.CreateBackupSetRequest) int {
 	if req.RunImmediately {
 		// The service ignores RunImmediately here, because a first-run
 		// instance has no BackupService to submit an operation to yet.
@@ -937,7 +958,7 @@ func createFirstConfig(ctx context.Context, configFile, stateDatabase, keyFile s
 		return fail(err)
 	}
 
-	if err := resolveKeyAndTrust(ctx, firstRun, keyFile, trustHostKey, &req); err != nil {
+	if err := resolveKeyAndTrust(ctx, firstRun, keyFile, keyPassphrase, trustHostKey, &req); err != nil {
 		return fail(err)
 	}
 
@@ -984,9 +1005,9 @@ type backupSetCreatePrereqs interface {
 // ImportSSHKey, which is the only thing that reads key material anywhere
 // in this binary. It is never logged, never echoed and never written
 // anywhere but the key store ImportSSHKey owns.
-func resolveKeyAndTrust(ctx context.Context, svc backupSetCreatePrereqs, keyFile string, trustHostKey bool, req *service.CreateBackupSetRequest) error {
+func resolveKeyAndTrust(ctx context.Context, svc backupSetCreatePrereqs, keyFile, keyPassphrase string, trustHostKey bool, req *service.CreateBackupSetRequest) error {
 	if keyFile != "" {
-		id, err := importKeyFile(ctx, svc, keyFile)
+		id, err := importKeyFile(ctx, svc, keyFile, keyPassphrase)
 		if err != nil {
 			return err
 		}
@@ -1010,14 +1031,14 @@ func resolveKeyAndTrust(ctx context.Context, svc backupSetCreatePrereqs, keyFile
 // and reports the id the set will carry. Split out of resolveKeyAndTrust
 // so `patch` performs the identical step rather than a rotation-shaped
 // copy of it (issue #572).
-func importKeyFile(ctx context.Context, svc backupSetCreatePrereqs, keyFile string) (string, error) {
+func importKeyFile(ctx context.Context, svc backupSetCreatePrereqs, keyFile, passphrase string) (string, error) {
 	raw, err := os.ReadFile(keyFile)
 	if err != nil {
 		return "", fmt.Errorf("reading the SSH key at %s: %w", keyFile, err)
 	}
-	ref, err := svc.ImportSSHKey(ctx, raw, "")
+	ref, err := svc.ImportSSHKey(ctx, raw, passphrase)
 	if err != nil {
-		return "", err
+		return "", withPassphraseHint(err, passphrase != "", "--ssh-key-passphrase-stdin")
 	}
 	// The fingerprint, never the path: what an operator needs to
 	// confirm is which key was adopted, and where this deployment

@@ -87,6 +87,9 @@ var commands = map[string]func([]string) int{
 	"scrub":           cmdScrub,
 	"recovery-test":   cmdRecoveryTest,
 	"assurance":       cmdAssurance,
+	"auth":            cmdAuth,
+	"ssh-key":         cmdSSHKey,
+	"ssh":             cmdSSH,
 	"operation":       cmdOperation,
 	"system":          cmdSystem,
 	"catalog":         cmdCatalog,
@@ -159,6 +162,8 @@ commands:
                     [--engine artifact|kopia] [--repository-domain D] [--source-consistency S]
                     [--verification-level L] [--verification-sample-percent N]
                     [--verification-full-every D] [--verification-restore-drill-every D]
+                    [--ssh-key-passphrase-stdin]
+                    [--port N] [--acknowledge-repoint] [--state-database PATH]
                     [--uuid U] [--source-mount-prefix P]
                     [--no-verify]
                                                   create a backup set. Beside a serving engine this command has a
@@ -186,6 +191,7 @@ commands:
                     [--verification-full-every D] [--verification-restore-drill-every D]
                     [--poll-interval D]
                     [--acknowledge-repoint] [--acknowledge-host-key-change]
+                    [--ssh-key-passphrase-stdin]
                     [--no-verify]
                                                   change one configured backup set in place; only the flags you pass are
                                                   changed. Beside a serving engine this command has a route to, that is
@@ -349,6 +355,61 @@ commands:
                                                   this deployment, so this needs RETND_API_URL and the two credential
                                                   variables beside it and is refused without them. The same as
                                                   POST /api/v1/assurance/operations/{op}/cancel (EPIC Q)
+  auth password --password-stdin
+                                                  change the administrator's password. The current password and then the
+                                                  new one come from stdin, one per line, and never from a flag, so neither
+                                                  is in the process list or the shell history; nothing prints them. The
+                                                  account belongs to the process serving this deployment, so this needs
+                                                  RETND_API_URL and the two credential variables beside it and is refused
+                                                  without them. Locked out with nothing serving? `+cliecho.WebBinary+` auth
+                                                  set-password --username U --password-stdin resets it offline. The same
+                                                  as POST /api/v1/auth/password (#1155)
+  auth recovery show [--json]
+                                                  the recovery address (confirmed, verified, and the deadline an unverified
+                                                  one lapses at) and the SMTP endpoint without its password. Routed, as
+                                                  above. The same as GET /api/v1/auth/recovery
+  auth recovery set --current-password-stdin [--recovery-email ADDR]
+                          [--smtp-host H [--smtp-port N] [--smtp-security starttls|tls|none]
+                          [--smtp-username U] [--smtp-from ADDR] [--smtp-password-stdin]] [--json]
+                                                  change the recovery address, the SMTP endpoint, or both. The current
+                                                  password is the first line of stdin and the SMTP password, if there is
+                                                  one, the second; neither is ever a flag. The engine sends a message over
+                                                  the endpoint before it keeps the change, so a mail server that says no
+                                                  refuses the whole update. The same as PATCH /api/v1/auth/recovery
+  auth recovery test
+                                                  send the recovery test message to the recovery address now. The same as
+                                                  POST /api/v1/auth/recovery/test
+  auth verify-email --token-stdin | --resend
+                                                  redeem the verification token out of the emailed link (from stdin, never
+                                                  a flag), or ask for the message to be sent again. The same as
+                                                  POST /api/v1/auth/verify-email and /resend
+  ssh-key list [--json]
+                                                  the keys in this deployment's key store: id, algorithm, fingerprint,
+                                                  when it was imported and which backup sets use it. The id is the one
+                                                  backup-set create|patch --ssh-key-id takes. Public halves only; a
+                                                  key's bytes are never printed. Beside a serving engine this is its
+                                                  store (GET /api/v1/ssh-keys); with nothing serving, this host's
+  ssh-key import --file F [--passphrase-stdin] | --candidate ID [--json]
+                                                  add a key to the store and print its fingerprint and id. --file is a
+                                                  private key file, read once and copied; the original is left alone. A
+                                                  passphrase-protected key takes --passphrase-stdin and its passphrase
+                                                  as the first line of stdin. Key bytes and passphrases are never
+                                                  a flag and never printed. --candidate is an id ssh-key discover listed, for
+                                                  a key the machine already holds, and sends no key material at all.
+                                                  backup-set create and patch take the same passphrase as
+                                                  --ssh-key-passphrase-stdin, beside --ssh-key-file.
+                                                  The same as POST /api/v1/ssh-keys and /ssh-keys/from-candidate (#1153)
+  ssh-key discover [--json]
+                                                  every place that could hold a key, and the keys found there with
+                                                  their fingerprints. The places are listed even when empty, so "no
+                                                  keys" and "could not look where your keys are" read differently.
+                                                  The same as GET /api/v1/ssh/key-candidates
+  ssh host-key-probe HOST [--port N] [--json]
+                                                  connect to HOST (port 22 unless told) and print the host key that
+                                                  answers, its fingerprint and the known_hosts line for it. Nothing
+                                                  is trusted or written. Beside a serving engine the engine dials,
+                                                  because that is the machine the backups travel from. The same as
+                                                  POST /api/v1/ssh/host-key-probe
   operation list [--backup-set S] [--action A] [--json]
                                                   list the operations the engine holds, newest first, so there is an id
                                                   to hand to assurance cancel. They live in the memory of the process
@@ -760,13 +821,14 @@ commands:
                                                   set cannot override it. A config that sets none reports the defaults
   settings assurance patch [--scrub-cadence D] [--scrub-strategy S] [--recovery-test-mode M]
                         [--recovery-test-cadence D] [--recovery-test-validator ID]
+                        [--recovery-test-builtin-check structure|off]
                         [--staging-root P] [--staging-ttl D] [--max-concurrent-full-reads N]
                         [--max-per-destination N] [--json]
                                                   change the deployment's policy in place. An explicitly zero or empty value
                                                   clears that setting back to its default. Every set that inherits the
-                                                  changed value decides under it on its next read. This write has no route
-                                                  to a serving engine in this build, so it is refused beside one with the
-                                                  file untouched
+                                                  changed value decides under it on its next read. Beside a serving engine this
+                                                  command has a route to, that is PATCH /api/v1/settings/assurance against
+                                                  the engine; with nothing serving, the file is written here
   settings assurance due [--backup-set ID] [--due | --overdue] [--json]
                                                   the scrub schedule, most overdue first: each copy's last-assured time, when
                                                   it is next due under its set's resolved cadence, and whether that has
@@ -775,10 +837,13 @@ commands:
                                                   one backup set's resolved assurance policy and whether it is the set's own
   backup-set assurance <source/backup-set> [--scrub-cadence D] [--scrub-strategy S]
                           [--recovery-test-mode M] [--recovery-test-cadence D]
-                          [--recovery-test-validator ID] | --reset
+                          [--recovery-test-validator ID] [--recovery-test-builtin-check structure|off]
+                          | --reset
                                                   patch that set's own block, or --reset it to follow the deployment's policy
                                                   again. The host-scoped settings are refused here by name: they are global
-                                                  only. Refused beside a serving engine, with the file untouched
+                                                  only. Beside a serving engine this command has a route to, that is
+                                                  PATCH or DELETE /api/v1/backup-sets/{source}/{set}/assurance against the
+                                                  engine; with nothing serving, the file is written here
   backup-set workflow <source/backup-set> [--json]
                                                   one backup set's hook configuration, resolved against the deployment's:
                                                   the stages it will actually run in execution order, which timeout wins

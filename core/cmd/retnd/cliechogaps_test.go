@@ -177,7 +177,7 @@ func TestTheGapVerbRuleCatchesTheSentencesThatShipped(t *testing.T) {
 			// A verb that really does not exist stays silent, which is
 			// what makes the cases above about the verb table rather than
 			// about the presence of backticks.
-			why:  "there is no verb that imports a key this machine already holds; `" + cliecho.Binary + " ssh-key import --candidate ID` would be it",
+			why:  "there is no verb that exports the key store; `" + cliecho.Binary + " keystore export` would be it",
 			want: nil,
 		},
 		{

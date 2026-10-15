@@ -70,6 +70,12 @@ type fakeEngine struct {
 	csrf     map[string]bool
 	seen     []string
 
+	// handlers answers a route a test wants to script itself, keyed
+	// "METHOD /path" with the /api/v1 prefix off. It sits behind the same
+	// session and double-submit checks as everything else, so a scripted
+	// answer is still an answer to a client that signed in properly.
+	handlers map[string]http.HandlerFunc
+
 	// The live feed this engine hands out, one reading per request, and
 	// every cursor it was asked with. See liveActivity below for why this
 	// one answer is stated rather than produced.
@@ -289,6 +295,14 @@ func (e *fakeEngine) api(w http.ResponseWriter, r *http.Request, path, token str
 			refuse(w, http.StatusForbidden, apicontract.ErrorCodeCSRFTokenMismatch, "the double-submit token does not match the cookie")
 			return
 		}
+	}
+
+	e.mu.Lock()
+	scripted := e.handlers[r.Method+" "+path]
+	e.mu.Unlock()
+	if scripted != nil {
+		scripted(w, r)
+		return
 	}
 
 	switch {
@@ -1249,4 +1263,14 @@ func (e *fakeEngine) backupSetAssurance(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	writeJSON(w, http.StatusOK, backupSetAssuranceWire(got))
+}
+
+// handle scripts one route's answer; see fakeEngine.handlers.
+func (e *fakeEngine) handle(route string, h http.HandlerFunc) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.handlers == nil {
+		e.handlers = map[string]http.HandlerFunc{}
+	}
+	e.handlers[route] = h
 }

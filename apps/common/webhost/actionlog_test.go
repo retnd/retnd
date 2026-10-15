@@ -125,8 +125,11 @@ func TestEveryAPIRouteNamesItsCLIEquivalentOrTheGap(t *testing.T) {
 
 	// The other direction, so the table cannot quietly accumulate entries
 	// for routes that no longer exist and go on claiming coverage.
+	// The /auth routes are served by a separate router, so they are
+	// part of what "registers it" means here (issue #1150).
+	everything := everyRegisteredRoute(t)
 	for _, r := range cliecho.Routes() {
-		if !registered[r] {
+		if !registered[r] && !everything[r] {
 			t.Errorf("core/cliecho answers for %q and no router registers it; an entry for a route that no longer exists is coverage that is not there", r)
 		}
 	}

@@ -159,6 +159,7 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 	"--validator-id":        "the id of a registered validator",
 	"--ssh-key-id":          "an id this deployment minted for a key it already holds, never the key",
 	"--known-hosts-line":    "a PUBLIC host key, deliberately printed in full: an operator pasting the command has to pin the same one",
+	"--candidate":           "the opaque handle ssh-key discover printed for a key the machine already holds, never a path and never key material (issue #1153)",
 
 	// A storage destination's description. mediumSpecFlags' own doc has
 	// the reasoning; what matters here is that all four credential
@@ -297,6 +298,7 @@ var operandsThatNameTheSubject = map[string]string{
 	"POST /storage-mediums/preflight":   "the candidate destination's id",
 	"POST /repositories":                "the repository domain's own id",
 	"POST /recoveries":                  "the backup ids a multi-backup recovery lists (source/set/name each)",
+	"POST /ssh/host-key-probe":          "the host being probed, which the operator typed and has to type again (issue #1153)",
 }
 
 // A credential in an endpoint URL, which is the leak the name-based test

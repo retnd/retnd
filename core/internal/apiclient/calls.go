@@ -764,3 +764,84 @@ func (c *Client) ResumeWorkflowCleanup(ctx context.Context, runID string) (apico
 func (c *Client) AcknowledgeWorkflowRecovery(ctx context.Context, runID string, req apicontract.WorkflowAcknowledgementRequest) error {
 	return c.call(ctx, "acknowledgeWorkflowRecovery", []string{runID}, req, nil)
 }
+
+// The administrator's own account (issue #1155). All of these are /auth
+// operations, served by apps/common/auth/local on the engine's behalf, and
+// every one that carries a secret takes it as an argument, uses it for the
+// one request and keeps nothing: this package logs no body.
+
+// RotatePassword is POST /auth/password. It needs a session AND the current
+// password in the body, because holding a cookie is not enough to change
+// the credential that minted it.
+func (c *Client) RotatePassword(ctx context.Context, req apicontract.RotatePasswordRequest) error {
+	return c.call(ctx, "rotatePassword", nil, req, nil)
+}
+
+// GetRecoverySettings is GET /auth/recovery: the recovery address, the two
+// proofs about it and the SMTP endpoint without its password.
+func (c *Client) GetRecoverySettings(ctx context.Context) (apicontract.RecoverySettingsResponse, error) {
+	var out apicontract.RecoverySettingsResponse
+	err := c.call(ctx, "getRecoverySettings", nil, nil, &out)
+	return out, err
+}
+
+// UpdateRecoverySettings is PATCH /auth/recovery. The engine proves a changed
+// address or endpoint by sending a message over it before it keeps the
+// change, so a refusal here can be a mail server that said no.
+func (c *Client) UpdateRecoverySettings(ctx context.Context, req apicontract.RecoverySettingsUpdate) (apicontract.RecoverySettingsResponse, error) {
+	var out apicontract.RecoverySettingsResponse
+	err := c.call(ctx, "updateRecoverySettings", nil, req, &out)
+	return out, err
+}
+
+// SendRecoveryTestEmail is POST /auth/recovery/test.
+func (c *Client) SendRecoveryTestEmail(ctx context.Context) error {
+	return c.call(ctx, "sendRecoveryTestEmail", nil, nil, nil)
+}
+
+// VerifyRecoveryEmail is POST /auth/verify-email: redeem the token out of
+// the emailed link.
+//
+// The operation is declared unauthenticated, because the browser opens the
+// link in a window that may hold no session, and call() therefore signs in
+// for nothing. This client has credentials and the double-submit cookie
+// only arrives with a response, so it establishes the session first: the
+// sign-in is what seeds the cookie the request has to echo.
+func (c *Client) VerifyRecoveryEmail(ctx context.Context, req apicontract.VerifyEmailRequest) error {
+	if _, err := c.ensureSession(ctx); err != nil {
+		return err
+	}
+	return c.call(ctx, "verifyRecoveryEmail", nil, req, nil)
+}
+
+// ResendRecoveryEmailVerification is POST /auth/verify-email/resend.
+func (c *Client) ResendRecoveryEmailVerification(ctx context.Context) error {
+	return c.call(ctx, "resendRecoveryEmailVerification", nil, nil, nil)
+}
+
+// The SSH key store (issue #1153). The store belongs to the process serving
+// the deployment, which is why a terminal reaches it through here.
+
+// ListSSHKeys is GET /ssh-keys: every key in the engine's own store, as the
+// public half only.
+func (c *Client) ListSSHKeys(ctx context.Context) (apicontract.ListSSHKeysResponse, error) {
+	var out apicontract.ListSSHKeysResponse
+	err := c.call(ctx, "listSSHKeys", nil, nil, &out)
+	return out, err
+}
+
+// ListSSHKeyCandidates is GET /ssh/key-candidates: the keys the engine can
+// see on its own machine, and every place it looked.
+func (c *Client) ListSSHKeyCandidates(ctx context.Context) (apicontract.ListSSHKeyCandidatesResponse, error) {
+	var out apicontract.ListSSHKeyCandidatesResponse
+	err := c.call(ctx, "listSSHKeyCandidates", nil, nil, &out)
+	return out, err
+}
+
+// ImportSSHKeyFromCandidate is POST /ssh-keys/from-candidate: an opaque
+// handle and no key material at all.
+func (c *Client) ImportSSHKeyFromCandidate(ctx context.Context, req apicontract.ImportSSHKeyFromCandidateRequest) (apicontract.ImportSSHKeyResponse, error) {
+	var out apicontract.ImportSSHKeyResponse
+	err := c.call(ctx, "importSSHKeyFromCandidate", nil, req, &out)
+	return out, err
+}
