@@ -15,6 +15,8 @@ the flag there needs to drop it. Nothing here changes a default and there is not
 
 ### Fixed
 
+- **The image has a `latest` tag now, and it only moves forward** (#1168). `ghcr.io/retnd/retnd:latest` did not exist, although the GitHub Release page already marked the newest release "Latest". After a release is built, signed and attested, a `tag-latest` job moves `latest` to that version's index digest with `docker buildx imagetools create` (the same digest, so the cosign signature and SBOM attestation verify for both names) and fails the run if `latest` does not then resolve to it. It does that only when the version is the highest published non-prerelease release, so a 0.5.x backport or a prerelease never takes it, and the GitHub Release is created with `--latest` or `--latest=false` under the same rule. The Release workflow also takes a `tag_latest_for` input that re-points `latest` for an already published version without building anything, and refuses a version with no published image, one whose digest differs from `container/release-manifest.json`, or one that is not the highest release. `latest` is for pulling by hand: compose files, the installer and the docs keep pinning the version's digest. The pinned hash of release.yml's `on:` block moved once for the new input; the push trigger and the signing identity did not change.
+
 - **Usage and the command echo no longer say things the code stopped doing** (#1150). `retnd`'s usage text
   called `settings assurance patch` and `backup-set assurance` "refused beside" a serving engine, but
   both are routed to it, and it left `--recovery-test-builtin-check` out of both synopses and `--port`,

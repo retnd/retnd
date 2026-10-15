@@ -771,6 +771,9 @@ jobs:
       - name: and a publish the release gate never passed is still refused
         run: bash scripts/tests/release-refuses-an-ungated-publish.test.sh
 
+      - name: and the release still moves the latest tag, only forwards (#1168)
+        run: bash scripts/tests/release-moves-latest.test.sh
+
       - name: a proof this runner could not perform still reads as incomplete
         run: bash scripts/tests/two-machine-ci-verdict.test.sh
 
