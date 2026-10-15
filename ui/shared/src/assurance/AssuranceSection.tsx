@@ -446,7 +446,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
                 A recovery test also runs on its own, at its cadence, but only for a set whose mode is required or custom and whose validator script is in place, or whose mode is builtin; with the mode off none runs. Run recovery test starts one now and acknowledges no cost: a copy that would cost money to read is refused and recorded as skipped, and nothing is read.
               </div>
             ) : null}
-            <OperationPanel operation={op.operation} events={op.events} error={op.error} onCancel={() => void op.cancel()} readOnly={readOnly} detailLink={operations} cancellable={operations} cancelError={op.cancelError} />
+            <OperationPanel operation={op.operation} events={op.events} error={op.error} onCancel={() => void op.cancel()} readOnly={readOnly} detailLink={operations} cancellable={operations} cancelError={op.cancelError} terminalHref="#set-terminal" />
             {validatorResult === null ? <div role="status">No recovery test has run for this set yet.</div> : null}
             {validatorResult ? <ValidatorLog result={validatorResult} /> : null}
           </>

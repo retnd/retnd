@@ -242,26 +242,28 @@ describe("the cursor the dock actually sends", () => {
   });
 });
 
-/** A surface that follows one set's feed and nothing else, which is what
- *  the backup set detail page is. */
+/** A surface that follows one set and nothing else, which is what the backup
+ *  set detail page is. It reads the one shared window and picks its set. */
 function OneSetFeed({ setId }: { setId: string }) {
-  const feed = useActivityFeed(setId);
+  const feed = useActivityFeed();
   return <span data-testid="lines">{feed.held.get(setId)?.events.length ?? 0}</span>;
 }
 
-describe("when a surface changes which set it is asking about", () => {
-  it("does not carry the old set's cursor into the new set's question", async () => {
+describe("when a surface changes which set it is looking at", () => {
+  it("reads the other set from the window it already holds, and asks one question for both", async () => {
     vi.useFakeTimers();
     // The counter is one counter for the whole process, so a set that has
-    // been running all night sits at 412 while a quiet one's own lines
-    // stop at 5. Carrying the first cursor into the second question asks
-    // for everything after 412 about a set whose lines stop at 5, and is
-    // told, correctly and uselessly, that there is nothing.
-    const busy = reading({ sets: [set("busy/set", [event(411), event(412)], { latestSequence: 412 })] });
-    const quiet = reading({ sets: [set("quiet/set", [event(5)], { latestSequence: 5 })] });
-    const getLiveActivity = vi.fn().mockImplementation((options: { setId?: string }) =>
-      Promise.resolve(options.setId === "busy/set" ? busy : quiet)
-    );
+    // been running all night sits at 412 while a quiet one's own lines stop
+    // at 5. One unfiltered question about the whole deployment has one
+    // cursor, so there is no old set's cursor to carry into a new set's
+    // question (#1177).
+    const both = reading({
+      sets: [
+        set("busy/set", [event(411), event(412)], { latestSequence: 412 }),
+        set("quiet/set", [event(5)], { latestSequence: 5 })
+      ]
+    });
+    const getLiveActivity = vi.fn().mockResolvedValue(both);
     const api = { getLiveActivity } as unknown as RetndApi;
 
     const view = render(
@@ -271,23 +273,23 @@ describe("when a surface changes which set it is asking about", () => {
     );
     await act(async () => {});
     expect(screen.getByTestId("lines").textContent).toBe("2");
+    const asked = getLiveActivity.mock.calls.length;
 
-    // The route changes. The last reading the hook holds is still the
-    // busy set's, because a fetch in flight does not blank what is on
-    // screen, and it is an answer to a question nobody is asking any
-    // more.
+    // The route changes. The new set's lines are already held, so they are
+    // there in the first render after it, with no reading in between.
     view.rerender(
       <ApiProvider api={api}>
         <OneSetFeed setId="quiet/set" />
       </ApiProvider>
     );
+    expect(screen.getByTestId("lines").textContent).toBe("1");
     await act(async () => {});
-    expect(getLiveActivity).toHaveBeenLastCalledWith({ since: 0, limit: 200, setId: "quiet/set" });
+    expect(getLiveActivity.mock.calls.length).toBe(asked);
 
     await act(async () => {
       vi.advanceTimersByTime(1100);
     });
-    expect(getLiveActivity).toHaveBeenLastCalledWith({ since: 5, limit: 200, setId: "quiet/set" });
+    expect(getLiveActivity).toHaveBeenLastCalledWith({ since: 412, limit: 200 });
     vi.useRealTimers();
   });
 });

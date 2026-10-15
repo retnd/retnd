@@ -22,7 +22,7 @@ import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { bytes } from "@shared/utilities/format";
 import { CommandEcho } from "@shared/pages/CommandEcho";
 import { assuranceCancelCommand } from "./assuranceCommands";
-import { stageLabel } from "./stages";
+import { stageLabel, stageProgress } from "./stages";
 import type { Operation, OperationEvent } from "./types";
 
 const KIND_LABEL = { scrub: "Scrub", recovery_test: "Recovery test", recovery: "Recovery" } as const;
@@ -31,7 +31,7 @@ const LANDS_ON = { scrub: "Content", recovery_test: "Recovery", recovery: "Recov
 
 export function OperationPanel({
   operation, events, error, onCancel, readOnly, detailLink = true, cancellable = true, following = true, onFollowing,
-  cancelError = null
+  cancelError = null, terminalHref
 }: {
   operation: Operation | null;
   events: OperationEvent[];
@@ -47,12 +47,21 @@ export function OperationPanel({
   onFollowing?: (on: boolean) => void;
   /** The service's own words for a cancel it refused. */
   cancelError?: string | null;
+  /** Where the run's output already is (the set's own terminal). When given,
+   *  the panel draws no log of its own and points there instead, so one
+   *  stream is never drawn twice (#1176). */
+  terminalHref?: string;
 }) {
   if (!operation) {
     return error ? <div role="alert" className="aop">{"Could not read progress: " + error}</div> : null;
   }
   const running = operation.state === "running";
-  const pct = operation.totalBytes > 0 ? Math.round((operation.bytes / operation.totalBytes) * 100) : 0;
+  // Bytes when the run reports them; otherwise its position in the engine's
+  // own stage list, because a recovery test names its stages on the feed and
+  // sends no running byte total (#1176). Neither: the bar stays indeterminate.
+  const staged = operation.totalBytes > 0 ? null : stageProgress(operation.kind, operation.stage);
+  const pct = operation.totalBytes > 0 ? Math.round((operation.bytes / operation.totalBytes) * 100) : staged?.pct ?? 0;
+  const determinate = operation.totalBytes > 0 || staged !== null;
   const outcome =
     operation.state === "complete" ? KIND_LABEL[operation.kind] + " finished"
     : operation.state === "failed" ? KIND_LABEL[operation.kind] + " failed"
@@ -80,6 +89,10 @@ export function OperationPanel({
           <span className="mono" style={{ fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
             {bytes(operation.bytes) + " of " + bytes(operation.totalBytes)}
           </span>
+        ) : staged ? (
+          <span className="mono" style={{ fontSize: "var(--text-sm)", color: "var(--text-2)" }} data-testid="stage-count">
+            {"Step " + staged.step + " of " + staged.of}
+          </span>
         ) : null}
       </div>
       <div
@@ -88,10 +101,10 @@ export function OperationPanel({
         aria-label={KIND_LABEL[operation.kind] + " progress"}
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-valuenow={operation.totalBytes > 0 ? pct : undefined}
-        data-indeterminate={operation.totalBytes === 0 && running ? "" : undefined}
+        aria-valuenow={determinate ? pct : undefined}
+        data-indeterminate={!determinate && running ? "" : undefined}
       >
-        <i style={operation.totalBytes > 0 || !running ? { width: pct + "%" } : undefined} />
+        <i style={determinate || !running ? { width: pct + "%" } : undefined} />
       </div>
       {operation.joined ? (
         <div data-testid="operation-joined" style={{ fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
@@ -99,11 +112,29 @@ export function OperationPanel({
         </div>
       ) : null}
       {error ? <div role="status" style={{ fontSize: "var(--text-sm)" }}>{"Connection lost, retrying: " + error}</div> : null}
-      <ul className="aop__lines" aria-label="Operation lines" ref={(el) => { if (el && following) el.scrollTop = el.scrollHeight; }}>
-        {events.map((e) => (
-          <li key={e.seq} data-testid="operation-line" data-seq={e.seq}>{e.text}</li>
-        ))}
-      </ul>
+      {terminalHref ? (
+        <a
+          href={terminalHref}
+          data-testid="set-terminal-link"
+          onClick={(e) => {
+            // Focus the terminal in place: a hash change alone would scroll
+            // but leave keyboard focus behind in this card.
+            const target = document.getElementById(terminalHref.replace(/^#/, ""));
+            if (!target) return;
+            e.preventDefault();
+            target.focus();
+            target.scrollIntoView({ block: "center" });
+          }}
+        >
+          Output is in the set terminal
+        </a>
+      ) : (
+        <ul className="aop__lines" aria-label="Operation lines" ref={(el) => { if (el && following) el.scrollTop = el.scrollHeight; }}>
+          {events.map((e) => (
+            <li key={e.seq} data-testid="operation-line" data-seq={e.seq}>{e.text}</li>
+          ))}
+        </ul>
+      )}
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         {onFollowing ? (
           <InfoTooltip id="assurance.operation.follow">

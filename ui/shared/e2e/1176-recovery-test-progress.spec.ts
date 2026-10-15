@@ -77,7 +77,26 @@ test.describe("#1176 recovery test progress and the set terminal", () => {
       await expect(bar(page)).toHaveAttribute("aria-valuenow", /^\d+$/, { timeout: 15_000 });
       const sel = '[data-testid="operation-progress"]';
       expect(await measureContrast(page, "1176 " + theme, sel)).toEqual([]);
-      expect(await measureBorders(page, "1176 " + theme, sel + ' [role="progressbar"], ' + sel)).toEqual([]);
+      expect(await measureBorders(page, "1176 " + theme, sel + ' [role="progressbar"]')).toEqual([]);
+      // the filled part of the bar against its track, and the focus ring the
+      // link draws around the set terminal against the card it sits in
+      const pairs = await page.evaluate(() => {
+        const c = document.createElement("canvas").getContext("2d")!;
+        const rgb = (v: string) => { c.clearRect(0, 0, 1, 1); c.fillStyle = "#000"; c.fillStyle = v; c.fillRect(0, 0, 1, 1); return Array.from(c.getImageData(0, 0, 1, 1).data.slice(0, 3)); };
+        const lum = (a: number[]) => { const f = (x: number) => { x /= 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); }; return 0.2126 * f(a[0]) + 0.7152 * f(a[1]) + 0.0722 * f(a[2]); };
+        const ratio = (a: number[], b: number[]) => { const [h, l] = [lum(a), lum(b)].sort((x, y) => y - x); return Math.round(((h + 0.05) / (l + 0.05)) * 100) / 100; };
+        const fill = document.querySelector('[role="progressbar"][aria-label="Recovery test progress"] > i') as HTMLElement;
+        const track = fill.parentElement as HTMLElement;
+        const term = document.getElementById("set-terminal") as HTMLElement;
+        const page_ = (e: HTMLElement) => { for (let n: HTMLElement | null = e; n; n = n.parentElement) { const x = getComputedStyle(n).backgroundColor; if (!/rgba\(.*, 0\)|transparent/.test(x)) return x; } return "rgb(255,255,255)"; };
+        const ring = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
+        return [
+          { what: "bar fill on track", ratio: ratio(rgb(getComputedStyle(fill).backgroundColor), rgb(getComputedStyle(track).backgroundColor)) },
+          { what: "focus ring on card", ratio: ratio(rgb(ring), rgb(page_(term))) }
+        ];
+      });
+      for (const p of pairs) console.log("UI " + theme + " | " + p.ratio.toFixed(2) + ":1 (needs 3) | " + p.what);
+      for (const p of pairs) expect(p.ratio, p.what).toBeGreaterThanOrEqual(3);
     });
   }
 });

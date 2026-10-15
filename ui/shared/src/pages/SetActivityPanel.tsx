@@ -130,7 +130,9 @@ export function SetActivityPanel({ set, feed }: { set: BackupSet; feed: Activity
   const activity = useMemo(() => foldNotices(feed.held.get(set.id) ?? null, mine), [feed.held, set.id, mine]);
 
   return (
-    <div>
+    // The id is where a run's panel points ("Output is in the set terminal",
+    // #1176), and focusable so that link can put keyboard focus here.
+    <div id="set-terminal" tabIndex={-1}>
       <div
         style={{
           display: "flex", justifyContent: "flex-end",

@@ -35,3 +35,32 @@ export function stageLabel(id: string): string {
 export const RECOVERY_TEST_STAGES: readonly string[] = [
   "resolving_copy", "reading", "verifying", "validating", "cleaning_temporary_files", "complete"
 ];
+
+/** How far along a run is, said as a position in its own stage list. */
+export interface StageProgress {
+  /** One-based position of the stage the run is in. */
+  step: number;
+  /** How many stages the run goes through. */
+  of: number;
+  /** Whole percent, 0 when the first stage is entered and 100 at the last. */
+  pct: number;
+}
+
+/**
+ * Progress for a run that reports stages and no byte counts.
+ *
+ * The engine names the stage a recovery test is in on the feed but sends no
+ * running byte total, so the honest bar is a position in the engine's own
+ * list: entering the first stage is 0% and the last (`complete`) is 100%. A
+ * stage this build does not name, or a kind with no stage list (a scrub),
+ * has no position, and the caller keeps the indeterminate bar rather than
+ * invent one.
+ */
+export function stageProgress(kind: "scrub" | "recovery_test" | "recovery", stage: string): StageProgress | null {
+  const list: readonly string[] | null =
+    kind === "recovery_test" ? RECOVERY_TEST_STAGES : kind === "recovery" ? RECOVERY_STAGES.map((s) => s.id) : null;
+  if (!list) return null;
+  const i = list.indexOf(stage);
+  if (i < 0) return null;
+  return { step: i + 1, of: list.length, pct: Math.round((i / (list.length - 1)) * 100) };
+}

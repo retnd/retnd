@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **A running recovery test shows how far along it is, and the dialog no longer draws a terminal of its own** (#1176). The bar used to stay a sliding indeterminate stripe for the whole test, because the engine names the stage on the feed and sends no running byte total. It now moves through the engine's own stage list (resolving, reading, verifying, validating, cleaning up, complete) and says "Step 3 of 6" beside it. The empty log inside the Assurance card is gone for both runs and scrubs, replaced by an "Output is in the set terminal" link that moves focus to the set's terminal. A quiet poll also stopped sending the followed run back to its first stage, which is what made a stage-driven bar jump to zero between lines.
+- **Every terminal reads one shared state, so they update together and a late one is not empty** (#1177). The dashboard strips, a set's own terminal and the docked terminal each polled the live feed on their own clock and kept their own copy of the lines. They now read one causl node written by one reader, so three terminals cost one reading per poll, change in the same commit, and a terminal opened late shows what the others already hold in its first render. The buffers are bounded (300 lines per set, 1000 in the docked terminal, the last 5 dead processes), the cursor lives in the same node so a dropped connection resumes where it stopped, and a restart still freezes the dead process's lines above a rule in the docked terminal while the strips drop theirs. The set page asks the live feed about the whole deployment now instead of narrowing it to one set.
+
 ## [0.6.4] - 2026-10-14
 
 0.6.4 brings the terminal up to the web API. EPIC S went through every route the API serves and gave

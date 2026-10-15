@@ -198,3 +198,7 @@
    name and the two date bounds) take --text-2 instead, which clears it in
    both themes; restyling every input in the app is not this change's call. */
 .input.input--bold { border-color: var(--text-2); }
+/* The set terminal is where a run's output lives (#1176). The link in the
+   run panel moves focus there from script, which :focus-visible alone would
+   not draw a ring for. */
+#set-terminal:focus { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
