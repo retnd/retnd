@@ -342,3 +342,12 @@ func toServiceBackupSetHealth(bs health.BackupSetHealth) BackupSetHealth {
 	}
 	return out
 }
+
+// BackupSetHealthFromReport is toServiceBackupSetHealth for a caller that
+// already holds the internal report, which is `retnd status --json` (issue
+// #1146): it computes the report itself from the journal and must put the
+// same fields on the wire the API does, so it goes through the one mapper
+// rather than growing a second.
+func BackupSetHealthFromReport(bs health.BackupSetHealth) BackupSetHealth {
+	return toServiceBackupSetHealth(bs)
+}

@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/service"
 )
 
 // cmdCatalog is `retnd catalog`, so far just one subcommand,
@@ -33,6 +34,7 @@ import (
 func cmdCatalog(args []string) int {
 	fs, cfgPath := newFlagSet("catalog")
 	dryRun := fs.Bool("dry-run", false, "report what would be reconstructed; write nothing")
+	asJSON := fs.Bool("json", false, "print the API's CatalogReportResponse for the whole deployment instead of one line per artifact; the exit code is still 1 when a manifest could not be used")
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
 		return 2
@@ -43,6 +45,9 @@ func cmdCatalog(args []string) int {
 	}
 	switch operands[0] {
 	case "rebuild":
+		if *asJSON {
+			return catalogRebuildJSON(*cfgPath, *dryRun)
+		}
 		return cmdCatalogRebuild(*cfgPath, *dryRun)
 	default:
 		return usageError("catalog: unknown subcommand %q (expected \"rebuild\")", operands[0])
@@ -123,4 +128,35 @@ func cmdCatalogRebuild(configPath string, dryRun bool) int {
 		fmt.Printf("catalog rebuild complete: reconstructed %d artifact(s)\n", total)
 	}
 	return exitCode
+}
+
+// catalogRebuildJSON is `catalog rebuild --json`: the report POST
+// /catalog/rebuild (or /catalog/scan, with --dry-run) serves, built by the
+// same service pass those routes call. Failures are an array, and a manifest
+// that could not be read or applied exits 1 as it does in text, because an
+// operator has to look at it whichever way the report is read.
+func catalogRebuildJSON(cfgPath string, dryRun bool) int {
+	ctx := context.Background()
+	svc, cleanup, err := openBackupServiceForRead(ctx, cfgPath, true)
+	if err != nil {
+		return fail(err)
+	}
+	defer cleanup()
+
+	var report service.CatalogReport
+	if dryRun {
+		report, err = svc.ScanCatalog(ctx)
+	} else {
+		report, err = svc.RebuildCatalog(ctx)
+	}
+	if err != nil {
+		return fail(err)
+	}
+	if code := emitWireJSON(service.CatalogReportWire(report)); code != exitOK {
+		return code
+	}
+	if len(report.Failures) > 0 {
+		return exitFailure
+	}
+	return exitOK
 }

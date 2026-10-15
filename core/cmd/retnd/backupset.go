@@ -261,12 +261,12 @@ func cmdBackupSet(args []string) int {
 
 	switch verb {
 	case "create":
-		if code := f.refuseFlagsOfTheOtherVerb("create", backupSetPatchOnlyFlags); code != 0 {
+		if code := f.refuseFlagsOfTheOtherVerb("create", append(append([]string{}, backupSetPatchOnlyFlags...), backupSetTestConnectionOnlyFlags...)); code != 0 {
 			return code
 		}
 		return backupSetCreate(f, sourceName, name)
 	case "patch":
-		if code := f.refuseFlagsOfTheOtherVerb("patch", backupSetCreateOnlyFlags); code != 0 {
+		if code := f.refuseFlagsOfTheOtherVerb("patch", append(append([]string{}, backupSetCreateOnlyFlags...), backupSetTestConnectionOnlyFlags...)); code != 0 {
 			return code
 		}
 		return backupSetPatch(f, operands[1])
@@ -291,7 +291,7 @@ func cmdBackupSet(args []string) int {
 		// about. --no-verify is refused with the rest, and refusing it is
 		// the point: "test the connection without testing the connection"
 		// is not an instruction anybody can mean.
-		if code := f.refuseEveryFlagBut("test-connection", "config"); code != 0 {
+		if code := f.refuseEveryFlagBut("test-connection", "config", "json"); code != 0 {
 			return code
 		}
 		return backupSetTestConnection(f, operands[1])
@@ -309,6 +309,11 @@ type backupSetFlags struct {
 	cfgPath *string
 
 	// Shared by create and patch. Each is a field of the backup set itself.
+	// json is test-connection's alone (#1152); create, patch and remove
+	// refuse it, because a flag they accepted and ignored is the failure
+	// every list here exists to prevent.
+	json *bool
+
 	host               *string
 	port               *int
 	user               *string
@@ -411,12 +416,18 @@ var (
 	// refuse on create automatically rather than being silently ignored
 	// there, and this is that flag.
 	backupSetPatchOnlyFlags = []string{"acknowledge-host-key-change", "poll-interval"}
+
+	// test-connection's own, which create and patch refuse the same way
+	// (#1152). remove and test-connection are allow-lists, so they need no
+	// list of the flags they do not take.
+	backupSetTestConnectionOnlyFlags = []string{"json"}
 )
 
 func declareBackupSetFlags() *backupSetFlags {
 	fs, cfgPath := newFlagSet("backup-set")
 	f := &backupSetFlags{fs: fs, cfgPath: cfgPath}
 
+	f.json = fs.Bool("json", false, "test-connection: print the API's TestConnectionResponse instead of text; the exit code is still the verdict")
 	f.host = fs.String("host", "", "create, patch: remote.host, the machine being backed up")
 	f.port = fs.Int("port", 0, "create, patch: remote.port; 0 leaves it unset, which is the default SSH port. On patch that 0 is a real value rather than an unset one")
 	f.user = fs.String("user", "", "create, patch: remote.user")

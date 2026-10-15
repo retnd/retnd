@@ -83,7 +83,7 @@ looking for their snapshots in a bucket list.
 | Names where the bytes are | yes: bucket, endpoint, prefix, region, storage class | **no.** A domain names a boundary, a passphrase and a sharing rule; its storage is local, under the backup root |
 | Encrypted by this product | no; the medium's own at-rest encryption applies | always, with the domain's declared passphrase |
 | Credential | `--credentials-id/-file/-env/-command`, per medium | a `passphrase` block naming `file`, `env` or `command`, per domain |
-| Declarable from the CLI or API | yes: `retnd medium add/edit/remove`, and a wizard | yes, declaring only: `retnd repository create`, `POST /repositories`, and the Define a repository domain screen. The declaration is written; the store is realized by the first backup run into the domain. There is no edit or remove verb |
+| Declarable from the CLI or API | yes: `retnd medium add/edit/remove`, `retnd medium configure` for a backend's own field ids (the only way to declare a `local_volume` from a terminal, with `retnd medium backends` listing them), and a wizard | yes, declaring only: `retnd repository create`, `POST /repositories`, and the Define a repository domain screen. The declaration is written; the store is realized by the first backup run into the domain. There is no edit or remove verb |
 | Verified by | `retnd medium test-connection` | `retnd repository health` |
 
 A deployment can run both, and they do not interact: an artifact set's

@@ -30,6 +30,31 @@
   change lands through the API and the engine's config revision moves, and with no route named
   the refusal is unchanged. `--json` on all eight prints the object the API returns for the same
   call, and `backup-set retention` gains `--json`.
+- **`medium configure` and `medium backends` exist, so a `local_volume` can finally be configured from a terminal, and `storage` prints the capacity reading** (#1154). `retnd medium configure <id> --backend B --field ID=VALUE ...` declares or replaces a destination in its backend's own field ids (`--field path=/mnt/usb`), with the same four credential references `medium add` takes, through the same route to a serving engine. `--preflight` proves the configuration and writes nothing, and exits 1 when the destination does not work. `medium backends [--json]` lists the backends and their field ids from the registry built into the binary, and `retnd storage [--json]` prints the manager block (cap, denominator, headroom, binding constraint, catalog bytes, level) and each backup set's level, the same body `GET /api/v1/system/storage` serves. Two things changed underneath so this is true: the manifest-shaped write now stores a `local_volume`'s `path` (it used to refuse the field by name, on the API as well), and the candidate proof of a `local_volume` is the directory check, with its space and distinct-volume steps, instead of the object-store check run against a path.
+- **`artifacts` shows what a scrub and a recovery test found, `artifacts --json` exists, and `quarantine list` lists what is held** (#1147). `retnd artifacts <id>` prints, for each copy that has a record, `assurance_state`, `last_checked_at`, `last_failure_at`, `last_failure_reason`, `consecutive_failures`, `recovery_state` (a built-in structure pass reads `readable`, as it does on the API), `recovery_tested_at`, `recovery_failure_reason` and `recovery_check`. A copy nobody has checked prints exactly what it printed before. `--json` prints the API's `Artifact` object for one backup and `ListArtifactsResponse` for the list, `artifacts --state S` narrows the list to one lifecycle state, and `quarantine list [--backup-set S] [--json]` prints id, reason, irrecoverable and updated_at for every backup held in quarantine.
+- **`retnd status` says why a set is halted, and has `--json`** (#1146). A set refused with
+  `HOST_KEY_CHANGED`, `AUTHENTICATION_FAILED` or `KEY_PERMISSIONS` now prints a `halted:` line
+  under it with when it was last refused and the command that fixes it, where before it read like a
+  slow set until it went STALE. `status --json` prints the object `GET /api/v1/system/health`
+  returns, plus a `process` key, and keeps the exit status.
+- **`--json` on the remaining reads** (#1152). `snapshot list|show|holds|retention`,
+  `repository health|maintenance`, `settings`, `backup-set retention`, `backup-set test-connection`,
+  `medium test-connection` (and `preflight`, `--candidate` included), `catalog rebuild` and
+  `retention <source/backup-set>` print the object the API returns for the same call, field for
+  field: a counter nobody measured is `null` and never `0`, an empty list is an array, and
+  `retention --json` carries the `plan_id`. The exit code stays the verdict (1 for a failing
+  repository, a failed connection, an unusable manifest), the structured log goes to stderr so the
+  document is all of stdout, and a write handed `--json` is refused instead of accepting and
+  ignoring it. A test in the web host drives the real handlers and compares the two mappings.
+- **`activity --before CURSOR`, and `next_cursor`** (#1152). `--json` prints the cursor when a page
+  was full and a text page names it on stderr, so a script can walk the whole log. A cursor that
+  is not a row id is refused, and a filtered page that `--limit` cut has no cursor and says why.
+- **`version --engine [--json]`, `validators [--json]`, `system capabilities` and `system
+  first-run`** (#1152). The first asks the serving engine for its version, configuration revision,
+  deployment id, readiness and adopted paths. `validators` lists the catalog compiled into the
+  binary. The `system` verbs are facts about the serving process (the platform's declaration, the
+  guided setup's steps), so they ask the engine and refuse without a route. `status` prints the
+  first-run steps on a fresh install when a route is set, and is unchanged otherwise.
 
 ## [0.6.3] - 2026-10-13
 

@@ -338,10 +338,37 @@ func lastJSONObject(t *testing.T, stdout string) map[string]any {
 func jsonRows() []configWriteRow {
 	var out []configWriteRow
 	for _, r := range configWriteRows() {
+		if strings.HasPrefix(r.name, "backup-set retention") {
+			// A retention write refuses --json (#1152): its startup lines
+			// share standard output, so the flag is refused rather than
+			// accepted and ignored. TestRetentionWriteRefusesJSON_1148 pins that.
+			continue
+		}
 		r.argv = append(append([]string{}, r.argv...), "--json")
 		out = append(out, r)
 	}
 	return out
+}
+
+// TestRetentionWriteRefusesJSON_1148: the two retention writes are not in
+// jsonRows because they refuse --json, and this says so for both.
+func TestRetentionWriteRefusesJSON_1148(t *testing.T) {
+	for _, row := range configWriteRows() {
+		if !strings.HasPrefix(row.name, "backup-set retention") {
+			continue
+		}
+		t.Run(row.name, func(t *testing.T) {
+			cliConfig, _ := routedFixture(t)
+			argv := append(append([]string{}, row.argv...), "--json")
+			var code int
+			captureStderr(t, func() {
+				captureStdout(t, func() { code = run(withConfig(argv, cliConfig)) })
+			})
+			if code != 2 {
+				t.Fatalf("%v --json exited %d, want the usage refusal 2", row.argv, code)
+			}
+		})
+	}
 }
 
 // TestConfigWriteJSONIsTheWireObject_1148: --json on a routed write is

@@ -281,6 +281,25 @@ func (c *Client) SystemVersion(ctx context.Context) (apicontract.VersionResponse
 	return out, err
 }
 
+// SystemCapabilities is GET /system/capabilities: what the platform the
+// engine runs on can do. A fact about the serving process and the host it is
+// in, which is why only the engine can say it (#1152).
+func (c *Client) SystemCapabilities(ctx context.Context) (apicontract.CapabilitiesResponse, error) {
+	var out apicontract.CapabilitiesResponse
+	err := c.call(ctx, "getSystemCapabilities", nil, nil, &out)
+	return out, err
+}
+
+// FirstRunStatus is GET /system/first-run: which of the guided setup steps
+// the engine counts as done, pending or skipped. The administrator and the
+// mail server live in the web host, not in this process, so only the engine
+// can answer (#1152).
+func (c *Client) FirstRunStatus(ctx context.Context) (apicontract.FirstRunStatusResponse, error) {
+	var out apicontract.FirstRunStatusResponse
+	err := c.call(ctx, "getFirstRunStatus", nil, nil, &out)
+	return out, err
+}
+
 // StorageStatus is GET /system/storage, the other half of `status`.
 func (c *Client) StorageStatus(ctx context.Context) (apicontract.ListStorageStatusResponse, error) {
 	var out apicontract.ListStorageStatusResponse
@@ -453,6 +472,25 @@ func (c *Client) SetDefaultStorageMedium(ctx context.Context, id string) (apicon
 	return out, err
 }
 
+// ConfigureStorageMedium is PUT /storage-mediums/{id}/configuration
+// (#1154): create or replace a destination in its backend's own field ids.
+// The engine proves the configuration in front of the write and refuses
+// when it fails, and answers with the destination as it now stands.
+func (c *Client) ConfigureStorageMedium(ctx context.Context, id string, req apicontract.MediumConfigurationRequest) (apicontract.StorageMediumSummary, error) {
+	var out apicontract.StorageMediumSummary
+	err := c.call(ctx, "configureStorageMedium", []string{id}, req, &out)
+	return out, err
+}
+
+// PreflightStorageMediumConfiguration is POST
+// /storage-mediums/{id}/configuration/preflight: prove a configuration that
+// has not been written. It writes nothing whatever the report says.
+func (c *Client) PreflightStorageMediumConfiguration(ctx context.Context, id string, req apicontract.MediumConfigurationRequest) (apicontract.MediumPreflightResponse, error) {
+	var out apicontract.MediumPreflightResponse
+	err := c.call(ctx, "preflightStorageMediumConfiguration", []string{id}, req, &out)
+	return out, err
+}
+
 // CreateRepositoryDomain is POST /repositories (issue #862): declare a
 // repository security boundary.
 //
@@ -490,9 +528,23 @@ func (c *Client) CreateRepositoryDomain(ctx context.Context, req apicontract.Cre
 // truthful answers taken a round trip apart legitimately differ at the
 // newest end.
 func (c *Client) ListActivity(ctx context.Context, limit int) (apicontract.ListActivityResponse, error) {
-	var query url.Values
+	return c.ListActivityBefore(ctx, limit, "")
+}
+
+// ListActivityBefore is ListActivity for the page behind a cursor (#1152):
+// before is a next_cursor an earlier answer named, sent back as ?before=. An
+// empty one sends none and reads the newest page, which is what ListActivity
+// is.
+func (c *Client) ListActivityBefore(ctx context.Context, limit int, before string) (apicontract.ListActivityResponse, error) {
+	query := url.Values{}
 	if limit > 0 {
-		query = url.Values{"limit": []string{strconv.Itoa(limit)}}
+		query.Set("limit", strconv.Itoa(limit))
+	}
+	if before != "" {
+		query.Set("before", before)
+	}
+	if len(query) == 0 {
+		query = nil
 	}
 	var out apicontract.ListActivityResponse
 	err := c.callQuery(ctx, "listActivity", nil, query, nil, &out)

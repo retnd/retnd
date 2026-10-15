@@ -334,6 +334,11 @@ func (e *fakeEngine) api(w http.ResponseWriter, r *http.Request, path, token str
 		e.acknowledgeWorkflowRecovery(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/workflow-recovery/"), "/acknowledge"))
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/logs"):
 		e.workflowStepLogs(w, r, strings.TrimPrefix(path, "/workflow-runs/"))
+	// #1154: a destination configured in its backend's own field names.
+	case r.Method == http.MethodPut && strings.HasPrefix(path, "/storage-mediums/") && strings.HasSuffix(path, "/configuration"):
+		e.configureMedium(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/storage-mediums/"), "/configuration"))
+	case r.Method == http.MethodPost && strings.HasPrefix(path, "/storage-mediums/") && strings.HasSuffix(path, "/configuration/preflight"):
+		e.preflightMediumConfiguration(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/storage-mediums/"), "/configuration/preflight"))
 	case r.Method == http.MethodGet && path == "/settings":
 		e.getSettings(w, r)
 	case r.Method == http.MethodPatch && path == "/settings":

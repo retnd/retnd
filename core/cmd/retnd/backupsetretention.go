@@ -54,6 +54,7 @@ import (
 // disagree with the first, which is worse than no second rule.
 func cmdBackupSetRetention(args []string) int {
 	fs, cfgPath := newFlagSet("backup-set retention")
+	asJSON := fs.Bool("json", false, "read only: print the API's BackupSetRetention object instead of text; a write prints text and refuses this flag")
 	inherit := fs.Bool("inherit", false,
 		"remove this backup set's own retention policy, so it is retained under the deployment's policy again")
 	policyFile := fs.String("policy-file", "",
@@ -67,8 +68,6 @@ func cmdBackupSetRetention(args []string) int {
 		"set: this policy's own FR-19 protection; omitted inherits the deployment's, and an explicit =false is a materially more dangerous configuration")
 	acknowledge := fs.Bool("acknowledge-medium-disclosure", false,
 		"set: acknowledge the storage-medium disclosure, which a policy needs the first time it sends one of this set's tiers to a non-local medium; without it that write is refused, and the refusal is the disclosure")
-
-	asJSON := fs.Bool("json", false, "emit the policy as the API's BackupSetRetention object instead of as text")
 
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
@@ -86,6 +85,12 @@ func cmdBackupSetRetention(args []string) int {
 	}
 
 	named := visitedRetentionPolicyFlags(fs)
+	if *asJSON && (*inherit || len(named) > 0) {
+		// A write logs its startup lines on stdout, so a document printed
+		// after them would not be one document, and a flag accepted and then
+		// ignored is the thing this binary refuses everywhere else.
+		return usageError("backup-set retention: --json is the read's object (GET .../retention); a write answers in text, so run it again without --json, then read the result with --json")
+	}
 	if *inherit && len(named) > 0 {
 		return usageError(
 			"backup-set retention: --inherit removes this set's own policy and --%s writes one; pass one or the other",
@@ -154,10 +159,10 @@ func cmdBackupSetRetention(args []string) int {
 		if err != nil {
 			return fail(err)
 		}
-		return reportBackupSetRetention(got, *asJSON)
+		return printBackupSetRetentionAs(got, false)
 	}
 
-	svc, cleanup, err := openBackupService(ctx, *cfgPath, readsConfig)
+	svc, cleanup, err := openBackupServiceForRead(ctx, *cfgPath, *asJSON)
 	if err != nil {
 		return fail(err)
 	}
@@ -167,17 +172,7 @@ func cmdBackupSetRetention(args []string) int {
 	if err != nil {
 		return fail(err)
 	}
-	return reportBackupSetRetention(got, *asJSON)
-}
-
-// reportBackupSetRetention prints the policy, as text or as the wire
-// object the API returns for the same call.
-func reportBackupSetRetention(got service.BackupSetRetention, asJSON bool) int {
-	if asJSON {
-		return printWorkflowJSON(backupSetRetentionToWire(got))
-	}
-	printBackupSetRetention(got)
-	return 0
+	return printBackupSetRetentionAs(got, *asJSON)
 }
 
 // retentionPolicyFlagNames lists every flag that WRITES a policy, shared
@@ -309,6 +304,16 @@ func readPolicyFile(path string) ([]byte, error) {
 // The chain is rendered in printSettings' format on purpose: an operator
 // moving between `settings` and this command reads one layout for one
 // kind of thing.
+// printBackupSetRetentionAs prints the state either as the API's object or as
+// the text, so the read, the set and the clear answer in one voice.
+func printBackupSetRetentionAs(r service.BackupSetRetention, asJSON bool) int {
+	if asJSON {
+		return emitWireJSON(service.BackupSetRetentionWire(r))
+	}
+	printBackupSetRetention(r)
+	return 0
+}
+
 func printBackupSetRetention(r service.BackupSetRetention) {
 	fmt.Printf("backup set: %s\n", r.BackupSetID)
 	if r.IsOverride {

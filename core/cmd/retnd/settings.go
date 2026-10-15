@@ -123,6 +123,7 @@ func cmdSettings(args []string) int {
 	}
 
 	fs, cfgPath := newFlagSet("settings")
+	asJSON := fs.Bool("json", false, "read only: print the API's SettingsResponse instead of text; `patch` prints text and refuses this flag")
 	timezone := fs.String("timezone", "", "patch only; ignored otherwise: retention.timezone (an IANA name)")
 	weekStartsOn := fs.String("week-starts-on", "", "patch only; ignored otherwise: retention.week_starts_on (a weekday name)")
 	protect := fs.Bool("protect-last-known-good", true,
@@ -159,6 +160,9 @@ func cmdSettings(args []string) int {
 		return usageError(`settings: expected no argument, or exactly one argument "patch"`)
 	}
 	patching := len(operands) == 1
+	if patching && *asJSON {
+		return usageError("settings patch: --json is the read's object (GET /settings) and a patch answers in text, so it would be accepted and ignored; run `settings --json` afterwards to read the result")
+	}
 
 	// A patch-only flag given without the "patch" operand must never be
 	// silently accepted and dropped: that is indistinguishable, in its
@@ -231,7 +235,7 @@ func cmdSettings(args []string) int {
 	// through openConfigWriteRoute, which hands it to that process where
 	// it can and refuses where it cannot (#543).
 	if !patching {
-		svc, cleanup, err := openBackupService(ctx, *cfgPath, readsConfig)
+		svc, cleanup, err := openBackupServiceForRead(ctx, *cfgPath, *asJSON)
 		if err != nil {
 			return fail(err)
 		}
@@ -240,6 +244,9 @@ func cmdSettings(args []string) int {
 		settings, err := svc.Settings(ctx)
 		if err != nil {
 			return fail(err)
+		}
+		if *asJSON {
+			return emitWireJSON(service.SettingsReadWire(settings, svc.SettingsAreFirstRun(ctx, settings)))
 		}
 		printSettings(settings)
 		return 0

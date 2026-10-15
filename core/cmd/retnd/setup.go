@@ -355,7 +355,16 @@ func openBackupServiceLoggingTo(ctx context.Context, configPath string, intent c
 // The returned cleanup func closes whatever was opened and gives the claim
 // back; callers should always `defer cleanup()` immediately.
 func openConfigWriteRoute(ctx context.Context, configPath string) (configWriteRoute, func(), error) {
-	svc, closeFn, err := service.Open(ctx, configPath)
+	return openConfigWriteRouteTo(ctx, configPath, os.Stdout)
+}
+
+// openConfigWriteRouteTo is openConfigWriteRoute with the mode announcement and
+// the service's structured log sent to out. A verb whose standard output is a
+// JSON document passes standard error, so the document is the only thing on
+// standard output (#1152); everything else passes standard output, which is
+// what openConfigWriteRoute has always meant.
+func openConfigWriteRouteTo(ctx context.Context, configPath string, out io.Writer) (configWriteRoute, func(), error) {
+	svc, closeFn, err := service.OpenWithLog(ctx, configPath, out)
 	if err != nil {
 		return nil, func() {}, err
 	}
@@ -365,7 +374,7 @@ func openConfigWriteRoute(ctx context.Context, configPath string) (configWriteRo
 		}
 	}
 
-	write, err := enterConfigWriteMode(ctx, configPath, attachToEngine, os.Stdout, os.Stderr)
+	write, err := enterConfigWriteMode(ctx, configPath, attachToEngine, out, os.Stderr)
 	if err != nil {
 		closeLocal()
 		return nil, func() {}, err
