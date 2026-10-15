@@ -322,9 +322,9 @@
 # a gateway profile (#92), so a suite written for both cannot count on
 # it. The SCHEDULER runs the same cycle on a timer whatever the gate says,
 # which gate.go states in as many words, so the rig sets that timer to
-# the product's own floor -- one minute, config.MinPollInterval -- and
-# hands it over as RETND_WF_POLL_SECONDS. A spec watches for the run the
-# timer produces instead of asking for one.
+# the product's own floor (one minute, config.MinPollInterval) and hands
+# it over as RETND_WF_POLL_SECONDS. A spec watches for the run the timer
+# produces instead of asking for one.
 #
 # The exit status is the client container's, not the teardown's. A run that
 # tore down cleanly after a red suite is a red run.
@@ -712,9 +712,9 @@ runner_display="Host Workflow Runner"
 
 # How often the deployment polls, in seconds, and it is the product's own
 # floor (config.MinPollInterval): a browser cannot be counted on to START
-# a run -- the destructive gate refuses one on a gateway profile (#92),
-# and was shut everywhere until #1163 -- so the runs a suite watches are
-# the scheduler's, and
+# a run (the destructive gate refuses one on a gateway profile, #92, and
+# was shut everywhere until #1163), so the runs a suite watches are the
+# scheduler's, and
 # this is how long the longest of those waits can be. Handed to the
 # client so no spec has to hard-code a cadence the rig owns.
 wf_poll_seconds=60
