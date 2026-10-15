@@ -16,6 +16,7 @@ import type { TooltipId } from "@shared/tooltips/tooltips";
 import { stamp } from "@shared/utilities/format";
 import type { BackupSet } from "@shared/types/backup";
 import { useApi } from "@shared/api/ApiContext";
+import { useDestructiveGate } from "@shared/hooks/useDestructiveGate";
 import { GateRefusal } from "@shared/components/GateRefusal";
 import { CommandEcho } from "@shared/pages/CommandEcho";
 import { recoveryTestCommand } from "./assuranceCommands";
@@ -36,7 +37,8 @@ const fileOf = (id: string) => id.split("/").pop() ?? id;
 export function ValidationBlock({ set, readOnly = false }: { set: BackupSet; readOnly?: boolean }) {
   const facts = useSetFacts(set.id);
   const api = useApi();
-  const run = useRunAssurance(set.id, { attach: true });
+  const gate = useDestructiveGate();
+  const run = useRunAssurance(set.id, { attach: true, gate });
   // A test on a set that can only refuse it is not offered (the same reading
   // the Assurance section makes, #1108/#1111).
   const cannot = recoveryTestWouldBeRefused(facts?.policy);

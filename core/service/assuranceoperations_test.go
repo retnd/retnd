@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -99,11 +100,18 @@ func readPID(t *testing.T, path string, within time.Duration) int {
 // liveMembers lists the processes still alive in process group pgid. A
 // zombie does not count: it has already been killed and is waiting for a
 // parent that, in a container, may be nobody. /proc is Linux's; elsewhere
-// the same listing comes from ps.
-func liveMembers(pgid int) []int {
+// the same listing comes from ps. With neither, there is no honest way to
+// count a group's members, so the test that needs it is skipped and says why
+// rather than passing on a probe that can't tell one member from two.
+func liveMembers(t *testing.T, pgid int) []int {
+	t.Helper()
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
-		return liveMembersByPS(pgid)
+		out, ok := liveMembersByPS(pgid)
+		if !ok {
+			t.Skip("this machine has neither /proc nor a ps that runs, so a process group's members cannot be counted")
+		}
+		return out
 	}
 	var out []int
 	for _, e := range entries {
@@ -128,23 +136,20 @@ func liveMembers(pgid int) []int {
 	return out
 }
 
-// liveMembersByPS is liveMembers for a machine with no /proc (macOS): ps
-// prints pid, group and state for every process, and the rule is the same,
-// a zombie does not count. The positive control in the cancel test needs the
-// members counted, which the old probe of the group with signal 0 could not
-// do, so that probe is only the answer when ps itself cannot be run.
-func liveMembersByPS(pgid int) []int {
+// liveMembersByPS is liveMembers for a machine with no /proc (macOS, the
+// BSDs): ps prints pid, group and state for every process. A zombie (Z) does
+// not count, and neither does a process BSD's ps shows as exiting (E): it has
+// been killed and is on its way out, which is exactly the moment straight
+// after a cancel that this is asked about.
+func liveMembersByPS(pgid int) ([]int, bool) {
 	listing, err := exec.Command("ps", "-axo", "pid=,pgid=,stat=").Output()
 	if err != nil {
-		if syscall.Kill(-pgid, 0) == nil {
-			return []int{-pgid}
-		}
-		return nil
+		return nil, false
 	}
 	var out []int
 	for _, line := range strings.Split(string(listing), "\n") {
 		f := strings.Fields(line)
-		if len(f) < 3 || strings.HasPrefix(f[2], "Z") {
+		if len(f) < 3 || strings.HasPrefix(f[2], "Z") || strings.HasPrefix(f[2], "E") {
 			continue
 		}
 		pid, perr := strconv.Atoi(f[0])
@@ -153,7 +158,23 @@ func liveMembersByPS(pgid int) []int {
 			out = append(out, pid)
 		}
 	}
-	return out
+	return out, true
+}
+
+// membersGone polls the group until it is empty or the deadline passes, and
+// returns what was left. A killed process takes a moment to leave the
+// process table, and reading it once straight after the cancel returned is a
+// race the test would sometimes lose.
+func membersGone(t *testing.T, pgid int, within time.Duration) []int {
+	t.Helper()
+	deadline := time.Now().Add(within)
+	for {
+		left := liveMembers(t, pgid)
+		if len(left) == 0 || time.Now().After(deadline) {
+			return left
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 func idle(t *testing.T, f *recoveryFixture) {
@@ -198,8 +219,9 @@ func TestCancelDuringTheValidatorStageKillsTheWholeProcessGroup(t *testing.T) {
 	// The positive control: the check below can see the script and the child it
 	// started, so an empty answer afterwards means they are gone and not that
 	// the check looks at the wrong thing.
-	if before := liveMembers(pgid); len(before) < 2 {
-		t.Fatalf("group %d has live members %v before the cancel, want the script and its child", pgid, before)
+	before := liveMembers(t, pgid)
+	if !slices.Contains(before, pgid) || !slices.Contains(before, child) {
+		t.Fatalf("group %d has live members %v before the cancel, want the script (%d) and its child (%d)", pgid, before, pgid, child)
 	}
 
 	got, err := f.b.CancelAssuranceOperation(ctx, started.OperationID)
@@ -211,10 +233,10 @@ func TestCancelDuringTheValidatorStageKillsTheWholeProcessGroup(t *testing.T) {
 	}
 
 	idle(t, f)
-	if left := liveMembers(pgid); len(left) != 0 {
+	if left := membersGone(t, pgid, 5*time.Second); len(left) != 0 {
 		t.Errorf("process group %d still has live members %v after the cancel: a validator's child outlived the test", pgid, left)
 	}
-	if err := syscall.Kill(child, 0); err == nil && len(liveMembers(pgid)) == 0 {
+	if err := syscall.Kill(child, 0); err == nil && len(liveMembers(t, pgid)) == 0 {
 		// The pid answers but the group is empty: only a zombie or a reused
 		// pid is possible, and neither is an orphan still running.
 		t.Logf("pid %d answers signal 0 with no live group member (a zombie awaiting a reaper)", child)

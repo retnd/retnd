@@ -30,28 +30,34 @@ import (
 // Assurance tile and is not routed: it reads the journal. Starting a scrub or
 // a recovery test is `scrub` and `recovery-test`, and reading the policy is
 // `settings assurance`; none of those is a subcommand of this verb.
+var assuranceVerbs = map[string]func(args []string) int{
+	"cancel": cmdAssuranceCancel,
+	"list":   cmdAssuranceList,
+}
+
 func cmdAssurance(args []string) int {
-	fs, cfgPath := newFlagSet("assurance")
-	asJSON := fs.Bool("json", false, "print the answer as JSON")
-	listSet := fs.String("backup-set", "", "list only: narrow to one source/backup-set")
-	listBucket := fs.String("bucket", "", "list only: due, overdue, degraded or untested; default is every backup in due, overdue or degraded")
+	// The verb is the first argument that is one, wherever the flags sit,
+	// and each verb parses its own flags: list's --backup-set and --bucket
+	// mean nothing to cancel, and cancel's --json is the API's object.
+	for i, a := range args {
+		if verb, ok := assuranceVerbs[a]; ok {
+			return verb(append(append([]string{}, args[:i]...), args[i+1:]...))
+		}
+	}
+	return usageError("assurance: expected `assurance list` or `assurance cancel <operation-id>`")
+}
+
+func cmdAssuranceCancel(args []string) int {
+	fs, cfgPath := newFlagSet("assurance cancel")
+	asJSON := fs.Bool("json", false, "print the engine's answer as JSON, the same object the API serves")
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
 		return exitUsage
 	}
-	if len(operands) == 1 && operands[0] == "list" {
-		return cmdAssuranceList(*cfgPath, *listSet, *listBucket, *asJSON)
-	}
-	if len(operands) == 0 || operands[0] != "cancel" {
-		return usageError("assurance: expected `assurance list` or `assurance cancel <operation-id>`")
-	}
-	if *listSet != "" || *listBucket != "" {
-		return usageError("assurance cancel takes no --backup-set or --bucket; those are list's")
-	}
-	if len(operands) != 2 {
+	if len(operands) != 1 {
 		return usageError("assurance cancel: expected exactly one operation id, the one the scrub or recovery test returned when it started")
 	}
-	opID := operands[1]
+	opID := operands[0]
 
 	cfg, err := config.LoadAndValidate(*cfgPath)
 	if err != nil {

@@ -197,7 +197,11 @@ export interface AssuranceApi {
   // `offers.operations` is true; startRecoveryTest, activeOperation and
   // readOperation when `offers.recoveryTest` is.
   startScrub(setId: string): Promise<Operation>;
-  startRecoveryTest(setId: string): Promise<Operation>;
+  /** Starts a recovery test of one set. `artifactId` names the backup to
+   *  test; left out, the engine tests the set's newest known-good copy. The
+   *  engine runs one test per set at a time: the same request again joins
+   *  the running one, a different one is refused (OPERATION_ALREADY_RUNNING). */
+  startRecoveryTest(setId: string, opts?: { artifactId?: string }): Promise<Operation>;
   /** The set's operation that is still running, if one is: what a reload
    *  asks, instead of starting another. */
   activeOperation(setId: string): Promise<Operation | null>;

@@ -248,6 +248,15 @@ export function renderStored(copies: number | undefined): { state: "stored" | "n
 /** The states a Recovery claim is in when nothing has been tested: a test nobody
  *  asked for, one that was asked for and never ran, and one the server cannot
  *  say. None of them is a pass, and none of them is a failure. */
+/** "Content: never run. Recovery: could not complete 1d ago." The sentence a
+ *  Dashboard row gives for why a backup is listed (#1174), and the one
+ *  `retnd assurance list` prints: core/service/assurancelist.go builds the
+ *  same string, and the shared vectors pin both. */
+export function listingReason(content: Pick<RenderedClaim, "label" | "age">, recovery: Pick<RenderedClaim, "label" | "age">): string {
+  const part = (name: string, c: Pick<RenderedClaim, "label" | "age">) => name + ": " + c.label.toLowerCase() + (c.age ? " " + c.age : "");
+  return part("Content", content) + ". " + part("Recovery", recovery) + ".";
+}
+
 const UNTESTED: readonly RenderState[] = ["never_configured", "never_run", "unknown"];
 
 export type Bucket = "due" | "overdue" | "degraded" | "untested";

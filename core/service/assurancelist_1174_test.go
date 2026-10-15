@@ -28,7 +28,11 @@ func bucketsFor(t *testing.T, got []AssuranceListing, id string) []string {
 	t.Helper()
 	for _, g := range got {
 		if g.ArtifactID == id {
-			return g.Buckets
+			out := make([]string, len(g.Buckets))
+			for i, b := range g.Buckets {
+				out[i] = string(b)
+			}
+			return out
 		}
 	}
 	t.Fatalf("artifact %s is not in the listing %+v", id, got)
@@ -122,7 +126,7 @@ func TestListAssuranceReasonAndAge(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("want one row, got %+v", got)
 	}
-	if want := "Content: verified 3h ago. Recovery: test failed 26h ago."; got[0].Reason != want {
+	if want := "Content: content verified 3h ago. Recovery: recovery test failed 26h ago."; got[0].Reason != want {
 		t.Errorf("reason = %q, want %q", got[0].Reason, want)
 	}
 	if got[0].Recovery.State != "failed" || got[0].Content.State != "pass" {
@@ -132,7 +136,7 @@ func TestListAssuranceReasonAndAge(t *testing.T) {
 
 func TestListAssuranceRecoveryOffIsNotDue(t *testing.T) {
 	a := art("x.zst", "s/off", localCopy(func(p *Placement) { p.VerificationClass = "content"; p.VerifiedAt = listNow.Add(-time.Hour) }))
-	got := ListAssurance([]Artifact{a}, nil, map[string]bool{"s/off": true}, listNow)
+	got := ListAssurance([]Artifact{a}, nil, map[string]SetRecoveryPolicy{"s/off": {Off: true, Basis: PolicyOwn}}, listNow)
 	bs := bucketsFor(t, got, "s/off/x.zst")
 	if has(bs, "due") || !has(bs, "untested") {
 		t.Errorf("a set whose recovery tests are off is untested, not due: %v", bs)

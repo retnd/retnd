@@ -46,10 +46,12 @@ test.describe("#1174 the Assurance tile lists what is due and runs it per row", 
     await expect(rowOf(page, "redis-20260812.rdb.zst")).not.toHaveAttribute("data-state", "running");
     await expect(card(page).getByTestId("assurance-degraded"), "the tile has not moved while the run is in flight").toContainText("2");
     await expect(card(page).getByTestId("assurance-degraded")).toContainText("1", { timeout: 60_000 });
-    // The row it ran stays, saying how it ended, so the operator is not left
-    // watching a row vanish.
+    // The row it ran stays, so the operator is not left watching a row
+    // vanish, and it says what the backup's claim reads now rather than
+    // that a run finished: a run can end with the backup still owed.
     await expect(billing).toHaveAttribute("data-state", "complete");
-    await expect(billing.getByRole("status")).toContainText(/finished/i);
+    await expect(billing.getByRole("status")).toContainText(/recovery test passed/i);
+    await expect(billing.getByRole("status")).not.toContainText(/finished/i);
   });
 
   test("#1174 a set that can only refuse a test gets a disabled button and the reason beside it", async ({ page }) => {

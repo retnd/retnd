@@ -5729,8 +5729,8 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   const live = served.getLiveActivity;
   const routes: RetndApi = {
     ...served,
-    startRecoveryTest: async (source, set) => {
-      const o = await assurance.startRecoveryTest(source + "/" + set);
+    startRecoveryTest: async (source, set, req) => {
+      const o = await assurance.startRecoveryTest(source + "/" + set, req?.artifactId ? { artifactId: req.artifactId } : undefined);
       return { backupSetId: source + "/" + set, operationId: o.id, coalesced: o.joined === true };
     },
     startScrub: async (source, set) => {

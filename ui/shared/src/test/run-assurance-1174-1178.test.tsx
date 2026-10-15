@@ -85,3 +85,108 @@ describe("#1174 recoveryTestWouldBeRefused", () => {
     expect(recoveryTestWouldBeRefused(undefined)).toBe(false);
   });
 });
+
+// Review follow-ups on #1184: a row's button tests that row's backup, and a
+// list of rows reads the capabilities once and follows each operation once.
+import { AssuranceDashboardCard } from "@shared/assurance/AssuranceDashboardCard";
+import { AssuranceDueList } from "@shared/assurance/AssuranceDueList";
+import { resetAssuranceModelForTests } from "@shared/assurance/verificationModel";
+import type { BackupFacts, Tally } from "@shared/assurance/verificationModel";
+import { act, fireEvent, within } from "@testing-library/react";
+
+function renderTile(over: (api: RetndApi) => RetndApi = (a) => a) {
+  const api = over(createMockApi("default"));
+  render(
+    <MemoryRouter>
+      <ApiProvider api={api}><AssuranceDashboardCard /></ApiProvider>
+    </MemoryRouter>
+  );
+  return api;
+}
+
+const rowsList = () => screen.findByRole("list", { name: "Backups needing assurance" });
+
+describe("#1174 review: each row runs its own backup, and the list fans out nothing", () => {
+  beforeEach(() => { resetGraphForTests(); resetAssuranceModelForTests(); sessionStorage.clear(); });
+  afterEach(() => cleanup());
+
+  it("sends the row's own backup to the engine, not just its set", async () => {
+    let seen: unknown[] = [];
+    renderTile((api) => {
+      const a = api.assurance!;
+      return { ...api, assurance: { ...a, startRecoveryTest: (...args: unknown[]) => { seen = args; return (a.startRecoveryTest as (...x: unknown[]) => Promise<never>)(...args); } } } as RetndApi;
+    });
+    const list = await rowsList();
+    await userEvent.click(within(list).getByRole("button", { name: "Run assurance for billing-20260827.sql.gz" }));
+    await waitFor(() => expect(seen.length).toBeGreaterThan(0));
+    expect(seen[0]).toBe("production/billing-mysql");
+    expect(seen[1]).toEqual({ artifactId: "production/billing-mysql/billing-20260827.sql.gz" });
+  });
+
+  it("reads the capabilities once for the whole list, not once per row", async () => {
+    let reads = 0;
+    renderTile((api) => ({ ...api, getCapabilities: () => { reads += 1; return api.getCapabilities(); } }) as RetndApi);
+    const list = await rowsList();
+    expect(within(list).getAllByRole("listitem").length).toBeGreaterThan(1);
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    expect(reads).toBeLessThanOrEqual(1);
+  });
+
+  it("two presses in one tick start one test", async () => {
+    let starts = 0;
+    renderTile((api) => {
+      const a = api.assurance!;
+      return { ...api, assurance: { ...a, startRecoveryTest: (...args: unknown[]) => { starts += 1; return (a.startRecoveryTest as (...x: unknown[]) => Promise<never>)(...args); } } } as RetndApi;
+    });
+    const list = await rowsList();
+    const button = within(list).getByRole("button", { name: "Run assurance for billing-20260827.sql.gz" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    await waitFor(() => expect(starts).toBeGreaterThan(0));
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    expect(starts).toBe(1);
+  });
+});
+
+describe("#1174 review: a long list is capped per bucket", () => {
+  afterEach(() => cleanup());
+
+  it("draws at most twenty rows of a bucket and links to the rest on Backups", () => {
+    const ids = Array.from({ length: 23 }, (_, i) => "s/a/b-" + String(i).padStart(2, "0") + ".zst");
+    const claim = { state: "never_run", label: "Never run", glyph: { id: "never-run" } };
+    const byArtifact = Object.fromEntries(ids.map((id) => [id, {
+      artifactId: id, setId: "s/a", content: claim, recovery: claim, policy: null
+    } as unknown as BackupFacts]));
+    const tally = {
+      known: true, total: 23, due: 23, overdue: 0, degraded: 0, untested: 23,
+      ids: { due: ids, overdue: [], degraded: [], untested: ids }
+    } as Tally;
+    render(
+      <MemoryRouter>
+        <ApiProvider api={createMockApi("default")}>
+          <AssuranceDueList tally={tally} byArtifact={byArtifact} readOnly={false} />
+        </ApiProvider>
+      </MemoryRouter>
+    );
+    expect(within(screen.getByRole("list", { name: "Backups needing assurance" })).getAllByRole("listitem")).toHaveLength(20);
+    const more = screen.getByRole("link", { name: /3 more due backups on Backups/ });
+    expect(more.getAttribute("href")).toBe("/backups?assurance=due");
+  });
+});
+
+describe("#1174 review: the production seam sends the backup as artifact_id", () => {
+  it("passes the row's backup through to POST .../recovery-test", async () => {
+    const { createHttpAssurance } = await import("@shared/assurance/realAssurance");
+    const calls: unknown[][] = [];
+    const base = createMockApi("default");
+    const api = {
+      ...base,
+      startRecoveryTest: async (...args: unknown[]) => { calls.push(args); return { backupSetId: "production/billing-mysql", operationId: "op_1", coalesced: false }; }
+    } as unknown as RetndApi;
+    const seam = createHttpAssurance(api);
+    await seam.startRecoveryTest("production/billing-mysql", { artifactId: "production/billing-mysql/billing-20260827.sql.gz" });
+    await seam.startRecoveryTest("production/billing-mysql");
+    expect(calls[0]).toEqual(["production", "billing-mysql", { artifactId: "production/billing-mysql/billing-20260827.sql.gz" }]);
+    expect(calls[1]).toEqual(["production", "billing-mysql", undefined]);
+  });
+});
