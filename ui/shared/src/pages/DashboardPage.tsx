@@ -389,7 +389,7 @@ export function DashboardPage({
           an operator looks when something is wrong is the same place that
           was there when it was fine. It sits between what is running and
           what has happened because that is what it is: the middle. */}
-      <AssuranceDashboardCard />
+      <AssuranceDashboardCard readOnly={readOnly} />
 
       <DashboardActivity sets={sets.data} />
 

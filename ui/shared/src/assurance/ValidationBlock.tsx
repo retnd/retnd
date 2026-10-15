@@ -15,7 +15,13 @@ import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { TooltipId } from "@shared/tooltips/tooltips";
 import { stamp } from "@shared/utilities/format";
 import type { BackupSet } from "@shared/types/backup";
-import { useSetFacts } from "./verificationModel";
+import { useApi } from "@shared/api/ApiContext";
+import { GateRefusal } from "@shared/components/GateRefusal";
+import { CommandEcho } from "@shared/pages/CommandEcho";
+import { recoveryTestCommand } from "./assuranceCommands";
+import { OperationPanel } from "./OperationPanel";
+import { useRunAssurance } from "./useRunAssurance";
+import { recoveryTestWouldBeRefused, useSetFacts } from "./verificationModel";
 
 const TIPS: Record<"transfer" | "checksum" | "application", TooltipId> = {
   transfer: "sets.detail.validation.transfer",
@@ -27,15 +33,44 @@ const LABELS = { transfer: "Transfer verification", checksum: "Checksum verifica
 
 const fileOf = (id: string) => id.split("/").pop() ?? id;
 
-export function ValidationBlock({ set }: { set: BackupSet }) {
+export function ValidationBlock({ set, readOnly = false }: { set: BackupSet; readOnly?: boolean }) {
   const facts = useSetFacts(set.id);
+  const api = useApi();
+  const run = useRunAssurance(set.id, { attach: true });
+  // A test on a set that can only refuse it is not offered (the same reading
+  // the Assurance section makes, #1108/#1111).
+  const cannot = recoveryTestWouldBeRefused(facts?.policy);
+  const whyId = "validation-run-why-" + set.id.replace(/[^A-Za-z0-9_-]/g, "-");
+  const why = run.running ? "A recovery test is already running for this set." : cannot ? "No recovery-test validator is declared for this set, so a test can only be refused." : null;
   const test = facts?.setTest ?? null;
   const content = facts?.newestContent ?? null;
   // An empty list is the client's "nothing reported", so a row cannot honestly
   // say "not enabled"; a fixture that names some stages does mean the rest are off.
   const reported = set.validations.length > 0;
   return (
-    <div data-testid="validation-block" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+    <div data-testid="validation-block" data-assurance="" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {run.offered ? (
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <button className="btn" disabled={readOnly || run.running || cannot} aria-describedby={why ? whyId : undefined} onClick={() => void run.run()}>
+            Run validation
+          </button>
+          {why ? <span id={whyId} data-testid="validation-run-why" style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>{why}</span> : null}
+        </div>
+      ) : null}
+      {run.error ? <div role="alert" className="aop__alert">{run.error}</div> : null}
+      {run.refused ? <GateRefusal notice={run.refused} /> : null}
+      {run.operation ? (
+        <OperationPanel
+          operation={run.operation}
+          events={run.events}
+          error={run.feedError}
+          onCancel={() => void run.cancel()}
+          readOnly={readOnly}
+          detailLink={!!api.assurance?.offers.operations}
+          cancellable={!!api.assurance?.offers.operations}
+          cancelError={run.cancelError}
+        />
+      ) : null}
       {facts ? (
         <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 8, fontSize: 13 }} aria-label="Recorded results">
           {test ? (
@@ -80,6 +115,7 @@ export function ValidationBlock({ set }: { set: BackupSet }) {
           );
         })}
       </ul>
+      {run.offered ? <CommandEcho label="Same thing from the terminal" commands={[recoveryTestCommand(set.id)]} /> : null}
     </div>
   );
 }

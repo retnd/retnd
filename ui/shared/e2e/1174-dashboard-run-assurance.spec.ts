@@ -53,7 +53,7 @@ test.describe("#1174 the Assurance tile lists what is due and runs it per row", 
   });
 
   test("#1174 a set that can only refuse a test gets a disabled button and the reason beside it", async ({ page }) => {
-    await open(page, "/", "assurance-no-validator", { wire: true });
+    await open(page, "/", "assurance-no-validator");
     const redis = rowOf(page, "redis-20260812.rdb.zst");
     await expect(redis).toBeVisible();
     const run = redis.getByRole("button", { name: /Run assurance for redis/ });
@@ -81,7 +81,7 @@ test.describe("#1174 the Assurance tile lists what is due and runs it per row", 
       await open(page, "/");
       await expect(list(page)).toBeVisible();
       await setTheme(page, theme);
-      expect(await measureContrast(page, "1174 due list " + theme, '[aria-label="Backups needing assurance"]')).toEqual([]);
+      expect(await measureContrast(page, "1174 due list " + theme, '[aria-label="Assurance summary"]')).toEqual([]);
     });
   }
 });

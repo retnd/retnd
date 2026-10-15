@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- **The Dashboard's Assurance tile lists the backups behind its counts, and each row has Run assurance** (#1174). Under Due, Overdue and Degraded the tile now lists those backups, one row each with its set, why it is there and how old the last check is. Run assurance starts the same recovery test the backup set page starts (`POST /backup-sets/{source}/{set}/recovery-test`, `retnd recovery-test <source/set>`), shows the run on the row, and the counts refresh when it ends. A set that could only refuse a test gets a disabled button with the reason beside it.
+- **The backup set's Validation pane has a Run validation button** (#1178). It starts the set's recovery test through the same endpoint, shows it in flight with the stage and progress, disables itself with the reason while one is running, and the pane re-reads when the run ends. No API or CLI change: both buttons use the route and command that already existed.
+
 ## [0.6.4] - 2026-10-14
 
 0.6.4 brings the terminal up to the web API. EPIC S went through every route the API serves and gave
