@@ -12,6 +12,10 @@
  */
 import { defineConfig } from "@playwright/test";
 
+// Several checkouts can run these specs on one machine at once, and the dev
+// server takes its port with --strictPort, so E2E_PORT moves it off 5199.
+const port = Number(process.env.E2E_PORT ?? 5199);
+
 export default defineConfig({
   testDir: ".",
   testMatch: /.*\.spec\.ts/,
@@ -20,15 +24,15 @@ export default defineConfig({
   reporter: [["list"]],
   outputDir: "../test-results",
   use: {
-    baseURL: "http://127.0.0.1:5199",
+    baseURL: `http://127.0.0.1:${port}`,
     viewport: { width: 1280, height: 900 },
     video: process.env.E2E_VIDEO ? { mode: "on", size: { width: 1280, height: 900 } } : "off",
     trace: "off"
   },
   webServer: {
-    command: "npx vite --host 127.0.0.1 --port 5199 --strictPort",
+    command: `npx vite --host 127.0.0.1 --port ${port} --strictPort`,
     cwd: "..",
-    url: "http://127.0.0.1:5199",
+    url: `http://127.0.0.1:${port}`,
     reuseExistingServer: false,
     timeout: 120_000
   }

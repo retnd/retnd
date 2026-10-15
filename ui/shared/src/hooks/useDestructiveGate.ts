@@ -9,6 +9,11 @@
  * /system/capabilities reports it as `destructive_operations`, and this is
  * the one place the shared UI reads it.
  *
+ * Issue #1163 opened the gate for local-account profiles, so this is now a
+ * live answer rather than a constant: open on one profile, shut on another.
+ * Issue #1164 took verify, hold and release-hold off the gate altogether,
+ * and their screens no longer read this at all.
+ *
  * Three states, not two. `unknown` is what a page has until the answer
  * arrives, and what it keeps if the read fails or the engine is older than
  * this bundle and says nothing. It is never treated as open and never as
@@ -23,9 +28,16 @@ export interface GateReading {
   state: "open" | "shut" | "unknown";
   /** Why it is shut, in the engine's words. Empty unless shut. */
   reason: string;
+  /** Issue #1163: restores re-ask for the password. Only ever true when the
+   *  engine said so, so a screen never asks for one it will not check. */
+  stepUpRequired: boolean;
+  /** Issue #1163: this browser reached retnd over plain HTTP from another
+   *  machine, so a screen that is about to send a password asks the operator
+   *  first (api/client.ts acknowledgeInsecureTransport). */
+  insecureTransportAckRequired: boolean;
 }
 
-const UNKNOWN: GateReading = { state: "unknown", reason: "" };
+const UNKNOWN: GateReading = { state: "unknown", reason: "", stepUpRequired: false, insecureTransportAckRequired: false };
 
 export function useDestructiveGate(): GateReading {
   const api = useApi();
@@ -37,7 +49,13 @@ export function useDestructiveGate(): GateReading {
     let live = true;
     api.getCapabilities().then(
       (caps) => {
-        if (live) setReading({ state: caps.destructiveOperations.state, reason: caps.destructiveOperations.reason });
+        if (live)
+          setReading({
+            state: caps.destructiveOperations.state,
+            reason: caps.destructiveOperations.reason,
+            stepUpRequired: caps.destructiveOperations.stepUpRequired,
+            insecureTransportAckRequired: caps.destructiveOperations.insecureTransportAckRequired
+          });
       },
       // Not knowing is not "open". The refusal, if there is one, is the engine's.
       () => undefined

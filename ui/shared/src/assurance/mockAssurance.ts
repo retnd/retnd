@@ -88,7 +88,15 @@ export const DEFAULT_POLICY_NEWEST = "production/postgres-primary/postgres-prod-
  *  no recovery test has ever run on either backup, which is the state of a
  *  deployment nobody has tested. */
 export const DEFAULT_UNTESTED_SCENARIO = "assurance-default-untested";
-export const followsDefault = (scenario: string): boolean => scenario === DEFAULT_POLICY_SCENARIO || scenario === DEFAULT_UNTESTED_SCENARIO;
+/** assurance-ingest-failed-scrubbed (#1175 review): the untested fixture, but
+ *  the newest backup failed its producer-manifest check at ingest. A scrub has
+ *  since matched the digest taken at receipt, which proves nothing about a
+ *  file that was bad when it arrived. */
+export const INGEST_FAILED_SCENARIO = "assurance-ingest-failed-scrubbed";
+/** The fixtures with no recovery test on record. */
+export const untestedScenario = (scenario: string): boolean =>
+  scenario === DEFAULT_UNTESTED_SCENARIO || scenario === INGEST_FAILED_SCENARIO;
+export const followsDefault = (scenario: string): boolean => scenario === DEFAULT_POLICY_SCENARIO || untestedScenario(scenario);
 const defaultPolicyScenario = () => followsDefault(activeScenario);
 /** Both scenarios run the built-in structure check, which records "readable". */
 const builtinScenario = () => activeScenario === BUILTIN_SCENARIO || defaultPolicyScenario();
@@ -478,7 +486,7 @@ export function createMockAssurance(scenario: string): AssuranceApi {
           .filter((o) => o.kind === "recovery_test" && !o.cancelledAt && view(o, false, Date.now()).operation.state === "complete")
           .sort((a, b) => b.startedAt - a.startedAt)[0];
         // Nothing ever ran: there is no result to report.
-        if (scenario === DEFAULT_UNTESTED_SCENARIO && !ran) return null;
+        if (untestedScenario(scenario) && !ran) return null;
         return {
           artifactId: ran ? DEFAULT_POLICY_NEWEST : DEFAULT_POLICY_TESTED, medium: "local", operationId: ran ? ran.id : "aop_default_policy_fixture",
           state: "readable", recordedAt: new Date(ran ? ran.startedAt + total("recovery_test") * 1000 : Date.now() - 5 * 3600_000).toISOString(), truncated: false,
