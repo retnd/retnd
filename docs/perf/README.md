@@ -216,7 +216,7 @@ and the measurement itself has not changed under it (same `overlay2` storage, sa
 
 Both columns sum to their image exactly.
 
-**17,367,040 bytes, 58.2% of the move, is the embedded Kopia engine** (EPIC K's
+**17,301,504 bytes, 58.0% of the move, is the embedded Kopia engine** (EPIC K's
 incremental engine). I found where by building the CLI with the Dockerfile's own
 flags at first-parent commits along main: it sat at 31,654,048 right up to K3,
 then jumped to 40,960,160 across the one merge of K4 (#783, #831), which is where
@@ -224,12 +224,26 @@ then jumped to 40,960,160 across the one merge of K4 (#783, #831), which is wher
 `core/go.mod` from #823, but nothing reachable from a binary imported it until
 then. To get the figure on today's tree rather than on K4's, I built both commands
 at `7ea6287d` again with that one call (and its import) taken out: `retnd` goes
-44,695,712 -> 35,913,888 and `retnd-web` goes 44,695,712 -> 36,110,496 (the web
+44,695,712 -> 35,913,888 and `retnd-web` goes 44,630,176 -> 36,110,496 (the web
 binary built against the checked-in UI placeholder, so the embedded bundle stays
-out of it). That is 8,781,824 and 8,585,216. The dependency tree that arrives with
+out of it). That is 8,781,824 and 8,519,680. The first version of this account
+gave the web binary's "before" as 44,695,712, the CLI's figure to the byte, and
+a review rightly doubted two different binaries could match like that. I built
+it again from a clean `git archive` of `7ea6287d` in the pinned Go builder and it
+is 44,630,176, one 64 KiB page smaller: I had copied the CLI's number into the
+web binary's cell. Both binaries are padded to 64 KiB on linux/arm64, which is
+why a slip like that still looked plausible. The two "without Kopia" figures came
+back the same as before, to the byte. The dependency tree that arrives with
 `github.com/kopia/kopia/repo` is all of it: minio-go for the native S3 storage,
 klauspost's compress and reedsolomon, and also gRPC and OpenTelemetry, which
 come from Kopia's repository-server client rather than from anything retnd calls.
+`go mod why -m google.golang.org/grpc` says exactly that: `core/internal/backupengine/kopia`
+-> `github.com/kopia/kopia/repo` -> `google.golang.org/grpc`, and nothing else.
+Kopia's own module pulled it in at the untagged pseudo-version
+`v1.84.0-dev.0.20260723093437-b6eac429d7b6`, so a build depended on a commit on
+gRPC's development branch rather than a release. `v1.84.0` has since been tagged,
+and #1193 pins it in `core`, `apps/common` and `apps/generic`; `go mod why`
+gives the same chain afterwards, and the image-size check passes with it.
 I'm recording those last two as the one part of this that looks like weight
 nobody uses, rather than blessing it... trimming it means a Kopia build tag or a
 fork, which is a design question for EPIC K and not something to slip in here.
@@ -240,7 +254,10 @@ across that one merge.
 
 **655,360 bytes of `retnd-web` is the embedded UI growing.** The web binary
 built against the placeholder `dist/` versus the same binary in the image was
-655,360 apart at `186ba0c7` and 1,310,720 apart at `7ea6287d`.
+720,896 apart at `186ba0c7` (31,916,192 against 32,637,088) and 1,376,256 apart
+at `7ea6287d` (44,630,176 against 46,006,432), both re-measured for #1193 after
+the copy slip above; each gap had been given one 64 KiB page short, so the
+difference between them, the growth, did not change.
 
 **The bundles grew 3,167,315 because the UI did.** Each bundle's main JS chunk
 went from 526,005 to 1,134,195 bytes. I checked it is still minified, that
