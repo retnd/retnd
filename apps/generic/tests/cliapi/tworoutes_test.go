@@ -826,6 +826,20 @@ var surfaces = []surface{
 		argv: func(f fixture) []string {
 			return []string{"assurance", "cancel", "--config", f.configPath, "00000000-0000-4000-8000-000000000001"}
 		}},
+	{verb: "auth", name: "password, with no engine serving to hold the account", mode: "", exit: 1, routed: true,
+		says: "has no route to one",
+		note: "the administrator's account belongs to the process serving the deployment: its store is locked by that process and its sessions live in its memory, so a password changed anywhere else would leave signed-in sessions standing on a credential that no longer exists. With nothing serving there is nothing to change, so it refuses before it reads stdin, naming how to reach an engine and the offline retnd-web auth set-password for a locked-out account (#1155)",
+		argv: func(f fixture) []string {
+			return []string{"auth", "password", "--password-stdin", "--config", f.configPath}
+		}},
+	{verb: "ssh-key", name: "list, with nothing serving", mode: "direct", exit: 0, routed: true,
+		note: "the key store belongs to whichever process uses the keys. It goes through the door configuration writes go through, so beside an engine it cannot reach it is refused rather than answering about a store that process does not read, and with nothing serving it lists this host's own (#1153)",
+		argv: func(f fixture) []string { return []string{"ssh-key", "list", "--config", f.configPath} }},
+	{verb: "ssh", name: "host-key-probe, of a port nothing answers on", mode: "direct", exit: 1, routed: true,
+		note: "a probe is only worth running from the machine the backups travel from, so it goes through the same door as the key store. Nothing listens on port 1 here, so this refuses for the connection and writes nothing; a probe never trusts or persists anything (#1153)",
+		argv: func(f fixture) []string {
+			return []string{"ssh", "host-key-probe", "127.0.0.1", "--port", "1", "--config", f.configPath}
+		}},
 	{verb: "quarantine", name: "revalidate", mode: "", exit: 1, needsArtifacts: true,
 		note: "nothing here is quarantined, so this refuses for the missing subject",
 		argv: func(f fixture) []string {

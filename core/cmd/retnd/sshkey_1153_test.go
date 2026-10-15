@@ -71,7 +71,7 @@ func writeKey1153(t *testing.T, dir, name, passphrase string) key1153 {
 func noMaterial1153(t *testing.T, what string, k key1153, streams ...string) {
 	t.Helper()
 	for _, s := range streams {
-		for _, secret := range []string{k.body, keyPassphrase1153, "PRIVATE KEY"} {
+		for _, secret := range []string{k.body, keyPassphrase1153, "-----BEGIN"} {
 			if secret != "" && strings.Contains(s, secret) {
 				t.Errorf("%s: key material or a passphrase reached an output stream: %q", what, s)
 			}
@@ -79,7 +79,7 @@ func noMaterial1153(t *testing.T, what string, k key1153, streams ...string) {
 	}
 }
 
-var importedID1153 = regexp.MustCompile(`as (\S+)`)
+var importedID1153 = regexp.MustCompile(`key SHA256:\S+ as (\S+)`)
 
 func idFrom1153(t *testing.T, stdout string) string {
 	t.Helper()

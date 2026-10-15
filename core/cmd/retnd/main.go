@@ -88,6 +88,8 @@ var commands = map[string]func([]string) int{
 	"recovery-test":   cmdRecoveryTest,
 	"assurance":       cmdAssurance,
 	"auth":            cmdAuth,
+	"ssh-key":         cmdSSHKey,
+	"ssh":             cmdSSH,
 	"catalog":         cmdCatalog,
 	"quarantine":      cmdQuarantine,
 	"unconfigured":    cmdUnconfigured,
@@ -151,6 +153,7 @@ commands:
                     [--engine artifact|kopia] [--repository-domain D] [--source-consistency S]
                     [--verification-level L] [--verification-sample-percent N]
                     [--verification-full-every D] [--verification-restore-drill-every D]
+                    [--ssh-key-passphrase-stdin]
                     [--port N] [--acknowledge-repoint] [--state-database PATH] [--no-verify]
                                                   create a backup set. Beside a serving engine this command has a
                                                   route to, that is POST /api/v1/backup-sets against the engine
@@ -169,6 +172,7 @@ commands:
                     [--source-consistency S] [--verification-level L] [--verification-sample-percent N]
                     [--verification-full-every D] [--verification-restore-drill-every D]
                     [--acknowledge-repoint] [--acknowledge-host-key-change]
+                    [--ssh-key-passphrase-stdin]
                     [--no-verify]
                                                   change one configured backup set in place; only the flags you pass are
                                                   changed. Beside a serving engine this command has a route to, that is
@@ -322,6 +326,33 @@ commands:
                                                   redeem the verification token out of the emailed link (from stdin, never
                                                   a flag), or ask for the message to be sent again. The same as
                                                   POST /api/v1/auth/verify-email and /resend
+  ssh-key list [--json]
+                                                  the keys in this deployment's key store: id, algorithm, fingerprint,
+                                                  when it was imported and which backup sets use it. The id is the one
+                                                  backup-set create|patch --ssh-key-id takes. Public halves only; a
+                                                  key's bytes are never printed. Beside a serving engine this is its
+                                                  store (GET /api/v1/ssh-keys); with nothing serving, this host's
+  ssh-key import --file F [--passphrase-stdin] | --candidate ID [--json]
+                                                  add a key to the store and print its fingerprint and id. --file is a
+                                                  private key file, read once and copied; the original is left alone. A
+                                                  passphrase-protected key takes --passphrase-stdin and its passphrase
+                                                  as the first line of stdin. Key bytes and passphrases are never
+                                                  a flag and never printed. --candidate is an id ssh-key discover listed, for
+                                                  a key the machine already holds, and sends no key material at all.
+                                                  backup-set create and patch take the same passphrase as
+                                                  --ssh-key-passphrase-stdin, beside --ssh-key-file.
+                                                  The same as POST /api/v1/ssh-keys and /ssh-keys/from-candidate (#1153)
+  ssh-key discover [--json]
+                                                  every place that could hold a key, and the keys found there with
+                                                  their fingerprints. The places are listed even when empty, so "no
+                                                  keys" and "could not look where your keys are" read differently.
+                                                  The same as GET /api/v1/ssh/key-candidates
+  ssh host-key-probe HOST [--port N] [--json]
+                                                  connect to HOST (port 22 unless told) and print the host key that
+                                                  answers, its fingerprint and the known_hosts line for it. Nothing
+                                                  is trusted or written. Beside a serving engine the engine dials,
+                                                  because that is the machine the backups travel from. The same as
+                                                  POST /api/v1/ssh/host-key-probe
   catalog rebuild [--dry-run]                    reconstruct a lost/corrupted state database from sidecar recovery manifests
   quarantine <revalidate|retry|reinstate> <source/backup-set/artifact> [--note T]
                                                   act on one quarantined artifact: revalidate re-checks it and moves

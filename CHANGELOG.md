@@ -22,6 +22,15 @@
   recovery address and the SMTP endpoint behind it. Every secret is stdin only, never a flag, and nothing
   prints one. I ran `auth create-admin` against a store that already had an administrator rather than
   trusting the docs: it refuses, changes nothing, and now points at `set-password`.
+- **The SSH key store and the host-key probe from a terminal** (#1153). `retnd ssh-key list`, `import` and
+  `discover` manage the key store, and `retnd ssh host-key-probe HOST [--port N]` prints the host key that
+  answers and trusts nothing. `--ssh-key-id` has taken an id since #572 that nothing on a terminal would
+  print, and now `ssh-key list` does. Beside a serving engine they are that engine's store and scan, and
+  `--json` prints the object the API returns (one conversion in `core/service`, which the engine's handlers
+  are tested against). Key bytes and passphrases are never a flag and never printed: a key is a file, a
+  passphrase is the first line of stdin. I checked what `--ssh-key-file` does with a passphrase-protected key
+  and the answer was that it could not take one, because it passed an empty passphrase and the service
+  refused. `backup-set create` and `patch` now take `--ssh-key-passphrase-stdin`.
 - **A guard that every registered route has a command or a reason** (#1150). It walks the engine router, the
   first-run router and the `/auth` router, fails when a route has neither a `core/cliecho` entry nor a
   recorded reason, flags a route the spec leaves out, and carries mutation tests that prove it goes red.

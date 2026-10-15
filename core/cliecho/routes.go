@@ -1072,46 +1072,78 @@ var routes = map[string]entry{
 	},
 
 	// ------------------------------------------------------------- ssh ---
+	//
+	// The key store and the host-key probe had no verb until #1153, and
+	// each of these five entries was a written gap saying so. They name
+	// their verbs now. Key material and the passphrase are in the body
+	// and stay there: the key is a FILE on the command line and the
+	// passphrase is the first line of stdin, so the line is exportable.
 	key("POST", "/ssh-keys"): {
-		// Never a command, and the reason is the interesting half. This
-		// request carries private_key_pem and a passphrase, and the only
-		// place a key reaches the CLI is as a FILE on
-		// `backup-set create --ssh-key-file`. There is no import verb, so
-		// there is nothing to print, and what is printed instead names
-		// the flag and never the material.
-		why:               "a key reaches the CLI as a file on `backup-set create --ssh-key-file <the private key file you chose>`; there is no verb that imports one on its own, and the key itself never goes on a command line",
-		namesShippedVerbs: []string{"backup-set"},
+		build: func(a Action) *cmd {
+			var req struct {
+				Passphrase string `json:"passphrase"`
+			}
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("ssh-key", "import").placeholderFlag("file", "the private key file you chose")
+			if req.Passphrase != "" {
+				c.bare("passphrase-stdin")
+			}
+			return c
+		},
+		why: "the request body would not decode, so there is no command that says what it imported",
+		examples: []Action{
+			{Body: []byte(`{"private_key_pem":"x"}`)},
+			{Body: []byte(`{"private_key_pem":"x","passphrase":"y"}`)},
+		},
 	},
-	// The other import (#592), and a DIFFERENT gap from the one above,
-	// which is why it is a separate sentence rather than a clause on that
-	// one. A pasted key has nowhere to go on a command line at all. A
-	// selected candidate has an opaque id that would sit on one
-	// perfectly well, and the only thing missing is a verb that takes it.
+	// Selecting a candidate (#592). An opaque handle that sits on a command
+	// line perfectly well, and `ssh-key import --candidate` is the verb
+	// that takes it.
 	key("POST", "/ssh-keys/from-candidate"): {
-		why: "there is no verb that imports a key this machine already holds; the id is an opaque handle that would sit on a command line perfectly well, and `" + Binary + " ssh-key import --candidate ID` would be it",
+		build: func(a Action) *cmd {
+			var req struct {
+				CandidateID string `json:"candidate_id"`
+			}
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			return newCmd("ssh-key", "import").flagIfSet("candidate", req.CandidateID)
+		},
+		why: "the request body would not decode, so there is no command that says which candidate it selected",
+		examples: []Action{
+			{Body: []byte(`{"candidate_id":"cand_1"}`)},
+		},
 	},
 	key("POST", "/ssh/host-key-probe"): {
-		why: "there is no verb that probes a host key on its own; a terminal settles it with --trust-host-key or --known-hosts-line while creating or patching a set",
+		build: func(a Action) *cmd {
+			var req struct {
+				Host string `json:"host"`
+				Port int    `json:"port"`
+			}
+			if !decode(a.Body, &req) || req.Host == "" {
+				return nil
+			}
+			c := newCmd("ssh", "host-key-probe", req.Host)
+			if req.Port > 0 {
+				c.flag("port", itoa(req.Port))
+			}
+			return c
+		},
+		why: "the request names no host, so there is nothing to probe and no command that says what was probed",
+		examples: []Action{
+			{Body: []byte(`{"host":"source.example.internal","port":2222}`)},
+			{Body: []byte(`{"host":"source.example.internal","port":22}`)},
+		},
 	},
-
-	// The two reads the wizard's first step is built on (#592). Both are
-	// gaps rather than commands, and the gap sentence is doing real work
-	// here: `backup-set patch --ssh-key-id ID` has existed since #572 and
-	// takes an id nobody has, because nothing on either surface would
-	// print one. So this is the exact shape EPIC G's parity rule exists
-	// to make visible, and it names the verbs that would close it rather
-	// than saying "no equivalent".
-	//
-	// They stay gaps until those verbs exist. Printing a command this
-	// binary does not declare would be printing something an operator
-	// pastes and gets exit 2 from, which the dispatcher-driven parity
-	// test in core/cmd/retnd catches on purpose.
 	key("GET", "/ssh-keys"): {
-		why:               "there is no verb that lists the key store, which is why `backup-set patch --ssh-key-id ID` currently takes an id nothing will print for you. `" + Binary + " ssh-key list` would be it",
-		namesShippedVerbs: []string{"backup-set"},
+		build:    func(Action) *cmd { return newCmd("ssh-key", "list") },
+		examples: []Action{{}},
 	},
 	key("GET", "/ssh/key-candidates"): {
-		why: "there is no verb that scans this machine for keys it can offer, so the key the installer generated and mounted is reachable from the browser and not from a terminal. `" + Binary + " ssh-key discover` would be it",
+		build:    func(Action) *cmd { return newCmd("ssh-key", "discover") },
+		examples: []Action{{}},
 	},
 
 	// -------------------------------------------------------- settings ---

@@ -349,6 +349,29 @@ type assuranceRoute interface {
 	ResetBackupSetAssurance(ctx context.Context, id string) (service.BackupSetAssurance, error)
 }
 
+// sshKeyRoute is the key store's half of the same seam (issue #1153).
+//
+// The store belongs to whichever process serves the deployment: a key
+// imported into the file tree of a CLI running somewhere else is a key the
+// engine will never read, and a listing of this host's store beside a
+// serving engine is a listing of a store that process does not use. So
+// listing, scanning and importing go where the key will be USED, and the
+// probe goes where the backups will travel from, for the reason
+// ProbeHostKey's own doc gives.
+//
+// ImportSSHKey and ProbeHostKey come from backupSetCreatePrereqs, because
+// `backup-set create --ssh-key-file` already needed them. The other three
+// are what a standalone key store needs.
+//
+// *service.BackupService and *service.FirstRun satisfy it as they stand.
+type sshKeyRoute interface {
+	backupSetCreatePrereqs
+
+	ListSSHKeys(ctx context.Context) ([]service.SSHKeyListing, error)
+	DiscoverSSHKeyCandidates(ctx context.Context) (service.SSHKeyDiscovery, error)
+	ImportSSHKeyCandidate(ctx context.Context, candidateID string) (service.SSHKeyRef, error)
+}
+
 // configWriteRoute is where a routed configuration write goes: every half
 // together, because they are reached through one door and one claim.
 //
@@ -364,6 +387,7 @@ type configWriteRoute interface {
 	mediumRoute
 	repositoryRoute
 	assuranceRoute
+	sshKeyRoute
 }
 
 // attachToEngine builds this invocation's route to the serving process,
