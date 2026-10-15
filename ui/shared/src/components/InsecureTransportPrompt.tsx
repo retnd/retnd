@@ -50,6 +50,10 @@ export function InsecureTransportPrompt() {
       eyebrow="Your session is not protected on this connection"
       title="This connection is not encrypted"
       confirmLabel="Continue anyway"
+      // Drawn as the risky choice it is. The plain variant's eyebrow is a
+      // third-tier grey that measures 3.35:1 on the dialog, under AA for
+      // text this size; the destructive one is the danger colour.
+      destructive
       onCancel={() => settle(false)}
       onConfirm={() => settle(true)}
     >

@@ -97,6 +97,43 @@ test.describe("#1163 a local-account profile", () => {
   });
 });
 
+test.describe("#1163 the password field as a UI component (WCAG 1.4.11, 3:1)", () => {
+  test("its border stands out from the card it sits on, in both themes", async ({ page }) => {
+    await open(page, `/sets/${SET}/restore`, "local-account-profile");
+    await walkToReview(page);
+    await expect(page.getByLabel("Your password")).toBeVisible();
+    for (const theme of ["light", "dark"] as const) {
+      await setTheme(page, theme);
+      const ratio = await page.evaluate(() => {
+        const c = document.createElement("canvas").getContext("2d")!;
+        const rgb = (v: string) => {
+          c.clearRect(0, 0, 1, 1);
+          c.fillStyle = "#000";
+          c.fillStyle = v;
+          c.fillRect(0, 0, 1, 1);
+          const d = c.getImageData(0, 0, 1, 1).data;
+          return [d[0], d[1], d[2], d[3] / 255];
+        };
+        const lum = (a: number[]) => {
+          const f = (x: number) => { x /= 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); };
+          return 0.2126 * f(a[0]) + 0.7152 * f(a[1]) + 0.0722 * f(a[2]);
+        };
+        const input = document.querySelector("[data-step-up] input[type=password]") as HTMLElement;
+        const border = rgb(getComputedStyle(input).borderTopColor);
+        let bg = [255, 255, 255, 1];
+        for (let n: Element | null = input.parentElement; n; n = n.parentElement) {
+          const x = rgb(getComputedStyle(n).backgroundColor);
+          if (x[3] > 0.5) { bg = x; break; }
+        }
+        const a = lum(border), b = lum(bg);
+        return { ratio: Math.round(((Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)) * 100) / 100, border: border.slice(0, 3).join(","), bg: bg.slice(0, 3).join(",") };
+      });
+      console.log("CONTRAST 1163 password field border " + theme + " | " + ratio.ratio + ":1 (needs 3) | rgb(" + ratio.border + ") on rgb(" + ratio.bg + ")");
+      expect(ratio.ratio, theme + " theme").toBeGreaterThanOrEqual(3);
+    }
+  });
+});
+
 test.describe("#1163 a gateway profile", () => {
   test("the gate is reported shut with the gateway reason, and the notice names the command", async ({ page }) => {
     await open(page, `/sets/${SET}/restore`, "gateway-profile");

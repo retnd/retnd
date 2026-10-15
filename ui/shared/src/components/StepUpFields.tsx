@@ -40,6 +40,12 @@ export function StepUpFields({
             type="password"
             autoComplete="current-password"
             aria-describedby="step-up-help"
+            // The shared input border is a hairline (about 1.7:1 on the
+            // card), which is fine beside a label in a form full of them and
+            // not fine for the one field that takes a password. A text-2
+            // border is 3:1 or better in both themes, measured in
+            // e2e/1163-local-account-gate.spec.ts.
+            style={{ borderColor: "var(--text-2)" }}
             value={password}
             onChange={(e) => onPassword(e.target.value)}
           />

@@ -1,3 +1,4 @@
+import { askInsecureTransport } from "./client";
 import type {
   ActivityFeedPage,
   ActivityQuery,
@@ -182,7 +183,13 @@ export type Scenario =
   // the administrator's password again (correct-horse-battery) and an
   // acknowledgement, and answers STEP_UP_FAILED, STEP_UP_REQUIRED or
   // ACKNOWLEDGEMENT_REQUIRED the way the engine does.
-  | "local-account-profile";
+  | "local-account-profile"
+  // Issue #1163: a local-account profile reached over plain HTTP from another
+  // machine. The gate is open, the capability field says an extra
+  // acknowledgement is needed, and the first gated act asks the operator the
+  // way api/client.ts does against a real engine: through the registered
+  // dialog, and only a yes lets it through.
+  | "insecure-transport";
 
 /** Reads the scenario out of the URL, falling back to the default for
  *  anything unrecognised. A closed allow-list rather than a cast, so a
@@ -201,7 +208,7 @@ export function scenarioFromLocation(): Scenario {
     "assurance-grant-used", "assurance-session-ended", "assurance-staging-full",
     "assurance-reads-busy", "assurance-corrupt-copy", "assurance-download-outcomes",
     "assurance-set-recover", "assurance-set-nospace", "assurance-set-corrupt", "assurance-set-slow",
-    "backups-many", "backups-many-corrupt", "backups-many-nospace", "dock-no-warnings", "dock-live-line", "assurance-no-validator", "assurance-builtin-check", "assurance-default-policy", "assurance-default-untested", "gate-shut", "gateway-profile", "local-account-profile"
+    "backups-many", "backups-many-corrupt", "backups-many-nospace", "dock-no-warnings", "dock-live-line", "assurance-no-validator", "assurance-builtin-check", "assurance-default-policy", "assurance-default-untested", "gate-shut", "gateway-profile", "local-account-profile", "insecure-transport"
   ];
   return (allowed as string[]).includes(s ?? "") ? (s as Scenario) : "default";
 }
@@ -3991,7 +3998,24 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   const noMedium = scenario === "no-medium";
   // Issue #1157: see the scenario's own note.
   const gateShut = scenario === "gate-shut" || scenario === "gateway-profile";
-  const localAccount = scenario === "local-account-profile";
+  const localAccount = scenario === "local-account-profile" || scenario === "insecure-transport";
+  // What the engine and api/client.ts do together on an unencrypted
+  // connection: refuse with INSECURE_TRANSPORT_ACK_REQUIRED, ask, and let the
+  // act through once the operator has said so. Remembered for the page load,
+  // as the client does.
+  let insecureAcknowledged = false;
+  const insecureTransportCheck = async (): Promise<void> => {
+    if (scenario !== "insecure-transport" || insecureAcknowledged) return;
+    if (await askInsecureTransport()) {
+      insecureAcknowledged = true;
+      return;
+    }
+    throw new RetndError({
+      code: "INSECURE_TRANSPORT_ACK_REQUIRED",
+      message: "this connection is not encrypted and is not from this machine",
+      correlationId: "cid_mockinsecure"
+    });
+  };
   // Issue #598. One call fails, and it fails the way the NAS did.
   const activityUnreadable = scenario === "activity-unreadable";
   // Issue #852. One flag, read by both modes of the connection test, so
@@ -4199,7 +4223,7 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
         embeddedWindow: false,
         appStorePackaging: false,
         destructiveOperations: !gateShut
-          ? { state: "open", reason: "", stepUpRequired: localAccount, insecureTransportAckRequired: false }
+          ? { state: "open", reason: "", stepUpRequired: localAccount, insecureTransportAckRequired: scenario === "insecure-transport" }
           : {
               state: "shut",
               reason:
@@ -4288,7 +4312,10 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
         );
       return delay(withRetentionAttribution(retentionOverrides, [found])[0]);
     },
-    runCycle: () => delay(undefined),
+    runCycle: async () => {
+      await insecureTransportCheck();
+      return delay(undefined);
+    },
     // The mock REFUSES a run of a set it does not have, rather than
     // answering "fine" whatever it was handed. A mock that accepts every
     // id makes a page that sent the wrong one look correct in the

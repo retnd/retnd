@@ -34,7 +34,13 @@ func shutCapabilities() map[string]any {
 	return map[string]any{
 		"platform": "generic", "native_auth": false, "native_notifications": false,
 		"storage_picker": false, "embedded_window": false, "app_store_packaging": false,
-		"destructive_operations": map[string]any{"state": "shut", "reason": "gate shut until #92"},
+		// Every field the contract requires, because --json re-serialises the
+		// typed object and a fixture missing one would be compared against
+		// something the engine could not have served (#1163 added the two).
+		"destructive_operations": map[string]any{
+			"state": "shut", "reason": "gate shut until #92",
+			"step_up_required": false, "insecure_transport_ack_required": false,
+		},
 	}
 }
 
@@ -69,7 +75,10 @@ func TestSystemCapabilities_TheTextShowsTheGateStateAndItsReason(t *testing.T) {
 		{"open", "", "destructive operations: open"},
 	} {
 		caps := shutCapabilities()
-		caps["destructive_operations"] = map[string]any{"state": tc.state, "reason": tc.reason}
+		caps["destructive_operations"] = map[string]any{
+			"state": tc.state, "reason": tc.reason,
+			"step_up_required": false, "insecure_transport_ack_required": false,
+		}
 		e.holdCapabilities(caps)
 		code, out, errOut := runOp(t, cfg, "system", "capabilities")
 		if code != 0 {
@@ -118,5 +127,39 @@ func TestSystemCapabilities_IsInUsageAndHasACliechoEntry(t *testing.T) {
 	line := cliecho.Echo(cliecho.Action{Method: "GET", Route: "/system/capabilities"})
 	if got := strings.Join(line.Command, " "); !strings.Contains(got, "system capabilities") {
 		t.Errorf("cliecho for GET /system/capabilities echoed %q (gap: %q), want a system capabilities command", got, line.Gap)
+	}
+}
+
+// #1163: what an open gate still asks for is printed beside its state, so a
+// script author reads it here and not from a refusal.
+func TestSystemCapabilities_TheTextSaysWhatAnOpenGateStillAsksFor(t *testing.T) {
+	cfg := writeTestConfig(t)
+	e := startFakeEngine(t, cfg)
+	e.attach(t)
+
+	caps := shutCapabilities()
+	caps["destructive_operations"] = map[string]any{
+		"state": "open", "reason": "",
+		"step_up_required": true, "insecure_transport_ack_required": true,
+	}
+	e.holdCapabilities(caps)
+	code, out, errOut := runOp(t, cfg, "system", "capabilities")
+	if code != 0 {
+		t.Fatalf("exited %d\nstderr: %s", code, errOut)
+	}
+	for _, want := range []string{"X-Retnd-Step-Up-Password", "X-Retnd-Insecure-Transport-Ack"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output does not mention %s:\n%s", want, out)
+		}
+	}
+
+	caps["destructive_operations"] = map[string]any{
+		"state": "open", "reason": "",
+		"step_up_required": false, "insecure_transport_ack_required": false,
+	}
+	e.holdCapabilities(caps)
+	_, out, _ = runOp(t, cfg, "system", "capabilities")
+	if strings.Contains(out, "X-Retnd-") {
+		t.Errorf("an open gate that asks for nothing printed a requirement:\n%s", out)
 	}
 }
