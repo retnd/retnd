@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Issue #1163: a restore on a local-account profile asks for the
@@ -90,5 +91,26 @@ func TestVerifyStepUp1163_ErrorsNeverEchoThePassword(t *testing.T) {
 		if err != nil && strings.Contains(err.Error(), "a-guess-1163-xyz") {
 			t.Errorf("the error echoes the password: %v", err)
 		}
+	}
+}
+
+// A tripped limiter says how long until the next check is allowed, so the web
+// interface can answer 429 with Retry-After instead of "wrong password".
+func TestVerifyStepUp1163_ATrippedLimiterSaysHowLongToWait(t *testing.T) {
+	svc, _ := stepUpService(t, 2)
+	ctx := context.Background()
+	for i := 0; i < 2; i++ {
+		_ = svc.VerifyStepUp(ctx, "bm-admin", "wrong")
+	}
+	err := svc.VerifyStepUp(ctx, "bm-admin", stepUpPassword1163)
+	if !errors.Is(err, ErrStepUpRateLimited) {
+		t.Fatalf("err = %v, want ErrStepUpRateLimited", err)
+	}
+	var wait interface{ RetryAfter() time.Duration }
+	if !errors.As(err, &wait) {
+		t.Fatalf("the rate-limit error %T does not say how long to wait", err)
+	}
+	if d := wait.RetryAfter(); d <= 0 || d > time.Minute {
+		t.Errorf("RetryAfter = %v, want within the one-minute window", d)
 	}
 }

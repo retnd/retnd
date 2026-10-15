@@ -274,7 +274,7 @@ func TestEngineGate1163_ARestoreThroughTheRealStackNeedsTheAdministratorsPasswor
 	// revision is stale) is its own answer and not one of ours.
 	r := s.do(t, http.MethodPost, operationsPath, body, map[string]string{webhost.StepUpHeader: "correct-horse-battery"})
 	switch r.code() {
-	case "STEP_UP_REQUIRED", "STEP_UP_FAILED", "STEP_UP_UNAVAILABLE", "DESTRUCTIVE_OPERATIONS_DISABLED", "ACKNOWLEDGEMENT_REQUIRED", "INSECURE_TRANSPORT_ACK_REQUIRED":
+	case "STEP_UP_REQUIRED", "STEP_UP_FAILED", "STEP_UP_UNAVAILABLE", "DESTRUCTIVE_OPERATIONS_DISABLED", "RESTORE_TARGET_NOT_ACKNOWLEDGED", "INSECURE_TRANSPORT_ACK_REQUIRED", "RATE_LIMITED":
 		t.Errorf("the right password was refused by our own checks: %d %s", r.status, r.code())
 	}
 }

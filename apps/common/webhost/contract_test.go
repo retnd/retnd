@@ -685,7 +685,9 @@ func TestContract_DeclaredRequirementsMatchWhatTheRoutesEnforce(t *testing.T) {
 
 var (
 	writeErrorCode = regexp.MustCompile(`write(?:Auth)?Error\([^,]+,\s*[^,]+,\s*"([A-Z][A-Z0-9_]+)"`)
-	assignedCode   = regexp.MustCompile(`\.Code\s*=\s*"([A-Z][A-Z0-9_]+)"`)
+	// gate_profile.go's one refusal constructor: status first, then the code.
+	gateRefusalCode = regexp.MustCompile(`newGateRefusal\([^,]+,\s*"([A-Z][A-Z0-9_]+)"`)
+	assignedCode    = regexp.MustCompile(`\.Code\s*=\s*"([A-Z][A-Z0-9_]+)"`)
 )
 
 // emittedWireCodes scans the two packages that actually put an error code
@@ -718,7 +720,7 @@ func emittedWireCodes(t *testing.T) map[string]string {
 				t.Fatalf("reading %s: %v", path, err)
 			}
 			files++
-			for _, re := range []*regexp.Regexp{writeErrorCode, assignedCode} {
+			for _, re := range []*regexp.Regexp{writeErrorCode, gateRefusalCode, assignedCode} {
 				for _, m := range re.FindAllStringSubmatch(string(src), -1) {
 					found[m[1]] = path
 				}

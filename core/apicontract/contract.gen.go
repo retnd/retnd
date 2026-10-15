@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "18686420e6c71706f5c512fdcf314a5b1618e1bd02fb5d9c3e41d9c4738fa181"
+const ContractSHA256 = "2e3d34640fce1e76ccad36b16e20753b9b4fe0b06b0b77bf775299e9d0082257"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -85,7 +85,8 @@ const (
 	ErrorCodeStepUpFailed                           ErrorCode = "STEP_UP_FAILED"
 	ErrorCodeStepUpUnavailable                      ErrorCode = "STEP_UP_UNAVAILABLE"
 	ErrorCodeInsecureTransportAckRequired           ErrorCode = "INSECURE_TRANSPORT_ACK_REQUIRED"
-	ErrorCodeAcknowledgementRequired                ErrorCode = "ACKNOWLEDGEMENT_REQUIRED"
+	ErrorCodeRestoreTargetNotAcknowledged           ErrorCode = "RESTORE_TARGET_NOT_ACKNOWLEDGED"
+	ErrorCodeSnapshotHoldReleaseNotAcknowledged     ErrorCode = "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED"
 	ErrorCodeInternal                               ErrorCode = "INTERNAL"
 	ErrorCodeAlreadyConfigured                      ErrorCode = "ALREADY_CONFIGURED"
 	ErrorCodeNotConfigured                          ErrorCode = "NOT_CONFIGURED"
@@ -181,7 +182,8 @@ var WireErrorCodes = []ErrorCode{
 	ErrorCodeStepUpFailed,
 	ErrorCodeStepUpUnavailable,
 	ErrorCodeInsecureTransportAckRequired,
-	ErrorCodeAcknowledgementRequired,
+	ErrorCodeRestoreTargetNotAcknowledged,
+	ErrorCodeSnapshotHoldReleaseNotAcknowledged,
 	ErrorCodeInternal,
 	ErrorCodeAlreadyConfigured,
 	ErrorCodeNotConfigured,
@@ -301,7 +303,8 @@ var ErrorCodes = []ErrorCode{
 	ErrorCodeStepUpFailed,
 	ErrorCodeStepUpUnavailable,
 	ErrorCodeInsecureTransportAckRequired,
-	ErrorCodeAcknowledgementRequired,
+	ErrorCodeRestoreTargetNotAcknowledged,
+	ErrorCodeSnapshotHoldReleaseNotAcknowledged,
 	ErrorCodeInternal,
 	ErrorCodeAlreadyConfigured,
 	ErrorCodeNotConfigured,
@@ -371,13 +374,13 @@ var ErrorCodes = []ErrorCode{
 // a red team) can assert the RIGHT refusal rather than any refusal.
 var ErrorClasses = map[string][]ErrorCode{
 	"authentication": {ErrorCodeUnauthenticated, ErrorCodeBootstrapTokenInvalid, ErrorCodeResetTokenInvalid, ErrorCodeVerifyTokenInvalid},
-	"authorization":  {ErrorCodeEnrollmentClosed, ErrorCodeDestructiveOperationsDisabled, ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeRecoveryGrantSessionEnded, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeStepUpUnavailable, ErrorCodeInsecureTransportAckRequired},
-	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy},
+	"authorization":  {ErrorCodeEnrollmentClosed, ErrorCodeDestructiveOperationsDisabled, ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeRecoveryGrantSessionEnded, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeInsecureTransportAckRequired},
+	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy, ErrorCodeRestoreTargetNotAcknowledged, ErrorCodeSnapshotHoldReleaseNotAcknowledged},
 	"internal":       {ErrorCodeInternal, ErrorCodeInternalError, ErrorCodeRecoveryLocalCopyCorrupt, ErrorCodeRecoveryRemoteCopyCorrupt, ErrorCodeRecoveryNoSpace, ErrorCodeRecoveryBelowReserve, ErrorCodeRecoveryFailed},
 	"not-found":      {ErrorCodeBackupSetNotFound, ErrorCodeOperationNotFound, ErrorCodeRetentionPlanNotFound, ErrorCodeArtifactNotFound, ErrorCodeMediumNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound, ErrorCodeRepositoryDomainNotFound, ErrorCodeWorkflowEnvNotFound, ErrorCodeWorkflowRunNotFound, ErrorCodeWorkflowStepNotFound, ErrorCodeRecoveryCopyNotFound, ErrorCodeRecoveryGrantUnknown},
 	"throttling":     {ErrorCodeRateLimited, ErrorCodeRecoveryTooManyGrants, ErrorCodeRecoveryReadsBusy, ErrorCodeRecoveryDestinationBusy, ErrorCodeRecoveryDownloadsBusy},
-	"unavailable":    {ErrorCodeNotConfigured, ErrorCodeSmtpSendFailed, ErrorCodeWorkflowEngineUnavailable, ErrorCodeRecoveryUnavailable, ErrorCodeRecoveryInterrupted},
-	"validation":     {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail, ErrorCodeSSHKeyNotFound, ErrorCodeHostKeyProbeFailed, ErrorCodeMediumDisclosureRequired, ErrorCodeBackupSetNotIncremental, ErrorCodeWorkflowAcknowledgementReasonRequired, ErrorCodeRecoveryTargetInvalid, ErrorCodeAcknowledgementRequired},
+	"unavailable":    {ErrorCodeNotConfigured, ErrorCodeSmtpSendFailed, ErrorCodeWorkflowEngineUnavailable, ErrorCodeRecoveryUnavailable, ErrorCodeRecoveryInterrupted, ErrorCodeStepUpUnavailable},
+	"validation":     {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail, ErrorCodeSSHKeyNotFound, ErrorCodeHostKeyProbeFailed, ErrorCodeMediumDisclosureRequired, ErrorCodeBackupSetNotIncremental, ErrorCodeWorkflowAcknowledgementReasonRequired, ErrorCodeRecoveryTargetInvalid},
 }
 
 // Endpoint is one operation of the contract, with the requirements a
@@ -1059,13 +1062,14 @@ var Endpoints = []Endpoint{
 		Authenticated: true, CSRFRequired: true, IdempotencyKey: "required", DestructiveGate: true, Concurrency: "config_revision",
 		RequestSchema: "SubmitOperationRequest", ResponseSchema: "Operation", SuccessStatus: 202,
 		ErrorCodes: map[int][]ErrorCode{
-			400: {ErrorCodeInvalidRequest, ErrorCodeBackupSetNotIncremental, ErrorCodeAcknowledgementRequired},
+			400: {ErrorCodeInvalidRequest, ErrorCodeBackupSetNotIncremental},
 			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeStepUpUnavailable, ErrorCodeInsecureTransportAckRequired},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeInsecureTransportAckRequired},
 			404: {ErrorCodeBackupSetNotFound, ErrorCodeArtifactNotFound, ErrorCodeCopyNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound},
-			409: {ErrorCodeConfigRevisionStale, ErrorCodeIdempotencyKeyConflict, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeRestoreRefused, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled},
+			409: {ErrorCodeConfigRevisionStale, ErrorCodeIdempotencyKeyConflict, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeRestoreRefused, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRestoreTargetNotAcknowledged, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeSnapshotHoldReleaseNotAcknowledged},
+			429: {ErrorCodeRateLimited},
 			500: {ErrorCodeInternal},
-			503: {ErrorCodeRestoreUnavailable},
+			503: {ErrorCodeRestoreUnavailable, ErrorCodeStepUpUnavailable},
 		},
 	},
 	{

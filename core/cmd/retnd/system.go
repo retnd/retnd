@@ -92,13 +92,13 @@ func cmdSystemCapabilities(args []string) int {
 		gate += " (" + got.DestructiveOperations.Reason + ")"
 	}
 	fmt.Println(gate)
-	// What an open gate still asks for (#1163), so an operator scripting
-	// against the API can see it without sending a request to find out.
+	// What an open gate still asks for (#1163), in words a terminal user can
+	// act on. A script wants the field names, and --json prints those.
 	if got.DestructiveOperations.StepUpRequired {
-		fmt.Println("restores ask for the administrator's password again (X-Retnd-Step-Up-Password)")
+		fmt.Println("in the web interface, restores ask for the administrator's password again")
 	}
 	if got.DestructiveOperations.InsecureTransportAckRequired {
-		fmt.Println("this connection is not encrypted: gated acts also need X-Retnd-Insecure-Transport-Ack: acknowledged")
+		fmt.Println("this connection is not encrypted, so the web interface asks before a run, a retention apply or a restore goes ahead")
 	}
 	return exitOK
 }

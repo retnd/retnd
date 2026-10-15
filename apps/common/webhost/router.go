@@ -246,24 +246,19 @@ type handlers struct {
 	binaryVersion string
 	commit        string
 
-	// gate is the same DestructiveGate requireDestructiveGate wraps
-	// POST /api/v1/operations in (below). createBackupSet
-	// (handlers_backupsets.go) also consults it directly, NOT through
-	// that middleware: a plain "just persist" create is deliberately
-	// exempt from the gate at the route level (destructiveGateExemptRoutes,
-	// router_test.go — creating a backup set never touches remote or
-	// local backup data by itself), but request.run_immediately turns
-	// that same call into "also start a run_cycle", the exact action
-	// requireDestructiveGate exists to block — so createBackupSet checks
-	// gate itself, conditionally, only on that branch, rather than the
-	// route being gated unconditionally (mandatory review finding M3, PR
-	// #155).
-	gate DestructiveGate
-
 	// enforce is the gate together with what an open one still asks for
 	// (gate_profile.go): the step-up verifier and whether forwarded headers
-	// can be believed. The routes and the capabilities read this one value, so
+	// can be believed. The gated routes, createBackupSet's run_immediately
+	// and the capabilities read all ask enforce.decide or read enforce, so
 	// they cannot disagree about what the router will enforce.
+	//
+	// createBackupSet consults it directly, NOT through a middleware: a
+	// plain "just persist" create is deliberately exempt from the gate at
+	// the route level (destructiveGateExemptRoutes, router_test.go:
+	// creating a backup set never touches remote or local backup data by
+	// itself), but request.run_immediately turns that same call into "also
+	// start a run_cycle", so createBackupSet asks enforce.decide itself,
+	// only on that branch (mandatory review finding M3, PR #155).
 	enforce gateEnforcement
 
 	// firstRun and onConfigured are RouterConfig's own fields of the same
@@ -323,7 +318,6 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		backend:       cfg.Backend,
 		binaryVersion: cfg.BinaryVersion,
 		commit:        cfg.Commit,
-		gate:          gate,
 		enforce:       gateEnforcement{gate: gate, stepUp: cfg.StepUp, trustFwd: cfg.TrustForwardedHeaders},
 		firstRun:      cfg.FirstRun,
 		onConfigured:  cfg.OnConfigured,
