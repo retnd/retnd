@@ -11,6 +11,7 @@ import (
 	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/retention"
+	"github.com/retnd/retnd/core/service"
 )
 
 // cmdRetention is `retnd retention` / `retnd retention
@@ -102,6 +103,7 @@ func cmdRetention(args []string) int {
 
 	fs, cfgPath := newFlagSet("retention")
 	dryRun := fs.Bool("dry-run", false, "accepted and inert: this command previews in both modes, and says so on its own output")
+	asJSON := fs.Bool("json", false, "print the API's RetentionPlan for the one backup set named, plan_id included, instead of text; it takes no what-if flags, because the API's plan is the deployment's own")
 	rf := registerRetentionFlags(fs)
 	// The operand may be written on either side of the flags, exactly
 	// like every other command's (see parseFlagsAroundOperands in
@@ -116,6 +118,10 @@ func cmdRetention(args []string) int {
 	only, code := retentionOperand(operands)
 	if code != exitOK {
 		return code
+	}
+
+	if *asJSON {
+		return retentionPlanJSON(*cfgPath, only, overridden(resolveRetentionFlags(rf)))
 	}
 
 	ctx := context.Background()
@@ -603,4 +609,36 @@ func tierMediums(tiers []config.RetentionTier) []string {
 		out = append(out, m)
 	}
 	return out
+}
+
+// retentionPlanJSON is `retention <source/backup-set> --json`: the plan GET
+// .../retention/preview serves, which is the one thing this command can say
+// that a script can then act on. The plan_id in it is what `retention apply`
+// takes, and it is minted here, in this process, so it is good for the life of
+// this process and no longer; the API's own plan_id is the one to apply
+// against a serving engine.
+//
+// It refuses what the plan cannot express. The API has no whole-deployment
+// preview and no what-if policy, so --json with no backup set, or with any of
+// the override flags, would print a document that is not the one it claims to
+// be. Both are command-line mistakes on every deployment, so both are 2.
+func retentionPlanJSON(cfgPath string, only model.BackupSetID, hasOverrides bool) int {
+	if only.IsZero() {
+		return usageError("retention: --json prints one backup set's plan (GET .../retention/preview); name it as <source/backup-set>")
+	}
+	if hasOverrides {
+		return usageError("retention: --json prints the plan the API serves, which is decided under the deployment's own policy; a what-if flag would make it a different document, so drop the flag or drop --json")
+	}
+	ctx := context.Background()
+	svc, cleanup, err := openBackupServiceForRead(ctx, cfgPath, true)
+	if err != nil {
+		return fail(err)
+	}
+	defer cleanup()
+
+	plan, err := svc.PreviewRetention(ctx, only.Source, only.Set)
+	if err != nil {
+		return fail(err)
+	}
+	return emitWireJSON(service.RetentionPlanWire(plan))
 }

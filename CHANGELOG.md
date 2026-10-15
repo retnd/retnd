@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`retnd status` says why a set is halted, and has `--json`** (#1146). A set refused with
+  `HOST_KEY_CHANGED`, `AUTHENTICATION_FAILED` or `KEY_PERMISSIONS` now prints a `halted:` line
+  under it with when it was last refused and the command that fixes it, where before it read like a
+  slow set until it went STALE. `status --json` prints the object `GET /api/v1/system/health`
+  returns, plus a `process` key, and keeps the exit status.
+- **`--json` on the remaining reads** (#1152). `snapshot list|show|holds|retention`,
+  `repository health|maintenance`, `settings`, `backup-set retention`, `backup-set test-connection`,
+  `medium test-connection` (and `preflight`, `--candidate` included), `catalog rebuild` and
+  `retention <source/backup-set>` print the object the API returns for the same call, field for
+  field: a counter nobody measured is `null` and never `0`, an empty list is an array, and
+  `retention --json` carries the `plan_id`. The exit code stays the verdict (1 for a failing
+  repository, a failed connection, an unusable manifest), the structured log goes to stderr so the
+  document is all of stdout, and a write handed `--json` is refused instead of accepting and
+  ignoring it. A test in the web host drives the real handlers and compares the two mappings.
+- **`activity --before CURSOR`, and `next_cursor`** (#1152). `--json` prints the cursor when a page
+  was full and a text page names it on stderr, so a script can walk the whole log. A cursor that
+  is not a row id is refused, and a filtered page that `--limit` cut has no cursor and says why.
+- **`version --engine [--json]`, `validators [--json]`, `system capabilities` and `system
+  first-run`** (#1152). The first asks the serving engine for its version, configuration revision,
+  deployment id, readiness and adopted paths. `validators` lists the catalog compiled into the
+  binary. The `system` verbs are facts about the serving process (the platform's declaration, the
+  guided setup's steps), so they ask the engine and refuse without a route. `status` prints the
+  first-run steps on a fresh install when a route is set, and is unchanged otherwise.
+
 ## [0.6.3] - 2026-10-13
 
 0.6.3 is a wording fix, and it follows straight on from 0.6.2. After the verification model

@@ -100,7 +100,9 @@ func positiveQuery(a Action, name string) int {
 var routes = map[string]entry{
 	// ---------------------------------------------------------- system ---
 	key("GET", "/system/version"): {
-		build:    func(Action) *cmd { return newCmd("version") },
+		// --engine, because this route is the ENGINE's version, and bare
+		// `version` is this binary's own (#1152).
+		build:    func(Action) *cmd { return newCmd("version").bare("engine") },
 		examples: []Action{{}},
 	},
 	key("GET", "/system/health"): {
@@ -108,14 +110,16 @@ var routes = map[string]entry{
 		examples: []Action{{}},
 	},
 	key("GET", "/system/capabilities"): {
-		why: "capabilities are what the PLATFORM this deployment runs on can do, which is a question about the host rather than about backups; nothing on a terminal asks it",
+		build:    func(Action) *cmd { return newCmd("system", "capabilities") },
+		examples: []Action{{}},
 	},
 	key("GET", "/system/storage"): {
 		why:               "there is no verb that reports FR-21's capacity reading. `settings` prints the thresholds it is compared against, not the free space measured against them",
 		namesShippedVerbs: []string{"settings"},
 	},
 	key("GET", "/system/first-run"): {
-		why: "there is no verb that asks whether this instance has been configured; on a terminal the answer is whether config.yaml exists",
+		build:    func(Action) *cmd { return newCmd("system", "first-run") },
+		examples: []Action{{}},
 	},
 	key("POST", "/system/first-run/skip"): {
 		why: "skipping a step of the first-run guide is a choice about what the web interface shows next; a terminal has no guide to leave a step of",
@@ -821,15 +825,17 @@ var routes = map[string]entry{
 			if n := positiveQuery(a, "limit"); n > 0 {
 				c.flag("limit", itoa(n))
 			}
-			// `before` is deliberately not echoed, for the same reason
-			// `since` is not on the live route below: it is a browser's
-			// paging cursor into a record it is already partway through,
-			// there is no flag for it, and a command run at a terminal
-			// starts at the newest page. Printing one that named a cursor
-			// would be printing a flag this binary does not have.
+			// `before` is the page behind a cursor, and since #1152 the
+			// binary has a flag for it. Only a cursor the feed could have
+			// issued is echoed (a positive row id), because the route reads
+			// anything else as no cursor and the binary refuses it: a line
+			// printing --before banana would be a command that exits 2.
+			if n := positiveQuery(a, "before"); n > 0 {
+				c.flag("before", itoa(n))
+			}
 			return c
 		},
-		examples: []Action{{}, {Query: mustQuery("limit=50")}},
+		examples: []Action{{}, {Query: mustQuery("limit=50")}, {Query: mustQuery("limit=50&before=120")}},
 	},
 	key("GET", "/activity/live"): {
 		build: func(a Action) *cmd {
@@ -1060,8 +1066,8 @@ var routes = map[string]entry{
 
 	// ------------------------------------------------------ validators ---
 	key("GET", "/validators"): {
-		why:               "there is no verb that lists the registered validators; on a terminal an id is named on `backup-set create --validator-id` and refused if it is not one",
-		namesShippedVerbs: []string{"backup-set"},
+		build:    func(Action) *cmd { return newCmd("validators") },
+		examples: []Action{{}},
 	},
 
 	// ------------------------------------------------------- backends ---

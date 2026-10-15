@@ -357,12 +357,24 @@ func mediumOperandShapes() string {
 // runs body against it. See cmdMedium's own doc for which verbs come here
 // and why each of them does.
 func withMediumRoute(ctx context.Context, cfgPath string, body func(route configWriteRoute) int) int {
-	route, cleanup, err := openConfigWriteRoute(ctx, cfgPath)
+	return withMediumRouteFor(ctx, cfgPath, false, body)
+}
+
+// withMediumRouteFor is withMediumRoute for a verb that may print a JSON
+// document (#1152): with asJSON the mode announcement, the service's log and
+// the startup lines go to standard error, so the document is the only thing
+// on standard output.
+func withMediumRouteFor(ctx context.Context, cfgPath string, asJSON bool, body func(route configWriteRoute) int) int {
+	out, log := io.Writer(os.Stdout), logger()
+	if asJSON {
+		out, log = os.Stderr, jsonLogger()
+	}
+	route, cleanup, err := openConfigWriteRouteTo(ctx, cfgPath, out)
 	if err != nil {
 		return fail(err)
 	}
 	defer cleanup()
-	logStartup(ctx, logger(), app.BuildVersionInfo(version, commit))
+	logStartup(ctx, log, app.BuildVersionInfo(version, commit))
 	return body(route)
 }
 
@@ -697,11 +709,14 @@ func mediumRemove(ctx context.Context, cfgPath, id string, _ mediumFlags) int {
 // --candidate` for the same reason, and the check they wanted is a button
 // on the deployment's own destinations card.
 func mediumPreflightVerb(ctx context.Context, cfgPath, id string, f mediumFlags) int {
-	return withMediumRoute(ctx, cfgPath, func(route configWriteRoute) int {
+	return withMediumRouteFor(ctx, cfgPath, *f.json, func(route configWriteRoute) int {
 		if *f.candidate {
 			report, err := route.PreflightStorageMediumCandidate(ctx, f.spec(id))
 			if err != nil {
 				return fail(err)
+			}
+			if *f.json {
+				return emitMediumReportJSON(report)
 			}
 			printMediumReport(report)
 			fmt.Println("nothing was written: a candidate preflight declares no destination whatever the report says")
@@ -710,8 +725,28 @@ func mediumPreflightVerb(ctx context.Context, cfgPath, id string, f mediumFlags)
 			}
 			return 0
 		}
+		if *f.json {
+			report, err := route.PreflightStorageMedium(ctx, id)
+			if err != nil {
+				return fail(err)
+			}
+			return emitMediumReportJSON(report)
+		}
 		return mediumPreflight(ctx, route, id)
 	})
+}
+
+// emitMediumReportJSON prints a preflight report as the API's
+// MediumPreflightResponse and keeps the verb's exit code: the report is the
+// result whether or not the destination works, and 1 is the verdict.
+func emitMediumReportJSON(report service.MediumPreflight) int {
+	if code := emitWireJSON(service.MediumPreflightWire(report)); code != exitOK {
+		return code
+	}
+	if !report.OK {
+		return 1
+	}
+	return 0
 }
 
 // mediumDefault is `medium default <medium-id>`: move the destination a
