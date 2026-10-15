@@ -255,6 +255,9 @@ var contractBindings = map[string]contractBinding{
 	"listStagingDirectories":   {nil, stagingDirectoryResponse{}, "/api/v1/system/staging-directories"},
 	"startRecoveryTest":        {startRecoveryTestRequest{}, recoveryTestStartedResponse{}, "/api/v1/backup-sets/src/set-1/recovery-test"},
 	"startScrub":               {nil, scrubStartedResponse{}, "/api/v1/backup-sets/src/set-1/scrub"},
+	// Issues #1191 and #1193.
+	"describeSourceHost":       {nil, sourceHostBody{}, "/api/v1/backup-sets/src/set-1/source-host"},
+	"checkSourceHostWrite":     {nil, sourceHostBody{}, "/api/v1/backup-sets/src/set-1/source-host/write-check"},
 	"cancelAssuranceOperation": {nil, assuranceOperationCancelledResponse{}, "/api/v1/assurance/operations/op_1/cancel"},
 	"getRecoveryTestOutput":    {nil, recoveryTestOutputResponse{}, "/api/v1/backup-sets/src/set-1/recovery-test/output"},
 	"getWorkflowRun":           {nil, workflowRunResponse{}, "/api/v1/workflow-runs/run_1"},

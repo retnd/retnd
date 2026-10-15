@@ -79,7 +79,9 @@ func gateWalk(t *testing.T, gate DestructiveGate) map[string]struct {
 		if method == http.MethodGet || strings.HasPrefix(route, "/health") {
 			return nil
 		}
-		if destructiveGateExemptRoutes[method+" "+route] {
+		if destructiveGateExemptRoutes[method+" "+route] || destructiveGateTargetKindRoutes[method+" "+route] != nil {
+			// Gated per target kind: TestTheTargetKindGateRefusesExactlyThoseKinds
+			// walks those with a body of each kind.
 			return nil
 		}
 		req := httptest.NewRequest(method, strings.ReplaceAll(route, "{id}", "op_1"), strings.NewReader("{}"))

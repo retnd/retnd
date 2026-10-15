@@ -84,6 +84,8 @@ test.describe("#1179 Download in this browser", () => {
     const dlg = await singleDialog(page);
     const radio = dlg.getByRole("radio", { name: "Download in this browser" });
     await expect(radio).toBeEnabled();
+    // #1191 made the set's source host the default, so the download is chosen.
+    await radio.check();
     await expect(radio).toBeChecked();
     const download = page.waitForEvent("download");
     await dlg.getByRole("button", { name: "Recover artifact", exact: true }).click();
@@ -240,6 +242,8 @@ test.describe("#1179 Recover this backup set has the same two controls", () => {
   test("a folder browser fills the folder name", async ({ page }) => {
     await openSet(page);
     const dlg = setDialog(page);
+    // #1191: the source host is the default; this is about the staging folder.
+    await dlg.getByRole("radio", { name: "Under the staging root on this retnd host" }).check();
     const browser = browserOf(dlg);
     await expect(browser).toBeVisible();
     await browser.getByRole("button", { name: "Open folder weekly" }).click();

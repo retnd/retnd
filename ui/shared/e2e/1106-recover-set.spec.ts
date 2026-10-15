@@ -19,6 +19,10 @@ async function openDialog(page: Page, scenario = "assurance-set-recover", path =
   await open(page, path, scenario);
   await page.getByRole("button", { name: "Recover this backup set", exact: true }).click();
   await expect(dialog(page)).toBeVisible();
+  // #1191 made the set's source host the default; these cases are about a
+  // folder under the staging root, so they choose it.
+  const staging = dialog(page).getByRole("radio", { name: "Under the staging root on this retnd host" });
+  if (await staging.count()) await staging.check();
 }
 async function toFolder(page: Page, name: string) {
   await dialog(page).getByRole("textbox", { name: /Name under the staging root/ }).fill(name);

@@ -103,6 +103,10 @@ type BackupService struct {
 	// used, so a process that never recovers anything creates nothing.
 	recovery recoveryHost
 
+	// sourceHosts is the write-check cache, its single flight and its rate
+	// limit for the "Source host (SFTP)" recovery destination (#1193).
+	sourceHosts sourceHostChecks
+
 	// ops is the registry of running operator-started scrubs and recovery
 	// tests (assuranceoperations.go): the single-flight table for both, and
 	// what a cancel reaches them through.

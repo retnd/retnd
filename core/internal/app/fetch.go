@@ -73,6 +73,9 @@ type FetchResult struct {
 
 	// Preview is set only when DryRun is true.
 	Preview []FetchPreviewEntry
+	// SkippedRecovered counts, for a dry run, the objects left out because
+	// they sit in a folder a source-host recovery created (#1193).
+	SkippedRecovered int
 
 	// Reconcile and Discovery are set only when DryRun is false.
 	Reconcile reconcile.Report
@@ -264,6 +267,12 @@ func (s *Service) fetchDryRun(ctx context.Context, source transport.Source, set 
 
 	result := FetchResult{Set: set, DryRun: true}
 	for _, a := range listed {
+		if discovery.InRecoveredFolder(a.Path) {
+			// What discovery skips, the preview skips too (#1193), and
+			// says how many.
+			result.SkippedRecovered++
+			continue
+		}
 		st, isKnown := knownState[a.Path]
 		result.Preview = append(result.Preview, FetchPreviewEntry{
 			RemotePath: a.Path,

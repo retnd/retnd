@@ -62,10 +62,11 @@ export function scrubContentCommand(setId: string): string {
  * no terminal spelling of its own: the terminal equivalent writes the bytes to
  * standard output, so it is shown redirected into a file.
  */
-export function recoverCommand(artifactId: string, target: RecoveryTargetSpec["kind"], where: string, acknowledgeCost: boolean): string {
+export function recoverCommand(artifactId: string, target: RecoveryTargetSpec["kind"], where: string, acknowledgeCost: boolean, acknowledgeSource = false): string {
   const to =
     target === "download" ? "--to - > recovered-file"
-    : target === "staging" ? "--to " + (where || "<name>")
+    : target === "staging" ? "--to " + stagingName(where)
+    : target === "source" ? sourceTo(where, acknowledgeSource)
     : "--to medium:" + (where || "<id>");
   // The flag goes before a shell redirection, never after it.
   const ack = acknowledgeCost ? " --acknowledge-cost" : "";
@@ -90,11 +91,14 @@ export function recoverToFileCommand(artifactId: string, filename: string): stri
  * made (#1106). The flags are the ones the CLI has: --newest-only, --since,
  * --to NAME or medium:ID and --acknowledge-cost, in that order.
  */
-export function recoverSetCommand(setId: string, narrow: "all" | "newest" | "since", since: string, target: "staging" | "storage", where: string, acknowledgeCost: boolean): string {
+export function recoverSetCommand(setId: string, narrow: "all" | "newest" | "since", since: string, target: "staging" | "storage" | "source", where: string, acknowledgeCost: boolean, acknowledgeSource = false): string {
   const parts = ["retnd recover --set " + setId];
   if (narrow === "newest") parts.push("--newest-only");
   if (narrow === "since") parts.push("--since " + (since || "<date>"));
-  parts.push(target === "staging" ? "--to " + (where || "<name>") : "--to medium:" + (where || "<id>"));
+  // A whole set onto the production host has to be asked for in so many
+  // words in the terminal (#1193's review), so "all" is spelled out there.
+  if (narrow === "all" && target === "source") parts.push("--all");
+  parts.push(target === "staging" ? "--to " + stagingName(where) : target === "source" ? sourceTo(where, acknowledgeSource) : "--to medium:" + (where || "<id>"));
   if (acknowledgeCost) parts.push("--acknowledge-cost");
   return parts.join(" ");
 }
@@ -104,13 +108,28 @@ export function recoverSetCommand(setId: string, narrow: "all" | "newest" | "sin
  * #1107). There is no browser form: a stream of several files has no terminal
  * spelling, and the page does not offer one.
  */
-export function recoverManyCommand(artifactIds: string[], target: "staging" | "storage", where: string, acknowledgeCost: boolean): string {
-  const to = target === "staging" ? "--to " + (where || "<name>") : "--to medium:" + (where || "<id>");
+export function recoverManyCommand(artifactIds: string[], target: "staging" | "storage" | "source", where: string, acknowledgeCost: boolean, acknowledgeSource = false): string {
+  const to = target === "staging" ? "--to " + stagingName(where) : target === "source" ? sourceTo(where, acknowledgeSource) : "--to medium:" + (where || "<id>");
   return "retnd recover " + artifactIds.join(" ") + " " + to + (acknowledgeCost ? " --acknowledge-cost" : "");
 }
 
+/** Issue #1191: the source host, into the named new folder. The colon is
+ *  required, like medium:, so a bare `source` stays a staging name. */
+function sourceTo(folder: string, acknowledged: boolean): string {
+  return "--to source:" + folder + (acknowledged ? " --acknowledge-source-write" : "");
+}
+
+/** A staging name as the terminal must spell it (#1193's review). A name the
+ *  CLI would read as something else (standard output, a flag, the source host
+ *  or another destination) is written ./NAME, which is the same place under
+ *  the staging root and cannot be mistaken for any of them. */
+export function stagingName(where: string): string {
+  if (!where) return "<name>";
+  return where.startsWith("-") || where.startsWith("source:") || where.startsWith("medium:") ? "./" + where : where;
+}
+
 /** The same pre-flight on its own: nothing is read and nothing is written. */
-export function recoverSetPreflightCommand(setId: string, narrow: "all" | "newest" | "since", since: string, target: "staging" | "storage", where: string): string {
+export function recoverSetPreflightCommand(setId: string, narrow: "all" | "newest" | "since", since: string, target: "staging" | "storage" | "source", where: string): string {
   return recoverSetCommand(setId, narrow, since, target, where, false) + " --preflight";
 }
 

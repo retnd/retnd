@@ -12,7 +12,8 @@
  * Files land under `<target>/<source>/<set>/`, so two sets that both hold a
  * `daily.tar` do not meet.
  */
-import type { RetndApi, RecoverManyItem, RecoverManyResult } from "@shared/api/contracts";
+import type { RetndApi, RecoverManyItem, RecoverManyResult, StepUpOptions } from "@shared/api/contracts";
+import { apiErrorOf } from "@shared/api/failure";
 import { recoveryRefusal } from "./recoveryMessages";
 
 export type ItemState = "queued" | "running" | "recovered" | "failed" | "restoring" | "cancelled" | "excluded";
@@ -30,8 +31,13 @@ export interface RunItem {
 }
 
 export interface RunTarget {
-  kind: "staging" | "storage";
+  kind: "staging" | "storage" | "source";
+  /** A folder, a destination id, or for the source host (#1191) the new
+   *  retnd-recovered-* folder. */
   where: string;
+  /** source: the destination id the operator acknowledged, echoed back. The
+   *  password is never part of a target: it goes with the one request. */
+  acknowledgedDestination?: string;
 }
 
 function stateOf(i: RecoverManyItem): ItemState {
@@ -60,6 +66,9 @@ function patchOf(i: RecoverManyItem): Partial<RunItem> {
 export interface RunOutcome {
   /** The service's refusal, when it refused before reading a byte. */
   refusal?: string;
+  /** Its code, so a screen can route a refusal of the tick or the password
+   *  back to the field that asked for them. */
+  code?: string;
   /** The result, when the run got as far as one (a cancelled run has one too). */
   result: RecoverManyResult | null;
   /** True when this side asked the run to stop. */
@@ -72,16 +81,21 @@ export async function runRecoverMany(
   target: RunTarget,
   acknowledged: boolean,
   signal: AbortSignal,
-  hooks: { update(id: string, patch: Partial<RunItem>): void; progress(doneBytes: number, totalBytes: number): void }
+  hooks: { update(id: string, patch: Partial<RunItem>): void; progress(doneBytes: number, totalBytes: number): void },
+  once: StepUpOptions = {}
 ): Promise<RunOutcome> {
   try {
     const result = await api.recoverMany(
       {
         artifacts: ids,
-        target: target.kind === "staging" ? { kind: "staging", path: target.where } : { kind: "storage", medium: target.where },
+        target: target.kind === "staging" ? { kind: "staging", path: target.where }
+          : target.kind === "source"
+            ? { kind: "source", path: target.where, ...(target.acknowledgedDestination ? { acknowledgedDestination: target.acknowledgedDestination } : {}) }
+            : { kind: "storage", medium: target.where },
         acknowledged: acknowledged ? true : undefined
       },
       {
+        ...once,
         signal,
         onProgress: (e) => {
           if (e.kind === "plan") {
@@ -101,6 +115,6 @@ export async function runRecoverMany(
     return { result, aborted: signal.aborted };
   } catch (e) {
     if (signal.aborted) return { result: null, aborted: true };
-    return { refusal: recoveryRefusal(e, "").message, result: null, aborted: false };
+    return { refusal: recoveryRefusal(e, "").message, code: apiErrorOf(e)?.code, result: null, aborted: false };
   }
 }

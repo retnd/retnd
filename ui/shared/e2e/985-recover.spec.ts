@@ -14,6 +14,12 @@ const dialog = (page: Page) => page.getByRole("dialog", { name: "Recover artifac
 async function openDialog(page: Page) {
   await page.getByRole("button", { name: "Recover artifact", exact: true }).click();
   await expect(dialog(page)).toBeVisible();
+  // #1191 made the set's source host the default. These cases are about the
+  // other three targets and start where they used to, on the download, once
+  // the source host has answered (so the default cannot land after the pick).
+  await expect(dialog(page).locator('input[type="radio"]:checked, [data-testid="thaw"]').first()).toBeAttached();
+  const download = dialog(page).getByRole("radio", { name: "Download in this browser" });
+  if ((await download.count()) && (await download.isEnabled())) await download.check();
 }
 const primary = (page: Page) => dialog(page).getByRole("button", { name: /^(Recover artifact|Ask for a new grant|Ask the provider to restore this copy|Accept the cost and recover)$/ });
 const store = (page: Page) => page.evaluate((k) => JSON.parse(sessionStorage.getItem(k) ?? "{}"), STORE);

@@ -53,7 +53,6 @@ func TestRecoverIsRefusedBeforeAnythingIsOpened(t *testing.T) {
 		says string
 	}{
 		{"no artifact", []string{"--to", "-"}, "expected <source/backup-set/artifact>"},
-		{"no target", []string{recoverID}, "--to is required"},
 		{"two artifacts to standard output", []string{recoverID, recoverID, "--to", "-"}, "cannot go to standard output"},
 		{"empty storage target", []string{recoverID, "--to", "medium:"}, "names no destination"},
 		{"not an artifact id", []string{"nonsense", "--to", "-"}, "source/backup-set/name"},

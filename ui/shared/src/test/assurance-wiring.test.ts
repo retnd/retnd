@@ -43,7 +43,11 @@ describe("the terminal commands are ones the CLI has", () => {
     expect(recoverCommand("s/set/a.zst", "download", "", false)).toBe("retnd recover s/set/a.zst --to - > recovered-file");
     expect(recoverCommand("s/set/a.zst", "download", "", true)).toBe("retnd recover s/set/a.zst --acknowledge-cost --to - > recovered-file");
     expect(recoverCommand("s/set/a.zst", "storage", "offsite", false)).toBe("retnd recover s/set/a.zst --to medium:offsite");
-    expect(usage).toContain("--to - | NAME | medium:ID[/KEY]");
+    // #1193's review folded the source host into the synopsis, with --to in
+    // brackets because the source host is the default where it can work.
+    expect(usage).toContain("--to source:[FOLDER] | - | NAME | medium:ID[/KEY]");
+    expect(recoverCommand("s/set/a.zst", "source", "retnd-recovered-x", false, true)).toBe("retnd recover s/set/a.zst --to source:retnd-recovered-x --acknowledge-source-write");
+    expect(usage).toContain("--acknowledge-source-write");
   });
   it("scrub, recovery-test, restore and snapshot restore exist as verbs", () => {
     expect(usage).toMatch(/\n {2}scrub \[<source\/backup-set>/);

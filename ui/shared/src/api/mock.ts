@@ -6,6 +6,8 @@ import {
 } from "./client";
 import type {
   ActivityFeedPage,
+  SourceHostDescription,
+  RecoveryTargetSpec,
   ActivityQuery,
   AppSettings,
   BackendCatalog,
@@ -222,6 +224,21 @@ export const SCENARIOS = [
   // tripped, so every restore is answered 429 RATE_LIMITED, as the engine
   // answers once too many passwords were checked in the last minute.
   "step-up-limited",
+  // Issue #1191: the source-host recovery destination. By default every
+  // fixture set is an SFTP set retnd can write back to. "source-read-only"
+  // is the NAS posture, a read-only pull account the write probe is refused
+  // on; "source-not-sftp" has every set pull from a local mount, so there is
+  // no source host at all. Both present the fixture sets as artifact sets, as
+  // the assurance-set-* scenarios do, so the set dialog can be opened.
+  "source-read-only",
+  "source-not-sftp",
+  // Issue #1193's review: a set DECLARED read_only (never written, never
+  // probed), a write check that leaves its probe file behind, a host that
+  // does not answer, and one that will not say how much space is free.
+  "source-set-read-only",
+  "source-probe-left-file",
+  "source-unreachable",
+  "source-space-unknown",
 ] as const;
 
 export type Scenario = (typeof SCENARIOS)[number];
@@ -268,6 +285,22 @@ export function liveProbeFromWindow(): LiveProbe {
 /** `?wire-restore=1` sends a snapshot restore through the production client
  *  (api/client.ts) instead of the mock, so a browser spec can read the real
  *  request, headers included, and answer it with page.route (issue #1163). */
+/**
+ * A fixture hook for the browser specs (#1193's review): how many times each
+ * set's source host was described and write-checked. The write check writes a
+ * file on a production host, so the specs prove it happens only when the
+ * operator asks, never because a dialog opened.
+ */
+export interface SourceHostProbe {
+  describes: Record<string, number>;
+  writeChecks: Record<string, number>;
+}
+
+export function sourceHostProbeFromWindow(): SourceHostProbe {
+  const w = window as unknown as { __retndSourceHost?: SourceHostProbe };
+  return (w.__retndSourceHost ??= { describes: {}, writeChecks: {} });
+}
+
 export function wireRestoreFromLocation(): boolean {
   return new URLSearchParams(window.location.search).get("wire-restore") === "1";
 }
@@ -1825,29 +1858,36 @@ const MOCK_ADMIN_PASSWORD = "correct-horse-battery";
 /** The engine's consent refusals (issues #1163, #1164): a 409 named for what
  *  was not acknowledged, in the engine's words for each act. */
 function notAcknowledged(
-  code: "RESTORE_TARGET_NOT_ACKNOWLEDGED" | "RECOVERY_COST_NOT_ACKNOWLEDGED" | "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED",
+  code:
+    | "RESTORE_TARGET_NOT_ACKNOWLEDGED"
+    | "RECOVERY_COST_NOT_ACKNOWLEDGED"
+    | "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED"
+    | "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED",
   message: string
 ): Promise<never> {
   return Promise.reject(new RetndError({ code, message, correlationId: "cid_mockack" }));
 }
 
-/** What the engine checks on a restore where the gate is open for local
- *  accounts, in its order: the acknowledgement, then the password. Null
- *  means both passed. `limited` is a tripped password limiter, which answers
- *  before the password is looked at. */
+/** What the engine checks on a restore, or on a recovery onto the source
+ *  host (#1191), where the gate is open for local accounts, in its order: the
+ *  acknowledgement, then the password. Null means both passed. `limited` is
+ *  a tripped password limiter, which answers before the password is looked
+ *  at. */
 function mockStepUp(
   password: string | undefined,
   acknowledged: boolean | undefined,
-  kind: "snapshot" | "placement",
+  kind: "snapshot" | "placement" | "source",
   limited = false
 ): Promise<never> | null {
   if (acknowledged !== true)
     return kind === "snapshot"
       ? notAcknowledged("RESTORE_TARGET_NOT_ACKNOWLEDGED", "this restore writes files into its destination, so it needs your explicit acknowledgement")
+      : kind === "source"
+      ? notAcknowledged("RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED", "recovering to the source host writes onto the machine this backup came from, so the request has to name the destination it acknowledges in acknowledged_destination")
       : notAcknowledged("RECOVERY_COST_NOT_ACKNOWLEDGED", "a provider restore has a retrieval cost and takes hours, so it needs your explicit acknowledgement");
   const refuse = (code: "STEP_UP_REQUIRED" | "STEP_UP_FAILED" | "RATE_LIMITED", message: string) =>
     Promise.reject(new RetndError({ code, message, correlationId: "cid_mockstepup" }));
-  if (!password) return refuse("STEP_UP_REQUIRED", "a restore asks for your password again");
+  if (!password) return refuse("STEP_UP_REQUIRED", (kind === "source" ? "a recovery onto the source host" : "a restore") + " asks for your password again");
   if (limited) return refuse("RATE_LIMITED", "too many password checks in the last minute; wait before trying again");
   if (password !== MOCK_ADMIN_PASSWORD) return refuse("STEP_UP_FAILED", "that password was not accepted");
   return null;
@@ -4093,7 +4133,7 @@ export function createMockApi(
   // fixture sets as artifact sets (the mock host's recoverMany holds the rows);
   // the default scenario keeps the incremental ones, which is how the
   // snapshot-restore branch of the dialog is reached.
-  if (scenario.startsWith("assurance-set-")) {
+  if (scenario.startsWith("assurance-set-") || scenario.startsWith("source-")) {
     for (const s of SETS) { s.engine = "artifact"; s.incremental = null; }
   }
   // What a finished scrub or recovery test writes onto a copy, which the
@@ -4297,6 +4337,117 @@ export function createMockApi(
   const assuranceSettings = defaultAssuranceSettings();
   if (scenario === "backups-many-ceiling-2") assuranceSettings.maxDownloadStreams = 2;
   const mockRecovery = createMockRecovery(scenario);
+
+  // Issue #1191, reworked by #1193's review: the source-host destination,
+  // answered the way the engine answers it (core/service/recover_source.go).
+  // The description is configuration only; the write check is the one call
+  // that writes, it is refused on a shut gate, and its answer is kept per set
+  // the way the engine caches it, so a second dialog sees it without probing.
+  const sourceProbe = typeof window === "undefined" ? { describes: {}, writeChecks: {} } as SourceHostProbe : sourceHostProbeFromWindow();
+  const checked = new Map<string, SourceHostDescription>();
+  const sourceSetOf = (setId: string) => SETS.find((x) => x.id === setId);
+  const notSftp = "this set's source is a local folder, not SFTP, so there is no source host to send the backup back to; choose another destination";
+  const destinationIdOf = (host: string, port: number, user: string, remotePath: string, folder: string) => {
+    // FNV-1a over the same fields the engine digests; only equality matters.
+    let h = 0x811c9dc5;
+    for (const c of [host, String(port), user, remotePath, folder].join("\u0000")) { h ^= c.charCodeAt(0); h = Math.imul(h, 0x01000193) >>> 0; }
+    return "dst_" + h.toString(16).padStart(8, "0");
+  };
+  const freshFolder = () => {
+    const stamp = new Date().toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
+    return "retnd-recovered-" + stamp + "-" + Math.floor(Math.random() * 0x10000).toString(16).padStart(4, "0");
+  };
+  const describeSource = (setId: string, folder?: string): SourceHostDescription | null => {
+    const s = sourceSetOf(setId);
+    if (!s) return null;
+    if (scenario === "source-not-sftp") return { setId, available: false, reason: notSftp, writeAccess: "not_checked" };
+    const f = folder || freshFolder();
+    const remotePath = s.remoteFolder;
+    const port = s.port || 22;
+    const host = port !== 22 ? s.host + ":" + port : s.host;
+    const url = "sftp://" + s.username + "@" + host + (remotePath.endsWith("/") ? remotePath : remotePath + "/") + f + "/";
+    const base: SourceHostDescription = {
+      setId, available: true, host: s.host, port, user: s.username, remotePath, folder: f, url,
+      destinationId: destinationIdOf(s.host, port, s.username, remotePath, f), writeAccess: "not_checked"
+    };
+    if (scenario === "source-set-read-only") {
+      return {
+        ...base, readOnly: true, writeAccess: "read_only", code: "RECOVERY_SOURCE_HOST_READ_ONLY",
+        detail: "this set is declared read_only (pull from here, never change anything here), so retnd will not write onto " + s.host + "; choose another destination"
+      };
+    }
+    const last = checked.get(setId);
+    if (!last) return base;
+    // The verdict is the set's; the folder, url and id stay this description's.
+    return {
+      ...base, writeAccess: last.writeAccess,
+      ...(last.code ? { code: last.code } : {}), ...(last.detail ? { detail: last.detail } : {}),
+      ...(last.checkedAt ? { checkedAt: last.checkedAt } : {}), ...(last.leftFile ? { leftFile: last.leftFile } : {}),
+      ...(last.freeBytes !== undefined ? { freeBytes: last.freeBytes } : {})
+    };
+  };
+  const checkSource = (setId: string, folder?: string): SourceHostDescription | null => {
+    const d = describeSource(setId, folder);
+    if (!d || !d.available || d.readOnly) return d;
+    if (d.writeAccess !== "not_checked") return d; // the engine's five-minute cache
+    const s = sourceSetOf(setId)!;
+    sourceProbe.writeChecks[setId] = (sourceProbe.writeChecks[setId] ?? 0) + 1;
+    const at = new Date().toISOString();
+    let verdict: Partial<SourceHostDescription>;
+    if (scenario === "source-read-only") {
+      verdict = {
+        writeAccess: "read_only", code: "RECOVERY_SOURCE_HOST_READ_ONLY",
+        detail: "the account retnd pulls with (" + s.username + ") is read-only on " + s.host + ", so an upload there will be refused until that account may write under " + s.remoteFolder + "; choose another destination, or give it write access"
+      };
+    } else if (scenario === "source-probe-left-file") {
+      const left = (s.remoteFolder.endsWith("/") ? s.remoteFolder : s.remoteFolder + "/") + ".retnd-write-probe-5f2a91c4";
+      verdict = {
+        writeAccess: "probe_left_file", code: "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE", leftFile: left,
+        detail: "retnd wrote a probe file on " + s.host + " and could not remove it again, so it does not treat that host as writable"
+      };
+    } else if (scenario === "source-unreachable") {
+      verdict = {
+        writeAccess: "unreachable", code: "RECOVERY_SOURCE_HOST_UNREACHABLE",
+        detail: "retnd could not reach " + s.host + " to check that it may write there; nothing was written"
+      };
+    } else {
+      verdict = {
+        writeAccess: "writable", detail: "retnd can write on " + s.host + " as " + s.username,
+        ...(scenario === "source-space-unknown" ? {} : { freeBytes: 2.4 * TB })
+      };
+    }
+    const out: SourceHostDescription = { ...d, ...verdict, checkedAt: at };
+    if (scenario !== "source-unreachable") checked.set(setId, out);
+    return out;
+  };
+  const refusal = (code: string, message: string) =>
+    new RetndError({ code: code as never, message, correlationId: "cid_mocksource" });
+  const sourceNotFound = () => Promise.reject(refusal("BACKUP_SET_NOT_FOUND", "there is no such backup set"));
+  // The engine's order (gate_profile.go decide, then the service): the gate,
+  // the transport, the acknowledgement and the password through the same
+  // step-up a restore takes, then what only the service knows about the set:
+  // whether the acknowledged destination is still the one configured.
+  const sourceTargetRefusal = (setId: string, target: RecoveryTargetSpec, password: string | undefined): Promise<never> | null => {
+    const ack = target.acknowledgedDestination ?? "";
+    if (gateShut) return gateRefusal();
+    if (localAccount) {
+      const unsent = password ? insecureTransportPasswordCheck() : null;
+      if (unsent) return unsent;
+      const stepUp = mockStepUp(password, ack !== "", "source", scenario === "step-up-limited");
+      if (stepUp) return stepUp;
+    }
+    const d = describeSource(setId, target.path);
+    if (!d || !d.available) return Promise.reject(refusal("RECOVERY_SOURCE_HOST_UNAVAILABLE", notSftp));
+    if (d.readOnly || d.writeAccess === "read_only") return Promise.reject(refusal("RECOVERY_SOURCE_HOST_READ_ONLY", d.detail ?? "the source host is read-only"));
+    if (d.writeAccess === "probe_left_file") return Promise.reject(refusal("RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE", d.detail ?? "a probe file was left on the source host"));
+    if (ack === "") return Promise.reject(refusal("RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED", "recovering to the source host writes onto " + (d.host ?? "it") + " into " + d.url + "; say so explicitly by sending its destination_id as acknowledged_destination"));
+    if (ack !== d.destinationId) return Promise.reject(refusal("RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED", "the destination changed since it was acknowledged: it is now " + d.url));
+    return null;
+  };
+  const sourceExtras = (setId: string, folder: string | undefined) => {
+    const d = describeSource(setId, folder);
+    return d && d.available ? { destinationId: d.destinationId, url: d.url } : {};
+  };
   const mockHostBrowse = createMockHostBrowse(scenario, assuranceSettings.stagingRoot);
   // #1106: every row the journal holds for a set, quarantined ones included,
   // which listArtifacts above deliberately leaves out.
@@ -5785,10 +5936,53 @@ export function createMockApi(
 
     // EPIC Q (#976): the recovery mint and redeem, with the fixtures the
     // assurance scenarios choose between.
-    mintRecovery: (artifactId, req) => mockRecovery.mintRecovery(artifactId, req),
-    redeemRecovery: (grant) => mockRecovery.redeemRecovery(grant),
-    planRecoverMany: (req) => mockRecoverMany.planRecoverMany(req),
-    recoverMany: (req, opts) => mockRecoverMany.recoverMany(req, opts),
+    mintRecovery: async (artifactId, req, opts) => {
+      // #1191: what the engine asks of a source target before it mints.
+      if (req.target.kind !== "source") return mockRecovery.mintRecovery(artifactId, req);
+      const setId = artifactId.split("/").slice(0, 2).join("/");
+      const refused = sourceTargetRefusal(setId, req.target, opts?.stepUpPassword);
+      if (refused) return refused;
+      const m = await mockRecovery.mintRecovery(artifactId, { ...req, target: { kind: "source", path: req.target.path } });
+      return m.kind === "grant" ? { ...m, target: { kind: "source", path: req.target.path }, ...sourceExtras(setId, req.target.path) } : m;
+    },
+    describeSourceHost: (source, set, opts) => {
+      const setId = source + "/" + set;
+      sourceProbe.describes[setId] = (sourceProbe.describes[setId] ?? 0) + 1;
+      const d = describeSource(setId, opts?.folder);
+      return d ? delay(d, 150) : sourceNotFound();
+    },
+    checkSourceHostWrite: (source, set, opts) => {
+      const setId = source + "/" + set;
+      if (gateShut) return gateRefusal();
+      const d = checkSource(setId, opts?.folder);
+      if (!d) return sourceNotFound();
+      if (!d.available) return Promise.reject(refusal("RECOVERY_SOURCE_HOST_UNAVAILABLE", d.reason ?? notSftp));
+      return delay(d, 500);
+    },
+    redeemRecovery: async (grant) => {
+      const placed = await mockRecovery.redeemRecovery(grant);
+      if (placed.target.kind !== "source") return placed;
+      const setId = placed.artifactId.split("/").slice(0, 2).join("/");
+      const d = describeSource(setId, placed.target.path);
+      return { ...placed, path: (d?.remotePath ?? "") + placed.path, ...sourceExtras(setId, placed.target.path), verified: "sha256" as const };
+    },
+    planRecoverMany: async (req) => {
+      const p = await mockRecoverMany.planRecoverMany(req);
+      if (req.target.kind !== "source") return p;
+      const setId = req.set ?? (req.artifacts?.[0] ?? "").split("/").slice(0, 2).join("/");
+      return {
+        ...p, ...sourceExtras(setId, req.target.path), sourceReserveBytes: 10 * GB,
+        ...(scenario === "source-space-unknown" ? {} : { sourceFreeBytes: 2.4 * TB })
+      };
+    },
+    recoverMany: async (req, opts) => {
+      if (req.target.kind !== "source") return mockRecoverMany.recoverMany(req, opts);
+      const setId = req.set ?? (req.artifacts?.[0] ?? "").split("/").slice(0, 2).join("/");
+      const refused = sourceTargetRefusal(setId, req.target, opts?.stepUpPassword);
+      if (refused) return refused;
+      const r = await mockRecoverMany.recoverMany({ ...req, target: { kind: "source", path: req.target.path } }, opts);
+      return { ...r, ...sourceExtras(setId, req.target.path), items: r.items.map((i) => (i.status === "recovered" ? { ...i, verified: "sha256" as const } : i)) };
+    },
     // Replaced below by the assurance mock's own start when the scenario has
     // one; a server that offers no assurance never has this reached.
     startRecoveryTest: (source, set) => delay({ backupSetId: source + "/" + set, operationId: "mock-recovery-test", coalesced: false }),

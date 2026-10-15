@@ -24,6 +24,11 @@ const (
 
 	// TargetStorage uploads to another configured storage destination.
 	TargetStorage TargetKind = "storage"
+
+	// TargetSource uploads back onto the backup set's own source, over the
+	// set's own SFTP settings (issue #1191). Path is the file's path under
+	// the set's remote path, always inside a new recovered folder.
+	TargetSource TargetKind = "source"
 )
 
 // Target is the one place a recovery writes. A grant is minted for exactly
@@ -37,6 +42,13 @@ type Target struct {
 	// Medium and Key address a TargetStorage destination.
 	Medium string
 	Key    string
+
+	// Destination is, for TargetSource, the id of the destination the
+	// operator acknowledged (issue #1193): the host, port, account, remote
+	// path, folder and host-key file it resolved to at mint. The upload
+	// works it out again from the configuration as it is then and refuses
+	// a mismatch, so a reload between mint and write cannot redirect it.
+	Destination string
 }
 
 // Session is the identity a grant is bound to. The platform's
@@ -67,6 +79,11 @@ type GrantSpec struct {
 	Artifact string
 	Copy     string
 	Target   Target
+
+	// TTL, when positive and shorter than the store's, is this grant's own
+	// lifetime. A source-host grant (issue #1193) lives 60 seconds, so it
+	// cannot outlive the gate state it was minted under by much.
+	TTL time.Duration
 }
 
 // Grant is the bound, short-lived permission to read one copy once.
@@ -209,6 +226,9 @@ func (g *Grants) Mint(spec GrantSpec) (string, Grant, error) {
 		Target:    spec.Target,
 		ExpiresAt: g.expiryFor(spec.Session, now),
 	}
+	if spec.TTL > 0 && now.Add(spec.TTL).Before(grant.ExpiresAt) {
+		grant.ExpiresAt = now.Add(spec.TTL)
+	}
 
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -268,6 +288,23 @@ func (g *Grants) reclaimLocked(now time.Time) {
 		delete(g.live, tombs[oldest])
 		tombs = append(tombs[:oldest], tombs[oldest+1:]...)
 	}
+}
+
+// TargetKindOf says which kind of target a live grant writes to, without
+// redeeming it, so a caller can decide whether redeeming it needs a gate
+// (issue #1193: a source-host grant does). Unknown, spent or expired grants
+// answer false; Redeem gives the reason.
+func (g *Grants) TargetKindOf(token string) (TargetKind, bool) {
+	if token == "" || len(token) > 256 {
+		return "", false
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	e, ok := g.live[digest(token)]
+	if !ok || e.closed() {
+		return "", false
+	}
+	return e.grant.Target.Kind, true
 }
 
 // Redeem presents a token from the session now making the request.

@@ -41,7 +41,7 @@ import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { CommandEcho } from "@shared/pages/CommandEcho";
 import { bytes } from "@shared/utilities/format";
 import { ClaimChips } from "./ClaimChips";
-import { RecoveryTargetChoices, RecoveryTargetField } from "./RecoveryTargetFields";
+import { RecoverySourceChoice, RecoverySourceNote, RecoveryTargetChoices, RecoveryTargetField } from "./RecoveryTargetFields";
 import { useRecoveryTarget } from "./useRecoveryTarget";
 import { DownloadOutcome } from "./DownloadOutcome";
 import { recoverCommand, thawCommand } from "./assuranceCommands";
@@ -50,6 +50,7 @@ import { recoveryRefusal } from "./recoveryMessages";
 import type { RecoveryRefusal } from "./recoveryMessages";
 import type { ArtifactAssurance } from "./types";
 import { useBackupFacts, useFactsIndex } from "./verificationModel";
+import { useSourceRecovery } from "./useSourceRecovery";
 
 export function ArtifactAssuranceCard({ artifactId, readOnly }: { artifactId: string; readOnly: boolean }) {
   const api = useApi().assurance;
@@ -108,7 +109,9 @@ export function RecoverArtifactDialog({
 }) {
   const api = useApi();
   const [artifact, setArtifact] = useState<BackupArtifact | null>(null);
-  const { kind, where, setWhere, choose } = useRecoveryTarget<RecoveryTargetSpec["kind"]>("download");
+  // Null until the operator picks one (#1191): until then the default
+  // follows the source host's answer, below.
+  const { kind: chosen, where, setWhere, choose } = useRecoveryTarget<RecoveryTargetSpec["kind"]>(null);
   const [accepted, setAccepted] = useState(false);
   /** The service's own sentence when it refused a read for its cost although
    *  the placements said the copy was readable, e.g. a billed download. */
@@ -116,6 +119,7 @@ export function RecoverArtifactDialog({
   const [phase, setPhase] = useState<Phase>({ k: "choose" });
   const box = useRef<HTMLDivElement>(null);
   const setId = artifactId.split("/").slice(0, 2).join("/");
+  const source = useSourceRecovery(setId, { bytes: artifact?.sizeBytes ?? null });
 
   useEffect(() => {
     const back = returnFocus?.current ?? (document.activeElement as HTMLElement | null);
@@ -146,7 +150,9 @@ export function RecoverArtifactDialog({
       if (!live) return;
       setArtifact(x);
       // A browser download is not offered for an archived copy, so the choice
-      // starts on the next target rather than on a disabled radio.
+      // starts on the next target rather than on a disabled radio. An
+      // archived copy also starts on staging rather than on the source host
+      // (#1191): its first step is a provider restore, not a write anywhere.
       if (planOf(x).archived) choose("staging");
       // A reload mid-restore re-attaches: the provider is still restoring, so
       // say so instead of offering to start a second one.
@@ -154,6 +160,14 @@ export function RecoverArtifactDialog({
     }, () => undefined);
     return () => { live = false; };
   }, [api, artifactId, choose]);
+
+  // Issue #1191, after #1193's review: until something is chosen, start on the
+  // source host once it has answered and can be used. Where it cannot (no
+  // source host, a shut gate, a read-only set) the radio stays first with its
+  // reason, and the dialog starts where it did before #1191: a browser
+  // download.
+  const kind: RecoveryTargetSpec["kind"] | null = chosen ?? (
+    !source.ready ? null : source.preselect ? "source" : "download");
 
   const plan = artifact ? planOf(artifact) : null;
   const archived = !!plan?.archived;
@@ -172,11 +186,14 @@ export function RecoverArtifactDialog({
     return () => { live = false; clearInterval(t); };
   }, [api, artifactId, thawing]);
 
+  const sourceFolder = source.description?.folder ?? "";
+  const sourceSpec = source.targetSpec;
   const targetSpec = useCallback((): RecoveryTargetSpec => {
     if (kind === "staging") return { kind: "staging", path: where };
     if (kind === "storage") return { kind: "storage", medium: where };
+    if (kind === "source" && sourceSpec) return sourceSpec;
     return { kind: "download" };
-  }, [kind, where]);
+  }, [kind, where, sourceSpec]);
 
   const fail = (e: unknown) => setPhase({ k: "refused", refusal: recoveryRefusal(e, setId) });
 
@@ -192,9 +209,22 @@ export function RecoverArtifactDialog({
   };
 
   const go = async () => {
+    // A source target asks about an unencrypted connection BEFORE the
+    // password is sent, as for a restore (#1163), and hands the password over
+    // for this one request (#1193's review). A second press is ignored.
+    const once = kind === "source" ? await source.beforeSubmit() : {};
+    if (once === null) return;
+    try {
+      await mint(once);
+    } finally {
+      if (kind === "source") source.done();
+    }
+  };
+
+  const mint = async (once: { stepUpPassword?: string }) => {
     setPhase({ k: "minting" });
     try {
-      const m = await api.mintRecovery(artifactId, { target: targetSpec(), acknowledged: accepted ? true : undefined });
+      const m = await api.mintRecovery(artifactId, { target: targetSpec(), acknowledged: accepted ? true : undefined }, once);
       if (m.kind === "restore") { setPhase({ k: "thawing", mint: m }); return; }
       if (m.target.kind === "download") { startDownload(m); return; }
       setPhase({ k: "verifying", mint: m });
@@ -210,11 +240,18 @@ export function RecoverArtifactDialog({
         setPhase({ k: "choose" });
         return;
       }
+      // The tick or the password: back to the choice, with the reason.
+      if (kind === "source" && source.refusal(api_?.code)) {
+        setPhase({ k: "choose" });
+        return;
+      }
       fail(e);
     }
   };
 
-  const needsTarget = kind !== "download" && where.trim() === "";
+  const needsTarget = kind === null || (kind === "source"
+    ? !source.canSubmit
+    : kind !== "download" && where.trim() === "");
   const blocked = plan ? plan.none || plan.unreachable : false;
   const ackRequired = needsAck && !accepted;
   const ready = phase.k === "thawing" && plan?.readable;
@@ -255,7 +292,9 @@ export function RecoverArtifactDialog({
             <>
               <InfoTooltip id="assurance.recover.target" block>
                 <div role="radiogroup" aria-label="Where should the artifact go?" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {/* Issue #1190: offered the same way on every screen. */}
+                  {/* Issue #1191: first, and the preselected choice where the set has one. */}
+                  <RecoverySourceChoice name="recover-target" value={kind} source={source} onChoose={choose} />
+                  {/* Issue #1190: the rest are offered the same way on every screen. */}
                   <RecoveryTargetChoices name="recover-target" value={kind} download={{ disabled: archived }} onChoose={choose} />
                 </div>
               </InfoTooltip>
@@ -264,21 +303,26 @@ export function RecoverArtifactDialog({
                   A browser download is not offered for an archived copy: the provider needs hours to restore it, and a download grant lasts minutes.
                 </div>
               ) : null}
+              <RecoverySourceNote source={source} />
               {kind === "download" ? (
                 <div style={{ color: "var(--text-2)" }}>
                   Before it sends the first byte the host checks that the copy is there and is the size it recorded and, the first time this backup is downloaded, reads the whole copy against the digest it recorded, so the download may not start for a while. It then sends the copy straight from where it lives, 4 MiB at a time, checking each piece against that digest, and nothing is copied to the host&apos;s disk. If a piece fails the check the download is cut off, so an incomplete file means the download failed and not that the backup is short. It works over plain http. The grant is single-use, lasts a few minutes and ends with this sign-in.
                 </div>
               ) : null}
-              {kind !== "download" ? (
+              {kind === "source" ? <RecoveryTargetField place="source" source={source} /> : null}
+              {kind === "staging" ? (
                 <RecoveryTargetField
-                  place={kind}
+                  place="staging"
                   value={where}
                   onChange={setWhere}
                   fileName={artifactId.split("/").pop() || undefined}
                   meaning="A file: the last part of the name is the file the host writes. A folder picked below gets this backup's own file name."
                 />
               ) : null}
-              <CommandEcho label="Same thing from the terminal" commands={[recoverCommand(artifactId, kind, where, needsAck && accepted)]} />
+              {kind === "storage" ? <RecoveryTargetField place="storage" value={where} onChange={setWhere} /> : null}
+              {kind ? (
+                <CommandEcho label="Same thing from the terminal" commands={[recoverCommand(artifactId, kind, kind === "source" ? sourceFolder : where, needsAck && accepted, source.acknowledged)]} />
+              ) : null}
               {needsAck ? (
                 <div role="group" aria-label={archived ? "This copy is archived" : "This read costs money"} className="anotice" data-testid="archived-decision">
                   {archived ? (
@@ -354,9 +398,16 @@ export function RecoverArtifactDialog({
           {phase.k === "placed" ? (
             <div className="aop" data-testid="placed" role="status">
               <strong className="aop__outcome">
-                {phase.placement.target.kind === "storage" ? "Recovered to the destination" : "Recovered to staging"}
+                {phase.placement.target.kind === "storage" ? "Recovered to the destination" : phase.placement.target.kind === "source" ? "Recovered to the source host" : "Recovered to staging"}
               </strong>
               <div>The host matched the whole copy to the recorded digest before it placed anything.</div>
+              {phase.placement.target.kind === "source" ? (
+                <div data-testid="placed-verified" data-verified={phase.placement.verified ?? "size"}>
+                  {phase.placement.verified === "sha256"
+                    ? "The file on the source host was then checked by SHA-256 on the host, and matched."
+                    : "The source host cannot compute a digest, so only the size of the file it holds was checked, and it matched."}
+                </div>
+              ) : null}
               <div className="mono" style={{ wordBreak: "break-all" }}>{(phase.placement.path ?? phase.placement.key ?? "") + ", " + bytes(phase.placement.bytes)}</div>
               <div className="mono" style={{ wordBreak: "break-all" }} data-testid="placed-digest">{"sha256:" + phase.placement.sha256}</div>
               <div style={{ color: "var(--text-2)" }}>This recovered the artifact. Putting the application back stays yours to do.</div>

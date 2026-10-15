@@ -567,9 +567,9 @@ commands:
                                                   to skip, because a restore is billed and takes hours; --days
                                                   defaults to 7 and is bounded to 1..30. artifacts <id> lists
                                                   which medium each copy is on
-  recover <source/backup-set/artifact> --to - | NAME | medium:ID[/KEY] [--copy M] [--acknowledge-cost] [--json]
-  recover --set <source/backup-set> [--newest-only] [--since DATE] --to NAME | medium:ID[/PREFIX] [--preflight] [--acknowledge-cost] [--json]
-  recover <id> <id> ... --to NAME | medium:ID[/PREFIX] [--preflight] [--acknowledge-cost] [--json]
+  recover <source/backup-set/artifact> [--to source:[FOLDER] | - | NAME | medium:ID[/KEY]] [--acknowledge-source-write] [--preflight] [--copy M] [--acknowledge-cost] [--json]
+  recover --set <source/backup-set> [--newest-only | --since DATE | --all] [--to source:[FOLDER] | NAME | medium:ID[/PREFIX]] [--acknowledge-source-write] [--preflight] [--acknowledge-cost] [--json]
+  recover <id> <id> ... [--to source:[FOLDER] | NAME | medium:ID[/PREFIX]] [--acknowledge-source-write] [--preflight] [--acknowledge-cost] [--json]
                                                   get the retained bytes of one artifact back (EPIC Q, FR-67). It
                                                   reads one copy, checks all of it against the SHA-256 recorded when
                                                   the backup was ingested, and only then writes it: to standard
@@ -604,7 +604,23 @@ commands:
                                                   leaves no half-written file, and a manifest listing every file
                                                   with its digest is written beside them. Exits 0 when every row was
                                                   recovered and 32 when some were not (failed, needs a thaw,
-                                                  quarantined or lost); a kopia set is refused naming snapshot restore
+                                                  quarantined or lost); a kopia set is refused naming snapshot restore.
+                                                  With no --to the backup goes back where it came from (#1191),
+                                                  where that can work: an SFTP upload onto the set's own source
+                                                  host, into a new retnd-recovered-<date>-<time>-<4 hex> folder under
+                                                  its remote path, or --to source:FOLDER for a retnd-recovered-*
+                                                  folder you name. Each file is written under a temporary name and
+                                                  renamed into place, so nothing there is ever replaced. It writes
+                                                  onto a production machine, so it needs --acknowledge-source-write,
+                                                  which acknowledges the destination printed first, and without it
+                                                  it is refused before any network call (exit 40). A set whose source
+                                                  is not SFTP, or one declared read_only, has no such default and
+                                                  needs --to. A whole set onto the source host also needs
+                                                  --newest-only, --since or --all. --to source: --preflight prints
+                                                  where it would write and runs the write check, which writes and
+                                                  removes one probe file. The source host's refusals exit 38 to 43.
+                                                  A staging folder called source is still --to source; one whose
+                                                  name starts with source:, medium: or - is written ./NAME.
   backup-set enabled <source/backup-set> <on|off>
                                                   turn one already-configured backup set on or off, which
                                                   --disabled can only do at creation. "off" stops the scheduler

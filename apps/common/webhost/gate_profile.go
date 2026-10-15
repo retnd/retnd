@@ -438,6 +438,19 @@ const insecureTransportAuditReason = "the gate is open, and the browser's connec
 type gatedAct struct {
 	// op is the /operations request, nil for the other gated places.
 	op *submitOperationRequest
+	// sourceRecovery is a recovery onto the backup set's own source host
+	// (issue #1191), nil for everything else. Its target is read off the
+	// recovery body the handler then runs (recoveryRequest).
+	sourceRecovery *sourceRecoveryAct
+}
+
+// sourceRecoveryAct is what decide needs from a source-host recovery: the
+// destination the request acknowledged, and (when the gate could work it
+// out) the one the configuration resolves to now (#1193).
+type sourceRecoveryAct struct {
+	acknowledged string
+	current      string
+	url          string
 }
 
 // gateRefusal is how a gated act is refused.
@@ -469,8 +482,12 @@ func (e gateEnforcement) decide(r *http.Request, act gatedAct) (gateRefusal, boo
 		return newGateRefusal(http.StatusForbidden, "INSECURE_TRANSPORT_ACK_REQUIRED", insecureTransportRefusal,
 			"open", insecureTransportAuditReason), true
 	}
-	if _, stepUp := conditionsOf(e.gate); stepUp && act.op != nil && act.op.Action.isRestore() {
+	_, stepUp := conditionsOf(e.gate)
+	if stepUp && act.op != nil && act.op.Action.isRestore() {
 		return e.checkRestore(r, act.op)
+	}
+	if stepUp && act.sourceRecovery != nil {
+		return e.checkSourceRecovery(r, act.sourceRecovery)
 	}
 	return gateRefusal{}, false
 }
@@ -503,18 +520,55 @@ func (e gateEnforcement) checkRestore(r *http.Request, req *submitOperationReque
 			"this restore writes files into "+strconv.Quote(target)+", so the request has to say you understand that: set acknowledged to true in snapshot_restore",
 			"open", "the restore did not acknowledge its target directory"), true
 	}
+	return e.checkStepUp(r, stepUpAct{
+		name: "a restore", plural: "restores", onHost: "retnd snapshot restore",
+	})
+}
+
+// checkSourceRecovery is the acknowledgement and the step-up a recovery onto
+// the set's own source host needs where the gate opens for local accounts
+// (issue #1191). It writes onto the production machine the backup came from,
+// so it asks what a restore asks, in the same order.
+func (e gateEnforcement) checkSourceRecovery(r *http.Request, act *sourceRecoveryAct) (gateRefusal, bool) {
+	if act.acknowledged == "" {
+		return newGateRefusal(http.StatusConflict, "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED",
+			"recovering to the source host writes onto the machine this backup came from, so the request has to acknowledge that destination: send the destination_id GET .../source-host returned as acknowledged_destination in its target",
+			"open", "the recovery did not acknowledge writing onto its source host"), true
+	}
+	if act.current != "" && act.acknowledged != act.current {
+		return newGateRefusal(http.StatusConflict, "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED",
+			"the destination changed since it was acknowledged: it is now "+act.url+", so nothing was written and no password was checked; look at it again and acknowledge what it is now",
+			"open", "the recovery acknowledged a source-host destination the configuration no longer resolves to"), true
+	}
+	return e.checkStepUp(r, stepUpAct{
+		name: "a recovery onto the source host", plural: "recoveries onto the source host",
+		onHost: "retnd recover --acknowledge-source-write",
+	})
+}
+
+// stepUpAct names the act a step-up refusal is about, in the words the
+// refusal and its audit entry use.
+type stepUpAct struct {
+	name   string // "a restore"
+	plural string // "restores"
+	onHost string // the command that does the same on the host
+}
+
+// checkStepUp is the password re-check every step-up act shares: wired,
+// carried, not rate limited, and right.
+func (e gateEnforcement) checkStepUp(r *http.Request, act stepUpAct) (gateRefusal, bool) {
 	if e.stepUp == nil {
 		// A capability this deployment lacks, like RECOVERY_UNAVAILABLE, and
 		// not a refusal of this caller.
 		return newGateRefusal(http.StatusServiceUnavailable, "STEP_UP_UNAVAILABLE",
-			"this deployment cannot re-check your password, so it will not run a restore over HTTP; run `retnd snapshot restore` on the host",
-			"open", "no password check is wired, so restores fail closed"), true
+			"this deployment cannot re-check your password, so it will not run "+act.name+" over HTTP; run `"+act.onHost+"` on the host",
+			"open", "no password check is wired, so "+act.plural+" fail closed"), true
 	}
 	password := r.Header.Get(StepUpHeader)
 	if password == "" {
 		return newGateRefusal(http.StatusForbidden, "STEP_UP_REQUIRED",
-			"a restore asks for your password again: send it in the "+StepUpHeader+" header",
-			"open", "the restore did not carry the administrator's password"), true
+			act.name+" asks for your password again: send it in the "+StepUpHeader+" header",
+			"open", "the "+strings.TrimPrefix(act.name, "a ")+" did not carry the administrator's password"), true
 	}
 	if err := e.stepUp.VerifyStepUp(r.Context(), actorFromContext(r.Context()), password); err != nil {
 		var limited interface{ RetryAfter() time.Duration }

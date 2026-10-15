@@ -190,6 +190,9 @@ func cmdFetch(args []string) int {
 			fmt.Printf("%-60s %12d bytes%s\n", p.RemotePath, p.Size, known)
 		}
 		fmt.Printf("%d object(s) on the remote\n", len(result.Preview))
+		if result.SkippedRecovered > 0 {
+			fmt.Printf("%d more in retnd-recovered-* folders, which recovery put back and no run takes for a backup\n", result.SkippedRecovered)
+		}
 		if stuck > 0 {
 			fmt.Printf("%d of them belong to artifacts a cycle will not attempt again: a real run would transfer nothing for these.\n", stuck)
 			fmt.Println("`" + cliecho.Binary + " status` names them and what to run; `" + cliecho.Binary +

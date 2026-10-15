@@ -47,7 +47,14 @@ const NEXT: Record<string, { next: string; retryable: boolean }> = {
   RECOVERY_NO_DIGEST: { next: "No digest was recorded for this backup, so a read could not be checked and nothing was started.", retryable: false },
   RECOVERY_INTERRUPTED: { next: "The host stopped while reading. Nothing was delivered. Try again.", retryable: true },
   RECOVERY_UNAVAILABLE: { next: "This host cannot recover backups right now.", retryable: false },
-  RECOVERY_FAILED: { next: "Nothing was delivered. The host's log has the reason.", retryable: true }
+  RECOVERY_FAILED: { next: "Nothing was delivered. The host's log has the reason.", retryable: true },
+  // Issue #1191 and #1193's review: the source host.
+  RECOVERY_SOURCE_HOST_UNAVAILABLE: { next: "This set has no source host to send the backup back to. Pick another destination.", retryable: false },
+  RECOVERY_SOURCE_HOST_READ_ONLY: { next: "The account this set pulls with cannot write on its source, or the set is declared read_only. Pick another destination, or give that account write access.", retryable: false },
+  RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED: { next: "The destination changed after it was acknowledged, or it was not acknowledged. Check where it goes and tick the box again.", retryable: true },
+  RECOVERY_SOURCE_HOST_UNREACHABLE: { next: "retnd could not reach the source host, and nothing was written there. Try again in a moment.", retryable: true },
+  RECOVERY_SOURCE_HOST_NO_SPACE: { next: "The source host does not have room for this and still keep its reserve. Nothing was read. Free space there, recover fewer backups, or pick another destination.", retryable: false },
+  RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE: { next: "A write check left its probe file on the source host, so retnd does not treat that host as writable. Delete the file the message names, then try again.", retryable: false }
 };
 
 export function recoveryRefusal(e: unknown, setId: string): RecoveryRefusal {

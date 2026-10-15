@@ -10,17 +10,21 @@ import type { ReactNode } from "react";
 export function Acknowledgement({
   checked,
   onChange,
-  children
+  children,
+  disabled = false
 }: {
   checked: boolean;
   onChange(next: boolean): void;
   children: ReactNode;
+  /** Switched off with the reason said elsewhere (a shut gate). */
+  disabled?: boolean;
 }) {
   return (
     <label style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: "var(--text-sm)", color: "var(--text)", cursor: "pointer" }}>
       <input
         type="checkbox"
         checked={checked}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
         style={{ marginTop: 3 }}
       />

@@ -281,6 +281,10 @@ type fixtureOpts struct {
 	// cfg, when set, adjusts the hand-built configuration before the service
 	// is built from it (an assurance policy, an extra medium).
 	cfg func(*config.Config)
+
+	// wrap, when set, is the transport the service is built over, around
+	// the in-memory store (issue #1191's source host adds to it).
+	wrap func(*recoveryStore) transport.Transport
 }
 
 // newRecoveryFixture builds a service whose journal holds one artifact,
@@ -316,7 +320,11 @@ func newRecoveryFixture(t *testing.T, opts fixtureOpts) *recoveryFixture {
 	log := &bytes.Buffer{}
 	clock := &recClock{t: time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)}
 	journal := openTestJournal(t)
-	b := New(cfg, journal, store, obs.New(log, obs.LevelInfo))
+	var over transport.Transport = store
+	if opts.wrap != nil {
+		over = opts.wrap(store)
+	}
+	b := New(cfg, journal, over, obs.New(log, obs.LevelInfo))
 	b.recovery.now = clock.Now
 	t.Cleanup(func() { _ = b.Close() })
 

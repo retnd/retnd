@@ -1,7 +1,9 @@
 /**
  * Issue #1190: the words for the staging folder and the configured destination
  * live once, in assurance/recoveryPlaces.ts, and no other file in src spells
- * them out.
+ * them out. Issue #1191 put "Source host (SFTP)" in the same constant, so the
+ * source-host radio is held to the same rule: only RecoveryTargetFields draws
+ * it, from that constant.
  *
  * This is the copy half of the rule only. The other half, that no screen
  * reaches the folder browser or the destination drop-down except through
@@ -57,13 +59,13 @@ function spelledOut(words: string[]) {
   return offenders;
 }
 
-describe("#1190 the staging folder and a configured destination have one set of words", () => {
+describe("#1190 the staging folder, a configured destination and #1191's source host have one set of words", () => {
   it("the labels live in assurance/recoveryPlaces.ts", () => {
     expect(sources[OWNER], OWNER + " is missing").toBeTypeOf("string");
-    expect(Object.keys(RECOVERY_PLACE_LABELS).sort()).toEqual(["staging", "storage"]);
+    expect(Object.keys(RECOVERY_PLACE_LABELS).sort()).toEqual(["source", "staging", "storage"]);
   });
 
-  it("no other file spells either label out", () => {
+  it("no other file spells any of the labels out", () => {
     expect(spelledOut(Object.values(RECOVERY_PLACE_LABELS))).toEqual([]);
   });
 
