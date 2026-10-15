@@ -283,6 +283,35 @@ const ProbeObjectPrefix = ".retnd-write-probe-"
 // said out loud.
 var ErrProbeNotRemoved = errors.New("transport: the write probe could not be removed")
 
+// SourceUploader writes one recovered file back onto a backup source
+// (issue #1191): the "Source host (SFTP)" recovery destination.
+//
+// It is the second thing this product ever writes onto somebody else's
+// machine (the write probe above is the first), so it is a capability a
+// caller type-asserts for, like SourceWriteProbe, and it carries its own
+// no-overwrite rule rather than trusting every caller to check first.
+type SourceUploader interface {
+	// UploadToSource copies the local file at localPath to relPath under
+	// source.Root, creating the folders on the way. relPath is relative and
+	// clean. An object already at relPath is never replaced: the call
+	// refuses with an error wrapping ErrSourceObjectExists and writes
+	// nothing.
+	UploadToSource(ctx context.Context, source Source, localPath, relPath string) error
+}
+
+// ErrSourceObjectExists is UploadToSource's refusal to replace a file that
+// is already on the source.
+var ErrSourceObjectExists = errors.New("transport: the source already holds a file at that path")
+
+// RecoveredFolderPrefix starts the name of every folder a source-host
+// recovery creates on the source (issue #1191). Recovered files land in a
+// new folder under the set's own remote path, and that folder is inside the
+// tree the next backup run lists, so internal/discovery skips any path with
+// a folder carrying this prefix. Without that skip the next run would take a
+// recovered file for a new backup, and on a set that deletes from its source
+// it would then delete the very file the operator just recovered.
+const RecoveredFolderPrefix = "retnd-recovered-"
+
 // SourceSession is one conversation with one backup source, held open for
 // as long as the caller is reading that source.
 //

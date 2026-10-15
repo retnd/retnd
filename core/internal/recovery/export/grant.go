@@ -24,6 +24,11 @@ const (
 
 	// TargetStorage uploads to another configured storage destination.
 	TargetStorage TargetKind = "storage"
+
+	// TargetSource uploads back onto the backup set's own source, over the
+	// set's own SFTP settings (issue #1191). Path is the file's path under
+	// the set's remote path, always inside a new recovered folder.
+	TargetSource TargetKind = "source"
 )
 
 // Target is the one place a recovery writes. A grant is minted for exactly

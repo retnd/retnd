@@ -72,17 +72,23 @@ const (
 )
 
 // RecoveryTarget is where one recovery writes. The set is closed: Kind is
-// "download", "staging" or "storage".
+// "download", "staging", "storage" or "source".
 type RecoveryTarget struct {
 	Kind string
 
-	// Path is the name under the recovery staging root, for "staging".
+	// Path is the name under the recovery staging root, for "staging". For
+	// "source" it is the new folder under the set's remote path the file
+	// goes into (issue #1191); empty takes a fresh default.
 	Path string
 
 	// Medium and Key address another configured storage destination, for
 	// "storage". Key is optional; the default is recovered/<artifact id>.
 	Medium string
 	Key    string
+
+	// Acknowledged is the explicit yes to writing onto the backup set's own
+	// source, for "source" (issue #1191). Absent is a no.
+	Acknowledged bool
 }
 
 // RecoverySession is who is asking and how long that identity lasts. A zero
