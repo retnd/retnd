@@ -12,6 +12,12 @@
   configuration order, so a page holds the same backups every time. Select-all after a filter (#1107) still
   takes every matching backup on every page. Changing a filter returns to page one.
 
+- **`retained_count` on `GET /system/health`, and `retnd artifacts --count`** (#1186). The health report
+  carries how many backups the deployment holds outside quarantine, the backups of removed sets included,
+  and `retnd status --json` prints it too. `retnd artifacts --count` prints the same number, always the
+  exact figure (the sidebar's `>100` is the sidebar's), narrowed by `--source` and `--backup-set`;
+  with `--state` it counts that state instead, quarantine included, and `--json` prints `{"count": N}`.
+
 ### Changed
 
 - **Breaking for API clients, targeting 0.7.0: releasing a snapshot hold now needs an acknowledgement** (#1164). If you only use the web interface or the `retnd` terminal, nothing changes for you: the screen asks you to tick a box before it releases a hold, and `retnd snapshot unhold` works as before. If you have a script or another client that calls `POST /api/v1/operations` with `release_snapshot_hold`, it will start getting `409 SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED` on every profile after you upgrade, and the hold stays where it was. To fix it, add `"acknowledged": true` inside `snapshot_hold_release`, which is your script saying it knows the snapshot becomes prunable by the next retention run. Restores on a local-account profile have new refusals too, but those calls were refused outright before this release, so nothing that worked stops working there.
@@ -42,6 +48,18 @@
 
 - **Edit mode on a backup set can set its before and after workflows** (#1189). The Workflow card told you hook directories are set "per set here" and gave you nothing to set them with, even though the API and `retnd backup-set workflow patch --before-dir/--after-dir` always took them. Edit mode now has a before and an after directory field, each with its own Save, written through that same PATCH so the shell-rule save gate and the workflow-root check are the service's. They belong to the page's edit session: SAVE ALL & EXIT EDIT saves whatever is still typed in them as well (and stays in edit mode with the reason on screen if the gate refuses it), and CANCEL's list of discarded and already-saved changes names them. Spaces around a directory aren't a change, and an emptied box is never sent, because an empty directory turns that stage of hooks off: a separate Clear button does that. If SAVE ALL writes the directories and then the rest of the set's changes fail, the page says the directories went live and the rest didn't. The card lists the hooks that will actually run (the deployment's stages wrap the set's, they are not replaced by them), and its empty-state sentence only points at edit mode when edit mode has the control. No API or CLI change was needed: `retnd backup-set workflow <id> [--json]` already reads the same thing.
 - **Placeholder text everywhere takes the secondary ink** (#1189). The browser's default placeholder grey is 4.4:1 on a light text box and 3.7:1 on a dark one, under WCAG AA's 4.5:1, so every placeholder in the web UI now uses `--text-2` (6.4:1 light, 6.9:1 dark). Text boxes and bordered lists that have to be found by their edge share one `--control-edge` token (3.35:1 light, 3.85:1 dark on the card surface).
+
+- **The sidebar's Backups badge counts backups now, not backup sets** (#1186). It was summed from the
+  health report's per-set verdicts, so a deployment holding 119 backups in a handful of sets showed a
+  single-digit number. The badge now counts the backups the deployment holds outside quarantine: every
+  backup the Backups page lists except the quarantined ones, which the Quarantine badge already counts. It
+  shows the exact number up to 100 and `>100` above that, with an accessible label that says what it counts
+  ("40 backups outside quarantine"). The figure comes off the health report the console already polls, so
+  no screen downloads the backups list to read its length. While measuring it I found the non-alert nav
+  badges were `--text-3` on the nav surface, 3.35:1 in the light theme and 3.85:1 in the dark one, under the
+  4.5:1 small text needs, so they use `--text-2` now (6.64:1 and 6.89:1 on the nav surface, 5.73:1 and
+  5.52:1 on the active row). The Backups row's tooltip said the list was newest first; it's in
+  configuration order, and the tooltip says so now.
 
 ## [0.6.4] - 2026-10-14
 

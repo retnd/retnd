@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "2e3d34640fce1e76ccad36b16e20753b9b4fe0b06b0b77bf775299e9d0082257"
+const ContractSHA256 = "ed5504204489d38d566c24efa2adcb12acdd1b4e1c4e19ec295ae840109df680"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -2329,8 +2329,9 @@ type ForgotPasswordRequest struct {
 // verdict, computed fresh on every call. Build and process facts are
 // GET /system/version's, deliberately not restated here.
 type HealthResponse struct {
-	BackupSets  []BackupSetHealth `json:"backup_sets"`
-	GeneratedAt string            `json:"generated_at"`
+	BackupSets    []BackupSetHealth `json:"backup_sets"`
+	GeneratedAt   string            `json:"generated_at"`
+	RetainedCount int               `json:"retained_count"`
 }
 
 // HostKeyProbeRequest is POST /ssh/host-key-probe. Opens a real outbound connection, trusts

@@ -1831,6 +1831,9 @@ function fromWireHealth(body: WireHealthResponse, now: number): SystemHealth {
     setsFailing: counts.failing,
     quarantinedCount: quarantined,
     readOnlyRetainedCount: readOnlyRetained,
+    // An engine older than #1186 does not send it; null keeps that apart
+    // from a deployment that holds nothing.
+    retainedCount: typeof body.retained_count === "number" ? body.retained_count : null,
     storageState: STORAGE_STATE[STORAGE_ORDER[worstStorage]],
     storageReadingsUnavailable: unavailable
   };

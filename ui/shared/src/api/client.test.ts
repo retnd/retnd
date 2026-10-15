@@ -1633,6 +1633,15 @@ describe("httpApi maps the wire shapes onto the domain types", () => {
     expect(Object.keys(got).filter((k) => k.endsWith("Bytes"))).toEqual([]);
   });
 
+  it("carries retained_count for the Backups badge, and an older engine's silence as null rather than zero (#1186)", async () => {
+    vi.stubGlobal("fetch", mockFetchOk({ generated_at: "2026-08-30T10:00:00Z", backup_sets: [], retained_count: 119 }));
+    expect((await httpApi.getHealth()).retainedCount).toBe(119);
+    vi.stubGlobal("fetch", mockFetchOk({ generated_at: "2026-08-30T10:00:00Z", backup_sets: [], retained_count: 0 }));
+    expect((await httpApi.getHealth()).retainedCount).toBe(0);
+    vi.stubGlobal("fetch", mockFetchOk({ generated_at: "2026-08-30T10:00:00Z", backup_sets: [] }));
+    expect((await httpApi.getHealth()).retainedCount).toBeNull();
+  });
+
   it("says so when nothing is configured, rather than declaring an empty deployment healthy in silence", async () => {
     vi.stubGlobal("fetch", mockFetchOk({ generated_at: "2026-08-30T10:00:00Z", backup_sets: [] }));
 

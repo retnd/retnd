@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "2e3d34640fce1e76ccad36b16e20753b9b4fe0b06b0b77bf775299e9d0082257";
+export const CONTRACT_SHA256 = "ed5504204489d38d566c24efa2adcb12acdd1b4e1c4e19ec295ae840109df680";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -3071,6 +3071,7 @@ export interface WireForgotPasswordRequest {
 export interface WireHealthResponse {
   backup_sets: WireBackupSetHealth[];
   generated_at: string;
+  retained_count: number;
 }
 
 /** POST /ssh/host-key-probe. Opens a real outbound connection, trusts

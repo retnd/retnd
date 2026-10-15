@@ -1075,6 +1075,8 @@ const HEALTH: SystemHealth = {
   // so this is not a permanently-resting zero the way it is for most
   // deployments (BackupSet.readOnlyRetainedCount's own doc).
   readOnlyRetainedCount: 3,
+  // getHealth counts this from the instance's own fixtures (#1186).
+  retainedCount: null,
   storageState: "nominal",
   storageReadingsUnavailable: 0
 };
@@ -4012,6 +4014,29 @@ function defaultPolicyArtifacts(untested = false, ingestFailed = false): BackupA
 }
 
 /**
+ * Issue #1186: `?artifacts=N` makes the deployment hold exactly N backups
+ * outside quarantine, by padding with copies of the first fixture under new
+ * ids. It is a query parameter rather than a scenario so that it composes
+ * with any scenario and so the sidebar badge can be proved at 40, 100, 101
+ * and 119 without four named fixtures. Read once, when the mock is built.
+ */
+function retainedPadFromLocation(): number | null {
+  const raw = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("artifacts");
+  return raw !== null && /^\d+$/.test(raw) ? Number(raw) : null;
+}
+
+function padRetained(retained: BackupArtifact[], want: number | null): BackupArtifact[] {
+  if (want === null || retained.length === 0) return retained;
+  if (want <= retained.length) return retained.slice(0, want);
+  const tpl = retained[0];
+  const pad = Array.from({ length: want - retained.length }, (_, i) => {
+    const filename = "pad-" + String(i + 1).padStart(4, "0") + ".bak";
+    return { ...tpl, id: tpl.setId + "/" + filename, filename };
+  });
+  return [...retained, ...pad];
+}
+
+/**
  * A whole RetndApi, in memory, for one scenario.
  *
  * This is a second implementation of the contract rather than a bag of
@@ -4053,6 +4078,7 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
     };
   const wireOverlay = options.wire ? overlayAssurance : (a: BackupArtifact) => a;
   const empty = scenario === "empty";
+  const retainedPad = retainedPadFromLocation();
   // Every deployment written before storage mediums existed, which is the
   // compatibility case FR-35 pins: no medium declared anywhere, so every
   // backup has exactly one local copy, no tier names a medium, and the
@@ -4161,6 +4187,10 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
     : followsDefault(scenario)
     ? defaultPolicyArtifacts(untestedScenario(scenario), scenario === INGEST_FAILED_SCENARIO)
     : ARTIFACTS;
+  // Every backup outside quarantine, padded to ?artifacts=N: what the list
+  // answers and what the health report's retainedCount counts (#1186).
+  // Read on every call, because writes here mutate the fixtures.
+  const retained = (): BackupArtifact[] => padRetained(artifacts.filter((a) => !a.quarantine), retainedPad);
   // Issue #176: a fresh app-store install has no configuration at all.
   // Mutable, because completing setup is what makes it configured — the
   // same one-way transition the real backend makes in-process.
@@ -4366,13 +4396,18 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
       });
     },
 
+    // retainedCount is counted the way the engine counts retained_count
+    // (core/internal/health.CountRetained): every backup outside quarantine.
+    // This mock's list already leaves quarantine out, so the badge and the
+    // Backups page agree here; on a real engine the page lists quarantined
+    // backups too, and the badge still leaves them to the Quarantine badge.
     getHealth: () =>
       delay(
         empty
-          ? { ...HEALTH, backupHealth: "healthy", backupHealthReason: "No backup sets configured yet.", setsHealthy: 0, setsStale: 0, setsFailing: 0, retainedCount: 0, retainedBytes: 0, quarantinedCount: 0, readOnlyRetainedCount: 0 }
+          ? { ...HEALTH, backupHealth: "healthy", backupHealthReason: "No backup sets configured yet.", setsHealthy: 0, setsStale: 0, setsFailing: 0, retainedCount: 0, quarantinedCount: 0, readOnlyRetainedCount: 0 }
           : scenario === "storage-critical"
-            ? { ...HEALTH, storageState: "critical", backupHealth: "failing", backupHealthReason: "Storage is critically low; ingestion has been paused to protect existing backups." }
-            : HEALTH
+            ? { ...HEALTH, storageState: "critical", backupHealth: "failing", backupHealthReason: "Storage is critically low; ingestion has been paused to protect existing backups.", retainedCount: retained().length }
+            : { ...HEALTH, retainedCount: retained().length }
       ),
 
     // Issue #286. See STORAGE/STORAGE_CRITICAL/STORAGE_EMPTY's own doc
@@ -4622,7 +4657,7 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
       delay({ id: "key_mock_" + Math.random().toString(36).slice(2, 10), algorithm: "ssh-ed25519", fingerprint: mockCandidateFingerprint }),
 
     listArtifacts: (setId) =>
-      delay(empty ? [] : artifacts.filter((a) => !a.quarantine && (!setId || a.setId === setId)).map(overlayThaw).map(wireOverlay)),
+      delay(empty ? [] : retained().filter((a) => !setId || a.setId === setId).map(overlayThaw).map(wireOverlay)),
     // An id this fixture does not have is a refusal, not the first
     // artifact. The fallback that used to be here answered every wrong id
     // with a real page about somebody else's backup, which is the same
