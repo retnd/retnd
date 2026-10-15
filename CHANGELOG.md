@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **The download dialog works the way its three options say** (#1179). "Download in this browser" on the
+  Backups selection bar was a radio that was always switched off. It had nothing to do with the destructive
+  gate or any capability: the bar had it hard-coded off because I had reasoned that many files would need an
+  archive. It is selectable now and hands the browser one download per backup, each from its own single-use
+  grant and each checked against its recorded digest by the host, with archived copies left out and named.
+  "Staging path on the host" gets a folder browser over the staging root on the machine retnd runs on, and
+  "Configured destination" is a drop-down of everything under Settings, Storage destinations ("None
+  configured" when there is nothing), on the artifact dialog, the selection bar and the set dialog. The
+  folder list is `GET /api/v1/system/host-directories` and `retnd system browse [PATH]`: read-only,
+  confined to the staging root, symbolic links neither followed nor listed, `..` and absolute names
+  refused, a long folder cut and marked as cut.
+
 ## [0.6.4] - 2026-10-14
 
 0.6.4 brings the terminal up to the web API. EPIC S went through every route the API serves and gave

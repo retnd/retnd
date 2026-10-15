@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "5c49e450162fa5aedd863b19c5e5852db80b8046a8884b25e2bcca3f3dbc4acf"
+const ContractSHA256 = "fd09d200da3f78074fa5d26f82158f9c317c3797291f6bd76913560e3aaf9a2a"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -1526,6 +1526,18 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "listHostDirectory", Method: "GET", Path: "/system/host-directories",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "HostDirectoryResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			500: {ErrorCodeInternal},
+			501: {ErrorCodeRecoveryUnavailable},
+			503: {ErrorCodeRecoveryUnavailable},
+		},
+	},
+	{
 		ID: "listStorageStatus", Method: "GET", Path: "/system/storage",
 		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListStorageStatusResponse", SuccessStatus: 200,
@@ -2306,6 +2318,22 @@ type ForgotPasswordRequest struct {
 type HealthResponse struct {
 	BackupSets  []BackupSetHealth `json:"backup_sets"`
 	GeneratedAt string            `json:"generated_at"`
+}
+
+// HostDirectoryEntry is one sub-folder of a listed folder.
+type HostDirectoryEntry struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+// HostDirectoryResponse is GET /system/host-directories. One folder under the staging root:
+// its sub-folders by name, relative to the root.
+type HostDirectoryResponse struct {
+	Entries   []HostDirectoryEntry `json:"entries"`
+	Parent    *string              `json:"parent"`
+	Path      string               `json:"path"`
+	Root      string               `json:"root"`
+	Truncated bool                 `json:"truncated"`
 }
 
 // HostKeyProbeRequest is POST /ssh/host-key-probe. Opens a real outbound connection, trusts
@@ -4445,6 +4473,8 @@ var SchemaTypes = map[string]any{
 	"FirstRunSteps":                      FirstRunSteps{},
 	"ForgotPasswordRequest":              ForgotPasswordRequest{},
 	"HealthResponse":                     HealthResponse{},
+	"HostDirectoryEntry":                 HostDirectoryEntry{},
+	"HostDirectoryResponse":              HostDirectoryResponse{},
 	"HostKeyProbeRequest":                HostKeyProbeRequest{},
 	"HostKeyProbeResponse":               HostKeyProbeResponse{},
 	"ImportSSHKeyFromCandidateRequest":   ImportSSHKeyFromCandidateRequest{},

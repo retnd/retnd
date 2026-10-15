@@ -87,6 +87,7 @@ import type {
   WireListBackupSetsResponse,
   WireListOperationsResponse,
   WireListSSHKeyCandidatesResponse,
+  WireHostDirectoryResponse,
   WireListSSHKeysResponse,
   WireListStorageStatusResponse,
   WireManagerStorage,
@@ -3971,8 +3972,17 @@ export const httpApi: RetndApi = {
 
   getAssuranceSettings: () =>
     request<WireAssuranceSettingsResponse>("/settings/assurance").then(fromWireAssuranceSettings),
-  // STUB (issue #1179): the real call arrives with the fix.
-  listHostDirectory: () => Promise.reject(new Error("listHostDirectory is not implemented")),
+  // Issue #1179. The path is relative to the staging root and may be empty
+  // (the root itself, which sends no query at all); it is escaped, so a folder
+  // named with a space, an ampersand or a hash travels intact.
+  listHostDirectory: (path = "") =>
+    request<WireHostDirectoryResponse>("/system/host-directories" + (path ? "?path=" + encodeURIComponent(path) : "")).then((r) => ({
+      root: r.root,
+      path: r.path,
+      parent: r.parent,
+      entries: r.entries.map((e) => ({ name: e.name, path: e.path })),
+      truncated: r.truncated
+    })),
   patchAssuranceSettings: (patch) =>
     request<WireAssuranceSettingsResponse>("/settings/assurance", {
       method: "PATCH",

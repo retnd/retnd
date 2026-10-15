@@ -50,6 +50,8 @@ import { artifactPath } from "@shared/utilities/routes";
 import type { BackupArtifact } from "@shared/types/backup";
 import type { RunTarget } from "@shared/assurance/recoverMany";
 import { BackupsSelectionBar } from "./BackupsSelectionBar";
+import { downloadMany } from "@shared/assurance/bulkDownload";
+import type { BulkDownloadOutcome } from "@shared/assurance/bulkDownload";
 import { BackupsRecoverRun } from "./BackupsRecoverRun";
 import { inReceivedRange, unselectableReason } from "./backupSelection";
 
@@ -71,6 +73,9 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   const [notice, setNotice] = useState("");
   const [run, setRun] = useState<{ files: Array<{ id: string; filename: string }>; target: RunTarget; acknowledged: boolean } | null>(null);
   const [stagingRoot, setStagingRoot] = useState<string | null>(null);
+  // Issue #1179: the outcome of handing a selection to the browser, or null
+  // before one was asked for. `running` is true while the links go out.
+  const [dl, setDl] = useState<{ running: boolean; outcome: BulkDownloadOutcome | null } | null>(null);
   const canRecover = !!api.assurance;
   useEffect(() => {
     if (!canRecover) return;
@@ -242,6 +247,11 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
           stagingRoot={stagingRoot}
           readOnly={readOnly}
           readOnlyReason="This session is read-only, so it cannot start a recovery."
+          downloading={!!dl?.running}
+          onDownload={() => {
+            setDl({ running: true, outcome: null });
+            void downloadMany(api, ticked).then((outcome) => setDl({ running: false, outcome }));
+          }}
           onSelectAll={selectAll}
           onClear={() => setPicked(new Set())}
           onRecover={(target, acknowledged) =>
@@ -249,6 +259,7 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
           }
         />
       ) : null}
+      {dl ? <BulkDownloadStatus state={dl} /> : null}
       {bucketIds && !artifacts.loading ? (
         <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "0 0 10px", fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
           <span role="status" data-testid="assurance-filter-status">
@@ -499,6 +510,44 @@ function MediumCell({ artifact }: { artifact: BackupArtifact }) {
       ) : needsRestore ? (
         <StatusBadge tone="warn" icon="warning">Needs a restore</StatusBadge>
       ) : null}
+    </div>
+  );
+}
+
+
+/**
+ * What handing a selection to the browser did (issue #1179). It counts the
+ * links it handed over and names each backup it did not, with the reason. It
+ * does not say the files arrived: a browser's transfer is not visible to this
+ * page, and each file is checked against its recorded digest by the host as it
+ * sends it, so a file that stops short is a failed download.
+ */
+function BulkDownloadStatus({ state }: { state: { running: boolean; outcome: BulkDownloadOutcome | null } }) {
+  const o = state.outcome;
+  return (
+    <div role="status" data-testid="bulk-download" className="anotice" style={{ margin: "0 0 10px" }}>
+      {state.running || !o ? (
+        <strong>Handing the downloads to your browser...</strong>
+      ) : (
+        <>
+          <strong>
+            {o.handed.length + (o.handed.length === 1 ? " download" : " downloads") + " handed to your browser"}
+          </strong>
+          <div style={{ marginTop: 4 }}>
+            This page cannot see your browser&apos;s transfers, so it cannot tell you a file arrived. The host checks each file against its recorded digest as it sends it, so a file that stops short is a failed download.
+          </div>
+          {o.skipped.length > 0 ? (
+            <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+              {o.skipped.map((x) => (
+                <li key={x.id}>
+                  <span className="mono">{x.filename}</span>
+                  {" was not downloaded: " + x.reason + "."}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </>
+      )}
     </div>
   );
 }

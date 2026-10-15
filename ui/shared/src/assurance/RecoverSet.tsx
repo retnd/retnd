@@ -52,6 +52,8 @@ import { CommandEcho } from "@shared/pages/CommandEcho";
 import { Icon } from "@shared/design-system/icons";
 import type { IconName } from "@shared/design-system/icons";
 import { bytes } from "@shared/utilities/format";
+import { DestinationSelect } from "./DestinationSelect";
+import { HostFolderBrowser } from "./HostFolderBrowser";
 import { recoverSetCommand, recoverSetPreflightCommand, snapshotRestoreCommand } from "./assuranceCommands";
 
 type Narrow = "all" | "newest" | "since";
@@ -270,15 +272,18 @@ export function RecoverSetDialog({
                   There is no browser download for a set: that would be one archive the host has to build and keep, and every backup can still be downloaded from its own page.
                 </div>
                 {target === "staging" ? (
-                  <label className="field" style={{ marginTop: 6 }}>
-                    <span className="field__label">{"Folder name under the staging root " + (stagingRoot ? stagingRoot + " " : "") + "(set by the host)"}</span>
-                    <input className="input input--mono" aria-label="Recover the set to a folder under the staging root" value={where} onChange={(e) => setWhere(e.target.value)} />
-                  </label>
+                  <>
+                    <label className="field" style={{ marginTop: 6 }}>
+                      <span className="field__label">{"Folder name under the staging root " + (stagingRoot ? stagingRoot + " " : "") + "(set by the host)"}</span>
+                      <input className="input input--mono" aria-label="Recover the set to a folder under the staging root" value={where} onChange={(e) => setWhere(e.target.value)} />
+                    </label>
+                    {/* Issue #1179. A set goes into a folder, so a chosen folder is the answer as it stands. */}
+                    <HostFolderBrowser onPick={setWhere} />
+                  </>
                 ) : (
-                  <label className="field" style={{ marginTop: 6 }}>
-                    <span className="field__label">Destination id</span>
-                    <input className="input input--mono" aria-label="Recover the set to destination id" value={where} onChange={(e) => setWhere(e.target.value)} />
-                  </label>
+                  <div style={{ marginTop: 6 }}>
+                    <DestinationSelect ariaLabel="Recover the set to destination" value={where} onChange={setWhere} />
+                  </div>
                 )}
               </fieldset>
 

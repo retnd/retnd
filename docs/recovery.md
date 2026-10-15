@@ -580,6 +580,22 @@ the state database, and recoveries and recovery tests share that one directory. 
 to the root, its TTL or the read ceilings is read once, so it takes effect when the
 serving process next starts.
 
+Choosing the target in the web interface no longer means typing from memory (#1179). *Staging
+path on the host* shows the folders below the staging root, on the machine retnd runs on, and
+*Use this folder* puts the chosen one in the field (for one backup it adds the backup's own file
+name, because a single recovery's target is `folder/name`; a set or a selection takes the folder
+alone). *Configured destination* is a drop-down of every destination under Settings, Storage
+destinations, and says *None configured* when there are none. On a selection, *Download in this
+browser* hands the browser one download per backup, each from its own single-use grant and each
+checked against its recorded digest by the host as it sends it. An archived copy is left out and
+named, because a download link lasts minutes and a restore takes hours.
+
+The folder list is the host's, so the terminal has it too: `retnd system browse [PATH]` prints
+the same folders as the names `--to` takes. It reads only. It reaches nothing outside the staging
+root, it refuses a name that is absolute, climbs with `..` or goes through a symbolic link, and it
+never lists a link or a file. It asks the engine and refuses without a route to it, because the
+folders are on the engine's machine. The route is `GET /api/v1/system/host-directories`.
+
 What happens, in order, and why the order is the point:
 
 1. **A grant is minted.** It is short-lived, single-use and tied to the session that asked

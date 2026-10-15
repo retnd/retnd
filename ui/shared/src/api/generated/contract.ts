@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "5c49e450162fa5aedd863b19c5e5852db80b8046a8884b25e2bcca3f3dbc4acf";
+export const CONTRACT_SHA256 = "fd09d200da3f78074fa5d26f82158f9c317c3797291f6bd76913560e3aaf9a2a";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -2205,6 +2205,26 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "listHostDirectory",
+    method: "GET",
+    path: "/system/host-directories",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "HostDirectoryResponse",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      500: ["INTERNAL"],
+      501: ["RECOVERY_UNAVAILABLE"],
+      503: ["RECOVERY_UNAVAILABLE"],
+    }
+  },
+  {
     id: "listStorageStatus",
     method: "GET",
     path: "/system/storage",
@@ -3052,6 +3072,22 @@ export interface WireForgotPasswordRequest {
 export interface WireHealthResponse {
   backup_sets: WireBackupSetHealth[];
   generated_at: string;
+}
+
+/** One sub-folder of a listed folder. */
+export interface WireHostDirectoryEntry {
+  name: string;
+  path: string;
+}
+
+/** GET /system/host-directories. One folder under the staging root:
+ *  its sub-folders by name, relative to the root. */
+export interface WireHostDirectoryResponse {
+  entries: WireHostDirectoryEntry[];
+  parent: string | null;
+  path: string;
+  root: string;
+  truncated: boolean;
 }
 
 /** POST /ssh/host-key-probe. Opens a real outbound connection, trusts

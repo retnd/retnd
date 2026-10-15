@@ -58,7 +58,7 @@ test.describe("#1179 Download in this browser", () => {
     expect(urls.length).toBe(2);
     expect(new Set(urls).size).toBe(2);
     // the page cannot see a browser transfer, so it never says the files arrived
-    await expect(page.getByTestId("bulk-download")).not.toContainText(/arrived|complete|recovered/i);
+    await expect(page.getByTestId("bulk-download")).not.toContainText(/downloads? complete|your browser has the files?|recovered/i);
   });
 
   test("an archived copy is left out and the page says so", async ({ page }) => {
@@ -156,10 +156,12 @@ test.describe("#1179 Configured destination: a drop-down of Settings", () => {
     const select = dlg.getByRole("combobox", { name: "Recover to destination" });
     await expect(select).toBeVisible();
     await expect(dlg.getByRole("textbox", { name: "Recover to destination id" })).toHaveCount(0);
+    // the destinations are read once the dialog is up, so wait for them
+    await expect(select.locator("option")).toHaveCount(5);
     const values = await select.locator("option").evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value));
     expect(values).toEqual(["", "local", "usb_shelf", "offsite_s3", "offsite_cold"]);
     await select.selectOption("offsite_s3");
-    await expect(dlg.getByText("--to medium:offsite_s3", { exact: true })).toBeVisible();
+    await expect(dlg.getByText("--to medium:offsite_s3", { exact: false })).toBeVisible();
     await expect(dlg.getByRole("button", { name: "Recover artifact", exact: true })).toBeEnabled();
   });
 

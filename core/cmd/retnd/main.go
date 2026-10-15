@@ -899,6 +899,13 @@ commands:
                                                   (run, fetch, restore, snapshot restore|verify|hold|unhold, retention
                                                   apply) work here. --json prints the same body as
                                                   GET /api/v1/system/capabilities (#1165)
+  system browse [PATH] [--json]                  the folders below the staging root on the machine the engine runs
+                                                  on, as the names a recover --to takes: the terminal's half of the
+                                                  folder browser behind "Staging path on the host". PATH is relative to
+                                                  that root; one that climbs out or goes through a symbolic link is
+                                                  refused, and nothing is created or changed. Needs a route to the
+                                                  engine and refuses without one. --json prints the same body as
+                                                  GET /api/v1/system/host-directories (#1179)
   system first-run [--json]                      which guided setup steps the engine counts as done, pending or
                                                   skipped (the administrator, the mail server, the first backup set),
                                                   the next one, and any problem with the configuration directory. status
