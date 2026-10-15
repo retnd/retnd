@@ -320,16 +320,48 @@ export function bootstrapTokenFromLocation(): string | null {
  * read `fetch(BASE + path` literally so it can prove which URLs this
  * bundle is able to request.
  */
-/** Issue #1163: who to ask when the engine wants the insecure-transport
- *  acknowledgement. Stub until the feature lands. */
-export function setInsecureTransportConfirmer(_fn: (() => Promise<boolean>) | null): void {}
+/**
+ * Issue #1163: the engine answers a gated act 403 INSECURE_TRANSPORT_ACK_REQUIRED
+ * when this connection's session cookie cannot be Secure (plain HTTP) and the
+ * browser is not on the same machine as retnd. The act is not wrong, and
+ * retrying it unchanged will fail the same way; what the engine wants is the
+ * operator saying so.
+ *
+ * So this is the one refusal `request` does something about. It asks the
+ * registered confirmer (the dialog InsecureTransportPrompt mounts), and only a
+ * yes sends the request again, once, with the acknowledgement header. A no, or
+ * nobody to ask, leaves the refusal exactly as the engine gave it. The header
+ * is never sent unprompted: the first attempt of a page load goes without it,
+ * so an operator on an encrypted connection is never asked and never sends it.
+ *
+ * A yes holds for the rest of the page load and no longer. It is held in
+ * memory, not storage, so a reload asks again.
+ */
+export const INSECURE_TRANSPORT_HEADER = "X-Retnd-Insecure-Transport-Ack";
+export const STEP_UP_HEADER = "X-Retnd-Step-Up-Password";
+const INSECURE_TRANSPORT_CODE = "INSECURE_TRANSPORT_ACK_REQUIRED";
 
-/** Ask the registered confirmer. Stub until the feature lands. */
-export function askInsecureTransport(): Promise<boolean> {
-  return Promise.resolve(false);
+let insecureTransportConfirmer: (() => Promise<boolean>) | null = null;
+let insecureTransportAcknowledged = false;
+
+/** Registers who to ask, or clears them with null. Clearing also forgets a
+ *  yes already given, so a test (or a sign-out) starts clean. */
+export function setInsecureTransportConfirmer(fn: (() => Promise<boolean>) | null): void {
+  insecureTransportConfirmer = fn;
+  if (fn === null) insecureTransportAcknowledged = false;
 }
 
-async function request<T>(path: string, init?: RequestInit, onLine?: (line: unknown) => void): Promise<T> {
+/** Asks the registered confirmer. With none registered nobody can say yes. */
+export function askInsecureTransport(): Promise<boolean> {
+  return insecureTransportConfirmer === null ? Promise.resolve(false) : insecureTransportConfirmer();
+}
+
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+  onLine?: (line: unknown) => void,
+  retriedAfterAcknowledgement = false
+): Promise<T> {
   const headers: Record<string, string> = {
     "content-type": "application/json",
     ...((init?.headers as Record<string, string> | undefined) ?? {})
@@ -343,6 +375,7 @@ async function request<T>(path: string, init?: RequestInit, onLine?: (line: unkn
     const csrf =
       readCookie(CSRF_COOKIE_NAME) || CSRF_LEGACY_COOKIE_NAMES.map(readCookie).find(Boolean) || "";
     if (csrf) headers[CSRF_HEADER_NAME] = csrf;
+    if (insecureTransportAcknowledged) headers[INSECURE_TRANSPORT_HEADER] = "acknowledged";
   }
 
   if (path === "/auth/enroll") {
@@ -423,10 +456,15 @@ async function request<T>(path: string, init?: RequestInit, onLine?: (line: unkn
     // response (#795's review). The fallback sentence stays here: it is
     // the one part that is about this call site, and it is the wording an
     // operator sees for a refusal with nothing readable in it at all.
-    throw refusal(
+    const failure = refusal(
       await apiErrorFromResponse(res, "The backup service returned an unexpected response."),
       { path, attemptId }
     );
+    if (!retriedAfterAcknowledgement && failure.api.code === INSECURE_TRANSPORT_CODE && (await askInsecureTransport())) {
+      insecureTransportAcknowledged = true;
+      return request<T>(path, init, onLine, true);
+    }
+    throw failure;
   }
 
   if (res.status === 204) return undefined as T;
@@ -1592,9 +1630,11 @@ function fromWireCapabilities(body: WireCapabilitiesResponse): Capabilities {
       // never read as an open one.
       state: body.destructive_operations?.state === "open" ? "open" : "shut",
       reason: body.destructive_operations?.reason ?? "",
-      // Stubs until #1163 lands.
-      stepUpRequired: false,
-      insecureTransportAckRequired: false
+      // Both are read as "no" unless the engine says yes: an engine older
+      // than this bundle sends neither, and a missing flag must never read
+      // as a request for something the engine will not check.
+      stepUpRequired: body.destructive_operations?.step_up_required === true,
+      insecureTransportAckRequired: body.destructive_operations?.insecure_transport_ack_required === true
     }
   };
 }
@@ -3251,7 +3291,12 @@ export const httpApi: RetndApi = {
       // here for the same reason and with the same result: this route
       // refuses without it, so every restore this client asked for was
       // answered 400 before it reached the service's own logic.
-      headers: { [IDEMPOTENCY_KEY_HEADER]: req.idempotencyKey },
+      headers: {
+        [IDEMPOTENCY_KEY_HEADER]: req.idempotencyKey,
+        // The password rides a header and never the body: the request
+        // recorder echoes a body into the activity feed (issue #1163).
+        ...(req.stepUpPassword ? { [STEP_UP_HEADER]: req.stepUpPassword } : {})
+      },
       body: JSON.stringify({
         action: "restore_placement",
         config_revision: req.configRevision,
@@ -3578,7 +3623,10 @@ export const httpApi: RetndApi = {
   restoreSnapshot: (req) =>
     request<WireOperation>("/operations", {
       method: "POST",
-      headers: { [IDEMPOTENCY_KEY_HEADER]: req.idempotencyKey },
+      headers: {
+        [IDEMPOTENCY_KEY_HEADER]: req.idempotencyKey,
+        ...(req.stepUpPassword ? { [STEP_UP_HEADER]: req.stepUpPassword } : {})
+      },
       body: JSON.stringify({
         action: "restore_snapshot",
         config_revision: req.configRevision,
@@ -3590,7 +3638,8 @@ export const httpApi: RetndApi = {
           // be a request to restore a snapshot with no id.
           ...(req.snapshotId ? { snapshot_id: req.snapshotId } : {}),
           ...(req.sourcePath ? { source_path: req.sourcePath } : {}),
-          ...(req.conflict ? { conflict: req.conflict } : {})
+          ...(req.conflict ? { conflict: req.conflict } : {}),
+          ...(req.acknowledged ? { acknowledged: true } : {})
         }
       })
     }).then(fromWireSnapshotOperation),
@@ -3632,7 +3681,10 @@ export const httpApi: RetndApi = {
         config_revision: req.configRevision,
         snapshot_hold_release: {
           backup_set_id: req.backupSetId,
-          hold_id: req.holdId
+          hold_id: req.holdId,
+          // Sent as what the operator said, never defaulted to true: the
+          // engine refuses a release that did not carry one (issue #1164).
+          acknowledged: req.acknowledged === true
         }
       })
     }).then(fromWireSnapshotOperation),

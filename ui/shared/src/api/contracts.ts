@@ -1970,8 +1970,9 @@ export interface SnapshotHoldReleaseRequest {
   backupSetId: string;
   holdId: string;
   /** Issue #1164: releasing lifts a protection, so the engine wants the
-   *  operator's explicit acknowledgement in the request. */
-  acknowledged?: boolean;
+   *  operator's explicit acknowledgement in the request. Required to be
+   *  true; a screen sends what the operator ticked. */
+  acknowledged: boolean;
   configRevision: string;
   idempotencyKey: string;
 }

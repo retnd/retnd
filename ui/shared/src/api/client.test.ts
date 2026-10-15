@@ -2656,6 +2656,7 @@ describe("EPIC K's four acts send only what the operator answered", () => {
     await httpApi.releaseSnapshotHold({
       backupSetId: "nas-a/photos",
       holdId: "hold_1",
+      acknowledged: true,
       configRevision: "cfg_7",
       idempotencyKey: "key-4"
     });
@@ -2665,7 +2666,7 @@ describe("EPIC K's four acts send only what the operator answered", () => {
     expect(sentBody(released)).toEqual({
       action: "release_snapshot_hold",
       config_revision: "cfg_7",
-      snapshot_hold_release: { backup_set_id: "nas-a/photos", hold_id: "hold_1" }
+      snapshot_hold_release: { backup_set_id: "nas-a/photos", hold_id: "hold_1", acknowledged: true }
     });
     expect(headersOfCall(released)["Idempotency-Key"]).toBe("key-4");
   });
@@ -3310,18 +3311,14 @@ describe("httpApi, issues #1163 and #1164", () => {
     const fetchMock = refusedThenServed("INSECURE_TRANSPORT_ACK_REQUIRED");
     vi.stubGlobal("fetch", fetchMock);
     setInsecureTransportConfirmer(vi.fn().mockResolvedValue(false));
-    await expect(httpApi.runCycle("cfg_7", "k6")).rejects.toMatchObject({
-      code: "INSECURE_TRANSPORT_ACK_REQUIRED"
-    });
+    await expect(httpApi.runCycle("cfg_7", "k6")).rejects.toMatchObject({ api: { code: "INSECURE_TRANSPORT_ACK_REQUIRED" } });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("with nobody to ask, the refusal stands and nothing is retried", async () => {
     const fetchMock = refusedThenServed("INSECURE_TRANSPORT_ACK_REQUIRED");
     vi.stubGlobal("fetch", fetchMock);
-    await expect(httpApi.runCycle("cfg_7", "k7")).rejects.toMatchObject({
-      code: "INSECURE_TRANSPORT_ACK_REQUIRED"
-    });
+    await expect(httpApi.runCycle("cfg_7", "k7")).rejects.toMatchObject({ api: { code: "INSECURE_TRANSPORT_ACK_REQUIRED" } });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -3330,9 +3327,7 @@ describe("httpApi, issues #1163 and #1164", () => {
     vi.stubGlobal("fetch", fetchMock);
     const confirm = vi.fn().mockResolvedValue(true);
     setInsecureTransportConfirmer(confirm);
-    await expect(httpApi.runCycle("cfg_7", "k8")).rejects.toMatchObject({
-      code: "DESTRUCTIVE_OPERATIONS_DISABLED"
-    });
+    await expect(httpApi.runCycle("cfg_7", "k8")).rejects.toMatchObject({ api: { code: "DESTRUCTIVE_OPERATIONS_DISABLED" } });
     expect(confirm).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });

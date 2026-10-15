@@ -735,6 +735,20 @@ func TestExemptActions1164_AnUnreadableOrUnknownActionStaysGated(t *testing.T) {
 			t.Errorf("body %q: %d %s, want 403 DESTRUCTIVE_OPERATIONS_DISABLED", body, rec.Code, codeOf(rec))
 		}
 	}
+	// The handler decodes into a struct, which matches keys case-insensitively
+	// and lets a later one win. A gate that read keys exactly would see the
+	// exempt action here while the handler ran the gated one.
+	for _, body := range []string{
+		`{"action":"verify_snapshot","ACTION":"run_cycle","config_revision":"rev-1"}`,
+		`{"ACTION":"run_cycle","action":"verify_snapshot","config_revision":"rev-1"}`,
+		`{"action":"verify_snapshot","Action":"run_cycle","config_revision":"rev-1"}`,
+		`{"\u0061ction":"verify_snapshot","action":"run_cycle","config_revision":"rev-1"}`,
+	} {
+		rec := r.call(t, "/api/v1/operations", body)
+		if rec.Code != http.StatusForbidden || codeOf(rec) != "DESTRUCTIVE_OPERATIONS_DISABLED" {
+			t.Errorf("body %q: %d %s, want 403 DESTRUCTIVE_OPERATIONS_DISABLED", body, rec.Code, codeOf(rec))
+		}
+	}
 	// Two "action" keys: whichever a lenient parser takes, the gated one must win.
 	rec := r.call(t, "/api/v1/operations", `{"action":"verify_snapshot","action":"run_cycle","config_revision":"rev-1"}`)
 	if rec.Code != http.StatusForbidden {

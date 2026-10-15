@@ -15,20 +15,21 @@ import { measureContrast, open, setTheme } from "./helpers";
  * anywhere, and the control presses through.
  */
 const SET = "production/postgres-primary";
-const REASON = "local-account profile: gate shut until #92";
+const REASON = "gateway profile";
 const notice = (page: Page) => page.locator("[data-gate-notice]");
 const refusal = (page: Page) => page.locator("[data-gate-refusal]");
 
+// The snapshots list and the snapshot detail were screens here until #1164
+// took verify, hold and release-hold off the gate: they have nothing to say
+// about a gate any more, and 1164-snapshot-acts-off-the-gate.spec.ts pins that.
 const SCREENS: Array<{ name: string; path: string; command: string }> = [
-  { name: "snapshots list", path: `/sets/${SET}/snapshots`, command: `retnd snapshot verify ${SET}` },
-  { name: "snapshot detail", path: `/sets/${SET}/snapshots/run-2026-09-13-0400`, command: `retnd snapshot verify ${SET} --run run-2026-09-13-0400` },
   { name: "snapshot restore", path: `/sets/${SET}/restore`, command: `retnd snapshot restore ${SET} --to` }
 ];
 
 test.describe("#1165 a shut gate is said before anything is pressed", () => {
   for (const screen of SCREENS) {
     test(`${screen.name}: the notice carries the reason the engine reported, and the command`, async ({ page }) => {
-      await open(page, screen.path, "gate-shut-local-account");
+      await open(page, screen.path, "gateway-profile");
       const block = notice(page);
       await expect(block).toBeVisible();
       await expect(block).toContainText(REASON);
@@ -38,7 +39,7 @@ test.describe("#1165 a shut gate is said before anything is pressed", () => {
   }
 
   test("retention preview: the dialog says so before Continue is pressed", async ({ page }) => {
-    await open(page, `/sets/${SET}`, "gate-shut-local-account");
+    await open(page, `/sets/${SET}`, "gateway-profile");
     await page.getByRole("button", { name: "Preview retention plan" }).click();
     const dialog = page.getByRole("dialog", { name: "Retention preview" });
     await expect(dialog).toBeVisible();
@@ -49,14 +50,18 @@ test.describe("#1165 a shut gate is said before anything is pressed", () => {
   });
 
   test("the refusal after a press repeats the reason the field gave, not a sentence of the UI's own", async ({ page }) => {
-    await open(page, `/sets/${SET}/snapshots`, "gate-shut-local-account");
-    await page.getByRole("button", { name: "Verify latest" }).click();
+    await open(page, `/sets/${SET}/restore`, "gateway-profile");
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByLabel("Restore into").fill("/srv/restored");
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("button", { name: "Start restore" }).click();
     await expect(refusal(page)).toBeVisible();
     await expect(refusal(page)).toContainText(REASON);
   });
 
   test("the words are readable in both themes (WCAG AA)", async ({ page }) => {
-    await open(page, `/sets/${SET}/snapshots`, "gate-shut-local-account");
+    await open(page, `/sets/${SET}/restore`, "gateway-profile");
     await expect(notice(page)).toBeVisible();
     for (const theme of ["light", "dark"] as const) {
       await setTheme(page, theme);

@@ -87,8 +87,8 @@ describe("#1163 a restore on a local-account profile", () => {
     restorePage(api);
     await walkRestoreToConfirm();
 
-    expect(screen.getByRole("button", { name: "Start restore" }).hasAttribute("disabled")).toBe(true);
-    fireEvent.change(screen.getByLabelText("Your password"), { target: { value: "correct-horse-battery" } });
+    expect((await screen.findByRole("button", { name: "Start restore" })).hasAttribute("disabled")).toBe(true);
+    fireEvent.change(await screen.findByLabelText("Your password"), { target: { value: "correct-horse-battery" } });
     expect(screen.getByRole("button", { name: "Start restore" }).hasAttribute("disabled"), "the password alone is not the acknowledgement").toBe(true);
     act(() => {
       screen.getByRole("checkbox", { name: /I understand/ }).click();
@@ -106,7 +106,7 @@ describe("#1163 a restore on a local-account profile", () => {
     await seed(api);
     restorePage(api);
     await walkRestoreToConfirm();
-    fireEvent.change(screen.getByLabelText("Your password"), { target: { value: "nope" } });
+    fireEvent.change(await screen.findByLabelText("Your password"), { target: { value: "nope" } });
     act(() => {
       screen.getByRole("checkbox", { name: /I understand/ }).click();
     });
@@ -152,10 +152,9 @@ describe("#1164 verify, hold and release-hold", () => {
       const verify = vi.spyOn(api, "verifySnapshot");
       await seed(api);
       renderAt(api, snapshotsPath("production", "postgres-primary"), "/sets/:source/:set/snapshots", <SnapshotsPage readOnly={false} />);
-      await screen.findByRole("button", { name: "Verify latest" });
-      await act(async () => {
-        await Promise.resolve();
-      });
+      const verifyButton = await screen.findByRole("button", { name: "Verify latest" });
+      // Disabled until the snapshots are read: pressing it before then does nothing.
+      await waitFor(() => expect(verifyButton.hasAttribute("disabled")).toBe(false));
       expect(document.querySelector("[data-gate-notice]")).toBeNull();
       press("Verify latest");
       await waitFor(() => expect(verify).toHaveBeenCalledTimes(1));
@@ -166,11 +165,14 @@ describe("#1164 verify, hold and release-hold", () => {
       const api = createMockApi(scenario as Scenario);
       const release = vi.spyOn(api, "releaseSnapshotHold");
       await seed(api);
-      renderAt(api, snapshotPath("production", "postgres-primary", "run-2026-09-12-1000"), "/sets/:source/:set/snapshots/:run", <SnapshotDetailPage readOnly={false} />);
-      await screen.findByRole("button", { name: "Release hold hold_01J9Z6" });
+      // Z6 and Z5 sit on the same run. The mock's holds are shared state that
+      // resetMockFixtures does not rewind, so each scenario releases its own.
+      const holdId = scenario === "gateway-profile" ? "hold_01J9Z6" : "hold_01J9Z5";
+      renderAt(api, snapshotPath("production", "postgres-primary", "run-2026-09-12-1000"), "/sets/:source/:set/snapshots/:runId", <SnapshotDetailPage readOnly={false} />);
+      await screen.findByRole("button", { name: "Release hold " + holdId });
       expect(document.querySelector("[data-gate-notice]")).toBeNull();
 
-      press("Release hold hold_01J9Z6");
+      press("Release hold " + holdId);
       expect(screen.getByRole("button", { name: "Release hold" }).hasAttribute("disabled")).toBe(true);
       act(() => {
         screen.getByRole("checkbox", { name: /I understand/ }).click();
@@ -180,7 +182,7 @@ describe("#1164 verify, hold and release-hold", () => {
 
       await waitFor(() => expect(release).toHaveBeenCalledTimes(1));
       expect(release.mock.calls[0][0].acknowledged).toBe(true);
-      expect(release.mock.calls[0][0].holdId).toBe("hold_01J9Z6");
+      expect(release.mock.calls[0][0].holdId).toBe(holdId);
     });
   }
 
@@ -194,7 +196,7 @@ describe("#1164 verify, hold and release-hold", () => {
         idempotencyKey: "k",
         acknowledged: false
       })
-    ).rejects.toMatchObject({ code: "ACKNOWLEDGEMENT_REQUIRED" });
+    ).rejects.toMatchObject({ api: { code: "ACKNOWLEDGEMENT_REQUIRED" } });
   });
 
   it("restore stays behind the gate on a gateway profile", async () => {
@@ -206,6 +208,6 @@ describe("#1164 verify, hold and release-hold", () => {
         configRevision: "cfg_9f4c1ab",
         idempotencyKey: "k"
       })
-    ).rejects.toMatchObject({ code: "DESTRUCTIVE_OPERATIONS_DISABLED" });
+    ).rejects.toMatchObject({ api: { code: "DESTRUCTIVE_OPERATIONS_DISABLED" } });
   });
 });
