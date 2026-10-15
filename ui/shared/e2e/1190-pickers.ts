@@ -1,19 +1,25 @@
 /**
- * Issue #1190: the checks every screen that offers "Folder under the staging
- * root on the host" and "Configured destination" has to pass, written once so
+ * Issue #1190: the checks every screen that offers the staging root on this
+ * retnd host and a configured destination has to pass, written once so
  * each screen's spec holds the same behaviour. A screen that grows its own
  * text field, its own labels or its own list fails here.
  *
  * The shared pieces are the folder field (a name under the staging root, with
  * the host folder browser under it) and the destination drop-down (the
  * destinations Settings lists, or "None configured").
+ *
+ * The labels come from src/assurance/recoveryPlaces.ts, the same constant the
+ * screens render, so the words are written down once for the app and the
+ * specs alike.
  */
 import { expect } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
 import { measureBorders, measureContrast, setTheme } from "./helpers";
+import { DESTINATION_SELECT_NAME, RECOVERY_PLACE_LABELS } from "../src/assurance/recoveryPlaces";
 
-export const STAGING = "Folder under the staging root on the host";
-export const DESTINATION = "Configured destination";
+export const STAGING = RECOVERY_PLACE_LABELS.staging;
+export const DESTINATION = RECOVERY_PLACE_LABELS.storage;
+export const DESTINATION_SELECT = DESTINATION_SELECT_NAME;
 export const STAGING_ROOT = "/var/lib/retnd/recovery-staging";
 /** The destinations the default fixtures declare, as Settings lists them. */
 export const SETTINGS_DESTINATIONS = ["local", "usb_shelf", "offsite_s3", "offsite_cold"];
@@ -21,13 +27,31 @@ export const SETTINGS_DESTINATIONS = ["local", "usb_shelf", "offsite_s3", "offsi
 export const folderField = (scope: Locator) => scope.getByTestId("staging-folder-field");
 export const destinationField = (scope: Locator) => scope.getByTestId("destination-field");
 export const nameBox = (scope: Locator) => folderField(scope).getByRole("textbox", { name: "Name under the staging root", exact: true });
-export const destinationBox = (scope: Locator) => destinationField(scope).getByRole("combobox", { name: DESTINATION, exact: true });
+export const destinationBox = (scope: Locator) => destinationField(scope).getByRole("combobox", { name: DESTINATION_SELECT, exact: true });
 const browserOf = (scope: Locator) => folderField(scope).getByRole("group", { name: "Folders on the host" });
 
-/** Both choices are offered under the same words. */
+/** Both choices are offered under the same words, and the staging one names
+ *  this retnd host rather than any host a backup came from. */
 export async function offersBothChoices(scope: Locator) {
   await expect(scope.getByRole("radio", { name: STAGING, exact: true })).toHaveCount(1);
   await expect(scope.getByRole("radio", { name: DESTINATION, exact: true })).toHaveCount(1);
+  expect(STAGING).toContain("this retnd host");
+}
+
+/** The staging label leaves the shape out, so the line under the field says
+ *  whether this screen's name is a file or a folder. */
+export async function meaningSays(scope: Locator, shape: "A file" | "A folder") {
+  await scope.getByRole("radio", { name: STAGING, exact: true }).check();
+  await expect(folderField(scope).locator(".placefield__meaning")).toHaveText(new RegExp("^" + shape + ": "));
+}
+
+/** With a configured destination chosen, the radio and the drop-down have
+ *  different accessible names, so only one control answers to the radio's. */
+export async function destinationNamesDiffer(scope: Locator) {
+  await scope.getByRole("radio", { name: DESTINATION, exact: true }).check();
+  await expect(destinationBox(scope)).toBeVisible();
+  await expect(scope.getByLabel(DESTINATION, { exact: true })).toHaveCount(1);
+  await expect(scope.getByRole("combobox", { name: DESTINATION_SELECT, exact: true })).toHaveCount(1);
 }
 
 /** The staging choice is the shared folder field: the root named, a text

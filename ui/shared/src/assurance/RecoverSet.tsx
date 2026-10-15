@@ -53,11 +53,12 @@ import { Icon } from "@shared/design-system/icons";
 import type { IconName } from "@shared/design-system/icons";
 import { bytes } from "@shared/utilities/format";
 import { RecoverySourceChoice, RecoverySourceNote, RecoveryTargetChoices, RecoveryTargetField } from "./RecoveryTargetFields";
+import { useRecoveryTarget } from "./useRecoveryTarget";
+import type { RecoveryPlace } from "./recoveryPlaces";
 import { recoverSetCommand, recoverSetPreflightCommand, snapshotRestoreCommand } from "./assuranceCommands";
 import { useSourceRecovery } from "./useSourceRecovery";
 
 type Narrow = "all" | "newest" | "since";
-type Where = "staging" | "storage" | "source";
 
 const STATUS_LABEL: Record<RecoverManyItem["status"], string> = {
   ready: "Will be recovered",
@@ -95,10 +96,9 @@ export function RecoverSetDialog({
   // the newest restore point only (#1193's review), anything else to all.
   const [narrowChosen, setNarrow] = useState<Narrow | null>(null);
   const [since, setSince] = useState("");
-  // Issue #1191: null until the source host has answered; it is the default
-  // where the set has one, and nothing is preselected where it has none.
-  const [chosen, setTarget] = useState<Where | null>(null);
-  const [where, setWhere] = useState("");
+  // Issue #1191: null until the operator picks one; until then the default
+  // follows the source host's answer, below.
+  const { kind: chosen, where, setWhere, choose } = useRecoveryTarget<RecoveryPlace>(null);
   const [accepted, setAccepted] = useState(false);
   const [plan, setPlan] = useState<RecoverManyPlan | null>(null);
   const [planFailure, setPlanFailure] = useState<string | null>(null);
@@ -110,7 +110,7 @@ export function RecoverSetDialog({
   // Until something is chosen: the source host once it has answered and can
   // be used, and otherwise what this dialog offered before #1191 (staging),
   // with the source radio still first and its reason under it.
-  const target: Where | null = chosen ?? (
+  const target: RecoveryPlace | null = chosen ?? (
     kopia || !source.ready ? null : source.preselect ? "source" : "staging");
   const narrow: Narrow = narrowChosen ?? (target === "source" ? "newest" : "all");
   const sourceFolder = source.description?.folder ?? "";
@@ -289,20 +289,9 @@ export function RecoverSetDialog({
                 <legend className="field__label">Where it goes</legend>
                 <div role="radiogroup" aria-label="Where should the set go?" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {/* Issue #1191: first, and the preselected choice where the set has one. */}
-                  <RecoverySourceChoice
-                    name="recover-set-target"
-                    value={target ?? ""}
-                    source={source}
-                    labelStyle={{ display: "inline-flex", gap: 6, alignItems: "center" }}
-                    onChoose={(t) => { setTarget(t); setWhere(""); }}
-                  />
+                  <RecoverySourceChoice name="recover-set-target" value={target} source={source} onChoose={choose} />
                   {/* Issue #1190: offered the same way on every screen. */}
-                  <RecoveryTargetChoices
-                    name="recover-set-target"
-                    value={target ?? ""}
-                    labelStyle={{ display: "inline-flex", gap: 6, alignItems: "center" }}
-                    onChoose={(t) => { setTarget(t); setWhere(""); }}
-                  />
+                  <RecoveryTargetChoices name="recover-set-target" value={target} onChoose={choose} />
                 </div>
                 <div style={{ color: "var(--text-2)", marginTop: 4 }} data-testid="no-browser-download">
                   There is no browser download for a set: that would be one archive the host has to build and keep, and every backup can still be downloaded from its own page.

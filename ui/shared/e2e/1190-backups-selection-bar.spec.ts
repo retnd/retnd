@@ -8,7 +8,7 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { open } from "./helpers";
-import { browseUnavailable, sharedFieldsMeetAA, destinationIsSharedDropDown, noneConfigured, offersBothChoices, stagingIsSharedFolderField } from "./1190-pickers";
+import { browseUnavailable, sharedFieldsMeetAA, destinationIsSharedDropDown, noneConfigured, offersBothChoices, stagingIsSharedFolderField, destinationNamesDiffer, meaningSays } from "./1190-pickers";
 
 const bar = (p: Page) => p.getByRole("region", { name: "Selected backups" });
 const action = (p: Page) => bar(p).getByRole("button", { name: "Recover selected" });
@@ -25,6 +25,14 @@ async function tickTwo(page: Page, scenario = "backups-many") {
 test.describe("#1190 Backups list, selection bar", () => {
   test("offers both choices under the shared words", async ({ page }) => {
     await offersBothChoices(await tickTwo(page));
+  });
+
+  test("the line under the staging field says the name is a folder", async ({ page }) => {
+    await meaningSays(await tickTwo(page), "A folder");
+  });
+
+  test("the destination radio and its drop-down have different names", async ({ page }) => {
+    await destinationNamesDiffer(await tickTwo(page));
   });
 
   test("the staging choice is the shared folder field with the host browser", async ({ page }) => {

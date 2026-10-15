@@ -14,9 +14,10 @@
  */
 import { expect } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
+import { RECOVERY_PLACE_LABELS } from "../src/assurance/recoveryPlaces";
 
-export const SOURCE = "Source host (SFTP)";
-export const STAGING = "Folder under the staging root on the host";
+export const SOURCE = RECOVERY_PLACE_LABELS.source;
+export const STAGING = RECOVERY_PLACE_LABELS.staging;
 export const DOWNLOAD = "Download in this browser";
 export const ACK = /I understand this writes/;
 

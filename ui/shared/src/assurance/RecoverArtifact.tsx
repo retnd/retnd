@@ -42,6 +42,7 @@ import { CommandEcho } from "@shared/pages/CommandEcho";
 import { bytes } from "@shared/utilities/format";
 import { ClaimChips } from "./ClaimChips";
 import { RecoverySourceChoice, RecoverySourceNote, RecoveryTargetChoices, RecoveryTargetField } from "./RecoveryTargetFields";
+import { useRecoveryTarget } from "./useRecoveryTarget";
 import { DownloadOutcome } from "./DownloadOutcome";
 import { recoverCommand, thawCommand } from "./assuranceCommands";
 import { planOf, THAW_POLL_MS } from "./copyPlan";
@@ -89,8 +90,6 @@ export function ArtifactAssuranceCard({ artifactId, readOnly }: { artifactId: st
   );
 }
 
-const TARGET_LABEL = { display: "inline-flex", gap: 6, alignItems: "center" } as const;
-
 type Phase =
   | { k: "choose" }
   | { k: "minting" }
@@ -110,10 +109,9 @@ export function RecoverArtifactDialog({
 }) {
   const api = useApi();
   const [artifact, setArtifact] = useState<BackupArtifact | null>(null);
-  // Null until the source host has answered (#1191): it is the default where
-  // the set has one, and nothing is preselected where it has none.
-  const [chosen, setTarget] = useState<RecoveryTargetSpec["kind"] | null>(null);
-  const [where, setWhere] = useState("");
+  // Null until the operator picks one (#1191): until then the default
+  // follows the source host's answer, below.
+  const { kind: chosen, where, setWhere, choose } = useRecoveryTarget<RecoveryTargetSpec["kind"]>(null);
   const [accepted, setAccepted] = useState(false);
   /** The service's own sentence when it refused a read for its cost although
    *  the placements said the copy was readable, e.g. a billed download. */
@@ -155,26 +153,25 @@ export function RecoverArtifactDialog({
       // starts on the next target rather than on a disabled radio. An
       // archived copy also starts on staging rather than on the source host
       // (#1191): its first step is a provider restore, not a write anywhere.
-      if (planOf(x).archived) setTarget((t) => t ?? "staging");
+      if (planOf(x).archived) choose("staging");
       // A reload mid-restore re-attaches: the provider is still restoring, so
       // say so instead of offering to start a second one.
       if (planOf(x).restoring) setPhase({ k: "thawing" });
     }, () => undefined);
     return () => { live = false; };
-  }, [api, artifactId]);
+  }, [api, artifactId, choose]);
 
   // Issue #1191, after #1193's review: until something is chosen, start on the
   // source host once it has answered and can be used. Where it cannot (no
   // source host, a shut gate, a read-only set) the radio stays first with its
   // reason, and the dialog starts where it did before #1191: a browser
   // download.
-  const target: RecoveryTargetSpec["kind"] | null = chosen ?? (
+  const kind: RecoveryTargetSpec["kind"] | null = chosen ?? (
     !source.ready ? null : source.preselect ? "source" : "download");
 
   const plan = artifact ? planOf(artifact) : null;
   const archived = !!plan?.archived;
   const needsAck = archived || costWall !== null;
-  const kind = target;
 
   // While the provider restores the copy, watch its access. The page shows
   // what the host reports and nothing it could only guess: no percentage, no
@@ -296,14 +293,9 @@ export function RecoverArtifactDialog({
               <InfoTooltip id="assurance.recover.target" block>
                 <div role="radiogroup" aria-label="Where should the artifact go?" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {/* Issue #1191: first, and the preselected choice where the set has one. */}
-                  <RecoverySourceChoice name="recover-target" value={kind ?? ""} source={source} labelStyle={TARGET_LABEL} onChoose={(t) => { setTarget(t); setWhere(""); }} />
-                  <label style={TARGET_LABEL}>
-                    <input type="radio" name="recover-target" checked={kind === "download"} disabled={archived}
-                      onChange={() => { setTarget("download"); setWhere(""); }} />
-                    Download in this browser
-                  </label>
-                  {/* Issue #1190: the other two are offered the same way on every screen. */}
-                  <RecoveryTargetChoices name="recover-target" value={kind ?? ""} labelStyle={TARGET_LABEL} onChoose={(t) => { setTarget(t); setWhere(""); }} />
+                  <RecoverySourceChoice name="recover-target" value={kind} source={source} onChoose={choose} />
+                  {/* Issue #1190: the rest are offered the same way on every screen. */}
+                  <RecoveryTargetChoices name="recover-target" value={kind} download={{ disabled: archived }} onChoose={choose} />
                 </div>
               </InfoTooltip>
               {archived ? (
@@ -324,7 +316,7 @@ export function RecoverArtifactDialog({
                   value={where}
                   onChange={setWhere}
                   fileName={artifactId.split("/").pop() || undefined}
-                  meaning="The last part is the file the host writes. A folder picked below gets this backup's own file name."
+                  meaning="A file: the last part of the name is the file the host writes. A folder picked below gets this backup's own file name."
                 />
               ) : null}
               {kind === "storage" ? <RecoveryTargetField place="storage" value={where} onChange={setWhere} /> : null}

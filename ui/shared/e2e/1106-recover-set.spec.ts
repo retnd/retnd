@@ -21,7 +21,7 @@ async function openDialog(page: Page, scenario = "assurance-set-recover", path =
   await expect(dialog(page)).toBeVisible();
   // #1191 made the set's source host the default; these cases are about a
   // folder under the staging root, so they choose it.
-  const staging = dialog(page).getByRole("radio", { name: "Folder under the staging root on the host" });
+  const staging = dialog(page).getByRole("radio", { name: "Under the staging root on this retnd host" });
   if (await staging.count()) await staging.check();
 }
 async function toFolder(page: Page, name: string) {
@@ -58,7 +58,7 @@ test.describe("#1106 Recover this backup set: choosing", () => {
     await dlg.getByLabel("Recover everything since this date").fill("2026-08-27");
     await expect(dlg.getByText("retnd recover --set production/postgres-primary --since 2026-08-27 --to restore-1", { exact: true })).toBeVisible();
     await dlg.getByRole("radio", { name: "Configured destination" }).check();
-    await dlg.getByRole("combobox", { name: "Configured destination" }).selectOption("offsite_s3");
+    await dlg.getByRole("combobox", { name: "Which configured destination" }).selectOption("offsite_s3");
     await expect(dlg.getByText("retnd recover --set production/postgres-primary --since 2026-08-27 --to medium:offsite_s3", { exact: true })).toBeVisible();
     await expect(dlg).not.toContainText("--accept-cost");
   });

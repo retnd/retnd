@@ -386,8 +386,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// honestly. Read-only, same as the two routes above.
 		r.Get("/system/storage", h.systemStorage)
 		// Issue #1179: the folders below the recovery staging root, for the
-		// folder browser on "Folder under the staging root on the host". A read of the
-		// host's file system, so read-only by registration (no other verb
+		// staging folder browser. A read of the host's file system, so read-only by registration (no other verb
 		// exists), confined to that one root by the service, and outside
 		// the destructive gate like the reads above.
 		r.Get("/system/staging-directories", h.listStagingDirectories)

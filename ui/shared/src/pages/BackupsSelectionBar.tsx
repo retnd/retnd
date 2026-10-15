@@ -27,6 +27,7 @@
 import "@shared/assurance/assurance.css";
 import { useEffect, useState } from "react";
 import { RecoverySourceChoice, RecoverySourceNote, RecoveryTargetChoices, RecoveryTargetField } from "@shared/assurance/RecoveryTargetFields";
+import { useRecoveryTarget } from "@shared/assurance/useRecoveryTarget";
 import { useSourceRecovery } from "@shared/assurance/useSourceRecovery";
 import { recoverToFileCommand } from "@shared/assurance/assuranceCommands";
 import { downloadable } from "@shared/assurance/bulkDownload";
@@ -66,20 +67,21 @@ export function BackupsSelectionBar({
   // preselected and the reason is shown.
   const sets = [...new Set(selected.map((a) => a.setId))];
   const setsKey = sets.join(",");
-  // A choice and a tick are remembered with the selection they were made for:
-  // a selection that moves to another set, or to several, asks again.
-  const [choice, setChoice] = useState<{ kind: RunTarget["kind"] | "download"; key: string } | null>(null);
-  const [where, setWhere] = useState("");
+  // A choice is remembered with the selection it was made for: the source
+  // host chosen for one set is asked again once the selection moves to
+  // another set, or to several.
+  const { kind: picked, where, setWhere, choose } = useRecoveryTarget<RunTarget["kind"] | "download">(null);
+  const [pickedFor, setPickedFor] = useState("");
+  const setKind = (k: RunTarget["kind"] | "download") => { choose(k); setPickedFor(setsKey); };
   const [accepted, setAccepted] = useState(false);
   const total = selected.reduce((n, a) => n + a.sizeBytes, 0);
   // The tick, the password and the write check belong to the selection they
   // were made for: a selection that moves to another set, or to several,
   // asks again. Describing a set never writes, so moving does not probe.
   const source = useSourceRecovery(sets.length === 1 ? sets[0] : null, { resetKey: setsKey, spread: sets.length, bytes: total });
-  const stillChosen = choice && (choice.kind !== "source" || choice.key === setsKey) ? choice.kind : null;
+  const stillChosen = picked && (picked !== "source" || pickedFor === setsKey) ? picked : null;
   const chosen: RunTarget["kind"] | "download" | null = stillChosen ?? (
     !source.ready ? null : source.preselect ? "source" : "staging");
-  const setKind = (k: RunTarget["kind"] | "download") => setChoice({ kind: k, key: setsKey });
   const sourceFolder = source.description?.folder ?? "";
   const refusalSeq = sourceRefusal?.seq ?? 0;
   const refusalCode = sourceRefusal?.code ?? "";
@@ -126,13 +128,12 @@ export function BackupsSelectionBar({
 
       <div className="selbar__row" style={{ alignItems: "flex-start" }}>
         <div role="radiogroup" aria-label="Where should the backups go?" className="selbar__targets">
-          <RecoverySourceChoice name="bulk-target" value={kind ?? ""} source={source} onChoose={(t) => { setKind(t); setWhere(""); }} />
-          <label>
-            <input type="radio" name="bulk-target" checked={download} disabled={tooMany} onChange={() => { setKind("download"); setWhere(""); }} aria-describedby="bulk-download-note" />
-            Download in this browser
-          </label>
+          <RecoverySourceChoice name="bulk-target" value={kind} source={source} onChoose={setKind} />
           {/* Issue #1190: offered the same way on every screen. */}
-          <RecoveryTargetChoices name="bulk-target" value={kind ?? ""} onChoose={(t) => { setKind(t); setWhere(""); }} />
+          <RecoveryTargetChoices
+            name="bulk-target" value={kind} onChoose={setKind}
+            download={{ disabled: tooMany, describedBy: "bulk-download-note" }}
+          />
         </div>
         {download || kind === null ? null : (
           <div className="selbar__where">

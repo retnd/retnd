@@ -13,6 +13,7 @@
  * Nothing here needs the assurance seam: these are plain settings routes, so
  * the card works against any server that has them.
  */
+import { rememberAssuranceSettings } from "./assuranceSettings";
 import "./assurance.css";
 import { useEffect, useState } from "react";
 import { useApi } from "@shared/api/ApiContext";
@@ -89,6 +90,9 @@ export function AssuranceSettingsCard({ readOnly }: { readOnly: boolean }) {
       const s = await api.patchAssuranceSettings(changes());
       setSettings(s);
       setDraft(draftOf(s));
+      // The screens that only show the settings read them once (#1190); this
+      // is what they read next.
+      rememberAssuranceSettings(api, s);
       // Every set that follows the default now resolves to something else.
       noteAssuranceChanged();
       setSaved(true);

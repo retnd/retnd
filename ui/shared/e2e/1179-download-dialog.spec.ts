@@ -3,7 +3,7 @@
  *
  *   - "Download in this browser" can be selected (on the Backups list's
  *     selection bar it was a radio that was always disabled);
- *   - "Folder under the staging root on the host" has a folder browser over the machine retnd
+ *   - "Under the staging root on this retnd host" has a folder browser over the machine retnd
  *     runs on, not only a text field;
  *   - "Configured destination" is a drop-down of Settings, STORAGE
  *     DESTINATIONS, or says "None configured".
@@ -93,13 +93,13 @@ test.describe("#1179 Download in this browser", () => {
   });
 });
 
-test.describe("#1179 Folder under the staging root on the host: a folder browser", () => {
+test.describe("#1179 Under the staging root on this retnd host: a folder browser", () => {
   for (const where of ["dialog", "bar"] as const) {
     test(`${where}: browses the host's folders and puts the chosen one in the field`, async ({ page }) => {
       let scope;
       if (where === "dialog") scope = await singleDialog(page);
       else { await tickTwo(page); scope = bar(page); }
-      await scope.getByRole("radio", { name: "Folder under the staging root on the host" }).check();
+      await scope.getByRole("radio", { name: "Under the staging root on this retnd host" }).check();
       const browser = browserOf(scope);
       await expect(browser).toBeVisible();
       await expect(browser.getByTestId("browser-root")).toContainText("/var/lib/retnd/recovery-staging");
@@ -124,7 +124,7 @@ test.describe("#1179 Folder under the staging root on the host: a folder browser
 
   test("an empty folder says so", async ({ page }) => {
     const dlg = await singleDialog(page);
-    await dlg.getByRole("radio", { name: "Folder under the staging root on the host" }).check();
+    await dlg.getByRole("radio", { name: "Under the staging root on this retnd host" }).check();
     const browser = browserOf(dlg);
     await browser.getByRole("button", { name: "Open folder pg-restores" }).click();
     await expect(browser).toContainText("No folders in here");
@@ -132,7 +132,7 @@ test.describe("#1179 Folder under the staging root on the host: a folder browser
 
   test("works from the keyboard", async ({ page }) => {
     const dlg = await singleDialog(page);
-    await dlg.getByRole("radio", { name: "Folder under the staging root on the host" }).check();
+    await dlg.getByRole("radio", { name: "Under the staging root on this retnd host" }).check();
     const open_ = browserOf(dlg).getByRole("button", { name: "Open folder weekly" });
     await open_.focus();
     await page.keyboard.press("Enter");
@@ -141,7 +141,7 @@ test.describe("#1179 Folder under the staging root on the host: a folder browser
 
   test("a host that cannot list its folders says so and leaves the text field working", async ({ page }) => {
     const dlg = await singleDialog(page, "host-browse-unavailable");
-    await dlg.getByRole("radio", { name: "Folder under the staging root on the host" }).check();
+    await dlg.getByRole("radio", { name: "Under the staging root on this retnd host" }).check();
     await expect(browserOf(dlg).getByRole("alert")).toContainText("cannot list its folders");
     const field = dlg.getByRole("textbox", { name: /Name under the staging root/ });
     await field.fill("typed-by-hand");
@@ -150,7 +150,7 @@ test.describe("#1179 Folder under the staging root on the host: a folder browser
 
   test("the typed name still reaches the command echo", async ({ page }) => {
     const dlg = await singleDialog(page);
-    await dlg.getByRole("radio", { name: "Folder under the staging root on the host" }).check();
+    await dlg.getByRole("radio", { name: "Under the staging root on this retnd host" }).check();
     await browserOf(dlg).getByRole("button", { name: "Open folder weekly" }).click();
     await browserOf(dlg).getByRole("button", { name: "Use this folder" }).click();
     await expect(dlg.getByText("--to weekly/" + PG, { exact: false })).toBeVisible();
@@ -161,7 +161,7 @@ test.describe("#1179 Configured destination: a drop-down of Settings", () => {
   test("lists every destination Settings lists, and choosing one fills the command", async ({ page }) => {
     const dlg = await singleDialog(page);
     await dlg.getByRole("radio", { name: "Configured destination" }).check();
-    const select = dlg.getByRole("combobox", { name: "Configured destination" });
+    const select = dlg.getByRole("combobox", { name: "Which configured destination" });
     await expect(select).toBeVisible();
     await expect(dlg.getByRole("textbox", { name: "Recover to destination id" })).toHaveCount(0);
     // the destinations are read once the dialog is up, so wait for them
@@ -182,7 +182,7 @@ test.describe("#1179 Configured destination: a drop-down of Settings", () => {
   test("says None configured when Settings has no destination", async ({ page }) => {
     const dlg = await singleDialog(page, "no-destinations");
     await dlg.getByRole("radio", { name: "Configured destination" }).check();
-    const select = dlg.getByRole("combobox", { name: "Configured destination" });
+    const select = dlg.getByRole("combobox", { name: "Which configured destination" });
     await expect(select).toBeDisabled();
     await expect(select).toContainText("None configured");
     await expect(dlg.getByRole("button", { name: "Recover artifact", exact: true })).toBeDisabled();
@@ -191,7 +191,7 @@ test.describe("#1179 Configured destination: a drop-down of Settings", () => {
   test("the selection bar has the same drop-down", async ({ page }) => {
     await tickTwo(page);
     await bar(page).getByRole("radio", { name: "Configured destination" }).check();
-    const select = bar(page).getByRole("combobox", { name: "Configured destination" });
+    const select = bar(page).getByRole("combobox", { name: "Which configured destination" });
     await select.selectOption("usb_shelf");
     await expect(bar(page).getByTestId("recover-command")).toContainText("medium:usb_shelf");
   });
@@ -202,7 +202,7 @@ test.describe("#1179 contrast and edges, both themes", () => {
     test(`the new controls meet WCAG AA in ${theme}`, async ({ page }) => {
       const dlg = await singleDialog(page);
       await setTheme(page, theme);
-      await dlg.getByRole("radio", { name: "Folder under the staging root on the host" }).check();
+      await dlg.getByRole("radio", { name: "Under the staging root on this retnd host" }).check();
       await expect(browserOf(dlg)).toBeVisible();
       await browserOf(dlg).getByRole("button", { name: "Open folder daily" }).click();
       // measure the folder that has been listed: while it is being asked for
@@ -211,7 +211,7 @@ test.describe("#1179 contrast and edges, both themes", () => {
       expect(await measureContrast(page, `folder browser, ${theme}`, '[role="group"][aria-label="Folders on the host"]')).toEqual([]);
       expect(await measureBorders(page, `folder browser controls, ${theme}`, '[role="group"][aria-label="Folders on the host"] .btn')).toEqual([]);
       await dlg.getByRole("radio", { name: "Configured destination" }).check();
-      await expect(dlg.getByRole("combobox", { name: "Configured destination" })).toBeEnabled();
+      await expect(dlg.getByRole("combobox", { name: "Which configured destination" })).toBeEnabled();
       expect(await measureContrast(page, `destination drop-down, ${theme}`, '[role="dialog"]')).toEqual([]);
       expect(await measureBorders(page, `destination drop-down edge, ${theme}`, '[role="dialog"] select')).toEqual([]);
     });
@@ -243,7 +243,7 @@ test.describe("#1179 Recover this backup set has the same two controls", () => {
     await openSet(page);
     const dlg = setDialog(page);
     // #1191: the source host is the default; this is about the staging folder.
-    await dlg.getByRole("radio", { name: "Folder under the staging root on the host" }).check();
+    await dlg.getByRole("radio", { name: "Under the staging root on this retnd host" }).check();
     const browser = browserOf(dlg);
     await expect(browser).toBeVisible();
     await browser.getByRole("button", { name: "Open folder weekly" }).click();
@@ -255,7 +255,7 @@ test.describe("#1179 Recover this backup set has the same two controls", () => {
     await openSet(page);
     const dlg = setDialog(page);
     await dlg.getByRole("radio", { name: "Configured destination" }).check();
-    await dlg.getByRole("combobox", { name: "Configured destination" }).selectOption("offsite_s3");
+    await dlg.getByRole("combobox", { name: "Which configured destination" }).selectOption("offsite_s3");
     await expect(dlg.getByText("--to medium:offsite_s3", { exact: false }).first()).toBeVisible();
   });
 });

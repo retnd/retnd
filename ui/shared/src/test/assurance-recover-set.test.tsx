@@ -38,7 +38,7 @@ function renderDialog(over: Partial<RetndApi>, engine = "artifact") {
 }
 afterEach(() => cleanup());
 // #1191: the dialog starts on the set's source host, so a staging run is chosen.
-const toStaging = async () => userEvent.click(await screen.findByRole("radio", { name: "Folder under the staging root on the host" }));
+const toStaging = async () => userEvent.click(await screen.findByRole("radio", { name: "Under the staging root on this retnd host" }));
 
 describe("Recover this backup set", () => {
   it("shows the pre-flight before anything is chosen to run, listing what is not included", async () => {

@@ -1,6 +1,5 @@
 /**
- * The folder browser behind the staging folder choice (issue #1179). Screens
- * reach it through RecoveryTargetFields (issue #1190), never directly.
+ * The folder browser behind "Under the staging root on this retnd host" (issue #1179).
  *
  * # What it browses
  *
