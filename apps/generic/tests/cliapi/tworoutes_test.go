@@ -792,6 +792,8 @@ var surfaces = []surface{
 		}},
 	{verb: "artifacts", name: "the whole journal", mode: "direct", exit: 0, needsArtifacts: true,
 		argv: func(f fixture) []string { return []string{"artifacts", "--config", f.configPath} }},
+	{verb: "artifacts", name: "the count the console's Backups badge shows (#1186)", mode: "direct", exit: 0, needsArtifacts: true,
+		argv: func(f fixture) []string { return []string{"artifacts", "--count", "--config", f.configPath} }},
 	{verb: "activity", name: "the durable log", mode: "direct", exit: 0, needsArtifacts: true,
 		argv: func(f fixture) []string { return []string{"activity", "--config", f.configPath} }},
 	{verb: "activity", name: "the live feed, which only a serving engine has", skipDirect: true, exit: 0,
@@ -1445,8 +1447,8 @@ func TestAReadBesideAnEngineItCannotReachSaysSoRatherThanAnsweringAsIfNothingWer
 			}
 		})
 	}
-	if reads != 6 {
-		t.Fatalf("%d rows are recorded as reads that name a mode; #544 gave four surfaces one, #598 made activity the fifth and #978 made scrub the sixth, and a table that has lost or gained one is describing a different product", reads)
+	if reads != 7 {
+		t.Fatalf("%d rows are recorded as reads that name a mode; #544 gave four surfaces one, #598 made activity the fifth, #978 made scrub the sixth and #1186 added a second row for artifacts (--count, the console's Backups badge, which announces its mode exactly as the list does), and a table that has lost or gained one is describing a different product", reads)
 	}
 }
 

@@ -230,6 +230,32 @@ check starts failing, loudly, on the next run rather than months later.
    one (`cli-darwin-smoke`) and creates the `v<x.y.z>` GitHub Release with the four
    tarballs and `SHA256SUMS` (`github-release`). That release is the first and only
    place the Git tag appears, so nobody tags by hand.
+9. Once `publish` has signed and attested the image, `tag-latest` moves
+   `ghcr.io/retnd/retnd:latest` to the version's index digest with
+   `docker buildx imagetools create` (a copy by digest, so `latest` and the version tag
+   are one digest and the signature covers both) and then checks that `latest` resolves
+   to that digest, failing the run if it does not. It only does this when the version is
+   the highest published non-prerelease release; `github-release` applies the same rule
+   to the release page's "Latest" badge (`--latest` or `--latest=false`). Both come from
+   `scripts/release/latest.sh`, and `scripts/tests/release-moves-latest.test.sh` drives it.
+
+### Re-pointing `latest` without a release
+
+To move `latest` for a version that is already published (it is how a release cut
+before this existed gets its tag), dispatch the Release workflow with `tag_latest_for`
+set, from the ref whose `container/release-manifest.json` records that version, which
+is `main` once the release has merged back:
+
+```
+gh workflow run release.yml --ref main -f tag_latest_for=<x.y.z>
+```
+
+Nothing is built, published or signed: `decide` forces `publish` off, the gate and the
+compliance job skip, and only `repoint-latest` runs. It refuses a version with no
+published image, a version whose registry digest differs from the manifest's
+`index_digest`, a version the manifest does not describe, and a version that is not the
+highest non-prerelease release (so it cannot move `latest` backwards). It holds
+`packages: write` and `contents: read` and no `id-token`, because nothing is signed.
 
 ## The first cut, and why it was different
 

@@ -251,6 +251,10 @@ commands:
                                                   list only the artifacts in one lifecycle state, e.g. QUARANTINED_LOST
   artifacts [--source S] [--backup-set B] --json
                                                   list as the API's ListArtifactsResponse (#1147)
+  artifacts [--source S] [--backup-set B] [--state S] --count [--json]
+                                                  print how many backups are held outside quarantine, the number the
+                                                  web console's Backups badge reads (the sidebar shows >100 past a
+                                                  hundred, this always prints the number); --json prints {"count": N} (#1186)
   activity [--backup-set S] [--severity warn|error] [--limit N] [--json]
                                                   list recorded lifecycle events, newest first: the same durable
                                                   transition log the Web UI's Activity page draws. Beside a serving

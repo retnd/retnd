@@ -339,7 +339,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
                 </div>
                 {draft.mode === "off" ? (
                   <div style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
-                    The recovery test is off for this set, so its Recovery claim reads Not configured rather than passing. Scrubbing still runs.
+                    The recovery test is off for this set, so its Recovery claim reads Custom configuration, with no test result, rather than passing. Scrubbing still runs.
                   </div>
                 ) : draft.mode === "builtin" ? (
                   <div style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>

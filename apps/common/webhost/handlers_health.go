@@ -135,6 +135,10 @@ type backupSetHealthResponse struct {
 type healthResponse struct {
 	GeneratedAt string                    `json:"generated_at"`
 	BackupSets  []backupSetHealthResponse `json:"backup_sets"`
+	// RetainedCount is every backup outside quarantine, removed sets'
+	// included: what the sidebar's Backups badge reads (issue #1186). Not
+	// omitempty, because zero is a real reading.
+	RetainedCount int `json:"retained_count"`
 }
 
 // systemHealth is GET /api/v1/system/health. Read-only (§50), so no CSRF
@@ -152,8 +156,9 @@ func (h *handlers) systemHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := healthResponse{
-		GeneratedAt: formatTime(report.GeneratedAt),
-		BackupSets:  make([]backupSetHealthResponse, 0, len(report.BackupSets)),
+		GeneratedAt:   formatTime(report.GeneratedAt),
+		BackupSets:    make([]backupSetHealthResponse, 0, len(report.BackupSets)),
+		RetainedCount: report.RetainedCount,
 	}
 	for _, bs := range report.BackupSets {
 		resp.BackupSets = append(resp.BackupSets, toBackupSetHealthResponse(bs))

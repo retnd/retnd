@@ -76,6 +76,7 @@ import { ForgotPasswordPage } from "@shared/auth/ForgotPasswordPage";
 import { ResetPasswordPage } from "@shared/auth/ResetPasswordPage";
 import { VerifyEmailPage } from "@shared/auth/VerifyEmailPage";
 import { ServiceUnreachablePage, SessionCheckFailedPage } from "@shared/pages/SessionCheckFailure";
+import { InsecureTransportPrompt } from "@shared/components/InsecureTransportPrompt";
 import { TooltipOptOutDialog } from "@shared/components/TooltipOptOutDialog";
 import { isServiceUnreachable } from "@shared/api/failure";
 
@@ -420,6 +421,13 @@ export function App() {
           inside the shell so its Settings link has a page to reach.
           Renders nothing until its node says otherwise. */}
       <TooltipOptOutDialog />
+
+      {/* Issue #1163: asks, in words, before a gated act goes over a
+          connection that is not encrypted. Mounted once for the same reason
+          as the dialog above: the question is the same wherever the press
+          was, and api/client.ts is what raises it. Renders nothing until
+          asked. */}
+      <InsecureTransportPrompt />
     </AppShell>
   );
 }

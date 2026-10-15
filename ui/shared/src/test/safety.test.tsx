@@ -39,7 +39,7 @@ const health: SystemHealth = {
   newestVerifiedBackupAt: new Date().toISOString(),
   oldestSetFreshnessHours: 31,
   setsHealthy: 5, setsDegraded: 0, setsStale: 1, setsFailing: 0, quarantinedCount: 0,
-  readOnlyRetainedCount: 0,
+  readOnlyRetainedCount: 0, retainedCount: null,
   storageState: "nominal", storageReadingsUnavailable: 0
 };
 

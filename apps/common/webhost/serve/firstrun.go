@@ -195,17 +195,19 @@ func (e *FirstRunEngine) RunOnSchedule(ctx context.Context) error {
 // activate).
 func newEngineHandler(cfg EngineConfig, backend webhost.BackupServiceClient, onConfigured func(context.Context) error) http.Handler {
 	apiRouter := webhost.NewRouter(webhost.RouterConfig{
-		Platform:      cfg.Platform,
-		Backend:       backend,
-		Gate:          cfg.Gate,
-		FirstRun:      cfg.FirstRun,
-		Setup:         cfg.Setup,
-		OnConfigured:  onConfigured,
-		Recorder:      recorderFor(cfg, backend),
-		Logger:        cfg.Logger,
-		BinaryVersion: cfg.BinaryVersion,
-		Commit:        cfg.Commit,
-		AdoptedPaths:  cfg.AdoptedPaths,
+		Platform:              cfg.Platform,
+		Backend:               backend,
+		Gate:                  cfg.Gate,
+		StepUp:                cfg.StepUp,
+		TrustForwardedHeaders: cfg.TrustForwardedHeaders,
+		FirstRun:              cfg.FirstRun,
+		Setup:                 cfg.Setup,
+		OnConfigured:          onConfigured,
+		Recorder:              recorderFor(cfg, backend),
+		Logger:                cfg.Logger,
+		BinaryVersion:         cfg.BinaryVersion,
+		Commit:                cfg.Commit,
+		AdoptedPaths:          cfg.AdoptedPaths,
 	})
 
 	mux := http.NewServeMux()
