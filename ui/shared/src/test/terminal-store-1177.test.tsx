@@ -13,8 +13,9 @@ import { ApiProvider } from "@shared/api/ApiContext";
 import { useTerminalFeed } from "@shared/pages/useActivityFeed";
 import { graph } from "@shared/state/graph";
 import {
-  acquireTerminalFeed, ingestReading, MAX_GENERATIONS, resetTerminalForTests, terminalNode
+  acquireTerminalFeed, MAX_GENERATIONS, resetTerminalForTests, terminalNode
 } from "@shared/state/terminalStore";
+import { ingestReading } from "@shared/state/activityWindow";
 import type { TerminalState } from "@shared/state/terminalStore";
 import type { RetndApi } from "@shared/api/contracts";
 import type { LiveActivity, SetActivity, SetActivityEvent } from "@shared/types/activity";
@@ -116,6 +117,8 @@ describe("the window is bounded", () => {
   it("keeps only the newest few dead processes", () => {
     let s = state();
     for (let p = 0; p < MAX_GENERATIONS + 3; p++) {
+      // the reading that reveals the restart, then the one asked from 0
+      s = ingestReading(s, reading([setOf("a/one", range(1, 3))], { epoch: "p" + p }));
       s = ingestReading(s, reading([setOf("a/one", range(1, 3))], { epoch: "p" + p }));
     }
     expect(s.generations).toHaveLength(MAX_GENERATIONS);
@@ -153,8 +156,14 @@ describe("a restart", () => {
     expect(s.generations).toHaveLength(1);
     expect(s.generations[0].at).toBe("2026-09-07T15:00:00Z");
     expect(s.generations[0].window.events).toHaveLength(6);
-    expect(s.sets["a/one"].events.map((e) => e.sequence)).toEqual([1, 2]);
+    // The restart reading was asked with the dead process's cursor, so none
+    // of it is believed: empty windows until the reading asked from 0.
+    expect(s.sets).toEqual({});
+    expect(s.combined).toBeUndefined();
     expect(s.cursor).toBe(0);
     expect(s.epoch).toBe("p2");
+    s = ingestReading(s, reading([setOf("a/one", range(1, 3))], { epoch: "p2" }));
+    expect(s.sets["a/one"].events.map((e) => e.sequence)).toEqual([1, 2, 3]);
+    expect(s.combined?.events.map((e) => e.sequence)).toEqual([1, 2, 3]);
   });
 });

@@ -10,19 +10,17 @@
  * one page therefore cost one reading per poll, and every one of them
  * re-renders from the same commit.
  *
- * The functions the strips' tests pin (mergeActivity, feedRestarted,
- * nextCursor) moved with the store and are re-exported so their callers did
- * not have to move with them.
+ * The pure folds (mergeActivity, feedRestarted, nextCursor, foldReading)
+ * live in state/activityWindow, which is internal to the store: nothing
+ * outside it and its tests imports them.
  */
 import { useEffect, useMemo } from "react";
 import { useApi } from "@shared/api/ApiContext";
 import type { ApiError } from "@shared/api/contracts";
 import { useCausl } from "@shared/state/graph";
 import { acquireTerminalFeed, refreshTerminalFeed, terminalNode } from "@shared/state/terminalStore";
-import type { TerminalState } from "@shared/state/terminalStore";
-import type { LiveActivity, SetActivity } from "@shared/types/activity";
-
-export { feedRestarted, mergeActivity, nextCursor } from "@shared/state/terminalStore";
+import type { ReadingFacts, TerminalState } from "@shared/state/terminalStore";
+import type { SetActivity } from "@shared/types/activity";
 
 /** What a terminal gets back. */
 export interface TerminalFeed {
@@ -51,8 +49,9 @@ export function useTerminalFeed(): TerminalFeed {
 export interface ActivityFeed {
   /** Every set in the reading, keyed by id, merged across polls. */
   held: Map<string, SetActivity>;
-  /** The last reading itself, or null before the first. */
-  reading: LiveActivity | null;
+  /** The last reading's own facts (which sets it named), or null before
+   *  the first. */
+  reading: ReadingFacts | null;
   /** The interval the service asked to be polled at. */
   pollAfterMs: number;
   /** The last poll's failure, or null. The last good reading stays under it. */

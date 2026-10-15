@@ -20,7 +20,8 @@ import { ApiProvider } from "@shared/api/ApiContext";
 import { PlatformProvider } from "@shared/platform/PlatformContext";
 import { genericBridge } from "../../../../apps/generic/frontend/platform";
 import { ActivityDock } from "@shared/components/ActivityDock";
-import { mergeActivity, nextCursor, useActivityFeed } from "@shared/pages/useActivityFeed";
+import { useActivityFeed } from "@shared/pages/useActivityFeed";
+import { mergeActivity, nextCursor } from "@shared/state/activityWindow";
 import type { RetndApi } from "@shared/api/contracts";
 import type { DeploymentActivity, LiveActivity, SetActivity, SetActivityEvent } from "@shared/types/activity";
 

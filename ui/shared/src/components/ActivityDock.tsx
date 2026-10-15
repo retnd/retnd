@@ -85,7 +85,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePlatform } from "@shared/platform/PlatformContext";
 import { useTerminalFeed } from "@shared/pages/useActivityFeed";
-import { DOCK_BUFFER, foldReading } from "@shared/state/terminalStore";
+import { DOCK_BUFFER } from "@shared/state/terminalStore";
 import { activityLine, logText, UnfinishedActionsNotice } from "@shared/pages/ActivityStrip";
 import type { LineTone } from "@shared/pages/ActivityStrip";
 import { BROWSER_NOTICE_EVENT, noticeAsEvent } from "@shared/pages/SetActivityPanel";
@@ -103,6 +103,10 @@ const STORAGE = {
   height: "retnd.dock.height",
   filter: "retnd.dock.filter"
 } as const;
+
+/** The chips when no reading has named any sets yet. One array, so the
+ *  memos keyed on it do not see a new one every render. */
+const NO_SETS: string[] = [];
 
 const MIN_HEIGHT = 120;
 const MAX_HEIGHT = 720;
@@ -138,8 +142,6 @@ export function dockReservedHeight(open: boolean, height: number): number {
  *  the list survives into the entry and the conversion happens at the
  *  moment of drawing (see entryEvent, which calls the panel's own
  *  noticeAsEvent so both terminals and every export say the same words). */
-// foldReading moved to the shared terminal store with the window it folds into.
-export { foldReading };
 
 export type DockEntry =
   | { kind: "event"; event: SetActivityEvent }
@@ -582,7 +584,7 @@ export function ActivityDock() {
   // The chips are a function of the latest reading rather than state of
   // their own: a set is configured or it is not, and the reading says so
   // on every poll.
-  const sets = useMemo(() => (readingNow?.sets ?? []).map((s) => s.setId), [readingNow]);
+  const sets = readingNow?.setIds ?? NO_SETS;
   const all = useMemo(
     () => withoutContradictedGaps(foldBrowserNotices(dockEntries(history, held), notices)),
     [history, held, notices]
