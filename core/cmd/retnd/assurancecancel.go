@@ -26,18 +26,27 @@ import (
 // is deliberately not under /operations: stopping a read deletes nothing, so
 // it does not need the destructive gate.
 //
-// Only `cancel` exists under `assurance` today. Starting a scrub or a recovery
-// test is `scrub` and `recovery-test`, and reading the policy is `settings
-// assurance`; none of those is a subcommand of this verb.
+// `assurance list` (#1174) is the terminal's twin of the Dashboard's
+// Assurance tile and is not routed: it reads the journal. Starting a scrub or
+// a recovery test is `scrub` and `recovery-test`, and reading the policy is
+// `settings assurance`; none of those is a subcommand of this verb.
 func cmdAssurance(args []string) int {
-	fs, cfgPath := newFlagSet("assurance cancel")
-	asJSON := fs.Bool("json", false, "print the engine's answer as JSON, the same object the API serves")
+	fs, cfgPath := newFlagSet("assurance")
+	asJSON := fs.Bool("json", false, "print the answer as JSON")
+	listSet := fs.String("backup-set", "", "list only: narrow to one source/backup-set")
+	listBucket := fs.String("bucket", "", "list only: due, overdue, degraded or untested; default is every backup in due, overdue or degraded")
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
 		return exitUsage
 	}
+	if len(operands) == 1 && operands[0] == "list" {
+		return cmdAssuranceList(*cfgPath, *listSet, *listBucket, *asJSON)
+	}
 	if len(operands) == 0 || operands[0] != "cancel" {
-		return usageError("assurance: expected `assurance cancel <operation-id>`")
+		return usageError("assurance: expected `assurance list` or `assurance cancel <operation-id>`")
+	}
+	if *listSet != "" || *listBucket != "" {
+		return usageError("assurance cancel takes no --backup-set or --bucket; those are list's")
 	}
 	if len(operands) != 2 {
 		return usageError("assurance cancel: expected exactly one operation id, the one the scrub or recovery test returned when it started")
