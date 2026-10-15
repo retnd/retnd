@@ -926,3 +926,64 @@ func TestAHoldPlacedDuringAPassStopsTheDeletesThatHaveNotHappened(t *testing.T) 
 			run.Phase, run.DeleteRequestedAt, state.PhaseSuccess)
 	}
 }
+
+// Issue #1164 moves release-hold off the destructive gate, so these pin what
+// a hold and its release do to a prune, from the pruner outward. Releasing a
+// hold does not delete anything, and it does not make anything deletable that
+// the normal plan would have kept: the next pass decides on the policy's own
+// terms, exactly as it did before the hold existed.
+func TestAHoldIsNeverPrunedThroughRepeatedPassesAndAReleasedOneOnlyByThePlan(t *testing.T) {
+	ctx := context.Background()
+	j := openCatalog(t)
+	set := mustSet(t, "production", "postgres")
+	bs := backupSet(t, set, "uuid-hold-1164", dailyOnly())
+
+	record(t, j, set, bs.UUID, runSpec{runID: "run-old-held", snapshotID: "manifest-old-held", startedAt: pruneNow.AddDate(0, 0, -40)})
+	record(t, j, set, bs.UUID, runSpec{runID: "run-old-free", snapshotID: "manifest-old-free", startedAt: pruneNow.AddDate(0, 0, -39)})
+	record(t, j, set, bs.UUID, runSpec{runID: "run-fresh-held", snapshotID: "manifest-fresh-held", startedAt: pruneNow.AddDate(0, 0, -3)})
+	record(t, j, set, bs.UUID, runSpec{runID: "run-fresh-free", snapshotID: "manifest-fresh-free", startedAt: pruneNow.Add(-1 * time.Hour)})
+
+	for _, h := range []struct{ id, run string }{{"hold-old", "run-old-held"}, {"hold-fresh", "run-fresh-held"}} {
+		if _, err := j.PlaceSnapshotHold(ctx, state.SnapshotHoldRequest{HoldID: h.id, RunID: h.run, Reason: "incident", PlacedBy: "ops", At: pruneNow.Add(-time.Hour)}); err != nil {
+			t.Fatalf("PlaceSnapshotHold: %v", err)
+		}
+	}
+
+	repo := newFakeRepository()
+	pruner := snapshotretention.Pruner{Catalog: j, Repository: repo}
+
+	// Three passes with both holds in place: the held old one survives every
+	// time, and the old unheld one goes on the first.
+	for pass := 1; pass <= 3; pass++ {
+		if _, err := pruner.Apply(ctx, pruneNow, bs); err != nil {
+			t.Fatalf("Apply, pass %d: %v", pass, err)
+		}
+		for _, id := range repo.deletedIDs() {
+			if id == "manifest-old-held" || id == "manifest-fresh-held" {
+				t.Fatalf("pass %d deleted %s, which is held", pass, id)
+			}
+		}
+	}
+	if got := repo.deletedIDs(); !reflect.DeepEqual(got, []string{"manifest-old-free"}) {
+		t.Fatalf("with both holds in place the passes deleted %v, want only manifest-old-free", got)
+	}
+
+	// Release both. The old one is now outside every window and goes on the
+	// next pass; the fresh one is inside its window, so releasing its hold
+	// made nothing deletable, and the unheld fresh neighbour is untouched.
+	for _, id := range []string{"hold-old", "hold-fresh"} {
+		if err := j.ReleaseSnapshotHold(ctx, id, pruneNow, "alice"); err != nil {
+			t.Fatalf("ReleaseSnapshotHold: %v", err)
+		}
+	}
+	for pass := 1; pass <= 2; pass++ {
+		if _, err := pruner.Apply(ctx, pruneNow, bs); err != nil {
+			t.Fatalf("Apply after release, pass %d: %v", pass, err)
+		}
+	}
+	got := repo.deletedIDs()
+	want := []string{"manifest-old-free", "manifest-old-held"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("after the releases the repository has been asked to delete %v, want %v: a release must not make a snapshot the plan keeps deletable", got, want)
+	}
+}

@@ -18,17 +18,17 @@
   "imageReference": "ghcr.io/retnd/retnd:0.6.4",
   "releaseManifest": {
     "path": "container/release-manifest.json",
-    "sha256": "82f02ac812f7096e20d56c76cb84f5df47ef07a2e9506a9ebbb2080a90454880",
+    "sha256": "fd16efa151577e0819b78cd17c9ab77e5d91f19e47f5e77e3d8f2e7ea7d07cb3",
     "commit": "577fcde3d461eeb0a14bfb3875c00f09a275c0e1",
     "recordedBuildVersion": "0.6.4",
     "architectures": [
       "amd64",
       "arm64"
     ],
-    "published": false,
+    "published": true,
     "registryDigests": {
-      "amd64": null,
-      "arm64": null
+      "amd64": "sha256:edeae65318382e3128845d1a667d68fdd77ae7fcc3eb3e27ef6c58328bc0d78a",
+      "arm64": "sha256:481b466609ea795d4a28a988a780f2438c134068b804d3e2e03bcd6ef939d569"
     },
     "versionIsABuildStamp": false
   },
@@ -56,7 +56,7 @@
   },
   "checksums": {
     "path": "provenance/checksums.txt",
-    "sha256": "8759ca89ae43847f11e686af0a2805ed5afc2b63a3213fe33cd3611b328ba9a4",
+    "sha256": "3fa3b911c272fc12f2e8661d172b4d020d8d0e6077881dd94a2c84beb0530e60",
     "format": "sha256sum"
   },
   "artifacts": [
@@ -190,14 +190,12 @@
     "reason": "the source repository is public, so every declared link resolves for a reviewer outside the project"
   },
   "signing": {
-    "status": "unsigned",
+    "status": "signed",
     "method": "sigstore-keyless",
     "identity": "https://github.com/retnd/retnd/.github/workflows/release.yml@refs/heads/release",
     "transparencyLog": "https://rekor.sigstore.dev",
     "note": [
-      "Nothing has been pushed to ghcr.io/retnd/retnd:0.6.4, so there is no digest to sign and no signature to verify.",
-      "The mechanism is scripts/release/publish-image.sh; the key design is in docs/compliance/release-provenance.md.",
-      "There is no signing key to store, rotate or leak: the workflow's OIDC identity is exchanged for a short-lived Fulcio certificate at signing time."
+      "Verify with: cosign verify --certificate-oidc-issuer https://token.actions.githubusercontent.com --certificate-identity https://github.com/retnd/retnd/.github/workflows/release.yml@refs/heads/release ghcr.io/retnd/retnd:0.6.4"
     ]
   },
   "performance": {

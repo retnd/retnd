@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Added
+
+- **The Backups page pages its list** (#1180). A "Rows per page" control offers 20, 50 and 100, and "All"
+  while the deployment holds fewer than 1000 backups, with Previous and Next beside it. A chosen 20, 50 or
+  100 is remembered in the browser between sessions (and the page works without storage); "All" is not.
+  The list endpoint still answers with every backup, so paging happens in the browser, and `retnd artifacts`
+  keeps printing the whole list (paging there waits for the endpoint to page for real). The rows come in
+  configuration order, so a page holds the same backups every time. Select-all after a filter (#1107) still
+  takes every matching backup on every page. Changing a filter returns to page one.
+
+### Changed
+
+- **Breaking for API clients, targeting 0.7.0: releasing a snapshot hold now needs an acknowledgement** (#1164). If you only use the web interface or the `retnd` terminal, nothing changes for you: the screen asks you to tick a box before it releases a hold, and `retnd snapshot unhold` works as before. If you have a script or another client that calls `POST /api/v1/operations` with `release_snapshot_hold`, it will start getting `409 SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED` on every profile after you upgrade, and the hold stays where it was. To fix it, add `"acknowledged": true` inside `snapshot_hold_release`, which is your script saying it knows the snapshot becomes prunable by the next retention run. Restores on a local-account profile have new refusals too, but those calls were refused outright before this release, so nothing that worked stops working there.
+
+- **The destructive gate now opens for local-account profiles, and verify, hold and release-hold are off it** (#1163, #1164). This changes a default, so I'm putting what happens on upgrade in plain words first. If you run the `generic`, `truenas`, `unraid`, `openmediavault`, `proxmox` or `synology` profile, the web interface can now start a run, apply a retention plan and restore, where before it refused all of them with `DESTRUCTIVE_OPERATIONS_DISABLED`. Nothing runs by itself: you still press the control, and a few things are asked for first. A restore needs your password again and a tick in the "I understand" box. And if you reach the web interface over plain HTTP from another machine (anything but `localhost`, with no HTTPS in front), a gated act first shows "This connection is not encrypted" and only goes ahead if you say so; put HTTPS in front and it never asks. If you run the `ugos` profile nothing opens: its identity is a header the platform sets, nobody has verified that check on real hardware, and the gate stays shut until #92 ships one. Verify, hold and release-hold now work on every profile, `ugos` included, because they destroy nothing; releasing a hold asks for an explicit acknowledgement and the activity feed records who released which hold and when, and restoring a snapshot stays gated. The gate is chosen from the profile in code (there is still no flag or environment variable for it), `GET /system/capabilities` reports the real state per profile plus `step_up_required` and `insecure_transport_ack_required`, and a pinned test makes a new profile start shut. For API clients: `release_snapshot_hold` now needs `snapshot_hold_release.acknowledged: true` on every profile (the breaking entry above), and a restore on a local-account profile needs `acknowledged: true` (409 `RESTORE_TARGET_NOT_ACKNOWLEDGED` for a snapshot restore, 409 `RECOVERY_COST_NOT_ACKNOWLEDGED` for a provider restore, whose one `acknowledged` field already meant the cost), the `X-Retnd-Step-Up-Password` header (403 `STEP_UP_REQUIRED` or `STEP_UP_FAILED`, 429 `RATE_LIMITED` with `Retry-After` when too many passwords were checked in the last minute, 503 `STEP_UP_UNAVAILABLE` where nothing can check one) and, over insecure transport, `X-Retnd-Insecure-Transport-Ack: acknowledged`. Whether the connection counts as insecure is decided by `serve-ui`, the hop your browser actually talks to, so the Synology package (where the engine only ever sees `serve-ui` over loopback) asks a LAN browser on plain HTTP, and Unraid (where it only ever sees a container address) stops asking a browser on HTTPS or on the NAS itself. The web interface asks before it sends your password over an unencrypted connection, never after. `retnd snapshot unhold` and the rest of the terminal are untouched. `x-destructive-gate` stays on `POST /operations` because most of its actions are gated, and the new `x-destructive-gate-exempt-actions` lists the three that are not.
+
 ### Fixed
 
 - **The Lifecycle list agrees with the verified chip, and Recovery says Custom configuration** (#1175). A
@@ -24,16 +40,6 @@
   anchor is `#assurance` now, and the old `#assurance-defaults` still lands on it. A malformed hash (a lone
   `%E0`) is ignored instead of taking the page down.
 
-### Added
-
-- **The Backups page pages its list** (#1180). A "Rows per page" control offers 20, 50 and 100, and "All"
-  while the deployment holds fewer than 1000 backups, with Previous and Next beside it. A chosen 20, 50 or
-  100 is remembered in the browser between sessions (and the page works without storage); "All" is not.
-  The list endpoint still answers with every backup, so paging happens in the browser, and `retnd artifacts`
-  keeps printing the whole list (paging there waits for the endpoint to page for real). The rows come in
-  configuration order, so a page holds the same backups every time. Select-all after a filter (#1107) still
-  takes every matching backup on every page. Changing a filter returns to page one.
-
 ## [0.6.4] - 2026-10-14
 
 0.6.4 brings the terminal up to the web API. EPIC S went through every route the API serves and gave
@@ -46,6 +52,8 @@ Retention writes handed `--json` are refused rather than accepted and ignored, s
 the flag there needs to drop it. Nothing here changes a default and there is nothing to migrate.
 
 ### Fixed
+
+- **The image has a `latest` tag now, and it only moves forward** (#1168). `ghcr.io/retnd/retnd:latest` did not exist, although the GitHub Release page already marked the newest release "Latest". After a release is built, signed and attested, a `tag-latest` job moves `latest` to that version's index digest with `docker buildx imagetools create` (the same digest, so the cosign signature and SBOM attestation verify for both names) and fails the run if `latest` does not then resolve to it. It does that only when the version is the highest published non-prerelease release, so a 0.5.x backport or a prerelease never takes it, and the GitHub Release is created with `--latest` or `--latest=false` under the same rule. The Release workflow also takes a `tag_latest_for` input that re-points `latest` for an already published version without building anything, and refuses a version with no published image, one whose digest differs from `container/release-manifest.json`, or one that is not the highest release. `latest` is for pulling by hand: compose files, the installer and the docs keep pinning the version's digest. The pinned hash of release.yml's `on:` block moved once for the new input; the push trigger and the signing identity did not change.
 
 - **Usage and the command echo no longer say things the code stopped doing** (#1150). `retnd`'s usage text
   called `settings assurance patch` and `backup-set assurance` "refused beside" a serving engine, but
