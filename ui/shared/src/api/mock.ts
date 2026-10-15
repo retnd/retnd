@@ -75,6 +75,10 @@ import type { DeploymentActivity, SetActivity, SetActivityEvent } from "@shared/
 
 export type Scenario =
   | "default"
+  // Issue #1189: a deployment with a workflow root and NO deployment-wide
+  // stages, so a set with no block of its own runs nothing at all and its
+  // Workflow card is the one-sentence quiet state.
+  | "workflow-no-globals"
   // Issue #1107: thirty more backups across three sets and thirty days, so a
   // filter has something to narrow and a select-all has something to count.
   // The "-corrupt" flavour makes one of them fail its digest on recovery, and
@@ -4084,6 +4088,10 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   // which is what the real backend's hot reload does, and a write in one
   // test must not be visible to the next.
   const workflowSettings = defaultWorkflowSettings();
+  if (scenario === "workflow-no-globals") {
+    workflowSettings.beforeDir = "";
+    workflowSettings.afterDir = "";
+  }
   const assuranceSettings = defaultAssuranceSettings();
   const mockRecovery = createMockRecovery(scenario);
   // #1106: every row the journal holds for a set, quarantined ones included,
@@ -5676,6 +5684,14 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
       };
       next.effectiveScriptTimeoutSeconds =
         next.scriptTimeoutSeconds ?? workflowSettings.scriptTimeoutSeconds;
+      // The stages a run will take, in the engine's order: the deployment's
+      // before, this set's before, this set's after, the deployment's after.
+      next.stages = [
+        ...(workflowSettings.beforeDir ? [{ scope: "global" as const, phase: "before" as const, dir: workflowSettings.beforeDir }] : []),
+        ...(next.beforeDir ? [{ scope: "set" as const, phase: "before" as const, dir: next.beforeDir }] : []),
+        ...(next.afterDir ? [{ scope: "set" as const, phase: "after" as const, dir: next.afterDir }] : []),
+        ...(workflowSettings.afterDir ? [{ scope: "global" as const, phase: "after" as const, dir: workflowSettings.afterDir }] : [])
+      ];
       setWorkflows.set(id, next);
       return delay(structuredClone(next), 400);
     },
