@@ -1,7 +1,6 @@
 package webhost
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -45,8 +44,8 @@ const maxSubmitOperationBodyBytes = 1 << 20 // 1 MiB
 // operation's own business parameters, matching the common REST
 // convention for this exact concern.
 type submitOperationRequest struct {
-	Action         string `json:"action"`
-	ConfigRevision string `json:"config_revision"`
+	Action         OperationAction `json:"action"`
+	ConfigRevision string          `json:"config_revision"`
 
 	// BackupSetID names the one set a run_backup_set acts on, as the
 	// "source/backup-set" id every surface in this product prints. It is
@@ -320,10 +319,12 @@ func (h *handlers) submitOperation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, maxSubmitOperationBodyBytes)
-
-	var body submitOperationRequest
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	// Decoded once per request (gate_profile.go): requireOperationGate has
+	// already decided on exactly this value, so what runs below is what the
+	// gate let through.
+	parsed, r := operationRequest(w, r)
+	body := parsed.req
+	if err := parsed.err; err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
 			writeError(w, http.StatusBadRequest, "INVALID_REQUEST",
@@ -337,28 +338,28 @@ func (h *handlers) submitOperation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch body.Action {
-	case service.ActionRunBackupSet:
+	case ActionRunBackupSet:
 		h.submitRunBackupSet(w, r, idempotencyKey, body)
 		return
-	case service.ActionRunCycle:
+	case ActionRunCycle:
 		// Nothing to check here any more: refuseForeignParameters above
 		// already refuses a run_cycle carrying a backup_set_id, together
 		// with every other action that does not own the field. The check
 		// used to live here and covered run_cycle alone, which is how a
 		// snapshot action carrying one was served with it ignored.
-	case service.ActionRestorePlacement:
+	case ActionRestorePlacement:
 		h.submitRestore(w, r, idempotencyKey, body)
 		return
-	case service.ActionRestoreSnapshot:
+	case ActionRestoreSnapshot:
 		h.submitSnapshotRestore(w, r, idempotencyKey, body)
 		return
-	case service.ActionVerifySnapshot:
+	case ActionVerifySnapshot:
 		h.submitSnapshotVerify(w, r, idempotencyKey, body)
 		return
-	case service.ActionHoldSnapshot:
+	case ActionHoldSnapshot:
 		h.submitSnapshotHold(w, r, idempotencyKey, body)
 		return
-	case service.ActionReleaseSnapshotHold:
+	case ActionReleaseSnapshotHold:
 		h.submitSnapshotHoldRelease(w, r, idempotencyKey, body)
 		return
 	default:

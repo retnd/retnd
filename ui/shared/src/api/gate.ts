@@ -1,12 +1,13 @@
 /**
  * The destructive gate, as a screen has to talk about it (issue #1157).
  *
- * Every shipped build of retnd-web has the gate shut, so starting a run,
- * restoring or verifying a snapshot, placing or releasing a hold, and
- * applying a retention plan are all refused over HTTP with the code below.
- * The refusal is not transient. Pressing the control again gets the same
- * answer, and nothing an operator can set opens the gate: what lifts it is
- * issue #92 shipping a verified one. So a screen that meets this refusal
+ * On a gateway profile (UGOS) the gate is shut, so starting a run, restoring
+ * a snapshot and applying a retention plan are refused over HTTP with the
+ * code below (issue #1163 opened it for local-account profiles, and #1164
+ * took verify, hold and release-hold off it altogether, so those three are
+ * never refused). The refusal is not transient. Pressing the control again
+ * gets the same answer, and nothing an operator can set opens the gate: what
+ * lifts it is issue #92 shipping a verified one. So a screen that meets this refusal
  * does not say "could not start" and offer a retry. It says that retrying
  * will not help, that nothing was changed, and what to type on the host.
  *
@@ -60,7 +61,7 @@ export function gateRefusalNotice(args: {
       "Retrying will not help. " +
       (args.reason && args.reason !== ""
         ? "This deployment reports its destructive gate as shut (" + args.reason + ")."
-        : "Destructive operations are refused over HTTP in every build of this release, until the trusted-proxy authentication gate (issue #92) has been verified.") +
+        : "Destructive operations are refused over HTTP on this deployment's profile, until the trusted-proxy authentication gate (issue #92) has been verified.") +
       " " +
       args.nothingChanged,
     command: args.command,
