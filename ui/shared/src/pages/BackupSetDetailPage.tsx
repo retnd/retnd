@@ -199,6 +199,9 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   // character and deleting it leaves Save inactive) and is why both are
   // strings.
   const [editing, setEditing] = useState(false);
+  /** Saves the Workflow card's unsaved before/after text, filled in by the
+   *  card while it shows those boxes (#1189). */
+  const hookFlushRef = useRef<(() => Promise<boolean>) | null>(null);
   const [baseline, setBaseline] = useState<Record<EditFieldKey, string> | null>(null);
   const [draft, setDraft] = useState<Record<EditFieldKey, string> | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<EditFieldKey, string>>>({});
@@ -613,6 +616,11 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   // per-box Save already wrote, which is why it asks dirtyKeys() rather
   // than sending every field.
   const saveAllAndExit = async () => {
+    // The Workflow card's before and after boxes write through their own
+    // PATCH (#1189), so their unsaved text is not in dirtyKeys(). It goes
+    // first, and a refusal keeps edit mode open with the card's reason on
+    // screen, exactly as a refused box of this page's own does.
+    if (hookFlushRef.current && !(await hookFlushRef.current())) return;
     if (!(await saveFields(dirtyKeys(), null, true))) return;
     leaveEditMode();
   };
@@ -1253,7 +1261,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
               and the hooks either side of that are the next question,
               not the first one. A set with no hooks configured anywhere
               renders one sentence here and nothing else. */}
-          <BackupSetWorkflowCard source={s.source} set={s.set} readOnly={readOnly} />
+          <BackupSetWorkflowCard source={s.source} set={s.set} readOnly={readOnly} editing={editing} hookFlushRef={hookFlushRef} />
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>

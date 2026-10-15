@@ -83,6 +83,7 @@ export function WorkflowSettingsCard({ readOnly }: { readOnly: boolean }) {
   // defect a settings form is most likely to ship with.
   useEffect(() => {
     if (settings.data) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDraft({
         beforeDir: settings.data.beforeDir,
         afterDir: settings.data.afterDir,

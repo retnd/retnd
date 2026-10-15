@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { measureContrast, open, setTheme } from "./helpers";
+import { measureBorders, measureContrast, open, setTheme } from "./helpers";
 
 /**
  * Issue #1189: the Workflow card on a backup set page said hook directories
@@ -99,14 +99,60 @@ test.describe("#1189 set workflow hooks in edit mode", () => {
     await expect(page.getByTestId("workflow-set-before-save")).toBeDisabled();
   });
 
+  test("SAVE ALL saves a typed directory nobody pressed its own Save for", async ({ page }) => {
+    await edit(page);
+    await page.getByTestId("workflow-set-after-input").fill("weekly-archive/after");
+    await page.getByRole("button", { name: /SAVE ALL/ }).click();
+    await expect(page.getByRole("button", { name: "Edit", exact: true })).toBeVisible();
+    await expect(card(page)).toContainText("weekly-archive/after");
+  });
+
+  test("a refused directory keeps SAVE ALL in edit mode with the reason on screen", async ({ page }) => {
+    await edit(page);
+    await page.getByTestId("workflow-set-before-input").fill(BROKEN);
+    await page.getByRole("button", { name: /SAVE ALL/ }).click();
+    await expect(card(page)).toContainText("NOT saved");
+    await expect(page.getByRole("button", { name: /SAVE ALL/ })).toBeVisible();
+    await expect(page.getByTestId("workflow-set-before-input")).toHaveValue(BROKEN);
+  });
+
+  test("CANCEL drops typed text, and the next Edit starts from what is saved", async ({ page }) => {
+    await edit(page);
+    await page.getByTestId("workflow-set-before-input").fill("weekly-archive/before");
+    await page.getByRole("button", { name: /CANCEL & EXIT EDIT MODE/ }).click();
+    await expect(page.getByRole("button", { name: "Edit", exact: true })).toBeVisible();
+    await expect(card(page)).not.toContainText("weekly-archive/before");
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await expect(page.getByTestId("workflow-set-before-input")).toHaveValue("");
+  });
+
+  test("with the destructive gate shut the fields still save, because this write is not behind it", async ({ page }) => {
+    await edit(page, CONFIGURED, "gate-shut");
+    await expect(page.getByTestId("workflow-set-after-input")).toBeEnabled();
+    await page.getByTestId("workflow-set-after-input").fill("/srv/hooks/postgres-primary/after-2");
+    await page.getByTestId("workflow-set-after-save").click();
+    await expect(page.getByTestId("workflow-set-effective")).toContainText("/srv/hooks/postgres-primary/after-2");
+  });
+
+  test("a read-only deployment offers no way into the fields", async ({ page }) => {
+    await open(page, QUIET, "version-mismatch");
+    await expect(card(page)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Edit", exact: true })).toBeDisabled();
+    await expect(page.getByTestId("workflow-set-before-input")).toHaveCount(0);
+  });
+
   for (const theme of ["light", "dark"] as const) {
     test(`the new controls meet WCAG AA in the ${theme} theme`, async ({ page }) => {
       await edit(page);
       await page.getByTestId("workflow-set-before-input").fill("weekly-archive/before");
       await page.getByTestId("workflow-set-before-save").click();
       await expect(page.getByTestId("workflow-set-effective")).toContainText("weekly-archive/before");
+      // An unsaved after directory, so its Save is enabled and measured too.
+      await page.getByTestId("workflow-set-after-input").fill("weekly-archive/after");
       await setTheme(page, theme);
-      expect(await measureContrast(page, `#1189 hooks editor, ${theme}`, '[data-testid="workflow-set-editor"]')).toEqual([]);
+      const editor = '[data-testid="workflow-set-editor"]';
+      expect(await measureContrast(page, `#1189 hooks editor, ${theme}`, editor)).toEqual([]);
+      expect(await measureBorders(page, `#1189 hooks editor, ${theme}`, `${editor} input, ${editor} button`)).toEqual([]);
     });
   }
 });

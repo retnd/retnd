@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Edit mode on a backup set can set its before and after workflows** (#1189). The Workflow card told you hook directories are set "per set here" and gave you nothing to set them with, even though the API and `retnd backup-set workflow patch --before-dir/--after-dir` always took them. Edit mode now has a before and an after directory field, each with its own Save, written through that same PATCH so the shell-rule save gate and the workflow-root check are the service's. SAVE ALL & EXIT EDIT saves whatever is still typed in them as well, and stays in edit mode with the reason on screen if the gate refuses it. The card lists the hooks that will actually run (the deployment's stages wrap the set's, they are not replaced by them), and its empty-state sentence only points at edit mode when edit mode has the control. No API or CLI change was needed: `retnd backup-set workflow <id> [--json]` already reads the same thing.
+
 ## [0.6.4] - 2026-10-14
 
 0.6.4 brings the terminal up to the web API. EPIC S went through every route the API serves and gave

@@ -187,7 +187,7 @@ export type Scenario =
 export function scenarioFromLocation(): Scenario {
   const s = new URLSearchParams(window.location.search).get("scenario");
   const allowed: Scenario[] = [
-    "default", "empty", "storage-critical", "catalog-recovery",
+    "default", "workflow-no-globals", "empty", "storage-critical", "catalog-recovery",
     "version-mismatch", "first-run", "no-medium", "activity-unreadable",
     "read-only-source", "assurance-split", "assurance-more", "assurance-existence", "assurance-rebuilt",
     "assurance-unavailable", "assurance-scrub-fails", "assurance-download-slow",

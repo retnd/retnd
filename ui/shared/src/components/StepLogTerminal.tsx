@@ -247,6 +247,9 @@ export function StepLogTerminal({ runId, stepId, step, api }: StepLogTerminalPro
     return () => clearTimeout(timer);
   }, [copied]);
 
+  // Read during render on purpose: the per-step history lives in a ref
+  // (see `history` above), and setRevision is what re-renders on a change.
+  // eslint-disable-next-line react-hooks/refs
   const entry = history.current.get(key);
   const lines = entry?.lines ?? [];
   const removed = entry?.removed ?? noRemovals();

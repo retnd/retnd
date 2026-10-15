@@ -59,6 +59,10 @@ input, select, textarea, button {
   color: var(--text); font: inherit; font-size: var(--text-base);
 }
 .input--mono { font-family: var(--font-mono); }
+/* Placeholder text is text. The browser's default grey (#757575) is 4.6:1 on
+   the light surface and 3.7:1 on the dark one, under the 4.5:1 minimum, so
+   every placeholder takes the secondary ink instead (#1189). */
+::placeholder { color: var(--text-2); opacity: 1; }
 
 /* Password reveal toggle (issue #344). The button sits inside the input's
    own box rather than beside it, so a revealable field keeps the same
