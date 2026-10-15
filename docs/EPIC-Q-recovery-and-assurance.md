@@ -275,7 +275,7 @@ Each line names every `docs/epic-checklist.md` section the issue must satisfy an
 
 ### Phase 1 exit gate
 
-- [ ] A recovery completes end to end on a deployment whose `DestructiveGate.Passed()` reports false, and the same deployment still refuses `POST /api/v1/operations` with `403 DESTRUCTIVE_OPERATIONS_DISABLED`.
+- [ ] A recovery completes end to end on a deployment whose `DestructiveGate.Passed()` reports false (since #1163, that is a deployment on a gateway profile such as UGOS, because the gate opens for local-account profiles), and the same deployment still refuses the gated actions of `POST /api/v1/operations` with `403 DESTRUCTIVE_OPERATIONS_DISABLED`.
 - [ ] Recovering a corrupted copy fails before any byte is presented as successful, on a fixture whose recorded size and `verification_class` are unchanged and whose bytes are not.
 - [ ] A 4 GiB artifact recovers within a stated RSS ceiling in both the CLI and the web process, measured, with the number and the host in `docs/perf/`.
 - [ ] A recovery grant is single-use, expires, is bound to its minting session and is refused after that session ends; each mint and each served range writes exactly one action-log row naming actor, artifact, copy and outcome.

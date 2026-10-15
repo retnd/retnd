@@ -36,6 +36,7 @@
 // platform/localSession.ts reads the session with as well.
 import { debugLog, isDebugEnabled } from "./debug";
 import { apiErrorFromResponse, nameAttempt, noResponse, refusal, unreadableBody } from "./transport";
+import { RetndError } from "./contracts";
 // The wire shapes below are GENERATED from api/v1/openapi.json, not
 // declared here. Before issue #166 this file carried its own hand-written
 // copy of every snake_case response body, transcribed from the Go
@@ -320,7 +321,91 @@ export function bootstrapTokenFromLocation(): string | null {
  * read `fetch(BASE + path` literally so it can prove which URLs this
  * bundle is able to request.
  */
-async function request<T>(path: string, init?: RequestInit, onLine?: (line: unknown) => void): Promise<T> {
+/**
+ * Issue #1163: the engine answers a gated act 403 INSECURE_TRANSPORT_ACK_REQUIRED
+ * when the browser reached retnd over plain HTTP from another machine. The act
+ * is not wrong, and retrying it unchanged will fail the same way; what the
+ * engine wants is the operator saying so.
+ *
+ * Two ways that consent is asked for, and the order matters:
+ *
+ * - A screen that collects the administrator's password (a restore) asks
+ *   BEFORE it sends anything, through `acknowledgeInsecureTransport`, when the
+ *   capabilities said this connection needs it. The password is the thing the
+ *   prompt is warning about, so it must never be the first thing to cross the
+ *   connection. `request` backs that up: it will not attach the step-up header
+ *   while the consent is required (or not yet known) and has not been given,
+ *   and refuses the call itself instead.
+ * - Every other gated act carries no secret of its own, so `request` lets the
+ *   engine refuse it, asks the registered confirmer (the dialog
+ *   InsecureTransportPrompt mounts), and only a yes sends it again, once, with
+ *   the acknowledgement header. A no, or nobody to ask, leaves the refusal
+ *   exactly as the engine gave it.
+ *
+ * The header is never sent unprompted, so an operator on an encrypted
+ * connection is never asked. A yes holds until the page reloads, the session
+ * ends, or the operator signs out. It is held in memory, not storage.
+ */
+export const INSECURE_TRANSPORT_HEADER = "X-Retnd-Insecure-Transport-Ack";
+export const STEP_UP_HEADER = "X-Retnd-Step-Up-Password";
+const INSECURE_TRANSPORT_CODE = "INSECURE_TRANSPORT_ACK_REQUIRED";
+
+let insecureTransportConfirmer: (() => Promise<boolean>) | null = null;
+let insecureTransportAcknowledged = false;
+/** What the last capabilities read said about this connection, or null before
+ *  one has answered. Unknown is treated like "required" where a secret is
+ *  about to be sent. */
+let insecureTransportRequired: boolean | null = null;
+
+/** Registers who to ask, or clears them with null. Clearing also forgets a
+ *  yes already given, so a test (or a sign-out) starts clean. */
+export function setInsecureTransportConfirmer(fn: (() => Promise<boolean>) | null): void {
+  insecureTransportConfirmer = fn;
+  if (fn === null) {
+    insecureTransportAcknowledged = false;
+    insecureTransportRequired = null;
+  }
+}
+
+/** Asks the registered confirmer. With none registered nobody can say yes. */
+export function askInsecureTransport(): Promise<boolean> {
+  return insecureTransportConfirmer === null ? Promise.resolve(false) : insecureTransportConfirmer();
+}
+
+/** Whether the operator has already said go on over this connection. */
+export function insecureTransportIsAcknowledged(): boolean {
+  return insecureTransportAcknowledged;
+}
+
+/** Asks for the consent now, before anything is sent, unless it was already
+ *  given. Resolves true when requests may carry it. A screen calls this
+ *  before it submits a password over a connection the capabilities said is
+ *  not encrypted. */
+export async function acknowledgeInsecureTransport(): Promise<boolean> {
+  if (insecureTransportAcknowledged) return true;
+  if (await askInsecureTransport()) {
+    insecureTransportAcknowledged = true;
+    return true;
+  }
+  return false;
+}
+
+/** Records what a capabilities read said about this connection. */
+export function rememberInsecureTransportRequired(required: boolean): void {
+  insecureTransportRequired = required;
+}
+
+/** Forgets the consent: a new session on this connection is asked again. */
+export function forgetInsecureTransportConsent(): void {
+  insecureTransportAcknowledged = false;
+}
+
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+  onLine?: (line: unknown) => void,
+  retriedAfterAcknowledgement = false
+): Promise<T> {
   const headers: Record<string, string> = {
     "content-type": "application/json",
     ...((init?.headers as Record<string, string> | undefined) ?? {})
@@ -334,6 +419,19 @@ async function request<T>(path: string, init?: RequestInit, onLine?: (line: unkn
     const csrf =
       readCookie(CSRF_COOKIE_NAME) || CSRF_LEGACY_COOKIE_NAMES.map(readCookie).find(Boolean) || "";
     if (csrf) headers[CSRF_HEADER_NAME] = csrf;
+    if (insecureTransportAcknowledged) headers[INSECURE_TRANSPORT_HEADER] = "acknowledged";
+  }
+
+  // The password never crosses a connection the operator has not been told
+  // about. A screen asks first (acknowledgeInsecureTransport); this is the
+  // backstop for one that did not, and it refuses here, with nothing sent.
+  const carriesPassword = headers[STEP_UP_HEADER] !== undefined;
+  if (carriesPassword && insecureTransportRequired !== false && !insecureTransportAcknowledged) {
+    throw new RetndError({
+      code: INSECURE_TRANSPORT_CODE,
+      message:
+        "This connection is not encrypted, or retnd has not said yet whether it is, so your password was not sent. Nothing was restored."
+    });
   }
 
   if (path === "/auth/enroll") {
@@ -414,10 +512,26 @@ async function request<T>(path: string, init?: RequestInit, onLine?: (line: unkn
     // response (#795's review). The fallback sentence stays here: it is
     // the one part that is about this call site, and it is the wording an
     // operator sees for a refusal with nothing readable in it at all.
-    throw refusal(
+    const failure = refusal(
       await apiErrorFromResponse(res, "The backup service returned an unexpected response."),
       { path, attemptId }
     );
+    if (failure.api.code === INSECURE_TRANSPORT_CODE) insecureTransportRequired = true;
+    // A session that ended takes the consent with it.
+    if (res.status === 401) forgetInsecureTransportConsent();
+    // Retried only for an act that carried no password: one that did was
+    // asked about before it was sent (above), so reaching here means the
+    // engine changed its mind, and the screen should ask again itself.
+    if (
+      !retriedAfterAcknowledgement &&
+      !carriesPassword &&
+      failure.api.code === INSECURE_TRANSPORT_CODE &&
+      (await askInsecureTransport())
+    ) {
+      insecureTransportAcknowledged = true;
+      return request<T>(path, init, onLine, true);
+    }
+    throw failure;
   }
 
   if (res.status === 204) return undefined as T;
@@ -1582,7 +1696,12 @@ function fromWireCapabilities(body: WireCapabilitiesResponse): Capabilities {
       // older than this bundle does not send, and a missing gate state must
       // never read as an open one.
       state: body.destructive_operations?.state === "open" ? "open" : "shut",
-      reason: body.destructive_operations?.reason ?? ""
+      reason: body.destructive_operations?.reason ?? "",
+      // Both are read as "no" unless the engine says yes: an engine older
+      // than this bundle sends neither, and a missing flag must never read
+      // as a request for something the engine will not check.
+      stepUpRequired: body.destructive_operations?.step_up_required === true,
+      insecureTransportAckRequired: body.destructive_operations?.insecure_transport_ack_required === true
     }
   };
 }
@@ -3154,7 +3273,14 @@ function fromWireFirstRunStatus(r: WireFirstRunStatusResponse): FirstRunStatus {
 
 export const httpApi: RetndApi = {
   getVersion: () => request<WireVersionResponse>("/system/version").then(fromWireVersion),
-  getCapabilities: () => request<WireCapabilitiesResponse>("/system/capabilities").then(fromWireCapabilities),
+  getCapabilities: () =>
+    request<WireCapabilitiesResponse>("/system/capabilities")
+      .then(fromWireCapabilities)
+      .then((caps) => {
+        // Remembered for request()'s password backstop (issue #1163).
+        rememberInsecureTransportRequired(caps.destructiveOperations.insecureTransportAckRequired);
+        return caps;
+      }),
   // GET /system/health, NOT /health/ready. The two answer different
   // questions and only one of them is this one: /health/live and
   // /health/ready sit outside /api/v1, carry no authentication, and exist
@@ -3242,7 +3368,12 @@ export const httpApi: RetndApi = {
       // here for the same reason and with the same result: this route
       // refuses without it, so every restore this client asked for was
       // answered 400 before it reached the service's own logic.
-      headers: { [IDEMPOTENCY_KEY_HEADER]: req.idempotencyKey },
+      headers: {
+        [IDEMPOTENCY_KEY_HEADER]: req.idempotencyKey,
+        // The password rides a header and never the body: the request
+        // recorder echoes a body into the activity feed (issue #1163).
+        ...(req.stepUpPassword ? { [STEP_UP_HEADER]: req.stepUpPassword } : {})
+      },
       body: JSON.stringify({
         action: "restore_placement",
         config_revision: req.configRevision,
@@ -3569,7 +3700,10 @@ export const httpApi: RetndApi = {
   restoreSnapshot: (req) =>
     request<WireOperation>("/operations", {
       method: "POST",
-      headers: { [IDEMPOTENCY_KEY_HEADER]: req.idempotencyKey },
+      headers: {
+        [IDEMPOTENCY_KEY_HEADER]: req.idempotencyKey,
+        ...(req.stepUpPassword ? { [STEP_UP_HEADER]: req.stepUpPassword } : {})
+      },
       body: JSON.stringify({
         action: "restore_snapshot",
         config_revision: req.configRevision,
@@ -3581,7 +3715,8 @@ export const httpApi: RetndApi = {
           // be a request to restore a snapshot with no id.
           ...(req.snapshotId ? { snapshot_id: req.snapshotId } : {}),
           ...(req.sourcePath ? { source_path: req.sourcePath } : {}),
-          ...(req.conflict ? { conflict: req.conflict } : {})
+          ...(req.conflict ? { conflict: req.conflict } : {}),
+          ...(req.acknowledged ? { acknowledged: true } : {})
         }
       })
     }).then(fromWireSnapshotOperation),
@@ -3623,7 +3758,10 @@ export const httpApi: RetndApi = {
         config_revision: req.configRevision,
         snapshot_hold_release: {
           backup_set_id: req.backupSetId,
-          hold_id: req.holdId
+          hold_id: req.holdId,
+          // Sent as what the operator said, never defaulted to true: the
+          // engine refuses a release that did not carry one (issue #1164).
+          acknowledged: req.acknowledged === true
         }
       })
     }).then(fromWireSnapshotOperation),
@@ -3818,7 +3956,7 @@ export const httpApi: RetndApi = {
 
   rotatePassword: (currentPassword, newPassword) =>
     post("/auth/password", { currentPassword, newPassword }),
-  logout: () => post("/auth/logout"),
+  logout: () => post("/auth/logout").finally(forgetInsecureTransportConsent),
 
   // EPIC L's eighteen workflow operations (issue #814), against the
   // routes L6 landed. Read them in the order the API declares them: the

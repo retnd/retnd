@@ -1,3 +1,9 @@
+import {
+  acknowledgeInsecureTransport,
+  httpApi,
+  insecureTransportIsAcknowledged,
+  rememberInsecureTransportRequired
+} from "./client";
 import type {
   ActivityFeedPage,
   ActivityQuery,
@@ -73,25 +79,32 @@ import type { DeploymentActivity, SetActivity, SetActivityEvent } from "@shared/
  *  "empty" one with a configuration and no backup sets. Toggle scenarios
  *  with ?scenario= in the URL. */
 
-export type Scenario =
-  | "default"
+/** Every scenario, one per line, so a PR adding one is a one-line insert
+ *  that rebases cleanly past every other PR adding one. The type and the
+ *  URL allow-list are both read off this list, so they cannot disagree. */
+export const SCENARIOS = [
+  "default",
+  // Issue #1189: a deployment with a workflow root and NO deployment-wide
+  // stages, so a set with no block of its own runs nothing at all and its
+  // Workflow card is the one-sentence quiet state.
+  "workflow-no-globals",
   // Issue #1107: thirty more backups across three sets and thirty days, so a
   // filter has something to narrow and a select-all has something to count.
   // The "-corrupt" flavour makes one of them fail its digest on recovery, and
   // the "-nospace" one has a staging disk too small for the selection.
-  | "backups-many"
-  | "backups-many-corrupt"
-  | "backups-many-nospace"
+  "backups-many",
+  "backups-many-corrupt",
+  "backups-many-nospace",
   // Issue #1180: a deployment that holds exactly 999 backups (the largest that
   // still offers "All" on the Backups page) and one that holds exactly 1000.
-  | "backups-999"
-  | "backups-1000"
-  | "empty"
-  | "storage-critical"
-  | "catalog-recovery"
-  | "version-mismatch"
-  | "first-run"
-  | "no-medium"
+  "backups-999",
+  "backups-1000",
+  "empty",
+  "storage-critical",
+  "catalog-recovery",
+  "version-mismatch",
+  "first-run",
+  "no-medium",
   // Issue #598, and the only scenario here that is a FAILURE rather than a
   // state of the deployment. listActivity rejects with a plain
   // SyntaxError, which is what a 2xx carrying something other than the
@@ -102,7 +115,7 @@ export type Scenario =
   // fails, so the rest of both pages renders normally and what is
   // asserted is what the failing panel says rather than whether the page
   // came up at all.
-  | "activity-unreadable"
+  "activity-unreadable",
   // Issue #852: a source whose credentials can READ it and not write to
   // it, which is a supported posture rather than a failure. The
   // connection test answers ok:true with writable:false, so both the
@@ -110,76 +123,101 @@ export type Scenario =
   // delete-from-source control and say why. It is its own scenario
   // because the interesting state is a PASSING test with one answer
   // inverted, and no other fixture here can produce that.
-  | "read-only-source"
+  "read-only-source",
   // EPIC Q (issue #985): fixtures and outcomes for the assurance surfaces.
   // They only choose which record or which outcome a case needs.
-  | "assurance-split"
-  | "assurance-more"
-  | "assurance-existence"
-  | "assurance-rebuilt"
-  | "assurance-unavailable"
-  | "assurance-scrub-fails"
-  | "assurance-download-slow"
-  | "assurance-download-fails"
-  | "assurance-slow-test"
-  | "assurance-validator-output"
-  | "assurance-no-operations"
-  | "assurance-cleanup-fails"
-  | "assurance-recovery-overdue"
-  | "assurance-snapshot-set"
-  | "assurance-too-many-grants"
-  | "assurance-grant-expired"
-  | "assurance-grant-used"
-  | "assurance-session-ended"
-  | "assurance-staging-full"
-  | "assurance-reads-busy"
-  | "assurance-corrupt-copy"
+  "assurance-split",
+  "assurance-more",
+  "assurance-existence",
+  "assurance-rebuilt",
+  "assurance-unavailable",
+  "assurance-scrub-fails",
+  "assurance-download-slow",
+  "assurance-download-fails",
+  "assurance-slow-test",
+  "assurance-validator-output",
+  "assurance-no-operations",
+  "assurance-cleanup-fails",
+  "assurance-recovery-overdue",
+  "assurance-snapshot-set",
+  "assurance-too-many-grants",
+  "assurance-grant-expired",
+  "assurance-grant-used",
+  "assurance-session-ended",
+  "assurance-staging-full",
+  "assurance-reads-busy",
+  "assurance-corrupt-copy",
   // How a browser download ended, as three artifacts' feed rows (item 14).
-  | "assurance-download-outcomes"
+  "assurance-download-outcomes",
   // A set that declares no recovery-test validator: the run is refused.
-  | "assurance-no-validator"
+  "assurance-no-validator",
   // #1111: no validator declared, the newest copy is a .tar.zst, and the
   // built-in structure check runs; the manual run ends "readable".
-  | "assurance-builtin-check"
+  "assurance-builtin-check",
   // #1118: a set that follows the deployment's default policy (recovery tests
   // off, the built-in check as the fallback), with a content-verified newest
   // copy and a readable built-in recovery test recorded against the backup
   // before it. Run it with wire=1, and the backup sets carry the unreported
   // fields a real client leaves null.
-  | "assurance-default-policy"
+  "assurance-default-policy",
   // #1141: the same default-policy set, but no recovery test has run on any
   // backup, so Recovery has nothing to say beyond "default, none run yet".
-  | "assurance-default-untested"
-  | "assurance-ingest-failed-scrubbed"
+  "assurance-default-untested",
+  "assurance-ingest-failed-scrubbed",
   // #1106: Recover this backup set. The fixture sets are presented as
   // artifact sets and the mock host recovers a file every 700ms (2.5s when
   // slow), so a spec can watch the total and press Cancel. "recover" gives the
   // postgres set history to recover; "nospace" has a staging disk too small
   // for it; "corrupt" has its second file fail its digest; "slow" is the one
   // to cancel.
-  | "assurance-set-recover"
-  | "assurance-set-nospace"
-  | "assurance-set-corrupt"
-  | "assurance-set-slow"
+  "assurance-set-recover",
+  "assurance-set-nospace",
+  "assurance-set-corrupt",
+  "assurance-set-slow",
   // Issue #1115: the docked terminal's level toggles. "dock-no-warnings" is
   // the default feed with its one warning taken out, so the Warnings count is
   // zero and must be shown disabled. "dock-live-line" is the default feed, and
   // once a spec sets sessionStorage "retnd.mock.dock.live" a warning and a
   // plain note arrive on the next poll, which is how a spec watches a new line
   // meet an active filter.
-  | "dock-no-warnings"
-  | "dock-live-line"
-  // Issue #1157: the destructive gate as every shipped build has it, shut.
-  // The four snapshot acts and retention apply refuse with the code and the
-  // sentence apps/common/webhost writes, so a spec can press the control and
-  // read what the screen says back. Every other scenario here leaves those
-  // acts working, which is what keeps the existing cases about the screens
+  "dock-no-warnings",
+  "dock-live-line",
+  // Issue #1157: a shut destructive gate. Restore, retention apply and the
+  // runs refuse with the code and the sentence apps/common/webhost writes, so
+  // a spec can press the control and read what the screen says back. Since
+  // #1164 verify, hold and release-hold are NOT among them, as on the engine:
+  // they are off the gate. Every other scenario here leaves the gated acts
+  // working, which is what keeps the existing cases about the screens
   // themselves.
-  | "gate-shut"
-  // Issue #1165: the same shut gate with a different reason on the capability
-  // field, which is how a spec proves the screens read the reason from the
-  // field rather than carrying a sentence of their own.
-  | "gate-shut-local-account";
+  "gate-shut",
+  // Issue #1163: what a GATEWAY profile (UGOS) reports. The gate is shut with
+  // the reason the engine gives for a gateway profile, which is also how a
+  // spec proves the screens read the reason from the field rather than
+  // carrying a sentence of their own.
+  "gateway-profile",
+  // Issue #1163: what a LOCAL-ACCOUNT profile reports. The gate is open, and
+  // the mock enforces what the engine enforces on top of it: a restore needs
+  // the administrator's password again (correct-horse-battery) and an
+  // acknowledgement, and answers STEP_UP_FAILED, STEP_UP_REQUIRED or
+  // RESTORE_TARGET_NOT_ACKNOWLEDGED the way the engine does.
+  "local-account-profile",
+  // Issue #1163: a local-account profile reached over plain HTTP from another
+  // machine. The gate is open, the capability field says an extra
+  // acknowledgement is needed, and the first gated act asks the operator the
+  // way api/client.ts does against a real engine: through the registered
+  // dialog, and only a yes lets it through.
+  "insecure-transport",
+  // Issue #1163 review: a local-account profile whose password limiter has
+  // tripped, so every restore is answered 429 RATE_LIMITED, as the engine
+  // answers once too many passwords were checked in the last minute.
+  "step-up-limited",
+] as const;
+
+export type Scenario = (typeof SCENARIOS)[number];
+
+export function isScenario(s: string | null | undefined): s is Scenario {
+  return (SCENARIOS as readonly string[]).includes(s ?? "");
+}
 
 /** Reads the scenario out of the URL, falling back to the default for
  *  anything unrecognised. A closed allow-list rather than a cast, so a
@@ -187,20 +225,7 @@ export type Scenario =
  *  half exists. */
 export function scenarioFromLocation(): Scenario {
   const s = new URLSearchParams(window.location.search).get("scenario");
-  const allowed: Scenario[] = [
-    "default", "empty", "storage-critical", "catalog-recovery",
-    "version-mismatch", "first-run", "no-medium", "activity-unreadable",
-    "read-only-source", "assurance-split", "assurance-more", "assurance-existence", "assurance-rebuilt",
-    "assurance-unavailable", "assurance-scrub-fails", "assurance-download-slow",
-    "assurance-download-fails", "assurance-slow-test", "assurance-validator-output",
-    "assurance-no-operations", "assurance-cleanup-fails", "assurance-recovery-overdue",
-    "assurance-snapshot-set", "assurance-too-many-grants", "assurance-grant-expired",
-    "assurance-grant-used", "assurance-session-ended", "assurance-staging-full",
-    "assurance-reads-busy", "assurance-corrupt-copy", "assurance-download-outcomes",
-    "assurance-set-recover", "assurance-set-nospace", "assurance-set-corrupt", "assurance-set-slow",
-    "backups-many", "backups-many-corrupt", "backups-many-nospace", "backups-999", "backups-1000", "dock-no-warnings", "dock-live-line", "assurance-no-validator", "assurance-builtin-check", "assurance-default-policy", "assurance-default-untested", "assurance-ingest-failed-scrubbed", "gate-shut", "gate-shut-local-account"
-  ];
-  return (allowed as string[]).includes(s ?? "") ? (s as Scenario) : "default";
+  return isScenario(s) ? s : "default";
 }
 
 /** `?wire=1` swaps the mock's own assurance seam for the production one
@@ -208,6 +233,13 @@ export function scenarioFromLocation(): Scenario {
  *  drive the code a built app runs. */
 export function wireFromLocation(): boolean {
   return new URLSearchParams(window.location.search).get("wire") === "1";
+}
+
+/** `?wire-restore=1` sends a snapshot restore through the production client
+ *  (api/client.ts) instead of the mock, so a browser spec can read the real
+ *  request, headers included, and answer it with page.route (issue #1163). */
+export function wireRestoreFromLocation(): boolean {
+  return new URLSearchParams(window.location.search).get("wire-restore") === "1";
 }
 
 const GB = 1024 ** 3;
@@ -1754,6 +1786,41 @@ function gateRefusal(): Promise<never> {
       correlationId: "cid_mockgate"
     })
   );
+}
+
+/** The administrator's password in the mock, so a spec can type a right one
+ *  and a wrong one. */
+const MOCK_ADMIN_PASSWORD = "correct-horse-battery";
+
+/** The engine's consent refusals (issues #1163, #1164): a 409 named for what
+ *  was not acknowledged, in the engine's words for each act. */
+function notAcknowledged(
+  code: "RESTORE_TARGET_NOT_ACKNOWLEDGED" | "RECOVERY_COST_NOT_ACKNOWLEDGED" | "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED",
+  message: string
+): Promise<never> {
+  return Promise.reject(new RetndError({ code, message, correlationId: "cid_mockack" }));
+}
+
+/** What the engine checks on a restore where the gate is open for local
+ *  accounts, in its order: the acknowledgement, then the password. Null
+ *  means both passed. `limited` is a tripped password limiter, which answers
+ *  before the password is looked at. */
+function mockStepUp(
+  password: string | undefined,
+  acknowledged: boolean | undefined,
+  kind: "snapshot" | "placement",
+  limited = false
+): Promise<never> | null {
+  if (acknowledged !== true)
+    return kind === "snapshot"
+      ? notAcknowledged("RESTORE_TARGET_NOT_ACKNOWLEDGED", "this restore writes files into its destination, so it needs your explicit acknowledgement")
+      : notAcknowledged("RECOVERY_COST_NOT_ACKNOWLEDGED", "a provider restore has a retrieval cost and takes hours, so it needs your explicit acknowledgement");
+  const refuse = (code: "STEP_UP_REQUIRED" | "STEP_UP_FAILED" | "RATE_LIMITED", message: string) =>
+    Promise.reject(new RetndError({ code, message, correlationId: "cid_mockstepup" }));
+  if (!password) return refuse("STEP_UP_REQUIRED", "a restore asks for your password again");
+  if (limited) return refuse("RATE_LIMITED", "too many password checks in the last minute; wait before trying again");
+  if (password !== MOCK_ADMIN_PASSWORD) return refuse("STEP_UP_FAILED", "that password was not accepted");
+  return null;
 }
 
 function snapshotActionRefusal(backupSetId: string): Promise<never> | null {
@@ -3985,7 +4052,7 @@ function padRetained(retained: BackupArtifact[], want: number | null): BackupArt
  * Each instance is independent. Tests that want to read a fixture without
  * disturbing the one under test build a second mock rather than sharing.
  */
-export function createMockApi(scenario: Scenario = "default", options: { wire?: boolean } = {}): RetndApi {
+export function createMockApi(scenario: Scenario = "default", options: { wire?: boolean; wireRestore?: boolean } = {}): RetndApi {
   // #1106: Recover this backup set is for artifact-engine sets, and every
   // fixture set but one is incremental. The recover-set scenarios present the
   // fixture sets as artifact sets (the mock host's recoverMany holds the rows);
@@ -4020,7 +4087,37 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   // FULLY populated instance that simply never heard of the feature.
   const noMedium = scenario === "no-medium";
   // Issue #1157: see the scenario's own note.
-  const gateShut = scenario === "gate-shut" || scenario === "gate-shut-local-account";
+  const gateShut = scenario === "gate-shut" || scenario === "gateway-profile";
+  const localAccount =
+    scenario === "local-account-profile" || scenario === "insecure-transport" || scenario === "step-up-limited";
+  const insecureTransport = scenario === "insecure-transport";
+  // What the engine and api/client.ts do together on an unencrypted
+  // connection: refuse with INSECURE_TRANSPORT_ACK_REQUIRED, ask, and let the
+  // act through once the operator has said so. The yes is the client's own
+  // (api/client.ts holds it), so a screen that asked first is not asked again.
+  const insecureTransportCheck = async (): Promise<void> => {
+    if (!insecureTransport) return;
+    // The client's own question and flag, which is what a real request
+    // carries from here on.
+    if (await acknowledgeInsecureTransport()) return;
+    throw new RetndError({
+      code: "INSECURE_TRANSPORT_ACK_REQUIRED",
+      message: "this connection is not encrypted and is not from this machine",
+      correlationId: "cid_mockinsecure"
+    });
+  };
+  // A restore carries the password, so it is never sent to be refused and
+  // asked about after: the screen asks first, and without that yes the client
+  // refuses it itself (api/client.ts), which is what this stands in for.
+  const insecureTransportPasswordCheck = (): Promise<never> | null =>
+    insecureTransport && !insecureTransportIsAcknowledged()
+      ? Promise.reject(
+          new RetndError({
+            code: "INSECURE_TRANSPORT_ACK_REQUIRED",
+            message: "This connection is not encrypted, so your password was not sent. Nothing was restored."
+          })
+        )
+      : null;
   // Issue #598. One call fails, and it fails the way the NAS did.
   const activityUnreadable = scenario === "activity-unreadable";
   // Issue #852. One flag, read by both modes of the connection test, so
@@ -4156,6 +4253,10 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   // which is what the real backend's hot reload does, and a write in one
   // test must not be visible to the next.
   const workflowSettings = defaultWorkflowSettings();
+  if (scenario === "workflow-no-globals") {
+    workflowSettings.beforeDir = "";
+    workflowSettings.afterDir = "";
+  }
   const assuranceSettings = defaultAssuranceSettings();
   const mockRecovery = createMockRecovery(scenario);
   // #1106: every row the journal holds for a set, quarantined ones included,
@@ -4226,8 +4327,10 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
     // Issue #1165. Every scenario but the gate-shut ones leaves the gate open,
     // which is what lets the existing cases about the screens press their
     // controls; the two shut ones answer what a shipped build answers.
-    getCapabilities: () =>
-      delay({
+    getCapabilities: () => {
+      // What api/client.ts remembers off a real capabilities read.
+      rememberInsecureTransportRequired(!gateShut && insecureTransport);
+      return delay({
         platform: "generic",
         nativeAuth: false,
         nativeNotifications: false,
@@ -4235,15 +4338,18 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
         embeddedWindow: false,
         appStorePackaging: false,
         destructiveOperations: !gateShut
-          ? { state: "open", reason: "" }
+          ? { state: "open", reason: "", stepUpRequired: localAccount, insecureTransportAckRequired: insecureTransport }
           : {
               state: "shut",
               reason:
-                scenario === "gate-shut-local-account"
-                  ? "local-account profile: gate shut until #92"
-                  : "gate shut until #92"
+                scenario === "gateway-profile"
+                  ? "gateway profile: its identity is a header this build cannot verify, so the gate stays shut until #92"
+                  : "gate shut until #92",
+              stepUpRequired: false,
+              insecureTransportAckRequired: false
             }
-      }),
+      });
+    },
     getVersion: () =>
       delay(
         scenario === "version-mismatch"
@@ -4327,7 +4433,10 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
         );
       return delay(withRetentionAttribution(retentionOverrides, [found])[0]);
     },
-    runCycle: () => delay(undefined),
+    runCycle: async () => {
+      await insecureTransportCheck();
+      return delay(undefined);
+    },
     // The mock REFUSES a run of a set it does not have, rather than
     // answering "fine" whatever it was handed. A mock that accepts every
     // id makes a page that sent the wrong one look correct in the
@@ -4350,6 +4459,11 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
     // finishing time nor an amount, because there is nowhere in the type
     // to put one.
     restoreCopy: (req) =>
+      (gateShut
+        ? gateRefusal()
+        : localAccount
+          ? mockStepUp(req.stepUpPassword, req.acknowledged, "placement", scenario === "step-up-limited")
+          : null) ??
       delay({
         operationId: "op_mock_restore_1",
         status: "running",
@@ -4778,7 +4892,14 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
     // live reading, so the progress surface has something to draw, and
     // `completeMockOperation` is what a test uses to finish it.
     restoreSnapshot: (req) => {
+      if (options.wireRestore) return httpApi.restoreSnapshot(req);
       if (gateShut) return gateRefusal();
+      if (localAccount) {
+        const stepUp =
+          (req.stepUpPassword ? insecureTransportPasswordCheck() : null) ??
+          mockStepUp(req.stepUpPassword, req.acknowledged, "snapshot", scenario === "step-up-limited");
+        if (stepUp) return stepUp;
+      }
       const refusal = snapshotActionRefusal(req.backupSetId);
       if (refusal) return refusal;
       const operation: Operation = {
@@ -4809,7 +4930,6 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
       return delay({ operation, snapshots: [] });
     },
     verifySnapshot: (req) => {
-      if (gateShut) return gateRefusal();
       const refusal = snapshotActionRefusal(req.backupSetId);
       if (refusal) return refusal;
       const operation: Operation = {
@@ -4842,7 +4962,6 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
       return delay({ operation, snapshots: [] });
     },
     holdSnapshot: (req) => {
-      if (gateShut) return gateRefusal();
       const refusal = snapshotActionRefusal(req.backupSetId);
       if (refusal) return refusal;
       const snapshot = MOCK_SNAPSHOTS.find(
@@ -4878,7 +4997,13 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
       });
     },
     releaseSnapshotHold: (req) => {
-      if (gateShut) return gateRefusal();
+      // Off the gate (#1164), but not off the acknowledgement: the engine
+      // refuses a release that did not say the operator understood.
+      if (req.acknowledged !== true)
+        return notAcknowledged(
+          "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED",
+          "releasing this hold makes its snapshot prunable by the next retention run, so it needs your explicit acknowledgement"
+        );
       const refusal = snapshotActionRefusal(req.backupSetId);
       if (refusal) return refusal;
       const hold = MOCK_HOLDS.find((h) => h.holdId === req.holdId && h.active);
@@ -5753,6 +5878,15 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
       };
       next.effectiveScriptTimeoutSeconds =
         next.scriptTimeoutSeconds ?? workflowSettings.scriptTimeoutSeconds;
+      // The stages a run will take, in the engine's order: the deployment's
+      // before, this set's before, this set's after, the deployment's after.
+      // Mirrors workflow.PlanStages in core/internal/workflow/plan.go.
+      next.stages = [
+        ...(workflowSettings.beforeDir ? [{ scope: "global" as const, phase: "before" as const, dir: workflowSettings.beforeDir }] : []),
+        ...(next.beforeDir ? [{ scope: "set" as const, phase: "before" as const, dir: next.beforeDir }] : []),
+        ...(next.afterDir ? [{ scope: "set" as const, phase: "after" as const, dir: next.afterDir }] : []),
+        ...(workflowSettings.afterDir ? [{ scope: "global" as const, phase: "after" as const, dir: workflowSettings.afterDir }] : [])
+      ];
       setWorkflows.set(id, next);
       return delay(structuredClone(next), 400);
     },

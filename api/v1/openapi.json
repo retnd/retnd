@@ -48,6 +48,27 @@
         "schema": {
           "type": "string"
         }
+      },
+      "StepUpPassword": {
+        "name": "X-Retnd-Step-Up-Password",
+        "in": "header",
+        "required": false,
+        "description": "The administrator's password, sent again by a restore wherever capabilities report destructive_operations.step_up_required. A header and never a body field, so the request recorder cannot echo it. Never stored or logged.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "InsecureTransportAck": {
+        "name": "X-Retnd-Insecure-Transport-Ack",
+        "in": "header",
+        "required": false,
+        "description": "The value \"acknowledged\", sent by a gated act when capabilities report destructive_operations.insecure_transport_ack_required: the operator has been told this connection is not encrypted and the session is travelling in the clear.",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "acknowledged"
+          ]
+        }
       }
     },
     "schemas": {
@@ -89,6 +110,12 @@
           "SSH_KEY_NOT_FOUND",
           "HOST_KEY_PROBE_FAILED",
           "DESTRUCTIVE_OPERATIONS_DISABLED",
+          "STEP_UP_REQUIRED",
+          "STEP_UP_FAILED",
+          "STEP_UP_UNAVAILABLE",
+          "INSECURE_TRANSPORT_ACK_REQUIRED",
+          "RESTORE_TARGET_NOT_ACKNOWLEDGED",
+          "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED",
           "INTERNAL",
           "ALREADY_CONFIGURED",
           "NOT_CONFIGURED",
@@ -250,7 +277,13 @@
           "RECOVERY_FAILED": "wire",
           "RECOVERY_READS_BUSY": "wire",
           "RECOVERY_DESTINATION_BUSY": "wire",
-          "RECOVERY_DOWNLOADS_BUSY": "wire"
+          "RECOVERY_DOWNLOADS_BUSY": "wire",
+          "STEP_UP_REQUIRED": "wire",
+          "STEP_UP_FAILED": "wire",
+          "STEP_UP_UNAVAILABLE": "wire",
+          "INSECURE_TRANSPORT_ACK_REQUIRED": "wire",
+          "RESTORE_TARGET_NOT_ACKNOWLEDGED": "wire",
+          "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED": "wire"
         },
         "x-error-classes": {
           "authentication": [
@@ -264,7 +297,10 @@
             "DESTRUCTIVE_OPERATIONS_DISABLED",
             "CSRF_TOKEN_MISSING",
             "CSRF_TOKEN_MISMATCH",
-            "RECOVERY_GRANT_SESSION_ENDED"
+            "RECOVERY_GRANT_SESSION_ENDED",
+            "STEP_UP_REQUIRED",
+            "STEP_UP_FAILED",
+            "INSECURE_TRANSPORT_ACK_REQUIRED"
           ],
           "validation": [
             "INVALID_REQUEST",
@@ -309,7 +345,9 @@
             "RECOVERY_GRANT_EXPIRED",
             "RECOVERY_TARGET_EXISTS",
             "RECOVERY_USE_SNAPSHOT_RESTORE",
-            "RECOVERY_BUSY"
+            "RECOVERY_BUSY",
+            "RESTORE_TARGET_NOT_ACKNOWLEDGED",
+            "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED"
           ],
           "not-found": [
             "BACKUP_SET_NOT_FOUND",
@@ -347,7 +385,8 @@
             "SMTP_SEND_FAILED",
             "WORKFLOW_ENGINE_UNAVAILABLE",
             "RECOVERY_UNAVAILABLE",
-            "RECOVERY_INTERRUPTED"
+            "RECOVERY_INTERRUPTED",
+            "STEP_UP_UNAVAILABLE"
           ]
         }
       },
@@ -558,7 +597,7 @@
       },
       "DestructiveOperationsStatus": {
         "type": "object",
-        "description": "Whether this deployment's destructive gate is open, and why it is not when it is not (issue #1165). The gate is the one the routes marked x-destructive-gate ask before they act, and the state here is read from that same gate at the moment of the request, so it can change while the process runs. The CLI is not behind it: the terminal verbs the gated routes have equivalents for run with no gate.",
+        "description": "Whether this deployment's destructive gate is open, and why it is not when it is not (issue #1165). The gate is the one the routes marked x-destructive-gate ask before they act, and the state here is read from that same gate at the moment of the request, so it can change while the process runs. It is open on a local-account profile and shut on a gateway profile until #92 ships a verified gate (issue #1163). step_up_required and insecure_transport_ack_required say what an open gate still asks for, read from what the router will enforce rather than assumed. The CLI is not behind the gate: the terminal verbs the gated routes have equivalents for run with no gate.",
         "additionalProperties": false,
         "properties": {
           "state": {
@@ -571,12 +610,22 @@
           },
           "reason": {
             "type": "string",
-            "description": "A short reason for a shut gate, such as \"gate shut until #92\". Always present, and empty when the gate is open."
+            "description": "A short reason for a shut gate, such as \"gateway profile: its identity is a header this build cannot verify, so the gate stays shut until #92\". Always present, and empty when the gate is open."
+          },
+          "step_up_required": {
+            "type": "boolean",
+            "description": "True when the gate is open and a restore (restore_placement or restore_snapshot) must carry the administrator's password again in the X-Retnd-Step-Up-Password header. False when the gate is shut, because nothing will run, and false for a gate that asks for no re-authentication."
+          },
+          "insecure_transport_ack_required": {
+            "type": "boolean",
+            "description": "True when the gate is open and the browser that asked reached retnd over plain HTTP from another machine: a gated act then also needs X-Retnd-Insecure-Transport-Ack: acknowledged. Decided at the hop that faces the browser: serve-ui stamps its verdict on every request it proxies, because the engine behind it only ever sees serve-ui. Computed from the request that asked, so GET /system/capabilities is answered Cache-Control: no-store."
           }
         },
         "required": [
           "state",
-          "reason"
+          "reason",
+          "step_up_required",
+          "insecure_transport_ack_required"
         ]
       },
       "StorageStatus": {
@@ -1227,7 +1276,7 @@
             "properties": {
               "run_immediately": {
                 "type": "boolean",
-                "description": "Also submit a run_cycle. This branch, and only this branch, is subject to the destructive gate, and every build of this release refuses it until issue #92 ships a verified gate: the backup set is still created, the response is 201, no run starts, and run_error carries the refusal. Start the first run from a terminal with `retnd fetch --backup-set <source/backup-set>`, after stopping the web service."
+                "description": "Also submit a run_cycle. This branch, and only this branch, is subject to the destructive gate. It runs on a local-account profile, where the gate is open (issue #1163); on a gateway profile the gate is shut until issue #92 ships a verified gate, and over a connection that needs the insecure-transport acknowledgement it is refused without it. When it is refused the backup set is still created, the response is 201, no run starts, and run_error carries the refusal. Start the first run from a terminal with `retnd fetch --backup-set <source/backup-set>`, after stopping the web service."
               },
               "acknowledge_repoint": {
                 "type": "boolean",
@@ -3800,7 +3849,7 @@
           },
           "acknowledged": {
             "type": "boolean",
-            "description": "The operator saying, in one field, that they know a restore costs money and takes hours. Required true. It is the opposite of a force flag: the value that costs nothing is the default, so a caller that forgot to ask a human gets a refusal rather than a bill."
+            "description": "The operator saying, in one field, that they know a restore costs money and takes hours. Required true. It is the opposite of a force flag: the value that costs nothing is the default, so a caller that forgot to ask a human gets a refusal rather than a bill. Where the destructive gate opens for local accounts (issue #1163) this one field is also the restore's consent there: it is checked before the administrator's password is asked for, and refused with 409 RECOVERY_COST_NOT_ACKNOWLEDGED. A thaw writes into no directory, so there is no second consent to give."
           }
         },
         "required": [
@@ -5655,6 +5704,11 @@
               "overwrite"
             ],
             "x-go-omitempty": true
+          },
+          "acknowledged": {
+            "type": "boolean",
+            "description": "The operator saying they understand this writes into target_path. Required to be true wherever the destructive gate is open for local accounts (issue #1163); the request is refused with 409 RESTORE_TARGET_NOT_ACKNOWLEDGED otherwise.",
+            "x-go-omitempty": true
           }
         },
         "required": [
@@ -5717,7 +5771,7 @@
       },
       "SnapshotHoldReleaseRequest": {
         "type": "object",
-        "description": "POST /operations' parameters when the action is release_snapshot_hold: end one hold, by its id. Releasing does not delete anything; it returns the snapshot to whatever the retention policy already said about it.",
+        "description": "POST /operations' parameters when the action is release_snapshot_hold: end one hold, by its id. Releasing does not delete anything; it returns the snapshot to whatever the retention policy already said about it. Releasing makes the snapshot prunable by the next retention run, so it needs the operator's explicit acknowledgement (issue #1164).",
         "additionalProperties": false,
         "properties": {
           "backup_set_id": {
@@ -5727,11 +5781,16 @@
           "hold_id": {
             "type": "string",
             "description": "The hold to release, as GET /backup-sets/{source}/{set}/holds reports it."
+          },
+          "acknowledged": {
+            "type": "boolean",
+            "description": "Must be true. The operator saying they understand that releasing this hold lets the next retention run prune the snapshot. Refused with 409 SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED otherwise."
           }
         },
         "required": [
           "backup_set_id",
-          "hold_id"
+          "hold_id",
+          "acknowledged"
         ]
       },
       "WorkflowSecretReference": {
@@ -8232,7 +8291,7 @@
       "post": {
         "operationId": "submitOperation",
         "summary": "Submit a durable operation: a run cycle, one backup set's run, a restore of one archived copy, or one of the incremental engine's four acts (restore a snapshot, verify one, hold one, release a hold).",
-        "description": "In every build of this release this route refuses every action with 403 DESTRUCTIVE_OPERATIONS_DISABLED: the destructive gate is shut until issue #92 ships a verified gate, and retnd-web has no setting that opens it. Nothing here can be retried into working. The same acts run from a terminal on the host, where no gate applies: `retnd run` and `retnd fetch --backup-set` for run_cycle and run_backup_set (both refuse while the web service is serving the deployment, so stop the web service first), `retnd restore` for restore_placement, and `retnd snapshot restore`, `retnd snapshot verify`, `retnd snapshot hold` and `retnd snapshot unhold` for the four snapshot acts.",
+        "description": "The destructive gate applies per action. The actions verify_snapshot, hold_snapshot and release_snapshot_hold are NOT behind it (issue #1164) and work on every profile: verify only reads, and a hold only protects a snapshot from pruning. The release_snapshot_hold action lifts that protection, so its parameters must carry acknowledged: true, refused with 409 SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED otherwise; this is new in 0.7.0 and a client that released holds before must start sending it. Every other action is gated. On a local-account profile the gate is open (issue #1163): run_cycle and run_backup_set run, and a restore (restore_placement, restore_snapshot) additionally needs acknowledged: true in its parameters and the administrator's password in the X-Retnd-Step-Up-Password header. The acknowledgement is asked first and is per action: restore_snapshot's says it writes into target_path (409 RESTORE_TARGET_NOT_ACKNOWLEDGED), and restore_placement's is the one its restore.acknowledged always carried, that a thaw costs money and takes hours (409 RECOVERY_COST_NOT_ACKNOWLEDGED), since a thaw writes into no directory. Then the password: 403 STEP_UP_REQUIRED or STEP_UP_FAILED, 429 RATE_LIMITED with Retry-After when too many were checked in the last minute, and 503 STEP_UP_UNAVAILABLE where the deployment cannot check one. When the browser reached retnd over plain HTTP from another machine, a gated act also needs X-Retnd-Insecure-Transport-Ack: acknowledged, refused with 403 INSECURE_TRANSPORT_ACK_REQUIRED otherwise. That is a consent prompt, not an access control: it makes sure the operator was told, and the hop facing the browser (serve-ui in every shipped deployment) decides it. On a gateway profile the gate stays shut until #92 ships a verified gate: every gated action is refused with 403 DESTRUCTIVE_OPERATIONS_DISABLED, retnd-web has no setting that opens it, and the same acts run from a terminal on the host, where no gate applies: `retnd run` and `retnd fetch --backup-set` for run_cycle and run_backup_set (both refuse while the web service is serving the deployment, so stop the web service first), `retnd restore` for restore_placement, and `retnd snapshot restore` for restore_snapshot. An action that cannot be read plainly out of the body (a duplicate or non-string action key) is gated, never exempt. GET /system/capabilities reports which case a deployment is in.",
         "tags": [
           "operations"
         ],
@@ -8246,6 +8305,12 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/StepUpPassword"
+          },
+          {
+            "$ref": "#/components/parameters/InsecureTransportAck"
           }
         ],
         "requestBody": {
@@ -8297,7 +8362,7 @@
             ]
           },
           "403": {
-            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, DESTRUCTIVE_OPERATIONS_DISABLED.",
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, DESTRUCTIVE_OPERATIONS_DISABLED, STEP_UP_REQUIRED, STEP_UP_FAILED, INSECURE_TRANSPORT_ACK_REQUIRED.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8308,7 +8373,10 @@
             "x-error-codes": [
               "CSRF_TOKEN_MISSING",
               "CSRF_TOKEN_MISMATCH",
-              "DESTRUCTIVE_OPERATIONS_DISABLED"
+              "DESTRUCTIVE_OPERATIONS_DISABLED",
+              "STEP_UP_REQUIRED",
+              "STEP_UP_FAILED",
+              "INSECURE_TRANSPORT_ACK_REQUIRED"
             ]
           },
           "404": {
@@ -8329,7 +8397,7 @@
             ]
           },
           "409": {
-            "description": "Refused: CONFIG_REVISION_STALE, IDEMPOTENCY_KEY_CONFLICT, OPERATION_ALREADY_RUNNING, BACKUP_SET_HELD_FOR_EDITING, RESTORE_REFUSED, SNAPSHOT_NOT_HOLDABLE. The body is one of two shapes and the code decides which: CONFIG_REVISION_STALE carries the structured config_revision a client retries against, the others are the plain error envelope. oneOf rather than one schema with an optional config_revision, so a client reading .config_revision after a CONFIG_REVISION_STALE still gets a field the type system guarantees is there. SNAPSHOT_NOT_HOLDABLE is the state of the snapshot rather than of the request: the run committed no manifest, or its snapshot is already gone, already being deleted, or not in the repository at all, so a hold accepted now would protect nothing. Nothing about the body would make it work, which is why it is not an INVALID_REQUEST. Refused: INCREMENTAL_ENGINE_DISABLED. EPIC K's production feature gate (#789): this DEPLOYMENT is configured not to run the incremental engine, so nothing here may open a repository. It is distinct from BACKUP_SET_NOT_INCREMENTAL, which is about the SET being the wrong kind: this one is answered by enabling incremental_engine.enabled in the deployment's configuration (or RETND_INCREMENTAL_ENGINE=1 in the engine process's environment), never by changing the request. Artifact backup sets are unaffected by it.",
+            "description": "Refused: CONFIG_REVISION_STALE, IDEMPOTENCY_KEY_CONFLICT, OPERATION_ALREADY_RUNNING, BACKUP_SET_HELD_FOR_EDITING, RESTORE_REFUSED, SNAPSHOT_NOT_HOLDABLE. The body is one of two shapes and the code decides which: CONFIG_REVISION_STALE carries the structured config_revision a client retries against, the others are the plain error envelope. oneOf rather than one schema with an optional config_revision, so a client reading .config_revision after a CONFIG_REVISION_STALE still gets a field the type system guarantees is there. SNAPSHOT_NOT_HOLDABLE is the state of the snapshot rather than of the request: the run committed no manifest, or its snapshot is already gone, already being deleted, or not in the repository at all, so a hold accepted now would protect nothing. Nothing about the body would make it work, which is why it is not an INVALID_REQUEST. Refused: INCREMENTAL_ENGINE_DISABLED. EPIC K's production feature gate (#789): this DEPLOYMENT is configured not to run the incremental engine, so nothing here may open a repository. It is distinct from BACKUP_SET_NOT_INCREMENTAL, which is about the SET being the wrong kind: this one is answered by enabling incremental_engine.enabled in the deployment's configuration (or RETND_INCREMENTAL_ENGINE=1 in the engine process's environment), never by changing the request. Artifact backup sets are unaffected by it. Refused: RESTORE_TARGET_NOT_ACKNOWLEDGED, RECOVERY_COST_NOT_ACKNOWLEDGED, SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED. Consent refusals, each named for what was not acknowledged, like the other *_NOT_ACKNOWLEDGED codes: a restore_snapshot that did not acknowledge writing into its target_path, a restore_placement that did not acknowledge its retrieval cost (asked before the password where the gate opens for local accounts), and a release_snapshot_hold that did not acknowledge the snapshot becoming prunable (asked on every profile).",
             "content": {
               "application/json": {
                 "schema": {
@@ -8351,7 +8419,23 @@
               "BACKUP_SET_HELD_FOR_EDITING",
               "RESTORE_REFUSED",
               "SNAPSHOT_NOT_HOLDABLE",
-              "INCREMENTAL_ENGINE_DISABLED"
+              "INCREMENTAL_ENGINE_DISABLED",
+              "RESTORE_TARGET_NOT_ACKNOWLEDGED",
+              "RECOVERY_COST_NOT_ACKNOWLEDGED",
+              "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED"
+            ]
+          },
+          "429": {
+            "description": "Refused: RATE_LIMITED. Too many password checks for restores were asked for in the last minute, the right password included, so this one was refused without the password being looked at. Retry-After says how many seconds until the next check is allowed. It is not STEP_UP_FAILED: trying again at once keeps the limit tripped.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RATE_LIMITED"
             ]
           },
           "500": {
@@ -8368,7 +8452,7 @@
             ]
           },
           "503": {
-            "description": "Refused: RESTORE_UNAVAILABLE. This deployment has no way to reach a storage medium, so no restore can be asked for. Nothing about the request would make it work; something about the deployment has to change first.",
+            "description": "Refused: RESTORE_UNAVAILABLE. This deployment has no way to reach a storage medium, so no restore can be asked for. Nothing about the request would make it work; something about the deployment has to change first. Refused: STEP_UP_UNAVAILABLE. Where the gate opens for local accounts a restore re-checks the administrator's password, and this deployment has nothing to check it with, so restores fail closed. Like RESTORE_UNAVAILABLE, it is the deployment and not the request; run `retnd snapshot restore` on the host instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8377,7 +8461,8 @@
               }
             },
             "x-error-codes": [
-              "RESTORE_UNAVAILABLE"
+              "RESTORE_UNAVAILABLE",
+              "STEP_UP_UNAVAILABLE"
             ]
           }
         },
@@ -8385,7 +8470,12 @@
         "x-idempotency-key": "required",
         "x-optimistic-concurrency": "config_revision",
         "x-csrf-required": true,
-        "x-authenticated": true
+        "x-authenticated": true,
+        "x-destructive-gate-exempt-actions": [
+          "verify_snapshot",
+          "hold_snapshot",
+          "release_snapshot_hold"
+        ]
       },
       "get": {
         "operationId": "listOperations",
@@ -8654,7 +8744,7 @@
       "post": {
         "operationId": "applyRetention",
         "summary": "Apply a plan the operator already approved, by id. The one operation in this contract that deletes local restore points.",
-        "description": "In every build of this release this route refuses with 403 DESTRUCTIVE_OPERATIONS_DISABLED: the destructive gate is shut until issue #92 ships a verified gate, and retnd-web has no setting that opens it. The terminal does the same work with no gate: `retnd retention apply <source/backup-set> --acknowledge` previews and applies in one invocation.",
+        "description": "The destructive gate is open on a local-account profile (issue #1163) and shut on a gateway profile until #92 ships a verified gate, where this route refuses with 403 DESTRUCTIVE_OPERATIONS_DISABLED and retnd-web has no setting that opens it. Where it is open the request still carries the plan_id the operator reviewed; when the session cookie cannot be Secure on this connection and the peer is not loopback it also needs X-Retnd-Insecure-Transport-Ack: acknowledged, refused with 403 INSECURE_TRANSPORT_ACK_REQUIRED otherwise. The terminal does the same work with no gate: `retnd retention apply <source/backup-set> --acknowledge` previews and applies in one invocation.",
         "tags": [
           "retention"
         ],
@@ -8681,6 +8771,9 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "$ref": "#/components/parameters/InsecureTransportAck"
           }
         ],
         "requestBody": {
@@ -8731,7 +8824,7 @@
             ]
           },
           "403": {
-            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, DESTRUCTIVE_OPERATIONS_DISABLED.",
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, DESTRUCTIVE_OPERATIONS_DISABLED, INSECURE_TRANSPORT_ACK_REQUIRED.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8742,7 +8835,8 @@
             "x-error-codes": [
               "CSRF_TOKEN_MISSING",
               "CSRF_TOKEN_MISMATCH",
-              "DESTRUCTIVE_OPERATIONS_DISABLED"
+              "DESTRUCTIVE_OPERATIONS_DISABLED",
+              "INSECURE_TRANSPORT_ACK_REQUIRED"
             ]
           },
           "404": {

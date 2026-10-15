@@ -22,16 +22,22 @@ retained artifact; restoring it into an application remains the operator's
 responsibility.** The interface can hand you the file, checked. It cannot put it back into
 whatever the file came from.
 
-## Terminal-only in this release: what the interface will not do
+## What the interface can run, and what is terminal-only
 
-Some acts are refused over HTTP in every build of this release, and the interface tells you so
-when you press the control: starting a run, restoring or verifying a snapshot, placing or
-releasing a snapshot hold, and applying a retention plan. The refusal is a 403
-(`DESTRUCTIVE_OPERATIONS_DISABLED`) and pressing again gets the same answer, because the gate
-behind it stays shut until issue #92 ships a verified one. These are terminal-only in this
-release. If you have a shell, `docs/site/reference.html` lists the command for each; if you
-do not, none of the recovery steps below need one, because exporting a retained artifact
-(the `Recover` flow) is not one of the refused acts.
+Which acts the interface will run depends on the profile you installed (issues #1163 and #1164).
+On a **local-account** profile (generic, TrueNAS, Unraid, OpenMediaVault, Proxmox, Synology) it
+will start a run, apply a retention plan, verify or hold a snapshot, release a hold and restore.
+A restore asks for your password again and a tick in the "I understand" box, releasing a hold
+asks for a tick too, and if you reach the interface over plain HTTP from another machine it
+first tells you the connection is not encrypted and waits for you to say go on.
+
+On a gateway profile (UGOS) the destructive gate stays shut until issue #92 ships a verified
+one, so starting a run, restoring a snapshot and applying a retention plan are refused with a
+403 (`DESTRUCTIVE_OPERATIONS_DISABLED`), and pressing again gets the same answer. Those are
+terminal-only there. Verifying a snapshot, placing a hold and releasing one work on every
+profile. If you have a shell, `docs/site/reference.html` lists the command for each; if you do
+not, none of the recovery steps below need one, because exporting a retained artifact (the
+`Recover` flow) is not one of the gated acts.
 
 ---
 
