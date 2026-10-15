@@ -2,11 +2,43 @@
 
 ## [Unreleased]
 
+### Added
+
+- **The Backups page pages its list** (#1180). A "Rows per page" control offers 20, 50 and 100, and "All"
+  while the deployment holds fewer than 1000 backups, with Previous and Next beside it. A chosen 20, 50 or
+  100 is remembered in the browser between sessions (and the page works without storage); "All" is not.
+  The list endpoint still answers with every backup, so paging happens in the browser, and `retnd artifacts`
+  keeps printing the whole list (paging there waits for the endpoint to page for real). The rows come in
+  configuration order, so a page holds the same backups every time. Select-all after a filter (#1107) still
+  takes every matching backup on every page. Changing a filter returns to page one.
+
 ### Changed
 
 - **Breaking for API clients, targeting 0.7.0: releasing a snapshot hold now needs an acknowledgement** (#1164). If you only use the web interface or the `retnd` terminal, nothing changes for you: the screen asks you to tick a box before it releases a hold, and `retnd snapshot unhold` works as before. If you have a script or another client that calls `POST /api/v1/operations` with `release_snapshot_hold`, it will start getting `409 SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED` on every profile after you upgrade, and the hold stays where it was. To fix it, add `"acknowledged": true` inside `snapshot_hold_release`, which is your script saying it knows the snapshot becomes prunable by the next retention run. Restores on a local-account profile have new refusals too, but those calls were refused outright before this release, so nothing that worked stops working there.
 
 - **The destructive gate now opens for local-account profiles, and verify, hold and release-hold are off it** (#1163, #1164). This changes a default, so I'm putting what happens on upgrade in plain words first. If you run the `generic`, `truenas`, `unraid`, `openmediavault`, `proxmox` or `synology` profile, the web interface can now start a run, apply a retention plan and restore, where before it refused all of them with `DESTRUCTIVE_OPERATIONS_DISABLED`. Nothing runs by itself: you still press the control, and a few things are asked for first. A restore needs your password again and a tick in the "I understand" box. And if you reach the web interface over plain HTTP from another machine (anything but `localhost`, with no HTTPS in front), a gated act first shows "This connection is not encrypted" and only goes ahead if you say so; put HTTPS in front and it never asks. If you run the `ugos` profile nothing opens: its identity is a header the platform sets, nobody has verified that check on real hardware, and the gate stays shut until #92 ships one. Verify, hold and release-hold now work on every profile, `ugos` included, because they destroy nothing; releasing a hold asks for an explicit acknowledgement and the activity feed records who released which hold and when, and restoring a snapshot stays gated. The gate is chosen from the profile in code (there is still no flag or environment variable for it), `GET /system/capabilities` reports the real state per profile plus `step_up_required` and `insecure_transport_ack_required`, and a pinned test makes a new profile start shut. For API clients: `release_snapshot_hold` now needs `snapshot_hold_release.acknowledged: true` on every profile (the breaking entry above), and a restore on a local-account profile needs `acknowledged: true` (409 `RESTORE_TARGET_NOT_ACKNOWLEDGED` for a snapshot restore, 409 `RECOVERY_COST_NOT_ACKNOWLEDGED` for a provider restore, whose one `acknowledged` field already meant the cost), the `X-Retnd-Step-Up-Password` header (403 `STEP_UP_REQUIRED` or `STEP_UP_FAILED`, 429 `RATE_LIMITED` with `Retry-After` when too many passwords were checked in the last minute, 503 `STEP_UP_UNAVAILABLE` where nothing can check one) and, over insecure transport, `X-Retnd-Insecure-Transport-Ack: acknowledged`. Whether the connection counts as insecure is decided by `serve-ui`, the hop your browser actually talks to, so the Synology package (where the engine only ever sees `serve-ui` over loopback) asks a LAN browser on plain HTTP, and Unraid (where it only ever sees a container address) stops asking a browser on HTTPS or on the NAS itself. The web interface asks before it sends your password over an unencrypted connection, never after. `retnd snapshot unhold` and the rest of the terminal are untouched. `x-destructive-gate` stays on `POST /operations` because most of its actions are gated, and the new `x-destructive-gate-exempt-actions` lists the three that are not.
+
+### Fixed
+
+- **The Lifecycle list agrees with the verified chip, and Recovery says Custom configuration** (#1175). A
+  backup with no ingest-time verdict that a scrub had read back and hash-matched showed "Content verified"
+  in its chip and a dash on the Lifecycle's VERIFIED step. That step is now reached at the scrub's time and
+  says the scrub found the content intact since receipt. A backup whose ingest check failed stays unreached
+  there whatever a scrub found, because a scrub only shows a bad file is still the same bad file. A set with a policy of its own now reads "Custom configuration" on its Recovery
+  chip (it said "This set's own policy"), linked to that set's policy, and a set on the deployment's
+  default still reads "Default configuration" linked to Settings. The policy form's note for a set whose
+  recovery test is off no longer says the claim reads "Not configured". "Not configured" now survives only
+  for a set whose policy resolves to nothing, which the web API never reports today.
+
+- **Links into Settings land on their section** (#1188). Clicking "Default configuration" opened Settings
+  at an unrelated spot, because the cards above the target load after the browser has already jumped and push
+  it down. Every Settings section now has a stable anchor id (`#assurance`, `#storage-destinations`,
+  `#retention` and the rest), kept in one table that the page and the links both read. The page scrolls to
+  the hash after the route renders and keeps correcting while the cards load, until you scroll yourself.
+  Targets keep clear of the top edge, scrolling is smooth only when reduced motion is not requested, and the
+  section a link points at gets an accent outline (4.89:1 in light, 6.98:1 in dark). The Assurance card's
+  anchor is `#assurance` now, and the old `#assurance-defaults` still lands on it. A malformed hash (a lone
+  `%E0`) is ignored instead of taking the page down.
 
 ## [0.6.4] - 2026-10-14
 
