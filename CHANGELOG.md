@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-10-14
+
+0.6.4 brings the terminal up to the web API. EPIC S went through every route the API serves and gave
+each one a `retnd` command or a written reason it has none, so `status`, `artifacts`, `quarantine`,
+`storage`, `medium configure` and the rest of the reads now answer from a terminal and print `--json`
+that matches the API field for field. It also changes what a shut destructive gate says: the refusal,
+the spec and the screens now call those operations terminal-only and show the command to run, and the
+capabilities document carries a `destructive_operations` field so a client can ask before it tries.
+Retention writes handed `--json` are refused rather than accepted and ignored, so a script that passed
+the flag there needs to drop it. Nothing here changes a default and there is nothing to migrate.
+
 ### Fixed
 
 - **Usage and the command echo no longer say things the code stopped doing** (#1150). `retnd`'s usage text
