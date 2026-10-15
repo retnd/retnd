@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -80,18 +78,6 @@ func artifactsOut(t *testing.T, want int, args ...string) string {
 		t.Fatalf("run(%v) = %d, want %d\nstdout: %s", args, code, want, out)
 	}
 	return out
-}
-
-func strictDecode(t *testing.T, raw string, into any) {
-	t.Helper()
-	dec := json.NewDecoder(bytes.NewReader([]byte(raw)))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(into); err != nil {
-		t.Fatalf("not the contract's own type: %v\n%s", err, raw)
-	}
-	if dec.More() {
-		t.Fatalf("more than one JSON value on stdout:\n%s", raw)
-	}
 }
 
 // TestIssue1147_ArtifactDetailPrintsAFailedScrubOnTheCopy is P0-2's headline:

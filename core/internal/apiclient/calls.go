@@ -237,6 +237,25 @@ func (c *Client) SystemVersion(ctx context.Context) (apicontract.VersionResponse
 	return out, err
 }
 
+// SystemCapabilities is GET /system/capabilities: what the platform the
+// engine runs on can do. A fact about the serving process and the host it is
+// in, which is why only the engine can say it (#1152).
+func (c *Client) SystemCapabilities(ctx context.Context) (apicontract.CapabilitiesResponse, error) {
+	var out apicontract.CapabilitiesResponse
+	err := c.call(ctx, "getSystemCapabilities", nil, nil, &out)
+	return out, err
+}
+
+// FirstRunStatus is GET /system/first-run: which of the guided setup steps
+// the engine counts as done, pending or skipped. The administrator and the
+// mail server live in the web host, not in this process, so only the engine
+// can answer (#1152).
+func (c *Client) FirstRunStatus(ctx context.Context) (apicontract.FirstRunStatusResponse, error) {
+	var out apicontract.FirstRunStatusResponse
+	err := c.call(ctx, "getFirstRunStatus", nil, nil, &out)
+	return out, err
+}
+
 // StorageStatus is GET /system/storage, the other half of `status`.
 func (c *Client) StorageStatus(ctx context.Context) (apicontract.ListStorageStatusResponse, error) {
 	var out apicontract.ListStorageStatusResponse
@@ -465,9 +484,23 @@ func (c *Client) CreateRepositoryDomain(ctx context.Context, req apicontract.Cre
 // truthful answers taken a round trip apart legitimately differ at the
 // newest end.
 func (c *Client) ListActivity(ctx context.Context, limit int) (apicontract.ListActivityResponse, error) {
-	var query url.Values
+	return c.ListActivityBefore(ctx, limit, "")
+}
+
+// ListActivityBefore is ListActivity for the page behind a cursor (#1152):
+// before is a next_cursor an earlier answer named, sent back as ?before=. An
+// empty one sends none and reads the newest page, which is what ListActivity
+// is.
+func (c *Client) ListActivityBefore(ctx context.Context, limit int, before string) (apicontract.ListActivityResponse, error) {
+	query := url.Values{}
 	if limit > 0 {
-		query = url.Values{"limit": []string{strconv.Itoa(limit)}}
+		query.Set("limit", strconv.Itoa(limit))
+	}
+	if before != "" {
+		query.Set("before", before)
+	}
+	if len(query) == 0 {
+		query = nil
 	}
 	var out apicontract.ListActivityResponse
 	err := c.callQuery(ctx, "listActivity", nil, query, nil, &out)

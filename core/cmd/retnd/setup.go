@@ -364,16 +364,16 @@ func openBackupServiceLoggingTo(ctx context.Context, configPath string, intent c
 // The returned cleanup func closes whatever was opened and gives the claim
 // back; callers should always `defer cleanup()` immediately.
 func openConfigWriteRoute(ctx context.Context, configPath string) (configWriteRoute, func(), error) {
-	return openConfigWriteRouteAnnouncingTo(ctx, configPath, os.Stdout)
+	return openConfigWriteRouteTo(ctx, configPath, os.Stdout)
 }
 
-// openConfigWriteRouteAnnouncingTo is openConfigWriteRoute with the mode
-// announcement written to announce instead of standard output. A verb whose
-// --json promises standard output is one JSON value passes os.Stderr, so
-// the line that says which world the change goes into is still printed and
-// no longer in the way of the data (#1154).
-func openConfigWriteRouteAnnouncingTo(ctx context.Context, configPath string, announce io.Writer) (configWriteRoute, func(), error) {
-	svc, closeFn, err := service.Open(ctx, configPath)
+// openConfigWriteRouteTo is openConfigWriteRoute with the mode announcement and
+// the service's structured log sent to out. A verb whose standard output is a
+// JSON document passes standard error, so the document is the only thing on
+// standard output (#1152); everything else passes standard output, which is
+// what openConfigWriteRoute has always meant.
+func openConfigWriteRouteTo(ctx context.Context, configPath string, out io.Writer) (configWriteRoute, func(), error) {
+	svc, closeFn, err := service.OpenWithLog(ctx, configPath, out)
 	if err != nil {
 		return nil, func() {}, err
 	}
@@ -383,7 +383,7 @@ func openConfigWriteRouteAnnouncingTo(ctx context.Context, configPath string, an
 		}
 	}
 
-	write, err := enterConfigWriteMode(ctx, configPath, attachToEngine, announce, os.Stderr)
+	write, err := enterConfigWriteMode(ctx, configPath, attachToEngine, out, os.Stderr)
 	if err != nil {
 		closeLocal()
 		return nil, func() {}, err

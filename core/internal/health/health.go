@@ -219,6 +219,13 @@ type BackupSetInputs struct {
 	// evidence parameter has no field it could arrive through.
 	HaltReason string
 
+	// HaltObservedAt is when HaltReason was last seen (issue #1146), zero
+	// when no refusal is on record. It is the LAST observation, not the
+	// first: the journal replaces the row on every refused cycle. It is
+	// display-only and CLI-only, like HaltReason, and never reaches
+	// decideState.
+	HaltObservedAt time.Time
+
 	// RetentionHoldReason is why retention for this backup set is refusing
 	// to delete anything, or empty when it is not (FR-30, issue #602).
 	//
@@ -460,6 +467,10 @@ type BackupSetHealth struct {
 	// from journal evidence alone, and that State is usually STALE, which
 	// is true and incomplete. This is the missing half of the sentence.
 	HaltReason string
+
+	// HaltObservedAt is when HaltReason was last observed (issue #1146);
+	// zero when no refusal is on record. See BackupSetInputs.
+	HaltObservedAt time.Time
 
 	// RetentionHoldReason is why retention for this set is refusing to
 	// delete anything, empty when nothing is holding it (FR-30, issue

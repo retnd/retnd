@@ -4,6 +4,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
+	"os"
 
 	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/service"
@@ -273,17 +275,33 @@ func sourceDeletionWord(writable bool) string {
 // `check`, `validate` and `medium preflight` already do.
 func backupSetTestConnection(f *backupSetFlags, id string) int {
 	ctx := context.Background()
-	route, cleanup, err := openConfigWriteRoute(ctx, *f.cfgPath)
+	asJSON := *f.json
+	out, log := io.Writer(os.Stdout), logger()
+	if asJSON {
+		out, log = os.Stderr, jsonLogger()
+	}
+	route, cleanup, err := openConfigWriteRouteTo(ctx, *f.cfgPath, out)
 	if err != nil {
 		return fail(err)
 	}
 	defer cleanup()
 
-	logStartup(ctx, logger(), app.BuildVersionInfo(version, commit))
+	logStartup(ctx, log, app.BuildVersionInfo(version, commit))
 
 	result, err := route.TestBackupSetConnection(ctx, id)
 	if err != nil {
 		return fail(err)
+	}
+	if asJSON {
+		// The report is the result whether or not the connection works, and
+		// the exit code is the verdict: a script gets both.
+		if code := emitWireJSON(service.ConnectionTestWire(result)); code != exitOK {
+			return code
+		}
+		if !result.OK {
+			return 1
+		}
+		return 0
 	}
 	printConnectionReport("backup set "+id, result)
 	if !result.OK {

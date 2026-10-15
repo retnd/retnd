@@ -127,21 +127,3 @@ func StorageMediumWire(m StorageMediumSummary) apicontract.StorageMediumSummary 
 		UploadVerification:   m.UploadVerification,
 	}
 }
-
-// MediumPreflightWire is the contract's MediumPreflightResponse. Every check
-// is carried, in the engine's own order, skipped ones included: a surface
-// that dropped them would show a shorter list on a failure than on a success,
-// which is the one moment the full list matters most.
-func MediumPreflightWire(r MediumPreflight) apicontract.MediumPreflightResponse {
-	out := apicontract.MediumPreflightResponse{
-		Checks: make([]apicontract.MediumPreflightCheck, 0, len(r.Checks)),
-		Medium: r.Medium,
-		OK:     r.OK,
-	}
-	for _, c := range r.Checks {
-		out.Checks = append(out.Checks, apicontract.MediumPreflightCheck{
-			Category: c.Category, Detail: c.Detail, Outcome: c.Outcome, Step: c.Step,
-		})
-	}
-	return out
-}
