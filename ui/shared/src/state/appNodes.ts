@@ -34,10 +34,6 @@ export const healthNode = createResourceNode<SystemHealth>("app.health");
 export const versionNode = createResourceNode<VersionInfo>("app.version");
 export const setsNode = createResourceNode<BackupSet[]>("app.sets");
 export const quarantineNode = createResourceNode<BackupArtifact[]>("app.quarantine");
-/** Every retained backup, read once for the nav's Backups badge (#1186).
- *  The Backups page keeps its own filtered read; this one exists because the
- *  badge needs the deployment-wide total on every screen. */
-export const artifactsNode = createResourceNode<BackupArtifact[]>("app.artifacts");
 
 /**
  * B2.1 (#95) — the durable-operation-polling equivalent of the four nodes
@@ -136,10 +132,13 @@ export interface AppCounts {
 
 export const countsNode = graph.derived<AppCounts>("app.counts", (get) => ({
   sets: get(setsNode).data?.length,
-  // The retained backups themselves (#1186). This used to be summed from
-  // the health report's per-set totals, which counts backup SETS, so a
-  // deployment holding 119 backups in three sets read "3".
-  backups: get(artifactsNode).data?.length,
+  // The backups held outside quarantine (#1186), as the health report the
+  // shell already polls counts them (retained_count), so no screen
+  // downloads the whole list to read its length. This used to be summed
+  // from the health report's per-set verdicts, which counts backup SETS, so
+  // a deployment holding 119 backups in three sets read "3". Null from an
+  // engine too old to say is unknown, and draws no badge.
+  backups: get(healthNode).data?.retainedCount ?? undefined,
   quarantine: get(quarantineNode).data?.length
 }));
 

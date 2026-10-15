@@ -3,10 +3,11 @@ import type { Page } from "@playwright/test";
 import { open, measureContrast, setTheme } from "./helpers";
 
 // Issue #1186: the sidebar's Backups badge counted backup SETS (it was summed
-// from the health report), so a deployment holding 119 retained backups in 3
-// sets read "3". It now counts the retained backups themselves: the exact
-// number up to 100, and ">100" above it. ?artifacts=N is the mock's way of
-// holding exactly N retained backups (api/mock.ts, padRetained).
+// from the health report), so a deployment holding 119 backups in 3 sets read
+// "3". It now counts the backups held outside quarantine, read off the health
+// report's retained_count: the exact number up to 100, and ">100" above it.
+// ?artifacts=N is the mock's way of holding exactly N of them (api/mock.ts,
+// padRetained).
 
 const nav = (page: Page) => page.getByRole("navigation", { name: "Sections" });
 const badge = (page: Page, label: string) => nav(page).getByRole("link", { name: new RegExp("^" + label) }).locator("span.mono");
@@ -15,16 +16,28 @@ test.describe("#1186 the Backups badge counts backups, not sets", () => {
   test("119 retained backups read >100, with a label that says so, and Backup sets still counts its 4 sets", async ({ page }) => {
     await open(page, "/?artifacts=119");
     await expect(badge(page, "Backups")).toHaveText(">100");
-    await expect(badge(page, "Backups")).toHaveAttribute("aria-label", "more than 100 backups");
-    await expect(nav(page).getByRole("link", { name: /^Backups.*more than 100 backups/ })).toBeVisible();
+    await expect(badge(page, "Backups")).toHaveAttribute("aria-label", "more than 100 backups outside quarantine");
+    await expect(nav(page).getByRole("link", { name: /^Backups.*more than 100 backups outside quarantine/ })).toBeVisible();
     await expect(badge(page, "Backup sets")).toHaveText("4");
   });
 
   test("40 retained backups read 40, labelled as a count", async ({ page }) => {
     await open(page, "/?artifacts=40");
     await expect(badge(page, "Backups")).toHaveText("40");
-    await expect(badge(page, "Backups")).toHaveAttribute("aria-label", "40 backups");
+    await expect(badge(page, "Backups")).toHaveAttribute("aria-label", "40 backups outside quarantine");
     await expect(badge(page, "Backup sets")).toHaveText("4");
+  });
+
+  test("a backup is in the Backups badge or the Quarantine badge, never both, and the badge matches the page", async ({ page }) => {
+    await open(page, "/backups?artifacts=40");
+    await expect(badge(page, "Backups")).toHaveText("40");
+    const quarantined = Number(await badge(page, "Quarantine").textContent());
+    expect(quarantined).toBeGreaterThan(0);
+    // The Backups page lists the same 40; the quarantined ones are on their own page.
+    await expect(page.getByRole("checkbox", { name: /^Select (?!all matching)/ }).first()).toBeVisible();
+    await expect(page.getByTestId("backups-footer")).toContainText("40");
+    await page.goto("/quarantine?artifacts=40");
+    await expect(page.getByRole("row")).toHaveCount(quarantined + 1);
   });
 
   test("the cap is exact: 100 reads 100 and 101 reads >100", async ({ page }) => {

@@ -24,9 +24,25 @@
   anchor is `#assurance` now, and the old `#assurance-defaults` still lands on it. A malformed hash (a lone
   `%E0`) is ignored instead of taking the page down.
 
-- **The sidebar's Backups badge counts backups now, not backup sets** (#1186). It was summed from the health report's per-set totals, so a deployment holding 119 retained backups in a handful of sets showed a single-digit number that said nothing about what was retained. The badge now reads the retained backups themselves: the exact number up to 100, and `>100` above that, with the accessible label "more than 100 backups" (or "N backups" below the cap). The Backup sets and Quarantine badges are unchanged. The terminal has the same reading: `retnd artifacts --count` prints it over the rows `artifacts` lists, so `--source`, `--backup-set` and `--state` narrow it the same way, and the length of the `--json` list stays the exact figure. While measuring it I found the non-alert nav badges were `--text-3` on the nav surface, 3.35:1 in the light theme and 3.85:1 in the dark one, under the 4.5:1 that small text needs, so they use `--text-2` now (6.64:1 and 6.89:1 on the nav surface, 5.73:1 and 5.52:1 on the active row).
+- **The sidebar's Backups badge counts backups now, not backup sets** (#1186). It was summed from the
+  health report's per-set verdicts, so a deployment holding 119 backups in a handful of sets showed a
+  single-digit number. The badge now counts the backups the deployment holds outside quarantine: every
+  backup the Backups page lists except the quarantined ones, which the Quarantine badge already counts. It
+  shows the exact number up to 100 and `>100` above that, with an accessible label that says what it counts
+  ("40 backups outside quarantine"). The figure comes off the health report the console already polls, so
+  no screen downloads the backups list to read its length. While measuring it I found the non-alert nav
+  badges were `--text-3` on the nav surface, 3.35:1 in the light theme and 3.85:1 in the dark one, under the
+  4.5:1 small text needs, so they use `--text-2` now (6.64:1 and 6.89:1 on the nav surface, 5.73:1 and
+  5.52:1 on the active row). The Backups row's tooltip said the list was newest first; it's in
+  configuration order, and the tooltip says so now.
 
 ### Added
+
+- **`retained_count` on `GET /system/health`, and `retnd artifacts --count`** (#1186). The health report
+  carries how many backups the deployment holds outside quarantine, the backups of removed sets included,
+  and `retnd status --json` prints it too. `retnd artifacts --count` prints the same number, always the
+  exact figure (the sidebar's `>100` is the sidebar's), narrowed by `--source` and `--backup-set`;
+  with `--state` it counts that state instead, quarantine included, and `--json` prints `{"count": N}`.
 
 - **The Backups page pages its list** (#1180). A "Rows per page" control offers 20, 50 and 100, and "All"
   while the deployment holds fewer than 1000 backups, with Previous and Next beside it. A chosen 20, 50 or
