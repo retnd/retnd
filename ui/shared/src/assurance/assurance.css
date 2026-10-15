@@ -221,3 +221,10 @@
 .hostbrowse__fail { color: var(--text); }
 .hostbrowse__use { display: flex; justify-content: flex-end; }
 .hostbrowse .btn, [data-assurance] select.select, .selbar select.select { border-color: var(--text-3); }
+
+/* The staging folder field every screen shares (issue #1190): the name, what
+   it means on that screen, and the host's folders under it. The meaning line
+   is --text-2, the same pair the bar's notes already pass with (6.51:1 to
+   6.89:1 dark). */
+.placefield { display: flex; flex-direction: column; gap: 8px; }
+.placefield__meaning { color: var(--text-2); }

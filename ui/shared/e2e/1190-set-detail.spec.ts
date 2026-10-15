@@ -8,7 +8,7 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { open } from "./helpers";
-import { browseUnavailable, destinationIsSharedDropDown, noneConfigured, offersBothChoices, stagingIsSharedFolderField } from "./1190-pickers";
+import { browseUnavailable, sharedFieldsMeetAA, destinationIsSharedDropDown, noneConfigured, offersBothChoices, stagingIsSharedFolderField } from "./1190-pickers";
 
 // The one artifact-engine set in every scenario (the others are incremental
 // outside the assurance-set- scenarios, and an incremental set has a snapshot
@@ -45,4 +45,10 @@ test.describe("#1190 Set detail, Recover this backup set", () => {
   test("a host that cannot list its folders still takes a typed name", async ({ page }) => {
     await browseUnavailable(await dialog(page, "host-browse-unavailable"), dlg(page));
   });
+
+  for (const theme of ["light", "dark"] as const) {
+    test(`the shared fields meet WCAG AA in ${theme}`, async ({ page }) => {
+      await sharedFieldsMeetAA(page, await dialog(page), '[role="dialog"]', theme);
+    });
+  }
 });

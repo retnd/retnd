@@ -23,7 +23,7 @@
  * rather than threading both through the select is the small price of
  * keeping every picker on this page keyed the same way.
  */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import { useAsync } from "@shared/hooks/useAsync";
@@ -72,17 +72,10 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
   const [notice, setNotice] = useState("");
   const [run, setRun] = useState<{ files: Array<{ id: string; filename: string }>; target: RunTarget; acknowledged: boolean } | null>(null);
-  const [stagingRoot, setStagingRoot] = useState<string | null>(null);
   // Issue #1179: the outcome of handing a selection to the browser, or null
   // before one was asked for. `running` is true while the links go out.
   const [dl, setDl] = useState<{ running: boolean; outcome: BulkDownloadOutcome | null } | null>(null);
   const canRecover = !!api.assurance;
-  useEffect(() => {
-    if (!canRecover) return;
-    let live = true;
-    void api.getAssuranceSettings().then((x) => { if (live) setStagingRoot(x.stagingRoot); }, () => undefined);
-    return () => { live = false; };
-  }, [api, canRecover]);
   const changeFilter = (apply: () => void) => {
     apply();
     setNotice(picked.size > 0 ? "The selection was cleared because the filter changed." : "");
@@ -244,7 +237,6 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
         <BackupsSelectionBar
           selected={ticked}
           matching={selectable.length}
-          stagingRoot={stagingRoot}
           readOnly={readOnly}
           readOnlyReason="This session is read-only, so it cannot start a recovery."
           downloading={!!dl?.running}

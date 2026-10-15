@@ -11,7 +11,7 @@ import (
 	"syscall"
 )
 
-// Issue #1179: the folder browser behind "Staging path on the host".
+// Issue #1179: the folder browser behind "Folder under the staging root on the host".
 //
 // A recovery to the host takes a NAME under the staging root, and until this
 // the only way to choose one was to type it blind. This lists the folders

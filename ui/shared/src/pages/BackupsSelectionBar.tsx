@@ -20,8 +20,7 @@
  */
 import "@shared/assurance/assurance.css";
 import { useState } from "react";
-import { DestinationSelect } from "@shared/assurance/DestinationSelect";
-import { HostFolderBrowser } from "@shared/assurance/HostFolderBrowser";
+import { RecoveryTargetChoices, RecoveryTargetField } from "@shared/assurance/RecoveryTargetFields";
 import { recoverCommand } from "@shared/assurance/assuranceCommands";
 import { bytes } from "@shared/utilities/format";
 import { planOf } from "@shared/assurance/copyPlan";
@@ -30,13 +29,12 @@ import type { RunTarget } from "@shared/assurance/recoverMany";
 import type { BackupArtifact } from "@shared/types/backup";
 
 export function BackupsSelectionBar({
-  selected, matching, stagingRoot, readOnly, readOnlyReason, downloading, onSelectAll, onClear, onRecover, onDownload
+  selected, matching, readOnly, readOnlyReason, downloading, onSelectAll, onClear, onRecover, onDownload
 }: {
   /** The ticked rows, in list order. */
   selected: BackupArtifact[];
   /** How many rows the current filter matches and can be selected. */
   matching: number;
-  stagingRoot: string | null;
   readOnly: boolean;
   readOnlyReason?: string;
   /** True while the links are being handed to the browser one by one. */
@@ -84,34 +82,17 @@ export function BackupsSelectionBar({
             <input type="radio" name="bulk-target" checked={download} onChange={() => { setKind("download"); setWhere(""); }} aria-describedby="bulk-download-note" />
             Download in this browser
           </label>
-          <label>
-            <input type="radio" name="bulk-target" checked={kind === "staging"} onChange={() => { setKind("staging"); setWhere(""); }} />
-            Staging path on the host
-          </label>
-          <label>
-            <input type="radio" name="bulk-target" checked={kind === "storage"} onChange={() => { setKind("storage"); setWhere(""); }} />
-            Configured destination
-          </label>
+          {/* Issue #1190: offered the same way on every screen. */}
+          <RecoveryTargetChoices name="bulk-target" value={kind} onChoose={(t) => { setKind(t); setWhere(""); }} />
         </div>
-        {download ? null : kind === "staging" ? (
+        {download ? null : (
           <div className="selbar__where">
-            <label className="field">
-              <span className="field__label">
-                {"Name under the staging root " + (stagingRoot ? stagingRoot + " " : "") + "(files go under it, with a manifest)"}
-              </span>
-              <input
-                className="input input--mono input--bold"
-                aria-label="Recover to a name under the staging root"
-                value={where}
-                onChange={(e) => setWhere(e.target.value)}
-              />
-            </label>
-            {/* Issue #1179: the host's own folders, so the name need not be typed blind. */}
-            <HostFolderBrowser onPick={setWhere} />
-          </div>
-        ) : (
-          <div className="selbar__where">
-            <DestinationSelect ariaLabel="Recover to destination" value={where} onChange={setWhere} />
+            <RecoveryTargetField
+              place={kind}
+              value={where}
+              onChange={setWhere}
+              meaning="A folder: the backups go under it, with a manifest."
+            />
           </div>
         )}
       </div>

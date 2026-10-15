@@ -8,7 +8,7 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { open } from "./helpers";
-import { browseUnavailable, destinationIsSharedDropDown, noneConfigured, offersBothChoices, stagingIsSharedFolderField } from "./1190-pickers";
+import { browseUnavailable, sharedFieldsMeetAA, destinationIsSharedDropDown, noneConfigured, offersBothChoices, stagingIsSharedFolderField } from "./1190-pickers";
 
 const bar = (p: Page) => p.getByRole("region", { name: "Selected backups" });
 const action = (p: Page) => bar(p).getByRole("button", { name: "Recover selected" });
@@ -43,4 +43,10 @@ test.describe("#1190 Backups list, selection bar", () => {
   test("a host that cannot list its folders still takes a typed name", async ({ page }) => {
     await browseUnavailable(await tickTwo(page, "host-browse-unavailable"), bar(page).getByTestId("recover-command"));
   });
+
+  for (const theme of ["light", "dark"] as const) {
+    test(`the shared fields meet WCAG AA in ${theme}`, async ({ page }) => {
+      await sharedFieldsMeetAA(page, await tickTwo(page), '[data-testid="selection-bar"]', theme);
+    });
+  }
 });

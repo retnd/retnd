@@ -9,7 +9,7 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { open, row } from "./helpers";
-import { browseUnavailable, destinationIsSharedDropDown, noneConfigured, offersBothChoices, stagingIsSharedFolderField } from "./1190-pickers";
+import { browseUnavailable, sharedFieldsMeetAA, destinationIsSharedDropDown, noneConfigured, offersBothChoices, stagingIsSharedFolderField } from "./1190-pickers";
 
 const PG = "postgres-prod-20260828.dump.zst";
 
@@ -44,4 +44,10 @@ test.describe("#1190 Backup detail, Recover artifact", () => {
   test("a host that cannot list its folders still takes a typed name", async ({ page }) => {
     await browseUnavailable(await dialog(page, "host-browse-unavailable"), page.getByRole("dialog", { name: "Recover artifact" }));
   });
+
+  for (const theme of ["light", "dark"] as const) {
+    test(`the shared fields meet WCAG AA in ${theme}`, async ({ page }) => {
+      await sharedFieldsMeetAA(page, await dialog(page), '[role="dialog"]', theme);
+    });
+  }
 });

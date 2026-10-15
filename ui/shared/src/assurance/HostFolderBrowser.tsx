@@ -1,5 +1,6 @@
 /**
- * The folder browser behind "Staging path on the host" (issue #1179).
+ * The folder browser behind the staging folder choice (issue #1179). Screens
+ * reach it through RecoveryTargetFields (issue #1190), never directly.
  *
  * # What it browses
  *

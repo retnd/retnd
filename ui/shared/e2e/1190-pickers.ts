@@ -9,7 +9,8 @@
  * destinations Settings lists, or "None configured").
  */
 import { expect } from "@playwright/test";
-import type { Locator } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
+import { measureBorders, measureContrast, setTheme } from "./helpers";
 
 export const STAGING = "Folder under the staging root on the host";
 export const DESTINATION = "Configured destination";
@@ -77,4 +78,21 @@ export async function browseUnavailable(scope: Locator, command: Locator) {
   await expect(browserOf(scope).getByRole("alert")).toContainText("cannot list its folders");
   await nameBox(scope).fill("typed-by-hand");
   await expect(command).toContainText("--to typed-by-hand");
+}
+
+/** Both shared fields meet WCAG AA in the theme asked for: their text (4.5:1)
+ *  and the edges of the text field, the folder buttons and the drop-down
+ *  (3:1). `where` is a CSS selector for the screen's own container. */
+export async function sharedFieldsMeetAA(page: Page, scope: Locator, where: string, theme: "light" | "dark") {
+  await setTheme(page, theme);
+  await scope.getByRole("radio", { name: STAGING, exact: true }).check();
+  await expect(folderField(scope).getByRole("button", { name: "Open folder daily" })).toBeVisible();
+  const field = where + ' [data-testid="staging-folder-field"]';
+  expect(await measureContrast(page, `folder field, ${theme}`, field)).toEqual([]);
+  expect(await measureBorders(page, `folder field edges, ${theme}`, field + " input, " + field + " .btn")).toEqual([]);
+  await scope.getByRole("radio", { name: DESTINATION, exact: true }).check();
+  await expect(destinationBox(scope)).toBeEnabled();
+  const dest = where + ' [data-testid="destination-field"]';
+  expect(await measureContrast(page, `destination field, ${theme}`, dest)).toEqual([]);
+  expect(await measureBorders(page, `destination edge, ${theme}`, dest + " select")).toEqual([]);
 }
