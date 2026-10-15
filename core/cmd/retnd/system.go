@@ -24,11 +24,12 @@ import (
 // meaning here would be a lie.
 
 var systemVerbs = map[string]func(args []string) int{
+	"browse":       cmdSystemBrowse,
 	"capabilities": cmdSystemCapabilities,
 	"first-run":    cmdSystemFirstRun,
 }
 
-func systemVerbNames() []string { return []string{"capabilities", "first-run"} }
+func systemVerbNames() []string { return []string{"browse", "capabilities", "first-run"} }
 
 func cmdSystem(args []string) int {
 	for _, a := range args {
@@ -101,6 +102,65 @@ func cmdSystemCapabilities(args []string) int {
 		fmt.Println("this connection is not encrypted: gated acts also need X-Retnd-Insecure-Transport-Ack: acknowledged")
 	}
 	return exitOK
+}
+
+// cmdSystemBrowse is `retnd system browse [PATH] [--json]` (#1179): the folders
+// below the staging root, on the machine the engine runs on. It is the
+// terminal's half of the folder browser behind "Staging path on the host", and
+// what it prints is what a --to name under that root can be.
+//
+// It asks the engine and refuses without a route to it, like its siblings:
+// listing this host's file system would answer for the wrong machine whenever
+// the engine runs elsewhere. PATH is relative to the staging root, and the
+// engine refuses one that climbs out or goes through a symbolic link.
+func cmdSystemBrowse(args []string) int {
+	fs, _ := newFlagSet("system browse")
+	asJSON := fs.Bool("json", false, "print the API's object instead of text")
+	operands, err := parseFlagsAroundOperands(fs, args)
+	if err != nil {
+		return 2
+	}
+	// operands[0] is the verb; at most one folder follows it.
+	if len(operands) < 1 || operands[0] != "browse" || len(operands) > 2 {
+		return usageError("system browse takes at most one folder, relative to the staging root")
+	}
+	path := ""
+	if len(operands) == 2 {
+		path = operands[1]
+	}
+	var got apicontract.HostDirectoryResponse
+	if code := askEngine("browse", "its folders", func(ctx context.Context, c *apiclient.Client) (err error) {
+		got, err = c.HostDirectory(ctx, path)
+		return err
+	}); code != exitOK {
+		return code
+	}
+	if *asJSON {
+		return emitWireJSON(got)
+	}
+	printHostDirectory(got)
+	return exitOK
+}
+
+// printHostDirectory is the text form of the engine's folder listing. Each
+// folder is printed as the name a --to takes, one per line, so the output can
+// be read by eye and by a script alike.
+func printHostDirectory(got apicontract.HostDirectoryResponse) {
+	fmt.Printf("root: %s\n", got.Root)
+	here := got.Path
+	if here == "" {
+		here = "(the root)"
+	}
+	fmt.Printf("folder: %s\n", here)
+	if len(got.Entries) == 0 {
+		fmt.Println("no folders in here")
+	}
+	for _, e := range got.Entries {
+		fmt.Println(e.Path)
+	}
+	if got.Truncated {
+		fmt.Println("(truncated: this folder holds more folders than are listed)")
+	}
 }
 
 func cmdSystemFirstRun(args []string) int {

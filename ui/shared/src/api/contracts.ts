@@ -2531,6 +2531,30 @@ export interface AssuranceHostKnob {
   reason: string;
 }
 
+/** One folder under the root the host lets a person browse (issue #1179). */
+export interface HostDirectoryEntry {
+  name: string;
+  /** The folder's name relative to the root: what a staging target takes. */
+  path: string;
+}
+
+/**
+ * One folder on the machine retnd runs on, listed read-only (issue #1179).
+ * Every path here is relative to `root`; the host refuses a name that leaves
+ * it, so a page cannot ask about anywhere else.
+ */
+export interface HostDirectory {
+  /** The staging root, as the host spells it. */
+  root: string;
+  /** The listed folder, "" for the root itself. */
+  path: string;
+  /** The folder above this one, "" for the root, null at the root. */
+  parent: string | null;
+  entries: HostDirectoryEntry[];
+  /** True when the folder holds more sub-folders than the host lists. */
+  truncated: boolean;
+}
+
 /** The deployment-wide assurance policy. `configured` false means every
  *  value is a default nobody had to set. */
 export interface AssuranceSettings extends AssurancePolicy {
@@ -3802,6 +3826,9 @@ export interface RetndApi {
    *  is validated, persisted and hot-reloaded in one step, so every set
    *  that inherits the change decides under it on its next read. */
   getAssuranceSettings(): Promise<AssuranceSettings>;
+  /** The sub-folders of one folder under the staging root, for the folder
+   *  browser on "Staging path on the host" (issue #1179). */
+  listHostDirectory(path?: string): Promise<HostDirectory>;
   patchAssuranceSettings(patch: AssuranceSettingsPatch): Promise<AssuranceSettings>;
   getBackupSetAssurance(source: string, set: string): Promise<BackupSetAssurance>;
   patchBackupSetAssurance(source: string, set: string, patch: BackupSetAssurancePatch): Promise<BackupSetAssurance>;

@@ -198,3 +198,26 @@
    name and the two date bounds) take --text-2 instead, which clears it in
    both themes; restyling every input in the app is not this change's call. */
 .input.input--bold { border-color: var(--text-2); }
+
+/* The folder browser and the destination drop-down (issue #1179). Colours are
+   existing tokens only. A control's edge takes --text-3 (3.39:1 on the light
+   surface, 3.85:1 on the dark one), as every other control in the assurance
+   surfaces does, because the shared --border and --border-strong edges are
+   1.33:1 to 1.81:1. The folder names are buttons, so each is reachable and
+   operable from the keyboard, and the current place is a labelled group. */
+.hostbrowse {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--text-3); border-radius: var(--radius-md);
+  font-size: var(--text-sm); color: var(--text);
+}
+.hostbrowse__where { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.hostbrowse__here { min-width: 0; word-break: break-all; }
+.hostbrowse__here:focus { outline: 2px solid var(--text-2); outline-offset: 2px; }
+.hostbrowse__label { color: var(--text-2); }
+.hostbrowse__list { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0; padding: 0; max-height: 168px; overflow: auto; }
+.hostbrowse__empty { color: var(--text-2); }
+.hostbrowse__fail { color: var(--text); }
+.hostbrowse__use { display: flex; justify-content: flex-end; }
+.hostbrowse .btn, [data-assurance] select.select, .selbar select.select { border-color: var(--text-3); }

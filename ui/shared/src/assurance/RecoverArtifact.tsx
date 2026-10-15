@@ -41,6 +41,8 @@ import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { CommandEcho } from "@shared/pages/CommandEcho";
 import { bytes } from "@shared/utilities/format";
 import { ClaimChips } from "./ClaimChips";
+import { DestinationSelect } from "./DestinationSelect";
+import { HostFolderBrowser } from "./HostFolderBrowser";
 import { DownloadOutcome } from "./DownloadOutcome";
 import { recoverCommand, thawCommand } from "./assuranceCommands";
 import { planOf, THAW_POLL_MS } from "./copyPlan";
@@ -286,16 +288,17 @@ export function RecoverArtifactDialog({
                 </div>
               ) : null}
               {kind === "staging" ? (
-                <label className="field">
-                  <span className="field__label">{"Name under the staging root " + (stagingRoot ? stagingRoot + " " : "") + "(set by the host)"}</span>
-                  <input className="input input--mono" aria-label="Recover to a name under the staging root" value={where} onChange={(e) => setWhere(e.target.value)} />
-                </label>
+                <>
+                  <label className="field">
+                    <span className="field__label">{"Name under the staging root " + (stagingRoot ? stagingRoot + " " : "") + "(set by the host)"}</span>
+                    <input className="input input--mono" aria-label="Recover to a name under the staging root" value={where} onChange={(e) => setWhere(e.target.value)} />
+                  </label>
+                  {/* Issue #1179: the folders on the host, so the name need not be typed blind. */}
+                  <HostFolderBrowser fileName={artifactId.split("/").pop() || undefined} onPick={setWhere} />
+                </>
               ) : null}
               {kind === "storage" ? (
-                <label className="field">
-                  <span className="field__label">Destination id</span>
-                  <input className="input input--mono" aria-label="Recover to destination id" value={where} onChange={(e) => setWhere(e.target.value)} />
-                </label>
+                <DestinationSelect ariaLabel="Recover to destination" value={where} onChange={setWhere} />
               ) : null}
               <CommandEcho label="Same thing from the terminal" commands={[recoverCommand(artifactId, kind, where, needsAck && accepted)]} />
               {needsAck ? (

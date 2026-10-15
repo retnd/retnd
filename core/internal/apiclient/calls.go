@@ -290,6 +290,19 @@ func (c *Client) SystemCapabilities(ctx context.Context) (apicontract.Capabiliti
 	return out, err
 }
 
+// HostDirectory is GET /system/host-directories (issue #1179): the sub-folders
+// of one folder under the staging root of the machine the engine runs on. An
+// empty path is the root, and sends no query.
+func (c *Client) HostDirectory(ctx context.Context, path string) (apicontract.HostDirectoryResponse, error) {
+	var out apicontract.HostDirectoryResponse
+	var query url.Values
+	if path != "" {
+		query = url.Values{"path": []string{path}}
+	}
+	err := c.callQuery(ctx, "listHostDirectory", nil, query, nil, &out)
+	return out, err
+}
+
 // FirstRunStatus is GET /system/first-run: which of the guided setup steps
 // the engine counts as done, pending or skipped. The administrator and the
 // mail server live in the web host, not in this process, so only the engine

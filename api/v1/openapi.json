@@ -7588,6 +7588,65 @@
           "coalesced"
         ]
       },
+      "HostDirectoryEntry": {
+        "type": "object",
+        "description": "One sub-folder of a listed folder.",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The folder's own name."
+          },
+          "path": {
+            "type": "string",
+            "description": "Its name relative to the root: the value a staging target takes."
+          }
+        },
+        "required": [
+          "name",
+          "path"
+        ]
+      },
+      "HostDirectoryResponse": {
+        "type": "object",
+        "description": "GET /system/host-directories. One folder under the staging root: its sub-folders by name, relative to the root.",
+        "additionalProperties": false,
+        "properties": {
+          "root": {
+            "type": "string",
+            "description": "The staging root, as the host spells it (GET /settings/assurance reports the same)."
+          },
+          "path": {
+            "type": "string",
+            "description": "The listed folder relative to the root, empty for the root itself."
+          },
+          "parent": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The folder above this one relative to the root (empty when that is the root itself), and null at the root."
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HostDirectoryEntry"
+            },
+            "description": "The real sub-folders, sorted by name. Files and symbolic links are never listed."
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True when the folder holds more sub-folders than are listed (at most 1000 are)."
+          }
+        },
+        "required": [
+          "root",
+          "path",
+          "parent",
+          "entries",
+          "truncated"
+        ]
+      },
       "AssuranceDueItem": {
         "type": "object",
         "description": "One copy's place in the scrub schedule.",
@@ -10989,6 +11048,113 @@
         "x-idempotency-key": "none",
         "x-optimistic-concurrency": null,
         "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/system/host-directories": {
+      "get": {
+        "operationId": "listHostDirectory",
+        "summary": "The sub-folders of one folder under the recovery staging root, for the folder browser on a staging target. A read of the machine the engine runs on, so read-only (this resource has no write verb), confined to that one root, and never through a symbolic link. Names are relative to the root.",
+        "tags": [
+          "system"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The folder to list, relative to the staging root: no leading slash, no empty, . or .. segment. Omitted or empty means the root itself."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostDirectoryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. The name is not a folder name under the root (absolute, climbing, malformed or through a symbolic link), or there is no such folder. The message names no path of the host's.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "501": {
+            "description": "Refused: RECOVERY_UNAVAILABLE.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_UNAVAILABLE"
+            ]
+          },
+          "503": {
+            "description": "Refused: RECOVERY_UNAVAILABLE. This deployment has no staging root it would use.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_UNAVAILABLE"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
         "x-authenticated": true
       }
     },

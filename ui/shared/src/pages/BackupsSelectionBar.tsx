@@ -2,15 +2,16 @@
  * The bar that appears once something on the Backups list is ticked
  * (issue #1107), and carries the one destination the whole selection goes to.
  *
- * # Why there is no browser download here
+ * # The browser download (issue #1179)
  *
- * A single recovery can be a browser download because the browser follows one
- * link and the host checks each piece against the digest as it sends it. Many
- * files would need a streamed archive, which is a second format the digest
- * check does not cover, or many downloads a browser may throttle or refuse.
- * Neither is something this page can promise, so a selection is recovered to
- * the host (a name under the staging root) or to a configured destination, and
- * the bar says so rather than leaving a radio that quietly does something else.
+ * "Download in this browser" used to be a radio that was always off, on the
+ * reasoning that many files would need an archive the host's digest check does
+ * not cover. That reasoning is right about an archive and wrong about the
+ * radio: a selection can be downloaded the way one backup is, one grant and
+ * one browser download per backup, each checked against its recorded digest as
+ * the host sends it (assurance/bulkDownload.ts). So the radio is on, it asks
+ * for no place, and it says plainly what it will do and what it leaves out.
+ * It was never tied to the destructive gate or to a capability.
  *
  * # What the bar announces
  *
@@ -19,6 +20,9 @@
  */
 import "@shared/assurance/assurance.css";
 import { useState } from "react";
+import { DestinationSelect } from "@shared/assurance/DestinationSelect";
+import { HostFolderBrowser } from "@shared/assurance/HostFolderBrowser";
+import { recoverCommand } from "@shared/assurance/assuranceCommands";
 import { bytes } from "@shared/utilities/format";
 import { planOf } from "@shared/assurance/copyPlan";
 import { recoverManyCommand } from "@shared/assurance/assuranceCommands";
@@ -26,7 +30,7 @@ import type { RunTarget } from "@shared/assurance/recoverMany";
 import type { BackupArtifact } from "@shared/types/backup";
 
 export function BackupsSelectionBar({
-  selected, matching, stagingRoot, readOnly, readOnlyReason, onSelectAll, onClear, onRecover
+  selected, matching, stagingRoot, readOnly, readOnlyReason, downloading, onSelectAll, onClear, onRecover, onDownload
 }: {
   /** The ticked rows, in list order. */
   selected: BackupArtifact[];
@@ -35,18 +39,27 @@ export function BackupsSelectionBar({
   stagingRoot: string | null;
   readOnly: boolean;
   readOnlyReason?: string;
+  /** True while the links are being handed to the browser one by one. */
+  downloading: boolean;
   onSelectAll(): void;
   onClear(): void;
   onRecover(target: RunTarget, acknowledged: boolean): void;
+  onDownload(): void;
 }) {
-  const [kind, setKind] = useState<RunTarget["kind"]>("staging");
+  const [kind, setKind] = useState<RunTarget["kind"] | "download">("staging");
   const [where, setWhere] = useState("");
   const [accepted, setAccepted] = useState(false);
   const total = selected.reduce((n, a) => n + a.sizeBytes, 0);
   const archived = selected.filter((a) => planOf(a).archived).length;
-  const needsAck = archived > 0;
-  const ready = where.trim() !== "" && (!needsAck || accepted) && !readOnly;
-  const command = recoverManyCommand(selected.map((a) => a.id), kind, where.trim(), needsAck && accepted);
+  const download = kind === "download";
+  // An archived copy is not downloaded (see bulkDownload.ts), so a download
+  // has no cost to accept and asks for no box.
+  const needsAck = archived > 0 && !download;
+  const ready = download ? !readOnly && !downloading : where.trim() !== "" && (!needsAck || accepted) && !readOnly;
+  const command = download
+    ? selected.slice(0, 5).map((a) => recoverCommand(a.id, "download", "", false)).join("\n") +
+      (selected.length > 5 ? "\n# and one more for each of the other " + (selected.length - 5) : "")
+    : recoverManyCommand(selected.map((a) => a.id), kind, where.trim(), needsAck && accepted);
 
   return (
     <section
@@ -68,7 +81,7 @@ export function BackupsSelectionBar({
       <div className="selbar__row" style={{ alignItems: "flex-start" }}>
         <div role="radiogroup" aria-label="Where should the backups go?" className="selbar__targets">
           <label>
-            <input type="radio" name="bulk-target" disabled aria-describedby="no-bulk-download" />
+            <input type="radio" name="bulk-target" checked={download} onChange={() => { setKind("download"); setWhere(""); }} aria-describedby="bulk-download-note" />
             Download in this browser
           </label>
           <label>
@@ -80,23 +93,33 @@ export function BackupsSelectionBar({
             Configured destination
           </label>
         </div>
-        <label className="field selbar__where">
-          <span className="field__label">
-            {kind === "staging"
-              ? "Name under the staging root " + (stagingRoot ? stagingRoot + " " : "") + "(files go under it, with a manifest)"
-              : "Destination id"}
-          </span>
-          <input
-            className="input input--mono input--bold"
-            aria-label={kind === "staging" ? "Recover to a name under the staging root" : "Recover to destination id"}
-            value={where}
-            onChange={(e) => setWhere(e.target.value)}
-          />
-        </label>
+        {download ? null : kind === "staging" ? (
+          <div className="selbar__where">
+            <label className="field">
+              <span className="field__label">
+                {"Name under the staging root " + (stagingRoot ? stagingRoot + " " : "") + "(files go under it, with a manifest)"}
+              </span>
+              <input
+                className="input input--mono input--bold"
+                aria-label="Recover to a name under the staging root"
+                value={where}
+                onChange={(e) => setWhere(e.target.value)}
+              />
+            </label>
+            {/* Issue #1179: the host's own folders, so the name need not be typed blind. */}
+            <HostFolderBrowser onPick={setWhere} />
+          </div>
+        ) : (
+          <div className="selbar__where">
+            <DestinationSelect ariaLabel="Recover to destination" value={where} onChange={setWhere} />
+          </div>
+        )}
       </div>
 
-      <div id="no-bulk-download" data-testid="no-bulk-download" className="selbar__note">
-        Several backups are recovered to the host, not downloaded one by one in a browser: choose a staging name or a configured destination. Download a single backup from its own page.
+      <div id="bulk-download-note" data-testid="bulk-download-note" className="selbar__note">
+        {download
+          ? "One download per backup: the host mints a single-use link for each and your browser follows it, so it may ask whether to allow several downloads. Each file is checked against its recorded digest as the host sends it. An archived copy is left out, because a link lasts minutes and a restore takes hours."
+          : "Several backups can also be downloaded in this browser, one file each, without choosing a place."}
       </div>
 
       {needsAck ? (
@@ -117,16 +140,16 @@ export function BackupsSelectionBar({
       <div className="selbar__row" style={{ alignItems: "flex-end" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="eyebrow" style={{ fontSize: 10, color: "var(--text-2)" }}>Same thing from the terminal</div>
-          <code className="mono selbar__cmd" data-testid="recover-command">{command}</code>
+          <code className="mono selbar__cmd" data-testid="recover-command" style={{ whiteSpace: "pre-wrap" }}>{command}</code>
         </div>
         <button
           type="button"
           className="btn btn--primary"
           disabled={!ready}
           title={readOnly ? readOnlyReason : undefined}
-          onClick={() => onRecover({ kind, where: where.trim() }, needsAck && accepted)}
+          onClick={() => (kind === "download" ? onDownload() : onRecover({ kind, where: where.trim() }, needsAck && accepted))}
         >
-          Recover selected
+          {download ? "Download selected" : "Recover selected"}
         </button>
       </div>
     </section>
