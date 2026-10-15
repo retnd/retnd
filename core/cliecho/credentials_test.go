@@ -232,6 +232,14 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 	"--source-consistency": "what the source promises about files changing under a snapshot, one of three words",
 	"--verification-level": "how much of each snapshot is read back afterwards, one of four words",
 
+	// Issue #1151. The lineage key is an identifier the deployment minted
+	// and printed, not a secret: it names which snapshot history a set
+	// belongs to, and re-declaring a set under its old one is the whole
+	// reason an operator has to be able to retype it. The mount prefix is
+	// a directory on the operator's own host.
+	"--uuid":                "the durable lineage key of an incremental set, an identifier and not a credential; retyping it is how a re-declared set finds its old snapshots",
+	"--source-mount-prefix": "the leading part of the operator's own remote path that is how this deployment reaches the source",
+
 	// Issue #862's repository-domain declaration. The id is the operand
 	// below; these are the rest of the declaration, and each one is
 	// either a word from a closed vocabulary or a REFERENCE the operator

@@ -45,8 +45,8 @@ func captureStderr(t *testing.T, fn func()) string {
 	t.Cleanup(func() { os.Stderr = orig })
 
 	// Drained while fn runs. A pipe holds 64 KiB on Linux, and usage() alone
-	// is past that now, so a reader that waited for fn to finish would leave
-	// fn blocked on a write nobody was reading (#1147).
+	// is past that now, so reading only after fn returns deadlocks a test
+	// whose command prints more than the pipe holds (#1148).
 	type drained struct {
 		out []byte
 		err error
@@ -82,8 +82,8 @@ func captureStdout(t *testing.T, fn func()) string {
 	t.Cleanup(func() { os.Stdout = orig })
 
 	// Drained while fn runs. A pipe holds 64 KiB on Linux, and usage() alone
-	// is past that now, so a reader that waited for fn to finish would leave
-	// fn blocked on a write nobody was reading (#1147).
+	// is past that now, so reading only after fn returns deadlocks a test
+	// whose command prints more than the pipe holds (#1148).
 	type drained struct {
 		out []byte
 		err error

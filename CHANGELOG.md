@@ -4,6 +4,32 @@
 
 ### Added
 
+- **A whole backup set from the terminal** (#1151). `backup-set show <source/backup-set>` prints every
+  field of one set (the key, the trusted host keys, whether its connection was ever proven, both poll
+  intervals, the engine and its lineage key, the repository domain, the verification budget and the mount
+  prefix), and `--json` prints the `BackupSet` object `GET /api/v1/backup-sets/{source}/{set}` returns.
+  `sources --json` prints `ListBackupSetsResponse`, where the text form prints six columns.
+- **Poll interval from the terminal** (#1151). `backup-set patch --poll-interval D` gives a set its own
+  interval (`0` returns it to the deployment's) and `settings patch --poll-interval D` sets the
+  deployment-wide one. `settings` now prints it in a `service:` section, and `backup-set show` prints the
+  set's own and the one in force.
+- **`backup-set create --uuid` and `--source-mount-prefix`** (#1151). Re-declaring an incremental set
+  after its configuration was lost used to mint a new lineage key, so the next run re-read the whole
+  source and the snapshots already on record were left beside a second history. `--uuid` declares the set
+  under its old key, and `--source-mount-prefix` names the part of `--remote-path` that is how this
+  deployment reaches the source. A create that minted a key now prints it, and the equivalent-command line
+  the web interface shows carries both flags.
+
+### Fixed
+
+- **Eight config writes now work beside a serving engine** (#1148). `settings workflow patch`,
+  `settings workflow env set|unset`, `backup-set workflow patch`, `backup-set workflow env set|unset`
+  and `backup-set retention` (setting a policy, and `--inherit`) used to be refused with exit 3
+  whenever an engine was serving, although the API had a route for every one of them. They now
+  come through the same door as `settings patch`: with `RETND_API_URL` naming the engine the
+  change lands through the API and the engine's config revision moves, and with no route named
+  the refusal is unchanged. `--json` on all eight prints the object the API returns for the same
+  call, and `backup-set retention` gains `--json`.
 - **`medium configure` and `medium backends` exist, so a `local_volume` can finally be configured from a terminal, and `storage` prints the capacity reading** (#1154). `retnd medium configure <id> --backend B --field ID=VALUE ...` declares or replaces a destination in its backend's own field ids (`--field path=/mnt/usb`), with the same four credential references `medium add` takes, through the same route to a serving engine. `--preflight` proves the configuration and writes nothing, and exits 1 when the destination does not work. `medium backends [--json]` lists the backends and their field ids from the registry built into the binary, and `retnd storage [--json]` prints the manager block (cap, denominator, headroom, binding constraint, catalog bytes, level) and each backup set's level, the same body `GET /api/v1/system/storage` serves. Two things changed underneath so this is true: the manifest-shaped write now stores a `local_volume`'s `path` (it used to refuse the field by name, on the API as well), and the candidate proof of a `local_volume` is the directory check, with its space and distinct-volume steps, instead of the object-store check run against a path.
 - **`artifacts` shows what a scrub and a recovery test found, `artifacts --json` exists, and `quarantine list` lists what is held** (#1147). `retnd artifacts <id>` prints, for each copy that has a record, `assurance_state`, `last_checked_at`, `last_failure_at`, `last_failure_reason`, `consecutive_failures`, `recovery_state` (a built-in structure pass reads `readable`, as it does on the API), `recovery_tested_at`, `recovery_failure_reason` and `recovery_check`. A copy nobody has checked prints exactly what it printed before. `--json` prints the API's `Artifact` object for one backup and `ListArtifactsResponse` for the list, `artifacts --state S` narrows the list to one lifecycle state, and `quarantine list [--backup-set S] [--json]` prints id, reason, irrecoverable and updated_at for every backup held in quarantine.
 - **`retnd status` says why a set is halted, and has `--json`** (#1146). A set refused with

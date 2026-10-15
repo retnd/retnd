@@ -136,54 +136,43 @@ func cmdBackupSetRetention(args []string) int {
 	}
 
 	ctx := context.Background()
-	// Which of the three branches below this command lands in is already
-	// decided by here, so the intent is too: --inherit clears a policy
-	// and the policy flags write one, both of which rewrite config.yaml,
-	// while naming neither only prints the policy in force. The switch
-	// below reads the same two values, so the two cannot drift apart
-	// without this line being touched.
-	intent := readsConfig
+	// The two writes go through openConfigWriteRoute (#1148), which hands
+	// them to a serving engine when a route to it was named and writes
+	// here when nothing serves. Showing the policy in force stays on this
+	// host's own file through openBackupService, as it always has: only
+	// the writes need to reach the process that would otherwise never
+	// read them.
 	if *inherit || len(named) > 0 {
-		intent = writesConfig
+		route, cleanup, err := openConfigWriteRoute(ctx, *cfgPath)
+		if err != nil {
+			return fail(err)
+		}
+		defer cleanup()
+
+		logStartup(ctx, logger(), app.BuildVersionInfo(version, commit))
+		var got service.BackupSetRetention
+		if *inherit {
+			got, err = route.ClearBackupSetRetention(ctx, id)
+		} else {
+			got, err = route.SetBackupSetRetention(ctx, id, override)
+		}
+		if err != nil {
+			return fail(err)
+		}
+		return printBackupSetRetentionAs(got, false)
 	}
-	var svc *service.BackupService
-	var cleanup func()
-	if intent == readsConfig {
-		svc, cleanup, err = openBackupServiceForRead(ctx, *cfgPath, *asJSON)
-	} else {
-		svc, cleanup, err = openBackupService(ctx, *cfgPath, intent)
-	}
+
+	svc, cleanup, err := openBackupServiceForRead(ctx, *cfgPath, *asJSON)
 	if err != nil {
 		return fail(err)
 	}
 	defer cleanup()
 
-	switch {
-	case *inherit:
-		logStartup(ctx, logger(), app.BuildVersionInfo(version, commit))
-		got, err := svc.ClearBackupSetRetention(ctx, id)
-		if err != nil {
-			return fail(err)
-		}
-		printBackupSetRetention(got)
-		return 0
-
-	case len(named) > 0:
-		logStartup(ctx, logger(), app.BuildVersionInfo(version, commit))
-		got, err := svc.SetBackupSetRetention(ctx, id, override)
-		if err != nil {
-			return fail(err)
-		}
-		printBackupSetRetention(got)
-		return 0
-
-	default:
-		got, err := svc.BackupSetRetention(ctx, id)
-		if err != nil {
-			return fail(err)
-		}
-		return printBackupSetRetentionAs(got, *asJSON)
+	got, err := svc.BackupSetRetention(ctx, id)
+	if err != nil {
+		return fail(err)
 	}
+	return printBackupSetRetentionAs(got, *asJSON)
 }
 
 // retentionPolicyFlagNames lists every flag that WRITES a policy, shared
