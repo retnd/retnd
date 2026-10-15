@@ -320,6 +320,15 @@ export function bootstrapTokenFromLocation(): string | null {
  * read `fetch(BASE + path` literally so it can prove which URLs this
  * bundle is able to request.
  */
+/** Issue #1163: who to ask when the engine wants the insecure-transport
+ *  acknowledgement. Stub until the feature lands. */
+export function setInsecureTransportConfirmer(_fn: (() => Promise<boolean>) | null): void {}
+
+/** Ask the registered confirmer. Stub until the feature lands. */
+export function askInsecureTransport(): Promise<boolean> {
+  return Promise.resolve(false);
+}
+
 async function request<T>(path: string, init?: RequestInit, onLine?: (line: unknown) => void): Promise<T> {
   const headers: Record<string, string> = {
     "content-type": "application/json",
@@ -1582,7 +1591,10 @@ function fromWireCapabilities(body: WireCapabilitiesResponse): Capabilities {
       // older than this bundle does not send, and a missing gate state must
       // never read as an open one.
       state: body.destructive_operations?.state === "open" ? "open" : "shut",
-      reason: body.destructive_operations?.reason ?? ""
+      reason: body.destructive_operations?.reason ?? "",
+      // Stubs until #1163 lands.
+      stepUpRequired: false,
+      insecureTransportAckRequired: false
     }
   };
 }

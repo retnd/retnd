@@ -56,6 +56,12 @@ type Config struct {
 	// (issue #128). Zero means DefaultPasswordRateLimit.
 	PasswordRateLimit int
 
+	// StepUpRateLimit bounds VerifyStepUp calls, which are the password
+	// re-check a restore asks for on a local-account profile (issue #1163),
+	// per minute across the whole process. Zero means
+	// DefaultStepUpRateLimit.
+	StepUpRateLimit int
+
 	// RecoveryRateLimit bounds POST /forgot-password and POST
 	// /reset-password attempts per remote IP per minute. Zero means
 	// DefaultRecoveryRateLimit.
@@ -167,6 +173,8 @@ const (
 	DefaultLoginRateLimit    = 10
 	DefaultEnrollRateLimit   = 5
 	DefaultPasswordRateLimit = 10
+	// DefaultStepUpRateLimit is VerifyStepUp's budget per minute.
+	DefaultStepUpRateLimit = 10
 	// DefaultRecoveryRateLimit bounds forgot-password and reset-password.
 	// Lower than the rest because the first of the two makes this process
 	// send mail on an unauthenticated request (Config.RecoveryRateLimit).

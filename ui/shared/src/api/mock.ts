@@ -4163,13 +4163,15 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
         embeddedWindow: false,
         appStorePackaging: false,
         destructiveOperations: !gateShut
-          ? { state: "open", reason: "" }
+          ? { state: "open", reason: "", stepUpRequired: false, insecureTransportAckRequired: false }
           : {
               state: "shut",
               reason:
                 scenario === "gate-shut-local-account"
                   ? "local-account profile: gate shut until #92"
-                  : "gate shut until #92"
+                  : "gate shut until #92",
+              stepUpRequired: false,
+              insecureTransportAckRequired: false
             }
       }),
     getVersion: () =>

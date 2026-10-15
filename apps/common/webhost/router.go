@@ -57,6 +57,18 @@ type RouterConfig struct {
 	// omission.
 	Gate DestructiveGate
 
+	// StepUp re-checks the signed-in administrator's password before a
+	// restore runs on a profile whose gate opens for local accounts
+	// (issue #1163). Nil means no restore can pass that check: it fails
+	// closed.
+	StepUp StepUpVerifier
+
+	// TrustForwardedHeaders says the peer in front of this handler is the
+	// project's own edge proxy, whose X-Forwarded-Proto and X-Forwarded-For
+	// can be believed. It is the same value the session cookie's Secure flag
+	// is decided with, passed down so the two cannot disagree (issue #1163).
+	TrustForwardedHeaders bool
+
 	// FirstRun, when non-nil, is the setup surface of an instance that
 	// may have no configuration yet (issue #176, firstrun.go). Combined
 	// with a nil Backend it selects a completely different, much smaller

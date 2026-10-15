@@ -568,6 +568,9 @@ export interface RestoreCopyRequest {
   /** The operator saying they know this is billed and takes hours.
    *  Required true; see BackupApi.restoreCopy. */
   acknowledged: boolean;
+  /** Issue #1163: the administrator's password, sent again where the engine
+   *  says restores need it. */
+  stepUpPassword?: string;
   /** The configuration revision the caller is displaying. */
   configRevision: string;
   /** One key per LOGICAL restore, reused on every retry of it. POST
@@ -1923,6 +1926,13 @@ export interface SnapshotRestoreRequest {
    *  operator can ask for an overwrite and the request should say what
    *  was asked for. */
   conflict?: RestoreConflictPolicy;
+  /** Issue #1163: the administrator's password, sent again, where the engine
+   *  says restores need it (destructiveOperations.stepUpRequired). Never
+   *  stored, never logged: it rides one request header. */
+  stepUpPassword?: string;
+  /** Issue #1163: the operator's explicit acknowledgement that this writes
+   *  into the destination. */
+  acknowledged?: boolean;
   configRevision: string;
   idempotencyKey: string;
 }
@@ -1959,6 +1969,9 @@ export interface SnapshotHoldRequest {
 export interface SnapshotHoldReleaseRequest {
   backupSetId: string;
   holdId: string;
+  /** Issue #1164: releasing lifts a protection, so the engine wants the
+   *  operator's explicit acknowledgement in the request. */
+  acknowledged?: boolean;
   configRevision: string;
   idempotencyKey: string;
 }
@@ -2883,6 +2896,12 @@ export interface WorkflowValidation {
 export interface DestructiveOperations {
   state: "open" | "shut";
   reason: string;
+  /** Issue #1163: restores re-ask for the administrator's password. True only
+   *  where the gate is open for local accounts. */
+  stepUpRequired: boolean;
+  /** Issue #1163: this connection's session cookie cannot be Secure and the
+   *  peer is not loopback, so the engine wants one more acknowledgement. */
+  insecureTransportAckRequired: boolean;
 }
 
 /** GET /system/capabilities. */

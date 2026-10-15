@@ -18,7 +18,7 @@
  * to.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { httpApi, newIdempotencyKey } from "./client";
+import { httpApi, newIdempotencyKey, setInsecureTransportConfirmer } from "./client";
 import { RetndError, RequestFailure, toApiErrorCode } from "./contracts";
 import type { ApiErrorCode } from "./contracts";
 import { progressPercent } from "@shared/types/operation";
@@ -3175,5 +3175,183 @@ describe("workflow wire mapping (apps/common/webhost/handlers_workflowruns.go)",
         findings: [{ code: "", severity: "error", line: 0, col: 0, message: "", excerpt: { lines: [] } }]
       }
     ]);
+  });
+});
+
+/**
+ * Issues #1163 and #1164 on the wire.
+ *
+ * Five things a screen cannot check for itself: the capability field's two new
+ * flags, the password riding a header and never the body, the acknowledgement
+ * riding the body only when it was given, the release acknowledgement, and
+ * the insecure-transport retry that happens once, only after an operator said
+ * yes, and never sends its header unprompted.
+ */
+describe("httpApi, issues #1163 and #1164", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    setInsecureTransportConfirmer(null);
+  });
+
+  const OPERATION = { operation_id: "op_1", status: "running", action: "restore_snapshot" };
+  const lastCall = (m: ReturnType<typeof vi.fn>, n = 0) => m.mock.calls[n] as [string, RequestInit];
+  const headersOf = (m: ReturnType<typeof vi.fn>, n = 0) => (lastCall(m, n)[1].headers ?? {}) as Record<string, string>;
+  const bodyOf = (m: ReturnType<typeof vi.fn>, n = 0) => JSON.parse(lastCall(m, n)[1].body as string) as Record<string, unknown>;
+
+  function refusedThenServed(code: string) {
+    return vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        headers: new Headers({ "content-type": "application/json" }),
+        json: async () => ({ error: { code, message: "refused" } })
+      })
+      .mockResolvedValueOnce({ ok: true, status: 200, headers: new Headers(), json: async () => OPERATION });
+  }
+
+  it("reads both new capability flags and defaults them to false when the engine is older", async () => {
+    const withFlags = mockFetchOk({
+      platform: "generic",
+      native_auth: false,
+      native_notifications: false,
+      storage_picker: false,
+      embedded_window: false,
+      app_store_packaging: false,
+      destructive_operations: { state: "open", reason: "", step_up_required: true, insecure_transport_ack_required: true }
+    });
+    vi.stubGlobal("fetch", withFlags);
+    const caps = await httpApi.getCapabilities();
+    expect(caps.destructiveOperations).toEqual({ state: "open", reason: "", stepUpRequired: true, insecureTransportAckRequired: true });
+
+    const older = mockFetchOk({ platform: "generic", destructive_operations: { state: "open", reason: "" } });
+    vi.stubGlobal("fetch", older);
+    const old = await httpApi.getCapabilities();
+    expect(old.destructiveOperations.stepUpRequired).toBe(false);
+    expect(old.destructiveOperations.insecureTransportAckRequired).toBe(false);
+  });
+
+  it("sends the step-up password in a header, never in the body, and only when there is one", async () => {
+    const fetchMock = mockFetchOk(OPERATION);
+    vi.stubGlobal("fetch", fetchMock);
+    await httpApi.restoreSnapshot({
+      backupSetId: "nas-a/photos",
+      targetPath: "/data/x",
+      configRevision: "cfg_7",
+      idempotencyKey: "k1",
+      stepUpPassword: "hunter2-hunter2",
+      acknowledged: true
+    });
+    expect(headersOf(fetchMock)["X-Retnd-Step-Up-Password"]).toBe("hunter2-hunter2");
+    expect(JSON.stringify(bodyOf(fetchMock))).not.toContain("hunter2");
+    expect(bodyOf(fetchMock)).toEqual({
+      action: "restore_snapshot",
+      config_revision: "cfg_7",
+      snapshot_restore: { backup_set_id: "nas-a/photos", target_path: "/data/x", acknowledged: true }
+    });
+
+    const bare = mockFetchOk(OPERATION);
+    vi.stubGlobal("fetch", bare);
+    await httpApi.restoreSnapshot({ backupSetId: "nas-a/photos", targetPath: "/data/x", configRevision: "cfg_7", idempotencyKey: "k2" });
+    expect(headersOf(bare)["X-Retnd-Step-Up-Password"]).toBeUndefined();
+  });
+
+  it("sends the step-up password for a cold-storage restore the same way", async () => {
+    const fetchMock = mockFetchOk({ operation_id: "op_2", status: "running", action: "restore_placement", restore: {} });
+    vi.stubGlobal("fetch", fetchMock);
+    await httpApi.restoreCopy({
+      artifactId: "a/b/c",
+      medium: "cold-store",
+      windowDays: 3,
+      acknowledged: true,
+      stepUpPassword: "hunter2-hunter2",
+      configRevision: "cfg_7",
+      idempotencyKey: "k3"
+    });
+    expect(headersOf(fetchMock)["X-Retnd-Step-Up-Password"]).toBe("hunter2-hunter2");
+    expect(JSON.stringify(bodyOf(fetchMock))).not.toContain("hunter2");
+  });
+
+  it("sends the release acknowledgement in the release's own parameters", async () => {
+    const fetchMock = mockFetchOk(OPERATION);
+    vi.stubGlobal("fetch", fetchMock);
+    await httpApi.releaseSnapshotHold({
+      backupSetId: "nas-a/photos",
+      holdId: "hold_1",
+      acknowledged: true,
+      configRevision: "cfg_7",
+      idempotencyKey: "k4"
+    });
+    expect(bodyOf(fetchMock)).toEqual({
+      action: "release_snapshot_hold",
+      config_revision: "cfg_7",
+      snapshot_hold_release: { backup_set_id: "nas-a/photos", hold_id: "hold_1", acknowledged: true }
+    });
+  });
+
+  it("asks once when the engine wants the insecure-transport acknowledgement, and retries with it only on yes", async () => {
+    const fetchMock = refusedThenServed("INSECURE_TRANSPORT_ACK_REQUIRED");
+    vi.stubGlobal("fetch", fetchMock);
+    const confirm = vi.fn().mockResolvedValue(true);
+    setInsecureTransportConfirmer(confirm);
+
+    await httpApi.runCycle("cfg_7", "k5");
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(headersOf(fetchMock, 0)["X-Retnd-Insecure-Transport-Ack"], "the first attempt never sends it unprompted").toBeUndefined();
+    expect(headersOf(fetchMock, 1)["X-Retnd-Insecure-Transport-Ack"]).toBe("acknowledged");
+    // The retry is the same logical request.
+    expect(headersOf(fetchMock, 1)["Idempotency-Key"]).toBe("k5");
+  });
+
+  it("a no leaves the refusal exactly as the engine gave it and sends nothing more", async () => {
+    const fetchMock = refusedThenServed("INSECURE_TRANSPORT_ACK_REQUIRED");
+    vi.stubGlobal("fetch", fetchMock);
+    setInsecureTransportConfirmer(vi.fn().mockResolvedValue(false));
+    await expect(httpApi.runCycle("cfg_7", "k6")).rejects.toMatchObject({
+      code: "INSECURE_TRANSPORT_ACK_REQUIRED"
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("with nobody to ask, the refusal stands and nothing is retried", async () => {
+    const fetchMock = refusedThenServed("INSECURE_TRANSPORT_ACK_REQUIRED");
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(httpApi.runCycle("cfg_7", "k7")).rejects.toMatchObject({
+      code: "INSECURE_TRANSPORT_ACK_REQUIRED"
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("only that one refusal is ever retried", async () => {
+    const fetchMock = refusedThenServed("DESTRUCTIVE_OPERATIONS_DISABLED");
+    vi.stubGlobal("fetch", fetchMock);
+    const confirm = vi.fn().mockResolvedValue(true);
+    setInsecureTransportConfirmer(confirm);
+    await expect(httpApi.runCycle("cfg_7", "k8")).rejects.toMatchObject({
+      code: "DESTRUCTIVE_OPERATIONS_DISABLED"
+    });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("an acknowledged page keeps sending it, a refused one starts clean", async () => {
+    const fetchMock = refusedThenServed("INSECURE_TRANSPORT_ACK_REQUIRED");
+    vi.stubGlobal("fetch", fetchMock);
+    setInsecureTransportConfirmer(vi.fn().mockResolvedValue(true));
+    await httpApi.runCycle("cfg_7", "k9");
+
+    const next = mockFetchOk(OPERATION);
+    vi.stubGlobal("fetch", next);
+    await httpApi.runCycle("cfg_7", "k10");
+    expect(headersOf(next)["X-Retnd-Insecure-Transport-Ack"]).toBe("acknowledged");
+
+    // A read is not a request that needs it.
+    const read = mockFetchOk({ operations: [] });
+    vi.stubGlobal("fetch", read);
+    await httpApi.getOperation("op_1").catch(() => undefined);
+    expect(headersOf(read)["X-Retnd-Insecure-Transport-Ack"]).toBeUndefined();
   });
 });

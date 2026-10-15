@@ -625,22 +625,7 @@ func cmdServe(args []string) int {
 	fmt.Fprintf(os.Stderr, cliecho.WebBinary+": runtime profile %q (%s), authentication: %s\n",
 		runtimeProfile.ID, runtimeProfile.DisplayName, authModeOf(runtimeProfile))
 
-	engineConfig := serve.EngineConfig{
-		Platform:              platformAdapter,
-		AuthRoutes:            authRoutes,
-		TrustForwardedHeaders: trustFwd,
-		AdoptedPaths:          preflight.Adoptions(),
-		BinaryVersion:         version,
-		Commit:                commit,
-	}
-	// The first-run guide's view of the administrator, the mail server and
-	// skipped steps (retnd#1049). Left unset on a gateway profile, where
-	// the platform owns identity and there is no mail step to set up. The
-	// nil check matters: a typed-nil *local.Service in the interface would
-	// not compare equal to nil downstream.
-	if authSvc != nil {
-		engineConfig.Setup = authSvc
-	}
+	engineConfig := newEngineConfig(runtimeProfile, platformAdapter, authSvc, authRoutes, trustFwd, preflight.Adoptions(), version, commit)
 
 	var handler http.Handler
 	var scheduler serve.Scheduler
@@ -1612,4 +1597,29 @@ func applyHostLimits(backend *service.BackupService, platformAdapter capabilitie
 		return fmt.Errorf("the platform's host limits: %w", err)
 	}
 	return nil
+}
+
+// newEngineConfig is the one place retnd-web composes serve.EngineConfig, so
+// what it wires can be read off a profile in a test instead of by running a
+// server.
+//
+// Stub until issues #1163 and #1164 land: it wires no gate and no step-up.
+func newEngineConfig(p profile.Profile, adapter capabilities.PlatformAdapter, authSvc *local.Service, authRoutes http.Handler, trustFwd bool, adopted []legacypath.Adoption, version, commit string) serve.EngineConfig {
+	cfg := serve.EngineConfig{
+		Platform:              adapter,
+		AuthRoutes:            authRoutes,
+		TrustForwardedHeaders: trustFwd,
+		AdoptedPaths:          adopted,
+		BinaryVersion:         version,
+		Commit:                commit,
+	}
+	// The first-run guide's view of the administrator, the mail server and
+	// skipped steps (retnd#1049). Left unset on a gateway profile, where
+	// the platform owns identity and there is no mail step to set up. The
+	// nil check matters: a typed-nil *local.Service in the interface would
+	// not compare equal to nil downstream.
+	if authSvc != nil {
+		cfg.Setup = authSvc
+	}
+	return cfg
 }
