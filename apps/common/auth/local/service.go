@@ -199,6 +199,7 @@ type Service struct {
 	forgotLimiter         *RateLimiter
 	resetLimiter          *RateLimiter
 	verifyLimiter         *RateLimiter
+	stepUpLimiter         *RateLimiter
 	sendMail              email.Sender
 	baseURL               string
 	log                   io.Writer
@@ -301,6 +302,12 @@ func New(cfg Config) (*Service, error) {
 	resetLimiter.now = now
 	verifyLimiter := NewRateLimiter(recoveryLimit, rateLimitWindow)
 	verifyLimiter.now = now
+	stepUpLimit := cfg.StepUpRateLimit
+	if stepUpLimit == 0 {
+		stepUpLimit = DefaultStepUpRateLimit
+	}
+	stepUpLimiter := NewRateLimiter(stepUpLimit, rateLimitWindow)
+	stepUpLimiter.now = now
 
 	s := &Service{
 		store:                 store,
@@ -315,6 +322,7 @@ func New(cfg Config) (*Service, error) {
 		forgotLimiter:         forgotLimiter,
 		resetLimiter:          resetLimiter,
 		verifyLimiter:         verifyLimiter,
+		stepUpLimiter:         stepUpLimiter,
 		sendMail:              sendMail,
 		baseURL:               strings.TrimRight(cfg.BaseURL, "/"),
 		log:                   log,

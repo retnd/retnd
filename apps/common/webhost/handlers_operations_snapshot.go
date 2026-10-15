@@ -40,6 +40,12 @@ type snapshotRestoreOperationRequest struct {
 	SourcePath  string `json:"source_path,omitempty"`
 	TargetPath  string `json:"target_path"`
 	Conflict    string `json:"conflict,omitempty"`
+
+	// Acknowledged is the operator saying they understand this writes into
+	// TargetPath (issue #1163). The router requires it, before this handler
+	// runs, wherever the gate opens for local accounts; it is read from the
+	// body there and carried here so the contract names it in one place.
+	Acknowledged bool `json:"acknowledged,omitempty"`
 }
 
 // snapshotVerifyOperationRequest is the verify_snapshot action's.
@@ -68,6 +74,12 @@ type snapshotHoldOperationRequest struct {
 type snapshotHoldReleaseOperationRequest struct {
 	BackupSetID string `json:"backup_set_id"`
 	HoldID      string `json:"hold_id"`
+
+	// Acknowledged is the operator saying they understand that releasing
+	// the hold makes the snapshot prunable by the next retention run (issue
+	// #1164). Required on every profile, because release-hold is off the
+	// destructive gate and this is what stands in its place.
+	Acknowledged bool `json:"acknowledged"`
 }
 
 // submitSnapshotRestore is POST /operations with a restore_snapshot
@@ -167,6 +179,11 @@ func (h *handlers) submitSnapshotHoldRelease(w http.ResponseWriter, r *http.Requ
 	}
 
 	p := body.SnapshotHoldRelease
+	if !p.Acknowledged {
+		writeError(w, http.StatusBadRequest, "ACKNOWLEDGEMENT_REQUIRED",
+			"releasing a hold makes the snapshot prunable by the next retention run, so the request has to say you understand that: set acknowledged to true in snapshot_hold_release")
+		return
+	}
 	op, err := h.backend.SubmitSnapshotHoldRelease(r.Context(), service.SnapshotHoldReleaseRequest{
 		Actor:          actorFromContext(r.Context()),
 		IdempotencyKey: idempotencyKey,

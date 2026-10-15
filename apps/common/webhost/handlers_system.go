@@ -208,6 +208,19 @@ type capabilitiesResponse struct {
 type destructiveOperationsResponse struct {
 	State  string `json:"state"`
 	Reason string `json:"reason"`
+
+	// StepUpRequired says restores ask for the administrator's password
+	// again (issue #1163). It follows what the router will enforce, so a
+	// screen never asks for a password the engine will not check, or fails
+	// to ask for one it will.
+	StepUpRequired bool `json:"step_up_required"`
+
+	// InsecureTransportAckRequired says THIS request arrived over a
+	// connection whose session cookie cannot be Secure, from a peer that is
+	// not loopback, so a gated act needs the extra acknowledgement. It is
+	// computed from the request that asked, which is why the capability
+	// read cannot be cached across connections.
+	InsecureTransportAckRequired bool `json:"insecure_transport_ack_required"`
 }
 
 // systemCapabilities is GET /api/v1/system/capabilities. It copies the
@@ -220,6 +233,7 @@ type destructiveOperationsResponse struct {
 func (h *handlers) systemCapabilities(w http.ResponseWriter, r *http.Request) {
 	c := h.platform.Capabilities()
 	gateState, gateReason := gateStatus(h.gate)
+	_, stepUp := conditionsOf(h.gate)
 	writeJSON(w, http.StatusOK, capabilitiesResponse{
 		Platform:            string(h.platform.ID()),
 		NativeAuth:          c.NativeAuth,
@@ -228,7 +242,12 @@ func (h *handlers) systemCapabilities(w http.ResponseWriter, r *http.Request) {
 		EmbeddedWindow:      c.EmbeddedWindow,
 		AppStorePackaging:   c.AppStorePackaging,
 
-		DestructiveOperations: destructiveOperationsResponse{State: gateState, Reason: gateReason},
+		DestructiveOperations: destructiveOperationsResponse{
+			State:                        gateState,
+			Reason:                       gateReason,
+			StepUpRequired:               stepUp,
+			InsecureTransportAckRequired: h.enforce.insecureTransportAckNeeded(r),
+		},
 	})
 }
 

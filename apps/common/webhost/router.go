@@ -260,6 +260,12 @@ type handlers struct {
 	// #155).
 	gate DestructiveGate
 
+	// enforce is the gate together with what an open one still asks for
+	// (gate_profile.go): the step-up verifier and whether forwarded headers
+	// can be believed. The routes and the capabilities read this one value, so
+	// they cannot disagree about what the router will enforce.
+	enforce gateEnforcement
+
 	// firstRun and onConfigured are RouterConfig's own fields of the same
 	// names; see firstrun.go for what each is for.
 	firstRun     FirstRunClient
@@ -318,6 +324,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		binaryVersion: cfg.BinaryVersion,
 		commit:        cfg.Commit,
 		gate:          gate,
+		enforce:       gateEnforcement{gate: gate, stepUp: cfg.StepUp, trustFwd: cfg.TrustForwardedHeaders},
 		firstRun:      cfg.FirstRun,
 		onConfigured:  cfg.OnConfigured,
 		progress:      cfg.Setup,
@@ -412,7 +419,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// destructiveGateExemptRoutes (router_test.go) with the rest.
 		r.With(requireCSRF).Post("/repositories", h.createRepositoryDomain)
 
-		r.With(requireCSRF, requireDestructiveGate(gate)).Post("/operations", h.submitOperation)
+		r.With(requireCSRF, requireOperationGate(h.enforce)).Post("/operations", h.submitOperation)
 		r.Get("/operations/{id}", h.getOperation)
 		// Issue #211: the list counterpart of the polling read above. GET
 		// on this path used to be a 405, which is what the shared UI's
@@ -440,7 +447,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// route is actually reached rather than swallowed by the
 		// catch-all.
 		r.Get("/backup-sets/{source}/{set}/retention/preview", h.previewRetention)
-		r.With(requireCSRF, requireDestructiveGate(gate)).Post("/backup-sets/{source}/{set}/retention/apply", h.applyRetention)
+		r.With(requireCSRF, requireRouteGate(h.enforce)).Post("/backup-sets/{source}/{set}/retention/apply", h.applyRetention)
 
 		// Issue #146 (B2.7): the add-backup-set wizard's (#98) write path.
 		// Every POST here carries requireCSRF: create-backup-set and

@@ -264,6 +264,19 @@ func recordActions(recorder ActionRecorder) func(http.Handler) http.Handler {
 				action.Gate, action.GateReason = note.state, note.reason
 				action.Operation, action.RunID, action.SnapshotID, action.HoldID = operation, runID, snapshotID, holdID
 			}
+			// Releasing a hold lifts a protection, and it is off the
+			// destructive gate (issue #1164), so no refusal note names it.
+			// The feed is the record of who released which hold: the actor is
+			// already on the entry, the line carries its own time, and this
+			// adds the act and the hold, on success and on refusal alike.
+			if !note.refused && route == "/operations" {
+				if op, set, _, _, hold := gateTarget(route, routeParamsOf(r), body); op == "release_snapshot_hold" {
+					action.Operation, action.HoldID = op, hold
+					if set != "" {
+						action.BackupSetID = set
+					}
+				}
+			}
 			// Bare: the "$ " a terminal draws in front of it is the
 			// terminal's, and a script reading the journal wants a
 			// command it can run, not a screen (see cliecho.Line.Shell).

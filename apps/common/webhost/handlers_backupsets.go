@@ -436,6 +436,15 @@ func (h *handlers) createBackupSet(w http.ResponseWriter, r *http.Request) {
 		runImmediately = false
 		runRefusal = destructiveGateRefusal
 	}
+	// The run is a gated act like any other, so it follows the transport
+	// rule too (issue #1163). The set is still saved; only the run is
+	// refused, and the sentence says what to do about it.
+	insecureRefused := false
+	if runImmediately && h.enforce.insecureTransportAckNeeded(r) && !insecureTransportAcknowledged(r) {
+		runImmediately = false
+		runRefusal = insecureTransportRefusal
+		insecureRefused = true
+	}
 
 	req := service.CreateBackupSetRequest{
 		SourceName:          body.SourceName,
@@ -499,7 +508,7 @@ func (h *handlers) createBackupSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if runRefusal != "" {
+	if runRefusal != "" && !insecureRefused {
 		// The create succeeded and only its run was refused, which is a
 		// 201 and so reads as a success unless the audit entry is told
 		// otherwise (issue #1165). Told only here, after the set exists,

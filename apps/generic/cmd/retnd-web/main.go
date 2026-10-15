@@ -1603,13 +1603,21 @@ func applyHostLimits(backend *service.BackupService, platformAdapter capabilitie
 // what it wires can be read off a profile in a test instead of by running a
 // server.
 //
-// Stub until issues #1163 and #1164 land: it wires no gate and no step-up.
+// The destructive gate is wired here, from the profile this process was
+// started with (issue #1163), and nowhere else: EngineConfig.Gate is the one
+// place a gate enters the engine, so this is the line that makes a
+// local-account profile's web interface useful and the line a test reads.
+// webhost.NewProfileGate decides from the profile table, so a gateway profile
+// gets a shut gate and a profile that is not a known local-account profile
+// gets one too. There is no flag and no environment variable behind it, and
+// no argument here that could carry one.
 func newEngineConfig(p profile.Profile, adapter capabilities.PlatformAdapter, authSvc *local.Service, authRoutes http.Handler, trustFwd bool, adopted []legacypath.Adoption, version, commit string) serve.EngineConfig {
 	cfg := serve.EngineConfig{
 		Platform:              adapter,
 		AuthRoutes:            authRoutes,
 		TrustForwardedHeaders: trustFwd,
 		AdoptedPaths:          adopted,
+		Gate:                  webhost.NewProfileGate(p.ID),
 		BinaryVersion:         version,
 		Commit:                commit,
 	}
@@ -1620,6 +1628,10 @@ func newEngineConfig(p profile.Profile, adapter capabilities.PlatformAdapter, au
 	// not compare equal to nil downstream.
 	if authSvc != nil {
 		cfg.Setup = authSvc
+		// A restore re-asks the administrator's password. Only a local-account
+		// profile has one to ask for, and the nil check is for the same reason
+		// as above: a typed-nil in the interface would look wired.
+		cfg.StepUp = authSvc
 	}
 	return cfg
 }
