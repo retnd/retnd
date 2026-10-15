@@ -531,7 +531,7 @@ describe("Scrub now, Cancel and Show validator output on the set page", () => {
   it("a running scrub can be cancelled, and the cancel's terminal twin names its operation", async () => {
     const root = renderSection();
     await userEvent.click(await screen.findByRole("button", { name: "Scrub now" }));
-    expect(screen.getByText("retnd assurance cancel scrub-op-1", { exact: true })).toBeTruthy();
+    expect(await screen.findByText("retnd assurance cancel scrub-op-1", { exact: true })).toBeTruthy();
     await userEvent.click(await screen.findByRole("button", { name: "Cancel" }));
     await waitFor(() => expect(root.cancelAssuranceOperation).toHaveBeenCalledWith("scrub-op-1"));
     expect(await screen.findByTestId("operation-progress")).toHaveAttribute("data-cancelling", "true");
