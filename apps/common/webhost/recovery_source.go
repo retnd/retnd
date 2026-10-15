@@ -1,9 +1,9 @@
 package webhost
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 
@@ -21,75 +21,88 @@ import (
 // staging file and another storage destination. It is not true of the source
 // target: it writes onto the production host the backup came from. So that
 // one kind, on the two routes that can carry it, goes through what #1163 asks
-// of a restore: the gate, the insecure-transport acknowledgement, an explicit
-// acknowledgement in the request (target.acknowledged) and the password again.
-// Every other target is let through untouched, which is what keeps a recovery
-// to staging working on a shut gate.
+// of a restore, through the same decide every other gated act uses: the gate,
+// the transport rule (which reads serve-ui's verdict about the browser), an
+// explicit acknowledgement in the request (target.acknowledged, refused 409
+// RECOVERY_SOURCE_NOT_ACKNOWLEDGED like every other consent) and the password
+// again (403, 429 RATE_LIMITED when the check is throttled, 503 when there is
+// nothing to check it with). Every other target is let through untouched,
+// which is what keeps a recovery to staging working on a shut gate.
 //
 // A pre-flight of a set (preflight: true) writes nothing and is not gated, so
 // the dialog can show the plan before anyone types a password.
 //
-// The target is read out of the body before the handler decodes it, so the
-// two must agree on what the target is. Both use encoding/json on the first
-// JSON value of the body, with the same field names, so case-insensitive keys
-// and a later duplicate read the same way in both. A body over the route's
-// own limit is passed to the handler, which refuses it as too large.
+// # One decode
+//
+// The body is decoded once, by recoveryRequest, and the gate and the handler
+// both read that one value, the same way POST /operations does since #1167's
+// review. There is no peek for a crafted body to make disagree with what
+// runs.
 
-// sourceTargetPeek is the part of a mint or a set-recovery body the gate
-// reads.
-type sourceTargetPeek struct {
-	Preflight bool `json:"preflight"`
-	Target    struct {
-		Kind         string `json:"kind"`
-		Acknowledged bool   `json:"acknowledged"`
-	} `json:"target"`
+// parsedRecovery is a recovery body, decoded once for the whole request.
+type parsedRecovery[T any] struct {
+	body T
+	// err is the decode's own error, reported by the handler in its words.
+	err error
 }
 
-// requireSourceTargetGate gates a request whose target is the source host.
-// limit is the route's own body limit.
-func requireSourceTargetGate(e gateEnforcement, limit int64) func(http.Handler) http.Handler {
+type parsedRecoveryKey struct{}
+
+// recoveryRequest is the decoded body of this recovery request, decoding it
+// the first time it is asked for (with the route's own limit, and refusing
+// unknown fields as the handlers always have) and handing back a request
+// that carries it. An empty body decodes to the zero value.
+func recoveryRequest[T any](w http.ResponseWriter, r *http.Request, limit int64) (*parsedRecovery[T], *http.Request) {
+	if p, ok := r.Context().Value(parsedRecoveryKey{}).(*parsedRecovery[T]); ok {
+		return p, r
+	}
+	p := &parsedRecovery[T]{}
+	src := r.Body
+	if src == nil {
+		src = http.NoBody
+	}
+	dec := json.NewDecoder(http.MaxBytesReader(w, src, limit))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&p.body); err != nil && !errors.Is(err, io.EOF) {
+		p.err = err
+	}
+	return p, r.WithContext(context.WithValue(r.Context(), parsedRecoveryKey{}, p))
+}
+
+// sourceTargetOf reads what the gate needs off a decoded body: the target,
+// and whether this is a pre-flight that writes nothing.
+type sourceTargetOf[T any] func(T) (target recoveryTargetBody, preflight bool)
+
+// requireSourceRecoveryGate gates a recovery whose target is the source host,
+// against the body the handler then runs. limit is the route's own body
+// limit. A body that does not decode goes to the handler, which refuses it.
+func requireSourceRecoveryGate[T any](e gateEnforcement, limit int64, of sourceTargetOf[T]) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Body == nil {
+			p, r := recoveryRequest[T](w, r, limit)
+			if p.err != nil {
 				next.ServeHTTP(w, r)
 				return
 			}
-			buf, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
-			r.Body = struct {
-				io.Reader
-				io.Closer
-			}{io.MultiReader(bytes.NewReader(buf), r.Body), r.Body}
-			if err != nil || int64(len(buf)) > limit {
+			target, preflight := of(p.body)
+			if target.Kind != "source" || preflight {
 				next.ServeHTTP(w, r)
 				return
 			}
-			var peek sourceTargetPeek
-			if derr := json.NewDecoder(bytes.NewReader(buf)).Decode(&peek); derr != nil || peek.Target.Kind != "source" || peek.Preflight {
-				next.ServeHTTP(w, r)
+			act := gatedAct{sourceRecovery: &sourceRecoveryAct{acknowledged: target.Acknowledged}}
+			if ref, refused := e.decide(r, act); refused {
+				ref.write(w, r, "recover to source host")
 				return
-			}
-			if !destructiveGatePassed(e.gate) {
-				noteGateRefusal(r.Context(), e.gate, "recover to source host")
-				writeDestructiveGateDenied(w)
-				return
-			}
-			if e.insecureTransportAckNeeded(r) && !insecureTransportAcknowledged(r) {
-				refuseInsecureTransport(w)
-				return
-			}
-			if _, stepUp := conditionsOf(e.gate); stepUp {
-				if !peek.Target.Acknowledged {
-					writeError(w, http.StatusBadRequest, "ACKNOWLEDGEMENT_REQUIRED",
-						"recovering to the source host writes onto the machine this backup came from, so the request has to say you understand that: set acknowledged to true in its target")
-					return
-				}
-				if !e.checkStepUp(w, r, "a recovery onto the source host", "retnd recover --acknowledge-source-write") {
-					return
-				}
 			}
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+func mintSourceTarget(b recoveryMintRequest) (recoveryTargetBody, bool) { return b.Target, false }
+
+func recoverManySourceTarget(b recoverManyRequestBody) (recoveryTargetBody, bool) {
+	return b.Target, b.Preflight
 }
 
 // RecoverySourceClient is what the preflight route needs from the backend.

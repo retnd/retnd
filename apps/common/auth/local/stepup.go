@@ -3,6 +3,7 @@ package local
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 // Step-up re-authentication (issue #1163).
@@ -30,14 +31,30 @@ import (
 var ErrStepUpRefused = errors.New("local: step-up re-authentication refused")
 
 // ErrStepUpRateLimited is returned when too many step-up checks were asked
-// for in the window, before the password is looked at.
+// for in the window, before the password is looked at. The error VerifyStepUp
+// returns is a *StepUpRateLimitedError, which matches this with errors.Is and
+// also says how long to wait.
 var ErrStepUpRateLimited = errors.New("local: too many step-up attempts")
+
+// StepUpRateLimitedError is a tripped step-up limiter, with the time until
+// the next check is allowed. The web interface turns it into 429 RATE_LIMITED
+// with Retry-After (issue #1163 review), because "wait" and "wrong password"
+// ask the operator for opposite things.
+type StepUpRateLimitedError struct{ Wait time.Duration }
+
+func (e *StepUpRateLimitedError) Error() string { return ErrStepUpRateLimited.Error() }
+
+// Is makes errors.Is(err, ErrStepUpRateLimited) hold.
+func (e *StepUpRateLimitedError) Is(target error) bool { return target == ErrStepUpRateLimited }
+
+// RetryAfter is how long until the limiter allows another check.
+func (e *StepUpRateLimitedError) RetryAfter() time.Duration { return e.Wait }
 
 // VerifyStepUp reports nil when password is the stored password of the
 // administrator named username. It satisfies webhost.StepUpVerifier.
 func (s *Service) VerifyStepUp(_ context.Context, username, password string) error {
 	if !s.stepUpLimiter.Allow("step-up") {
-		return ErrStepUpRateLimited
+		return &StepUpRateLimitedError{Wait: s.stepUpLimiter.RetryAfter("step-up")}
 	}
 	if username == "" || password == "" {
 		return ErrStepUpRefused

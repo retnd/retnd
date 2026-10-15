@@ -40,7 +40,7 @@ test.describe("#1134 Recovery on the Backups list", () => {
     const chip = recovery(listRow(page, NEWEST));
     await expect(chip).toContainText("Default configuration");
     await expect(chip).not.toContainText("Not configured");
-    await expect(chip.getByRole("link", { name: "Default configuration" })).toHaveAttribute("href", "/settings#assurance-defaults");
+    await expect(chip.getByRole("link", { name: "Default configuration" })).toHaveAttribute("href", "/settings#assurance");
     await expect(chip.getByTestId("recovery-effective")).toHaveText("Recovery tests are off, a manual run uses the built-in check");
     await expect(chip).toHaveAttribute("data-state", "never_configured");
   });
@@ -48,8 +48,8 @@ test.describe("#1134 Recovery on the Backups list", () => {
   test("#1134 following the link lands on the Settings Assurance card, scrolled to it", async ({ page }) => {
     await open(page, "/backups", S, { wire: true });
     await recovery(listRow(page, NEWEST)).getByRole("link", { name: "Default configuration" }).click();
-    await expect(page).toHaveURL(/\/settings#assurance-defaults$/);
-    const card = page.locator("#assurance-defaults");
+    await expect(page).toHaveURL(/\/settings#assurance$/);
+    const card = page.locator("#assurance");
     await expect(card).toBeVisible();
     await expect(card).toBeInViewport();
     await expect(card.getByRole("heading", { name: "Assurance" })).toBeVisible();
@@ -133,7 +133,7 @@ test.describe("#1134 the set's page", () => {
     const chip = recovery(assuranceCard(page));
     await expect(chip).toContainText("Default configuration");
     await expect(chip).not.toContainText("Not configured");
-    await expect(chip.getByRole("link", { name: "Default configuration" })).toHaveAttribute("href", "/settings#assurance-defaults");
+    await expect(chip.getByRole("link", { name: "Default configuration" })).toHaveAttribute("href", "/settings#assurance");
     await expect(chip.getByTestId("recovery-elsewhere")).toContainText(TESTED);
   });
 
@@ -191,7 +191,7 @@ test.describe("#1134 the Backup Sets cards", () => {
     await open(page, "/sets", S, { wire: true });
     const field = setCard(page).getByTestId("field-recovery");
     await expect(field).toContainText("Default configuration");
-    await expect(field.getByRole("link", { name: "Default configuration" })).toHaveAttribute("href", "/settings#assurance-defaults");
+    await expect(field.getByRole("link", { name: "Default configuration" })).toHaveAttribute("href", "/settings#assurance");
     await expect(field).toContainText("Recovery tests are off, a manual run uses the built-in check");
   });
 });

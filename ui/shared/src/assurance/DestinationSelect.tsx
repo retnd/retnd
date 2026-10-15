@@ -9,10 +9,14 @@
  *
  * The value is the destination's id, which is what a recovery target takes
  * and what `retnd recover --to medium:<id>` takes.
+ *
+ * It reads through useAsync (the review of #1185), as the folder browser
+ * does, so an ended session takes the app to sign-in instead of reading as
+ * "the destinations could not be read".
  */
-import { useEffect, useState } from "react";
 import { useApi } from "@shared/api/ApiContext";
 import type { StorageMedium } from "@shared/api/contracts";
+import { useAsync } from "@shared/hooks/useAsync";
 
 function describe(m: StorageMedium): string {
   const where = m.isLocal ? "local backup root" : [m.type, m.bucket || m.path].filter(Boolean).join(", ");
@@ -21,13 +25,9 @@ function describe(m: StorageMedium): string {
 
 export function DestinationSelect({ value, onChange, ariaLabel }: { value: string; onChange(id: string): void; ariaLabel: string }) {
   const api = useApi();
-  const [mediums, setMediums] = useState<StorageMedium[] | null>(null);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    let live = true;
-    api.listStorageMediums().then((x) => { if (live) setMediums(x); }, () => { if (live) setFailed(true); });
-    return () => { live = false; };
-  }, [api]);
+  const read = useAsync(() => api.listStorageMediums(), [api]);
+  const failed = !read.loading && read.error !== null && read.data === null;
+  const mediums = read.loading && read.data === null ? null : read.data;
 
   const none = mediums !== null && mediums.length === 0;
   return (

@@ -215,11 +215,11 @@ type destructiveOperationsResponse struct {
 	// to ask for one it will.
 	StepUpRequired bool `json:"step_up_required"`
 
-	// InsecureTransportAckRequired says THIS request arrived over a
-	// connection whose session cookie cannot be Secure, from a peer that is
-	// not loopback, so a gated act needs the extra acknowledgement. It is
-	// computed from the request that asked, which is why the capability
-	// read cannot be cached across connections.
+	// InsecureTransportAckRequired says the browser behind THIS request
+	// reached retnd over plain HTTP from another machine, as the hop facing
+	// it judged (gate_profile.go), so a gated act needs the extra
+	// acknowledgement. It is computed from the request that asked, which is
+	// why the read is answered Cache-Control: no-store.
 	InsecureTransportAckRequired bool `json:"insecure_transport_ack_required"`
 }
 
@@ -232,8 +232,11 @@ type destructiveOperationsResponse struct {
 // from the gate rather than from the adapter.
 func (h *handlers) systemCapabilities(w http.ResponseWriter, r *http.Request) {
 	c := h.platform.Capabilities()
-	gateState, gateReason := gateStatus(h.gate)
-	_, stepUp := conditionsOf(h.gate)
+	gateState, gateReason := gateStatus(h.enforce.gate)
+	_, stepUp := conditionsOf(h.enforce.gate)
+	// insecure_transport_ack_required is about the connection that asked, so
+	// no cache may hand one caller's answer to another (issue #1163 review).
+	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, capabilitiesResponse{
 		Platform:            string(h.platform.ID()),
 		NativeAuth:          c.NativeAuth,

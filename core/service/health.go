@@ -233,6 +233,10 @@ type PlacementHealth struct {
 type HealthReport struct {
 	GeneratedAt time.Time
 	BackupSets  []BackupSetHealth
+	// RetainedCount is every backup outside quarantine, the backups of
+	// removed sets included: the figure the sidebar's Backups badge reads
+	// (issue #1186). See internal/health.Report.RetainedCount.
+	RetainedCount int
 }
 
 // Health computes the FR-24 health report for every configured backup set.
@@ -271,8 +275,9 @@ func (b *BackupService) Health(ctx context.Context) (HealthReport, error) {
 	}
 
 	out := HealthReport{
-		GeneratedAt: report.GeneratedAt,
-		BackupSets:  make([]BackupSetHealth, 0, len(report.BackupSets)),
+		GeneratedAt:   report.GeneratedAt,
+		BackupSets:    make([]BackupSetHealth, 0, len(report.BackupSets)),
+		RetainedCount: report.RetainedCount,
 	}
 	for _, bs := range report.BackupSets {
 		set := toServiceBackupSetHealth(bs)

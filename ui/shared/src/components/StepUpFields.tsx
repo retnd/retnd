@@ -74,10 +74,17 @@ export function stepUpMessage(code: string | undefined): string | null {
       return "That password was not accepted. Nothing was restored. Check it and try again.";
     case "STEP_UP_REQUIRED":
       return "Enter your password to start the restore.";
+    case "RATE_LIMITED":
+      // Not a wrong password: another try now is refused unchecked and keeps
+      // the limit tripped, so the advice is the opposite of the one above.
+      return "Too many password attempts in the last minute, so this one was not checked. Nothing was restored. Wait a minute, then try again.";
     case "STEP_UP_UNAVAILABLE":
       return "This deployment cannot re-check your password, so it will not run a restore from the web interface. Run retnd snapshot restore on the host.";
-    case "ACKNOWLEDGEMENT_REQUIRED":
+    case "RESTORE_TARGET_NOT_ACKNOWLEDGED":
+    case "RECOVERY_COST_NOT_ACKNOWLEDGED":
       return "Tick the box to say you understand, then start the restore.";
+    case "INSECURE_TRANSPORT_ACK_REQUIRED":
+      return "Nothing was sent. This connection is not encrypted, so your password goes only after you say to continue.";
     default:
       return null;
   }

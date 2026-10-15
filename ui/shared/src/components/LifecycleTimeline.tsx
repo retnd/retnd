@@ -46,12 +46,7 @@ export function buildPhases(artifact: BackupArtifact, facts?: BackupFacts | null
   const phases: Phase[] = [
     { label: "DISCOVERED", detail: "Completion signal seen on the remote server", at: artifact.producedAt, tip: "backups.lifecycle.discovered" },
     { label: "TRANSFERRED", detail: "Received over SFTP", at: artifact.receivedAt, tip: "backups.lifecycle.transferred" },
-    {
-      label: "VERIFIED",
-      detail: artifact.checksumAlgorithm.toUpperCase() + " matched the producer manifest",
-      at: artifact.validation === "verified" ? artifact.receivedAt : null,
-      tip: "backups.lifecycle.verified"
-    },
+    verifiedPhase(artifact, facts),
     {
       label: "COMMITTED",
       detail: "Durably written and fsynced to NAS storage",
@@ -76,6 +71,32 @@ export function buildPhases(artifact: BackupArtifact, facts?: BackupFacts | null
     }
   ];
   return phases;
+}
+
+/** The VERIFIED step is reached by either of the two things that verify a
+ *  backup: the producer-manifest check at ingest, or, for a backup that carries
+ *  no ingest verdict, a scrub that read the copy back and matched its hash. The
+ *  Content chip says "Content verified" on the second, so this step cannot be a
+ *  dash beside it (issue #1175). Ingest is named first because it happened first.
+ *
+ *  A scrub compares the copy against the digest taken at receipt, so what it
+ *  proves is that the content is intact since then, and the detail says exactly
+ *  that. It cannot stand in for an ingest check that FAILED: that would only
+ *  confirm a bad file is still the same bad file, so a failed ingest leaves the
+ *  step unreached whatever a scrub found since. */
+function verifiedPhase(artifact: BackupArtifact, facts?: BackupFacts | null): Phase {
+  const tip = "backups.lifecycle.verified" as const;
+  const algorithm = artifact.checksumAlgorithm.toUpperCase();
+  if (artifact.validation === "verified") {
+    return { label: "VERIFIED", detail: algorithm + " matched the producer manifest", at: artifact.receivedAt, tip };
+  }
+  if (artifact.validation === "failed") {
+    return { label: "VERIFIED", detail: "The ingest check failed. A later scrub can only show the copy is unchanged, not that it is good", at: null, tip };
+  }
+  if (facts?.contentAt) {
+    return { label: "VERIFIED", detail: "A scrub found the content intact since receipt", at: facts.contentAt, tip };
+  }
+  return { label: "VERIFIED", detail: algorithm + " matched the producer manifest", at: null, tip };
 }
 
 /** What the scrubs and recovery tests have recorded for this backup, as steps.

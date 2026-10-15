@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/retnd/retnd/apps/common/platform/profile"
 	"github.com/retnd/retnd/core/service"
@@ -98,8 +99,13 @@ func TestRecoverySource1191_AShutGateRefusesTheSourceTargetAndOnlyIt(t *testing.
 func TestRecoverySource1191_AnOpenLocalAccountGateAsksForTheAcknowledgementAndThePassword(t *testing.T) {
 	r := newSourceRig(t, NewProfileGate(profile.Generic))
 
-	if rec := r.post(t, mintPath, sourceMintUnacked, withStepUp(stepUpPassword)); rec.Code != http.StatusBadRequest || codeOf(rec) != "ACKNOWLEDGEMENT_REQUIRED" {
+	// A consent refusal, in the conflict class with the other
+	// *_NOT_ACKNOWLEDGED codes, and the password is not looked at for it.
+	if rec := r.post(t, mintPath, sourceMintUnacked, withStepUp(stepUpPassword)); rec.Code != http.StatusConflict || codeOf(rec) != "RECOVERY_SOURCE_NOT_ACKNOWLEDGED" {
 		t.Errorf("unacknowledged = %d %s", rec.Code, rec.Body.String())
+	}
+	if n := r.stepUp.asked(); n != 0 {
+		t.Errorf("the password was checked %d times for a request refused for its acknowledgement", n)
 	}
 	if rec := r.post(t, mintPath, sourceMintAcked); rec.Code != http.StatusForbidden || codeOf(rec) != "STEP_UP_REQUIRED" {
 		t.Errorf("no password = %d %s", rec.Code, rec.Body.String())
@@ -173,5 +179,80 @@ func TestRecoverySource1191_ThePreflightRouteAnswersBeforeTheRunAndIsNotGated(t 
 	r.router.ServeHTTP(out, req)
 	if out.Code != http.StatusForbidden {
 		t.Errorf("preflight without CSRF = %d", out.Code)
+	}
+}
+
+// The step-up for the source target is the restore's step-up, not a copy of
+// it: a tripped limiter is 429 RATE_LIMITED with Retry-After, and a
+// deployment with nothing to check a password against is 503.
+func TestRecoverySource1191_TheStepUpAnswersLikeEveryOtherStepUp(t *testing.T) {
+	limited := NewRouter(RouterConfig{
+		Platform: allowingPlatform("alice"), Backend: &sourceRecoveryBackend{fakeRecoveryBackend: &fakeRecoveryBackend{syncFakeBackend: newSyncFakeBackend(), content: []byte("x")}},
+		Gate: NewProfileGate(profile.Generic), StepUp: rateLimitedStepUp{wait: 1500 * time.Millisecond}, BinaryVersion: "test", Commit: "test",
+	})
+	r := &sourceRig{router: limited}
+	rec := r.post(t, mintPath, sourceMintAcked, withStepUp(stepUpPassword))
+	if rec.Code != http.StatusTooManyRequests || codeOf(rec) != "RATE_LIMITED" {
+		t.Errorf("tripped limiter = %d %s, want 429 RATE_LIMITED", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Retry-After"); got != "2" {
+		t.Errorf("Retry-After = %q, want 2", got)
+	}
+
+	none := NewRouter(RouterConfig{
+		Platform: allowingPlatform("alice"), Backend: &sourceRecoveryBackend{fakeRecoveryBackend: &fakeRecoveryBackend{syncFakeBackend: newSyncFakeBackend(), content: []byte("x")}},
+		Gate: NewProfileGate(profile.Generic), BinaryVersion: "test", Commit: "test",
+	})
+	r = &sourceRig{router: none}
+	rec = r.post(t, "/api/v1/recoveries", sourceManyAcked, withStepUp(stepUpPassword))
+	if rec.Code != http.StatusServiceUnavailable || codeOf(rec) != "STEP_UP_UNAVAILABLE" {
+		t.Errorf("no verifier = %d %s, want 503 STEP_UP_UNAVAILABLE", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(messageOf(rec), "retnd recover --acknowledge-source-write") {
+		t.Errorf("message %q does not name the command that does this on the host", messageOf(rec))
+	}
+}
+
+// The transport half reads the one verdict every gated act reads, including
+// the one serve-ui stamps about the browser's own connection.
+func TestRecoverySource1191_TheTransportRuleTakesServeUIsVerdictAboutTheBrowser(t *testing.T) {
+	r := newSourceRig(t, NewProfileGate(profile.Generic))
+	// serve-ui on loopback in front of the engine, browser on the LAN.
+	rec := r.post(t, mintPath, sourceMintAcked, withStepUp(stepUpPassword), func(req *http.Request) {
+		req.Header.Set(browserTransportHeader, "http")
+	})
+	if rec.Code != http.StatusForbidden || codeOf(rec) != "INSECURE_TRANSPORT_ACK_REQUIRED" {
+		t.Errorf("browser on plain HTTP behind serve-ui = %d %s", rec.Code, rec.Body.String())
+	}
+	// And the browser on HTTPS while the engine's own peer is the LAN.
+	rec = r.post(t, mintPath, sourceMintAcked, withStepUp(stepUpPassword), withPeer("192.168.0.20:51000"), func(req *http.Request) {
+		req.Header.Set(browserTransportHeader, "https")
+	})
+	if rec.Code != http.StatusCreated {
+		t.Errorf("browser on HTTPS behind serve-ui = %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// The gate and the handler read one decoded body. A body that names the
+// target twice (the decoder matches keys without regard to case, and the
+// later one wins) is gated on the target the service is then handed.
+func TestRecoverySource1191_TheGateAndTheHandlerReadOneDecodedBody(t *testing.T) {
+	r := newSourceRig(t, NotYetImplementedGate{})
+	twice := `{"target":{"kind":"staging","path":"x"},"Target":{"kind":"source","acknowledged":true}}`
+	rec := r.post(t, mintPath, twice, withStepUp(stepUpPassword))
+	if rec.Code != http.StatusForbidden || codeOf(rec) != "DESTRUCTIVE_OPERATIONS_DISABLED" {
+		t.Errorf("a body whose last target is the source = %d %s, want the shut gate", rec.Code, rec.Body.String())
+	}
+	if n := len(r.backend.minted); n != 0 {
+		t.Errorf("it reached the service %d times", n)
+	}
+
+	reversed := `{"Target":{"kind":"source","acknowledged":true},"target":{"kind":"staging","path":"x"}}`
+	rec = r.post(t, mintPath, reversed)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("a body whose last target is staging = %d %s", rec.Code, rec.Body.String())
+	}
+	if got := r.backend.minted[0].Target.Kind; got != "staging" {
+		t.Errorf("the service was handed a %q target; the gate let it by as staging", got)
 	}
 }

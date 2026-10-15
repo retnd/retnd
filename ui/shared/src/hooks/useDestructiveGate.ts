@@ -31,9 +31,13 @@ export interface GateReading {
   /** Issue #1163: restores re-ask for the password. Only ever true when the
    *  engine said so, so a screen never asks for one it will not check. */
   stepUpRequired: boolean;
+  /** Issue #1163: this browser reached retnd over plain HTTP from another
+   *  machine, so a screen that is about to send a password asks the operator
+   *  first (api/client.ts acknowledgeInsecureTransport). */
+  insecureTransportAckRequired: boolean;
 }
 
-const UNKNOWN: GateReading = { state: "unknown", reason: "", stepUpRequired: false };
+const UNKNOWN: GateReading = { state: "unknown", reason: "", stepUpRequired: false, insecureTransportAckRequired: false };
 
 export function useDestructiveGate(): GateReading {
   const api = useApi();
@@ -49,7 +53,8 @@ export function useDestructiveGate(): GateReading {
           setReading({
             state: caps.destructiveOperations.state,
             reason: caps.destructiveOperations.reason,
-            stepUpRequired: caps.destructiveOperations.stepUpRequired
+            stepUpRequired: caps.destructiveOperations.stepUpRequired,
+            insecureTransportAckRequired: caps.destructiveOperations.insecureTransportAckRequired
           });
       },
       // Not knowing is not "open". The refusal, if there is one, is the engine's.

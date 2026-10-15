@@ -104,6 +104,21 @@ type gateNote struct {
 	reason      string
 	operation   string // set by the caller when the route and body cannot say
 	backupSetID string // likewise
+	// code and message are what the refusal said, for the one refusal that
+	// writes no error envelope (a create whose run was refused answers 201).
+	code    string
+	message string
+}
+
+// noteRefusal records that this request was refused by the gate or by one of
+// the conditions an open gate carries, and why.
+func noteRefusal(ctx context.Context, note gateNote) {
+	n, ok := ctx.Value(gateNoteKey{}).(*gateNote)
+	if !ok {
+		return
+	}
+	note.backupSetID = n.backupSetID
+	*n = note
 }
 
 // noteGateRefusal records that the gate refused this request, and the state
@@ -111,13 +126,9 @@ type gateNote struct {
 // which act it was (the middleware case), and a name when only the handler
 // knows (run_immediately).
 func noteGateRefusal(ctx context.Context, gate DestructiveGate, operation string) {
-	n, ok := ctx.Value(gateNoteKey{}).(*gateNote)
-	if !ok {
-		return
-	}
-	n.refused = true
-	n.state, n.reason = gateStatus(gate)
-	n.operation = operation
+	state, reason := gateStatus(gate)
+	ref := newGateRefusal(http.StatusForbidden, "DESTRUCTIVE_OPERATIONS_DISABLED", destructiveGateRefusal, state, reason)
+	ref.note(ctx, operation)
 }
 
 // noteGateRefusedSet names the set a refused create made, which exists only
@@ -135,39 +146,30 @@ func noteGateRefusedSet(ctx context.Context, backupSetID string) {
 func gateTarget(route string, params map[string]string, body []byte) (operation, set, run, snapshot, hold string) {
 	switch {
 	case route == "/operations":
-		var req struct {
-			Action      string `json:"action"`
-			BackupSetID string `json:"backup_set_id"`
-			Restore     struct {
-				BackupSetID string `json:"backup_set_id"`
-				SnapshotID  string `json:"snapshot_id"`
-			} `json:"snapshot_restore"`
-			Verify struct {
-				BackupSetID string `json:"backup_set_id"`
-				RunID       string `json:"run_id"`
-			} `json:"snapshot_verify"`
-			Hold struct {
-				BackupSetID string `json:"backup_set_id"`
-				RunID       string `json:"run_id"`
-			} `json:"snapshot_hold"`
-			Release struct {
-				BackupSetID string `json:"backup_set_id"`
-				HoldID      string `json:"hold_id"`
-			} `json:"snapshot_hold_release"`
-		}
-		_ = json.Unmarshal(body, &req)
-		operation = req.Action
+		// The handler's own decoder, so the act an entry names is the act the
+		// handler ran. A body it could not fully read still names what it
+		// could, which is what an operator reading a refusal wants.
+		req, _ := decodeSubmitOperation(body)
+		operation = string(req.Action)
 		switch req.Action {
-		case "run_backup_set":
+		case ActionRunBackupSet:
 			set = req.BackupSetID
-		case "restore_snapshot":
-			set, snapshot = req.Restore.BackupSetID, req.Restore.SnapshotID
-		case "verify_snapshot":
-			set, run = req.Verify.BackupSetID, req.Verify.RunID
-		case "hold_snapshot":
-			set, run = req.Hold.BackupSetID, req.Hold.RunID
-		case "release_snapshot_hold":
-			set, hold = req.Release.BackupSetID, req.Release.HoldID
+		case ActionRestoreSnapshot:
+			if p := req.SnapshotRestore; p != nil {
+				set, snapshot = p.BackupSetID, p.SnapshotID
+			}
+		case ActionVerifySnapshot:
+			if p := req.SnapshotVerify; p != nil {
+				set, run = p.BackupSetID, p.RunID
+			}
+		case ActionHoldSnapshot:
+			if p := req.SnapshotHold; p != nil {
+				set, run = p.BackupSetID, p.RunID
+			}
+		case ActionReleaseSnapshotHold:
+			if p := req.SnapshotHoldRelease; p != nil {
+				set, hold = p.BackupSetID, p.HoldID
+			}
 		}
 	case strings.HasSuffix(route, "/retention/apply"):
 		operation = "retention_apply"
@@ -245,7 +247,7 @@ func recordActions(recorder ActionRecorder) func(http.Handler) http.Handler {
 				// envelope was written and the status does not say it was
 				// refused. The note does.
 				if code == "" {
-					code, message = "DESTRUCTIVE_OPERATIONS_DISABLED", destructiveGateRefusal
+					code, message = note.code, note.message
 				}
 			}
 			action := cliecho.APIAction{
@@ -270,7 +272,7 @@ func recordActions(recorder ActionRecorder) func(http.Handler) http.Handler {
 			// already on the entry, the line carries its own time, and this
 			// adds the act and the hold, on success and on refusal alike.
 			if !note.refused && route == "/operations" {
-				if op, set, _, _, hold := gateTarget(route, routeParamsOf(r), body); op == "release_snapshot_hold" {
+				if op, set, _, _, hold := gateTarget(route, routeParamsOf(r), body); op == string(ActionReleaseSnapshotHold) {
 					action.Operation, action.HoldID = op, hold
 					if set != "" {
 						action.BackupSetID = set

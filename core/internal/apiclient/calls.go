@@ -290,16 +290,16 @@ func (c *Client) SystemCapabilities(ctx context.Context) (apicontract.Capabiliti
 	return out, err
 }
 
-// HostDirectory is GET /system/host-directories (issue #1179): the sub-folders
+// StagingDirectories is GET /system/staging-directories (issue #1179): the sub-folders
 // of one folder under the staging root of the machine the engine runs on. An
 // empty path is the root, and sends no query.
-func (c *Client) HostDirectory(ctx context.Context, path string) (apicontract.HostDirectoryResponse, error) {
-	var out apicontract.HostDirectoryResponse
+func (c *Client) StagingDirectories(ctx context.Context, path string) (apicontract.StagingDirectoryResponse, error) {
+	var out apicontract.StagingDirectoryResponse
 	var query url.Values
 	if path != "" {
 		query = url.Values{"path": []string{path}}
 	}
-	err := c.callQuery(ctx, "listHostDirectory", nil, query, nil, &out)
+	err := c.callQuery(ctx, "listStagingDirectories", nil, query, nil, &out)
 	return out, err
 }
 

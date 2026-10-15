@@ -391,7 +391,7 @@ type listBackupSetsResponse struct {
 // run_cycle", the exact action requireDestructiveGate exists to block
 // (handlers_operations.go's submitOperation, the ONLY route
 // router.go wraps in that middleware, exists to run that action too) —
-// so this branch is checked against h.gate directly, below, before the
+// so this branch is checked against h.enforce directly, below, before the
 // backend is ever called. This is deliberately NOT route-level
 // middleware: a caller that only wants to persist (RunImmediately false,
 // the common case, and "Save disabled") must stay unaffected by whether
@@ -430,20 +430,18 @@ func (h *handlers) createBackupSet(w http.ResponseWriter, r *http.Request) {
 	// does. With it shut the set is still persisted and the response says
 	// the run did not start; see this handler's own doc, and the test that
 	// pins both halves.
-	runRefusal := ""
 	runImmediately := body.RunImmediately
-	if runImmediately && !destructiveGatePassed(h.gate) {
-		runImmediately = false
-		runRefusal = destructiveGateRefusal
-	}
-	// The run is a gated act like any other, so it follows the transport
-	// rule too (issue #1163). The set is still saved; only the run is
-	// refused, and the sentence says what to do about it.
-	insecureRefused := false
-	if runImmediately && h.enforce.insecureTransportAckNeeded(r) && !insecureTransportAcknowledged(r) {
-		runImmediately = false
-		runRefusal = insecureTransportRefusal
-		insecureRefused = true
+	var runRefused *gateRefusal
+	if runImmediately {
+		// The same decision the gated routes make (gate_profile.go), so a
+		// run asked for here is refused for exactly the reasons a run asked
+		// for on POST /operations would be: a shut gate, or the transport
+		// rule (issue #1163). The set is still saved either way; only the run
+		// is refused, and the sentence says what to do about it.
+		if ref, refused := h.enforce.decide(r, gatedAct{}); refused {
+			runImmediately = false
+			runRefused = &ref
+		}
 	}
 
 	req := service.CreateBackupSetRequest{
@@ -508,20 +506,23 @@ func (h *handlers) createBackupSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if runRefusal != "" && !insecureRefused {
+	runRefusal := ""
+	if runRefused != nil {
 		// The create succeeded and only its run was refused, which is a
 		// 201 and so reads as a success unless the audit entry is told
-		// otherwise (issue #1165). Told only here, after the set exists,
-		// so a create that failed outright is not recorded as a gate
-		// refusal, and so the entry can name the set it made.
-		noteGateRefusal(r.Context(), h.gate, "run_immediately")
+		// otherwise (issue #1165), whichever of the gate's reasons refused
+		// it. Told only here, after the set exists, so a create that failed
+		// outright is not recorded as a refusal, and so the entry can name
+		// the set it made.
+		runRefusal = runRefused.message
+		runRefused.note(r.Context(), "run_immediately")
 		noteGateRefusedSet(r.Context(), result.Set.ID)
 	}
 
 	resp := createBackupSetResponse{
 		backupSetResponse: toBackupSetResponse(result.Set),
-		// Empty unless the gate refused the run above, in which case it
-		// carries the gate's own sentence. At most one of RunError and
+		// Empty unless the run was refused above, in which case it carries
+		// the refusal's own sentence. At most one of RunError and
 		// Operation is ever set: nothing was asked to run, so there is no
 		// operation for the client to poll.
 		RunError: runRefusal,

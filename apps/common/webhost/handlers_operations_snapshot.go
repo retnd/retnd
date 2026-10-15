@@ -3,6 +3,7 @@ package webhost
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/retnd/retnd/core/service"
 )
@@ -42,9 +43,10 @@ type snapshotRestoreOperationRequest struct {
 	Conflict    string `json:"conflict,omitempty"`
 
 	// Acknowledged is the operator saying they understand this writes into
-	// TargetPath (issue #1163). The router requires it, before this handler
-	// runs, wherever the gate opens for local accounts; it is read from the
-	// body there and carried here so the contract names it in one place.
+	// TargetPath (issue #1163). requireOperationGate refuses a restore
+	// without it wherever the gate opens for local accounts, reading it off
+	// this same decoded struct before this handler runs. Where the gate
+	// carries no such condition the handler does not look at it.
 	Acknowledged bool `json:"acknowledged,omitempty"`
 }
 
@@ -180,8 +182,10 @@ func (h *handlers) submitSnapshotHoldRelease(w http.ResponseWriter, r *http.Requ
 
 	p := body.SnapshotHoldRelease
 	if !p.Acknowledged {
-		writeError(w, http.StatusBadRequest, "ACKNOWLEDGEMENT_REQUIRED",
-			"releasing a hold makes the snapshot prunable by the next retention run, so the request has to say you understand that: set acknowledged to true in snapshot_hold_release")
+		// A consent refusal, named for what was not acknowledged and in the
+		// conflict class like every other one in the contract.
+		writeError(w, http.StatusConflict, "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED",
+			"releasing hold "+strconv.Quote(p.HoldID)+" makes its snapshot prunable by the next retention run, so the request has to say you understand that: set acknowledged to true in snapshot_hold_release")
 		return
 	}
 	op, err := h.backend.SubmitSnapshotHoldRelease(r.Context(), service.SnapshotHoldReleaseRequest{
@@ -266,7 +270,7 @@ func (h *handlers) writeSnapshotActionError(w http.ResponseWriter, r *http.Reque
 func refuseForeignParameters(w http.ResponseWriter, body submitOperationRequest) error {
 	carried := []struct {
 		name  string
-		owner string
+		owner OperationAction
 		set   bool
 	}{
 		// The flat one, and it belongs in this list for exactly the
@@ -279,7 +283,7 @@ func refuseForeignParameters(w http.ResponseWriter, body submitOperationRequest)
 		// and the two sets in that body could be DIFFERENT, which is a
 		// caller holding a snapshot in one set while believing it held
 		// one in another.
-		{"backup_set_id", service.ActionRunBackupSet, body.BackupSetID != ""},
+		{"backup_set_id", ActionRunBackupSet, body.BackupSetID != ""},
 		// EPIC L's bypass (#813), on this list for the reason
 		// backup_set_id above is and with one extra edge: a run_cycle
 		// carrying it would be a request to skip the hooks of every
@@ -288,18 +292,18 @@ func refuseForeignParameters(w http.ResponseWriter, body submitOperationRequest)
 		// ordinary cycle and teach a client the flag is optional here,
 		// which is the reading that ends with somebody believing a
 		// deployment-wide bypass happened.
-		{"skip_workflow_scripts", service.ActionRunBackupSet, body.SkipWorkflowScripts},
-		{"restore", service.ActionRestorePlacement, body.Restore != nil},
-		{"snapshot_restore", service.ActionRestoreSnapshot, body.SnapshotRestore != nil},
-		{"snapshot_verify", service.ActionVerifySnapshot, body.SnapshotVerify != nil},
-		{"snapshot_hold", service.ActionHoldSnapshot, body.SnapshotHold != nil},
-		{"snapshot_hold_release", service.ActionReleaseSnapshotHold, body.SnapshotHoldRelease != nil},
+		{"skip_workflow_scripts", ActionRunBackupSet, body.SkipWorkflowScripts},
+		{"restore", ActionRestorePlacement, body.Restore != nil},
+		{"snapshot_restore", ActionRestoreSnapshot, body.SnapshotRestore != nil},
+		{"snapshot_verify", ActionVerifySnapshot, body.SnapshotVerify != nil},
+		{"snapshot_hold", ActionHoldSnapshot, body.SnapshotHold != nil},
+		{"snapshot_hold_release", ActionReleaseSnapshotHold, body.SnapshotHoldRelease != nil},
 	}
 
 	for _, c := range carried {
 		if c.set && body.Action != c.owner {
 			writeError(w, http.StatusBadRequest, "INVALID_REQUEST",
-				"a "+body.Action+" submission carried "+c.name+" parameters, which belong to "+c.owner)
+				"a "+string(body.Action)+" submission carried "+c.name+" parameters, which belong to "+string(c.owner))
 
 			return errForeignParameters
 		}

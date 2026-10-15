@@ -12,9 +12,9 @@
  */
 import { defineConfig } from "@playwright/test";
 
-// E2E_PORT moves the dev server, so two checkouts can run their specs at
-// once without one testing the other's tree. 5199 stays the default.
-const port = Number(process.env.E2E_PORT || 5199);
+// Several checkouts can run these specs on one machine at once, and the dev
+// server takes its port with --strictPort, so E2E_PORT moves it off 5199.
+const port = Number(process.env.E2E_PORT ?? 5199);
 
 export default defineConfig({
   testDir: ".",
@@ -22,17 +22,17 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   reporter: [["list"]],
-  outputDir: process.env.E2E_OUT || "../test-results",
+  outputDir: "../test-results",
   use: {
-    baseURL: "http://127.0.0.1:" + port,
+    baseURL: `http://127.0.0.1:${port}`,
     viewport: { width: 1280, height: 900 },
     video: process.env.E2E_VIDEO ? { mode: "on", size: { width: 1280, height: 900 } } : "off",
     trace: "off"
   },
   webServer: {
-    command: "npx vite --host 127.0.0.1 --port " + port + " --strictPort",
+    command: `npx vite --host 127.0.0.1 --port ${port} --strictPort`,
     cwd: "..",
-    url: "http://127.0.0.1:" + port,
+    url: `http://127.0.0.1:${port}`,
     reuseExistingServer: false,
     timeout: 120_000
   }

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/retnd/retnd/core/apicontract"
@@ -24,12 +25,12 @@ import (
 // meaning here would be a lie.
 
 var systemVerbs = map[string]func(args []string) int{
-	"browse":       cmdSystemBrowse,
 	"capabilities": cmdSystemCapabilities,
 	"first-run":    cmdSystemFirstRun,
+	"staging":      cmdSystemStaging,
 }
 
-func systemVerbNames() []string { return []string{"browse", "capabilities", "first-run"} }
+func systemVerbNames() []string { return []string{"capabilities", "first-run", "staging"} }
 
 func cmdSystem(args []string) int {
 	for _, a := range args {
@@ -93,18 +94,18 @@ func cmdSystemCapabilities(args []string) int {
 		gate += " (" + got.DestructiveOperations.Reason + ")"
 	}
 	fmt.Println(gate)
-	// What an open gate still asks for (#1163), so an operator scripting
-	// against the API can see it without sending a request to find out.
+	// What an open gate still asks for (#1163), in words a terminal user can
+	// act on. A script wants the field names, and --json prints those.
 	if got.DestructiveOperations.StepUpRequired {
-		fmt.Println("restores ask for the administrator's password again (X-Retnd-Step-Up-Password)")
+		fmt.Println("in the web interface, restores ask for the administrator's password again")
 	}
 	if got.DestructiveOperations.InsecureTransportAckRequired {
-		fmt.Println("this connection is not encrypted: gated acts also need X-Retnd-Insecure-Transport-Ack: acknowledged")
+		fmt.Println("this connection is not encrypted, so the web interface asks before a run, a retention apply or a restore goes ahead")
 	}
 	return exitOK
 }
 
-// cmdSystemBrowse is `retnd system browse [PATH] [--json]` (#1179): the folders
+// cmdSystemStaging is `retnd system staging [PATH] [--json]` (#1179): the folders
 // below the staging root, on the machine the engine runs on. It is the
 // terminal's half of the folder browser behind "Staging path on the host", and
 // what it prints is what a --to name under that root can be.
@@ -113,24 +114,24 @@ func cmdSystemCapabilities(args []string) int {
 // listing this host's file system would answer for the wrong machine whenever
 // the engine runs elsewhere. PATH is relative to the staging root, and the
 // engine refuses one that climbs out or goes through a symbolic link.
-func cmdSystemBrowse(args []string) int {
-	fs, _ := newFlagSet("system browse")
+func cmdSystemStaging(args []string) int {
+	fs, _ := newFlagSet("system staging")
 	asJSON := fs.Bool("json", false, "print the API's object instead of text")
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
 		return 2
 	}
 	// operands[0] is the verb; at most one folder follows it.
-	if len(operands) < 1 || operands[0] != "browse" || len(operands) > 2 {
-		return usageError("system browse takes at most one folder, relative to the staging root")
+	if len(operands) < 1 || operands[0] != "staging" || len(operands) > 2 {
+		return usageError("system staging takes at most one folder, relative to the staging root")
 	}
 	path := ""
 	if len(operands) == 2 {
 		path = operands[1]
 	}
-	var got apicontract.HostDirectoryResponse
-	if code := askEngine("browse", "its folders", func(ctx context.Context, c *apiclient.Client) (err error) {
-		got, err = c.HostDirectory(ctx, path)
+	var got apicontract.StagingDirectoryResponse
+	if code := askEngine("staging", "its staging folders", func(ctx context.Context, c *apiclient.Client) (err error) {
+		got, err = c.StagingDirectories(ctx, path)
 		return err
 	}); code != exitOK {
 		return code
@@ -138,28 +139,28 @@ func cmdSystemBrowse(args []string) int {
 	if *asJSON {
 		return emitWireJSON(got)
 	}
-	printHostDirectory(got)
+	printStagingDirectory(got)
 	return exitOK
 }
 
-// printHostDirectory is the text form of the engine's folder listing. Each
-// folder is printed as the name a --to takes, one per line, so the output can
-// be read by eye and by a script alike.
-func printHostDirectory(got apicontract.HostDirectoryResponse) {
-	fmt.Printf("root: %s\n", got.Root)
+// printStagingDirectory is the text form of the engine's folder listing. The
+// folders go to stdout, one per line and nothing else, each as the name a
+// --to takes, so a script can read them as they are. Where they are, an empty
+// folder and a cut listing are said on stderr, for the person reading.
+func printStagingDirectory(got apicontract.StagingDirectoryResponse) {
 	here := got.Path
 	if here == "" {
 		here = "(the root)"
 	}
-	fmt.Printf("folder: %s\n", here)
+	fmt.Fprintf(os.Stderr, "staging root: %s\nfolder: %s\n", got.Root, here)
 	if len(got.Entries) == 0 {
-		fmt.Println("no folders in here")
+		fmt.Fprintln(os.Stderr, "no folders in here")
 	}
 	for _, e := range got.Entries {
 		fmt.Println(e.Path)
 	}
 	if got.Truncated {
-		fmt.Println("(truncated: this folder holds more folders than are listed)")
+		fmt.Fprintln(os.Stderr, "this folder holds more folders than are listed; give a longer name to --to to reach one that is not shown")
 	}
 }
 

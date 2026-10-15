@@ -147,10 +147,15 @@ func TestSystemCapabilities_TheTextSaysWhatAnOpenGateStillAsksFor(t *testing.T) 
 	if code != 0 {
 		t.Fatalf("exited %d\nstderr: %s", code, errOut)
 	}
-	for _, want := range []string{"X-Retnd-Step-Up-Password", "X-Retnd-Insecure-Transport-Ack"} {
+	// In words a terminal user can act on (the review of PR #1167): what the
+	// web interface asks for, not the header names, which --json carries.
+	for _, want := range []string{"in the web interface, restores ask for the administrator's password again", "not encrypted"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("output does not mention %s:\n%s", want, out)
+			t.Errorf("output does not say %q:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "X-Retnd-") {
+		t.Errorf("the plain output prints header names a terminal user cannot do anything with:\n%s", out)
 	}
 
 	caps["destructive_operations"] = map[string]any{
@@ -159,7 +164,7 @@ func TestSystemCapabilities_TheTextSaysWhatAnOpenGateStillAsksFor(t *testing.T) 
 	}
 	e.holdCapabilities(caps)
 	_, out, _ = runOp(t, cfg, "system", "capabilities")
-	if strings.Contains(out, "X-Retnd-") {
+	if strings.Contains(out, "password again") || strings.Contains(out, "not encrypted") {
 		t.Errorf("an open gate that asks for nothing printed a requirement:\n%s", out)
 	}
 }

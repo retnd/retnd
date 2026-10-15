@@ -17,7 +17,7 @@ const NEWEST = "postgres-prod-20260829.dump.zst";
 const OLDER = "postgres-prod-20260828.dump.zst";
 const NEWEST_PATH = "/backups/production/postgres-primary/" + NEWEST;
 const NOTE = "No recovery test has run yet";
-const DEFAULTS = "/settings#assurance-defaults";
+const DEFAULTS = "/settings#assurance";
 
 const recovery = (scope: Locator) => scope.locator('[data-claim="recovery"]');
 const listRow = (page: Page, file: string) => page.getByRole("row").filter({ has: page.locator("td.mono", { hasText: file }) });
@@ -41,8 +41,8 @@ test.describe("#1141 Recovery on a set that uses the default and has never been 
   test("#1141 the link lands on the Settings Assurance card", async ({ page }) => {
     await open(page, "/backups", S, { wire: true });
     await recovery(listRow(page, NEWEST)).getByRole("link", { name: "Default configuration" }).click();
-    await expect(page).toHaveURL(/\/settings#assurance-defaults$/);
-    await expect(page.locator("#assurance-defaults")).toBeInViewport();
+    await expect(page).toHaveURL(/\/settings#assurance$/);
+    await expect(page.locator("#assurance")).toBeInViewport();
   });
 
   test("#1141 backup detail: the Assurance card, the lifecycle and Copies agree with the list", async ({ page }) => {

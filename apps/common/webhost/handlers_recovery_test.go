@@ -382,7 +382,7 @@ func TestEveryRefusalHasItsOwnStatusAndGoesOutUnderItsOwnCode(t *testing.T) {
 		// Issue #1191.
 		service.RecoverySourceUnavailable:     http.StatusConflict,
 		service.RecoverySourceReadOnly:        http.StatusConflict,
-		service.RecoverySourceNotAcknowledged: http.StatusBadRequest,
+		service.RecoverySourceNotAcknowledged: http.StatusConflict,
 	}
 	for _, code := range service.RecoveryCodes() {
 		status, ok := want[code]

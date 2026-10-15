@@ -23,7 +23,7 @@
  * rather than threading both through the select is the small price of
  * keeping every picker on this page keyed the same way.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import { useAsync } from "@shared/hooks/useAsync";
@@ -50,10 +50,14 @@ import { artifactPath } from "@shared/utilities/routes";
 import type { BackupArtifact } from "@shared/types/backup";
 import type { RunTarget } from "@shared/assurance/recoverMany";
 import { BackupsSelectionBar } from "./BackupsSelectionBar";
-import { downloadMany } from "@shared/assurance/bulkDownload";
-import type { BulkDownloadOutcome } from "@shared/assurance/bulkDownload";
+import { DEFAULT_DOWNLOAD_STREAMS, downloadable, downloadCeilingOf, mintDownloadLinks } from "@shared/assurance/bulkDownload";
+import { BulkDownloadLinks } from "@shared/assurance/BulkDownloadLinks";
+import type { BulkDownloadState } from "@shared/assurance/BulkDownloadLinks";
+import { asApiError } from "@shared/api/failure";
 import { BackupsRecoverRun } from "./BackupsRecoverRun";
 import { inReceivedRange, unselectableReason } from "./backupSelection";
+import { PAGE_SIZES, allOffered, isPageSize, pageWindow, readPageSize, rememberPageSize } from "./backupsPaging";
+import type { PageChoice, PageSize } from "./backupsPaging";
 
 /** Called "Backups", never "Restore points" — the product does not perform
  *  application restore (§13). */
@@ -71,20 +75,60 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   // that counted it would be describing rows nobody can see.
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
   const [notice, setNotice] = useState("");
+  // Issue #1180. The remembered 20, 50 or 100; "All" is a choice for this visit
+  // and is held apart from it so it can never be the one that is remembered.
+  const [remembered, setRemembered] = useState<PageSize>(readPageSize);
+  const [choice, setChoice] = useState<PageChoice>(remembered);
+  const [pageAt, setPageAt] = useState(0);
+  // How many backups the deployment holds, read off the unfiltered list. A set
+  // filter narrows the list but not the deployment, so "All" stays as offered.
+  const [held, setHeld] = useState<number | null>(null);
   const [run, setRun] = useState<{ files: Array<{ id: string; filename: string }>; target: RunTarget; acknowledged: boolean } | null>(null);
   const [stagingRoot, setStagingRoot] = useState<string | null>(null);
-  // Issue #1179: the outcome of handing a selection to the browser, or null
-  // before one was asked for. `running` is true while the links go out.
-  const [dl, setDl] = useState<{ running: boolean; outcome: BulkDownloadOutcome | null } | null>(null);
+  // Issue #1179 (the review of #1185): how many downloads the engine streams
+  // at once. "In this browser" offers a selection no larger than this.
+  const [downloadCeiling, setDownloadCeiling] = useState(DEFAULT_DOWNLOAD_STREAMS);
+  // The links a browser download made for the selection, or null before one
+  // was asked for, with the backups they were made for so fresh ones can be.
+  const [dl, setDl] = useState<(BulkDownloadState & { files: BackupArtifact[] }) | null>(null);
+  // One run at a time (a double click must not mint twice), and a run this
+  // page has left stops asking the host for grants.
+  const dlBusy = useRef(false);
+  const dlRun = useRef<AbortController | null>(null);
+  useEffect(() => {
+    const runs = dlRun;
+    return () => runs.current?.abort();
+  }, []);
+  const startDownload = async (files: BackupArtifact[]) => {
+    if (dlBusy.current || downloadable(files).length > downloadCeiling) return;
+    dlBusy.current = true;
+    const ac = new AbortController();
+    dlRun.current = ac;
+    setDl({ running: true, minted: null, failure: null, files });
+    try {
+      const minted = await mintDownloadLinks(api, files, ac.signal);
+      if (!ac.signal.aborted) setDl({ running: false, minted, failure: null, files });
+    } catch (e) {
+      if (!ac.signal.aborted) setDl({ running: false, minted: null, failure: asApiError(e).message, files });
+    } finally {
+      dlBusy.current = false;
+      if (!ac.signal.aborted) setDl((d) => (d && d.running ? { ...d, running: false } : d));
+    }
+  };
   const canRecover = !!api.assurance;
   useEffect(() => {
     if (!canRecover) return;
     let live = true;
-    void api.getAssuranceSettings().then((x) => { if (live) setStagingRoot(x.stagingRoot); }, () => undefined);
+    void api.getAssuranceSettings().then((x) => {
+      if (!live) return;
+      setStagingRoot(x.stagingRoot);
+      setDownloadCeiling(downloadCeilingOf(x));
+    }, () => undefined);
     return () => { live = false; };
   }, [api, canRecover]);
   const changeFilter = (apply: () => void) => {
     apply();
+    setPageAt(0);
     setNotice(picked.size > 0 ? "The selection was cleared because the filter changed." : "");
     setPicked(new Set());
   };
@@ -98,6 +142,10 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   // node is already populated by the time this page can render.
   const sets = useCausl(setsNode);
   const artifacts = useAsync(() => api.listArtifacts(setFilter || undefined), [api, setFilter]);
+  // Adjusted while rendering rather than in an effect: it is derived from the
+  // list and has nothing outside React to synchronise with.
+  const unfilteredCount = !setFilter && artifacts.data ? artifacts.data.length : null;
+  if (unfilteredCount !== null && unfilteredCount !== held) setHeld(unfilteredCount);
   // EPIC Q (issue #985): the three assurance claims per backup, read from the
   // verification model (issue #1134) like every other surface that shows them,
   // so this list, the backup's own page and the Dashboard count cannot say
@@ -149,6 +197,18 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   };
   const allTicked = selectable.length > 0 && ticked.length === selectable.length;
   const selectAll = () => { setNotice(""); setPicked(new Set(selectable.map((a) => a.id))); };
+  // One page of the filtered list. Select-all above reads `rows`, never this.
+  const offerAll = allOffered(held ?? fetched.length);
+  const effective: PageChoice = choice === "all" && !offerAll ? remembered : choice;
+  const win = pageWindow(rows.length, effective, pageAt);
+  const shown = rows.slice(win.start, win.end);
+  const pickSize = (v: string) => {
+    setPageAt(0);
+    if (v === "all") { setChoice("all"); return; }
+    const n = Number(v);
+    if (!isPageSize(n)) return;
+    setChoice(n); setRemembered(n); rememberPageSize(n);
+  };
   const totalBytes = rows.reduce((n, a) => n + a.sizeBytes, 0);
   // The Medium column exists because a backup on this deployment has a
   // copy somewhere other than the local backup root, and for no other
@@ -156,12 +216,13 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   // page it already had, with the same columns and the same widths, and
   // nothing new to read past.
   const showsMedium = rows.some((a) => a.placements.some((p) => p.medium !== "local"));
-  // Counted off the rows actually LISTED, so the filter dropdown narrowing
-  // the table to a governed set takes the footnote with it. A note about
-  // rows that are not on screen is a note nobody can act on, which is the
-  // same reason the CLI's own footnote checks that a marked row printed.
-  const ungoverned = rows.filter((a) => a.retentionPolicy === "none").length;
-  const unreported = rows.filter((a) => a.retentionPolicy === "unknown").length;
+  // Counted off the rows LISTED, so the filter dropdown narrowing the table
+  // to a governed set takes the footnote with it. When the list runs over
+  // more than one page the note says both numbers, this page's and the
+  // list's, so page two never reads as if there were none (#1180).
+  const paged = shown.length < rows.length;
+  const ungoverned = { page: shown.filter((a) => a.retentionPolicy === "none").length, all: rows.filter((a) => a.retentionPolicy === "none").length };
+  const unreported = { page: shown.filter((a) => a.retentionPolicy === "unknown").length, all: rows.filter((a) => a.retentionPolicy === "unknown").length };
 
   return (
     <>
@@ -248,10 +309,8 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
           readOnly={readOnly}
           readOnlyReason="This session is read-only, so it cannot start a recovery."
           downloading={!!dl?.running}
-          onDownload={() => {
-            setDl({ running: true, outcome: null });
-            void downloadMany(api, ticked).then((outcome) => setDl({ running: false, outcome }));
-          }}
+          downloadCeiling={downloadCeiling}
+          onDownload={() => void startDownload(ticked)}
           onSelectAll={selectAll}
           onClear={() => setPicked(new Set())}
           onRecover={(target, acknowledged) =>
@@ -259,7 +318,7 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
           }
         />
       ) : null}
-      {dl ? <BulkDownloadStatus state={dl} /> : null}
+      {dl ? <BulkDownloadLinks state={dl} onFresh={() => void startDownload(dl.files)} /> : null}
       {bucketIds && !artifacts.loading ? (
         <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "0 0 10px", fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
           <span role="status" data-testid="assurance-filter-status">
@@ -316,7 +375,7 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((a) => (
+                {shown.map((a) => (
                   <tr
                     key={a.id}
                     // Through the builder, never by concatenation: an
@@ -366,27 +425,27 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
               </tbody>
             </table>
           </div>
-          {ungoverned > 0 ? (
+          {(paged ? ungoverned.all : ungoverned.page) > 0 ? (
             <div className="card__footer" style={NOTE_STYLE}>
               <span aria-hidden="true" style={{ color: "var(--warn)", lineHeight: 1.5 }}>
                 <Icon name="warning" />
               </span>
               <span>
-                {(ungoverned === 1 ? "One backup above belongs" : ungoverned + " backups above belong") +
+                {backupsCounted(ungoverned, paged) + (ungoverned[paged ? "all" : "page"] === 1 ? " belongs" : " belong") +
                   " to a backup set whose configuration was removed. No retention policy selects them, so" +
                   " nothing here will ever delete them and they keep the space they occupy. Create the backup" +
                   " set again to put them back under a policy, or remove the files yourself."}
               </span>
             </div>
           ) : null}
-          {unreported > 0 ? (
+          {(paged ? unreported.all : unreported.page) > 0 ? (
             <div className="card__footer" style={NOTE_STYLE}>
               <span aria-hidden="true" style={{ color: "var(--warn)", lineHeight: 1.5 }}>
                 <Icon name="warning" />
               </span>
               <span>
                 {"This server did not say which retention policy governs " +
-                  (unreported === 1 ? "one backup above" : unreported + " backups above") +
+                  backupsCounted(unreported, paged).replace(/^One/, "one") +
                   ", so this page cannot tell you which of them nothing will ever delete." +
                   " Updating retnd restores the answer; the retnd unconfigured" +
                   " command has it in the meantime."}
@@ -395,11 +454,31 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
           ) : null}
           <div
             className="card__footer"
+            data-testid="backups-paging"
+            style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 12, fontSize: "var(--text-sm)", color: "var(--text-2)" }}
+          >
+            <label style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+              Rows per page
+              <select className="select" style={{ height: 32 }} value={effective} onChange={(e) => pickSize(e.target.value)}>
+                {PAGE_SIZES.map((n) => <option key={n} value={n}>{n}</option>)}
+                {offerAll ? <option value="all">All</option> : null}
+              </select>
+            </label>
+            <span role="status" data-testid="backups-page-status">
+              {"Page " + (win.page + 1) + " of " + win.pages + " \u00b7 " + (win.start + 1) + "\u2013" + win.end + " of " + rows.length}
+            </span>
+            <span style={{ display: "inline-flex", gap: 8 }}>
+              <button className="btn btn--sm" aria-label="Previous page" disabled={win.page === 0} onClick={() => setPageAt(win.page - 1)}>Previous</button>
+              <button className="btn btn--sm" aria-label="Next page" disabled={win.page >= win.pages - 1} onClick={() => setPageAt(win.page + 1)}>Next</button>
+            </span>
+          </div>
+          <div
+            className="card__footer"
             data-testid="backups-footer"
             style={{ display: "flex", justifyContent: "space-between", gap: 16, fontSize: "var(--text-sm)", color: "var(--text-2)" }}
           >
             <InfoTooltip id="backups.showing">
-              <span>{"Showing " + rows.length + " artifacts"}</span>
+              <span>{shown.length === rows.length ? "Showing " + rows.length + " artifacts" : "Showing " + shown.length + " of " + rows.length + " artifacts"}</span>
             </InfoTooltip>
             {/* The recovery boundary (#987), in the secondary ink: --text-3 is
                 3.35:1 on the light surface and fails AA for text (#1070). The
@@ -448,6 +527,14 @@ function SelectBox({ artifact, on, onChange }: { artifact: BackupArtifact; on: b
       {why ? <span id={reasonId} style={{ position: "absolute", width: 1, height: 1, overflow: "hidden" }}>{why}</span> : null}
     </>
   );
+}
+
+/** "One backup above" on a page that holds the whole list, and "300 backups in
+ *  this list (3 on this page)" on one that does not. */
+function backupsCounted(n: { page: number; all: number }, paged: boolean): string {
+  if (!paged) return n.page === 1 ? "One backup above" : n.page + " backups above";
+  return (n.all === 1 ? "One backup in this list" : n.all + " backups in this list") +
+    " (" + (n.page === 0 ? "none" : n.page) + " on this page)";
 }
 
 /** The two footnotes under the table read as one voice, so they share one
@@ -514,40 +601,3 @@ function MediumCell({ artifact }: { artifact: BackupArtifact }) {
   );
 }
 
-
-/**
- * What handing a selection to the browser did (issue #1179). It counts the
- * links it handed over and names each backup it did not, with the reason. It
- * does not say the files arrived: a browser's transfer is not visible to this
- * page, and each file is checked against its recorded digest by the host as it
- * sends it, so a file that stops short is a failed download.
- */
-function BulkDownloadStatus({ state }: { state: { running: boolean; outcome: BulkDownloadOutcome | null } }) {
-  const o = state.outcome;
-  return (
-    <div role="status" data-testid="bulk-download" className="anotice" style={{ margin: "0 0 10px" }}>
-      {state.running || !o ? (
-        <strong>Handing the downloads to your browser...</strong>
-      ) : (
-        <>
-          <strong>
-            {o.handed.length + (o.handed.length === 1 ? " download" : " downloads") + " handed to your browser"}
-          </strong>
-          <div style={{ marginTop: 4 }}>
-            This page cannot see your browser&apos;s transfers, so it cannot tell you a file arrived. The host checks each file against its recorded digest as it sends it, so a file that stops short is a failed download.
-          </div>
-          {o.skipped.length > 0 ? (
-            <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
-              {o.skipped.map((x) => (
-                <li key={x.id}>
-                  <span className="mono">{x.filename}</span>
-                  {" was not downloaded: " + x.reason + "."}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </>
-      )}
-    </div>
-  );
-}

@@ -14,6 +14,9 @@
  * failed says unknown rather than zero. The fourth count, no recovery test, is
  * what keeps a deployment nobody has tested from reading as all clear: it says
  * so in a sentence under the tiles whenever it is not zero.
+ *
+ * Under the tiles the due, overdue and degraded backups are listed, one row
+ * each, with a Run assurance button (issue #1174).
  */
 import "./assurance.css";
 import { useApi } from "@shared/api/ApiContext";
@@ -21,12 +24,13 @@ import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { AssuranceLink } from "./AssuranceLink";
 import { BUCKET_NONE, bucketLinkName } from "./buckets";
 import type { Bucket } from "./claims";
+import { AssuranceDueList } from "./AssuranceDueList";
 import { DEFAULTS_LINK, useFactsIndex, useTally } from "./verificationModel";
 
 const LABEL: Record<Bucket, string> = { due: "Due", overdue: "Overdue", degraded: "Degraded", untested: "No recovery test" };
 const ORDER: Bucket[] = ["due", "overdue", "degraded", "untested"];
 
-export function AssuranceDashboardCard() {
+export function AssuranceDashboardCard({ readOnly = false }: { readOnly?: boolean } = {}) {
   const api = useApi();
   const tally = useTally();
   const facts = useFactsIndex();
@@ -57,12 +61,13 @@ export function AssuranceDashboardCard() {
     );
   };
   return (
-    <section className="card" aria-label="Assurance summary">
+    <section className="card" aria-label="Assurance summary" data-assurance="">
       <div className="card__header">
         <InfoTooltip id="assurance.dashboard.card"><h2 className="eyebrow">Assurance</h2></InfoTooltip>
       </div>
       <div className="card__body" style={{ display: "flex", gap: 32, flexWrap: "wrap" }}>
         {ORDER.map(cell)}
+        <AssuranceDueList tally={tally} byArtifact={facts.byArtifact} readOnly={readOnly} />
         {facts.error ? <span role="alert">Could not read assurance, so these are unknown rather than zero.</span> : null}
         {known && tally.untested > 0 ? (
           <p data-testid="assurance-untested-note" style={{ flexBasis: "100%", margin: 0, color: "var(--text-2)", fontSize: "var(--text-sm)" }}>

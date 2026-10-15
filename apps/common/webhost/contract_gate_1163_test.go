@@ -51,7 +51,7 @@ func TestContract1164_TheSpecListsTheExemptActionsTheRouterExempts(t *testing.T)
 	sort.Strings(got)
 	var want []string
 	for a := range destructiveGateExemptActions {
-		want = append(want, a)
+		want = append(want, string(a))
 	}
 	sort.Strings(want)
 	if len(want) == 0 {
@@ -104,13 +104,24 @@ func TestContract1163_TheNewRefusalsAreDeclared(t *testing.T) {
 		}
 		return false
 	}
-	for _, code := range []string{"STEP_UP_REQUIRED", "STEP_UP_FAILED", "STEP_UP_UNAVAILABLE", "INSECURE_TRANSPORT_ACK_REQUIRED"} {
-		if !has("/operations", "403", code) {
-			t.Errorf("POST /operations 403 does not declare %s", code)
+	for _, tc := range []struct{ status, code string }{
+		{"403", "STEP_UP_REQUIRED"}, {"403", "STEP_UP_FAILED"}, {"403", "INSECURE_TRANSPORT_ACK_REQUIRED"},
+		// A deployment that cannot re-check a password lacks a capability.
+		{"503", "STEP_UP_UNAVAILABLE"},
+		// The step-up limiter, which is not a wrong password.
+		{"429", "RATE_LIMITED"},
+		// Consent refusals, each named for what was not acknowledged.
+		{"409", "RESTORE_TARGET_NOT_ACKNOWLEDGED"}, {"409", "RECOVERY_COST_NOT_ACKNOWLEDGED"},
+		{"409", "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED"},
+	} {
+		if !has("/operations", tc.status, tc.code) {
+			t.Errorf("POST /operations %s does not declare %s", tc.status, tc.code)
 		}
 	}
-	if !has("/operations", "400", "ACKNOWLEDGEMENT_REQUIRED") {
-		t.Error("POST /operations 400 does not declare ACKNOWLEDGEMENT_REQUIRED")
+	// The generic code these replaced must not linger in the registry, where
+	// a client would keep handling a refusal nothing sends.
+	if strings.Contains(readRepoFile(t, "api", "v1", "openapi.json"), `"ACKNOWLEDGEMENT_REQUIRED"`) {
+		t.Error("api/v1/openapi.json still registers ACKNOWLEDGEMENT_REQUIRED")
 	}
 	if !has("/backup-sets/{source}/{set}/retention/apply", "403", "INSECURE_TRANSPORT_ACK_REQUIRED") {
 		t.Error("retention apply 403 does not declare INSECURE_TRANSPORT_ACK_REQUIRED")

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"time"
 
@@ -193,14 +192,14 @@ func (h *handlers) recoverMany(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotImplemented, "RECOVERY_UNAVAILABLE", "this deployment cannot recover backups")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxRecoverManyBodyBytes)
-	var body recoverManyRequestBody
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&body); err != nil && !errors.Is(err, io.EOF) {
-		writeDecodeError(w, err, maxRecoverManyBodyBytes)
+	// Decoded once: the source-host gate in front of this handler read this
+	// same value (recovery_source.go).
+	parsed, r := recoveryRequest[recoverManyRequestBody](w, r, maxRecoverManyBodyBytes)
+	if parsed.err != nil {
+		writeDecodeError(w, parsed.err, maxRecoverManyBodyBytes)
 		return
 	}
+	body := parsed.body
 	if (body.Set == "") == (len(body.Artifacts) == 0) {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "name either one backup set (set) or a list of backups (artifacts), not both and not neither")
 		return

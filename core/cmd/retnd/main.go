@@ -251,6 +251,10 @@ commands:
                                                   list only the artifacts in one lifecycle state, e.g. QUARANTINED_LOST
   artifacts [--source S] [--backup-set B] --json
                                                   list as the API's ListArtifactsResponse (#1147)
+  artifacts [--source S] [--backup-set B] [--state S] --count [--json]
+                                                  print how many backups are held outside quarantine, the number the
+                                                  web console's Backups badge reads (the sidebar shows >100 past a
+                                                  hundred, this always prints the number); --json prints {"count": N} (#1186)
   activity [--backup-set S] [--severity warn|error] [--limit N] [--json]
                                                   list recorded lifecycle events, newest first: the same durable
                                                   transition log the Web UI's Activity page draws. Beside a serving
@@ -355,6 +359,18 @@ commands:
                                                   this deployment, so this needs RETND_API_URL and the two credential
                                                   variables beside it and is refused without them. The same as
                                                   POST /api/v1/assurance/operations/{op}/cancel (EPIC Q)
+  assurance list [--backup-set S] [--bucket due|overdue|degraded|untested] [--json]
+                                                  the backups behind the Web UI Dashboard's Assurance tile, most urgent
+                                                  first: each one in due, overdue or degraded (or in the buckets --bucket
+                                                  names, one or a comma list; untested is the tile's "No recovery test"),
+                                                  why it is listed in the same words as the tile's row with the age of each
+                                                  check, and the recovery-test command that runs it. A backup can be in
+                                                  several buckets; untested is listed only when asked for. A set whose
+                                                  policy can't be read is said on stderr and its recovery claims are
+                                                  unknown. It reads this host's journal and has no route of its own;
+                                                  settings assurance due is the scrub schedule behind it. --json prints
+                                                  {generated_at, items:[{artifact_id, artifact_name, backup_set_id, buckets,
+                                                  content, recovery, reason}]} with each claim as {state, at, check} (#1174)
   auth password --password-stdin
                                                   change the administrator's password. The current password and then the
                                                   new one come from stdin, one per line, and never from a flag, so neither
@@ -574,6 +590,8 @@ commands:
                                                   --follow prints the recovery's stages on standard error as it
                                                   passes through them, in the engine's order; the exit status is the
                                                   recovery's own
+                                                  system staging [PATH] lists the folders already under the staging
+                                                  root, as the NAMEs --to takes
                                                   With --set (a whole backup set) or two or more ids, the same
                                                   recovery is done for every file into ONE destination, under a
                                                   per-set folder, never to standard output. A pre-flight comes
@@ -908,13 +926,15 @@ commands:
                                                   (run, fetch, restore, snapshot restore|verify|hold|unhold, retention
                                                   apply) work here. --json prints the same body as
                                                   GET /api/v1/system/capabilities (#1165)
-  system browse [PATH] [--json]                  the folders below the staging root on the machine the engine runs
+  system staging [PATH] [--json]                  the folders below the staging root on the machine the engine runs
                                                   on, as the names a recover --to takes: the terminal's half of the
                                                   folder browser behind "Staging path on the host". PATH is relative to
                                                   that root; one that climbs out or goes through a symbolic link is
                                                   refused, and nothing is created or changed. Needs a route to the
-                                                  engine and refuses without one. --json prints the same body as
-                                                  GET /api/v1/system/host-directories (#1179)
+                                                  engine and refuses without one. The folder names alone go to
+                                                  stdout, one per line, so a script can read them; the root and any
+                                                  note go to stderr. --json prints the same body as
+                                                  GET /api/v1/system/staging-directories (#1179)
   system first-run [--json]                      which guided setup steps the engine counts as done, pending or
                                                   skipped (the administrator, the mail server, the first backup set),
                                                   the next one, and any problem with the configuration directory. status

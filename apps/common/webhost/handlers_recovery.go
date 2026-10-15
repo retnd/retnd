@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -138,14 +137,14 @@ func (h *handlers) mintRecovery(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxRecoveryMintBodyBytes)
-	var body recoveryMintRequest
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&body); err != nil && !errors.Is(err, io.EOF) {
-		writeDecodeError(w, err, maxRecoveryMintBodyBytes)
+	// Decoded once: the source-host gate in front of this handler read this
+	// same value (recovery_source.go).
+	parsed, r := recoveryRequest[recoveryMintRequest](w, r, maxRecoveryMintBodyBytes)
+	if parsed.err != nil {
+		writeDecodeError(w, parsed.err, maxRecoveryMintBodyBytes)
 		return
 	}
+	body := parsed.body
 
 	id := artifactIDFrom(r)
 	// MintRecovery writes the action-log row itself (it knows the copy and
@@ -496,7 +495,7 @@ func (h *handlers) writeRecoveryError(w http.ResponseWriter, r *http.Request, er
 		case "RECOVERY_SOURCE_READ_ONLY":
 			writeError(w, http.StatusConflict, "RECOVERY_SOURCE_READ_ONLY", re.Message)
 		case "RECOVERY_SOURCE_NOT_ACKNOWLEDGED":
-			writeError(w, http.StatusBadRequest, "RECOVERY_SOURCE_NOT_ACKNOWLEDGED", re.Message)
+			writeError(w, http.StatusConflict, "RECOVERY_SOURCE_NOT_ACKNOWLEDGED", re.Message)
 		case "RECOVERY_USE_SNAPSHOT_RESTORE":
 			writeError(w, http.StatusConflict, "RECOVERY_USE_SNAPSHOT_RESTORE", re.Message)
 		case "RECOVERY_UNAVAILABLE":

@@ -384,8 +384,8 @@ func TestProfileGate1163_RestoresNeedStepUpAndAnAcknowledgement(t *testing.T) {
 			if rec.Code < 400 || tc.reachedCount(r) != 0 {
 				t.Errorf("without the acknowledgement: status = %d, reached service %d times, want a refusal and zero", rec.Code, tc.reachedCount(r))
 			}
-			if tc.name == "restore_snapshot" && codeOf(rec) != "ACKNOWLEDGEMENT_REQUIRED" {
-				t.Errorf("without the acknowledgement: code = %q, want ACKNOWLEDGEMENT_REQUIRED", codeOf(rec))
+			if tc.name == "restore_snapshot" && codeOf(rec) != "RESTORE_TARGET_NOT_ACKNOWLEDGED" {
+				t.Errorf("without the acknowledgement: code = %q, want RESTORE_TARGET_NOT_ACKNOWLEDGED", codeOf(rec))
 			}
 
 			// No step-up.
@@ -408,8 +408,8 @@ func TestProfileGate1163_RestoresNeedStepUpAndAnAcknowledgement(t *testing.T) {
 			// No verifier wired at all fails closed, even with a password.
 			r = newRig(t, NewProfileGate(profile.Generic), withoutStepUp)
 			rec = r.call(t, "/api/v1/operations", tc.ackedBody, withStepUp(stepUpPassword))
-			if rec.Code != http.StatusForbidden || codeOf(rec) != "STEP_UP_UNAVAILABLE" || tc.reachedCount(r) != 0 {
-				t.Errorf("no verifier: %d %s (reached %d), want 403 STEP_UP_UNAVAILABLE and zero", rec.Code, codeOf(rec), tc.reachedCount(r))
+			if rec.Code != http.StatusServiceUnavailable || codeOf(rec) != "STEP_UP_UNAVAILABLE" || tc.reachedCount(r) != 0 {
+				t.Errorf("no verifier: %d %s (reached %d), want 503 STEP_UP_UNAVAILABLE and zero", rec.Code, codeOf(rec), tc.reachedCount(r))
 			}
 		})
 	}
@@ -653,7 +653,7 @@ func TestProfileGate1163_ForgedIdentityAndForwardingHeadersChangeNothing(t *test
 // ---------------------------------------------------------------------
 
 func TestExemptActions1164_ThreeAreExemptAndRestoreSnapshotIsNot(t *testing.T) {
-	want := []string{"verify_snapshot", "hold_snapshot", "release_snapshot_hold"}
+	want := []OperationAction{ActionVerifySnapshot, ActionHoldSnapshot, ActionReleaseSnapshotHold}
 	if len(destructiveGateExemptActions) != len(want) {
 		t.Errorf("exempt actions = %v, want exactly %v", destructiveGateExemptActions, want)
 	}
@@ -662,7 +662,7 @@ func TestExemptActions1164_ThreeAreExemptAndRestoreSnapshotIsNot(t *testing.T) {
 			t.Errorf("%s is not on destructiveGateExemptActions", a)
 		}
 	}
-	for _, a := range []string{"restore_snapshot", "restore_placement", "run_cycle", "run_backup_set", ""} {
+	for _, a := range []OperationAction{ActionRestoreSnapshot, ActionRestorePlacement, ActionRunCycle, ActionRunBackupSet, ""} {
 		if destructiveGateExemptActions[a] {
 			t.Errorf("%s is on destructiveGateExemptActions: it must stay gated", a)
 		}
@@ -711,7 +711,7 @@ func TestExemptActions1164_VerifyHoldAndReleasePassAShutGateAndRestoreDoesNot(t 
 func TestExemptActions1164_APlantedFaultAddingRestoreSnapshotIsCaught(t *testing.T) {
 	saved := destructiveGateExemptActions
 	t.Cleanup(func() { destructiveGateExemptActions = saved })
-	planted := map[string]bool{}
+	planted := map[OperationAction]bool{}
 	for k, v := range saved {
 		planted[k] = v
 	}
@@ -813,15 +813,15 @@ func TestReleaseHold1164_NeedsAnExplicitAcknowledgement(t *testing.T) {
 	for _, id := range []profile.ID{profile.Generic, profile.UGOS} {
 		r := newRig(t, NewProfileGate(id))
 		rec := r.call(t, "/api/v1/operations", bodyReleaseUnacked)
-		if rec.Code != http.StatusBadRequest || codeOf(rec) != "ACKNOWLEDGEMENT_REQUIRED" {
-			t.Errorf("%s, no acknowledgement: %d %s, want 400 ACKNOWLEDGEMENT_REQUIRED", id, rec.Code, codeOf(rec))
+		if rec.Code != http.StatusConflict || codeOf(rec) != "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED" {
+			t.Errorf("%s, no acknowledgement: %d %s, want 409 SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED", id, rec.Code, codeOf(rec))
 		}
 		if snapshotsOf(r.backend).lastHoldRelease.HoldID != "" {
 			t.Errorf("%s: an unacknowledged release reached the service", id)
 		}
 		rec = r.call(t, "/api/v1/operations", strings.Replace(bodyRelease, `"acknowledged":true`, `"acknowledged":false`, 1))
-		if rec.Code != http.StatusBadRequest {
-			t.Errorf("%s, acknowledged:false: %d, want 400", id, rec.Code)
+		if rec.Code != http.StatusConflict {
+			t.Errorf("%s, acknowledged:false: %d, want 409", id, rec.Code)
 		}
 		rec = r.call(t, "/api/v1/operations", bodyRelease)
 		if rec.Code != http.StatusAccepted {

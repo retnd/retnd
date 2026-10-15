@@ -39,6 +39,7 @@ import { usePlatform } from "@shared/platform/PlatformContext";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { TooltipId } from "@shared/tooltips/tooltips";
 import type { SystemHealth, VersionInfo } from "@shared/types/operation";
+import { formatBackupsCount } from "./navCounts";
 
 export interface NavCounts {
   sets?: number;
@@ -63,6 +64,9 @@ const NAV: {
   icon: IconName;
   end?: boolean;
   count?: keyof NavCounts;
+  /** How this row's count reads, when a bare number would not do. A label
+   *  here makes the badge an image with that spoken form. */
+  formatCount?: (n: number) => { text: string; label?: string };
   alert?: boolean;
   /** What this section is, in the registry (issue #834). Named per row
    *  rather than derived from the route, so a renamed route is a compile
@@ -71,7 +75,7 @@ const NAV: {
 }[] = [
   { to: "/", label: "Dashboard", icon: "dashboard", end: true, tip: "nav.dashboard" },
   { to: "/sets", label: "Backup sets", icon: "backup-sets", count: "sets", tip: "nav.sets" },
-  { to: "/backups", label: "Backups", icon: "backups", count: "backups", tip: "nav.backups" },
+  { to: "/backups", label: "Backups", icon: "backups", count: "backups", formatCount: formatBackupsCount, tip: "nav.backups" },
   { to: "/activity", label: "Activity", icon: "activity", tip: "nav.activity" },
   {
     to: "/quarantine", label: "Quarantine", icon: "quarantine", count: "quarantine", alert: true,
@@ -162,6 +166,7 @@ export function AppShell({
         >
           {NAV.map((item) => {
             const count = item.count ? counts[item.count] : undefined;
+            const shown = count && item.formatCount ? item.formatCount(count) : undefined;
             return (
               // One tooltip per row, covering the count inside it too: a
               // second host nested in this one would open two overlapping
@@ -195,15 +200,19 @@ export function AppShell({
                   {count ? (
                     <span
                       className="mono"
+                      // A bare span cannot carry a name, so a badge with a
+                      // spoken form is an image of its text with that form.
+                      role={shown?.label ? "img" : undefined}
+                      aria-label={shown?.label}
                       style={{
                         fontSize: "var(--text-xs)", padding: "1px 6px",
                         borderRadius: "var(--radius-pill)",
                         background: item.alert ? "var(--warn-quiet)" : undefined,
                         border: item.alert ? "1px solid var(--warn)" : undefined,
-                        color: item.alert ? "var(--text)" : "var(--text-3)"
+                        color: item.alert ? "var(--text)" : "var(--text-2)"
                       }}
                     >
-                      {count}
+                      {shown ? shown.text : count}
                     </span>
                   ) : null}
                 </NavLink>

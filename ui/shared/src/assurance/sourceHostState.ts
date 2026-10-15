@@ -5,6 +5,7 @@
  */
 import { useEffect, useState } from "react";
 import { useApi } from "@shared/api/ApiContext";
+import { acknowledgeInsecureTransport } from "@shared/api/client";
 import { describeFailure } from "@shared/api/failure";
 import type { RecoverySourcePreflight } from "@shared/api/contracts";
 import { useDestructiveGate } from "@shared/hooks/useDestructiveGate";
@@ -72,14 +73,23 @@ export function sourceHostReady(host: SourceHost, acknowledged: boolean, passwor
   return !!p?.available && host.unavailable === null && p.writable !== "no" && acknowledged && (!host.gate.stepUpRequired || password !== "");
 }
 
-/** The engine's refusals of a source-host request, worded for the dialog. */
+/** The engine's refusals of a source-host request, worded for the dialog.
+ *  The codes are the ones a restore's step-up answers with (#1163), because
+ *  the engine runs the same check; the words say what was not written. */
 export function sourceHostRefusal(code: string | undefined): string | null {
   switch (code) {
     case "STEP_UP_FAILED":
       return "That password was not accepted. Nothing was written to the source host. Check it and try again.";
     case "STEP_UP_REQUIRED":
       return "Enter your password to write onto the source host.";
-    case "ACKNOWLEDGEMENT_REQUIRED":
+    case "RATE_LIMITED":
+      // Not a wrong password: another try now is refused unchecked and keeps
+      // the limit tripped, so the advice is the opposite of the one above.
+      return "Too many password attempts in the last minute, so this one was not checked. Nothing was written to the source host. Wait a minute, then try again.";
+    case "STEP_UP_UNAVAILABLE":
+      return "This deployment cannot re-check your password, so it will not write onto the source host from the web interface. Run retnd recover --acknowledge-source-write on the host.";
+    case "INSECURE_TRANSPORT_ACK_REQUIRED":
+      return "Nothing was sent. This connection is not encrypted, so your password goes only after you say to continue.";
     case "RECOVERY_SOURCE_NOT_ACKNOWLEDGED":
       return "Tick the box to say you understand this writes onto the source host.";
     default:
@@ -87,3 +97,10 @@ export function sourceHostRefusal(code: string | undefined): string | null {
   }
 }
 
+/** Asks about an unencrypted connection BEFORE a source-host request carries
+ *  the password, as a restore does (#1163): the password is the very thing
+ *  that question is about. True when the request may go. */
+export async function confirmSourceTransport(gate: GateReading): Promise<boolean> {
+  if (!gate.stepUpRequired || !gate.insecureTransportAckRequired) return true;
+  return acknowledgeInsecureTransport();
+}

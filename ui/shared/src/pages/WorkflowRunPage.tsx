@@ -133,16 +133,13 @@ export function WorkflowRunPage({ readOnly }: { readOnly: boolean }) {
   const unconfirmed = useMemo(() => unconfirmedTerminations(stepList), [stepList]);
   const selected = stepList.find((step) => step.stepId === selectedStepId) ?? null;
 
-  // A selection that no longer exists is dropped rather than left
+  // A selection that no longer exists counts as no selection rather than
   // pointing at nothing: a run being re-planned changes its step ids, and
   // a slot holding a stale one would poll a log route that answers
-  // WORKFLOW_STEP_NOT_FOUND for as long as the page stayed open.
-  useEffect(() => {
-    if (selectedStepId !== null && !stepList.some((step) => step.stepId === selectedStepId)) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- a step that left the list cannot stay selected
-      setSelectedStepId(null);
-    }
-  }, [selectedStepId, stepList]);
+  // WORKFLOW_STEP_NOT_FOUND for as long as the page stayed open. Derived
+  // from `selected` rather than written back into state, so no render
+  // ever sees the stale id and there is no second pass to clear it.
+  const effectiveSelectedId = selected?.stepId ?? null;
 
   // Bound once, because the header reads it several times and TypeScript
   // cannot know a field it re-read is still the same object.
@@ -328,7 +325,7 @@ export function WorkflowRunPage({ readOnly }: { readOnly: boolean }) {
               key={stage.key}
               stage={stage}
               run={loaded}
-              selectedStepId={selectedStepId}
+              selectedStepId={effectiveSelectedId}
               onSelect={setSelectedStepId}
             />
           ))}

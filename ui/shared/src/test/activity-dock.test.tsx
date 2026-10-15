@@ -26,9 +26,9 @@ import {
   dockText,
   environmentPreamble,
   foldBrowserNotices,
-  foldReading,
   restartRule
 } from "@shared/components/ActivityDock";
+import { foldReading } from "@shared/state/activityWindow";
 import type { DockEntry } from "@shared/components/ActivityDock";
 import { clearBrowserNoticesForTests, emitBrowserNotice } from "@shared/state/browserNotices";
 import { resetGraphForTests } from "@shared/state/graph";
