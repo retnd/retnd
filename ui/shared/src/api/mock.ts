@@ -205,6 +205,25 @@ export function wireFromLocation(): boolean {
   return new URLSearchParams(window.location.search).get("wire") === "1";
 }
 
+/**
+ * A fixture hook for the browser specs (#1177): how many live readings the
+ * page has asked for, and a gate a spec can hold shut to prove a surface drew
+ * from what the page already holds rather than from a reading of its own.
+ * Inert unless a spec sets the gate.
+ */
+export interface LiveProbe {
+  reads: number;
+  gate: Promise<void> | null;
+}
+
+/** The probe the dev build hands the mock, published on `window.__retndLive`
+ *  so a spec can reach it. The mock itself only ever reads the one it was
+ *  given, never the window. */
+export function liveProbeFromWindow(): LiveProbe {
+  const w = window as unknown as { __retndLive?: LiveProbe };
+  return (w.__retndLive ??= { reads: 0, gate: null });
+}
+
 const GB = 1024 ** 3;
 const TB = 1024 ** 4;
 
@@ -3921,7 +3940,11 @@ function defaultPolicyArtifacts(untested = false): BackupArtifact[] {
  * Each instance is independent. Tests that want to read a fixture without
  * disturbing the one under test build a second mock rather than sharing.
  */
-export function createMockApi(scenario: Scenario = "default", options: { wire?: boolean } = {}): RetndApi {
+export function createMockApi(
+  scenario: Scenario = "default",
+  options: { wire?: boolean; liveProbe?: LiveProbe } = {}
+): RetndApi {
+  const liveProbe = options.liveProbe;
   // #1106: Recover this backup set is for artifact-engine sets, and every
   // fixture set but one is incremental. The recover-set scenarios present the
   // fixture sets as artifact sets (the mock host's recoverMany holds the rows);
@@ -4838,15 +4861,9 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
           })
         : delay(activityPageOf(empty ? [] : ACTIVITY, query)),
     getLiveActivity: (options) => {
-      // A fixture hook for the browser specs (#1177): how many readings the
-      // page has asked for, and a gate a spec can hold shut to prove a
-      // surface drew from what the page already holds rather than from a
-      // reading of its own. Both are inert unless a spec sets them.
-      const probe = typeof window === "undefined"
-        ? null
-        : (window as unknown as { __retndLiveReads?: number; __retndLiveGate?: Promise<void> });
-      if (probe) probe.__retndLiveReads = (probe.__retndLiveReads ?? 0) + 1;
-      return (probe?.__retndLiveGate ?? Promise.resolve()).then(() => delay({
+      // The specs' probe (LiveProbe), when this mock was given one.
+      if (liveProbe) liveProbe.reads += 1;
+      return (liveProbe?.gate ?? Promise.resolve()).then(() => delay({
         observedAt: "2026-08-29T02:01:20+02:00",
         // One process, one epoch. A mock that changed it between calls
         // would have every surface built against it believe the service

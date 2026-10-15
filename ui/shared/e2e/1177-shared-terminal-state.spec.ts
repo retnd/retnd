@@ -6,7 +6,7 @@ import { open, spaGo } from "./helpers";
  * Issue #1177: every terminal kept its own copy of the lines, so each polled
  * on its own clock, they could disagree for a tick, and one opened late
  * started empty. The fixtures count the readings a page asks for
- * (`__retndLiveReads`) and can hold the feed shut (`__retndLiveGate`), which
+ * (`__retndLive.reads`) and can hold the feed shut (`__retndLive.gate`), which
  * is how these tell "drew from what the page holds" from "asked again".
  */
 const SET = "/sets/production/postgres-primary";
@@ -14,7 +14,7 @@ const dock = (page: Page) => page.getByLabel("Terminal", { exact: true }).getByR
 /** The set's own terminal: the Activity card on its page. */
 const setTerminal = (page: Page) =>
   page.locator("section.card").filter({ has: page.getByRole("heading", { name: "Activity", exact: true }) }).getByRole("log");
-const reads = (page: Page) => page.evaluate(() => (window as unknown as { __retndLiveReads?: number }).__retndLiveReads ?? 0);
+const reads = (page: Page) => page.evaluate(() => (window as unknown as { __retndLive?: { reads: number } }).__retndLive?.reads ?? 0);
 
 test.describe("#1177 one terminal state, every terminal subscribed", () => {
   test("two terminals on one page cost one reading per poll, not one each", async ({ page }) => {
@@ -34,7 +34,7 @@ test.describe("#1177 one terminal state, every terminal subscribed", () => {
     await open(page, "/");
     await expect(dock(page)).toContainText("discovery", { timeout: 10_000 });
     // hold the feed shut: anything drawn from here on came from held state
-    await page.evaluate(() => { (window as unknown as { __retndLiveGate: Promise<void> }).__retndLiveGate = new Promise(() => {}); });
+    await page.evaluate(() => { (window as unknown as { __retndLive: { gate: Promise<void> | null } }).__retndLive.gate = new Promise(() => {}); });
     await spaGo(page, SET);
     await expect(setTerminal(page)).toContainText("discovery", { timeout: 2_000 });
     await expect(setTerminal(page)).toContainText("committed postgres-2026-08-28.dump.zst");

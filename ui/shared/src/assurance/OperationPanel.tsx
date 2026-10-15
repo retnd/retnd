@@ -89,9 +89,9 @@ export function OperationPanel({
           <span className="mono" style={{ fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
             {bytes(operation.bytes) + " of " + bytes(operation.totalBytes)}
           </span>
-        ) : staged ? (
+        ) : staged?.stage ? (
           <span className="mono" style={{ fontSize: "var(--text-sm)", color: "var(--text-2)" }} data-testid="stage-count">
-            {"Step " + staged.step + " of " + staged.of}
+            {"Stage " + staged.stage + " of " + staged.of}
           </span>
         ) : null}
       </div>

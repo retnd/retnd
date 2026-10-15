@@ -34,7 +34,7 @@ test("#1176 walkthrough: no terminal in the card, and the link focuses the set t
   await run.click();
   await expect(region(page).getByTestId("operation-progress")).toBeVisible();
   await centre(page, '[data-testid="operation-progress"]');
-  await expect(region(page).getByTestId("stage-count")).toHaveText(/^Step [2-9] of 6$/, { timeout: 20_000 });
+  await expect(region(page).getByTestId("stage-count")).toHaveText(/^Stage [2-5] of 5$/, { timeout: 20_000 });
   await beat(page, 1500);
   await region(page).getByRole("link", { name: "Output is in the set terminal" }).click();
   const terminal = page.locator("#set-terminal");
@@ -49,7 +49,7 @@ test("#1177 walkthrough: a terminal opened late shows what the dock already hold
   await expect(dock).toContainText("discovery", { timeout: 10_000 });
   await beat(page, 1500);
   // hold the feed shut: anything drawn from here on came from held state
-  await page.evaluate(() => { (window as unknown as { __retndLiveGate: Promise<void> }).__retndLiveGate = new Promise(() => {}); });
+  await page.evaluate(() => { (window as unknown as { __retndLive: { gate: Promise<void> | null } }).__retndLive.gate = new Promise(() => {}); });
   await spaGo(page, SET);
   const mine = page.locator("#set-terminal");
   await expect(mine.getByRole("log")).toContainText("committed postgres-2026-08-28.dump.zst", { timeout: 2_000 });

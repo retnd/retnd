@@ -172,7 +172,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
   const op = useOperation(follow ? api : undefined, opId, (o) => {
     noteAssuranceChanged();
     void Promise.all([refresh(), assuranceModelSettled()]).finally(() => setSettled(o.id));
-  });
+  }, { retainEvents: false });
   const running = op.operation?.state === "running";
   const checking = opId !== null && settled !== opId;
 
@@ -430,6 +430,9 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
             {operations ? (
               <>
                 <CommandEcho label="Same thing from the terminal" commands={[scrubCommand(setId), recoveryTestCommand(setId), recoveryTestFollowCommand(setId), setTerminalCommand(setId), showOutputCommand(setId)]} />
+                <div data-testid="follow-echo-note" style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
+                  <code className="mono">{recoveryTestFollowCommand(setId)}</code> starts a new recovery test and follows it, the same as the button. To watch one that is already running, use <code className="mono">{setTerminalCommand(setId)}</code>.
+                </div>
                 <div data-testid="scrub-schedule-note" style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
                   Scrub now does not replace the schedule: every poll of the running service checks the copies that are due, at the cadence above. A scrub started here reads this set&apos;s copies now and is stopped with Cancel.
                 </div>

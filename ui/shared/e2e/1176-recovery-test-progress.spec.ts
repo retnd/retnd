@@ -52,7 +52,7 @@ test.describe("#1176 recovery test progress and the set terminal", () => {
     await open(page, SET, "assurance-slow-test", { wire: true });
     await region(page).getByRole("button", { name: "Run recovery test" }).click();
     await expect(bar(page)).toHaveAttribute("aria-valuenow", /^\d+$/, { timeout: 15_000 });
-    await expect(region(page).getByTestId("stage-count")).toHaveText(/^Step \d+ of \d+$/);
+    await expect(region(page).getByTestId("stage-count")).toHaveText(/^Stage \d+ of \d+$/);
   });
 
   test("the dialog draws no terminal of its own and points at the set terminal, which the link focuses", async ({ page }) => {
