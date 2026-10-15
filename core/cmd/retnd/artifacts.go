@@ -9,6 +9,7 @@ import (
 
 	"github.com/retnd/retnd/core/cliecho"
 	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/internal/health"
 	"github.com/retnd/retnd/core/internal/lifecycle"
 	"github.com/retnd/retnd/core/internal/state"
 )
@@ -47,7 +48,7 @@ func cmdArtifacts(args []string) int {
 	setFlag := fs.String("backup-set", "", "only artifacts from this backup set, named <source/backup-set> or by set name alone where that is unambiguous")
 	stateFlag := fs.String("state", "", "only artifacts in this lifecycle state, e.g. COMMITTED or QUARANTINED_LOST (a list only)")
 	asJSON := fs.Bool("json", false, "emit JSON, the same body the API serves (Artifact for one, ListArtifactsResponse for a list), instead of text")
-	countFlag := fs.Bool("count", false, "print the number of retained backups the way the web console's Backups badge does: exact up to 100, >100 above (a list only)")
+	countFlag := fs.Bool("count", false, "print how many backups this deployment holds outside quarantine, the number the web console's Backups badge reads (the badge itself shows >100 past a hundred); with --state, how many are in that state; with --json, {\"count\": N} (a list only)")
 	// Flags may come before or after the operand, exactly like validate's
 	// own operand (see parseFlagsAroundOperands in setup.go for why).
 	operands, err := parseFlagsAroundOperands(fs, args)
@@ -66,9 +67,6 @@ func cmdArtifacts(args []string) int {
 	}
 	if *countFlag && len(operands) == 1 {
 		return usageError("artifacts: --count counts a list and cannot be combined with an artifact argument")
-	}
-	if *countFlag && *asJSON {
-		return usageError("artifacts: --count prints the console badge's reading and cannot be combined with --json; the length of the --json list is the exact count")
 	}
 	// Issue #569. --backup-set takes the whole "source/backup-set" id now,
 	// so it can carry a source of its own. Two things about that pair are
@@ -99,7 +97,7 @@ func cmdArtifacts(args []string) int {
 	}
 
 	ctx := context.Background()
-	if *asJSON {
+	if *asJSON && !*countFlag {
 		return artifactsJSON(ctx, *cfgPath, operands, *sourceFlag, *setFlag, wantState)
 	}
 	svc, cfg, cleanup, err := openService(ctx, *cfgPath, false)
@@ -194,10 +192,24 @@ func cmdArtifacts(args []string) int {
 		records = withState(records, wantState)
 	}
 
-	// #1186: the web console's Backups badge, from the rows just listed and
-	// checked against a serving engine, so it says the mode like the list does.
+	// #1186: the number the web console's Backups badge reads, from the rows
+	// just listed and checked against a serving engine, so it says the mode
+	// like the list does. Without --state it is every backup outside
+	// quarantine, by the one rule GET /system/health's retained_count uses
+	// (health.CountRetained), so a quarantined backup is never in both
+	// badges. With --state it is how many are in that state. Always the
+	// exact number: the sidebar's ">100" is a width decision of the sidebar.
 	if *countFlag {
-		fmt.Println(retainedBadge(len(records)))
+		n := len(records)
+		if wantState == "" {
+			n = health.CountRetained(records)
+		}
+		if *asJSON {
+			return printWorkflowJSON(struct {
+				Count int `json:"count"`
+			}{n})
+		}
+		fmt.Println(n)
 		return 0
 	}
 

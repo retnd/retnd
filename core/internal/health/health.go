@@ -332,6 +332,14 @@ type BackupSetHealth struct {
 	QuarantinedCount     int
 	QuarantinedLostCount int
 
+	// RetainedCount is how many backups this set holds outside quarantine
+	// (issue #1186): every journal row whose state is not QUARANTINED or
+	// QUARANTINED_LOST, in-flight and failed ones included, because those
+	// are rows the Backups page lists too. Quarantine is left out because it
+	// has its own count above and its own badge, and a backup counted in
+	// both would be counted twice. See CountRetained.
+	RetainedCount int
+
 	// ScrubFailingCopies is how many of this set's ACTIVE copies have
 	// failed, or been unable to complete, their scheduled check
 	// ScrubFailureThreshold times running (EPIC Q, #978). It degrades a
@@ -632,6 +640,15 @@ type Report struct {
 	// subsystem; it is reporting the absence of one. See
 	// WorkflowHealth's own doc.
 	Workflow WorkflowHealth
+
+	// RetainedCount is every backup the journal holds outside quarantine,
+	// across every set, removed ones included (issue #1186): the configured
+	// sets' RetainedCount summed, plus the backups of sets whose
+	// configuration was removed, which stay on storage and on the Backups
+	// page. It is the figure the sidebar's Backups badge reads. The caller
+	// that assembles the report sets it, like Workflow above, because only
+	// that caller reads the removed sets' rows. See CountRetained.
+	RetainedCount int
 }
 
 // NewReport bundles an already-computed ProcessHealth and set of

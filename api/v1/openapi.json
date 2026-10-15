@@ -3066,11 +3066,17 @@
             "items": {
               "$ref": "#/components/schemas/BackupSetHealth"
             }
+          },
+          "retained_count": {
+            "type": "integer",
+            "description": "How many backups this deployment holds outside quarantine (issue #1186): every backup GET /backups lists except the QUARANTINED and QUARANTINED_LOST ones, which the quarantine count already covers. In-flight and failed backups count, and so do the backups of a backup set whose configuration was removed, since they stay on storage and on that list. This is the figure the console's sidebar Backups badge reads, so it costs no extra request; `retnd artifacts --count` prints the same number. Zero is a real reading, so it is always present.",
+            "format": "int32"
           }
         },
         "required": [
           "generated_at",
-          "backup_sets"
+          "backup_sets",
+          "retained_count"
         ]
       },
       "CatalogFailure": {
