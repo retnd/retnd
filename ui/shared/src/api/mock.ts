@@ -61,6 +61,7 @@ import type {
   VersionInfo
 } from "@shared/types/operation";
 import { createMockRecoverMany } from "@shared/assurance/mockRecoverMany";
+import { createMockHostBrowse } from "@shared/assurance/mockHostBrowse";
 import { BUILTIN_ARTIFACT, DEFAULT_POLICY_NEWEST, DEFAULT_POLICY_TESTED, DEFAULT_UNTESTED_SCENARIO, followsDefault, assuranceLiveEvents, assuranceUnfinished, createMockAssurance, createMockRecovery, overlayAssurance, overlayThaw } from "@shared/assurance/mockAssurance";
 import { createHttpAssurance } from "@shared/assurance/realAssurance";
 import type { DeploymentActivity, SetActivity, SetActivityEvent } from "@shared/types/activity";
@@ -82,6 +83,10 @@ export type Scenario =
   | "backups-many"
   | "backups-many-corrupt"
   | "backups-many-nospace"
+  // Issue #1179: no storage destination at all (the "None configured"
+  // case), and a host that cannot list its folders.
+  | "no-destinations"
+  | "host-browse-unavailable"
   | "empty"
   | "storage-critical"
   | "catalog-recovery"
@@ -193,7 +198,7 @@ export function scenarioFromLocation(): Scenario {
     "assurance-grant-used", "assurance-session-ended", "assurance-staging-full",
     "assurance-reads-busy", "assurance-corrupt-copy", "assurance-download-outcomes",
     "assurance-set-recover", "assurance-set-nospace", "assurance-set-corrupt", "assurance-set-slow",
-    "backups-many", "backups-many-corrupt", "backups-many-nospace", "dock-no-warnings", "dock-live-line", "assurance-no-validator", "assurance-builtin-check", "assurance-default-policy", "assurance-default-untested", "gate-shut", "gate-shut-local-account"
+    "backups-many", "backups-many-corrupt", "backups-many-nospace", "no-destinations", "host-browse-unavailable", "dock-no-warnings", "dock-live-line", "assurance-no-validator", "assurance-builtin-check", "assurance-default-policy", "assurance-default-untested", "gate-shut", "gate-shut-local-account"
   ];
   return (allowed as string[]).includes(s ?? "") ? (s as Scenario) : "default";
 }
@@ -3975,6 +3980,8 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   // same way the real backend's hot reload makes a write visible to the
   // next read (issue #140).
   const settings = defaultSettings();
+  // Issue #1179: a deployment whose Settings lists no destination at all.
+  if (scenario === "no-destinations") settings.mediums = [];
   if (noMedium) {
     // The FR-35 case: no medium declared, and no tier naming one. The
     // storage SCHEMA stays, because the verification ladder is a property
@@ -4086,6 +4093,7 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   const workflowSettings = defaultWorkflowSettings();
   const assuranceSettings = defaultAssuranceSettings();
   const mockRecovery = createMockRecovery(scenario);
+  const mockHostBrowse = createMockHostBrowse(scenario, assuranceSettings.stagingRoot);
   // #1106: every row the journal holds for a set, quarantined ones included,
   // which listArtifacts above deliberately leaves out.
   const mockRecoverMany = createMockRecoverMany(scenario, (setId) => artifacts.filter((a) => a.setId === setId));
@@ -5558,6 +5566,7 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
       }),
 
     getAssuranceSettings: () => delay(structuredClone(assuranceSettings)),
+    listHostDirectory: (path) => mockHostBrowse(path ?? ""),
     patchAssuranceSettings: (patch) => {
       assuranceSettings.configured = true;
       if (patch.scrubCadenceSeconds !== undefined) {

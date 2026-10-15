@@ -3971,6 +3971,8 @@ export const httpApi: RetndApi = {
 
   getAssuranceSettings: () =>
     request<WireAssuranceSettingsResponse>("/settings/assurance").then(fromWireAssuranceSettings),
+  // STUB (issue #1179): the real call arrives with the fix.
+  listHostDirectory: () => Promise.reject(new Error("listHostDirectory is not implemented")),
   patchAssuranceSettings: (patch) =>
     request<WireAssuranceSettingsResponse>("/settings/assurance", {
       method: "PATCH",
