@@ -28,8 +28,8 @@ const headerBox = (page: Page) => page.getByRole("checkbox", { name: "Select all
 const progress = (page: Page) => page.getByRole("dialog", { name: "Recovering backups" });
 
 async function chooseStaging(page: Page, name: string) {
-  await bar(page).getByRole("radio", { name: "Staging path on the host" }).check();
-  await bar(page).getByRole("textbox", { name: /Recover to a name under the staging root/ }).fill(name);
+  await bar(page).getByRole("radio", { name: "Under the staging root on this retnd host" }).check();
+  await bar(page).getByRole("textbox", { name: /Name under the staging root/ }).fill(name);
 }
 
 test.describe("#1107 selecting backups", () => {

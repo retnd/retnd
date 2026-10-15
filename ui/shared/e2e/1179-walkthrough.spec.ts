@@ -60,9 +60,9 @@ test("#1179 walkthrough: Download in this browser makes one link per backup, up 
   await beat(page, 2500);
 });
 
-test("#1179 walkthrough: Staging path on the host browses the host's folders", async ({ page }) => {
+test("#1179 walkthrough: Under the staging root on this retnd host browses the host's folders", async ({ page }) => {
   const dlg = await recoverDialog(page);
-  await dlg.getByRole("radio", { name: "Staging path on the host" }).check();
+  await dlg.getByRole("radio", { name: "Under the staging root on this retnd host" }).check();
   await beat(page, 1400);
   const browser = dlg.getByRole("group", { name: "Folders on the host" });
   await browser.getByRole("button", { name: "Open folder daily" }).click();
@@ -70,7 +70,7 @@ test("#1179 walkthrough: Staging path on the host browses the host's folders", a
   await browser.getByRole("button", { name: "Open folder 2026-10" }).click();
   await beat(page, 1100);
   await browser.getByRole("button", { name: "Use this folder" }).click();
-  await expect(dlg.getByRole("textbox", { name: /Recover to a name under the staging root/ })).toHaveValue("daily/2026-10/" + PG);
+  await expect(dlg.getByRole("textbox", { name: /Name under the staging root/ })).toHaveValue("daily/2026-10/" + PG);
   await beat(page, 2500);
 });
 
@@ -78,7 +78,7 @@ test("#1179 walkthrough: Configured destination is a drop-down of Settings", asy
   const dlg = await recoverDialog(page);
   await dlg.getByRole("radio", { name: "Configured destination" }).check();
   await beat(page, 1400);
-  const select = dlg.getByRole("combobox", { name: "Recover to destination" });
+  const select = dlg.getByRole("combobox", { name: "Which configured destination" });
   await expect(select.locator("option")).toHaveCount(5);
   await select.selectOption("offsite_s3");
   await expect(dlg.getByText("--to medium:offsite_s3", { exact: false })).toBeVisible();
@@ -88,7 +88,7 @@ test("#1179 walkthrough: Configured destination is a drop-down of Settings", asy
 test("#1179 walkthrough: with no destination in Settings it says None configured", async ({ page }) => {
   const dlg = await recoverDialog(page, "no-destinations");
   await dlg.getByRole("radio", { name: "Configured destination" }).check();
-  const select = dlg.getByRole("combobox", { name: "Recover to destination" });
+  const select = dlg.getByRole("combobox", { name: "Which configured destination" });
   await expect(select).toContainText("None configured");
   await expect(select).toBeDisabled();
   await beat(page, 2500);

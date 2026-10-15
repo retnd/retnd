@@ -52,6 +52,7 @@ import type { RunTarget } from "@shared/assurance/recoverMany";
 import { BackupsSelectionBar } from "./BackupsSelectionBar";
 import { DEFAULT_DOWNLOAD_STREAMS, downloadable, downloadCeilingOf, mintDownloadLinks } from "@shared/assurance/bulkDownload";
 import { BulkDownloadLinks } from "@shared/assurance/BulkDownloadLinks";
+import { useAssuranceSettings } from "@shared/assurance/assuranceSettings";
 import type { BulkDownloadState } from "@shared/assurance/BulkDownloadLinks";
 import { asApiError } from "@shared/api/failure";
 import { BackupsRecoverRun } from "./BackupsRecoverRun";
@@ -84,10 +85,8 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   // filter narrows the list but not the deployment, so "All" stays as offered.
   const [held, setHeld] = useState<number | null>(null);
   const [run, setRun] = useState<{ files: Array<{ id: string; filename: string }>; target: RunTarget; acknowledged: boolean } | null>(null);
-  const [stagingRoot, setStagingRoot] = useState<string | null>(null);
   // Issue #1179 (the review of #1185): how many downloads the engine streams
   // at once. "In this browser" offers a selection no larger than this.
-  const [downloadCeiling, setDownloadCeiling] = useState(DEFAULT_DOWNLOAD_STREAMS);
   // The links a browser download made for the selection, or null before one
   // was asked for, with the backups they were made for so fresh ones can be.
   const [dl, setDl] = useState<(BulkDownloadState & { files: BackupArtifact[] }) | null>(null);
@@ -116,16 +115,10 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
     }
   };
   const canRecover = !!api.assurance;
-  useEffect(() => {
-    if (!canRecover) return;
-    let live = true;
-    void api.getAssuranceSettings().then((x) => {
-      if (!live) return;
-      setStagingRoot(x.stagingRoot);
-      setDownloadCeiling(downloadCeilingOf(x));
-    }, () => undefined);
-    return () => { live = false; };
-  }, [api, canRecover]);
+  // The page reads the settings only for the download ceiling. The read is
+  // the one the staging folder field shares (assuranceSettings.ts, #1190).
+  const assuranceSettings = useAssuranceSettings(canRecover);
+  const downloadCeiling = assuranceSettings ? downloadCeilingOf(assuranceSettings) : DEFAULT_DOWNLOAD_STREAMS;
   const changeFilter = (apply: () => void) => {
     apply();
     setPageAt(0);
@@ -305,7 +298,6 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
         <BackupsSelectionBar
           selected={ticked}
           matching={selectable.length}
-          stagingRoot={stagingRoot}
           readOnly={readOnly}
           readOnlyReason="This session is read-only, so it cannot start a recovery."
           downloading={!!dl?.running}

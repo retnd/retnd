@@ -26,8 +26,8 @@
  */
 import "@shared/assurance/assurance.css";
 import { useState } from "react";
-import { DestinationSelect } from "@shared/assurance/DestinationSelect";
-import { HostFolderBrowser } from "@shared/assurance/HostFolderBrowser";
+import { RecoveryTargetChoices, RecoveryTargetField } from "@shared/assurance/RecoveryTargetFields";
+import { useRecoveryTarget } from "@shared/assurance/useRecoveryTarget";
 import { recoverToFileCommand } from "@shared/assurance/assuranceCommands";
 import { downloadable } from "@shared/assurance/bulkDownload";
 import { bytes } from "@shared/utilities/format";
@@ -37,13 +37,12 @@ import type { RunTarget } from "@shared/assurance/recoverMany";
 import type { BackupArtifact } from "@shared/types/backup";
 
 export function BackupsSelectionBar({
-  selected, matching, stagingRoot, readOnly, readOnlyReason, downloading, downloadCeiling, onSelectAll, onClear, onRecover, onDownload
+  selected, matching, readOnly, readOnlyReason, downloading, downloadCeiling, onSelectAll, onClear, onRecover, onDownload
 }: {
   /** The ticked rows, in list order. */
   selected: BackupArtifact[];
   /** How many rows the current filter matches and can be selected. */
   matching: number;
-  stagingRoot: string | null;
   readOnly: boolean;
   readOnlyReason?: string;
   /** True while the download links are being made. */
@@ -55,8 +54,7 @@ export function BackupsSelectionBar({
   onRecover(target: RunTarget, acknowledged: boolean): void;
   onDownload(): void;
 }) {
-  const [chosen, setKind] = useState<RunTarget["kind"] | "download">("staging");
-  const [where, setWhere] = useState("");
+  const { kind: chosen, where, setWhere, choose } = useRecoveryTarget<RunTarget["kind"] | "download">("staging");
   const [accepted, setAccepted] = useState(false);
   const total = selected.reduce((n, a) => n + a.sizeBytes, 0);
   const archived = selected.filter((a) => planOf(a).archived).length;
@@ -94,38 +92,20 @@ export function BackupsSelectionBar({
 
       <div className="selbar__row" style={{ alignItems: "flex-start" }}>
         <div role="radiogroup" aria-label="Where should the backups go?" className="selbar__targets">
-          <label>
-            <input type="radio" name="bulk-target" checked={download} disabled={tooMany} onChange={() => { setKind("download"); setWhere(""); }} aria-describedby="bulk-download-note" />
-            Download in this browser
-          </label>
-          <label>
-            <input type="radio" name="bulk-target" checked={kind === "staging"} onChange={() => { setKind("staging"); setWhere(""); }} />
-            Staging path on the host
-          </label>
-          <label>
-            <input type="radio" name="bulk-target" checked={kind === "storage"} onChange={() => { setKind("storage"); setWhere(""); }} />
-            Configured destination
-          </label>
+          {/* Issue #1190: offered the same way on every screen. */}
+          <RecoveryTargetChoices
+            name="bulk-target" value={kind} onChoose={choose}
+            download={{ disabled: tooMany, describedBy: "bulk-download-note" }}
+          />
         </div>
-        {download ? null : kind === "staging" ? (
+        {download ? null : (
           <div className="selbar__where">
-            <label className="field">
-              <span className="field__label">
-                {"Name under the staging root " + (stagingRoot ? stagingRoot + " " : "") + "(files go under it, with a manifest)"}
-              </span>
-              <input
-                className="input input--mono input--bold"
-                aria-label="Recover to a name under the staging root"
-                value={where}
-                onChange={(e) => setWhere(e.target.value)}
-              />
-            </label>
-            {/* Issue #1179: the host's own folders, so the name need not be typed blind. */}
-            <HostFolderBrowser onPick={setWhere} />
-          </div>
-        ) : (
-          <div className="selbar__where">
-            <DestinationSelect ariaLabel="Recover to destination" value={where} onChange={setWhere} />
+            <RecoveryTargetField
+              place={kind}
+              value={where}
+              onChange={setWhere}
+              meaning="A folder: the backups go under it, with a manifest."
+            />
           </div>
         )}
       </div>

@@ -53,8 +53,8 @@ describe("a read that costs money the placements did not predict", () => {
         artifactId: ID, copy: "local", target: { kind: "staging", path: "x" }, path: "/staging/x", bytes: 1, sha256: "a".repeat(64)
       })
     });
-    await userEvent.click(await screen.findByRole("radio", { name: "Staging path on the host" }));
-    await userEvent.type(screen.getByRole("textbox", { name: /Recover to/ }), "x");
+    await userEvent.click(await screen.findByRole("radio", { name: "Under the staging root on this retnd host" }));
+    await userEvent.type(screen.getByRole("textbox", { name: /Name under the staging root/ }), "x");
     await userEvent.click(screen.getByRole("button", { name: "Recover artifact" }));
 
     const decision = await screen.findByRole("group", { name: "This read costs money" });
@@ -77,8 +77,8 @@ describe("what travels in the mint request", () => {
   it("never sends an acknowledgement unless the person ticked one", async () => {
     const mint = vi.fn().mockResolvedValue(grant());
     renderDialog({ mintRecovery: mint, redeemRecovery: vi.fn().mockResolvedValue({ artifactId: ID, copy: "local", target: { kind: "staging" }, bytes: 1, sha256: "b".repeat(64) }) });
-    await userEvent.click(await screen.findByRole("radio", { name: "Staging path on the host" }));
-    await userEvent.type(screen.getByRole("textbox", { name: /Recover to/ }), "x");
+    await userEvent.click(await screen.findByRole("radio", { name: "Under the staging root on this retnd host" }));
+    await userEvent.type(screen.getByRole("textbox", { name: /Name under the staging root/ }), "x");
     await userEvent.click(screen.getByRole("button", { name: "Recover artifact" }));
     await waitFor(() => expect(mint).toHaveBeenCalled());
     expect(mint.mock.calls[0][1]).toEqual({ target: { kind: "staging", path: "x" }, acknowledged: undefined });
@@ -87,8 +87,8 @@ describe("what travels in the mint request", () => {
   it("a redeem that fails is a refusal and never a recovered state", async () => {
     const redeem = vi.fn().mockRejectedValue(new RetndError({ code: "RECOVERY_NO_SPACE" as ApiErrorCode, message: "no room", correlationId: "c" }));
     renderDialog({ mintRecovery: vi.fn().mockResolvedValue(grant()), redeemRecovery: redeem });
-    await userEvent.click(await screen.findByRole("radio", { name: "Staging path on the host" }));
-    await userEvent.type(screen.getByRole("textbox", { name: /Recover to/ }), "x");
+    await userEvent.click(await screen.findByRole("radio", { name: "Under the staging root on this retnd host" }));
+    await userEvent.type(screen.getByRole("textbox", { name: /Name under the staging root/ }), "x");
     await userEvent.click(screen.getByRole("button", { name: "Recover artifact" }));
     const refusal = await screen.findByTestId("refusal");
     expect(refusal.getAttribute("data-code")).toBe("RECOVERY_NO_SPACE");

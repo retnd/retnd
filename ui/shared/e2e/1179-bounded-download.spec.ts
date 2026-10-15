@@ -48,7 +48,7 @@ test.describe("#1179 the browser download is capped at the engine's ceiling", ()
     await expect(note).toContainText(/staging root|configured destination/);
     // the other two places still work for the whole selection
     await bar(page).getByRole("radio", { name: "Configured destination" }).check();
-    await bar(page).getByRole("combobox", { name: "Recover to destination" }).selectOption("usb_shelf");
+    await bar(page).getByRole("combobox", { name: "Which configured destination" }).selectOption("usb_shelf");
     await expect(bar(page).getByRole("button", { name: "Recover selected" })).toBeEnabled();
   });
 

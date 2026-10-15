@@ -73,6 +73,26 @@ export default tseslint.config(
     },
   },
   {
+    // Issue #1190: the host folder browser and the destination drop-down are
+    // offered one way, through assurance/RecoveryTargetFields, on every screen
+    // that offers them. This is an import rule rather than a text search so
+    // it follows the dependency itself: an aliased import, a re-export, a
+    // createElement call or a .ts wrapper all need the import first, and a
+    // comment that mentions either name can't trip it. The pattern takes any
+    // path that ends in either module, so `./`, `../assurance/` and
+    // `@shared/assurance/` are all caught.
+    files: ["**/*.{ts,tsx}"],
+    ignores: ["src/assurance/RecoveryTargetFields.tsx"],
+    rules: {
+      "no-restricted-imports": ["error", {
+        patterns: [{
+          regex: "(^|/)(HostFolderBrowser|DestinationSelect)(\\.tsx?)?$",
+          message: "Offer the staging folder or a configured destination through assurance/RecoveryTargetFields (issue #1190), not the browser or drop-down directly.",
+        }],
+      }],
+    },
+  },
+  {
     // Node scripts (scripts/build-bundles.mjs and the artifact tests
     // beside it), not browser code — they need Node's globals, not the
     // DOM ones the rest of this config implicitly assumes.

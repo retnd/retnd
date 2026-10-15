@@ -81,10 +81,16 @@
   gate or any capability: the bar had it hard-coded off because I had reasoned that many files would need an
   archive. It is selectable now for up to as many backups as the engine streams downloads at once, and makes
   one link per backup that you open yourself, each from its own single-use grant and each checked against
-  its recorded digest by the host, with archived copies left out and named. "Staging path on the host" gets
-  a folder browser over the staging root on the machine retnd runs on, and "Configured destination" is a
-  drop-down of everything under Settings, Storage destinations ("None configured" when there is nothing),
-  on the artifact dialog, the selection bar and the set dialog.
+  its recorded digest by the host, with archived copies left out and named. "Folder under the staging root
+  on the host" gets a folder browser over the staging root on the machine retnd runs on, and "Configured
+  destination" is a drop-down of everything under Settings, Storage destinations ("None configured" when
+  there is nothing), on the artifact dialog, the selection bar and the set dialog.
+- **The staging folder and the configured destination read the same on every screen** (#1190). Recover
+  artifact, the Backups selection bar and Recover this backup set each wrapped the folder browser and the
+  destination drop-down in their own words, so one said "Staging path on the host" and another "Folder under
+  the staging root on the host", and the text field and drop-down had a different name on each. They now
+  come from one place (`assurance/RecoveryTargetFields.tsx`), with one set of labels, one field that names
+  the staging root itself, and a test that fails if a screen builds either choice on its own.
 
 ## [0.6.4] - 2026-10-14
 

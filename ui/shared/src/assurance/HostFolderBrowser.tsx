@@ -1,5 +1,5 @@
 /**
- * The folder browser behind "Staging path on the host" (issue #1179).
+ * The folder browser behind "Under the staging root on this retnd host" (issue #1179).
  *
  * # What it browses
  *

@@ -12,8 +12,8 @@ const headerBox = (p: Page) => p.getByRole("checkbox", { name: "Select all match
 const beat = (p: Page, ms = 900) => p.waitForTimeout(ms);
 
 async function staging(p: Page, name: string) {
-  await bar(p).getByRole("radio", { name: "Staging path on the host" }).check();
-  await bar(p).getByRole("textbox", { name: /Recover to a name under the staging root/ }).fill(name);
+  await bar(p).getByRole("radio", { name: "Under the staging root on this retnd host" }).check();
+  await bar(p).getByRole("textbox", { name: /Name under the staging root/ }).fill(name);
 }
 
 test("#1107 walkthrough: filter by date, select all matching, recover to one place", async ({ page }) => {
