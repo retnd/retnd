@@ -33,6 +33,8 @@ const recorded = (page: Page) => page.evaluate(() => (window as unknown as { __b
 
 test.describe("#1176 recovery test progress and the set terminal", () => {
   test("the progress bar advances as the test moves through its stages, and ends full", async ({ page }) => {
+    // the mock's test takes about 25 seconds; the default budget leaves no room
+    test.setTimeout(90_000);
     await open(page, SET, "assurance-slow-test", { wire: true });
     await recordBar(page);
     await region(page).getByRole("button", { name: "Run recovery test" }).click();

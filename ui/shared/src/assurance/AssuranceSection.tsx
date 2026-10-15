@@ -46,7 +46,7 @@ import { stamp } from "@shared/utilities/format";
 import { ClaimChips } from "./ClaimChips";
 import { OperationPanel } from "./OperationPanel";
 import { ValidatorLog } from "./ValidatorLog";
-import { recoveryTestCommand, scrubCommand, scrubContentCommand, setAssuranceCommand, showOutputCommand } from "./assuranceCommands";
+import { recoveryTestCommand, recoveryTestFollowCommand, scrubCommand, scrubContentCommand, setAssuranceCommand, setTerminalCommand, showOutputCommand } from "./assuranceCommands";
 import { BUILTIN_CHECKS, asBuiltinCheck, builtinOffProblem, reservedValidatorProblem } from "./builtinCheck";
 import { MIN_RECOVERY_TEST_CADENCE_SECONDS, cadenceProblem, formatCadence, parseCadence } from "./duration";
 import { useOperation } from "./useOperation";
@@ -428,7 +428,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
             ) : null}
             {operations ? (
               <>
-                <CommandEcho label="Same thing from the terminal" commands={[scrubCommand(setId), recoveryTestCommand(setId), showOutputCommand(setId)]} />
+                <CommandEcho label="Same thing from the terminal" commands={[scrubCommand(setId), recoveryTestCommand(setId), recoveryTestFollowCommand(setId), setTerminalCommand(setId), showOutputCommand(setId)]} />
                 <div data-testid="scrub-schedule-note" style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
                   Scrub now does not replace the schedule: every poll of the running service checks the copies that are due, at the cadence above. A scrub started here reads this set&apos;s copies now and is stopped with Cancel.
                 </div>
