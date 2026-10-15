@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/retnd/retnd/core/apicontract"
 	"github.com/retnd/retnd/core/cliecho"
 	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/legacypath"
@@ -73,5 +74,39 @@ func printFirstRunNotice(out io.Writer, cfgPath, verb string) int {
 		}
 	}
 	fmt.Fprintf(out, "Next step: add the first backup set in the web interface, or with `%s backup-set create ...`.\n", cliecho.Binary)
+	if verb == "status" {
+		printEngineFirstRunSteps(out)
+	}
 	return exitOK
+}
+
+// printEngineFirstRunSteps adds the guided setup's step states to a fresh
+// install's notice, when this host has been told where the engine is (#1152).
+//
+// The steps are the engine's to report: whether an administrator exists and
+// whether a mail server is set up live in the web host, which this process
+// does not contain. So they are asked for and attributed, "as reported by the
+// engine at ...", rather than presented as a fact status found out itself.
+//
+// With no route to an engine this prints nothing, so a fresh install that was
+// never told about one reads exactly as it did. A route that is set and does
+// not answer says so on stderr and leaves the notice alone: an unreachable
+// engine is not a reason for the one command an operator runs on a fresh
+// install to fail.
+func printEngineFirstRunSteps(out io.Writer) {
+	if _, base := routeAddress(); base == "" {
+		return
+	}
+	client, err := dialEngine()
+	if err == nil {
+		var got apicontract.FirstRunStatusResponse
+		if got, err = client.FirstRunStatus(context.Background()); err == nil {
+			_, base := routeAddress()
+			fmt.Fprintf(out, "first-run steps (as reported by the engine at %s):\n", base)
+			fmt.Fprintf(out, "  administrator: %s\n  email: %s\n  backup_set: %s\n", got.Steps.Administrator, got.Steps.Email, got.Steps.BackupSet)
+			fmt.Fprintf(out, "  next step: %s\n", got.NextStep)
+			return
+		}
+	}
+	fmt.Fprintf(os.Stderr, "note: could not read the first-run steps from the engine this host was told about: %v\n", err)
 }

@@ -123,6 +123,7 @@ func cmdSettings(args []string) int {
 	}
 
 	fs, cfgPath := newFlagSet("settings")
+	asJSON := fs.Bool("json", false, "read only: print the API's SettingsResponse instead of text; `patch` prints text and refuses this flag")
 	timezone := fs.String("timezone", "", "patch only; ignored otherwise: retention.timezone (an IANA name)")
 	weekStartsOn := fs.String("week-starts-on", "", "patch only; ignored otherwise: retention.week_starts_on (a weekday name)")
 	protect := fs.Bool("protect-last-known-good", true,
@@ -145,6 +146,9 @@ func cmdSettings(args []string) int {
 			"this deployment's backups already land on, which is how a tier is moved back. Sending a tier somewhere other than "+
 			"local for the first time needs --acknowledge-medium-disclosure; without it the write is refused and the refusal is the "+
 			"disclosure. It cannot be combined with --policy-file, which carries the whole chain")
+	pollInterval := fs.Duration("poll-interval", 0,
+		"patch only; ignored otherwise: the deployment-wide poll interval, how often each source is checked for new backup files (issue #1151). "+
+			"A backup set may override it with `backup-set patch --poll-interval`. Never below a minute, and 0 is refused here: it only means inherit on a set")
 	acknowledge := fs.Bool("acknowledge-medium-disclosure", false,
 		"patch only; ignored otherwise: acknowledge the storage-medium disclosure, which a chain needs the first time it sends one of its tiers to a non-local medium; without it that write is refused, and the refusal is the disclosure")
 
@@ -156,6 +160,9 @@ func cmdSettings(args []string) int {
 		return usageError(`settings: expected no argument, or exactly one argument "patch"`)
 	}
 	patching := len(operands) == 1
+	if patching && *asJSON {
+		return usageError("settings patch: --json is the read's object (GET /settings) and a patch answers in text, so it would be accepted and ignored; run `settings --json` afterwards to read the result")
+	}
 
 	// A patch-only flag given without the "patch" operand must never be
 	// silently accepted and dropped: that is indistinguishable, in its
@@ -228,7 +235,7 @@ func cmdSettings(args []string) int {
 	// through openConfigWriteRoute, which hands it to that process where
 	// it can and refuses where it cannot (#543).
 	if !patching {
-		svc, cleanup, err := openBackupService(ctx, *cfgPath, readsConfig)
+		svc, cleanup, err := openBackupServiceForRead(ctx, *cfgPath, *asJSON)
 		if err != nil {
 			return fail(err)
 		}
@@ -237,6 +244,9 @@ func cmdSettings(args []string) int {
 		settings, err := svc.Settings(ctx)
 		if err != nil {
 			return fail(err)
+		}
+		if *asJSON {
+			return emitWireJSON(service.SettingsReadWire(settings, svc.SettingsAreFirstRun(ctx, settings)))
 		}
 		printSettings(settings)
 		return 0
@@ -268,6 +278,18 @@ func cmdSettings(args []string) int {
 	logStartup(ctx, logger(), app.BuildVersionInfo(version, commit))
 
 	req := buildSettingsPatch(fs, timezone, weekStartsOn, protect, capBytes, warningFreeBytes, criticalFreeBytes, safetyMarginBytes)
+	// Issue #1151. The service section is its own block of the request,
+	// and built beside the others rather than inside the function above
+	// because that one's signature is a seam other callers and tests hold.
+	// Read through fs.Visit for the usual reason: the value is only
+	// meaningful when the flag was passed, and a zero the service then
+	// refuses is better than a zero that silently means "not mentioned".
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "poll-interval" {
+			v := *pollInterval
+			req.Service = &service.ServiceUpdate{PollInterval: &v}
+		}
+	})
 	if chain != nil {
 		req.Retention = chain
 	}
@@ -391,6 +413,7 @@ var settingsPatchFlagNames = []string{
 	"tier-medium",
 	"acknowledge-medium-disclosure",
 	"cap-bytes", "warning-free-bytes", "critical-free-bytes", "safety-margin-bytes",
+	"poll-interval",
 }
 
 // settingsRetentionSectionFlagNames is the subset of the above that
@@ -602,4 +625,10 @@ func printSettings(s service.Settings) {
 	fmt.Printf("  critical_free_bytes: %d\n", s.Capacity.CriticalFreeBytes)
 	fmt.Printf("  safety_margin_bytes: %d\n", s.Capacity.SafetyMarginBytes)
 	fmt.Printf("  backup_root: %s (configured=%v)\n", s.Capacity.BackupRoot, s.Capacity.BackupRootConfigured)
+	// Issue #1151. The deployment-wide cadence a backup set follows unless
+	// it pins its own (`backup-set show` prints both), last because the
+	// sections above it are the ones pinned lines have always been read
+	// against.
+	fmt.Println("service:")
+	fmt.Printf("  poll_interval: %s\n", s.Service.PollInterval)
 }

@@ -125,7 +125,7 @@ func secretsFromStdin(verb string, names ...string) ([]string, error) {
 	return lines, nil
 }
 
-func printJSON(verb string, v any) int {
+func printVerbJSON(verb string, v any) int {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(v); err != nil {
@@ -204,7 +204,7 @@ func authRecoveryShow(args []string) int {
 		return fail(fmt.Errorf("auth recovery show: %w", err))
 	}
 	if *asJSON {
-		return printJSON("auth recovery show", got)
+		return printVerbJSON("auth recovery show", got)
 	}
 	printRecovery(got)
 	return exitOK
@@ -301,7 +301,7 @@ func authRecoverySet(args []string) int {
 		return fail(fmt.Errorf("auth recovery set: %w", err))
 	}
 	if *asJSON {
-		return printJSON("auth recovery set", got)
+		return printVerbJSON("auth recovery set", got)
 	}
 	printRecovery(got)
 	return exitOK

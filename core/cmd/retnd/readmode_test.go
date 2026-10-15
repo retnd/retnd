@@ -78,6 +78,10 @@ var readCommands = []struct {
 	asks string
 }{
 	{"sources", func(p string) []string { return []string{"sources", "--config", p} }, nil, "/backup-sets"},
+	{"sources --json", func(p string) []string { return []string{"sources", "--config", p, "--json"} }, nil, "/backup-sets"},
+	{"backup-set show", func(p string) []string {
+		return []string{"backup-set", "--config", p, "show", "production/postgres-primary"}
+	}, nil, "/backup-sets"},
 	{"status", func(p string) []string { return []string{"status", "--config", p} },
 		[]*regexp.Regexp{
 			// The age of the newest known-good backup, which is measured

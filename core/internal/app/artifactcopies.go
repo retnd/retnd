@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/retnd/retnd/core/internal/archive"
+	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/placement"
 	"github.com/retnd/retnd/core/internal/state"
 )
@@ -107,6 +108,37 @@ type ArtifactCopy struct {
 	// different fields is the whole point: they disagree all the time,
 	// and each of them is true.
 	CheckableAs string
+
+	// The copy's own scrub and recovery-test record (EPIC Q, #985), the
+	// same fields the API serves on a placement and in the same spelling
+	// (#1147). Each is empty or nil for a copy nobody has checked: the
+	// unknown state is an absence, never a value an operator could read as
+	// fine.
+	//
+	// AssuranceState is the outcome of the latest scrub. RecoveryState is
+	// the WIRE spelling (see WireRecoveryState), so a built-in structure
+	// pass reads "readable" here exactly as it does on the API.
+	AssuranceState        string
+	LastCheckedAt         *time.Time
+	LastFailureAt         *time.Time
+	LastFailureReason     string
+	ConsecutiveFailures   int
+	RecoveryState         string
+	RecoveryTestedAt      *time.Time
+	RecoveryFailureReason string
+	// RecoveryCheck is "validator" or "builtin", empty when there is no
+	// passed, failed or overdue verdict to attribute.
+	RecoveryCheck string
+}
+
+// HasAssuranceRecord reports whether anything has been recorded about this
+// copy's scrub or recovery test. A copy with nothing recorded prints nothing
+// about either, which is what keeps an ordinary local copy's output as it
+// was before the record was readable here.
+func (c ArtifactCopy) HasAssuranceRecord() bool {
+	return c.AssuranceState != "" || c.LastCheckedAt != nil || c.LastFailureAt != nil ||
+		c.LastFailureReason != "" || c.ConsecutiveFailures != 0 || c.RecoveryState != "" ||
+		c.RecoveryTestedAt != nil || c.RecoveryFailureReason != "" || c.RecoveryCheck != ""
 }
 
 // Retrievable reports whether this copy's bytes can be read right now.
@@ -181,6 +213,15 @@ func (s *Service) artifactCopy(p state.Placement, now time.Time) ArtifactCopy {
 		VerifiedAt:        p.VerifiedAt,
 		SizeBytes:         p.Size,
 	}
+	// Before the early returns below: a copy on a medium this build cannot
+	// describe can still have been scrubbed, and that is the very record an
+	// operator opens this view for.
+	c.AssuranceState = unlessUnknown(p.AssuranceState)
+	c.LastCheckedAt, c.LastFailureAt = p.LastCheckedAt, p.LastFailureAt
+	c.LastFailureReason, c.ConsecutiveFailures = p.LastFailureReason, p.ConsecutiveFailures
+	c.RecoveryState = unlessUnknown(WireRecoveryState(p.RecoveryState, p.RecoveryValidatorID))
+	c.RecoveryTestedAt, c.RecoveryFailureReason = p.RecoveryTestedAt, p.RecoveryFailureReason
+	c.RecoveryCheck = RecoveryCheckOf(p)
 
 	class, known := s.storageClassOf(p.Medium)
 	c.StorageClass = class
@@ -230,4 +271,48 @@ func (s *Service) storageClassOf(medium string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// unlessUnknown reads the journal's "unknown" as the absence it means.
+func unlessUnknown(s string) string {
+	if s == state.AssuranceUnknown {
+		return ""
+	}
+	return s
+}
+
+// WireRecoveryReadable is the wire spelling of a built-in structure pass.
+const WireRecoveryReadable = "readable"
+
+// WireRecoveryState is the ONE place a stored recovery state becomes the one
+// every surface serialises (#1111). Storage keeps a built-in structure pass as
+// "passed" under the reserved validator id, because adding a stored state is a
+// table rebuild the compatibility rule forbids; on the wire that pass is
+// "readable", so "passed" only ever means a validator accepted the copy.
+// core/service re-exports it, and this package reads it for the terminal, so
+// the CLI and the API cannot spell the same verdict two ways.
+func WireRecoveryState(stored, validatorID string) string {
+	if stored == state.RecoveryPassed && config.IsReservedValidatorID(validatorID) {
+		return WireRecoveryReadable
+	}
+	return stored
+}
+
+// RecoveryCheckOf says which check produced a copy's recovery verdict: the
+// product's built-in structure check (its reserved identity is stored on the
+// copy) or the operator's validator. A copy with no passed, failed or overdue
+// verdict has nothing to attribute, and a digest failure carries no identity.
+func RecoveryCheckOf(p state.Placement) string {
+	switch p.RecoveryState {
+	case state.RecoveryPassed, state.RecoveryFailed, state.RecoveryOverdue:
+	default:
+		return ""
+	}
+	switch {
+	case p.RecoveryValidatorID == "":
+		return ""
+	case config.IsReservedValidatorID(p.RecoveryValidatorID):
+		return "builtin"
+	}
+	return "validator"
 }

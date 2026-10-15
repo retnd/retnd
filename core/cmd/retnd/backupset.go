@@ -58,6 +58,10 @@ var backupSetVerbs = map[string]func([]string) int{
 	// like the entries above: --scrub-cadence and friends mean nothing to
 	// declareBackupSetFlags.
 	"assurance": cmdBackupSetAssurance,
+	// The whole-set read (#1151). Its own flag set: it takes one id and
+	// --json, and parsing it against declareBackupSetFlags would let a
+	// create or patch flag through to a command that cannot honour it.
+	"show": cmdBackupSetShow,
 }
 
 // backupSetSharedFlagVerbs are the verbs that share declareBackupSetFlags
@@ -257,12 +261,12 @@ func cmdBackupSet(args []string) int {
 
 	switch verb {
 	case "create":
-		if code := f.refuseFlagsOfTheOtherVerb("create", backupSetPatchOnlyFlags); code != 0 {
+		if code := f.refuseFlagsOfTheOtherVerb("create", append(append([]string{}, backupSetPatchOnlyFlags...), backupSetTestConnectionOnlyFlags...)); code != 0 {
 			return code
 		}
 		return backupSetCreate(f, sourceName, name)
 	case "patch":
-		if code := f.refuseFlagsOfTheOtherVerb("patch", backupSetCreateOnlyFlags); code != 0 {
+		if code := f.refuseFlagsOfTheOtherVerb("patch", append(append([]string{}, backupSetCreateOnlyFlags...), backupSetTestConnectionOnlyFlags...)); code != 0 {
 			return code
 		}
 		return backupSetPatch(f, operands[1])
@@ -287,7 +291,7 @@ func cmdBackupSet(args []string) int {
 		// about. --no-verify is refused with the rest, and refusing it is
 		// the point: "test the connection without testing the connection"
 		// is not an instruction anybody can mean.
-		if code := f.refuseEveryFlagBut("test-connection", "config"); code != 0 {
+		if code := f.refuseEveryFlagBut("test-connection", "config", "json"); code != 0 {
 			return code
 		}
 		return backupSetTestConnection(f, operands[1])
@@ -305,6 +309,11 @@ type backupSetFlags struct {
 	cfgPath *string
 
 	// Shared by create and patch. Each is a field of the backup set itself.
+	// json is test-connection's alone (#1152); create, patch and remove
+	// refuse it, because a flag they accepted and ignored is the failure
+	// every list here exists to prevent.
+	json *bool
+
 	host               *string
 	port               *int
 	user               *string
@@ -383,6 +392,12 @@ type backupSetFlags struct {
 	// does not exist yet, so it means nothing on create and is refused
 	// there rather than parsed and dropped.
 	acknowledgeHostKeyChange *bool
+
+	// Issue #1151: the lineage key and the mount prefix on create, and
+	// the per-set poll interval on patch.
+	uuid              *string
+	sourceMountPrefix *string
+	pollInterval      *time.Duration
 }
 
 // create's and patch's own flags, by name, so each verb can refuse the
@@ -398,19 +413,25 @@ var (
 	// sense while a set is being brought into existence: its initial
 	// posture, whether to run it straight away, and the journal path a
 	// FIRST configuration names.
-	backupSetCreateOnlyFlags = []string{"disabled", "engine", "read-only", "repository-domain", "run", "state-database"}
+	backupSetCreateOnlyFlags = []string{"disabled", "engine", "read-only", "repository-domain", "run", "source-mount-prefix", "state-database", "uuid"}
 
 	// Not empty since issue #572. The guard was kept through #411 with
 	// nothing in it precisely so that the next patch-only flag would
 	// refuse on create automatically rather than being silently ignored
 	// there, and this is that flag.
-	backupSetPatchOnlyFlags = []string{"acknowledge-host-key-change"}
+	backupSetPatchOnlyFlags = []string{"acknowledge-host-key-change", "poll-interval"}
+
+	// test-connection's own, which create and patch refuse the same way
+	// (#1152). remove and test-connection are allow-lists, so they need no
+	// list of the flags they do not take.
+	backupSetTestConnectionOnlyFlags = []string{"json"}
 )
 
 func declareBackupSetFlags() *backupSetFlags {
 	fs, cfgPath := newFlagSet("backup-set")
 	f := &backupSetFlags{fs: fs, cfgPath: cfgPath}
 
+	f.json = fs.Bool("json", false, "test-connection: print the API's TestConnectionResponse instead of text; the exit code is still the verdict")
 	f.host = fs.String("host", "", "create, patch: remote.host, the machine being backed up")
 	f.port = fs.Int("port", 0, "create, patch: remote.port; 0 leaves it unset, which is the default SSH port. On patch that 0 is a real value rather than an unset one")
 	f.user = fs.String("user", "", "create, patch: remote.user")
@@ -447,6 +468,15 @@ func declareBackupSetFlags() *backupSetFlags {
 	f.verificationSamplePercent = fs.Int("verification-sample-percent", 0, `create, patch: what percentage of a snapshot's files a "content_sample" verification reads back, 1 to 100; unset takes the engine's own default`)
 	f.verificationFullEvery = fs.Duration("verification-full-every", 0, "create, patch: how often a FULL read-back is performed regardless of the level above; 0 is never, which is the default")
 	f.verificationRestoreDrillEvery = fs.Duration("verification-restore-drill-every", 0, "create, patch: how often a real restore of this set is performed and compared; 0 is never, which is the default. A drill reads the whole snapshot back, so this is a budget rather than a preference")
+
+	// Issue #1151. --uuid is the durable key a snapshot lineage hangs off
+	// and --source-mount-prefix is the part of --remote-path that is how
+	// THIS deployment reaches the source. Create-only: neither is an
+	// editable property of a set that exists (a lineage key that could be
+	// patched is a lineage that could be forked by one typo).
+	f.uuid = fs.String("uuid", "", "create: the durable lineage key of an incremental set, a UUID. Leave it off for a new set and one is minted; pass it when re-declaring a set whose configuration was lost, so the snapshots already on record are found again instead of a second lineage starting beside them")
+	f.sourceMountPrefix = fs.String("source-mount-prefix", "", "create: the leading part of --remote-path that is how this deployment reaches the source rather than part of the source's own identity, so that moving a bind mount does not fork the snapshot lineage")
+	f.pollInterval = fs.Duration("poll-interval", 0, "patch: this set's own poll interval, overriding the deployment's. 0 returns the set to inheriting it. Never below a minute")
 
 	f.acknowledgeRepoint = fs.Bool("acknowledge-repoint", false,
 		"create, patch: confirm pointing this set at different data. On patch, needed only when --host, --remote-path or --local-path actually change on a set that already has artifacts on record; on create, only when this id already has artifacts on record and the set is being created somewhere other than where they came from. The refusal without it says what it costs")
@@ -568,6 +598,8 @@ func backupSetCreate(f *backupSetFlags, sourceName, name string) int {
 		// recognise is refused by the rule rather than by a second copy
 		// of it.
 		Engine:                        *f.engine,
+		UUID:                          *f.uuid,
+		SourceMountPrefix:             *f.sourceMountPrefix,
 		RepositoryDomain:              *f.repositoryDomain,
 		SourceConsistency:             *f.sourceConsistency,
 		VerificationLevel:             *f.verificationLevel,
@@ -702,6 +734,13 @@ func backupSetPatch(f *backupSetFlags, id string) int {
 		return fail(err)
 	}
 	printBackupSet(updated)
+	// printBackupSet names an override and says nothing for a set that
+	// inherits, which is right for every other edit and wrong for the one
+	// that just asked to inherit: an operator who typed --poll-interval 0
+	// needs to read that it took, and what the set now follows.
+	if req.PollInterval != nil && updated.PollInterval == nil {
+		fmt.Printf("  poll_interval: inherited (every %s)\n", updated.EffectivePollInterval)
+	}
 	printPatchedKeyAndTrust(req)
 	return 0
 }
@@ -1143,6 +1182,13 @@ func buildBackupSetPatch(f *backupSetFlags) (service.UpdateBackupSetRequest, boo
 		case "verification-restore-drill-every":
 			v := *f.verificationRestoreDrillEvery
 			req.VerificationRestoreDrillEvery = &v
+		// Issue #1151. Zero is the request to inherit the deployment's
+		// cadence, so it is read through fs.Visit like every other
+		// pointer here: an explicit --poll-interval 0 is a request and
+		// not an omission. The floor is the service's, not this file's.
+		case "poll-interval":
+			v := *f.pollInterval
+			req.PollInterval = &v
 		case "ssh-key-id":
 			v := *f.keyID
 			req.SSHKeyID = &v
@@ -1238,6 +1284,25 @@ func printBackupSet(s service.BackupSet) {
 	fmt.Printf("  validator_id: %s\n", string(s.ValidatorID))
 	fmt.Printf("  disabled: %v\n", s.Disabled)
 	fmt.Printf("  read_only: %v\n", s.ReadOnly)
+	// Issue #1151, and each printed only when there is something to say.
+	// A set that inherits its cadence prints no poll line, which keeps
+	// every confirmation written before this existed exactly as it was;
+	// `backup-set show` is where "inherited" is spelled out.
+	//
+	// The lineage key is here because it is the one thing an operator
+	// needs to write down after creating an incremental set: it is what
+	// `backup-set create --uuid` takes to re-declare the set after its
+	// configuration is lost, and a create that minted one and did not say
+	// which left the next create no way to find the old snapshots.
+	if s.PollInterval != nil {
+		fmt.Printf("  poll_interval: %s\n", s.PollInterval)
+	}
+	if s.UUID != "" {
+		fmt.Printf("  uuid: %s\n", s.UUID)
+	}
+	if s.SourceMountPrefix != "" {
+		fmt.Printf("  source_mount_prefix: %s\n", s.SourceMountPrefix)
+	}
 	// Issue #624, and printed ONLY when it is set, unlike every line above
 	// it. That asymmetry is the field's own meaning rather than an
 	// omission: true says a surface deliberately skipped a check it could

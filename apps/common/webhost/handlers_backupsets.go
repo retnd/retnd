@@ -499,6 +499,16 @@ func (h *handlers) createBackupSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if runRefusal != "" {
+		// The create succeeded and only its run was refused, which is a
+		// 201 and so reads as a success unless the audit entry is told
+		// otherwise (issue #1165). Told only here, after the set exists,
+		// so a create that failed outright is not recorded as a gate
+		// refusal, and so the entry can name the set it made.
+		noteGateRefusal(r.Context(), h.gate, "run_immediately")
+		noteGateRefusedSet(r.Context(), result.Set.ID)
+	}
+
 	resp := createBackupSetResponse{
 		backupSetResponse: toBackupSetResponse(result.Set),
 		// Empty unless the gate refused the run above, in which case it

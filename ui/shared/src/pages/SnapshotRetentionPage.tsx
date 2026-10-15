@@ -34,6 +34,10 @@ import { useApi } from "@shared/api/ApiContext";
 import { ConfirmationDialog } from "@shared/components/ConfirmationDialog";
 import { Note } from "@shared/components/Definitions";
 import { EmptyState, ErrorState } from "@shared/components/EmptyState";
+import { GateNotice } from "@shared/components/GateNotice";
+import { GateRefusal } from "@shared/components/GateRefusal";
+import { useDestructiveGate } from "@shared/hooks/useDestructiveGate";
+import { snapshotHoldCommand, snapshotUnholdCommand } from "@shared/pages/snapshotCommands";
 import { PageHeader } from "@shared/components/PageHeader";
 import { RetentionTierBadges } from "@shared/components/RetentionBadge";
 import { StatusBadge } from "@shared/components/StatusBadge";
@@ -56,6 +60,7 @@ export function SnapshotRetentionPage({ readOnly }: { readOnly: boolean }) {
   const holds = useAsync(() => api.listSnapshotHolds(source, set), [api, source, set]);
   const hold = useSnapshotOperation("Could not place the hold.");
   const release = useSnapshotOperation("Could not release the hold.");
+  const gate = useDestructiveGate();
 
   // The run a hold is being placed on, and the hold being released. Both
   // hold the row rather than a boolean, so each dialog can name what it
@@ -122,6 +127,20 @@ export function SnapshotRetentionPage({ readOnly }: { readOnly: boolean }) {
   return (
     <>
       {header}
+
+      <GateNotice
+        gate={gate}
+        headline="Placing and releasing a hold are refused over HTTP on this deployment."
+        command={"retnd snapshot hold " + setId + " --reason <text>"}
+      />
+
+      {[hold.gate, release.gate].map((notice, index) =>
+        notice ? (
+          <div key={"gate" + index} style={{ marginBottom: 14 }}>
+            <GateRefusal notice={notice} />
+          </div>
+        ) : null
+      )}
 
       {[hold.failure, release.failure].map((failure, index) =>
         failure ? (
@@ -208,6 +227,7 @@ export function SnapshotRetentionPage({ readOnly }: { readOnly: boolean }) {
                             disabled={readOnly || hold.busy || !hold.ready}
                             onClick={() => {
                               setHoldReason("");
+                              hold.clearGate();
                               setHolding(verdict);
                             }}
                           >
@@ -276,7 +296,10 @@ export function SnapshotRetentionPage({ readOnly }: { readOnly: boolean }) {
                             className="btn btn--sm btn--destructive"
                             aria-label={"Release hold " + h.holdId}
                             disabled={readOnly || release.busy || !release.ready}
-                            onClick={() => setReleasing(h)}
+                            onClick={() => {
+                              release.clearGate();
+                              setReleasing(h);
+                            }}
                           >
                             Release
                           </button>
@@ -299,7 +322,7 @@ export function SnapshotRetentionPage({ readOnly }: { readOnly: boolean }) {
       </section>
 
       <ConfirmationDialog
-        open={holding !== null}
+        open={holding !== null && hold.gate === null}
         eyebrow="Retention will not delete a held snapshot"
         title="Place a hold"
         confirmLabel="Place hold"
@@ -324,6 +347,12 @@ export function SnapshotRetentionPage({ readOnly }: { readOnly: boolean }) {
             () => {
               setHolding(null);
               reloadBoth();
+            },
+            {
+              outcome: "The hold was not placed",
+              nothingChanged: "No hold was recorded, so retention still treats this snapshot as it did.",
+              command: snapshotHoldCommand(setId, holdReason.trim(), target.runId),
+              reason: gate.reason
             }
           );
         }}
@@ -346,7 +375,7 @@ export function SnapshotRetentionPage({ readOnly }: { readOnly: boolean }) {
       </ConfirmationDialog>
 
       <ConfirmationDialog
-        open={releasing !== null}
+        open={releasing !== null && release.gate === null}
         destructive
         eyebrow="The retention chain governs it again"
         title="Release this hold"
@@ -368,6 +397,12 @@ export function SnapshotRetentionPage({ readOnly }: { readOnly: boolean }) {
             () => {
               setReleasing(null);
               reloadBoth();
+            },
+            {
+              outcome: "The hold was not released",
+              nothingChanged: "The hold is still in place, so retention still will not delete this snapshot.",
+              command: snapshotUnholdCommand(setId, target.holdId),
+              reason: gate.reason
             }
           );
         }}

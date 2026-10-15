@@ -30,6 +30,7 @@ import (
 // of this PR's file scope.
 func cmdStatus(args []string) int {
 	fs, cfgPath := newFlagSet("status")
+	asJSON := fs.Bool("json", false, "print the health report as JSON: the API's GET /system/health object, plus `process`, instead of as text")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -73,6 +74,10 @@ func cmdStatus(args []string) int {
 		return fail(err)
 	}
 
+	if *asJSON {
+		return printStatusJSON(report)
+	}
+
 	fmt.Printf("process: "+cliecho.Binary+" %s (commit %s), go %s, rclone %s\n",
 		report.Process.BinaryVersion, commit, info.GoVersion, report.Process.RcloneVersion)
 
@@ -99,6 +104,7 @@ func cmdStatus(args []string) int {
 		default:
 			fmt.Println("\n" + cliecho.Binary + " has no backup set configured yet (first run). Nothing is being backed up.")
 			fmt.Println("Next step: add the first backup set in the web interface, or with `" + cliecho.Binary + " backup-set create ...`.")
+			printEngineFirstRunSteps(os.Stdout)
 		}
 	}
 	for _, bs := range report.BackupSets {
@@ -106,6 +112,7 @@ func cmdStatus(args []string) int {
 			healthy = false
 		}
 		fmt.Printf("\n%s: %s\n  %s\n", bs.Set, bs.State, bs.Reason)
+		printHalted(bs)
 		fmt.Printf("  newest known-good backup: %s\n", ageOrNever(bs.NewestGoodBackupAge))
 		fmt.Printf("  stale threshold: %s\n", bs.StaleThreshold)
 		fmt.Printf("  current transfers: %d, pending deletes: %d, failures: %d\n", len(bs.CurrentTransfers), bs.PendingDeletes, bs.Failures)

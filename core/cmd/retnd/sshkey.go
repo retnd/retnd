@@ -150,7 +150,7 @@ func sshKeyList(args []string) int {
 	}
 	wire := service.SSHKeysToWire(keys)
 	if *asJSON {
-		return printJSON("ssh-key list", wire)
+		return printVerbJSON("ssh-key list", wire)
 	}
 	printSSHKeys(wire)
 	return exitOK
@@ -204,7 +204,7 @@ func sshKeyDiscover(args []string) int {
 	}
 	wire := service.SSHDiscoveryToWire(found)
 	if *asJSON {
-		return printJSON("ssh-key discover", wire)
+		return printVerbJSON("ssh-key discover", wire)
 	}
 	printSSHDiscovery(wire)
 	return exitOK
@@ -304,7 +304,7 @@ func sshKeyImport(args []string) int {
 		}
 	}
 	if *asJSON {
-		return printJSON("ssh-key import", apicontract.ImportSSHKeyResponse{ID: ref.ID, Algorithm: ref.Algorithm, Fingerprint: ref.Fingerprint})
+		return printVerbJSON("ssh-key import", apicontract.ImportSSHKeyResponse{ID: ref.ID, Algorithm: ref.Algorithm, Fingerprint: ref.Fingerprint})
 	}
 	fmt.Printf("imported %s key %s as %s\n", ref.Algorithm, ref.Fingerprint, ref.ID)
 	return exitOK
@@ -337,7 +337,7 @@ func sshHostKeyProbe(args []string) int {
 		return fail(fmt.Errorf("ssh host-key-probe: probing %s:%d for its host key: %w", host, *port, err))
 	}
 	if *asJSON {
-		return printJSON("ssh host-key-probe", apicontract.HostKeyProbeResponse{
+		return printVerbJSON("ssh host-key-probe", apicontract.HostKeyProbeResponse{
 			Algorithm: probe.Algorithm, Fingerprint: probe.Fingerprint, KnownHostsLine: probe.KnownHostsLine,
 		})
 	}

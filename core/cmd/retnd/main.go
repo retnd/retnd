@@ -90,10 +90,13 @@ var commands = map[string]func([]string) int{
 	"auth":            cmdAuth,
 	"ssh-key":         cmdSSHKey,
 	"ssh":             cmdSSH,
+	"operation":       cmdOperation,
+	"system":          cmdSystem,
 	"catalog":         cmdCatalog,
 	"quarantine":      cmdQuarantine,
 	"unconfigured":    cmdUnconfigured,
 	"medium":          cmdMedium,
+	"storage":         cmdStorage,
 	"retry":           cmdRetry,
 	"restore":         cmdRestore,
 	"recover":         cmdRecover,
@@ -103,6 +106,7 @@ var commands = map[string]func([]string) int{
 	"workflow":        cmdWorkflow,
 	"workflow-runner": cmdWorkflowRunner,
 	"version":         cmdVersion,
+	"validators":      cmdValidators,
 }
 
 // usage is the text an operator reads when they type nothing, type
@@ -144,8 +148,13 @@ commands:
                                                   deployment: it is refused rather than started if another
                                                   process is already serving that state database (#536)
   check                                          validate config and the state database, then exit
-  status                                         report process and backup-set health (FR-24)
+  status [--json]                                report process and backup-set health (FR-24). A set the manager
+                                                  could not connect to prints a "halted:" line under it with the
+                                                  reason and the fix. --json prints GET /system/health's object plus
+                                                  "process" (#1146)
   sources                                        list configured sources and backup sets
+  sources --json                                 the same read as ListBackupSetsResponse, every field of every set,
+                                                  which is what GET /api/v1/backup-sets returns (#1151)
   backup-set create <source/backup-set> --host H --user U --remote-path P --local-path P
                     --ssh-key-file K|--ssh-key-id ID --known-hosts-line L|--trust-host-key
                     --completion-strategy rename|marker|stable [--include A,B] [--stable-for D]
@@ -154,7 +163,9 @@ commands:
                     [--verification-level L] [--verification-sample-percent N]
                     [--verification-full-every D] [--verification-restore-drill-every D]
                     [--ssh-key-passphrase-stdin]
-                    [--port N] [--acknowledge-repoint] [--state-database PATH] [--no-verify]
+                    [--port N] [--acknowledge-repoint] [--state-database PATH]
+                    [--uuid U] [--source-mount-prefix P]
+                    [--no-verify]
                                                   create a backup set. Beside a serving engine this command has a
                                                   route to, that is POST /api/v1/backup-sets against the engine
                                                   (#543); with nothing serving, it is the same service layer that
@@ -166,11 +177,19 @@ commands:
                                                   refused when it cannot be: --no-verify writes it anyway, says in so many
                                                   words that nothing was proven, and leaves the set marked as unverified
                                                   until a connection test passes (#624)
+                                                  --uuid is the durable key an incremental set's snapshot lineage
+                                                  hangs off. Leave it off and one is minted and printed; pass it when
+                                                  re-declaring a set whose configuration was lost, because a second
+                                                  create without it starts a new lineage beside the old one and the
+                                                  next run re-reads the whole source. --source-mount-prefix is the
+                                                  leading part of --remote-path that is how this deployment reaches
+                                                  the source, so moving a bind mount does not fork the lineage (#1151)
   backup-set patch <source/backup-set> [--host H] [--port N] [--user U] [--remote-path P] [--local-path P]
                     [--include "A,B"] [--completion-strategy S] [--stable-for D] [--stale-after D] [--validator-id ID]
                     [--ssh-key-file K|--ssh-key-id ID] [--known-hosts-line L|--trust-host-key]
                     [--source-consistency S] [--verification-level L] [--verification-sample-percent N]
                     [--verification-full-every D] [--verification-restore-drill-every D]
+                    [--poll-interval D]
                     [--acknowledge-repoint] [--acknowledge-host-key-change]
                     [--ssh-key-passphrase-stdin]
                     [--no-verify]
@@ -182,6 +201,15 @@ commands:
                                                   An edit that changes the host, port, user, key, trusted host key or
                                                   remote path is proven before it is written and refused when it cannot
                                                   be; --no-verify writes it anyway and marks the set unverified (#624)
+                                                  --poll-interval D gives this set its own poll interval, 0 returns it
+                                                  to the deployment's, and nothing under a minute is accepted (#1151)
+  backup-set show <source/backup-set> [--json]   print one backup set whole: its host and key, the trusted host
+                                                  keys, whether its connection was ever proven, its own poll interval
+                                                  and the one in force, its engine, lineage key, repository domain,
+                                                  verification budget and mount prefix. --json prints the BackupSet
+                                                  object GET /api/v1/backup-sets/{source}/{set} returns. A read of this
+                                                  host's configuration, checked against a serving engine the way
+                                                  sources is (#1151)
   backup-set remove <source/backup-set>          take one backup set out of the configuration: DELETE
                                                   /api/v1/backup-sets/{source}/{set} against a serving engine this
                                                   command has a route to, and the same service layer that route is
@@ -198,6 +226,11 @@ commands:
                                                   serving it is made here. A check that passes clears the unverified mark
                                                   a --no-verify create or patch left on the set. "preflight" is the same
                                                   verb under the name the storage-destination side spells it (#596, #624)
+  backup-set test-connection <source/backup-set> --json
+                                                  print the API's TestConnectionResponse instead of text. The report is the
+                                                  result whether or not the connection works, and the exit code stays the
+                                                  verdict (1 when it fails). The mode line and the startup log go to stderr,
+                                                  so the document is all of stdout (#1152)
   artifacts [--source S] [--backup-set B]        list journal artifacts
                                                   --backup-set takes the source/backup-set id sources, status and
                                                   retention name a backup set by, and a plain set name where one
@@ -208,6 +241,16 @@ commands:
                                                   of them (#569)
   artifacts <source/backup-set/name>             print one artifact's full detail, including the reason
                                                   recorded for a FAILED/QUARANTINED/QUARANTINED_LOST one (#284)
+  artifacts <source/backup-set/name> --json      print that detail as the API's Artifact object. In either form the detail
+                                                  also prints, for each copy with a record, what its scrubs and recovery
+                                                  tests found: assurance_state, last_checked_at, last_failure_at,
+                                                  last_failure_reason, consecutive_failures, recovery_state (readable
+                                                  for a built-in structure pass), recovery_tested_at,
+                                                  recovery_failure_reason and recovery_check (#1147)
+  artifacts [--source S] [--backup-set B] --state S
+                                                  list only the artifacts in one lifecycle state, e.g. QUARANTINED_LOST
+  artifacts [--source S] [--backup-set B] --json
+                                                  list as the API's ListArtifactsResponse (#1147)
   activity [--backup-set S] [--severity warn|error] [--limit N] [--json]
                                                   list recorded lifecycle events, newest first: the same durable
                                                   transition log the Web UI's Activity page draws. Beside a serving
@@ -216,6 +259,14 @@ commands:
                                                   MATCHING events, so a filter that narrows still fills it. --json
                                                   emits the wire objects unchanged, so a script parses the contract
                                                   rather than this table
+  activity --before CURSOR [--backup-set S] [--severity warn|error] [--limit N] [--json]
+                                                  read the page behind a cursor. --json prints next_cursor when a page was full,
+                                                  and a text page names it on stderr as "more: --before N", so a script walks the
+                                                  whole log a page at a time instead of raising --limit. A cursor that is not a
+                                                  row id is refused, because the feed would read it as no cursor and hand back
+                                                  the newest page again. A filtered page cut by --limit has no cursor, and says
+                                                  why: the filter runs after the read, so a cursor could only skip the rest.
+                                                  Not combinable with --follow (#1152)
   activity --follow [--backup-set S | --scope deployment] [--severity warn|error] [--limit N] [--json]
                                                   stream the LIVE feed instead, until interrupted: the serving
                                                   process's own event stream, which is what the Web UI's docked
@@ -248,6 +299,12 @@ commands:
                                                   set's. An id that names no configured backup set is refused and
                                                   nothing is printed, rather than answered about a set nobody asked
                                                   about (#568)
+  retention <source/backup-set> --json
+                                                  print that backup set's RetentionPlan as GET .../retention/preview serves
+                                                  it, plan_id included. The plan_id is minted by this process and applies
+                                                  here and nowhere else. It names one backup set and takes no what-if flag,
+                                                  because the API's plan is decided under the deployment's own policy; the
+                                                  text form is unchanged (#1152)
   retention apply <source/backup-set> --acknowledge
                                                   delete the local copy of every backup in that set no retention
                                                   tier keeps, against the plan it prints first. FR-19's last known
@@ -353,11 +410,30 @@ commands:
                                                   is trusted or written. Beside a serving engine the engine dials,
                                                   because that is the machine the backups travel from. The same as
                                                   POST /api/v1/ssh/host-key-probe
+  operation list [--backup-set S] [--action A] [--json]
+                                                  list the operations the engine holds, newest first, so there is an id
+                                                  to hand to assurance cancel. They live in the memory of the process
+                                                  serving this deployment, so this needs RETND_API_URL and the two
+                                                  credential variables beside it and is refused without them. The same
+                                                  body as GET /api/v1/operations; the two filters narrow it here (#1149)
+  operation show <operation-id> [--json] [--follow]
+                                                  one operation as the engine holds it. --follow polls until it finishes,
+                                                  prints each change of status on standard error, and exits 0 for
+                                                  completed and 1 for anything else. The same as
+                                                  GET /api/v1/operations/{id} (#1149)
   catalog rebuild [--dry-run]                    reconstruct a lost/corrupted state database from sidecar recovery manifests
+  catalog rebuild [--dry-run] --json
+                                                  print the API's CatalogReportResponse for the whole deployment instead of
+                                                  one line per artifact. A manifest that could not be used is a failures
+                                                  entry and still exits 1 (#1152)
   quarantine <revalidate|retry|reinstate> <source/backup-set/artifact> [--note T]
                                                   act on one quarantined artifact: revalidate re-checks it and moves
                                                   nothing; retry re-enters the pipeline from DISCOVERED; reinstate
                                                   trusts it again in place and forfeits any future remote delete
+  quarantine list [--backup-set source/backup-set] [--json]
+                                                  list the artifacts held in quarantine: id, reason, irrecoverable and
+                                                  updated_at. The same as GET /api/v1/quarantine, which --json prints
+                                                  (#1147)
   unconfigured                                   list the backup sets the journal remembers and the configuration no
                                                   longer names, what they still hold on storage, and the retention
                                                   policy governing them, which is none (#418)
@@ -421,6 +497,11 @@ commands:
                                                   deployment's backups land on, reporting a missing path, a directory
                                                   the service user cannot write to, and a full filesystem as three
                                                   different failures rather than being unavailable because no network
+  medium test-connection <medium-id> --json
+                                                  print the API's MediumPreflightResponse instead of text, for
+                                                  test-connection, preflight and preflight --candidate alike. The report is
+                                                  the result whether or not the destination works and the exit code stays
+                                                  the verdict; the mode line and the startup log go to stderr (#1152)
                                                   is involved (#622)
   medium default <medium-id>                     make this the destination a NEWLY CREATED retention tier starts on.
                                                   It moves that and nothing else: every tier that already names a
@@ -429,6 +510,32 @@ commands:
                                                   already has, so moving the default to a bucket is reversible. The
                                                   destination that is the default cannot be removed, and removing down
                                                   to one destination makes that one the default (#622)
+  medium configure <medium-id> --backend B --field ID=VALUE [--field ...] [--credentials-id ID | --credentials-file F | --credentials-env VAR | --credentials-command CMD] [--json]
+                                                  declare or replace a destination in its backend's own field ids, as
+                                                  medium backends lists them. This is the only way to configure a
+                                                  local_volume (--field path=/mnt/usb), which medium add cannot, as
+                                                  it has no --path. --backend is required for a destination that is
+                                                  not declared yet. It REPLACES the whole field set, so leave out only
+                                                  what you want unset, and an empty value is refused. The engine
+                                                  proves the configuration before it writes and refuses when it fails.
+                                                  Credentials are a reference, never material; with none named, the one
+                                                  already configured is kept. Goes to the serving engine like medium add
+                                                  (#1154)
+  medium configure <medium-id> --backend B --field ID=VALUE ... --preflight [--json]
+                                                  prove that configuration and write nothing, whatever the report says.
+                                                  Exits 1 when the destination does not work (#1154)
+  medium backends [--json]                       list the backends a destination can be an instance of, with each one's
+                                                  field ids, which are required, what an unset one means and the probe
+                                                  steps it runs, plus the rules an instance id follows. Reads the
+                                                  registry built into this binary, so it needs no configuration. --json
+                                                  prints GET /api/v1/backends (#1154)
+  storage [--json]                               the capacity reading, which status does not print: this manager's own
+                                                  consumption against the volume it writes to, the cap if one is set and
+                                                  which of the two the gauge is drawn against, the headroom before the
+                                                  next transfer is refused and what binds it, then each backup set's
+                                                  level. Under the API's own field names; --json prints GET
+                                                  /api/v1/system/storage. Exits 0 whenever the reading was taken,
+                                                  whatever level it found; status is the verb that exits non-zero (#1154)
   retry <source/backup-set/artifact> [--note T]   put one FAILED backup back into the pipeline so it is attempted
                                                   again. FAILED means an attempt did not finish, which is not the
                                                   same thing as quarantine, so this is its own command and not a
@@ -504,6 +611,11 @@ commands:
   snapshot retention <source/backup-set>         what snapshot retention would decide about each of this set's
                                                   snapshots right now -- KEEP, DELETE or REFUSE, each with the
                                                   reason. A preview; it deletes nothing
+  snapshot list|holds|retention <source/backup-set> --json
+  snapshot show <source/backup-set> <run-id> --json
+                                                  print the API's ListSnapshotsResponse, ListSnapshotHoldsResponse,
+                                                  SnapshotRetentionResponse or SnapshotResponse instead of text. A counter
+                                                  nobody measured is null and never 0, and an empty list is an array (#1152)
   snapshot verify <source/backup-set> [--run R] [--level L] [--sample-percent N]
                                                   prove now that a restore point is readable, at a stated depth:
                                                   structural, content_sample, content_full or restore_drill.
@@ -545,6 +657,10 @@ commands:
                                                   and full, when it is next eligible, and whether it is overdue
                                                   or failing. Opens nothing, so it answers while the repository
                                                   itself is unreachable
+  repository health|maintenance --json
+                                                  print the API's ListRepositoriesResponse or RepositoryMaintenance object
+                                                  instead of text. health still exits 1 when a repository is FAILING, so a
+                                                  monitoring job that moves to --json keeps its alarm (#1152)
   settings [patch [--timezone T] [--week-starts-on D] [--protect-last-known-good=BOOL]
                    [--policy-file F] [--acknowledge-medium-disclosure]
                    [--cap-bytes N] [--warning-free-bytes N] [--critical-free-bytes N] [--safety-margin-bytes N]]
@@ -555,6 +671,10 @@ commands:
                                                   A chain that sends a tier somewhere new needs
                                                   --acknowledge-medium-disclosure, and without it the refusal carries the
                                                   disclosure (#595)
+  settings patch --poll-interval D               set the deployment-wide poll interval, how often each source is checked
+                                                  for new backup files. A backup set follows it unless it pins its own
+                                                  with backup-set patch --poll-interval, and nothing under a minute is
+                                                  accepted. settings prints it in a service: section (#1151)
   settings patch --tier-medium NAME=MEDIUM_ID [--acknowledge-medium-disclosure]
                                                   point one retention tier at a storage destination and leave the rest of
                                                   the chain exactly as it is. Repeatable, at most once per tier, and
@@ -564,6 +684,11 @@ commands:
                                                   Sending a tier somewhere other than local for the first time needs
                                                   --acknowledge-medium-disclosure. This is the command the picker under a
                                                   tier in the web UI echoes (#622)
+  settings --json
+                                                  print the API's SettingsResponse (GET /settings) instead of text: the
+                                                  resolved retention, capacity and service settings, the declared
+                                                  destinations, the schema they are validated against and first_run. A read
+                                                  only: settings patch refuses --json (#1152)
   backup-set edit-hold <source/backup-set> [--release]
                                                   report whether a backup set is held for editing, what taking the
                                                   hold stopped, and when the lease expires; --release gives it back
@@ -585,6 +710,12 @@ commands:
                                                   --acknowledge-medium-disclosure is needed when the policy sends one of
                                                   this set's tiers somewhere new, and without it the refusal carries the
                                                   disclosure. The show form prints each tier's destination
+                                                  Setting a policy and --inherit are handed to a serving engine when
+                                                  RETND_API_URL names it (PUT and DELETE .../retention).
+  backup-set retention <source/backup-set> --json
+                                                  print the API's BackupSetRetention object instead of text, with override
+                                                  present and null for a set that inherits. A read only: setting or clearing
+                                                  a policy prints text and refuses --json (#1152)
   workflow-runner serve --runtime-dir DIR --workspace-dir DIR --secrets-dir DIR
                        [--docker PATH] [--hook-image REF] [--hook-bash PATH]
                        [--hook-network NAME] [--hook-user UID:GID] [--hook-mount PATH[:ro|:rw]]
@@ -666,8 +797,10 @@ commands:
                                                   change one of them in place. An explicitly empty value clears:
                                                   --before-dir "" disables that stage and --script-timeout 0 returns hooks
                                                   to the built-in bound, so a flag passed as its zero value is a request
-                                                  rather than an omission. This write has no route to a serving engine in
-                                                  this build, so it is refused beside one with the file untouched
+                                                  rather than an omission. Beside a serving engine it is handed to that
+                                                  process (PATCH /settings/workflow) when RETND_API_URL names it, and
+                                                  refused with the file untouched when it does not. --json prints the
+                                                  object the API returns for the same call
   settings workflow env list [--json]            the deployment-wide hook environment: each variable's name, and either
                                                   its literal value or WHERE its value is read from. A secret is a location
                                                   on this surface and never a value, in both directions: no flag takes
@@ -677,9 +810,11 @@ commands:
                                                   --secret-command once per argv word, so no quoting mistake can re-split a
                                                   program's path. --value "" configures an empty string, which is a
                                                   different thing from configuring nothing
+                                                  Handed to a serving engine, like the patch above
   settings workflow env unset NAME               remove one variable. A name that is not configured is refused rather than
                                                   quietly succeeding: an "unset the credential" that did nothing is
                                                   indistinguishable from one that worked
+                                                  Handed to a serving engine, like the patch above
   settings assurance [--json]                    report the resolved deployment-wide assurance policy: how often a copy is
                                                   re-read, what a scrub reads, whether a recovery test is required, and the
                                                   host-scoped settings that are global only, each with the reason a backup
@@ -720,11 +855,14 @@ commands:
                                                   change that set's own block. An explicitly empty value clears, the same
                                                   rule the deployment-wide patch follows, and clearing the last field
                                                   removes the block rather than leaving one that configures nothing.
-                                                  Refused beside a serving engine, with the file untouched
+                                                  Beside a serving engine it is handed to that process (PATCH
+                                                  .../workflow) when RETND_API_URL names it, and refused with the file
+                                                  untouched when it does not. --json prints the object the API returns
   backup-set workflow env <source/backup-set> list|set NAME ...|unset NAME
                                                   the same three env verbs against one set's own layer, which wins over the
                                                   deployment's for a variable both configure. validate workflow is what
                                                   reports that a variable is configured in both
+                                                  set and unset are handed to a serving engine like the patch above
   validate workflow <source/backup-set> [--json] everything this product can establish about a backup set's hooks without
                                                   running one: the resolved stage directories, the script names and their
                                                   ordering, each script's sha256 and the timeout it gets, the permissions
@@ -744,6 +882,28 @@ commands:
                                                   exists to prevent, so it is refused with the alternative named rather
                                                   than accepted and ignored
   version                                        report version information
+  version --engine [--json]
+                                                  also ask the engine serving this deployment for its own version, its
+                                                  configuration revision, its deployment id, whether it is ready and what
+                                                  paths it adopted. --json prints the API's VersionResponse alone. Needs a
+                                                  route to the engine and refuses without one (#1152)
+  validators [--json]                            list the application validators this binary carries, the ids
+                                                  backup-set create --validator-id accepts. --json prints the API's
+                                                  ListValidatorsResponse. Needs no configuration (#1152)
+  system capabilities [--json]                   what the platform the engine runs on can do (native sign-in, a
+                                                  storage picker, ...), as the engine declares it. Needs a route to the
+                                                  engine and refuses without one (#1152)
+                                                  Also reports whether the engine's destructive gate is open or shut and
+                                                  why (destructive_operations). The gate is the engine's: this CLI has
+                                                  none, so the verbs the web UI sends people to run when it is shut
+                                                  (run, fetch, restore, snapshot restore|verify|hold|unhold, retention
+                                                  apply) work here. --json prints the same body as
+                                                  GET /api/v1/system/capabilities (#1165)
+  system first-run [--json]                      which guided setup steps the engine counts as done, pending or
+                                                  skipped (the administrator, the mail server, the first backup set),
+                                                  the next one, and any problem with the configuration directory. status
+                                                  prints the same steps, attributed to the engine, on a fresh install
+                                                  when a route to it is set. Needs that route (#1152)
 
 every command except version accepts --config (default /etc/retnd/config/config.yaml;
 a directory resolves to config.yaml inside it, which is what packaging mounts)
@@ -751,15 +911,16 @@ a directory resolves to config.yaml inside it, which is what packaging mounts)
 a configuration write goes one of three ways, and says which on a "mode:" line. With nothing
 serving this deployment it is written here, and an engine started afterwards reads it when it
 starts. With something serving and a route to it, backup-set create, patch and remove,
-settings patch and medium import-credentials, add, edit and remove hand the change to that
+settings patch, settings workflow patch and env set and unset, backup-set workflow patch and
+env set and unset, backup-set retention (setting or clearing a policy) and medium
+import-credentials, add, edit and remove hand the change to that
 process over its API, so it takes effect at once and there is nothing to restart. medium
 preflight --candidate goes the same way, because it is the check medium add runs before it
 writes and has to happen where the write will. With something serving and no route, the
 write is refused and nothing is written: there is still no config watcher and no SIGHUP reload in this build, so a
-change left in the file is one the serving process would never read. Two writes have no route
-at all and are refused beside a serving engine either way: a backup-set retention that sets
-or clears a policy, and the first config.yaml a create writes on an instance that has none
-yet (#535, #543)
+change left in the file is one the serving process would never read. One write has no route
+at all and is refused beside a serving engine either way: the first config.yaml a create
+writes on an instance that has none yet (#535, #543, #1148)
 
 the route is three environment variables. RETND_API_URL is the engine's address,
 either its own listener from inside its container (http://127.0.0.1:8080) or the published

@@ -780,8 +780,8 @@ var surfaces = []surface{
 		argv: func(f fixture) []string {
 			return []string{"backup-set", "--config", f.configPath, "remove", f.setID}
 		}},
-	{verb: "backup-set", name: "retention, setting a policy", mode: "direct", exit: 0, writes: true, routed: false,
-		note: "#543 left this unrouted on purpose: the policy is a whole chain read from flags or stdin and the preview beside it is #544's, so routing half of it would be worse than routing none",
+	{verb: "backup-set", name: "retention, setting a policy", mode: "direct", exit: 0, writes: true, routed: true,
+		note: "#543 left this unrouted; #1148 routed it, so beside a serving engine it is PUT /backup-sets/{source}/{set}/retention and the policy is still a whole chain read from flags or stdin",
 		argv: func(f fixture) []string {
 			// A whole chain, because an override replaces the
 			// deployment's whole chain rather than merging with it, and a
@@ -840,6 +840,20 @@ var surfaces = []surface{
 		argv: func(f fixture) []string {
 			return []string{"ssh", "host-key-probe", "127.0.0.1", "--port", "1", "--config", f.configPath}
 		}},
+	{verb: "operation", name: "list, with no engine serving to hold the operations", mode: "direct", exit: 1, routed: true,
+		says: "has no route to one",
+		note: "the operations a scrub or a recovery test starts live in the memory of the serving process, so with nothing serving there is nothing to list. It refuses, naming how to reach an engine, rather than answering an empty list from a world that has no operations (#1149)",
+		argv: func(f fixture) []string { return []string{"operation", "list", "--config", f.configPath} }},
+	{verb: "system", name: "capabilities, with no engine serving to declare a platform", mode: "", exit: 1, routed: true,
+		says: "system capabilities",
+		note: "what the platform can do, and whether the destructive gate is open, are facts about the serving process; this binary can only invent them, so with nothing serving it refuses rather than answer (#1152, #1165)",
+		argv: func(f fixture) []string { return []string{"system", "capabilities", "--config", f.configPath} }},
+	{verb: "validators", name: "the catalog compiled into this binary", mode: "", exit: 0,
+		note: "the catalog is a property of the binary, so it answers the same with or without a configuration or an engine (#1152)",
+		argv: func(f fixture) []string { return []string{"validators", "--config", f.configPath} }},
+	{verb: "storage", name: "the capacity reading", mode: "", exit: 0,
+		note: "this manager's own consumption against the volume it writes to, read from this host's own state; it writes nothing (#1154)",
+		argv: func(f fixture) []string { return []string{"storage", "--config", f.configPath} }},
 	{verb: "quarantine", name: "revalidate", mode: "", exit: 1, needsArtifacts: true,
 		note: "nothing here is quarantined, so this refuses for the missing subject",
 		argv: func(f fixture) []string {
