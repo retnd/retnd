@@ -29,7 +29,7 @@ func TestIssue1186_ArtifactsCountPrintsTheBadgeReading(t *testing.T) {
 	}
 	// It agrees with the list it counts.
 	list := artifactsOut(t, 0, "artifacts", "--json", "--config", configPath)
-	if strings.Count(list, `"backup_set_id"`) != 1 {
+	if strings.Count(list, `"backup_set_id"`) != 1 { // the badge's own list, one backup
 		t.Fatalf("control: the list does not hold exactly one backup:\n%s", list)
 	}
 }

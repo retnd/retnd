@@ -47,6 +47,7 @@ func cmdArtifacts(args []string) int {
 	setFlag := fs.String("backup-set", "", "only artifacts from this backup set, named <source/backup-set> or by set name alone where that is unambiguous")
 	stateFlag := fs.String("state", "", "only artifacts in this lifecycle state, e.g. COMMITTED or QUARANTINED_LOST (a list only)")
 	asJSON := fs.Bool("json", false, "emit JSON, the same body the API serves (Artifact for one, ListArtifactsResponse for a list), instead of text")
+	countFlag := fs.Bool("count", false, "print the number of retained backups the way the web console's Backups badge does: exact up to 100, >100 above (a list only)")
 	// Flags may come before or after the operand, exactly like validate's
 	// own operand (see parseFlagsAroundOperands in setup.go for why).
 	operands, err := parseFlagsAroundOperands(fs, args)
@@ -62,6 +63,12 @@ func cmdArtifacts(args []string) int {
 	}
 	if wantState != "" && len(operands) == 1 {
 		return usageError("artifacts: --state narrows a list and cannot be combined with an artifact argument")
+	}
+	if *countFlag && len(operands) == 1 {
+		return usageError("artifacts: --count counts a list and cannot be combined with an artifact argument")
+	}
+	if *countFlag && *asJSON {
+		return usageError("artifacts: --count prints the console badge's reading and cannot be combined with --json; the length of the --json list is the exact count")
 	}
 	// Issue #569. --backup-set takes the whole "source/backup-set" id now,
 	// so it can carry a source of its own. Two things about that pair are
@@ -185,6 +192,13 @@ func cmdArtifacts(args []string) int {
 
 	if wantState != "" {
 		records = withState(records, wantState)
+	}
+
+	// #1186: the web console's Backups badge, from the rows just listed and
+	// checked against a serving engine, so it says the mode like the list does.
+	if *countFlag {
+		fmt.Println(retainedBadge(len(records)))
+		return 0
 	}
 
 	for _, r := range records {
