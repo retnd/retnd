@@ -129,7 +129,7 @@ describe("the backup set detail page has a terminal about that set", () => {
     vi.useRealTimers();
   });
 
-  it("follows the live feed narrowed to this set, not the whole deployment", async () => {
+  it("follows the one shared live feed, whole deployment, rather than a feed of its own (#1177)", async () => {
     const target = await firstSet();
     const api = createMockApi();
     const live = vi.spyOn(api, "getLiveActivity").mockResolvedValue(reading(target.id));
@@ -138,35 +138,33 @@ describe("the backup set detail page has a terminal about that set", () => {
     await screen.findByLabelText("Activity for " + target.name);
 
     await waitFor(() => expect(live).toHaveBeenCalled());
-    // An empty feed for a set that does not exist reads exactly like a
-    // quiet set, which is why the route takes the id and refuses an
-    // unknown one. A page that asked for the whole deployment and
-    // filtered in the browser would lose that refusal and would carry
-    // every other set's traffic across the wire to draw one set.
-    expect(live.mock.calls.every(([options]) => options?.setId === target.id)).toBe(true);
+    // Every terminal reads one state, so the question the reader asks is
+    // about the whole deployment and carries no set. A page that asked for
+    // its own set would be a second reader with a second copy, which is the
+    // disagreement #1177 is about.
+    expect(live.mock.calls.every(([options]) => options?.setId === undefined)).toBe(true);
   });
 
-  it("starts a fresh cursor when the route moves to another set, so B's log is not read with A's cursor", async () => {
+  it("shows the next set's log from the window it already holds when the route moves (#1177)", async () => {
     const sets = await createMockApi().listSets();
     const [a, b] = sets;
     const api = createMockApi();
-    const live = vi.spyOn(api, "getLiveActivity").mockImplementation(async (options) =>
-      reading(options?.setId ?? a.id, [
-        {
-          sequence: 412,
-          at: "2026-09-07T09:00:00Z",
-          level: "info",
-          event: "discovery",
-          scope: "set",
-          message: "discovery",
-          fields: { backup_set: options?.setId ?? a.id, discovered: "9", pending: "9" }
-        }
-      ])
-    );
+    const line = (id: string, sequence: number, discovered: string) => ({
+      sequence,
+      at: "2026-09-07T09:00:00Z",
+      level: "info" as const,
+      event: "discovery",
+      scope: "set" as const,
+      message: "discovery",
+      fields: { backup_set: id, discovered, pending: "9" }
+    });
+    const live = vi.spyOn(api, "getLiveActivity").mockImplementation(async () => ({
+      ...reading(a.id, [line(a.id, 411, "11")]),
+      sets: [reading(a.id, [line(a.id, 411, "11")]).sets[0], reading(b.id, [line(b.id, 412, "22")]).sets[0]]
+    }));
 
-    // A real in-router navigation, the shape this page's other tests
-    // already use: React Router keeps the component MOUNTED across it,
-    // which is the whole point.
+    // A real in-router navigation: React Router keeps the component MOUNTED
+    // across it, which is the whole point.
     function Harness() {
       const navigate = useNavigate();
       return (
@@ -186,21 +184,18 @@ describe("the backup set detail page has a terminal about that set", () => {
         </ApiProvider>
       </MemoryRouter>
     );
-    await screen.findByLabelText("Activity for " + a.name);
-    await waitFor(() => expect(live.mock.calls.some(([o]) => o?.setId === a.id)).toBe(true));
-
+    const first = await screen.findByLabelText("Activity for " + a.name);
+    await within(first).findByText(/discovery complete: 11 artifacts/);
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "go to the second set" }));
     });
 
-    // The sequence counter is one counter across every bucket in the
-    // process, so carrying A's cursor into a poll about B asks for
-    // everything after 412 about a set whose own lines stop lower and is
-    // told, correctly, that there is nothing. That reads as a set that
-    // has never done anything.
-    await waitFor(() => expect(live.mock.calls.some(([o]) => o?.setId === b.id)).toBe(true));
-    const forB = live.mock.calls.filter(([o]) => o?.setId === b.id);
-    expect(forB[0][0]?.since).toBe(0);
+    // B's log was already in the one window. Hold the feed shut so that
+    // anything drawn from here on came from what was held, not from a
+    // reading of its own, and A's cursor is not B's question.
+    live.mockImplementation(() => new Promise(() => {}));
+    const second = await screen.findByLabelText("Activity for " + b.name);
+    await within(second).findByText(/discovery complete: 22 artifacts/);
   });
 
   it("renders the set's own live log, so the page says what the set is doing", async () => {

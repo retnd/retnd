@@ -21,6 +21,8 @@ import type { AssuranceApi, Operation, OperationEvent } from "./types";
 
 export const POLL_MS = 1000;
 
+const NO_EVENTS: OperationEvent[] = [];
+
 /** Folds a reading into what is held: unique by seq, ordered by seq. */
 export function mergeBySeq(held: OperationEvent[], incoming: OperationEvent[]): OperationEvent[] {
   if (incoming.length === 0) return held;
@@ -30,7 +32,21 @@ export function mergeBySeq(held: OperationEvent[], incoming: OperationEvent[]): 
   return [...held, ...fresh].sort((a, b) => a.seq - b.seq);
 }
 
-export function useOperation(api: AssuranceApi | undefined, operationId: string | null, onTerminal?: (op: Operation) => void) {
+/** How a caller follows a run. */
+export interface UseOperationOptions {
+  /** Whether to hold the run's lines. A caller that points at the set
+   *  terminal instead of drawing a log (the Assurance card, #1176) passes
+   *  false: the cursor still moves, so nothing is asked for twice, but a
+   *  long run's lines are not kept in a second place nothing reads. */
+  retainEvents?: boolean;
+}
+
+export function useOperation(
+  api: AssuranceApi | undefined,
+  operationId: string | null,
+  onTerminal?: (op: Operation) => void,
+  { retainEvents = true }: UseOperationOptions = {}
+) {
   // Held with the id they belong to, so switching operations shows nothing
   // stale without resetting state from inside the effect.
   const [held, setHeld] = useState<{ id: string | null; operation: Operation | null; events: OperationEvent[]; error: string | null }>(
@@ -56,7 +72,7 @@ export function useOperation(api: AssuranceApi | undefined, operationId: string 
         setHeld((h) => ({
           id: operationId,
           operation: feed.operation,
-          events: mergeBySeq(h.id === operationId ? h.events : [], feed.events),
+          events: retainEvents ? mergeBySeq(h.id === operationId ? h.events : [], feed.events) : NO_EVENTS,
           error: null
         }));
         if (feed.operation.state !== "running") {
@@ -80,7 +96,7 @@ export function useOperation(api: AssuranceApi | undefined, operationId: string 
     };
     void tick();
     return () => { stopped = true; if (timer) clearTimeout(timer); };
-  }, [api, operationId]);
+  }, [api, operationId, retainEvents]);
 
   // A cancel the service refused (it already ended, or the session lost its
   // right) is shown, in the service's words. Held with the id it belongs to,

@@ -218,6 +218,10 @@ interface Followed {
   lastLineAt: number;
   /** Starting joined a run that was already going. */
   joined: boolean;
+  /** The last stage a line named. A reading carries only the lines above the
+   *  cursor, so a quiet poll names none, and without this the stage (and the
+   *  bar drawn from it) fell back to the first one between every two lines. */
+  stage?: string;
 }
 
 function newFollowed(setId: string, kind: OperationKind, startedAt: number, over: Partial<Followed> = {}): Followed {
@@ -283,9 +287,11 @@ async function readRun(api: RetndApi, operationId: string, mine: Followed, curso
 
   const stageLine = [...lines].reverse().find((e) => e.fields.stage);
   const done = end ? Number(end.fields.bytes) : 0;
+  const stage = end?.result === "success" ? "complete" : stageLine?.fields.stage ?? mine.stage ?? "resolving_copy";
+  mine.stage = stage;
   const operation: Operation = {
     id: operationId, kind: mine.kind, setId: mine.setId, state,
-    stage: end?.result === "success" ? "complete" : stageLine?.fields.stage ?? "resolving_copy",
+    stage,
     bytes: Number.isFinite(done) && done > 0 ? done : 0, totalBytes: Number.isFinite(done) && done > 0 ? done : 0,
     startedAt: new Date(mine.startedAt).toISOString(),
     ...(state === "running" && mine.cancelRequestedAt > 0 ? { cancelling: true } : {}),

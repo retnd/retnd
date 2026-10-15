@@ -162,7 +162,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   // before it replies, so one poll then is the difference between a
   // terminal that fills in immediately and one that fills in whenever the
   // timer next fires.
-  const activityFeed = useActivityFeed(setId);
+  const activityFeed = useActivityFeed();
   const [testing, setTesting] = useState(false);
   // Issue #852: what the last connection test said about WRITING to this
   // source, or null when no test has answered in this session.

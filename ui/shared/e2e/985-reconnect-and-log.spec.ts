@@ -3,6 +3,8 @@ import { open, measureBorders, measureContrast, setTheme } from "./helpers";
 
 const SET = "/sets/production/postgres-primary";
 const region = (page: import("@playwright/test").Page) => page.getByRole("region", { name: "Assurance" });
+// The set's own terminal, where a run's output lives since #1176.
+const setLines = (page: import("@playwright/test").Page) => page.locator('#set-terminal [role="log"] > div');
 
 // The engine's stage ids (obs.RecoveryStages). A stage the engine does not
 // name must never appear, so a UI that invents "digest" or "validator" fails.
@@ -37,10 +39,10 @@ test.describe("#985 reconnect and continuity", () => {
     await expect(section.getByTestId("operation-progress")).toBeVisible();
     await page.evaluate(() => sessionStorage.setItem("retnd.mock.assurance.drop", "1"));
     await expect(section.getByTestId("operation-progress")).toHaveAttribute("data-stage", /verifying|validating/, { timeout: 20_000 });
-    const lines = await section.getByTestId("operation-line").allTextContents();
+    // a replay from the cursor adds no second copy of any line the terminal holds
+    const lines = (await setLines(page).allTextContents()).map((l) => l.replace(/^\d\d:\d\d:\d\d\s*/, ""));
     expect(new Set(lines).size).toBe(lines.length);
-    const seqs = await section.getByTestId("operation-line").evaluateAll((els) => els.map((e) => e.getAttribute("data-seq")));
-    expect(new Set(seqs).size).toBe(seqs.length);
+    expect(lines.filter((l) => l.startsWith("recovery test stage:")).length).toBeGreaterThan(0);
   });
 
   test("a recovery test goes through the engine's named stages, in its order, and no others", async ({ page }) => {
@@ -60,8 +62,8 @@ test.describe("#985 reconnect and continuity", () => {
     expect(idx).toEqual([...idx].sort((a, b) => a - b));
     expect(seen).toEqual(expect.arrayContaining(["reading", "verifying", "validating"]));
     // labels are the engine's labels
-    await expect(section.getByTestId("operation-line").filter({ hasText: /^Verifying/ }).first()).toBeVisible();
-    await expect(section.getByTestId("operation-line").filter({ hasText: /^Validating$/ })).toHaveCount(1);
+    await expect(setLines(page).filter({ hasText: "recovery test stage: Verifying" }).first()).toBeVisible();
+    await expect(setLines(page).filter({ hasText: /recovery test stage: Validating$/ })).toHaveCount(1);
   });
 
   test("a finished recovery test updates the Recovery claim and leaves Content verified exactly as it was", async ({ page }) => {
