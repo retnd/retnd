@@ -42,6 +42,7 @@ import { FieldHelp } from "@shared/components/FieldHelp";
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { CommandEcho } from "@shared/pages/CommandEcho";
+import { SET_TERMINAL_ID } from "@shared/pages/SetActivityPanel";
 import { stamp } from "@shared/utilities/format";
 import { ClaimChips } from "./ClaimChips";
 import { OperationPanel } from "./OperationPanel";
@@ -446,7 +447,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
                 A recovery test also runs on its own, at its cadence, but only for a set whose mode is required or custom and whose validator script is in place, or whose mode is builtin; with the mode off none runs. Run recovery test starts one now and acknowledges no cost: a copy that would cost money to read is refused and recorded as skipped, and nothing is read.
               </div>
             ) : null}
-            <OperationPanel operation={op.operation} events={op.events} error={op.error} onCancel={() => void op.cancel()} readOnly={readOnly} detailLink={operations} cancellable={operations} cancelError={op.cancelError} terminalHref="#set-terminal" />
+            <OperationPanel operation={op.operation} events={op.events} error={op.error} onCancel={() => void op.cancel()} readOnly={readOnly} detailLink={operations} cancellable={operations} cancelError={op.cancelError} terminalHref={"#" + SET_TERMINAL_ID} />
             {validatorResult === null ? <div role="status">No recovery test has run for this set yet.</div> : null}
             {validatorResult ? <ValidatorLog result={validatorResult} /> : null}
           </>

@@ -124,6 +124,13 @@ export function foldNotices(activity: SetActivity | null, notices: BrowserNotice
  * terminal that fills in immediately and one that fills in when the timer
  * next happens to fire.
  */
+/**
+ * The DOM id of the set terminal. A run's panel links here ("Output is in
+ * the set terminal", #1176), so anything that points at the terminal reads
+ * this rather than spelling the string again.
+ */
+export const SET_TERMINAL_ID = "set-terminal";
+
 export function SetActivityPanel({ set, feed }: { set: BackupSet; feed: ActivityFeed }) {
   const notices = useCausl(browserNoticesNode);
   const mine = useMemo(() => noticesForBackupSet(notices, set.id), [notices, set.id]);
@@ -132,7 +139,7 @@ export function SetActivityPanel({ set, feed }: { set: BackupSet; feed: Activity
   return (
     // The id is where a run's panel points ("Output is in the set terminal",
     // #1176), and focusable so that link can put keyboard focus here.
-    <div id="set-terminal" tabIndex={-1}>
+    <div id={SET_TERMINAL_ID} tabIndex={-1}>
       <div
         style={{
           display: "flex", justifyContent: "flex-end",
