@@ -64,7 +64,7 @@ test.describe("#1174 the Assurance tile lists what is due and runs it per row", 
   });
 
   test("#1174 control: with the destructive gate shut the button is still offered, because a recovery test is not a gated act", async ({ page }) => {
-    await open(page, "/", "gate-shut-local-account");
+    await open(page, "/", "gate-shut");
     const billing = rowOf(page, "billing-20260827.sql.gz");
     await expect(billing.getByRole("button", { name: /Run assurance for billing/ })).toBeEnabled();
     await billing.getByRole("button", { name: /Run assurance for billing/ }).click();
