@@ -20,6 +20,7 @@
 import type { IconName } from "@shared/design-system/icons";
 import { stamp } from "@shared/utilities/format";
 import { backupSetPath } from "@shared/utilities/routes";
+import { SETTINGS_SECTIONS, settingsLink } from "@shared/pages/settingsSections";
 import type { AchievedClass, ClaimRecord, ClaimStatus, CopyContent, CopyFailure } from "./types";
 
 export type RenderState = ClaimStatus | "existence_only" | "attested_only" | "pass_builtin";
@@ -42,8 +43,8 @@ export interface RenderedClaim {
 
 // ------------------------------------------- a claim nobody has configured
 
-export const DEFAULTS_ANCHOR = "assurance-defaults";
-export const DEFAULTS_LINK = "/settings#" + DEFAULTS_ANCHOR;
+export const DEFAULTS_ANCHOR = SETTINGS_SECTIONS.assurance;
+export const DEFAULTS_LINK = settingsLink("assurance");
 
 /** What is known about the configuration behind a claim that has no result.
  *  `default` and `own` are a set with a configuration (the deployment's, or
@@ -67,7 +68,7 @@ export function neverConfiguredWording(
     case "default": return { label: "Default configuration", link: DEFAULTS_LINK, ...(note ? { note } : {}) };
     case "own": {
       const to = opts.setId ? backupSetPath(...(opts.setId.split("/") as [string, string])) + "#assurance" : undefined;
-      return { label: "This set's own policy", ...(to ? { link: to } : {}), ...(note ? { note } : {}) };
+      return { label: "Custom configuration", ...(to ? { link: to } : {}), ...(note ? { note } : {}) };
     }
     case "loading": return { label: "Loading configuration" };
     case "unavailable": return { label: "Configuration unavailable" };

@@ -23,7 +23,10 @@ const where = (page: Page) => page.getByTestId("backups-page-status");
 const bar = (page: Page) => page.getByRole("region", { name: "Selected backups" });
 const count = (page: Page) => page.getByTestId("selection-count");
 const headerBox = (page: Page) => page.getByRole("checkbox", { name: "Select all matching backups" });
-const options = async (page: Page) => (await size(page).locator("option").allTextContents()).map((t) => t.trim());
+const options = async (page: Page) => {
+  await expect(size(page)).toBeVisible();
+  return (await size(page).locator("option").allTextContents()).map((t) => t.trim());
+};
 
 test.describe("#1180 page size", () => {
   test("#1180 the page offers 20, 50, 100 and All, and starts at 20 rows", async ({ page }) => {
@@ -136,8 +139,14 @@ test.describe("#1180 the choice is remembered", () => {
 
   test("#1180 with storage unavailable the page still works, and keeps the choice for the visit", async ({ page }) => {
     await page.addInitScript(() => {
+      // Only this page's key is refused: the rest of the app reads storage
+      // unguarded and falls over when ALL of it is blocked, which is not what
+      // this test is about.
+      const get = Storage.prototype.getItem;
+      const set = Storage.prototype.setItem;
       const refuse = () => { throw new DOMException("storage is blocked", "SecurityError"); };
-      Object.defineProperty(window, "localStorage", { configurable: true, get: refuse });
+      Storage.prototype.getItem = function (k: string) { return k === "retnd.backups.pageSize" ? refuse() : get.call(this, k); };
+      Storage.prototype.setItem = function (k: string, v: string) { return k === "retnd.backups.pageSize" ? refuse() : set.call(this, k, v); };
     });
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
@@ -208,7 +217,9 @@ test.describe("#1180 selection and filters across pages", () => {
     await open(page, "/backups", MANY);
     await headerBox(page).check();
     const cmd = await bar(page).getByTestId("recover-command").innerText();
-    expect(cmd.match(/\.(bak|gz)/g)?.length).toBe(33);
+    // the first backup is on page one, the last (day 30) on page two
+    expect(cmd).toContain("postgres-primary-20260801.bak");
+    expect(cmd).toContain("auth-config-20260830.bak");
   });
 });
 

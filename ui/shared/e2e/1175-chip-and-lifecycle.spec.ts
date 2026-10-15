@@ -16,7 +16,7 @@ const S = "assurance-default-untested";
 const SET = "/sets/production/postgres-primary";
 const NEWEST = "postgres-prod-20260829.dump.zst";
 const NEWEST_PATH = "/backups/production/postgres-primary/" + NEWEST;
-const DEFAULTS = "/settings#assurance-defaults";
+const DEFAULTS = "/settings#assurance";
 const OWN = SET + "#assurance";
 
 const recovery = (scope: Locator) => scope.locator('[data-claim="recovery"]');

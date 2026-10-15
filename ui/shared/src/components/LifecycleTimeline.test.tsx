@@ -78,6 +78,28 @@ describe("buildPhases", () => {
   });
 });
 
+describe("#1175 VERIFIED agrees with a Content chip that says verified", () => {
+  const facts = { contentAt: "2026-08-29T05:00:00Z" } as unknown as import("@shared/assurance/verificationModel").BackupFacts;
+  const pending: BackupArtifact = { ...BASE, validation: "pending", remoteSourceRemovedAt: null };
+
+  it("is reached, at the scrub's time, for a backup with no ingest verdict that a scrub verified", () => {
+    const v = buildPhases(pending, facts).find((p) => p.label === "VERIFIED");
+    expect(v?.at).toBe("2026-08-29T05:00:00Z");
+    expect(v?.detail).toBe("A scrub read the copy back and its hash matched");
+  });
+
+  it("stays unreached when nothing verified the backup, at ingest or since", () => {
+    expect(buildPhases(pending, { contentAt: undefined } as never).find((p) => p.label === "VERIFIED")?.at).toBeNull();
+    expect(buildPhases(pending).find((p) => p.label === "VERIFIED")?.at).toBeNull();
+  });
+
+  it("keeps the ingest check as the reason when the producer manifest matched", () => {
+    const v = buildPhases({ ...BASE, validation: "verified" }, facts).find((p) => p.label === "VERIFIED");
+    expect(v?.detail).toMatch(/matched the producer manifest/);
+    expect(v?.at).toBe(BASE.receivedAt);
+  });
+});
+
 describe("LifecycleTimeline", () => {
   it("renders the phases in the one correct chronological order", () => {
     render(<LifecycleTimeline artifact={BASE} />);

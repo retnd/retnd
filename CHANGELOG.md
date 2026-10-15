@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Lifecycle list agrees with the verified chip, and Recovery says Custom configuration** (#1175). A
+  backup with no ingest-time verdict that a scrub had read back and hash-matched showed "Content verified"
+  in its chip and a dash on the Lifecycle's VERIFIED step. That step is now reached at the scrub's time and
+  says what verified it. A set with a policy of its own now reads "Custom configuration" on its Recovery
+  chip (it said "This set's own policy"), linked to that set's policy, and a set on the deployment's
+  default still reads "Default configuration" linked to Settings. The policy form's note for a set whose
+  recovery test is off no longer says the claim reads "Not configured". "Not configured" now survives only
+  for a set whose policy resolves to nothing, which the web API never reports today.
+
+- **Links into Settings land on their section** (#1188). Clicking "Default configuration" opened Settings
+  at an unrelated spot, because the cards above the target load after the browser has already jumped and push
+  it down. Every Settings section now has a stable anchor id (`#assurance`, `#storage-destinations`,
+  `#retention` and the rest), kept in one table that the page and the links both read. The page scrolls to
+  the hash after the route renders and keeps correcting while the cards load, until you scroll yourself.
+  Targets keep clear of the top edge, scrolling is smooth only when reduced motion is not requested, and the
+  section a link points at gets an accent outline (4.89:1 in light, 6.98:1 in dark). The Assurance card's
+  anchor changed from `#assurance-defaults` to `#assurance`.
+
+### Added
+
+- **The Backups page pages its list** (#1180). A "Rows per page" control offers 20, 50 and 100, and "All"
+  while the deployment holds fewer than 1000 backups, with Previous and Next beside it. A chosen 20, 50 or
+  100 is remembered in the browser between sessions (and the page works without storage); "All" is not.
+  `retnd artifacts --limit N --offset M` is the terminal's equivalent (with `--state`, `--source`, `--backup-set` and `--json`, and a line saying which rows it printed and the offset of the next page). The list endpoint still answers with every backup, so paging happens in the browser, and select-all after
+  a filter (#1107) still takes every matching backup on every page. Changing a filter returns to page one.
+
 ## [0.6.4] - 2026-10-14
 
 0.6.4 brings the terminal up to the web API. EPIC S went through every route the API serves and gave

@@ -726,7 +726,10 @@ const MANY_GENERATED: BackupArtifact[] = Array.from({ length: 30 }, (_, i) => {
  *  Generated names carry a four-digit counter so every id is unique and the
  *  list sorts the way a reader would expect. */
 function bulkGenerated(total: number): BackupArtifact[] {
-  return Array.from({ length: Math.max(0, total - ARTIFACTS.length) }, (_, i) => {
+  // The listing leaves out the quarantined fixtures, so they do not count toward
+  // the total a deployment is said to hold.
+  const listed = ARTIFACTS.filter((a) => !a.quarantine).length;
+  return Array.from({ length: Math.max(0, total - listed) }, (_, i) => {
     const set = MANY_SETS[i % 3];
     const filename = set.id.split("/")[1] + "-bulk" + String(i + 1).padStart(4, "0") + ".bak";
     const at = new Date(Date.UTC(2026, 0, 1) + i * 3600_000).toISOString();

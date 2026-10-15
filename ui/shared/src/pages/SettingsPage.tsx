@@ -16,8 +16,11 @@
  * node rather than fetching again, so this page and the compatibility
  * banner above it cannot name two different versions.
  */
-import { useId, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useId, useState } from "react";
+import type { ReactNode } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { SETTINGS_SECTIONS, settingsAnchor } from "./settingsSections";
+import type { SettingsSection } from "./settingsSections";
 import { useApi } from "@shared/api/ApiContext";
 import { usePlatform } from "@shared/platform/PlatformContext";
 import type { RecoverySettings } from "@shared/api/contracts";
@@ -82,6 +85,7 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
   // else on this page wants. What actually has to travel between them is
   // one bit, "what you read is now out of date", and this is that bit.
   const [destinationsRevision, setDestinationsRevision] = useState(0);
+  useScrollToHash();
 
   return (
     <>
@@ -104,7 +108,7 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
               from the running configuration on every wake. There is
               still no log-level concept in config.Config, so the second
               control has not come back. */}
-          <ServiceBehaviourCard readOnly={readOnly} />
+          <Anchored section="serviceBehaviour"><ServiceBehaviourCard readOnly={readOnly} /></Anchored>
 
           {/* EPIC K (issue #788). A card that LINKS rather than a second
               copy of the controls: the retention chain and the polling
@@ -113,7 +117,7 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
               the maintenance ownership table. Two editors for one value
               is how two screens end up disagreeing about what is
               configured. */}
-          <section className="card">
+          <section className="card" {...settingsAnchor("backupDefaults")}>
             <div className="card__header">
               <InfoTooltip id="settings.backup-defaults">
                 <h2 className="eyebrow">Backup defaults</h2>
@@ -139,7 +143,7 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
               at all). They are now the real thing, reading from and
               writing to internal/config's capacity block, same as
               RetentionPolicyCard below did for retention under #140. */}
-          <CapacityCard readOnly={readOnly} />
+          <Anchored section="capacity"><CapacityCard readOnly={readOnly} /></Anchored>
 
           {/* B3.7 (#140). This used to be a static row of badges reading
               "7 daily / 13 weekly / 12 monthly / protect known-good": a
@@ -148,7 +152,7 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
               default, and the chain is not three fixed tiers). It is now
               the real thing, read from and written to the running
               config. */}
-          <RetentionPolicyCard readOnly={readOnly} destinationsRevision={destinationsRevision} />
+          <Anchored section="retention"><RetentionPolicyCard readOnly={readOnly} destinationsRevision={destinationsRevision} /></Anchored>
 
           {/* G2.2 (#594). Beside the retention plan deliberately: a
               retention tier's Medium field is a picker over exactly this
@@ -157,10 +161,12 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
               screen. Before this card there was no such place at all, and
               declaring a destination meant editing config.yaml by hand,
               which is the one thing EPIC G is about not having to do. */}
-          <StorageDestinationsCard
-            readOnly={readOnly}
-            onChanged={() => setDestinationsRevision((n) => n + 1)}
-          />
+          <Anchored section="storageDestinations">
+            <StorageDestinationsCard
+              readOnly={readOnly}
+              onChanged={() => setDestinationsRevision((n) => n + 1)}
+            />
+          </Anchored>
 
           {/* EPIC L (issue #814). Beside the destinations card rather
               than on a page of its own: a hook directory is deployment
@@ -169,14 +175,14 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
               right place to say what runs either side of one. The
               per-set half lives on each backup set's own page, because
               what a set pins is a fact about that set. */}
-          <WorkflowSettingsCard readOnly={readOnly} />
+          <Anchored section="workflow"><WorkflowSettingsCard readOnly={readOnly} /></Anchored>
 
           {/* EPIC Q (issue #985): the global assurance block, with the four
               host-scoped knobs shown as readouts. Additive: nothing above
               or below it moved. */}
-          <AssuranceSettingsCard readOnly={readOnly} />
+          <Anchored section="assurance"><AssuranceSettingsCard readOnly={readOnly} /></Anchored>
 
-          <section className="card">
+          <section className="card" {...settingsAnchor("notifications")}>
             <div className="card__header">
               <InfoTooltip id="settings.notifications">
                 <h2 className="eyebrow">Notifications</h2>
@@ -210,7 +216,7 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
               exactly this control — a version mismatch leaving it
               unusable would mean an operator who turned tooltips off
               having no way to turn them back on. */}
-          <section className="card">
+          <section className="card" {...settingsAnchor("interface")}>
             <div className="card__header">
               <InfoTooltip id="settings.interface">
                 <h2 className="eyebrow">Interface</h2>
@@ -246,19 +252,19 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
             </div>
           </section>
 
-          <ChangePasswordCard readOnly={readOnly} />
+          <Anchored section="password"><ChangePasswordCard readOnly={readOnly} /></Anchored>
 
           {/* Issue #830. Beside the password card deliberately: the two
               are one subject from an operator's side, since the recovery
               endpoint below is what stands in for the password above when
               it is lost. */}
-          <AccountRecoveryCard readOnly={readOnly} />
+          <Anchored section="accountRecovery"><AccountRecoveryCard readOnly={readOnly} /></Anchored>
 
           {/* #275: on an instance with no configuration there is no
               storage location, so there is nothing this card could
               truthfully claim was found in one. */}
           {configured === false ? null : (
-            <section className="card" style={{ borderColor: "var(--warn)" }}>
+            <section className="card" style={{ borderColor: "var(--warn)" }} {...settingsAnchor("catalogRecovery")}>
               <div className="card__header">
                 <InfoTooltip id="settings.catalog-recovery">
                   <h2 className="eyebrow">Catalog recovery</h2>
@@ -284,7 +290,7 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <section className="card">
+          <section className="card" {...settingsAnchor("platform")}>
             <div className="card__header">
               <InfoTooltip id="settings.platform">
                 <h2 className="eyebrow">Platform</h2>
@@ -316,7 +322,7 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
             </div>
           </section>
 
-          <section className="card">
+          <section className="card" {...settingsAnchor("systemInformation")}>
             <div className="card__header">
               <InfoTooltip id="settings.system-information">
                 <h2 className="eyebrow">System information</h2>
@@ -863,4 +869,57 @@ function smtpFieldsOf(view: RecoverySettings["smtp"]): SmtpFieldValues {
     password: "",
     from: view.from
   };
+}
+
+/** A card from its own file, given the id a link into Settings names. */
+function Anchored({ section, children }: { section: SettingsSection; children: ReactNode }) {
+  return <div {...settingsAnchor(section)}>{children}</div>;
+}
+
+/**
+ * Scrolls to the section the URL's hash names, and keeps it there while the
+ * page settles (issue #1188).
+ *
+ * The browser's own jump happens once, when the route renders, and most of
+ * Settings arrives after that: each card fetches its own data, so everything
+ * above the target grows and pushes it down. This scrolls on arrival and again
+ * every time the content changes size, for a couple of seconds, and stops the
+ * moment the reader scrolls, presses a key or touches the page, because a page
+ * that fights you for the scroll position is worse than one that lands wrong.
+ */
+function useScrollToHash() {
+  const { hash } = useLocation();
+  useEffect(() => {
+    const id = decodeURIComponent(hash.replace(/^#/, ""));
+    if (!id || !(Object.values(SETTINGS_SECTIONS) as string[]).includes(id)) return;
+    const target = document.getElementById(id);
+    // :target does not follow an element that React draws after the hash was
+    // set, which is every card here, so the highlight is also a data attribute.
+    target?.setAttribute("data-current", "");
+    let first = true;
+    const go = () => {
+      // The first scroll takes the stylesheet's behaviour (smooth, unless the
+      // reader asked for less motion); the corrections that follow as the page
+      // grows snap, so they do not restart an animation again and again.
+      document.getElementById(id)?.scrollIntoView({ block: "start", behavior: first ? "auto" : "instant" });
+      first = false;
+    };
+    go();
+    const content = document.querySelector("main > div");
+    let live = true;
+    const stop = () => { live = false; observer?.disconnect(); };
+    const observer = content && typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(() => { if (live) go(); })
+      : null;
+    if (content) observer?.observe(content);
+    const timer = window.setTimeout(stop, 2500);
+    const events = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
+    for (const e of events) window.addEventListener(e, stop, { once: true, passive: true });
+    return () => {
+      target?.removeAttribute("data-current");
+      window.clearTimeout(timer);
+      stop();
+      for (const e of events) window.removeEventListener(e, stop);
+    };
+  }, [hash]);
 }
