@@ -27,7 +27,7 @@ test.describe("#1191 Backups list: Recover artifact", () => {
     await expectSourcePreselected(dlg, "backup-agent@prod-db-01.internal", "/backups/postgresql/");
     await expectWritableAndGated(dlg, go(page));
     // the other destinations are still there to pick
-    await dlg.getByRole("radio", { name: "Staging path on the host" }).check();
+    await dlg.getByRole("radio", { name: "Folder under the staging root on the host" }).check();
     await expect(dlg.getByRole("radio", { name: SOURCE })).not.toBeChecked();
     await expect(dlg.getByText("retnd recover production/postgres-primary/" + PG + " --to", { exact: false })).toBeVisible();
   });

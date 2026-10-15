@@ -10,7 +10,7 @@ import (
 )
 
 // Issue #1179: GET /api/v1/system/staging-directories, the folder listing behind
-// "Staging path on the host".
+// "Folder under the staging root on the host".
 //
 // # What this route is, and is not
 //

@@ -95,7 +95,7 @@ var routes = map[string]entry{
 		examples: []Action{{}},
 	},
 	key("GET", "/system/staging-directories"): {
-		// #1179. The folder browser behind "Staging path on the host": the
+		// #1179. The folder browser behind "Folder under the staging root on the host": the
 		// terminal lists the same folders with `system staging`, and a path
 		// given to the page is the PATH given here.
 		build: func(a Action) *cmd {

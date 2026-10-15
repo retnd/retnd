@@ -26,10 +26,8 @@
  */
 import "@shared/assurance/assurance.css";
 import { useState } from "react";
-import { SourceHostDetails, SourceHostUnavailable } from "@shared/assurance/SourceHost";
-import { SOURCE_LABEL, sourceHostReady, useSourceHost } from "@shared/assurance/sourceHostState";
-import { DestinationSelect } from "@shared/assurance/DestinationSelect";
-import { HostFolderBrowser } from "@shared/assurance/HostFolderBrowser";
+import { RecoverySourceChoice, RecoverySourceNote, RecoveryTargetChoices, RecoveryTargetField } from "@shared/assurance/RecoveryTargetFields";
+import { confirmSourceTransport, sourceHostReady, sourceHostRefusal, useSourceHost } from "@shared/assurance/sourceHostState";
 import { recoverToFileCommand } from "@shared/assurance/assuranceCommands";
 import { downloadable } from "@shared/assurance/bulkDownload";
 import { bytes } from "@shared/utilities/format";
@@ -39,13 +37,12 @@ import type { RunTarget } from "@shared/assurance/recoverMany";
 import type { BackupArtifact } from "@shared/types/backup";
 
 export function BackupsSelectionBar({
-  selected, matching, stagingRoot, readOnly, readOnlyReason, downloading, downloadCeiling, onSelectAll, onClear, onRecover, onDownload
+  selected, matching, readOnly, readOnlyReason, downloading, downloadCeiling, onSelectAll, onClear, onRecover, onDownload
 }: {
   /** The ticked rows, in list order. */
   selected: BackupArtifact[];
   /** How many rows the current filter matches and can be selected. */
   matching: number;
-  stagingRoot: string | null;
   readOnly: boolean;
   readOnlyReason?: string;
   /** True while the download links are being made. */
@@ -69,6 +66,9 @@ export function BackupsSelectionBar({
   const [accepted, setAccepted] = useState(false);
   const [ack, setAck] = useState<string | null>(null);
   const [sourcePassword, setSourcePassword] = useState("");
+  // Only the question this bar asks itself: the run's own refusals are shown
+  // where the run is.
+  const [sourceError, setSourceError] = useState<string | null>(null);
   const sourceHost = useSourceHost(sets.length === 1 ? sets[0] : null, sets.length);
   const stillChosen = choice && (choice.kind !== "source" || choice.key === setsKey) ? choice.kind : null;
   const chosen: RunTarget["kind"] | "download" | null = stillChosen ?? (
@@ -115,57 +115,32 @@ export function BackupsSelectionBar({
 
       <div className="selbar__row" style={{ alignItems: "flex-start" }}>
         <div role="radiogroup" aria-label="Where should the backups go?" className="selbar__targets">
-          {sourceHost.offered ? (
-            <label>
-              <input type="radio" name="bulk-target" checked={kind === "source"}
-                disabled={!sourceHost.preflight?.available || sourceHost.unavailable !== null}
-                onChange={() => { setKind("source"); setWhere(""); }} />
-              {SOURCE_LABEL}
-            </label>
-          ) : null}
+          <RecoverySourceChoice name="bulk-target" value={kind ?? ""} source={sourceHost} onChoose={(t) => { setKind(t); setWhere(""); }} />
           <label>
             <input type="radio" name="bulk-target" checked={download} disabled={tooMany} onChange={() => { setKind("download"); setWhere(""); }} aria-describedby="bulk-download-note" />
             Download in this browser
           </label>
-          <label>
-            <input type="radio" name="bulk-target" checked={kind === "staging"} onChange={() => { setKind("staging"); setWhere(""); }} />
-            Staging path on the host
-          </label>
-          <label>
-            <input type="radio" name="bulk-target" checked={kind === "storage"} onChange={() => { setKind("storage"); setWhere(""); }} />
-            Configured destination
-          </label>
+          {/* Issue #1190: offered the same way on every screen. */}
+          <RecoveryTargetChoices name="bulk-target" value={kind ?? ""} onChoose={(t) => { setKind(t); setWhere(""); }} />
         </div>
-        {kind === "source" ? (
+        {download || kind === null ? null : (
           <div className="selbar__where">
-            <SourceHostDetails host={sourceHost} folder={sourceFolder} acknowledged={sourceAck} onAcknowledged={setSourceAck}
-              password={sourcePassword} onPassword={setSourcePassword} />
-          </div>
-        ) : download || kind === null ? null : kind === "staging" ? (
-          <div className="selbar__where">
-            <label className="field">
-              <span className="field__label">
-                {"Name under the staging root " + (stagingRoot ? stagingRoot + " " : "") + "(files go under it, with a manifest)"}
-              </span>
-              <input
-                className="input input--mono input--bold"
-                aria-label="Recover to a name under the staging root"
-                value={where}
-                onChange={(e) => setWhere(e.target.value)}
-              />
-            </label>
-            {/* Issue #1179: the host's own folders, so the name need not be typed blind. */}
-            <HostFolderBrowser onPick={setWhere} />
-          </div>
-        ) : (
-          <div className="selbar__where">
-            <DestinationSelect ariaLabel="Recover to destination" value={where} onChange={setWhere} />
+            <RecoveryTargetField
+              place={kind}
+              value={where}
+              onChange={setWhere}
+              meaning="A folder: the backups go under it, with a manifest."
+              source={{
+                host: sourceHost, folder: sourceFolder, acknowledged: sourceAck, onAcknowledged: setSourceAck,
+                password: sourcePassword, onPassword: setSourcePassword, error: sourceError
+              }}
+            />
           </div>
         )}
       </div>
 
       {sourceHost.offered && sourceHost.unavailable ? (
-        <div className="selbar__note"><SourceHostUnavailable reason={sourceHost.unavailable} /></div>
+        <div className="selbar__note"><RecoverySourceNote source={sourceHost} /></div>
       ) : null}
 
       <div id="bulk-download-note" data-testid="bulk-download-note" className="selbar__note">
@@ -204,7 +179,13 @@ export function BackupsSelectionBar({
           onClick={() => {
             if (kind === "download") { onDownload(); return; }
             if (kind === "source") {
-              onRecover({ kind, where: sourceFolder, acknowledged: true, ...(sourceHost.gate.stepUpRequired ? { stepUpPassword: sourcePassword } : {}) }, needsAck && accepted);
+              // On an unencrypted connection the operator is asked BEFORE the
+              // password is sent, as for a restore (#1163).
+              setSourceError(null);
+              void confirmSourceTransport(sourceHost.gate).then((ok) => {
+                if (!ok) { setSourceError(sourceHostRefusal("INSECURE_TRANSPORT_ACK_REQUIRED")); return; }
+                onRecover({ kind: "source", where: sourceFolder, acknowledged: true, ...(sourceHost.gate.stepUpRequired ? { stepUpPassword: sourcePassword } : {}) }, needsAck && accepted);
+              });
               return;
             }
             if (kind) onRecover({ kind, where: where.trim() }, needsAck && accepted);

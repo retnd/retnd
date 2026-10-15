@@ -928,7 +928,7 @@ commands:
                                                   GET /api/v1/system/capabilities (#1165)
   system staging [PATH] [--json]                  the folders below the staging root on the machine the engine runs
                                                   on, as the names a recover --to takes: the terminal's half of the
-                                                  folder browser behind "Staging path on the host". PATH is relative to
+                                                  folder browser behind the staging folder choice. PATH is relative to
                                                   that root; one that climbs out or goes through a symbolic link is
                                                   refused, and nothing is created or changed. Needs a route to the
                                                   engine and refuses without one. The folder names alone go to

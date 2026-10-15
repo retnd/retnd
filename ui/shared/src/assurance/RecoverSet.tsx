@@ -52,11 +52,9 @@ import { CommandEcho } from "@shared/pages/CommandEcho";
 import { Icon } from "@shared/design-system/icons";
 import type { IconName } from "@shared/design-system/icons";
 import { bytes } from "@shared/utilities/format";
-import { DestinationSelect } from "./DestinationSelect";
-import { HostFolderBrowser } from "./HostFolderBrowser";
+import { RecoverySourceChoice, RecoverySourceNote, RecoveryTargetChoices, RecoveryTargetField } from "./RecoveryTargetFields";
 import { recoverSetCommand, recoverSetPreflightCommand, snapshotRestoreCommand } from "./assuranceCommands";
-import { SourceHostDetails, SourceHostUnavailable } from "./SourceHost";
-import { SOURCE_LABEL, sourceHostReady, sourceHostRefusal, useSourceHost } from "./sourceHostState";
+import { confirmSourceTransport, sourceHostReady, sourceHostRefusal, useSourceHost } from "./sourceHostState";
 
 type Narrow = "all" | "newest" | "since";
 type Where = "staging" | "storage" | "source";
@@ -103,7 +101,6 @@ export function RecoverSetDialog({
   const [sourceError, setSourceError] = useState<string | null>(null);
   const [where, setWhere] = useState("");
   const [accepted, setAccepted] = useState(false);
-  const [stagingRoot, setStagingRoot] = useState<string | null>(null);
   const [plan, setPlan] = useState<RecoverManyPlan | null>(null);
   const [planFailure, setPlanFailure] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>({ k: "choose" });
@@ -138,11 +135,6 @@ export function RecoverSetDialog({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, phase.k]);
-  useEffect(() => {
-    let live = true;
-    void api.getAssuranceSettings().then((s) => { if (live) setStagingRoot(s.stagingRoot); }, () => undefined);
-    return () => { live = false; };
-  }, [api]);
 
   const sinceIso = narrow === "since" && since ? new Date(since + "T00:00:00Z").toISOString() : undefined;
   const sinceMissing = narrow === "since" && !since;
@@ -189,6 +181,13 @@ export function RecoverSetDialog({
   }, [api, skipPlan, planKey]);
 
   const go = async () => {
+    setSourceError(null);
+    // On an unencrypted connection the operator is asked BEFORE the password
+    // is sent, as for a restore (#1163).
+    if (target === "source" && !(await confirmSourceTransport(sourceHost.gate))) {
+      setSourceError(sourceHostRefusal("INSECURE_TRANSPORT_ACK_REQUIRED"));
+      return;
+    }
     abort.current = new AbortController();
     const total = plan?.totals.bytes ?? 0;
     const of = (plan?.totals.ready ?? 0) + (plan?.totals.needsThaw ?? 0);
@@ -293,46 +292,40 @@ export function RecoverSetDialog({
               <fieldset className="field" style={{ border: 0, margin: 0, padding: 0 }}>
                 <legend className="field__label">Where it goes</legend>
                 <div role="radiogroup" aria-label="Where should the set go?" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {sourceHost.offered ? (
-                    <label style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-                      <input type="radio" name="recover-set-target" checked={target === "source"}
-                        disabled={!sourceHost.preflight?.available || sourceHost.unavailable !== null}
-                        onChange={() => { setTarget("source"); setWhere(""); }} />
-                      {SOURCE_LABEL}
-                    </label>
-                  ) : null}
-                  <label style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-                    <input type="radio" name="recover-set-target" checked={target === "staging"} onChange={() => { setTarget("staging"); setWhere(""); }} />
-                    Folder under the staging root on the host
-                  </label>
-                  <label style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-                    <input type="radio" name="recover-set-target" checked={target === "storage"} onChange={() => { setTarget("storage"); setWhere(""); }} />
-                    Configured destination
-                  </label>
+                  {/* Issue #1191: first, and the preselected choice where the set has one. */}
+                  <RecoverySourceChoice
+                    name="recover-set-target"
+                    value={target ?? ""}
+                    source={sourceHost}
+                    labelStyle={{ display: "inline-flex", gap: 6, alignItems: "center" }}
+                    onChoose={(t) => { setTarget(t); setWhere(""); }}
+                  />
+                  {/* Issue #1190: offered the same way on every screen. */}
+                  <RecoveryTargetChoices
+                    name="recover-set-target"
+                    value={target ?? ""}
+                    labelStyle={{ display: "inline-flex", gap: 6, alignItems: "center" }}
+                    onChoose={(t) => { setTarget(t); setWhere(""); }}
+                  />
                 </div>
                 <div style={{ color: "var(--text-2)", marginTop: 4 }} data-testid="no-browser-download">
                   There is no browser download for a set: that would be one archive the host has to build and keep, and every backup can still be downloaded from its own page.
                 </div>
                 {sourceHost.offered && sourceHost.unavailable ? (
-                  <div style={{ marginTop: 6 }}><SourceHostUnavailable reason={sourceHost.unavailable} /></div>
+                  <div style={{ marginTop: 6 }}><RecoverySourceNote source={sourceHost} /></div>
                 ) : null}
-                {target === "source" ? (
+                {target !== null ? (
                   <div style={{ marginTop: 6 }}>
-                    <SourceHostDetails host={sourceHost} folder={sourceFolder} acknowledged={sourceAck} onAcknowledged={setSourceAck}
-                      password={sourcePassword} onPassword={setSourcePassword} error={sourceError} />
-                  </div>
-                ) : target === "staging" ? (
-                  <>
-                    <label className="field" style={{ marginTop: 6 }}>
-                      <span className="field__label">{"Folder name under the staging root " + (stagingRoot ? stagingRoot + " " : "") + "(set by the host)"}</span>
-                      <input className="input input--mono" aria-label="Recover the set to a folder under the staging root" value={where} onChange={(e) => setWhere(e.target.value)} />
-                    </label>
-                    {/* Issue #1179. A set goes into a folder, so a chosen folder is the answer as it stands. */}
-                    <HostFolderBrowser onPick={setWhere} />
-                  </>
-                ) : target === "storage" ? (
-                  <div style={{ marginTop: 6 }}>
-                    <DestinationSelect ariaLabel="Recover the set to destination" value={where} onChange={setWhere} />
+                    <RecoveryTargetField
+                      place={target}
+                      value={where}
+                      onChange={setWhere}
+                      meaning="A folder: the set's files go under it, with a manifest."
+                      source={{
+                        host: sourceHost, folder: sourceFolder, acknowledged: sourceAck, onAcknowledged: setSourceAck,
+                        password: sourcePassword, onPassword: setSourcePassword, error: sourceError
+                      }}
+                    />
                   </div>
                 ) : null}
               </fieldset>

@@ -84,7 +84,6 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   // filter narrows the list but not the deployment, so "All" stays as offered.
   const [held, setHeld] = useState<number | null>(null);
   const [run, setRun] = useState<{ files: Array<{ id: string; filename: string }>; target: RunTarget; acknowledged: boolean } | null>(null);
-  const [stagingRoot, setStagingRoot] = useState<string | null>(null);
   // Issue #1179 (the review of #1185): how many downloads the engine streams
   // at once. "In this browser" offers a selection no larger than this.
   const [downloadCeiling, setDownloadCeiling] = useState(DEFAULT_DOWNLOAD_STREAMS);
@@ -116,13 +115,13 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
     }
   };
   const canRecover = !!api.assurance;
+  // The staging root is read where it is shown (RecoveryTargetFields, #1190);
+  // the page reads the settings only for the download ceiling.
   useEffect(() => {
     if (!canRecover) return;
     let live = true;
     void api.getAssuranceSettings().then((x) => {
-      if (!live) return;
-      setStagingRoot(x.stagingRoot);
-      setDownloadCeiling(downloadCeilingOf(x));
+      if (live) setDownloadCeiling(downloadCeilingOf(x));
     }, () => undefined);
     return () => { live = false; };
   }, [api, canRecover]);
@@ -305,7 +304,6 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
         <BackupsSelectionBar
           selected={ticked}
           matching={selectable.length}
-          stagingRoot={stagingRoot}
           readOnly={readOnly}
           readOnlyReason="This session is read-only, so it cannot start a recovery."
           downloading={!!dl?.running}

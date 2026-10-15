@@ -1,5 +1,6 @@
 /**
- * The drop-down behind "Configured destination" (issue #1179): every storage
+ * The drop-down behind the configured destination choice (issue #1179), reached
+ * through RecoveryTargetFields (issue #1190): every storage
  * destination Settings lists, or the words "None configured".
  *
  * It reads the same call Settings, Storage destinations does

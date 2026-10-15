@@ -18,7 +18,7 @@ import (
 )
 
 // Issue #1179: GET /api/v1/system/staging-directories, the read behind the
-// folder browser on "Staging path on the host". It is a server-side read of
+// folder browser on "Folder under the staging root on the host". It is a server-side read of
 // the host's file system, so the route tier is part of what is held here: a
 // session is required, it is read-only (no write verb exists), and it does
 // not stand behind the destructive gate, which is shut on every deployment

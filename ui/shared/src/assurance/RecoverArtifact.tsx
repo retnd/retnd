@@ -41,8 +41,7 @@ import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { CommandEcho } from "@shared/pages/CommandEcho";
 import { bytes } from "@shared/utilities/format";
 import { ClaimChips } from "./ClaimChips";
-import { DestinationSelect } from "./DestinationSelect";
-import { HostFolderBrowser } from "./HostFolderBrowser";
+import { RecoverySourceChoice, RecoverySourceNote, RecoveryTargetChoices, RecoveryTargetField } from "./RecoveryTargetFields";
 import { DownloadOutcome } from "./DownloadOutcome";
 import { recoverCommand, thawCommand } from "./assuranceCommands";
 import { planOf, THAW_POLL_MS } from "./copyPlan";
@@ -50,8 +49,7 @@ import { recoveryRefusal } from "./recoveryMessages";
 import type { RecoveryRefusal } from "./recoveryMessages";
 import type { ArtifactAssurance } from "./types";
 import { useBackupFacts, useFactsIndex } from "./verificationModel";
-import { SourceHostDetails, SourceHostUnavailable } from "./SourceHost";
-import { SOURCE_LABEL, sourceHostReady, sourceHostRefusal, useSourceHost } from "./sourceHostState";
+import { confirmSourceTransport, sourceHostReady, sourceHostRefusal, useSourceHost } from "./sourceHostState";
 
 export function ArtifactAssuranceCard({ artifactId, readOnly }: { artifactId: string; readOnly: boolean }) {
   const api = useApi().assurance;
@@ -91,13 +89,7 @@ export function ArtifactAssuranceCard({ artifactId, readOnly }: { artifactId: st
   );
 }
 
-const TARGETS: Array<{ id: RecoveryTargetSpec["kind"]; label: string }> = [
-  // Issue #1191: first, and the preselected choice where the set has one.
-  { id: "source", label: SOURCE_LABEL },
-  { id: "download", label: "Download in this browser" },
-  { id: "staging", label: "Staging path on the host" },
-  { id: "storage", label: "Configured destination" }
-];
+const TARGET_LABEL = { display: "inline-flex", gap: 6, alignItems: "center" } as const;
 
 type Phase =
   | { k: "choose" }
@@ -118,7 +110,6 @@ export function RecoverArtifactDialog({
 }) {
   const api = useApi();
   const [artifact, setArtifact] = useState<BackupArtifact | null>(null);
-  const [stagingRoot, setStagingRoot] = useState<string | null>(null);
   // Null until the source host has answered (#1191): it is the default where
   // the set has one, and nothing is preselected where it has none.
   const [chosen, setTarget] = useState<RecoveryTargetSpec["kind"] | null>(null);
@@ -172,7 +163,6 @@ export function RecoverArtifactDialog({
       // say so instead of offering to start a second one.
       if (planOf(x).restoring) setPhase({ k: "thawing" });
     }, () => undefined);
-    void api.getAssuranceSettings().then((s) => { if (live) setStagingRoot(s.stagingRoot); }, () => undefined);
     return () => { live = false; };
   }, [api, artifactId]);
 
@@ -223,9 +213,15 @@ export function RecoverArtifactDialog({
   };
 
   const go = async () => {
+    setSourceError(null);
+    // On an unencrypted connection the operator is asked BEFORE the password
+    // is sent, as for a restore (#1163).
+    if (kind === "source" && !(await confirmSourceTransport(sourceHost.gate))) {
+      setSourceError(sourceHostRefusal("INSECURE_TRANSPORT_ACK_REQUIRED"));
+      return;
+    }
     setPhase({ k: "minting" });
     try {
-      setSourceError(null);
       const m = await api.mintRecovery(artifactId, {
         target: targetSpec(), acknowledged: accepted ? true : undefined,
         ...(kind === "source" && sourceHost.gate.stepUpRequired ? { stepUpPassword: sourcePassword } : {})
@@ -299,16 +295,15 @@ export function RecoverArtifactDialog({
             <>
               <InfoTooltip id="assurance.recover.target" block>
                 <div role="radiogroup" aria-label="Where should the artifact go?" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {TARGETS.filter((t) => t.id !== "source" || sourceHost.offered).map((t) => {
-                    const off = (t.id === "download" && archived) || (t.id === "source" && (!sourceHost.preflight?.available || sourceHost.unavailable !== null));
-                    return (
-                      <label key={t.id} style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-                        <input type="radio" name="recover-target" checked={kind === t.id} disabled={off}
-                          onChange={() => { setTarget(t.id); setWhere(""); }} />
-                        {t.label}
-                      </label>
-                    );
-                  })}
+                  {/* Issue #1191: first, and the preselected choice where the set has one. */}
+                  <RecoverySourceChoice name="recover-target" value={kind ?? ""} source={sourceHost} labelStyle={TARGET_LABEL} onChoose={(t) => { setTarget(t); setWhere(""); }} />
+                  <label style={TARGET_LABEL}>
+                    <input type="radio" name="recover-target" checked={kind === "download"} disabled={archived}
+                      onChange={() => { setTarget("download"); setWhere(""); }} />
+                    Download in this browser
+                  </label>
+                  {/* Issue #1190: the other two are offered the same way on every screen. */}
+                  <RecoveryTargetChoices name="recover-target" value={kind ?? ""} labelStyle={TARGET_LABEL} onChoose={(t) => { setTarget(t); setWhere(""); }} />
                 </div>
               </InfoTooltip>
               {archived ? (
@@ -316,28 +311,24 @@ export function RecoverArtifactDialog({
                   A browser download is not offered for an archived copy: the provider needs hours to restore it, and a download grant lasts minutes.
                 </div>
               ) : null}
-              {sourceHost.offered && sourceHost.unavailable ? <SourceHostUnavailable reason={sourceHost.unavailable} /> : null}
-              {kind === "source" ? (
-                <SourceHostDetails host={sourceHost} folder={sourceFolder} acknowledged={sourceAck} onAcknowledged={setSourceAck}
-                  password={sourcePassword} onPassword={setSourcePassword} error={sourceError} />
-              ) : null}
+              <RecoverySourceNote source={sourceHost} />
               {kind === "download" ? (
                 <div style={{ color: "var(--text-2)" }}>
                   Before it sends the first byte the host checks that the copy is there and is the size it recorded and, the first time this backup is downloaded, reads the whole copy against the digest it recorded, so the download may not start for a while. It then sends the copy straight from where it lives, 4 MiB at a time, checking each piece against that digest, and nothing is copied to the host&apos;s disk. If a piece fails the check the download is cut off, so an incomplete file means the download failed and not that the backup is short. It works over plain http. The grant is single-use, lasts a few minutes and ends with this sign-in.
                 </div>
               ) : null}
-              {kind === "staging" ? (
-                <>
-                  <label className="field">
-                    <span className="field__label">{"Name under the staging root " + (stagingRoot ? stagingRoot + " " : "") + "(set by the host)"}</span>
-                    <input className="input input--mono" aria-label="Recover to a name under the staging root" value={where} onChange={(e) => setWhere(e.target.value)} />
-                  </label>
-                  {/* Issue #1179: the folders on the host, so the name need not be typed blind. */}
-                  <HostFolderBrowser fileName={artifactId.split("/").pop() || undefined} onPick={setWhere} />
-                </>
-              ) : null}
-              {kind === "storage" ? (
-                <DestinationSelect ariaLabel="Recover to destination" value={where} onChange={setWhere} />
+              {kind !== null && kind !== "download" ? (
+                <RecoveryTargetField
+                  place={kind}
+                  value={where}
+                  onChange={setWhere}
+                  fileName={artifactId.split("/").pop() || undefined}
+                  meaning="The last part is the file the host writes. A folder picked below gets this backup's own file name."
+                  source={{
+                    host: sourceHost, folder: sourceFolder, acknowledged: sourceAck, onAcknowledged: setSourceAck,
+                    password: sourcePassword, onPassword: setSourcePassword, error: sourceError
+                  }}
+                />
               ) : null}
               {kind ? (
                 <CommandEcho label="Same thing from the terminal" commands={[recoverCommand(artifactId, kind, kind === "source" ? sourceFolder : where, needsAck && accepted, sourceAck)]} />

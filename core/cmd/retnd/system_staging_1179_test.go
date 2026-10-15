@@ -11,7 +11,7 @@ import (
 )
 
 // #1179: `retnd system staging [PATH] [--json]`, the terminal's half of the
-// folder browser behind "Staging path on the host". The folders are on the
+// folder browser behind "Folder under the staging root on the host". The folders are on the
 // machine the engine runs on, so like system capabilities this asks the engine
 // and refuses without a route to it: answering from this host would list the
 // wrong machine's file system.

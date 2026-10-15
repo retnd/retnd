@@ -1,7 +1,7 @@
 /**
  * The logic half of the "Source host (SFTP)" destination (issue #1191): what
  * the engine says about one set's source host, and what a dialog may do with
- * it. SourceHost.tsx draws it; the rationale is written there.
+ * it. RecoveryTargetFields.tsx draws it; the rationale is written there.
  */
 import { useEffect, useState } from "react";
 import { useApi } from "@shared/api/ApiContext";
@@ -10,8 +10,6 @@ import { describeFailure } from "@shared/api/failure";
 import type { RecoverySourcePreflight } from "@shared/api/contracts";
 import { useDestructiveGate } from "@shared/hooks/useDestructiveGate";
 import type { GateReading } from "@shared/hooks/useDestructiveGate";
-
-export const SOURCE_LABEL = "Source host (SFTP)";
 
 export interface SourceHost {
   /** False while the host is being asked. */

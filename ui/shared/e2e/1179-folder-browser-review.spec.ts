@@ -1,6 +1,6 @@
 /**
- * Issue #1179, from the review of #1185: the folder browser behind "Staging
- * path on the host".
+ * Issue #1179, from the review of #1185: the folder browser behind "Folder
+ * under the staging root on the host" (#1190's shared field).
  *
  *   - A folder removed between two clicks is a 404 from the host
  *     (DIRECTORY_NOT_FOUND), and the browser steps back up to the folder above
@@ -22,7 +22,7 @@ async function stagingBrowser(page: Page, scenario = "default") {
   await row(page, PG).click();
   await page.getByRole("button", { name: "Recover artifact", exact: true }).click();
   await expect(dialog(page)).toBeVisible();
-  await dialog(page).getByRole("radio", { name: "Staging path on the host" }).check();
+  await dialog(page).getByRole("radio", { name: "Folder under the staging root on the host" }).check();
   await expect(browserOf(page)).toBeVisible();
   return browserOf(page);
 }
@@ -50,7 +50,7 @@ test.describe("#1179 the folder browser after the review", () => {
     // From here on the service says this browser has no session, which is
     // what a restarted engine answers.
     await page.route("**/api/v1/auth/session", (r) => r.fulfill({ status: 401, json: { error: { code: "UNAUTHENTICATED", message: "authentication required" } } }));
-    await dialog(page).getByRole("radio", { name: "Staging path on the host" }).check();
+    await dialog(page).getByRole("radio", { name: "Folder under the staging root on the host" }).check();
     await expect(page.getByRole("button", { name: /sign in/i })).toBeVisible({ timeout: 10_000 });
   });
 
@@ -61,6 +61,6 @@ test.describe("#1179 the folder browser after the review", () => {
     const use = browser.getByRole("button", { name: "Use this folder" });
     await expect(use).toHaveAccessibleDescription("Sets the name to weekly/" + PG);
     await use.click();
-    await expect(dialog(page).getByRole("textbox", { name: /Recover to a name under the staging root/ })).toHaveValue("weekly/" + PG);
+    await expect(dialog(page).getByRole("textbox", { name: "Name under the staging root" })).toHaveValue("weekly/" + PG);
   });
 });

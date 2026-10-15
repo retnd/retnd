@@ -31,7 +31,7 @@ test("#1106 Recover this backup set: pre-flight, a finished run, and a cancelled
 
   // #1191: the source host is the default now; this pass is about staging.
   await dlg.getByRole("radio", { name: "Folder under the staging root on the host" }).check();
-  await dlg.getByRole("textbox", { name: /Recover the set to a folder/ }).fill("restore-1");
+  await dlg.getByRole("textbox", { name: /Name under the staging root/ }).fill("restore-1");
   await expect(dlg.getByText("retnd recover --set production/postgres-primary --to restore-1", { exact: true })).toBeVisible();
   await frame(page, "destination-and-command");
   await dlg.getByRole("radio", { name: "The newest restore point only" }).check();
@@ -60,7 +60,7 @@ test("#1106 Recover this backup set: pre-flight, a finished run, and a cancelled
   await page.getByRole("button", { name: "Recover this backup set", exact: true }).click();
   const slow = page.getByRole("dialog", { name: "Recover this backup set" });
   await slow.getByRole("radio", { name: "Folder under the staging root on the host" }).check();
-  await slow.getByRole("textbox", { name: /Recover the set to a folder/ }).fill("restore-2");
+  await slow.getByRole("textbox", { name: /Name under the staging root/ }).fill("restore-2");
   await expect(slow.getByTestId("preflight-summary")).toContainText("3 to recover");
   await slow.getByRole("button", { name: "Recover this backup set" }).click();
   await expect(slow.getByTestId("running-lines").locator("li")).toHaveCount(1, { timeout: 8000 });
