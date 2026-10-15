@@ -92,6 +92,14 @@ func cmdSystemCapabilities(args []string) int {
 		gate += " (" + got.DestructiveOperations.Reason + ")"
 	}
 	fmt.Println(gate)
+	// What an open gate still asks for (#1163), so an operator scripting
+	// against the API can see it without sending a request to find out.
+	if got.DestructiveOperations.StepUpRequired {
+		fmt.Println("restores ask for the administrator's password again (X-Retnd-Step-Up-Password)")
+	}
+	if got.DestructiveOperations.InsecureTransportAckRequired {
+		fmt.Println("this connection is not encrypted: gated acts also need X-Retnd-Insecure-Transport-Ack: acknowledged")
+	}
 	return exitOK
 }
 

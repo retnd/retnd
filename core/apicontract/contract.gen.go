@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "5c49e450162fa5aedd863b19c5e5852db80b8046a8884b25e2bcca3f3dbc4acf"
+const ContractSHA256 = "18686420e6c71706f5c512fdcf314a5b1618e1bd02fb5d9c3e41d9c4738fa181"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -81,6 +81,11 @@ const (
 	ErrorCodeSSHKeyNotFound                         ErrorCode = "SSH_KEY_NOT_FOUND"
 	ErrorCodeHostKeyProbeFailed                     ErrorCode = "HOST_KEY_PROBE_FAILED"
 	ErrorCodeDestructiveOperationsDisabled          ErrorCode = "DESTRUCTIVE_OPERATIONS_DISABLED"
+	ErrorCodeStepUpRequired                         ErrorCode = "STEP_UP_REQUIRED"
+	ErrorCodeStepUpFailed                           ErrorCode = "STEP_UP_FAILED"
+	ErrorCodeStepUpUnavailable                      ErrorCode = "STEP_UP_UNAVAILABLE"
+	ErrorCodeInsecureTransportAckRequired           ErrorCode = "INSECURE_TRANSPORT_ACK_REQUIRED"
+	ErrorCodeAcknowledgementRequired                ErrorCode = "ACKNOWLEDGEMENT_REQUIRED"
 	ErrorCodeInternal                               ErrorCode = "INTERNAL"
 	ErrorCodeAlreadyConfigured                      ErrorCode = "ALREADY_CONFIGURED"
 	ErrorCodeNotConfigured                          ErrorCode = "NOT_CONFIGURED"
@@ -172,6 +177,11 @@ var WireErrorCodes = []ErrorCode{
 	ErrorCodeSSHKeyNotFound,
 	ErrorCodeHostKeyProbeFailed,
 	ErrorCodeDestructiveOperationsDisabled,
+	ErrorCodeStepUpRequired,
+	ErrorCodeStepUpFailed,
+	ErrorCodeStepUpUnavailable,
+	ErrorCodeInsecureTransportAckRequired,
+	ErrorCodeAcknowledgementRequired,
 	ErrorCodeInternal,
 	ErrorCodeAlreadyConfigured,
 	ErrorCodeNotConfigured,
@@ -287,6 +297,11 @@ var ErrorCodes = []ErrorCode{
 	ErrorCodeSSHKeyNotFound,
 	ErrorCodeHostKeyProbeFailed,
 	ErrorCodeDestructiveOperationsDisabled,
+	ErrorCodeStepUpRequired,
+	ErrorCodeStepUpFailed,
+	ErrorCodeStepUpUnavailable,
+	ErrorCodeInsecureTransportAckRequired,
+	ErrorCodeAcknowledgementRequired,
 	ErrorCodeInternal,
 	ErrorCodeAlreadyConfigured,
 	ErrorCodeNotConfigured,
@@ -356,13 +371,13 @@ var ErrorCodes = []ErrorCode{
 // a red team) can assert the RIGHT refusal rather than any refusal.
 var ErrorClasses = map[string][]ErrorCode{
 	"authentication": {ErrorCodeUnauthenticated, ErrorCodeBootstrapTokenInvalid, ErrorCodeResetTokenInvalid, ErrorCodeVerifyTokenInvalid},
-	"authorization":  {ErrorCodeEnrollmentClosed, ErrorCodeDestructiveOperationsDisabled, ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeRecoveryGrantSessionEnded},
+	"authorization":  {ErrorCodeEnrollmentClosed, ErrorCodeDestructiveOperationsDisabled, ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeRecoveryGrantSessionEnded, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeStepUpUnavailable, ErrorCodeInsecureTransportAckRequired},
 	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy},
 	"internal":       {ErrorCodeInternal, ErrorCodeInternalError, ErrorCodeRecoveryLocalCopyCorrupt, ErrorCodeRecoveryRemoteCopyCorrupt, ErrorCodeRecoveryNoSpace, ErrorCodeRecoveryBelowReserve, ErrorCodeRecoveryFailed},
 	"not-found":      {ErrorCodeBackupSetNotFound, ErrorCodeOperationNotFound, ErrorCodeRetentionPlanNotFound, ErrorCodeArtifactNotFound, ErrorCodeMediumNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound, ErrorCodeRepositoryDomainNotFound, ErrorCodeWorkflowEnvNotFound, ErrorCodeWorkflowRunNotFound, ErrorCodeWorkflowStepNotFound, ErrorCodeRecoveryCopyNotFound, ErrorCodeRecoveryGrantUnknown},
 	"throttling":     {ErrorCodeRateLimited, ErrorCodeRecoveryTooManyGrants, ErrorCodeRecoveryReadsBusy, ErrorCodeRecoveryDestinationBusy, ErrorCodeRecoveryDownloadsBusy},
 	"unavailable":    {ErrorCodeNotConfigured, ErrorCodeSmtpSendFailed, ErrorCodeWorkflowEngineUnavailable, ErrorCodeRecoveryUnavailable, ErrorCodeRecoveryInterrupted},
-	"validation":     {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail, ErrorCodeSSHKeyNotFound, ErrorCodeHostKeyProbeFailed, ErrorCodeMediumDisclosureRequired, ErrorCodeBackupSetNotIncremental, ErrorCodeWorkflowAcknowledgementReasonRequired, ErrorCodeRecoveryTargetInvalid},
+	"validation":     {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail, ErrorCodeSSHKeyNotFound, ErrorCodeHostKeyProbeFailed, ErrorCodeMediumDisclosureRequired, ErrorCodeBackupSetNotIncremental, ErrorCodeWorkflowAcknowledgementReasonRequired, ErrorCodeRecoveryTargetInvalid, ErrorCodeAcknowledgementRequired},
 }
 
 // Endpoint is one operation of the contract, with the requirements a
@@ -818,7 +833,7 @@ var Endpoints = []Endpoint{
 		ErrorCodes: map[int][]ErrorCode{
 			400: {ErrorCodeInvalidRequest},
 			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled, ErrorCodeInsecureTransportAckRequired},
 			404: {ErrorCodeBackupSetNotFound, ErrorCodeRetentionPlanNotFound},
 			409: {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy},
 			500: {ErrorCodeInternal},
@@ -1044,9 +1059,9 @@ var Endpoints = []Endpoint{
 		Authenticated: true, CSRFRequired: true, IdempotencyKey: "required", DestructiveGate: true, Concurrency: "config_revision",
 		RequestSchema: "SubmitOperationRequest", ResponseSchema: "Operation", SuccessStatus: 202,
 		ErrorCodes: map[int][]ErrorCode{
-			400: {ErrorCodeInvalidRequest, ErrorCodeBackupSetNotIncremental},
+			400: {ErrorCodeInvalidRequest, ErrorCodeBackupSetNotIncremental, ErrorCodeAcknowledgementRequired},
 			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeStepUpUnavailable, ErrorCodeInsecureTransportAckRequired},
 			404: {ErrorCodeBackupSetNotFound, ErrorCodeArtifactNotFound, ErrorCodeCopyNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound},
 			409: {ErrorCodeConfigRevisionStale, ErrorCodeIdempotencyKeyConflict, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeRestoreRefused, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled},
 			500: {ErrorCodeInternal},
@@ -2226,12 +2241,18 @@ type CycleOutcome struct {
 // not when it is not (issue #1165). The gate is the one the routes
 // marked x-destructive-gate ask before they act, and the state here
 // is read from that same gate at the moment of the request, so it
-// can change while the process runs. The CLI is not behind it: the
-// terminal verbs the gated routes have equivalents for run with no
-// gate.
+// can change while the process runs. It is open on a local-account
+// profile and shut on a gateway profile until #92 ships a verified
+// gate (issue #1163). step_up_required and
+// insecure_transport_ack_required say what an open gate still asks
+// for, read from what the router will enforce rather than assumed.
+// The CLI is not behind the gate: the terminal verbs the gated
+// routes have equivalents for run with no gate.
 type DestructiveOperationsStatus struct {
-	Reason string `json:"reason"`
-	State  string `json:"state"`
+	InsecureTransportAckRequired bool   `json:"insecure_transport_ack_required"`
+	Reason                       string `json:"reason"`
+	State                        string `json:"state"`
+	StepUpRequired               bool   `json:"step_up_required"`
 }
 
 // EnrollRequest is POST /auth/enroll. The credentials, and optionally the two things
@@ -3589,10 +3610,13 @@ type SnapshotHold struct {
 // SnapshotHoldReleaseRequest is POST /operations' parameters when the action is
 // release_snapshot_hold: end one hold, by its id. Releasing does not
 // delete anything; it returns the snapshot to whatever the retention
-// policy already said about it.
+// policy already said about it. Releasing makes the snapshot
+// prunable by the next retention run, so it needs the operator's
+// explicit acknowledgement (issue #1164).
 type SnapshotHoldReleaseRequest struct {
-	BackupSetID string `json:"backup_set_id"`
-	HoldID      string `json:"hold_id"`
+	Acknowledged bool   `json:"acknowledged"`
+	BackupSetID  string `json:"backup_set_id"`
+	HoldID       string `json:"hold_id"`
 }
 
 // SnapshotHoldRequest is POST /operations' parameters when the action is hold_snapshot:
@@ -3620,11 +3644,12 @@ type SnapshotResponse struct {
 // provider to make an archived object readable again, over hours, at
 // a cost, and writes nothing anywhere.
 type SnapshotRestoreRequest struct {
-	BackupSetID string `json:"backup_set_id"`
-	Conflict    string `json:"conflict,omitempty"`
-	SnapshotID  string `json:"snapshot_id,omitempty"`
-	SourcePath  string `json:"source_path,omitempty"`
-	TargetPath  string `json:"target_path"`
+	Acknowledged bool   `json:"acknowledged,omitempty"`
+	BackupSetID  string `json:"backup_set_id"`
+	Conflict     string `json:"conflict,omitempty"`
+	SnapshotID   string `json:"snapshot_id,omitempty"`
+	SourcePath   string `json:"source_path,omitempty"`
+	TargetPath   string `json:"target_path"`
 }
 
 // SnapshotRetentionResponse is GET /backup-sets/{source}/{set}/snapshot-retention: what this

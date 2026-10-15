@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "5c49e450162fa5aedd863b19c5e5852db80b8046a8884b25e2bcca3f3dbc4acf";
+export const CONTRACT_SHA256 = "18686420e6c71706f5c512fdcf314a5b1618e1bd02fb5d9c3e41d9c4738fa181";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -44,6 +44,11 @@ export const WIRE_ERROR_CODES = [
   "SSH_KEY_NOT_FOUND",
   "HOST_KEY_PROBE_FAILED",
   "DESTRUCTIVE_OPERATIONS_DISABLED",
+  "STEP_UP_REQUIRED",
+  "STEP_UP_FAILED",
+  "STEP_UP_UNAVAILABLE",
+  "INSECURE_TRANSPORT_ACK_REQUIRED",
+  "ACKNOWLEDGEMENT_REQUIRED",
   "INTERNAL",
   "ALREADY_CONFIGURED",
   "NOT_CONFIGURED",
@@ -163,6 +168,11 @@ export const API_ERROR_CODES = [
   "SSH_KEY_NOT_FOUND",
   "HOST_KEY_PROBE_FAILED",
   "DESTRUCTIVE_OPERATIONS_DISABLED",
+  "STEP_UP_REQUIRED",
+  "STEP_UP_FAILED",
+  "STEP_UP_UNAVAILABLE",
+  "INSECURE_TRANSPORT_ACK_REQUIRED",
+  "ACKNOWLEDGEMENT_REQUIRED",
   "INTERNAL",
   "ALREADY_CONFIGURED",
   "NOT_CONFIGURED",
@@ -234,13 +244,13 @@ export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
  *  the RIGHT refusal rather than any refusal. */
 export const API_ERROR_CLASSES = {
   "authentication": ["UNAUTHENTICATED", "BOOTSTRAP_TOKEN_INVALID", "RESET_TOKEN_INVALID", "VERIFY_TOKEN_INVALID"],
-  "authorization": ["ENROLLMENT_CLOSED", "DESTRUCTIVE_OPERATIONS_DISABLED", "CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "RECOVERY_GRANT_SESSION_ENDED"],
+  "authorization": ["ENROLLMENT_CLOSED", "DESTRUCTIVE_OPERATIONS_DISABLED", "CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "RECOVERY_GRANT_SESSION_ENDED", "STEP_UP_REQUIRED", "STEP_UP_FAILED", "STEP_UP_UNAVAILABLE", "INSECURE_TRANSPORT_ACK_REQUIRED"],
   "conflict": ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "IDEMPOTENCY_KEY_CONFLICT", "CONFIG_REVISION_STALE", "ALREADY_CONFIGURED", "ARTIFACT_NOT_QUARANTINED", "ARTIFACT_IRRECOVERABLE", "REINSTATEMENT_REFUSED", "BACKUP_SET_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED", "ARTIFACT_NOT_FAILED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE", "MEDIUM_IS_DEFAULT", "MEDIUM_CONNECTION_NOT_PROVEN", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED", "REPOSITORY_DOMAIN_EXISTS", "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE", "WORKFLOWS_NOT_CONFIGURED", "WORKFLOW_SCRIPT_REJECTED", "RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_GRANT_USED", "RECOVERY_GRANT_EXPIRED", "RECOVERY_TARGET_EXISTS", "RECOVERY_USE_SNAPSHOT_RESTORE", "RECOVERY_BUSY"],
   "internal": ["INTERNAL", "INTERNAL_ERROR", "RECOVERY_LOCAL_COPY_CORRUPT", "RECOVERY_REMOTE_COPY_CORRUPT", "RECOVERY_NO_SPACE", "RECOVERY_BELOW_RESERVE", "RECOVERY_FAILED"],
   "not-found": ["BACKUP_SET_NOT_FOUND", "OPERATION_NOT_FOUND", "RETENTION_PLAN_NOT_FOUND", "ARTIFACT_NOT_FOUND", "MEDIUM_NOT_FOUND", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_HOLD_NOT_FOUND", "REPOSITORY_DOMAIN_NOT_FOUND", "WORKFLOW_ENV_NOT_FOUND", "WORKFLOW_RUN_NOT_FOUND", "WORKFLOW_STEP_NOT_FOUND", "RECOVERY_COPY_NOT_FOUND", "RECOVERY_GRANT_UNKNOWN"],
   "throttling": ["RATE_LIMITED", "RECOVERY_TOO_MANY_GRANTS", "RECOVERY_READS_BUSY", "RECOVERY_DESTINATION_BUSY", "RECOVERY_DOWNLOADS_BUSY"],
   "unavailable": ["NOT_CONFIGURED", "SMTP_SEND_FAILED", "WORKFLOW_ENGINE_UNAVAILABLE", "RECOVERY_UNAVAILABLE", "RECOVERY_INTERRUPTED"],
-  "validation": ["INVALID_REQUEST", "INVALID_EMAIL", "SSH_KEY_NOT_FOUND", "HOST_KEY_PROBE_FAILED", "MEDIUM_DISCLOSURE_REQUIRED", "BACKUP_SET_NOT_INCREMENTAL", "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED", "RECOVERY_TARGET_INVALID"],
+  "validation": ["INVALID_REQUEST", "INVALID_EMAIL", "SSH_KEY_NOT_FOUND", "HOST_KEY_PROBE_FAILED", "MEDIUM_DISCLOSURE_REQUIRED", "BACKUP_SET_NOT_INCREMENTAL", "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED", "RECOVERY_TARGET_INVALID", "ACKNOWLEDGEMENT_REQUIRED"],
 } as const satisfies Record<string, readonly ApiErrorCode[]>;
 
 /** The platform-capability set GET /system/capabilities reports, as wire
@@ -1009,7 +1019,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     errorCodes: {
       400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
-      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED", "INSECURE_TRANSPORT_ACK_REQUIRED"],
       404: ["BACKUP_SET_NOT_FOUND", "RETENTION_PLAN_NOT_FOUND"],
       409: ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY"],
       500: ["INTERNAL"],
@@ -1387,9 +1397,9 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     responseSchema: "Operation",
     successStatus: 202,
     errorCodes: {
-      400: ["INVALID_REQUEST", "BACKUP_SET_NOT_INCREMENTAL"],
+      400: ["INVALID_REQUEST", "BACKUP_SET_NOT_INCREMENTAL", "ACKNOWLEDGEMENT_REQUIRED"],
       401: ["UNAUTHENTICATED"],
-      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED", "STEP_UP_REQUIRED", "STEP_UP_FAILED", "STEP_UP_UNAVAILABLE", "INSECURE_TRANSPORT_ACK_REQUIRED"],
       404: ["BACKUP_SET_NOT_FOUND", "ARTIFACT_NOT_FOUND", "COPY_NOT_FOUND", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_HOLD_NOT_FOUND"],
       409: ["CONFIG_REVISION_STALE", "IDEMPOTENCY_KEY_CONFLICT", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "RESTORE_REFUSED", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED"],
       500: ["INTERNAL"],
@@ -2972,12 +2982,18 @@ export interface WireCycleOutcome {
  *  not when it is not (issue #1165). The gate is the one the routes
  *  marked x-destructive-gate ask before they act, and the state here
  *  is read from that same gate at the moment of the request, so it
- *  can change while the process runs. The CLI is not behind it: the
- *  terminal verbs the gated routes have equivalents for run with no
- *  gate. */
+ *  can change while the process runs. It is open on a local-account
+ *  profile and shut on a gateway profile until #92 ships a verified
+ *  gate (issue #1163). step_up_required and
+ *  insecure_transport_ack_required say what an open gate still asks
+ *  for, read from what the router will enforce rather than assumed.
+ *  The CLI is not behind the gate: the terminal verbs the gated
+ *  routes have equivalents for run with no gate. */
 export interface WireDestructiveOperationsStatus {
+  insecure_transport_ack_required: boolean;
   reason: string;
   state: "open" | "shut";
+  step_up_required: boolean;
 }
 
 /** POST /auth/enroll. The credentials, and optionally the two things
@@ -4335,8 +4351,11 @@ export interface WireSnapshotHold {
 /** POST /operations' parameters when the action is
  *  release_snapshot_hold: end one hold, by its id. Releasing does not
  *  delete anything; it returns the snapshot to whatever the retention
- *  policy already said about it. */
+ *  policy already said about it. Releasing makes the snapshot
+ *  prunable by the next retention run, so it needs the operator's
+ *  explicit acknowledgement (issue #1164). */
 export interface WireSnapshotHoldReleaseRequest {
+  acknowledged: boolean;
   backup_set_id: string;
   hold_id: string;
 }
@@ -4366,6 +4385,7 @@ export interface WireSnapshotResponse {
  *  provider to make an archived object readable again, over hours, at
  *  a cost, and writes nothing anywhere. */
 export interface WireSnapshotRestoreRequest {
+  acknowledged?: boolean;
   backup_set_id: string;
   conflict?: "refuse" | "skip" | "overwrite";
   snapshot_id?: string;
