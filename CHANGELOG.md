@@ -4,7 +4,37 @@
 
 ### Fixed
 
+- **The Lifecycle list agrees with the verified chip, and Recovery says Custom configuration** (#1175). A
+  backup with no ingest-time verdict that a scrub had read back and hash-matched showed "Content verified"
+  in its chip and a dash on the Lifecycle's VERIFIED step. That step is now reached at the scrub's time and
+  says the scrub found the content intact since receipt. A backup whose ingest check failed stays unreached
+  there whatever a scrub found, because a scrub only shows a bad file is still the same bad file. A set with a policy of its own now reads "Custom configuration" on its Recovery
+  chip (it said "This set's own policy"), linked to that set's policy, and a set on the deployment's
+  default still reads "Default configuration" linked to Settings. The policy form's note for a set whose
+  recovery test is off no longer says the claim reads "Not configured". "Not configured" now survives only
+  for a set whose policy resolves to nothing, which the web API never reports today.
+
+- **Links into Settings land on their section** (#1188). Clicking "Default configuration" opened Settings
+  at an unrelated spot, because the cards above the target load after the browser has already jumped and push
+  it down. Every Settings section now has a stable anchor id (`#assurance`, `#storage-destinations`,
+  `#retention` and the rest), kept in one table that the page and the links both read. The page scrolls to
+  the hash after the route renders and keeps correcting while the cards load, until you scroll yourself.
+  Targets keep clear of the top edge, scrolling is smooth only when reduced motion is not requested, and the
+  section a link points at gets an accent outline (4.89:1 in light, 6.98:1 in dark). The Assurance card's
+  anchor is `#assurance` now, and the old `#assurance-defaults` still lands on it. A malformed hash (a lone
+  `%E0`) is ignored instead of taking the page down.
+
 - **The sidebar's Backups badge counts backups now, not backup sets** (#1186). It was summed from the health report's per-set totals, so a deployment holding 119 retained backups in a handful of sets showed a single-digit number that said nothing about what was retained. The badge now reads the retained backups themselves: the exact number up to 100, and `>100` above that, with the accessible label "more than 100 backups" (or "N backups" below the cap). The Backup sets and Quarantine badges are unchanged. The terminal has the same reading: `retnd artifacts --count` prints it over the rows `artifacts` lists, so `--source`, `--backup-set` and `--state` narrow it the same way, and the length of the `--json` list stays the exact figure. While measuring it I found the non-alert nav badges were `--text-3` on the nav surface, 3.35:1 in the light theme and 3.85:1 in the dark one, under the 4.5:1 that small text needs, so they use `--text-2` now (6.64:1 and 6.89:1 on the nav surface, 5.73:1 and 5.52:1 on the active row).
+
+### Added
+
+- **The Backups page pages its list** (#1180). A "Rows per page" control offers 20, 50 and 100, and "All"
+  while the deployment holds fewer than 1000 backups, with Previous and Next beside it. A chosen 20, 50 or
+  100 is remembered in the browser between sessions (and the page works without storage); "All" is not.
+  The list endpoint still answers with every backup, so paging happens in the browser, and `retnd artifacts`
+  keeps printing the whole list (paging there waits for the endpoint to page for real). The rows come in
+  configuration order, so a page holds the same backups every time. Select-all after a filter (#1107) still
+  takes every matching backup on every page. Changing a filter returns to page one.
 
 ## [0.6.4] - 2026-10-14
 

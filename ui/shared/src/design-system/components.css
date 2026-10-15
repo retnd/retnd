@@ -435,3 +435,19 @@ input, select, textarea, button {
 .activity-dock__level:disabled {
   color: var(--text-2); border-color: var(--text-2); border-style: dashed; cursor: default;
 }
+
+/* Anchors into the Settings page (issue #1188). The ids come from one table
+   (utilities/routes.ts). The scroll margin keeps a landed section's
+   heading clear of the top edge; smooth scrolling is only for readers who have
+   not asked for less motion; the section a link points at is outlined while
+   the URL's hash names it. The outline is --accent, 3:1 or better against the
+   page in both themes (measured in e2e/1188-settings-anchors.spec.ts), and it
+   is an outline rather than a colour change, so it does not depend on hue. */
+[data-settings-section] { scroll-margin-top: 16px; }
+[data-settings-section]:target, [data-settings-section][data-current] { outline: 3px solid var(--accent); outline-offset: 3px; border-radius: var(--radius, 8px); }
+@media (prefers-reduced-motion: no-preference) {
+  /* Only while Settings is the page: scroll-behavior belongs to the scrolling
+     container, so it is set there, but only when it holds the Settings page.
+     Elsewhere the terminal's autoscroll and the paging buttons snap. */
+  html:has([data-settings-page]), main:has([data-settings-page]) { scroll-behavior: smooth; }
+}
