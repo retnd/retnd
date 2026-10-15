@@ -179,14 +179,15 @@ test.describe("#1107 recovering a selection", () => {
 
   // #1179 supersedes the earlier decision here: the radio was always disabled
   // ("a browser download is not offered for several files"). It is selectable
-  // now, one download per backup, and the bar says what that means.
+  // now, one link per backup up to the engine's download ceiling, and the bar
+  // says what that means.
   test("a browser download is offered for several files, and the bar says what it does", async ({ page }) => {
     await open(page, "/backups", MANY);
     await rowBox(page, "postgres-primary-20260801.bak").check();
     const radio = bar(page).getByRole("radio", { name: "Download in this browser" });
     await expect(radio).toBeEnabled();
     await radio.check();
-    await expect(bar(page).getByTestId("bulk-download-note")).toContainText(/one download per backup/i);
+    await expect(bar(page).getByTestId("bulk-download-note")).toContainText(/one link per backup/i);
     await expect(bar(page).getByTestId("bulk-download-note")).toContainText(/archived copy is left out/i);
   });
 

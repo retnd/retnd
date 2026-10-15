@@ -1292,6 +1292,7 @@ func assuranceSettingsFromWire(w apicontract.AssuranceSettingsResponse) service.
 		StagingTTL:             time.Duration(w.StagingTtlSeconds) * time.Second,
 		MaxConcurrentFullReads: int(w.MaxConcurrentFullReads),
 		MaxPerDestination:      int(w.MaxPerDestination),
+		MaxDownloadStreams:     int(w.MaxDownloadStreams),
 		HostKnobs:              knobs,
 	}
 }

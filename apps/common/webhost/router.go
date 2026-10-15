@@ -377,7 +377,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// host's file system, so read-only by registration (no other verb
 		// exists), confined to that one root by the service, and outside
 		// the destructive gate like the reads above.
-		r.Get("/system/host-directories", h.listHostDirectory)
+		r.Get("/system/staging-directories", h.listStagingDirectories)
 		// Issue #211: FR-24's backup-freshness verdict, authenticated and
 		// inside /api/v1. Deliberately NOT the same thing as /health/live
 		// and /health/ready above, which are unauthenticated probes that

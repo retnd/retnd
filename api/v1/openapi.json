@@ -151,7 +151,9 @@
           "RECOVERY_FAILED",
           "RECOVERY_READS_BUSY",
           "RECOVERY_DESTINATION_BUSY",
-          "RECOVERY_DOWNLOADS_BUSY"
+          "RECOVERY_DOWNLOADS_BUSY",
+          "DIRECTORY_NOT_FOUND",
+          "DIRECTORY_NOT_READABLE"
         ],
         "x-code-origins": {
           "authentication-failed": "ui",
@@ -250,7 +252,9 @@
           "RECOVERY_FAILED": "wire",
           "RECOVERY_READS_BUSY": "wire",
           "RECOVERY_DESTINATION_BUSY": "wire",
-          "RECOVERY_DOWNLOADS_BUSY": "wire"
+          "RECOVERY_DOWNLOADS_BUSY": "wire",
+          "DIRECTORY_NOT_FOUND": "wire",
+          "DIRECTORY_NOT_READABLE": "wire"
         },
         "x-error-classes": {
           "authentication": [
@@ -309,7 +313,8 @@
             "RECOVERY_GRANT_EXPIRED",
             "RECOVERY_TARGET_EXISTS",
             "RECOVERY_USE_SNAPSHOT_RESTORE",
-            "RECOVERY_BUSY"
+            "RECOVERY_BUSY",
+            "DIRECTORY_NOT_READABLE"
           ],
           "not-found": [
             "BACKUP_SET_NOT_FOUND",
@@ -324,7 +329,8 @@
             "WORKFLOW_RUN_NOT_FOUND",
             "WORKFLOW_STEP_NOT_FOUND",
             "RECOVERY_COPY_NOT_FOUND",
-            "RECOVERY_GRANT_UNKNOWN"
+            "RECOVERY_GRANT_UNKNOWN",
+            "DIRECTORY_NOT_FOUND"
           ],
           "throttling": [
             "RATE_LIMITED",
@@ -7362,6 +7368,11 @@
               "$ref": "#/components/schemas/AssuranceHostKnob"
             },
             "description": "The four host-scoped settings and the staging root, each with its written 'no' for a per-set override."
+          },
+          "max_download_streams": {
+            "type": "integer",
+            "description": "The ceiling on browser downloads this process streams at once, as the engine runs it (the platform's limit where it sets one, the engine's default otherwise). Read only: it is the host's, not a setting. A page offering several downloads at once offers no more than this.",
+            "format": "int64"
           }
         }
       },
@@ -7532,7 +7543,7 @@
           "coalesced"
         ]
       },
-      "HostDirectoryEntry": {
+      "StagingDirectoryEntry": {
         "type": "object",
         "description": "One sub-folder of a listed folder.",
         "additionalProperties": false,
@@ -7551,9 +7562,9 @@
           "path"
         ]
       },
-      "HostDirectoryResponse": {
+      "StagingDirectoryResponse": {
         "type": "object",
-        "description": "GET /system/host-directories. One folder under the staging root: its sub-folders by name, relative to the root.",
+        "description": "GET /system/staging-directories. One folder under the staging root: its sub-folders by name, relative to the root.",
         "additionalProperties": false,
         "properties": {
           "root": {
@@ -7574,7 +7585,7 @@
           "entries": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/HostDirectoryEntry"
+              "$ref": "#/components/schemas/StagingDirectoryEntry"
             },
             "description": "The real sub-folders, sorted by name. Files and symbolic links are never listed."
           },
@@ -10975,10 +10986,10 @@
         "x-authenticated": true
       }
     },
-    "/system/host-directories": {
+    "/system/staging-directories": {
       "get": {
-        "operationId": "listHostDirectory",
-        "summary": "The sub-folders of one folder under the recovery staging root, for the folder browser on a staging target. A read of the machine the engine runs on, so read-only (this resource has no write verb), confined to that one root, and never through a symbolic link. Names are relative to the root.",
+        "operationId": "listStagingDirectories",
+        "summary": "The sub-folders of one folder under the recovery staging root, for the folder browser on a staging target. A read of the machine the engine runs on, so read-only (this resource has no write verb), confined to that one root (which is why it is named for it), and never through a symbolic link. Names are relative to the root. One listing reads at most a fixed number of entries and runs under a deadline.",
         "tags": [
           "system"
         ],
@@ -11004,13 +11015,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HostDirectoryResponse"
+                  "$ref": "#/components/schemas/StagingDirectoryResponse"
                 }
               }
             }
           },
           "400": {
-            "description": "Refused: INVALID_REQUEST. The name is not a folder name under the root (absolute, climbing, malformed or through a symbolic link), or there is no such folder. The message names no path of the host's.",
+            "description": "Refused: INVALID_REQUEST. The name is not a folder name under the root: absolute, climbing, malformed (not UTF-8, a control character or a backslash) or through a symbolic link. The message names no path of the host's.",
             "content": {
               "application/json": {
                 "schema": {
@@ -11033,6 +11044,32 @@
             },
             "x-error-codes": [
               "UNAUTHENTICATED"
+            ]
+          },
+          "404": {
+            "description": "Refused: DIRECTORY_NOT_FOUND. The name is well formed and there is no folder by it under the root (it was never there, was removed, or is a file). A page browsing the folders steps back up a level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "DIRECTORY_NOT_FOUND"
+            ]
+          },
+          "409": {
+            "description": "Refused: DIRECTORY_NOT_READABLE. The folder is there and the host may not read it, or could not (an I/O error). The message names no path of the host's.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "DIRECTORY_NOT_READABLE"
             ]
           },
           "500": {
@@ -11062,7 +11099,7 @@
             ]
           },
           "503": {
-            "description": "Refused: RECOVERY_UNAVAILABLE. This deployment has no staging root it would use.",
+            "description": "Refused: RECOVERY_UNAVAILABLE. This deployment has no staging root it would use (none, or one that fails the custody check, which is made again on every listing), or the listing ran past its deadline.",
             "content": {
               "application/json": {
                 "schema": {

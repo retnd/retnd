@@ -23,7 +23,7 @@
  * rather than threading both through the select is the small price of
  * keeping every picker on this page keyed the same way.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import { useAsync } from "@shared/hooks/useAsync";
@@ -50,8 +50,10 @@ import { artifactPath } from "@shared/utilities/routes";
 import type { BackupArtifact } from "@shared/types/backup";
 import type { RunTarget } from "@shared/assurance/recoverMany";
 import { BackupsSelectionBar } from "./BackupsSelectionBar";
-import { downloadMany } from "@shared/assurance/bulkDownload";
-import type { BulkDownloadOutcome } from "@shared/assurance/bulkDownload";
+import { DEFAULT_DOWNLOAD_STREAMS, downloadable, downloadCeilingOf, mintDownloadLinks } from "@shared/assurance/bulkDownload";
+import { BulkDownloadLinks } from "@shared/assurance/BulkDownloadLinks";
+import type { BulkDownloadState } from "@shared/assurance/BulkDownloadLinks";
+import { asApiError } from "@shared/api/failure";
 import { BackupsRecoverRun } from "./BackupsRecoverRun";
 import { inReceivedRange, unselectableReason } from "./backupSelection";
 
@@ -73,14 +75,45 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   const [notice, setNotice] = useState("");
   const [run, setRun] = useState<{ files: Array<{ id: string; filename: string }>; target: RunTarget; acknowledged: boolean } | null>(null);
   const [stagingRoot, setStagingRoot] = useState<string | null>(null);
-  // Issue #1179: the outcome of handing a selection to the browser, or null
-  // before one was asked for. `running` is true while the links go out.
-  const [dl, setDl] = useState<{ running: boolean; outcome: BulkDownloadOutcome | null } | null>(null);
+  // Issue #1179 (the review of #1185): how many downloads the engine streams
+  // at once. "In this browser" offers a selection no larger than this.
+  const [downloadCeiling, setDownloadCeiling] = useState(DEFAULT_DOWNLOAD_STREAMS);
+  // The links a browser download made for the selection, or null before one
+  // was asked for, with the backups they were made for so fresh ones can be.
+  const [dl, setDl] = useState<(BulkDownloadState & { files: BackupArtifact[] }) | null>(null);
+  // One run at a time (a double click must not mint twice), and a run this
+  // page has left stops asking the host for grants.
+  const dlBusy = useRef(false);
+  const dlRun = useRef<AbortController | null>(null);
+  useEffect(() => {
+    const runs = dlRun;
+    return () => runs.current?.abort();
+  }, []);
+  const startDownload = async (files: BackupArtifact[]) => {
+    if (dlBusy.current || downloadable(files).length > downloadCeiling) return;
+    dlBusy.current = true;
+    const ac = new AbortController();
+    dlRun.current = ac;
+    setDl({ running: true, minted: null, failure: null, files });
+    try {
+      const minted = await mintDownloadLinks(api, files, ac.signal);
+      if (!ac.signal.aborted) setDl({ running: false, minted, failure: null, files });
+    } catch (e) {
+      if (!ac.signal.aborted) setDl({ running: false, minted: null, failure: asApiError(e).message, files });
+    } finally {
+      dlBusy.current = false;
+      if (!ac.signal.aborted) setDl((d) => (d && d.running ? { ...d, running: false } : d));
+    }
+  };
   const canRecover = !!api.assurance;
   useEffect(() => {
     if (!canRecover) return;
     let live = true;
-    void api.getAssuranceSettings().then((x) => { if (live) setStagingRoot(x.stagingRoot); }, () => undefined);
+    void api.getAssuranceSettings().then((x) => {
+      if (!live) return;
+      setStagingRoot(x.stagingRoot);
+      setDownloadCeiling(downloadCeilingOf(x));
+    }, () => undefined);
     return () => { live = false; };
   }, [api, canRecover]);
   const changeFilter = (apply: () => void) => {
@@ -248,10 +281,8 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
           readOnly={readOnly}
           readOnlyReason="This session is read-only, so it cannot start a recovery."
           downloading={!!dl?.running}
-          onDownload={() => {
-            setDl({ running: true, outcome: null });
-            void downloadMany(api, ticked).then((outcome) => setDl({ running: false, outcome }));
-          }}
+          downloadCeiling={downloadCeiling}
+          onDownload={() => void startDownload(ticked)}
           onSelectAll={selectAll}
           onClear={() => setPicked(new Set())}
           onRecover={(target, acknowledged) =>
@@ -259,7 +290,7 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
           }
         />
       ) : null}
-      {dl ? <BulkDownloadStatus state={dl} /> : null}
+      {dl ? <BulkDownloadLinks state={dl} onFresh={() => void startDownload(dl.files)} /> : null}
       {bucketIds && !artifacts.loading ? (
         <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "0 0 10px", fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
           <span role="status" data-testid="assurance-filter-status">
@@ -514,40 +545,3 @@ function MediumCell({ artifact }: { artifact: BackupArtifact }) {
   );
 }
 
-
-/**
- * What handing a selection to the browser did (issue #1179). It counts the
- * links it handed over and names each backup it did not, with the reason. It
- * does not say the files arrived: a browser's transfer is not visible to this
- * page, and each file is checked against its recorded digest by the host as it
- * sends it, so a file that stops short is a failed download.
- */
-function BulkDownloadStatus({ state }: { state: { running: boolean; outcome: BulkDownloadOutcome | null } }) {
-  const o = state.outcome;
-  return (
-    <div role="status" data-testid="bulk-download" className="anotice" style={{ margin: "0 0 10px" }}>
-      {state.running || !o ? (
-        <strong>Handing the downloads to your browser...</strong>
-      ) : (
-        <>
-          <strong>
-            {o.handed.length + (o.handed.length === 1 ? " download" : " downloads") + " handed to your browser"}
-          </strong>
-          <div style={{ marginTop: 4 }}>
-            This page cannot see your browser&apos;s transfers, so it cannot tell you a file arrived. The host checks each file against its recorded digest as it sends it, so a file that stops short is a failed download.
-          </div>
-          {o.skipped.length > 0 ? (
-            <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
-              {o.skipped.map((x) => (
-                <li key={x.id}>
-                  <span className="mono">{x.filename}</span>
-                  {" was not downloaded: " + x.reason + "."}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </>
-      )}
-    </div>
-  );
-}
