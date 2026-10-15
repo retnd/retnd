@@ -47,8 +47,6 @@ func cmdArtifacts(args []string) int {
 	setFlag := fs.String("backup-set", "", "only artifacts from this backup set, named <source/backup-set> or by set name alone where that is unambiguous")
 	stateFlag := fs.String("state", "", "only artifacts in this lifecycle state, e.g. COMMITTED or QUARANTINED_LOST (a list only)")
 	asJSON := fs.Bool("json", false, "emit JSON, the same body the API serves (Artifact for one, ListArtifactsResponse for a list), instead of text")
-	limitFlag := fs.Int("limit", 0, "a list only: print at most this many artifacts, the terminal's page size (the Backups page's Rows per page); 0 or absent prints them all")
-	offsetFlag := fs.Int("offset", 0, "a list only: skip this many artifacts first, so --limit 20 --offset 20 is page two")
 	// Flags may come before or after the operand, exactly like validate's
 	// own operand (see parseFlagsAroundOperands in setup.go for why).
 	operands, err := parseFlagsAroundOperands(fs, args)
@@ -57,13 +55,6 @@ func cmdArtifacts(args []string) int {
 	}
 	if len(operands) > 1 {
 		return usageError("artifacts takes at most one argument: <source/backup-set/name>")
-	}
-	win, ok := parsePageFlags(*limitFlag, *offsetFlag)
-	if !ok {
-		return usageError("artifacts: --limit and --offset must be zero or more (got --limit %d --offset %d)", *limitFlag, *offsetFlag)
-	}
-	if win.set() && len(operands) == 1 {
-		return usageError("artifacts: --limit and --offset page a list and cannot be combined with an artifact argument")
 	}
 	wantState, ok := parseArtifactStateFlag(*stateFlag)
 	if !ok {
@@ -102,7 +93,7 @@ func cmdArtifacts(args []string) int {
 
 	ctx := context.Background()
 	if *asJSON {
-		return artifactsJSON(ctx, *cfgPath, operands, *sourceFlag, *setFlag, wantState, win)
+		return artifactsJSON(ctx, *cfgPath, operands, *sourceFlag, *setFlag, wantState)
 	}
 	svc, cfg, cleanup, err := openService(ctx, *cfgPath, false)
 	if err != nil {
@@ -196,8 +187,6 @@ func cmdArtifacts(args []string) int {
 		records = withState(records, wantState)
 	}
 
-	total := len(records)
-	records = windowOf(win, records)
 	for _, r := range records {
 		marker := ""
 		if ungoverned[r.Artifact.Set.String()] {
@@ -206,9 +195,6 @@ func cmdArtifacts(args []string) int {
 		fmt.Printf("%-60s %-22s remote=%-40s local=%s%s\n", r.Artifact, r.State, r.RemotePath, r.LocalPath, marker)
 	}
 	fmt.Printf("%d artifact(s)\n", len(records))
-	if win.set() {
-		fmt.Println(win.describe(len(records), total))
-	}
 	if len(ungoverned) > 0 && listedAny(records, ungoverned) {
 		fmt.Println("marked rows belong to backup sets whose configuration was removed: nothing retains, reconciles or")
 		fmt.Println("advances them. `" + cliecho.Binary + " unconfigured` says what they hold and what can be done about it.")

@@ -63,7 +63,7 @@ func withState(records []state.Record, want string) []state.Record {
 	return kept
 }
 
-func artifactsJSON(ctx context.Context, cfgPath string, operands []string, source, set, wantState string, win pageWindow) int {
+func artifactsJSON(ctx context.Context, cfgPath string, operands []string, source, set, wantState string) int {
 	if len(operands) == 1 && (source != "" || set != "") {
 		return usageError("artifacts: --source/--backup-set cannot be combined with an artifact argument")
 	}
@@ -107,12 +107,6 @@ func artifactsJSON(ctx context.Context, cfgPath string, operands []string, sourc
 			continue
 		}
 		kept = append(kept, a)
-	}
-	total := len(kept)
-	kept = windowOf(win, kept)
-	if win.set() {
-		// stdout is the one JSON value, so the page note goes where the log goes.
-		fmt.Fprintln(os.Stderr, win.describe(len(kept), total))
 	}
 	return printWorkflowJSON(service.ArtifactsWire(kept))
 }

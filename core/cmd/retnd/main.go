@@ -251,10 +251,6 @@ commands:
                                                   list only the artifacts in one lifecycle state, e.g. QUARANTINED_LOST
   artifacts [--source S] [--backup-set B] --json
                                                   list as the API's ListArtifactsResponse (#1147)
-  artifacts [--source S] [--backup-set B] --limit N [--offset M]
-                                                  print one page of the list, as the Backups page's Rows per page and
-                                                  Next do; it says which rows it printed and the --offset for the next
-                                                  page, and combines with --state and --json (#1180)
   activity [--backup-set S] [--severity warn|error] [--limit N] [--json]
                                                   list recorded lifecycle events, newest first: the same durable
                                                   transition log the Web UI's Activity page draws. Beside a serving
