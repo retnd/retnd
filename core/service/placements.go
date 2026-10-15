@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/internal/archive"
 	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/placement"
@@ -705,38 +706,17 @@ func PlacementStatuses() []string {
 	return []string{state.PlacementActive, state.PlacementDeletePending}
 }
 
-// recoveryCheckOf says which check produced a copy's recovery verdict: the
-// product's built-in structure check (its reserved identity is stored on the
-// copy) or the operator's validator. A copy with no passed, failed or overdue
-// verdict has nothing to attribute, and a digest failure carries no identity.
-func recoveryCheckOf(p state.Placement) string {
-	switch p.RecoveryState {
-	case state.RecoveryPassed, state.RecoveryFailed, state.RecoveryOverdue:
-	default:
-		return ""
-	}
-	switch {
-	case p.RecoveryValidatorID == "":
-		return ""
-	case config.IsReservedValidatorID(p.RecoveryValidatorID):
-		return "builtin"
-	}
-	return "validator"
-}
+// recoveryCheckOf says which check produced a copy's recovery verdict; the
+// rule lives in internal/app so the terminal reads the same one (#1147).
+func recoveryCheckOf(p state.Placement) string { return app.RecoveryCheckOf(p) }
 
 // WireRecoveryState is the ONE place a stored recovery state becomes the one
-// every surface serialises (#1111). Storage keeps a built-in structure pass as
-// "passed" under the reserved validator id, because adding a stored state is a
-// table rebuild the compatibility rule forbids; on the wire that pass is
-// "readable", so "passed" only ever means a validator accepted the copy.
-// Every path that emits a recovery state (placements, the recovery-test
-// outcome, the stored output) goes through here.
+// every surface serialises (#1111): a built-in structure pass is "readable"
+// on the wire. The rule lives in internal/app so the terminal reads the same
+// one (#1147).
 func WireRecoveryState(stored, validatorID string) string {
-	if stored == state.RecoveryPassed && config.IsReservedValidatorID(validatorID) {
-		return WireRecoveryReadable
-	}
-	return stored
+	return app.WireRecoveryState(stored, validatorID)
 }
 
 // WireRecoveryReadable is the wire spelling of a built-in structure pass.
-const WireRecoveryReadable = "readable"
+const WireRecoveryReadable = app.WireRecoveryReadable

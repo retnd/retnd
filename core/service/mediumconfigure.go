@@ -361,6 +361,12 @@ func storageMediumFromFields(
 			spec.Endpoint = value
 		case "bucket":
 			spec.Bucket = value
+		case "path":
+			// A local_volume's directory (#1154). StorageMediumSpec.Path
+			// has been here since #666; what was missing was this case,
+			// which left the one destination a fresh install has
+			// unconfigurable through the manifest-shaped write.
+			spec.Path = value
 		case "prefix":
 			spec.Prefix = value
 		case "storage_class":
@@ -428,6 +434,8 @@ func mediumFieldValue(medium config.StorageMedium, fieldID string) string {
 		return medium.Endpoint
 	case "bucket":
 		return medium.Bucket
+	case "path":
+		return medium.Path
 	case "prefix":
 		return medium.Prefix
 	case "storage_class":

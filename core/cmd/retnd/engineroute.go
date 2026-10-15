@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"time"
 
 	"github.com/retnd/retnd/core/apicontract"
@@ -721,6 +722,47 @@ func (r *engineRoute) SetDefaultStorageMedium(ctx context.Context, id string) (s
 		return service.StorageMediumSummary{}, err
 	}
 	return storageMediumFromWire(resp), nil
+}
+
+func (r *engineRoute) ConfigureStorageMedium(ctx context.Context, id string, cfg service.StorageMediumConfiguration) (service.StorageMediumSummary, error) {
+	resp, err := r.client.ConfigureStorageMedium(ctx, id, mediumConfigurationToWire(cfg))
+	if err != nil {
+		return service.StorageMediumSummary{}, err
+	}
+	return storageMediumFromWire(resp), nil
+}
+
+func (r *engineRoute) PreflightStorageMediumConfiguration(ctx context.Context, id string, cfg service.StorageMediumConfiguration) (service.MediumPreflight, error) {
+	resp, err := r.client.PreflightStorageMediumConfiguration(ctx, id, mediumConfigurationToWire(cfg))
+	if err != nil {
+		return service.MediumPreflight{}, err
+	}
+	return mediumPreflightFromWire(resp), nil
+}
+
+// mediumConfigurationToWire is the contract's pair list, sorted by field id
+// so one configuration is one body. A credential crosses as a reference in
+// whichever of its four spellings was named, and never as material.
+func mediumConfigurationToWire(cfg service.StorageMediumConfiguration) apicontract.MediumConfigurationRequest {
+	ids := make([]string, 0, len(cfg.Fields))
+	for id := range cfg.Fields {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	fields := make([]apicontract.MediumFieldValue, 0, len(ids))
+	for _, id := range ids {
+		fields = append(fields, apicontract.MediumFieldValue{Field: id, Value: cfg.Fields[id]})
+	}
+	return apicontract.MediumConfigurationRequest{
+		Backend: cfg.Backend,
+		Fields:  fields,
+		Credentials: apicontract.StorageMediumCredentialsReference{
+			CredentialsID: cfg.Credentials.ID,
+			File:          cfg.Credentials.File,
+			Env:           cfg.Credentials.Env,
+			Command:       cfg.Credentials.Command,
+		},
+	}
 }
 
 // storageMediumFromWire is the one place the engine's answer becomes this
