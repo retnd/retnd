@@ -31,6 +31,8 @@ test("#1179 walkthrough: Download in this browser is selectable and hands over o
   await page.getByRole("checkbox", { name: "Select billing-mysql-20260802.bak", exact: true }).check();
   await beat(page);
   const radio = bar(page).getByRole("radio", { name: "Download in this browser" });
+  await bar(page).scrollIntoViewIfNeeded();
+  await beat(page, 800);
   await expect(radio).toBeEnabled();
   await radio.check();
   await beat(page, 1500);

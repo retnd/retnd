@@ -197,10 +197,13 @@ test.describe("#1179 contrast and edges, both themes", () => {
       await dlg.getByRole("radio", { name: "Staging path on the host" }).check();
       await expect(browserOf(dlg)).toBeVisible();
       await browserOf(dlg).getByRole("button", { name: "Open folder daily" }).click();
+      // measure the folder that has been listed: while it is being asked for
+      // every button is disabled, and a disabled control has no edge to measure
+      await expect(browserOf(dlg).getByRole("button", { name: "Open folder 2026-10" })).toBeVisible();
       expect(await measureContrast(page, `folder browser, ${theme}`, '[role="group"][aria-label="Folders on the host"]')).toEqual([]);
       expect(await measureBorders(page, `folder browser controls, ${theme}`, '[role="group"][aria-label="Folders on the host"] .btn')).toEqual([]);
       await dlg.getByRole("radio", { name: "Configured destination" }).check();
-      await expect(dlg.getByRole("combobox", { name: "Recover to destination" })).toBeVisible();
+      await expect(dlg.getByRole("combobox", { name: "Recover to destination" })).toBeEnabled();
       expect(await measureContrast(page, `destination drop-down, ${theme}`, '[role="dialog"]')).toEqual([]);
       expect(await measureBorders(page, `destination drop-down edge, ${theme}`, '[role="dialog"] select')).toEqual([]);
     });
@@ -210,7 +213,7 @@ test.describe("#1179 contrast and edges, both themes", () => {
       await setTheme(page, theme);
       await bar(page).getByRole("radio", { name: "Download in this browser" }).check();
       await bar(page).getByRole("button", { name: "Download selected" }).click();
-      await expect(page.getByTestId("bulk-download")).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByTestId("bulk-download")).toContainText("handed to your browser", { timeout: 15_000 });
       expect(await measureContrast(page, `selection bar, download, ${theme}`, '[data-testid="selection-bar"]')).toEqual([]);
       expect(await measureContrast(page, `bulk download status, ${theme}`, '[data-testid="bulk-download"]')).toEqual([]);
     });
