@@ -82,6 +82,10 @@ export type Scenario =
   | "backups-many"
   | "backups-many-corrupt"
   | "backups-many-nospace"
+  // Issue #1180: a deployment that holds exactly 999 backups (the largest that
+  // still offers "All" on the Backups page) and one that holds exactly 1000.
+  | "backups-999"
+  | "backups-1000"
   | "empty"
   | "storage-critical"
   | "catalog-recovery"
@@ -193,7 +197,7 @@ export function scenarioFromLocation(): Scenario {
     "assurance-grant-used", "assurance-session-ended", "assurance-staging-full",
     "assurance-reads-busy", "assurance-corrupt-copy", "assurance-download-outcomes",
     "assurance-set-recover", "assurance-set-nospace", "assurance-set-corrupt", "assurance-set-slow",
-    "backups-many", "backups-many-corrupt", "backups-many-nospace", "dock-no-warnings", "dock-live-line", "assurance-no-validator", "assurance-builtin-check", "assurance-default-policy", "assurance-default-untested", "gate-shut", "gate-shut-local-account"
+    "backups-many", "backups-many-corrupt", "backups-many-nospace", "backups-999", "backups-1000", "dock-no-warnings", "dock-live-line", "assurance-no-validator", "assurance-builtin-check", "assurance-default-policy", "assurance-default-untested", "gate-shut", "gate-shut-local-account"
   ];
   return (allowed as string[]).includes(s ?? "") ? (s as Scenario) : "default";
 }
@@ -717,6 +721,37 @@ const MANY_GENERATED: BackupArtifact[] = Array.from({ length: 30 }, (_, i) => {
     ]
   } as BackupArtifact;
 });
+
+/** Issue #1180: a deployment holding `total` backups, the four fixtures first.
+ *  Generated names carry a four-digit counter so every id is unique and the
+ *  list sorts the way a reader would expect. */
+function bulkGenerated(total: number): BackupArtifact[] {
+  return Array.from({ length: Math.max(0, total - ARTIFACTS.length) }, (_, i) => {
+    const set = MANY_SETS[i % 3];
+    const filename = set.id.split("/")[1] + "-bulk" + String(i + 1).padStart(4, "0") + ".bak";
+    const at = new Date(Date.UTC(2026, 0, 1) + i * 3600_000).toISOString();
+    const size = ((i % 50) + 1) * 1_000_000;
+    const local = "/data/backups/" + set.id + "/bulk/" + filename;
+    return {
+      id: set.id + "/" + filename,
+      setId: set.id, setName: set.name, filename,
+      remoteOriginalPath: "prod-01:/backups/" + filename,
+      localPath: local,
+      producedAt: at, receivedAt: at,
+      sizeBytes: size,
+      checksum: String(i % 100).padStart(2, "0").repeat(32),
+      checksumAlgorithm: "sha256", state: "COMPLETE", validation: "verified",
+      retentionClasses: ["daily"], retentionPolicy: "configured",
+      remoteSourceRemovedAt: at, quarantine: null,
+      placements: [
+        {
+          medium: "local", mediumType: "local", location: local, sizeBytes: size, storageClass: "",
+          verificationClass: "content", verifiedAt: at, access: "immediate", status: "ACTIVE"
+        }
+      ]
+    } as BackupArtifact;
+  });
+}
 
 // Two operations, chosen to exercise both answers the real API can give:
 // one that is executing and reporting a live reading, and one that is
@@ -3998,7 +4033,10 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   // Every backup keeps exactly one local copy under that scenario: the
   // shape migration 0007's backfill leaves every pre-EPIC-E deployment in.
   const many = scenario.startsWith("backups-many");
-  const artifacts = many
+  const bulk = /^backups-(\d+)$/.exec(scenario);
+  const artifacts = bulk
+    ? [...ARTIFACTS, ...bulkGenerated(Number(bulk[1]))]
+    : many
     ? [...ARTIFACTS, ...MANY_GENERATED]
     : noMedium
     ? ARTIFACTS.map((a) => ({
