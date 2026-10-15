@@ -2280,9 +2280,13 @@ export interface WorkflowRunnerStatus {
  *  redeems the grant, `staging` places one file under the host's recovery
  *  staging root, `storage` uploads to another configured destination. */
 export interface RecoveryTargetSpec {
-  kind: "download" | "staging" | "storage";
-  /** staging: a name under the staging root. */
+  kind: "download" | "staging" | "storage" | "source";
+  /** staging: a name under the staging root. source (#1191): the new
+   *  retnd-recovered-* folder under the set's remote path; empty takes a
+   *  fresh one. */
   path?: string;
+  /** source: the explicit yes to writing onto the host the backup came from. */
+  acknowledged?: boolean;
   /** storage: a configured destination id. */
   medium?: string;
   /** storage: an object key, defaulting to recovered/<artifact id>. */
@@ -2295,6 +2299,30 @@ export interface RecoveryMintRequest {
   /** The explicit yes to a chargeable retrieval. Absent is a no. */
   acknowledged?: boolean;
   target: RecoveryTargetSpec;
+  /** #1163 / #1191: the password again, for a source target on a profile
+   *  that re-checks it. Sent in a header, never in the body. */
+  stepUpPassword?: string;
+}
+
+/** Issue #1191: where a recovery of a backup set onto its own source host
+ *  would write, and whether retnd may write there (POST
+ *  /backup-sets/{source}/{set}/recovery-source/preflight). */
+export interface RecoverySourcePreflight {
+  setId: string;
+  /** False when the set has no source host (not SFTP, or incremental). */
+  available: boolean;
+  /** Why not, in the engine's words. */
+  reason?: string;
+  host?: string;
+  port?: number;
+  user?: string;
+  remotePath?: string;
+  /** The new folder a recovery started now would go into. */
+  folder?: string;
+  url?: string;
+  /** What the write probe found. */
+  writable?: "yes" | "no" | "unknown";
+  detail?: string;
 }
 
 /** A grant, or the provider restore that has to finish before there can be
@@ -2406,8 +2434,10 @@ export interface RecoverManyRequest {
   copy?: string;
   /** One yes for the whole request's cost. Absent is a no. */
   acknowledged?: boolean;
-  /** `staging` or `storage`; a download is refused for several files. */
+  /** `staging`, `storage` or `source`; a download is refused for several files. */
   target: RecoveryTargetSpec;
+  /** #1191: the password again for a source target, in a header. */
+  stepUpPassword?: string;
 }
 
 export interface RecoverManyResult {
@@ -3218,6 +3248,13 @@ export interface RetndApi {
    * the bytes never pass through this page's memory.
    */
   redeemRecovery(grant: string): Promise<RecoveryPlacement>;
+  /**
+   * Issue #1191: where a recovery of this set onto its own source host would
+   * write, and whether it may. It writes and removes one probe file on the
+   * source (the connection test's write probe), so a read-only pull account
+   * is said before the run, not after it.
+   */
+  preflightRecoverySource(source: string, set: string): Promise<RecoverySourcePreflight>;
 
   /**
    * #1106, #1107: what recovering several backups, or a whole backup set, to

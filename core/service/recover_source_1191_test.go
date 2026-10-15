@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/transport"
@@ -280,23 +281,35 @@ func TestRecoverySource1191_TheFolderIsAlwaysANewRecoveredFolder(t *testing.T) {
 
 func TestRecoverySource1191_ASetGoesBackToItsSourceInOneNewFolder(t *testing.T) {
 	f, host := newSourceFixture(t, sftpSet(false))
-	res, err := f.b.RecoverMany(context.Background(), f.session(), RecoverManyRequest{
-		Set: "production/postgres", Target: sourceTarget(""),
-	}, nil)
+	f.seedMany(t,
+		manyFile{name: "a.zst", data: manyData(1, 40_000), age: 48 * time.Hour},
+		manyFile{name: "b.zst", data: manyData(2, 30_000), age: 24 * time.Hour},
+	)
+	req := RecoverManyRequest{Set: "production/postgres", Target: sourceTarget("")}
+
+	unacked := req
+	unacked.Target.Acknowledged = false
+	if _, err := f.b.RecoverMany(context.Background(), f.session(), unacked, nil); codeOf(t, err) != RecoverySourceNotAcknowledged {
+		t.Fatalf("a set run onto the source without the acknowledgement = %v", err)
+	}
+	if host.probes.Load() != 0 || host.puts.Load() != 0 {
+		t.Fatalf("an unacknowledged set run touched the source")
+	}
+
+	res, err := f.b.RecoverMany(context.Background(), f.session(), req, nil)
 	if err != nil {
 		t.Fatalf("RecoverMany to the source: %v", err)
 	}
-	if res.Totals.Recovered != 1 {
-		t.Fatalf("totals = %+v", res.Totals)
+	if res.Totals.Recovered != 2 || !recoveredFolder.MatchString(res.Folder) {
+		t.Fatalf("totals = %+v, folder %q", res.Totals, res.Folder)
 	}
-	found := false
-	for rel := range host.files {
-		if strings.HasSuffix(rel, "/dump.zst") && recoveredFolder.MatchString(strings.Split(rel, "/")[0]) {
-			found = true
+	for _, name := range []string{"a.zst", "b.zst", manifestFileName} {
+		if _, ok := host.files[res.Folder+"/"+name]; !ok {
+			t.Errorf("%s is not in the new folder on the source; uploads = %v", name, uploadedPaths(host.files))
 		}
 	}
-	if !found {
-		t.Errorf("uploads = %v; want dump.zst inside one new recovered folder", uploadedPaths(host.files))
+	if len(host.files) != 3 {
+		t.Errorf("uploads = %v; everything goes into the one new folder", uploadedPaths(host.files))
 	}
 }
 

@@ -77,6 +77,13 @@ type recoveryTargetBody struct {
 	Path   string `json:"path,omitempty"`
 	Medium string `json:"medium,omitempty"`
 	Key    string `json:"key,omitempty"`
+	// Acknowledged is the yes to writing onto the source host, for the
+	// "source" kind (issue #1191).
+	Acknowledged bool `json:"acknowledged,omitempty"`
+}
+
+func (t recoveryTargetBody) service() service.RecoveryTarget {
+	return service.RecoveryTarget{Kind: t.Kind, Path: t.Path, Medium: t.Medium, Key: t.Key, Acknowledged: t.Acknowledged}
 }
 
 type recoveryMintRequest struct {
@@ -148,9 +155,7 @@ func (h *handlers) mintRecovery(w http.ResponseWriter, r *http.Request) {
 		ArtifactID:      id,
 		Copy:            body.Copy,
 		AcknowledgeCost: body.AcknowledgeCost,
-		Target: service.RecoveryTarget{
-			Kind: body.Target.Kind, Path: body.Target.Path, Medium: body.Target.Medium, Key: body.Target.Key,
-		},
+		Target:          body.Target.service(),
 	})
 	if err != nil {
 		h.writeRecoveryError(w, r, err)
@@ -486,6 +491,12 @@ func (h *handlers) writeRecoveryError(w http.ResponseWriter, r *http.Request, er
 			writeError(w, http.StatusBadRequest, "RECOVERY_TARGET_INVALID", re.Message)
 		case "RECOVERY_TARGET_EXISTS":
 			writeError(w, http.StatusConflict, "RECOVERY_TARGET_EXISTS", re.Message)
+		case "RECOVERY_SOURCE_UNAVAILABLE":
+			writeError(w, http.StatusConflict, "RECOVERY_SOURCE_UNAVAILABLE", re.Message)
+		case "RECOVERY_SOURCE_READ_ONLY":
+			writeError(w, http.StatusConflict, "RECOVERY_SOURCE_READ_ONLY", re.Message)
+		case "RECOVERY_SOURCE_NOT_ACKNOWLEDGED":
+			writeError(w, http.StatusBadRequest, "RECOVERY_SOURCE_NOT_ACKNOWLEDGED", re.Message)
 		case "RECOVERY_USE_SNAPSHOT_RESTORE":
 			writeError(w, http.StatusConflict, "RECOVERY_USE_SNAPSHOT_RESTORE", re.Message)
 		case "RECOVERY_UNAVAILABLE":

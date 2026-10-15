@@ -681,12 +681,23 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// (there is no role to gate on). The redeem is a GET, so it takes
 		// neither; the grant in its path is what it presents. See
 		// handlers_recovery.go for the whole argument.
-		r.With(requireCSRF).Post("/backups/{source}/{set}/{name}/recovery", h.mintRecovery)
+		//
+		// Issue #1191: the one exception is a recovery onto the set's own
+		// source host, which writes onto a production machine. That target
+		// alone goes through the gate, the acknowledgement and the step-up
+		// (requireSourceTargetGate, recovery_source.go); every other target
+		// passes it untouched.
+		r.With(requireCSRF, requireSourceTargetGate(h.enforce, maxRecoveryMintBodyBytes)).Post("/backups/{source}/{set}/{name}/recovery", h.mintRecovery)
 		r.Get("/recoveries/{grant}", h.redeemRecovery)
 		// #1106 and #1107: several backups, or a whole backup set, to one
 		// destination. The same tier as the mint (CSRF, no destructive
-		// gate) for the same reason; see handlers_recoverymany.go.
-		r.With(requireCSRF).Post("/recoveries", h.recoverMany)
+		// gate except for the source host) for the same reason; see
+		// handlers_recoverymany.go.
+		r.With(requireCSRF, requireSourceTargetGate(h.enforce, maxRecoverManyBodyBytes)).Post("/recoveries", h.recoverMany)
+		// Issue #1191: where a set's source-host recovery would write and
+		// whether it may (one write probe). CSRF and not the gate, like the
+		// connection test that runs the same probe.
+		r.With(requireCSRF).Post("/backup-sets/{source}/{set}/recovery-source/preflight", h.preflightRecoverySource)
 		r.Get("/activity", h.listActivity)
 		// Issue #573: what each backup set is DOING right now, as
 		// opposed to the durable record of what happened that the route

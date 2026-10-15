@@ -177,7 +177,10 @@
           "RECOVERY_FAILED",
           "RECOVERY_READS_BUSY",
           "RECOVERY_DESTINATION_BUSY",
-          "RECOVERY_DOWNLOADS_BUSY"
+          "RECOVERY_DOWNLOADS_BUSY",
+          "RECOVERY_SOURCE_UNAVAILABLE",
+          "RECOVERY_SOURCE_READ_ONLY",
+          "RECOVERY_SOURCE_NOT_ACKNOWLEDGED"
         ],
         "x-code-origins": {
           "authentication-failed": "ui",
@@ -281,7 +284,10 @@
           "STEP_UP_FAILED": "wire",
           "STEP_UP_UNAVAILABLE": "wire",
           "INSECURE_TRANSPORT_ACK_REQUIRED": "wire",
-          "ACKNOWLEDGEMENT_REQUIRED": "wire"
+          "ACKNOWLEDGEMENT_REQUIRED": "wire",
+          "RECOVERY_SOURCE_UNAVAILABLE": "wire",
+          "RECOVERY_SOURCE_READ_ONLY": "wire",
+          "RECOVERY_SOURCE_NOT_ACKNOWLEDGED": "wire"
         },
         "x-error-classes": {
           "authentication": [
@@ -310,7 +316,8 @@
             "BACKUP_SET_NOT_INCREMENTAL",
             "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED",
             "RECOVERY_TARGET_INVALID",
-            "ACKNOWLEDGEMENT_REQUIRED"
+            "ACKNOWLEDGEMENT_REQUIRED",
+            "RECOVERY_SOURCE_NOT_ACKNOWLEDGED"
           ],
           "conflict": [
             "RETENTION_PLAN_STALE",
@@ -345,7 +352,9 @@
             "RECOVERY_GRANT_EXPIRED",
             "RECOVERY_TARGET_EXISTS",
             "RECOVERY_USE_SNAPSHOT_RESTORE",
-            "RECOVERY_BUSY"
+            "RECOVERY_BUSY",
+            "RECOVERY_SOURCE_UNAVAILABLE",
+            "RECOVERY_SOURCE_READ_ONLY"
           ],
           "not-found": [
             "BACKUP_SET_NOT_FOUND",
@@ -6738,20 +6747,21 @@
       "RecoveryTarget": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Where one recovery writes its bytes. The set is closed: download streams to the caller that redeems the grant, staging places one file under the configured recovery staging root, storage uploads to another configured storage destination. A staging or storage target is written only after the whole copy has been read and has matched the SHA-256 the journal recorded. A download is not staged: it is refused before its first byte unless a read of the whole copy has matched that digest, and each chunk is checked again as it is sent.",
+        "description": "Where one recovery writes its bytes. The set is closed: download streams to the caller that redeems the grant, staging places one file under the configured recovery staging root, storage uploads to another configured storage destination. A staging or storage target is written only after the whole copy has been read and has matched the SHA-256 the journal recorded. A download is not staged: it is refused before its first byte unless a read of the whole copy has matched that digest, and each chunk is checked again as it is sent. source (issue #1191) uploads back onto the backup set's own SFTP source host, built from the set's configuration and never from the request, into a new folder under its remote path; it writes onto a production machine, so it needs acknowledged, and over HTTP it goes through the destructive gate, the insecure-transport acknowledgement and the step-up re-authentication.",
         "properties": {
           "kind": {
             "type": "string",
             "enum": [
               "download",
               "staging",
-              "storage"
+              "storage",
+              "source"
             ]
           },
           "path": {
             "type": "string",
             "x-go-omitempty": true,
-            "description": "For staging: the name to place the recovered file under, relative to the recovery staging root. It may name subdirectories, may not leave the root and may not pass through a symlink. The file is placed under a unique name so nothing is ever replaced."
+            "description": "For staging: the name to place the recovered file under, relative to the recovery staging root. It may name subdirectories, may not leave the root and may not pass through a symlink. The file is placed under a unique name so nothing is ever replaced. For source: the new folder under the set's remote path, one segment starting with retnd-recovered- (the next backup run skips those). Omitted, a new retnd-recovered-<time> folder."
           },
           "medium": {
             "type": "string",
@@ -6762,6 +6772,11 @@
             "type": "string",
             "x-go-omitempty": true,
             "description": "For storage: the object key. Defaults to recovered/<artifact id>. An existing object is never replaced."
+          },
+          "acknowledged": {
+            "type": "boolean",
+            "x-go-omitempty": true,
+            "description": "For source: the explicit yes to writing onto the host this backup came from. Absent is a no, and the request is refused."
           }
         },
         "required": [
@@ -8173,6 +8188,72 @@
           "refused",
           "bytes_read",
           "sets"
+        ]
+      },
+      "RecoverySourcePreflight": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Where a recovery of this backup set onto its own source host (issue #1191) would write, and whether retnd may write there. Built from the set's configuration. A set with no source host (not SFTP, or incremental) says why in reason and nothing else.",
+        "properties": {
+          "set_id": {
+            "type": "string",
+            "description": "The backup set, source/set."
+          },
+          "available": {
+            "type": "boolean",
+            "description": "Whether this set has a source host to send a backup back to."
+          },
+          "reason": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "Why there is none, when available is false."
+          },
+          "host": {
+            "type": "string",
+            "x-go-omitempty": true
+          },
+          "port": {
+            "type": "integer",
+            "x-go-omitempty": true
+          },
+          "user": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The account the set pulls with, which is the one that would write."
+          },
+          "remote_path": {
+            "type": "string",
+            "x-go-omitempty": true
+          },
+          "folder": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The new folder a recovery started now would go into, under remote_path."
+          },
+          "url": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "sftp://user@host[:port]/remote_path/folder/"
+          },
+          "writable": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "enum": [
+              "yes",
+              "no",
+              "unknown"
+            ],
+            "description": "What the write probe found: yes, no (a read-only account, or a set declared read_only, which is never probed), or unknown (the host did not answer)."
+          },
+          "detail": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The sentence that goes with writable."
+          }
+        },
+        "required": [
+          "set_id",
+          "available"
         ]
       }
     },
@@ -17815,6 +17896,12 @@
               "type": "string"
             },
             "description": "The backup's own name within that backup set. A backup's identity is exactly source/set/name, and a name never contains a separator, which is why this route declares three parameters rather than taking one value and splitting it."
+          },
+          {
+            "$ref": "#/components/parameters/StepUpPassword"
+          },
+          {
+            "$ref": "#/components/parameters/InsecureTransportAck"
           }
         ],
         "requestBody": {
@@ -17849,7 +17936,7 @@
             }
           },
           "400": {
-            "description": "Refused: INVALID_REQUEST, RECOVERY_TARGET_INVALID. The second is a target that does not stay inside the staging root or names a destination this configuration does not declare.",
+            "description": "Refused: INVALID_REQUEST, RECOVERY_TARGET_INVALID, ACKNOWLEDGEMENT_REQUIRED, RECOVERY_SOURCE_NOT_ACKNOWLEDGED. The second is a target that does not stay inside the staging root or names a destination this configuration does not declare.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17859,7 +17946,9 @@
             },
             "x-error-codes": [
               "INVALID_REQUEST",
-              "RECOVERY_TARGET_INVALID"
+              "RECOVERY_TARGET_INVALID",
+              "ACKNOWLEDGEMENT_REQUIRED",
+              "RECOVERY_SOURCE_NOT_ACKNOWLEDGED"
             ]
           },
           "401": {
@@ -17876,7 +17965,7 @@
             ]
           },
           "403": {
-            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, DESTRUCTIVE_OPERATIONS_DISABLED, INSECURE_TRANSPORT_ACK_REQUIRED, STEP_UP_REQUIRED, STEP_UP_FAILED, STEP_UP_UNAVAILABLE. A source target (issue #1191) alone is refused here when the destructive gate is shut, when plain HTTP from another machine was not acknowledged, or when the step-up password is missing or wrong.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17886,7 +17975,12 @@
             },
             "x-error-codes": [
               "CSRF_TOKEN_MISSING",
-              "CSRF_TOKEN_MISMATCH"
+              "CSRF_TOKEN_MISMATCH",
+              "DESTRUCTIVE_OPERATIONS_DISABLED",
+              "INSECURE_TRANSPORT_ACK_REQUIRED",
+              "STEP_UP_REQUIRED",
+              "STEP_UP_FAILED",
+              "STEP_UP_UNAVAILABLE"
             ]
           },
           "404": {
@@ -17904,7 +17998,7 @@
             ]
           },
           "409": {
-            "description": "Refused: RECOVERY_COST_NOT_ACKNOWLEDGED, RECOVERY_NO_COPY, RECOVERY_NOT_READABLE, RECOVERY_NO_DIGEST, RECOVERY_USE_SNAPSHOT_RESTORE. The first names the cost and starts nothing. The last is a backup set stored by the kopia engine, whose backups are restore points: use `retnd snapshot restore`.",
+            "description": "Refused: RECOVERY_COST_NOT_ACKNOWLEDGED, RECOVERY_NO_COPY, RECOVERY_NOT_READABLE, RECOVERY_NO_DIGEST, RECOVERY_USE_SNAPSHOT_RESTORE, RECOVERY_SOURCE_UNAVAILABLE, RECOVERY_SOURCE_READ_ONLY. The first names the cost and starts nothing. The last is a backup set stored by the kopia engine, whose backups are restore points: use `retnd snapshot restore`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17917,7 +18011,9 @@
               "RECOVERY_NO_COPY",
               "RECOVERY_NOT_READABLE",
               "RECOVERY_NO_DIGEST",
-              "RECOVERY_USE_SNAPSHOT_RESTORE"
+              "RECOVERY_USE_SNAPSHOT_RESTORE",
+              "RECOVERY_SOURCE_UNAVAILABLE",
+              "RECOVERY_SOURCE_READ_ONLY"
             ]
           },
           "429": {
@@ -18022,7 +18118,7 @@
             }
           },
           "400": {
-            "description": "Refused: INVALID_REQUEST, RECOVERY_TARGET_INVALID. The second is a target that does not stay inside the staging root, names a destination this configuration does not declare, or is a download.",
+            "description": "Refused: INVALID_REQUEST, RECOVERY_TARGET_INVALID, ACKNOWLEDGEMENT_REQUIRED, RECOVERY_SOURCE_NOT_ACKNOWLEDGED. The second is a target that does not stay inside the staging root, names a destination this configuration does not declare, or is a download.",
             "content": {
               "application/json": {
                 "schema": {
@@ -18032,7 +18128,9 @@
             },
             "x-error-codes": [
               "INVALID_REQUEST",
-              "RECOVERY_TARGET_INVALID"
+              "RECOVERY_TARGET_INVALID",
+              "ACKNOWLEDGEMENT_REQUIRED",
+              "RECOVERY_SOURCE_NOT_ACKNOWLEDGED"
             ]
           },
           "401": {
@@ -18049,7 +18147,7 @@
             ]
           },
           "403": {
-            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, DESTRUCTIVE_OPERATIONS_DISABLED, INSECURE_TRANSPORT_ACK_REQUIRED, STEP_UP_REQUIRED, STEP_UP_FAILED, STEP_UP_UNAVAILABLE. A source target (issue #1191) alone is refused here when the destructive gate is shut, when plain HTTP from another machine was not acknowledged, or when the step-up password is missing or wrong.",
             "content": {
               "application/json": {
                 "schema": {
@@ -18059,7 +18157,12 @@
             },
             "x-error-codes": [
               "CSRF_TOKEN_MISSING",
-              "CSRF_TOKEN_MISMATCH"
+              "CSRF_TOKEN_MISMATCH",
+              "DESTRUCTIVE_OPERATIONS_DISABLED",
+              "INSECURE_TRANSPORT_ACK_REQUIRED",
+              "STEP_UP_REQUIRED",
+              "STEP_UP_FAILED",
+              "STEP_UP_UNAVAILABLE"
             ]
           },
           "404": {
@@ -18077,7 +18180,7 @@
             ]
           },
           "409": {
-            "description": "Refused: RECOVERY_COST_NOT_ACKNOWLEDGED, RECOVERY_NO_COPY, RECOVERY_USE_SNAPSHOT_RESTORE. The first names the whole request's cost and starts nothing. The last is a backup set stored by the kopia engine, whose whole-set restore is `retnd snapshot restore`.",
+            "description": "Refused: RECOVERY_COST_NOT_ACKNOWLEDGED, RECOVERY_NO_COPY, RECOVERY_USE_SNAPSHOT_RESTORE, RECOVERY_SOURCE_UNAVAILABLE, RECOVERY_SOURCE_READ_ONLY. The first names the whole request's cost and starts nothing. The last is a backup set stored by the kopia engine, whose whole-set restore is `retnd snapshot restore`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -18088,7 +18191,9 @@
             "x-error-codes": [
               "RECOVERY_COST_NOT_ACKNOWLEDGED",
               "RECOVERY_NO_COPY",
-              "RECOVERY_USE_SNAPSHOT_RESTORE"
+              "RECOVERY_USE_SNAPSHOT_RESTORE",
+              "RECOVERY_SOURCE_UNAVAILABLE",
+              "RECOVERY_SOURCE_READ_ONLY"
             ]
           },
           "429": {
@@ -18164,7 +18269,15 @@
         "x-idempotency-key": "none",
         "x-optimistic-concurrency": null,
         "x-csrf-required": true,
-        "x-authenticated": true
+        "x-authenticated": true,
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/StepUpPassword"
+          },
+          {
+            "$ref": "#/components/parameters/InsecureTransportAck"
+          }
+        ]
       }
     },
     "/recoveries/{grant}": {
@@ -18260,7 +18373,7 @@
             ]
           },
           "409": {
-            "description": "Refused: RECOVERY_NOT_READABLE, RECOVERY_NO_DIGEST, RECOVERY_BUSY, RECOVERY_TARGET_EXISTS. RECOVERY_BUSY is a second request for a server-side (staging or storage) target while the first is still carrying it out; a download has no such state.",
+            "description": "Refused: RECOVERY_NOT_READABLE, RECOVERY_NO_DIGEST, RECOVERY_BUSY, RECOVERY_TARGET_EXISTS, RECOVERY_SOURCE_UNAVAILABLE, RECOVERY_SOURCE_READ_ONLY. RECOVERY_BUSY is a second request for a server-side (staging or storage) target while the first is still carrying it out; a download has no such state.",
             "content": {
               "application/json": {
                 "schema": {
@@ -18272,7 +18385,9 @@
               "RECOVERY_NOT_READABLE",
               "RECOVERY_NO_DIGEST",
               "RECOVERY_BUSY",
-              "RECOVERY_TARGET_EXISTS"
+              "RECOVERY_TARGET_EXISTS",
+              "RECOVERY_SOURCE_UNAVAILABLE",
+              "RECOVERY_SOURCE_READ_ONLY"
             ]
           },
           "410": {
@@ -18300,6 +18415,21 @@
             },
             "x-error-codes": [
               "INVALID_REQUEST"
+            ]
+          },
+          "429": {
+            "description": "Refused: RECOVERY_READS_BUSY, RECOVERY_DESTINATION_BUSY, RECOVERY_DOWNLOADS_BUSY. A budget is full: this host runs only so many full reads of retained copies at once, and against one destination, and streams only so many downloads. Nothing was read, the grant is not spent, and Retry-After says when to come back.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_READS_BUSY",
+              "RECOVERY_DESTINATION_BUSY",
+              "RECOVERY_DOWNLOADS_BUSY"
             ]
           },
           "500": {
@@ -18369,21 +18499,6 @@
             "x-error-codes": [
               "RECOVERY_NO_SPACE",
               "RECOVERY_BELOW_RESERVE"
-            ]
-          },
-          "429": {
-            "description": "Refused: RECOVERY_READS_BUSY, RECOVERY_DESTINATION_BUSY, RECOVERY_DOWNLOADS_BUSY. A budget is full: this host runs only so many full reads of retained copies at once, and against one destination, and streams only so many downloads. Nothing was read, the grant is not spent, and Retry-After says when to come back.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "x-error-codes": [
-              "RECOVERY_READS_BUSY",
-              "RECOVERY_DESTINATION_BUSY",
-              "RECOVERY_DOWNLOADS_BUSY"
             ]
           }
         },
@@ -19654,6 +19769,113 @@
         "x-idempotency-key": "none",
         "x-optimistic-concurrency": null,
         "x-csrf-required": false,
+        "x-authenticated": true
+      }
+    },
+    "/backup-sets/{source}/{set}/recovery-source/preflight": {
+      "post": {
+        "operationId": "preflightRecoverySource",
+        "summary": "Say where a recovery onto this backup set's own source host would write, and whether it may, before anything runs.",
+        "description": "Issue #1191. Runs the write probe the connection test runs (#852): one probe file is written under the set's remote path, removed, and its absence confirmed. A set declared read_only, or one with no source host, is answered without touching the network. CSRF and not the destructive gate, like the connection test.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "source",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The configured source this backup set belongs to."
+          },
+          {
+            "name": "set",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The backup set's own name within that source."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The destination, and what the probe found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoverySourcePreflight"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "501": {
+            "description": "Refused: RECOVERY_UNAVAILABLE. The backend behind this router cannot recover backups.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_UNAVAILABLE"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
         "x-authenticated": true
       }
     }

@@ -112,6 +112,12 @@ var destructiveGateExemptRoutes = map[string]bool{
 	// to one destination. It deletes and overwrites nothing (a recovery
 	// never replaces an object or a file) and is audited by the service.
 	"POST /api/v1/recoveries": true,
+	// Issue #1191: both of the above gate one target kind themselves, the
+	// set's own source host, because that one writes onto a production
+	// machine (requireSourceTargetGate, recovery_source.go, and its tests in
+	// recovery_source_1191_test.go). The preflight writes and removes one
+	// probe file, exactly what the connection test does, in the same tier.
+	"POST /api/v1/backup-sets/{source}/{set}/recovery-source/preflight": true,
 
 	// Issue #146 (B2.7): every one of these is "state-changing but
 	// non-destructive" or outright read-only under

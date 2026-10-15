@@ -20,6 +20,8 @@
  */
 import "@shared/assurance/assurance.css";
 import { useState } from "react";
+import { SourceHostDetails, SourceHostUnavailable } from "@shared/assurance/SourceHost";
+import { SOURCE_LABEL, sourceHostReady, useSourceHost } from "@shared/assurance/sourceHostState";
 import { DestinationSelect } from "@shared/assurance/DestinationSelect";
 import { HostFolderBrowser } from "@shared/assurance/HostFolderBrowser";
 import { recoverCommand } from "@shared/assurance/assuranceCommands";
@@ -46,20 +48,39 @@ export function BackupsSelectionBar({
   onRecover(target: RunTarget, acknowledged: boolean): void;
   onDownload(): void;
 }) {
-  const [kind, setKind] = useState<RunTarget["kind"] | "download">("staging");
+  // Issue #1191: null until the source host has answered. It is the default
+  // when every ticked backup comes from one SFTP set; otherwise nothing is
+  // preselected and the reason is shown.
+  const sets = [...new Set(selected.map((a) => a.setId))];
+  const setsKey = sets.join(",");
+  // A choice and a tick are remembered with the selection they were made for:
+  // a selection that moves to another set, or to several, asks again.
+  const [choice, setChoice] = useState<{ kind: RunTarget["kind"] | "download"; key: string } | null>(null);
   const [where, setWhere] = useState("");
   const [accepted, setAccepted] = useState(false);
+  const [ack, setAck] = useState<string | null>(null);
+  const [sourcePassword, setSourcePassword] = useState("");
+  const sourceHost = useSourceHost(sets.length === 1 ? sets[0] : null, sets.length);
+  const stillChosen = choice && (choice.kind !== "source" || choice.key === setsKey) ? choice.kind : null;
+  const kind: RunTarget["kind"] | "download" | null = stillChosen ?? (
+    !sourceHost.ready ? null : sourceHost.preselect ? "source" : sourceHost.offered ? null : "staging");
+  const setKind = (k: RunTarget["kind"] | "download") => setChoice({ kind: k, key: setsKey });
+  const sourceAck = ack === setsKey;
+  const setSourceAck = (yes: boolean) => setAck(yes ? setsKey : null);
+  const sourceFolder = sourceHost.preflight?.folder ?? "";
   const total = selected.reduce((n, a) => n + a.sizeBytes, 0);
   const archived = selected.filter((a) => planOf(a).archived).length;
   const download = kind === "download";
   // An archived copy is not downloaded (see bulkDownload.ts), so a download
   // has no cost to accept and asks for no box.
   const needsAck = archived > 0 && !download;
-  const ready = download ? !readOnly && !downloading : where.trim() !== "" && (!needsAck || accepted) && !readOnly;
+  const placed = kind === "source" ? sourceHostReady(sourceHost, sourceAck, sourcePassword) : kind !== null && where.trim() !== "";
+  const ready = download ? !readOnly && !downloading : placed && (!needsAck || accepted) && !readOnly;
   const command = download
     ? selected.slice(0, 5).map((a) => recoverCommand(a.id, "download", "", false)).join("\n") +
       (selected.length > 5 ? "\n# and one more for each of the other " + (selected.length - 5) : "")
-    : recoverManyCommand(selected.map((a) => a.id), kind, where.trim(), needsAck && accepted);
+    : kind === null ? "retnd recover " + selected.map((a) => a.id).join(" ") + " --to <destination>"
+    : recoverManyCommand(selected.map((a) => a.id), kind, kind === "source" ? sourceFolder : where.trim(), needsAck && accepted, sourceAck);
 
   return (
     <section
@@ -80,6 +101,14 @@ export function BackupsSelectionBar({
 
       <div className="selbar__row" style={{ alignItems: "flex-start" }}>
         <div role="radiogroup" aria-label="Where should the backups go?" className="selbar__targets">
+          {sourceHost.offered ? (
+            <label>
+              <input type="radio" name="bulk-target" checked={kind === "source"}
+                disabled={!sourceHost.preflight?.available || sourceHost.unavailable !== null}
+                onChange={() => { setKind("source"); setWhere(""); }} />
+              {SOURCE_LABEL}
+            </label>
+          ) : null}
           <label>
             <input type="radio" name="bulk-target" checked={download} onChange={() => { setKind("download"); setWhere(""); }} aria-describedby="bulk-download-note" />
             Download in this browser
@@ -93,7 +122,12 @@ export function BackupsSelectionBar({
             Configured destination
           </label>
         </div>
-        {download ? null : kind === "staging" ? (
+        {kind === "source" ? (
+          <div className="selbar__where">
+            <SourceHostDetails host={sourceHost} folder={sourceFolder} acknowledged={sourceAck} onAcknowledged={setSourceAck}
+              password={sourcePassword} onPassword={setSourcePassword} />
+          </div>
+        ) : download || kind === null ? null : kind === "staging" ? (
           <div className="selbar__where">
             <label className="field">
               <span className="field__label">
@@ -115,6 +149,10 @@ export function BackupsSelectionBar({
           </div>
         )}
       </div>
+
+      {sourceHost.offered && sourceHost.unavailable ? (
+        <div className="selbar__note"><SourceHostUnavailable reason={sourceHost.unavailable} /></div>
+      ) : null}
 
       <div id="bulk-download-note" data-testid="bulk-download-note" className="selbar__note">
         {download
@@ -147,7 +185,14 @@ export function BackupsSelectionBar({
           className="btn btn--primary"
           disabled={!ready}
           title={readOnly ? readOnlyReason : undefined}
-          onClick={() => (kind === "download" ? onDownload() : onRecover({ kind, where: where.trim() }, needsAck && accepted))}
+          onClick={() => {
+            if (kind === "download") { onDownload(); return; }
+            if (kind === "source") {
+              onRecover({ kind, where: sourceFolder, acknowledged: true, ...(sourceHost.gate.stepUpRequired ? { stepUpPassword: sourcePassword } : {}) }, needsAck && accepted);
+              return;
+            }
+            if (kind) onRecover({ kind, where: where.trim() }, needsAck && accepted);
+          }}
         >
           {download ? "Download selected" : "Recover selected"}
         </button>

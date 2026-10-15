@@ -37,6 +37,8 @@ function renderDialog(over: Partial<RetndApi>, engine = "artifact") {
   return api;
 }
 afterEach(() => cleanup());
+// #1191: the dialog starts on the set's source host, so a staging run is chosen.
+const toStaging = async () => userEvent.click(await screen.findByRole("radio", { name: "Folder under the staging root on the host" }));
 
 describe("Recover this backup set", () => {
   it("shows the pre-flight before anything is chosen to run, listing what is not included", async () => {
@@ -54,6 +56,8 @@ describe("Recover this backup set", () => {
     renderDialog({ planRecoverMany: planFn, recoverMany: recover });
     await screen.findByTestId("preflight-summary");
     await userEvent.click(screen.getByRole("radio", { name: "The newest restore point only" }));
+    await toStaging();
+
     await userEvent.type(screen.getByRole("textbox", { name: /staging root/ }), "x");
     await userEvent.click(screen.getByRole("button", { name: "Recover this backup set" }));
     await waitFor(() => expect(recover).toHaveBeenCalled());
@@ -67,6 +71,8 @@ describe("Recover this backup set", () => {
     const planFn = vi.fn().mockImplementation(async (r) =>
       plan({ chargeableCount: 2, chargeableBytes: 2000, ...(r.acknowledged ? {} : { refusal: { code: "RECOVERY_COST_NOT_ACKNOWLEDGED", message: "billed" } }) }));
     renderDialog({ planRecoverMany: planFn, recoverMany: recover });
+    await toStaging();
+
     await userEvent.type(await screen.findByRole("textbox", { name: /staging root/ }), "x");
     const go = screen.getByRole("button", { name: "Recover this backup set" }) as HTMLButtonElement;
     await screen.findByTestId("set-cost");
@@ -82,6 +88,8 @@ describe("Recover this backup set", () => {
 
   it("stays off while the host would refuse the run for room, and shows its sentence with the numbers", async () => {
     renderDialog({ planRecoverMany: vi.fn().mockResolvedValue(plan({ refusal: { code: "RECOVERY_NO_SPACE", message: "the files need 2000 bytes and the staging disk has 10 bytes free" } })) });
+    await toStaging();
+
     await userEvent.type(await screen.findByRole("textbox", { name: /staging root/ }), "x");
     const alert = await screen.findByTestId("preflight-refusal");
     expect(alert.textContent).toContain("2000 bytes");
@@ -107,6 +115,8 @@ describe("Recover this backup set", () => {
   it("a refusal when the run starts is shown and nothing is called recovered", async () => {
     const recover = vi.fn().mockRejectedValue(Object.assign(new Error("no"), { api: { code: "RECOVERY_NO_SPACE", message: "no room" } }));
     renderDialog({ planRecoverMany: vi.fn().mockResolvedValue(plan()), recoverMany: recover });
+    await toStaging();
+
     await userEvent.type(await screen.findByRole("textbox", { name: /staging root/ }), "x");
     await waitFor(() => expect((screen.getByRole("button", { name: "Recover this backup set" }) as HTMLButtonElement).disabled).toBe(false));
     await userEvent.click(screen.getByRole("button", { name: "Recover this backup set" }));

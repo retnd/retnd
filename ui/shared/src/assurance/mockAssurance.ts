@@ -622,7 +622,9 @@ export function createMockRecovery(scenario: string) {
       GRANTS.delete(grant);
       const placed = g.target.kind === "storage"
         ? { key: g.target.key || "recovered/" + g.artifactId }
-        : { path: "/data/recover-staging/" + (g.target.path || "recovered") + ".k3j9" };
+        : g.target.kind === "source"
+          ? { path: (g.target.path || "retnd-recovered") + "/" + g.artifactId.split("/").pop() }
+          : { path: "/data/recover-staging/" + (g.target.path || "recovered") + ".k3j9" };
       return {
         artifactId: g.artifactId, copy: g.copy, target: g.target, ...placed,
         bytes: 15_246_903_296, sha256: "9f2c61b7a5e84d03c1b7f60a29e5d8374bc01e6a52d93f8087ab4c6e1d25f390"

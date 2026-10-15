@@ -255,6 +255,8 @@ var contractBindings = map[string]contractBinding{
 	"listHostDirectory":        {nil, hostDirectoryResponse{}, "/api/v1/system/host-directories"},
 	"startRecoveryTest":        {startRecoveryTestRequest{}, recoveryTestStartedResponse{}, "/api/v1/backup-sets/src/set-1/recovery-test"},
 	"startScrub":               {nil, scrubStartedResponse{}, "/api/v1/backup-sets/src/set-1/scrub"},
+	// Issue #1191.
+	"preflightRecoverySource":  {nil, recoverySourceBody{}, "/api/v1/backup-sets/src/set-1/recovery-source/preflight"},
 	"cancelAssuranceOperation": {nil, assuranceOperationCancelledResponse{}, "/api/v1/assurance/operations/op_1/cancel"},
 	"getRecoveryTestOutput":    {nil, recoveryTestOutputResponse{}, "/api/v1/backup-sets/src/set-1/recovery-test/output"},
 	"getWorkflowRun":           {nil, workflowRunResponse{}, "/api/v1/workflow-runs/run_1"},

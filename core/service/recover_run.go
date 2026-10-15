@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path"
 	"strconv"
 	"sync"
 	"time"
@@ -289,6 +290,25 @@ func (b *BackupService) RedeemRecovery(ctx context.Context, sess RecoverySession
 			ArtifactID: g.Artifact, Copy: g.Copy, Target: recoveryTargetOf(g.Target),
 			Key: g.Target.Key, Bytes: staged.Size, SHA256: staged.Digest,
 		}, nil
+	case export.TargetSource:
+		defer h.grants.Close(token)
+		defer b.discardStaged(staged)
+		trace.stage(ctx, "writing_target")
+		id, _ := app.ParseArtifactID(g.Artifact)
+		full, uerr := b.uploadToSource(ctx, staged, id.Set.String(), g.Target.Path)
+		if uerr != nil {
+			trace.fail(ctx, uerr)
+			b.auditRecovery(ctx, &ev, uerr)
+			return nil, nil, mapRecoveryError(uerr)
+		}
+		ev.bytes = staged.Size
+		trace.stage(ctx, "cleaning_temporary_files")
+		trace.complete(ctx, staged.Size)
+		b.auditRecovery(ctx, &ev, nil)
+		return nil, &RecoveryResult{
+			ArtifactID: g.Artifact, Copy: g.Copy, Target: recoveryTargetOf(g.Target),
+			Path: full, Bytes: staged.Size, SHA256: staged.Digest,
+		}, nil
 	}
 	h.grants.Close(token)
 	b.discardStaged(staged)
@@ -297,6 +317,11 @@ func (b *BackupService) RedeemRecovery(ctx context.Context, sess RecoverySession
 }
 
 func recoveryTargetOf(t export.Target) RecoveryTarget {
+	if t.Kind == export.TargetSource {
+		// The grant holds folder/name; the target is the folder, and it was
+		// acknowledged or it could not have been minted.
+		return RecoveryTarget{Kind: string(t.Kind), Path: path.Dir(t.Path), Acknowledged: true}
+	}
 	return RecoveryTarget{Kind: string(t.Kind), Path: t.Path, Medium: t.Medium, Key: t.Key}
 }
 

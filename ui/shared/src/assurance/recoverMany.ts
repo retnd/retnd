@@ -30,8 +30,14 @@ export interface RunItem {
 }
 
 export interface RunTarget {
-  kind: "staging" | "storage";
+  kind: "staging" | "storage" | "source";
+  /** A folder, a destination id, or for the source host (#1191) the new
+   *  retnd-recovered-* folder. */
   where: string;
+  /** source: the yes to writing onto the host, and the password again where
+   *  the engine re-checks it. */
+  acknowledged?: boolean;
+  stepUpPassword?: string;
 }
 
 function stateOf(i: RecoverManyItem): ItemState {
@@ -78,8 +84,11 @@ export async function runRecoverMany(
     const result = await api.recoverMany(
       {
         artifacts: ids,
-        target: target.kind === "staging" ? { kind: "staging", path: target.where } : { kind: "storage", medium: target.where },
-        acknowledged: acknowledged ? true : undefined
+        target: target.kind === "staging" ? { kind: "staging", path: target.where }
+          : target.kind === "source" ? { kind: "source", path: target.where, acknowledged: target.acknowledged === true }
+          : { kind: "storage", medium: target.where },
+        acknowledged: acknowledged ? true : undefined,
+        ...(target.stepUpPassword ? { stepUpPassword: target.stepUpPassword } : {})
       },
       {
         signal,

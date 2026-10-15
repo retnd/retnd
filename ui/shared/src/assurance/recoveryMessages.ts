@@ -47,7 +47,11 @@ const NEXT: Record<string, { next: string; retryable: boolean }> = {
   RECOVERY_NO_DIGEST: { next: "No digest was recorded for this backup, so a read could not be checked and nothing was started.", retryable: false },
   RECOVERY_INTERRUPTED: { next: "The host stopped while reading. Nothing was delivered. Try again.", retryable: true },
   RECOVERY_UNAVAILABLE: { next: "This host cannot recover backups right now.", retryable: false },
-  RECOVERY_FAILED: { next: "Nothing was delivered. The host's log has the reason.", retryable: true }
+  RECOVERY_FAILED: { next: "Nothing was delivered. The host's log has the reason.", retryable: true },
+  // Issue #1191: the source host.
+  RECOVERY_SOURCE_UNAVAILABLE: { next: "This set has no source host to send the backup back to, or it could not be reached. Pick another destination.", retryable: false },
+  RECOVERY_SOURCE_READ_ONLY: { next: "The account this set pulls with cannot write on its source. Pick another destination, or give that account write access.", retryable: false },
+  RECOVERY_SOURCE_NOT_ACKNOWLEDGED: { next: "Tick the box to say you understand this writes onto the source host.", retryable: true }
 };
 
 export function recoveryRefusal(e: unknown, setId: string): RecoveryRefusal {

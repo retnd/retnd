@@ -552,6 +552,13 @@ func (s *Service) lifecycleDeps() lifecycle.Deps {
 	return lifecycle.Deps{Journal: s.Journal, Transport: s.Transport, Now: s.Now}
 }
 
+// SourceFor is sourceFor for the service layer: the source-host recovery
+// destination (issue #1191) writes over exactly the connection a cycle reads
+// over, so it takes the one translation every use case here already shares.
+func SourceFor(cfg *config.Config, src config.Source, bs config.BackupSet) transport.Source {
+	return sourceFor(cfg, src, bs)
+}
+
 // sourceFor builds the transport.Source one backup set's configured Remote
 // describes. This is the one place config.Remote's fields are translated
 // into transport.Source's, so every use case in this package (the cycle,

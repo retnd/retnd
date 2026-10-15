@@ -371,15 +371,23 @@ func (e gateEnforcement) checkRestore(w http.ResponseWriter, r *http.Request, ac
 			"a restore writes into a directory you named, so the request has to say you understand that: set acknowledged to true in its parameters")
 		return false
 	}
+	return e.checkStepUp(w, r, "a restore", "retnd snapshot restore")
+}
+
+// checkStepUp enforces the password re-check for one gated act, named in the
+// refusal ("a restore", "a recovery onto the source host"), with the command
+// that does the same on the host. It writes the refusal and reports false
+// when the password is missing or wrong.
+func (e gateEnforcement) checkStepUp(w http.ResponseWriter, r *http.Request, act, onHost string) bool {
 	if e.stepUp == nil {
 		writeError(w, http.StatusForbidden, "STEP_UP_UNAVAILABLE",
-			"this deployment cannot re-check your password, so it will not run a restore over HTTP; run `retnd snapshot restore` on the host")
+			"this deployment cannot re-check your password, so it will not run "+act+" over HTTP; run `"+onHost+"` on the host")
 		return false
 	}
 	password := r.Header.Get(StepUpHeader)
 	if password == "" {
 		writeError(w, http.StatusForbidden, "STEP_UP_REQUIRED",
-			"a restore asks for your password again: send it in the "+StepUpHeader+" header")
+			act+" asks for your password again: send it in the "+StepUpHeader+" header")
 		return false
 	}
 	if err := e.stepUp.VerifyStepUp(r.Context(), actorFromContext(r.Context()), password); err != nil {

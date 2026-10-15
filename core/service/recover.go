@@ -327,6 +327,7 @@ func RecoveryCodes() []string {
 		RecoveryGrantSessionEnded, RecoveryTooManyGrants, RecoveryTargetInvalid, RecoveryTargetExists,
 		RecoveryUseSnapshotRestore, RecoveryUnavailable, RecoveryBusy, RecoveryInterrupted, RecoveryFailed,
 		RecoveryReadsBusy, RecoveryDestinationBusy, RecoveryDownloadsBusy,
+		RecoverySourceUnavailable, RecoverySourceReadOnly, RecoverySourceNotAcknowledged,
 	}
 }
 
@@ -621,11 +622,25 @@ func (b *BackupService) MintRecovery(ctx context.Context, sess RecoverySession, 
 	if err != nil {
 		return RecoveryGrant{}, err
 	}
+	if target.Kind == export.TargetSource {
+		// The folder the default resolved to travels back on the grant, so
+		// the caller can say where the file will land.
+		req.Target.Path = path.Dir(target.Path)
+		ev.target = req.Target.label()
+	}
 	plan, err := b.planRecovery(ctx, req.ArtifactID, req.Copy, req.AcknowledgeCost)
 	if err != nil {
 		return RecoveryGrant{}, err
 	}
 	ev.copy = plan.resolved.Copy.Medium
+	if target.Kind == export.TargetSource {
+		// Before a byte is read: a read-only account is refused here, so
+		// it never costs a read or leaves a staged file.
+		id, _ := app.ParseArtifactID(req.ArtifactID)
+		if perr := b.probeSource(ctx, id.Set.String()); perr != nil && !errors.Is(perr, errNoSourceProbe) {
+			return RecoveryGrant{}, perr
+		}
+	}
 
 	if plan.resolved.NeedsThaw {
 		thaw, terr := h.thaw(ctx, sess.Actor, req.ArtifactID, plan.resolved.Copy.Medium)
@@ -677,6 +692,8 @@ func (t RecoveryTarget) label() string {
 		return "staging:" + t.Path
 	case "storage":
 		return "storage:" + t.Medium
+	case "source":
+		return "source:" + t.Path
 	}
 	return t.Kind
 }
@@ -709,8 +726,15 @@ func (b *BackupService) validateRecoveryTarget(h *recoveryHost, artifactID strin
 			return export.Target{}, recoveryErr(RecoveryTargetInvalid, "that key does not stay inside the destination's namespace")
 		}
 		return export.Target{Kind: export.TargetStorage, Medium: t.Medium, Key: clean}, nil
+	case "source":
+		id, err := app.ParseArtifactID(artifactID)
+		if err != nil {
+			return export.Target{}, recoveryErr(RecoveryTargetInvalid, "a source target needs the backup it recovers")
+		}
+		ex, _, err := b.validateSourceTarget(id.Set.String(), t, id.Name, true)
+		return ex, err
 	}
-	return export.Target{}, recoveryErr(RecoveryTargetInvalid, "target kind must be download, staging or storage")
+	return export.Target{}, recoveryErr(RecoveryTargetInvalid, "target kind must be download, staging, storage or source")
 }
 
 // startRecoveryThaw is the default thaw: the existing restore_placement
@@ -812,7 +836,8 @@ func isRefusal(code string) bool {
 	case RecoveryCostNotAcknowledged, RecoveryNoCopy, RecoveryCopyNotFound, RecoveryNotReadable,
 		RecoveryGrantUnknown, RecoveryGrantUsed, RecoveryGrantExpired, RecoveryGrantSessionEnded,
 		RecoveryTooManyGrants, RecoveryTargetInvalid, RecoveryTargetExists, RecoveryUseSnapshotRestore,
-		RecoveryBelowReserve, RecoveryBusy, RecoveryReadsBusy, RecoveryDestinationBusy, RecoveryDownloadsBusy, recoveryArtifactNotFoundCode, "RECOVERY_RANGE_NOT_SATISFIABLE":
+		RecoveryBelowReserve, RecoveryBusy, RecoveryReadsBusy, RecoveryDestinationBusy, RecoveryDownloadsBusy, recoveryArtifactNotFoundCode, "RECOVERY_RANGE_NOT_SATISFIABLE",
+		RecoverySourceUnavailable, RecoverySourceReadOnly, RecoverySourceNotAcknowledged:
 		return true
 	}
 	return false

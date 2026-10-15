@@ -55,9 +55,11 @@ import { bytes } from "@shared/utilities/format";
 import { DestinationSelect } from "./DestinationSelect";
 import { HostFolderBrowser } from "./HostFolderBrowser";
 import { recoverSetCommand, recoverSetPreflightCommand, snapshotRestoreCommand } from "./assuranceCommands";
+import { SourceHostDetails, SourceHostUnavailable } from "./SourceHost";
+import { SOURCE_LABEL, sourceHostReady, sourceHostRefusal, useSourceHost } from "./sourceHostState";
 
 type Narrow = "all" | "newest" | "since";
-type Where = "staging" | "storage";
+type Where = "staging" | "storage" | "source";
 
 const STATUS_LABEL: Record<RecoverManyItem["status"], string> = {
   ready: "Will be recovered",
@@ -93,7 +95,12 @@ export function RecoverSetDialog({
   const api = useApi();
   const [narrow, setNarrow] = useState<Narrow>("all");
   const [since, setSince] = useState("");
-  const [target, setTarget] = useState<Where>("staging");
+  // Issue #1191: null until the source host has answered; it is the default
+  // where the set has one, and nothing is preselected where it has none.
+  const [chosen, setTarget] = useState<Where | null>(null);
+  const [sourceAck, setSourceAck] = useState(false);
+  const [sourcePassword, setSourcePassword] = useState("");
+  const [sourceError, setSourceError] = useState<string | null>(null);
   const [where, setWhere] = useState("");
   const [accepted, setAccepted] = useState(false);
   const [stagingRoot, setStagingRoot] = useState<string | null>(null);
@@ -103,6 +110,13 @@ export function RecoverSetDialog({
   const box = useRef<HTMLDivElement>(null);
   const abort = useRef<AbortController | null>(null);
   const kopia = engine === "kopia";
+  const sourceHost = useSourceHost(kopia ? null : setId);
+  // Until something is chosen: the source host once it has answered and can
+  // be used, nothing if it cannot, and the old default (staging) on an engine
+  // that does not offer it.
+  const target: Where | null = chosen ?? (
+    kopia || !sourceHost.ready ? null : sourceHost.preselect ? "source" : sourceHost.offered ? null : "staging");
+  const sourceFolder = sourceHost.preflight?.folder ?? "";
 
   useEffect(() => {
     const back = returnFocus?.current ?? (document.activeElement as HTMLElement | null);
@@ -136,32 +150,43 @@ export function RecoverSetDialog({
     // Until a destination is named the plan is asked for against a placeholder
     // name: what is in the set, what it costs and how big it is do not depend
     // on where it goes, and the pre-flight is the thing worth seeing early.
-    if (target === "staging") return { kind: "staging", path: where.trim() || "recovery" };
-    return { kind: "storage", medium: where.trim() || "destination" };
-  }, [target, where]);
+    if (target === "source") return { kind: "source", path: sourceFolder, ...(sourceAck ? { acknowledged: true } : {}) };
+    if (target === "storage") return { kind: "storage", medium: where.trim() || "destination" };
+    return { kind: "staging", path: where.trim() || "recovery" };
+  }, [target, where, sourceFolder, sourceAck]);
   const request = useCallback((): RecoverManyRequest => ({
     set: setId,
     ...(narrow === "newest" ? { newestOnly: true } : {}),
     ...(sinceIso ? { since: sinceIso } : {}),
     ...(accepted ? { acknowledged: true } : {}),
-    target: targetSpec
-  }), [setId, narrow, sinceIso, accepted, targetSpec]);
+    target: targetSpec,
+    ...(target === "source" && sourceHost.gate.stepUpRequired ? { stepUpPassword: sourcePassword } : {})
+  }), [setId, narrow, sinceIso, accepted, targetSpec, target, sourceHost.gate.stepUpRequired, sourcePassword]);
 
   // The pre-flight, redrawn when a choice changes. A stale answer never
   // overwrites a newer one.
   const idle = phase.k === "choose" || phase.k === "refused";
   const skipPlan = kopia || !idle || sinceMissing;
+  // The plan does not depend on the tick or the password, so typing one does
+  // not ask for it again.
+  const planRequest = useCallback((): RecoverManyRequest => {
+    const rest = { ...request() };
+    delete rest.stepUpPassword;
+    const t = rest.target.kind === "source" ? { kind: "source" as const, path: rest.target.path } : rest.target;
+    return { ...rest, target: t };
+  }, [request]);
+  const planKey = JSON.stringify(planRequest());
   useEffect(() => {
     if (skipPlan) return;
     let live = true;
     const t = setTimeout(() => {
-      api.planRecoverMany(request()).then(
+      api.planRecoverMany(JSON.parse(planKey) as RecoverManyRequest).then(
         (p) => { if (live) { setPlan(p); setPlanFailure(null); } },
         (e) => { if (live) { setPlan(null); setPlanFailure(describeFailure(e, "The pre-flight could not be made.").message); } }
       );
     }, 150);
     return () => { live = false; clearTimeout(t); };
-  }, [api, skipPlan, request]);
+  }, [api, skipPlan, planKey]);
 
   const go = async () => {
     abort.current = new AbortController();
@@ -180,8 +205,16 @@ export function RecoverSetDialog({
       });
       setPhase({ k: "done", result });
     } catch (e) {
+      const code = (e as { api?: { code?: string } })?.api?.code ?? "";
+      // The tick or the password (#1191): back to the choice, with the reason.
+      const stepUp = target === "source" ? sourceHostRefusal(code) : null;
+      if (stepUp) {
+        setSourceError(stepUp);
+        setPhase({ k: "choose" });
+        return;
+      }
       const f = describeFailure(e, "The recovery could not be started.");
-      setPhase({ k: "refused", message: f.message, code: (e as { api?: { code?: string } })?.api?.code ?? "" });
+      setPhase({ k: "refused", message: f.message, code });
     }
   };
   const cancel = () => {
@@ -197,10 +230,11 @@ export function RecoverSetDialog({
   // The cost refusal is what the checkbox answers; any other refusal blocks.
   const hardRefusal = refusal && refusal.code !== "RECOVERY_COST_NOT_ACKNOWLEDGED" ? refusal : null;
   const actionable = (shown?.totals.ready ?? 0) + (shown?.totals.needsThaw ?? 0);
-  const needsTarget = where.trim() === "";
+  const needsTarget = target === null || (target === "source" ? !sourceHostReady(sourceHost, sourceAck, sourcePassword) : where.trim() === "");
   const ackRequired = costNeeded && !accepted;
   const canGo = !!shown && actionable > 0 && !hardRefusal && !needsTarget && !ackRequired && !sinceMissing;
-  const command = recoverSetCommand(setId, narrow, since, target, where.trim(), costNeeded && accepted);
+  const echoWhere = target === "source" ? sourceFolder : where.trim();
+  const command = target ? recoverSetCommand(setId, narrow, since, target, echoWhere, costNeeded && accepted, sourceAck) : null;
 
   return (
     <div className="dialog-scrim" style={{ gridTemplateColumns: "minmax(0, 1fr)" }} onClick={(e) => e.target === e.currentTarget && phase.k !== "running" && onClose()}>
@@ -259,6 +293,14 @@ export function RecoverSetDialog({
               <fieldset className="field" style={{ border: 0, margin: 0, padding: 0 }}>
                 <legend className="field__label">Where it goes</legend>
                 <div role="radiogroup" aria-label="Where should the set go?" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {sourceHost.offered ? (
+                    <label style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                      <input type="radio" name="recover-set-target" checked={target === "source"}
+                        disabled={!sourceHost.preflight?.available || sourceHost.unavailable !== null}
+                        onChange={() => { setTarget("source"); setWhere(""); }} />
+                      {SOURCE_LABEL}
+                    </label>
+                  ) : null}
                   <label style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
                     <input type="radio" name="recover-set-target" checked={target === "staging"} onChange={() => { setTarget("staging"); setWhere(""); }} />
                     Folder under the staging root on the host
@@ -271,7 +313,15 @@ export function RecoverSetDialog({
                 <div style={{ color: "var(--text-2)", marginTop: 4 }} data-testid="no-browser-download">
                   There is no browser download for a set: that would be one archive the host has to build and keep, and every backup can still be downloaded from its own page.
                 </div>
-                {target === "staging" ? (
+                {sourceHost.offered && sourceHost.unavailable ? (
+                  <div style={{ marginTop: 6 }}><SourceHostUnavailable reason={sourceHost.unavailable} /></div>
+                ) : null}
+                {target === "source" ? (
+                  <div style={{ marginTop: 6 }}>
+                    <SourceHostDetails host={sourceHost} folder={sourceFolder} acknowledged={sourceAck} onAcknowledged={setSourceAck}
+                      password={sourcePassword} onPassword={setSourcePassword} error={sourceError} />
+                  </div>
+                ) : target === "staging" ? (
                   <>
                     <label className="field" style={{ marginTop: 6 }}>
                       <span className="field__label">{"Folder name under the staging root " + (stagingRoot ? stagingRoot + " " : "") + "(set by the host)"}</span>
@@ -280,11 +330,11 @@ export function RecoverSetDialog({
                     {/* Issue #1179. A set goes into a folder, so a chosen folder is the answer as it stands. */}
                     <HostFolderBrowser onPick={setWhere} />
                   </>
-                ) : (
+                ) : target === "storage" ? (
                   <div style={{ marginTop: 6 }}>
                     <DestinationSelect ariaLabel="Recover the set to destination" value={where} onChange={setWhere} />
                   </div>
-                )}
+                ) : null}
               </fieldset>
 
               <PreFlight plan={shown} failure={planFailure} sinceMissing={sinceMissing} />
@@ -310,7 +360,9 @@ export function RecoverSetDialog({
                 </div>
               ) : null}
 
-              <CommandEcho label="Same thing from the terminal" commands={[command, recoverSetPreflightCommand(setId, narrow, since, target, where.trim())]} />
+              {command && target ? (
+                <CommandEcho label="Same thing from the terminal" commands={[command, recoverSetPreflightCommand(setId, narrow, since, target, echoWhere)]} />
+              ) : null}
               {phase.k === "refused" ? (
                 <div role="alert" data-testid="refusal" data-code={phase.code} className="aop__alert">
                   <strong>Nothing was recovered</strong>

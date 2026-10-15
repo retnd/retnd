@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "f113e32f2fbf1ad837bf6ec1e0a64dcd4bf7d39b8d290d8166c06b0c0d7eaabc"
+const ContractSHA256 = "0ea056fbaa6b70dd799e6280f81ffbaac0e1758ecf2318f92f3298f6c077bd18"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -149,6 +149,9 @@ const (
 	ErrorCodeRecoveryReadsBusy                      ErrorCode = "RECOVERY_READS_BUSY"
 	ErrorCodeRecoveryDestinationBusy                ErrorCode = "RECOVERY_DESTINATION_BUSY"
 	ErrorCodeRecoveryDownloadsBusy                  ErrorCode = "RECOVERY_DOWNLOADS_BUSY"
+	ErrorCodeRecoverySourceUnavailable              ErrorCode = "RECOVERY_SOURCE_UNAVAILABLE"
+	ErrorCodeRecoverySourceReadOnly                 ErrorCode = "RECOVERY_SOURCE_READ_ONLY"
+	ErrorCodeRecoverySourceNotAcknowledged          ErrorCode = "RECOVERY_SOURCE_NOT_ACKNOWLEDGED"
 )
 
 // WireErrorCodes is codes a server may put on the wire. Every one of these is emitted by real handler code, and apps/common/webhost's TestContract_EveryWireErrorCodeIsRegistered holds that both ways.
@@ -245,6 +248,9 @@ var WireErrorCodes = []ErrorCode{
 	ErrorCodeRecoveryReadsBusy,
 	ErrorCodeRecoveryDestinationBusy,
 	ErrorCodeRecoveryDownloadsBusy,
+	ErrorCodeRecoverySourceUnavailable,
+	ErrorCodeRecoverySourceReadOnly,
+	ErrorCodeRecoverySourceNotAcknowledged,
 }
 
 // UIErrorCodes is the shared UI's own presentation vocabulary. No endpoint emits these; they are registered here so there is one registry rather than a second hand-maintained list in ui/shared.
@@ -365,6 +371,9 @@ var ErrorCodes = []ErrorCode{
 	ErrorCodeRecoveryReadsBusy,
 	ErrorCodeRecoveryDestinationBusy,
 	ErrorCodeRecoveryDownloadsBusy,
+	ErrorCodeRecoverySourceUnavailable,
+	ErrorCodeRecoverySourceReadOnly,
+	ErrorCodeRecoverySourceNotAcknowledged,
 }
 
 // ErrorClasses groups codes by the refusal they represent, so a caller (or
@@ -372,12 +381,12 @@ var ErrorCodes = []ErrorCode{
 var ErrorClasses = map[string][]ErrorCode{
 	"authentication": {ErrorCodeUnauthenticated, ErrorCodeBootstrapTokenInvalid, ErrorCodeResetTokenInvalid, ErrorCodeVerifyTokenInvalid},
 	"authorization":  {ErrorCodeEnrollmentClosed, ErrorCodeDestructiveOperationsDisabled, ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeRecoveryGrantSessionEnded, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeStepUpUnavailable, ErrorCodeInsecureTransportAckRequired},
-	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy},
+	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy, ErrorCodeRecoverySourceUnavailable, ErrorCodeRecoverySourceReadOnly},
 	"internal":       {ErrorCodeInternal, ErrorCodeInternalError, ErrorCodeRecoveryLocalCopyCorrupt, ErrorCodeRecoveryRemoteCopyCorrupt, ErrorCodeRecoveryNoSpace, ErrorCodeRecoveryBelowReserve, ErrorCodeRecoveryFailed},
 	"not-found":      {ErrorCodeBackupSetNotFound, ErrorCodeOperationNotFound, ErrorCodeRetentionPlanNotFound, ErrorCodeArtifactNotFound, ErrorCodeMediumNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound, ErrorCodeRepositoryDomainNotFound, ErrorCodeWorkflowEnvNotFound, ErrorCodeWorkflowRunNotFound, ErrorCodeWorkflowStepNotFound, ErrorCodeRecoveryCopyNotFound, ErrorCodeRecoveryGrantUnknown},
 	"throttling":     {ErrorCodeRateLimited, ErrorCodeRecoveryTooManyGrants, ErrorCodeRecoveryReadsBusy, ErrorCodeRecoveryDestinationBusy, ErrorCodeRecoveryDownloadsBusy},
 	"unavailable":    {ErrorCodeNotConfigured, ErrorCodeSmtpSendFailed, ErrorCodeWorkflowEngineUnavailable, ErrorCodeRecoveryUnavailable, ErrorCodeRecoveryInterrupted},
-	"validation":     {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail, ErrorCodeSSHKeyNotFound, ErrorCodeHostKeyProbeFailed, ErrorCodeMediumDisclosureRequired, ErrorCodeBackupSetNotIncremental, ErrorCodeWorkflowAcknowledgementReasonRequired, ErrorCodeRecoveryTargetInvalid, ErrorCodeAcknowledgementRequired},
+	"validation":     {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail, ErrorCodeSSHKeyNotFound, ErrorCodeHostKeyProbeFailed, ErrorCodeMediumDisclosureRequired, ErrorCodeBackupSetNotIncremental, ErrorCodeWorkflowAcknowledgementReasonRequired, ErrorCodeRecoveryTargetInvalid, ErrorCodeAcknowledgementRequired, ErrorCodeRecoverySourceNotAcknowledged},
 }
 
 // Endpoint is one operation of the contract, with the requirements a
@@ -765,6 +774,17 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "preflightRecoverySource", Method: "POST", Path: "/backup-sets/{source}/{set}/recovery-source/preflight",
+		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "RecoverySourcePreflight", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			500: {ErrorCodeInternal},
+			501: {ErrorCodeRecoveryUnavailable},
+		},
+	},
+	{
 		ID: "startRecoveryTest", Method: "POST", Path: "/backup-sets/{source}/{set}/recovery-test",
 		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "StartRecoveryTestRequest", ResponseSchema: "RecoveryTestStarted", SuccessStatus: 202,
@@ -1002,11 +1022,11 @@ var Endpoints = []Endpoint{
 		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "RecoveryMintRequest", ResponseSchema: "RecoveryMintResponse", SuccessStatus: 202,
 		ErrorCodes: map[int][]ErrorCode{
-			400: {ErrorCodeInvalidRequest, ErrorCodeRecoveryTargetInvalid},
+			400: {ErrorCodeInvalidRequest, ErrorCodeRecoveryTargetInvalid, ErrorCodeAcknowledgementRequired, ErrorCodeRecoverySourceNotAcknowledged},
 			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled, ErrorCodeInsecureTransportAckRequired, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeStepUpUnavailable},
 			404: {ErrorCodeArtifactNotFound, ErrorCodeRecoveryCopyNotFound},
-			409: {ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryUseSnapshotRestore},
+			409: {ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoverySourceUnavailable, ErrorCodeRecoverySourceReadOnly},
 			429: {ErrorCodeRecoveryTooManyGrants},
 			500: {ErrorCodeInternal, ErrorCodeRecoveryFailed},
 			501: {ErrorCodeRecoveryUnavailable},
@@ -1129,11 +1149,11 @@ var Endpoints = []Endpoint{
 		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "RecoveryManyRequest", ResponseSchema: "RecoveryManyPlan", SuccessStatus: 200,
 		ErrorCodes: map[int][]ErrorCode{
-			400: {ErrorCodeInvalidRequest, ErrorCodeRecoveryTargetInvalid},
+			400: {ErrorCodeInvalidRequest, ErrorCodeRecoveryTargetInvalid, ErrorCodeAcknowledgementRequired, ErrorCodeRecoverySourceNotAcknowledged},
 			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
+			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled, ErrorCodeInsecureTransportAckRequired, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeStepUpUnavailable},
 			404: {ErrorCodeArtifactNotFound, ErrorCodeBackupSetNotFound},
-			409: {ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryUseSnapshotRestore},
+			409: {ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoverySourceUnavailable, ErrorCodeRecoverySourceReadOnly},
 			429: {ErrorCodeRecoveryReadsBusy, ErrorCodeRecoveryDestinationBusy},
 			500: {ErrorCodeInternal, ErrorCodeRecoveryFailed},
 			501: {ErrorCodeRecoveryUnavailable},
@@ -1149,7 +1169,7 @@ var Endpoints = []Endpoint{
 			401: {ErrorCodeUnauthenticated},
 			403: {ErrorCodeRecoveryGrantSessionEnded},
 			404: {ErrorCodeArtifactNotFound, ErrorCodeRecoveryCopyNotFound, ErrorCodeRecoveryGrantUnknown},
-			409: {ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryBusy, ErrorCodeRecoveryTargetExists},
+			409: {ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryBusy, ErrorCodeRecoveryTargetExists, ErrorCodeRecoverySourceUnavailable, ErrorCodeRecoverySourceReadOnly},
 			410: {ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired},
 			416: {ErrorCodeInvalidRequest},
 			429: {ErrorCodeRecoveryReadsBusy, ErrorCodeRecoveryDestinationBusy, ErrorCodeRecoveryDownloadsBusy},
@@ -3063,6 +3083,24 @@ type RecoverySettingsUpdate struct {
 	Smtp            *SmtpSettings `json:"smtp"`
 }
 
+// RecoverySourcePreflight is where a recovery of this backup set onto its own source host
+// (issue #1191) would write, and whether retnd may write there.
+// Built from the set's configuration. A set with no source host (not
+// SFTP, or incremental) says why in reason and nothing else.
+type RecoverySourcePreflight struct {
+	Available  bool   `json:"available"`
+	Detail     string `json:"detail,omitempty"`
+	Folder     string `json:"folder,omitempty"`
+	Host       string `json:"host,omitempty"`
+	Port       int    `json:"port,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+	RemotePath string `json:"remote_path,omitempty"`
+	SetID      string `json:"set_id"`
+	URL        string `json:"url,omitempty"`
+	User       string `json:"user,omitempty"`
+	Writable   string `json:"writable,omitempty"`
+}
+
 // RecoveryTarget is where one recovery writes its bytes. The set is closed: download
 // streams to the caller that redeems the grant, staging places one
 // file under the configured recovery staging root, storage uploads
@@ -3071,12 +3109,19 @@ type RecoverySettingsUpdate struct {
 // matched the SHA-256 the journal recorded. A download is not
 // staged: it is refused before its first byte unless a read of the
 // whole copy has matched that digest, and each chunk is checked
-// again as it is sent.
+// again as it is sent. source (issue #1191) uploads back onto the
+// backup set's own SFTP source host, built from the set's
+// configuration and never from the request, into a new folder under
+// its remote path; it writes onto a production machine, so it needs
+// acknowledged, and over HTTP it goes through the destructive gate,
+// the insecure-transport acknowledgement and the step-up
+// re-authentication.
 type RecoveryTarget struct {
-	Key    string `json:"key,omitempty"`
-	Kind   string `json:"kind"`
-	Medium string `json:"medium,omitempty"`
-	Path   string `json:"path,omitempty"`
+	Acknowledged bool   `json:"acknowledged,omitempty"`
+	Key          string `json:"key,omitempty"`
+	Kind         string `json:"kind"`
+	Medium       string `json:"medium,omitempty"`
+	Path         string `json:"path,omitempty"`
 }
 
 // RecoveryTestOutput is what the newest recovery test of a backup set printed. Only the
@@ -4552,6 +4597,7 @@ var SchemaTypes = map[string]any{
 	"RecoveryResult":                     RecoveryResult{},
 	"RecoverySettingsResponse":           RecoverySettingsResponse{},
 	"RecoverySettingsUpdate":             RecoverySettingsUpdate{},
+	"RecoverySourcePreflight":            RecoverySourcePreflight{},
 	"RecoveryTarget":                     RecoveryTarget{},
 	"RecoveryTestOutput":                 RecoveryTestOutput{},
 	"RecoveryTestOutputRecord":           RecoveryTestOutputRecord{},

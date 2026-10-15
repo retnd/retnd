@@ -324,6 +324,13 @@ func Discover(ctx context.Context, deps Deps, source transport.Source, set confi
 			// Expected and routine, not a discovery gap.
 			continue
 		}
+		if inRecoveredFolder(relPath) {
+			// Issue #1191: a file a source-host recovery put back. It is
+			// the operator's recovered copy, not a new backup, and taking
+			// it for one would ingest it and, on a set that deletes from
+			// its source, delete it again. Skipped silently, like a probe.
+			continue
+		}
 		if isOwnWriteProbe(base) {
 			// This deployment's own write probe, left behind because its
 			// removal failed. Not a candidate in any strategy: see

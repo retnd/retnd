@@ -207,7 +207,7 @@ func (h *handlers) recoverMany(w http.ResponseWriter, r *http.Request) {
 	}
 	req := service.RecoverManyRequest{
 		Artifacts: body.Artifacts, Set: body.Set, NewestOnly: body.NewestOnly, Copy: body.Copy,
-		Target:          service.RecoveryTarget{Kind: body.Target.Kind, Path: body.Target.Path, Medium: body.Target.Medium, Key: body.Target.Key},
+		Target:          body.Target.service(),
 		AcknowledgeCost: body.AcknowledgeCost,
 	}
 	if body.Since != "" {

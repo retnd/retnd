@@ -554,6 +554,7 @@ commands:
   recover <source/backup-set/artifact> --to - | NAME | medium:ID[/KEY] [--copy M] [--acknowledge-cost] [--json]
   recover --set <source/backup-set> [--newest-only] [--since DATE] --to NAME | medium:ID[/PREFIX] [--preflight] [--acknowledge-cost] [--json]
   recover <id> <id> ... --to NAME | medium:ID[/PREFIX] [--preflight] [--acknowledge-cost] [--json]
+  recover <id> | --set <source/backup-set> [--to source[:FOLDER]] --acknowledge-source-write
                                                   get the retained bytes of one artifact back (EPIC Q, FR-67). It
                                                   reads one copy, checks all of it against the SHA-256 recorded when
                                                   the backup was ingested, and only then writes it: to standard
@@ -587,6 +588,14 @@ commands:
                                                   with its digest is written beside them. Exits 0 when every row was
                                                   recovered and 32 when some were not (failed, needs a thaw,
                                                   quarantined or lost); a kopia set is refused naming snapshot restore
+                                                  With no --to, or --to source, the backup goes back where it came
+                                                  from (#1191): an SFTP upload onto the set's own source host, into
+                                                  a new retnd-recovered-<time> folder under its remote path (or the
+                                                  retnd-recovered-* FOLDER named), never over an existing file. That
+                                                  writes onto a production machine, so it needs
+                                                  --acknowledge-source-write, and a read-only pull account or a set
+                                                  declared read_only is refused before anything is read. A set whose
+                                                  source is not SFTP has no such default and needs --to.
   backup-set enabled <source/backup-set> <on|off>
                                                   turn one already-configured backup set on or off, which
                                                   --disabled can only do at creation. "off" stops the scheduler

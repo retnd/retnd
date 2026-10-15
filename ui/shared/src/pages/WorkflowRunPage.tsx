@@ -139,6 +139,7 @@ export function WorkflowRunPage({ readOnly }: { readOnly: boolean }) {
   // WORKFLOW_STEP_NOT_FOUND for as long as the page stayed open.
   useEffect(() => {
     if (selectedStepId !== null && !stepList.some((step) => step.stepId === selectedStepId)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- a step that left the list cannot stay selected
       setSelectedStepId(null);
     }
   }, [selectedStepId, stepList]);

@@ -739,6 +739,19 @@ restore points inside an encrypted repository, so the whole set is a snapshot re
 `recover --set` refuses with a sentence naming `retnd snapshot restore <source/backup-set>`
 rather than pretend the two are one operation.
 
+## Sending a backup back to its source host
+
+With no `--to`, `retnd recover` sends the backup back where it came from (#1191): an SFTP upload onto the set's own source host, over the set's own settings. It goes into a new folder, `retnd-recovered-<time>`, under the set's remote path, and never over a file that is already there. Because that writes onto a production machine it needs `--acknowledge-source-write`:
+
+```
+retnd recover production/postgres-primary/postgres-prod-20260828.dump.zst --acknowledge-source-write
+retnd recover --set production/postgres-primary --to source:retnd-recovered-incident-4711 --acknowledge-source-write
+```
+
+Before anything is read, retnd writes and removes one probe file on the source (the connection test's write probe). A read-only pull account is refused there with `RECOVERY_SOURCE_READ_ONLY` (exit 39), so a refused upload never costs a read. A set declared `read_only: true` is refused without being touched. A set that does not pull over SFTP has no source host, so `--to` stays required for it and the refusal says why (`RECOVERY_SOURCE_UNAVAILABLE`, exit 38, for `--to source`). Without the acknowledgement the answer is `RECOVERY_SOURCE_NOT_ACKNOWLEDGED`, exit 40, naming the exact `sftp://` folder it would have written to.
+
+A folder you name has to be one segment starting with `retnd-recovered-`: the next backup run skips those, and a recovered file anywhere else under the remote path would be taken for a new backup. In the web interface the same choice is "Source host (SFTP)", first and preselected, with the same probe shown before the run, an "I understand" tick, and on a local-account profile your password again.
+
 ## What "verified" does and does not mean: three claims, not one
 
 A tick that says "verified" is the dangerous thing here, because a HEAD request that found

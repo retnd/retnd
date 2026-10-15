@@ -35,6 +35,7 @@ type manyArgs struct {
 	newestOnly bool
 	since      string
 	preflight  bool
+	ackSource  bool
 }
 
 // parseSince reads --since as a date or an RFC 3339 time.
@@ -51,9 +52,6 @@ func parseSince(s string) (time.Time, error) {
 func cmdRecoverMany(a manyArgs) int {
 	if a.set != "" && len(a.ids) > 0 {
 		return usageError("recover: give either --set or backup ids, not both")
-	}
-	if a.to == "" {
-		return usageError("recover: --to is required: a name under the recovery staging root, or medium:ID[/PREFIX] for another storage destination")
 	}
 	if a.follow {
 		return usageError("recover: --follow is for one backup; a set recover prints its own progress")
@@ -72,9 +70,12 @@ func cmdRecoverMany(a manyArgs) int {
 			}
 		}
 	}
-	target, err := parseRecoverTarget(a.to)
-	if err != nil {
-		return usageError("recover: %v", err)
+	var target service.RecoveryTarget
+	if a.to != "" {
+		var err error
+		if target, err = parseRecoverTarget(a.to); err != nil {
+			return usageError("recover: %v", err)
+		}
 	}
 	if target.Kind == "download" {
 		return usageError("recover: several backups cannot go to standard output; use a name under the recovery staging root or medium:ID[/PREFIX]")
@@ -98,6 +99,22 @@ func cmdRecoverMany(a manyArgs) int {
 	}
 	defer cleanup()
 	logStartup(ctx, obs.New(os.Stderr, obs.LevelFromEnv()), app.BuildVersionInfo(version, commit))
+
+	// Issue #1191: with no --to, the backups go back where they came from.
+	if a.to == "" {
+		of := a.set
+		if of == "" {
+			of = a.ids[0]
+		}
+		def, why := svc.DefaultRecoveryTarget(of)
+		if def.Kind == "" {
+			return usageError("recover: --to is required here, because %s: a name under the recovery staging root, or medium:ID[/PREFIX] for another storage destination", why)
+		}
+		req.Target = def
+	}
+	if req.Target.Kind == "source" {
+		req.Target.Acknowledged = a.ackSource
+	}
 
 	if a.preflight {
 		plan, perr := svc.PlanRecoverMany(ctx, req)

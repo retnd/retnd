@@ -722,6 +722,8 @@ var routes = map[string]entry{
 					to += "/" + req.Target.Key
 				}
 				c.flag("to", to)
+			case "source":
+				sourceTarget(c, req.Target.Path, req.Target.Acknowledged)
 			}
 			if req.Acknowledged {
 				c.bare("acknowledge-cost")
@@ -735,6 +737,8 @@ var routes = map[string]entry{
 				Body: []byte(`{"copy":"offsite_s3","acknowledged":true,"target":{"kind":"staging","path":"restore/dump.tar"}}`)},
 			{Params: map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar"},
 				Body: []byte(`{"target":{"kind":"storage","medium":"offsite_s3","key":"recovered/dump.tar"}}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar"},
+				Body: []byte(`{"target":{"kind":"source","path":"retnd-recovered-20261015-101500","acknowledged":true}}`)},
 		},
 	},
 	key("POST", "/recoveries"): {
@@ -766,6 +770,8 @@ var routes = map[string]entry{
 					to += "/" + req.Target.Key
 				}
 				c.flag("to", to)
+			case "source":
+				sourceTarget(c, req.Target.Path, req.Target.Acknowledged)
 			}
 			if req.Preflight {
 				c.bare("preflight")
@@ -780,7 +786,12 @@ var routes = map[string]entry{
 			{Body: []byte(`{"set":"api-server/var-backups","newest_only":true,"acknowledged":true,"target":{"kind":"storage","medium":"offsite_s3","key":"recovered"}}`)},
 			{Body: []byte(`{"set":"api-server/var-backups","since":"2026-10-01T00:00:00Z","preflight":true,"target":{"kind":"staging","path":"restore/var-backups"}}`)},
 			{Body: []byte(`{"artifacts":["api-server/var-backups/a.tar","api-server/var-backups/b.tar"],"target":{"kind":"staging","path":"restore/picked"}}`)},
+			{Body: []byte(`{"set":"api-server/var-backups","target":{"kind":"source","acknowledged":true}}`)},
 		},
+	},
+	key("POST", "/backup-sets/{source}/{set}/recovery-source/preflight"): {
+		why:               "there is no verb that only checks the source host: `" + Binary + " recover` with no --to runs the same write probe before it reads anything, and `" + Binary + " backup-set test-connection <source/backup-set>` runs it as part of the connection check",
+		namesShippedVerbs: []string{"recover", "backup-set"},
 	},
 	key("GET", "/recoveries/{grant}"): {
 		why:               "a grant is minted and redeemed in one step by `" + Binary + " recover`, in your own shell, so there is no verb that redeems a grant somebody else minted: the token belongs to the browser session that asked for it",
@@ -2119,5 +2130,19 @@ func RecordedReasons() map[string]string {
 	return map[string]string{
 		"GET /health/live":  "an unauthenticated liveness probe for an orchestrator, deliberately outside /api/v1 and the spec; `" + WebBinary + " healthcheck --url` is the command that calls any probe",
 		"GET /health/ready": "an unauthenticated readiness probe for an orchestrator, deliberately outside /api/v1 and the spec; `" + WebBinary + " healthcheck --url` is the command that calls any probe",
+	}
+}
+
+// sourceTarget spells the source-host target (issue #1191): `--to source`
+// for the default new folder, `--to source:FOLDER` for a named one, and the
+// acknowledgement the request carried.
+func sourceTarget(c *cmd, folder string, acknowledged bool) {
+	to := "source"
+	if folder != "" {
+		to += ":" + folder
+	}
+	c.flag("to", to)
+	if acknowledged {
+		c.bare("acknowledge-source-write")
 	}
 }

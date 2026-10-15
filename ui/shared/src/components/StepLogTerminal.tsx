@@ -247,6 +247,7 @@ export function StepLogTerminal({ runId, stepId, step, api }: StepLogTerminalPro
     return () => clearTimeout(timer);
   }, [copied]);
 
+  // eslint-disable-next-line react-hooks/refs -- the scrollback lives in a ref on purpose (see history above) and setRevision is what re-renders it
   const entry = history.current.get(key);
   const lines = entry?.lines ?? [];
   const removed = entry?.removed ?? noRemovals();

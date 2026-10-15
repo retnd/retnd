@@ -1,6 +1,7 @@
 import { askInsecureTransport } from "./client";
 import type {
   ActivityFeedPage,
+  RecoverySourcePreflight,
   ActivityQuery,
   AppSettings,
   BackendCatalog,
@@ -194,7 +195,15 @@ export type Scenario =
   // acknowledgement is needed, and the first gated act asks the operator the
   // way api/client.ts does against a real engine: through the registered
   // dialog, and only a yes lets it through.
-  | "insecure-transport";
+  | "insecure-transport"
+  // Issue #1191: the source-host recovery destination. By default every
+  // fixture set is an SFTP set retnd can write back to. "source-read-only"
+  // is the NAS posture, a read-only pull account the write probe is refused
+  // on; "source-not-sftp" has every set pull from a local mount, so there is
+  // no source host at all. Both present the fixture sets as artifact sets, as
+  // the assurance-set-* scenarios do, so the set dialog can be opened.
+  | "source-read-only"
+  | "source-not-sftp";
 
 /** Reads the scenario out of the URL, falling back to the default for
  *  anything unrecognised. A closed allow-list rather than a cast, so a
@@ -213,7 +222,7 @@ export function scenarioFromLocation(): Scenario {
     "assurance-grant-used", "assurance-session-ended", "assurance-staging-full",
     "assurance-reads-busy", "assurance-corrupt-copy", "assurance-download-outcomes",
     "assurance-set-recover", "assurance-set-nospace", "assurance-set-corrupt", "assurance-set-slow",
-    "backups-many", "backups-many-corrupt", "backups-many-nospace", "no-destinations", "host-browse-unavailable", "dock-no-warnings", "dock-live-line", "assurance-no-validator", "assurance-builtin-check", "assurance-default-policy", "assurance-default-untested", "gate-shut", "gateway-profile", "local-account-profile", "insecure-transport"
+    "backups-many", "backups-many-corrupt", "backups-many-nospace", "no-destinations", "host-browse-unavailable", "dock-no-warnings", "dock-live-line", "assurance-no-validator", "assurance-builtin-check", "assurance-default-policy", "assurance-default-untested", "gate-shut", "gateway-profile", "local-account-profile", "insecure-transport", "source-read-only", "source-not-sftp"
   ];
   return (allowed as string[]).includes(s ?? "") ? (s as Scenario) : "default";
 }
@@ -3974,7 +3983,7 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   // fixture sets as artifact sets (the mock host's recoverMany holds the rows);
   // the default scenario keeps the incremental ones, which is how the
   // snapshot-restore branch of the dialog is reached.
-  if (scenario.startsWith("assurance-set-")) {
+  if (scenario.startsWith("assurance-set-") || scenario.startsWith("source-")) {
     for (const s of SETS) { s.engine = "artifact"; s.incremental = null; }
   }
   // What a finished scrub or recovery test writes onto a copy, which the
@@ -4153,6 +4162,42 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   const workflowSettings = defaultWorkflowSettings();
   const assuranceSettings = defaultAssuranceSettings();
   const mockRecovery = createMockRecovery(scenario);
+
+  // Issue #1191: the source-host destination, answered the way the engine
+  // answers it (core/service/recover_source.go), in its sentences.
+  const sourcePreflight = (setId: string): RecoverySourcePreflight => {
+    const s = SETS.find((x) => x.id === setId);
+    if (!s) return { setId, available: false, reason: "there is no such backup set in this configuration" };
+    if (scenario === "source-not-sftp") {
+      return { setId, available: false, reason: "this set's source is a local folder, not SFTP, so there is no source host to send the backup back to; choose another destination" };
+    }
+    const stamp = new Date().toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
+    const folder = "retnd-recovered-" + stamp;
+    const remotePath = s.remoteFolder;
+    const host = s.port && s.port !== 22 ? s.host + ":" + s.port : s.host;
+    const url = "sftp://" + s.username + "@" + host + (remotePath.endsWith("/") ? remotePath : remotePath + "/") + folder + "/";
+    const base = { setId, available: true, host: s.host, port: s.port || 22, user: s.username, remotePath, folder, url };
+    if (scenario === "source-read-only") {
+      return {
+        ...base, writable: "no",
+        detail: "the account retnd pulls with (" + s.username + ") is read-only on " + s.host + ", so an upload there will be refused until that account may write under " + remotePath + "; choose another destination, or give it write access"
+      };
+    }
+    return { ...base, writable: "yes", detail: "retnd can write on " + s.host + " as " + s.username };
+  };
+  const refusal = (code: string, message: string) =>
+    new RetndError({ code: code as never, message, correlationId: "cid_mocksource" });
+  const sourceTargetRefusal = (acknowledged: boolean, password: string | undefined): Error | null => {
+    if (scenario === "source-not-sftp") return refusal("RECOVERY_SOURCE_UNAVAILABLE", "this set's source is a local folder, not SFTP, so there is no source host to send the backup back to; choose another destination");
+    if (scenario === "source-read-only") return refusal("RECOVERY_SOURCE_READ_ONLY", "the account retnd pulls with is read-only on the source, so an upload there will be refused");
+    if (scenario === "local-account-profile" || scenario === "insecure-transport") {
+      if (!acknowledged) return refusal("ACKNOWLEDGEMENT_REQUIRED", "recovering to the source host writes onto the machine this backup came from, so the request has to say you understand that: set acknowledged to true in its target");
+      if (!password) return refusal("STEP_UP_REQUIRED", "a recovery onto the source host asks for your password again: send it in the X-Retnd-Step-Up-Password header");
+      if (password !== MOCK_ADMIN_PASSWORD) return refusal("STEP_UP_FAILED", "that password was not accepted, or too many attempts were made in the last minute");
+    }
+    if (!acknowledged) return refusal("RECOVERY_SOURCE_NOT_ACKNOWLEDGED", "this writes onto the host this backup came from; say so explicitly");
+    return null;
+  };
   const mockHostBrowse = createMockHostBrowse(scenario, assuranceSettings.stagingRoot);
   // #1106: every row the journal holds for a set, quarantined ones included,
   // which listArtifacts above deliberately leaves out.
@@ -5619,10 +5664,24 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
 
     // EPIC Q (#976): the recovery mint and redeem, with the fixtures the
     // assurance scenarios choose between.
-    mintRecovery: (artifactId, req) => mockRecovery.mintRecovery(artifactId, req),
+    mintRecovery: (artifactId, req) => {
+      // #1191: what the engine asks of a source target before it mints.
+      if (req.target.kind === "source") {
+        const refusal = sourceTargetRefusal(req.target.acknowledged === true, req.stepUpPassword);
+        if (refusal) return Promise.reject(refusal);
+      }
+      return mockRecovery.mintRecovery(artifactId, req);
+    },
+    preflightRecoverySource: (source, set) => delay(sourcePreflight(source + "/" + set), 500),
     redeemRecovery: (grant) => mockRecovery.redeemRecovery(grant),
     planRecoverMany: (req) => mockRecoverMany.planRecoverMany(req),
-    recoverMany: (req, opts) => mockRecoverMany.recoverMany(req, opts),
+    recoverMany: (req, opts) => {
+      if (req.target.kind === "source") {
+        const refusal = sourceTargetRefusal(req.target.acknowledged === true, req.stepUpPassword);
+        if (refusal) return Promise.reject(refusal);
+      }
+      return mockRecoverMany.recoverMany(req, opts);
+    },
     // Replaced below by the assurance mock's own start when the scenario has
     // one; a server that offers no assurance never has this reached.
     startRecoveryTest: (source, set) => delay({ backupSetId: source + "/" + set, operationId: "mock-recovery-test", coalesced: false }),

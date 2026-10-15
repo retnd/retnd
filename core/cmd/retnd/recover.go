@@ -15,6 +15,7 @@ import (
 	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/internal/obs"
 	"github.com/retnd/retnd/core/internal/recovery/budget"
+	"github.com/retnd/retnd/core/internal/transport"
 	"github.com/retnd/retnd/core/service"
 )
 
@@ -78,6 +79,12 @@ var recoverExitCodes = map[string]int{
 	service.RecoveryReadsBusy:           budget.ExitCode(budget.ConcurrentReads),
 	service.RecoveryDestinationBusy:     budget.ExitCode(budget.DestinationReads),
 	service.RecoveryDownloadsBusy:       budget.ExitCode(budget.DownloadStreams),
+
+	// Issue #1191: the source host, in the two free numbers left at the
+	// top of the block and the block's last one.
+	service.RecoverySourceUnavailable:     38,
+	service.RecoverySourceReadOnly:        39,
+	service.RecoverySourceNotAcknowledged: 40,
 }
 
 // exitRecoverThawStarted: nothing was recovered, because the only copy is
@@ -94,8 +101,9 @@ const exitRecoverPartial = 32
 func cmdRecover(args []string) int {
 	fs, cfgPath := newFlagSet("recover")
 	copySel := fs.String("copy", "", "medium id of the copy to recover (default: the best readable copy)")
-	to := fs.String("to", "", "where the bytes go: - for standard output, a name under the recovery staging root, or medium:ID[/KEY] (required)")
+	to := fs.String("to", "", "where the bytes go: source[:FOLDER] for the set's own SFTP host (the default), - for standard output, a name under the recovery staging root, or medium:ID[/KEY]")
 	ack := fs.Bool("acknowledge-cost", false, "accept a chargeable retrieval (a billed download, or a provider restore first)")
+	ackSource := fs.Bool("acknowledge-source-write", false, "say yes to writing onto the set's own source host (--to source, and the default), into a new folder there")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
 	follow := fs.Bool("follow", false, "print the recovery's stages on standard error as it passes through them; the exit status is the recovery's")
 	set := fs.String("set", "", "recover every retained restore point of this backup set (source/backup-set) into the one destination")
@@ -109,7 +117,7 @@ func cmdRecover(args []string) int {
 	if *set != "" || len(operands) > 1 {
 		return cmdRecoverMany(manyArgs{
 			cfgPath: *cfgPath, set: *set, ids: operands, to: *to, copySel: *copySel, ack: *ack, asJSON: *asJSON,
-			follow: *follow, newestOnly: *newestOnly, since: *since, preflight: *preflight,
+			follow: *follow, newestOnly: *newestOnly, since: *since, preflight: *preflight, ackSource: *ackSource,
 		})
 	}
 	if *newestOnly || *since != "" {
@@ -121,15 +129,15 @@ func cmdRecover(args []string) int {
 	if len(operands) != 1 {
 		return usageError("recover: expected <source/backup-set/artifact>")
 	}
-	if *to == "" {
-		return usageError("recover: --to is required: - for standard output, a name under the recovery staging root, or medium:ID[/KEY] for another storage destination")
-	}
 	if _, err := app.ParseArtifactID(operands[0]); err != nil {
 		return usageError("recover: %v", err)
 	}
-	target, err := parseRecoverTarget(*to)
-	if err != nil {
-		return usageError("recover: %v", err)
+	var target service.RecoveryTarget
+	if *to != "" {
+		var err error
+		if target, err = parseRecoverTarget(*to); err != nil {
+			return usageError("recover: %v", err)
+		}
 	}
 	if *asJSON && target.Kind == "download" {
 		return usageError("recover: --json cannot be combined with --to -, because standard output carries the bytes")
@@ -143,6 +151,18 @@ func cmdRecover(args []string) int {
 		return fail(err)
 	}
 	defer cleanup()
+
+	// Issue #1191: with no --to, the backup goes back where it came from.
+	if *to == "" {
+		def, why := svc.DefaultRecoveryTarget(operands[0])
+		if def.Kind == "" {
+			return usageError("recover: --to is required here, because %s: - for standard output, a name under the recovery staging root, or medium:ID[/KEY] for another storage destination", why)
+		}
+		target = def
+	}
+	if target.Kind == "source" {
+		target.Acknowledged = *ackSource
+	}
 
 	logStartup(ctx, obs.New(os.Stderr, obs.LevelFromEnv()), app.BuildVersionInfo(version, commit))
 
@@ -181,6 +201,14 @@ func parseRecoverTarget(s string) (service.RecoveryTarget, error) {
 		return service.RecoveryTarget{}, errors.New("--to is empty")
 	case s == "-":
 		return service.RecoveryTarget{Kind: "download"}, nil
+	case s == "source":
+		return service.RecoveryTarget{Kind: "source"}, nil
+	case strings.HasPrefix(s, "source:"):
+		folder := strings.TrimPrefix(s, "source:")
+		if folder == "" {
+			return service.RecoveryTarget{}, errors.New("--to source: names no folder; write source, or source:" + transport.RecoveredFolderPrefix + "NAME")
+		}
+		return service.RecoveryTarget{Kind: "source", Path: folder}, nil
 	case strings.HasPrefix(s, "medium:"):
 		rest := strings.TrimPrefix(s, "medium:")
 		id, key, _ := strings.Cut(rest, "/")
@@ -256,6 +284,9 @@ func printRecoverResult(res service.RecoveryResult, asJSON bool) {
 		fmt.Fprintf(dst, "path:                %s\n", res.Path)
 	case res.Key != "":
 		fmt.Fprintf(dst, "key:                 %s on %s\n", res.Key, res.Target.Medium)
+	}
+	if res.Target.Kind == "source" {
+		fmt.Fprintf(dst, "on:                  the set's source host, in the new folder %s\n", res.Target.Path)
 	}
 	fmt.Fprintf(dst, "bytes:               %d\n", res.Bytes)
 	if res.SHA256 != "" {

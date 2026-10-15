@@ -131,6 +131,24 @@ func isOwnWriteProbe(base string) bool {
 	return strings.HasPrefix(base, transport.ProbeObjectPrefix)
 }
 
+// inRecoveredFolder reports whether relPath sits inside a folder a
+// source-host recovery created (transport.RecoveredFolderPrefix, issue
+// #1191), at any depth. Only folders count: a file that merely starts with
+// the prefix is still a candidate, because recovery never names a file that
+// way and an operator might.
+func inRecoveredFolder(relPath string) bool {
+	dir := path.Dir(relPath)
+	if dir == "." {
+		return false
+	}
+	for _, seg := range strings.Split(dir, "/") {
+		if strings.HasPrefix(seg, transport.RecoveredFolderPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // includeMatches reports whether base matches at least one of patterns.
 // An empty patterns list matches everything: config.Validate does not
 // require a backup set to configure include, and the minimal documented

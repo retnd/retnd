@@ -22,7 +22,7 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   reporter: [["list"]],
-  outputDir: "../test-results",
+  outputDir: process.env.E2E_OUT || "../test-results",
   use: {
     baseURL: "http://127.0.0.1:" + port,
     viewport: { width: 1280, height: 900 },

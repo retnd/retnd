@@ -115,3 +115,16 @@ func TestRecover1191_UsageSaysTheSourceIsTheDefault(t *testing.T) {
 		}
 	}
 }
+
+func TestRecover1191_ASetWithNoTargetGoesToItsSourceToo(t *testing.T) {
+	configPath := writeSFTPTestConfig(t)
+	var code int
+	out := captureStderr(t, func() {
+		code = run([]string{"recover", "--config", configPath, "--set", "production/postgres-primary"})
+	})
+	// The set has no backups yet, which is refused after the target is
+	// settled: what matters is that the missing --to was not the refusal.
+	if code == exitUsage || strings.Contains(out, "--to is required") {
+		t.Errorf("recover --set with no --to on an SFTP set = %d %q; it should default to the source host", code, strings.TrimSpace(out))
+	}
+}

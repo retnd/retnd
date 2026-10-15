@@ -210,13 +210,17 @@ func (b *BackupService) scopeRecoverMany(ctx context.Context, h *recoveryHost, r
 	if t.Kind == "storage" && t.Key == "" {
 		t.Key = manyDefaultKey
 	}
-	ex, err := b.validateRecoveryTarget(h, "", t)
-	if err != nil {
-		return sc, err
-	}
-	sc.target, sc.exTarget = t, ex
-	if t.Kind == "storage" {
-		sc.target.Key = ex.Key
+	if t.Kind != "source" {
+		// A source target is checked once the rows are known, because it
+		// is the rows' own set that decides where it writes.
+		ex, err := b.validateRecoveryTarget(h, "", t)
+		if err != nil {
+			return sc, err
+		}
+		sc.target, sc.exTarget = t, ex
+		if t.Kind == "storage" {
+			sc.target.Key = ex.Key
+		}
 	}
 
 	st := b.state.Load()
@@ -258,6 +262,20 @@ func (b *BackupService) scopeRecoverMany(ctx context.Context, h *recoveryHost, r
 	})
 	if len(sc.arts) == 0 {
 		return sc, recoveryErr(RecoveryNoCopy, "there is no backup in %s to recover", firstNonEmpty(req.Set, "this request"))
+	}
+	if t.Kind == "source" {
+		sets := distinctSets(sc.arts)
+		if len(sets) != 1 {
+			return sc, recoveryErr(RecoveryTargetInvalid,
+				"a source-host recovery sends backups back to the one host they came from, so it takes the backups of one set at a time, and these come from %d sets", len(sets))
+		}
+		ex, folder, err := b.validateSourceTarget(sc.arts[0].BackupSetID, t, "", false)
+		if err != nil {
+			return sc, err
+		}
+		t.Path = folder
+		sc.target, sc.exTarget, sc.folder = t, ex, folder
+		return sc, nil
 	}
 	sc.folder = sc.target.Path
 	if sc.target.Kind == "storage" {
@@ -454,7 +472,7 @@ func (b *BackupService) PlanRecoverMany(ctx context.Context, req RecoverManyRequ
 	// staged, uploaded and removed in turn, so the largest one.
 	need := plan.Totals.Bytes
 	what := "the files need"
-	if sc.target.Kind == "storage" {
+	if sc.target.Kind == "storage" || sc.target.Kind == "source" {
 		need, what = largest, "the largest file needs"
 	}
 	if plan.FreeBytes != nil && plan.Totals.Ready > 0 {
@@ -552,6 +570,19 @@ func (b *BackupService) RecoverMany(ctx context.Context, sess RecoverySession, r
 	if err != nil {
 		return RecoverManyResult{}, err
 	}
+	if plan.Target.Kind == "source" {
+		// The plan wrote nothing; the run writes onto a production host, so
+		// it needs the yes, and the write probe goes first, before any file
+		// is read.
+		if !req.Target.Acknowledged {
+			_, _, aerr := b.validateSourceTarget(plan.Items[0].ArtifactID, req.Target, "", true)
+			return RecoverManyResult{}, aerr
+		}
+		setID, _ := splitArtifactID(plan.Items[0].ArtifactID)
+		if perr := b.probeSource(ctx, setID.String()); perr != nil && !errors.Is(perr, errNoSourceProbe) {
+			return RecoverManyResult{}, perr
+		}
+	}
 	ex := b.manyExportTarget(h, plan)
 
 	res = RecoverManyResult{OperationID: uuid.NewString(), Set: plan.Set, Target: plan.Target, Folder: plan.Folder, Items: append([]RecoverManyItem(nil), plan.Items...)}
@@ -614,8 +645,11 @@ func (b *BackupService) RecoverMany(ctx context.Context, sess RecoverySession, r
 // manyExportTarget is the destination every file of a run shares.
 func (b *BackupService) manyExportTarget(h *recoveryHost, plan RecoverManyPlan) export.Target {
 	t := plan.Target
-	if t.Kind == "storage" {
+	switch t.Kind {
+	case "storage":
 		return export.Target{Kind: export.TargetStorage, Medium: t.Medium, Key: t.Key}
+	case "source":
+		return export.Target{Kind: export.TargetSource, Path: t.Path}
 	}
 	return export.Target{Kind: export.TargetStaging, Path: t.Path}
 }
@@ -693,6 +727,16 @@ func (b *BackupService) recoverManyItem(ctx context.Context, h *recoveryHost, ex
 			return
 		}
 		it.Key, it.Rel = key, key
+	case export.TargetSource:
+		rel := path.Join(ex.Path, it.Name)
+		trace.stage(ctx, "writing_target")
+		full, uerr := b.uploadToSource(ctx, staged, id.String(), rel)
+		b.discardStaged(staged)
+		if uerr != nil {
+			fail(uerr)
+			return
+		}
+		it.Path, it.Rel = full, rel
 	}
 	it.Status, it.Bytes, it.SHA256 = RecoverManyRecovered, staged.Size, staged.Digest
 	trace.stage(ctx, "cleaning_temporary_files")
@@ -739,6 +783,17 @@ func (b *BackupService) writeManyManifest(h *recoveryHost, ex export.Target, res
 			return uerr
 		}
 		res.ManifestKey = key
+	case export.TargetSource:
+		var setID model.BackupSetID
+		if len(res.Items) > 0 {
+			setID, _ = splitArtifactID(res.Items[0].ArtifactID)
+		}
+		full, uerr := b.uploadToSource(wctx, staged, setID.String(), path.Join(res.Folder, manifestFileName))
+		b.discardStaged(staged)
+		if uerr != nil {
+			return uerr
+		}
+		res.ManifestPath = full
 	}
 	return nil
 }

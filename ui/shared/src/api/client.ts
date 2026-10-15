@@ -61,6 +61,7 @@ import type {
   WireRecoveryMintResponse,
   WireRecoveryResult,
   WireRecoveryTarget,
+  WireRecoverySourcePreflight,
   WireUpdateAssuranceSettingsRequest,
   WireUpdateBackupSetAssuranceRequest,
   WireArtifact,
@@ -2837,7 +2838,8 @@ function fromWireRecoveryTarget(t: WireRecoveryTarget | undefined): RecoveryTarg
     kind: t?.kind ?? "download",
     ...(t?.path ? { path: t.path } : {}),
     ...(t?.medium ? { medium: t.medium } : {}),
-    ...(t?.key ? { key: t.key } : {})
+    ...(t?.key ? { key: t.key } : {}),
+    ...(t?.acknowledged ? { acknowledged: true } : {})
   };
 }
 
@@ -2872,6 +2874,7 @@ function toWireRecoveryMint(req: RecoveryMintRequest): WireRecoveryMintRequest {
   if (req.target.path) target.path = req.target.path;
   if (req.target.medium) target.medium = req.target.medium;
   if (req.target.key) target.key = req.target.key;
+  if (req.target.acknowledged) target.acknowledged = true;
   return {
     target,
     ...(req.copy ? { copy: req.copy } : {}),
@@ -2942,6 +2945,7 @@ function toWireRecoverMany(req: RecoverManyRequest, preflight: boolean): WireRec
   if (req.target.path) target.path = req.target.path;
   if (req.target.medium) target.medium = req.target.medium;
   if (req.target.key) target.key = req.target.key;
+  if (req.target.acknowledged) target.acknowledged = true;
   return {
     target,
     ...(req.set ? { set: req.set } : {}),
@@ -3964,8 +3968,25 @@ export const httpApi: RetndApi = {
   mintRecovery: (artifactId, req) =>
     request<WireRecoveryMintResponse>(artifactPath(artifactId) + "/recovery", {
       method: "POST",
+      // #1191: a source target on a profile that re-checks the password.
+      // The header, never the body, as for a restore (#1163).
+      ...(req.stepUpPassword ? { headers: { [STEP_UP_HEADER]: req.stepUpPassword } } : {}),
       body: JSON.stringify(toWireRecoveryMint(req))
     }).then(fromWireRecoveryMint),
+  preflightRecoverySource: (source, set) =>
+    request<WireRecoverySourcePreflight>(backupSetPath(source, set) + "/recovery-source/preflight", { method: "POST" }).then((r) => ({
+      setId: r.set_id,
+      available: r.available,
+      ...(r.reason ? { reason: r.reason } : {}),
+      ...(r.host ? { host: r.host } : {}),
+      ...(r.port ? { port: r.port } : {}),
+      ...(r.user ? { user: r.user } : {}),
+      ...(r.remote_path ? { remotePath: r.remote_path } : {}),
+      ...(r.folder ? { folder: r.folder } : {}),
+      ...(r.url ? { url: r.url } : {}),
+      ...(r.writable ? { writable: r.writable } : {}),
+      ...(r.detail ? { detail: r.detail } : {})
+    })),
   redeemRecovery: (grant) =>
     request<WireRecoveryResult>("/recoveries/" + encodeURIComponent(grant)).then(fromWireRecoveryResult),
 
@@ -3997,6 +4018,7 @@ export const httpApi: RetndApi = {
     try {
       await request<void>("/recoveries", {
         method: "POST",
+        ...(req.stepUpPassword ? { headers: { [STEP_UP_HEADER]: req.stepUpPassword } } : {}),
         body: JSON.stringify(toWireRecoverMany(req, false)),
         signal: opts?.signal
       }, onLine);
