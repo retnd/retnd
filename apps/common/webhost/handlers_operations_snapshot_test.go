@@ -82,7 +82,7 @@ var snapshotActions = []snapshotAction{
 	{
 		name: "release_snapshot_hold",
 		body: `{"action":"release_snapshot_hold","config_revision":"rev-1","snapshot_hold_release":` +
-			`{"backup_set_id":"production/uploads-tree","hold_id":"hold_3"}}`,
+			`{"backup_set_id":"production/uploads-tree","hold_id":"hold_3","acknowledged":true}}`,
 		carried: func(fx *snapshotFixture) (string, string, map[string]string) {
 			return fx.lastHoldRelease.BackupSetID, fx.lastHoldRelease.IdempotencyKey, map[string]string{
 				"hold_id": fx.lastHoldRelease.HoldID,
