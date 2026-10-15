@@ -54,6 +54,7 @@ import (
 // disagree with the first, which is worse than no second rule.
 func cmdBackupSetRetention(args []string) int {
 	fs, cfgPath := newFlagSet("backup-set retention")
+	asJSON := fs.Bool("json", false, "read only: print the API's BackupSetRetention object instead of text; a write prints text and refuses this flag")
 	inherit := fs.Bool("inherit", false,
 		"remove this backup set's own retention policy, so it is retained under the deployment's policy again")
 	policyFile := fs.String("policy-file", "",
@@ -84,6 +85,12 @@ func cmdBackupSetRetention(args []string) int {
 	}
 
 	named := visitedRetentionPolicyFlags(fs)
+	if *asJSON && (*inherit || len(named) > 0) {
+		// A write logs its startup lines on stdout, so a document printed
+		// after them would not be one document, and a flag accepted and then
+		// ignored is the thing this binary refuses everywhere else.
+		return usageError("backup-set retention: --json is the read's object (GET .../retention); a write answers in text, so run it again without --json, then read the result with --json")
+	}
 	if *inherit && len(named) > 0 {
 		return usageError(
 			"backup-set retention: --inherit removes this set's own policy and --%s writes one; pass one or the other",
@@ -129,49 +136,43 @@ func cmdBackupSetRetention(args []string) int {
 	}
 
 	ctx := context.Background()
-	// Which of the three branches below this command lands in is already
-	// decided by here, so the intent is too: --inherit clears a policy
-	// and the policy flags write one, both of which rewrite config.yaml,
-	// while naming neither only prints the policy in force. The switch
-	// below reads the same two values, so the two cannot drift apart
-	// without this line being touched.
-	intent := readsConfig
+	// The two writes go through openConfigWriteRoute (#1148), which hands
+	// them to a serving engine when a route to it was named and writes
+	// here when nothing serves. Showing the policy in force stays on this
+	// host's own file through openBackupService, as it always has: only
+	// the writes need to reach the process that would otherwise never
+	// read them.
 	if *inherit || len(named) > 0 {
-		intent = writesConfig
+		route, cleanup, err := openConfigWriteRoute(ctx, *cfgPath)
+		if err != nil {
+			return fail(err)
+		}
+		defer cleanup()
+
+		logStartup(ctx, logger(), app.BuildVersionInfo(version, commit))
+		var got service.BackupSetRetention
+		if *inherit {
+			got, err = route.ClearBackupSetRetention(ctx, id)
+		} else {
+			got, err = route.SetBackupSetRetention(ctx, id, override)
+		}
+		if err != nil {
+			return fail(err)
+		}
+		return printBackupSetRetentionAs(got, false)
 	}
-	svc, cleanup, err := openBackupService(ctx, *cfgPath, intent)
+
+	svc, cleanup, err := openBackupServiceForRead(ctx, *cfgPath, *asJSON)
 	if err != nil {
 		return fail(err)
 	}
 	defer cleanup()
 
-	switch {
-	case *inherit:
-		logStartup(ctx, logger(), app.BuildVersionInfo(version, commit))
-		got, err := svc.ClearBackupSetRetention(ctx, id)
-		if err != nil {
-			return fail(err)
-		}
-		printBackupSetRetention(got)
-		return 0
-
-	case len(named) > 0:
-		logStartup(ctx, logger(), app.BuildVersionInfo(version, commit))
-		got, err := svc.SetBackupSetRetention(ctx, id, override)
-		if err != nil {
-			return fail(err)
-		}
-		printBackupSetRetention(got)
-		return 0
-
-	default:
-		got, err := svc.BackupSetRetention(ctx, id)
-		if err != nil {
-			return fail(err)
-		}
-		printBackupSetRetention(got)
-		return 0
+	got, err := svc.BackupSetRetention(ctx, id)
+	if err != nil {
+		return fail(err)
 	}
+	return printBackupSetRetentionAs(got, *asJSON)
 }
 
 // retentionPolicyFlagNames lists every flag that WRITES a policy, shared
@@ -303,6 +304,16 @@ func readPolicyFile(path string) ([]byte, error) {
 // The chain is rendered in printSettings' format on purpose: an operator
 // moving between `settings` and this command reads one layout for one
 // kind of thing.
+// printBackupSetRetentionAs prints the state either as the API's object or as
+// the text, so the read, the set and the clear answer in one voice.
+func printBackupSetRetentionAs(r service.BackupSetRetention, asJSON bool) int {
+	if asJSON {
+		return emitWireJSON(service.BackupSetRetentionWire(r))
+	}
+	printBackupSetRetention(r)
+	return 0
+}
+
 func printBackupSetRetention(r service.BackupSetRetention) {
 	fmt.Printf("backup set: %s\n", r.BackupSetID)
 	if r.IsOverride {

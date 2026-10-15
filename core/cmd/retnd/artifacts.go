@@ -45,6 +45,8 @@ func cmdArtifacts(args []string) int {
 	fs, cfgPath := newFlagSet("artifacts")
 	sourceFlag := fs.String("source", "", "only artifacts from this source")
 	setFlag := fs.String("backup-set", "", "only artifacts from this backup set, named <source/backup-set> or by set name alone where that is unambiguous")
+	stateFlag := fs.String("state", "", "only artifacts in this lifecycle state, e.g. COMMITTED or QUARANTINED_LOST (a list only)")
+	asJSON := fs.Bool("json", false, "emit JSON, the same body the API serves (Artifact for one, ListArtifactsResponse for a list), instead of text")
 	// Flags may come before or after the operand, exactly like validate's
 	// own operand (see parseFlagsAroundOperands in setup.go for why).
 	operands, err := parseFlagsAroundOperands(fs, args)
@@ -53,6 +55,13 @@ func cmdArtifacts(args []string) int {
 	}
 	if len(operands) > 1 {
 		return usageError("artifacts takes at most one argument: <source/backup-set/name>")
+	}
+	wantState, ok := parseArtifactStateFlag(*stateFlag)
+	if !ok {
+		return usageError("artifacts: --state %q is not a lifecycle state (expected one of %s)", *stateFlag, lifecycleStateNames())
+	}
+	if wantState != "" && len(operands) == 1 {
+		return usageError("artifacts: --state narrows a list and cannot be combined with an artifact argument")
 	}
 	// Issue #569. --backup-set takes the whole "source/backup-set" id now,
 	// so it can carry a source of its own. Two things about that pair are
@@ -83,6 +92,9 @@ func cmdArtifacts(args []string) int {
 	}
 
 	ctx := context.Background()
+	if *asJSON {
+		return artifactsJSON(ctx, *cfgPath, operands, *sourceFlag, *setFlag, wantState)
+	}
 	svc, cfg, cleanup, err := openService(ctx, *cfgPath, false)
 	if err != nil {
 		return fail(err)
@@ -169,6 +181,10 @@ func cmdArtifacts(args []string) int {
 	ungoverned, err := unconfiguredSetIDs(ctx, svc)
 	if err != nil {
 		return fail(err)
+	}
+
+	if wantState != "" {
+		records = withState(records, wantState)
 	}
 
 	for _, r := range records {
@@ -354,7 +370,40 @@ func printArtifactCopies(copies []app.ArtifactCopy, layout string) {
 		if c.Detail != "" {
 			fmt.Printf("  note:              %s\n", c.Detail)
 		}
+		printCopyAssurance(c, layout)
 	}
+}
+
+// printCopyAssurance prints what the copy's own scrub and recovery test
+// recorded (#1147), under the names the API gives each field. A field with
+// nothing recorded prints no line at all: the unknown state is an absence,
+// so a copy nobody has checked reads exactly as it did before.
+func printCopyAssurance(c app.ArtifactCopy, layout string) {
+	// Padded past the longest label (recovery_failure_reason:), so a value
+	// never runs into its name.
+	line := func(label, value string) {
+		if value == "" {
+			return
+		}
+		fmt.Printf("  %-25s%s\n", label+":", value)
+	}
+	at := func(t *time.Time) string {
+		if t == nil {
+			return ""
+		}
+		return t.Format(layout)
+	}
+	line("assurance_state", c.AssuranceState)
+	line("last_checked_at", at(c.LastCheckedAt))
+	line("last_failure_at", at(c.LastFailureAt))
+	line("last_failure_reason", c.LastFailureReason)
+	if c.ConsecutiveFailures != 0 {
+		line("consecutive_failures", fmt.Sprintf("%d", c.ConsecutiveFailures))
+	}
+	line("recovery_state", c.RecoveryState)
+	line("recovery_tested_at", at(c.RecoveryTestedAt))
+	line("recovery_failure_reason", c.RecoveryFailureReason)
+	line("recovery_check", c.RecoveryCheck)
 }
 
 // worthPrinting reports whether these copies say anything the lines above
@@ -374,6 +423,11 @@ func worthPrinting(copies []app.ArtifactCopy) bool {
 		return true
 	}
 	only := copies[0]
+	// A scrub or a recovery test has said something about it (#1147): the
+	// one thing an ordinary local copy can have to add.
+	if only.HasAssuranceRecord() {
+		return true
+	}
 	return only.Medium != state.MediumLocal || only.Status != state.PlacementActive
 }
 

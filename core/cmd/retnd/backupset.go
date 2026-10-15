@@ -58,6 +58,10 @@ var backupSetVerbs = map[string]func([]string) int{
 	// like the entries above: --scrub-cadence and friends mean nothing to
 	// declareBackupSetFlags.
 	"assurance": cmdBackupSetAssurance,
+	// The whole-set read (#1151). Its own flag set: it takes one id and
+	// --json, and parsing it against declareBackupSetFlags would let a
+	// create or patch flag through to a command that cannot honour it.
+	"show": cmdBackupSetShow,
 }
 
 // backupSetSharedFlagVerbs are the verbs that share declareBackupSetFlags
@@ -257,12 +261,12 @@ func cmdBackupSet(args []string) int {
 
 	switch verb {
 	case "create":
-		if code := f.refuseFlagsOfTheOtherVerb("create", backupSetPatchOnlyFlags); code != 0 {
+		if code := f.refuseFlagsOfTheOtherVerb("create", append(append([]string{}, backupSetPatchOnlyFlags...), backupSetTestConnectionOnlyFlags...)); code != 0 {
 			return code
 		}
 		return backupSetCreate(f, sourceName, name)
 	case "patch":
-		if code := f.refuseFlagsOfTheOtherVerb("patch", backupSetCreateOnlyFlags); code != 0 {
+		if code := f.refuseFlagsOfTheOtherVerb("patch", append(append([]string{}, backupSetCreateOnlyFlags...), backupSetTestConnectionOnlyFlags...)); code != 0 {
 			return code
 		}
 		return backupSetPatch(f, operands[1])
@@ -287,7 +291,7 @@ func cmdBackupSet(args []string) int {
 		// about. --no-verify is refused with the rest, and refusing it is
 		// the point: "test the connection without testing the connection"
 		// is not an instruction anybody can mean.
-		if code := f.refuseEveryFlagBut("test-connection", "config"); code != 0 {
+		if code := f.refuseEveryFlagBut("test-connection", "config", "json"); code != 0 {
 			return code
 		}
 		return backupSetTestConnection(f, operands[1])
@@ -305,6 +309,11 @@ type backupSetFlags struct {
 	cfgPath *string
 
 	// Shared by create and patch. Each is a field of the backup set itself.
+	// json is test-connection's alone (#1152); create, patch and remove
+	// refuse it, because a flag they accepted and ignored is the failure
+	// every list here exists to prevent.
+	json *bool
+
 	host               *string
 	port               *int
 	user               *string
@@ -338,10 +347,14 @@ type backupSetFlags struct {
 	// the two SSH-facing things a backup set has: which key it
 	// authenticates with, and which host key it trusts. Within each pair
 	// the two flags are alternatives, never a preference order.
-	keyFile        *string
-	keyID          *string
-	knownHostsLine *string
-	trustHostKey   *bool
+	keyFile *string
+	// keyPassphraseStdin says the passphrase that unlocks --ssh-key-file is
+	// the first line of stdin. It is a bool and never a value: a passphrase
+	// in a flag is in the process list and the shell history (issue #1153).
+	keyPassphraseStdin *bool
+	keyID              *string
+	knownHostsLine     *string
+	trustHostKey       *bool
 
 	// create only.
 	disabled      *bool
@@ -379,6 +392,12 @@ type backupSetFlags struct {
 	// does not exist yet, so it means nothing on create and is refused
 	// there rather than parsed and dropped.
 	acknowledgeHostKeyChange *bool
+
+	// Issue #1151: the lineage key and the mount prefix on create, and
+	// the per-set poll interval on patch.
+	uuid              *string
+	sourceMountPrefix *string
+	pollInterval      *time.Duration
 }
 
 // create's and patch's own flags, by name, so each verb can refuse the
@@ -394,19 +413,25 @@ var (
 	// sense while a set is being brought into existence: its initial
 	// posture, whether to run it straight away, and the journal path a
 	// FIRST configuration names.
-	backupSetCreateOnlyFlags = []string{"disabled", "engine", "read-only", "repository-domain", "run", "state-database"}
+	backupSetCreateOnlyFlags = []string{"disabled", "engine", "read-only", "repository-domain", "run", "source-mount-prefix", "state-database", "uuid"}
 
 	// Not empty since issue #572. The guard was kept through #411 with
 	// nothing in it precisely so that the next patch-only flag would
 	// refuse on create automatically rather than being silently ignored
 	// there, and this is that flag.
-	backupSetPatchOnlyFlags = []string{"acknowledge-host-key-change"}
+	backupSetPatchOnlyFlags = []string{"acknowledge-host-key-change", "poll-interval"}
+
+	// test-connection's own, which create and patch refuse the same way
+	// (#1152). remove and test-connection are allow-lists, so they need no
+	// list of the flags they do not take.
+	backupSetTestConnectionOnlyFlags = []string{"json"}
 )
 
 func declareBackupSetFlags() *backupSetFlags {
 	fs, cfgPath := newFlagSet("backup-set")
 	f := &backupSetFlags{fs: fs, cfgPath: cfgPath}
 
+	f.json = fs.Bool("json", false, "test-connection: print the API's TestConnectionResponse instead of text; the exit code is still the verdict")
 	f.host = fs.String("host", "", "create, patch: remote.host, the machine being backed up")
 	f.port = fs.Int("port", 0, "create, patch: remote.port; 0 leaves it unset, which is the default SSH port. On patch that 0 is a real value rather than an unset one")
 	f.user = fs.String("user", "", "create, patch: remote.user")
@@ -419,6 +444,7 @@ func declareBackupSetFlags() *backupSetFlags {
 	f.validatorID = fs.String("validator-id", "", `create, patch: validation.validator_id, an id the validator catalog lists, or "" for none`)
 
 	f.keyFile = fs.String("ssh-key-file", "", "create, patch: path to the SSH PRIVATE KEY to use for this set. Read once, validated, and copied into this deployment's own key store; the original is left alone. On patch this is a key rotation")
+	f.keyPassphraseStdin = fs.Bool("ssh-key-passphrase-stdin", false, "create, patch: the key named by --ssh-key-file is passphrase-protected, and its passphrase is the first line of stdin. Never a flag, so it is not in the process list or the shell history, and nothing prints it")
 	f.keyID = fs.String("ssh-key-id", "", "create, patch: the id of a key this deployment has already imported, instead of importing another copy")
 	f.knownHostsLine = fs.String("known-hosts-line", "", "create, patch: the exact known_hosts line to trust for this host, as `ssh-keyscan` prints it. On patch, one that pins a different key from the one on record needs --acknowledge-host-key-change")
 	f.trustHostKey = fs.Bool("trust-host-key", false, "create, patch: probe the host now and trust whatever key answers. Trust on first use, and a real trust decision: use --known-hosts-line when the key is already known. On patch it needs --host to say what to probe")
@@ -442,6 +468,15 @@ func declareBackupSetFlags() *backupSetFlags {
 	f.verificationSamplePercent = fs.Int("verification-sample-percent", 0, `create, patch: what percentage of a snapshot's files a "content_sample" verification reads back, 1 to 100; unset takes the engine's own default`)
 	f.verificationFullEvery = fs.Duration("verification-full-every", 0, "create, patch: how often a FULL read-back is performed regardless of the level above; 0 is never, which is the default")
 	f.verificationRestoreDrillEvery = fs.Duration("verification-restore-drill-every", 0, "create, patch: how often a real restore of this set is performed and compared; 0 is never, which is the default. A drill reads the whole snapshot back, so this is a budget rather than a preference")
+
+	// Issue #1151. --uuid is the durable key a snapshot lineage hangs off
+	// and --source-mount-prefix is the part of --remote-path that is how
+	// THIS deployment reaches the source. Create-only: neither is an
+	// editable property of a set that exists (a lineage key that could be
+	// patched is a lineage that could be forked by one typo).
+	f.uuid = fs.String("uuid", "", "create: the durable lineage key of an incremental set, a UUID. Leave it off for a new set and one is minted; pass it when re-declaring a set whose configuration was lost, so the snapshots already on record are found again instead of a second lineage starting beside them")
+	f.sourceMountPrefix = fs.String("source-mount-prefix", "", "create: the leading part of --remote-path that is how this deployment reaches the source rather than part of the source's own identity, so that moving a bind mount does not fork the snapshot lineage")
+	f.pollInterval = fs.Duration("poll-interval", 0, "patch: this set's own poll interval, overriding the deployment's. 0 returns the set to inheriting it. Never below a minute")
 
 	f.acknowledgeRepoint = fs.Bool("acknowledge-repoint", false,
 		"create, patch: confirm pointing this set at different data. On patch, needed only when --host, --remote-path or --local-path actually change on a set that already has artifacts on record; on create, only when this id already has artifacts on record and the set is being created somewhere other than where they came from. The refusal without it says what it costs")
@@ -514,6 +549,9 @@ func backupSetCreate(f *backupSetFlags, sourceName, name string) int {
 	if *f.keyFile == "" && *f.keyID == "" {
 		return usageError("backup-set create: name a key with --ssh-key-file (to import one) or --ssh-key-id (to reuse one already imported)")
 	}
+	if *f.keyPassphraseStdin && *f.keyFile == "" {
+		return usageError("backup-set create: --ssh-key-passphrase-stdin unlocks the key named by --ssh-key-file, and none was named")
+	}
 	if *f.knownHostsLine != "" && *f.trustHostKey {
 		return usageError("backup-set create: --known-hosts-line and --trust-host-key are alternatives; pass one")
 	}
@@ -560,12 +598,19 @@ func backupSetCreate(f *backupSetFlags, sourceName, name string) int {
 		// recognise is refused by the rule rather than by a second copy
 		// of it.
 		Engine:                        *f.engine,
+		UUID:                          *f.uuid,
+		SourceMountPrefix:             *f.sourceMountPrefix,
 		RepositoryDomain:              *f.repositoryDomain,
 		SourceConsistency:             *f.sourceConsistency,
 		VerificationLevel:             *f.verificationLevel,
 		VerificationSamplePercent:     *f.verificationSamplePercent,
 		VerificationFullEvery:         *f.verificationFullEvery,
 		VerificationRestoreDrillEvery: *f.verificationRestoreDrillEvery,
+	}
+
+	keyPassphrase, err := readKeyPassphrase(*f.keyPassphraseStdin, "backup-set create")
+	if err != nil {
+		return fail(err)
 	}
 
 	ctx := context.Background()
@@ -578,9 +623,9 @@ func backupSetCreate(f *backupSetFlags, sourceName, name string) int {
 	// the same decision before it opens anything.
 	configFile := config.ResolvePath(*f.cfgPath)
 	if _, statErr := os.Stat(configFile); errors.Is(statErr, os.ErrNotExist) {
-		return createFirstConfig(ctx, configFile, *f.stateDatabase, *f.keyFile, *f.trustHostKey, *f.noVerify, req)
+		return createFirstConfig(ctx, configFile, *f.stateDatabase, *f.keyFile, keyPassphrase, *f.trustHostKey, *f.noVerify, req)
 	}
-	return createIntoExistingConfig(ctx, *f.cfgPath, *f.keyFile, *f.trustHostKey, *f.noVerify, req)
+	return createIntoExistingConfig(ctx, *f.cfgPath, *f.keyFile, keyPassphrase, *f.trustHostKey, *f.noVerify, req)
 }
 
 // backupSetPatch is the `patch` verb, and openConfigWriteRoute settles
@@ -601,6 +646,9 @@ func backupSetPatch(f *backupSetFlags, id string) int {
 	// nobody looked at.
 	if *f.keyFile != "" && *f.keyID != "" {
 		return usageError("backup-set patch: --ssh-key-file and --ssh-key-id are alternatives; pass one")
+	}
+	if *f.keyPassphraseStdin && *f.keyFile == "" {
+		return usageError("backup-set patch: --ssh-key-passphrase-stdin unlocks the key named by --ssh-key-file, and none was named")
 	}
 	if *f.knownHostsLine != "" && *f.trustHostKey {
 		return usageError("backup-set patch: --known-hosts-line and --trust-host-key are alternatives; pass one")
@@ -630,6 +678,11 @@ func backupSetPatch(f *backupSetFlags, id string) int {
 		return usageError("backup-set patch: name at least one field to change (see --help); a patch that changes nothing would rewrite and reload the configuration to no effect")
 	}
 
+	keyPassphrase, err := readKeyPassphrase(*f.keyPassphraseStdin, "backup-set patch")
+	if err != nil {
+		return fail(err)
+	}
+
 	ctx := context.Background()
 	route, cleanup, err := openConfigWriteRoute(ctx, *f.cfgPath)
 	if err != nil {
@@ -643,7 +696,7 @@ func backupSetPatch(f *backupSetFlags, id string) int {
 	// key imported for a routed patch lands in the key store of the
 	// process that will go on serving the set rather than this one's.
 	if *f.keyFile != "" {
-		keyID, err := importKeyFile(ctx, route, *f.keyFile)
+		keyID, err := importKeyFile(ctx, route, *f.keyFile, keyPassphrase)
 		if err != nil {
 			return fail(err)
 		}
@@ -681,6 +734,13 @@ func backupSetPatch(f *backupSetFlags, id string) int {
 		return fail(err)
 	}
 	printBackupSet(updated)
+	// printBackupSet names an override and says nothing for a set that
+	// inherits, which is right for every other edit and wrong for the one
+	// that just asked to inherit: an operator who typed --poll-interval 0
+	// needs to read that it took, and what the set now follows.
+	if req.PollInterval != nil && updated.PollInterval == nil {
+		fmt.Printf("  poll_interval: inherited (every %s)\n", updated.EffectivePollInterval)
+	}
 	printPatchedKeyAndTrust(req)
 	return 0
 }
@@ -808,7 +868,7 @@ const cliActor = "cli"
 // createIntoExistingConfig folds one new backup set into a configuration
 // that already exists, through the same BackupService method POST
 // /api/v1/backup-sets calls, in this process.
-func createIntoExistingConfig(ctx context.Context, configPath, keyFile string, trustHostKey, noVerify bool, req service.CreateBackupSetRequest) int {
+func createIntoExistingConfig(ctx context.Context, configPath, keyFile, keyPassphrase string, trustHostKey, noVerify bool, req service.CreateBackupSetRequest) int {
 	route, cleanup, err := openConfigWriteRoute(ctx, configPath)
 	if err != nil {
 		return fail(err)
@@ -817,7 +877,7 @@ func createIntoExistingConfig(ctx context.Context, configPath, keyFile string, t
 
 	logStartup(ctx, logger(), app.BuildVersionInfo(version, commit))
 
-	if err := resolveKeyAndTrust(ctx, route, keyFile, trustHostKey, &req); err != nil {
+	if err := resolveKeyAndTrust(ctx, route, keyFile, keyPassphrase, trustHostKey, &req); err != nil {
 		return fail(err)
 	}
 
@@ -846,7 +906,7 @@ func createIntoExistingConfig(ctx context.Context, configPath, keyFile string, t
 // (issue #176: a fresh install serves a setup flow rather than refusing
 // to start), so this is the path a machine the installer has just set up
 // actually takes, and the two-machine end-to-end test walks it.
-func createFirstConfig(ctx context.Context, configFile, stateDatabase, keyFile string, trustHostKey, noVerify bool, req service.CreateBackupSetRequest) int {
+func createFirstConfig(ctx context.Context, configFile, stateDatabase, keyFile, keyPassphrase string, trustHostKey, noVerify bool, req service.CreateBackupSetRequest) int {
 	if req.RunImmediately {
 		// The service ignores RunImmediately here, because a first-run
 		// instance has no BackupService to submit an operation to yet.
@@ -898,7 +958,7 @@ func createFirstConfig(ctx context.Context, configFile, stateDatabase, keyFile s
 		return fail(err)
 	}
 
-	if err := resolveKeyAndTrust(ctx, firstRun, keyFile, trustHostKey, &req); err != nil {
+	if err := resolveKeyAndTrust(ctx, firstRun, keyFile, keyPassphrase, trustHostKey, &req); err != nil {
 		return fail(err)
 	}
 
@@ -945,9 +1005,9 @@ type backupSetCreatePrereqs interface {
 // ImportSSHKey, which is the only thing that reads key material anywhere
 // in this binary. It is never logged, never echoed and never written
 // anywhere but the key store ImportSSHKey owns.
-func resolveKeyAndTrust(ctx context.Context, svc backupSetCreatePrereqs, keyFile string, trustHostKey bool, req *service.CreateBackupSetRequest) error {
+func resolveKeyAndTrust(ctx context.Context, svc backupSetCreatePrereqs, keyFile, keyPassphrase string, trustHostKey bool, req *service.CreateBackupSetRequest) error {
 	if keyFile != "" {
-		id, err := importKeyFile(ctx, svc, keyFile)
+		id, err := importKeyFile(ctx, svc, keyFile, keyPassphrase)
 		if err != nil {
 			return err
 		}
@@ -971,14 +1031,14 @@ func resolveKeyAndTrust(ctx context.Context, svc backupSetCreatePrereqs, keyFile
 // and reports the id the set will carry. Split out of resolveKeyAndTrust
 // so `patch` performs the identical step rather than a rotation-shaped
 // copy of it (issue #572).
-func importKeyFile(ctx context.Context, svc backupSetCreatePrereqs, keyFile string) (string, error) {
+func importKeyFile(ctx context.Context, svc backupSetCreatePrereqs, keyFile, passphrase string) (string, error) {
 	raw, err := os.ReadFile(keyFile)
 	if err != nil {
 		return "", fmt.Errorf("reading the SSH key at %s: %w", keyFile, err)
 	}
-	ref, err := svc.ImportSSHKey(ctx, raw, "")
+	ref, err := svc.ImportSSHKey(ctx, raw, passphrase)
 	if err != nil {
-		return "", err
+		return "", withPassphraseHint(err, passphrase != "", "--ssh-key-passphrase-stdin")
 	}
 	// The fingerprint, never the path: what an operator needs to
 	// confirm is which key was adopted, and where this deployment
@@ -1122,6 +1182,13 @@ func buildBackupSetPatch(f *backupSetFlags) (service.UpdateBackupSetRequest, boo
 		case "verification-restore-drill-every":
 			v := *f.verificationRestoreDrillEvery
 			req.VerificationRestoreDrillEvery = &v
+		// Issue #1151. Zero is the request to inherit the deployment's
+		// cadence, so it is read through fs.Visit like every other
+		// pointer here: an explicit --poll-interval 0 is a request and
+		// not an omission. The floor is the service's, not this file's.
+		case "poll-interval":
+			v := *f.pollInterval
+			req.PollInterval = &v
 		case "ssh-key-id":
 			v := *f.keyID
 			req.SSHKeyID = &v
@@ -1217,6 +1284,25 @@ func printBackupSet(s service.BackupSet) {
 	fmt.Printf("  validator_id: %s\n", string(s.ValidatorID))
 	fmt.Printf("  disabled: %v\n", s.Disabled)
 	fmt.Printf("  read_only: %v\n", s.ReadOnly)
+	// Issue #1151, and each printed only when there is something to say.
+	// A set that inherits its cadence prints no poll line, which keeps
+	// every confirmation written before this existed exactly as it was;
+	// `backup-set show` is where "inherited" is spelled out.
+	//
+	// The lineage key is here because it is the one thing an operator
+	// needs to write down after creating an incremental set: it is what
+	// `backup-set create --uuid` takes to re-declare the set after its
+	// configuration is lost, and a create that minted one and did not say
+	// which left the next create no way to find the old snapshots.
+	if s.PollInterval != nil {
+		fmt.Printf("  poll_interval: %s\n", s.PollInterval)
+	}
+	if s.UUID != "" {
+		fmt.Printf("  uuid: %s\n", s.UUID)
+	}
+	if s.SourceMountPrefix != "" {
+		fmt.Printf("  source_mount_prefix: %s\n", s.SourceMountPrefix)
+	}
 	// Issue #624, and printed ONLY when it is set, unlike every line above
 	// it. That asymmetry is the field's own meaning rather than an
 	// omission: true says a surface deliberately skipped a check it could

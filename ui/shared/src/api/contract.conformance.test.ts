@@ -276,6 +276,7 @@ describe("every request the shared client makes is a declared operation", () => 
     };
     const calls: Array<[string, () => Promise<unknown>]> = [
       ["getVersion", () => httpApi.getVersion()],
+      ["getCapabilities", () => httpApi.getCapabilities()],
       ["getHealth", () => httpApi.getHealth()],
       ["getFirstRunStatus", () => httpApi.getFirstRunStatus()],
       ["skipFirstRunStep", () => httpApi.skipFirstRunStep("email")],
@@ -663,11 +664,11 @@ describe("every request the shared client makes is a declared operation", () => 
    * Asserted EXACTLY, like its counterpart, so the list can only shrink.
    */
   const UNREACHED_SERVER_OPERATIONS = [
-    // Two of these are read by something that is not this client:
-    // getSession is the platform bridge's own call
-    // (platform/localSession.ts, which reads the envelope itself rather
-    // than going through httpApi), and getSystemCapabilities is answered
-    // from the bridge's capability model rather than fetched.
+    // getSession is read by something that is not this client: the platform
+    // bridge's own call (platform/localSession.ts, which reads the envelope
+    // itself rather than going through httpApi). getSystemCapabilities left
+    // this list with #1165, when the screens that press a gated act began
+    // reading the gate's state from it (httpApi.getCapabilities).
     //
     // The seven that used to sit here left with #788's UI wave: the
     // snapshot list, one snapshot, its holds, its retention verdicts,
@@ -684,8 +685,7 @@ describe("every request the shared client makes is a declared operation", () => 
     // out. They were never a standing permission — nothing in ui/shared
     // could call them without this list shrinking, which is the property
     // the exact assertion below enforces in both directions.
-    "getSession",
-    "getSystemCapabilities"
+    "getSession"
     //
     // EPIC Q's recovery pair (#976), mintRecovery and redeemRecovery, used to
     // be pinned here as "unreached until a screen calls them". The Recover

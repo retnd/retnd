@@ -246,7 +246,19 @@ commands:
               a bootstrap token to. Refuses if a server is currently
               running against the same --auth-store (its lock is held for
               as long as it is up) - run this before first start, or
-              while the server is stopped.
+              while the server is stopped. It is single-shot: once an
+              administrator exists it refuses and leaves the account
+              alone (use auth set-password to change the password).
+  auth set-password --username U --password-stdin [--auth-store PATH]
+              replace the administrator's password offline, for the
+              account that is locked out and has no mail server to
+              reset through (issue #1155). The new password is read
+              from stdin only, never a flag, and is printed nowhere.
+              Takes the same lock a running server holds and refuses
+              while one is up, which is also what ends every session:
+              sessions live in the server's memory, so stopping it
+              signs everybody out. Refuses if --username is not the
+              administrator, or if no administrator exists yet.
 
 serve flags:
   --config PATH               path to the manager's YAML config file
@@ -363,6 +375,12 @@ serve-ui flags:
 healthcheck flags:
   --url URL   URL to GET (default $LISTEN_ADDR turned into
                http://127.0.0.1:<port>/)
+
+auth set-password flags:
+  --auth-store PATH   path to the local-auth administrator record
+                       (default /data/state/local-auth.json)
+  --username U         the administrator's username (required)
+  --password-stdin     read the NEW password from stdin (required)
 
 auth create-admin flags:
   --auth-store PATH   path to the local-auth administrator record
@@ -1040,14 +1058,16 @@ func cmdServeUI(args []string) int {
 // would collide across subcommands.
 func cmdAuth(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, cliecho.WebBinary+": auth requires a subcommand (create-admin)")
+		fmt.Fprintln(os.Stderr, cliecho.WebBinary+": auth requires a subcommand (create-admin or set-password)")
 		return exitUsage
 	}
 	switch args[0] {
 	case "create-admin":
 		return cmdAuthCreateAdmin(args[1:])
+	case "set-password":
+		return cmdAuthSetPassword(args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, cliecho.WebBinary+": unknown auth subcommand %q (only create-admin exists)\n", args[0])
+		fmt.Fprintf(os.Stderr, cliecho.WebBinary+": unknown auth subcommand %q (create-admin and set-password exist)\n", args[0])
 		return exitUsage
 	}
 }
@@ -1139,6 +1159,9 @@ func cmdAuthCreateAdmin(args []string) int {
 		if errors.Is(err, local.ErrStoreLocked) {
 			return fail(fmt.Errorf("auth create-admin: %w; stop the running server (or wait for the other create-admin invocation to finish) and try again", err))
 		}
+		if errors.Is(err, local.ErrAlreadyEnrolled) {
+			return fail(fmt.Errorf("auth create-admin: %w; create-admin makes only the first account and changes nothing once one exists. To change the password run `%s auth set-password --username U --password-stdin` with the server stopped", err, cliecho.WebBinary))
+		}
 		return fail(fmt.Errorf("auth create-admin: %w", err))
 	}
 
@@ -1172,6 +1195,60 @@ func cmdAuthCreateAdmin(args []string) int {
 	if _, err := fmt.Fprintf(os.Stdout, cliecho.WebBinary+": administrator %q created in %s; %s. Start the server normally - it will see this account already exists and will not print or accept an enrollment bootstrap token.%s\n",
 		admin.Username, *authStorePath, recovery, lapse); err != nil {
 		return fail(fmt.Errorf("auth create-admin: writing confirmation: %w", err))
+	}
+	return exitOK
+}
+
+// cmdAuthSetPassword is issue #1155's way back into a locked-out account:
+// local.SetAdminPassword called directly against --auth-store, with no HTTP
+// request and no session involved.
+//
+// The new password is read from stdin and from nowhere else, for
+// create-admin's reason: a flag's value is in this process's argument list
+// for as long as it runs and in the shell history afterwards. Nothing here
+// prints it, and the refusals below name the account and the store but never
+// a password.
+func cmdAuthSetPassword(args []string) int {
+	fset := flag.NewFlagSet("auth set-password", flag.ContinueOnError)
+	authStorePath := fset.String("auth-store", defaultAuthStorePath, "path to the local-auth administrator record")
+	username := fset.String("username", "", "the administrator's username (required)")
+	passwordStdin := fset.Bool("password-stdin", false, "read the new password from stdin (required)")
+	if err := fset.Parse(args); err != nil {
+		return exitUsage
+	}
+	if fset.NArg() != 0 {
+		fmt.Fprintf(os.Stderr, cliecho.WebBinary+": auth set-password: unexpected argument %q\n", fset.Arg(0))
+		return exitUsage
+	}
+	if *username == "" {
+		fmt.Fprintln(os.Stderr, cliecho.WebBinary+": auth set-password: --username is required")
+		return exitUsage
+	}
+	if !*passwordStdin {
+		fmt.Fprintln(os.Stderr, cliecho.WebBinary+": auth set-password: --password-stdin is required (this command never accepts a password as a flag); pipe it in, e.g. echo -n \"$PASS\" | "+cliecho.WebBinary+" auth set-password --username U --password-stdin")
+		return exitUsage
+	}
+
+	password, _, err := readSecretsFromStdin(os.Stdin, false)
+	if err != nil {
+		return fail(fmt.Errorf("auth set-password: %w", err))
+	}
+	if err := local.SetAdminPassword(local.SetPasswordConfig{
+		StorePath: *authStorePath,
+		Username:  *username,
+		Password:  password,
+	}); err != nil {
+		switch {
+		case errors.Is(err, local.ErrStoreLocked):
+			return fail(fmt.Errorf("auth set-password: %w; stop the running server and try again (stopping it is also what signs every session out)", err))
+		case errors.Is(err, local.ErrNotEnrolled):
+			return fail(fmt.Errorf("auth set-password: %w; `%s auth create-admin` makes the first one", err, cliecho.WebBinary))
+		}
+		return fail(fmt.Errorf("auth set-password: %w", err))
+	}
+	if _, err := fmt.Fprintf(os.Stdout, cliecho.WebBinary+": password for administrator %q replaced in %s. Every session ended when the server stopped; sign in with the new password after starting it again.\n",
+		*username, *authStorePath); err != nil {
+		return fail(fmt.Errorf("auth set-password: writing confirmation: %w", err))
 	}
 	return exitOK
 }

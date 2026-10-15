@@ -146,10 +146,12 @@ import type {
   WireWorkflowStepLogPage,
   WireWorkflowValidatedScript,
   WireWorkflowValidationResponse,
+  WireCapabilitiesResponse,
   WireVersionResponse
 } from "./generated/contract";
 import type {
   AppSettings,
+  Capabilities,
   RecoverManyItem,
   RecoverManyPlan,
   RecoverManyRequest,
@@ -1564,6 +1566,24 @@ function fromWireRepositoryMaintenance(m: WireRepositoryMaintenance): Repository
     failures: m.failures,
     reclaimedBytes: m.reclaimed_bytes,
     failing: m.failing
+  };
+}
+
+function fromWireCapabilities(body: WireCapabilitiesResponse): Capabilities {
+  return {
+    platform: body.platform,
+    nativeAuth: body.native_auth,
+    nativeNotifications: body.native_notifications,
+    storagePicker: body.storage_picker,
+    embeddedWindow: body.embedded_window,
+    appStorePackaging: body.app_store_packaging,
+    destructiveOperations: {
+      // Anything but an explicit open is shut: this reads a field a server
+      // older than this bundle does not send, and a missing gate state must
+      // never read as an open one.
+      state: body.destructive_operations?.state === "open" ? "open" : "shut",
+      reason: body.destructive_operations?.reason ?? ""
+    }
   };
 }
 
@@ -3131,6 +3151,7 @@ function fromWireFirstRunStatus(r: WireFirstRunStatusResponse): FirstRunStatus {
 
 export const httpApi: RetndApi = {
   getVersion: () => request<WireVersionResponse>("/system/version").then(fromWireVersion),
+  getCapabilities: () => request<WireCapabilitiesResponse>("/system/capabilities").then(fromWireCapabilities),
   // GET /system/health, NOT /health/ready. The two answer different
   // questions and only one of them is this one: /health/live and
   // /health/ready sit outside /api/v1, carry no authentication, and exist

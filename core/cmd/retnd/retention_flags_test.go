@@ -44,15 +44,27 @@ func captureStderr(t *testing.T, fn func()) string {
 	os.Stderr = w
 	t.Cleanup(func() { os.Stderr = orig })
 
+	// Drained while fn runs: a pipe holds about 64KB, and usage() alone is
+	// past that, so reading only after fn returns deadlocks (#1149).
+	type drained struct {
+		out []byte
+		err error
+	}
+	done := make(chan drained, 1)
+	go func() {
+		out, err := io.ReadAll(r)
+		done <- drained{out, err}
+	}()
+
 	fn()
 
 	w.Close()
 	os.Stderr = orig
-	out, err := io.ReadAll(r)
-	if err != nil {
-		t.Fatalf("reading captured stderr: %v", err)
+	got := <-done
+	if got.err != nil {
+		t.Fatalf("reading captured stderr: %v", got.err)
 	}
-	return string(out)
+	return string(got.out)
 }
 
 // captureStdout mirrors captureStderr for os.Stdout, so a test can compare
@@ -68,15 +80,27 @@ func captureStdout(t *testing.T, fn func()) string {
 	os.Stdout = w
 	t.Cleanup(func() { os.Stdout = orig })
 
+	// Drained while fn runs: a pipe holds about 64KB, and usage() alone is
+	// past that, so reading only after fn returns deadlocks (#1149).
+	type drained struct {
+		out []byte
+		err error
+	}
+	done := make(chan drained, 1)
+	go func() {
+		out, err := io.ReadAll(r)
+		done <- drained{out, err}
+	}()
+
 	fn()
 
 	w.Close()
 	os.Stdout = orig
-	out, err := io.ReadAll(r)
-	if err != nil {
-		t.Fatalf("reading captured stdout: %v", err)
+	got := <-done
+	if got.err != nil {
+		t.Fatalf("reading captured stdout: %v", got.err)
 	}
-	return string(out)
+	return string(got.out)
 }
 
 // boolPtr mirrors config's own test helper of the same name (unexported to

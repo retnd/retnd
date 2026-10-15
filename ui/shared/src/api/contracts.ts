@@ -2878,6 +2878,24 @@ export interface WorkflowValidation {
   workflowValid: boolean;
 }
 
+/** The destructive gate, as GET /system/capabilities reports it (issue
+ *  #1165). `reason` is empty when the gate is open. */
+export interface DestructiveOperations {
+  state: "open" | "shut";
+  reason: string;
+}
+
+/** GET /system/capabilities. */
+export interface Capabilities {
+  platform: string;
+  nativeAuth: boolean;
+  nativeNotifications: boolean;
+  storagePicker: boolean;
+  embeddedWindow: boolean;
+  appStorePackaging: boolean;
+  destructiveOperations: DestructiveOperations;
+}
+
 /**
  * Everything this frontend can ask a backend to do.
  *
@@ -2902,6 +2920,12 @@ export interface RetndApi {
    */
   assurance?: import("@shared/assurance/types").AssuranceApi;
   getVersion(): Promise<VersionInfo>;
+  /**
+   * GET /system/capabilities (issue #1165): what this runtime profile can do,
+   * and whether the destructive gate is open. The screens that press a gated
+   * act read `destructiveOperations` instead of assuming the gate is shut.
+   */
+  getCapabilities(): Promise<Capabilities>;
   getHealth(): Promise<SystemHealth>;
 
   /** Issue #176: which mode this instance is in. Read before anything

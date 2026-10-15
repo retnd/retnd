@@ -55,8 +55,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useApi } from "@shared/api/ApiContext";
 import { newIdempotencyKey } from "@shared/api/client";
-import { describeFailure } from "@shared/api/failure";
+import { apiErrorOf, describeFailure } from "@shared/api/failure";
 import type { OperatorFailure } from "@shared/api/failure";
+import { gateRefusalNotice, isGateRefusal } from "@shared/api/gate";
+import type { GateRefusalNotice } from "@shared/api/gate";
 import type { SnapshotOperationResult } from "@shared/api/contracts";
 import { useCausl } from "@shared/state/graph";
 import { versionNode } from "@shared/state/appNodes";
@@ -66,6 +68,20 @@ import type { Operation } from "@shared/types/operation";
  *  Two seconds is the cadence the activity surfaces already use, and a
  *  restore's progress reads as live at it without a poll per frame. */
 const WATCH_INTERVAL_MS = 2_000;
+
+/** What a refused act tells the operator to do instead (issue #1157). */
+export interface TerminalEquivalent {
+  /** What did not happen, as a clause: "The verification was not started". */
+  outcome: string;
+  /** What stayed as it was: "Nothing was queued and nothing was read." */
+  nothingChanged: string;
+  /** The `retnd` command that does the same act on the host. */
+  command: string;
+  /** The gate's reason as the capability field reported it (#1165). Absent
+   *  when the page could not read it, and then the refusal says what has
+   *  been true of every shipped build. */
+  reason?: string;
+}
 
 /** What the act is doing, as a screen renders it. */
 export interface SnapshotAction {
@@ -81,6 +97,22 @@ export interface SnapshotAction {
   /** What came back from the act's own request, translated. Null once a
    *  later attempt succeeds. */
   failure: OperatorFailure | null;
+  /**
+   * Set instead of `failure` when the refusal was the destructive gate's
+   * (issue #1157). It is not an error to retry past, so it is its own thing
+   * on screen: what was refused, that retrying will not help, and the
+   * command to run on the host. Null otherwise.
+   */
+  gate: GateRefusalNotice | null;
+  /**
+   * Forgets a shown gate refusal and nothing else. A screen that hides its
+   * dialog while the refusal is on show calls this when the operator opens
+   * the dialog again. It is not `dismiss`, which also forgets the pending
+   * idempotency key: a gate refusal is not a retry of anything, but this is
+   * also called on rows whose last failure was an ordinary one, and that
+   * failure's retry must keep its key.
+   */
+  clearGate(): void;
   /**
    * Submits one act on one target and starts watching it.
    *
@@ -98,11 +130,18 @@ export interface SnapshotAction {
    * operation AND the snapshots it changed — which is what lets a hold
    * dialog close onto the new truth rather than onto a re-read that may
    * not have landed.
+   *
+   * `terminal` is what to say if the destructive gate refuses this act
+   * (issue #1157): what did not happen, what stayed as it was, and the
+   * `retnd` command that does the same thing on the host. A caller that
+   * passes none gets the generic failure for that refusal, which is the
+   * behaviour this hook had before.
    */
   submit(
     target: string,
     act: (credentials: { configRevision: string; idempotencyKey: string }) => Promise<SnapshotOperationResult>,
-    onDone?: (result: SnapshotOperationResult) => void
+    onDone?: (result: SnapshotOperationResult) => void,
+    terminal?: TerminalEquivalent
   ): void;
   /** Clears the last outcome: the failure, the operation being watched,
    *  and the pending idempotency key. The key goes with them: a retry is
@@ -123,6 +162,7 @@ export function useSnapshotOperation(fallbackMessage: string): SnapshotAction {
   const [busy, setBusy] = useState(false);
   const [operation, setOperation] = useState<Operation | null>(null);
   const [failure, setFailure] = useState<OperatorFailure | null>(null);
+  const [gate, setGate] = useState<GateRefusalNotice | null>(null);
 
   // Survives renders on purpose: pressing the button again after a
   // refusal is the same logical submission, and the header is what lets
@@ -135,7 +175,7 @@ export function useSnapshotOperation(fallbackMessage: string): SnapshotAction {
   const ready = typeof configRevision === "string" && configRevision !== "";
 
   const submit = useCallback<SnapshotAction["submit"]>(
-    (target, act, onDone) => {
+    (target, act, onDone, terminal) => {
       if (!ready) {
         setFailure({
           message: "This page has not finished loading.",
@@ -152,6 +192,7 @@ export function useSnapshotOperation(fallbackMessage: string): SnapshotAction {
 
       setBusy(true);
       setFailure(null);
+      setGate(null);
       act({ configRevision, idempotencyKey }).then(
         (result) => {
           // Done with this submission, so the next press is a new one.
@@ -164,6 +205,10 @@ export function useSnapshotOperation(fallbackMessage: string): SnapshotAction {
           // The key is deliberately KEPT. Pressing the button again is
           // the same act retried, which is the whole point of the header.
           setBusy(false);
+          if (terminal !== undefined && isGateRefusal(e)) {
+            setGate(gateRefusalNotice({ ...terminal, correlationId: apiErrorOf(e)?.correlationId }));
+            return;
+          }
           setFailure(describeFailure(e, fallbackMessage));
         }
       );
@@ -194,9 +239,12 @@ export function useSnapshotOperation(fallbackMessage: string): SnapshotAction {
     busy,
     operation,
     failure,
+    gate,
+    clearGate: useCallback(() => setGate(null), []),
     submit,
     dismiss: useCallback(() => {
       setFailure(null);
+      setGate(null);
       setOperation(null);
       // The refusal this key belonged to is off the screen, so the next
       // press is a new submission rather than a retry of something the

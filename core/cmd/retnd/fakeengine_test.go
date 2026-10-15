@@ -70,12 +70,35 @@ type fakeEngine struct {
 	csrf     map[string]bool
 	seen     []string
 
+	// handlers answers a route a test wants to script itself, keyed
+	// "METHOD /path" with the /api/v1 prefix off. It sits behind the same
+	// session and double-submit checks as everything else, so a scripted
+	// answer is still an answer to a client that signed in properly.
+	handlers map[string]http.HandlerFunc
+
 	// The live feed this engine hands out, one reading per request, and
 	// every cursor it was asked with. See liveActivity below for why this
 	// one answer is stated rather than produced.
 	liveReadings []apicontract.LiveActivityResponse
 	liveSince    []int64
 	liveScope    []string
+
+	// The operations this engine holds (#1149), see operations1149_test.go.
+	opsMu   sync.Mutex
+	ops     []apicontract.Operation
+	opReads map[string][]apicontract.Operation
+	opQuery []string
+
+	// What GET /system/capabilities answers (#1165), see
+	// system_capabilities_1165_test.go. A raw document rather than the typed
+	// response, so the test states the wire it expects the CLI to pass on.
+	capsMu sync.Mutex
+	caps   map[string]any
+
+	// lastBody is the bytes of the last answer to each "METHOD path" in
+	// fakeengine_configwrites_1148_test.go, kept so a test can diff what
+	// the CLI printed against what the engine returned.
+	lastBody map[string][]byte
 }
 
 // startFakeEngine announces that this process serves the deployment
@@ -274,7 +297,18 @@ func (e *fakeEngine) api(w http.ResponseWriter, r *http.Request, path, token str
 		}
 	}
 
+	e.mu.Lock()
+	scripted := e.handlers[r.Method+" "+path]
+	e.mu.Unlock()
+	if scripted != nil {
+		scripted(w, r)
+		return
+	}
+
 	switch {
+	// The eight config writes #1148 routes, ahead of everything below
+	// for the reason fakeengine_configwrites_1148_test.go gives.
+	case e.serveConfigWrite(w, r, path):
 	// The assurance policy (EPIC Q, #982), ahead of the generic
 	// /backup-sets/ cases below because a set's assurance path ends in
 	// /assurance and would otherwise be read as a set edit.
@@ -306,6 +340,12 @@ func (e *fakeEngine) api(w http.ResponseWriter, r *http.Request, path, token str
 		e.setReadOnly(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/backup-sets/"), "/read-only"))
 	case r.Method == http.MethodPost && strings.HasPrefix(path, "/assurance/operations/") && strings.HasSuffix(path, "/cancel"):
 		e.cancelAssuranceOperation(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/assurance/operations/"), "/cancel"))
+	case r.Method == http.MethodGet && path == "/system/capabilities":
+		e.getCapabilities(w, r)
+	case r.Method == http.MethodGet && path == "/operations":
+		e.listOperations(w, r)
+	case r.Method == http.MethodGet && strings.HasPrefix(path, "/operations/"):
+		e.getOperation(w, r, strings.TrimPrefix(path, "/operations/"))
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/edit-hold"):
 		e.getEditHold(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/backup-sets/"), "/edit-hold"))
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/edit-hold/release"):
@@ -326,6 +366,11 @@ func (e *fakeEngine) api(w http.ResponseWriter, r *http.Request, path, token str
 		e.acknowledgeWorkflowRecovery(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/workflow-recovery/"), "/acknowledge"))
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/logs"):
 		e.workflowStepLogs(w, r, strings.TrimPrefix(path, "/workflow-runs/"))
+	// #1154: a destination configured in its backend's own field names.
+	case r.Method == http.MethodPut && strings.HasPrefix(path, "/storage-mediums/") && strings.HasSuffix(path, "/configuration"):
+		e.configureMedium(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/storage-mediums/"), "/configuration"))
+	case r.Method == http.MethodPost && strings.HasPrefix(path, "/storage-mediums/") && strings.HasSuffix(path, "/configuration/preflight"):
+		e.preflightMediumConfiguration(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/storage-mediums/"), "/configuration/preflight"))
 	case r.Method == http.MethodGet && path == "/settings":
 		e.getSettings(w, r)
 	case r.Method == http.MethodPatch && path == "/settings":
@@ -1218,4 +1263,14 @@ func (e *fakeEngine) backupSetAssurance(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	writeJSON(w, http.StatusOK, backupSetAssuranceWire(got))
+}
+
+// handle scripts one route's answer; see fakeEngine.handlers.
+func (e *fakeEngine) handle(route string, h http.HandlerFunc) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.handlers == nil {
+		e.handlers = map[string]http.HandlerFunc{}
+	}
+	e.handlers[route] = h
 }

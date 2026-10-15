@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"time"
 
 	"github.com/retnd/retnd/core/apicontract"
@@ -71,6 +72,68 @@ func (r *engineRoute) ImportSSHKey(ctx context.Context, raw []byte, passphrase s
 		Algorithm:   resp.Algorithm,
 		Fingerprint: resp.Fingerprint,
 	}, nil
+}
+
+// ListSSHKeys is GET /ssh-keys, read back into the service's vocabulary.
+//
+// The CLI prints from service.SSHKeyListing and converts to the wire object
+// with service.SSHKeysToWire for --json, which is the conversion the
+// engine's own handler is held to. Converting here and back is lossless
+// for every field the wire carries (the one time field is RFC 3339 to the
+// second on both sides), and it is what lets one printer serve a store
+// read from this host's disk and one read from an engine.
+func (r *engineRoute) ListSSHKeys(ctx context.Context) ([]service.SSHKeyListing, error) {
+	resp, err := r.client.ListSSHKeys(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]service.SSHKeyListing, 0, len(resp.Keys))
+	for _, k := range resp.Keys {
+		listing := service.SSHKeyListing{
+			ID: k.ID, Algorithm: k.Algorithm, Fingerprint: k.Fingerprint, PublicKey: k.PublicKey,
+			PassphraseProtected: k.PassphraseProtected, Problem: k.Problem, UsedBy: k.UsedBy,
+		}
+		if k.ImportedAt != "" {
+			if at, err := time.Parse(time.RFC3339, k.ImportedAt); err == nil {
+				listing.ImportedAt = at
+			}
+		}
+		out = append(out, listing)
+	}
+	return out, nil
+}
+
+// DiscoverSSHKeyCandidates is GET /ssh/key-candidates: the keys the ENGINE
+// can see on its own machine, which is the only scan that says anything
+// about the keys it could use.
+func (r *engineRoute) DiscoverSSHKeyCandidates(ctx context.Context) (service.SSHKeyDiscovery, error) {
+	resp, err := r.client.ListSSHKeyCandidates(ctx)
+	if err != nil {
+		return service.SSHKeyDiscovery{}, err
+	}
+	var out service.SSHKeyDiscovery
+	for _, l := range resp.Locations {
+		out.Locations = append(out.Locations, service.SSHKeyDiscoveryLocation{Path: l.Path, Kind: l.Kind, Found: l.Found, Problem: l.Problem})
+	}
+	for _, c := range resp.Candidates {
+		out.Candidates = append(out.Candidates, service.SSHKeyCandidate{
+			ID: c.ID, Path: c.Path, Location: c.Location, Algorithm: c.Algorithm, Fingerprint: c.Fingerprint,
+			PublicKey: c.PublicKey, Mode: c.Mode, InStore: c.InStore, InStoreID: c.InStoreID,
+			Selectable: c.Selectable, Reason: c.Reason,
+		})
+	}
+	return out, nil
+}
+
+// ImportSSHKeyCandidate is POST /ssh-keys/from-candidate: an opaque handle
+// and no key material, so nothing crosses the wire that was not already on
+// the engine's machine.
+func (r *engineRoute) ImportSSHKeyCandidate(ctx context.Context, candidateID string) (service.SSHKeyRef, error) {
+	resp, err := r.client.ImportSSHKeyFromCandidate(ctx, apicontract.ImportSSHKeyFromCandidateRequest{CandidateID: candidateID})
+	if err != nil {
+		return service.SSHKeyRef{}, err
+	}
+	return service.SSHKeyRef{ID: resp.ID, Algorithm: resp.Algorithm, Fingerprint: resp.Fingerprint}, nil
 }
 
 // ProbeHostKey asks the ENGINE to dial the source and report what
@@ -140,7 +203,14 @@ func (r *engineRoute) CreateBackupSet(ctx context.Context, req service.CreateBac
 			// downstream could ever notice. The two cadences are whole
 			// SECONDS on the wire, refused rather than truncated,
 			// exactly as the two completion windows above are.
-			Engine:                               req.Engine,
+			Engine: req.Engine,
+			// Issue #1151: the lineage key and the mount prefix. A routed
+			// create that dropped them would let the ENGINE mint a fresh
+			// key for a set the operator asked to re-declare under their
+			// old one, which is the fork --uuid exists to prevent, and
+			// nothing on the command line's own exit code would show it.
+			Uuid:                                 req.UUID,
+			SourceMountPrefix:                    req.SourceMountPrefix,
 			RepositoryDomain:                     req.RepositoryDomain,
 			SourceConsistency:                    req.SourceConsistency,
 			VerificationLevel:                    req.VerificationLevel,
@@ -455,7 +525,33 @@ func backupSetFromWire(s apicontract.BackupSet) service.BackupSet {
 		// that back as an explicit override.
 		PollInterval:          durationPointerFromWireSeconds(s.PollIntervalSeconds),
 		EffectivePollInterval: time.Duration(s.EffectivePollIntervalSeconds) * time.Second,
+
+		// Issue #1151. The rest of the object, so a routed write answers
+		// with the whole set and not the subset the first verbs printed.
+		// The lineage key is the one that matters to an operator: a
+		// create that minted it on the engine has to be able to say which.
+		SSHKeyID:                 s.SSHKeyID,
+		TrustedHostKeys:          trustedHostKeysFromWire(s.TrustedHostKeys),
+		TrustedHostKeyRecordedAt: wireInstant(s.TrustedHostKeyRecordedAt),
+
+		Engine:                        s.Engine,
+		UUID:                          s.Uuid,
+		RepositoryDomain:              s.RepositoryDomain,
+		SourceConsistency:             s.SourceConsistency,
+		VerificationLevel:             s.VerificationLevel,
+		VerificationSamplePercent:     s.VerificationSamplePercent,
+		VerificationFullEvery:         time.Duration(s.VerificationFullEverySeconds) * time.Second,
+		VerificationRestoreDrillEvery: time.Duration(s.VerificationRestoreDrillEverySeconds) * time.Second,
+		SourceMountPrefix:             s.SourceMountPrefix,
 	}
+}
+
+func trustedHostKeysFromWire(keys []apicontract.TrustedHostKey) []service.TrustedHostKey {
+	var out []service.TrustedHostKey
+	for _, k := range keys {
+		out = append(out, service.TrustedHostKey{Algorithm: k.Algorithm, Fingerprint: k.Fingerprint})
+	}
+	return out
 }
 
 // durationPointerFromWireSeconds keeps the contract's null ("this set
@@ -721,6 +817,47 @@ func (r *engineRoute) SetDefaultStorageMedium(ctx context.Context, id string) (s
 		return service.StorageMediumSummary{}, err
 	}
 	return storageMediumFromWire(resp), nil
+}
+
+func (r *engineRoute) ConfigureStorageMedium(ctx context.Context, id string, cfg service.StorageMediumConfiguration) (service.StorageMediumSummary, error) {
+	resp, err := r.client.ConfigureStorageMedium(ctx, id, mediumConfigurationToWire(cfg))
+	if err != nil {
+		return service.StorageMediumSummary{}, err
+	}
+	return storageMediumFromWire(resp), nil
+}
+
+func (r *engineRoute) PreflightStorageMediumConfiguration(ctx context.Context, id string, cfg service.StorageMediumConfiguration) (service.MediumPreflight, error) {
+	resp, err := r.client.PreflightStorageMediumConfiguration(ctx, id, mediumConfigurationToWire(cfg))
+	if err != nil {
+		return service.MediumPreflight{}, err
+	}
+	return mediumPreflightFromWire(resp), nil
+}
+
+// mediumConfigurationToWire is the contract's pair list, sorted by field id
+// so one configuration is one body. A credential crosses as a reference in
+// whichever of its four spellings was named, and never as material.
+func mediumConfigurationToWire(cfg service.StorageMediumConfiguration) apicontract.MediumConfigurationRequest {
+	ids := make([]string, 0, len(cfg.Fields))
+	for id := range cfg.Fields {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	fields := make([]apicontract.MediumFieldValue, 0, len(ids))
+	for _, id := range ids {
+		fields = append(fields, apicontract.MediumFieldValue{Field: id, Value: cfg.Fields[id]})
+	}
+	return apicontract.MediumConfigurationRequest{
+		Backend: cfg.Backend,
+		Fields:  fields,
+		Credentials: apicontract.StorageMediumCredentialsReference{
+			CredentialsID: cfg.Credentials.ID,
+			File:          cfg.Credentials.File,
+			Env:           cfg.Credentials.Env,
+			Command:       cfg.Credentials.Command,
+		},
+	}
 }
 
 // storageMediumFromWire is the one place the engine's answer becomes this

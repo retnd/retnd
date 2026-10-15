@@ -620,6 +620,18 @@ Settings, and until they do, a forgotten password has no self-service route back
 deployment provisioned this way should treat `GET /api/v1/auth/recovery` returning no
 address as an open task rather than as a state to leave alone.
 
+**Getting back into a locked-out account (`/retnd-web auth set-password`).**
+`create-admin` is single-shot: once an administrator exists it refuses and changes
+nothing, so it is not a way back in. A forgotten password on a deployment with no mail
+server has one, offline: stop the server and run `retnd-web auth set-password --username U
+--password-stdin --auth-store PATH`, with the new password piped in on stdin. It takes the
+same store lock a running server holds and refuses while one is up. That refusal is also
+the session revocation, because sessions live in the server's memory and stopping it signs
+everybody out. The other direction, while the server is up and you can still sign in, is
+`retnd auth password --password-stdin` (current password on the first line, new on the
+second), with `retnd auth recovery show|set|test` and `retnd auth verify-email` for the
+recovery address and the SMTP endpoint behind it. None of them takes a secret as a flag.
+
 **Trusting `web-ui`'s reverse proxy (`TRUST_FORWARDED_HEADERS`).** `retnd`
 only ever sees requests from `web-ui`'s own reverse proxy, over the `internal` network -
 every request's `RemoteAddr` is `web-ui`'s own container address, never the real

@@ -93,6 +93,26 @@ func (b *BackupService) RecordAPIAction(ctx context.Context, action cliecho.APIA
 	if action.ErrorCode != "" {
 		attrs = append(attrs, slog.String("error_code", action.ErrorCode))
 	}
+	// A refusal by the destructive gate (issue #1165): the state the gate was
+	// in, why, and which act and target it refused. Absent rather than empty
+	// when nothing was refused, so a reader can tell "not refused" from
+	// "refused for no stated reason".
+	if action.Gate != "" {
+		attrs = append(attrs, slog.String("gate", action.Gate))
+		if action.GateReason != "" {
+			attrs = append(attrs, slog.String("gate_reason", action.GateReason))
+		}
+	}
+	for _, f := range []struct{ key, value string }{
+		{"operation", action.Operation},
+		{"run_id", action.RunID},
+		{"snapshot_id", action.SnapshotID},
+		{"hold_id", action.HoldID},
+	} {
+		if f.value != "" {
+			attrs = append(attrs, slog.String(f.key, f.value))
+		}
+	}
 	if action.Message != "" {
 		attrs = append(attrs, slog.String("detail", action.Message))
 	}
@@ -157,6 +177,10 @@ func (b *BackupService) RecordAPIAction(ctx context.Context, action cliecho.APIA
 func apiActionResultAndMessage(action cliecho.APIAction) (obs.Result, string) {
 	verb := strings.ToLower(action.Method)
 	switch {
+	// The gate refused a part of a request that otherwise succeeded: a create
+	// whose run was refused answers 201. It reads as the refusal it is.
+	case action.Gate != "" && action.ErrorCode != "" && action.Status < 400:
+		return obs.ResultWarn, verb + " " + action.Route + " refused: " + statusWords(action)
 	case action.Status >= 500:
 		return obs.ResultError, verb + " " + action.Route + " failed: " + statusWords(action)
 	case action.Status >= 400:

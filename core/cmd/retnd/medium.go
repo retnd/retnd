@@ -13,6 +13,7 @@ import (
 
 	"github.com/retnd/retnd/core/cliecho"
 	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/internal/obs"
 	"github.com/retnd/retnd/core/service"
 )
 
@@ -90,6 +91,13 @@ var mediumVerbs = map[string]mediumVerb{
 	"test-connection": {operand: "<medium-id>", run: mediumPreflightVerb},
 	"preflight":       {operand: "<medium-id>", run: mediumPreflightVerb},
 	"default":         {operand: "<medium-id>", run: mediumDefault},
+
+	// `configure` and `backends` are #1154's pair: a destination described
+	// in its backend's own field ids, which is the only way a local_volume
+	// can be declared from a terminal, and the catalogue those ids come
+	// from. `backends` names no medium and reads no configuration.
+	"configure": {operand: "<medium-id>", run: mediumConfigure},
+	"backends":  {operand: "", run: mediumBackends},
 }
 
 // mediumVerbNames is every verb `medium` dispatches, sorted, so a refusal
@@ -164,7 +172,33 @@ type mediumFlags struct {
 	credentialsEnv     *string
 	credentialsCommand *string
 
+	// configure's three (#1154). They belong to no other verb, and cmdMedium
+	// refuses them there rather than ignoring them.
+	backend   *string
+	fields    *fieldFlags
+	preflight *bool
+
 	fs *flag.FlagSet
+}
+
+// fieldFlags is the repeatable --field k=v of `medium configure`, kept as
+// the raw strings in the order they were typed. Validation is not done in
+// Set: flag reports a Set error as "invalid value for flag -field", which
+// loses the sentence that says what a field looks like, and it would be
+// reported for a verb that does not take the flag at all before cmdMedium
+// could say so.
+type fieldFlags struct{ raw []string }
+
+func (f *fieldFlags) String() string {
+	if f == nil {
+		return ""
+	}
+	return strings.Join(f.raw, ",")
+}
+
+func (f *fieldFlags) Set(v string) error {
+	f.raw = append(f.raw, v)
+	return nil
 }
 
 // declareMediumFlags puts every medium flag on fs. One flag set for all
@@ -192,7 +226,17 @@ func declareMediumFlags(fs *flag.FlagSet) mediumFlags {
 		credentialsFile:    fs.String("credentials-file", "", "add/edit/preflight --candidate: a path to an AWS shared-credentials file on this host. The preferred source when you already have one: rclone opens it itself, so the secret never enters this process"),
 		credentialsEnv:     fs.String("credentials-env", "", "add/edit/preflight --candidate: the NAME of an environment variable the credentials are read from at connection time. Never a value"),
 		credentialsCommand: fs.String("credentials-command", "", "add/edit/preflight --candidate: a command whose stdout is the credentials, split on spaces and run directly, never through a shell"),
+
+		backend:   fs.String("backend", "", "configure: the backend this destination is an instance of, as `medium backends` lists it. Required when the destination is not declared yet, and must match when it is"),
+		fields:    fieldsFlag(fs),
+		preflight: fs.Bool("preflight", false, "configure: prove the configuration without writing it, whatever the report says"),
 	}
+}
+
+func fieldsFlag(fs *flag.FlagSet) *fieldFlags {
+	f := &fieldFlags{}
+	fs.Var(f, "field", "configure: one value in the backend's own field ids, written id=value, e.g. --field path=/mnt/usb. Repeatable. A configure REPLACES the whole declared field set, so leave out only the fields you want unset")
+	return f
 }
 
 // spec builds the destination description add, edit and preflight
@@ -304,6 +348,15 @@ func cmdMedium(args []string) int {
 		return usageError("medium: unknown subcommand %q (expected %s)", verb, quotedMediumVerbs())
 	}
 
+	// configure's flags mean nothing to any other verb, and a flag that is
+	// quietly ignored is how `medium add --preflight` ends up writing a
+	// destination its operator thought was only being checked.
+	if verb != "configure" {
+		if named := visitedAmong(fs, "backend", "field", "preflight"); len(named) > 0 {
+			return usageError("medium %s: --%s belongs to medium configure", verb, named[0])
+		}
+	}
+
 	// Arity is checked per verb rather than once, because they no longer
 	// share one. A verb that names a medium and was given none is a
 	// different mistake from one that names nothing and was given
@@ -357,12 +410,38 @@ func mediumOperandShapes() string {
 // runs body against it. See cmdMedium's own doc for which verbs come here
 // and why each of them does.
 func withMediumRoute(ctx context.Context, cfgPath string, body func(route configWriteRoute) int) int {
-	route, cleanup, err := openConfigWriteRoute(ctx, cfgPath)
+	return withMediumRouteFor(ctx, cfgPath, false, body)
+}
+
+// withMediumRouteFor is withMediumRoute for a verb that may print a JSON
+// document (#1152): with asJSON the mode announcement, the service's log and
+// the startup lines go to standard error, so the document is the only thing
+// on standard output.
+func withMediumRouteFor(ctx context.Context, cfgPath string, asJSON bool, body func(route configWriteRoute) int) int {
+	out, log := io.Writer(os.Stdout), logger()
+	if asJSON {
+		out, log = os.Stderr, jsonLogger()
+	}
+	route, cleanup, err := openConfigWriteRouteTo(ctx, cfgPath, out)
 	if err != nil {
 		return fail(err)
 	}
 	defer cleanup()
-	logStartup(ctx, logger(), app.BuildVersionInfo(version, commit))
+	logStartup(ctx, log, app.BuildVersionInfo(version, commit))
+	return body(route)
+}
+
+// withMediumRouteQuiet is withMediumRoute for a verb whose --json makes
+// standard output one JSON value: the mode announcement and the FR-23
+// startup lines go to standard error, where they are still there for an
+// operator who looks and no longer in front of the data (#1154).
+func withMediumRouteQuiet(ctx context.Context, cfgPath string, body func(route configWriteRoute) int) int {
+	route, cleanup, err := openConfigWriteRouteTo(ctx, cfgPath, os.Stderr)
+	if err != nil {
+		return fail(err)
+	}
+	defer cleanup()
+	logStartup(ctx, obs.New(os.Stderr, obs.LevelFromEnv()), app.BuildVersionInfo(version, commit))
 	return body(route)
 }
 
@@ -697,11 +776,14 @@ func mediumRemove(ctx context.Context, cfgPath, id string, _ mediumFlags) int {
 // --candidate` for the same reason, and the check they wanted is a button
 // on the deployment's own destinations card.
 func mediumPreflightVerb(ctx context.Context, cfgPath, id string, f mediumFlags) int {
-	return withMediumRoute(ctx, cfgPath, func(route configWriteRoute) int {
+	return withMediumRouteFor(ctx, cfgPath, *f.json, func(route configWriteRoute) int {
 		if *f.candidate {
 			report, err := route.PreflightStorageMediumCandidate(ctx, f.spec(id))
 			if err != nil {
 				return fail(err)
+			}
+			if *f.json {
+				return emitMediumReportJSON(report)
 			}
 			printMediumReport(report)
 			fmt.Println("nothing was written: a candidate preflight declares no destination whatever the report says")
@@ -710,8 +792,28 @@ func mediumPreflightVerb(ctx context.Context, cfgPath, id string, f mediumFlags)
 			}
 			return 0
 		}
+		if *f.json {
+			report, err := route.PreflightStorageMedium(ctx, id)
+			if err != nil {
+				return fail(err)
+			}
+			return emitMediumReportJSON(report)
+		}
 		return mediumPreflight(ctx, route, id)
 	})
+}
+
+// emitMediumReportJSON prints a preflight report as the API's
+// MediumPreflightResponse and keeps the verb's exit code: the report is the
+// result whether or not the destination works, and 1 is the verdict.
+func emitMediumReportJSON(report service.MediumPreflight) int {
+	if code := emitWireJSON(service.MediumPreflightWire(report)); code != exitOK {
+		return code
+	}
+	if !report.OK {
+		return 1
+	}
+	return 0
 }
 
 // mediumDefault is `medium default <medium-id>`: move the destination a
@@ -769,6 +871,20 @@ func printMedium(m service.StorageMediumSummary) {
 		return
 	}
 	fmt.Printf("  type: %s\n", m.Type)
+	if m.Bucket == "" && m.Path != "" {
+		// A destination that is a directory rather than a bucket (a
+		// local_volume instance, #1154): the S3 shape would print empty
+		// labels for a bucket, a region and a storage class it has none of.
+		fmt.Printf("  path: %s\n", m.Path)
+		if m.Prefix != "" {
+			fmt.Printf("  prefix: %s\n", m.Prefix)
+		}
+		fmt.Printf("  upload_verification: %s\n", m.UploadVerification)
+		if m.ConnectionUnverified {
+			fmt.Println("  connection: not verified (nothing has proven this destination; `" + cliecho.Binary + " medium test-connection " + m.ID + "` clears this)")
+		}
+		return
+	}
 	fmt.Printf("  bucket: %s\n", m.Bucket)
 	if m.Prefix != "" {
 		fmt.Printf("  prefix: %s\n", m.Prefix)

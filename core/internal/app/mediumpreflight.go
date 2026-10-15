@@ -175,6 +175,26 @@ type MediumCandidate = config.StorageMedium
 // resolution here would be a second answer to "which file", which is the
 // one question a credential reference cannot have two answers to.
 func (s *Service) PreflightMediumCandidate(ctx context.Context, candidate MediumCandidate) (mediumcheck.Report, error) {
+	// A directory is proven as a directory (#1154), by ROLE and ahead of the
+	// object boundary, exactly as PreflightLocalVolumeMedium proves a
+	// declared one. Without this a local_volume candidate went through the
+	// object-store check as a "bucket" with a storage class, never met the
+	// space and distinct-volume steps a directory can fail on, and could be
+	// let through by a proof the by-id check run afterwards would disagree
+	// with. It needs no MediumStore, because nothing here is reached over a
+	// network. The id is checked first for the reason the generic path
+	// checks it: the report names it.
+	if candidate.Type == config.StorageMediumTypeLocalVolume {
+		if candidate.ID == "" {
+			return mediumcheck.Report{}, fmt.Errorf("app: preflight: a candidate storage medium needs an id")
+		}
+		if candidate.ID == config.MediumLocal {
+			return mediumcheck.Report{}, fmt.Errorf(
+				"app: preflight: %q is the implicit local medium (a backup set's own local_path), not a destination that can be declared",
+				config.MediumLocal)
+		}
+		return s.PreflightLocalVolumeMedium(ctx, candidate)
+	}
 	if s.MediumStore == nil {
 		return mediumcheck.Report{}, fmt.Errorf("app: preflight: this instance has no way to reach a storage medium")
 	}

@@ -2,6 +2,108 @@
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-10-14
+
+0.6.4 brings the terminal up to the web API. EPIC S went through every route the API serves and gave
+each one a `retnd` command or a written reason it has none, so `status`, `artifacts`, `quarantine`,
+`storage`, `medium configure` and the rest of the reads now answer from a terminal and print `--json`
+that matches the API field for field. It also changes what a shut destructive gate says: the refusal,
+the spec and the screens now call those operations terminal-only and show the command to run, and the
+capabilities document carries a `destructive_operations` field so a client can ask before it tries.
+Retention writes handed `--json` are refused rather than accepted and ignored, so a script that passed
+the flag there needs to drop it. Nothing here changes a default and there is nothing to migrate.
+
+### Fixed
+
+- **Usage and the command echo no longer say things the code stopped doing** (#1150). `retnd`'s usage text
+  called `settings assurance patch` and `backup-set assurance` "refused beside" a serving engine, but
+  both are routed to it, and it left `--recovery-test-builtin-check` out of both synopses and `--port`,
+  `--acknowledge-repoint` and `--state-database` out of the `backup-set create` one. The activity panel's
+  deployment scope now echoes `retnd activity --follow --scope deployment` instead of a gap, and the Backups
+  list's set filter echoes from the `setId` the route actually reads. The twelve `/auth` routes and the two
+  health probes now each have an answer, a command or a written reason it has none.
+
+- **Eight config writes now work beside a serving engine** (#1148). `settings workflow patch`,
+  `settings workflow env set|unset`, `backup-set workflow patch`, `backup-set workflow env set|unset`
+  and `backup-set retention` (setting a policy, and `--inherit`) used to be refused with exit 3
+  whenever an engine was serving, although the API had a route for every one of them. They now
+  come through the same door as `settings patch`: with `RETND_API_URL` naming the engine the
+  change lands through the API and the engine's config revision moves, and with no route named
+  the refusal is unchanged. `--json` on all eight prints the object the API returns for the same
+  call, and `backup-set retention` gains `--json`.
+- **`medium configure` and `medium backends` exist, so a `local_volume` can finally be configured from a terminal, and `storage` prints the capacity reading** (#1154). `retnd medium configure <id> --backend B --field ID=VALUE ...` declares or replaces a destination in its backend's own field ids (`--field path=/mnt/usb`), with the same four credential references `medium add` takes, through the same route to a serving engine. `--preflight` proves the configuration and writes nothing, and exits 1 when the destination does not work. `medium backends [--json]` lists the backends and their field ids from the registry built into the binary, and `retnd storage [--json]` prints the manager block (cap, denominator, headroom, binding constraint, catalog bytes, level) and each backup set's level, the same body `GET /api/v1/system/storage` serves. Two things changed underneath so this is true: the manifest-shaped write now stores a `local_volume`'s `path` (it used to refuse the field by name, on the API as well), and the candidate proof of a `local_volume` is the directory check, with its space and distinct-volume steps, instead of the object-store check run against a path.
+- **`artifacts` shows what a scrub and a recovery test found, `artifacts --json` exists, and `quarantine list` lists what is held** (#1147). `retnd artifacts <id>` prints, for each copy that has a record, `assurance_state`, `last_checked_at`, `last_failure_at`, `last_failure_reason`, `consecutive_failures`, `recovery_state` (a built-in structure pass reads `readable`, as it does on the API), `recovery_tested_at`, `recovery_failure_reason` and `recovery_check`. A copy nobody has checked prints exactly what it printed before. `--json` prints the API's `Artifact` object for one backup and `ListArtifactsResponse` for the list, `artifacts --state S` narrows the list to one lifecycle state, and `quarantine list [--backup-set S] [--json]` prints id, reason, irrecoverable and updated_at for every backup held in quarantine.
+- **`retnd status` says why a set is halted, and has `--json`** (#1146). A set refused with
+  `HOST_KEY_CHANGED`, `AUTHENTICATION_FAILED` or `KEY_PERMISSIONS` now prints a `halted:` line
+  under it with when it was last refused and the command that fixes it, where before it read like a
+  slow set until it went STALE. `status --json` prints the object `GET /api/v1/system/health`
+  returns, plus a `process` key, and keeps the exit status.
+- **`--json` on the remaining reads** (#1152). `snapshot list|show|holds|retention`,
+  `repository health|maintenance`, `settings`, `backup-set retention`, `backup-set test-connection`,
+  `medium test-connection` (and `preflight`, `--candidate` included), `catalog rebuild` and
+  `retention <source/backup-set>` print the object the API returns for the same call, field for
+  field: a counter nobody measured is `null` and never `0`, an empty list is an array, and
+  `retention --json` carries the `plan_id`. The exit code stays the verdict (1 for a failing
+  repository, a failed connection, an unusable manifest), the structured log goes to stderr so the
+  document is all of stdout, and a write handed `--json` is refused instead of accepting and
+  ignoring it. A test in the web host drives the real handlers and compares the two mappings.
+- **`activity --before CURSOR`, and `next_cursor`** (#1152). `--json` prints the cursor when a page
+  was full and a text page names it on stderr, so a script can walk the whole log. A cursor that
+  is not a row id is refused, and a filtered page that `--limit` cut has no cursor and says why.
+- **`version --engine [--json]`, `validators [--json]`, `system capabilities` and `system
+  first-run`** (#1152). The first asks the serving engine for its version, configuration revision,
+  deployment id, readiness and adopted paths. `validators` lists the catalog compiled into the
+  binary. The `system` verbs are facts about the serving process (the platform's declaration, the
+  guided setup's steps), so they ask the engine and refuse without a route. `status` prints the
+  first-run steps on a fresh install when a route is set, and is unchanged otherwise.
+
+### Added
+
+- **The administrator can fix their own login from a terminal** (#1155). `retnd-web auth set-password
+  --username U --password-stdin` replaces the password offline, under the same store lock a running server
+  holds, so it refuses while one is up (which is also what ends every session, since they live in the
+  server's memory). `retnd auth password --password-stdin` changes it beside a serving engine, and
+  `retnd auth recovery show|set|test` and `retnd auth verify-email --token-stdin|--resend` cover the
+  recovery address and the SMTP endpoint behind it. Every secret is stdin only, never a flag, and nothing
+  prints one. I ran `auth create-admin` against a store that already had an administrator rather than
+  trusting the docs: it refuses, changes nothing, and now points at `set-password`.
+- **The SSH key store and the host-key probe from a terminal** (#1153). `retnd ssh-key list`, `import` and
+  `discover` manage the key store, and `retnd ssh host-key-probe HOST [--port N]` prints the host key that
+  answers and trusts nothing. `--ssh-key-id` has taken an id since #572 that nothing on a terminal would
+  print, and now `ssh-key list` does. Beside a serving engine they are that engine's store and scan, and
+  `--json` prints the object the API returns (one conversion in `core/service`, which the engine's handlers
+  are tested against). Key bytes and passphrases are never a flag and never printed: a key is a file, a
+  passphrase is the first line of stdin. I checked what `--ssh-key-file` does with a passphrase-protected key
+  and the answer was that it could not take one, because it passed an empty passphrase and the service
+  refused. `backup-set create` and `patch` now take `--ssh-key-passphrase-stdin`.
+- **A guard that every registered route has a command or a reason** (#1150). It walks the engine router, the
+  first-run router and the `/auth` router, fails when a route has neither a `core/cliecho` entry nor a
+  recorded reason, flags a route the spec leaves out, and carries mutation tests that prove it goes red.
+
+- **`destructive_operations` on `GET /api/v1/system/capabilities`, and `retnd system capabilities [--json]`** (#1165). The capabilities read now carries `destructive_operations: {state: "open" | "shut", reason}`, read from the gate the engine was built with at the moment of the request, so a client no longer has to be refused by the gate to learn it is shut. Every shipped build reports `shut` with the reason `gate shut until #92`. The shared UI reads it: the snapshot, snapshot detail, snapshot restore, snapshot retention and retention preview screens say the gate is shut before anything is pressed, with the engine's reason and the `retnd` command to run on the host, and say nothing at all when the field says open or could not be read. The refusal after a press repeats the reason the field gave. `openapi.json` and both bindings are regenerated, and the compat corpus cell for the API contract grows by the new field and nothing else. The terminal verb is routed to the engine, like `operation list`, because the gate belongs to the process serving the deployment, and it is refused without a route.
+- **Every refusal by the destructive gate is one audit entry** (#1165). It reaches the activity feed and the log as the line the web host already wrote for the call, now carrying the gate's state and reason, the act that was refused (`run_cycle`, `verify_snapshot`, `retention_apply`, `run_immediately` and the rest), the backup set (for a snapshot act that comes from the body, not the route), and the run, snapshot or hold it named, beside the actor and the time every line has. A create whose run the gate refused answers 201 and used to read as a plain success; it is a warning now. A call the gate allowed, and an exempt create, carry none of these fields, and no header, cookie or token is ever in one.
+
+- **`retnd operation list` and `retnd operation show <id> [--follow]`** (#1149). A terminal can now find the id of a scrub, recovery test or run the engine is holding, hand it to `assurance cancel`, and watch it finish. Both verbs need `RETND_API_URL` and the credential variables, since operations live in the serving process's memory, and `--json` prints the same body the API serves.
+- **A whole backup set from the terminal** (#1151). `backup-set show <source/backup-set>` prints every
+  field of one set (the key, the trusted host keys, whether its connection was ever proven, both poll
+  intervals, the engine and its lineage key, the repository domain, the verification budget and the mount
+  prefix), and `--json` prints the `BackupSet` object `GET /api/v1/backup-sets/{source}/{set}` returns.
+  `sources --json` prints `ListBackupSetsResponse`, where the text form prints six columns.
+- **Poll interval from the terminal** (#1151). `backup-set patch --poll-interval D` gives a set its own
+  interval (`0` returns it to the deployment's) and `settings patch --poll-interval D` sets the
+  deployment-wide one. `settings` now prints it in a `service:` section, and `backup-set show` prints the
+  set's own and the one in force.
+- **`backup-set create --uuid` and `--source-mount-prefix`** (#1151). Re-declaring an incremental set
+  after its configuration was lost used to mint a new lineage key, so the next run re-read the whole
+  source and the snapshots already on record were left beside a second history. `--uuid` declares the set
+  under its old key, and `--source-mount-prefix` names the part of `--remote-path` that is how this
+  deployment reaches the source. A create that minted a key now prints it, and the equivalent-command line
+  the web interface shows carries both flags.
+
+### Changed
+
+- **A shut destructive gate now says what it means** (#1157). Starting a run, restoring or verifying a snapshot, placing or releasing a hold, and applying a retention plan are refused over HTTP in every build of this release, and I ran a built `retnd-web` to confirm it. The refusal keeps its status (403) and its code (`DESTRUCTIVE_OPERATIONS_DISABLED`), and the sentence now says it is refused over HTTP in this release until #92 ships a verified gate and to run the equivalent `retnd` command on the host. The same sentence travels in `run_error` on a create with `run_immediately`, which still saves the set and answers 201. `openapi.json` says it on `POST /operations`, `retention/apply` and `run_immediately`, the snapshot, snapshot detail, snapshot restore and retention preview screens say that retrying will not help and show the command, and the reference lists what is terminal-only. `retnd run` and `retnd fetch` refuse while the web service is serving the deployment, so you stop it first. Nothing here changes a default.
+
 ## [0.6.3] - 2026-10-13
 
 0.6.3 is a wording fix, and it follows straight on from 0.6.2. After the verification model

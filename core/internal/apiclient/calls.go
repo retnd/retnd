@@ -221,6 +221,50 @@ func (c *Client) ResetBackupSetAssurance(ctx context.Context, source, set string
 	return out, err
 }
 
+// UpdateWorkflowSettings is PATCH /settings/workflow (#1148): the
+// deployment-wide hook configuration, written by the engine that is
+// running the hooks. SetWorkflowEnvironment and UnsetWorkflowEnvironment
+// are PUT and DELETE /settings/workflow/environment/{name}, and answer
+// with the scope's whole list rather than the one entry.
+func (c *Client) UpdateWorkflowSettings(ctx context.Context, req apicontract.UpdateWorkflowSettingsRequest) (apicontract.WorkflowSettingsResponse, error) {
+	var out apicontract.WorkflowSettingsResponse
+	err := c.call(ctx, "updateWorkflowSettings", nil, req, &out)
+	return out, err
+}
+
+func (c *Client) SetWorkflowEnvironment(ctx context.Context, name string, req apicontract.WorkflowEnvironmentVariableRequest) (apicontract.ListWorkflowEnvironmentResponse, error) {
+	var out apicontract.ListWorkflowEnvironmentResponse
+	err := c.call(ctx, "setWorkflowEnvironment", []string{name}, req, &out)
+	return out, err
+}
+
+func (c *Client) UnsetWorkflowEnvironment(ctx context.Context, name string) (apicontract.ListWorkflowEnvironmentResponse, error) {
+	var out apicontract.ListWorkflowEnvironmentResponse
+	err := c.call(ctx, "unsetWorkflowEnvironment", []string{name}, nil, &out)
+	return out, err
+}
+
+// UpdateBackupSetWorkflow is PATCH /backup-sets/{source}/{set}/workflow
+// (#1148), and the two environment calls below it are PUT and DELETE
+// .../workflow/environment/{name} for one set's own layer.
+func (c *Client) UpdateBackupSetWorkflow(ctx context.Context, source, set string, req apicontract.UpdateBackupSetWorkflowRequest) (apicontract.BackupSetWorkflowResponse, error) {
+	var out apicontract.BackupSetWorkflowResponse
+	err := c.call(ctx, "updateBackupSetWorkflow", []string{source, set}, req, &out)
+	return out, err
+}
+
+func (c *Client) SetBackupSetWorkflowEnvironment(ctx context.Context, source, set, name string, req apicontract.WorkflowEnvironmentVariableRequest) (apicontract.ListWorkflowEnvironmentResponse, error) {
+	var out apicontract.ListWorkflowEnvironmentResponse
+	err := c.call(ctx, "setBackupSetWorkflowEnvironment", []string{source, set, name}, req, &out)
+	return out, err
+}
+
+func (c *Client) UnsetBackupSetWorkflowEnvironment(ctx context.Context, source, set, name string) (apicontract.ListWorkflowEnvironmentResponse, error) {
+	var out apicontract.ListWorkflowEnvironmentResponse
+	err := c.call(ctx, "unsetBackupSetWorkflowEnvironment", []string{source, set, name}, nil, &out)
+	return out, err
+}
+
 // SystemHealth is GET /system/health, half of what `status` reports.
 func (c *Client) SystemHealth(ctx context.Context) (apicontract.HealthResponse, error) {
 	var out apicontract.HealthResponse
@@ -234,6 +278,25 @@ func (c *Client) SystemHealth(ctx context.Context) (apicontract.HealthResponse, 
 func (c *Client) SystemVersion(ctx context.Context) (apicontract.VersionResponse, error) {
 	var out apicontract.VersionResponse
 	err := c.call(ctx, "getSystemVersion", nil, nil, &out)
+	return out, err
+}
+
+// SystemCapabilities is GET /system/capabilities: what the platform the
+// engine runs on can do. A fact about the serving process and the host it is
+// in, which is why only the engine can say it (#1152).
+func (c *Client) SystemCapabilities(ctx context.Context) (apicontract.CapabilitiesResponse, error) {
+	var out apicontract.CapabilitiesResponse
+	err := c.call(ctx, "getSystemCapabilities", nil, nil, &out)
+	return out, err
+}
+
+// FirstRunStatus is GET /system/first-run: which of the guided setup steps
+// the engine counts as done, pending or skipped. The administrator and the
+// mail server live in the web host, not in this process, so only the engine
+// can answer (#1152).
+func (c *Client) FirstRunStatus(ctx context.Context) (apicontract.FirstRunStatusResponse, error) {
+	var out apicontract.FirstRunStatusResponse
+	err := c.call(ctx, "getFirstRunStatus", nil, nil, &out)
 	return out, err
 }
 
@@ -409,6 +472,25 @@ func (c *Client) SetDefaultStorageMedium(ctx context.Context, id string) (apicon
 	return out, err
 }
 
+// ConfigureStorageMedium is PUT /storage-mediums/{id}/configuration
+// (#1154): create or replace a destination in its backend's own field ids.
+// The engine proves the configuration in front of the write and refuses
+// when it fails, and answers with the destination as it now stands.
+func (c *Client) ConfigureStorageMedium(ctx context.Context, id string, req apicontract.MediumConfigurationRequest) (apicontract.StorageMediumSummary, error) {
+	var out apicontract.StorageMediumSummary
+	err := c.call(ctx, "configureStorageMedium", []string{id}, req, &out)
+	return out, err
+}
+
+// PreflightStorageMediumConfiguration is POST
+// /storage-mediums/{id}/configuration/preflight: prove a configuration that
+// has not been written. It writes nothing whatever the report says.
+func (c *Client) PreflightStorageMediumConfiguration(ctx context.Context, id string, req apicontract.MediumConfigurationRequest) (apicontract.MediumPreflightResponse, error) {
+	var out apicontract.MediumPreflightResponse
+	err := c.call(ctx, "preflightStorageMediumConfiguration", []string{id}, req, &out)
+	return out, err
+}
+
 // CreateRepositoryDomain is POST /repositories (issue #862): declare a
 // repository security boundary.
 //
@@ -446,9 +528,23 @@ func (c *Client) CreateRepositoryDomain(ctx context.Context, req apicontract.Cre
 // truthful answers taken a round trip apart legitimately differ at the
 // newest end.
 func (c *Client) ListActivity(ctx context.Context, limit int) (apicontract.ListActivityResponse, error) {
-	var query url.Values
+	return c.ListActivityBefore(ctx, limit, "")
+}
+
+// ListActivityBefore is ListActivity for the page behind a cursor (#1152):
+// before is a next_cursor an earlier answer named, sent back as ?before=. An
+// empty one sends none and reads the newest page, which is what ListActivity
+// is.
+func (c *Client) ListActivityBefore(ctx context.Context, limit int, before string) (apicontract.ListActivityResponse, error) {
+	query := url.Values{}
 	if limit > 0 {
-		query = url.Values{"limit": []string{strconv.Itoa(limit)}}
+		query.Set("limit", strconv.Itoa(limit))
+	}
+	if before != "" {
+		query.Set("before", before)
+	}
+	if len(query) == 0 {
+		query = nil
 	}
 	var out apicontract.ListActivityResponse
 	err := c.callQuery(ctx, "listActivity", nil, query, nil, &out)
@@ -544,6 +640,21 @@ func (c *Client) ReleaseBackupSetEditHold(ctx context.Context, source, set strin
 func (c *Client) CancelAssuranceOperation(ctx context.Context, operationID string) (apicontract.AssuranceOperationCancelled, error) {
 	var out apicontract.AssuranceOperationCancelled
 	err := c.call(ctx, "cancelAssuranceOperation", []string{operationID}, nil, &out)
+	return out, err
+}
+
+// ListOperations is GET /operations: every operation the engine holds,
+// newest first. The API takes no filter, so a caller narrows the answer itself.
+func (c *Client) ListOperations(ctx context.Context) (apicontract.ListOperationsResponse, error) {
+	var out apicontract.ListOperationsResponse
+	err := c.call(ctx, "listOperations", nil, nil, &out)
+	return out, err
+}
+
+// GetOperation is GET /operations/{id}.
+func (c *Client) GetOperation(ctx context.Context, id string) (apicontract.Operation, error) {
+	var out apicontract.Operation
+	err := c.call(ctx, "getOperation", []string{id}, nil, &out)
 	return out, err
 }
 
@@ -652,4 +763,85 @@ func (c *Client) ResumeWorkflowCleanup(ctx context.Context, runID string) (apico
 // worth having six months later.
 func (c *Client) AcknowledgeWorkflowRecovery(ctx context.Context, runID string, req apicontract.WorkflowAcknowledgementRequest) error {
 	return c.call(ctx, "acknowledgeWorkflowRecovery", []string{runID}, req, nil)
+}
+
+// The administrator's own account (issue #1155). All of these are /auth
+// operations, served by apps/common/auth/local on the engine's behalf, and
+// every one that carries a secret takes it as an argument, uses it for the
+// one request and keeps nothing: this package logs no body.
+
+// RotatePassword is POST /auth/password. It needs a session AND the current
+// password in the body, because holding a cookie is not enough to change
+// the credential that minted it.
+func (c *Client) RotatePassword(ctx context.Context, req apicontract.RotatePasswordRequest) error {
+	return c.call(ctx, "rotatePassword", nil, req, nil)
+}
+
+// GetRecoverySettings is GET /auth/recovery: the recovery address, the two
+// proofs about it and the SMTP endpoint without its password.
+func (c *Client) GetRecoverySettings(ctx context.Context) (apicontract.RecoverySettingsResponse, error) {
+	var out apicontract.RecoverySettingsResponse
+	err := c.call(ctx, "getRecoverySettings", nil, nil, &out)
+	return out, err
+}
+
+// UpdateRecoverySettings is PATCH /auth/recovery. The engine proves a changed
+// address or endpoint by sending a message over it before it keeps the
+// change, so a refusal here can be a mail server that said no.
+func (c *Client) UpdateRecoverySettings(ctx context.Context, req apicontract.RecoverySettingsUpdate) (apicontract.RecoverySettingsResponse, error) {
+	var out apicontract.RecoverySettingsResponse
+	err := c.call(ctx, "updateRecoverySettings", nil, req, &out)
+	return out, err
+}
+
+// SendRecoveryTestEmail is POST /auth/recovery/test.
+func (c *Client) SendRecoveryTestEmail(ctx context.Context) error {
+	return c.call(ctx, "sendRecoveryTestEmail", nil, nil, nil)
+}
+
+// VerifyRecoveryEmail is POST /auth/verify-email: redeem the token out of
+// the emailed link.
+//
+// The operation is declared unauthenticated, because the browser opens the
+// link in a window that may hold no session, and call() therefore signs in
+// for nothing. This client has credentials and the double-submit cookie
+// only arrives with a response, so it establishes the session first: the
+// sign-in is what seeds the cookie the request has to echo.
+func (c *Client) VerifyRecoveryEmail(ctx context.Context, req apicontract.VerifyEmailRequest) error {
+	if _, err := c.ensureSession(ctx); err != nil {
+		return err
+	}
+	return c.call(ctx, "verifyRecoveryEmail", nil, req, nil)
+}
+
+// ResendRecoveryEmailVerification is POST /auth/verify-email/resend.
+func (c *Client) ResendRecoveryEmailVerification(ctx context.Context) error {
+	return c.call(ctx, "resendRecoveryEmailVerification", nil, nil, nil)
+}
+
+// The SSH key store (issue #1153). The store belongs to the process serving
+// the deployment, which is why a terminal reaches it through here.
+
+// ListSSHKeys is GET /ssh-keys: every key in the engine's own store, as the
+// public half only.
+func (c *Client) ListSSHKeys(ctx context.Context) (apicontract.ListSSHKeysResponse, error) {
+	var out apicontract.ListSSHKeysResponse
+	err := c.call(ctx, "listSSHKeys", nil, nil, &out)
+	return out, err
+}
+
+// ListSSHKeyCandidates is GET /ssh/key-candidates: the keys the engine can
+// see on its own machine, and every place it looked.
+func (c *Client) ListSSHKeyCandidates(ctx context.Context) (apicontract.ListSSHKeyCandidatesResponse, error) {
+	var out apicontract.ListSSHKeyCandidatesResponse
+	err := c.call(ctx, "listSSHKeyCandidates", nil, nil, &out)
+	return out, err
+}
+
+// ImportSSHKeyFromCandidate is POST /ssh-keys/from-candidate: an opaque
+// handle and no key material at all.
+func (c *Client) ImportSSHKeyFromCandidate(ctx context.Context, req apicontract.ImportSSHKeyFromCandidateRequest) (apicontract.ImportSSHKeyResponse, error) {
+	var out apicontract.ImportSSHKeyResponse
+	err := c.call(ctx, "importSSHKeyFromCandidate", nil, req, &out)
+	return out, err
 }
