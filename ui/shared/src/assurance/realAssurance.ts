@@ -383,7 +383,11 @@ export function createHttpAssurance(api: RetndApi): AssuranceApi {
 
   const startRecoveryTest = async (setId: string, opts: { artifactId?: string } = {}): Promise<Operation> => {
     const [source, set] = splitSet(setId);
-    const started = await api.startRecoveryTest(source, set, opts.artifactId ? { artifactId: opts.artifactId } : undefined);
+    // The set's newest known-good copy unless a backup is named: the body
+    // carries artifact_id only when there is one to carry.
+    const started = opts.artifactId
+      ? await api.startRecoveryTest(source, set, { artifactId: opts.artifactId })
+      : await api.startRecoveryTest(source, set);
     const startedAt = Date.now();
     // Joining a test that is already running follows that one: its lines are
     // already on the feed, so the start-grace clock does not apply to it.

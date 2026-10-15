@@ -93,6 +93,13 @@ enough that nobody has to set it.
 - [ ] **Check the gap in both directions.** *(Ungated.)* The tests above catch an
   API route with no command. Nothing catches a command with no way to do it in
   the browser, so that one is mine to check by hand.
+- [ ] **A UI feature that needs a CLI twin puts the logic in the engine.**
+  *(Ungated.)* If the browser computes something (a classification, a window, a
+  cap) and the terminal has to say the same thing, the computation belongs
+  behind a route both read, not copied into Go from the TypeScript. Copies drift
+  silently. Where a copy can't be avoided yet, shared vectors that both test
+  suites assert are the minimum: `core/service/testdata/assurance-listing`,
+  read by `go test ./service` and a vitest, is the pattern (#1174).
 
 ## 4. Progress has to reach the terminal and the activity feed
 

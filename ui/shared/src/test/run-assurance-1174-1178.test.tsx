@@ -187,6 +187,40 @@ describe("#1174 review: the production seam sends the backup as artifact_id", ()
     await seam.startRecoveryTest("production/billing-mysql", { artifactId: "production/billing-mysql/billing-20260827.sql.gz" });
     await seam.startRecoveryTest("production/billing-mysql");
     expect(calls[0]).toEqual(["production", "billing-mysql", { artifactId: "production/billing-mysql/billing-20260827.sql.gz" }]);
-    expect(calls[1]).toEqual(["production", "billing-mysql", undefined]);
+    expect(calls[1]).toEqual(["production", "billing-mysql"]);
+  });
+});
+
+describe("#1174 review: one test per set at a time", () => {
+  afterEach(() => cleanup());
+
+  it("while one row's test runs, the other rows of that set wait and say why", async () => {
+    const ids = ["s/a/one.zst", "s/a/two.zst", "s/b/three.zst"];
+    const claim = { state: "never_run", label: "Never run", glyph: { id: "never-run" } };
+    const byArtifact = Object.fromEntries(ids.map((id) => [id, {
+      artifactId: id, setId: id.split("/").slice(0, 2).join("/"), content: claim, recovery: claim, policy: null
+    } as unknown as BackupFacts]));
+    const tally = { known: true, total: 3, due: 3, overdue: 0, degraded: 0, untested: 3, ids: { due: ids, overdue: [], degraded: [], untested: ids } } as Tally;
+    const running = { id: "op-a", kind: "recovery_test", setId: "s/a", state: "running", stage: "resolving_copy", bytes: 0, totalBytes: 0, startedAt: "" };
+    const base = createMockApi("default");
+    const api = {
+      ...base,
+      assurance: {
+        ...base.assurance!,
+        startRecoveryTest: vi.fn().mockResolvedValue(running),
+        readOperation: vi.fn().mockResolvedValue({ operation: running, events: [], nextCursor: 0 })
+      }
+    } as unknown as RetndApi;
+    render(
+      <MemoryRouter>
+        <ApiProvider api={api}><AssuranceDueList tally={tally} byArtifact={byArtifact} readOnly={false} /></ApiProvider>
+      </MemoryRouter>
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Run assurance for one.zst" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Run assurance for two.zst" })).toBeDisabled());
+    const two = screen.getByRole("button", { name: "Run assurance for two.zst" }).closest("li")!;
+    expect(two.textContent).toContain("A recovery test of one.zst is running for this set");
+    // Another set is not held up.
+    expect(screen.getByRole("button", { name: "Run assurance for three.zst" })).toBeEnabled();
   });
 });

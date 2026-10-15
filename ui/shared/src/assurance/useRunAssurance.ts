@@ -78,7 +78,9 @@ export function useRunAssurance(setId: string, opts: { attach?: boolean; gate: G
   const [error, setError] = useState<string | null>(null);
   const [refused, setRefused] = useState<GateRefusalNotice | null>(null);
   const [joined, setJoined] = useState(false);
-  const op = useOperation(offered ? api : undefined, opId, () => noteAssuranceChanged());
+  // The pane points at the set terminal for the lines (#1176), so it keeps
+  // none; the Assurance section following the same run shares this poller.
+  const op = useOperation(offered ? api : undefined, opId, () => noteAssuranceChanged(), { retainEvents: false });
 
   // A page opened while a run is going attaches to it instead of offering a
   // second press (the service would join it anyway, and say so).

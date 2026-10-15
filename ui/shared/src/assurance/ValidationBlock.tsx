@@ -17,6 +17,7 @@ import { stamp } from "@shared/utilities/format";
 import type { BackupSet } from "@shared/types/backup";
 import { useApi } from "@shared/api/ApiContext";
 import { useDestructiveGate } from "@shared/hooks/useDestructiveGate";
+import { SET_TERMINAL_ID } from "@shared/pages/SetActivityPanel";
 import { GateRefusal } from "@shared/components/GateRefusal";
 import { CommandEcho } from "@shared/pages/CommandEcho";
 import { recoveryTestCommand } from "./assuranceCommands";
@@ -71,6 +72,7 @@ export function ValidationBlock({ set, readOnly = false }: { set: BackupSet; rea
           detailLink={!!api.assurance?.offers.operations}
           cancellable={!!api.assurance?.offers.operations}
           cancelError={run.cancelError}
+          terminalHref={"#" + SET_TERMINAL_ID}
         />
       ) : null}
       {facts ? (

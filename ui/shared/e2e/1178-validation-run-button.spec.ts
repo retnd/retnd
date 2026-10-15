@@ -43,6 +43,10 @@ test.describe("#1178 the Validation pane runs the validation", () => {
     await open(page, SET, "assurance-default-untested", { wire: true });
     await run(page).click();
     await expect(page.getByLabel("Terminal", { exact: true }).getByRole("log")).toContainText(/recovery test/i);
+    // ...and only there: the pane points at the set terminal rather than
+    // drawing the same lines a second time (#1176's rule, review of #1184).
+    await expect(pane(page).getByTestId("set-terminal-link")).toBeVisible();
+    await expect(pane(page).getByTestId("operation-line")).toHaveCount(0);
   });
 
   test("#1178 a set that can only refuse a test: Run validation is disabled with the reason", async ({ page }) => {
