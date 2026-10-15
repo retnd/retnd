@@ -4837,8 +4837,16 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
             throw new SyntaxError("Unexpected token '<', \"<!doctype \"... is not valid JSON");
           })
         : delay(activityPageOf(empty ? [] : ACTIVITY, query)),
-    getLiveActivity: (options) =>
-      delay({
+    getLiveActivity: (options) => {
+      // A fixture hook for the browser specs (#1177): how many readings the
+      // page has asked for, and a gate a spec can hold shut to prove a
+      // surface drew from what the page already holds rather than from a
+      // reading of its own. Both are inert unless a spec sets them.
+      const probe = typeof window === "undefined"
+        ? null
+        : (window as unknown as { __retndLiveReads?: number; __retndLiveGate?: Promise<void> });
+      if (probe) probe.__retndLiveReads = (probe.__retndLiveReads ?? 0) + 1;
+      return (probe?.__retndLiveGate ?? Promise.resolve()).then(() => delay({
         observedAt: "2026-08-29T02:01:20+02:00",
         // One process, one epoch. A mock that changed it between calls
         // would have every surface built against it believe the service
@@ -4858,7 +4866,8 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
         // set. Present for a deployment with nothing configured, which is
         // the case the feed could not answer at all before #599.
         deployment: options?.setId ? null : LIVE_DEPLOYMENT
-      }),
+      }));
+    },
     listQuarantine: () => delay(empty ? [] : artifacts.filter((a) => a.quarantine)),
     revalidate: () => delay(undefined),
     retryIngestion: () => delay(undefined),
