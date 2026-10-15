@@ -79,25 +79,32 @@ import type { DeploymentActivity, SetActivity, SetActivityEvent } from "@shared/
  *  "empty" one with a configuration and no backup sets. Toggle scenarios
  *  with ?scenario= in the URL. */
 
-export type Scenario =
-  | "default"
+/** Every scenario, one per line, so a PR adding one is a one-line insert
+ *  that rebases cleanly past every other PR adding one. The type and the
+ *  URL allow-list are both read off this list, so they cannot disagree. */
+export const SCENARIOS = [
+  "default",
+  // Issue #1189: a deployment with a workflow root and NO deployment-wide
+  // stages, so a set with no block of its own runs nothing at all and its
+  // Workflow card is the one-sentence quiet state.
+  "workflow-no-globals",
   // Issue #1107: thirty more backups across three sets and thirty days, so a
   // filter has something to narrow and a select-all has something to count.
   // The "-corrupt" flavour makes one of them fail its digest on recovery, and
   // the "-nospace" one has a staging disk too small for the selection.
-  | "backups-many"
-  | "backups-many-corrupt"
-  | "backups-many-nospace"
+  "backups-many",
+  "backups-many-corrupt",
+  "backups-many-nospace",
   // Issue #1180: a deployment that holds exactly 999 backups (the largest that
   // still offers "All" on the Backups page) and one that holds exactly 1000.
-  | "backups-999"
-  | "backups-1000"
-  | "empty"
-  | "storage-critical"
-  | "catalog-recovery"
-  | "version-mismatch"
-  | "first-run"
-  | "no-medium"
+  "backups-999",
+  "backups-1000",
+  "empty",
+  "storage-critical",
+  "catalog-recovery",
+  "version-mismatch",
+  "first-run",
+  "no-medium",
   // Issue #598, and the only scenario here that is a FAILURE rather than a
   // state of the deployment. listActivity rejects with a plain
   // SyntaxError, which is what a 2xx carrying something other than the
@@ -108,7 +115,7 @@ export type Scenario =
   // fails, so the rest of both pages renders normally and what is
   // asserted is what the failing panel says rather than whether the page
   // came up at all.
-  | "activity-unreadable"
+  "activity-unreadable",
   // Issue #852: a source whose credentials can READ it and not write to
   // it, which is a supported posture rather than a failure. The
   // connection test answers ok:true with writable:false, so both the
@@ -116,65 +123,65 @@ export type Scenario =
   // delete-from-source control and say why. It is its own scenario
   // because the interesting state is a PASSING test with one answer
   // inverted, and no other fixture here can produce that.
-  | "read-only-source"
+  "read-only-source",
   // EPIC Q (issue #985): fixtures and outcomes for the assurance surfaces.
   // They only choose which record or which outcome a case needs.
-  | "assurance-split"
-  | "assurance-more"
-  | "assurance-existence"
-  | "assurance-rebuilt"
-  | "assurance-unavailable"
-  | "assurance-scrub-fails"
-  | "assurance-download-slow"
-  | "assurance-download-fails"
-  | "assurance-slow-test"
-  | "assurance-validator-output"
-  | "assurance-no-operations"
-  | "assurance-cleanup-fails"
-  | "assurance-recovery-overdue"
-  | "assurance-snapshot-set"
-  | "assurance-too-many-grants"
-  | "assurance-grant-expired"
-  | "assurance-grant-used"
-  | "assurance-session-ended"
-  | "assurance-staging-full"
-  | "assurance-reads-busy"
-  | "assurance-corrupt-copy"
+  "assurance-split",
+  "assurance-more",
+  "assurance-existence",
+  "assurance-rebuilt",
+  "assurance-unavailable",
+  "assurance-scrub-fails",
+  "assurance-download-slow",
+  "assurance-download-fails",
+  "assurance-slow-test",
+  "assurance-validator-output",
+  "assurance-no-operations",
+  "assurance-cleanup-fails",
+  "assurance-recovery-overdue",
+  "assurance-snapshot-set",
+  "assurance-too-many-grants",
+  "assurance-grant-expired",
+  "assurance-grant-used",
+  "assurance-session-ended",
+  "assurance-staging-full",
+  "assurance-reads-busy",
+  "assurance-corrupt-copy",
   // How a browser download ended, as three artifacts' feed rows (item 14).
-  | "assurance-download-outcomes"
+  "assurance-download-outcomes",
   // A set that declares no recovery-test validator: the run is refused.
-  | "assurance-no-validator"
+  "assurance-no-validator",
   // #1111: no validator declared, the newest copy is a .tar.zst, and the
   // built-in structure check runs; the manual run ends "readable".
-  | "assurance-builtin-check"
+  "assurance-builtin-check",
   // #1118: a set that follows the deployment's default policy (recovery tests
   // off, the built-in check as the fallback), with a content-verified newest
   // copy and a readable built-in recovery test recorded against the backup
   // before it. Run it with wire=1, and the backup sets carry the unreported
   // fields a real client leaves null.
-  | "assurance-default-policy"
+  "assurance-default-policy",
   // #1141: the same default-policy set, but no recovery test has run on any
   // backup, so Recovery has nothing to say beyond "default, none run yet".
-  | "assurance-default-untested"
-  | "assurance-ingest-failed-scrubbed"
+  "assurance-default-untested",
+  "assurance-ingest-failed-scrubbed",
   // #1106: Recover this backup set. The fixture sets are presented as
   // artifact sets and the mock host recovers a file every 700ms (2.5s when
   // slow), so a spec can watch the total and press Cancel. "recover" gives the
   // postgres set history to recover; "nospace" has a staging disk too small
   // for it; "corrupt" has its second file fail its digest; "slow" is the one
   // to cancel.
-  | "assurance-set-recover"
-  | "assurance-set-nospace"
-  | "assurance-set-corrupt"
-  | "assurance-set-slow"
+  "assurance-set-recover",
+  "assurance-set-nospace",
+  "assurance-set-corrupt",
+  "assurance-set-slow",
   // Issue #1115: the docked terminal's level toggles. "dock-no-warnings" is
   // the default feed with its one warning taken out, so the Warnings count is
   // zero and must be shown disabled. "dock-live-line" is the default feed, and
   // once a spec sets sessionStorage "retnd.mock.dock.live" a warning and a
   // plain note arrive on the next poll, which is how a spec watches a new line
   // meet an active filter.
-  | "dock-no-warnings"
-  | "dock-live-line"
+  "dock-no-warnings",
+  "dock-live-line",
   // Issue #1157: a shut destructive gate. Restore, retention apply and the
   // runs refuse with the code and the sentence apps/common/webhost writes, so
   // a spec can press the control and read what the screen says back. Since
@@ -182,28 +189,35 @@ export type Scenario =
   // they are off the gate. Every other scenario here leaves the gated acts
   // working, which is what keeps the existing cases about the screens
   // themselves.
-  | "gate-shut"
+  "gate-shut",
   // Issue #1163: what a GATEWAY profile (UGOS) reports. The gate is shut with
   // the reason the engine gives for a gateway profile, which is also how a
   // spec proves the screens read the reason from the field rather than
   // carrying a sentence of their own.
-  | "gateway-profile"
+  "gateway-profile",
   // Issue #1163: what a LOCAL-ACCOUNT profile reports. The gate is open, and
   // the mock enforces what the engine enforces on top of it: a restore needs
   // the administrator's password again (correct-horse-battery) and an
   // acknowledgement, and answers STEP_UP_FAILED, STEP_UP_REQUIRED or
   // RESTORE_TARGET_NOT_ACKNOWLEDGED the way the engine does.
-  | "local-account-profile"
+  "local-account-profile",
   // Issue #1163: a local-account profile reached over plain HTTP from another
   // machine. The gate is open, the capability field says an extra
   // acknowledgement is needed, and the first gated act asks the operator the
   // way api/client.ts does against a real engine: through the registered
   // dialog, and only a yes lets it through.
-  | "insecure-transport"
+  "insecure-transport",
   // Issue #1163 review: a local-account profile whose password limiter has
   // tripped, so every restore is answered 429 RATE_LIMITED, as the engine
   // answers once too many passwords were checked in the last minute.
-  | "step-up-limited";
+  "step-up-limited",
+] as const;
+
+export type Scenario = (typeof SCENARIOS)[number];
+
+export function isScenario(s: string | null | undefined): s is Scenario {
+  return (SCENARIOS as readonly string[]).includes(s ?? "");
+}
 
 /** Reads the scenario out of the URL, falling back to the default for
  *  anything unrecognised. A closed allow-list rather than a cast, so a
@@ -211,21 +225,7 @@ export type Scenario =
  *  half exists. */
 export function scenarioFromLocation(): Scenario {
   const s = new URLSearchParams(window.location.search).get("scenario");
-  const allowed: Scenario[] = [
-    "default", "empty", "storage-critical", "catalog-recovery",
-    "version-mismatch", "first-run", "no-medium", "activity-unreadable",
-    "read-only-source", "assurance-split", "assurance-more", "assurance-existence", "assurance-rebuilt",
-    "assurance-unavailable", "assurance-scrub-fails", "assurance-download-slow",
-    "assurance-download-fails", "assurance-slow-test", "assurance-validator-output",
-    "assurance-no-operations", "assurance-cleanup-fails", "assurance-recovery-overdue",
-    "assurance-snapshot-set", "assurance-too-many-grants", "assurance-grant-expired",
-    "assurance-grant-used", "assurance-session-ended", "assurance-staging-full",
-    "assurance-reads-busy", "assurance-corrupt-copy", "assurance-download-outcomes",
-    "assurance-set-recover", "assurance-set-nospace", "assurance-set-corrupt", "assurance-set-slow",
-    "backups-many", "backups-many-corrupt", "backups-many-nospace", "backups-999", "backups-1000", "dock-no-warnings", "dock-live-line", "assurance-no-validator", "assurance-builtin-check", "assurance-default-policy", "assurance-default-untested", "assurance-ingest-failed-scrubbed", "gate-shut", "gateway-profile", "local-account-profile", "insecure-transport",
-    "step-up-limited"
-  ];
-  return (allowed as string[]).includes(s ?? "") ? (s as Scenario) : "default";
+  return isScenario(s) ? s : "default";
 }
 
 /** `?wire=1` swaps the mock's own assurance seam for the production one
@@ -4223,6 +4223,10 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   // which is what the real backend's hot reload does, and a write in one
   // test must not be visible to the next.
   const workflowSettings = defaultWorkflowSettings();
+  if (scenario === "workflow-no-globals") {
+    workflowSettings.beforeDir = "";
+    workflowSettings.afterDir = "";
+  }
   const assuranceSettings = defaultAssuranceSettings();
   const mockRecovery = createMockRecovery(scenario);
   // #1106: every row the journal holds for a set, quarantined ones included,
@@ -5839,6 +5843,15 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
       };
       next.effectiveScriptTimeoutSeconds =
         next.scriptTimeoutSeconds ?? workflowSettings.scriptTimeoutSeconds;
+      // The stages a run will take, in the engine's order: the deployment's
+      // before, this set's before, this set's after, the deployment's after.
+      // Mirrors workflow.PlanStages in core/internal/workflow/plan.go.
+      next.stages = [
+        ...(workflowSettings.beforeDir ? [{ scope: "global" as const, phase: "before" as const, dir: workflowSettings.beforeDir }] : []),
+        ...(next.beforeDir ? [{ scope: "set" as const, phase: "before" as const, dir: next.beforeDir }] : []),
+        ...(next.afterDir ? [{ scope: "set" as const, phase: "after" as const, dir: next.afterDir }] : []),
+        ...(workflowSettings.afterDir ? [{ scope: "global" as const, phase: "after" as const, dir: workflowSettings.afterDir }] : [])
+      ];
       setWorkflows.set(id, next);
       return delay(structuredClone(next), 400);
     },
