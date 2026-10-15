@@ -126,7 +126,7 @@ func requireDestructiveGate(gate DestructiveGate) func(http.Handler) http.Handle
 // absence of a gate means "allow" (see DestructiveGate's own doc).
 // Shared by requireDestructiveGate above and createBackupSet
 // (handlers_backupsets.go), which consults the identical gate directly
-// rather than through that middleware — see handlers.gate's own doc for
+// rather than through that middleware; see handlers.enforce's own doc for
 // why.
 func destructiveGatePassed(gate DestructiveGate) bool {
 	return gate != nil && gate.Passed()

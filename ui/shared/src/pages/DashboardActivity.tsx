@@ -18,7 +18,6 @@ import { useActivityFeed } from "@shared/pages/useActivityFeed";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { BackupSet } from "@shared/types/backup";
 
-export { feedRestarted, mergeActivity } from "@shared/pages/useActivityFeed";
 
 export function DashboardActivity({ sets }: { sets: BackupSet[] | null }) {
   const feed = useActivityFeed();

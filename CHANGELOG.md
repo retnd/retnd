@@ -4,6 +4,23 @@
 
 ### Added
 
+- **The Backups page pages its list** (#1180). A "Rows per page" control offers 20, 50 and 100, and "All"
+  while the deployment holds fewer than 1000 backups, with Previous and Next beside it. A chosen 20, 50 or
+  100 is remembered in the browser between sessions (and the page works without storage); "All" is not.
+  The list endpoint still answers with every backup, so paging happens in the browser, and `retnd artifacts`
+  keeps printing the whole list (paging there waits for the endpoint to page for real). The rows come in
+  configuration order, so a page holds the same backups every time. Select-all after a filter (#1107) still
+  takes every matching backup on every page. Changing a filter returns to page one.
+
+- **`retained_count` on `GET /system/health`, and `retnd artifacts --count`** (#1186). The health report
+  carries how many backups the deployment holds outside quarantine, the backups of removed sets included,
+  and `retnd status --json` prints it too. `retnd artifacts --count` prints the same number, always the
+  exact figure (the sidebar's `>100` is the sidebar's), narrowed by `--source` and `--backup-set`;
+  with `--state` it counts that state instead, quarantine included, and `--json` prints `{"count": N}`.
+
+- **The Dashboard's Assurance tile lists the backups behind its counts, and each row has Run assurance** (#1174). Under Due, Overdue and Degraded the tile now lists those backups, one row each with its set, why it is there and how old the last check is. Run assurance starts the recovery test of that row's backup (`POST /backup-sets/{source}/{set}/recovery-test` with `artifact_id`, `retnd recovery-test <source/set> --artifact ID`), shows the run on the row, and the counts refresh when it ends, with the row saying what its recovery claim reads now. The engine runs one test per set at a time, so the other rows of a set wait with that reason while one runs. A set that could only refuse a test gets a disabled button with the reason beside it, and each bucket shows at most 20 rows with a link to the rest on Backups. The terminal has the same list: `retnd assurance list [--backup-set S] [--bucket due|overdue|degraded|untested] [--json]` (new, with a JSON shape of its own; `--bucket` takes a comma list) names the same backups in the same words, held to the tile by shared test vectors. A set whose recovery-test policy can't be read is now unknown rather than "tests on" in both places, so its backups aren't counted due on no evidence.
+- **The backup set's Validation pane has a Run validation button** (#1178). It starts the set's recovery test through the same endpoint, shows it in flight with the stage and progress, points at the set terminal for the run's output rather than drawing it a second time, disables itself with the reason while one is running, and the pane re-reads when the run ends. No API change: both buttons use the route and command that already existed.
+
 - **`GET /api/v1/system/staging-directories` and `retnd system staging [PATH]`** (#1179). The folders below
   the recovery staging root on the machine the engine runs on, as the names `recover --to` takes. Read-only
   and confined to that one root: symbolic links are neither followed nor listed, `..` and absolute names
@@ -13,7 +30,51 @@
 - **`max_download_streams` on `GET /api/v1/settings/assurance`** (#1179): the ceiling on browser downloads
   the engine streams at once, read only.
 
+### Changed
+
+- **Breaking for API clients, targeting 0.7.0: releasing a snapshot hold now needs an acknowledgement** (#1164). If you only use the web interface or the `retnd` terminal, nothing changes for you: the screen asks you to tick a box before it releases a hold, and `retnd snapshot unhold` works as before. If you have a script or another client that calls `POST /api/v1/operations` with `release_snapshot_hold`, it will start getting `409 SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED` on every profile after you upgrade, and the hold stays where it was. To fix it, add `"acknowledged": true` inside `snapshot_hold_release`, which is your script saying it knows the snapshot becomes prunable by the next retention run. Restores on a local-account profile have new refusals too, but those calls were refused outright before this release, so nothing that worked stops working there.
+
+- **The destructive gate now opens for local-account profiles, and verify, hold and release-hold are off it** (#1163, #1164). This changes a default, so I'm putting what happens on upgrade in plain words first. If you run the `generic`, `truenas`, `unraid`, `openmediavault`, `proxmox` or `synology` profile, the web interface can now start a run, apply a retention plan and restore, where before it refused all of them with `DESTRUCTIVE_OPERATIONS_DISABLED`. Nothing runs by itself: you still press the control, and a few things are asked for first. A restore needs your password again and a tick in the "I understand" box. And if you reach the web interface over plain HTTP from another machine (anything but `localhost`, with no HTTPS in front), a gated act first shows "This connection is not encrypted" and only goes ahead if you say so; put HTTPS in front and it never asks. If you run the `ugos` profile nothing opens: its identity is a header the platform sets, nobody has verified that check on real hardware, and the gate stays shut until #92 ships one. Verify, hold and release-hold now work on every profile, `ugos` included, because they destroy nothing; releasing a hold asks for an explicit acknowledgement and the activity feed records who released which hold and when, and restoring a snapshot stays gated. The gate is chosen from the profile in code (there is still no flag or environment variable for it), `GET /system/capabilities` reports the real state per profile plus `step_up_required` and `insecure_transport_ack_required`, and a pinned test makes a new profile start shut. For API clients: `release_snapshot_hold` now needs `snapshot_hold_release.acknowledged: true` on every profile (the breaking entry above), and a restore on a local-account profile needs `acknowledged: true` (409 `RESTORE_TARGET_NOT_ACKNOWLEDGED` for a snapshot restore, 409 `RECOVERY_COST_NOT_ACKNOWLEDGED` for a provider restore, whose one `acknowledged` field already meant the cost), the `X-Retnd-Step-Up-Password` header (403 `STEP_UP_REQUIRED` or `STEP_UP_FAILED`, 429 `RATE_LIMITED` with `Retry-After` when too many passwords were checked in the last minute, 503 `STEP_UP_UNAVAILABLE` where nothing can check one) and, over insecure transport, `X-Retnd-Insecure-Transport-Ack: acknowledged`. Whether the connection counts as insecure is decided by `serve-ui`, the hop your browser actually talks to, so the Synology package (where the engine only ever sees `serve-ui` over loopback) asks a LAN browser on plain HTTP, and Unraid (where it only ever sees a container address) stops asking a browser on HTTPS or on the NAS itself. The web interface asks before it sends your password over an unencrypted connection, never after. `retnd snapshot unhold` and the rest of the terminal are untouched. `x-destructive-gate` stays on `POST /operations` because most of its actions are gated, and the new `x-destructive-gate-exempt-actions` lists the three that are not.
+
 ### Fixed
+
+- **The Lifecycle list agrees with the verified chip, and Recovery says Custom configuration** (#1175). A
+  backup with no ingest-time verdict that a scrub had read back and hash-matched showed "Content verified"
+  in its chip and a dash on the Lifecycle's VERIFIED step. That step is now reached at the scrub's time and
+  says the scrub found the content intact since receipt. A backup whose ingest check failed stays unreached
+  there whatever a scrub found, because a scrub only shows a bad file is still the same bad file. A set with a policy of its own now reads "Custom configuration" on its Recovery
+  chip (it said "This set's own policy"), linked to that set's policy, and a set on the deployment's
+  default still reads "Default configuration" linked to Settings. The policy form's note for a set whose
+  recovery test is off no longer says the claim reads "Not configured". "Not configured" now survives only
+  for a set whose policy resolves to nothing, which the web API never reports today.
+
+- **Links into Settings land on their section** (#1188). Clicking "Default configuration" opened Settings
+  at an unrelated spot, because the cards above the target load after the browser has already jumped and push
+  it down. Every Settings section now has a stable anchor id (`#assurance`, `#storage-destinations`,
+  `#retention` and the rest), kept in one table that the page and the links both read. The page scrolls to
+  the hash after the route renders and keeps correcting while the cards load, until you scroll yourself.
+  Targets keep clear of the top edge, scrolling is smooth only when reduced motion is not requested, and the
+  section a link points at gets an accent outline (4.89:1 in light, 6.98:1 in dark). The Assurance card's
+  anchor is `#assurance` now, and the old `#assurance-defaults` still lands on it. A malformed hash (a lone
+  `%E0`) is ignored instead of taking the page down.
+
+- **Edit mode on a backup set can set its before and after workflows** (#1189). The Workflow card told you hook directories are set "per set here" and gave you nothing to set them with, even though the API and `retnd backup-set workflow patch --before-dir/--after-dir` always took them. Edit mode now has a before and an after directory field, each with its own Save, written through that same PATCH so the shell-rule save gate and the workflow-root check are the service's. They belong to the page's edit session: SAVE ALL & EXIT EDIT saves whatever is still typed in them as well (and stays in edit mode with the reason on screen if the gate refuses it), and CANCEL's list of discarded and already-saved changes names them. Spaces around a directory aren't a change, and an emptied box is never sent, because an empty directory turns that stage of hooks off: a separate Clear button does that. If SAVE ALL writes the directories and then the rest of the set's changes fail, the page says the directories went live and the rest didn't. The card lists the hooks that will actually run (the deployment's stages wrap the set's, they are not replaced by them), and its empty-state sentence only points at edit mode when edit mode has the control. No API or CLI change was needed: `retnd backup-set workflow <id> [--json]` already reads the same thing.
+- **Placeholder text everywhere takes the secondary ink** (#1189). The browser's default placeholder grey is 4.4:1 on a light text box and 3.7:1 on a dark one, under WCAG AA's 4.5:1, so every placeholder in the web UI now uses `--text-2` (6.4:1 light, 6.9:1 dark). Text boxes and bordered lists that have to be found by their edge share one `--control-edge` token (3.35:1 light, 3.85:1 dark on the card surface).
+
+- **The sidebar's Backups badge counts backups now, not backup sets** (#1186). It was summed from the
+  health report's per-set verdicts, so a deployment holding 119 backups in a handful of sets showed a
+  single-digit number. The badge now counts the backups the deployment holds outside quarantine: every
+  backup the Backups page lists except the quarantined ones, which the Quarantine badge already counts. It
+  shows the exact number up to 100 and `>100` above that, with an accessible label that says what it counts
+  ("40 backups outside quarantine"). The figure comes off the health report the console already polls, so
+  no screen downloads the backups list to read its length. While measuring it I found the non-alert nav
+  badges were `--text-3` on the nav surface, 3.35:1 in the light theme and 3.85:1 in the dark one, under the
+  4.5:1 small text needs, so they use `--text-2` now (6.64:1 and 6.89:1 on the nav surface, 5.73:1 and
+  5.52:1 on the active row). The Backups row's tooltip said the list was newest first; it's in
+  configuration order, and the tooltip says so now.
+
+- **A running recovery test shows how far along it is, and the dialog no longer draws a terminal of its own** (#1176). The bar used to stay a sliding indeterminate stripe for the whole test, because the engine names the stage on the feed and sends no running byte total. It now moves through the engine's own stage list (resolving, reading, verifying, validating, cleaning up, complete) and says "Stage 3 of 5" beside it. Reaching the end is the outcome rather than a sixth stage, so the count goes away once the test has finished. The empty log inside the Assurance card is gone for both runs and scrubs, replaced by an "Output is in the set terminal" link that moves focus to the set's terminal. A quiet poll also stopped sending the followed run back to its first stage, which is what made a stage-driven bar jump to zero between lines.
+- **Every terminal reads one shared state, so they update together and a late one is not empty** (#1177). The dashboard strips, a set's own terminal and the docked terminal each polled the live feed on their own clock and kept their own copy of the lines. They now read one causl node written by one reader, so three terminals cost one reading per poll, change in the same commit, and a terminal opened late shows what the others already hold in its first render. The buffers are bounded (300 lines per set, 1000 in the docked terminal, the last 5 dead processes), the cursor lives in the same node so a dropped connection resumes where it stopped, and a restart still freezes the dead process's lines above a rule in the docked terminal while the strips drop theirs. The set page asks the live feed about the whole deployment now instead of narrowing it to one set. That is a trade I made on purpose: a set page on a deployment with twenty sets now downloads every set's new lines, not just its own, in exchange for one reader instead of one per surface. Each poll is still bounded to 200 lines per bucket, and an idle poll (most of them) hands back nothing and re-renders nothing. A failing poll backs off up to a minute, and a lost session stops the polling until a terminal mounts again.
 
 - **The download dialog works the way its three options say** (#1179). "Download in this browser" on the
   Backups selection bar was a radio that was always switched off. It had nothing to do with the destructive
@@ -37,6 +98,8 @@ Retention writes handed `--json` are refused rather than accepted and ignored, s
 the flag there needs to drop it. Nothing here changes a default and there is nothing to migrate.
 
 ### Fixed
+
+- **The image has a `latest` tag now, and it only moves forward** (#1168). `ghcr.io/retnd/retnd:latest` did not exist, although the GitHub Release page already marked the newest release "Latest". After a release is built, signed and attested, a `tag-latest` job moves `latest` to that version's index digest with `docker buildx imagetools create` (the same digest, so the cosign signature and SBOM attestation verify for both names) and fails the run if `latest` does not then resolve to it. It does that only when the version is the highest published non-prerelease release, so a 0.5.x backport or a prerelease never takes it, and the GitHub Release is created with `--latest` or `--latest=false` under the same rule. The Release workflow also takes a `tag_latest_for` input that re-points `latest` for an already published version without building anything, and refuses a version with no published image, one whose digest differs from `container/release-manifest.json`, or one that is not the highest release. `latest` is for pulling by hand: compose files, the installer and the docs keep pinning the version's digest. The pinned hash of release.yml's `on:` block moved once for the new input; the push trigger and the signing identity did not change.
 
 - **Usage and the command echo no longer say things the code stopped doing** (#1150). `retnd`'s usage text
   called `settings assurance patch` and `backup-set assurance` "refused beside" a serving engine, but

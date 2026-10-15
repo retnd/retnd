@@ -122,10 +122,15 @@ function newest(times: Array<string | null | undefined>): string | undefined {
  *  Worst first, because a failure on any copy is a fact about the backup:
  *  failed, then could-not-complete, then a pass (the newest one) or the other
  *  non-passing states. `policyOff` is the set's own policy turning the test
- *  off; `reported` says the server records the claim at all, so an empty
- *  record can mean "a test is owed and none has run" and not just "could not
- *  ask". */
-export function recoveryClaim(a: BackupArtifact, policyOff: boolean, reported: boolean): ClaimRecord {
+ *  off, and undefined when that policy could not be read: whether a test is
+ *  owed is then unknown, so a backup with no verdict of its own is unknown
+ *  rather than "never run" (and so not counted due). `reported` says the
+ *  server records the claim at all, so an empty record can mean "a test is
+ *  owed and none has run" and not just "could not ask".
+ *
+ *  core/service/assurancelist.go ports this for `retnd assurance list`; the
+ *  vectors in core/service/testdata/assurance-listing hold the two together. */
+export function recoveryClaim(a: BackupArtifact, policyOff: boolean | undefined, reported: boolean): ClaimRecord {
   const live = liveCopies(a);
   const states = live.map((p) => p.recoveryState).filter((s): s is NonNullable<BackupPlacement["recoveryState"]> => !!s);
   const when = (state: string) => newest(live.filter((p) => p.recoveryState === state).map((p) => p.recoveryTestedAt));
@@ -141,11 +146,13 @@ export function recoveryClaim(a: BackupArtifact, policyOff: boolean, reported: b
     return { status: "overdue", achievedClass: "", at: when("overdue"), ...(builtin ? { check: "builtin" as const } : {}) };
   }
   if (states.includes("refused_for_cost")) return { status: "refused_for_cost", achievedClass: "", at: when("refused_for_cost") };
-  if (policyOff) return { status: "never_configured", achievedClass: "" };
   // not_configured is the engine saying there is no validator to run, which
   // is more specific than "a test is owed": a test owed to a set that can
-  // only refuse is not owed. It reads before never_run (#1108).
+  // only refuse is not owed. It reads before never_run (#1108), and before
+  // an unreadable policy, because it is a fact about the copy.
   if (states.includes("not_configured")) return { status: "never_configured", achievedClass: "" };
+  if (policyOff === undefined) return { status: "unknown", achievedClass: "" };
+  if (policyOff) return { status: "never_configured", achievedClass: "" };
   if (states.includes("never_run") || (reported && live.length > 0)) return { status: "never_run", achievedClass: "" };
   return { status: "unknown", achievedClass: "" };
 }
@@ -211,6 +218,10 @@ interface Followed {
   lastLineAt: number;
   /** Starting joined a run that was already going. */
   joined: boolean;
+  /** The last stage a line named. A reading carries only the lines above the
+   *  cursor, so a quiet poll names none, and without this the stage (and the
+   *  bar drawn from it) fell back to the first one between every two lines. */
+  stage?: string;
 }
 
 function newFollowed(setId: string, kind: OperationKind, startedAt: number, over: Partial<Followed> = {}): Followed {
@@ -276,9 +287,11 @@ async function readRun(api: RetndApi, operationId: string, mine: Followed, curso
 
   const stageLine = [...lines].reverse().find((e) => e.fields.stage);
   const done = end ? Number(end.fields.bytes) : 0;
+  const stage = end?.result === "success" ? "complete" : stageLine?.fields.stage ?? mine.stage ?? "resolving_copy";
+  mine.stage = stage;
   const operation: Operation = {
     id: operationId, kind: mine.kind, setId: mine.setId, state,
-    stage: end?.result === "success" ? "complete" : stageLine?.fields.stage ?? "resolving_copy",
+    stage,
     bytes: Number.isFinite(done) && done > 0 ? done : 0, totalBytes: Number.isFinite(done) && done > 0 ? done : 0,
     startedAt: new Date(mine.startedAt).toISOString(),
     ...(state === "running" && mine.cancelRequestedAt > 0 ? { cancelling: true } : {}),
@@ -343,13 +356,14 @@ export function createHttpAssurance(api: RetndApi): AssuranceApi {
     } catch { /* no schedule: the claims below fall back to what the copies say */ }
 
     // The one thing a copy's record cannot say is that the set's own policy
-    // turned the test off, so ask each set once.
-    const off = new Map<string, boolean>();
+    // turned the test off, so ask each set once. A read that failed is
+    // "don't know", never "tests on": that would count its backups due.
+    const off = new Map<string, boolean | undefined>();
     await Promise.all([...new Set(artifacts.map((a) => a.setId))].map(async (setId) => {
       try {
         const [source, set] = splitSet(setId);
         off.set(setId, (await api.getBackupSetAssurance(source, set)).recoveryTest.mode === "off");
-      } catch { off.set(setId, false); }
+      } catch { off.set(setId, undefined); }
     }));
 
     return artifacts.map((a) => ({
@@ -357,7 +371,7 @@ export function createHttpAssurance(api: RetndApi): AssuranceApi {
       copies: liveCopies(a).length,
       copyContent: copyContentOf(a),
       content: contentClaim(a, dueById.get(a.id)),
-      recovery: recoveryClaim(a, off.get(a.setId) ?? false, true),
+      recovery: recoveryClaim(a, off.has(a.setId) ? off.get(a.setId) : false, true),
       copyFailures: copyFailures(a)
     }));
   };
@@ -367,9 +381,13 @@ export function createHttpAssurance(api: RetndApi): AssuranceApi {
     startedAt: new Date(at).toISOString(), ...extra
   });
 
-  const startRecoveryTest = async (setId: string): Promise<Operation> => {
+  const startRecoveryTest = async (setId: string, opts: { artifactId?: string } = {}): Promise<Operation> => {
     const [source, set] = splitSet(setId);
-    const started = await api.startRecoveryTest(source, set);
+    // The set's newest known-good copy unless a backup is named: the body
+    // carries artifact_id only when there is one to carry.
+    const started = opts.artifactId
+      ? await api.startRecoveryTest(source, set, { artifactId: opts.artifactId })
+      : await api.startRecoveryTest(source, set);
     const startedAt = Date.now();
     // Joining a test that is already running follows that one: its lines are
     // already on the feed, so the start-grace clock does not apply to it.

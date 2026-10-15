@@ -402,7 +402,7 @@ const HEALTH: SystemHealth = {
   lastCompletedBackupAt: "2026-08-29T02:00:00Z",
   oldestSetFreshnessHours: 4,
   setsHealthy: 1, setsDegraded: 0, setsStale: 0, setsFailing: 0,
-  quarantinedCount: 0, readOnlyRetainedCount: 0,
+  quarantinedCount: 0, readOnlyRetainedCount: 0, retainedCount: null,
   storageState: "nominal", storageReadingsUnavailable: 0
 };
 

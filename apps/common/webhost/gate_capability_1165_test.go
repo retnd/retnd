@@ -124,17 +124,13 @@ func TestGateRefusalAudit1165_AGatedOperationWritesExactlyOneEntryNamingWhatWasA
 		wantSnapshot     string
 		wantHold         string
 	}{
-		{
-			name: "hold a snapshot", path: "/api/v1/operations", wantOperation: "hold_snapshot", wantSet: "alpha/nightly", wantRun: "run-1",
-			body: `{"action":"hold_snapshot","config_revision":"rev-1","snapshot_hold":{"backup_set_id":"alpha/nightly","run_id":"run-1","reason":"legal review"}}`,
-		},
+		// hold_snapshot, verify_snapshot and release_snapshot_hold were rows
+		// here until #1164 took them off the gate: they are not refused by
+		// it any more, so they cannot be gate entries. The gate_profile
+		// tests pin that they are served on a shut gate.
 		{
 			name: "restore a snapshot", path: "/api/v1/operations", wantOperation: "restore_snapshot", wantSet: "alpha/nightly", wantSnapshot: "k1234",
 			body: `{"action":"restore_snapshot","config_revision":"rev-1","snapshot_restore":{"backup_set_id":"alpha/nightly","snapshot_id":"k1234","target_path":"/srv/restored"}}`,
-		},
-		{
-			name: "release a hold", path: "/api/v1/operations", wantOperation: "release_snapshot_hold", wantSet: "alpha/nightly", wantHold: "hold_9",
-			body: `{"action":"release_snapshot_hold","config_revision":"rev-1","snapshot_hold_release":{"backup_set_id":"alpha/nightly","hold_id":"hold_9"}}`,
 		},
 		{
 			name: "run one backup set", path: "/api/v1/operations", wantOperation: "run_backup_set", wantSet: "alpha/nightly",
@@ -241,7 +237,7 @@ func TestGateRefusalAudit1165_AnExemptCallAndAnOpenGateWriteNoGateEntry(t *testi
 func TestGateRefusalAudit1165_TheEntryCarriesNoCredential(t *testing.T) {
 	recorder := &recordingBackend{}
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/operations",
-		strings.NewReader(`{"action":"verify_snapshot","config_revision":"rev-1","snapshot_verify":{"backup_set_id":"alpha/nightly","run_id":"run-1"}}`))
+		strings.NewReader(`{"action":"restore_snapshot","config_revision":"rev-1","snapshot_restore":{"backup_set_id":"alpha/nightly","snapshot_id":"k1234","target_path":"/srv/restored"}}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer s3cr3t-token-1165")
 	req.AddCookie(&http.Cookie{Name: "retnd_session", Value: "s3cr3t-session-1165"})

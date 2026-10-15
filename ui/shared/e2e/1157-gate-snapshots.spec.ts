@@ -1,48 +1,33 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { measureContrast, open, setTheme } from "./helpers";
+import { open } from "./helpers";
 
 /**
- * Issue #1157, the snapshots list: Verify latest on a build whose destructive
- * gate is shut. The gate is shut in every build this repository ships, so the
- * refusal is the ordinary outcome of pressing this button over HTTP, and the
- * screen has to say that retrying will not help and give the terminal command
- * that does the same thing, instead of the generic "Could not start the
- * verification" a transient failure would get.
+ * Issue #1157, the snapshots list, as #1164 left it.
  *
- * `scenario=gate-shut` makes the mock answer exactly what the engine answers
- * (code DESTRUCTIVE_OPERATIONS_DISABLED, the sentence in
- * apps/common/webhost/gate.go). The control scenario is the same page with
- * the gate not in the way.
+ * Verify latest used to be refused by a shut destructive gate, and this spec
+ * pinned the notice that said so and the terminal command it echoed. #1164
+ * took verify off the gate, so the same press on the same shut gate now starts
+ * a verification, and the screen says nothing about a gate at all. The scenario
+ * is unchanged (`gate-shut` still shuts everything that is still behind the
+ * gate), which is what makes this a real check: a screen that kept drawing the
+ * old notice, or a mock that kept refusing, would fail the first case.
  */
 const PAGE = "/sets/production/postgres-primary/snapshots";
-const COMMAND = "retnd snapshot verify production/postgres-primary";
 const refusal = (page: Page) => page.locator("[data-gate-refusal]");
+const notice = (page: Page) => page.locator("[data-gate-notice]");
 
-test.describe("#1157 snapshots list, gate shut", () => {
-  test("Verify latest says retrying will not help and echoes the terminal command", async ({ page }) => {
+test.describe("#1157 snapshots list, gate shut (as #1164 left it)", () => {
+  test("Verify latest starts a verification and no notice or refusal is drawn", async ({ page }) => {
     await open(page, PAGE, "gate-shut");
+    await expect(page.getByRole("button", { name: "Verify latest" })).toBeVisible();
+    await expect(notice(page)).toHaveCount(0);
     await page.getByRole("button", { name: "Verify latest" }).click();
-    const block = refusal(page);
-    await expect(block).toBeVisible();
-    await expect(block).toContainText(/retrying will not help/i);
-    await expect(block).toContainText(COMMAND);
-    await expect(block, "it names the issue that lifts the refusal").toContainText("#92");
-    await expect(page.getByRole("region", { name: "Verification in progress" })).toHaveCount(0);
+    await expect(page.getByRole("region", { name: "Verification in progress" })).toBeVisible();
+    await expect(refusal(page)).toHaveCount(0);
   });
 
-  test("the words are readable in both themes (WCAG AA)", async ({ page }) => {
-    await open(page, PAGE, "gate-shut");
-    await page.getByRole("button", { name: "Verify latest" }).click();
-    await expect(refusal(page)).toBeVisible();
-    for (const theme of ["light", "dark"] as const) {
-      await setTheme(page, theme);
-      const failures = await measureContrast(page, "1157 snapshots " + theme, "[data-gate-refusal]");
-      expect(failures, theme + " theme").toEqual([]);
-    }
-  });
-
-  test("control: with the gate not in the way the same press starts a verification", async ({ page }) => {
+  test("control: with the gate open the same press does the same thing", async ({ page }) => {
     await open(page, PAGE, "default");
     await page.getByRole("button", { name: "Verify latest" }).click();
     await expect(page.getByRole("region", { name: "Verification in progress" })).toBeVisible();

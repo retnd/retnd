@@ -25,6 +25,13 @@
   --surface-3: #f0f0ed;
   --border: #e0dfdc;
   --border-strong: #c8c7c3;
+  /* The edge of a control that has to be found by its edge (a text box, a
+     bordered list). WCAG asks 3:1 against what it sits on, and
+     --border-strong is 1.69:1 (light) and 1.81:1 (dark) on --surface, so
+     these take the tertiary ink: 3.35:1 and 3.85:1. Defined once and
+     following --text-3 into the dark theme, so the next contrast fix lands
+     on every control that uses it. */
+  --control-edge: var(--text-3);
 
   /* text */
   --text: #191a19;
