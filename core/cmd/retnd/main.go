@@ -87,6 +87,8 @@ var commands = map[string]func([]string) int{
 	"scrub":           cmdScrub,
 	"recovery-test":   cmdRecoveryTest,
 	"assurance":       cmdAssurance,
+	"operation":       cmdOperation,
+	"system":          cmdSystem,
 	"catalog":         cmdCatalog,
 	"quarantine":      cmdQuarantine,
 	"unconfigured":    cmdUnconfigured,
@@ -102,7 +104,6 @@ var commands = map[string]func([]string) int{
 	"workflow-runner": cmdWorkflowRunner,
 	"version":         cmdVersion,
 	"validators":      cmdValidators,
-	"system":          cmdSystem,
 }
 
 // usage is the text an operator reads when they type nothing, type
@@ -348,6 +349,17 @@ commands:
                                                   this deployment, so this needs RETND_API_URL and the two credential
                                                   variables beside it and is refused without them. The same as
                                                   POST /api/v1/assurance/operations/{op}/cancel (EPIC Q)
+  operation list [--backup-set S] [--action A] [--json]
+                                                  list the operations the engine holds, newest first, so there is an id
+                                                  to hand to assurance cancel. They live in the memory of the process
+                                                  serving this deployment, so this needs RETND_API_URL and the two
+                                                  credential variables beside it and is refused without them. The same
+                                                  body as GET /api/v1/operations; the two filters narrow it here (#1149)
+  operation show <operation-id> [--json] [--follow]
+                                                  one operation as the engine holds it. --follow polls until it finishes,
+                                                  prints each change of status on standard error, and exits 0 for
+                                                  completed and 1 for anything else. The same as
+                                                  GET /api/v1/operations/{id} (#1149)
   catalog rebuild [--dry-run]                    reconstruct a lost/corrupted state database from sidecar recovery manifests
   catalog rebuild [--dry-run] --json
                                                   print the API's CatalogReportResponse for the whole deployment instead of
@@ -816,6 +828,12 @@ commands:
   system capabilities [--json]                   what the platform the engine runs on can do (native sign-in, a
                                                   storage picker, ...), as the engine declares it. Needs a route to the
                                                   engine and refuses without one (#1152)
+                                                  Also reports whether the engine's destructive gate is open or shut and
+                                                  why (destructive_operations). The gate is the engine's: this CLI has
+                                                  none, so the verbs the web UI sends people to run when it is shut
+                                                  (run, fetch, restore, snapshot restore|verify|hold|unhold, retention
+                                                  apply) work here. --json prints the same body as
+                                                  GET /api/v1/system/capabilities (#1165)
   system first-run [--json]                      which guided setup steps the engine counts as done, pending or
                                                   skipped (the administrator, the mail server, the first backup set),
                                                   the next one, and any problem with the configuration directory. status

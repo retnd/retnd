@@ -84,6 +84,98 @@ func markSelfAudited(ctx context.Context) {
 	}
 }
 
+// gateNoteKey carries a note a gate refusal leaves for recordActions
+// (issue #1165).
+//
+// A refusal by the destructive gate is an audit entry in its own right: who
+// asked, which act, which set or snapshot, what state the gate was in. The
+// first two are in the request and the last is in the gate, and the gate is
+// consulted in two places that do not share a code path: requireDestructiveGate
+// for the routes behind it, and createBackupSet for the run a create asks
+// for, which is a 201 and so is not a refusal by status. Both leave this note,
+// and recordActions turns it into the fields of the one entry it was already
+// going to write. A second entry would be a second line in the feed for one
+// refusal, and "exactly one" is a claim somebody counts.
+type gateNoteKey struct{}
+
+type gateNote struct {
+	refused     bool
+	state       string
+	reason      string
+	operation   string // set by the caller when the route and body cannot say
+	backupSetID string // likewise
+}
+
+// noteGateRefusal records that the gate refused this request, and the state
+// it was in when it did. operation is "" when the route and the body say
+// which act it was (the middleware case), and a name when only the handler
+// knows (run_immediately).
+func noteGateRefusal(ctx context.Context, gate DestructiveGate, operation string) {
+	n, ok := ctx.Value(gateNoteKey{}).(*gateNote)
+	if !ok {
+		return
+	}
+	n.refused = true
+	n.state, n.reason = gateStatus(gate)
+	n.operation = operation
+}
+
+// noteGateRefusedSet names the set a refused create made, which exists only
+// after the create has run.
+func noteGateRefusedSet(ctx context.Context, backupSetID string) {
+	if n, ok := ctx.Value(gateNoteKey{}).(*gateNote); ok {
+		n.backupSetID = backupSetID
+	}
+}
+
+// gateTarget reads what a refused gated request asked for. Nothing in it is
+// taken from anywhere but the route and the ids in the body: the entry is
+// readable by anyone who can read the feed, so it names the act and its
+// target and carries no credential, no header and no free text.
+func gateTarget(route string, params map[string]string, body []byte) (operation, set, run, snapshot, hold string) {
+	switch {
+	case route == "/operations":
+		var req struct {
+			Action      string `json:"action"`
+			BackupSetID string `json:"backup_set_id"`
+			Restore     struct {
+				BackupSetID string `json:"backup_set_id"`
+				SnapshotID  string `json:"snapshot_id"`
+			} `json:"snapshot_restore"`
+			Verify struct {
+				BackupSetID string `json:"backup_set_id"`
+				RunID       string `json:"run_id"`
+			} `json:"snapshot_verify"`
+			Hold struct {
+				BackupSetID string `json:"backup_set_id"`
+				RunID       string `json:"run_id"`
+			} `json:"snapshot_hold"`
+			Release struct {
+				BackupSetID string `json:"backup_set_id"`
+				HoldID      string `json:"hold_id"`
+			} `json:"snapshot_hold_release"`
+		}
+		_ = json.Unmarshal(body, &req)
+		operation = req.Action
+		switch req.Action {
+		case "run_backup_set":
+			set = req.BackupSetID
+		case "restore_snapshot":
+			set, snapshot = req.Restore.BackupSetID, req.Restore.SnapshotID
+		case "verify_snapshot":
+			set, run = req.Verify.BackupSetID, req.Verify.RunID
+		case "hold_snapshot":
+			set, run = req.Hold.BackupSetID, req.Hold.RunID
+		case "release_snapshot_hold":
+			set, hold = req.Release.BackupSetID, req.Release.HoldID
+		}
+	case strings.HasSuffix(route, "/retention/apply"):
+		operation = "retention_apply"
+		set = backupSetOfRoute(params)
+	}
+	return operation, set, run, snapshot, hold
+}
+
 // maxRecordedBodyBytes bounds what this middleware buffers in order to
 // build a command line from a request.
 //
@@ -112,7 +204,8 @@ func recordActions(recorder ActionRecorder) func(http.Handler) http.Handler {
 
 			body := drainBody(r)
 			selfAudited := &atomic.Bool{}
-			r = r.WithContext(context.WithValue(r.Context(), selfAuditedKey{}, selfAudited))
+			note := &gateNote{}
+			r = r.WithContext(context.WithValue(context.WithValue(r.Context(), selfAuditedKey{}, selfAudited), gateNoteKey{}, note))
 			capture := &capturingWriter{ResponseWriter: w, status: http.StatusOK}
 			next.ServeHTTP(capture, r)
 
@@ -134,6 +227,27 @@ func recordActions(recorder ActionRecorder) func(http.Handler) http.Handler {
 				Body:   body,
 			})
 			code, message := capture.refusal()
+			setID := backupSetOfRoute(routeParamsOf(r))
+			var operation, runID, snapshotID, holdID string
+			if note.refused {
+				var targetSet string
+				operation, targetSet, runID, snapshotID, holdID = gateTarget(route, routeParamsOf(r), body)
+				if note.operation != "" {
+					operation = note.operation
+				}
+				if targetSet == "" {
+					targetSet = note.backupSetID
+				}
+				if targetSet != "" {
+					setID = targetSet
+				}
+				// A create whose run was refused answers 201, so no error
+				// envelope was written and the status does not say it was
+				// refused. The note does.
+				if code == "" {
+					code, message = "DESTRUCTIVE_OPERATIONS_DISABLED", destructiveGateRefusal
+				}
+			}
 			action := cliecho.APIAction{
 				Actor:       actorFromContext(r.Context()),
 				Method:      r.Method,
@@ -141,10 +255,14 @@ func recordActions(recorder ActionRecorder) func(http.Handler) http.Handler {
 				Status:      capture.status,
 				ErrorCode:   code,
 				Message:     message,
-				BackupSetID: backupSetOfRoute(routeParamsOf(r)),
+				BackupSetID: setID,
 				Gap:         line.Gap,
 				GapDetail:   line.GapDetail,
 				Placeholder: line.Placeholder,
+			}
+			if note.refused {
+				action.Gate, action.GateReason = note.state, note.reason
+				action.Operation, action.RunID, action.SnapshotID, action.HoldID = operation, runID, snapshotID, holdID
 			}
 			// Bare: the "$ " a terminal draws in front of it is the
 			// terminal's, and a script reading the journal wants a

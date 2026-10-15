@@ -77,6 +77,18 @@ type fakeEngine struct {
 	liveSince    []int64
 	liveScope    []string
 
+	// The operations this engine holds (#1149), see operations1149_test.go.
+	opsMu   sync.Mutex
+	ops     []apicontract.Operation
+	opReads map[string][]apicontract.Operation
+	opQuery []string
+
+	// What GET /system/capabilities answers (#1165), see
+	// system_capabilities_1165_test.go. A raw document rather than the typed
+	// response, so the test states the wire it expects the CLI to pass on.
+	capsMu sync.Mutex
+	caps   map[string]any
+
 	// lastBody is the bytes of the last answer to each "METHOD path" in
 	// fakeengine_configwrites_1148_test.go, kept so a test can diff what
 	// the CLI printed against what the engine returned.
@@ -314,6 +326,12 @@ func (e *fakeEngine) api(w http.ResponseWriter, r *http.Request, path, token str
 		e.setReadOnly(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/backup-sets/"), "/read-only"))
 	case r.Method == http.MethodPost && strings.HasPrefix(path, "/assurance/operations/") && strings.HasSuffix(path, "/cancel"):
 		e.cancelAssuranceOperation(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/assurance/operations/"), "/cancel"))
+	case r.Method == http.MethodGet && path == "/system/capabilities":
+		e.getCapabilities(w, r)
+	case r.Method == http.MethodGet && path == "/operations":
+		e.listOperations(w, r)
+	case r.Method == http.MethodGet && strings.HasPrefix(path, "/operations/"):
+		e.getOperation(w, r, strings.TrimPrefix(path, "/operations/"))
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/edit-hold"):
 		e.getEditHold(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/backup-sets/"), "/edit-hold"))
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/edit-hold/release"):

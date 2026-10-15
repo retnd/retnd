@@ -163,7 +163,18 @@ export type Scenario =
   // plain note arrive on the next poll, which is how a spec watches a new line
   // meet an active filter.
   | "dock-no-warnings"
-  | "dock-live-line";
+  | "dock-live-line"
+  // Issue #1157: the destructive gate as every shipped build has it, shut.
+  // The four snapshot acts and retention apply refuse with the code and the
+  // sentence apps/common/webhost writes, so a spec can press the control and
+  // read what the screen says back. Every other scenario here leaves those
+  // acts working, which is what keeps the existing cases about the screens
+  // themselves.
+  | "gate-shut"
+  // Issue #1165: the same shut gate with a different reason on the capability
+  // field, which is how a spec proves the screens read the reason from the
+  // field rather than carrying a sentence of their own.
+  | "gate-shut-local-account";
 
 /** Reads the scenario out of the URL, falling back to the default for
  *  anything unrecognised. A closed allow-list rather than a cast, so a
@@ -182,7 +193,7 @@ export function scenarioFromLocation(): Scenario {
     "assurance-grant-used", "assurance-session-ended", "assurance-staging-full",
     "assurance-reads-busy", "assurance-corrupt-copy", "assurance-download-outcomes",
     "assurance-set-recover", "assurance-set-nospace", "assurance-set-corrupt", "assurance-set-slow",
-    "backups-many", "backups-many-corrupt", "backups-many-nospace", "dock-no-warnings", "dock-live-line", "assurance-no-validator", "assurance-builtin-check", "assurance-default-policy", "assurance-default-untested"
+    "backups-many", "backups-many-corrupt", "backups-many-nospace", "dock-no-warnings", "dock-live-line", "assurance-no-validator", "assurance-builtin-check", "assurance-default-policy", "assurance-default-untested", "gate-shut", "gate-shut-local-account"
   ];
   return (allowed as string[]).includes(s ?? "") ? (s as Scenario) : "default";
 }
@@ -1689,6 +1700,21 @@ function incrementalSet(source: string, set: string): Promise<never> | null {
 
 /** The same check for the four actions, which are handed a composite id
  *  rather than the two halves. */
+/** The refusal a shut destructive gate answers with, word for word what
+ *  apps/common/webhost/gate.go writes (issue #1157). */
+const GATE_SHUT_MESSAGE =
+  "destructive operations are refused over HTTP in this release, until the trusted-proxy authentication gate (issue #92) has been verified; run the equivalent `retnd` command on the host";
+
+function gateRefusal(): Promise<never> {
+  return Promise.reject(
+    new RetndError({
+      code: "DESTRUCTIVE_OPERATIONS_DISABLED",
+      message: GATE_SHUT_MESSAGE,
+      correlationId: "cid_mockgate"
+    })
+  );
+}
+
 function snapshotActionRefusal(backupSetId: string): Promise<never> | null {
   const [source, ...rest] = backupSetId.split("/");
   return incrementalSet(source, rest.join("/"));
@@ -2389,6 +2415,7 @@ function defaultSettings(): AppSettings {
  */
 const SERVED_WHILE_UNCONFIGURED: ReadonlySet<keyof RetndApi> = new Set([
   "getVersion",
+  "getCapabilities",
   "getFirstRunStatus",
   "skipFirstRunStep",
   "completeFirstRun",
@@ -3927,6 +3954,8 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   // scenario rather than a variant of "empty" because the point is a
   // FULLY populated instance that simply never heard of the feature.
   const noMedium = scenario === "no-medium";
+  // Issue #1157: see the scenario's own note.
+  const gateShut = scenario === "gate-shut" || scenario === "gate-shut-local-account";
   // Issue #598. One call fails, and it fails the way the NAS did.
   const activityUnreadable = scenario === "activity-unreadable";
   // Issue #852. One flag, read by both modes of the connection test, so
@@ -4122,6 +4151,27 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   let workflowHolds = WORKFLOW_HOLDS.map((hold) => structuredClone(hold));
 
   const api: RetndApi = {
+    // Issue #1165. Every scenario but the gate-shut ones leaves the gate open,
+    // which is what lets the existing cases about the screens press their
+    // controls; the two shut ones answer what a shipped build answers.
+    getCapabilities: () =>
+      delay({
+        platform: "generic",
+        nativeAuth: false,
+        nativeNotifications: false,
+        storagePicker: false,
+        embeddedWindow: false,
+        appStorePackaging: false,
+        destructiveOperations: !gateShut
+          ? { state: "open", reason: "" }
+          : {
+              state: "shut",
+              reason:
+                scenario === "gate-shut-local-account"
+                  ? "local-account profile: gate shut until #92"
+                  : "gate shut until #92"
+            }
+      }),
     getVersion: () =>
       delay(
         scenario === "version-mismatch"
@@ -4651,6 +4701,7 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
     // live reading, so the progress surface has something to draw, and
     // `completeMockOperation` is what a test uses to finish it.
     restoreSnapshot: (req) => {
+      if (gateShut) return gateRefusal();
       const refusal = snapshotActionRefusal(req.backupSetId);
       if (refusal) return refusal;
       const operation: Operation = {
@@ -4681,6 +4732,7 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
       return delay({ operation, snapshots: [] });
     },
     verifySnapshot: (req) => {
+      if (gateShut) return gateRefusal();
       const refusal = snapshotActionRefusal(req.backupSetId);
       if (refusal) return refusal;
       const operation: Operation = {
@@ -4713,6 +4765,7 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
       return delay({ operation, snapshots: [] });
     },
     holdSnapshot: (req) => {
+      if (gateShut) return gateRefusal();
       const refusal = snapshotActionRefusal(req.backupSetId);
       if (refusal) return refusal;
       const snapshot = MOCK_SNAPSHOTS.find(
@@ -4748,6 +4801,7 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
       });
     },
     releaseSnapshotHold: (req) => {
+      if (gateShut) return gateRefusal();
       const refusal = snapshotActionRefusal(req.backupSetId);
       if (refusal) return refusal;
       const hold = MOCK_HOLDS.find((h) => h.holdId === req.holdId && h.active);
@@ -4870,6 +4924,7 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
       return delay(mockBackupSetRetention(retentionOverrides, source, set));
     },
     applyRetention: (source, set, planId) => {
+      if (gateShut) return gateRefusal();
       // This has to REJECT, not throw synchronously. applyRetention is a
       // Promise, so a bare throw escapes before a promise exists and a
       // caller's .catch() never runs — the one path that must not fail open

@@ -40,10 +40,10 @@ func cmdSystem(args []string) int {
 }
 
 // askEngine dials the engine this host was told about and runs one read.
-func askEngine(what string, ask func(ctx context.Context, c *apiclient.Client) error) int {
+func askEngine(verb, what string, ask func(ctx context.Context, c *apiclient.Client) error) int {
 	client, err := dialEngine()
 	if err != nil {
-		return fail(err)
+		return fail(fmt.Errorf("system %s: %w", verb, err))
 	}
 	if err := ask(context.Background(), client); err != nil {
 		return fail(fmt.Errorf("asking the engine for %s: %w", what, err))
@@ -70,7 +70,7 @@ func cmdSystemCapabilities(args []string) int {
 		return code
 	}
 	var got apicontract.CapabilitiesResponse
-	if code := askEngine("its platform capabilities", func(ctx context.Context, c *apiclient.Client) (err error) {
+	if code := askEngine("capabilities", "its platform capabilities", func(ctx context.Context, c *apiclient.Client) (err error) {
 		got, err = c.SystemCapabilities(ctx)
 		return err
 	}); code != exitOK {
@@ -85,6 +85,13 @@ func cmdSystemCapabilities(args []string) int {
 	fmt.Printf("storage_picker: %v\n", got.StoragePicker)
 	fmt.Printf("embedded_window: %v\n", got.EmbeddedWindow)
 	fmt.Printf("app_store_packaging: %v\n", got.AppStorePackaging)
+	// Whether the engine's destructive gate is open (#1165): the terminal
+	// has no gate of its own, so this is the way to read the engine's.
+	gate := "destructive operations: " + got.DestructiveOperations.State
+	if got.DestructiveOperations.Reason != "" {
+		gate += " (" + got.DestructiveOperations.Reason + ")"
+	}
+	fmt.Println(gate)
 	return exitOK
 }
 
@@ -94,7 +101,7 @@ func cmdSystemFirstRun(args []string) int {
 		return code
 	}
 	var got apicontract.FirstRunStatusResponse
-	if code := askEngine("its first-run status", func(ctx context.Context, c *apiclient.Client) (err error) {
+	if code := askEngine("first-run", "its first-run status", func(ctx context.Context, c *apiclient.Client) (err error) {
 		got, err = c.FirstRunStatus(ctx)
 		return err
 	}); code != exitOK {
