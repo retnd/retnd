@@ -241,7 +241,22 @@ a machine that can reach the registry, `docker save` it, and bring the tarball o
 `latest` is refused, and so is anything else that is not an orderable version.
 A host installed from a moving tag records `VERSION=latest` in its `.env`, which
 orders against nothing, so no later installer can tell whether it is moving that
-host forwards or backwards. There is no `latest` tag to install anyway.
+host forwards or backwards. The registry does carry a `latest` tag (see below), but it
+is for people pulling by hand, not something to install a host from.
+
+### What `ghcr.io/retnd/retnd:latest` is, and is not
+
+Every release moves `latest` to the new version's index digest, so
+`docker pull ghcr.io/retnd/retnd:latest` gives you the newest release. It is the same
+digest as the version tag, which means the cosign signature and the SBOM attestation
+verify for `latest` exactly as they do for `0.6.4`. It only moves forward: a backport
+(a 0.5.x fix cut after 0.6.x) and a prerelease never take it, the same rule that decides
+which release GitHub marks "Latest".
+
+It is a moving name, so it is the wrong thing to put in a compose file, a script or a
+host's `.env`. Those keep pinning the version's digest (`image@sha256:...`), which is
+what the installer does by default and what `--release` resolves for you. `latest` is
+for humans and quick pulls.
 
 ### The digest, and why the default does not float
 

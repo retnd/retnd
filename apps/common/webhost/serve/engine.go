@@ -89,6 +89,10 @@ type EngineConfig struct {
 	// webhost.NewRouter's own NotYetImplementedGate default.
 	Gate webhost.DestructiveGate
 
+	// StepUp re-checks the administrator's password before a restore on a
+	// local-account profile (issue #1163). Nil fails closed.
+	StepUp webhost.StepUpVerifier
+
 	// Recorder is where every action taken through /api/v1 is recorded so
 	// an operator can read it (issue #599). Left nil, newEngineHandler
 	// uses the Backend itself when it can record, which is the case for

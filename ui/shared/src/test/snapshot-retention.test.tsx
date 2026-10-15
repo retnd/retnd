@@ -130,11 +130,18 @@ describe("snapshot retention", () => {
     act(() => {
       screen.getByRole("button", { name: "Release hold hold_01J9Z5" }).click();
     });
+    // Releasing lifts a protection, so the dialog waits for an explicit tick
+    // (issue #1164) and sends it.
+    expect(screen.getByRole("button", { name: "Release hold" }).hasAttribute("disabled")).toBe(true);
+    act(() => {
+      screen.getByRole("checkbox", { name: /I understand/ }).click();
+    });
     act(() => {
       screen.getByRole("button", { name: "Release hold" }).click();
     });
 
     await waitFor(() => expect(release).toHaveBeenCalledTimes(1));
+    expect(release.mock.calls[0][0].acknowledged).toBe(true);
     const sent = release.mock.calls[0][0];
     expect(sent.holdId).toBe("hold_01J9Z5");
     expect(sent.backupSetId).toBe("production/postgres-primary");

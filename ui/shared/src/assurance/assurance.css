@@ -72,7 +72,7 @@
 .afail { padding: 2px 8px; border-left: 3px solid var(--danger); font-size: var(--text-sm); color: var(--text); overflow-wrap: anywhere; }
 
 .aop { display: flex; flex-direction: column; gap: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-3); background: var(--surface-2); }
-.aop__bar { height: 10px; border-radius: var(--radius-pill); background: var(--surface-3); border: 1px solid var(--text-3); overflow: hidden; }
+.aop__bar { height: 10px; border-radius: var(--radius-pill); background: var(--surface-3); border: 1px solid var(--control-edge); overflow: hidden; }
 .aop__bar > i { display: block; height: 100%; background: var(--accent); }
 .aop__lines { margin: 0; padding: var(--space-2) var(--space-3); list-style: none; background: var(--term-bg); color: var(--term-text); border-radius: var(--radius-md); font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.7; max-height: 160px; overflow: auto; }
 .aop__bar[data-indeterminate] > i { width: 35%; animation: aop-slide 1.6s ease-in-out infinite alternate; }
@@ -151,7 +151,7 @@
 /* Recover this backup set (#1106). The ink is --text or --text-2 on the dialog
    surface; the status is carried by a glyph and a word, and the colour on the
    glyph is a redundant cue. */
-.rset__rows { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow: auto; border: 1px solid var(--text-3); border-radius: var(--radius-md); background: var(--surface); }
+.rset__rows { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow: auto; border: 1px solid var(--control-edge); border-radius: var(--radius-md); background: var(--surface); }
 .rset__row { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: baseline; padding: 4px 8px; font-size: var(--text-sm); color: var(--text); border-bottom: 1px solid var(--border); }
 .rset__row:last-child { border-bottom: 0; }
 .rset__glyph { width: 14px; text-align: center; font-weight: 700; color: var(--text); }
@@ -244,3 +244,8 @@
 /* "Make fresh links" needs an edge that holds 3:1 on the amber notice, where
    --text-3 measures 2.96:1 in the light theme; --text-2 holds it in both. */
 .bulkdl .btn { border-color: var(--text-2); }
+
+/* The set terminal is where a run's output lives (#1176). The link in the
+   run panel moves focus there from script, which :focus-visible alone would
+   not draw a ring for. */
+#set-terminal:focus { outline: var(--focus-ring); outline-offset: var(--focus-offset); }

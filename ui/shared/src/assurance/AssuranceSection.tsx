@@ -42,11 +42,12 @@ import { FieldHelp } from "@shared/components/FieldHelp";
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { CommandEcho } from "@shared/pages/CommandEcho";
+import { SET_TERMINAL_ID } from "@shared/pages/SetActivityPanel";
 import { stamp } from "@shared/utilities/format";
 import { ClaimChips } from "./ClaimChips";
 import { OperationPanel } from "./OperationPanel";
 import { ValidatorLog } from "./ValidatorLog";
-import { recoveryTestCommand, scrubCommand, scrubContentCommand, setAssuranceCommand, showOutputCommand } from "./assuranceCommands";
+import { recoveryTestCommand, recoveryTestFollowCommand, scrubCommand, scrubContentCommand, setAssuranceCommand, setTerminalCommand, showOutputCommand } from "./assuranceCommands";
 import { BUILTIN_CHECKS, asBuiltinCheck, builtinOffProblem, reservedValidatorProblem } from "./builtinCheck";
 import { MIN_RECOVERY_TEST_CADENCE_SECONDS, cadenceProblem, formatCadence, parseCadence } from "./duration";
 import { useOperation } from "./useOperation";
@@ -171,7 +172,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
   const op = useOperation(follow ? api : undefined, opId, (o) => {
     noteAssuranceChanged();
     void Promise.all([refresh(), assuranceModelSettled()]).finally(() => setSettled(o.id));
-  });
+  }, { retainEvents: false });
   const running = op.operation?.state === "running";
   const checking = opId !== null && settled !== opId;
 
@@ -338,7 +339,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
                 </div>
                 {draft.mode === "off" ? (
                   <div style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
-                    The recovery test is off for this set, so its Recovery claim reads Not configured rather than passing. Scrubbing still runs.
+                    The recovery test is off for this set, so its Recovery claim reads Custom configuration, with no test result, rather than passing. Scrubbing still runs.
                   </div>
                 ) : draft.mode === "builtin" ? (
                   <div style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
@@ -428,7 +429,10 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
             ) : null}
             {operations ? (
               <>
-                <CommandEcho label="Same thing from the terminal" commands={[scrubCommand(setId), recoveryTestCommand(setId), showOutputCommand(setId)]} />
+                <CommandEcho label="Same thing from the terminal" commands={[scrubCommand(setId), recoveryTestCommand(setId), recoveryTestFollowCommand(setId), setTerminalCommand(setId), showOutputCommand(setId)]} />
+                <div data-testid="follow-echo-note" style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
+                  <code className="mono">{recoveryTestFollowCommand(setId)}</code> starts a new recovery test and follows it, the same as the button. To watch one that is already running, use <code className="mono">{setTerminalCommand(setId)}</code>.
+                </div>
                 <div data-testid="scrub-schedule-note" style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>
                   Scrub now does not replace the schedule: every poll of the running service checks the copies that are due, at the cadence above. A scrub started here reads this set&apos;s copies now and is stopped with Cancel.
                 </div>
@@ -446,7 +450,7 @@ export function AssuranceSection({ setId, readOnly }: { setId: string; readOnly:
                 A recovery test also runs on its own, at its cadence, but only for a set whose mode is required or custom and whose validator script is in place, or whose mode is builtin; with the mode off none runs. Run recovery test starts one now and acknowledges no cost: a copy that would cost money to read is refused and recorded as skipped, and nothing is read.
               </div>
             ) : null}
-            <OperationPanel operation={op.operation} events={op.events} error={op.error} onCancel={() => void op.cancel()} readOnly={readOnly} detailLink={operations} cancellable={operations} cancelError={op.cancelError} />
+            <OperationPanel operation={op.operation} events={op.events} error={op.error} onCancel={() => void op.cancel()} readOnly={readOnly} detailLink={operations} cancellable={operations} cancelError={op.cancelError} terminalHref={"#" + SET_TERMINAL_ID} />
             {validatorResult === null ? <div role="status">No recovery test has run for this set yet.</div> : null}
             {validatorResult ? <ValidatorLog result={validatorResult} /> : null}
           </>

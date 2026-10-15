@@ -235,6 +235,13 @@ describe("the set's Assurance section on a production-shaped server", () => {
     expect(test.textContent).toContain("with the mode off none runs");
     expect(within(screen.getByRole("region", { name: "Assurance" })).queryByText(/runs on the schedule above/)).toBeNull();
   });
+
+  it("says the --follow line starts a test, and names the line that watches one already going", async () => {
+    renderSection();
+    const note = await screen.findByTestId("follow-echo-note");
+    expect(note.textContent).toContain("starts a new recovery test and follows it");
+    expect(note.textContent).toMatch(/already running.*retnd activity --follow --backup-set/);
+  });
 });
 
 describe("the global Assurance card", () => {

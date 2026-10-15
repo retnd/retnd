@@ -24,6 +24,20 @@ export function recoveryTestCommand(setId: string): string {
   return "retnd recovery-test " + setId;
 }
 
+/** The progress bar and its step count, in a terminal: `--follow` prints each
+ *  stage the test enters, in the engine's order, on standard error as it
+ *  happens, and the exit status is the test's (#1176). */
+export function recoveryTestFollowCommand(setId: string): string {
+  return "retnd recovery-test " + setId + " --follow";
+}
+
+/** The set's terminal, in a terminal: the live feed narrowed to this set,
+ *  which is where a run's output lives (#1176, #1177). `--json` prints the
+ *  wire events, stage and stage_label fields included. */
+export function setTerminalCommand(setId: string): string {
+  return "retnd activity --follow --backup-set " + setId;
+}
+
 /** What Cancel does: `retnd assurance cancel <operation-id>`, the same call
  *  as POST /assurance/operations/{op}/cancel. The id is the one the scrub or
  *  recovery test returned when it started. */

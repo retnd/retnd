@@ -71,7 +71,7 @@ func TestGateRefusal1157_EveryGatedRouteSaysThisReleaseRefusesAndWhereToGo(t *te
 	router := shutGateRouter(t)
 	for _, tc := range []struct{ name, path, body string }{
 		{"run_cycle", "/api/v1/operations", `{"action":"run_cycle","config_revision":"rev-1"}`},
-		{"verify_snapshot", "/api/v1/operations", `{"action":"verify_snapshot","config_revision":"rev-1","snapshot_verify":{"backup_set_id":"a/b","level":"metadata"}}`},
+		{"restore_snapshot", "/api/v1/operations", `{"action":"restore_snapshot","config_revision":"rev-1","snapshot_restore":{"backup_set_id":"a/b","target_path":"/t"}}`},
 		{"retention apply", "/api/v1/backup-sets/a/b/retention/apply", `{"plan_id":"p"}`},
 	} {
 		rec := postJSON(t, router, tc.path, tc.body)
@@ -111,11 +111,12 @@ func TestGateRefusal1157_RunImmediatelyCarriesTheSameWordsInRunError(t *testing.
 	assertSaysShutGateWords(t, "run_error", got.RunError)
 }
 
-// The contract is what a client author reads, and today it says nothing
-// about the gate beyond the x-destructive-gate flag. Each guarded operation,
-// and the one request field that asks for a guarded run, has to say that
-// every build of this release refuses it, name #92, and name the terminal.
-func TestGateRefusal1157_TheContractSaysEveryBuildOfThisReleaseRefuses(t *testing.T) {
+// The contract is what a client author reads. Each guarded operation has to
+// say who it is shut for (a gateway profile, until #92), who it is open for,
+// and where the terminal does the same work. #1163 reworded this: it used to
+// say every build of the release refuses, and that stopped being true the
+// day the gate opened for local-account profiles.
+func TestGateRefusal1157_TheContractSaysWhoTheGateIsShutFor(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "api", "v1", "openapi.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -140,7 +141,7 @@ func TestGateRefusal1157_TheContractSaysEveryBuildOfThisReleaseRefuses(t *testin
 			}
 			gated++
 			label := strings.ToUpper(method) + " " + path
-			for _, want := range []string{"every build of this release", "#92", "retnd"} {
+			for _, want := range []string{"gateway profile", "local-account", "#92", "retnd"} {
 				if !strings.Contains(op.Description, want) {
 					t.Errorf("%s is destructive-gated but its description does not say %q\n  got: %q", label, want, op.Description)
 				}
@@ -160,7 +161,7 @@ func TestGateRefusal1157_TheContractSaysEveryBuildOfThisReleaseRefuses(t *testin
 	if j := strings.Index(field, `"acknowledge_repoint"`); j > 0 {
 		field = field[:j]
 	}
-	for _, want := range []string{"every build of this release", "#92", "run_error"} {
+	for _, want := range []string{"gateway profile", "#92", "run_error"} {
 		if !strings.Contains(field, want) {
 			t.Errorf("run_immediately does not say %q\n  got: %s", want, field)
 		}
@@ -178,11 +179,11 @@ func TestGateRefusal1157_TheDocsSayWhatIsTerminalOnlyInThisRelease(t *testing.T)
 		return string(b)
 	}
 	reference := read("docs", "site", "reference.html")
-	i := strings.Index(reference, "Terminal-only in this release")
+	i := strings.Index(reference, "What the web interface can run, by profile")
 	if i < 0 {
-		t.Fatal(`docs/site/reference.html has no "Terminal-only in this release" section`)
+		t.Fatal(`docs/site/reference.html has no "What the web interface can run, by profile" section (it was "Terminal-only in this release" until #1163)`)
 	}
-	section := reference[i:min(len(reference), i+6000)]
+	section := reference[i:min(len(reference), i+9000)]
 	for _, want := range []string{
 		"retnd snapshot restore", "retnd snapshot verify", "retnd snapshot hold", "retnd snapshot unhold",
 		"retnd retention apply", "retnd restore", "retnd run", "retnd fetch", "#92",
@@ -200,8 +201,8 @@ func TestGateRefusal1157_TheDocsSayWhatIsTerminalOnlyInThisRelease(t *testing.T)
 	}
 	for _, f := range [][]string{{"docs", "site", "web-ui.html"}, {"docs", "recovery-without-a-terminal.md"}} {
 		text := read(f...)
-		if !strings.Contains(text, "Terminal-only in this release") && !strings.Contains(text, "refused over HTTP in this release") {
-			t.Errorf("%s does not say which operations are terminal-only in this release", filepath.Join(f...))
+		if !strings.Contains(text, "gateway profile") || !strings.Contains(text, "terminal") {
+			t.Errorf("%s does not say which operations are terminal-only on a gateway profile", filepath.Join(f...))
 		}
 	}
 	if !strings.Contains(read("CHANGELOG.md"), "#1157") {

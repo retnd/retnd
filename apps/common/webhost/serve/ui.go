@@ -238,6 +238,15 @@ func NewUI(cfg UIConfig) http.Handler {
 			// second place for the two to disagree about which peers
 			// are trusted.
 			pr.SetXForwarded()
+			// Issue #1163: this hop's own verdict about the browser's
+			// connection (TLS, on this machine, or neither), which the
+			// engine's insecure-transport prompt reads. The engine cannot
+			// work it out itself: its peer is this process, over loopback
+			// in the Synology package and over a container network
+			// everywhere else. Whatever the browser sent under this name is
+			// deleted first, for the reason X-Forwarded-For is above.
+			pr.Out.Header.Del(webhost.BrowserTransportHeader)
+			pr.Out.Header.Set(webhost.BrowserTransportHeader, webhost.BrowserTransportOf(pr.In))
 			// Issue #730. The engine logs every request under the id the
 			// edge minted (webhost.RequestScope), so forwarding it here
 			// is what makes the two containers of one deployment produce

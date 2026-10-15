@@ -27,7 +27,15 @@ import (
 // to the blank line before `concurrency:`. It is a hash on purpose: the
 // block carries comments that explain the trigger, and a reformat that
 // kept the meaning would still be a change a reviewer has to look at.
-const onBlockSHA256 = "803cff1f4a45a75d8c5434abf9131af729f9b1263d7f3847a95136003917bec2"
+//
+// #1168 re-pinned it once, on purpose: workflow_dispatch gained the
+// `tag_latest_for` input, which re-points the image's latest tag without
+// building anything. The diff in the `on:` block is that one input and its
+// description; the push trigger, its branch filter and its paths-ignore
+// list are untouched, and the cosign identity (this file at
+// refs/heads/release) is built from the path and the ref, not from the
+// inputs, so it is unchanged.
+const onBlockSHA256 = "c698eb96b4591fcdb1fd791f552cae549610b8c8f949d1683527bd9fc9821523"
 
 type releaseJob struct {
 	Name        string         `yaml:"name"`

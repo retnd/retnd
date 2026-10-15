@@ -36,6 +36,9 @@ test.describe("#1107 selecting backups", () => {
   test("every row has a checkbox named for its artifact, and a row that cannot be recovered says why", async ({ page }) => {
     await open(page, "/backups", MANY);
     await expect(rowBox(page, "postgres-prod-20260828.dump.zst")).toBeVisible();
+    // 34 backups, 20 to a page (#1180): the unrecoverable row is on page two
+    await expect(page.getByRole("checkbox", { name: ROW })).toHaveCount(20);
+    await page.getByRole("combobox", { name: "Rows per page" }).selectOption("All");
     await expect(page.getByRole("checkbox", { name: ROW })).toHaveCount(34);
     const none = rowBox(page, "media-week34.tar");
     await expect(none).toBeDisabled();

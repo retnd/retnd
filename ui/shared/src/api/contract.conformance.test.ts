@@ -404,7 +404,7 @@ describe("every request the shared client makes is a declared operation", () => 
         configRevision: "rev-1", idempotencyKey: "idem-hold-snapshot"
       })],
       ["releaseSnapshotHold", () => httpApi.releaseSnapshotHold({
-        backupSetId: "src/set-1", holdId: "hold-1",
+        backupSetId: "src/set-1", holdId: "hold-1", acknowledged: true,
         configRevision: "rev-1", idempotencyKey: "idem-release-hold"
       })],
       ["previewRetention", () => httpApi.previewRetention("src", "set-1")],

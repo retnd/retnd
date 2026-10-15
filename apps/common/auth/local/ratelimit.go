@@ -104,6 +104,26 @@ func (r *RateLimiter) Allow(key string) bool {
 	return allowed
 }
 
+// RetryAfter reports how long until key may make another attempt: zero when
+// it may now, otherwise the time until its oldest attempt in the window ages
+// out. It records nothing.
+func (r *RateLimiter) RetryAfter(key string) time.Duration {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := r.now()
+	cutoff := now.Add(-r.window)
+	var live []time.Time
+	for _, t := range r.hits[key] {
+		if t.After(cutoff) {
+			live = append(live, t)
+		}
+	}
+	if len(live) < r.max {
+		return 0
+	}
+	return live[0].Add(r.window).Sub(now)
+}
+
 // sweepExpiredLocked deletes every hits entry whose every retained
 // timestamp is at or before cutoff - the only thing that bounds this
 // map's size over a long-running process's lifetime (see sweepEvery's own
