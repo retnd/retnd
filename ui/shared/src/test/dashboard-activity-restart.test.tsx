@@ -20,7 +20,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { DashboardActivity, feedRestarted, mergeActivity } from "@shared/pages/DashboardActivity";
+import { DashboardActivity } from "@shared/pages/DashboardActivity";
+import { feedRestarted, mergeActivity } from "@shared/state/activityWindow";
 import { ApiProvider } from "@shared/api/ApiContext";
 import { createMockApi } from "@shared/api/mock";
 import type { RetndApi } from "@shared/api/contracts";
@@ -151,13 +152,13 @@ describe("noticing that the service restarted", () => {
     // is still in flight.
     expect(screen.queryByText(/transferring old-artifact/)).not.toBeInTheDocument();
 
-    await act(async () => {
-      vi.advanceTimersByTime(1100);
-    });
     // The cursor went back to the beginning with them, so the next ask is
     // for everything the live process holds rather than for what is above
-    // a number it will not reach for hours.
-    expect(getLiveActivity).toHaveBeenLastCalledWith({ since: 0, limit: 200 });
+    // a number it will not reach for hours. It goes out at once rather than
+    // a whole interval later: the restart reading itself is not folded in
+    // (its bounds belong to the dead process's cursor), so the panel would
+    // otherwise sit empty for a tick.
+    expect(getLiveActivity).toHaveBeenNthCalledWith(3, { since: 0, limit: 200 });
     expect(within(screen.getAllByRole("log")[0]).getByText(/cycle starting/)).toBeInTheDocument();
     vi.useRealTimers();
   });

@@ -235,6 +235,25 @@ export function wireFromLocation(): boolean {
   return new URLSearchParams(window.location.search).get("wire") === "1";
 }
 
+/**
+ * A fixture hook for the browser specs (#1177): how many live readings the
+ * page has asked for, and a gate a spec can hold shut to prove a surface drew
+ * from what the page already holds rather than from a reading of its own.
+ * Inert unless a spec sets the gate.
+ */
+export interface LiveProbe {
+  reads: number;
+  gate: Promise<void> | null;
+}
+
+/** The probe the dev build hands the mock, published on `window.__retndLive`
+ *  so a spec can reach it. The mock itself only ever reads the one it was
+ *  given, never the window. */
+export function liveProbeFromWindow(): LiveProbe {
+  const w = window as unknown as { __retndLive?: LiveProbe };
+  return (w.__retndLive ??= { reads: 0, gate: null });
+}
+
 /** `?wire-restore=1` sends a snapshot restore through the production client
  *  (api/client.ts) instead of the mock, so a browser spec can read the real
  *  request, headers included, and answer it with page.route (issue #1163). */
@@ -4052,7 +4071,11 @@ function padRetained(retained: BackupArtifact[], want: number | null): BackupArt
  * Each instance is independent. Tests that want to read a fixture without
  * disturbing the one under test build a second mock rather than sharing.
  */
-export function createMockApi(scenario: Scenario = "default", options: { wire?: boolean; wireRestore?: boolean } = {}): RetndApi {
+export function createMockApi(
+  scenario: Scenario = "default",
+  options: { wire?: boolean; wireRestore?: boolean; liveProbe?: LiveProbe } = {}
+): RetndApi {
+  const liveProbe = options.liveProbe;
   // #1106: Recover this backup set is for artifact-engine sets, and every
   // fixture set but one is incremental. The recover-set scenarios present the
   // fixture sets as artifact sets (the mock host's recoverMany holds the rows);
@@ -5039,8 +5062,10 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
             throw new SyntaxError("Unexpected token '<', \"<!doctype \"... is not valid JSON");
           })
         : delay(activityPageOf(empty ? [] : ACTIVITY, query)),
-    getLiveActivity: (options) =>
-      delay({
+    getLiveActivity: (options) => {
+      // The specs' probe (LiveProbe), when this mock was given one.
+      if (liveProbe) liveProbe.reads += 1;
+      return (liveProbe?.gate ?? Promise.resolve()).then(() => delay({
         observedAt: "2026-08-29T02:01:20+02:00",
         // One process, one epoch. A mock that changed it between calls
         // would have every surface built against it believe the service
@@ -5060,7 +5085,8 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
         // set. Present for a deployment with nothing configured, which is
         // the case the feed could not answer at all before #599.
         deployment: options?.setId ? null : LIVE_DEPLOYMENT
-      }),
+      }));
+    },
     listQuarantine: () => delay(empty ? [] : artifacts.filter((a) => a.quarantine)),
     revalidate: () => delay(undefined),
     retryIngestion: () => delay(undefined),
