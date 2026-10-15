@@ -35,7 +35,7 @@ import { usePlatform } from "@shared/platform/PlatformContext";
 import { usePolling } from "@shared/hooks/useAsync";
 import { graph, useCausl } from "@shared/state/graph";
 import { useResource } from "@shared/state/resource";
-import { configuredNode, countsNode, healthNode, operationsNode, quarantineNode, readOnlyNode, setsNode, versionNode } from "@shared/state/appNodes";
+import { artifactsNode, configuredNode, countsNode, healthNode, operationsNode, quarantineNode, readOnlyNode, setsNode, versionNode } from "@shared/state/appNodes";
 import { AppShell } from "@shared/layouts/AppShell";
 import { WarningBanner } from "@shared/components/WarningBanner";
 import { FirstRunGuide } from "@shared/components/FirstRunGuide";
@@ -181,12 +181,17 @@ export function App() {
   // move either page's live operation progress.
   const operations = useResource(operationsNode, () => api.listOperations(), [api], signedIn);
 
+  // #1186: the nav's Backups badge counts retained backups, so the total
+  // is read here with the other badge sources.
+  const artifacts = useResource(artifactsNode, () => api.listArtifacts(), [api], signedIn);
+
   const reloadAll = useCallback(() => {
     health.reload();
+    artifacts.reload();
     sets.reload();
     operations.reload();
     quarantine.reload();
-  }, [health, sets, operations, quarantine]);
+  }, [health, artifacts, sets, operations, quarantine]);
 
   // Polling stays off until this instance is known to be configured:
   // every one of those four calls refuses with NOT_CONFIGURED on a fresh

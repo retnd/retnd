@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **The sidebar's Backups badge counts backups now, not backup sets** (#1186). It was summed from the health report's per-set totals, so a deployment holding 119 retained backups in a handful of sets showed a single-digit number that said nothing about what was retained. The badge now reads the retained backups themselves: the exact number up to 100, and `>100` above that, with the accessible label "more than 100 backups" (or "N backups" below the cap). The Backup sets and Quarantine badges are unchanged. While measuring it I found the non-alert nav badges were `--text-3` on the nav surface, 3.35:1 in the light theme and 3.85:1 in the dark one, under the 4.5:1 that small text needs, so they use `--text-2` now (6.64:1 and 6.89:1 on the nav surface, 5.73:1 and 5.52:1 on the active row).
+
 ## [0.6.4] - 2026-10-14
 
 0.6.4 brings the terminal up to the web API. EPIC S went through every route the API serves and gave

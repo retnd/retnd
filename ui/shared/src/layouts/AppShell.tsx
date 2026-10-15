@@ -40,6 +40,11 @@ import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { TooltipId } from "@shared/tooltips/tooltips";
 import type { SystemHealth, VersionInfo } from "@shared/types/operation";
 
+/** The most the Backups badge spells out. Past it the badge reads ">100"
+ *  (#1186): a long number crowds a 206px sidebar, and past a hundred the
+ *  glance is "a lot", not the exact figure. */
+export const BACKUPS_BADGE_CAP = 100;
+
 export interface NavCounts {
   sets?: number;
   backups?: number;
@@ -195,15 +200,25 @@ export function AppShell({
                   {count ? (
                     <span
                       className="mono"
+                      // A bare span cannot carry a name, so the Backups
+                      // badge is an image of its text with the spoken form.
+                      role={item.count === "backups" ? "img" : undefined}
+                      aria-label={
+                        item.count !== "backups"
+                          ? undefined
+                          : count > BACKUPS_BADGE_CAP
+                            ? "more than " + BACKUPS_BADGE_CAP + " backups"
+                            : count + (count === 1 ? " backup" : " backups")
+                      }
                       style={{
                         fontSize: "var(--text-xs)", padding: "1px 6px",
                         borderRadius: "var(--radius-pill)",
                         background: item.alert ? "var(--warn-quiet)" : undefined,
                         border: item.alert ? "1px solid var(--warn)" : undefined,
-                        color: item.alert ? "var(--text)" : "var(--text-3)"
+                        color: item.alert ? "var(--text)" : "var(--text-2)"
                       }}
                     >
-                      {count}
+                      {item.count === "backups" && count > BACKUPS_BADGE_CAP ? ">" + BACKUPS_BADGE_CAP : count}
                     </span>
                   ) : null}
                 </NavLink>

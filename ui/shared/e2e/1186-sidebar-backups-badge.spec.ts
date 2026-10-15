@@ -43,4 +43,14 @@ test.describe("#1186 the Backups badge counts backups, not sets", () => {
       expect(failures).toEqual([]);
     });
   }
+
+  for (const theme of ["light", "dark"] as const) {
+    test("the badge text meets AA on the active row in the " + theme + " theme", async ({ page }) => {
+      await open(page, "/backups?artifacts=119");
+      await setTheme(page, theme);
+      await expect(badge(page, "Backups")).toHaveText(">100");
+      const failures = await measureContrast(page, "sidebar backups badge, active row " + theme, 'nav[aria-label="Sections"] a[href="/backups"]');
+      expect(failures).toEqual([]);
+    });
+  }
 });

@@ -34,6 +34,10 @@ export const healthNode = createResourceNode<SystemHealth>("app.health");
 export const versionNode = createResourceNode<VersionInfo>("app.version");
 export const setsNode = createResourceNode<BackupSet[]>("app.sets");
 export const quarantineNode = createResourceNode<BackupArtifact[]>("app.quarantine");
+/** Every retained backup, read once for the nav's Backups badge (#1186).
+ *  The Backups page keeps its own filtered read; this one exists because the
+ *  badge needs the deployment-wide total on every screen. */
+export const artifactsNode = createResourceNode<BackupArtifact[]>("app.artifacts");
 
 /**
  * B2.1 (#95) — the durable-operation-polling equivalent of the four nodes
@@ -132,16 +136,10 @@ export interface AppCounts {
 
 export const countsNode = graph.derived<AppCounts>("app.counts", (get) => ({
   sets: get(setsNode).data?.length,
-  // The health report counts backup SETS, not the artifacts inside them,
-  // so the header's backup count comes from the health report's own
-  // per-set totals rather than from a retained-artifact figure. Nothing
-  // has ever computed that figure server-side: it came off the dev-server
-  // mock, and against a real backend it was undefined (issue #211).
-  backups: (() => {
-    const health = get(healthNode).data;
-    if (!health) return undefined;
-    return health.setsHealthy + health.setsDegraded + health.setsStale + health.setsFailing;
-  })(),
+  // The retained backups themselves (#1186). This used to be summed from
+  // the health report's per-set totals, which counts backup SETS, so a
+  // deployment holding 119 backups in three sets read "3".
+  backups: get(artifactsNode).data?.length,
   quarantine: get(quarantineNode).data?.length
 }));
 
