@@ -149,7 +149,7 @@ func assuranceSettingsWire(s service.AssuranceSettings) apicontract.AssuranceSet
 	return apicontract.AssuranceSettingsResponse{
 		Configured: s.Configured, HostKnobs: knobs, MaxConcurrentFullReads: int64(s.MaxConcurrentFullReads),
 		MaxPerDestination: int64(s.MaxPerDestination), RecoveryTest: rt, Scrub: scrub, StagingRoot: s.StagingRoot,
-		StagingTtlSeconds: secs(s.StagingTTL),
+		StagingTtlSeconds: secs(s.StagingTTL), MaxDownloadStreams: int64(s.MaxDownloadStreams),
 	}
 }
 

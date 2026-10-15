@@ -506,7 +506,7 @@ describe("every request the shared client makes is a declared operation", () => 
       ["getRecoveryTestOutput", () => httpApi.getRecoveryTestOutput("src", "set-1")],
       // EPIC Q's assurance surface (Q1.4, #982).
       ["getAssuranceSettings", () => httpApi.getAssuranceSettings()],
-      ["listHostDirectory", () => httpApi.listHostDirectory("daily/2026 10")],
+      ["listStagingDirectories", () => httpApi.listStagingDirectories("daily/2026 10")],
       ["patchAssuranceSettings", () => httpApi.patchAssuranceSettings({ scrubCadenceSeconds: 43_200 })],
       ["getBackupSetAssurance", () => httpApi.getBackupSetAssurance("src", "set-1")],
       ["patchBackupSetAssurance", () => httpApi.patchBackupSetAssurance("src", "set-1", { scrubCadenceSeconds: 7_200 })],

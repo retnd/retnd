@@ -48,15 +48,23 @@ test.describe("#1179 Download in this browser", () => {
     await expect(bar(page).getByRole("button", { name: "Download selected" })).toBeEnabled();
   });
 
-  test("hands one download to the browser per ticked backup", async ({ page }) => {
+  test("makes one link per ticked backup, and each link is one download", async ({ page }) => {
     await tickTwo(page);
     await bar(page).getByRole("radio", { name: "Download in this browser" }).check();
     const urls: string[] = [];
     page.on("download", (d) => urls.push(d.url()));
     await bar(page).getByRole("button", { name: "Download selected" }).click();
-    await expect(page.getByTestId("bulk-download")).toContainText("2 downloads handed to your browser", { timeout: 15_000 });
-    expect(urls.length).toBe(2);
+    const links = page.getByTestId("bulk-download").getByRole("link");
+    await expect(links).toHaveCount(2);
+    // The review of #1185: the page follows no link itself, the person does.
+    expect(urls.length).toBe(0);
+    for (let i = 0; i < 2; i++) {
+      const d = page.waitForEvent("download");
+      await links.first().click();
+      await d;
+    }
     expect(new Set(urls).size).toBe(2);
+    await expect(page.getByTestId("bulk-download")).toContainText("2 of 2 opened");
     // the page cannot see a browser transfer, so it never says the files arrived
     await expect(page.getByTestId("bulk-download")).not.toContainText(/downloads? complete|your browser has the files?|recovered/i);
   });
@@ -66,12 +74,10 @@ test.describe("#1179 Download in this browser", () => {
     await rowBox(page, "postgres-primary-20260801.bak").check();
     await rowBox(page, "billing-20260827.sql.gz").check();
     await bar(page).getByRole("radio", { name: "Download in this browser" }).check();
-    const urls: string[] = [];
-    page.on("download", (d) => urls.push(d.url()));
     await bar(page).getByRole("button", { name: "Download selected" }).click();
-    await expect(page.getByTestId("bulk-download")).toContainText("1 download handed to your browser", { timeout: 15_000 });
+    await expect(page.getByTestId("bulk-download")).toContainText("0 of 1 opened");
     await expect(page.getByTestId("bulk-download")).toContainText(/billing-20260827\.sql\.gz.*archived/);
-    expect(urls.length).toBe(1);
+    await expect(page.getByTestId("bulk-download").getByRole("link")).toHaveCount(1);
   });
 
   test("stays selectable on the Recover artifact dialog and downloads", async ({ page }) => {
@@ -197,10 +203,13 @@ test.describe("#1179 contrast and edges, both themes", () => {
       await dlg.getByRole("radio", { name: "Folder under the staging root on the host" }).check();
       await expect(browserOf(dlg)).toBeVisible();
       await browserOf(dlg).getByRole("button", { name: "Open folder daily" }).click();
+      // measure the folder that has been listed: while it is being asked for
+      // every button is disabled, and a disabled control has no edge to measure
+      await expect(browserOf(dlg).getByRole("button", { name: "Open folder 2026-10" })).toBeVisible();
       expect(await measureContrast(page, `folder browser, ${theme}`, '[role="group"][aria-label="Folders on the host"]')).toEqual([]);
       expect(await measureBorders(page, `folder browser controls, ${theme}`, '[role="group"][aria-label="Folders on the host"] .btn')).toEqual([]);
       await dlg.getByRole("radio", { name: "Configured destination" }).check();
-      await expect(dlg.getByRole("combobox", { name: "Configured destination" })).toBeVisible();
+      await expect(dlg.getByRole("combobox", { name: "Configured destination" })).toBeEnabled();
       expect(await measureContrast(page, `destination drop-down, ${theme}`, '[role="dialog"]')).toEqual([]);
       expect(await measureBorders(page, `destination drop-down edge, ${theme}`, '[role="dialog"] select')).toEqual([]);
     });
@@ -210,9 +219,12 @@ test.describe("#1179 contrast and edges, both themes", () => {
       await setTheme(page, theme);
       await bar(page).getByRole("radio", { name: "Download in this browser" }).check();
       await bar(page).getByRole("button", { name: "Download selected" }).click();
-      await expect(page.getByTestId("bulk-download")).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByTestId("bulk-download")).toContainText("0 of 2 opened", { timeout: 15_000 });
+      await expect(page.getByTestId("bulk-download").getByRole("link")).toHaveCount(2);
       expect(await measureContrast(page, `selection bar, download, ${theme}`, '[data-testid="selection-bar"]')).toEqual([]);
       expect(await measureContrast(page, `bulk download status, ${theme}`, '[data-testid="bulk-download"]')).toEqual([]);
+      // the review of #1185: the links and "Make fresh links" sit on the amber notice
+      expect(await measureBorders(page, `bulk download button edge, ${theme}`, '[data-testid="bulk-download"] .btn')).toEqual([]);
     });
   }
 });

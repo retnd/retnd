@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "fd09d200da3f78074fa5d26f82158f9c317c3797291f6bd76913560e3aaf9a2a";
+export const CONTRACT_SHA256 = "15d83e85cb676f9ebb4f6e7e507183f8f57a684313d35f4e84478dcd44ac2dca";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -107,6 +107,8 @@ export const WIRE_ERROR_CODES = [
   "RECOVERY_READS_BUSY",
   "RECOVERY_DESTINATION_BUSY",
   "RECOVERY_DOWNLOADS_BUSY",
+  "DIRECTORY_NOT_FOUND",
+  "DIRECTORY_NOT_READABLE",
 ] as const;
 
 /** This UI's own presentation vocabulary. No endpoint emits these;
@@ -226,6 +228,8 @@ export const API_ERROR_CODES = [
   "RECOVERY_READS_BUSY",
   "RECOVERY_DESTINATION_BUSY",
   "RECOVERY_DOWNLOADS_BUSY",
+  "DIRECTORY_NOT_FOUND",
+  "DIRECTORY_NOT_READABLE",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -235,9 +239,9 @@ export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 export const API_ERROR_CLASSES = {
   "authentication": ["UNAUTHENTICATED", "BOOTSTRAP_TOKEN_INVALID", "RESET_TOKEN_INVALID", "VERIFY_TOKEN_INVALID"],
   "authorization": ["ENROLLMENT_CLOSED", "DESTRUCTIVE_OPERATIONS_DISABLED", "CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "RECOVERY_GRANT_SESSION_ENDED"],
-  "conflict": ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "IDEMPOTENCY_KEY_CONFLICT", "CONFIG_REVISION_STALE", "ALREADY_CONFIGURED", "ARTIFACT_NOT_QUARANTINED", "ARTIFACT_IRRECOVERABLE", "REINSTATEMENT_REFUSED", "BACKUP_SET_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED", "ARTIFACT_NOT_FAILED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE", "MEDIUM_IS_DEFAULT", "MEDIUM_CONNECTION_NOT_PROVEN", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED", "REPOSITORY_DOMAIN_EXISTS", "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE", "WORKFLOWS_NOT_CONFIGURED", "WORKFLOW_SCRIPT_REJECTED", "RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_GRANT_USED", "RECOVERY_GRANT_EXPIRED", "RECOVERY_TARGET_EXISTS", "RECOVERY_USE_SNAPSHOT_RESTORE", "RECOVERY_BUSY"],
+  "conflict": ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "IDEMPOTENCY_KEY_CONFLICT", "CONFIG_REVISION_STALE", "ALREADY_CONFIGURED", "ARTIFACT_NOT_QUARANTINED", "ARTIFACT_IRRECOVERABLE", "REINSTATEMENT_REFUSED", "BACKUP_SET_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED", "ARTIFACT_NOT_FAILED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE", "MEDIUM_IS_DEFAULT", "MEDIUM_CONNECTION_NOT_PROVEN", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED", "REPOSITORY_DOMAIN_EXISTS", "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE", "WORKFLOWS_NOT_CONFIGURED", "WORKFLOW_SCRIPT_REJECTED", "RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_GRANT_USED", "RECOVERY_GRANT_EXPIRED", "RECOVERY_TARGET_EXISTS", "RECOVERY_USE_SNAPSHOT_RESTORE", "RECOVERY_BUSY", "DIRECTORY_NOT_READABLE"],
   "internal": ["INTERNAL", "INTERNAL_ERROR", "RECOVERY_LOCAL_COPY_CORRUPT", "RECOVERY_REMOTE_COPY_CORRUPT", "RECOVERY_NO_SPACE", "RECOVERY_BELOW_RESERVE", "RECOVERY_FAILED"],
-  "not-found": ["BACKUP_SET_NOT_FOUND", "OPERATION_NOT_FOUND", "RETENTION_PLAN_NOT_FOUND", "ARTIFACT_NOT_FOUND", "MEDIUM_NOT_FOUND", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_HOLD_NOT_FOUND", "REPOSITORY_DOMAIN_NOT_FOUND", "WORKFLOW_ENV_NOT_FOUND", "WORKFLOW_RUN_NOT_FOUND", "WORKFLOW_STEP_NOT_FOUND", "RECOVERY_COPY_NOT_FOUND", "RECOVERY_GRANT_UNKNOWN"],
+  "not-found": ["BACKUP_SET_NOT_FOUND", "OPERATION_NOT_FOUND", "RETENTION_PLAN_NOT_FOUND", "ARTIFACT_NOT_FOUND", "MEDIUM_NOT_FOUND", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_HOLD_NOT_FOUND", "REPOSITORY_DOMAIN_NOT_FOUND", "WORKFLOW_ENV_NOT_FOUND", "WORKFLOW_RUN_NOT_FOUND", "WORKFLOW_STEP_NOT_FOUND", "RECOVERY_COPY_NOT_FOUND", "RECOVERY_GRANT_UNKNOWN", "DIRECTORY_NOT_FOUND"],
   "throttling": ["RATE_LIMITED", "RECOVERY_TOO_MANY_GRANTS", "RECOVERY_READS_BUSY", "RECOVERY_DESTINATION_BUSY", "RECOVERY_DOWNLOADS_BUSY"],
   "unavailable": ["NOT_CONFIGURED", "SMTP_SEND_FAILED", "WORKFLOW_ENGINE_UNAVAILABLE", "RECOVERY_UNAVAILABLE", "RECOVERY_INTERRUPTED"],
   "validation": ["INVALID_REQUEST", "INVALID_EMAIL", "SSH_KEY_NOT_FOUND", "HOST_KEY_PROBE_FAILED", "MEDIUM_DISCLOSURE_REQUIRED", "BACKUP_SET_NOT_INCREMENTAL", "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED", "RECOVERY_TARGET_INVALID"],
@@ -2205,20 +2209,22 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
-    id: "listHostDirectory",
+    id: "listStagingDirectories",
     method: "GET",
-    path: "/system/host-directories",
+    path: "/system/staging-directories",
     authenticated: true,
     csrfRequired: false,
     idempotencyKey: "none",
     destructiveGate: false,
     concurrency: "",
     requestSchema: "",
-    responseSchema: "HostDirectoryResponse",
+    responseSchema: "StagingDirectoryResponse",
     successStatus: 200,
     errorCodes: {
       400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
+      404: ["DIRECTORY_NOT_FOUND"],
+      409: ["DIRECTORY_NOT_READABLE"],
       500: ["INTERNAL"],
       501: ["RECOVERY_UNAVAILABLE"],
       503: ["RECOVERY_UNAVAILABLE"],
@@ -2562,6 +2568,7 @@ export interface WireAssuranceSettingsResponse {
   configured?: boolean;
   host_knobs?: WireAssuranceHostKnob[];
   max_concurrent_full_reads?: number;
+  max_download_streams?: number;
   max_per_destination?: number;
   recovery_test?: WireAssuranceRecoveryTestPolicy;
   scrub?: WireAssuranceScrubPolicy;
@@ -3072,22 +3079,6 @@ export interface WireForgotPasswordRequest {
 export interface WireHealthResponse {
   backup_sets: WireBackupSetHealth[];
   generated_at: string;
-}
-
-/** One sub-folder of a listed folder. */
-export interface WireHostDirectoryEntry {
-  name: string;
-  path: string;
-}
-
-/** GET /system/host-directories. One folder under the staging root:
- *  its sub-folders by name, relative to the root. */
-export interface WireHostDirectoryResponse {
-  entries: WireHostDirectoryEntry[];
-  parent: string | null;
-  path: string;
-  root: string;
-  truncated: boolean;
 }
 
 /** POST /ssh/host-key-probe. Opens a real outbound connection, trusts
@@ -4468,6 +4459,22 @@ export interface WireSnapshotVerifyRequest {
   level?: string;
   run_id?: string;
   sample_percent?: number;
+}
+
+/** One sub-folder of a listed folder. */
+export interface WireStagingDirectoryEntry {
+  name: string;
+  path: string;
+}
+
+/** GET /system/staging-directories. One folder under the staging
+ *  root: its sub-folders by name, relative to the root. */
+export interface WireStagingDirectoryResponse {
+  entries: WireStagingDirectoryEntry[];
+  parent: string | null;
+  path: string;
+  root: string;
+  truncated: boolean;
 }
 
 /** POST /backup-sets/{source}/{set}/recovery-test. Starts a recovery

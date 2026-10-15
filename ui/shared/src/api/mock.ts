@@ -87,6 +87,12 @@ export type Scenario =
   // case), and a host that cannot list its folders.
   | "no-destinations"
   | "host-browse-unavailable"
+  // The review of #1185: a folder removed after its parent was listed, a
+  // listing refused because the session ended, and an engine whose download
+  // ceiling is two (with the many-backups fixture).
+  | "host-browse-vanished"
+  | "host-browse-session-ended"
+  | "backups-many-ceiling-2"
   | "empty"
   | "storage-critical"
   | "catalog-recovery"
@@ -198,7 +204,7 @@ export function scenarioFromLocation(): Scenario {
     "assurance-grant-used", "assurance-session-ended", "assurance-staging-full",
     "assurance-reads-busy", "assurance-corrupt-copy", "assurance-download-outcomes",
     "assurance-set-recover", "assurance-set-nospace", "assurance-set-corrupt", "assurance-set-slow",
-    "backups-many", "backups-many-corrupt", "backups-many-nospace", "no-destinations", "host-browse-unavailable", "dock-no-warnings", "dock-live-line", "assurance-no-validator", "assurance-builtin-check", "assurance-default-policy", "assurance-default-untested", "gate-shut", "gate-shut-local-account"
+    "backups-many", "backups-many-corrupt", "backups-many-nospace", "no-destinations", "host-browse-unavailable", "host-browse-vanished", "host-browse-session-ended", "backups-many-ceiling-2", "dock-no-warnings", "dock-live-line", "assurance-no-validator", "assurance-builtin-check", "assurance-default-policy", "assurance-default-untested", "gate-shut", "gate-shut-local-account"
   ];
   return (allowed as string[]).includes(s ?? "") ? (s as Scenario) : "default";
 }
@@ -3050,6 +3056,7 @@ function defaultAssuranceSettings(): AssuranceSettings {
     stagingTtlSeconds: 24 * 3600,
     maxConcurrentFullReads: 2,
     maxPerDestination: 1,
+    maxDownloadStreams: 4,
     hostKnobs: [
       ["staging_root", "the one staging filesystem this process writes to"],
       ["staging_ttl", "the sweep of that one staging root"],
@@ -4092,6 +4099,7 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
   // test must not be visible to the next.
   const workflowSettings = defaultWorkflowSettings();
   const assuranceSettings = defaultAssuranceSettings();
+  if (scenario === "backups-many-ceiling-2") assuranceSettings.maxDownloadStreams = 2;
   const mockRecovery = createMockRecovery(scenario);
   const mockHostBrowse = createMockHostBrowse(scenario, assuranceSettings.stagingRoot);
   // #1106: every row the journal holds for a set, quarantined ones included,
@@ -5566,7 +5574,7 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
       }),
 
     getAssuranceSettings: () => delay(structuredClone(assuranceSettings)),
-    listHostDirectory: (path) => mockHostBrowse(path ?? ""),
+    listStagingDirectories: (path) => mockHostBrowse(path ?? ""),
     patchAssuranceSettings: (patch) => {
       assuranceSettings.configured = true;
       if (patch.scrubCadenceSeconds !== undefined) {

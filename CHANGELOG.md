@@ -2,19 +2,28 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`GET /api/v1/system/staging-directories` and `retnd system staging [PATH]`** (#1179). The folders below
+  the recovery staging root on the machine the engine runs on, as the names `recover --to` takes. Read-only
+  and confined to that one root: symbolic links are neither followed nor listed, `..` and absolute names
+  are refused, a folder that is not there is a 404 `DIRECTORY_NOT_FOUND` and one the host may not read a
+  409 `DIRECTORY_NOT_READABLE`. One listing reads at most 100,000 entries, returns at most 1,000 folders
+  and gives up after ten seconds. The CLI prints only folder names on stdout.
+- **`max_download_streams` on `GET /api/v1/settings/assurance`** (#1179): the ceiling on browser downloads
+  the engine streams at once, read only.
+
 ### Fixed
 
 - **The download dialog works the way its three options say** (#1179). "Download in this browser" on the
   Backups selection bar was a radio that was always switched off. It had nothing to do with the destructive
   gate or any capability: the bar had it hard-coded off because I had reasoned that many files would need an
-  archive. It is selectable now and hands the browser one download per backup, each from its own single-use
-  grant and each checked against its recorded digest by the host, with archived copies left out and named.
-  "Folder under the staging root on the host" gets a folder browser over the staging root on the machine
-  retnd runs on, and "Configured destination" is a drop-down of everything under Settings, Storage destinations ("None
-  configured" when there is nothing), on the artifact dialog, the selection bar and the set dialog. The
-  folder list is `GET /api/v1/system/host-directories` and `retnd system browse [PATH]`: read-only,
-  confined to the staging root, symbolic links neither followed nor listed, `..` and absolute names
-  refused, a long folder cut and marked as cut.
+  archive. It is selectable now for up to as many backups as the engine streams downloads at once, and makes
+  one link per backup that you open yourself, each from its own single-use grant and each checked against
+  its recorded digest by the host, with archived copies left out and named. "Folder under the staging root
+  on the host" gets a folder browser over the staging root on the machine retnd runs on, and "Configured
+  destination" is a drop-down of everything under Settings, Storage destinations ("None configured" when
+  there is nothing), on the artifact dialog, the selection bar and the set dialog.
 - **The staging folder and the configured destination read the same on every screen** (#1190). Recover
   artifact, the Backups selection bar and Recover this backup set each wrapped the folder browser and the
   destination drop-down in their own words, so one said "Staging path on the host" and another "Folder under

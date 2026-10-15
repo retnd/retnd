@@ -586,15 +586,25 @@ path on the host* shows the folders below the staging root, on the machine retnd
 name, because a single recovery's target is `folder/name`; a set or a selection takes the folder
 alone). *Configured destination* is a drop-down of every destination under Settings, Storage
 destinations, and says *None configured* when there are none. On a selection, *Download in this
-browser* hands the browser one download per backup, each from its own single-use grant and each
-checked against its recorded digest by the host as it sends it. An archived copy is left out and
-named, because a download link lasts minutes and a restore takes hours.
+browser* makes one link per backup, each from its own single-use grant and each checked against its
+recorded digest by the host as it sends it, and you open each link yourself. It is offered for at most
+as many backups as the engine streams downloads at once (four unless the platform sets fewer, reported
+as `max_download_streams` by `GET /api/v1/settings/assurance`), because the download past that ceiling
+would be refused. A bigger selection goes to a staging folder or a destination. The page counts the
+links you opened, never files arriving, says when the links stop working (a grant lasts two minutes)
+and can make fresh ones. An archived copy is left out and named, because a download link lasts minutes
+and a restore takes hours. The terminal twin is one `retnd recover <id> --to - > <file>` per backup.
 
-The folder list is the host's, so the terminal has it too: `retnd system browse [PATH]` prints
-the same folders as the names `--to` takes. It reads only. It reaches nothing outside the staging
-root, it refuses a name that is absolute, climbs with `..` or goes through a symbolic link, and it
-never lists a link or a file. It asks the engine and refuses without a route to it, because the
-folders are on the engine's machine. The route is `GET /api/v1/system/host-directories`.
+The folder list is the host's, so the terminal has it too: `retnd system staging [PATH]` prints
+the same folders as the names `--to` takes, one per line on stdout so a script can read them (the
+root and any note go to stderr). It reads only. It reaches nothing outside the staging root, it
+refuses a name that is absolute, climbs with `..` or goes through a symbolic link, and it never lists
+a link or a file. It asks the engine and refuses without a route to it, because the folders are on
+the engine's machine. The route is `GET /api/v1/system/staging-directories`: a folder that is not
+there is a 404 `DIRECTORY_NOT_FOUND` (the page steps back up to the folder above), one the host may
+not read is a 409 `DIRECTORY_NOT_READABLE`, and a listing reads at most 100,000 entries, returns at
+most 1,000 folders (the first by name, marked as cut) and gives up after ten seconds. The staging
+root's custody check runs again on every listing.
 
 What happens, in order, and why the order is the point:
 

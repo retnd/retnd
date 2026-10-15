@@ -13,6 +13,12 @@
  * for no place, and it says plainly what it will do and what it leaves out.
  * It was never tied to the destructive gate or to a capability.
  *
+ * The review of #1185 bounded it: the engine streams only so many downloads
+ * at once, so the radio is offered for a selection no larger than that
+ * ceiling (`downloadCeiling`, as the engine reports it) and switched off with
+ * the reason above it. A selection that grows past it while the radio is
+ * chosen falls back to the staging folder, which takes any number.
+ *
  * # What the bar announces
  *
  * The count is a polite live region, so a screen-reader user hears
@@ -21,7 +27,8 @@
 import "@shared/assurance/assurance.css";
 import { useState } from "react";
 import { RecoveryTargetChoices, RecoveryTargetField } from "@shared/assurance/RecoveryTargetFields";
-import { recoverCommand } from "@shared/assurance/assuranceCommands";
+import { recoverToFileCommand } from "@shared/assurance/assuranceCommands";
+import { downloadable } from "@shared/assurance/bulkDownload";
 import { bytes } from "@shared/utilities/format";
 import { planOf } from "@shared/assurance/copyPlan";
 import { recoverManyCommand } from "@shared/assurance/assuranceCommands";
@@ -29,7 +36,7 @@ import type { RunTarget } from "@shared/assurance/recoverMany";
 import type { BackupArtifact } from "@shared/types/backup";
 
 export function BackupsSelectionBar({
-  selected, matching, readOnly, readOnlyReason, downloading, onSelectAll, onClear, onRecover, onDownload
+  selected, matching, readOnly, readOnlyReason, downloading, downloadCeiling, onSelectAll, onClear, onRecover, onDownload
 }: {
   /** The ticked rows, in list order. */
   selected: BackupArtifact[];
@@ -37,26 +44,33 @@ export function BackupsSelectionBar({
   matching: number;
   readOnly: boolean;
   readOnlyReason?: string;
-  /** True while the links are being handed to the browser one by one. */
+  /** True while the download links are being made. */
   downloading: boolean;
+  /** The most downloads the engine streams at once. */
+  downloadCeiling: number;
   onSelectAll(): void;
   onClear(): void;
   onRecover(target: RunTarget, acknowledged: boolean): void;
   onDownload(): void;
 }) {
-  const [kind, setKind] = useState<RunTarget["kind"] | "download">("staging");
+  const [chosen, setKind] = useState<RunTarget["kind"] | "download">("staging");
   const [where, setWhere] = useState("");
   const [accepted, setAccepted] = useState(false);
   const total = selected.reduce((n, a) => n + a.sizeBytes, 0);
   const archived = selected.filter((a) => planOf(a).archived).length;
+  const files = downloadable(selected);
+  // Past the ceiling the one download too many would fail, so the option is
+  // off; a choice of it made before the selection grew falls back to the
+  // staging folder rather than leaving nothing chosen.
+  const tooMany = files.length > downloadCeiling;
+  const kind = chosen === "download" && tooMany ? "staging" : chosen;
   const download = kind === "download";
   // An archived copy is not downloaded (see bulkDownload.ts), so a download
   // has no cost to accept and asks for no box.
   const needsAck = archived > 0 && !download;
-  const ready = download ? !readOnly && !downloading : where.trim() !== "" && (!needsAck || accepted) && !readOnly;
+  const ready = download ? !readOnly && !downloading && files.length > 0 : where.trim() !== "" && (!needsAck || accepted) && !readOnly;
   const command = download
-    ? selected.slice(0, 5).map((a) => recoverCommand(a.id, "download", "", false)).join("\n") +
-      (selected.length > 5 ? "\n# and one more for each of the other " + (selected.length - 5) : "")
+    ? files.map((a) => recoverToFileCommand(a.id, a.filename)).join("\n")
     : recoverManyCommand(selected.map((a) => a.id), kind, where.trim(), needsAck && accepted);
 
   return (
@@ -79,7 +93,7 @@ export function BackupsSelectionBar({
       <div className="selbar__row" style={{ alignItems: "flex-start" }}>
         <div role="radiogroup" aria-label="Where should the backups go?" className="selbar__targets">
           <label>
-            <input type="radio" name="bulk-target" checked={download} onChange={() => { setKind("download"); setWhere(""); }} aria-describedby="bulk-download-note" />
+            <input type="radio" name="bulk-target" checked={download} disabled={tooMany} onChange={() => { setKind("download"); setWhere(""); }} aria-describedby="bulk-download-note" />
             Download in this browser
           </label>
           {/* Issue #1190: offered the same way on every screen. */}
@@ -98,9 +112,11 @@ export function BackupsSelectionBar({
       </div>
 
       <div id="bulk-download-note" data-testid="bulk-download-note" className="selbar__note">
-        {download
-          ? "One download per backup: the host mints a single-use link for each and your browser follows it, so it may ask whether to allow several downloads. Each file is checked against its recorded digest as the host sends it. An archived copy is left out, because a link lasts minutes and a restore takes hours."
-          : "Several backups can also be downloaded in this browser, one file each, without choosing a place."}
+        {tooMany
+          ? "Download in this browser takes at most " + downloadCeiling + " backups at a time, because the host streams " + downloadCeiling + " downloads at once and the next one would fail. This selection has " + files.length + ": recover it to a folder under the staging root or a configured destination, or tick fewer."
+          : download
+          ? "One link per backup: the host makes a single-use link for each, and you open each one, so every download is one you asked for. Each file is checked against its recorded digest as the host sends it. An archived copy is left out, because a link lasts minutes and a restore takes hours."
+          : "Up to " + downloadCeiling + " backups can also be downloaded in this browser, one link each, without choosing a place."}
       </div>
 
       {needsAck ? (
