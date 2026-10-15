@@ -1406,7 +1406,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
           <AssuranceSection setId={s.id} readOnly={readOnly} />
 
           <Section title="Validation" tip="sets.detail.validation">
-            <ValidationBlock set={s} />
+            <ValidationBlock set={s} readOnly={readOnly} />
           </Section>
 
           {/* Caution and destructive actions live apart from ordinary ones (§11, §35). */}

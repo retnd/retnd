@@ -32,7 +32,11 @@ const DAY = 86_400_000;
 const KEY = "retnd.mock.assurance";
 const DROP = "retnd.mock.assurance.drop";
 
-interface StoredOp { id: string; kind: OperationKind; setId: string; startedAt: number; cancelledAt?: number }
+interface StoredOp {
+  id: string; kind: OperationKind; setId: string; startedAt: number; cancelledAt?: number;
+  /** The backup a recovery test was asked for; absent, the set's newest. */
+  artifactId?: string;
+}
 interface Store {
   starts: number;
   grants: number;
@@ -232,9 +236,10 @@ let activeScenario = "default";
 export function assuranceLiveEvents(setId: string): SetActivityEvent[] {
   const out: SetActivityEvent[] = [];
   const now = Date.now();
-  const artifact = latestOf(setId) ?? setId + "/latest";
+  const newest = latestOf(setId) ?? setId + "/latest";
   const ops = Object.values(load().ops).filter((o) => o.setId === setId);
   ops.forEach((op, i) => {
+    const artifact = op.artifactId ?? newest;
     const base = 100_000 + i * 1_000;
     const v = view(op, activeScenario === "assurance-scrub-fails", now);
     const at = (s: number) => new Date(op.startedAt + s * 1000).toISOString();
@@ -327,10 +332,11 @@ export function assuranceLiveEvents(setId: string): SetActivityEvent[] {
  * write them would show a scrub that changed nothing.
  */
 export function overlayAssurance(a: BackupArtifact): BackupArtifact {
-  if (latestOf(a.setId) !== a.id) return a;
   const now = Date.now();
   let placements = a.placements;
-  for (const op of Object.values(load().ops).filter((o) => o.setId === a.setId && !o.cancelledAt)) {
+  // An operation writes onto the backup it was asked for, or the set's newest.
+  const onThis = (o: StoredOp) => o.setId === a.setId && !o.cancelledAt && (o.artifactId ?? latestOf(o.setId)) === a.id;
+  for (const op of Object.values(load().ops).filter(onThis)) {
     const v = view(op, activeScenario === "assurance-scrub-fails", now).operation;
     if (v.state !== "complete" && v.state !== "failed") continue;
     const at = new Date(op.startedAt + total(op.kind) * 1000).toISOString();
@@ -411,7 +417,7 @@ export function createMockAssurance(scenario: string): AssuranceApi {
       const v = view(op, scrubFails, now).operation;
       if (v.state !== "complete" && v.state !== "failed") continue;
       const endedAt = op.startedAt + total(op.kind) * 1000;
-      const target = latestOf(op.setId);
+      const target = op.artifactId ?? latestOf(op.setId);
       t = t.map((a) => {
         if (a.artifactId !== target) return a;
         const at = new Date(endedAt).toISOString();
@@ -447,7 +453,7 @@ export function createMockAssurance(scenario: string): AssuranceApi {
     },
 
     startScrub: (setId) => start("scrub", setId),
-    startRecoveryTest: (setId) => start("recovery_test", setId),
+    startRecoveryTest: (setId, opts) => start("recovery_test", setId, opts?.artifactId),
     activeOperation: async (setId) => {
       const now = Date.now();
       for (const op of operationsOf(setId)) {
@@ -510,13 +516,18 @@ export function createMockAssurance(scenario: string): AssuranceApi {
     }
   };
 
-  async function start(kind: OperationKind, setId: string): Promise<Operation> {
+  async function start(kind: OperationKind, setId: string, artifactId?: string): Promise<Operation> {
     const s = load();
-    // The service refuses a second run of the same kind on a set that has
-    // one running, so a double press cannot start two.
+    // The service runs one of each kind per set at a time, so a double press
+    // cannot start two. Asking for exactly what is running joins it; asking
+    // a recovery test of a different backup is refused, as
+    // core/service/recoverytest.go StartRecoveryTest does.
     const now = Date.now();
     for (const op of Object.values(s.ops)) {
       if (op.setId === setId && op.kind === kind && view(op, scrubFails, now).operation.state === "running") {
+        if ((op.artifactId ?? "") !== (artifactId ?? "")) {
+          throw refuse("OPERATION_ALREADY_RUNNING", "a recovery test of this backup set is already running", 409);
+        }
         // Joined, not started: the service answers a second request with the
         // running one and says so.
         return { ...view(op, scrubFails, now).operation, joined: true };
@@ -524,7 +535,7 @@ export function createMockAssurance(scenario: string): AssuranceApi {
     }
     s.starts += 1;
     const id = "aop_" + s.starts + "_" + now.toString(36);
-    s.ops[id] = { id, kind, setId, startedAt: now };
+    s.ops[id] = { id, kind, setId, startedAt: now, ...(artifactId ? { artifactId } : {}) };
     save(s);
     return view(s.ops[id], scrubFails, now).operation;
   }

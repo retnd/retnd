@@ -359,6 +359,18 @@ commands:
                                                   this deployment, so this needs RETND_API_URL and the two credential
                                                   variables beside it and is refused without them. The same as
                                                   POST /api/v1/assurance/operations/{op}/cancel (EPIC Q)
+  assurance list [--backup-set S] [--bucket due|overdue|degraded|untested] [--json]
+                                                  the backups behind the Web UI Dashboard's Assurance tile, most urgent
+                                                  first: each one in due, overdue or degraded (or in the buckets --bucket
+                                                  names, one or a comma list; untested is the tile's "No recovery test"),
+                                                  why it is listed in the same words as the tile's row with the age of each
+                                                  check, and the recovery-test command that runs it. A backup can be in
+                                                  several buckets; untested is listed only when asked for. A set whose
+                                                  policy can't be read is said on stderr and its recovery claims are
+                                                  unknown. It reads this host's journal and has no route of its own;
+                                                  settings assurance due is the scrub schedule behind it. --json prints
+                                                  {generated_at, items:[{artifact_id, artifact_name, backup_set_id, buckets,
+                                                  content, recovery, reason}]} with each claim as {state, at, check} (#1174)
   auth password --password-stdin
                                                   change the administrator's password. The current password and then the
                                                   new one come from stdin, one per line, and never from a flag, so neither

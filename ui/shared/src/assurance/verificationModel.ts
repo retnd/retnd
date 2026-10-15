@@ -60,6 +60,19 @@ export interface SetPolicyFact {
   source: "default" | "own";
   mode: string;
   effectiveCheck?: "builtin" | "validator" | "none";
+  /** The engine's dry run of "is a validator named"; absent on an older server. */
+  validatorDeclared?: boolean;
+}
+
+/** Whether a recovery test on this set could only be refused, so a button that
+ *  starts one is not offered (#1108, #1111). The engine's own answer
+ *  (effective_check) wins; a server that does not send it is read from
+ *  validator_declared. Unknown is not a refusal. */
+export function recoveryTestWouldBeRefused(policy: SetPolicyFact | null | undefined): boolean {
+  if (!policy) return false;
+  if (policy.effectiveCheck === "builtin" || policy.effectiveCheck === "validator") return false;
+  if (policy.effectiveCheck === "none") return true;
+  return policy.validatorDeclared === false;
 }
 
 /** The newest recovery test recorded for a set, and the backup it ran on. */
@@ -400,7 +413,7 @@ export function sourceFromApi(api: RetndApi): AssuranceSource | null {
     policy: async (setId) => {
       const [s, n] = [setId.split("/")[0], setId.split("/").slice(1).join("/")];
       const p: BackupSetAssurance = await api.getBackupSetAssurance(s, n);
-      return { setId, source: p.isOverride ? "own" : "default", mode: p.recoveryTest.mode, effectiveCheck: p.recoveryTest.effectiveCheck };
+      return { setId, source: p.isOverride ? "own" : "default", mode: p.recoveryTest.mode, effectiveCheck: p.recoveryTest.effectiveCheck, validatorDeclared: p.recoveryTest.validatorDeclared };
     },
     setTest: async (setId) => {
       if (!seam.offers.operations) return undefined;
