@@ -15,7 +15,7 @@ import (
 	"github.com/retnd/retnd/core/internal/config"
 )
 
-// Issue #1179: the folder browser behind "Folder under the staging root on the host".
+// Issue #1179: the read behind GET /api/v1/system/staging-directories.
 //
 // This is a server-side read of the host's file system, so the tests hold the
 // four things that make it safe before they hold that it works: it only reads,

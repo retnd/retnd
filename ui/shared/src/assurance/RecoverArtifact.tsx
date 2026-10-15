@@ -42,6 +42,7 @@ import { CommandEcho } from "@shared/pages/CommandEcho";
 import { bytes } from "@shared/utilities/format";
 import { ClaimChips } from "./ClaimChips";
 import { RecoveryTargetChoices, RecoveryTargetField } from "./RecoveryTargetFields";
+import { useRecoveryTarget } from "./useRecoveryTarget";
 import { DownloadOutcome } from "./DownloadOutcome";
 import { recoverCommand, thawCommand } from "./assuranceCommands";
 import { planOf, THAW_POLL_MS } from "./copyPlan";
@@ -88,8 +89,6 @@ export function ArtifactAssuranceCard({ artifactId, readOnly }: { artifactId: st
   );
 }
 
-const TARGET_LABEL = { display: "inline-flex", gap: 6, alignItems: "center" } as const;
-
 type Phase =
   | { k: "choose" }
   | { k: "minting" }
@@ -109,8 +108,7 @@ export function RecoverArtifactDialog({
 }) {
   const api = useApi();
   const [artifact, setArtifact] = useState<BackupArtifact | null>(null);
-  const [target, setTarget] = useState<RecoveryTargetSpec["kind"]>("download");
-  const [where, setWhere] = useState("");
+  const { kind, where, setWhere, choose } = useRecoveryTarget<RecoveryTargetSpec["kind"]>("download");
   const [accepted, setAccepted] = useState(false);
   /** The service's own sentence when it refused a read for its cost although
    *  the placements said the copy was readable, e.g. a billed download. */
@@ -149,18 +147,17 @@ export function RecoverArtifactDialog({
       setArtifact(x);
       // A browser download is not offered for an archived copy, so the choice
       // starts on the next target rather than on a disabled radio.
-      if (planOf(x).archived) setTarget("staging");
+      if (planOf(x).archived) choose("staging");
       // A reload mid-restore re-attaches: the provider is still restoring, so
       // say so instead of offering to start a second one.
       if (planOf(x).restoring) setPhase({ k: "thawing" });
     }, () => undefined);
     return () => { live = false; };
-  }, [api, artifactId]);
+  }, [api, artifactId, choose]);
 
   const plan = artifact ? planOf(artifact) : null;
   const archived = !!plan?.archived;
   const needsAck = archived || costWall !== null;
-  const kind = target;
 
   // While the provider restores the copy, watch its access. The page shows
   // what the host reports and nothing it could only guess: no percentage, no
@@ -258,13 +255,8 @@ export function RecoverArtifactDialog({
             <>
               <InfoTooltip id="assurance.recover.target" block>
                 <div role="radiogroup" aria-label="Where should the artifact go?" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <label style={TARGET_LABEL}>
-                    <input type="radio" name="recover-target" checked={kind === "download"} disabled={archived}
-                      onChange={() => { setTarget("download"); setWhere(""); }} />
-                    Download in this browser
-                  </label>
-                  {/* Issue #1190: the other two are offered the same way on every screen. */}
-                  <RecoveryTargetChoices name="recover-target" value={kind} labelStyle={TARGET_LABEL} onChoose={(t) => { setTarget(t); setWhere(""); }} />
+                  {/* Issue #1190: offered the same way on every screen. */}
+                  <RecoveryTargetChoices name="recover-target" value={kind} download={{ disabled: archived }} onChoose={choose} />
                 </div>
               </InfoTooltip>
               {archived ? (
@@ -283,7 +275,7 @@ export function RecoverArtifactDialog({
                   value={where}
                   onChange={setWhere}
                   fileName={artifactId.split("/").pop() || undefined}
-                  meaning="The last part is the file the host writes. A folder picked below gets this backup's own file name."
+                  meaning="A file: the last part of the name is the file the host writes. A folder picked below gets this backup's own file name."
                 />
               ) : null}
               <CommandEcho label="Same thing from the terminal" commands={[recoverCommand(artifactId, kind, where, needsAck && accepted)]} />

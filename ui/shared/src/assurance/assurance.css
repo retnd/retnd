@@ -229,6 +229,10 @@
    it means on that screen, and the host's folders under it. The meaning line
    is --text-2, the same pair the bar's notes already pass with (6.51:1 to
    6.89:1 dark). */
+/* One recovery choice, the radio beside its words (issue #1190). Every screen
+   that offers a place to recover to uses it, so the choices line up the same
+   way wherever they appear. */
+.placechoice { display: inline-flex; gap: 6px; align-items: center; }
 .placefield { display: flex; flex-direction: column; gap: 8px; }
 .placefield__meaning { color: var(--text-2); }
 

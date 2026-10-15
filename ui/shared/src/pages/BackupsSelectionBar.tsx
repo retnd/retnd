@@ -27,6 +27,7 @@
 import "@shared/assurance/assurance.css";
 import { useState } from "react";
 import { RecoveryTargetChoices, RecoveryTargetField } from "@shared/assurance/RecoveryTargetFields";
+import { useRecoveryTarget } from "@shared/assurance/useRecoveryTarget";
 import { recoverToFileCommand } from "@shared/assurance/assuranceCommands";
 import { downloadable } from "@shared/assurance/bulkDownload";
 import { bytes } from "@shared/utilities/format";
@@ -53,8 +54,7 @@ export function BackupsSelectionBar({
   onRecover(target: RunTarget, acknowledged: boolean): void;
   onDownload(): void;
 }) {
-  const [chosen, setKind] = useState<RunTarget["kind"] | "download">("staging");
-  const [where, setWhere] = useState("");
+  const { kind: chosen, where, setWhere, choose } = useRecoveryTarget<RunTarget["kind"] | "download">("staging");
   const [accepted, setAccepted] = useState(false);
   const total = selected.reduce((n, a) => n + a.sizeBytes, 0);
   const archived = selected.filter((a) => planOf(a).archived).length;
@@ -92,12 +92,11 @@ export function BackupsSelectionBar({
 
       <div className="selbar__row" style={{ alignItems: "flex-start" }}>
         <div role="radiogroup" aria-label="Where should the backups go?" className="selbar__targets">
-          <label>
-            <input type="radio" name="bulk-target" checked={download} disabled={tooMany} onChange={() => { setKind("download"); setWhere(""); }} aria-describedby="bulk-download-note" />
-            Download in this browser
-          </label>
           {/* Issue #1190: offered the same way on every screen. */}
-          <RecoveryTargetChoices name="bulk-target" value={kind} onChoose={(t) => { setKind(t); setWhere(""); }} />
+          <RecoveryTargetChoices
+            name="bulk-target" value={kind} onChoose={choose}
+            download={{ disabled: tooMany, describedBy: "bulk-download-note" }}
+          />
         </div>
         {download ? null : (
           <div className="selbar__where">

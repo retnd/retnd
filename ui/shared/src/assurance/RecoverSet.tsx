@@ -53,10 +53,11 @@ import { Icon } from "@shared/design-system/icons";
 import type { IconName } from "@shared/design-system/icons";
 import { bytes } from "@shared/utilities/format";
 import { RecoveryTargetChoices, RecoveryTargetField } from "./RecoveryTargetFields";
+import { useRecoveryTarget } from "./useRecoveryTarget";
+import type { RecoveryPlace } from "./recoveryPlaces";
 import { recoverSetCommand, recoverSetPreflightCommand, snapshotRestoreCommand } from "./assuranceCommands";
 
 type Narrow = "all" | "newest" | "since";
-type Where = "staging" | "storage";
 
 const STATUS_LABEL: Record<RecoverManyItem["status"], string> = {
   ready: "Will be recovered",
@@ -92,8 +93,7 @@ export function RecoverSetDialog({
   const api = useApi();
   const [narrow, setNarrow] = useState<Narrow>("all");
   const [since, setSince] = useState("");
-  const [target, setTarget] = useState<Where>("staging");
-  const [where, setWhere] = useState("");
+  const { kind: target, where, setWhere, choose } = useRecoveryTarget<RecoveryPlace>("staging");
   const [accepted, setAccepted] = useState(false);
   const [plan, setPlan] = useState<RecoverManyPlan | null>(null);
   const [planFailure, setPlanFailure] = useState<string | null>(null);
@@ -253,12 +253,7 @@ export function RecoverSetDialog({
                 <legend className="field__label">Where it goes</legend>
                 <div role="radiogroup" aria-label="Where should the set go?" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {/* Issue #1190: offered the same way on every screen. */}
-                  <RecoveryTargetChoices
-                    name="recover-set-target"
-                    value={target}
-                    labelStyle={{ display: "inline-flex", gap: 6, alignItems: "center" }}
-                    onChoose={(t) => { setTarget(t); setWhere(""); }}
-                  />
+                  <RecoveryTargetChoices name="recover-set-target" value={target} onChoose={choose} />
                 </div>
                 <div style={{ color: "var(--text-2)", marginTop: 4 }} data-testid="no-browser-download">
                   There is no browser download for a set: that would be one archive the host has to build and keep, and every backup can still be downloaded from its own page.

@@ -23,14 +23,14 @@ test.describe("#985 Recover artifact: choosing", () => {
     await toDetail(page, PG);
     await openDialog(page);
     const dlg = dialog(page);
-    for (const t of ["Download in this browser", "Folder under the staging root on the host", "Configured destination"]) {
+    for (const t of ["Download in this browser", "Under the staging root on this retnd host", "Configured destination"]) {
       await expect(dlg.getByRole("radio", { name: t })).toBeVisible();
     }
     // the browser form is the standard-output form, which is a target the CLI has
     await expect(dlg.getByText("retnd recover production/postgres-primary/" + PG + " --to - > recovered-file", { exact: true })).toBeVisible();
     // the page is served over http://127.0.0.1 and the dialog must not need the Clipboard API
     await page.evaluate(() => { Object.defineProperty(navigator, "clipboard", { value: undefined }); });
-    await dlg.getByRole("radio", { name: "Folder under the staging root on the host" }).check();
+    await dlg.getByRole("radio", { name: "Under the staging root on this retnd host" }).check();
     await expect(dlg.getByRole("textbox", { name: /Name under the staging root/ })).toBeVisible();
     await dlg.getByRole("textbox", { name: /Name under the staging root/ }).fill("pg-restore-1");
     await expect(dlg.getByText("retnd recover production/postgres-primary/" + PG + " --to pg-restore-1", { exact: true })).toBeVisible();
@@ -72,7 +72,7 @@ test.describe("#985 Recover artifact: an archived copy is a restore, then a reco
     await expect(dlg).not.toContainText(/[$€£]\s?\d|\d+(\.\d+)?\s?(USD|EUR)|about \d+ hours/i);
     await expect(dlg.getByRole("radio", { name: "Download in this browser" })).toBeDisabled();
     await expect(dlg.getByTestId("no-browser-for-archive")).toContainText(/grant lasts minutes/);
-    await expect(dlg.getByRole("radio", { name: "Folder under the staging root on the host" })).toBeChecked();
+    await expect(dlg.getByRole("radio", { name: "Under the staging root on this retnd host" })).toBeChecked();
     await expect(dlg).not.toContainText("--accept-cost");
     // the restore on its own is a verb the CLI has
     await expect(dlg.getByText("retnd restore production/billing-mysql/" + ARCHIVED + " --medium <id> --acknowledge", { exact: true })).toBeVisible();
@@ -144,7 +144,7 @@ test.describe("#985 Recover artifact: checking on the host", () => {
     await toDetail(page, PG);
     await openDialog(page);
     const dlg = dialog(page);
-    await dlg.getByRole("radio", { name: "Folder under the staging root on the host" }).check();
+    await dlg.getByRole("radio", { name: "Under the staging root on this retnd host" }).check();
     await dlg.getByRole("textbox", { name: /Name under the staging root/ }).fill("pg-restore-1");
     await primary(page).click();
 
@@ -171,7 +171,7 @@ test.describe("#985 Recover artifact: checking on the host", () => {
     await openDialog(page);
     const dlg = dialog(page);
     await dlg.getByRole("radio", { name: "Configured destination" }).check();
-    await dlg.getByRole("combobox", { name: "Configured destination" }).selectOption("offsite_s3");
+    await dlg.getByRole("combobox", { name: "Which configured destination" }).selectOption("offsite_s3");
     await expect(dlg.getByText("retnd recover production/postgres-primary/" + PG + " --to medium:offsite_s3", { exact: true })).toBeVisible();
     await primary(page).click();
     await expect(dlg.getByTestId("placed")).toContainText("Recovered to the destination", { timeout: 10_000 });
@@ -218,7 +218,7 @@ test.describe("#985 Recover artifact: refusals are their own states", () => {
       await openDialog(page);
       const dlg = dialog(page);
       if (target === "staging") {
-        await dlg.getByRole("radio", { name: "Folder under the staging root on the host" }).check();
+        await dlg.getByRole("radio", { name: "Under the staging root on this retnd host" }).check();
         await dlg.getByRole("textbox", { name: /Name under the staging root/ }).fill("pg-restore-1");
       }
       await primary(page).click();
@@ -296,7 +296,7 @@ for (const theme of ["light", "dark"] as const) {
     await row(page, PG).click();
     await setTheme(page, theme);
     await openDialog(page);
-    await dlg.getByRole("radio", { name: "Folder under the staging root on the host" }).check();
+    await dlg.getByRole("radio", { name: "Under the staging root on this retnd host" }).check();
     await dlg.getByRole("textbox", { name: /Name under the staging root/ }).fill("pg-restore-1");
     await primary(page).click();
     await expect(dlg.getByTestId("host-check")).toBeVisible();
@@ -309,7 +309,7 @@ for (const theme of ["light", "dark"] as const) {
     await toDetail(page, PG, "assurance-staging-full");
     await setTheme(page, theme);
     await openDialog(page);
-    await dlg.getByRole("radio", { name: "Folder under the staging root on the host" }).check();
+    await dlg.getByRole("radio", { name: "Under the staging root on this retnd host" }).check();
     await dlg.getByRole("textbox", { name: /Name under the staging root/ }).fill("pg-restore-1");
     await primary(page).click();
     await expect(dlg.getByTestId("refusal")).toBeVisible({ timeout: 10_000 });

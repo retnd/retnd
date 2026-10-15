@@ -107,8 +107,7 @@ func cmdSystemCapabilities(args []string) int {
 
 // cmdSystemStaging is `retnd system staging [PATH] [--json]` (#1179): the folders
 // below the staging root, on the machine the engine runs on. It is the
-// terminal's half of the folder browser behind "Folder under the staging root on the host", and
-// what it prints is what a --to name under that root can be.
+// terminal's half of GET /api/v1/system/staging-directories, and what it prints is what a --to name under that root can be.
 //
 // It asks the engine and refuses without a route to it, like its siblings:
 // listing this host's file system would answer for the wrong machine whenever

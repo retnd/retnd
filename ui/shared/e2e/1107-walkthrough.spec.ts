@@ -12,7 +12,7 @@ const headerBox = (p: Page) => p.getByRole("checkbox", { name: "Select all match
 const beat = (p: Page, ms = 900) => p.waitForTimeout(ms);
 
 async function staging(p: Page, name: string) {
-  await bar(p).getByRole("radio", { name: "Folder under the staging root on the host" }).check();
+  await bar(p).getByRole("radio", { name: "Under the staging root on this retnd host" }).check();
   await bar(p).getByRole("textbox", { name: /Name under the staging root/ }).fill(name);
 }
 

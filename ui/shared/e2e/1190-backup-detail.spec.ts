@@ -9,7 +9,7 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { open, row } from "./helpers";
-import { browseUnavailable, sharedFieldsMeetAA, destinationIsSharedDropDown, noneConfigured, offersBothChoices, stagingIsSharedFolderField } from "./1190-pickers";
+import { browseUnavailable, sharedFieldsMeetAA, destinationIsSharedDropDown, noneConfigured, offersBothChoices, stagingIsSharedFolderField, destinationNamesDiffer, meaningSays } from "./1190-pickers";
 
 const PG = "postgres-prod-20260828.dump.zst";
 
@@ -26,6 +26,14 @@ const action = (p: Page) => p.getByRole("dialog", { name: "Recover artifact" }).
 test.describe("#1190 Backup detail, Recover artifact", () => {
   test("offers both choices under the shared words", async ({ page }) => {
     await offersBothChoices(await dialog(page));
+  });
+
+  test("the line under the staging field says the name is a file", async ({ page }) => {
+    await meaningSays(await dialog(page), "A file");
+  });
+
+  test("the destination radio and its drop-down have different names", async ({ page }) => {
+    await destinationNamesDiffer(await dialog(page));
   });
 
   test("the staging choice is the shared folder field with the host browser", async ({ page }) => {

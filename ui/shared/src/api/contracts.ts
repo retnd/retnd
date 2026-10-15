@@ -3831,7 +3831,7 @@ export interface RetndApi {
    *  that inherits the change decides under it on its next read. */
   getAssuranceSettings(): Promise<AssuranceSettings>;
   /** The sub-folders of one folder under the staging root, for the folder
-   *  browser on "Folder under the staging root on the host" (issue #1179). */
+   *  browser on "Under the staging root on this retnd host" (issue #1179). */
   listStagingDirectories(path?: string): Promise<StagingDirectory>;
   patchAssuranceSettings(patch: AssuranceSettingsPatch): Promise<AssuranceSettings>;
   getBackupSetAssurance(source: string, set: string): Promise<BackupSetAssurance>;

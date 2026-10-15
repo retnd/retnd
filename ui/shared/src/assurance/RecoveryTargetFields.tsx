@@ -1,7 +1,7 @@
 /**
- * The two places a recovery can go besides this browser, offered one way on
- * every screen that offers them (issue #1190): a folder under the staging root
- * on the host, and a configured destination.
+ * The places a recovery can go, offered one way on every screen that offers
+ * them (issue #1190): this browser, the staging root on this retnd host, and
+ * a configured destination.
  *
  * # Why one module
  *
@@ -11,51 +11,60 @@
  * own words: one radio said "Staging path on the host" and another "Folder
  * under the staging root on the host", and the text field and the drop-down
  * had a different name on each. The same choice read differently depending on
- * where it was made. Here the words, the field, its name and the staging root
- * it names live once, and src/test/shared-destination-pickers-1190.test.ts
- * fails if a screen spells either choice out for itself.
+ * where it was made. Here the radios, the field, its name and the staging root
+ * it names live once. The words themselves are in recoveryPlaces.ts, so the
+ * specs can read them without React.
+ *
+ * Two checks hold that. eslint.config.js lets only this file import the
+ * folder browser and the drop-down, and
+ * src/test/shared-destination-pickers-1190.test.ts fails if any other file
+ * spells a label out. The state (what's chosen, the name, and clearing the
+ * name when the choice changes) is useRecoveryTarget.ts.
  *
  * # What a screen still decides
  *
- * Where the radios sit (each screen has its own radiogroup, and two of them
- * add "Download in this browser" beside these) and one sentence about what
- * the name means there. A single backup's name is folder/file, so the folder
+ * Where the radiogroup sits and what it's called, whether "Download in this
+ * browser" is offered and when it's switched off, and one sentence about what
+ * the name means there. A single backup's name is a file, so the folder
  * browser hands it the folder plus the backup's own file name (`fileName`); a
  * set or a selection goes into a folder and passes none.
  */
 import "./assurance.css";
-import { useEffect, useState } from "react";
-import type { CSSProperties } from "react";
-import { useApi } from "@shared/api/ApiContext";
 import { DestinationSelect } from "./DestinationSelect";
 import { HostFolderBrowser } from "./HostFolderBrowser";
+import { useAssuranceSettings } from "./assuranceSettings";
+import { DESTINATION_SELECT_NAME, RECOVERY_PLACE_LABELS } from "./recoveryPlaces";
+import type { RecoveryKind, RecoveryPlace } from "./recoveryPlaces";
 
-export type RecoveryPlace = "staging" | "storage";
-
-/** The words for each choice, the same on every screen. */
-const PLACE_LABELS: Record<RecoveryPlace, string> = {
-  staging: "Folder under the staging root on the host",
-  storage: "Configured destination"
-};
-
-/** The two radios. They go inside the caller's own radiogroup, which may hold
- *  a "Download in this browser" radio as well. */
-export function RecoveryTargetChoices({
-  name, value, onChoose, labelStyle
+/** The radios, inside the caller's own radiogroup. "Download in this
+ *  browser" comes first, and only when the screen passes `download`. */
+export function RecoveryTargetChoices<K extends RecoveryKind>({
+  name, value, onChoose, download
 }: {
   /** The radiogroup's `name`, shared with any other radio in it. */
   name: string;
-  /** The chosen place, or anything else when neither of these is chosen. */
-  value: string;
-  onChoose(place: RecoveryPlace): void;
-  labelStyle?: CSSProperties;
+  /** The chosen target, or null when none is. */
+  value: K | null;
+  onChoose(kind: K): void;
+  /** Offer a browser download. Each screen has its own reason to switch it
+   *  off, so it says when, and which note explains it. */
+  download?: "download" extends K ? { disabled?: boolean; describedBy?: string } : never;
 }) {
   return (
     <>
+      {download ? (
+        <label className="placechoice">
+          <input
+            type="radio" name={name} checked={value === "download"} disabled={download.disabled}
+            aria-describedby={download.describedBy} onChange={() => onChoose("download" as K)}
+          />
+          Download in this browser
+        </label>
+      ) : null}
       {(["staging", "storage"] as const).map((place) => (
-        <label key={place} style={labelStyle}>
-          <input type="radio" name={name} checked={value === place} onChange={() => onChoose(place)} />
-          {PLACE_LABELS[place]}
+        <label key={place} className="placechoice">
+          <input type="radio" name={name} checked={value === place} onChange={() => onChoose(place as K)} />
+          {RECOVERY_PLACE_LABELS[place]}
         </label>
       ))}
     </>
@@ -72,13 +81,14 @@ export function RecoveryTargetField({
   onChange(value: string): void;
   /** One backup's own file name, added to a folder picked in the browser. */
   fileName?: string;
-  /** What the name means on this screen, said under the field. */
+  /** What the name means on this screen, said under the field. It starts
+   *  "A file:" or "A folder:", since the staging label leaves that out. */
   meaning?: string;
 }) {
   if (place === "storage") {
     return (
       <div data-testid="destination-field">
-        <DestinationSelect ariaLabel={PLACE_LABELS.storage} value={value} onChange={onChange} />
+        <DestinationSelect ariaLabel={DESTINATION_SELECT_NAME} value={value} onChange={onChange} />
       </div>
     );
   }
@@ -86,15 +96,10 @@ export function RecoveryTargetField({
 }
 
 function StagingFolderField({ value, onChange, fileName, meaning }: { value: string; onChange(value: string): void; fileName?: string; meaning?: string }) {
-  const api = useApi();
   // The root is the host's setting, read where it is shown, so no screen has
-  // to fetch it and pass it down.
-  const [root, setRoot] = useState<string | null>(null);
-  useEffect(() => {
-    let live = true;
-    void api.getAssuranceSettings().then((s) => { if (live) setRoot(s.stagingRoot || null); }, () => undefined);
-    return () => { live = false; };
-  }, [api]);
+  // to fetch it and pass it down. The read is shared (assuranceSettings.ts),
+  // so switching the radio away and back doesn't fetch it again.
+  const root = useAssuranceSettings()?.stagingRoot || null;
   return (
     <div className="placefield" data-testid="staging-folder-field">
       <label className="field">

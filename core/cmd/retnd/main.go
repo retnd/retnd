@@ -919,12 +919,12 @@ commands:
                                                   GET /api/v1/system/capabilities (#1165)
   system staging [PATH] [--json]                  the folders below the staging root on the machine the engine runs
                                                   on, as the names a recover --to takes: the terminal's half of the
-                                                  folder browser behind the staging folder choice. PATH is relative to
-                                                  that root; one that climbs out or goes through a symbolic link is
-                                                  refused, and nothing is created or changed. Needs a route to the
-                                                  engine and refuses without one. The folder names alone go to
-                                                  stdout, one per line, so a script can read them; the root and any
-                                                  note go to stderr. --json prints the same body as
+                                                  folder browser behind "Under the staging root on this retnd host".
+                                                  PATH is relative to that root; one that climbs out or goes through a
+                                                  symbolic link is refused, and nothing is created or changed. Needs a
+                                                  route to the engine and refuses without one. The folder names alone
+                                                  go to stdout, one per line, so a script can read them; the root and
+                                                  any note go to stderr. --json prints the same body as
                                                   GET /api/v1/system/staging-directories (#1179)
   system first-run [--json]                      which guided setup steps the engine counts as done, pending or
                                                   skipped (the administrator, the mail server, the first backup set),
