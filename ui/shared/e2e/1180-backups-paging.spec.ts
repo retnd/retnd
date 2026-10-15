@@ -73,7 +73,11 @@ test.describe("#1180 page size", () => {
     await open(page, "/backups", MANY);
     await size(page).focus();
     await expect(size(page)).toBeFocused();
-    await page.keyboard.press("ArrowDown");
+    // Type-ahead rather than ArrowDown: on macOS Chromium an arrow key opens
+    // the native picker and leaves the value where it was, so the same press
+    // reads 20 there and 50 on Linux. Typing the option's first character
+    // moves a closed select on both.
+    await page.keyboard.type("5");
     await expect(size(page)).toHaveValue("50");
   });
 });
