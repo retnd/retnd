@@ -2900,8 +2900,9 @@ export interface DestructiveOperations {
   /** Issue #1163: restores re-ask for the administrator's password. True only
    *  where the gate is open for local accounts. */
   stepUpRequired: boolean;
-  /** Issue #1163: this connection's session cookie cannot be Secure and the
-   *  peer is not loopback, so the engine wants one more acknowledgement. */
+  /** Issue #1163: the browser reached retnd over plain HTTP from another
+   *  machine (as the hop facing it judged), so the engine wants one more
+   *  acknowledgement, and a password is not sent before it is given. */
   insecureTransportAckRequired: boolean;
 }
 

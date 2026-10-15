@@ -1,13 +1,16 @@
 /**
  * Slow passes over the #1163 and #1164 surfaces for the GIFs, one per theme.
  *
- * Two recordings per theme. The first is a local-account profile, where the
+ * Three recordings per theme. The first is a local-account profile, where the
  * destructive gate is open: the snapshot list verifies, the retention plan
  * applies, and the restore wizard asks for the password and a tick before it
  * will start. The second is a gateway profile, where the gate is still shut:
  * verify, hold and release-hold work anyway (and releasing waits for its
  * tick), and the restore screen says the gate is shut before anything is
- * pressed and ends on the refusal with the command.
+ * pressed and ends on the refusal with the command. The third (the review of
+ * PR #1167) is a local-account profile reached over plain HTTP from another
+ * machine: the restore asks about the connection before the password is sent,
+ * a no sends nothing, and a yes sends it with the consent.
  *
  * Every stop ends on the outcome, so the recording is of the behaviour and
  * cannot be of a tree that lacks it. Run with E2E_VIDEO=1.
@@ -73,6 +76,39 @@ for (const theme of ["light", "dark"] as const) {
     await page.getByLabel("Your password").fill("correct-horse-battery");
     await beat(page, 600);
     await page.getByRole("button", { name: "Start restore" }).click();
+    await expect(page.locator("[data-step-up-error]")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Start restore" })).toBeDisabled();
+    await beat(page, 3000);
+  });
+
+  test(`1163 walkthrough (${theme}): over plain HTTP from another machine, a restore asks before the password leaves`, async ({ page }) => {
+    test.setTimeout(180_000);
+    const DIALOG = "This connection is not encrypted";
+    await open(page, `/sets/${SET}/restore`, "insecure-transport");
+    await setTheme(page, theme);
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByLabel("Restore into").fill("/srv/restored");
+    await beat(page, 600);
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByLabel("Your password").fill("correct-horse-battery");
+    await page.getByRole("checkbox", { name: /I understand/ }).check();
+    await beat(page, 1200);
+    await page.getByRole("button", { name: "Start restore" }).click();
+    // Asked first. A no sends nothing and keeps nothing.
+    await expect(page.getByRole("dialog", { name: DIALOG })).toBeVisible();
+    await beat(page, 2600);
+    await page.getByRole("dialog", { name: DIALOG }).getByRole("button", { name: "Cancel" }).click();
+    await expect(page.locator("[data-step-up-error]")).toContainText(/nothing was sent/i);
+    await expect(page.getByLabel("Your password")).toHaveValue("");
+    await beat(page, 2600);
+    // A yes, and only then the password goes, with the consent beside it.
+    await page.getByLabel("Your password").fill("correct-horse-battery");
+    await beat(page, 600);
+    await page.getByRole("button", { name: "Start restore" }).click();
+    await expect(page.getByRole("dialog", { name: DIALOG })).toBeVisible();
+    await beat(page, 1600);
+    await page.getByRole("dialog", { name: DIALOG }).getByRole("button", { name: "Continue anyway" }).click();
     await expect(page.locator("[data-step-up-error]")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Start restore" })).toBeDisabled();
     await beat(page, 3000);

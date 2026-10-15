@@ -18,7 +18,14 @@
  * to.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { httpApi, newIdempotencyKey, setInsecureTransportConfirmer } from "./client";
+import {
+  acknowledgeInsecureTransport,
+  httpApi,
+  insecureTransportIsAcknowledged,
+  newIdempotencyKey,
+  rememberInsecureTransportRequired,
+  setInsecureTransportConfirmer
+} from "./client";
 import { RetndError, RequestFailure, toApiErrorCode } from "./contracts";
 import type { ApiErrorCode } from "./contracts";
 import { progressPercent } from "@shared/types/operation";
@@ -3234,6 +3241,8 @@ describe("httpApi, issues #1163 and #1164", () => {
   });
 
   it("sends the step-up password in a header, never in the body, and only when there is one", async () => {
+    // An encrypted (or same-machine) connection, as the capabilities said.
+    rememberInsecureTransportRequired(false);
     const fetchMock = mockFetchOk(OPERATION);
     vi.stubGlobal("fetch", fetchMock);
     await httpApi.restoreSnapshot({
@@ -3259,6 +3268,7 @@ describe("httpApi, issues #1163 and #1164", () => {
   });
 
   it("sends the step-up password for a cold-storage restore the same way", async () => {
+    rememberInsecureTransportRequired(false);
     const fetchMock = mockFetchOk({ operation_id: "op_2", status: "running", action: "restore_placement", restore: {} });
     vi.stubGlobal("fetch", fetchMock);
     await httpApi.restoreCopy({
@@ -3272,6 +3282,107 @@ describe("httpApi, issues #1163 and #1164", () => {
     });
     expect(headersOf(fetchMock)["X-Retnd-Step-Up-Password"]).toBe("hunter2-hunter2");
     expect(JSON.stringify(bodyOf(fetchMock))).not.toContain("hunter2");
+  });
+
+  // The review of PR #1167: the password is the thing the transport prompt
+  // warns about, so it never crosses a connection the operator was not told
+  // about, not even once to be refused.
+  it("does not send a password over a connection the capabilities said needs the consent, until it is given", async () => {
+    rememberInsecureTransportRequired(true);
+    const fetchMock = mockFetchOk(OPERATION);
+    vi.stubGlobal("fetch", fetchMock);
+    const restore = () =>
+      httpApi.restoreSnapshot({
+        backupSetId: "nas-a/photos",
+        targetPath: "/data/x",
+        configRevision: "cfg_7",
+        idempotencyKey: "k11",
+        stepUpPassword: "hunter2-hunter2",
+        acknowledged: true
+      });
+    await expect(restore()).rejects.toMatchObject({ api: { code: "INSECURE_TRANSPORT_ACK_REQUIRED" } });
+    expect(fetchMock, "nothing was sent").not.toHaveBeenCalled();
+
+    setInsecureTransportConfirmer(vi.fn().mockResolvedValue(true));
+    await expect(acknowledgeInsecureTransport()).resolves.toBe(true);
+    await restore();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(headersOf(fetchMock)["X-Retnd-Insecure-Transport-Ack"], "the first request with the password carries the consent").toBe(
+      "acknowledged"
+    );
+    expect(headersOf(fetchMock)["X-Retnd-Step-Up-Password"]).toBe("hunter2-hunter2");
+  });
+
+  it("treats a connection nobody has described yet like one that needs the consent, where a password is involved", async () => {
+    const fetchMock = mockFetchOk(OPERATION);
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(
+      httpApi.restoreCopy({
+        artifactId: "a/b/c",
+        medium: "cold-store",
+        windowDays: 3,
+        acknowledged: true,
+        stepUpPassword: "hunter2-hunter2",
+        configRevision: "cfg_7",
+        idempotencyKey: "k12"
+      })
+    ).rejects.toMatchObject({ api: { code: "INSECURE_TRANSPORT_ACK_REQUIRED" } });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("never retries a password-carrying request on the engine's transport refusal; the screen asks again itself", async () => {
+    rememberInsecureTransportRequired(false);
+    const fetchMock = refusedThenServed("INSECURE_TRANSPORT_ACK_REQUIRED");
+    vi.stubGlobal("fetch", fetchMock);
+    const confirm = vi.fn().mockResolvedValue(true);
+    setInsecureTransportConfirmer(confirm);
+    await expect(
+      httpApi.restoreSnapshot({
+        backupSetId: "nas-a/photos",
+        targetPath: "/data/x",
+        configRevision: "cfg_7",
+        idempotencyKey: "k13",
+        stepUpPassword: "hunter2-hunter2",
+        acknowledged: true
+      })
+    ).rejects.toMatchObject({ api: { code: "INSECURE_TRANSPORT_ACK_REQUIRED" } });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // And the refusal itself taught the client this connection needs it.
+    const again = mockFetchOk(OPERATION);
+    vi.stubGlobal("fetch", again);
+    await expect(
+      httpApi.restoreSnapshot({
+        backupSetId: "nas-a/photos",
+        targetPath: "/data/x",
+        configRevision: "cfg_7",
+        idempotencyKey: "k14",
+        stepUpPassword: "hunter2-hunter2",
+        acknowledged: true
+      })
+    ).rejects.toMatchObject({ api: { code: "INSECURE_TRANSPORT_ACK_REQUIRED" } });
+    expect(again).not.toHaveBeenCalled();
+  });
+
+  it("forgets the consent on sign-out and when the session ends", async () => {
+    setInsecureTransportConfirmer(vi.fn().mockResolvedValue(true));
+    await acknowledgeInsecureTransport();
+    vi.stubGlobal("fetch", mockFetchOk({}));
+    await httpApi.logout().catch(() => undefined);
+    expect(insecureTransportIsAcknowledged()).toBe(false);
+
+    await acknowledgeInsecureTransport();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        headers: new Headers({ "content-type": "application/json" }),
+        json: async () => ({ error: { code: "UNAUTHENTICATED", message: "no session" } })
+      })
+    );
+    await httpApi.runCycle("cfg_7", "k15").catch(() => undefined);
+    expect(insecureTransportIsAcknowledged()).toBe(false);
   });
 
   it("sends the release acknowledgement in the release's own parameters", async () => {

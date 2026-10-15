@@ -101,7 +101,7 @@ describe("#1163 a restore on a local-account profile", () => {
     expect(sent.acknowledged).toBe(true);
   });
 
-  it("says a wrong password plainly and keeps the form", async () => {
+  it("says a wrong password plainly, keeps the form and does not keep the password", async () => {
     const api = createMockApi("local-account-profile" as Scenario);
     await seed(api);
     restorePage(api);
@@ -117,7 +117,9 @@ describe("#1163 a restore on a local-account profile", () => {
       return el;
     });
     expect(alert.textContent).toMatch(/password/i);
-    expect((screen.getByLabelText("Your password") as HTMLInputElement).value).toBe("nope");
+    // The review of PR #1167: the password is not kept past the press,
+    // whichever way it went; the operator types it again.
+    expect((screen.getByLabelText("Your password") as HTMLInputElement).value).toBe("");
   });
 
   it("does not ask for a password where the gate is shut", async () => {
@@ -196,7 +198,7 @@ describe("#1164 verify, hold and release-hold", () => {
         idempotencyKey: "k",
         acknowledged: false
       })
-    ).rejects.toMatchObject({ api: { code: "ACKNOWLEDGEMENT_REQUIRED" } });
+    ).rejects.toMatchObject({ api: { code: "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED" } });
   });
 
   it("restore stays behind the gate on a gateway profile", async () => {

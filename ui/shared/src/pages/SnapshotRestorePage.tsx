@@ -37,6 +37,7 @@ import { useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { useApi } from "@shared/api/ApiContext";
+import { acknowledgeInsecureTransport } from "@shared/api/client";
 import { apiErrorOf } from "@shared/api/failure";
 import { Cell, CellGrid, Note } from "@shared/components/Definitions";
 import { Choice, Toggle } from "@shared/components/Choice";
@@ -487,20 +488,33 @@ export function SnapshotRestorePage({ readOnly }: { readOnly: boolean }) {
             missingTarget ||
             missingStepUp
           }
-          onFinish={() => {
+          onFinish={() => void (async () => {
             if (selected === null || selected.snapshotId === null) return;
+            const snapshotId = selected.snapshotId;
+            setStepUpError(null);
+            // Issue #1163. The password is read once for this press and not
+            // kept past it, whichever way it goes. On a connection that is not
+            // encrypted the operator is asked BEFORE it is sent: the password
+            // is the very thing that question is about.
+            const password = stepUpPassword;
+            if (gate.stepUpRequired) {
+              setStepUpPassword("");
+              if (gate.insecureTransportAckRequired && !(await acknowledgeInsecureTransport())) {
+                setStepUpError(stepUpMessage("INSECURE_TRANSPORT_ACK_REQUIRED"));
+                return;
+              }
+            }
             // Target: the snapshot AND where it is being written. A
             // second press with the same answers is a retry of one
             // submission; an operator who changed the destination after
             // a refusal is asking for a different restore, and re-using
             // the key would have the service replay the first.
-            setStepUpError(null);
             restore.submit(
-              selected.snapshotId + " -> " + targetPath.trim(),
+              snapshotId + " -> " + targetPath.trim(),
               ({ configRevision, idempotencyKey }) =>
               api.restoreSnapshot({
                 backupSetId: setId,
-                snapshotId: selected.snapshotId ?? undefined,
+                snapshotId,
                 // Omitted rather than sent empty: an absent source_path
                 // asks for the whole tree, and "" would be a request to
                 // restore a path with no name.
@@ -509,7 +523,7 @@ export function SnapshotRestorePage({ readOnly }: { readOnly: boolean }) {
                 conflict,
                 // Sent only where the engine said it will check them. The
                 // password rides a header (api/client.ts) and is never kept.
-                ...(gate.stepUpRequired ? { stepUpPassword, acknowledged: restoreAcknowledged } : {}),
+                ...(gate.stepUpRequired ? { stepUpPassword: password, acknowledged: restoreAcknowledged } : {}),
                 configRevision,
                 idempotencyKey
               }).catch((e: unknown) => {
@@ -525,14 +539,14 @@ export function SnapshotRestorePage({ readOnly }: { readOnly: boolean }) {
                 command: snapshotRestoreCommand({
                   setId,
                   targetPath: targetPath.trim(),
-                  snapshotId: selected.snapshotId,
+                  snapshotId,
                   sourcePath: wholeTree ? undefined : sourcePath.trim(),
                   conflict
                 }),
                 reason: gate.reason
               }
             );
-          }}
+          })()}
         />
       </section>
     </div>
