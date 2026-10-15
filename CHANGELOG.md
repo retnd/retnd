@@ -10,10 +10,18 @@
   `--acknowledge-repoint` and `--state-database` out of the `backup-set create` one. The activity panel's
   deployment scope now echoes `retnd activity --follow --scope deployment` instead of a gap, and the Backups
   list's set filter echoes from the `setId` the route actually reads. The twelve `/auth` routes and the two
-  health probes now each carry a written reason they have no command.
+  health probes now each have an answer, a command or a written reason it has none.
 
 ### Added
 
+- **The administrator can fix their own login from a terminal** (#1155). `retnd-web auth set-password
+  --username U --password-stdin` replaces the password offline, under the same store lock a running server
+  holds, so it refuses while one is up (which is also what ends every session, since they live in the
+  server's memory). `retnd auth password --password-stdin` changes it beside a serving engine, and
+  `retnd auth recovery show|set|test` and `retnd auth verify-email --token-stdin|--resend` cover the
+  recovery address and the SMTP endpoint behind it. Every secret is stdin only, never a flag, and nothing
+  prints one. I ran `auth create-admin` against a store that already had an administrator rather than
+  trusting the docs: it refuses, changes nothing, and now points at `set-password`.
 - **A guard that every registered route has a command or a reason** (#1150). It walks the engine router, the
   first-run router and the `/auth` router, fails when a route has neither a `core/cliecho` entry nor a
   recorded reason, flags a route the spec leaves out, and carries mutation tests that prove it goes red.

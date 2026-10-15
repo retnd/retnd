@@ -1614,10 +1614,15 @@ var routes = map[string]entry{
 		why: "a login opens a browser session, and a terminal holds no session: a routed command signs in with $RETND_API_USERNAME and $RETND_API_PASSWORD for the one invocation, so there is nothing to type",
 	},
 	key("POST", "/auth/enroll"): {
-		why: "there is no verb on the engine's own CLI that creates the first administrator; `" + WebBinary + " auth create-admin --username U --password-stdin` does it offline, against the store, and refuses while a server holds it",
+		why: "the first administrator is made by `" + WebBinary + " auth create-admin --username U --password-stdin`, offline, against the store, and it refuses while a server holds the store or once an administrator exists; there is no routed verb for it, because there is no engine account to sign in as yet",
 	},
 	key("POST", "/auth/password"): {
-		why: "there is no verb that rotates the administrator's password from a terminal, and the offline `" + WebBinary + " auth create-admin` will not overwrite an existing account",
+		build: func(Action) *cmd {
+			// Both passwords are in the body and neither goes on the line:
+			// the verb reads the current one and then the new one from stdin.
+			return newCmd("auth", "password").bare("password-stdin")
+		},
+		examples: []Action{{}},
 	},
 	key("POST", "/auth/logout"): {
 		why: "a logout ends a browser session, and a terminal holds none",
@@ -1626,25 +1631,83 @@ var routes = map[string]entry{
 		why: "a session read answers a browser's question about its own cookie, and a terminal holds no session to ask about",
 	},
 	key("POST", "/auth/forgot-password"): {
-		why: "there is no verb that asks for a password-reset email from a terminal",
+		why:               "there is no verb that asks for a password-reset email from a terminal; it is the browser's path for an account with a working mail server, and a terminal that can reach the engine at all can change the password with `" + Binary + " auth password`",
+		namesShippedVerbs: []string{"auth"},
 	},
 	key("POST", "/auth/reset-password"): {
-		why: "there is no verb that redeems a password-reset token from a terminal, so an administrator locked out of a deployment with no mail configured has no terminal route back in",
+		why: "there is no verb that redeems a password-reset token from a terminal. An administrator locked out with no mail configured does have a way back in: `" + WebBinary + " auth set-password --username U --password-stdin`, offline, with the server stopped",
 	},
 	key("POST", "/auth/verify-email"): {
-		why: "there is no verb that redeems a recovery-email verification token from a terminal",
+		build: func(Action) *cmd {
+			return newCmd("auth", "verify-email").bare("token-stdin")
+		},
+		examples: []Action{{}},
 	},
 	key("POST", "/auth/verify-email/resend"): {
-		why: "there is no verb that asks for the recovery-email verification message again from a terminal",
+		build: func(Action) *cmd {
+			return newCmd("auth", "verify-email").bare("resend")
+		},
+		examples: []Action{{}},
 	},
 	key("GET", "/auth/recovery"): {
-		why: "there is no verb that reads the administrator's recovery-email and SMTP settings from a terminal",
+		build:    func(Action) *cmd { return newCmd("auth", "recovery", "show") },
+		examples: []Action{{}},
 	},
 	key("PATCH", "/auth/recovery"): {
-		why: "there is no verb that changes the administrator's recovery-email and SMTP settings from a terminal",
+		why: "the request body would not decode, so there is no command that says what it changed",
+		build: func(a Action) *cmd {
+			// The current password and the SMTP password are in the body
+			// and stay there: the verb takes them from stdin. The values
+			// that remain are an address and an endpoint an operator
+			// typed, which are shown as stand-ins all the same, because
+			// the line is exportable and a recovery address is the one
+			// thing an account's owner may not want in a pasted log.
+			var req struct {
+				RecoveryEmail *string `json:"recoveryEmail"`
+				Smtp          *struct {
+					Host     string `json:"host"`
+					Port     int    `json:"port"`
+					Security string `json:"security"`
+					Username string `json:"username"`
+					From     string `json:"from"`
+					Password string `json:"password"`
+				} `json:"smtp"`
+			}
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("auth", "recovery", "set").bare("current-password-stdin")
+			if req.RecoveryEmail != nil {
+				c.placeholderFlag("recovery-email", "the recovery address")
+			}
+			if s := req.Smtp; s != nil {
+				c.placeholderFlag("smtp-host", "the SMTP host")
+				if s.Port > 0 {
+					c.flag("smtp-port", itoa(s.Port))
+				}
+				if s.Security != "" {
+					c.placeholderFlag("smtp-security", "starttls, tls or none")
+				}
+				if s.Username != "" {
+					c.placeholderFlag("smtp-username", "the SMTP username")
+				}
+				if s.From != "" {
+					c.placeholderFlag("smtp-from", "the sender address")
+				}
+				if s.Password != "" {
+					c.bare("smtp-password-stdin")
+				}
+			}
+			return c
+		},
+		examples: []Action{
+			{Body: []byte(`{"currentPassword":"x","recoveryEmail":"ops@example.org"}`)},
+			{Body: []byte(`{"currentPassword":"x","smtp":{"host":"smtp.example.org","port":2525,"security":"tls","username":"mailer","from":"retnd@example.org","password":"y"}}`)},
+		},
 	},
 	key("POST", "/auth/recovery/test"): {
-		why: "there is no verb that sends the recovery-email test message from a terminal",
+		build:    func(Action) *cmd { return newCmd("auth", "recovery", "test") },
+		examples: []Action{{}},
 	},
 }
 

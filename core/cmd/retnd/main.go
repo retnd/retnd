@@ -87,6 +87,7 @@ var commands = map[string]func([]string) int{
 	"scrub":           cmdScrub,
 	"recovery-test":   cmdRecoveryTest,
 	"assurance":       cmdAssurance,
+	"auth":            cmdAuth,
 	"catalog":         cmdCatalog,
 	"quarantine":      cmdQuarantine,
 	"unconfigured":    cmdUnconfigured,
@@ -293,6 +294,34 @@ commands:
                                                   this deployment, so this needs RETND_API_URL and the two credential
                                                   variables beside it and is refused without them. The same as
                                                   POST /api/v1/assurance/operations/{op}/cancel (EPIC Q)
+  auth password --password-stdin
+                                                  change the administrator's password. The current password and then the
+                                                  new one come from stdin, one per line, and never from a flag, so neither
+                                                  is in the process list or the shell history; nothing prints them. The
+                                                  account belongs to the process serving this deployment, so this needs
+                                                  RETND_API_URL and the two credential variables beside it and is refused
+                                                  without them. Locked out with nothing serving? `+cliecho.WebBinary+` auth
+                                                  set-password --username U --password-stdin resets it offline. The same
+                                                  as POST /api/v1/auth/password (#1155)
+  auth recovery show [--json]
+                                                  the recovery address (confirmed, verified, and the deadline an unverified
+                                                  one lapses at) and the SMTP endpoint without its password. Routed, as
+                                                  above. The same as GET /api/v1/auth/recovery
+  auth recovery set --current-password-stdin [--recovery-email ADDR]
+                          [--smtp-host H [--smtp-port N] [--smtp-security starttls|tls|none]
+                          [--smtp-username U] [--smtp-from ADDR] [--smtp-password-stdin]] [--json]
+                                                  change the recovery address, the SMTP endpoint, or both. The current
+                                                  password is the first line of stdin and the SMTP password, if there is
+                                                  one, the second; neither is ever a flag. The engine sends a message over
+                                                  the endpoint before it keeps the change, so a mail server that says no
+                                                  refuses the whole update. The same as PATCH /api/v1/auth/recovery
+  auth recovery test
+                                                  send the recovery test message to the recovery address now. The same as
+                                                  POST /api/v1/auth/recovery/test
+  auth verify-email --token-stdin | --resend
+                                                  redeem the verification token out of the emailed link (from stdin, never
+                                                  a flag), or ask for the message to be sent again. The same as
+                                                  POST /api/v1/auth/verify-email and /resend
   catalog rebuild [--dry-run]                    reconstruct a lost/corrupted state database from sidecar recovery manifests
   quarantine <revalidate|retry|reinstate> <source/backup-set/artifact> [--note T]
                                                   act on one quarantined artifact: revalidate re-checks it and moves
