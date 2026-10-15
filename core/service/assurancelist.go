@@ -330,7 +330,7 @@ var recoveryWords = map[string]string{
 
 // neverConfiguredWords is claims.ts's neverConfiguredWording.
 var neverConfiguredWords = map[PolicyBasis]string{
-	PolicyDefault: "default configuration", PolicyOwn: "this set's own policy",
+	PolicyDefault: "default configuration", PolicyOwn: "custom configuration",
 	PolicyUnavailable: "configuration unavailable", PolicyNone: "not configured",
 }
 

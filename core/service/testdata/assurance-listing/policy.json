@@ -54,7 +54,7 @@
         "buckets": [
           "untested"
         ],
-        "reason": "Content: content verified 60m ago. Recovery: this set's own policy."
+        "reason": "Content: content verified 60m ago. Recovery: custom configuration."
       }
     },
     {
