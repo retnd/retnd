@@ -283,31 +283,111 @@ const ProbeObjectPrefix = ".retnd-write-probe-"
 // said out loud.
 var ErrProbeNotRemoved = errors.New("transport: the write probe could not be removed")
 
-// SourceUploader writes one recovered file back onto a backup source
+// ProbeNotRemovedError is ErrProbeNotRemoved with the probe's name, so the
+// operator can be told exactly which file of ours to delete (issue #1191's
+// write check). Name is relative to the source's root.
+type ProbeNotRemovedError struct {
+	Name string
+	Err  error
+}
+
+func (e *ProbeNotRemovedError) Error() string {
+	return "transport: the write probe " + e.Name + " could not be removed: " + e.Err.Error()
+}
+
+func (e *ProbeNotRemovedError) Unwrap() []error { return []error{ErrProbeNotRemoved, e.Err} }
+
+// SourceUploader writes recovered files back onto a backup source
 // (issue #1191): the "Source host (SFTP)" recovery destination.
 //
 // It is the second thing this product ever writes onto somebody else's
 // machine (the write probe above is the first), so it is a capability a
 // caller type-asserts for, like SourceWriteProbe, and it carries its own
 // no-overwrite rule rather than trusting every caller to check first.
+//
+// One session is one connection for a whole recovery run, manifest
+// included, and it holds the source host's write slot (AcquireSourceHost)
+// from Begin to Close, so a recovery and a backup cycle never stack
+// connections on a host that resets the third one.
 type SourceUploader interface {
-	// UploadToSource copies the local file at localPath to relPath under
-	// source.Root, creating the folders on the way. relPath is relative and
-	// clean. An object already at relPath is never replaced: the call
-	// refuses with an error wrapping ErrSourceObjectExists and writes
-	// nothing.
-	UploadToSource(ctx context.Context, source Source, localPath, relPath string) error
+	BeginSourceUpload(ctx context.Context, source Source) (SourceUploadSession, error)
 }
 
-// ErrSourceObjectExists is UploadToSource's refusal to replace a file that
-// is already on the source.
-var ErrSourceObjectExists = errors.New("transport: the source already holds a file at that path")
+// SourceUploadSession is one open upload conversation with one source.
+type SourceUploadSession interface {
+	// ClaimFolder creates folder, one segment carrying RecoveredFolderPrefix,
+	// directly under the source's root. Anything already there (a file, a
+	// folder, a symlink, dangling or not) is refused with an error wrapping
+	// ErrSourceObjectExists, unless reuse is true and it is a real folder.
+	ClaimFolder(ctx context.Context, folder string, reuse bool) error
+
+	// Upload copies the local file at localPath to relPath (folder/name,
+	// the folder claimed first) without ever replacing anything: it writes
+	// a temporary name in the same folder and then renames it with a plain
+	// SFTP rename, which the server refuses when anything is at relPath.
+	// A refusal wraps ErrSourceObjectExists. A failure removes the
+	// temporary file (and only that), and when that removal fails the
+	// error also wraps ErrUploadNotRemoved and names it. wantSHA256, when
+	// not empty, is compared with the host's own digest of the placed
+	// file where the host can compute one; a mismatch removes the file and
+	// wraps ErrSourceDigestMismatch.
+	Upload(ctx context.Context, localPath, relPath, wantSHA256 string) (UploadVerification, error)
+
+	// Close hangs up and gives the write slot back.
+	Close() error
+}
+
+// SourceSpaceReporter says how much space is free on the volume a source's
+// root is on (statvfs@openssh.com on SFTP). known is false when the server
+// cannot say, which is not an error.
+type SourceSpaceReporter interface {
+	SourceFreeSpace(ctx context.Context, source Source) (free int64, known bool, err error)
+}
+
+// UploadVerification is how a placed file was checked against what was
+// sent: by the host's own SHA-256 where it can compute one, and by size
+// where it cannot.
+type UploadVerification string
+
+const (
+	VerifiedSHA256 UploadVerification = "sha256"
+	VerifiedSize   UploadVerification = "size"
+)
+
+// ErrSourceObjectExists is an upload's refusal to replace anything that is
+// already on the source.
+var ErrSourceObjectExists = errors.New("transport: the source already holds something at that path")
+
+// ErrUploadNotRemoved marks a failed upload whose temporary file could not
+// be removed again; UploadNotRemovedError names it.
+var ErrUploadNotRemoved = errors.New("transport: a failed upload's temporary file could not be removed")
+
+// UploadNotRemovedError names the temporary file a failed upload left.
+type UploadNotRemovedError struct {
+	Path string
+	Err  error
+}
+
+func (e *UploadNotRemovedError) Error() string {
+	return "transport: the temporary file " + e.Path + " could not be removed: " + e.Err.Error()
+}
+
+func (e *UploadNotRemovedError) Unwrap() []error { return []error{ErrUploadNotRemoved, e.Err} }
+
+// ErrSourceDigestMismatch is a placed file whose digest on the host is not
+// the one that was sent. The file is removed again.
+var ErrSourceDigestMismatch = errors.New("transport: the file on the source does not have the digest that was sent")
+
+// UploadTempMarker sits in the temporary name an upload writes before its
+// rename: .<name>.retnd-partial-<random>.
+const UploadTempMarker = ".retnd-partial-"
 
 // RecoveredFolderPrefix starts the name of every folder a source-host
 // recovery creates on the source (issue #1191). Recovered files land in a
 // new folder under the set's own remote path, and that folder is inside the
-// tree the next backup run lists, so internal/discovery skips any path with
-// a folder carrying this prefix. Without that skip the next run would take a
+// tree the next backup run lists, so internal/discovery skips a folder
+// carrying this prefix directly under the set's remote path (depth 1, and
+// nowhere else). Without that skip the next run would take a
 // recovered file for a new backup, and on a set that deletes from its source
 // it would then delete the very file the operator just recovered.
 const RecoveredFolderPrefix = "retnd-recovered-"

@@ -676,22 +676,28 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// neither; the grant in its path is what it presents. See
 		// handlers_recovery.go for the whole argument.
 		//
-		// Issue #1191: the one exception is a recovery onto the set's own
-		// source host, which writes onto a production machine. That target
-		// alone goes through the gate, the acknowledgement and the step-up
-		// (requireSourceRecoveryGate, recovery_source.go); every other target
-		// passes it untouched.
-		r.With(requireCSRF, requireSourceRecoveryGate(h.enforce, maxRecoveryMintBodyBytes, mintSourceTarget)).Post("/backups/{source}/{set}/{name}/recovery", h.mintRecovery)
-		r.Get("/recoveries/{grant}", h.redeemRecovery)
+		// Issues #1191 and #1193: the one exception is a recovery onto the
+		// set's own source host, which writes onto a production machine.
+		// That target alone goes through the gate, the acknowledgement of
+		// its destination and the step-up (requireSourceRecoveryGate,
+		// recovery_source.go), on the mint, on POST /recoveries and again on
+		// the redeem that does the upload (requireSourceGrantGate); every
+		// other target passes untouched. openapi.json marks the three with
+		// x-destructive-gate-target-kinds.
+		r.With(requireCSRF, requireSourceRecoveryGate(h.enforce, h.backend, maxRecoveryMintBodyBytes, mintSourceTarget)).Post("/backups/{source}/{set}/{name}/recovery", h.mintRecovery)
+		r.With(requireSourceGrantGate(h.enforce, h.backend)).Get("/recoveries/{grant}", h.redeemRecovery)
 		// #1106 and #1107: several backups, or a whole backup set, to one
 		// destination. The same tier as the mint (CSRF, no destructive
 		// gate except for the source host) for the same reason; see
 		// handlers_recoverymany.go.
-		r.With(requireCSRF, requireSourceRecoveryGate(h.enforce, maxRecoverManyBodyBytes, recoverManySourceTarget)).Post("/recoveries", h.recoverMany)
-		// Issue #1191: where a set's source-host recovery would write and
-		// whether it may (one write probe). CSRF and not the gate, like the
-		// connection test that runs the same probe.
-		r.With(requireCSRF).Post("/backup-sets/{source}/{set}/recovery-source/preflight", h.preflightRecoverySource)
+		r.With(requireCSRF, requireSourceRecoveryGate(h.enforce, h.backend, maxRecoverManyBodyBytes, recoverManySourceTarget)).Post("/recoveries", h.recoverMany)
+		// Issue #1193: where a set's source-host recovery would write, from
+		// configuration alone (a read, so a dialog may ask on open), and
+		// the write check, which writes and removes one probe file on that
+		// host and so runs only on the operator's say-so, behind CSRF and
+		// refused by a shut gate before anything is written.
+		r.Get("/backup-sets/{source}/{set}/source-host", h.describeSourceHost)
+		r.With(requireCSRF, requireDestructiveGate(h.enforce.gate)).Post("/backup-sets/{source}/{set}/source-host/write-check", h.checkSourceHostWrite)
 		r.Get("/activity", h.listActivity)
 		// Issue #573: what each backup set is DOING right now, as
 		// opposed to the durable record of what happened that the route

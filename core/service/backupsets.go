@@ -1629,7 +1629,7 @@ func testConnectionVia(ctx context.Context, tr transport.Transport, configPath s
 			if err != nil {
 				return 0, err
 			}
-			return len(entries), nil
+			return listedCandidates(entries), nil
 		},
 		// The same write probe the persisted mode runs, over the same
 		// candidate source (issue #852). The wizard needs this answer

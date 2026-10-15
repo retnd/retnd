@@ -36,6 +36,7 @@ type manyArgs struct {
 	since      string
 	preflight  bool
 	ackSource  bool
+	all        bool
 }
 
 // parseSince reads --since as a date or an RFC 3339 time.
@@ -70,10 +71,19 @@ func cmdRecoverMany(a manyArgs) int {
 			}
 		}
 	}
+	if a.all && a.set == "" {
+		return usageError("recover: --all needs --set")
+	}
+	if a.all && (a.newestOnly || a.since != "") {
+		return usageError("recover: --all is every restore point, so it does not go with --newest-only or --since")
+	}
 	var target service.RecoveryTarget
 	if a.to != "" {
 		var err error
 		if target, err = parseRecoverTarget(a.to); err != nil {
+			return usageError("recover: %v", err)
+		}
+		if err := checkSourceFlag(target, a.ackSource); err != nil {
 			return usageError("recover: %v", err)
 		}
 	}
@@ -100,38 +110,37 @@ func cmdRecoverMany(a manyArgs) int {
 	defer cleanup()
 	logStartup(ctx, obs.New(os.Stderr, obs.LevelFromEnv()), app.BuildVersionInfo(version, commit))
 
-	// Issue #1191: with no --to, the backups go back where they came from.
+	// Issue #1191: with no --to, the backups go back where they came from,
+	// where that can work (#1193), decided from the configuration alone.
+	of := a.set
+	if of == "" {
+		of = a.ids[0]
+	}
 	if a.to == "" {
-		of := a.set
-		if of == "" {
-			of = a.ids[0]
-		}
 		def, why := svc.DefaultRecoveryTarget(of)
 		if def.Kind == "" {
 			return usageError("recover: --to is required here, because %s: a name under the recovery staging root, or medium:ID[/PREFIX] for another storage destination", why)
 		}
 		req.Target = def
 	}
-	if req.Target.Kind == "source" {
-		req.Target.Acknowledged = a.ackSource
+	if service.RecoveryTargetWritesToSourceHost(req.Target) {
+		// A whole set onto a production host is spelled out (#1193).
+		if a.set != "" && !a.newestOnly && a.since == "" && !a.all && !a.preflight {
+			return usageError("recover: a whole backup set onto its source host is said explicitly: add --newest-only (the newest restore point, which the dialog defaults to), --since DATE, or --all for every retained restore point")
+		}
+		if a.preflight {
+			return sourcePreflight(ctx, svc, of, req.Target.Path, a.asJSON, func() int { return manyPreflight(ctx, svc, req, a.asJSON) })
+		}
+		acked, code := acknowledgeSourceDestination(svc, of, req.Target.Path, a.ackSource, a.asJSON)
+		if code != exitOK {
+			return code
+		}
+		req.Target = acked
 	}
 
 	if a.preflight {
-		plan, perr := svc.PlanRecoverMany(ctx, req)
-		if perr != nil {
-			if !a.asJSON {
-				printManyPlan(plan, true)
-			}
-			return reportRecoverError(perr, a.asJSON)
-		}
-		if a.asJSON {
-			_ = json.NewEncoder(os.Stdout).Encode(manyPlanJSON(plan))
-		} else {
-			printManyPlan(plan, false)
-		}
-		return exitOK
+		return manyPreflight(ctx, svc, req, a.asJSON)
 	}
-
 	progress := func(p service.RecoverManyProgress) {
 		if a.asJSON {
 			return
@@ -162,6 +171,23 @@ func cmdRecoverMany(a manyArgs) int {
 	return exitOK
 }
 
+// manyPreflight prints a plan, or the refusal with the plan it was about.
+func manyPreflight(ctx context.Context, svc *service.BackupService, req service.RecoverManyRequest, asJSON bool) int {
+	plan, perr := svc.PlanRecoverMany(ctx, req)
+	if perr != nil {
+		if !asJSON {
+			printManyPlan(plan, true)
+		}
+		return reportRecoverError(perr, asJSON)
+	}
+	if asJSON {
+		_ = json.NewEncoder(os.Stdout).Encode(manyPlanJSON(plan))
+	} else {
+		printManyPlan(plan, false)
+	}
+	return exitOK
+}
+
 func manyItemJSON(it service.RecoverManyItem) map[string]any {
 	m := map[string]any{"artifact_id": it.ArtifactID, "name": it.Name, "status": it.Status}
 	set := func(k string, v any, ok bool) {
@@ -177,6 +203,7 @@ func manyItemJSON(it service.RecoverManyItem) map[string]any {
 	set("path", it.Path, it.Path != "")
 	set("key", it.Key, it.Key != "")
 	set("file", it.Rel, it.Rel != "")
+	set("verified", it.Verified, it.Verified != "")
 	set("code", it.Code, it.Code != "")
 	set("message", it.Message, it.Message != "")
 	if it.Thaw != nil {
@@ -213,6 +240,12 @@ func manyPlanJSON(p service.RecoverManyPlan) map[string]any {
 	if p.FreeBytes != nil {
 		m["free_bytes"] = *p.FreeBytes
 	}
+	if p.DestinationID != "" {
+		m["destination_id"], m["url"], m["source_reserve_bytes"] = p.DestinationID, p.URL, p.SourceReserveBytes
+	}
+	if p.SourceFreeBytes != nil {
+		m["source_free_bytes"] = *p.SourceFreeBytes
+	}
 	return m
 }
 
@@ -220,6 +253,9 @@ func manyResultJSON(r service.RecoverManyResult) map[string]any {
 	m := map[string]any{
 		"operation_id": r.OperationID, "set": r.Set, "target": manyTargetJSON(r.Target), "folder": r.Folder,
 		"items": manyItemsJSON(r.Items), "totals": manyTotalsJSON(r.Totals), "cancelled": r.Cancelled,
+	}
+	if r.DestinationID != "" {
+		m["destination_id"], m["url"] = r.DestinationID, r.URL
 	}
 	if r.ManifestPath != "" {
 		m["manifest_path"] = r.ManifestPath
@@ -259,6 +295,14 @@ func printManyPlan(p service.RecoverManyPlan, refused bool) {
 	}
 	if p.FreeBytes != nil {
 		fmt.Printf("  staging disk:        %d bytes free, %d reserved\n", *p.FreeBytes, p.ReserveBytes)
+	}
+	if p.URL != "" {
+		fmt.Printf("  source host:         %s\n", p.URL)
+		if p.SourceFreeBytes != nil {
+			fmt.Printf("  free on the host:    %d bytes, %d kept free\n", *p.SourceFreeBytes, p.SourceReserveBytes)
+		} else {
+			fmt.Println("  free on the host:    unknown: the host did not say, so this run is not checked against it")
+		}
 	}
 	for _, it := range p.Items {
 		line := fmt.Sprintf("  %-14s %s", it.Status, it.ArtifactID)

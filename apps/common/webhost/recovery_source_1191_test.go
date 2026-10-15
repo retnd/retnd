@@ -13,24 +13,62 @@ import (
 	"github.com/retnd/retnd/core/service"
 )
 
-// Issue #1191: the "Source host (SFTP)" recovery destination writes onto a
+// Issues #1191 and #1193: the "Source host (SFTP)" recovery destination writes onto a
 // production machine, so over HTTP it goes through #1163's destructive
 // gate, the acknowledgement and the step-up re-authentication, and every
 // other recovery target stays exactly where it was (CSRF, no gate).
 
-// sourceRecoveryBackend is the recovery fake plus the source preflight.
+// sourceRecoveryBackend is the recovery fake plus the source-host routes.
 type sourceRecoveryBackend struct {
 	*fakeRecoveryBackend
-	preflights []string
+	describes  []string
+	checks     []string
+	checkErr   error
+	sourceHost string // the host the configuration resolves to
+	grants     map[string]bool
 }
 
-func (b *sourceRecoveryBackend) PreflightRecoverySource(_ context.Context, setID string) (service.RecoverySourceDestination, error) {
-	b.preflights = append(b.preflights, setID)
-	return service.RecoverySourceDestination{
-		SetID: setID, Available: true, Host: "db1.example.internal", Port: 22, User: "retnd-pull",
-		RemotePath: "/var/backups/postgres", Folder: "retnd-recovered-20261015-101500",
-		Writable: "no", Detail: "the account retnd pulls with is read-only on db1.example.internal",
-	}, nil
+func (b *sourceRecoveryBackend) description(setID, folder string) service.SourceHostDescription {
+	if folder == "" {
+		folder = sourceFolder
+	}
+	host := b.sourceHost
+	if host == "" {
+		host = "db1.example.internal"
+	}
+	return service.SourceHostDescription{
+		SetID: setID, Available: true, Host: host, Port: 22, User: "retnd-pull",
+		RemotePath: "/var/backups/postgres", Folder: folder, WriteAccess: service.SourceWriteNotChecked,
+	}
+}
+
+func (b *sourceRecoveryBackend) DescribeSourceHost(setID, folder string) (service.SourceHostDescription, error) {
+	b.describes = append(b.describes, setID)
+	if setID != "production/postgres" {
+		return service.SourceHostDescription{}, service.ErrBackupSetNotFound
+	}
+	return b.description(setID, folder), nil
+}
+
+func (b *sourceRecoveryBackend) CheckSourceHostWrite(_ context.Context, actor, setID, folder string) (service.SourceHostDescription, error) {
+	b.checks = append(b.checks, actor+" "+setID)
+	if b.checkErr != nil {
+		return service.SourceHostDescription{}, b.checkErr
+	}
+	d := b.description(setID, folder)
+	d.WriteAccess, d.Code = service.SourceWriteReadOnly, service.RecoverySourceHostReadOnly
+	d.Detail = "the account retnd pulls with is read-only on db1.example.internal"
+	d.CheckedAt = time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC)
+	return d, nil
+}
+
+func (b *sourceRecoveryBackend) RecoveryGrantWritesToSourceHost(token string) bool {
+	return b.grants[token]
+}
+
+// sourceAck is the destination id a client would have been shown.
+func sourceAck() string {
+	return (&sourceRecoveryBackend{}).description("production/postgres", sourceFolder).DestinationID()
 }
 
 type sourceRig struct {
@@ -54,6 +92,15 @@ func newSourceRig(t *testing.T, gate DestructiveGate) *sourceRig {
 	return r
 }
 
+func (r *sourceRig) get(t *testing.T, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.RemoteAddr = "127.0.0.1:40000"
+	rec := httptest.NewRecorder()
+	r.router.ServeHTTP(rec, req)
+	return rec
+}
+
 func (r *sourceRig) post(t *testing.T, path, body string, mods ...func(*http.Request)) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
@@ -69,10 +116,15 @@ func (r *sourceRig) post(t *testing.T, path, body string, mods ...func(*http.Req
 }
 
 const (
-	sourceMintAcked   = `{"target":{"kind":"source","acknowledged":true}}`
-	sourceMintUnacked = `{"target":{"kind":"source"}}`
-	sourceManyAcked   = `{"set":"production/postgres","target":{"kind":"source","acknowledged":true}}`
-	preflightPath     = "/api/v1/backup-sets/production/postgres/recovery-source/preflight"
+	sourceFolder      = "retnd-recovered-20261015-101500-a1b2"
+	sourceMintUnacked = `{"target":{"kind":"source","path":"` + sourceFolder + `"}}`
+	describePath      = "/api/v1/backup-sets/production/postgres/source-host"
+	writeCheckPath    = "/api/v1/backup-sets/production/postgres/source-host/write-check"
+)
+
+var (
+	sourceMintAcked = `{"target":{"kind":"source","path":"` + sourceFolder + `","acknowledged_destination":"` + sourceAck() + `"}}`
+	sourceManyAcked = `{"set":"production/postgres","target":{"kind":"source","path":"` + sourceFolder + `","acknowledged_destination":"` + sourceAck() + `"}}`
 )
 
 func TestRecoverySource1191_AShutGateRefusesTheSourceTargetAndOnlyIt(t *testing.T) {
@@ -101,7 +153,7 @@ func TestRecoverySource1191_AnOpenLocalAccountGateAsksForTheAcknowledgementAndTh
 
 	// A consent refusal, in the conflict class with the other
 	// *_NOT_ACKNOWLEDGED codes, and the password is not looked at for it.
-	if rec := r.post(t, mintPath, sourceMintUnacked, withStepUp(stepUpPassword)); rec.Code != http.StatusConflict || codeOf(rec) != "RECOVERY_SOURCE_NOT_ACKNOWLEDGED" {
+	if rec := r.post(t, mintPath, sourceMintUnacked, withStepUp(stepUpPassword)); rec.Code != http.StatusConflict || codeOf(rec) != "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED" {
 		t.Errorf("unacknowledged = %d %s", rec.Code, rec.Body.String())
 	}
 	if n := r.stepUp.asked(); n != 0 {
@@ -125,8 +177,8 @@ func TestRecoverySource1191_AnOpenLocalAccountGateAsksForTheAcknowledgementAndTh
 		t.Fatalf("minted = %d", len(r.backend.minted))
 	}
 	got := r.backend.minted[0].Target
-	if got.Kind != "source" || !got.Acknowledged {
-		t.Errorf("the service was handed %+v; the acknowledgement has to reach it", got)
+	if got.Kind != "source" || got.AcknowledgedDestination != sourceAck() {
+		t.Errorf("the service was handed %+v; the acknowledged destination has to reach it", got)
 	}
 
 	// The set route asks the same.
@@ -151,11 +203,13 @@ func TestRecoverySource1191_AGatewayProfileStaysShutForTheSource(t *testing.T) {
 	}
 }
 
-func TestRecoverySource1191_ThePreflightRouteAnswersBeforeTheRunAndIsNotGated(t *testing.T) {
+// #1193: describing reads configuration and is a GET a dialog may make on
+// open; an unknown set is a 404, not a 200 that says so.
+func TestSourceHost1193_DescribeIsAConfigOnlyGetWithARealNotFound(t *testing.T) {
 	r := newSourceRig(t, NotYetImplementedGate{})
-	rec := r.post(t, preflightPath, "")
+	rec := r.get(t, describePath+"?folder="+sourceFolder)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("preflight = %d %s", rec.Code, rec.Body.String())
+		t.Fatalf("describe = %d %s", rec.Code, rec.Body.String())
 	}
 	var body map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
@@ -163,22 +217,113 @@ func TestRecoverySource1191_ThePreflightRouteAnswersBeforeTheRunAndIsNotGated(t 
 	}
 	for k, want := range map[string]any{
 		"available": true, "host": "db1.example.internal", "user": "retnd-pull", "remote_path": "/var/backups/postgres",
-		"folder": "retnd-recovered-20261015-101500", "writable": "no",
+		"folder": sourceFolder, "write_access": "not_checked", "destination_id": sourceAck(),
+		"url": "sftp://retnd-pull@db1.example.internal/var/backups/postgres/" + sourceFolder + "/",
 	} {
 		if body[k] != want {
-			t.Errorf("preflight %s = %v, want %v (body %s)", k, body[k], want, rec.Body.String())
+			t.Errorf("describe %s = %v, want %v (body %s)", k, body[k], want, rec.Body.String())
 		}
 	}
-	if len(r.backend.preflights) != 1 || r.backend.preflights[0] != "production/postgres" {
-		t.Errorf("preflights = %v", r.backend.preflights)
+	if len(r.backend.checks) != 0 {
+		t.Errorf("describing ran %d write checks; it must never touch the host", len(r.backend.checks))
 	}
-	// CSRF, like every POST.
-	req := httptest.NewRequest(http.MethodPost, preflightPath, nil)
+	if rec := r.get(t, "/api/v1/backup-sets/production/nope/source-host"); rec.Code != http.StatusNotFound || codeOf(rec) != "BACKUP_SET_NOT_FOUND" {
+		t.Errorf("describe of an unknown set = %d %s, want 404 BACKUP_SET_NOT_FOUND", rec.Code, rec.Body.String())
+	}
+}
+
+// #1193: the write check writes on production, so a shut gate refuses it
+// before the service is even asked, and CSRF guards it like every POST.
+func TestSourceHost1193_AShutGateNeverRunsTheWriteCheck(t *testing.T) {
+	for _, gate := range []DestructiveGate{NotYetImplementedGate{}, NewProfileGate(profile.UGOS)} {
+		r := newSourceRig(t, gate)
+		rec := r.post(t, writeCheckPath, "")
+		if rec.Code != http.StatusForbidden || codeOf(rec) != "DESTRUCTIVE_OPERATIONS_DISABLED" {
+			t.Errorf("write check on a shut gate = %d %s", rec.Code, rec.Body.String())
+		}
+		if len(r.backend.checks) != 0 {
+			t.Errorf("a shut gate let %d write checks reach the service", len(r.backend.checks))
+		}
+	}
+	r := newSourceRig(t, NewProfileGate(profile.Generic))
+	req := httptest.NewRequest(http.MethodPost, writeCheckPath, nil)
 	req.RemoteAddr = "127.0.0.1:40000"
 	out := httptest.NewRecorder()
 	r.router.ServeHTTP(out, req)
-	if out.Code != http.StatusForbidden {
-		t.Errorf("preflight without CSRF = %d", out.Code)
+	if out.Code != http.StatusForbidden || len(r.backend.checks) != 0 {
+		t.Errorf("write check without CSRF = %d, %d checks", out.Code, len(r.backend.checks))
+	}
+}
+
+func TestSourceHost1193_AnOpenGateRunsTheWriteCheckAndSaysWhatItFound(t *testing.T) {
+	r := newSourceRig(t, NewProfileGate(profile.Generic))
+	rec := r.post(t, writeCheckPath, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("write check = %d %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if body["write_access"] != "read_only" || body["code"] != "RECOVERY_SOURCE_HOST_READ_ONLY" || body["checked_at"] != "2026-10-15T09:00:00Z" {
+		t.Errorf("write check body = %s", rec.Body.String())
+	}
+	if len(r.backend.checks) != 1 || r.backend.checks[0] != "alice production/postgres" {
+		t.Errorf("checks = %v; the audit needs who asked", r.backend.checks)
+	}
+	r.backend.checkErr = &service.SourceWriteCheckRateLimited{RetryAfter: 1400 * time.Millisecond}
+	rec = r.post(t, writeCheckPath, "")
+	if rec.Code != http.StatusTooManyRequests || codeOf(rec) != "RATE_LIMITED" || rec.Header().Get("Retry-After") != "1" {
+		t.Errorf("rate limited write check = %d %s Retry-After %q", rec.Code, rec.Body.String(), rec.Header().Get("Retry-After"))
+	}
+	r.backend.checkErr = &service.RecoveryError{Code: service.RecoverySourceHostUnavailable, Message: "not SFTP"}
+	if rec := r.post(t, writeCheckPath, ""); rec.Code != http.StatusConflict || codeOf(rec) != "RECOVERY_SOURCE_HOST_UNAVAILABLE" {
+		t.Errorf("write check on a set with no source host = %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// #1193: the redeem is where a source grant writes, so a gate that shut
+// after the mint stops it; every other grant is untouched.
+func TestSourceHost1193_RedeemingASourceGrantChecksTheGateAgain(t *testing.T) {
+	r := newSourceRig(t, NotYetImplementedGate{})
+	r.backend.grants = map[string]bool{"src-grant": true}
+	if rec := r.get(t, "/api/v1/recoveries/src-grant"); rec.Code != http.StatusForbidden || codeOf(rec) != "DESTRUCTIVE_OPERATIONS_DISABLED" {
+		t.Errorf("redeem of a source grant on a shut gate = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := r.get(t, "/api/v1/recoveries/other-grant"); rec.Code == http.StatusForbidden && codeOf(rec) == "DESTRUCTIVE_OPERATIONS_DISABLED" {
+		t.Errorf("a non-source grant was refused by the gate: %s", rec.Body.String())
+	}
+}
+
+// #1193: the gate compares the acknowledged destination with what the
+// configuration resolves to now, and refuses a stale one before it spends a
+// password check on it.
+func TestSourceHost1193_TheGateRefusesAStaleAcknowledgementBeforeThePassword(t *testing.T) {
+	r := newSourceRig(t, NewProfileGate(profile.Generic))
+	r.backend.sourceHost = "db2.example.internal"
+	rec := r.post(t, mintPath, sourceMintAcked, withStepUp(stepUpPassword))
+	if rec.Code != http.StatusConflict || codeOf(rec) != "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED" || !strings.Contains(messageOf(rec), "db2.example.internal") {
+		t.Errorf("mint with a stale acknowledgement = %d %s", rec.Code, rec.Body.String())
+	}
+	if n := r.stepUp.asked(); n != 0 || len(r.backend.minted) != 0 {
+		t.Errorf("a stale acknowledgement spent %d password checks and reached the service %d times", n, len(r.backend.minted))
+	}
+}
+
+// O2: the body is decoded once per request, and asking for it as another
+// type is an error, never an empty body that would read as "no target".
+func TestSourceHost1193_ASecondDecodeAsAnotherTypeIsAnError(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/x", strings.NewReader(`{"target":{"kind":"source"}}`))
+	w := httptest.NewRecorder()
+	p, req := recoveryRequest[recoveryMintRequest](w, req, 1<<10)
+	if p.err != nil || p.body.Target.Kind != "source" {
+		t.Fatalf("first decode = %+v", p)
+	}
+	again, _ := recoveryRequest[recoveryMintRequest](w, req, 1<<10)
+	if again != p {
+		t.Error("asking again for the same type decoded again")
+	}
+	other, _ := recoveryRequest[recoverManyRequestBody](w, req, 1<<10)
+	if other.err == nil {
+		t.Error("asking for the consumed body as another type gave a zero value instead of an error")
 	}
 }
 
@@ -238,7 +383,7 @@ func TestRecoverySource1191_TheTransportRuleTakesServeUIsVerdictAboutTheBrowser(
 // later one wins) is gated on the target the service is then handed.
 func TestRecoverySource1191_TheGateAndTheHandlerReadOneDecodedBody(t *testing.T) {
 	r := newSourceRig(t, NotYetImplementedGate{})
-	twice := `{"target":{"kind":"staging","path":"x"},"Target":{"kind":"source","acknowledged":true}}`
+	twice := `{"target":{"kind":"staging","path":"x"},"Target":{"kind":"source","acknowledged_destination":"sh1-x"}}`
 	rec := r.post(t, mintPath, twice, withStepUp(stepUpPassword))
 	if rec.Code != http.StatusForbidden || codeOf(rec) != "DESTRUCTIVE_OPERATIONS_DISABLED" {
 		t.Errorf("a body whose last target is the source = %d %s, want the shut gate", rec.Code, rec.Body.String())
@@ -247,7 +392,7 @@ func TestRecoverySource1191_TheGateAndTheHandlerReadOneDecodedBody(t *testing.T)
 		t.Errorf("it reached the service %d times", n)
 	}
 
-	reversed := `{"Target":{"kind":"source","acknowledged":true},"target":{"kind":"staging","path":"x"}}`
+	reversed := `{"Target":{"kind":"source","acknowledged_destination":"sh1-x"},"target":{"kind":"staging","path":"x"}}`
 	rec = r.post(t, mintPath, reversed)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("a body whose last target is staging = %d %s", rec.Code, rec.Body.String())

@@ -246,6 +246,11 @@ type Result struct {
 	// be rejected on every future pass until a person renames it.
 	Rejected []RejectedEntry
 
+	// SkippedRecovered counts the files left alone because they sit in a
+	// folder a source-host recovery created directly under the remote path
+	// (InRecoveredFolder, #1193). Never a candidate, but never silent.
+	SkippedRecovered int
+
 	// Conflicts is two remote paths in one backup set claiming the same
 	// basename. Also never self-resolving, and the one an operator most
 	// needs to see, because the artifact that lost the collision is not
@@ -305,6 +310,18 @@ func Discover(ctx context.Context, deps Deps, source transport.Source, set confi
 			continue
 		}
 
+		if InRecoveredFolder(relPath) {
+			// Issues #1191 and #1193: a file a source-host recovery put
+			// back, in the folder it created directly under the remote
+			// path. It is the operator's recovered copy, not a new backup,
+			// and taking it for one would ingest it and, on a set that
+			// deletes from its source, delete it again. Counted, so the
+			// pass says how many it left alone, and skipped before its
+			// name is judged, so an odd name there is not reported either.
+			res.SkippedRecovered++
+			continue
+		}
+
 		base := path.Base(relPath)
 
 		artifactID, err := model.NewArtifactID(set.ID, base)
@@ -322,13 +339,6 @@ func Discover(ctx context.Context, deps Deps, source transport.Source, set confi
 		if isProducerTempName(base) {
 			// Still being written under a recognized in-progress name.
 			// Expected and routine, not a discovery gap.
-			continue
-		}
-		if inRecoveredFolder(relPath) {
-			// Issue #1191: a file a source-host recovery put back. It is
-			// the operator's recovered copy, not a new backup, and taking
-			// it for one would ingest it and, on a set that deletes from
-			// its source, delete it again. Skipped silently, like a probe.
 			continue
 		}
 		if isOwnWriteProbe(base) {

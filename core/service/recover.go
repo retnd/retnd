@@ -78,7 +78,8 @@ type RecoveryTarget struct {
 
 	// Path is the name under the recovery staging root, for "staging". For
 	// "source" it is the new folder under the set's remote path the file
-	// goes into (issue #1191); empty takes a fresh default.
+	// goes into (issue #1191); empty takes a fresh one, which a request that
+	// writes can only acknowledge after describing it.
 	Path string
 
 	// Medium and Key address another configured storage destination, for
@@ -86,9 +87,11 @@ type RecoveryTarget struct {
 	Medium string
 	Key    string
 
-	// Acknowledged is the explicit yes to writing onto the backup set's own
-	// source, for "source" (issue #1191). Absent is a no.
-	Acknowledged bool
+	// AcknowledgedDestination is, for "source", the destination id the
+	// operator was shown (DescribeSourceHost) and said yes to (issue
+	// #1193). Absent, or not the id the configuration resolves to now, is
+	// a refusal. Results never carry it back.
+	AcknowledgedDestination string
 }
 
 // RecoverySession is who is asking and how long that identity lasts. A zero
@@ -133,6 +136,10 @@ type RecoveryGrant struct {
 	Target     RecoveryTarget
 	SizeBytes  *int64
 
+	// DestinationID and URL say where a source-host grant writes (#1193).
+	DestinationID string
+	URL           string
+
 	// Thaw is set instead of Token when the mint had to start a provider
 	// restore first.
 	Thaw *RecoveryThaw
@@ -153,6 +160,13 @@ type RecoveryResult struct {
 
 	Bytes  int64
 	SHA256 string
+
+	// For the "source" target (#1193): the destination written to, and how
+	// the placed file was checked there, "sha256" (the host's own digest)
+	// or "size" (a host that cannot compute one).
+	DestinationID string
+	URL           string
+	Verified      string
 }
 
 // recoveryHost is the per-process machinery: the grant table, the staging
@@ -327,7 +341,8 @@ func RecoveryCodes() []string {
 		RecoveryGrantSessionEnded, RecoveryTooManyGrants, RecoveryTargetInvalid, RecoveryTargetExists,
 		RecoveryUseSnapshotRestore, RecoveryUnavailable, RecoveryBusy, RecoveryInterrupted, RecoveryFailed,
 		RecoveryReadsBusy, RecoveryDestinationBusy, RecoveryDownloadsBusy,
-		RecoverySourceUnavailable, RecoverySourceReadOnly, RecoverySourceNotAcknowledged,
+		RecoverySourceHostUnavailable, RecoverySourceHostReadOnly, RecoverySourceHostNotAcknowledged,
+		RecoverySourceHostUnreachable, RecoverySourceHostNoSpace, RecoverySourceHostProbeLeftFile,
 	}
 }
 
@@ -618,15 +633,21 @@ func (b *BackupService) MintRecovery(ctx context.Context, sess RecoverySession, 
 	if err != nil {
 		return RecoveryGrant{}, err
 	}
-	target, err := b.validateRecoveryTarget(h, req.ArtifactID, req.Target)
-	if err != nil {
+	var source resolvedSourceHost
+	var target export.Target
+	if RecoveryTargetWritesToSourceHost(req.Target) {
+		id, perr := app.ParseArtifactID(req.ArtifactID)
+		if perr != nil {
+			return RecoveryGrant{}, recoveryErr(RecoveryTargetInvalid, "a source target needs the backup it recovers")
+		}
+		target, source, err = b.validateSourceTarget(id.Set.String(), req.Target, id.Name, true)
+		if err != nil {
+			return RecoveryGrant{}, err
+		}
+		// The audit row names the machine, not just a folder (#1193).
+		ev.target = "source:" + source.d.URL() + " (" + target.Destination + ")"
+	} else if target, err = b.validateRecoveryTarget(h, req.ArtifactID, req.Target); err != nil {
 		return RecoveryGrant{}, err
-	}
-	if target.Kind == export.TargetSource {
-		// The folder the default resolved to travels back on the grant, so
-		// the caller can say where the file will land.
-		req.Target.Path = path.Dir(target.Path)
-		ev.target = req.Target.label()
 	}
 	plan, err := b.planRecovery(ctx, req.ArtifactID, req.Copy, req.AcknowledgeCost)
 	if err != nil {
@@ -634,11 +655,17 @@ func (b *BackupService) MintRecovery(ctx context.Context, sess RecoverySession, 
 	}
 	ev.copy = plan.resolved.Copy.Medium
 	if target.Kind == export.TargetSource {
-		// Before a byte is read: a read-only account is refused here, so
-		// it never costs a read or leaves a staged file.
-		id, _ := app.ParseArtifactID(req.ArtifactID)
-		if perr := b.probeSource(ctx, id.Set.String()); perr != nil && !errors.Is(perr, errNoSourceProbe) {
-			return RecoveryGrant{}, perr
+		// Before a byte is read: a read-only account, a probe that left its
+		// file, an unreachable host or a full volume is refused here, so it
+		// never costs a read or leaves a staged file. One probe, shared with
+		// a write check from the last five minutes.
+		if err := b.ensureSourceWritable(ctx, sess.Actor, source); err != nil {
+			return RecoveryGrant{}, err
+		}
+		if plan.expect.Size != nil {
+			if _, err := b.checkSourceSpace(ctx, source, *plan.expect.Size, h.limits.StagingReserveBytes); err != nil {
+				return RecoveryGrant{}, err
+			}
 		}
 	}
 
@@ -651,29 +678,32 @@ func (b *BackupService) MintRecovery(ctx context.Context, sess RecoverySession, 
 			return RecoveryGrant{}, mapRecoveryError(terr)
 		}
 		ev.note = "provider restore started: " + thaw.OperationID
-		return RecoveryGrant{ArtifactID: req.ArtifactID, Copy: plan.resolved.Copy.Medium, Target: req.Target, Thaw: &thaw}, nil
+		return RecoveryGrant{ArtifactID: req.ArtifactID, Copy: plan.resolved.Copy.Medium, Target: publicTarget(req.Target), Thaw: &thaw}, nil
 	}
 	if derr := checkPlanDigest(plan); derr != nil {
 		return RecoveryGrant{}, derr
 	}
 
-	token, g, err := h.grants.Mint(export.GrantSpec{
+	spec := export.GrantSpec{
 		Session:  sess.toExport(),
 		Artifact: req.ArtifactID,
 		Copy:     plan.resolved.Copy.Medium,
 		Target:   target,
-	})
+	}
+	out := RecoveryGrant{ArtifactID: req.ArtifactID, Copy: plan.resolved.Copy.Medium, Target: req.Target, SizeBytes: plan.expect.Size}
+	if target.Kind == export.TargetSource {
+		// A grant that writes onto production lives a minute, and its
+		// redeem goes through the gate again (#1193).
+		spec.TTL = sourceGrantTTL
+		out.Target = RecoveryTarget{Kind: req.Target.Kind, Path: source.d.Folder}
+		out.DestinationID, out.URL = target.Destination, source.d.URL()
+	}
+	token, g, err := h.grants.Mint(spec)
 	if err != nil {
 		return RecoveryGrant{}, mapRecoveryError(err)
 	}
-	return RecoveryGrant{
-		Token:      token,
-		ExpiresAt:  g.ExpiresAt,
-		ArtifactID: req.ArtifactID,
-		Copy:       plan.resolved.Copy.Medium,
-		Target:     req.Target,
-		SizeBytes:  plan.expect.Size,
-	}, nil
+	out.Token, out.ExpiresAt = token, g.ExpiresAt
+	return out, nil
 }
 
 // checkPlanDigest refuses, at mint, an artifact the journal holds no
@@ -696,6 +726,12 @@ func (t RecoveryTarget) label() string {
 		return "source:" + t.Path
 	}
 	return t.Kind
+}
+
+// publicTarget is a target as a response may carry it: never the consent.
+func publicTarget(t RecoveryTarget) RecoveryTarget {
+	t.AcknowledgedDestination = ""
+	return t
 }
 
 // validateRecoveryTarget checks the target at mint time, so a bad one is
@@ -726,13 +762,6 @@ func (b *BackupService) validateRecoveryTarget(h *recoveryHost, artifactID strin
 			return export.Target{}, recoveryErr(RecoveryTargetInvalid, "that key does not stay inside the destination's namespace")
 		}
 		return export.Target{Kind: export.TargetStorage, Medium: t.Medium, Key: clean}, nil
-	case "source":
-		id, err := app.ParseArtifactID(artifactID)
-		if err != nil {
-			return export.Target{}, recoveryErr(RecoveryTargetInvalid, "a source target needs the backup it recovers")
-		}
-		ex, _, err := b.validateSourceTarget(id.Set.String(), t, id.Name, true)
-		return ex, err
 	}
 	return export.Target{}, recoveryErr(RecoveryTargetInvalid, "target kind must be download, staging, storage or source")
 }
@@ -837,7 +866,8 @@ func isRefusal(code string) bool {
 		RecoveryGrantUnknown, RecoveryGrantUsed, RecoveryGrantExpired, RecoveryGrantSessionEnded,
 		RecoveryTooManyGrants, RecoveryTargetInvalid, RecoveryTargetExists, RecoveryUseSnapshotRestore,
 		RecoveryBelowReserve, RecoveryBusy, RecoveryReadsBusy, RecoveryDestinationBusy, RecoveryDownloadsBusy, recoveryArtifactNotFoundCode, "RECOVERY_RANGE_NOT_SATISFIABLE",
-		RecoverySourceUnavailable, RecoverySourceReadOnly, RecoverySourceNotAcknowledged:
+		RecoverySourceHostUnavailable, RecoverySourceHostReadOnly, RecoverySourceHostNotAcknowledged,
+		RecoverySourceHostNoSpace, RecoverySourceHostProbeLeftFile:
 		return true
 	}
 	return false

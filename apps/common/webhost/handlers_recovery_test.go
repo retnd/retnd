@@ -379,10 +379,14 @@ func TestEveryRefusalHasItsOwnStatusAndGoesOutUnderItsOwnCode(t *testing.T) {
 		service.RecoveryReadsBusy:           http.StatusTooManyRequests,
 		service.RecoveryDestinationBusy:     http.StatusTooManyRequests,
 		service.RecoveryDownloadsBusy:       http.StatusTooManyRequests,
-		// Issue #1191.
-		service.RecoverySourceUnavailable:     http.StatusConflict,
-		service.RecoverySourceReadOnly:        http.StatusConflict,
-		service.RecoverySourceNotAcknowledged: http.StatusConflict,
+		// Issues #1191 and #1193.
+		service.RecoverySourceHostUnavailable:     http.StatusConflict,
+		service.RecoverySourceHostReadOnly:        http.StatusConflict,
+		service.RecoverySourceHostNotAcknowledged: http.StatusConflict,
+		service.RecoverySourceHostProbeLeftFile:   http.StatusConflict,
+		service.RecoverySourceHostNoSpace:         http.StatusInsufficientStorage,
+		// Transient, with Retry-After.
+		service.RecoverySourceHostUnreachable: http.StatusServiceUnavailable,
 	}
 	for _, code := range service.RecoveryCodes() {
 		status, ok := want[code]
@@ -446,8 +450,13 @@ func TestAServerSideTargetAnswersWithAJSONResultAndNeverStreams(t *testing.T) {
 }
 
 func TestTheRecoveryRoutesAreRegisteredInTheTierTheyClaim(t *testing.T) {
-	if !destructiveGateExemptRoutes["POST /api/v1/backups/{source}/{set}/{name}/recovery"] {
-		t.Fatal("the mint is exempt from the destructive gate on purpose, and the exemption must be written down with its reason")
+	// The mint is gated for the source-host target only (#1193): every other
+	// kind reads and overwrites nothing, and the list says which kind.
+	if got := destructiveGateTargetKindRoutes["POST /api/v1/backups/{source}/{set}/{name}/recovery"]; len(got) != 1 || got[0] != "source" {
+		t.Fatalf("the mint's gated target kinds = %v, want [source]", got)
+	}
+	if destructiveGateExemptRoutes["POST /api/v1/backups/{source}/{set}/{name}/recovery"] {
+		t.Fatal("the mint is gated for the source host, so it cannot also be written down as exempt")
 	}
 }
 

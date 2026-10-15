@@ -123,8 +123,9 @@ func TestGateRefusal1157_TheContractSaysWhoTheGateIsShutFor(t *testing.T) {
 	}
 	var doc struct {
 		Paths map[string]map[string]struct {
-			Description string `json:"description"`
-			Gate        bool   `json:"x-destructive-gate"`
+			Description string   `json:"description"`
+			Gate        bool     `json:"x-destructive-gate"`
+			TargetKinds []string `json:"x-destructive-gate-target-kinds"`
 		} `json:"paths"`
 		Components struct {
 			Schemas map[string]json.RawMessage `json:"schemas"`
@@ -136,7 +137,7 @@ func TestGateRefusal1157_TheContractSaysWhoTheGateIsShutFor(t *testing.T) {
 	gated := 0
 	for path, methods := range doc.Paths {
 		for method, op := range methods {
-			if !op.Gate {
+			if !op.Gate && len(op.TargetKinds) == 0 {
 				continue
 			}
 			gated++
@@ -148,8 +149,11 @@ func TestGateRefusal1157_TheContractSaysWhoTheGateIsShutFor(t *testing.T) {
 			}
 		}
 	}
-	if gated != 2 {
-		t.Errorf("found %d gated operations, want 2 (POST /operations and retention/apply): the list this test guards moved", gated)
+	// POST /operations, retention/apply and #1193's write check are gated
+	// outright; the mint, POST /recoveries and the redeem are gated for the
+	// source-host target kind, and say so the same way.
+	if gated != 6 {
+		t.Errorf("found %d gated operations, want 6 (POST /operations, retention/apply, the source-host write check, and the three recovery routes gated per target kind): the list this test guards moved", gated)
 	}
 
 	create := string(doc.Components.Schemas["CreateBackupSetRequest"])

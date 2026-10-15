@@ -444,10 +444,13 @@ type gatedAct struct {
 	sourceRecovery *sourceRecoveryAct
 }
 
-// sourceRecoveryAct is what decide needs from a source-host recovery: whether
-// the request said yes to writing onto that host.
+// sourceRecoveryAct is what decide needs from a source-host recovery: the
+// destination the request acknowledged, and (when the gate could work it
+// out) the one the configuration resolves to now (#1193).
 type sourceRecoveryAct struct {
-	acknowledged bool
+	acknowledged string
+	current      string
+	url          string
 }
 
 // gateRefusal is how a gated act is refused.
@@ -527,10 +530,15 @@ func (e gateEnforcement) checkRestore(r *http.Request, req *submitOperationReque
 // (issue #1191). It writes onto the production machine the backup came from,
 // so it asks what a restore asks, in the same order.
 func (e gateEnforcement) checkSourceRecovery(r *http.Request, act *sourceRecoveryAct) (gateRefusal, bool) {
-	if !act.acknowledged {
-		return newGateRefusal(http.StatusConflict, "RECOVERY_SOURCE_NOT_ACKNOWLEDGED",
-			"recovering to the source host writes onto the machine this backup came from, so the request has to say you understand that: set acknowledged to true in its target",
+	if act.acknowledged == "" {
+		return newGateRefusal(http.StatusConflict, "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED",
+			"recovering to the source host writes onto the machine this backup came from, so the request has to acknowledge that destination: send the destination_id GET .../source-host returned as acknowledged_destination in its target",
 			"open", "the recovery did not acknowledge writing onto its source host"), true
+	}
+	if act.current != "" && act.acknowledged != act.current {
+		return newGateRefusal(http.StatusConflict, "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED",
+			"the destination changed since it was acknowledged: it is now "+act.url+", so nothing was written and no password was checked; look at it again and acknowledge what it is now",
+			"open", "the recovery acknowledged a source-host destination the configuration no longer resolves to"), true
 	}
 	return e.checkStepUp(r, stepUpAct{
 		name: "a recovery onto the source host", plural: "recoveries onto the source host",

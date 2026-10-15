@@ -131,22 +131,18 @@ func isOwnWriteProbe(base string) bool {
 	return strings.HasPrefix(base, transport.ProbeObjectPrefix)
 }
 
-// inRecoveredFolder reports whether relPath sits inside a folder a
-// source-host recovery created (transport.RecoveredFolderPrefix, issue
-// #1191), at any depth. Only folders count: a file that merely starts with
-// the prefix is still a candidate, because recovery never names a file that
-// way and an operator might.
-func inRecoveredFolder(relPath string) bool {
-	dir := path.Dir(relPath)
-	if dir == "." {
-		return false
-	}
-	for _, seg := range strings.Split(dir, "/") {
-		if strings.HasPrefix(seg, transport.RecoveredFolderPrefix) {
-			return true
-		}
-	}
-	return false
+// InRecoveredFolder reports whether relPath sits inside a folder a
+// source-host recovery created (transport.RecoveredFolderPrefix, issues
+// #1191 and #1193): a folder carrying the prefix directly under the set's
+// remote path, which is the only place recovery ever creates one, and
+// nowhere deeper. A folder of that name further down the tree is the
+// operator's, and its files are candidates like any other, as is a file
+// that merely starts with the prefix. Exported so the other two readers of
+// a source listing (fetch --dry-run and the connection test) skip exactly
+// what discovery skips. It allocates nothing.
+func InRecoveredFolder(relPath string) bool {
+	first, rest, found := strings.Cut(relPath, "/")
+	return found && rest != "" && strings.HasPrefix(first, transport.RecoveredFolderPrefix)
 }
 
 // includeMatches reports whether base matches at least one of patterns.

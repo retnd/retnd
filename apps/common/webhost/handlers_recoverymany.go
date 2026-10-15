@@ -77,6 +77,7 @@ type recoverManyItemBody struct {
 	Code       string                 `json:"code,omitempty"`
 	Message    string                 `json:"message,omitempty"`
 	Restore    *recoveryRestoreStatus `json:"restore,omitempty"`
+	Verified   string                 `json:"verified,omitempty"`
 }
 
 type recoverManyTotalsBody struct {
@@ -102,6 +103,11 @@ type recoverManyPlanBody struct {
 	UnknownSizes    int                   `json:"unknown_sizes"`
 	FreeBytes       *int64                `json:"free_bytes,omitempty"`
 	ReserveBytes    int64                 `json:"reserve_bytes"`
+	// For a source target (#1193).
+	DestinationID      string `json:"destination_id,omitempty"`
+	URL                string `json:"url,omitempty"`
+	SourceFreeBytes    *int64 `json:"source_free_bytes,omitempty"`
+	SourceReserveBytes int64  `json:"source_reserve_bytes,omitempty"`
 	// Refusal is set on a pre-flight answer when the run itself would be
 	// refused; the plan beside it is what the refusal is about.
 	Refusal *recoverManyErrorBody `json:"refusal,omitempty"`
@@ -118,6 +124,8 @@ type recoverManyResultBody struct {
 	ManifestPath   string                `json:"manifest_path,omitempty"`
 	ManifestKey    string                `json:"manifest_key,omitempty"`
 	ManifestSHA256 string                `json:"manifest_sha256,omitempty"`
+	DestinationID  string                `json:"destination_id,omitempty"`
+	URL            string                `json:"url,omitempty"`
 }
 
 // recoverManyEvent is one line of the stream.
@@ -142,7 +150,7 @@ func itemBody(it service.RecoverManyItem) recoverManyItemBody {
 	b := recoverManyItemBody{
 		ArtifactID: it.ArtifactID, Name: it.Name, Status: it.Status, Copy: it.Copy, SizeBytes: it.SizeBytes,
 		Chargeable: it.Chargeable, Bytes: it.Bytes, SHA256: it.SHA256, Path: it.Path, Key: it.Key, File: it.Rel,
-		Code: it.Code, Message: it.Message,
+		Code: it.Code, Message: it.Message, Verified: it.Verified,
 	}
 	if it.Thaw != nil {
 		b.Restore = &recoveryRestoreStatus{OperationID: it.Thaw.OperationID, Wait: it.Thaw.Wait, Billing: it.Thaw.Billing}
@@ -174,6 +182,7 @@ func planBody(p service.RecoverManyPlan) *recoverManyPlanBody {
 		Set: p.Set, Target: targetBody(p.Target), Folder: p.Folder, Items: itemsBody(p.Items), Totals: totalsBody(p.Totals),
 		ChargeableCount: p.ChargeableCount, ChargeableBytes: p.ChargeableBytes, UnknownSizes: p.UnknownSizes,
 		FreeBytes: p.FreeBytes, ReserveBytes: p.ReserveBytes,
+		DestinationID: p.DestinationID, URL: p.URL, SourceFreeBytes: p.SourceFreeBytes, SourceReserveBytes: p.SourceReserveBytes,
 	}
 }
 
@@ -181,7 +190,7 @@ func resultBody(r service.RecoverManyResult) *recoverManyResultBody {
 	return &recoverManyResultBody{
 		OperationID: r.OperationID, Set: r.Set, Target: targetBody(r.Target), Folder: r.Folder, Items: itemsBody(r.Items),
 		Totals: totalsBody(r.Totals), Cancelled: r.Cancelled, ManifestPath: r.ManifestPath, ManifestKey: r.ManifestKey,
-		ManifestSHA256: r.ManifestSHA256,
+		ManifestSHA256: r.ManifestSHA256, DestinationID: r.DestinationID, URL: r.URL,
 	}
 }
 

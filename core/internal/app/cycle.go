@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/retnd/retnd/core/internal/config"
@@ -12,6 +13,7 @@ import (
 	"github.com/retnd/retnd/core/internal/obs"
 	"github.com/retnd/retnd/core/internal/placement"
 	"github.com/retnd/retnd/core/internal/reconcile"
+	"github.com/retnd/retnd/core/internal/transport"
 )
 
 // FR-1's processing cycle: the one piece of work `run` performs once and
@@ -480,6 +482,24 @@ func (s *Service) processBackupSet(ctx context.Context, src config.Source, bs co
 		return result
 	}
 
+	// Issue #1191: the source host's write slot, for the whole pass. Both
+	// pipelines below hold up to two connections to an SFTP source, and the
+	// hosts this manager pulls from reset a third, which is exactly what a
+	// recovery uploading onto the same machine at the same time would be.
+	// So a pass and a source upload session take the same slot, and a pass
+	// waits here, before it has touched the source, while a recovery is
+	// writing there (and the other way round). A local source has no host
+	// and never waits.
+	releaseHost, err := transport.AcquireSourceHost(ctx, source)
+	if err != nil {
+		if stopped := stopReason(); stopped != nil {
+			err = stopped
+		}
+		result.Err = err
+		return result
+	}
+	defer releaseHost()
+
 	// EPIC K's engine dispatch: which pipeline this set gets, decided
 	// HERE, before reconcileOne, which is the last point before anything
 	// reads or writes this set's remote.
@@ -561,6 +581,13 @@ func (s *Service) processBackupSet(ctx context.Context, src config.Source, bs co
 	result.Discovery = discRes
 	discovered, alreadyKnown, pending, rejected, conflicts, errored := eventDiscoveryCounts(discRes)
 	s.logger().Discovery(ctx, bs.ID.String(), discovered, alreadyKnown, pending, rejected, conflicts, errored)
+	if discRes.SkippedRecovered > 0 {
+		// Once per pass, so the skip is never silent (#1193).
+		s.logger().Event(ctx, obs.LevelInfo, obs.EventDiscovery, "discovery left files in recovered folders alone",
+			slog.String("backup_set", bs.ID.String()),
+			slog.Int("skipped_recovered", discRes.SkippedRecovered),
+			slog.String("prefix", transport.RecoveredFolderPrefix))
+	}
 	if err != nil {
 		s.logger().Error(ctx, "discover", err)
 		result.Err = err

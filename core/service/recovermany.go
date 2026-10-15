@@ -89,6 +89,10 @@ type RecoverManyItem struct {
 	Code    string
 	Message string
 	Thaw    *RecoveryThaw
+
+	// Verified is, for a file placed on a source host (#1193), "sha256"
+	// (the host's own digest matched) or "size" (it cannot compute one).
+	Verified string
 }
 
 // RecoverManyTotals counts a plan or a result.
@@ -123,6 +127,14 @@ type RecoverManyPlan struct {
 	// target. FreeBytes is nil where the destination cannot say.
 	FreeBytes    *int64
 	ReserveBytes int64
+
+	// For a source target (#1193): the destination the run would write
+	// into, and the host's free space (nil when it cannot say) and the
+	// reserve a run leaves there.
+	DestinationID      string
+	URL                string
+	SourceFreeBytes    *int64
+	SourceReserveBytes int64
 }
 
 // RecoverManyResult is what a run reports, and what its manifest says.
@@ -134,6 +146,10 @@ type RecoverManyResult struct {
 	Items       []RecoverManyItem
 	Totals      RecoverManyTotals
 	Cancelled   bool
+
+	// DestinationID and URL say where a source-host run wrote (#1193).
+	DestinationID string
+	URL           string
 
 	// ManifestPath (staging) or ManifestKey (storage) is the manifest file.
 	ManifestPath   string
@@ -184,6 +200,8 @@ type recoverManyScope struct {
 	arts     []Artifact
 	set      string
 	folder   string
+	// source is the resolved source host, for a source target.
+	source resolvedSourceHost
 }
 
 // manyFolderFor is the per-set folder a backup lands in under the target.
@@ -210,7 +228,7 @@ func (b *BackupService) scopeRecoverMany(ctx context.Context, h *recoveryHost, r
 	if t.Kind == "storage" && t.Key == "" {
 		t.Key = manyDefaultKey
 	}
-	if t.Kind != "source" {
+	if !RecoveryTargetWritesToSourceHost(t) {
 		// A source target is checked once the rows are known, because it
 		// is the rows' own set that decides where it writes.
 		ex, err := b.validateRecoveryTarget(h, "", t)
@@ -263,18 +281,18 @@ func (b *BackupService) scopeRecoverMany(ctx context.Context, h *recoveryHost, r
 	if len(sc.arts) == 0 {
 		return sc, recoveryErr(RecoveryNoCopy, "there is no backup in %s to recover", firstNonEmpty(req.Set, "this request"))
 	}
-	if t.Kind == "source" {
+	if RecoveryTargetWritesToSourceHost(t) {
 		sets := distinctSets(sc.arts)
 		if len(sets) != 1 {
 			return sc, recoveryErr(RecoveryTargetInvalid,
 				"a source-host recovery sends backups back to the one host they came from, so it takes the backups of one set at a time, and these come from %d sets", len(sets))
 		}
-		ex, folder, err := b.validateSourceTarget(sc.arts[0].BackupSetID, t, "", false)
+		ex, r, err := b.validateSourceTarget(sc.arts[0].BackupSetID, t, "", false)
 		if err != nil {
 			return sc, err
 		}
-		t.Path = folder
-		sc.target, sc.exTarget, sc.folder = t, ex, folder
+		t.Path = r.d.Folder
+		sc.target, sc.exTarget, sc.folder, sc.source = publicTarget(t), ex, r.d.Folder, r
 		return sc, nil
 	}
 	sc.folder = sc.target.Path
@@ -460,6 +478,16 @@ func (b *BackupService) PlanRecoverMany(ctx context.Context, req RecoverManyRequ
 	if ferr == nil {
 		plan.FreeBytes = &free
 	}
+	var sourceSpace error
+	if sc.exTarget.Kind == export.TargetSource {
+		plan.DestinationID, plan.URL = sc.exTarget.Destination, sc.source.d.URL()
+		plan.SourceReserveBytes = h.staging.Reserve
+		// Every file stays on the host, so the whole run has to fit there
+		// (#1193), not only the largest file as on the staging disk.
+		if plan.Totals.Ready > 0 {
+			plan.SourceFreeBytes, sourceSpace = b.checkSourceSpace(ctx, sc.source, plan.Totals.Bytes, plan.SourceReserveBytes)
+		}
+	}
 
 	if plan.ChargeableCount > 0 && !req.AcknowledgeCost {
 		return plan, recoveryErr(RecoveryCostNotAcknowledged,
@@ -484,6 +512,9 @@ func (b *BackupService) PlanRecoverMany(ctx context.Context, req RecoverManyRequ
 			return plan, recoveryErr(RecoveryBelowReserve,
 				"%s %d bytes (%d files) and the staging disk has %d bytes free, which would leave less than its %d byte reserve, so nothing was read", what, need, plan.Totals.Ready, *plan.FreeBytes, plan.ReserveBytes)
 		}
+	}
+	if sourceSpace != nil {
+		return plan, sourceSpace
 	}
 	return plan, nil
 }
@@ -570,22 +601,34 @@ func (b *BackupService) RecoverMany(ctx context.Context, sess RecoverySession, r
 	if err != nil {
 		return RecoverManyResult{}, err
 	}
-	if plan.Target.Kind == "source" {
+	var up *sourceUpload
+	if RecoveryTargetWritesToSourceHost(plan.Target) {
 		// The plan wrote nothing; the run writes onto a production host, so
-		// it needs the yes, and the write probe goes first, before any file
-		// is read.
-		if !req.Target.Acknowledged {
-			_, _, aerr := b.validateSourceTarget(plan.Items[0].ArtifactID, req.Target, "", true)
-			return RecoverManyResult{}, aerr
-		}
+		// it needs the acknowledgement of exactly this destination, then
+		// the write check (one probe, or a fresh cached verdict), then one
+		// session for the whole run that claims the new folder, all before
+		// any file is read.
 		setID, _ := splitArtifactID(plan.Items[0].ArtifactID)
-		if perr := b.probeSource(ctx, setID.String()); perr != nil && !errors.Is(perr, errNoSourceProbe) {
-			return RecoverManyResult{}, perr
+		tg := req.Target
+		tg.Path = plan.Folder
+		_, r, verr := b.validateSourceTarget(setID.String(), tg, "", true)
+		if verr != nil {
+			return RecoverManyResult{}, verr
 		}
+		ev.target = "source:" + r.d.URL() + " (" + plan.DestinationID + ")"
+		if werr := b.ensureSourceWritable(ctx, sess.Actor, r); werr != nil {
+			return RecoverManyResult{}, werr
+		}
+		up, err = b.beginSourceUpload(ctx, setID.String(), plan.Folder, plan.DestinationID)
+		if err != nil {
+			return RecoverManyResult{}, err
+		}
+		defer up.close()
 	}
 	ex := b.manyExportTarget(h, plan)
 
-	res = RecoverManyResult{OperationID: uuid.NewString(), Set: plan.Set, Target: plan.Target, Folder: plan.Folder, Items: append([]RecoverManyItem(nil), plan.Items...)}
+	res = RecoverManyResult{OperationID: uuid.NewString(), Set: plan.Set, Target: plan.Target, Folder: plan.Folder, Items: append([]RecoverManyItem(nil), plan.Items...),
+		DestinationID: plan.DestinationID, URL: plan.URL}
 	emit(RecoverManyProgress{Kind: "plan", Plan: &plan, Total: len(res.Items), TotalBytes: plan.Totals.Bytes})
 
 	var done, index int
@@ -606,7 +649,7 @@ func (b *BackupService) RecoverMany(ctx context.Context, sess RecoverySession, r
 		if it.Status == RecoverManyNeedsThaw {
 			b.thawManyItem(ctx, h, sess, it)
 		} else {
-			b.recoverManyItem(ctx, h, ex, plan, it)
+			b.recoverManyItem(ctx, h, ex, up, it)
 			if it.Status == RecoverManyRecovered {
 				done += int(it.Bytes)
 			}
@@ -627,7 +670,7 @@ func (b *BackupService) RecoverMany(ctx context.Context, sess RecoverySession, r
 	case res.Totals.Failed > 0:
 		outcome = "partial"
 	}
-	if merr := b.writeManyManifest(h, ex, &res, outcome); merr != nil {
+	if merr := b.writeManyManifest(h, ex, up, &res, outcome); merr != nil {
 		b.logger.Error(ctx, "recovery_manifest", merr)
 		ev.bytes = int64(done)
 		err = recoveryErr(RecoveryFailed, "the files were recovered but their manifest could not be written; the engine log has the cause")
@@ -649,7 +692,7 @@ func (b *BackupService) manyExportTarget(h *recoveryHost, plan RecoverManyPlan) 
 	case "storage":
 		return export.Target{Kind: export.TargetStorage, Medium: t.Medium, Key: t.Key}
 	case "source":
-		return export.Target{Kind: export.TargetSource, Path: t.Path}
+		return export.Target{Kind: export.TargetSource, Path: t.Path, Destination: plan.DestinationID}
 	}
 	return export.Target{Kind: export.TargetStaging, Path: t.Path}
 }
@@ -674,7 +717,7 @@ func (b *BackupService) thawManyItem(ctx context.Context, h *recoveryHost, sess 
 // recovery uses: the plan is re-derived from the journal as it is now, the
 // copy is read through the bounded buffer and compared with the digest
 // recorded at ingestion, and only a file that matched is handed over.
-func (b *BackupService) recoverManyItem(ctx context.Context, h *recoveryHost, ex export.Target, plan RecoverManyPlan, it *RecoverManyItem) {
+func (b *BackupService) recoverManyItem(ctx context.Context, h *recoveryHost, ex export.Target, up *sourceUpload, it *RecoverManyItem) {
 	trace := b.newRecoveryTrace(ctx, it.ArtifactID)
 	fail := func(err error) {
 		trace.fail(ctx, err)
@@ -728,15 +771,16 @@ func (b *BackupService) recoverManyItem(ctx context.Context, h *recoveryHost, ex
 		}
 		it.Key, it.Rel = key, key
 	case export.TargetSource:
-		rel := path.Join(ex.Path, it.Name)
+		// Through the run's one session, after the destination has been
+		// worked out again from the configuration as it is now (#1193).
 		trace.stage(ctx, "writing_target")
-		full, uerr := b.uploadToSource(ctx, staged, id.String(), rel)
+		full, verified, uerr := up.put(ctx, staged, it.Name)
 		b.discardStaged(staged)
 		if uerr != nil {
 			fail(uerr)
 			return
 		}
-		it.Path, it.Rel = full, rel
+		it.Path, it.Rel, it.Verified = full, path.Join(ex.Path, it.Name), verified
 	}
 	it.Status, it.Bytes, it.SHA256 = RecoverManyRecovered, staged.Size, staged.Digest
 	trace.stage(ctx, "cleaning_temporary_files")
@@ -754,7 +798,7 @@ func splitArtifactID(id string) (model.BackupSetID, string) {
 
 // writeManyManifest writes the manifest beside the files, even for a run that
 // was cancelled (so what happened is on record), and records where it went.
-func (b *BackupService) writeManyManifest(h *recoveryHost, ex export.Target, res *RecoverManyResult, outcome string) error {
+func (b *BackupService) writeManyManifest(h *recoveryHost, ex export.Target, up *sourceUpload, res *RecoverManyResult, outcome string) error {
 	raw, err := json.MarshalIndent(buildManifest(*res, outcome, now()), "", "  ")
 	if err != nil {
 		return err
@@ -784,11 +828,9 @@ func (b *BackupService) writeManyManifest(h *recoveryHost, ex export.Target, res
 		}
 		res.ManifestKey = key
 	case export.TargetSource:
-		var setID model.BackupSetID
-		if len(res.Items) > 0 {
-			setID, _ = splitArtifactID(res.Items[0].ArtifactID)
-		}
-		full, uerr := b.uploadToSource(wctx, staged, setID.String(), path.Join(res.Folder, manifestFileName))
+		// Named for the run, so it can never collide with another run's in a
+		// folder somebody reused, and written through the run's session.
+		full, _, uerr := up.put(wctx, staged, "manifest-"+res.OperationID+".json")
 		b.discardStaged(staged)
 		if uerr != nil {
 			return uerr

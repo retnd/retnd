@@ -7,6 +7,7 @@ import (
 	"io"
 	"path"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -295,7 +296,18 @@ func (b *BackupService) RedeemRecovery(ctx context.Context, sess RecoverySession
 		defer b.discardStaged(staged)
 		trace.stage(ctx, "writing_target")
 		id, _ := app.ParseArtifactID(g.Artifact)
-		full, uerr := b.uploadToSource(ctx, staged, id.Set.String(), g.Target.Path)
+		folder, name := path.Split(g.Target.Path)
+		folder = strings.TrimSuffix(folder, "/")
+		// The destination is worked out again from the configuration as it
+		// is now and has to be the one acknowledged at mint (#1193).
+		up, uerr := b.beginSourceUpload(ctx, id.Set.String(), folder, g.Target.Destination)
+		var full, verified string
+		if uerr == nil {
+			// The audit row names the machine written to, not just a folder.
+			ev.target = "source:" + up.r.d.URL() + " (" + g.Target.Destination + ")"
+			full, verified, uerr = up.put(ctx, staged, name)
+			up.close()
+		}
 		if uerr != nil {
 			trace.fail(ctx, uerr)
 			b.auditRecovery(ctx, &ev, uerr)
@@ -308,6 +320,7 @@ func (b *BackupService) RedeemRecovery(ctx context.Context, sess RecoverySession
 		return nil, &RecoveryResult{
 			ArtifactID: g.Artifact, Copy: g.Copy, Target: recoveryTargetOf(g.Target),
 			Path: full, Bytes: staged.Size, SHA256: staged.Digest,
+			DestinationID: g.Target.Destination, URL: up.r.d.URL(), Verified: verified,
 		}, nil
 	}
 	h.grants.Close(token)
@@ -318,9 +331,9 @@ func (b *BackupService) RedeemRecovery(ctx context.Context, sess RecoverySession
 
 func recoveryTargetOf(t export.Target) RecoveryTarget {
 	if t.Kind == export.TargetSource {
-		// The grant holds folder/name; the target is the folder, and it was
-		// acknowledged or it could not have been minted.
-		return RecoveryTarget{Kind: string(t.Kind), Path: path.Dir(t.Path), Acknowledged: true}
+		// The grant holds folder/name; the target is the folder. The consent
+		// is never echoed: the result says destination_id and url instead.
+		return RecoveryTarget{Kind: string(t.Kind), Path: path.Dir(t.Path)}
 	}
 	return RecoveryTarget{Kind: string(t.Kind), Path: t.Path, Medium: t.Medium, Key: t.Key}
 }

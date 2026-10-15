@@ -15,7 +15,6 @@ import (
 	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/internal/obs"
 	"github.com/retnd/retnd/core/internal/recovery/budget"
-	"github.com/retnd/retnd/core/internal/transport"
 	"github.com/retnd/retnd/core/service"
 )
 
@@ -81,10 +80,16 @@ var recoverExitCodes = map[string]int{
 	service.RecoveryDownloadsBusy:       budget.ExitCode(budget.DownloadStreams),
 
 	// Issue #1191: the source host, in the two free numbers left at the
-	// top of the block and the block's last one.
-	service.RecoverySourceUnavailable:     38,
-	service.RecoverySourceReadOnly:        39,
-	service.RecoverySourceNotAcknowledged: 40,
+	// top of the first block and that block's last one.
+	service.RecoverySourceHostUnavailable:     38,
+	service.RecoverySourceHostReadOnly:        39,
+	service.RecoverySourceHostNotAcknowledged: 40,
+
+	// The second recovery block starts at 41 (#1193), because 10 to 40 is
+	// full. It is the same promise: one code per refusal, never reused.
+	service.RecoverySourceHostUnreachable:   41,
+	service.RecoverySourceHostNoSpace:       42,
+	service.RecoverySourceHostProbeLeftFile: 43,
 }
 
 // exitRecoverThawStarted: nothing was recovered, because the only copy is
@@ -101,15 +106,16 @@ const exitRecoverPartial = 32
 func cmdRecover(args []string) int {
 	fs, cfgPath := newFlagSet("recover")
 	copySel := fs.String("copy", "", "medium id of the copy to recover (default: the best readable copy)")
-	to := fs.String("to", "", "where the bytes go: source[:FOLDER] for the set's own SFTP host (the default), - for standard output, a name under the recovery staging root, or medium:ID[/KEY]")
+	to := fs.String("to", "", "where the bytes go: source: or source:FOLDER for the set's own SFTP host (the default where it can work), - for standard output, a name under the recovery staging root (./NAME for one starting with source:, medium: or -), or medium:ID[/KEY]")
 	ack := fs.Bool("acknowledge-cost", false, "accept a chargeable retrieval (a billed download, or a provider restore first)")
-	ackSource := fs.Bool("acknowledge-source-write", false, "say yes to writing onto the set's own source host (--to source, and the default), into a new folder there")
+	ackSource := fs.Bool("acknowledge-source-write", false, "say yes to writing onto the set's own source host (--to source:, and the default), into the new folder printed first")
+	all := fs.Bool("all", false, "with --set onto the source host: every retained restore point, said explicitly")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
 	follow := fs.Bool("follow", false, "print the recovery's stages on standard error as it passes through them; the exit status is the recovery's")
 	set := fs.String("set", "", "recover every retained restore point of this backup set (source/backup-set) into the one destination")
 	newestOnly := fs.Bool("newest-only", false, "with --set: only the newest restore point")
 	since := fs.String("since", "", "with --set: only restore points updated at or after this date (YYYY-MM-DD or RFC 3339)")
-	preflight := fs.Bool("preflight", false, "with --set or several ids: print what would be recovered, what would not and why, and whether it fits; copy nothing")
+	preflight := fs.Bool("preflight", false, "with --set or several ids: print what would be recovered, what would not and why, and whether it fits; copy nothing. With --to source: it also says where on the source host it would write and runs the write check (one probe file written and removed)")
 	operands, err := parseFlagsAroundOperands(fs, args)
 	if err != nil {
 		return exitUsage
@@ -117,14 +123,11 @@ func cmdRecover(args []string) int {
 	if *set != "" || len(operands) > 1 {
 		return cmdRecoverMany(manyArgs{
 			cfgPath: *cfgPath, set: *set, ids: operands, to: *to, copySel: *copySel, ack: *ack, asJSON: *asJSON,
-			follow: *follow, newestOnly: *newestOnly, since: *since, preflight: *preflight, ackSource: *ackSource,
+			follow: *follow, newestOnly: *newestOnly, since: *since, preflight: *preflight, ackSource: *ackSource, all: *all,
 		})
 	}
-	if *newestOnly || *since != "" {
-		return usageError("recover: --newest-only and --since need --set")
-	}
-	if *preflight {
-		return usageError("recover: --preflight is for --set or several backup ids")
+	if *newestOnly || *since != "" || *all {
+		return usageError("recover: --newest-only and --since need --set, and so does --all")
 	}
 	if len(operands) != 1 {
 		return usageError("recover: expected <source/backup-set/artifact>")
@@ -138,6 +141,12 @@ func cmdRecover(args []string) int {
 		if target, err = parseRecoverTarget(*to); err != nil {
 			return usageError("recover: %v", err)
 		}
+		if err := checkSourceFlag(target, *ackSource); err != nil {
+			return usageError("recover: %v", err)
+		}
+	}
+	if *preflight && *to != "" && !service.RecoveryTargetWritesToSourceHost(target) {
+		return usageError("recover: --preflight is for --set, several backup ids, or --to source:")
 	}
 	if *asJSON && target.Kind == "download" {
 		return usageError("recover: --json cannot be combined with --to -, because standard output carries the bytes")
@@ -152,7 +161,8 @@ func cmdRecover(args []string) int {
 	}
 	defer cleanup()
 
-	// Issue #1191: with no --to, the backup goes back where it came from.
+	// Issue #1191: with no --to, the backup goes back where it came from,
+	// where that can work (#1193), decided from the configuration alone.
 	if *to == "" {
 		def, why := svc.DefaultRecoveryTarget(operands[0])
 		if def.Kind == "" {
@@ -160,8 +170,15 @@ func cmdRecover(args []string) int {
 		}
 		target = def
 	}
-	if target.Kind == "source" {
-		target.Acknowledged = *ackSource
+	if *preflight {
+		return sourcePreflight(ctx, svc, operands[0], target.Path, *asJSON, nil)
+	}
+	if service.RecoveryTargetWritesToSourceHost(target) {
+		acked, code := acknowledgeSourceDestination(svc, operands[0], target.Path, *ackSource, *asJSON)
+		if code != exitOK {
+			return code
+		}
+		target = acked
 	}
 
 	logStartup(ctx, obs.New(os.Stderr, obs.LevelFromEnv()), app.BuildVersionInfo(version, commit))
@@ -201,14 +218,11 @@ func parseRecoverTarget(s string) (service.RecoveryTarget, error) {
 		return service.RecoveryTarget{}, errors.New("--to is empty")
 	case s == "-":
 		return service.RecoveryTarget{Kind: "download"}, nil
-	case s == "source":
-		return service.RecoveryTarget{Kind: "source"}, nil
 	case strings.HasPrefix(s, "source:"):
-		folder := strings.TrimPrefix(s, "source:")
-		if folder == "" {
-			return service.RecoveryTarget{}, errors.New("--to source: names no folder; write source, or source:" + transport.RecoveredFolderPrefix + "NAME")
-		}
-		return service.RecoveryTarget{Kind: "source", Path: folder}, nil
+		// The colon is required, like medium:, so a bare "source" stays a
+		// staging name (#1193): source: is a fresh folder, source:FOLDER a
+		// retnd-recovered-* folder the operator names.
+		return service.RecoveryTarget{Kind: "source", Path: strings.TrimPrefix(s, "source:")}, nil
 	case strings.HasPrefix(s, "medium:"):
 		rest := strings.TrimPrefix(s, "medium:")
 		id, key, _ := strings.Cut(rest, "/")
@@ -286,10 +300,97 @@ func printRecoverResult(res service.RecoveryResult, asJSON bool) {
 		fmt.Fprintf(dst, "key:                 %s on %s\n", res.Key, res.Target.Medium)
 	}
 	if res.Target.Kind == "source" {
-		fmt.Fprintf(dst, "on:                  the set's source host, in the new folder %s\n", res.Target.Path)
+		fmt.Fprintf(dst, "on:                  %s\n", res.URL)
 	}
 	fmt.Fprintf(dst, "bytes:               %d\n", res.Bytes)
 	if res.SHA256 != "" {
 		fmt.Fprintf(dst, "sha256:              %s\n", res.SHA256)
 	}
+	switch res.Verified {
+	case "sha256":
+		fmt.Fprintf(dst, "verified:            by the host's own SHA-256 of the placed file\n")
+	case "size":
+		fmt.Fprintf(dst, "verified:            by size only: the host cannot compute a digest\n")
+	}
+}
+
+// checkSourceFlag refuses --acknowledge-source-write next to a target that
+// is not the source host (#1193): an acknowledgement that does nothing is
+// one a script author believes did something.
+func checkSourceFlag(target service.RecoveryTarget, ackSource bool) error {
+	if ackSource && !service.RecoveryTargetWritesToSourceHost(target) {
+		return errors.New("--acknowledge-source-write is for the source host (--to source: or no --to), and this --to is not that")
+	}
+	return nil
+}
+
+// acknowledgeSourceDestination resolves where a source-host recovery writes
+// from the configuration, prints it, and acknowledges exactly that
+// destination when the flag was given. Without the flag it refuses before
+// any network call, naming the destination and how to say yes (#1193).
+func acknowledgeSourceDestination(svc *service.BackupService, id, folder string, ackSource, asJSON bool) (service.RecoveryTarget, int) {
+	d, err := svc.DescribeSourceHost(id, folder)
+	if err != nil {
+		if re, ok := service.AsRecoveryError(err); ok {
+			return service.RecoveryTarget{}, reportRecoverError(re, asJSON)
+		}
+		return service.RecoveryTarget{}, usageError("recover: %v", err)
+	}
+	switch {
+	case !d.Available:
+		return service.RecoveryTarget{}, reportRecoverError(&service.RecoveryError{Code: service.RecoverySourceHostUnavailable, Message: d.Reason}, asJSON)
+	case d.ReadOnly:
+		return service.RecoveryTarget{}, reportRecoverError(&service.RecoveryError{Code: service.RecoverySourceHostReadOnly, Message: d.Detail}, asJSON)
+	}
+	if !ackSource {
+		return service.RecoveryTarget{}, reportRecoverError(&service.RecoveryError{Code: service.RecoverySourceHostNotAcknowledged,
+			Message: "this writes onto " + d.Host + ", the production host this backup came from, into " + d.URL() +
+				" as " + d.User + "; nothing was read and nothing was sent. Say yes with --acknowledge-source-write (it acknowledges the destination printed here), or choose another place with --to: --to source:FOLDER for a folder of your own naming, - for standard output, a name under the recovery staging root, or medium:ID[/KEY]"}, asJSON)
+	}
+	fmt.Fprintf(os.Stderr, "writing onto:        %s (destination %s)\n", d.URL(), d.DestinationID())
+	return service.RecoveryTarget{Kind: "source", Path: d.Folder, AcknowledgedDestination: d.DestinationID()}, exitOK
+}
+
+// sourcePreflight is `--to source: --preflight` (#1193): where it would
+// write, from configuration, then the write check, which writes and removes
+// one probe file. plan, when not nil, prints a set's plan after it.
+func sourcePreflight(ctx context.Context, svc *service.BackupService, id, folder string, asJSON bool, plan func() int) int {
+	d, err := svc.CheckSourceHostWrite(ctx, "cli", id, folder)
+	if err != nil {
+		if re, ok := service.AsRecoveryError(err); ok {
+			return reportRecoverError(re, asJSON)
+		}
+		return fail(err)
+	}
+	if asJSON {
+		body := map[string]any{
+			"set_id": d.SetID, "available": d.Available, "host": d.Host, "port": d.Port, "user": d.User,
+			"remote_path": d.RemotePath, "folder": d.Folder, "url": d.URL(), "destination_id": d.DestinationID(),
+			"read_only": d.ReadOnly, "write_access": d.WriteAccess, "code": d.Code, "detail": d.Detail,
+			"left_file": d.LeftFile,
+		}
+		if !d.CheckedAt.IsZero() {
+			body["checked_at"] = d.CheckedAt.UTC().Format("2006-01-02T15:04:05Z07:00")
+		}
+		if d.FreeBytes != nil {
+			body["free_bytes"] = *d.FreeBytes
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(body)
+	} else {
+		fmt.Fprintf(os.Stdout, "destination:         %s\n", d.URL())
+		fmt.Fprintf(os.Stdout, "destination id:      %s\n", d.DestinationID())
+		fmt.Fprintf(os.Stdout, "write access:        %s\n", d.WriteAccess)
+		if d.Detail != "" {
+			fmt.Fprintf(os.Stdout, "                     %s\n", d.Detail)
+		}
+		if d.FreeBytes != nil {
+			fmt.Fprintf(os.Stdout, "free on the host:    %d bytes\n", *d.FreeBytes)
+		} else {
+			fmt.Fprintf(os.Stdout, "free on the host:    unknown (the host did not say)\n")
+		}
+	}
+	if plan != nil && d.WriteAccess != service.SourceWriteReadOnly {
+		return plan()
+	}
+	return exitOK
 }
