@@ -261,8 +261,7 @@ describe("the hardened profile", () => {
       // character that draws nothing: a bidi override, a zero-width
       // joiner, a BOM, a soft hyphen or a tag-range smuggled letter is
       // invisible on screen and changes what the line appears to say.
-      // The control characters are the point: this asserts none survived.
-      // eslint-disable-next-line no-control-regex
+      // eslint-disable-next-line no-control-regex -- control characters are what this looks for
       expect(log.textContent).not.toMatch(/[\u001b\u009b\u009d\u0007\u0000]/);
       expect(log.textContent).not.toMatch(
         /[\u200b-\u200f\u202a-\u202e\u2060\u2066-\u2069\ufeff\u00ad\u180e\u2028\u2029]/
@@ -604,7 +603,7 @@ describe("copy and download", () => {
     const saved = written[0];
     // The file is the sanitised content: a download is opened in a
     // terminal, which is the one place these sequences still work.
-    // eslint-disable-next-line no-control-regex
+    // eslint-disable-next-line no-control-regex -- control characters are what this looks for
     expect(saved).not.toMatch(/[\u001b\u009b\u009d\u0007]/);
     expect(saved).not.toContain("evil.example/steal");
     expect(saved).not.toContain("all backups verified");

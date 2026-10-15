@@ -67,8 +67,7 @@ test.describe("#1189 set workflow hooks in edit mode", () => {
   test("clearing a saved directory removes it from the effective hooks", async ({ page }) => {
     await edit(page, CONFIGURED, "default");
     await expect(page.getByTestId("workflow-set-before-input")).toHaveValue("/srv/hooks/postgres-primary/before");
-    await page.getByTestId("workflow-set-before-input").fill("");
-    await page.getByTestId("workflow-set-before-save").click();
+    await page.getByTestId("workflow-set-before-clear").click();
     await expect(page.getByTestId("workflow-set-effective")).not.toContainText("/srv/hooks/postgres-primary/before");
     // the deployment's own stage still runs, and the card says so
     await expect(page.getByTestId("workflow-set-effective")).toContainText("/etc/retnd/workflows/before");
@@ -120,6 +119,8 @@ test.describe("#1189 set workflow hooks in edit mode", () => {
     await edit(page);
     await page.getByTestId("workflow-set-before-input").fill("weekly-archive/before");
     await page.getByRole("button", { name: /CANCEL & EXIT EDIT MODE/ }).click();
+    // Typed text is a draft like any other box's, so CANCEL asks first.
+    await page.getByRole("button", { name: "Discard 1 change and exit" }).click();
     await expect(page.getByRole("button", { name: "Edit", exact: true })).toBeVisible();
     await expect(card(page)).not.toContainText("weekly-archive/before");
     await page.getByRole("button", { name: "Edit", exact: true }).click();
@@ -139,6 +140,82 @@ test.describe("#1189 set workflow hooks in edit mode", () => {
     await expect(card(page)).toBeVisible();
     await expect(page.getByRole("button", { name: "Edit", exact: true })).toBeDisabled();
     await expect(page.getByTestId("workflow-set-before-input")).toHaveCount(0);
+  });
+
+  // Review follow-ups on #1192: what is compared is what is sent, a stage
+  // is only ever turned off on purpose, and the page's own edit session
+  // (SAVE ALL, the CANCEL ledger) knows about these two boxes.
+
+  test("whitespace around a saved directory is not a change", async ({ page }) => {
+    await edit(page, CONFIGURED, "default");
+    const box = page.getByTestId("workflow-set-before-input");
+    await box.fill("  /srv/hooks/postgres-primary/before  ");
+    await expect(page.getByTestId("workflow-set-before-save")).toBeDisabled();
+    await box.fill("   ");
+    await expect(page.getByTestId("workflow-set-before-save")).toBeDisabled();
+  });
+
+  test("an emptied box is not saved by SAVE ALL; the stage stays and the box says how to clear it", async ({ page }) => {
+    await edit(page, CONFIGURED, "default");
+    await page.getByTestId("workflow-set-before-input").fill("   ");
+    await page.getByRole("button", { name: /SAVE ALL/ }).click();
+    // Still editing, with the reason under the box, and nothing was cleared.
+    await expect(page.getByRole("button", { name: /SAVE ALL/ })).toBeVisible();
+    await expect(card(page).getByRole("alert")).toContainText("Clear");
+    await expect(page.getByTestId("workflow-set-effective")).toContainText("/srv/hooks/postgres-primary/before");
+  });
+
+  test("Clear is the explicit way to turn a set's stage off", async ({ page }) => {
+    await edit(page, QUIET);
+    // Nothing saved, nothing to clear.
+    await expect(page.getByTestId("workflow-set-before-clear")).toHaveCount(0);
+    await edit(page, CONFIGURED, "default");
+    await page.getByTestId("workflow-set-after-clear").click();
+    await expect(page.getByTestId("workflow-set-effective")).not.toContainText("/srv/hooks/postgres-primary/after");
+    await expect(page.getByTestId("workflow-set-after-input")).toHaveValue("");
+    await expect(page.getByTestId("workflow-set-after-clear")).toHaveCount(0);
+  });
+
+  test("CANCEL's ledger names an unsaved directory as discarded", async ({ page }) => {
+    await edit(page);
+    await page.getByTestId("workflow-set-before-input").fill("weekly-archive/before");
+    await page.getByRole("button", { name: /CANCEL & EXIT EDIT MODE/ }).click();
+    const discarded = page.getByRole("group", { name: "Discarded, never sent" });
+    await expect(discarded).toContainText("Before workflow directory");
+    await expect(discarded).toContainText("weekly-archive/before");
+  });
+
+  test("CANCEL's ledger names a directory its own Save already wrote as staying saved", async ({ page }) => {
+    await edit(page);
+    await page.getByTestId("workflow-set-after-input").fill("weekly-archive/after");
+    await page.getByTestId("workflow-set-after-save").click();
+    await expect(page.getByTestId("workflow-set-effective")).toContainText("weekly-archive/after");
+    await page.getByRole("button", { name: /CANCEL & EXIT EDIT MODE/ }).click();
+    const saved = page.getByRole("group", { name: "Already saved, and staying saved" });
+    await expect(saved).toContainText("After workflow directory");
+    await expect(saved).toContainText("weekly-archive/after");
+  });
+
+  test("a SAVE ALL whose set change fails after the directories landed says which half went live", async ({ page }) => {
+    await edit(page, CONFIGURED, "default");
+    await page.getByTestId("workflow-set-after-input").fill("/srv/hooks/postgres-primary/after-2");
+    await page.getByLabel("Port", { exact: true }).fill("99999");
+    await page.getByRole("button", { name: /SAVE ALL/ }).click();
+    await expect(page.getByTestId("set-edit-partial-save")).toContainText("after workflow directory was saved");
+    await expect(page.getByTestId("set-edit-partial-save")).toContainText("the other changes were not");
+    // The directory is no longer dirty: it is in the configuration now.
+    await expect(page.getByTestId("workflow-set-after-save")).toBeDisabled();
+    await expect(page.getByTestId("workflow-set-effective")).toContainText("/srv/hooks/postgres-primary/after-2");
+    await expect(page.getByRole("button", { name: /SAVE ALL/ })).toBeVisible();
+  });
+
+  test("SAVE ALL waits for a directory's own Save that is still in flight", async ({ page }) => {
+    await edit(page);
+    await page.getByTestId("workflow-set-before-input").fill("weekly-archive/before");
+    await page.getByTestId("workflow-set-before-save").click();
+    await expect(page.getByRole("button", { name: /SAVE ALL/ })).toBeDisabled();
+    await expect(page.getByTestId("workflow-set-effective")).toContainText("weekly-archive/before");
+    await expect(page.getByRole("button", { name: /SAVE ALL/ })).toBeEnabled();
   });
 
   for (const theme of ["light", "dark"] as const) {

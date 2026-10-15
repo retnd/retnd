@@ -56,7 +56,15 @@ import { HaltBanner } from "@shared/components/HaltBanner";
 // because it gates a control in the page header — the per-set Run —
 // and a card cannot disable a button it does not own.
 import { WorkflowRecoveryBanner, useWorkflowHold } from "@shared/components/WorkflowRecoveryBanner";
-import { BackupSetWorkflowCard } from "@shared/pages/BackupSetWorkflowCard";
+import { SetWorkflowCard } from "@shared/pages/BackupSetWorkflowCard";
+import {
+  HOOK_DIR_KEYS,
+  HOOK_DIR_LABEL,
+  hookDirState,
+  useSetWorkflow,
+  workflowSaveFailureText
+} from "@shared/pages/useSetWorkflow";
+import type { HookDirKey } from "@shared/pages/useSetWorkflow";
 import { ConfirmationDialog } from "@shared/components/ConfirmationDialog";
 import { RemoveBackupSetDialog } from "@shared/components/RemoveBackupSetDialog";
 import { SSHAuthWizard } from "@shared/components/SSHAuthWizard";
@@ -199,9 +207,6 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   // character and deleting it leaves Save inactive) and is why both are
   // strings.
   const [editing, setEditing] = useState(false);
-  /** Saves the Workflow card's unsaved before/after text, filled in by the
-   *  card while it shows those boxes (#1189). */
-  const hookFlushRef = useRef<(() => Promise<boolean>) | null>(null);
   const [baseline, setBaseline] = useState<Record<EditFieldKey, string> | null>(null);
   const [draft, setDraft] = useState<Record<EditFieldKey, string> | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<EditFieldKey, string>>>({});
@@ -261,6 +266,24 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   const [savedThisSession, setSavedThisSession] = useState<SavedField[]>([]);
   const [pendingExit, setPendingExit] = useState<ExitRoute | null>(null);
 
+  // ------------------------------------------------------- issue #1189
+  //
+  // The Workflow card's before and after directory boxes are part of this
+  // edit session even though they save through their own PATCH: SAVE ALL
+  // carries them, the CANCEL ledger names them, and a per-box Save of one
+  // is recorded in `savedThisSession` like any other. The set's workflow
+  // block is read here and handed to the card, so both draw one copy.
+  //
+  // `hookDraft` is what each box holds, undefined meaning "as saved";
+  // `partialSave` is the sentence for a SAVE ALL whose directories went
+  // live and whose set PATCH did not, because hooks run code on the next
+  // backup and CANCEL after that must not look like nothing happened.
+  const setWorkflow = useSetWorkflow(source, setName);
+  const [hookDraft, setHookDraft] = useState<Partial<Record<HookDirKey, string>>>({});
+  const [hookErrors, setHookErrors] = useState<Partial<Record<HookDirKey, string>>>({});
+  const [savingHooks, setSavingHooks] = useState<HookDirKey[]>([]);
+  const [partialSave, setPartialSave] = useState<string | null>(null);
+
   // The backup set this page is currently showing. Every piece of edit
   // state above belongs to ONE set, and React Router does not remount
   // this page for a :source/:set change alone (the same property this
@@ -295,6 +318,10 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     setRefusal(null);
     setSavedThisSession([]);
     setPendingExit(null);
+    setHookDraft({});
+    setHookErrors({});
+    setSavingHooks([]);
+    setPartialSave(null);
   }
 
   // The hold's lifetime, tied to `editing` rather than to any one button.
@@ -504,10 +531,10 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     // draft. See the `refusal` state above for why answering a refusal
     // must not go back to the boxes for the values.
     resend: BackupSetPatch | null = null
-  ): Promise<boolean> => {
+  ): Promise<SaveOutcome> => {
     // No draft is edit mode not being open, which is the same "nothing to
     // save" as an empty key list rather than a failure.
-    if (requested.length === 0 || !draft) return true;
+    if (requested.length === 0 || !draft) return SAVED;
     // Expanded here, once, rather than on the button that asked: every
     // save reaches this function, so a pair of boxes that have to travel
     // together (the completion method and its window) cannot be split by
@@ -520,7 +547,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     // this matters more here, not less.
     if (!snapshot || isSetEditStale(snapshot)) {
       setStale(true);
-      return false;
+      return { ok: false, reason: "this set changed somewhere else while it was being edited" };
     }
 
     let patch: BackupSetPatch;
@@ -537,7 +564,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
       }
       if (Object.keys(problems).length > 0) {
         setFieldErrors((prev) => ({ ...prev, ...problems }));
-        return false;
+        return { ok: false, reason: Object.values(problems).join(" ") };
       }
     }
     // Whichever refusal is being answered, it is answered for the body
@@ -588,7 +615,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
       setBaseline((prev) => applyKeys(prev, persisted, keys));
       setDraft((prev) => applyKeys(prev, persisted, keys));
       setFieldErrors((prev) => clearKeys(prev, keys));
-      return true;
+      return SAVED;
     } catch (e) {
       // Edit mode stays open and the typed value stays where it is; only
       // an explanation is added. Dropping back to view mode here would
@@ -602,10 +629,10 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
         // first, which is a decision with its own two answers rather than
         // a sentence under a box.
         setRefusal({ kind, keys, patch: refused, message, exitAfter });
-        return false;
+        return { ok: false, reason: message };
       }
       setFieldErrors((prev) => ({ ...prev, ...Object.fromEntries(keys.map((k) => [k, message])) }));
-      return false;
+      return { ok: false, reason: message };
     } finally {
       setSavingFields((prev) => prev.filter((key) => !keys.includes(key)));
     }
@@ -616,13 +643,67 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   // per-box Save already wrote, which is why it asks dirtyKeys() rather
   // than sending every field.
   const saveAllAndExit = async () => {
+    setPartialSave(null);
     // The Workflow card's before and after boxes write through their own
-    // PATCH (#1189), so their unsaved text is not in dirtyKeys(). It goes
-    // first, and a refusal keeps edit mode open with the card's reason on
-    // screen, exactly as a refused box of this page's own does.
-    if (hookFlushRef.current && !(await hookFlushRef.current())) return;
-    if (!(await saveFields(dirtyKeys(), null, true))) return;
+    // PATCH (#1189). An emptied one is never sent from here: empty clears
+    // the directory and turns a stage of hooks off, which only its Clear
+    // button does. SAVE ALL stops and says so instead.
+    const emptied = HOOK_DIR_KEYS.filter((key) => hookStateOf(key) === "emptied");
+    if (emptied.length > 0) {
+      setHookErrors((prev) => ({
+        ...prev,
+        ...Object.fromEntries(emptied.map((key) => [key, EMPTIED_ON_SAVE_ALL]))
+      }));
+      return;
+    }
+    // The directories go first, and a refusal keeps edit mode open with
+    // the reason on screen, exactly as a refused box of this page's own
+    // does.
+    const hookKeys = HOOK_DIR_KEYS.filter((key) => hookStateOf(key) === "changed");
+    if (hookKeys.length > 0 && !(await saveHooks(hookKeys))) return;
+    const outcome = await saveFields(dirtyKeys(), null, true);
+    if (!outcome.ok) {
+      // Two writes, and only the second failed. The directories are live
+      // and will run on the next backup, so say which half that was.
+      if (hookKeys.length > 0) setPartialSave(partialSaveText(hookKeys, outcome.reason));
+      return;
+    }
     leaveEditMode();
+  };
+
+  const hookStateOf = (key: HookDirKey) =>
+    hookDirState(hookDraft[key], setWorkflow.workflow.data?.[key] ?? "");
+
+  /**
+   * Writes the directory boxes named in `keys`, or the explicit `values`
+   * given for them (Clear sends ""). The only path to the workflow PATCH
+   * from this page, so a per-box Save, a Clear and SAVE ALL all record
+   * what they wrote in the same ledger the page's own boxes use.
+   */
+  const saveHooks = async (
+    keys: HookDirKey[],
+    values: Partial<Record<HookDirKey, string>> = {}
+  ): Promise<boolean> => {
+    const patch: Partial<Record<HookDirKey, string>> = {};
+    for (const key of keys) patch[key] = values[key] ?? (hookDraft[key] ?? "").trim();
+    setSavingHooks((prev) => [...prev, ...keys]);
+    setHookErrors((prev) => omitKeys(prev, keys));
+    try {
+      const saved = await setWorkflow.write(patch);
+      const at = new Date().toISOString();
+      setSavedThisSession((prev) => [
+        ...prev.filter((entry) => !keys.includes(entry.key as HookDirKey)),
+        ...keys.map((key) => ({ key, value: saved[key], at }))
+      ]);
+      setHookDraft((prev) => omitKeys(prev, keys));
+      return true;
+    } catch (e) {
+      const text = workflowSaveFailureText(e, "that directory was not saved");
+      if (text) setHookErrors((prev) => ({ ...prev, ...Object.fromEntries(keys.map((k) => [k, text])) }));
+      return false;
+    } finally {
+      setSavingHooks((prev) => prev.filter((key) => !keys.includes(key)));
+    }
   };
 
   // The one way out of a refusal that actually writes. It re-sends the
@@ -638,7 +719,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
   const confirmRefusal = async () => {
     const pending = refusal;
     if (!pending) return;
-    if (!(await saveFields(pending.keys, pending.kind, pending.exitAfter, pending.patch))) return;
+    if (!(await saveFields(pending.keys, pending.kind, pending.exitAfter, pending.patch)).ok) return;
     if (pending.exitAfter) leaveEditMode();
   };
 
@@ -653,6 +734,9 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
     setRefusal(null);
     setSavedThisSession([]);
     setPendingExit(null);
+    setHookDraft({});
+    setHookErrors({});
+    setPartialSave(null);
   };
 
   // ------------------------------------------------------- issue #591
@@ -678,8 +762,10 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
    * into trouble.
    */
   const requestExit = (route: ExitRoute) => {
-    if (dirtyKeys().length === 0 && savedThisSession.length === 0 && !refusal) exitEditMode(route);
-    else setPendingExit(route);
+    const hooksDirty = HOOK_DIR_KEYS.some((key) => hookStateOf(key) !== "clean");
+    if (dirtyKeys().length === 0 && !hooksDirty && savedThisSession.length === 0 && !refusal) {
+      exitEditMode(route);
+    } else setPendingExit(route);
   };
 
   /** Every dirty box, the value typed into it and the value it goes back
@@ -687,8 +773,8 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
    *  empty, because their baseline is the absence of an instruction and
    *  not a value: an empty SSH key box means "keep the key this set
    *  already uses", which is a different sentence from "empty". */
-  const discardedFields = (): DiscardedField[] =>
-    dirtyKeys().map((key) => {
+  const discardedFields = (): DiscardedField[] => [
+    ...dirtyKeys().map((key) => {
       const field = fieldFor(key);
       return {
         key,
@@ -696,7 +782,14 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
         typed: draft?.[key] || "(empty)",
         returnsTo: field.writeOnly ? "unchanged" : baseline?.[key] || "(empty)"
       };
-    });
+    }),
+    ...HOOK_DIR_KEYS.filter((key) => hookStateOf(key) !== "clean").map((key) => ({
+      key,
+      label: HOOK_DIR_LABEL[key],
+      typed: (hookDraft[key] ?? "").trim() || "(empty)",
+      returnsTo: setWorkflow.workflow.data?.[key] || "(empty)"
+    }))
+  ];
 
   const reloadLatestValues = () => {
     const fresh = captureSetEditSnapshot();
@@ -843,7 +936,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
               <InfoTooltip id="sets.detail.save-all">
                 <button
                   className="btn btn--primary"
-                  disabled={savingFields.length > 0}
+                  disabled={savingFields.length > 0 || savingHooks.length > 0}
                   onClick={() => void saveAllAndExit()}
                 >
                   SAVE ALL &amp; EXIT EDIT
@@ -871,7 +964,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
               <InfoTooltip id="sets.detail.cancel-edit">
                 <button
                   className="btn btn--caution"
-                  disabled={savingFields.length > 0}
+                  disabled={savingFields.length > 0 || savingHooks.length > 0}
                   onClick={() => requestExit("edit-mode")}
                 >
                   CANCEL &amp; EXIT EDIT MODE
@@ -988,6 +1081,16 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
         <div style={{ marginBottom: 14 }}>
           <WarningBanner tone="warn" title="Could not open edit mode">
             {enterError}
+          </WarningBanner>
+        </div>
+      ) : null}
+      {/* Issue #1189: SAVE ALL is two writes, and this is the one outcome
+          where they came apart. The directories are live, so the banner
+          says so rather than letting CANCEL look like an undo. */}
+      {partialSave ? (
+        <div style={{ marginBottom: 14 }} data-testid="set-edit-partial-save">
+          <WarningBanner tone="warn" title="Only part of SAVE ALL was saved">
+            {partialSave}
           </WarningBanner>
         </div>
       ) : null}
@@ -1261,7 +1364,27 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
               and the hooks either side of that are the next question,
               not the first one. A set with no hooks configured anywhere
               renders one sentence here and nothing else. */}
-          <BackupSetWorkflowCard source={s.source} set={s.set} readOnly={readOnly} editing={editing} hookFlushRef={hookFlushRef} />
+          <SetWorkflowCard
+            source={s.source}
+            set={s.set}
+            readOnly={readOnly}
+            model={setWorkflow}
+            hooks={
+              editing
+                ? {
+                    draft: hookDraft,
+                    saving: savingHooks,
+                    errors: hookErrors,
+                    onChange: (key, value) => {
+                      setHookDraft((prev) => ({ ...prev, [key]: value }));
+                      setHookErrors((prev) => omitKeys(prev, [key]));
+                    },
+                    onSave: (key) => void saveHooks([key]),
+                    onClear: (key) => void saveHooks([key], { [key]: "" })
+                  }
+                : undefined
+            }
+          />
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
@@ -1731,7 +1854,7 @@ function CancelEditDialog({
               {saved.map((entry) => (
                 <LedgerRow
                   key={entry.key}
-                  label={fieldFor(entry.key).label}
+                  label={labelOf(entry.key)}
                   value={(entry.value || "(empty)") + " \u00b7 " + clock(entry.at)}
                 />
               ))}
@@ -1817,7 +1940,7 @@ type ExitRoute = "edit-mode" | "backup-sets";
 
 /** One box a per-box Save actually wrote during this edit session. */
 interface SavedField {
-  key: EditFieldKey;
+  key: EditFieldKey | HookDirKey;
   /** The value now in the configuration, read back from the SERVER's own
    *  answer rather than from the text that was sent. The two write-only
    *  boxes answer "" to that and "" is not what was saved, so for those
@@ -1829,7 +1952,7 @@ interface SavedField {
 
 /** One box about to be thrown away, and what it goes back to. */
 interface DiscardedField {
-  key: EditFieldKey;
+  key: EditFieldKey | HookDirKey;
   label: string;
   typed: string;
   returnsTo: string;
@@ -1849,7 +1972,7 @@ function recordSaved(
   sent: Record<EditFieldKey, string>
 ): SavedField[] {
   const at = new Date().toISOString();
-  const next = prev.filter((entry) => !keys.includes(entry.key));
+  const next = prev.filter((entry) => !(keys as string[]).includes(entry.key));
   for (const key of keys) {
     next.push({ key, value: fieldFor(key).writeOnly ? sent[key] : persisted[key], at });
   }
@@ -1896,6 +2019,34 @@ const REFUSAL_TITLE: Record<AcknowledgeableRefusal, string> = {
   repoint: "This change points the backup set at different data",
   hostKey: "This change alters what host keys this backup set trusts"
 };
+
+/** What a save reports back: SAVE ALL needs the reason as well as the
+ *  answer, to say what did not go through after something else did. */
+type SaveOutcome = { ok: true } | { ok: false; reason: string };
+const SAVED: SaveOutcome = { ok: true };
+
+const EMPTIED_ON_SAVE_ALL =
+  "SAVE ALL doesn't clear a directory. Press Clear to stop this stage running, or type the directory back.";
+
+/** The sentence for a SAVE ALL that wrote the directories and then failed
+ *  the set PATCH (#1189). */
+function partialSaveText(keys: HookDirKey[], reason: string): string {
+  const names =
+    keys.length === 2
+      ? "The before and after workflow directories were"
+      : "The " + HOOK_DIR_LABEL[keys[0]].toLowerCase() + " was";
+  return names + " saved; the other changes were not: " + reason;
+}
+
+function labelOf(key: EditFieldKey | HookDirKey): string {
+  return key === "beforeDir" || key === "afterDir" ? HOOK_DIR_LABEL[key] : fieldFor(key).label;
+}
+
+function omitKeys<K extends string, V>(from: Partial<Record<K, V>>, keys: K[]): Partial<Record<K, V>> {
+  const next = { ...from };
+  for (const key of keys) delete next[key];
+  return next;
+}
 
 function fieldFor(key: EditFieldKey): EditField {
   const found = EDIT_FIELDS.find((f) => f.key === key);

@@ -59,9 +59,15 @@ input, select, textarea, button {
   color: var(--text); font: inherit; font-size: var(--text-base);
 }
 .input--mono { font-family: var(--font-mono); }
-/* Placeholder text is text. The browser's default grey (#757575) is 4.6:1 on
-   the light surface and 3.7:1 on the dark one, under the 4.5:1 minimum, so
-   every placeholder takes the secondary ink instead (#1189). */
+/* A compact box for a row of controls beside a small button, and the edge
+   for a control on a card (--control-edge in tokens.css has the ratios). */
+.input--sm { height: 30px; padding: 0 9px; font-size: 13px; }
+.input--strong-edge { border-color: var(--control-edge); background: var(--surface); }
+.btn--strong-edge, .btn--strong-edge:disabled { border-color: var(--control-edge); }
+/* Placeholder text is text. The browser's default grey (#757575) is 4.4:1 on
+   the light --surface-2 a .input sits on and 3.7:1 on dark --surface, under
+   the 4.5:1 minimum, so every placeholder takes the secondary ink instead:
+   6.4:1 and 6.9:1 (#1189). */
 ::placeholder { color: var(--text-2); opacity: 1; }
 
 /* Password reveal toggle (issue #344). The button sits inside the input's
