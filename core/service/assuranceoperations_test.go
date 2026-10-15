@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -97,15 +98,12 @@ func readPID(t *testing.T, path string, within time.Duration) int {
 
 // liveMembers lists the processes still alive in process group pgid. A
 // zombie does not count: it has already been killed and is waiting for a
-// parent that, in a container, may be nobody. /proc is Linux's; elsewhere the
-// group itself is probed.
+// parent that, in a container, may be nobody. /proc is Linux's; elsewhere
+// the same listing comes from ps.
 func liveMembers(pgid int) []int {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
-		if syscall.Kill(-pgid, 0) == nil {
-			return []int{-pgid}
-		}
-		return nil
+		return liveMembersByPS(pgid)
 	}
 	var out []int
 	for _, e := range entries {
@@ -124,6 +122,34 @@ func liveMembers(pgid int) []int {
 			continue
 		}
 		if g, _ := strconv.Atoi(f[2]); g == pgid {
+			out = append(out, pid)
+		}
+	}
+	return out
+}
+
+// liveMembersByPS is liveMembers for a machine with no /proc (macOS): ps
+// prints pid, group and state for every process, and the rule is the same,
+// a zombie does not count. The positive control in the cancel test needs the
+// members counted, which the old probe of the group with signal 0 could not
+// do, so that probe is only the answer when ps itself cannot be run.
+func liveMembersByPS(pgid int) []int {
+	listing, err := exec.Command("ps", "-axo", "pid=,pgid=,stat=").Output()
+	if err != nil {
+		if syscall.Kill(-pgid, 0) == nil {
+			return []int{-pgid}
+		}
+		return nil
+	}
+	var out []int
+	for _, line := range strings.Split(string(listing), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 3 || strings.HasPrefix(f[2], "Z") {
+			continue
+		}
+		pid, perr := strconv.Atoi(f[0])
+		g, gerr := strconv.Atoi(f[1])
+		if perr == nil && gerr == nil && g == pgid {
 			out = append(out, pid)
 		}
 	}

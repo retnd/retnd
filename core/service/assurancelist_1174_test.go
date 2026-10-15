@@ -55,7 +55,11 @@ func TestListAssuranceBuckets(t *testing.T) {
 		// a failed scrub: degraded
 		art("failed-scrub.zst", "s/a", localCopy(func(p *Placement) { p.ScrubState = "failed"; p.ScrubLastFailureAt = ago(time.Hour) })),
 		// archive copy that needs a thaw: not readable, but not degraded
-		art("archived.zst", "s/b", localCopy(func(p *Placement) { p.Access = "requires_restore"; p.RecoveryState = "passed"; p.RecoveryTestedAt = ago(time.Hour) })),
+		art("archived.zst", "s/b", localCopy(func(p *Placement) {
+			p.Access = "requires_restore"
+			p.RecoveryState = "passed"
+			p.RecoveryTestedAt = ago(time.Hour)
+		})),
 		// nothing readable at all: degraded
 		art("unreachable.zst", "s/b", localCopy(func(p *Placement) { p.Access = "unreachable" })),
 		// recovery test failed on a content-verified backup: degraded only
