@@ -62,11 +62,11 @@ describe("#1190 one way to offer the staging folder and a configured destination
     for (const file of ["../assurance/RecoverArtifact.tsx", "../assurance/RecoverSet.tsx", "../pages/BackupsSelectionBar.tsx"]) {
       expect(sources[file], file).toMatch(/<RecoveryTargetChoices\b/);
       expect(sources[file], file).toMatch(/<RecoveryTargetField\b/);
-      // #1191: and every one of them offers the source host from it, with the
-      // set's own state handed in.
-      expect(sources[file], file).toMatch(/<RecoverySourceChoice\b[^>]*source=\{sourceHost\}/);
+      // #1191: and every one of them offers the source host from it. How the
+      // set's state is handed in is the 1191 browser specs' to prove, not a
+      // pattern over prop order (#1193's review).
+      expect(sources[file], file).toMatch(/<RecoverySourceChoice\b/);
       expect(sources[file], file).toMatch(/<RecoverySourceNote\b/);
-      expect(sources[file], file).toMatch(/<RecoveryTargetField\b[^>]*source=\{\{/);
     }
   });
 });

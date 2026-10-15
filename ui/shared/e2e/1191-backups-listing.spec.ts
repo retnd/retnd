@@ -5,7 +5,7 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { measureContrast, open, row, setTheme } from "./helpers";
-import { SOURCE, expectNothingPreselected, expectReadOnlyWarning, expectSourcePreselected, expectWritableAndGated } from "./1191-source-host";
+import { ACK, DOWNLOAD, SOURCE, STAGING, expectFallback, expectReadOnlyWarning, expectSourcePreselected, expectWritableAndGated } from "./1191-source-host";
 
 const PG = "postgres-prod-20260828.dump.zst";
 const GROUP = "Where should the artifact go?";
@@ -27,14 +27,14 @@ test.describe("#1191 Backups list: Recover artifact", () => {
     await expectSourcePreselected(dlg, "backup-agent@prod-db-01.internal", "/backups/postgresql/");
     await expectWritableAndGated(dlg, go(page));
     // the other destinations are still there to pick
-    await dlg.getByRole("radio", { name: "Folder under the staging root on the host" }).check();
+    await dlg.getByRole("radio", { name: STAGING }).check();
     await expect(dlg.getByRole("radio", { name: SOURCE })).not.toBeChecked();
     await expect(dlg.getByText("retnd recover production/postgres-primary/" + PG + " --to", { exact: false })).toBeVisible();
   });
 
   test("the terminal line for the default is the source, with its acknowledgement", async ({ page }) => {
     const dlg = await fromTheList(page);
-    await dlg.getByRole("checkbox", { name: /I understand this writes onto/ }).check();
+    await dlg.getByRole("checkbox", { name: ACK }).check();
     await expect(dlg.getByText(/retnd recover production\/postgres-primary\/postgres-prod-20260828\.dump\.zst --to source:retnd-recovered-\S+ --acknowledge-source-write/)).toBeVisible();
   });
 
@@ -44,16 +44,16 @@ test.describe("#1191 Backups list: Recover artifact", () => {
     await expectReadOnlyWarning(dlg, go(page));
   });
 
-  test("a set whose source is not SFTP preselects nothing and says why", async ({ page }) => {
+  test("a set whose source is not SFTP starts on the browser download and says why", async ({ page }) => {
     const dlg = await fromTheList(page, "source-not-sftp");
-    await expectNothingPreselected(dlg, GROUP);
-    await expect(go(page)).toBeDisabled();
+    await expectFallback(dlg, DOWNLOAD, "not SFTP");
+    await expect(dlg.getByRole("radiogroup", { name: GROUP }).getByRole("radio").first()).toHaveAccessibleName(SOURCE);
   });
 
   test("a local-account profile asks for the password again before writing to the source", async ({ page }) => {
     const dlg = await fromTheList(page, "local-account-profile");
     await expect(dlg.getByRole("radio", { name: SOURCE })).toBeChecked();
-    await dlg.getByRole("checkbox", { name: /I understand this writes onto/ }).check();
+    await dlg.getByRole("checkbox", { name: ACK }).check();
     await expect(dlg.getByLabel("Your password")).toBeVisible();
     await expect(go(page)).toBeDisabled();
     await dlg.getByLabel("Your password").fill("correct-horse-battery");
@@ -63,8 +63,8 @@ test.describe("#1191 Backups list: Recover artifact", () => {
   for (const theme of ["light", "dark"] as const) {
     test(`the source-host text meets AA in ${theme}`, async ({ page }) => {
       const dlg = await fromTheList(page, "source-read-only");
+      await expectReadOnlyWarning(dlg, go(page));
       await setTheme(page, theme);
-      await expect(dlg.getByTestId("source-preflight")).toBeVisible();
       const bad = await measureContrast(page, "1191 list dialog " + theme, "[data-source-host]");
       expect(bad).toEqual([]);
     });
@@ -81,13 +81,10 @@ test.describe("#1191 Backups list: the selection bar", () => {
     await expectSourcePreselected(bar(page), "prod-db-01.internal", "/backups/postgresql/");
   });
 
-  test("backups of two sets ticked: nothing preselected, and it says why", async ({ page }) => {
+  test("backups of two sets ticked: the staging folder is chosen, and it says why", async ({ page }) => {
     await open(page, "/backups", "backups-many");
     await rowBox(page, "postgres-primary-20260801.bak").check();
     await rowBox(page, "billing-mysql-20260802.bak").check();
-    const radio = bar(page).getByRole("radio", { name: SOURCE });
-    await expect(radio).toBeDisabled();
-    await expect(bar(page).getByRole("radiogroup", { name: "Where should the backups go?" }).getByRole("radio", { checked: true })).toHaveCount(0);
-    await expect(bar(page).getByTestId("source-unavailable")).toContainText("2 backup sets");
+    await expectFallback(bar(page), STAGING, "2 backup sets");
   });
 });

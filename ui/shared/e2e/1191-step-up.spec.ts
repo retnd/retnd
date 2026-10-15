@@ -8,7 +8,7 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { measureContrast, open, row, setTheme } from "./helpers";
-import { SOURCE } from "./1191-source-host";
+import { ACK, SOURCE } from "./1191-source-host";
 
 const PG = "postgres-prod-20260828.dump.zst";
 const PASSWORD = "correct-horse-battery";
@@ -21,7 +21,7 @@ async function sourceWithPassword(page: Page, scenario: string, password = PASSW
   await page.getByRole("button", { name: "Recover artifact", exact: true }).click();
   const dlg = dialog(page);
   await expect(dlg.getByRole("radio", { name: SOURCE })).toBeChecked();
-  await dlg.getByRole("checkbox", { name: /I understand this writes onto/ }).check();
+  await dlg.getByRole("checkbox", { name: ACK }).check();
   await dlg.getByLabel("Your password").fill(password);
   await go(page).click();
   return dlg;

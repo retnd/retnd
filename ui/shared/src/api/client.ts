@@ -62,7 +62,7 @@ import type {
   WireRecoveryMintResponse,
   WireRecoveryResult,
   WireRecoveryTarget,
-  WireRecoverySourcePreflight,
+  WireSourceHostDescription,
   WireUpdateAssuranceSettingsRequest,
   WireUpdateBackupSetAssuranceRequest,
   WireArtifact,
@@ -164,6 +164,8 @@ import type {
   RecoveryMintRequest,
   RecoveryPlacement,
   RecoveryTargetSpec,
+  SourceHostDescription,
+  StepUpOptions,
   AssuranceDue,
   RecoveryTestOutput,
   AssuranceSettings,
@@ -2909,9 +2911,49 @@ function fromWireRecoveryTarget(t: WireRecoveryTarget | undefined): RecoveryTarg
     kind: t?.kind ?? "download",
     ...(t?.path ? { path: t.path } : {}),
     ...(t?.medium ? { medium: t.medium } : {}),
-    ...(t?.key ? { key: t.key } : {}),
-    ...(t?.acknowledged ? { acknowledged: true } : {})
+    ...(t?.key ? { key: t.key } : {})
   };
+}
+
+/** The acknowledged destination only ever travels in a request (#1191). */
+function toWireRecoveryTarget(t: RecoveryTargetSpec): WireRecoveryTarget {
+  const target: WireRecoveryTarget = { kind: t.kind };
+  if (t.path) target.path = t.path;
+  if (t.medium) target.medium = t.medium;
+  if (t.key) target.key = t.key;
+  if (t.kind === "source" && t.acknowledgedDestination) target.acknowledged_destination = t.acknowledgedDestination;
+  return target;
+}
+
+function fromWireSourceHost(r: WireSourceHostDescription): SourceHostDescription {
+  return {
+    setId: r.set_id,
+    available: r.available,
+    writeAccess: r.write_access,
+    ...(r.reason ? { reason: r.reason } : {}),
+    ...(r.host ? { host: r.host } : {}),
+    ...(r.port ? { port: r.port } : {}),
+    ...(r.user ? { user: r.user } : {}),
+    ...(r.remote_path ? { remotePath: r.remote_path } : {}),
+    ...(r.folder ? { folder: r.folder } : {}),
+    ...(r.url ? { url: r.url } : {}),
+    ...(r.destination_id ? { destinationId: r.destination_id } : {}),
+    ...(r.read_only ? { readOnly: true } : {}),
+    ...(r.code ? { code: r.code } : {}),
+    ...(r.detail ? { detail: r.detail } : {}),
+    ...(r.checked_at ? { checkedAt: r.checked_at } : {}),
+    ...(r.left_file ? { leftFile: r.left_file } : {}),
+    ...(r.free_bytes !== undefined ? { freeBytes: r.free_bytes } : {})
+  };
+}
+
+/** The password header, for one request only. */
+function stepUpHeaders(opts: StepUpOptions | undefined): { headers?: Record<string, string> } {
+  return opts?.stepUpPassword ? { headers: { [STEP_UP_HEADER]: opts.stepUpPassword } } : {};
+}
+
+function folderQuery(folder: string | undefined): string {
+  return folder ? "folder=" + encodeURIComponent(folder) : "";
 }
 
 function fromWireRecoveryMint(m: WireRecoveryMintResponse): RecoveryMint {
@@ -2936,18 +2978,15 @@ function fromWireRecoveryMint(m: WireRecoveryMintResponse): RecoveryMint {
     downloadUrl: m.download_url ?? "",
     expiresAt: m.expires_at ?? "",
     target: fromWireRecoveryTarget(m.target),
-    ...(m.size_bytes !== undefined ? { sizeBytes: m.size_bytes } : {})
+    ...(m.size_bytes !== undefined ? { sizeBytes: m.size_bytes } : {}),
+    ...(m.destination_id ? { destinationId: m.destination_id } : {}),
+    ...(m.url ? { url: m.url } : {})
   };
 }
 
 function toWireRecoveryMint(req: RecoveryMintRequest): WireRecoveryMintRequest {
-  const target: WireRecoveryTarget = { kind: req.target.kind };
-  if (req.target.path) target.path = req.target.path;
-  if (req.target.medium) target.medium = req.target.medium;
-  if (req.target.key) target.key = req.target.key;
-  if (req.target.acknowledged) target.acknowledged = true;
   return {
-    target,
+    target: toWireRecoveryTarget(req.target),
     ...(req.copy ? { copy: req.copy } : {}),
     ...(req.acknowledged ? { acknowledged: true } : {})
   };
@@ -2968,7 +3007,8 @@ function fromWireRecoverManyItem(i: WireRecoveryManyItem): RecoverManyItem {
     ...(i.file ? { file: i.file } : {}),
     ...(i.code ? { code: i.code } : {}),
     ...(i.message ? { message: i.message } : {}),
-    ...(i.restore ? { restoreOperationId: i.restore.operation_id } : {})
+    ...(i.restore ? { restoreOperationId: i.restore.operation_id } : {}),
+    ...(i.verified ? { verified: i.verified } : {})
   };
 }
 
@@ -2991,6 +3031,10 @@ function fromWireRecoverManyPlan(p: WireRecoveryManyPlan & { refusal?: { code: s
     unknownSizes: p.unknown_sizes,
     ...(p.free_bytes !== undefined ? { freeBytes: p.free_bytes } : {}),
     reserveBytes: p.reserve_bytes,
+    ...(p.destination_id ? { destinationId: p.destination_id } : {}),
+    ...(p.url ? { url: p.url } : {}),
+    ...(p.source_free_bytes !== undefined ? { sourceFreeBytes: p.source_free_bytes } : {}),
+    ...(p.source_reserve_bytes !== undefined ? { sourceReserveBytes: p.source_reserve_bytes } : {}),
     ...(p.refusal ? { refusal: { code: p.refusal.code, message: p.refusal.message } } : {})
   };
 }
@@ -3007,18 +3051,15 @@ function fromWireRecoverManyResult(r: WireRecoveryManyResult, error?: { code: st
     ...(r.manifest_path ? { manifestPath: r.manifest_path } : {}),
     ...(r.manifest_key ? { manifestKey: r.manifest_key } : {}),
     ...(r.manifest_sha256 ? { manifestSha256: r.manifest_sha256 } : {}),
+    ...(r.destination_id ? { destinationId: r.destination_id } : {}),
+    ...(r.url ? { url: r.url } : {}),
     ...(error ? { error } : {})
   };
 }
 
 function toWireRecoverMany(req: RecoverManyRequest, preflight: boolean): WireRecoveryManyRequest {
-  const target: WireRecoveryTarget = { kind: req.target.kind };
-  if (req.target.path) target.path = req.target.path;
-  if (req.target.medium) target.medium = req.target.medium;
-  if (req.target.key) target.key = req.target.key;
-  if (req.target.acknowledged) target.acknowledged = true;
   return {
-    target,
+    target: toWireRecoveryTarget(req.target),
     ...(req.set ? { set: req.set } : {}),
     ...(req.artifacts?.length ? { artifacts: req.artifacts } : {}),
     ...(req.newestOnly ? { newest_only: true } : {}),
@@ -3065,7 +3106,10 @@ function fromWireRecoveryResult(r: WireRecoveryResult): RecoveryPlacement {
     ...(r.path ? { path: r.path } : {}),
     ...(r.key ? { key: r.key } : {}),
     bytes: r.bytes,
-    sha256: r.sha256
+    sha256: r.sha256,
+    ...(r.url ? { url: r.url } : {}),
+    ...(r.destination_id ? { destinationId: r.destination_id } : {}),
+    ...(r.verified ? { verified: r.verified } : {})
   };
 }
 
@@ -4043,28 +4087,26 @@ export const httpApi: RetndApi = {
   acknowledgeWorkflowRecovery: (runId, reason) =>
     post(workflowRecoveryPath(runId) + "/acknowledge", { reason }),
 
-  mintRecovery: (artifactId, req) =>
+  mintRecovery: (artifactId, req, opts) =>
     request<WireRecoveryMintResponse>(artifactPath(artifactId) + "/recovery", {
       method: "POST",
       // #1191: a source target on a profile that re-checks the password.
-      // The header, never the body, as for a restore (#1163).
-      ...(req.stepUpPassword ? { headers: { [STEP_UP_HEADER]: req.stepUpPassword } } : {}),
+      // The header, never the body, as for a restore (#1163), and only on
+      // this one request.
+      ...stepUpHeaders(opts),
       body: JSON.stringify(toWireRecoveryMint(req))
     }).then(fromWireRecoveryMint),
-  preflightRecoverySource: (source, set) =>
-    request<WireRecoverySourcePreflight>(backupSetPath(source, set) + "/recovery-source/preflight", { method: "POST" }).then((r) => ({
-      setId: r.set_id,
-      available: r.available,
-      ...(r.reason ? { reason: r.reason } : {}),
-      ...(r.host ? { host: r.host } : {}),
-      ...(r.port ? { port: r.port } : {}),
-      ...(r.user ? { user: r.user } : {}),
-      ...(r.remote_path ? { remotePath: r.remote_path } : {}),
-      ...(r.folder ? { folder: r.folder } : {}),
-      ...(r.url ? { url: r.url } : {}),
-      ...(r.writable ? { writable: r.writable } : {}),
-      ...(r.detail ? { detail: r.detail } : {})
-    })),
+  describeSourceHost: (source, set, opts) => {
+    const search = folderQuery(opts?.folder);
+    return request<WireSourceHostDescription>(backupSetPath(source, set) + "/source-host" + (search ? "?" + search : ""), { signal: opts?.signal }).then(fromWireSourceHost);
+  },
+  checkSourceHostWrite: (source, set, opts) => {
+    const search = folderQuery(opts?.folder);
+    return request<WireSourceHostDescription>(backupSetPath(source, set) + "/source-host/write-check" + (search ? "?" + search : ""), {
+      method: "POST",
+      signal: opts?.signal
+    }).then(fromWireSourceHost);
+  },
   redeemRecovery: (grant) =>
     request<WireRecoveryResult>("/recoveries/" + encodeURIComponent(grant)).then(fromWireRecoveryResult),
 
@@ -4096,7 +4138,7 @@ export const httpApi: RetndApi = {
     try {
       await request<void>("/recoveries", {
         method: "POST",
-        ...(req.stepUpPassword ? { headers: { [STEP_UP_HEADER]: req.stepUpPassword } } : {}),
+        ...stepUpHeaders(opts),
         body: JSON.stringify(toWireRecoverMany(req, false)),
         signal: opts?.signal
       }, onLine);

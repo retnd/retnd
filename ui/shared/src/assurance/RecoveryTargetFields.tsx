@@ -19,25 +19,23 @@
  * # The source host (issue #1191)
  *
  * Sending a backup home is what someone recovering it usually wants, so the
- * screens start on it. It is also the one recovery that writes onto a
- * production machine, so nothing is implied: the destination is spelled out
- * (sftp://user@host/path/new-folder/), the host is asked before the run
- * whether the pull account may write there (the preflight), the act waits
- * for an "I understand" tick, and on a profile that re-checks the password
- * (#1163) it asks for that too. The engine checks every one of these again;
- * the screen only refuses to send a request the engine would refuse.
+ * screens start on it where it can work. It is also the one recovery that
+ * writes onto a production machine, so nothing is implied: the destination is
+ * spelled out exactly as the engine will write it (its own url), the write
+ * check runs only once the operator ticks "I understand this writes N onto
+ * ..." or presses "Check write access", and on a profile that re-checks the
+ * password (#1163) it asks for that too. The engine checks every one of these
+ * again; the screen only refuses to send a request the engine would refuse.
  *
- * The files go into a new retnd-recovered-<time> folder under the set's own
- * remote path, which the next backup run skips. The host refuses to replace a
- * file that is already there, so the screen never offers to.
+ * The files go into a new retnd-recovered-* folder under the set's own remote
+ * path, which the next backup run skips. The engine writes under a temporary
+ * name and renames it into place, so nothing already there is ever replaced.
  *
- * A set that does not pull over SFTP has nothing to send the backup back to,
- * and a destructive gate that is shut will not let the web interface write
- * there. In both cases the radio is drawn switched off, nothing is
- * preselected, and RecoverySourceNote says why in the engine's words. The
- * logic half (what the engine said, what may be preselected) is
- * sourceHostState.ts; everything drawn is here, and the same test fails if a
- * screen draws the source choice itself.
+ * A set that does not pull over SFTP, a set declared read_only, a host a
+ * recent write check found read-only, and a shut destructive gate all keep
+ * the radio first, switched off, with RecoverySourceNote saying why in the
+ * engine's words, and the screen starts on what it offered before #1191.
+ * What the engine is asked and when is assurance/useSourceRecovery.ts.
  *
  * # What a screen still decides
  *
@@ -52,9 +50,11 @@ import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { useApi } from "@shared/api/ApiContext";
 import { Acknowledgement } from "@shared/components/Acknowledgement";
+import { StepUpPassword } from "@shared/components/StepUpFields";
+import { bytes as formatBytes } from "@shared/utilities/format";
 import { DestinationSelect } from "./DestinationSelect";
 import { HostFolderBrowser } from "./HostFolderBrowser";
-import type { SourceHost } from "./sourceHostState";
+import type { SourceRecovery } from "./useSourceRecovery";
 
 export type RecoveryPlace = "source" | "staging" | "storage";
 
@@ -92,15 +92,16 @@ export function RecoveryTargetChoices({
 
 /** The source-host radio (issue #1191), first in the caller's radiogroup.
  *  Nothing when the engine does not offer it; drawn switched off when this
- *  set has no source host to write to, with RecoverySourceNote saying why. */
+ *  set's source host cannot be written to from here, with RecoverySourceNote
+ *  saying why. */
 export function RecoverySourceChoice({
   name, value, onChoose, source, labelStyle
 }: {
   name: string;
   value: string;
   onChoose(place: "source"): void;
-  /** The set's source host, from useSourceHost. */
-  source: SourceHost;
+  /** The set's source host, from useSourceRecovery. */
+  source: SourceRecovery;
   labelStyle?: CSSProperties;
 }) {
   if (!source.offered) return null;
@@ -112,13 +113,13 @@ export function RecoverySourceChoice({
   );
 }
 
-function sourceSelectable(source: SourceHost): boolean {
-  return !!source.preflight?.available && source.unavailable === null;
+function sourceSelectable(source: SourceRecovery): boolean {
+  return !!source.description?.available && source.unavailable === null;
 }
 
 /** Why the source host cannot be chosen here, where the screen shows notes.
  *  Nothing when it can, or when the engine does not offer it. */
-export function RecoverySourceNote({ source }: { source: SourceHost }) {
+export function RecoverySourceNote({ source }: { source: SourceRecovery }) {
   if (!source.offered || !source.unavailable) return null;
   return (
     <div data-source-host="" data-testid="source-unavailable" role="status" style={{ color: "var(--text-2)" }}>
@@ -127,43 +128,32 @@ export function RecoverySourceNote({ source }: { source: SourceHost }) {
   );
 }
 
-/** What the source-host field needs from the screen that holds its state. */
-export interface SourceHostFieldState {
-  host: SourceHost;
-  /** The folder the files go into; the preflight's own by default. */
-  folder: string;
-  acknowledged: boolean;
-  onAcknowledged(next: boolean): void;
-  password: string;
-  onPassword(next: string): void;
-  /** The engine's refusal of the tick or the password, in words. */
-  error?: string | null;
-}
+/** The field for the chosen place: the source host's destination, check,
+ *  tick and password; a name under the staging root with the host's folders
+ *  to pick from; or the drop-down of Settings' destinations. */
+export type RecoveryTargetFieldProps =
+  | { place: "source"; source: SourceRecovery }
+  | {
+      place: "staging";
+      value: string;
+      onChange(value: string): void;
+      /** One backup's own file name, added to a folder picked in the browser. */
+      fileName?: string;
+      /** What the name means on this screen, said under the field. */
+      meaning?: string;
+    }
+  | { place: "storage"; value: string; onChange(value: string): void };
 
-/** The field for the chosen place: a name under the staging root with the
- *  host's folders to pick from, or the drop-down of Settings' destinations. */
-export function RecoveryTargetField({
-  place, value, onChange, fileName, meaning, source
-}: {
-  place: RecoveryPlace;
-  value: string;
-  onChange(value: string): void;
-  /** One backup's own file name, added to a folder picked in the browser. */
-  fileName?: string;
-  /** What the name means on this screen, said under the field. */
-  meaning?: string;
-  /** The source host's state, which the "source" place draws. */
-  source?: SourceHostFieldState;
-}) {
-  if (place === "source") return source ? <SourceHostField {...source} /> : null;
-  if (place === "storage") {
+export function RecoveryTargetField(props: RecoveryTargetFieldProps) {
+  if (props.place === "source") return <SourceHostField source={props.source} />;
+  if (props.place === "storage") {
     return (
       <div data-testid="destination-field">
-        <DestinationSelect ariaLabel={PLACE_LABELS.storage} value={value} onChange={onChange} />
+        <DestinationSelect ariaLabel={PLACE_LABELS.storage} value={props.value} onChange={props.onChange} />
       </div>
     );
   }
-  return <StagingFolderField value={value} onChange={onChange} fileName={fileName} meaning={meaning} />;
+  return <StagingFolderField value={props.value} onChange={props.onChange} fileName={props.fileName} meaning={props.meaning} />;
 }
 
 function StagingFolderField({ value, onChange, fileName, meaning }: { value: string; onChange(value: string): void; fileName?: string; meaning?: string }) {
@@ -194,60 +184,73 @@ function StagingFolderField({ value, onChange, fileName, meaning }: { value: str
 }
 
 /** What the source-host choice adds below the radios once it is chosen. */
-function SourceHostField({ host, folder, acknowledged, onAcknowledged, password, onPassword, error }: SourceHostFieldState) {
-  const p = host.preflight;
-  if (!p) {
+function SourceHostField({ source }: { source: SourceRecovery }) {
+  const d = source.description;
+  if (!d) {
     return (
-      <div data-source-host="" role="status" aria-busy="true" data-testid="source-preflight" data-writable="" style={{ color: "var(--text-2)" }}>
-        Asking the source host whether retnd may write there...
+      <div data-source-host="" role="status" aria-busy="true" data-testid="source-preflight" data-write-access="" style={{ color: "var(--text-2)" }}>
+        Asking the host where this set&apos;s source is...
       </div>
     );
   }
-  const where = p.url ? p.url.replace(/[^/]+\/$/, folder + "/") : "";
-  const refused = p.writable === "no";
+  const host = d.host ?? "the source host";
+  const access = source.checking ? "checking" : d.writeAccess;
+  const refused = access === "read_only" || access === "probe_left_file";
+  const failed = access === "unreachable";
+  const shut = source.gate.state === "shut";
+  const status =
+    access === "checking" ? "Checking that retnd may write on " + host + ": one probe file is written there and removed again..."
+    : access === "not_checked" ? "Nothing has been written to " + host + " yet. retnd checks that it may write there when you tick the box below, by writing one probe file and removing it again."
+    : access === "writable" ? "Write check: " + (d.detail ?? "retnd can write there") + ". It goes into a new folder, so nothing already on " + host + " is replaced."
+    : access === "probe_left_file" ? (d.detail ?? "a probe file was left on " + host) + ". Delete " + (d.leftFile ?? "the probe file") + " on " + host + ", then check again."
+    : (d.detail ?? "retnd could not check this host") + ".";
+  const amount = source.bytes !== null ? formatBytes(source.bytes) + " " : "";
   return (
     <div data-source-host="" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <div>
         <div style={{ color: "var(--text-2)", fontSize: "var(--text-sm)" }}>The backup goes back to the host it came from, at</div>
-        <div className="mono" data-testid="source-destination" style={{ wordBreak: "break-all", color: "var(--text)" }}>{where}</div>
+        <div className="mono" data-testid="source-destination" style={{ wordBreak: "break-all", color: "var(--text)" }}>{d.url ?? ""}</div>
       </div>
       <div
         data-testid="source-preflight"
-        data-writable={p.writable ?? "unknown"}
-        role={refused ? "alert" : "status"}
-        className={refused ? "aop__alert" : undefined}
-        style={refused ? undefined : { color: "var(--text-2)" }}
+        data-write-access={access}
+        role={refused || failed ? "alert" : "status"}
+        aria-busy={source.checking}
+        className={refused || failed ? "aop__alert" : undefined}
+        style={refused || failed ? undefined : { color: "var(--text-2)" }}
       >
-        <strong>{refused ? "This upload will be refused. " : "Pre-flight: "}</strong>
-        {(p.detail ? p.detail + ". " : "") + "It goes into a new folder, so nothing already on " + (p.host ?? "the host") + " is overwritten."}
+        {refused ? <strong>This upload will be refused. </strong> : null}
+        {status}
       </div>
-      {refused ? null : (
-        <Acknowledgement checked={acknowledged} onChange={onAcknowledged}>
-          {"I understand this writes onto " + (p.host ?? "the source host") + ", the machine this backup came from"}
-        </Acknowledgement>
-      )}
-      {!refused && host.gate.stepUpRequired ? (
-        <div>
-          <label className="field">
-            <span className="field__label">Your password</span>
-            <input
-              className="input"
-              type="password"
-              autoComplete="current-password"
-              aria-describedby="source-step-up-help"
-              // The same text-2 border the restore's password field uses
-              // (StepUpFields), 3:1 or better in both themes.
-              style={{ borderColor: "var(--text-2)" }}
-              value={password}
-              onChange={(e) => onPassword(e.target.value)}
-            />
-          </label>
-          <span id="source-step-up-help" style={{ display: "block", marginTop: 6, fontSize: "var(--text-xs)", color: "var(--text-2)" }}>
-            Writing onto the source host asks for your password again. It is sent once with this request and not kept.
-          </span>
+      {access === "writable" ? (
+        <div data-testid="source-space" style={{ color: "var(--text-2)" }}>
+          {d.freeBytes !== undefined
+            ? host + " has " + formatBytes(d.freeBytes) + " free under " + (d.remotePath ?? "its remote path") + "."
+            : host + " did not say how much space is free, so retnd cannot check that this fits before it writes."}
         </div>
       ) : null}
-      {error ? <div role="alert" data-source-step-up-error="" style={{ color: "var(--danger)", fontSize: "var(--text-sm)", fontWeight: 600 }}>{error}</div> : null}
+      {refused ? null : (
+        <Acknowledgement checked={source.acknowledged} onChange={source.setAcknowledged} disabled={shut}>
+          {"I understand this writes " + amount + "onto " + host + ", into " + (d.url ?? "a new folder there")}
+        </Acknowledgement>
+      )}
+      {(access === "not_checked" || failed) && !refused ? (
+        <div>
+          <button
+            type="button"
+            className="btn btn--sm"
+            disabled={shut || source.checking}
+            title={shut ? source.gate.reason || "the destructive gate is shut" : undefined}
+            onClick={source.checkWriteAccess}
+          >
+            Check write access
+          </button>
+        </div>
+      ) : null}
+      {!refused && source.gate.stepUpRequired ? (
+        <StepUpPassword key={source.passwordKey} act="source" id="source-step-up-help" onPassword={source.setPassword} />
+      ) : null}
+      {source.error ? <div role="alert" data-source-step-up-error="" style={{ color: "var(--danger)", fontSize: "var(--text-sm)", fontWeight: 600 }}>{source.error}</div> : null}
     </div>
   );
 }

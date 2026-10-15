@@ -41,7 +41,7 @@
  * command rather than pretending the two are one operation.
  */
 import "./assurance.css";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { useApi } from "@shared/api/ApiContext";
 import type {
@@ -54,7 +54,7 @@ import type { IconName } from "@shared/design-system/icons";
 import { bytes } from "@shared/utilities/format";
 import { RecoverySourceChoice, RecoverySourceNote, RecoveryTargetChoices, RecoveryTargetField } from "./RecoveryTargetFields";
 import { recoverSetCommand, recoverSetPreflightCommand, snapshotRestoreCommand } from "./assuranceCommands";
-import { confirmSourceTransport, sourceHostReady, sourceHostRefusal, useSourceHost } from "./sourceHostState";
+import { useSourceRecovery } from "./useSourceRecovery";
 
 type Narrow = "all" | "newest" | "since";
 type Where = "staging" | "storage" | "source";
@@ -91,14 +91,13 @@ export function RecoverSetDialog({
   returnFocus?: RefObject<HTMLElement>;
 }) {
   const api = useApi();
-  const [narrow, setNarrow] = useState<Narrow>("all");
+  // Null until the operator picks one: a run onto the source host defaults to
+  // the newest restore point only (#1193's review), anything else to all.
+  const [narrowChosen, setNarrow] = useState<Narrow | null>(null);
   const [since, setSince] = useState("");
   // Issue #1191: null until the source host has answered; it is the default
   // where the set has one, and nothing is preselected where it has none.
   const [chosen, setTarget] = useState<Where | null>(null);
-  const [sourceAck, setSourceAck] = useState(false);
-  const [sourcePassword, setSourcePassword] = useState("");
-  const [sourceError, setSourceError] = useState<string | null>(null);
   const [where, setWhere] = useState("");
   const [accepted, setAccepted] = useState(false);
   const [plan, setPlan] = useState<RecoverManyPlan | null>(null);
@@ -107,13 +106,14 @@ export function RecoverSetDialog({
   const box = useRef<HTMLDivElement>(null);
   const abort = useRef<AbortController | null>(null);
   const kopia = engine === "kopia";
-  const sourceHost = useSourceHost(kopia ? null : setId);
+  const source = useSourceRecovery(kopia ? null : setId, { bytes: plan?.target.kind === "source" ? plan.totals.bytes : null });
   // Until something is chosen: the source host once it has answered and can
-  // be used, nothing if it cannot, and the old default (staging) on an engine
-  // that does not offer it.
+  // be used, and otherwise what this dialog offered before #1191 (staging),
+  // with the source radio still first and its reason under it.
   const target: Where | null = chosen ?? (
-    kopia || !sourceHost.ready ? null : sourceHost.preselect ? "source" : sourceHost.offered ? null : "staging");
-  const sourceFolder = sourceHost.preflight?.folder ?? "";
+    kopia || !source.ready ? null : source.preselect ? "source" : "staging");
+  const narrow: Narrow = narrowChosen ?? (target === "source" ? "newest" : "all");
+  const sourceFolder = source.description?.folder ?? "";
 
   useEffect(() => {
     const back = returnFocus?.current ?? (document.activeElement as HTMLElement | null);
@@ -138,62 +138,60 @@ export function RecoverSetDialog({
 
   const sinceIso = narrow === "since" && since ? new Date(since + "T00:00:00Z").toISOString() : undefined;
   const sinceMissing = narrow === "since" && !since;
-  const targetSpec = useMemo((): RecoveryTargetSpec => {
+  // What the run asks for. The plan is the same request without the tick:
+  // ticking the box or typing a password never asks for a new pre-flight.
+  const planTarget = useMemo((): RecoveryTargetSpec => {
     // Until a destination is named the plan is asked for against a placeholder
     // name: what is in the set, what it costs and how big it is do not depend
     // on where it goes, and the pre-flight is the thing worth seeing early.
-    if (target === "source") return { kind: "source", path: sourceFolder, ...(sourceAck ? { acknowledged: true } : {}) };
+    if (target === "source") return { kind: "source", ...(sourceFolder ? { path: sourceFolder } : {}) };
     if (target === "storage") return { kind: "storage", medium: where.trim() || "destination" };
     return { kind: "staging", path: where.trim() || "recovery" };
-  }, [target, where, sourceFolder, sourceAck]);
-  const request = useCallback((): RecoverManyRequest => ({
+  }, [target, where, sourceFolder]);
+  const planRequest = useMemo((): RecoverManyRequest => ({
     set: setId,
     ...(narrow === "newest" ? { newestOnly: true } : {}),
     ...(sinceIso ? { since: sinceIso } : {}),
     ...(accepted ? { acknowledged: true } : {}),
-    target: targetSpec,
-    ...(target === "source" && sourceHost.gate.stepUpRequired ? { stepUpPassword: sourcePassword } : {})
-  }), [setId, narrow, sinceIso, accepted, targetSpec, target, sourceHost.gate.stepUpRequired, sourcePassword]);
+    target: planTarget
+  }), [setId, narrow, sinceIso, accepted, planTarget]);
+  const runTarget = target === "source" ? source.targetSpec : planTarget;
 
   // The pre-flight, redrawn when a choice changes. A stale answer never
   // overwrites a newer one.
   const idle = phase.k === "choose" || phase.k === "refused";
   const skipPlan = kopia || !idle || sinceMissing;
-  // The plan does not depend on the tick or the password, so typing one does
-  // not ask for it again.
-  const planRequest = useCallback((): RecoverManyRequest => {
-    const rest = { ...request() };
-    delete rest.stepUpPassword;
-    const t = rest.target.kind === "source" ? { kind: "source" as const, path: rest.target.path } : rest.target;
-    return { ...rest, target: t };
-  }, [request]);
-  const planKey = JSON.stringify(planRequest());
   useEffect(() => {
     if (skipPlan) return;
     let live = true;
     const t = setTimeout(() => {
-      api.planRecoverMany(JSON.parse(planKey) as RecoverManyRequest).then(
+      api.planRecoverMany(planRequest).then(
         (p) => { if (live) { setPlan(p); setPlanFailure(null); } },
         (e) => { if (live) { setPlan(null); setPlanFailure(describeFailure(e, "The pre-flight could not be made.").message); } }
       );
     }, 150);
     return () => { live = false; clearTimeout(t); };
-  }, [api, skipPlan, planKey]);
+  }, [api, skipPlan, planRequest]);
 
   const go = async () => {
-    setSourceError(null);
-    // On an unencrypted connection the operator is asked BEFORE the password
-    // is sent, as for a restore (#1163).
-    if (target === "source" && !(await confirmSourceTransport(sourceHost.gate))) {
-      setSourceError(sourceHostRefusal("INSECURE_TRANSPORT_ACK_REQUIRED"));
-      return;
+    // A source target asks about an unencrypted connection BEFORE the password
+    // is sent (#1163), and the password goes with this one request only.
+    const once = target === "source" ? await source.beforeSubmit() : {};
+    if (once === null || !runTarget) { if (target === "source" && once !== null) source.done(); return; }
+    try {
+      await run(once, runTarget);
+    } finally {
+      if (target === "source") source.done();
     }
+  };
+  const run = async (once: { stepUpPassword?: string }, runTarget: RecoveryTargetSpec) => {
     abort.current = new AbortController();
     const total = plan?.totals.bytes ?? 0;
     const of = (plan?.totals.ready ?? 0) + (plan?.totals.needsThaw ?? 0);
     setPhase({ k: "running", lines: [], done: 0, total, index: 0, of, cancelling: false });
     try {
-      const result = await api.recoverMany(request(), {
+      const result = await api.recoverMany({ ...planRequest, target: runTarget }, {
+        ...once,
         signal: abort.current.signal,
         onProgress: (p) => setPhase((cur) => {
           if (cur.k !== "running") return cur;
@@ -206,9 +204,7 @@ export function RecoverSetDialog({
     } catch (e) {
       const code = (e as { api?: { code?: string } })?.api?.code ?? "";
       // The tick or the password (#1191): back to the choice, with the reason.
-      const stepUp = target === "source" ? sourceHostRefusal(code) : null;
-      if (stepUp) {
-        setSourceError(stepUp);
+      if (target === "source" && source.refusal(code)) {
         setPhase({ k: "choose" });
         return;
       }
@@ -229,11 +225,11 @@ export function RecoverSetDialog({
   // The cost refusal is what the checkbox answers; any other refusal blocks.
   const hardRefusal = refusal && refusal.code !== "RECOVERY_COST_NOT_ACKNOWLEDGED" ? refusal : null;
   const actionable = (shown?.totals.ready ?? 0) + (shown?.totals.needsThaw ?? 0);
-  const needsTarget = target === null || (target === "source" ? !sourceHostReady(sourceHost, sourceAck, sourcePassword) : where.trim() === "");
+  const needsTarget = target === null || (target === "source" ? !source.canSubmit : where.trim() === "");
   const ackRequired = costNeeded && !accepted;
   const canGo = !!shown && actionable > 0 && !hardRefusal && !needsTarget && !ackRequired && !sinceMissing;
   const echoWhere = target === "source" ? sourceFolder : where.trim();
-  const command = target ? recoverSetCommand(setId, narrow, since, target, echoWhere, costNeeded && accepted, sourceAck) : null;
+  const command = target ? recoverSetCommand(setId, narrow, since, target, echoWhere, costNeeded && accepted, source.acknowledged) : null;
 
   return (
     <div className="dialog-scrim" style={{ gridTemplateColumns: "minmax(0, 1fr)" }} onClick={(e) => e.target === e.currentTarget && phase.k !== "running" && onClose()}>
@@ -296,7 +292,7 @@ export function RecoverSetDialog({
                   <RecoverySourceChoice
                     name="recover-set-target"
                     value={target ?? ""}
-                    source={sourceHost}
+                    source={source}
                     labelStyle={{ display: "inline-flex", gap: 6, alignItems: "center" }}
                     onChoose={(t) => { setTarget(t); setWhere(""); }}
                   />
@@ -311,21 +307,21 @@ export function RecoverSetDialog({
                 <div style={{ color: "var(--text-2)", marginTop: 4 }} data-testid="no-browser-download">
                   There is no browser download for a set: that would be one archive the host has to build and keep, and every backup can still be downloaded from its own page.
                 </div>
-                {sourceHost.offered && sourceHost.unavailable ? (
-                  <div style={{ marginTop: 6 }}><RecoverySourceNote source={sourceHost} /></div>
+                {source.offered && source.unavailable ? (
+                  <div style={{ marginTop: 6 }}><RecoverySourceNote source={source} /></div>
                 ) : null}
                 {target !== null ? (
                   <div style={{ marginTop: 6 }}>
-                    <RecoveryTargetField
-                      place={target}
-                      value={where}
-                      onChange={setWhere}
-                      meaning="A folder: the set's files go under it, with a manifest."
-                      source={{
-                        host: sourceHost, folder: sourceFolder, acknowledged: sourceAck, onAcknowledged: setSourceAck,
-                        password: sourcePassword, onPassword: setSourcePassword, error: sourceError
-                      }}
-                    />
+                    {target === "source" ? <RecoveryTargetField place="source" source={source} />
+                      : target === "storage" ? <RecoveryTargetField place="storage" value={where} onChange={setWhere} />
+                      : (
+                        <RecoveryTargetField
+                          place="staging"
+                          value={where}
+                          onChange={setWhere}
+                          meaning="A folder: the set's files go under it, with a manifest."
+                        />
+                      )}
                   </div>
                 ) : null}
               </fieldset>
@@ -467,6 +463,13 @@ function Summary({ result }: { result: RecoverManyResult }) {
         <li>{"Lost: " + t.unrecoverable}</li>
       </ul>
       <div>{"Each recovered file was matched to the digest recorded when it was ingested before it was placed. " + bytes(t.bytes) + " in all."}</div>
+      {result.target.kind === "source" && t.recovered > 0 ? (
+        <div data-testid="result-verified">
+          {result.items.every((i) => i.status !== "recovered" || i.verified === "sha256")
+            ? "Each file on the source host was then checked by SHA-256 on the host, and matched."
+            : "The source host cannot compute a digest, so for some files only the size of what it holds was checked, and it matched."}
+        </div>
+      ) : null}
       {result.cancelled ? (
         <div data-testid="result-cancelled-note">
           The run was cancelled. The files listed as recovered are complete; the file that was being read was discarded and no half-written file was kept. The host writes a manifest of what it did beside the files.

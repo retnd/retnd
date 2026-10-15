@@ -55,6 +55,7 @@ import { BulkDownloadLinks } from "@shared/assurance/BulkDownloadLinks";
 import type { BulkDownloadState } from "@shared/assurance/BulkDownloadLinks";
 import { asApiError } from "@shared/api/failure";
 import { BackupsRecoverRun } from "./BackupsRecoverRun";
+import type { StepUpOptions } from "@shared/api/contracts";
 import { inReceivedRange, unselectableReason } from "./backupSelection";
 import { PAGE_SIZES, allOffered, isPageSize, pageWindow, readPageSize, rememberPageSize } from "./backupsPaging";
 import type { PageChoice, PageSize } from "./backupsPaging";
@@ -92,6 +93,11 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   const [dl, setDl] = useState<(BulkDownloadState & { files: BackupArtifact[] }) | null>(null);
   // One run at a time (a double click must not mint twice), and a run this
   // page has left stops asking the host for grants.
+  // #1193's review: the password a run onto the source host carries lives here
+  // only between the bar's press and the run's one request, in a ref, and a
+  // refusal of the tick or the password goes back to the bar's own field.
+  const runOnce = useRef<StepUpOptions>({});
+  const [sourceRefusal, setSourceRefusal] = useState<{ code: string; seq: number } | null>(null);
   const dlBusy = useRef(false);
   const dlRun = useRef<AbortController | null>(null);
   useEffect(() => {
@@ -311,9 +317,11 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
           onDownload={() => void startDownload(ticked)}
           onSelectAll={selectAll}
           onClear={() => setPicked(new Set())}
-          onRecover={(target, acknowledged) =>
-            setRun({ files: ticked.map((a) => ({ id: a.id, filename: a.filename })), target, acknowledged })
-          }
+          sourceRefusal={sourceRefusal}
+          onRecover={(target, acknowledged, once) => {
+            runOnce.current = once;
+            setRun({ files: ticked.map((a) => ({ id: a.id, filename: a.filename })), target, acknowledged });
+          }}
         />
       ) : null}
       {dl ? <BulkDownloadLinks state={dl} onFresh={() => void startDownload(dl.files)} /> : null}
@@ -494,6 +502,8 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
           files={run.files}
           target={run.target}
           acknowledged={run.acknowledged}
+          once={() => { const o = runOnce.current; runOnce.current = {}; return o; }}
+          onSourceRefused={(code) => { setRun(null); setSourceRefusal((r) => ({ code, seq: (r?.seq ?? 0) + 1 })); }}
           onClose={() => { setRun(null); setPicked(new Set()); artifacts.reload(); }}
         />
       ) : null}

@@ -5,7 +5,7 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { measureContrast, open, setTheme } from "./helpers";
-import { expectNothingPreselected, expectReadOnlyWarning, expectSourcePreselected, expectWritableAndGated } from "./1191-source-host";
+import { DOWNLOAD, expectFallback, expectReadOnlyWarning, expectSourcePreselected, expectWritableAndGated } from "./1191-source-host";
 
 const PAGE = "/backups/production/postgres-primary/postgres-prod-20260828.dump.zst";
 const dialog = (p: Page) => p.getByRole("dialog", { name: "Recover artifact" });
@@ -30,9 +30,9 @@ test.describe("#1191 backup page: Recover artifact", () => {
     await expectReadOnlyWarning(dlg, go(page));
   });
 
-  test("a non-SFTP source preselects nothing and says why", async ({ page }) => {
+  test("a non-SFTP source starts on the browser download and says why", async ({ page }) => {
     const dlg = await fromThePage(page, "source-not-sftp");
-    await expectNothingPreselected(dlg, "Where should the artifact go?");
+    await expectFallback(dlg, DOWNLOAD, "not SFTP");
   });
 
   for (const theme of ["light", "dark"] as const) {

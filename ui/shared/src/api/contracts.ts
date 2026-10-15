@@ -2282,11 +2282,12 @@ export interface WorkflowRunnerStatus {
 export interface RecoveryTargetSpec {
   kind: "download" | "staging" | "storage" | "source";
   /** staging: a name under the staging root. source (#1191): the new
-   *  retnd-recovered-* folder under the set's remote path; empty takes a
-   *  fresh one. */
+   *  retnd-recovered-* folder under the set's remote path. */
   path?: string;
-  /** source: the explicit yes to writing onto the host the backup came from. */
-  acknowledged?: boolean;
+  /** source: the destinationId the engine described for exactly this host,
+   *  account, path and folder, echoed back as the yes to writing there. Only
+   *  ever sent; a response never carries it. */
+  acknowledgedDestination?: string;
   /** storage: a configured destination id. */
   medium?: string;
   /** storage: an object key, defaulting to recovered/<artifact id>. */
@@ -2299,15 +2300,23 @@ export interface RecoveryMintRequest {
   /** The explicit yes to a chargeable retrieval. Absent is a no. */
   acknowledged?: boolean;
   target: RecoveryTargetSpec;
-  /** #1163 / #1191: the password again, for a source target on a profile
-   *  that re-checks it. Sent in a header, never in the body. */
+}
+
+/** The one-shot options of a request that may carry the password again
+ *  (#1163, #1191). The password goes in a header with this one request and
+ *  is never part of a request object a screen keeps. */
+export interface StepUpOptions {
   stepUpPassword?: string;
 }
 
+/** What the last write check of a source host found (#1191). */
+export type SourceWriteAccess = "not_checked" | "writable" | "read_only" | "unreachable" | "probe_left_file";
+
 /** Issue #1191: where a recovery of a backup set onto its own source host
- *  would write, and whether retnd may write there (POST
- *  /backup-sets/{source}/{set}/recovery-source/preflight). */
-export interface RecoverySourcePreflight {
+ *  would write, read from configuration alone (GET
+ *  /backup-sets/{source}/{set}/source-host), and what the last write check
+ *  found (POST .../source-host/write-check, run only when asked). */
+export interface SourceHostDescription {
   setId: string;
   /** False when the set has no source host (not SFTP, or incremental). */
   available: boolean;
@@ -2317,12 +2326,22 @@ export interface RecoverySourcePreflight {
   port?: number;
   user?: string;
   remotePath?: string;
-  /** The new folder a recovery started now would go into. */
+  /** The new folder this description is for. */
   folder?: string;
+  /** Exactly where the engine will write, as it spells it. */
   url?: string;
-  /** What the write probe found. */
-  writable?: "yes" | "no" | "unknown";
+  /** What a recovery echoes back as target.acknowledgedDestination. */
+  destinationId?: string;
+  /** The set is declared read_only: never written, never probed. */
+  readOnly?: boolean;
+  writeAccess: SourceWriteAccess;
+  code?: string;
   detail?: string;
+  checkedAt?: string;
+  /** For probe_left_file: the probe file to delete on the host. */
+  leftFile?: string;
+  /** Free bytes under remote_path, when a write check could ask. */
+  freeBytes?: number;
 }
 
 /** A grant, or the provider restore that has to finish before there can be
@@ -2338,6 +2357,9 @@ export type RecoveryMint =
       expiresAt: string;
       target: RecoveryTargetSpec;
       sizeBytes?: number;
+      /** source (#1191): the destination this grant writes into. */
+      destinationId?: string;
+      url?: string;
     }
   | {
       kind: "restore";
@@ -2360,6 +2382,12 @@ export interface RecoveryPlacement {
   bytes: number;
   /** The digest of the bytes placed, equal to the one the journal recorded. */
   sha256: string;
+  /** source (#1191): where it was written. */
+  url?: string;
+  destinationId?: string;
+  /** source: how the placed file was checked on the host. "sha256" is the
+   *  host's own digest; "size" means only the length is known to match. */
+  verified?: "sha256" | "size";
 }
 
 /** One backup in a plan or a result of a recovery of several (#1106, #1107).
@@ -2389,6 +2417,8 @@ export interface RecoverManyItem {
   message?: string;
   /** A provider restore was started for this file. */
   restoreOperationId?: string;
+  /** source (#1191): how the placed file was checked on the host. */
+  verified?: "sha256" | "size";
 }
 
 export interface RecoverManyTotals {
@@ -2417,6 +2447,12 @@ export interface RecoverManyPlan {
   /** Free bytes on the staging disk, when it can say. */
   freeBytes?: number;
   reserveBytes: number;
+  /** source (#1191): the destination the run would write into. */
+  destinationId?: string;
+  url?: string;
+  /** source: free bytes on the source host, absent when it cannot say. */
+  sourceFreeBytes?: number;
+  sourceReserveBytes?: number;
   /** Present when the run itself would be refused (cost not acknowledged,
    *  files do not fit): the code and sentence it would be refused with. */
   refusal?: { code: string; message: string };
@@ -2436,8 +2472,6 @@ export interface RecoverManyRequest {
   acknowledged?: boolean;
   /** `staging`, `storage` or `source`; a download is refused for several files. */
   target: RecoveryTargetSpec;
-  /** #1191: the password again for a source target, in a header. */
-  stepUpPassword?: string;
 }
 
 export interface RecoverManyResult {
@@ -2453,6 +2487,9 @@ export interface RecoverManyResult {
   manifestPath?: string;
   manifestKey?: string;
   manifestSha256?: string;
+  /** source (#1191): the destination the run wrote into. */
+  destinationId?: string;
+  url?: string;
   /** Set when the files were recovered but the run could not finish, for
    *  example the manifest could not be written. */
   error?: { code: string; message: string };
@@ -3242,7 +3279,7 @@ export interface RetndApi {
    * and did not acknowledge it REJECTS with RECOVERY_COST_NOT_ACKNOWLEDGED
    * and starts nothing.
    */
-  mintRecovery(artifactId: string, req: RecoveryMintRequest): Promise<RecoveryMint>;
+  mintRecovery(artifactId: string, req: RecoveryMintRequest, opts?: StepUpOptions): Promise<RecoveryMint>;
   /**
    * Redeem a grant whose target is on the host (staging or storage). The
    * request stays open while the host re-reads the copy, matches it to the
@@ -3254,11 +3291,18 @@ export interface RetndApi {
   redeemRecovery(grant: string): Promise<RecoveryPlacement>;
   /**
    * Issue #1191: where a recovery of this set onto its own source host would
-   * write, and whether it may. It writes and removes one probe file on the
-   * source (the connection test's write probe), so a read-only pull account
-   * is said before the run, not after it.
+   * write, from configuration alone. It never touches the network, so a
+   * dialog asks it on open. `folder` describes a named folder instead of a
+   * fresh one.
    */
-  preflightRecoverySource(source: string, set: string): Promise<RecoverySourcePreflight>;
+  describeSourceHost(source: string, set: string, opts?: { folder?: string; signal?: AbortSignal }): Promise<SourceHostDescription>;
+  /**
+   * Issue #1191: check whether retnd may write on the source host, by writing
+   * and removing one probe file there. Only on the operator's say-so (the
+   * acknowledgement, or "Check write access"); the engine refuses it on a
+   * shut gate and caches its answer for five minutes.
+   */
+  checkSourceHostWrite(source: string, set: string, opts?: { folder?: string; signal?: AbortSignal }): Promise<SourceHostDescription>;
 
   /**
    * #1106, #1107: what recovering several backups, or a whole backup set, to
@@ -3275,7 +3319,7 @@ export interface RetndApi {
    * refusal before the run starts (the cost, the space, a bad destination)
    * REJECTS and starts nothing.
    */
-  recoverMany(req: RecoverManyRequest, opts?: { onProgress?: (p: RecoverManyProgress) => void; signal?: AbortSignal }): Promise<RecoverManyResult>;
+  recoverMany(req: RecoverManyRequest, opts?: { onProgress?: (p: RecoverManyProgress) => void; signal?: AbortSignal } & StepUpOptions): Promise<RecoverManyResult>;
 
   /**
    * EPIC Q (#980, issue #985): start a recovery test of this backup set now,

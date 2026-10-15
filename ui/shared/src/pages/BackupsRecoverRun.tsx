@@ -9,6 +9,8 @@
  * reported as not started.
  */
 import { useEffect, useRef, useState } from "react";
+import type { StepUpOptions } from "@shared/api/contracts";
+import { sourceHostRefusal } from "@shared/assurance/useSourceRecovery";
 import { useApi } from "@shared/api/ApiContext";
 import { runRecoverMany } from "@shared/assurance/recoverMany";
 import type { RunItem, RunTarget } from "@shared/assurance/recoverMany";
@@ -25,12 +27,18 @@ const WORDS: Record<RunItem["state"], string> = {
 };
 
 export function BackupsRecoverRun({
-  files, target, acknowledged, onClose
+  files, target, acknowledged, onClose, once, onSourceRefused
 }: {
   files: Array<{ id: string; filename: string }>;
   target: RunTarget;
   acknowledged: boolean;
   onClose(): void;
+  /** Hands over the password for the one request that starts the run
+   *  (#1193's review), and forgets it. */
+  once?(): StepUpOptions;
+  /** A run onto the source host refused for the tick or the password: the
+   *  bar that asked for them says why, not this dialog. */
+  onSourceRefused?(code: string): void;
 }) {
   const api = useApi();
   const [items, setItems] = useState<RunItem[]>(() => files.map((f) => ({ id: f.id, filename: f.filename, state: "queued" as const })));
@@ -53,10 +61,15 @@ export function BackupsRecoverRun({
     // Strict mode runs effects twice; a recovery must start once.
     if (started.current) return;
     started.current = true;
+    const stepUp = once?.() ?? {};
     void runRecoverMany(api, files.map((f) => f.id), target, acknowledged, abort.current.signal, {
       update: (id, patch) => setItems((cur) => cur.map((x) => (x.id === id ? { ...x, ...patch } : x))),
       progress: (done, total) => setProgress({ done, total })
-    }).then((o) => {
+    }, stepUp).then((o) => {
+      if (o.refusal && target.kind === "source" && onSourceRefused && sourceHostRefusal(o.code)) {
+        onSourceRefused(o.code ?? "");
+        return;
+      }
       if (o.refusal) setRefusal(o.refusal);
       // A closed connection ends the stream without a last word: whatever
       // had not finished did not happen as far as this page can say.
@@ -64,7 +77,7 @@ export function BackupsRecoverRun({
       if (o.result) setManifest(o.result.manifestPath ?? o.result.manifestKey ?? null);
       setFinished(true);
     });
-  }, [api, files, target, acknowledged]);
+  }, [api, files, target, acknowledged, once, onSourceRefused]);
 
   const n = (s: RunItem["state"]) => items.filter((x) => x.state === s).length;
   const done = n("recovered") + n("failed") + n("restoring") + n("excluded");
@@ -86,7 +99,7 @@ export function BackupsRecoverRun({
         <div style={{ padding: "20px 22px 0" }}>
           <h2 id="bulk-run-title" style={{ margin: 0, fontSize: 18 }}>Recovering backups</h2>
           <div className="mono" style={{ fontSize: "var(--text-sm)", color: "var(--text-2)", marginTop: 4 }}>
-            {target.kind === "staging" ? "Staging name " + target.where : "Destination " + target.where}
+            {target.kind === "staging" ? "Staging name " + target.where : target.kind === "source" ? "Source host, new folder " + target.where : "Destination " + target.where}
           </div>
         </div>
         <div style={{ padding: "14px 22px 20px", display: "flex", flexDirection: "column", gap: 12, fontSize: 13.5 }}>

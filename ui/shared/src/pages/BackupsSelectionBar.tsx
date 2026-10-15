@@ -25,9 +25,9 @@
  * "3 selected" as they tick, without the focus moving.
  */
 import "@shared/assurance/assurance.css";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { RecoverySourceChoice, RecoverySourceNote, RecoveryTargetChoices, RecoveryTargetField } from "@shared/assurance/RecoveryTargetFields";
-import { confirmSourceTransport, sourceHostReady, sourceHostRefusal, useSourceHost } from "@shared/assurance/sourceHostState";
+import { useSourceRecovery } from "@shared/assurance/useSourceRecovery";
 import { recoverToFileCommand } from "@shared/assurance/assuranceCommands";
 import { downloadable } from "@shared/assurance/bulkDownload";
 import { bytes } from "@shared/utilities/format";
@@ -35,9 +35,10 @@ import { planOf } from "@shared/assurance/copyPlan";
 import { recoverManyCommand } from "@shared/assurance/assuranceCommands";
 import type { RunTarget } from "@shared/assurance/recoverMany";
 import type { BackupArtifact } from "@shared/types/backup";
+import type { StepUpOptions } from "@shared/api/contracts";
 
 export function BackupsSelectionBar({
-  selected, matching, readOnly, readOnlyReason, downloading, downloadCeiling, onSelectAll, onClear, onRecover, onDownload
+  selected, matching, readOnly, readOnlyReason, downloading, downloadCeiling, onSelectAll, onClear, onRecover, onDownload, sourceRefusal
 }: {
   /** The ticked rows, in list order. */
   selected: BackupArtifact[];
@@ -51,8 +52,14 @@ export function BackupsSelectionBar({
   downloadCeiling: number;
   onSelectAll(): void;
   onClear(): void;
-  onRecover(target: RunTarget, acknowledged: boolean): void;
+  /** `once` carries the password for the one request that starts the run. */
+  onRecover(target: RunTarget, acknowledged: boolean, once: StepUpOptions): void;
   onDownload(): void;
+  /** A run onto the source host refused for the tick or the password (#1193's
+   *  review): the code comes back here, to the field that asked for them,
+   *  rather than ending in the run's own dialog. `seq` tells two of the same
+   *  refusal apart. */
+  sourceRefusal?: { code: string; seq: number } | null;
 }) {
   // Issue #1191: null until the source host has answered. It is the default
   // when every ticked backup comes from one SFTP set; otherwise nothing is
@@ -64,20 +71,24 @@ export function BackupsSelectionBar({
   const [choice, setChoice] = useState<{ kind: RunTarget["kind"] | "download"; key: string } | null>(null);
   const [where, setWhere] = useState("");
   const [accepted, setAccepted] = useState(false);
-  const [ack, setAck] = useState<string | null>(null);
-  const [sourcePassword, setSourcePassword] = useState("");
-  // Only the question this bar asks itself: the run's own refusals are shown
-  // where the run is.
-  const [sourceError, setSourceError] = useState<string | null>(null);
-  const sourceHost = useSourceHost(sets.length === 1 ? sets[0] : null, sets.length);
+  const total = selected.reduce((n, a) => n + a.sizeBytes, 0);
+  // The tick, the password and the write check belong to the selection they
+  // were made for: a selection that moves to another set, or to several,
+  // asks again. Describing a set never writes, so moving does not probe.
+  const source = useSourceRecovery(sets.length === 1 ? sets[0] : null, { resetKey: setsKey, spread: sets.length, bytes: total });
   const stillChosen = choice && (choice.kind !== "source" || choice.key === setsKey) ? choice.kind : null;
   const chosen: RunTarget["kind"] | "download" | null = stillChosen ?? (
-    !sourceHost.ready ? null : sourceHost.preselect ? "source" : sourceHost.offered ? null : "staging");
+    !source.ready ? null : source.preselect ? "source" : "staging");
   const setKind = (k: RunTarget["kind"] | "download") => setChoice({ kind: k, key: setsKey });
-  const sourceAck = ack === setsKey;
-  const setSourceAck = (yes: boolean) => setAck(yes ? setsKey : null);
-  const sourceFolder = sourceHost.preflight?.folder ?? "";
-  const total = selected.reduce((n, a) => n + a.sizeBytes, 0);
+  const sourceFolder = source.description?.folder ?? "";
+  const refusalSeq = sourceRefusal?.seq ?? 0;
+  const refusalCode = sourceRefusal?.code ?? "";
+  const routeRefusal = source.refusal;
+  useEffect(() => {
+    if (refusalSeq > 0) routeRefusal(refusalCode);
+    // Only a new refusal is routed; the controller's identity changes per render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refusalSeq]);
   const archived = selected.filter((a) => planOf(a).archived).length;
   const files = downloadable(selected);
   // Past the ceiling the one download too many would fail, so the option is
@@ -89,12 +100,12 @@ export function BackupsSelectionBar({
   // An archived copy is not downloaded (see bulkDownload.ts), so a download
   // has no cost to accept and asks for no box.
   const needsAck = archived > 0 && !download;
-  const placed = kind === "source" ? sourceHostReady(sourceHost, sourceAck, sourcePassword) : kind !== null && where.trim() !== "";
+  const placed = kind === "source" ? source.canSubmit : kind !== null && where.trim() !== "";
   const ready = download ? !readOnly && !downloading && files.length > 0 : placed && (!needsAck || accepted) && !readOnly;
   const command = download
     ? files.map((a) => recoverToFileCommand(a.id, a.filename)).join("\n")
     : kind === null ? "retnd recover " + selected.map((a) => a.id).join(" ") + " --to <destination>"
-    : recoverManyCommand(selected.map((a) => a.id), kind, kind === "source" ? sourceFolder : where.trim(), needsAck && accepted, sourceAck);
+    : recoverManyCommand(selected.map((a) => a.id), kind, kind === "source" ? sourceFolder : where.trim(), needsAck && accepted, source.acknowledged);
 
   return (
     <section
@@ -115,7 +126,7 @@ export function BackupsSelectionBar({
 
       <div className="selbar__row" style={{ alignItems: "flex-start" }}>
         <div role="radiogroup" aria-label="Where should the backups go?" className="selbar__targets">
-          <RecoverySourceChoice name="bulk-target" value={kind ?? ""} source={sourceHost} onChoose={(t) => { setKind(t); setWhere(""); }} />
+          <RecoverySourceChoice name="bulk-target" value={kind ?? ""} source={source} onChoose={(t) => { setKind(t); setWhere(""); }} />
           <label>
             <input type="radio" name="bulk-target" checked={download} disabled={tooMany} onChange={() => { setKind("download"); setWhere(""); }} aria-describedby="bulk-download-note" />
             Download in this browser
@@ -125,22 +136,15 @@ export function BackupsSelectionBar({
         </div>
         {download || kind === null ? null : (
           <div className="selbar__where">
-            <RecoveryTargetField
-              place={kind}
-              value={where}
-              onChange={setWhere}
-              meaning="A folder: the backups go under it, with a manifest."
-              source={{
-                host: sourceHost, folder: sourceFolder, acknowledged: sourceAck, onAcknowledged: setSourceAck,
-                password: sourcePassword, onPassword: setSourcePassword, error: sourceError
-              }}
-            />
+            {kind === "source" ? <RecoveryTargetField place="source" source={source} />
+              : kind === "storage" ? <RecoveryTargetField place="storage" value={where} onChange={setWhere} />
+              : <RecoveryTargetField place="staging" value={where} onChange={setWhere} meaning="A folder: the backups go under it, with a manifest." />}
           </div>
         )}
       </div>
 
-      {sourceHost.offered && sourceHost.unavailable ? (
-        <div className="selbar__note"><RecoverySourceNote source={sourceHost} /></div>
+      {source.offered && source.unavailable ? (
+        <div className="selbar__note"><RecoverySourceNote source={source} /></div>
       ) : null}
 
       <div id="bulk-download-note" data-testid="bulk-download-note" className="selbar__note">
@@ -180,15 +184,17 @@ export function BackupsSelectionBar({
             if (kind === "download") { onDownload(); return; }
             if (kind === "source") {
               // On an unencrypted connection the operator is asked BEFORE the
-              // password is sent, as for a restore (#1163).
-              setSourceError(null);
-              void confirmSourceTransport(sourceHost.gate).then((ok) => {
-                if (!ok) { setSourceError(sourceHostRefusal("INSECURE_TRANSPORT_ACK_REQUIRED")); return; }
-                onRecover({ kind: "source", where: sourceFolder, acknowledged: true, ...(sourceHost.gate.stepUpRequired ? { stepUpPassword: sourcePassword } : {}) }, needsAck && accepted);
+              // password is sent (#1163); the password goes with the one
+              // request that starts the run and is forgotten here.
+              const spec = source.targetSpec;
+              void source.beforeSubmit().then((once) => {
+                if (once === null) return;
+                onRecover({ kind: "source", where: sourceFolder, ...(spec?.acknowledgedDestination ? { acknowledgedDestination: spec.acknowledgedDestination } : {}) }, needsAck && accepted, once);
+                source.done();
               });
               return;
             }
-            if (kind) onRecover({ kind, where: where.trim() }, needsAck && accepted);
+            if (kind) onRecover({ kind, where: where.trim() }, needsAck && accepted, {});
           }}
         >
           {download ? "Download selected" : "Recover selected"}
