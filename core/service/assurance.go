@@ -88,6 +88,10 @@ type AssuranceSettings struct {
 	StagingTTL             time.Duration
 	MaxConcurrentFullReads int
 	MaxPerDestination      int
+	// MaxDownloadStreams is the ceiling on browser downloads this process
+	// streams at once, as the engine runs it (the platform's where it set
+	// one). Read only: a page offering several downloads offers no more.
+	MaxDownloadStreams int
 
 	HostKnobs []AssuranceHostKnob
 }
@@ -372,7 +376,7 @@ func assuranceSettingsOf(cfg *config.Config) AssuranceSettings {
 
 // AssuranceSettings reports the resolved deployment-wide policy.
 func (b *BackupService) AssuranceSettings(_ context.Context) (AssuranceSettings, error) {
-	return assuranceSettingsOf(b.state.Load().inner.Config), nil
+	return b.withRecoveryCeilings(assuranceSettingsOf(b.state.Load().inner.Config)), nil
 }
 
 // UpdateAssuranceSettings patches the deployment-wide block and hot-reloads
@@ -442,7 +446,14 @@ func (b *BackupService) UpdateAssuranceSettings(_ context.Context, req UpdateAss
 	if err := b.persistConfig(cfg); err != nil {
 		return AssuranceSettings{}, err
 	}
-	return assuranceSettingsOf(b.state.Load().inner.Config), nil
+	return b.withRecoveryCeilings(assuranceSettingsOf(b.state.Load().inner.Config)), nil
+}
+
+// withRecoveryCeilings adds what only the running engine knows: the download
+// ceiling the platform imposed, or the engine's default.
+func (b *BackupService) withRecoveryCeilings(s AssuranceSettings) AssuranceSettings {
+	s.MaxDownloadStreams = b.RecoveryLimits().MaxDownloadStreams
+	return s
 }
 
 func backupSetAssuranceOf(id string, bs config.BackupSet) BackupSetAssurance {

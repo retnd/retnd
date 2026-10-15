@@ -21,6 +21,15 @@
 - **The Dashboard's Assurance tile lists the backups behind its counts, and each row has Run assurance** (#1174). Under Due, Overdue and Degraded the tile now lists those backups, one row each with its set, why it is there and how old the last check is. Run assurance starts the recovery test of that row's backup (`POST /backup-sets/{source}/{set}/recovery-test` with `artifact_id`, `retnd recovery-test <source/set> --artifact ID`), shows the run on the row, and the counts refresh when it ends, with the row saying what its recovery claim reads now. The engine runs one test per set at a time, so the other rows of a set wait with that reason while one runs. A set that could only refuse a test gets a disabled button with the reason beside it, and each bucket shows at most 20 rows with a link to the rest on Backups. The terminal has the same list: `retnd assurance list [--backup-set S] [--bucket due|overdue|degraded|untested] [--json]` (new, with a JSON shape of its own; `--bucket` takes a comma list) names the same backups in the same words, held to the tile by shared test vectors. A set whose recovery-test policy can't be read is now unknown rather than "tests on" in both places, so its backups aren't counted due on no evidence.
 - **The backup set's Validation pane has a Run validation button** (#1178). It starts the set's recovery test through the same endpoint, shows it in flight with the stage and progress, points at the set terminal for the run's output rather than drawing it a second time, disables itself with the reason while one is running, and the pane re-reads when the run ends. No API change: both buttons use the route and command that already existed.
 
+- **`GET /api/v1/system/staging-directories` and `retnd system staging [PATH]`** (#1179). The folders below
+  the recovery staging root on the machine the engine runs on, as the names `recover --to` takes. Read-only
+  and confined to that one root: symbolic links are neither followed nor listed, `..` and absolute names
+  are refused, a folder that is not there is a 404 `DIRECTORY_NOT_FOUND` and one the host may not read a
+  409 `DIRECTORY_NOT_READABLE`. One listing reads at most 100,000 entries, returns at most 1,000 folders
+  and gives up after ten seconds. The CLI prints only folder names on stdout.
+- **`max_download_streams` on `GET /api/v1/settings/assurance`** (#1179): the ceiling on browser downloads
+  the engine streams at once, read only.
+
 ### Changed
 
 - **Breaking for API clients, targeting 0.7.0: releasing a snapshot hold now needs an acknowledgement** (#1164). If you only use the web interface or the `retnd` terminal, nothing changes for you: the screen asks you to tick a box before it releases a hold, and `retnd snapshot unhold` works as before. If you have a script or another client that calls `POST /api/v1/operations` with `release_snapshot_hold`, it will start getting `409 SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED` on every profile after you upgrade, and the hold stays where it was. To fix it, add `"acknowledged": true` inside `snapshot_hold_release`, which is your script saying it knows the snapshot becomes prunable by the next retention run. Restores on a local-account profile have new refusals too, but those calls were refused outright before this release, so nothing that worked stops working there.
@@ -66,6 +75,16 @@
 
 - **A running recovery test shows how far along it is, and the dialog no longer draws a terminal of its own** (#1176). The bar used to stay a sliding indeterminate stripe for the whole test, because the engine names the stage on the feed and sends no running byte total. It now moves through the engine's own stage list (resolving, reading, verifying, validating, cleaning up, complete) and says "Stage 3 of 5" beside it. Reaching the end is the outcome rather than a sixth stage, so the count goes away once the test has finished. The empty log inside the Assurance card is gone for both runs and scrubs, replaced by an "Output is in the set terminal" link that moves focus to the set's terminal. A quiet poll also stopped sending the followed run back to its first stage, which is what made a stage-driven bar jump to zero between lines.
 - **Every terminal reads one shared state, so they update together and a late one is not empty** (#1177). The dashboard strips, a set's own terminal and the docked terminal each polled the live feed on their own clock and kept their own copy of the lines. They now read one causl node written by one reader, so three terminals cost one reading per poll, change in the same commit, and a terminal opened late shows what the others already hold in its first render. The buffers are bounded (300 lines per set, 1000 in the docked terminal, the last 5 dead processes), the cursor lives in the same node so a dropped connection resumes where it stopped, and a restart still freezes the dead process's lines above a rule in the docked terminal while the strips drop theirs. The set page asks the live feed about the whole deployment now instead of narrowing it to one set. That is a trade I made on purpose: a set page on a deployment with twenty sets now downloads every set's new lines, not just its own, in exchange for one reader instead of one per surface. Each poll is still bounded to 200 lines per bucket, and an idle poll (most of them) hands back nothing and re-renders nothing. A failing poll backs off up to a minute, and a lost session stops the polling until a terminal mounts again.
+
+- **The download dialog works the way its three options say** (#1179). "Download in this browser" on the
+  Backups selection bar was a radio that was always switched off. It had nothing to do with the destructive
+  gate or any capability: the bar had it hard-coded off because I had reasoned that many files would need an
+  archive. It is selectable now for up to as many backups as the engine streams downloads at once, and makes
+  one link per backup that you open yourself, each from its own single-use grant and each checked against
+  its recorded digest by the host, with archived copies left out and named. "Staging path on the host" gets
+  a folder browser over the staging root on the machine retnd runs on, and "Configured destination" is a
+  drop-down of everything under Settings, Storage destinations ("None configured" when there is nothing),
+  on the artifact dialog, the selection bar and the set dialog.
 
 ## [0.6.4] - 2026-10-14
 

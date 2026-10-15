@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "ed5504204489d38d566c24efa2adcb12acdd1b4e1c4e19ec295ae840109df680"
+const ContractSHA256 = "7b632115daa8135f559997376095d3e6084dc6d452d033e30fba9871bd6c92be"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -150,6 +150,8 @@ const (
 	ErrorCodeRecoveryReadsBusy                      ErrorCode = "RECOVERY_READS_BUSY"
 	ErrorCodeRecoveryDestinationBusy                ErrorCode = "RECOVERY_DESTINATION_BUSY"
 	ErrorCodeRecoveryDownloadsBusy                  ErrorCode = "RECOVERY_DOWNLOADS_BUSY"
+	ErrorCodeDirectoryNotFound                      ErrorCode = "DIRECTORY_NOT_FOUND"
+	ErrorCodeDirectoryNotReadable                   ErrorCode = "DIRECTORY_NOT_READABLE"
 )
 
 // WireErrorCodes is codes a server may put on the wire. Every one of these is emitted by real handler code, and apps/common/webhost's TestContract_EveryWireErrorCodeIsRegistered holds that both ways.
@@ -247,6 +249,8 @@ var WireErrorCodes = []ErrorCode{
 	ErrorCodeRecoveryReadsBusy,
 	ErrorCodeRecoveryDestinationBusy,
 	ErrorCodeRecoveryDownloadsBusy,
+	ErrorCodeDirectoryNotFound,
+	ErrorCodeDirectoryNotReadable,
 }
 
 // UIErrorCodes is the shared UI's own presentation vocabulary. No endpoint emits these; they are registered here so there is one registry rather than a second hand-maintained list in ui/shared.
@@ -368,6 +372,8 @@ var ErrorCodes = []ErrorCode{
 	ErrorCodeRecoveryReadsBusy,
 	ErrorCodeRecoveryDestinationBusy,
 	ErrorCodeRecoveryDownloadsBusy,
+	ErrorCodeDirectoryNotFound,
+	ErrorCodeDirectoryNotReadable,
 }
 
 // ErrorClasses groups codes by the refusal they represent, so a caller (or
@@ -375,9 +381,9 @@ var ErrorCodes = []ErrorCode{
 var ErrorClasses = map[string][]ErrorCode{
 	"authentication": {ErrorCodeUnauthenticated, ErrorCodeBootstrapTokenInvalid, ErrorCodeResetTokenInvalid, ErrorCodeVerifyTokenInvalid},
 	"authorization":  {ErrorCodeEnrollmentClosed, ErrorCodeDestructiveOperationsDisabled, ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeRecoveryGrantSessionEnded, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeInsecureTransportAckRequired},
-	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy, ErrorCodeRestoreTargetNotAcknowledged, ErrorCodeSnapshotHoldReleaseNotAcknowledged},
+	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy, ErrorCodeDirectoryNotReadable, ErrorCodeRestoreTargetNotAcknowledged, ErrorCodeSnapshotHoldReleaseNotAcknowledged},
 	"internal":       {ErrorCodeInternal, ErrorCodeInternalError, ErrorCodeRecoveryLocalCopyCorrupt, ErrorCodeRecoveryRemoteCopyCorrupt, ErrorCodeRecoveryNoSpace, ErrorCodeRecoveryBelowReserve, ErrorCodeRecoveryFailed},
-	"not-found":      {ErrorCodeBackupSetNotFound, ErrorCodeOperationNotFound, ErrorCodeRetentionPlanNotFound, ErrorCodeArtifactNotFound, ErrorCodeMediumNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound, ErrorCodeRepositoryDomainNotFound, ErrorCodeWorkflowEnvNotFound, ErrorCodeWorkflowRunNotFound, ErrorCodeWorkflowStepNotFound, ErrorCodeRecoveryCopyNotFound, ErrorCodeRecoveryGrantUnknown},
+	"not-found":      {ErrorCodeBackupSetNotFound, ErrorCodeOperationNotFound, ErrorCodeRetentionPlanNotFound, ErrorCodeArtifactNotFound, ErrorCodeMediumNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound, ErrorCodeRepositoryDomainNotFound, ErrorCodeWorkflowEnvNotFound, ErrorCodeWorkflowRunNotFound, ErrorCodeWorkflowStepNotFound, ErrorCodeRecoveryCopyNotFound, ErrorCodeRecoveryGrantUnknown, ErrorCodeDirectoryNotFound},
 	"throttling":     {ErrorCodeRateLimited, ErrorCodeRecoveryTooManyGrants, ErrorCodeRecoveryReadsBusy, ErrorCodeRecoveryDestinationBusy, ErrorCodeRecoveryDownloadsBusy},
 	"unavailable":    {ErrorCodeNotConfigured, ErrorCodeSmtpSendFailed, ErrorCodeWorkflowEngineUnavailable, ErrorCodeRecoveryUnavailable, ErrorCodeRecoveryInterrupted, ErrorCodeStepUpUnavailable},
 	"validation":     {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail, ErrorCodeSSHKeyNotFound, ErrorCodeHostKeyProbeFailed, ErrorCodeMediumDisclosureRequired, ErrorCodeBackupSetNotIncremental, ErrorCodeWorkflowAcknowledgementReasonRequired, ErrorCodeRecoveryTargetInvalid},
@@ -1545,6 +1551,20 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
+		ID: "listStagingDirectories", Method: "GET", Path: "/system/staging-directories",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "StagingDirectoryResponse", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			400: {ErrorCodeInvalidRequest},
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeDirectoryNotFound},
+			409: {ErrorCodeDirectoryNotReadable},
+			500: {ErrorCodeInternal},
+			501: {ErrorCodeRecoveryUnavailable},
+			503: {ErrorCodeRecoveryUnavailable},
+		},
+	},
+	{
 		ID: "listStorageStatus", Method: "GET", Path: "/system/storage",
 		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "ListStorageStatusResponse", SuccessStatus: 200,
@@ -1813,6 +1833,7 @@ type AssuranceSettingsResponse struct {
 	Configured             bool                        `json:"configured"`
 	HostKnobs              []AssuranceHostKnob         `json:"host_knobs"`
 	MaxConcurrentFullReads int64                       `json:"max_concurrent_full_reads"`
+	MaxDownloadStreams     int64                       `json:"max_download_streams"`
 	MaxPerDestination      int64                       `json:"max_per_destination"`
 	RecoveryTest           AssuranceRecoveryTestPolicy `json:"recovery_test"`
 	Scrub                  AssuranceScrubPolicy        `json:"scrub"`
@@ -3718,6 +3739,22 @@ type SnapshotVerifyRequest struct {
 	SamplePercent int    `json:"sample_percent,omitempty"`
 }
 
+// StagingDirectoryEntry is one sub-folder of a listed folder.
+type StagingDirectoryEntry struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+// StagingDirectoryResponse is GET /system/staging-directories. One folder under the staging
+// root: its sub-folders by name, relative to the root.
+type StagingDirectoryResponse struct {
+	Entries   []StagingDirectoryEntry `json:"entries"`
+	Parent    *string                 `json:"parent"`
+	Path      string                  `json:"path"`
+	Root      string                  `json:"root"`
+	Truncated bool                    `json:"truncated"`
+}
+
 // StartRecoveryTestRequest is POST /backup-sets/{source}/{set}/recovery-test. Starts a recovery
 // test now. An empty body tests the newest known good copy and
 // acknowledges no cost: a copy that costs money to read (a download
@@ -4579,6 +4616,8 @@ var SchemaTypes = map[string]any{
 	"SnapshotRetentionVerdict":           SnapshotRetentionVerdict{},
 	"SnapshotTransition":                 SnapshotTransition{},
 	"SnapshotVerifyRequest":              SnapshotVerifyRequest{},
+	"StagingDirectoryEntry":              StagingDirectoryEntry{},
+	"StagingDirectoryResponse":           StagingDirectoryResponse{},
 	"StartRecoveryTestRequest":           StartRecoveryTestRequest{},
 	"StorageMediumCredentialsReference":  StorageMediumCredentialsReference{},
 	"StorageMediumRequest":               StorageMediumRequest{},

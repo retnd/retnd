@@ -66,6 +66,7 @@ type assuranceSettingsResponse struct {
 	Configured             bool                      `json:"configured"`
 	HostKnobs              []assuranceHostKnobBody   `json:"host_knobs"`
 	MaxConcurrentFullReads int64                     `json:"max_concurrent_full_reads"`
+	MaxDownloadStreams     int64                     `json:"max_download_streams"`
 	MaxPerDestination      int64                     `json:"max_per_destination"`
 	RecoveryTest           assuranceRecoveryTestBody `json:"recovery_test"`
 	Scrub                  assuranceScrubBody        `json:"scrub"`
@@ -440,7 +441,8 @@ func toAssuranceSettingsBody(s service.AssuranceSettings) assuranceSettingsRespo
 	return assuranceSettingsResponse{
 		Configured: s.Configured, HostKnobs: knobs,
 		MaxConcurrentFullReads: int64(s.MaxConcurrentFullReads), MaxPerDestination: int64(s.MaxPerDestination),
-		RecoveryTest: rt, Scrub: scrub, StagingRoot: s.StagingRoot, StagingTTLSeconds: durationSeconds(s.StagingTTL),
+		MaxDownloadStreams: int64(s.MaxDownloadStreams),
+		RecoveryTest:       rt, Scrub: scrub, StagingRoot: s.StagingRoot, StagingTTLSeconds: durationSeconds(s.StagingTTL),
 	}
 }
 

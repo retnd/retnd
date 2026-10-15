@@ -94,6 +94,19 @@ var routes = map[string]entry{
 		build:    func(Action) *cmd { return newCmd("system", "capabilities") },
 		examples: []Action{{}},
 	},
+	key("GET", "/system/staging-directories"): {
+		// #1179. The folder browser behind "Staging path on the host": the
+		// terminal lists the same folders with `system staging`, and a path
+		// given to the page is the PATH given here.
+		build: func(a Action) *cmd {
+			c := newCmd("system", "staging")
+			if p := a.Query.Get("path"); p != "" {
+				c.argv = append(c.argv, p)
+			}
+			return c
+		},
+		examples: []Action{{}, {Query: url.Values{"path": {"daily/2026-10"}}}},
+	},
 	key("GET", "/system/storage"): {
 		build:    func(Action) *cmd { return newCmd("storage") },
 		examples: []Action{{}},

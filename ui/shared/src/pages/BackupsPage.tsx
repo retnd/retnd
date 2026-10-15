@@ -23,7 +23,7 @@
  * rather than threading both through the select is the small price of
  * keeping every picker on this page keyed the same way.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import { useAsync } from "@shared/hooks/useAsync";
@@ -50,6 +50,10 @@ import { artifactPath } from "@shared/utilities/routes";
 import type { BackupArtifact } from "@shared/types/backup";
 import type { RunTarget } from "@shared/assurance/recoverMany";
 import { BackupsSelectionBar } from "./BackupsSelectionBar";
+import { DEFAULT_DOWNLOAD_STREAMS, downloadable, downloadCeilingOf, mintDownloadLinks } from "@shared/assurance/bulkDownload";
+import { BulkDownloadLinks } from "@shared/assurance/BulkDownloadLinks";
+import type { BulkDownloadState } from "@shared/assurance/BulkDownloadLinks";
+import { asApiError } from "@shared/api/failure";
 import { BackupsRecoverRun } from "./BackupsRecoverRun";
 import { inReceivedRange, unselectableReason } from "./backupSelection";
 import { PAGE_SIZES, allOffered, isPageSize, pageWindow, readPageSize, rememberPageSize } from "./backupsPaging";
@@ -81,11 +85,45 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   const [held, setHeld] = useState<number | null>(null);
   const [run, setRun] = useState<{ files: Array<{ id: string; filename: string }>; target: RunTarget; acknowledged: boolean } | null>(null);
   const [stagingRoot, setStagingRoot] = useState<string | null>(null);
+  // Issue #1179 (the review of #1185): how many downloads the engine streams
+  // at once. "In this browser" offers a selection no larger than this.
+  const [downloadCeiling, setDownloadCeiling] = useState(DEFAULT_DOWNLOAD_STREAMS);
+  // The links a browser download made for the selection, or null before one
+  // was asked for, with the backups they were made for so fresh ones can be.
+  const [dl, setDl] = useState<(BulkDownloadState & { files: BackupArtifact[] }) | null>(null);
+  // One run at a time (a double click must not mint twice), and a run this
+  // page has left stops asking the host for grants.
+  const dlBusy = useRef(false);
+  const dlRun = useRef<AbortController | null>(null);
+  useEffect(() => {
+    const runs = dlRun;
+    return () => runs.current?.abort();
+  }, []);
+  const startDownload = async (files: BackupArtifact[]) => {
+    if (dlBusy.current || downloadable(files).length > downloadCeiling) return;
+    dlBusy.current = true;
+    const ac = new AbortController();
+    dlRun.current = ac;
+    setDl({ running: true, minted: null, failure: null, files });
+    try {
+      const minted = await mintDownloadLinks(api, files, ac.signal);
+      if (!ac.signal.aborted) setDl({ running: false, minted, failure: null, files });
+    } catch (e) {
+      if (!ac.signal.aborted) setDl({ running: false, minted: null, failure: asApiError(e).message, files });
+    } finally {
+      dlBusy.current = false;
+      if (!ac.signal.aborted) setDl((d) => (d && d.running ? { ...d, running: false } : d));
+    }
+  };
   const canRecover = !!api.assurance;
   useEffect(() => {
     if (!canRecover) return;
     let live = true;
-    void api.getAssuranceSettings().then((x) => { if (live) setStagingRoot(x.stagingRoot); }, () => undefined);
+    void api.getAssuranceSettings().then((x) => {
+      if (!live) return;
+      setStagingRoot(x.stagingRoot);
+      setDownloadCeiling(downloadCeilingOf(x));
+    }, () => undefined);
     return () => { live = false; };
   }, [api, canRecover]);
   const changeFilter = (apply: () => void) => {
@@ -270,6 +308,9 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
           stagingRoot={stagingRoot}
           readOnly={readOnly}
           readOnlyReason="This session is read-only, so it cannot start a recovery."
+          downloading={!!dl?.running}
+          downloadCeiling={downloadCeiling}
+          onDownload={() => void startDownload(ticked)}
           onSelectAll={selectAll}
           onClear={() => setPicked(new Set())}
           onRecover={(target, acknowledged) =>
@@ -277,6 +318,7 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
           }
         />
       ) : null}
+      {dl ? <BulkDownloadLinks state={dl} onFresh={() => void startDownload(dl.files)} /> : null}
       {bucketIds && !artifacts.loading ? (
         <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "0 0 10px", fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
           <span role="status" data-testid="assurance-filter-status">
@@ -558,3 +600,4 @@ function MediumCell({ artifact }: { artifact: BackupArtifact }) {
     </div>
   );
 }
+

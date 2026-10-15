@@ -252,6 +252,7 @@ var contractBindings = map[string]contractBinding{
 	"updateBackupSetAssurance": {updateBackupSetAssuranceRequest{}, backupSetAssuranceResponse{}, "/api/v1/backup-sets/src/set-1/assurance"},
 	"resetBackupSetAssurance":  {nil, backupSetAssuranceResponse{}, "/api/v1/backup-sets/src/set-1/assurance"},
 	"listAssuranceDue":         {nil, assuranceDueResponse{}, "/api/v1/assurance/due"},
+	"listStagingDirectories":   {nil, stagingDirectoryResponse{}, "/api/v1/system/staging-directories"},
 	"startRecoveryTest":        {startRecoveryTestRequest{}, recoveryTestStartedResponse{}, "/api/v1/backup-sets/src/set-1/recovery-test"},
 	"startScrub":               {nil, scrubStartedResponse{}, "/api/v1/backup-sets/src/set-1/scrub"},
 	"cancelAssuranceOperation": {nil, assuranceOperationCancelledResponse{}, "/api/v1/assurance/operations/op_1/cancel"},

@@ -88,6 +88,7 @@ import type {
   WireListBackupSetsResponse,
   WireListOperationsResponse,
   WireListSSHKeyCandidatesResponse,
+  WireStagingDirectoryResponse,
   WireListSSHKeysResponse,
   WireListStorageStatusResponse,
   WireManagerStorage,
@@ -2830,6 +2831,7 @@ function fromWireAssuranceSettings(s: WireAssuranceSettingsResponse): AssuranceS
     stagingTtlSeconds: s.staging_ttl_seconds ?? 0,
     maxConcurrentFullReads: s.max_concurrent_full_reads ?? 0,
     maxPerDestination: s.max_per_destination ?? 0,
+    maxDownloadStreams: s.max_download_streams ?? 0,
     hostKnobs: (s.host_knobs ?? []).map((k) => ({
       name: k.name ?? "",
       value: k.value ?? "",
@@ -4112,6 +4114,12 @@ export const httpApi: RetndApi = {
 
   getAssuranceSettings: () =>
     request<WireAssuranceSettingsResponse>("/settings/assurance").then(fromWireAssuranceSettings),
+  // Issue #1179. The path is relative to the staging root and may be empty
+  // (the root itself, which sends no query at all); it is escaped, so a folder
+  // named with a space, an ampersand or a hash travels intact.
+  listStagingDirectories: (path = "") =>
+    // The wire shape is the page's shape, so it passes through as it came.
+    request<WireStagingDirectoryResponse>("/system/staging-directories" + (path ? "?path=" + encodeURIComponent(path) : "")),
   patchAssuranceSettings: (patch) =>
     request<WireAssuranceSettingsResponse>("/settings/assurance", {
       method: "PATCH",

@@ -171,7 +171,7 @@ test.describe("#985 Recover artifact: checking on the host", () => {
     await openDialog(page);
     const dlg = dialog(page);
     await dlg.getByRole("radio", { name: "Configured destination" }).check();
-    await dlg.getByRole("textbox", { name: "Recover to destination id" }).fill("offsite_s3");
+    await dlg.getByRole("combobox", { name: "Recover to destination" }).selectOption("offsite_s3");
     await expect(dlg.getByText("retnd recover production/postgres-primary/" + PG + " --to medium:offsite_s3", { exact: true })).toBeVisible();
     await primary(page).click();
     await expect(dlg.getByTestId("placed")).toContainText("Recovered to the destination", { timeout: 10_000 });

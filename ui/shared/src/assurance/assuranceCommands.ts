@@ -75,6 +75,17 @@ export function recoverCommand(artifactId: string, target: RecoveryTargetSpec["k
 }
 
 /**
+ * One backup of a selection downloaded from the terminal (issue #1179, the
+ * review of #1185): `--to -` writes the bytes to standard output, so each line
+ * sends them to a file named for the backup. A selection's lines together are
+ * a runnable twin of "Download in this browser", which a single placeholder
+ * file name repeated on every line was not.
+ */
+export function recoverToFileCommand(artifactId: string, filename: string): string {
+  return "retnd recover " + artifactId + " --to - > " + shellQuote(filename);
+}
+
+/**
  * `retnd recover --set` for the choices the Recover this backup set dialog has
  * made (#1106). The flags are the ones the CLI has: --newest-only, --since,
  * --to NAME or medium:ID and --acknowledge-cost, in that order.

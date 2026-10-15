@@ -67,6 +67,7 @@ import type {
   VersionInfo
 } from "@shared/types/operation";
 import { createMockRecoverMany } from "@shared/assurance/mockRecoverMany";
+import { createMockHostBrowse } from "@shared/assurance/mockHostBrowse";
 import { BUILTIN_ARTIFACT, DEFAULT_POLICY_NEWEST, DEFAULT_POLICY_TESTED, INGEST_FAILED_SCENARIO, followsDefault, untestedScenario, assuranceLiveEvents, assuranceUnfinished, createMockAssurance, createMockRecovery, overlayAssurance, overlayThaw } from "@shared/assurance/mockAssurance";
 import { createHttpAssurance } from "@shared/assurance/realAssurance";
 import type { DeploymentActivity, SetActivity, SetActivityEvent } from "@shared/types/activity";
@@ -99,6 +100,16 @@ export const SCENARIOS = [
   // still offers "All" on the Backups page) and one that holds exactly 1000.
   "backups-999",
   "backups-1000",
+  // Issue #1179: no storage destination at all (the "None configured"
+  // case), and a host that cannot list its folders.
+  "no-destinations",
+  "host-browse-unavailable",
+  // The review of #1185: a folder removed after its parent was listed, a
+  // listing refused because the session ended, and an engine whose download
+  // ceiling is two (with the many-backups fixture).
+  "host-browse-vanished",
+  "host-browse-session-ended",
+  "backups-many-ceiling-2",
   "empty",
   "storage-critical",
   "catalog-recovery",
@@ -3172,6 +3183,7 @@ function defaultAssuranceSettings(): AssuranceSettings {
     stagingTtlSeconds: 24 * 3600,
     maxConcurrentFullReads: 2,
     maxPerDestination: 1,
+    maxDownloadStreams: 4,
     hostKnobs: [
       ["staging_root", "the one staging filesystem this process writes to"],
       ["staging_ttl", "the sweep of that one staging root"],
@@ -4160,6 +4172,8 @@ export function createMockApi(
   // same way the real backend's hot reload makes a write visible to the
   // next read (issue #140).
   const settings = defaultSettings();
+  // Issue #1179: a deployment whose Settings lists no destination at all.
+  if (scenario === "no-destinations") settings.mediums = [];
   if (noMedium) {
     // The FR-35 case: no medium declared, and no tier naming one. The
     // storage SCHEMA stays, because the verification ladder is a property
@@ -4281,7 +4295,9 @@ export function createMockApi(
     workflowSettings.afterDir = "";
   }
   const assuranceSettings = defaultAssuranceSettings();
+  if (scenario === "backups-many-ceiling-2") assuranceSettings.maxDownloadStreams = 2;
   const mockRecovery = createMockRecovery(scenario);
+  const mockHostBrowse = createMockHostBrowse(scenario, assuranceSettings.stagingRoot);
   // #1106: every row the journal holds for a set, quarantined ones included,
   // which listArtifacts above deliberately leaves out.
   const mockRecoverMany = createMockRecoverMany(scenario, (setId) => artifacts.filter((a) => a.setId === setId));
@@ -5786,6 +5802,7 @@ export function createMockApi(
       }),
 
     getAssuranceSettings: () => delay(structuredClone(assuranceSettings)),
+    listStagingDirectories: (path) => mockHostBrowse(path ?? ""),
     patchAssuranceSettings: (patch) => {
       assuranceSettings.configured = true;
       if (patch.scrubCadenceSeconds !== undefined) {
