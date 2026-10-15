@@ -391,20 +391,18 @@ func (e gateEnforcement) checkRestore(w http.ResponseWriter, r *http.Request, ac
 
 // requireRouteGate is requireDestructiveGate with the transport rule added,
 // for the routes whose whole purpose is gated (retention apply). The
-// operations route has its own, per action: requireOperationGate.
+// operations route has its own, per action: requireOperationGate. It is
+// built from requireDestructiveGate rather than beside it, so the gate's
+// refusal (and the note the audit entry is made from) stays in one place.
 func requireRouteGate(e gateEnforcement) func(http.Handler) http.Handler {
+	gated := requireDestructiveGate(e.gate)
 	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !destructiveGatePassed(e.gate) {
-				noteGateRefusal(r.Context(), e.gate, "")
-				writeDestructiveGateDenied(w)
-				return
-			}
+		return gated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if e.insecureTransportAckNeeded(r) && !insecureTransportAcknowledged(r) {
 				refuseInsecureTransport(w)
 				return
 			}
 			next.ServeHTTP(w, r)
-		})
+		}))
 	}
 }
