@@ -3906,6 +3906,26 @@ function defaultPolicyArtifacts(untested = false): BackupArtifact[] {
 }
 
 /**
+ * Issue #1186: `?artifacts=N` makes the list of retained backups hold exactly
+ * N (quarantined ones are listed elsewhere and do not count), by padding with
+ * copies of the first fixture under new ids. It is a query parameter rather
+ * than a scenario so that it composes with any scenario and so the sidebar
+ * badge can be proved at 40, 100, 101 and 119 without four named fixtures.
+ */
+function padRetained(retained: BackupArtifact[]): BackupArtifact[] {
+  const raw = typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("artifacts");
+  const want = raw !== null && /^\d+$/.test(raw) ? Number(raw) : null;
+  if (want === null || retained.length === 0) return retained;
+  if (want <= retained.length) return retained.slice(0, want);
+  const tpl = retained[0];
+  const pad = Array.from({ length: want - retained.length }, (_, i) => {
+    const filename = "pad-" + String(i + 1).padStart(4, "0") + ".bak";
+    return { ...tpl, id: tpl.setId + "/" + filename, filename } as BackupArtifact;
+  });
+  return [...retained, ...pad];
+}
+
+/**
  * A whole RetndApi, in memory, for one scenario.
  *
  * This is a second implementation of the contract rather than a bag of
@@ -4466,7 +4486,7 @@ export function createMockApi(scenario: Scenario = "default", options: { wire?: 
       delay({ id: "key_mock_" + Math.random().toString(36).slice(2, 10), algorithm: "ssh-ed25519", fingerprint: mockCandidateFingerprint }),
 
     listArtifacts: (setId) =>
-      delay(empty ? [] : artifacts.filter((a) => !a.quarantine && (!setId || a.setId === setId)).map(overlayThaw).map(wireOverlay)),
+      delay(empty ? [] : padRetained(artifacts.filter((a) => !a.quarantine && (!setId || a.setId === setId))).map(overlayThaw).map(wireOverlay)),
     // An id this fixture does not have is a refusal, not the first
     // artifact. The fallback that used to be here answered every wrong id
     // with a real page about somebody else's backup, which is the same
