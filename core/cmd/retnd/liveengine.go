@@ -180,7 +180,12 @@ func engineRefusal(engine *service.RunningEngine, because, remedy string) error 
 // have carried: the three mutating backup-set verbs, the two
 // post-creation toggles and `settings patch` (#543 and #788, route.go).
 //
-// The six are named rather than summarised, so an operator who reaches
+// The sentence below is pinned by the compat corpus (cell 06) and has not
+// been extended for the workflow and per-set retention writes #1148 routed:
+// it is still true of everything it names, and the full list of routable
+// verbs is in usage()'s mode paragraph.
+//
+// They are named rather than summarised, so an operator who reaches
 // this refusal from one of the others is not sent to set a variable that
 // will not help them. It is offered rather than instructed because it is
 // not true everywhere either: a `daemon` has no listener to point at.

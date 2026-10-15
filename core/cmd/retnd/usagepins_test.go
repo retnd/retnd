@@ -255,6 +255,10 @@ func TestUsage_ListsEveryBackupSetPatchFlag(t *testing.T) {
 	for _, name := range backupSetCreateOnlyFlags {
 		notPatchs[name] = true
 	}
+	// And test-connection's own (#1152), which patch refuses the same way.
+	for _, name := range backupSetTestConnectionOnlyFlags {
+		notPatchs[name] = true
+	}
 
 	checked := 0
 	declareBackupSetFlags().fs.VisitAll(func(fl *flag.Flag) {

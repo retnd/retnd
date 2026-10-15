@@ -159,17 +159,12 @@ func openService(ctx context.Context, configPath string, withTransport bool) (*a
 //
 // It is not the only door any more, and which one a command comes through
 // is the whole of what it can do beside a running engine. #543 gave four
-// configuration writes a route to a serving process, and they come through
-// openConfigWriteRoute below: `backup-set create`, `patch` and `remove`,
-// and `settings patch`. What is left here as a WRITE is `backup-set
-// retention` setting or clearing a policy, which has no route. Not for
-// want of endpoints: the client carries setBackupSetRetention,
-// clearBackupSetRetention and getBackupSetRetention. #543 would not route
-// the write while the report beside it went on reading this host's own
-// file, and #544 did not take that read half, so both halves of the verb
-// stand where #538 left them. Everything else here reads:
-// `settings` on its own, `backup-set retention` reporting the policy in
-// force, and `restore`.
+// configuration writes a route to a serving process, and #1148 gave the
+// workflow and per-set retention writes one: they come through
+// openConfigWriteRoute below. What is left here is the reads that open a
+// service, and no config write at all in this binary's own verbs, which
+// is why the intent argument stays: a write added to this door by mistake
+// is refused rather than performed beside a live engine.
 //
 // So a write through THIS door still has exactly two outcomes. With
 // nothing serving, it happens here, and an engine started afterwards
@@ -295,14 +290,10 @@ func openBackupServiceLoggingTo(ctx context.Context, configPath string, intent c
 	// claim is for. mode.go holds the reasoning; enterConfigWriteMode
 	// claims, asks, announces and refuses, and gives the claim back
 	// itself when it refuses.
-	// nil rather than attachToEngine, deliberately. `backup-set
-	// retention` is the write that comes through here, and it is not
-	// routed. setBackupSetRetention and clearBackupSetRetention are on the
-	// client, so this is a decision rather than a missing call: routing
-	// the write while the report beside it still read this host's own file
-	// would leave one verb answering out of two worlds, and #544 did not
-	// take that read half. openConfigWriteRoute below is the
-	// door that can hand a change over, and the two are separate
+	// nil rather than attachToEngine, deliberately. A write that comes
+	// through THIS door is one nobody decided could be routed (#1148 moved
+	// the last of them onto openConfigWriteRoute below), so it is refused
+	// beside an engine rather than handed over. The two are separate
 	// functions precisely so that "this write can be routed" is a
 	// property of the call site rather than of a flag somebody might get
 	// wrong.
@@ -364,7 +355,16 @@ func openBackupServiceLoggingTo(ctx context.Context, configPath string, intent c
 // The returned cleanup func closes whatever was opened and gives the claim
 // back; callers should always `defer cleanup()` immediately.
 func openConfigWriteRoute(ctx context.Context, configPath string) (configWriteRoute, func(), error) {
-	svc, closeFn, err := service.Open(ctx, configPath)
+	return openConfigWriteRouteTo(ctx, configPath, os.Stdout)
+}
+
+// openConfigWriteRouteTo is openConfigWriteRoute with the mode announcement and
+// the service's structured log sent to out. A verb whose standard output is a
+// JSON document passes standard error, so the document is the only thing on
+// standard output (#1152); everything else passes standard output, which is
+// what openConfigWriteRoute has always meant.
+func openConfigWriteRouteTo(ctx context.Context, configPath string, out io.Writer) (configWriteRoute, func(), error) {
+	svc, closeFn, err := service.OpenWithLog(ctx, configPath, out)
 	if err != nil {
 		return nil, func() {}, err
 	}
@@ -374,7 +374,7 @@ func openConfigWriteRoute(ctx context.Context, configPath string) (configWriteRo
 		}
 	}
 
-	write, err := enterConfigWriteMode(ctx, configPath, attachToEngine, os.Stdout, os.Stderr)
+	write, err := enterConfigWriteMode(ctx, configPath, attachToEngine, out, os.Stderr)
 	if err != nil {
 		closeLocal()
 		return nil, func() {}, err

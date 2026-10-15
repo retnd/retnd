@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -58,6 +60,7 @@ func cmdActivity(args []string) int {
 	setFlag := fs.String("backup-set", "", "only events for this backup set, named <source/backup-set>")
 	severityFlag := fs.String("severity", "", "only events at this severity or above: warn or error")
 	limitFlag := fs.Int("limit", 0, "print at most this many matching events (default 200, maximum 1000)")
+	beforeFlag := fs.String("before", "", "print the page behind this cursor: the next_cursor an earlier --json page (or the stderr hint of a text page) named")
 	jsonFlag := fs.Bool("json", false, "emit the wire objects unchanged, so a script parses the contract rather than this table")
 	followFlag := fs.Bool("follow", false, "stream the LIVE feed instead of the durable log, until interrupted; needs a route to the serving process")
 	scopeFlag := fs.String("scope", "", "with --follow, narrow the live feed to the deployment's own log: the lines that name no backup set. Takes deployment, or is left out for everything")
@@ -82,6 +85,24 @@ func cmdActivity(args []string) int {
 	}
 	if *limitFlag < 0 {
 		return usageError("activity: --limit %d is not a count", *limitFlag)
+	}
+	// A cursor this feed did not issue is read by the service as no cursor at
+	// all, which for a script paging in a loop is the newest page again,
+	// forever. So a --before that is not a row id is refused here, and so is an
+	// empty one: it is "passed" by fs.Visit and means nothing.
+	beforePassed := false
+	fs.Visit(func(fl *flag.Flag) {
+		if fl.Name == "before" {
+			beforePassed = true
+		}
+	})
+	if beforePassed {
+		if n, err := strconv.ParseInt(*beforeFlag, 10, 64); err != nil || n <= 0 {
+			return usageError("activity: --before %q is not a cursor; it is the next_cursor an earlier page named, a positive number", *beforeFlag)
+		}
+		if *followFlag {
+			return usageError("activity: --before pages the durable log and --follow streams the live feed, which has its own cursor; pick one")
+		}
 	}
 	// --scope is three ways wrong on the command line and none of them
 	// needs this deployment read to be seen, so all three are settled
@@ -147,7 +168,8 @@ func cmdActivity(args []string) int {
 		return 0
 	}
 
-	events, err := readActivity(ctx, mode, cfg, journal, activityWindow(*limitFlag, *setFlag != "" || minSeverity > 0))
+	filtered := *setFlag != "" || minSeverity > 0
+	events, nextCursor, err := readActivity(ctx, mode, cfg, journal, activityWindow(*limitFlag, filtered), *beforeFlag)
 	if err != nil {
 		return fail(err)
 	}
@@ -155,12 +177,26 @@ func cmdActivity(args []string) int {
 	events = filterActivity(events, *setFlag, minSeverity)
 	if *limitFlag > 0 && len(events) > *limitFlag {
 		events = events[:*limitFlag]
+		if filtered {
+			// The filter runs after the read, so a cursor can name where the
+			// window ended and not where this page was cut; naming the end of
+			// the window would skip every matching event in between. There is
+			// none to name, and the reader is told so rather than left to
+			// wonder whether the rest is not there.
+			nextCursor = ""
+			fmt.Fprintf(os.Stderr, "note: this page was cut by --limit %d out of a wider window of matching events, so there is no cursor for the rest: raise --limit, or narrow the filter, to read them\n", *limitFlag)
+		}
 	}
 
 	if *jsonFlag {
-		return printActivityJSON(events)
+		return printActivityJSON(events, nextCursor)
 	}
 	printActivity(events)
+	if nextCursor != "" {
+		// On stderr: the table is pinned line for line by retnd-tests, and a
+		// hint is not part of it.
+		fmt.Fprintf(os.Stderr, "more: --before %s reads the next page\n", nextCursor)
+	}
 	return 0
 }
 
@@ -185,25 +221,22 @@ func activityWindow(limit int, filtered bool) int {
 // readActivity puts the question to whichever world this invocation is
 // reporting on. See cmdActivity's own doc for why the engine-attached half
 // renders rather than compares.
-func readActivity(ctx context.Context, mode readDecision, cfg *config.Config, journal *state.Journal, limit int) ([]apicontract.ActivityEvent, error) {
+func readActivity(ctx context.Context, mode readDecision, cfg *config.Config, journal *state.Journal, limit int, before string) ([]apicontract.ActivityEvent, string, error) {
 	if mode.attached() {
-		answer, err := mode.client.ListActivity(ctx, limit)
+		answer, err := mode.client.ListActivityBefore(ctx, limit, before)
 		if err != nil {
 			// The mode has already been announced as engine-attached, so
 			// answering from the journal underneath that announcement
 			// would make the announcement a lie. Same rule the four
 			// comparisons in readagreement.go follow.
-			return nil, mode.unanswered("what has happened on this deployment", err)
+			return nil, "", mode.unanswered("what has happened on this deployment", err)
 		}
-		return answer.Events, nil
+		return answer.Events, answer.NextCursor, nil
 	}
 
-	// No cursor: this command prints one window and exits, so there is no
-	// second page for a cursor to name. `--limit` is the whole of what an
-	// operator here asks for.
-	events, _, err := service.New(cfg, journal, nil, nil).ListActivity(ctx, limit, "")
+	events, nextCursor, err := service.New(cfg, journal, nil, nil).ListActivity(ctx, limit, before)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	out := make([]apicontract.ActivityEvent, 0, len(events))
 	for _, e := range events {
@@ -219,7 +252,7 @@ func readActivity(ctx context.Context, mode readDecision, cfg *config.Config, jo
 			Detail:       e.Detail,
 		})
 	}
-	return out, nil
+	return out, nextCursor, nil
 }
 
 // formatActivityTime is apps/common/webhost's own formatTime, so the two
@@ -383,7 +416,7 @@ func activityDetail(e apicontract.ActivityEvent) string {
 // printActivityJSON emits the wire objects unchanged, under the same
 // `events` key the route uses, so a script parses the contract rather than
 // this file's column layout.
-func printActivityJSON(events []apicontract.ActivityEvent) int {
+func printActivityJSON(events []apicontract.ActivityEvent, nextCursor string) int {
 	// Never null: a caller iterating the array should not have to guard
 	// for absence, which is the same rule the route's own handler follows.
 	if events == nil {
@@ -391,7 +424,7 @@ func printActivityJSON(events []apicontract.ActivityEvent) int {
 	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	if err := enc.Encode(apicontract.ListActivityResponse{Events: events}); err != nil {
+	if err := enc.Encode(apicontract.ListActivityResponse{Events: events, NextCursor: nextCursor}); err != nil {
 		return fail(fmt.Errorf("writing the activity feed: %w", err))
 	}
 	return 0

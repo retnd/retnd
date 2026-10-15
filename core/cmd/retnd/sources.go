@@ -24,8 +24,16 @@ import (
 // that deployment does not have.
 func cmdSources(args []string) int {
 	fs, cfgPath := newFlagSet("sources")
+	asJSON := fs.Bool("json", false, "emit ListBackupSetsResponse, every field of every backup set, instead of the six columns of text")
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+	// Issue #1151. The same read, answered with the wire object. It has
+	// its own path rather than a branch below because the text form
+	// deliberately never opens the state journal and the service layer
+	// that resolves a set's host keys and effective cadence does.
+	if *asJSON {
+		return printSourcesJSON(context.Background(), *cfgPath)
 	}
 
 	cfg, err := config.LoadAndValidate(*cfgPath)

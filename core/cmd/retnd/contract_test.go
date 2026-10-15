@@ -235,10 +235,21 @@ func TestRun_VersionRefusesWhatItDoesNotUnderstand(t *testing.T) {
 			wantStderr: "flag provided but not defined: -config",
 		},
 		{
+			// --json used to be this row. #1152 gave version --engine a
+			// --json of its own, so the guess that is still wrong is a flag
+			// nothing here means.
 			name:       "a flag a script would reasonably guess at",
+			args:       []string{"version", "--verbose"},
+			wantExit:   2,
+			wantStderr: "flag provided but not defined: -verbose",
+		},
+		{
+			// And the old guess is still refused, now with a sentence that
+			// says where the JSON is: it is the engine's object.
+			name:       "--json without the engine it prints",
 			args:       []string{"version", "--json"},
 			wantExit:   2,
-			wantStderr: "flag provided but not defined: -json",
+			wantStderr: "version --engine --json",
 		},
 		{
 			name:       "an operand it documents no use for",

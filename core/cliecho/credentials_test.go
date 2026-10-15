@@ -175,6 +175,15 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 	"--credentials-file":    "a PATH to a credentials file, never its contents",
 	"--credentials-env":     "the NAME of an environment variable, never its value",
 
+	// medium configure (#1154). Both are configuration an operator typed:
+	// which backend, and the values its manifest declares fields for (a
+	// path, a bucket, a region). A manifest gives a credential no value to
+	// be typed into, and mediumConfigurationFlags leaves out the one field
+	// id a credential-kind field carries, so what is left is what an
+	// operator retyping the line has to say.
+	"--backend": "which backend the destination is an instance of, by the id medium backends lists",
+	"--field":   "one manifest-declared configuration value (a path, a bucket, a region), never a credential: the credential field is left off the line",
+
 	// The assurance policy (EPIC Q, Q1.4). Policy vocabulary and a validator
 	// NAME; none is credential material, and the validator is a bare id the
 	// service refuses to accept as a path.
@@ -222,6 +231,14 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 	"--repository-domain":  "the storage boundary the operator declared for this set's snapshots, which they named and have to name again",
 	"--source-consistency": "what the source promises about files changing under a snapshot, one of three words",
 	"--verification-level": "how much of each snapshot is read back afterwards, one of four words",
+
+	// Issue #1151. The lineage key is an identifier the deployment minted
+	// and printed, not a secret: it names which snapshot history a set
+	// belongs to, and re-declaring a set under its old one is the whole
+	// reason an operator has to be able to retype it. The mount prefix is
+	// a directory on the operator's own host.
+	"--uuid":                "the durable lineage key of an incremental set, an identifier and not a credential; retyping it is how a re-declared set finds its old snapshots",
+	"--source-mount-prefix": "the leading part of the operator's own remote path that is how this deployment reaches the source",
 
 	// Issue #862's repository-domain declaration. The id is the operand
 	// below; these are the rest of the declaration, and each one is

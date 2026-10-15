@@ -313,6 +313,16 @@ type mediumRoute interface {
 	// that process would never read, and the next tier added through its
 	// web UI would start somewhere else.
 	SetDefaultStorageMedium(ctx context.Context, id string) (service.StorageMediumSummary, error)
+
+	// ConfigureStorageMedium and PreflightStorageMediumConfiguration are
+	// `medium configure` and its --preflight (#1154): a destination in its
+	// backend's own field ids. The write is a configuration write like the
+	// four above and is here for #538's reason; the preflight is here
+	// because it proves what the write would write, and proving this host's
+	// route to a directory or a bucket and then declaring the destination
+	// somewhere else proves nothing about the destination that gets used.
+	ConfigureStorageMedium(ctx context.Context, id string, cfg service.StorageMediumConfiguration) (service.StorageMediumSummary, error)
+	PreflightStorageMediumConfiguration(ctx context.Context, id string, cfg service.StorageMediumConfiguration) (service.MediumPreflight, error)
 }
 
 // repositoryRoute is `repository create`'s half of the same seam (issue
@@ -349,6 +359,28 @@ type assuranceRoute interface {
 	ResetBackupSetAssurance(ctx context.Context, id string) (service.BackupSetAssurance, error)
 }
 
+// configRoute is the workflow configuration and per-set retention writes
+// (#1148): `settings workflow patch|env`, `backup-set workflow patch|env`
+// and `backup-set retention` setting or clearing a policy. Each was
+// refused beside a serving engine although the API carries all eight, so
+// none of them worked on a live deployment.
+//
+// The reads beside them (`settings workflow`, `backup-set workflow`,
+// `env list`, `backup-set retention` on its own) stay on this host's own
+// file, as they were: only the writes need to reach the process that
+// would otherwise never read them.
+//
+// *service.BackupService satisfies it as it stands, so the direct path is
+// the identity implementation and engineRoute the only translator.
+type workflowRetentionRoute interface {
+	UpdateWorkflowSettings(ctx context.Context, req service.UpdateWorkflowSettingsRequest) (service.WorkflowSettings, error)
+	UpdateBackupSetWorkflow(ctx context.Context, id string, req service.UpdateBackupSetWorkflowRequest) (service.BackupSetWorkflow, error)
+	SetWorkflowEnv(ctx context.Context, backupSetID string, v service.WorkflowEnvVar) ([]service.WorkflowEnvVar, error)
+	UnsetWorkflowEnv(ctx context.Context, backupSetID, name string) ([]service.WorkflowEnvVar, error)
+	SetBackupSetRetention(ctx context.Context, id string, o service.RetentionOverride) (service.BackupSetRetention, error)
+	ClearBackupSetRetention(ctx context.Context, id string) (service.BackupSetRetention, error)
+}
+
 // configWriteRoute is where a routed configuration write goes: every half
 // together, because they are reached through one door and one claim.
 //
@@ -364,6 +396,7 @@ type configWriteRoute interface {
 	mediumRoute
 	repositoryRoute
 	assuranceRoute
+	workflowRetentionRoute
 }
 
 // attachToEngine builds this invocation's route to the serving process,

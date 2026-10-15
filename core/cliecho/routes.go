@@ -55,26 +55,6 @@ const (
 	// them, and the moment they are worth carrying is the create, which
 	// proves the connection before it writes anything.
 	gapCandidateConnection = "there is no verb that checks a source that is not saved yet: `" + Binary + " backup-set create` proves the connection before it writes, and `" + Binary + " backup-set test-connection <source/backup-set>` re-checks one that exists"
-
-	// I2.2 (issue #669). Two gaps, and both are real rather than
-	// oversights, which is the distinction this table exists to make.
-	//
-	// `medium add` and `medium edit` take the flags they were written
-	// with - --type, --region, --endpoint, --bucket, --prefix,
-	// --storage-class, --upload-verification and the four credential
-	// spellings - and a manifest can declare a field none of them names.
-	// local_volume's `path` is exactly that, so a local volume cannot be
-	// configured from a terminal at all. Printing --path anyway would
-	// read correctly and fail on execution, which is worse than printing
-	// nothing: the entire reason these lines exist is that an operator
-	// can copy them.
-	gapConfigureMedium = "there is no verb that writes a destination's configuration in its backend's own field names: `" + Binary + " medium add` and `" + Binary + " medium edit` carry one flag per S3 field and have no --path, so a local volume cannot be configured from a terminal until they take a manifest's field ids"
-
-	// And a configuration that has not been written cannot be checked by
-	// id, because there is no id yet. `medium test-connection` checks
-	// what is SAVED, which is a different question and the one an
-	// operator would get a misleading answer to.
-	gapPreflightMediumConfiguration = "there is no verb that checks a destination's configuration before it is written: `" + Binary + " medium test-connection <medium-id>` checks the one already saved, and `" + Binary + " medium add` proves a destination as it declares it"
 )
 
 // positiveQuery reads a query parameter that is a count, and reports 0
@@ -100,7 +80,9 @@ func positiveQuery(a Action, name string) int {
 var routes = map[string]entry{
 	// ---------------------------------------------------------- system ---
 	key("GET", "/system/version"): {
-		build:    func(Action) *cmd { return newCmd("version") },
+		// --engine, because this route is the ENGINE's version, and bare
+		// `version` is this binary's own (#1152).
+		build:    func(Action) *cmd { return newCmd("version").bare("engine") },
 		examples: []Action{{}},
 	},
 	key("GET", "/system/health"): {
@@ -115,11 +97,12 @@ var routes = map[string]entry{
 		examples: []Action{{}},
 	},
 	key("GET", "/system/storage"): {
-		why:               "there is no verb that reports FR-21's capacity reading. `settings` prints the thresholds it is compared against, not the free space measured against them",
-		namesShippedVerbs: []string{"settings"},
+		build:    func(Action) *cmd { return newCmd("storage") },
+		examples: []Action{{}},
 	},
 	key("GET", "/system/first-run"): {
-		why: "there is no verb that asks whether this instance has been configured; on a terminal the answer is whether config.yaml exists",
+		build:    func(Action) *cmd { return newCmd("system", "first-run") },
+		examples: []Action{{}},
 	},
 	key("POST", "/system/first-run/skip"): {
 		why: "skipping a step of the first-run guide is a choice about what the web interface shows next; a terminal has no guide to leave a step of",
@@ -270,8 +253,11 @@ var routes = map[string]entry{
 		examples: []Action{{}},
 	},
 	key("GET", "/backup-sets/*"): {
-		why:               "`sources` lists every configured backup set; there is no verb that prints one on its own",
-		namesShippedVerbs: []string{"sources"},
+		// Issue #1151 gave this a verb. It was a gap that said "`sources`
+		// lists every configured backup set; there is no verb that prints
+		// one on its own", and `backup-set show` is that verb.
+		build:    func(a Action) *cmd { return newCmd("backup-set", "show", setID(a)) },
+		examples: []Action{{Params: map[string]string{"source": "api-server", "set": "var-backups"}}},
 	},
 	key("POST", "/backup-sets"): {
 		build: func(a Action) *cmd {
@@ -290,6 +276,8 @@ var routes = map[string]entry{
 			// domain printed a command that makes a whole-file artifact
 			// set under the same id.
 			{Body: []byte(`{"source_name":"api-server","name":"var-backups","host":"10.0.0.14","user":"backups","remote_path":"/var/backups","local_path":"/data/backups","ssh_key_id":"key_1","known_hosts_line":"10.0.0.14 ssh-ed25519 AAAAC3Nz","completion_strategy":"rename","engine":"kopia","repository_domain":"production-vault","source_consistency":"quiesced","verification_level":"sample","verification_sample_percent":10,"verification_full_every_seconds":604800,"verification_restore_drill_every_seconds":2592000}`)},
+			// Re-declaring a set under its old lineage key (#1151).
+			{Body: []byte(`{"source_name":"api-server","name":"var-backups","host":"10.0.0.14","user":"backups","remote_path":"/srv/var-backups","local_path":"/data/backups","ssh_key_id":"key_1","known_hosts_line":"10.0.0.14 ssh-ed25519 AAAAC3Nz","completion_strategy":"rename","engine":"kopia","repository_domain":"production-vault","uuid":"7d1c5a6e-3b8f-4c2a-9e41-0f6b2d8a5c13","source_mount_prefix":"/srv"}`)},
 		},
 	},
 	key("POST", "/backup-sets/test-connection"): {
@@ -366,6 +354,12 @@ var routes = map[string]entry{
 			if req.ValidatorID != nil {
 				c.flag("validator-id", *req.ValidatorID)
 			}
+			// Issue #1151. Zero is the request to inherit the
+			// deployment's cadence and is printed, for the reason the
+			// verification cadences below are.
+			if req.PollIntervalSeconds != nil {
+				c.flag("poll-interval", seconds(int64(*req.PollIntervalSeconds)))
+			}
 			// EPIC K's editable verification budget (#788), with the
 			// nil/non-nil rule every pointer on this body keeps. An
 			// explicit zero cadence is "stop doing this", which is a
@@ -427,6 +421,12 @@ var routes = map[string]entry{
 			// is a flag nothing proves the binary takes back.
 			{Params: map[string]string{"source": "api-server", "set": "var-backups"},
 				Body: []byte(`{"source_consistency":"quiesced","verification_level":"sample","verification_sample_percent":10,"verification_full_every_seconds":604800,"verification_restore_drill_every_seconds":2592000}`)},
+			// The per-set poll interval (#1151), once overriding and once
+			// returning to the deployment's.
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"},
+				Body: []byte(`{"poll_interval_seconds":900}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"},
+				Body: []byte(`{"poll_interval_seconds":0}`)},
 		},
 	},
 	key("DELETE", "/backup-sets/{source}/{set}"): {
@@ -794,8 +794,8 @@ var routes = map[string]entry{
 
 	// ------------------------------------------------------ quarantine ---
 	key("GET", "/quarantine"): {
-		why:               "there is no verb that lists quarantined backups; `quarantine` only acts on one, and `artifacts` does not filter by quarantine",
-		namesShippedVerbs: []string{"artifacts", "quarantine"},
+		build:    func(a Action) *cmd { return newCmd("quarantine", "list") },
+		examples: []Action{{}},
 	},
 	key("POST", "/quarantine/{source}/{set}/{name}/revalidate"): {
 		build:    func(a Action) *cmd { return newCmd("quarantine", "revalidate", artifactID(a)) },
@@ -829,15 +829,17 @@ var routes = map[string]entry{
 			if n := positiveQuery(a, "limit"); n > 0 {
 				c.flag("limit", itoa(n))
 			}
-			// `before` is deliberately not echoed, for the same reason
-			// `since` is not on the live route below: it is a browser's
-			// paging cursor into a record it is already partway through,
-			// there is no flag for it, and a command run at a terminal
-			// starts at the newest page. Printing one that named a cursor
-			// would be printing a flag this binary does not have.
+			// `before` is the page behind a cursor, and since #1152 the
+			// binary has a flag for it. Only a cursor the feed could have
+			// issued is echoed (a positive row id), because the route reads
+			// anything else as no cursor and the binary refuses it: a line
+			// printing --before banana would be a command that exits 2.
+			if n := positiveQuery(a, "before"); n > 0 {
+				c.flag("before", itoa(n))
+			}
 			return c
 		},
-		examples: []Action{{}, {Query: mustQuery("limit=50")}},
+		examples: []Action{{}, {Query: mustQuery("limit=50")}, {Query: mustQuery("limit=50&before=120")}},
 	},
 	key("GET", "/activity/live"): {
 		build: func(a Action) *cmd {
@@ -1016,15 +1018,42 @@ var routes = map[string]entry{
 		examples: []Action{{Params: map[string]string{"id": "offsite_s3"}}},
 	},
 	key("POST", "/storage-mediums/{id}/configuration/preflight"): {
-		// A whole-route gap and not a builder that refuses: there is no
-		// request on this route that HAS an equivalent, so the honest
-		// shape is no builder at all.
-		why:               gapPreflightMediumConfiguration,
-		namesShippedVerbs: []string{"medium"},
+		// The write-nothing form of the next route's verb: the same line
+		// with --preflight on the end, which is what makes the two
+		// readable as one command asked two ways.
+		build: func(a Action) *cmd {
+			var req apicontract.MediumConfigurationRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			return mediumConfigurationFlags(newCmd("medium", "configure", a.Params["id"]), req).bare("preflight")
+		},
+		why: "there is no verb that checks a destination's configuration from a request body",
+		examples: []Action{
+			{Params: map[string]string{"id": "usb_disk"},
+				Body: []byte(`{"backend":"local_volume","fields":[{"field":"path","value":"/mnt/usb"}],"credentials":{}}`)},
+		},
 	},
 	key("PUT", "/storage-mediums/{id}/configuration"): {
-		why:               gapConfigureMedium,
-		namesShippedVerbs: []string{"medium"},
+		// `medium configure`, since #1154: a destination in its backend's
+		// own field ids, so a local_volume's `path` is a thing a line can
+		// say. The path id, for the reason PUT /storage-mediums/{id}
+		// gives: the body names a backend and fields, never which
+		// destination.
+		build: func(a Action) *cmd {
+			var req apicontract.MediumConfigurationRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			return mediumConfigurationFlags(newCmd("medium", "configure", a.Params["id"]), req)
+		},
+		why: "there is no verb that configures a storage destination from a request body",
+		examples: []Action{
+			{Params: map[string]string{"id": "usb_disk"},
+				Body: []byte(`{"backend":"local_volume","fields":[{"field":"path","value":"/mnt/usb"},{"field":"prefix","value":"retnd"}],"credentials":{}}`)},
+			{Params: map[string]string{"id": "cold"},
+				Body: []byte(`{"backend":"s3","fields":[{"field":"bucket","value":"acme-backups"},{"field":"region","value":"eu-central-1"}],"credentials":{"credentials_id":"cred_01HX"}}`)},
+		},
 	},
 	key("PUT", "/storage-mediums/{id}/default"): {
 		// Moving the destination a newly created retention tier starts on
@@ -1068,8 +1097,8 @@ var routes = map[string]entry{
 
 	// ------------------------------------------------------ validators ---
 	key("GET", "/validators"): {
-		why:               "there is no verb that lists the registered validators; on a terminal an id is named on `backup-set create --validator-id` and refused if it is not one",
-		namesShippedVerbs: []string{"backup-set"},
+		build:    func(Action) *cmd { return newCmd("validators") },
+		examples: []Action{{}},
 	},
 
 	// ------------------------------------------------------- backends ---
@@ -1083,8 +1112,8 @@ var routes = map[string]entry{
 	// test would invert the rule, which exists so a missing verb is
 	// VISIBLE rather than absent.
 	key("GET", "/backends"): {
-		why:               "there is no verb that lists the registered backends; on a terminal one is named on `medium add --backend <id>` and refused if no manifest declares it",
-		namesShippedVerbs: []string{"medium"},
+		build:    func(Action) *cmd { return newCmd("medium", "backends") },
+		examples: []Action{{}},
 	},
 
 	// ------------------------------------------------------------- ssh ---
@@ -1187,6 +1216,11 @@ var routes = map[string]entry{
 					c.flag("safety-margin-bytes", itoa64(*cap.SafetyMarginBytes))
 				}
 			}
+			// Issue #1151: the deployment-wide poll interval, the one
+			// field of the service section the CLI can set.
+			if svc := req.Service; svc != nil && svc.PollIntervalSeconds != nil {
+				c.flag("poll-interval", seconds(int64(*svc.PollIntervalSeconds)))
+			}
 			// The acknowledgement rides beside a policy write and the CLI
 			// refuses it on a line that writes none.
 			if req.AcknowledgeMediumDisclosure && policy {
@@ -1200,6 +1234,9 @@ var routes = map[string]entry{
 			{Body: []byte(`{"capacity":{"cap_bytes":1099511627776,"warning_free_bytes":107374182400,"critical_free_bytes":53687091200,"safety_margin_bytes":1073741824}}`)},
 			{Body: []byte(`{"retention":{"tiers":[{"name":"daily","granularity":"day","keep":7}],"timezone":"Europe/Berlin"},"acknowledge_medium_disclosure":true}`)},
 			{Body: []byte(`{"retention":{"tiers":[{"name":"daily","granularity":"day","keep":7}]},"capacity":{"cap_bytes":1099511627776}}`)},
+			// The deployment's poll interval (#1151), in the corpus so the
+			// dispatcher parses the flag back end to end.
+			{Body: []byte(`{"service":{"poll_interval_seconds":3600}}`)},
 		},
 	},
 
@@ -1742,11 +1779,15 @@ func backupSetCreateCommand(spec apicontract.BackupSetSpec, runNow, acknowledgeR
 	// an incomplete reproduction of this set, it would be a working
 	// command that makes a DIFFERENT kind of set under the same id.
 	//
-	// The uuid is deliberately not echoed. It is the durable key a
-	// snapshot lineage hangs off, `backup-set create` has no flag for
-	// it, and it is minted by the service precisely so that nobody has
-	// to type one.
+	// The uuid is echoed when the request carried one (#1151). It used to
+	// be left out because `backup-set create` had no flag for it, which
+	// made a printed command mint a second lineage beside the one the
+	// request named. A request that carried none still prints none: the
+	// service mints it, and a placeholder here would be a command that
+	// forks the history on purpose.
 	c.flagIfSet("engine", spec.Engine)
+	c.flagIfSet("uuid", spec.Uuid)
+	c.flagIfSet("source-mount-prefix", spec.SourceMountPrefix)
 	c.flagIfSet("repository-domain", spec.RepositoryDomain)
 	c.flagIfSet("source-consistency", spec.SourceConsistency)
 	c.flagIfSet("verification-level", spec.VerificationLevel)
@@ -1826,10 +1867,16 @@ func mediumSpecFlags(c *cmd, req apicontract.StorageMediumRequest) *cmd {
 	c.flagIfSet("prefix", req.Prefix)
 	c.flagIfSet("storage-class", req.StorageClass)
 	c.flagIfSet("upload-verification", req.UploadVerification)
-	c.flagIfSet("credentials-id", req.Credentials.CredentialsID)
-	c.flagIfSet("credentials-file", req.Credentials.File)
-	c.flagIfSet("credentials-env", req.Credentials.Env)
-	if len(req.Credentials.Command) > 0 {
+	return mediumCredentialFlags(c, req.Credentials)
+}
+
+// mediumCredentialFlags echoes a credentials reference: the three that name
+// something this deployment already holds, and a placeholder for the fourth.
+func mediumCredentialFlags(c *cmd, creds apicontract.StorageMediumCredentialsReference) *cmd {
+	c.flagIfSet("credentials-id", creds.CredentialsID)
+	c.flagIfSet("credentials-file", creds.File)
+	c.flagIfSet("credentials-env", creds.Env)
+	if len(creds.Command) > 0 {
 		// Named and never printed, unlike its three siblings. Those name
 		// a reference this deployment already holds; this one is a
 		// program and its arguments, both of them the caller's words, and
@@ -1840,6 +1887,34 @@ func mediumSpecFlags(c *cmd, req apicontract.StorageMediumRequest) *cmd {
 		c.placeholderFlag("credentials-command", "the command that prints these credentials")
 	}
 	return c
+}
+
+// mediumConfigurationFlags echoes a configuration request as `medium
+// configure` flags (#1154). The fields come out in the request's own order,
+// which the API sorts by field id, so one configuration is one line.
+//
+// An endpoint field has its userinfo taken out for mediumSpecFlags' reason:
+// a credential can be spelled into a URL, and this panel is
+// copy-to-clipboard and exportable. Every other field is printed as sent,
+// since a field value is configuration an operator typed and the manifest
+// gives a credential no field to be typed into.
+func mediumConfigurationFlags(c *cmd, req apicontract.MediumConfigurationRequest) *cmd {
+	c.flagIfSet("backend", req.Backend)
+	for _, f := range req.Fields {
+		// A credential-kind field is the one thing a manifest declares that
+		// is not a value an operator types into a command line. The API
+		// refuses it in this list, so no accepted request carries one, and
+		// a refused one must not put its content on an exportable panel.
+		if f.Field == "credentials" {
+			continue
+		}
+		value := f.Value
+		if f.Field == "endpoint" {
+			value = endpointWithoutUserinfo(value)
+		}
+		c.flag("field", f.Field+"="+value)
+	}
+	return mediumCredentialFlags(c, req.Credentials)
 }
 
 // mediumSkipFlag echoes issue #636's opt-out when the request carried it.
