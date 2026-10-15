@@ -373,7 +373,9 @@ check(signers == ["publish"], f"id-token: write stays with publish alone (found 
 gb = body("github-release")
 check("scripts/release/latest.sh should-be-latest" in gb, "github-release asks latest.sh whether this version is the latest")
 check("--latest" in gb and "--latest=false" in gb, "github-release passes --latest and --latest=false")
-check(gb.count("--latest") >= 4, "both the create and the refresh path state their --latest flag")
+check(re.search(r'gh release create[^\n]*(\\\n[^\n]*)*"\$latest_flag"', gb) is not None
+      and re.search(r'gh release edit[^\n]*"\$latest_flag"', gb) is not None,
+      "both gh release create and gh release edit are given the flag the rule chose")
 check("actions/checkout" in gb, "github-release checks the repo out to reach the script")
 
 # No input is expanded into shell source anywhere in the new jobs.
