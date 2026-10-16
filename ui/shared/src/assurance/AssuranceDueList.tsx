@@ -34,7 +34,7 @@ import { recoveryTestCommand } from "./assuranceCommands";
 import { stageLabel } from "./stages";
 import { listingReason } from "./claims";
 import type { Bucket } from "./claims";
-import { noteAssuranceChanged, recoveryTestWouldBeRefused } from "./verificationModel";
+import { NO_VALIDATOR_REASON, noteAssuranceChanged, recoveryTestWouldBeRefused } from "./verificationModel";
 import type { BackupFacts, Tally } from "./verificationModel";
 import { startRecoveryRun } from "./useRunAssurance";
 import type { RunState } from "./useRunAssurance";
@@ -46,7 +46,6 @@ const BUCKET_WORD: Partial<Record<Bucket, string>> = { degraded: "Degraded", ove
 /** Rows drawn per bucket. The rest are a link to the Backups list, filtered. */
 const ROW_CAP = 20;
 const fileOf = (id: string) => id.split("/").pop() ?? id;
-const NO_VALIDATOR = "No recovery-test validator is declared for this set, so a test can only be refused.";
 
 /** One row's run, keyed by the backup it was asked for. */
 interface RowRun {
@@ -91,7 +90,7 @@ function DueRow({
     : state === "untracked" ? "Recovery test is no longer on the live feed. Its result lands on the Recovery chip."
     : null;
   const why = cannot
-    ? NO_VALIDATOR
+    ? NO_VALIDATOR_REASON
     : setBusyWith
       ? "A recovery test of " + fileOf(setBusyWith) + " is running for this set, and the engine runs one per set at a time."
       : null;

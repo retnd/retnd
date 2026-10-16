@@ -24,6 +24,31 @@ export function recoveryTestCommand(setId: string): string {
   return "retnd recovery-test " + setId;
 }
 
+/** The recovery test of ONE backup of a set (#1174, #1202): the Dashboard's
+ *  row button and the Backups row menu both name the backup they were pressed
+ *  for, the same as the `artifact_id` the route carries. */
+export function recoveryTestArtifactCommand(setId: string, artifactId: string): string {
+  return recoveryTestCommand(setId) + " --artifact " + artifactId;
+}
+
+/** What Retry ingestion does (#662, #1202): `retnd retry <id>` puts one FAILED
+ *  backup back into the pipeline, the same as POST .../{name}/retry. */
+export function retryCommand(artifactId: string): string {
+  return "retnd retry " + artifactId;
+}
+
+/** One backup's own record, the terminal's version of its page: `retnd
+ *  artifacts` with exactly one operand prints that backup's detail. */
+export function artifactCommand(artifactId: string): string {
+  return "retnd artifacts " + artifactId;
+}
+
+/** The Backups list narrowed to one set (#1202), the same narrowing the
+ *  page's `?set=` filter makes. */
+export function artifactsInSetCommand(setId: string): string {
+  return "retnd artifacts --backup-set " + setId;
+}
+
 /** The progress bar and its step count, in a terminal: `--follow` prints each
  *  stage the test enters, in the engine's order, on standard error as it
  *  happens, and the exit status is the test's (#1176). */

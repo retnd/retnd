@@ -112,6 +112,13 @@ export const SCENARIOS = [
   "host-browse-vanished",
   "host-browse-session-ended",
   "backups-many-ceiling-2",
+  // Issue #1202: the many-backups fixture with every fixture set presented as
+  // an artifact set, so a set's page offers its link to the Backups list (a
+  // snapshot set's history is on its Snapshots page instead), and the default
+  // fixture with media-week34 FAILED and not quarantined, the one backup the
+  // row menu offers Retry ingestion for.
+  "backups-many-artifact-sets",
+  "backups-ingest-failed",
   "empty",
   "storage-critical",
   "catalog-recovery",
@@ -4133,7 +4140,7 @@ export function createMockApi(
   // fixture sets as artifact sets (the mock host's recoverMany holds the rows);
   // the default scenario keeps the incremental ones, which is how the
   // snapshot-restore branch of the dialog is reached.
-  if (scenario.startsWith("assurance-set-") || scenario.startsWith("source-")) {
+  if (scenario.startsWith("assurance-set-") || scenario.startsWith("source-") || scenario === "backups-many-artifact-sets") {
     for (const s of SETS) { s.engine = "artifact"; s.incremental = null; }
   }
   // What a finished scrub or recovery test writes onto a copy, which the
@@ -4263,6 +4270,8 @@ export function createMockApi(
     ? [BUILTIN_ARTIFACT_FIXTURE, ...ARTIFACTS]
     : followsDefault(scenario)
     ? defaultPolicyArtifacts(untestedScenario(scenario), scenario === INGEST_FAILED_SCENARIO)
+    : scenario === "backups-ingest-failed"
+    ? ARTIFACTS.map((a) => (a.id === "media/weekly-archive/media-week34.tar" ? { ...a, state: "FAILED", validation: "pending" as const } : a))
     : ARTIFACTS;
   // Every backup outside quarantine, padded to ?artifacts=N: what the list
   // answers and what the health report's retainedCount counts (#1186).

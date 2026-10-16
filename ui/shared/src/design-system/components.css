@@ -461,3 +461,68 @@ input, select, textarea, button {
      Elsewhere the terminal's autoscroll and the paging buttons snap. */
   html:has([data-settings-page]), main:has([data-settings-page]) { scroll-behavior: smooth; }
 }
+
+/* The menu button and its menu (issue #1202). The interaction lives in
+   components/ActionMenu.tsx; this is only its shape, in the anatomy the
+   field-help and tooltip pop-ups above already use (surface, rounded edge,
+   the large shadow). Two differences, both about contrast. The menu's edge
+   and the trigger's edge are a boundary somebody has to find, so they take
+   --text-2 (5.96:1 on the light page, 7.09:1 on the dark one) rather than
+   --border-strong (1.69:1) or --control-edge, which is 2.99:1 on the light
+   page background the trigger also sits over. And a disabled item keeps
+   readable ink: it is aria-disabled, not disabled, because its reason is the
+   thing an operator came to read. */
+.amenu {
+  position: fixed; z-index: 60;
+  width: 352px; max-width: calc(100vw - 16px);
+  padding: 4px 0;
+  background: var(--surface);
+  border: 1px solid var(--text-2);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--text);
+  text-align: left;
+  cursor: default;
+}
+.amenu__group + .amenu__group { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 2px; }
+.amenu__group-label {
+  padding: 6px 12px 2px;
+  font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-2);
+}
+.amenu__item { display: flex; flex-direction: column; gap: 1px; padding: 6px 12px; cursor: pointer; outline: none; }
+.amenu__item:focus { background: var(--surface-3); }
+.amenu__item:focus-visible { box-shadow: inset 3px 0 0 var(--accent); }
+.amenu__label { font-weight: 500; color: var(--text); }
+.amenu__note { font-size: var(--text-xs); color: var(--text-2); }
+.amenu__item[aria-disabled="true"] { cursor: not-allowed; }
+.amenu__item[aria-disabled="true"] .amenu__label { color: var(--text-2); }
+.amenu__why { font-size: var(--text-xs); color: var(--text); overflow-wrap: anywhere; }
+.amenu__footer { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; padding: 8px 12px 6px; border-top: 1px solid var(--border); }
+.amenu__echo {
+  display: block; padding: 5px 8px;
+  font-size: var(--text-xs); color: var(--text-2);
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md);
+  overflow-x: auto; white-space: pre;
+}
+.amenu__trigger { gap: 6px; border-color: var(--text-2); }
+.amenu__caret { font-size: 10px; color: var(--text-2); }
+.btn--edge { border-color: var(--text-2); text-decoration: none; }
+.table tbody tr[data-menu-open="true"] { background: var(--surface-2); }
+.table .actcell { width: 1%; white-space: nowrap; text-align: right; }
+/* The set a Backups list is narrowed to (#1202), as a chip that clears it.
+   Body ink on the surface, with the same --text-2 edge as the menu. */
+.setchip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 1px 3px 1px 9px;
+  border: 1px solid var(--text-2); border-radius: var(--radius-pill);
+  background: var(--surface); color: var(--text); font-weight: 500;
+}
+.setchip__clear {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%;
+  background: transparent; color: var(--text-2); font-size: 14px; line-height: 1; cursor: pointer;
+}
+.setchip__clear:hover { background: var(--surface-3); color: var(--text); }
+.setchip__back { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
