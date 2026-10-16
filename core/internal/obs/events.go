@@ -929,6 +929,14 @@ type ScrubPassCounts struct {
 	Trigger string
 	// Scope is what the pass was asked to cover, in words.
 	Scope string
+	// OpID is the operation id an operator's "scrub now" was answered with,
+	// or empty for a scheduled pass. When set it rides on the line as op_id,
+	// which is how the durable activity record finds the pass again by that
+	// id once the live feed has dropped it (#1200).
+	OpID string
+	// Cancelled says the pass stopped because its operation was cancelled,
+	// so the counts are of what ran before the stop.
+	Cancelled bool
 
 	Selected, Checked, Passed, Failed, CouldNotComplete, RequiresRestore int
 	SkippedHeld, SkippedLeased                                           int
@@ -944,9 +952,14 @@ func (l *Logger) ScrubPass(ctx context.Context, c ScrubPassCounts) {
 	if c.Failed > 0 || c.CouldNotComplete > 0 || c.SkippedHeld > 0 || c.SkippedLeased > 0 {
 		result = ResultWarn
 	}
-	l.emitMarked(ctx, result.Level(), mark{result: result}, EventScrubPass, "scrub pass complete",
+	attrs := []slog.Attr{
 		slog.String("trigger", c.Trigger),
 		slog.String("scope", scrubText(c.Scope)),
+	}
+	if c.OpID != "" {
+		attrs = append(attrs, slog.String("op_id", c.OpID))
+	}
+	attrs = append(attrs,
 		slog.Int("selected", c.Selected),
 		slog.Int("checked", c.Checked),
 		slog.Int("passed", c.Passed),
@@ -957,17 +970,27 @@ func (l *Logger) ScrubPass(ctx context.Context, c ScrubPassCounts) {
 		slog.Int("skipped_leased", c.SkippedLeased),
 		slog.Int64("bytes_read", c.BytesRead),
 	)
+	if c.Cancelled {
+		attrs = append(attrs, slog.Bool("cancelled", true))
+	}
+	l.emitMarked(ctx, result.Level(), mark{result: result}, EventScrubPass, "scrub pass complete", attrs...)
 }
 
 // ScrubFailure logs EventScrubFailure for one copy. class is the class that
-// ran, never the class asked for.
-func (l *Logger) ScrubFailure(ctx context.Context, artifact, medium, class, reason string) {
-	l.emitMarked(ctx, ResultWarn.Level(), mark{result: ResultWarn}, EventScrubFailure, "scrub found a copy wrong or could not check it",
+// ran, never the class asked for. opID is the operation id of a pass an
+// operator started, which rides on the line as op_id (#1200); a scheduled
+// pass has none and the line carries none.
+func (l *Logger) ScrubFailure(ctx context.Context, opID, artifact, medium, class, reason string) {
+	attrs := []slog.Attr{
 		slog.String("artifact", artifact),
 		slog.String("medium", medium),
 		slog.String("class", class),
 		slog.String("reason", scrubText(reason)),
-	)
+	}
+	if opID != "" {
+		attrs = append(attrs, slog.String("op_id", opID))
+	}
+	l.emitMarked(ctx, ResultWarn.Level(), mark{result: ResultWarn}, EventScrubFailure, "scrub found a copy wrong or could not check it", attrs...)
 }
 
 // ScrubUnknownObject logs EventScrubUnknownObject for one object.

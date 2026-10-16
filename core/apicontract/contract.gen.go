@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "4c2219cff050814453220e17afa679623584055454b6be7fa4e852317b5735e2"
+const ContractSHA256 = "5a0885b2b4df248c686a151f9b0df951deddaf39cde82c8ee7d7ea7caa6b3225"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -458,6 +458,17 @@ var Endpoints = []Endpoint{
 			400: {ErrorCodeInvalidRequest},
 			401: {ErrorCodeUnauthenticated},
 			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "getAssuranceOperation", Method: "GET", Path: "/assurance/operations/{op}",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AssuranceOperationRecord", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeOperationNotFound},
 			500: {ErrorCodeInternal},
 			503: {ErrorCodeNotConfigured},
 		},
@@ -1852,6 +1863,20 @@ type AssuranceOperationCancelled struct {
 	Kind        string `json:"kind"`
 	OperationID string `json:"operation_id"`
 	Status      string `json:"status"`
+}
+
+// AssuranceOperationRecord is one scrub, recovery test or recovery as the durable activity
+// record holds it (#1200).
+type AssuranceOperationRecord struct {
+	BackupSetID string              `json:"backup_set_id"`
+	EndedAt     string              `json:"ended_at"`
+	Events      []LiveActivityEvent `json:"events"`
+	Kind        string              `json:"kind"`
+	OperationID string              `json:"operation_id"`
+	Reason      string              `json:"reason"`
+	Stage       string              `json:"stage"`
+	StartedAt   string              `json:"started_at"`
+	State       string              `json:"state"`
 }
 
 // AssuranceRecoveryTestPolicy is A resolved recovery-test policy.
@@ -4568,6 +4593,7 @@ var SchemaTypes = map[string]any{
 	"AssuranceDueResponse":               AssuranceDueResponse{},
 	"AssuranceHostKnob":                  AssuranceHostKnob{},
 	"AssuranceOperationCancelled":        AssuranceOperationCancelled{},
+	"AssuranceOperationRecord":           AssuranceOperationRecord{},
 	"AssuranceRecoveryTestPolicy":        AssuranceRecoveryTestPolicy{},
 	"AssuranceScrubPolicy":               AssuranceScrubPolicy{},
 	"AssuranceSettingsResponse":          AssuranceSettingsResponse{},

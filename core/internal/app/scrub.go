@@ -64,6 +64,12 @@ type ScrubRequest struct {
 	// copy is still never read.
 	Content     bool
 	AllowEgress bool
+
+	// OpID is the operation id an operator's "scrub now" was answered with
+	// (service.StartScrub). It rides on the pass's lines as op_id, so the
+	// durable activity record can answer "what did this scrub do" by that
+	// id (#1200). Empty for a scheduled pass and for the CLI's own scrub.
+	OpID string
 }
 
 func (r ScrubRequest) forced() bool { return r.Set != nil || r.Artifact != nil }
@@ -164,6 +170,9 @@ func (s *Service) Scrub(ctx context.Context, req ScrubRequest) (ScrubSummary, er
 
 	started := s.now()
 	sum := ScrubSummary{Trigger: req.Trigger, Scope: scrubScope(req)}
+	// The pass's lines carry the operation id, read back off the context
+	// where they are written, so it is not a field of the summary (#1200).
+	ctx = context.WithValue(ctx, scrubOpKey{}, req.OpID)
 
 	sets, err := s.scrubTargets(req)
 	if err != nil {
@@ -274,7 +283,7 @@ func (s *Service) tally(ctx context.Context, sum *ScrubSummary, set model.Backup
 		// asked passed and the trouble was elsewhere (a hook that would not
 		// start). The artifact could not be checked, and it is said once.
 		sum.CouldNotComplete++
-		s.logger().ScrubFailure(ctx, e.Artifact.String(), "", "", e.Err.Error())
+		s.logger().ScrubFailure(ctx, scrubOpOf(ctx), e.Artifact.String(), "", "", e.Err.Error())
 	}
 	// QC-04: what a destination holds that the journal does not know, and the
 	// destinations that could not be asked. Findings, not copy outcomes: none
@@ -312,11 +321,11 @@ func (s *Service) tallyCopy(ctx context.Context, sum *ScrubSummary, a model.Arti
 	case c.Verdict == state.ScrubFailed:
 		sum.Checked++
 		sum.Failed++
-		s.logger().ScrubFailure(ctx, a.String(), c.Medium, string(c.Class), c.Reason)
+		s.logger().ScrubFailure(ctx, scrubOpOf(ctx), a.String(), c.Medium, string(c.Class), c.Reason)
 		return true
 	case c.Verdict == state.ScrubCouldNotComplete:
 		sum.CouldNotComplete++
-		s.logger().ScrubFailure(ctx, a.String(), c.Medium, string(c.Class), c.Reason)
+		s.logger().ScrubFailure(ctx, scrubOpOf(ctx), a.String(), c.Medium, string(c.Class), c.Reason)
 		return true
 	}
 	return false
@@ -325,6 +334,15 @@ func (s *Service) tallyCopy(ctx context.Context, sum *ScrubSummary, a model.Arti
 // finishScrub writes the durable pass row, when the pass did anything worth
 // a row, and the one pass event. Both happen even when the pass was cut
 // short: counts of what did run are still true.
+// scrubOpKey carries a scrub now's operation id to the lines its pass
+// writes (ScrubRequest.OpID).
+type scrubOpKey struct{}
+
+func scrubOpOf(ctx context.Context) string {
+	id, _ := ctx.Value(scrubOpKey{}).(string)
+	return id
+}
+
 func (s *Service) finishScrub(ctx context.Context, journal scrubJournal, sum ScrubSummary, started time.Time) ScrubSummary {
 	finished := s.now()
 	if sum.Selected > 0 || sum.SkippedHeld > 0 || sum.SkippedLeased > 0 || sum.CouldNotComplete > 0 {
@@ -339,7 +357,8 @@ func (s *Service) finishScrub(ctx context.Context, journal scrubJournal, sum Scr
 		}
 		sum.PassID = id
 		s.logger().ScrubPass(ctx, obs.ScrubPassCounts{
-			Trigger: sum.Trigger, Scope: sum.Scope, Selected: sum.Selected, Checked: sum.Checked,
+			Trigger: sum.Trigger, Scope: sum.Scope, OpID: scrubOpOf(ctx), Cancelled: errors.Is(ctx.Err(), context.Canceled),
+			Selected: sum.Selected, Checked: sum.Checked,
 			Passed: sum.Passed, Failed: sum.Failed, CouldNotComplete: sum.CouldNotComplete,
 			RequiresRestore: sum.RequiresRestore, SkippedHeld: sum.SkippedHeld,
 			SkippedLeased: sum.SkippedLeased, BytesRead: sum.BytesRead,

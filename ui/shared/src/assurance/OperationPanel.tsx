@@ -9,6 +9,12 @@
  * The outcome of a finished operation says what it was. A cancelled run is
  * "Cancelled", a failed one "Failed", and neither is drawn like a pass.
  *
+ * A run read back from the durable record (#1200) is drawn the same way, from
+ * its own lines: the start, the stage it reached and how it ended, with the
+ * count and the bar at that stage. The panel never draws an empty terminal:
+ * with no line to show it says so in words, and the Following toggle is only
+ * offered while there is something live to follow.
+ *
  * Cancel is a request, and the panel says so: once the service has accepted
  * one the run is "Cancelling" until its own end line arrives, and the button
  * is spent. A cancel the service refuses is shown in its words. Beside a
@@ -60,13 +66,18 @@ export function OperationPanel({
   // own stage list, because a recovery test names its stages on the feed and
   // sends no running byte total (#1176). Neither: the bar stays indeterminate.
   const staged = operation.totalBytes > 0 ? null : stageProgress(operation.kind, operation.stage);
-  const pct = operation.totalBytes > 0 ? Math.round((operation.bytes / operation.totalBytes) * 100) : staged?.pct ?? 0;
-  const determinate = operation.totalBytes > 0 || staged !== null;
+  // A scrub names no stages, so its bar has no position while it runs; once
+  // its pass line is in (it finished, found problems or not) the pass is
+  // over and the bar is full, not left at 0% (#1200).
+  const scrubDone = operation.kind === "scrub" && (operation.state === "complete" || operation.state === "failed");
+  const pct = scrubDone ? 100 : operation.totalBytes > 0 ? Math.round((operation.bytes / operation.totalBytes) * 100) : staged?.pct ?? 0;
+  const determinate = scrubDone || operation.totalBytes > 0 || staged !== null;
   const outcome =
     operation.state === "complete" ? KIND_LABEL[operation.kind] + " finished"
     : operation.state === "failed" ? KIND_LABEL[operation.kind] + " failed"
     : operation.state === "cancelled" ? KIND_LABEL[operation.kind] + " cancelled"
     : operation.state === "untracked" ? KIND_LABEL[operation.kind] + " is no longer on the live feed. Its result lands on the " + LANDS_ON[operation.kind] + " chip."
+    : operation.state === "unfinished" ? KIND_LABEL[operation.kind] + " has no end on record. The process running it stopped before it finished, so it has no result."
     : null;
   return (
     <div
@@ -129,14 +140,22 @@ export function OperationPanel({
           Output is in the set terminal
         </a>
       ) : (
-        <ul className="aop__lines" aria-label="Operation lines" ref={(el) => { if (el && following) el.scrollTop = el.scrollHeight; }}>
-          {events.map((e) => (
-            <li key={e.seq} data-testid="operation-line" data-seq={e.seq}>{e.text}</li>
-          ))}
-        </ul>
+        events.length > 0 ? (
+          <ul className="aop__lines" aria-label="Operation lines" ref={(el) => { if (el && following) el.scrollTop = el.scrollHeight; }}>
+            {events.map((e) => (
+              <li key={e.seq} data-testid="operation-line" data-seq={e.seq}>{e.text}</li>
+            ))}
+          </ul>
+        ) : (
+          // Never an empty terminal strip (#1200): no line is a fact worth
+          // saying, not a black box to stare at.
+          <div className="aop__quiet" data-testid="operation-no-lines">
+            {running ? "Waiting for the first line of this run." : "No line of this run is on record."}
+          </div>
+        )
       )}
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        {onFollowing ? (
+        {onFollowing && running ? (
           <InfoTooltip id="assurance.operation.follow">
             <label style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
               <input type="checkbox" checked={following} onChange={(e) => onFollowing(e.target.checked)} />

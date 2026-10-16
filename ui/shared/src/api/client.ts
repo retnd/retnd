@@ -107,6 +107,7 @@ import type {
   WireRecoveryTestOutput,
   WireScrubStarted,
   WireAssuranceOperationCancelled,
+  WireAssuranceOperationRecord,
   WireRecoverySettingsResponse,
   WireRecoverySettingsUpdate,
   WireRetentionOverride,
@@ -167,6 +168,7 @@ import type {
   SourceHostDescription,
   StepUpOptions,
   AssuranceDue,
+  AssuranceOperationRecord,
   RecoveryTestOutput,
   AssuranceSettings,
   AssuranceSettingsPatch,
@@ -2142,6 +2144,26 @@ function fromWireLiveActivityEvent(e: WireLiveActivityEvent): SetActivityEvent {
     scope: e.scope,
     message: e.message,
     fields
+  };
+}
+
+/** One assurance operation read back from the durable record (issue #1200).
+ *  The state and kind are the server's closed vocabularies; anything this
+ *  build does not know reads as unfinished and as a recovery test, the
+ *  states that claim the least. */
+function fromWireAssuranceOperation(r: WireAssuranceOperationRecord): AssuranceOperationRecord {
+  const states = ["running", "passed", "failed", "did_not_complete", "cancelled", "unfinished"] as const;
+  const kinds = ["scrub", "recovery_test", "recovery"] as const;
+  return {
+    operationId: r.operation_id,
+    kind: (kinds as readonly string[]).includes(r.kind) ? (r.kind as AssuranceOperationRecord["kind"]) : "recovery_test",
+    backupSetId: r.backup_set_id,
+    state: (states as readonly string[]).includes(r.state) ? (r.state as AssuranceOperationRecord["state"]) : "unfinished",
+    stage: r.stage,
+    reason: r.reason,
+    startedAt: r.started_at,
+    endedAt: r.ended_at,
+    events: r.events.map(fromWireLiveActivityEvent)
   };
 }
 
@@ -4175,6 +4197,9 @@ export const httpApi: RetndApi = {
 
   getRecoveryTestOutput: (source, set) =>
     request<WireRecoveryTestOutput>(backupSetPath(source, set) + "/recovery-test/output").then(fromWireRecoveryTestOutput),
+
+  getAssuranceOperation: (operationId) =>
+    request<WireAssuranceOperationRecord>("/assurance/operations/" + encodeURIComponent(operationId)).then(fromWireAssuranceOperation),
 
   getAssuranceSettings: () =>
     request<WireAssuranceSettingsResponse>("/settings/assurance").then(fromWireAssuranceSettings),

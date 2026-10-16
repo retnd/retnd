@@ -347,9 +347,15 @@ func recoveryTestResult(r recoverytest.Result, err error) obs.Result {
 	}
 }
 
+// RecoveryTestCancelledReason is the reason a recovery test's end line
+// carries when it was stopped on request. The line's result is warn, which a
+// run that could not complete also is, so the reason is what tells the two
+// apart when the durable activity record is read back (#1200).
+const RecoveryTestCancelledReason = "cancelled before it finished; no result was recorded"
+
 func recoveryTestReason(r recoverytest.Result, err error) string {
 	if errors.Is(err, context.Canceled) {
-		return "cancelled before it finished; no result was recorded"
+		return RecoveryTestCancelledReason
 	}
 	if err != nil {
 		return recoverytest.SanitizeLabel(err.Error(), 200)

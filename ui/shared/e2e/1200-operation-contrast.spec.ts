@@ -16,7 +16,7 @@ for (const theme of ["light", "dark"] as const) {
     await expect(page.getByTestId("operation-progress")).toHaveAttribute("data-state", "complete");
     await expect(page.getByTestId("operation-line").first()).toBeVisible();
     await expect(page.getByTestId("validator-output")).toBeVisible();
-    expect(await measureContrast(page, "1200 passed " + theme, "main")).toEqual([]);
+    expect(await measureContrast(page, "1200 passed " + theme, '[data-testid="operation-page"]')).toEqual([]);
   });
 
   test(`#1200 a failed run read from the record is legible (${theme})`, async ({ page }) => {
@@ -24,13 +24,14 @@ for (const theme of ["light", "dark"] as const) {
     await setTheme(page, theme);
     await expect(page.getByTestId("operation-progress")).toHaveAttribute("data-state", "failed");
     await expect(page.getByTestId("stage-count")).toBeVisible();
-    expect(await measureContrast(page, "1200 failed " + theme, "main")).toEqual([]);
+    expect(await measureContrast(page, "1200 failed " + theme, '[data-testid="operation-page"]')).toEqual([]);
   });
 
   test(`#1200 the words for a pruned run are legible (${theme})`, async ({ page }) => {
     await open(page, OPS + "aop_1200_pruned", "operation-history", { wire: true });
     await setTheme(page, theme);
     await expect(page.getByTestId("operation-none")).toBeVisible();
-    expect(await measureContrast(page, "1200 pruned " + theme, "main")).toEqual([]);
+    expect(await measureContrast(page, "1200 pruned " + theme, '[data-testid="operation-page"]')).toEqual([]);
+    expect(await measureContrast(page, "1200 footer " + theme, '[data-testid="app-footer"]')).toEqual([]);
   });
 }

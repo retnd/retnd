@@ -43,7 +43,12 @@ export interface UseOperationOptions {
 
 /** What every follower of one operation sees. Replaced, never mutated, so
  *  it is a valid external-store snapshot. */
-interface Reading { operation: Operation | null; events: OperationEvent[]; error: string | null }
+interface Reading {
+  operation: Operation | null; events: OperationEvent[]; error: string | null;
+  /** Nothing of the run is on record anywhere (#1200): a pruned run, or an
+   *  id that was never one. Said in words, never drawn as an empty panel. */
+  missing?: boolean;
+}
 const NOTHING: Reading = { operation: null, events: NO_EVENTS, error: null };
 
 /** One operation's single poller, shared by every hook following it (the
@@ -94,7 +99,11 @@ function acquire(api: AssuranceApi, id: string, retain: boolean): Follow {
         // The reading failed: say so, keep the last good one, and keep
         // trying. A dropped connection is the ordinary cause.
         const message = e instanceof Error ? e.message : "could not read progress";
-        publish({ ...entry.reading, error: message });
+        // Nothing of the run is on record (#1200): it will not be there a
+        // second later, so say so once, in words, and stop asking.
+        const missing = e instanceof Error && e.name === "NotOnRecord";
+        publish({ ...entry.reading, error: message, ...(missing ? { missing } : {}) });
+        if (missing) return;
         // An id that is not on the feed will not be there a second later
         // either: say so once and stop asking.
         if (e instanceof Error && e.name === "NotFollowable") return;
@@ -180,5 +189,5 @@ export function useOperation(
   const shown = operation && cancelling === operationId && operation.state === "running" && !operation.cancelling
     ? { ...operation, cancelling: true }
     : operation;
-  return { operation: shown, events, error, cancel, cancelError };
+  return { operation: shown, events, error, cancel, cancelError, missing: !!reading.missing };
 }

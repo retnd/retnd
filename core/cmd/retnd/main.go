@@ -359,6 +359,13 @@ commands:
                                                   this deployment, so this needs RETND_API_URL and the two credential
                                                   variables beside it and is refused without them. The same as
                                                   POST /api/v1/assurance/operations/{op}/cancel (EPIC Q)
+  assurance show <operation-id> [--json]
+                                                  one scrub or recovery test by the operation id its start returned,
+                                                  running or long finished: how it ended, the stage it reached, and its
+                                                  lines in the --follow format, read from the durable activity record
+                                                  (kept 30 days). It reads this host's journal, or the serving engine
+                                                  when one is attached. The same as
+                                                  GET /api/v1/assurance/operations/{op}, the Operation page's read (#1200)
   assurance list [--backup-set S] [--bucket due|overdue|degraded|untested] [--json]
                                                   the backups behind the Web UI Dashboard's Assurance tile, most urgent
                                                   first: each one in due, overdue or degraded (or in the buckets --bucket

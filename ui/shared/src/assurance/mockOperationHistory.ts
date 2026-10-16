@@ -14,6 +14,7 @@
  * One more id is deliberately absent: a run older than the record's 30 days,
  * whose lines were pruned. The page has to say that in words.
  */
+import type { AssuranceOperationRecord } from "@shared/api/contracts";
 import type { SetActivityEvent } from "@shared/types/activity";
 import type { ValidatorResult } from "./types";
 import { stageLabel } from "./stages";
@@ -93,5 +94,40 @@ export function historyValidatorResult(now: number): ValidatorResult {
       { kind: "output", text: "pg-restore-check: 220 tables, 0 errors" },
       { kind: "output", text: "pg-restore-check: ok" }
     ]
+  };
+}
+
+/**
+ * The mock's GET /assurance/operations/{op}: what the engine's
+ * summariseAssuranceOperation (core/service/assuranceoperation_record.go)
+ * says about a run's stored lines. The journal keeps one stage line per run,
+ * the last, so the lines are coalesced the way the writer coalesces them.
+ */
+export function durableRecordOf(opId: string, lines: StoredLine[], running: boolean): AssuranceOperationRecord | null {
+  const mine = lines.filter((l) => l.event.fields.op_id === opId).sort((a, b) => a.event.sequence - b.event.sequence);
+  const lastStage = [...mine].reverse().find((l) => l.event.event === "recovery_stage");
+  const kept = mine.filter((l) => l.event.event !== "recovery_stage" || l === lastStage);
+  if (kept.length === 0) return null;
+  const events = kept.map((l) => l.event);
+  const has = (name: string) => events.some((e) => e.event === name);
+  const kind: AssuranceOperationRecord["kind"] =
+    has("scrub_pass") || has("scrub_failure") ? "scrub" : has("recovery_start") || has("recovery_end") ? "recovery" : "recovery_test";
+  const end = events.find((e) => e.event === "recovery_test_end" || e.event === "recovery_end");
+  const pass = events.find((e) => e.event === "scrub_pass");
+  let state: AssuranceOperationRecord["state"] = running ? "running" : "unfinished";
+  let stage = lastStage?.event.fields.stage ?? "";
+  const reason = end?.fields.reason ?? "";
+  if (end) {
+    if (end.result === "success") { state = "passed"; stage = "complete"; }
+    else if (end.result === "error") state = "failed";
+    else state = reason === CANCELLED_REASON ? "cancelled" : "did_not_complete";
+  } else if (pass) {
+    state = pass.fields.cancelled === "true" ? "cancelled"
+      : Number(pass.fields.failed) > 0 ? "failed"
+      : Number(pass.fields.could_not_complete) > 0 ? "did_not_complete" : "passed";
+  }
+  return {
+    operationId: opId, kind, backupSetId: kept[0].setId, state, stage, reason,
+    startedAt: events[0].at, endedAt: (end ?? pass)?.at ?? "", events
   };
 }

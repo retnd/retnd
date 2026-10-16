@@ -454,9 +454,31 @@ func TestScrubPassEventWithoutFailuresIsSuccess(t *testing.T) {
 	}
 }
 
+// #1200: a pass an operator started carries its operation id, and says when
+// it was cancelled; a scheduled one carries neither.
+func TestScrubLinesCarryTheOperationIDOfAScrubNow(t *testing.T) {
+	l, buf := newRecorder(t)
+	l.ScrubPass(context.Background(), ScrubPassCounts{Trigger: "manual", Scope: "set a/b", OpID: "op-1", Cancelled: true, Selected: 1})
+	l.ScrubFailure(context.Background(), "op-1", "a/b/c.dump", "local", "content", "bad")
+	l.ScrubPass(context.Background(), ScrubPassCounts{Trigger: "schedule", Scope: "all due"})
+	l.ScrubFailure(context.Background(), "", "a/b/c.dump", "local", "content", "bad")
+	lines := decodeLines(t, buf)
+	if lines[0]["op_id"] != "op-1" || lines[0]["cancelled"] != true || lines[1]["op_id"] != "op-1" {
+		t.Errorf("a scrub now's lines = %v / %v, want op_id on both and cancelled on the pass", lines[0], lines[1])
+	}
+	for _, l := range lines[2:] {
+		if _, ok := l["op_id"]; ok {
+			t.Errorf("a scheduled line carries op_id: %v", l)
+		}
+		if _, ok := l["cancelled"]; ok {
+			t.Errorf("a scheduled line carries cancelled: %v", l)
+		}
+	}
+}
+
 func TestScrubFailureEventCarriesNoRawControlBytes(t *testing.T) {
 	l, buf := newRecorder(t)
-	l.ScrubFailure(context.Background(), "prod/pg/a.dump", "local", "content", "bad\x1b[31m\x00 bytes")
+	l.ScrubFailure(context.Background(), "", "prod/pg/a.dump", "local", "content", "bad\x1b[31m\x00 bytes")
 	line := decodeLines(t, buf)[0]
 	if line["event"] != EventScrubFailure || line["result"] != string(ResultWarn) {
 		t.Fatalf("line = %#v", line)

@@ -204,7 +204,7 @@ func (b *BackupService) StartScrub(_ context.Context, id string, _ ScrubOptions)
 				b.logger.Error(context.Background(), "scrub-now-panic", fmt.Errorf("recovered panic: %v", r))
 			}
 		}()
-		_, err := inner.Scrub(app.WithBackupSetHolds(ctx, b.holds), app.ScrubRequest{Trigger: state.ScrubByManual, Set: &set})
+		_, err := inner.Scrub(app.WithBackupSetHolds(ctx, b.holds), app.ScrubRequest{Trigger: state.ScrubByManual, Set: &set, OpID: opID})
 		if err != nil && ctx.Err() == nil {
 			b.logger.Error(context.Background(), "scrub-now", err)
 		}

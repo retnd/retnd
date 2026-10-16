@@ -509,6 +509,8 @@ describe("every request the shared client makes is a declared operation", () => 
       ["startScrub", () => httpApi.startScrub("src", "set-1")],
       ["cancelAssuranceOperation", () => httpApi.cancelAssuranceOperation("op-1")],
       ["getRecoveryTestOutput", () => httpApi.getRecoveryTestOutput("src", "set-1")],
+      // #1200: the Operation page reads a run back by its id.
+      ["getAssuranceOperation", () => httpApi.getAssuranceOperation("op-1")],
       // EPIC Q's assurance surface (Q1.4, #982).
       ["getAssuranceSettings", () => httpApi.getAssuranceSettings()],
       ["listStagingDirectories", () => httpApi.listStagingDirectories("daily/2026 10")],

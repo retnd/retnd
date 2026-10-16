@@ -517,6 +517,11 @@ type BackupServiceClient interface {
 	// service.ErrOperationNotFound when nothing is running under that id.
 	CancelAssuranceOperation(ctx context.Context, id string) (service.AssuranceOperationCancelled, error)
 
+	// AssuranceOperation reads one scrub or recovery test back by its
+	// operation id, from the durable activity record and the live ring;
+	// service.ErrOperationNotFound when nothing of it is on record (#1200).
+	AssuranceOperation(ctx context.Context, id string) (service.AssuranceOperationRecord, error)
+
 	// RecoveryTestOutput is what the newest recovery test of a backup set
 	// printed, as the runner's sanitised and bounded records.
 	RecoveryTestOutput(ctx context.Context, id string) (service.RecoveryTestOutput, error)

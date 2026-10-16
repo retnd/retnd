@@ -36,7 +36,7 @@ import type {
   SystemHealth,
   VersionInfo
 } from "@shared/types/operation";
-import type { LiveActivity } from "@shared/types/activity";
+import type { LiveActivity, SetActivityEvent } from "@shared/types/activity";
 // EPIC K's incremental vocabulary (issue #788). Declared in
 // types/snapshot.ts beside types/backup.ts rather than here, because a
 // snapshot is a domain object this UI renders and not a property of the
@@ -2537,6 +2537,26 @@ export interface AssuranceOperationCancelled {
   status: "cancelling";
 }
 
+/** One scrub, recovery test or recovery read back by its operation id from
+ *  the durable activity record (issue #1200), with what its lines add up to.
+ *  The events are the live feed's own shape, oldest first, and never empty:
+ *  an id with nothing on record is OPERATION_NOT_FOUND. */
+export interface AssuranceOperationRecord {
+  operationId: string;
+  kind: "scrub" | "recovery_test" | "recovery";
+  backupSetId: string;
+  /** `unfinished` is a run with no end line that the engine is not running:
+   *  the process running it stopped before it could write one. */
+  state: "running" | "passed" | "failed" | "did_not_complete" | "cancelled" | "unfinished";
+  /** The last named stage it reached; `complete` for a pass, empty for a scrub. */
+  stage: string;
+  /** The end line's words for a run that did not pass. */
+  reason: string;
+  startedAt: string;
+  endedAt: string;
+  events: SetActivityEvent[];
+}
+
 /** One line of a validator's output, or the runner's own truncation marker.
  *  Branch on `kind` and never on `text`: a validator that prints the marker's
  *  words is still `output`. */
@@ -3357,6 +3377,14 @@ export interface RetndApi {
    * recovery test of the set printed.
    */
   getRecoveryTestOutput(source: string, set: string): Promise<RecoveryTestOutput>;
+
+  /**
+   * GET /assurance/operations/{op} (issue #1200): one scrub or recovery test
+   * read back by its id, running or long finished, from the durable activity
+   * record. REJECTS with OPERATION_NOT_FOUND (404) when nothing of it is on
+   * record: never an operation here, or its lines were pruned (30 days).
+   */
+  getAssuranceOperation(operationId: string): Promise<AssuranceOperationRecord>;
 
   listOperations(): Promise<Operation[]>;
   /**

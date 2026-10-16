@@ -401,7 +401,7 @@ export function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 
-      <p style={{ margin: 0, fontSize: "var(--text-sm)", color: "var(--text-3)" }}>
+      <p data-testid="app-footer" style={{ margin: 0, fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
         {"retnd running on " + bridge.name}
         {" \u00b7 "}
         <button
