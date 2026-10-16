@@ -265,17 +265,20 @@ export function RecoverSetDialog({
             <>
               <fieldset className="field" style={{ border: 0, margin: 0, padding: 0 }}>
                 <legend className="field__label">Which backups</legend>
+                {/* onClick as well as onChange: the default follows the destination, so
+                    clicking the radio that is already on is still a choice, and it has
+                    to survive a later change of destination. */}
                 <div role="radiogroup" aria-label="Which backups of this set" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   <label style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-                    <input type="radio" name="recover-set-narrow" checked={narrow === "all"} onChange={() => setNarrow("all")} />
+                    <input type="radio" name="recover-set-narrow" checked={narrow === "all"} onChange={() => setNarrow("all")} onClick={() => setNarrow("all")} />
                     Every retained restore point
                   </label>
                   <label style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-                    <input type="radio" name="recover-set-narrow" checked={narrow === "newest"} onChange={() => setNarrow("newest")} />
+                    <input type="radio" name="recover-set-narrow" checked={narrow === "newest"} onChange={() => setNarrow("newest")} onClick={() => setNarrow("newest")} />
                     The newest restore point only
                   </label>
                   <label style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                    <input type="radio" name="recover-set-narrow" checked={narrow === "since"} onChange={() => setNarrow("since")} />
+                    <input type="radio" name="recover-set-narrow" checked={narrow === "since"} onChange={() => setNarrow("since")} onClick={() => setNarrow("since")} />
                     Everything since
                     <input
                       type="date" className="input input--mono" aria-label="Recover everything since this date" value={since}
