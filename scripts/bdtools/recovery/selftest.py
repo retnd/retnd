@@ -804,13 +804,15 @@ MUTATIONS = [
         "TestTheCanonicalDeploymentIsExactlyWhatItWasBeforeEpicQ",
     ),
     (
+        # #1191 made no --to mean the set's SFTP source host, so the guard is
+        # now the refusal for a set that has no such default.
         "a recover verb that takes no explicit target",
         CLI_GO,
         '\tif *to == "" {',
         "\t" + PLANT + "no --to is fine.\n\tif false {",
-        "--to is required",
+        "--- FAIL: TestRecover1193_ANonSFTPSetHasNoDefaultAndSaysWhy",
         CLI_PKG,
-        "TestRecoverIsRefusedBeforeAnythingIsOpened",
+        "TestRecover1193_ANonSFTPSetHasNoDefaultAndSaysWhy",
     ),
     # --- the panel's findings on the recovery-test side (C2, C3, C13, C14) ---
     (
