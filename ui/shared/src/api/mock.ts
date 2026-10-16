@@ -72,6 +72,7 @@ import { createMockRecoverMany } from "@shared/assurance/mockRecoverMany";
 import { createMockHostBrowse } from "@shared/assurance/mockHostBrowse";
 import { BUILTIN_ARTIFACT, DEFAULT_POLICY_NEWEST, DEFAULT_POLICY_TESTED, INGEST_FAILED_SCENARIO, followsDefault, untestedScenario, assuranceLiveEvents, assuranceUnfinished, createMockAssurance, createMockRecovery, overlayAssurance, overlayThaw } from "@shared/assurance/mockAssurance";
 import { createHttpAssurance } from "@shared/assurance/realAssurance";
+import { OFF_TAIL_SCENARIO, OPERATION_HISTORY_SCENARIO, historyValidatorResult } from "@shared/assurance/mockOperationHistory";
 import type { DeploymentActivity, SetActivity, SetActivityEvent } from "@shared/types/activity";
 
 /** Development fixtures. Covers every scenario the brief requires (§42):
@@ -239,6 +240,14 @@ export const SCENARIOS = [
   "source-probe-left-file",
   "source-unreachable",
   "source-space-unknown",
+  // Issue #1200: the Operation page for runs that are no longer on the live
+  // feed. "operation-history" has finished runs (passed, failed, cancelled, a
+  // scrub) that only the durable activity record still holds, plus one id
+  // whose lines were pruned. "operation-off-tail" starts a recovery test whose
+  // lines leave the live tail as they are written, so only the unfinished
+  // list carries it while it runs.
+  "operation-history",
+  "operation-off-tail",
 ] as const;
 
 export type Scenario = (typeof SCENARIOS)[number];
@@ -6190,7 +6199,9 @@ export function createMockApi(
       return { operationId, kind: "scrub" as const, backupSetId: "", status: "cancelling" as const };
     },
     getRecoveryTestOutput: async (source, set) => {
-      const v = await assurance.getValidatorResult(source + "/" + set);
+      const v = scenario === OPERATION_HISTORY_SCENARIO && source + "/" + set === "production/postgres-primary"
+        ? historyValidatorResult(Date.now())
+        : await assurance.getValidatorResult(source + "/" + set);
       return v
         ? { backupSetId: source + "/" + set, recorded: true, ...v }
         : { backupSetId: source + "/" + set, recorded: false, operationId: "", artifactId: "", medium: "", state: "" as never, recordedAt: "", truncated: false, records: [] };
@@ -6202,7 +6213,9 @@ export function createMockApi(
         ...base,
         deployment: dockDeployment(scenario, base.deployment),
         sets: base.sets.map((s) => {
-          const all = assuranceLiveEvents(s.setId);
+          // operation-off-tail (#1200): the run's own lines have already
+          // left the tail by the time anyone reads it.
+          const all = assuranceLiveEvents(s.setId).filter((e) => scenario !== OFF_TAIL_SCENARIO || !e.fields.op_id);
           const extra = all.filter((e) => e.sequence > since);
           const open = assuranceUnfinished(s.setId);
           return {
