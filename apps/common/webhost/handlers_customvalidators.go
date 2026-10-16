@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -82,71 +81,6 @@ func requireValidatorGate(e gateEnforcement) func(http.Handler) http.Handler {
 	}
 }
 
-// CustomValidatorWire is the API body for one validator, shared with the CLI's
-// --json so both print the same object.
-func CustomValidatorWire(v service.CustomValidator) apicontract.CustomValidator {
-	out := apicontract.CustomValidator{
-		Name: v.Name, Pattern: v.Pattern, Anchored: v.Anchored, BackupSetID: v.BackupSetID, Scope: v.Scope,
-		ScriptFile: v.ScriptFile, ScriptPresent: v.ScriptPresent, ScriptSha256: v.ScriptSHA256, ScriptSizeBytes: v.ScriptSize,
-		MatchCount: int64(v.Matches), MatchSets: append([]string{}, v.MatchSets...), ExampleName: v.ExampleName,
-	}
-	if !v.UploadedAt.IsZero() {
-		out.UploadedAt = v.UploadedAt.UTC().Format(time.RFC3339)
-	}
-	if v.LastResult != nil {
-		out.LastResult = &apicontract.CustomValidatorResult{State: v.LastResult.State, At: v.LastResult.At.UTC().Format(time.RFC3339), ArtifactID: v.LastResult.Artifact}
-	}
-	return out
-}
-
-// CustomValidatorsWire is the list body.
-func CustomValidatorsWire(l service.CustomValidators) apicontract.ListCustomValidatorsResponse {
-	out := apicontract.ListCustomValidatorsResponse{
-		Validators: make([]apicontract.CustomValidator, 0, len(l.Validators)),
-		Directory:  l.Directory, WorkflowRoot: l.WorkflowRoot, Available: l.Available, UnavailableReason: l.UnavailableReason,
-		RunnerConfigured: l.RunnerConfigured, MaxValidators: int64(l.MaxValidators), MaxScriptBytes: l.MaxScriptBytes,
-		MaxPatternBytes: int64(l.MaxPatternBytes),
-	}
-	for _, v := range l.Validators {
-		out.Validators = append(out.Validators, CustomValidatorWire(v))
-	}
-	if r := l.Resolution; r != nil {
-		out.Resolution = &apicontract.CustomValidatorResolution{
-			ArtifactID: r.ArtifactID, Validator: r.Validator, Ambiguous: append([]string{}, r.Ambiguous...), Fallback: r.Fallback,
-		}
-	}
-	return out
-}
-
-// CustomValidatorPreviewWire is the preview body.
-func CustomValidatorPreviewWire(p service.CustomValidatorPreview) apicontract.CustomValidatorPreview {
-	out := apicontract.CustomValidatorPreview{
-		Valid: p.Valid, Error: p.Error, Anchored: p.Anchored, MatchCount: int64(p.Matches),
-		MatchSets: append([]string{}, p.MatchSets...), Sample: append([]string{}, p.Sample...),
-		Conflicts: make([]apicontract.CustomValidatorConflict, 0, len(p.Conflicts)),
-	}
-	for _, c := range p.Conflicts {
-		out.Conflicts = append(out.Conflicts, apicontract.CustomValidatorConflict{Validator: c.Validator, Example: c.Example})
-	}
-	return out
-}
-
-// CustomValidatorPatternsWire is the suggestions body.
-func CustomValidatorPatternsWire(p service.CustomValidatorPatterns) apicontract.CustomValidatorPatternsResponse {
-	out := apicontract.CustomValidatorPatternsResponse{BackupSetID: p.BackupSetID, Patterns: make([]apicontract.CustomValidatorPattern, 0, len(p.Patterns))}
-	for _, s := range p.Patterns {
-		out.Patterns = append(out.Patterns, apicontract.CustomValidatorPattern{
-			Pattern: s.Pattern, Example: s.Example, MatchCount: int64(s.Matches), MatchSets: append([]string{}, s.MatchSets...), Validator: s.Validator,
-		})
-	}
-	return out
-}
-
-// ValidatorScriptWire is a script body.
-func ValidatorScriptWire(s service.ValidatorScript) apicontract.ValidatorScriptResponse {
-	return apicontract.ValidatorScriptResponse{FileName: s.FileName, Sha256: s.SHA256, SizeBytes: s.SizeBytes, Content: s.Content}
-}
-
 func (h *handlers) listCustomValidators(w http.ResponseWriter, r *http.Request) {
 	b, ok := h.customValidators(w)
 	if !ok {
@@ -159,7 +93,7 @@ func (h *handlers) listCustomValidators(w http.ResponseWriter, r *http.Request) 
 		h.writeCustomValidatorError(w, r, err, "failed to list the custom validators")
 		return
 	}
-	writeJSON(w, http.StatusOK, CustomValidatorsWire(l))
+	writeJSON(w, http.StatusOK, service.CustomValidatorsWire(l))
 }
 
 func decodeStrict(w http.ResponseWriter, r *http.Request, into any) bool {
@@ -189,7 +123,7 @@ func (h *handlers) createCustomValidator(w http.ResponseWriter, r *http.Request)
 		h.writeCustomValidatorError(w, r, err, "failed to store the custom validator")
 		return
 	}
-	writeJSON(w, http.StatusCreated, CustomValidatorWire(v))
+	writeJSON(w, http.StatusCreated, service.CustomValidatorWire(v))
 }
 
 func (h *handlers) updateCustomValidator(w http.ResponseWriter, r *http.Request) {
@@ -208,7 +142,7 @@ func (h *handlers) updateCustomValidator(w http.ResponseWriter, r *http.Request)
 		h.writeCustomValidatorError(w, r, err, "failed to store the custom validator")
 		return
 	}
-	writeJSON(w, http.StatusOK, CustomValidatorWire(v))
+	writeJSON(w, http.StatusOK, service.CustomValidatorWire(v))
 }
 
 func (h *handlers) removeCustomValidator(w http.ResponseWriter, r *http.Request) {
@@ -221,7 +155,7 @@ func (h *handlers) removeCustomValidator(w http.ResponseWriter, r *http.Request)
 		h.writeCustomValidatorError(w, r, err, "failed to remove the custom validator")
 		return
 	}
-	writeJSON(w, http.StatusOK, CustomValidatorWire(v))
+	writeJSON(w, http.StatusOK, service.CustomValidatorWire(v))
 }
 
 func (h *handlers) getCustomValidatorScript(w http.ResponseWriter, r *http.Request) {
@@ -234,7 +168,7 @@ func (h *handlers) getCustomValidatorScript(w http.ResponseWriter, r *http.Reque
 		h.writeCustomValidatorError(w, r, err, "failed to read the custom validator's script")
 		return
 	}
-	writeJSON(w, http.StatusOK, ValidatorScriptWire(s))
+	writeJSON(w, http.StatusOK, service.ValidatorScriptWire(s))
 }
 
 func (h *handlers) previewCustomValidator(w http.ResponseWriter, r *http.Request) {
@@ -251,7 +185,7 @@ func (h *handlers) previewCustomValidator(w http.ResponseWriter, r *http.Request
 		h.writeCustomValidatorError(w, r, err, "failed to preview the pattern")
 		return
 	}
-	writeJSON(w, http.StatusOK, CustomValidatorPreviewWire(p))
+	writeJSON(w, http.StatusOK, service.CustomValidatorPreviewWire(p))
 }
 
 func (h *handlers) listCustomValidatorPatterns(w http.ResponseWriter, r *http.Request) {
@@ -264,13 +198,13 @@ func (h *handlers) listCustomValidatorPatterns(w http.ResponseWriter, r *http.Re
 		h.writeCustomValidatorError(w, r, err, "failed to suggest patterns")
 		return
 	}
-	writeJSON(w, http.StatusOK, CustomValidatorPatternsWire(p))
+	writeJSON(w, http.StatusOK, service.CustomValidatorPatternsWire(p))
 }
 
 // getDefaultValidatorScript serves the same bytes on every deployment and
 // needs nothing from the backend.
 func (h *handlers) getDefaultValidatorScript(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, ValidatorScriptWire(service.DefaultCustomValidatorScript()))
+	writeJSON(w, http.StatusOK, service.ValidatorScriptWire(service.DefaultCustomValidatorScript()))
 }
 
 func (h *handlers) writeCustomValidatorError(w http.ResponseWriter, r *http.Request, err error, internal string) {

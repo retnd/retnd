@@ -858,3 +858,30 @@ func (c *Client) ImportSSHKeyFromCandidate(ctx context.Context, req apicontract.
 	err := c.call(ctx, "importSSHKeyFromCandidate", nil, req, &out)
 	return out, err
 }
+
+// Custom recovery-test validators (#1203). Only the writes are here: the
+// reads are answered by a terminal's own configuration and journal, like
+// `settings assurance due`, and the writes have to reach the engine that
+// would otherwise never read the change.
+
+// CreateCustomValidator is POST /assurance/validators. It answers the
+// password step-up with this client's own password (stepUpOperations).
+func (c *Client) CreateCustomValidator(ctx context.Context, req apicontract.CreateCustomValidatorRequest) (apicontract.CustomValidator, error) {
+	var out apicontract.CustomValidator
+	err := c.call(ctx, "createCustomValidator", nil, req, &out)
+	return out, err
+}
+
+// UpdateCustomValidator is PUT /assurance/validators/{name}.
+func (c *Client) UpdateCustomValidator(ctx context.Context, name string, req apicontract.UpdateCustomValidatorRequest) (apicontract.CustomValidator, error) {
+	var out apicontract.CustomValidator
+	err := c.call(ctx, "updateCustomValidator", []string{name}, req, &out)
+	return out, err
+}
+
+// RemoveCustomValidator is DELETE /assurance/validators/{name}.
+func (c *Client) RemoveCustomValidator(ctx context.Context, name string) (apicontract.CustomValidator, error) {
+	var out apicontract.CustomValidator
+	err := c.call(ctx, "removeCustomValidator", []string{name}, nil, &out)
+	return out, err
+}

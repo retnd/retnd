@@ -371,6 +371,45 @@ commands:
                                                   settings assurance due is the scrub schedule behind it. --json prints
                                                   {generated_at, items:[{artifact_id, artifact_name, backup_set_id, buckets,
                                                   content, recovery, reason}]} with each claim as {state, at, check} (#1174)
+  assurance validator list [--backup-set S] [--artifact ID] [--json]
+                                                  the custom recovery-test validators: each one's name, pattern, scope,
+                                                  script and how many backups it matches, and its newest result. With
+                                                  --backup-set, the ones that apply to that set in the order a test tries
+                                                  them; with --artifact, which validator a test of that backup would run.
+                                                  A test picks, most specific first: the set's own pattern, a global
+                                                  pattern, the set's validator_id, the one script in its recovery-test
+                                                  directory, the built-in check. Two patterns at one scope that both match
+                                                  end the test could_not_complete. Reads this host's config and journal.
+                                                  The same body as GET /api/v1/assurance/validators (#1203)
+  assurance validator add <name> --pattern RE --script FILE [--backup-set S] [--json]
+                                                  upload FILE as <workflow root>/recovery-test-validators/<name>.local.sh
+                                                  and attach it to the Go RE2 pattern RE, for one set or (without
+                                                  --backup-set) every set. Refused when the script fails the save-time lint,
+                                                  or the pattern shares a backup with another validator at the same scope.
+                                                  With --dry-run (no --script, name optional) it says what RE matches and
+                                                  collides with and saves nothing. Beside a serving engine that this
+                                                  command has a route to, that is POST /api/v1/assurance/validators, which
+                                                  asks for the password again; this command sends RETND_API_PASSWORD
+  assurance validator update <name> --pattern RE [--script FILE] [--backup-set S] [--dry-run] [--json]
+                                                  replace a validator's pattern and scope, and its script when --script is
+                                                  given. A replacement: without --backup-set it becomes global. Routed,
+                                                  PUT /api/v1/assurance/validators/{name}
+  assurance validator remove <name> [--json]
+                                                  take a validator out of config.yaml and remove its script; tests it
+                                                  decided fall through to the next rung. Routed, DELETE
+                                                  /api/v1/assurance/validators/{name}
+  assurance validator script <name> [--output FILE] [--json]
+                                                  print an uploaded script, or write it to FILE, which must not exist yet
+  assurance validator patterns [--backup-set S] [--json]
+                                                  suggest patterns from the backups already in the journal, every run of
+                                                  digits generalised (MANIFEST-20260902T153521Z.txt suggests
+                                                  ^MANIFEST-\d{8}T\d{6}Z\.txt$), most common first, with the count and
+                                                  sets each matches. GET /api/v1/assurance/validator-patterns
+  assurance validator default-script [--output FILE] [--json]
+                                                  the documented default validator script to read and adapt: the
+                                                  environment a validator gets, what its exit status means, what becomes
+                                                  of its output and where it runs. Reads no configuration.
+                                                  GET /api/v1/assurance/default-validator-script
   auth password --password-stdin
                                                   change the administrator's password. The current password and then the
                                                   new one come from stdin, one per line, and never from a flag, so neither

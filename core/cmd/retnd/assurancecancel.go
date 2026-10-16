@@ -27,12 +27,15 @@ import (
 // it does not need the destructive gate.
 //
 // `assurance list` (#1174) is the terminal's twin of the Dashboard's
-// Assurance tile and is not routed: it reads the journal. Starting a scrub or
+// Assurance tile and is not routed: it reads the journal. `assurance
+// validator` (#1203) is the custom recovery-test validators, in
+// assurancevalidator.go. Starting a scrub or
 // a recovery test is `scrub` and `recovery-test`, and reading the policy is
 // `settings assurance`; none of those is a subcommand of this verb.
 var assuranceVerbs = map[string]func(args []string) int{
-	"cancel": cmdAssuranceCancel,
-	"list":   cmdAssuranceList,
+	"cancel":    cmdAssuranceCancel,
+	"list":      cmdAssuranceList,
+	"validator": cmdAssuranceValidator,
 }
 
 func cmdAssurance(args []string) int {
@@ -44,7 +47,7 @@ func cmdAssurance(args []string) int {
 			return verb(append(append([]string{}, args[:i]...), args[i+1:]...))
 		}
 	}
-	return usageError("assurance: expected `assurance list` or `assurance cancel <operation-id>`")
+	return usageError("assurance: expected `assurance list`, `assurance cancel <operation-id>` or `assurance validator ...`")
 }
 
 func cmdAssuranceCancel(args []string) int {
