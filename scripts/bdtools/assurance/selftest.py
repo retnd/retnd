@@ -192,8 +192,8 @@ MUTATIONS = [
     (
         "a global assurance change written nowhere",
         SERVICE_GO,
-        "\tif err := b.persistConfig(cfg); err != nil {\n\t\treturn AssuranceSettings{}, err\n\t}\n\treturn assuranceSettingsOf(b.state.Load().inner.Config), nil\n}\n\nfunc backupSetAssuranceOf",
-        "\t" + PLANT + "the patch is never persisted or reloaded.\n\tif err := error(nil); err != nil {\n\t\treturn AssuranceSettings{}, err\n\t}\n\treturn assuranceSettingsOf(b.state.Load().inner.Config), nil\n}\n\nfunc backupSetAssuranceOf",
+        "\tif err := b.persistConfig(cfg); err != nil {\n\t\treturn AssuranceSettings{}, err\n\t}\n\treturn b.withRecoveryCeilings(assuranceSettingsOf(b.state.Load().inner.Config)), nil\n}",
+        "\t" + PLANT + "the patch is never persisted or reloaded.\n\tif err := error(nil); err != nil {\n\t\treturn AssuranceSettings{}, err\n\t}\n\treturn b.withRecoveryCeilings(assuranceSettingsOf(b.state.Load().inner.Config)), nil\n}",
         "--- FAIL: TestUpdateAssuranceSettings_MovesAnInheritingSetAndNotAPinnedOne",
         SERVICE_PKG,
         "TestUpdateAssuranceSettings_MovesAnInheritingSetAndNotAPinnedOne",

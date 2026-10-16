@@ -484,8 +484,12 @@ MUTATIONS = [
     (
         "a recovery mint behind the destructive gate",
         ROUTER_GO,
-        'r.With(requireCSRF).Post("/backups/{source}/{set}/{name}/recovery", h.mintRecovery)',
-        'r.With(requireCSRF, requireDestructiveGate(gate)).Post("/backups/{source}/{set}/{name}/recovery", h.mintRecovery)',
+        'r.With(requireCSRF, '
+        'requireSourceRecoveryGate(h.enforce, h.backend, maxRecoveryMintBodyBytes, mintSourceTarget))'
+        '.Post("/backups/{source}/{set}/{name}/recovery", h.mintRecovery)',
+        'r.With(requireCSRF, requireDestructiveGate(gate), '
+        'requireSourceRecoveryGate(h.enforce, h.backend, maxRecoveryMintBodyBytes, mintSourceTarget))'
+        '.Post("/backups/{source}/{set}/{name}/recovery", h.mintRecovery)',
         "mint = ",
         WEB_PKG,
         "TestARecoveryCompletesWhileTheDestructiveGateIsShut",
@@ -493,8 +497,11 @@ MUTATIONS = [
     (
         "a recovery mint with no CSRF check",
         ROUTER_GO,
-        'r.With(requireCSRF).Post("/backups/{source}/{set}/{name}/recovery", h.mintRecovery)',
-        'r.Post("/backups/{source}/{set}/{name}/recovery", h.mintRecovery)',
+        'r.With(requireCSRF, '
+        'requireSourceRecoveryGate(h.enforce, h.backend, maxRecoveryMintBodyBytes, mintSourceTarget))'
+        '.Post("/backups/{source}/{set}/{name}/recovery", h.mintRecovery)',
+        'r.With(requireSourceRecoveryGate(h.enforce, h.backend, maxRecoveryMintBodyBytes, mintSourceTarget))'
+        '.Post("/backups/{source}/{set}/{name}/recovery", h.mintRecovery)',
         "mint without CSRF",
         WEB_PKG,
         "TestMintCarriesCSRFAndRedeemNeedsOnlyTheSession",
@@ -797,20 +804,23 @@ MUTATIONS = [
         "TestTheCanonicalDeploymentIsExactlyWhatItWasBeforeEpicQ",
     ),
     (
+        # #1191 made no --to mean the set's SFTP source host, so the guard is
+        # now the refusal for a set that has no such default.
         "a recover verb that takes no explicit target",
         CLI_GO,
         '\tif *to == "" {',
         "\t" + PLANT + "no --to is fine.\n\tif false {",
-        "--to is required",
+        "--- FAIL: TestRecover1193_ANonSFTPSetHasNoDefaultAndSaysWhy",
         CLI_PKG,
-        "TestRecoverIsRefusedBeforeAnythingIsOpened",
+        "TestRecover1193_ANonSFTPSetHasNoDefaultAndSaysWhy",
     ),
     # --- the panel's findings on the recovery-test side (C2, C3, C13, C14) ---
     (
         "a scheduled recovery test that ignores the policy's mode",
         APP_RT_GO,
-        "\t\t\tif !bs.Assurance.RecoveryTestEnabled() || s.Stages == nil {",
-        "\t\t\t" + PLANT + "the mode is not consulted.\n\t\t\tif s.Stages == nil {",
+        "\t\t\tif !bs.Assurance.RecoveryTestScheduled()"
+        " || (!builtinMode && s.Stages == nil) {",
+        "\t\t\t" + PLANT + "the mode is not consulted.\n\t\t\tif !builtinMode && s.Stages == nil {",
         "under mode off",
         APP_PKG,
         "TestRecoveryTest_ModeOffRunsNothingEvenWithAScript",
@@ -818,8 +828,8 @@ MUTATIONS = [
     (
         "a recovery test cadence that is a constant and not the setting",
         APP_RT_GO,
-        "recoverytest.Config{Cadence: bs.Assurance.RecoveryTestInterval()}",
-        "recoverytest.Config{Cadence: 7 * 24 * time.Hour /* " + PLANT.rstrip() + " */}",
+        "recoverytest.Config{Cadence: bs.Assurance.RecoveryTestInterval(), BuiltinCheck:",
+        "recoverytest.Config{Cadence: 7 * 24 * time.Hour /* " + PLANT.rstrip() + " */, BuiltinCheck:",
         "the cadence the operator wrote",
         APP_PKG,
         "TestRecoveryTest_UsesTheResolvedCadence",

@@ -1365,7 +1365,7 @@
     },
     {
       "name": "google.golang.org/grpc",
-      "version": "v1.84.0-dev.0.20260723093437-b6eac429d7b6",
+      "version": "v1.84.0",
       "ecosystem": "go",
       "licenseId": "Apache-2.0",
       "licenseFile": "LICENSE",

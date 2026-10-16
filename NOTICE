@@ -139,7 +139,7 @@ Apache-2.0 (52)
   go go.yaml.in/yaml/v2@v2.4.4
   go go.yaml.in/yaml/v3@v3.0.4
   go google.golang.org/genproto/googleapis/rpc@v0.0.0-20260715232425-e75dac1f907d
-  go google.golang.org/grpc@v1.84.0-dev.0.20260723093437-b6eac429d7b6
+  go google.golang.org/grpc@v1.84.0
   go gopkg.in/ini.v1@v1.67.3
   go gopkg.in/yaml.v3@v3.0.1
   go sigs.k8s.io/yaml@v1.6.0
