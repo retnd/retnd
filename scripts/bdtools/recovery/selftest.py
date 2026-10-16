@@ -484,8 +484,12 @@ MUTATIONS = [
     (
         "a recovery mint behind the destructive gate",
         ROUTER_GO,
-        'r.With(requireCSRF, requireSourceRecoveryGate(h.enforce, h.backend, maxRecoveryMintBodyBytes, mintSourceTarget)).Post("/backups/{source}/{set}/{name}/recovery", h.mintRecovery)',
-        'r.With(requireCSRF, requireDestructiveGate(gate), requireSourceRecoveryGate(h.enforce, h.backend, maxRecoveryMintBodyBytes, mintSourceTarget)).Post("/backups/{source}/{set}/{name}/recovery", h.mintRecovery)',
+        'r.With(requireCSRF, '
+        'requireSourceRecoveryGate(h.enforce, h.backend, maxRecoveryMintBodyBytes, mintSourceTarget))'
+        '.Post("/backups/{source}/{set}/{name}/recovery", h.mintRecovery)',
+        'r.With(requireCSRF, requireDestructiveGate(gate), '
+        'requireSourceRecoveryGate(h.enforce, h.backend, maxRecoveryMintBodyBytes, mintSourceTarget))'
+        '.Post("/backups/{source}/{set}/{name}/recovery", h.mintRecovery)',
         "mint = ",
         WEB_PKG,
         "TestARecoveryCompletesWhileTheDestructiveGateIsShut",
@@ -493,8 +497,11 @@ MUTATIONS = [
     (
         "a recovery mint with no CSRF check",
         ROUTER_GO,
-        'r.With(requireCSRF, requireSourceRecoveryGate(h.enforce, h.backend, maxRecoveryMintBodyBytes, mintSourceTarget)).Post("/backups/{source}/{set}/{name}/recovery", h.mintRecovery)',
-        'r.With(requireSourceRecoveryGate(h.enforce, h.backend, maxRecoveryMintBodyBytes, mintSourceTarget)).Post("/backups/{source}/{set}/{name}/recovery", h.mintRecovery)',
+        'r.With(requireCSRF, '
+        'requireSourceRecoveryGate(h.enforce, h.backend, maxRecoveryMintBodyBytes, mintSourceTarget))'
+        '.Post("/backups/{source}/{set}/{name}/recovery", h.mintRecovery)',
+        'r.With(requireSourceRecoveryGate(h.enforce, h.backend, maxRecoveryMintBodyBytes, mintSourceTarget))'
+        '.Post("/backups/{source}/{set}/{name}/recovery", h.mintRecovery)',
         "mint without CSRF",
         WEB_PKG,
         "TestMintCarriesCSRFAndRedeemNeedsOnlyTheSession",
@@ -809,7 +816,8 @@ MUTATIONS = [
     (
         "a scheduled recovery test that ignores the policy's mode",
         APP_RT_GO,
-        "\t\t\tif !bs.Assurance.RecoveryTestScheduled() || (!builtinMode && s.Stages == nil) {",
+        "\t\t\tif !bs.Assurance.RecoveryTestScheduled()"
+        " || (!builtinMode && s.Stages == nil) {",
         "\t\t\t" + PLANT + "the mode is not consulted.\n\t\t\tif !builtinMode && s.Stages == nil {",
         "under mode off",
         APP_PKG,
