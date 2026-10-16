@@ -25,7 +25,7 @@
   },
   "nav.backups": {
     "label": "Backups",
-    "html": "Every stored backup artifact, newest first, with where it is placed and what retains it. The number is how many this deployment is holding."
+    "html": "Every stored backup artifact, in configuration order (set by set, in the order each was recorded), with where it is placed and what retains it. The number is how many this deployment holds outside quarantine; the quarantined ones are counted on the Quarantine row instead. Past 100 it reads &gt;100, and <code>retnd artifacts --count</code> prints the exact figure."
   },
   "nav.activity": {
     "label": "Activity",

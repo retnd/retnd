@@ -182,12 +182,108 @@ Derived from `gate.json` and `baselines/darwin-arm64-mac17-2.json`:
 | `transfer_mb_per_second` | 746.867 MB/s | below 448.120 MB/s | **448.120 MB/s (-40%)** |
 | `idle_rss_bytes` | 106,725,376 | above 117,397,913.6 | 117,397,913.6 (+10%) |
 | `config_write_p95_ms` | 11.586 ms | above 12.745 ms | 12.745 ms (+10%) |
-| `image_size_bytes` | 69,704,266 | above 73,189,479.3 | 73,189,479.3 (+5%) |
+| `image_size_bytes` | 99,545,943 | above 104,523,240.15 | 104,523,240.15 (+5%) |
 
 `api_read_p95_ms` is the only row with two conditions, and because both have to
 hold, the wider of the two is what is enforced. Here that is the floor, so read
 the last column rather than the ratio: 0.218 ms, not 0.185 ms. Every other row
 has a single condition and the two columns agree.
+
+## What moved between `186ba0c7` and `7ea6287d`: the image only
+
+`TestTheBuiltImageIsInsideTheRecordedSizeBudget` went red on main at 99.2 MB
+against the 69,704,266 record, and nothing else in the gate said so. I accounted
+for the move before touching the record, the same way #635 did, and this is that
+account. Every figure here comes from this host (`darwin-arm64-mac17-2`) on
+2026-10-15, with the same Go builder and distroless runtime digests at both ends,
+so none of it is toolchain drift.
+
+First the control. I built `186ba0c7` again from a clean `git archive` and it came
+back at **69,704,266**, to the byte. So the old record still describes its tree,
+and the measurement itself has not changed under it (same `overlay2` storage, same
+`docker image inspect` size). `7ea6287d`, the main this was found on, came back at
+**99,545,943** (1.428x). The components, copied out with `docker create` plus
+`docker cp` and sized with `stat`:
+
+| component | `186ba0c7` | `7ea6287d` | delta |
+|---|---|---|---|
+| `retnd` | 31,391,904 | 44,695,712 | +13,303,808 |
+| `retnd-web` | 32,637,088 | 46,006,432 | +13,369,344 |
+| `/ui/bundles`, five adapter bundles | 3,503,996 | 6,671,311 | +3,167,315 |
+| `/licenses` | 57,300 | 58,510 | +1,210 |
+| distroless base layers | 2,113,978 | 2,113,978 | 0 |
+| **image** | **69,704,266** | **99,545,943** | **+29,841,677** |
+
+Both columns sum to their image exactly.
+
+**17,301,504 bytes, 58.0% of the move, is the embedded Kopia engine** (EPIC K's
+incremental engine). I found where by building the CLI with the Dockerfile's own
+flags at first-parent commits along main: it sat at 31,654,048 right up to K3,
+then jumped to 40,960,160 across the one merge of K4 (#783, #831), which is where
+`core/internal/app` started calling `kopia.New()`. Kopia itself was already in
+`core/go.mod` from #823, but nothing reachable from a binary imported it until
+then. To get the figure on today's tree rather than on K4's, I built both commands
+at `7ea6287d` again with that one call (and its import) taken out: `retnd` goes
+44,695,712 -> 35,913,888 and `retnd-web` goes 44,630,176 -> 36,110,496 (the web
+binary built against the checked-in UI placeholder, so the embedded bundle stays
+out of it). That is 8,781,824 and 8,519,680. The first version of this account
+gave the web binary's "before" as 44,695,712, the CLI's figure to the byte, and
+a review rightly doubted two different binaries could match like that. I built
+it again from a clean `git archive` of `7ea6287d` in the pinned Go builder and it
+is 44,630,176, one 64 KiB page smaller: I had copied the CLI's number into the
+web binary's cell. Both binaries are padded to 64 KiB on linux/arm64, which is
+why a slip like that still looked plausible. The two "without Kopia" figures came
+back the same as before, to the byte. The dependency tree that arrives with
+`github.com/kopia/kopia/repo` is all of it: minio-go for the native S3 storage,
+klauspost's compress and reedsolomon, and also gRPC and OpenTelemetry, which
+come from Kopia's repository-server client rather than from anything retnd calls.
+`go mod why -m google.golang.org/grpc` says exactly that: `core/internal/backupengine/kopia`
+-> `github.com/kopia/kopia/repo` -> `google.golang.org/grpc`, and nothing else.
+Kopia's own module pulled it in at the untagged pseudo-version
+`v1.84.0-dev.0.20260723093437-b6eac429d7b6`, so a build depended on a commit on
+gRPC's development branch rather than a release. `v1.84.0` has since been tagged,
+and #1193 pins it in `core`, `apps/common` and `apps/generic`; `go mod why`
+gives the same chain afterwards, and the image-size check passes with it.
+I'm recording those last two as the one part of this that looks like weight
+nobody uses, rather than blessing it... trimming it means a Kopia build tag or a
+fork, which is a design question for EPIC K and not something to slip in here.
+
+**327,680 bytes of `retnd` is the shell parser** (`mvdan.cc/sh/v3`) that L7.5
+(#906, #910) added to verify hook scripts before a workflow is saved, measured
+across that one merge.
+
+**655,360 bytes of `retnd-web` is the embedded UI growing.** The web binary
+built against the placeholder `dist/` versus the same binary in the image was
+720,896 apart at `186ba0c7` (31,916,192 against 32,637,088) and 1,376,256 apart
+at `7ea6287d` (44,630,176 against 46,006,432), both re-measured for #1193 after
+the copy slip above; each gap had been given one 64 KiB page short, so the
+difference between them, the growth, did not change.
+
+**The bundles grew 3,167,315 because the UI did.** Each bundle's main JS chunk
+went from 526,005 to 1,134,195 bytes. I checked it is still minified, that
+`ui/shared/package.json` gained no runtime dependency over the range, and that no
+test or mock code (the `SCENARIOS` table, the recorded feeds, vitest) reached the
+production chunk. It is EPIC K, L and the assurance and recovery screens. The
+woff2 duplication the section below records is unchanged at 139,744 bytes a copy.
+
+That leaves 4,194,304 of `retnd` and the rest of `retnd-web` as product Go code:
+the workflow runner (EPIC L), the assurance and recovery work, and the API and CLI
+surfaces around them, landed over 244 first-parent commits.
+
+**When it went over.** The 5% ceiling of the old record is 73,189,479.3, and K4
+alone put each binary 9.3 MB past its old size, so the image has been over budget
+since 2026-09-12. Nothing caught it for a month because the only place this test
+fires is a full local gate on this host.
+
+**What I re-cut and what I left alone.** I changed `image_size_bytes` and nothing
+else, and the record says so: that metric carries its own `commit`, `captured_at`
+and `reason`, measured from a clean `git archive` of `7ea6287d` with the same
+`docker build --platform linux/arm64` the capture driver runs. The six timing
+medians still describe `186ba0c7`. Kopia and the workflow runner will have moved
+`idle_rss_bytes` and startup too, and I haven't measured those, so re-capturing
+them alongside would have been exactly the unaccounted re-cut the section below
+warns about. They want their own account, on a quiet machine, before anybody
+replaces them.
 
 ## What moved between `8ad3100` and `186ba0c7`, and why each of it moved
 
@@ -488,8 +584,8 @@ a red gate green is how the contract stops meaning anything; the record carries
 `commit`, `captured_at` and `working_tree_dirty` so a re-cut is visible in
 review.
 
-Shipping features does move them, and the record has been re-cut once, at
-`186ba0c7` (#635). The order that made that legitimate is the part to copy:
+Shipping features does move them, and the record has been re-cut twice: in
+full at `186ba0c7` (#635), and for the image alone at `7ea6287d` (#1193). The order that made that legitimate is the part to copy:
 **account for it first, capture second.** "What moved between `8ad3100` and
 `186ba0c7`" above is what a re-cut has to look like. Every component of the
 26,695,504-byte image move is attributed to a named change by a measurement

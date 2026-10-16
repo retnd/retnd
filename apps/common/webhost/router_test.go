@@ -1,6 +1,7 @@
 package webhost
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -102,16 +103,16 @@ func TestNoAPIRouteBypassesAuthentication(t *testing.T) {
 // this list, is the CSRF one: see its own doc for why the two are
 // separate tests.)
 var destructiveGateExemptRoutes = map[string]bool{
-	// EPIC Q (#976): recovery reads. The mint authorises one read of one
-	// retained copy and deletes or overwrites nothing; the gate that
-	// guards destruction is not the guard for that, and gating it would
-	// ship recovery refused on every deployment this repository builds.
-	// The authorisation is a bound, single-use, audited grant instead.
-	"POST /api/v1/backups/{source}/{set}/{name}/recovery": true,
-	// #1106 and #1107: the same read, for several backups or a whole set,
-	// to one destination. It deletes and overwrites nothing (a recovery
-	// never replaces an object or a file) and is audited by the service.
-	"POST /api/v1/recoveries": true,
+	// EPIC Q (#976) and #1106/#1107: the recovery mint and POST
+	// /recoveries are NOT exempt and NOT gated outright. They are gated per
+	// target kind: a download, a staging file or another storage
+	// destination reads and overwrites nothing and passes, and the source
+	// host (#1191) writes onto a production machine and goes through the
+	// gate, the acknowledgement and the step-up (requireSourceRecoveryGate,
+	// recovery_source.go). destructiveGateTargetKindRoutes below says so,
+	// and TestEveryRouteGatedPerTargetKindSaysSoInTheContract holds the
+	// contract's x-destructive-gate-target-kinds to it. They stay out of the
+	// CSRF walk's plain gate claim through that list, not this one.
 
 	// Issue #146 (B2.7): every one of these is "state-changing but
 	// non-destructive" or outright read-only under
@@ -460,6 +461,92 @@ var destructiveGateExemptRoutes = map[string]bool{
 	"POST /api/v1/assurance/operations/{op}/cancel": true,
 }
 
+// destructiveGateTargetKindRoutes names the routes that are gated for some
+// target kinds and not others (#1193), and which kinds. They are on neither
+// list above: not exempt, because a source-host target does go through the
+// gate, and not gated outright, because every other target reads and
+// overwrites nothing. TestEveryRouteGatedPerTargetKindSaysSoInTheContract
+// holds openapi.json's x-destructive-gate-target-kinds to this map, and
+// TestTheTargetKindGateRefusesExactlyThoseKinds holds the router to it.
+var destructiveGateTargetKindRoutes = map[string][]string{
+	"POST /api/v1/backups/{source}/{set}/{name}/recovery": {"source"},
+	"POST /api/v1/recoveries":                             {"source"},
+	"GET /api/v1/recoveries/{grant}":                      {"source"},
+}
+
+func TestEveryRouteGatedPerTargetKindSaysSoInTheContract(t *testing.T) {
+	doc := loadOpenAPI1163(t)
+	raw := readRepoFile(t, "api", "v1", "openapi.json")
+	var kinds struct {
+		Paths map[string]map[string]struct {
+			TargetKinds []string `json:"x-destructive-gate-target-kinds"`
+			Gate        bool     `json:"x-destructive-gate"`
+		} `json:"paths"`
+	}
+	if err := json.Unmarshal([]byte(raw), &kinds); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for path, methods := range kinds.Paths {
+		for method, op := range methods {
+			if len(op.TargetKinds) == 0 {
+				continue
+			}
+			route := strings.ToUpper(method) + " /api/v1" + path
+			seen[route] = true
+			want, ok := destructiveGateTargetKindRoutes[route]
+			if !ok {
+				t.Errorf("the contract gates %s per target kind (%v) and the router's list does not", route, op.TargetKinds)
+				continue
+			}
+			if strings.Join(op.TargetKinds, ",") != strings.Join(want, ",") {
+				t.Errorf("%s: the contract gates kinds %v, the router %v", route, op.TargetKinds, want)
+			}
+			if op.Gate {
+				t.Errorf("%s is gated per target kind and also claims x-destructive-gate: every other kind is not gated", route)
+			}
+			if !strings.Contains(doc.Paths[path][method].Description, "source") {
+				t.Errorf("%s does not say which target is gated", route)
+			}
+		}
+	}
+	for route := range destructiveGateTargetKindRoutes {
+		if !seen[route] {
+			t.Errorf("the router gates %s per target kind and the contract does not say so (x-destructive-gate-target-kinds)", route)
+		}
+		if destructiveGateExemptRoutes[route] {
+			t.Errorf("%s is gated per target kind and still listed as exempt", route)
+		}
+	}
+}
+
+// TestTheTargetKindGateRefusesExactlyThoseKinds is the router's half: on a
+// shut gate the source kind is refused by the gate on both POST routes, and
+// the other kinds are not.
+func TestTheTargetKindGateRefusesExactlyThoseKinds(t *testing.T) {
+	for _, tc := range []struct{ route, path, source, other string }{
+		{"POST /api/v1/backups/{source}/{set}/{name}/recovery", "/api/v1/backups/production/postgres/dump.zst/recovery",
+			`{"target":{"kind":"source","path":"retnd-recovered-x","acknowledged_destination":"sh1-x"}}`, `{"target":{"kind":"staging","path":"x"}}`},
+		{"POST /api/v1/recoveries", "/api/v1/recoveries",
+			`{"set":"production/postgres","target":{"kind":"source","path":"retnd-recovered-x","acknowledged_destination":"sh1-x"}}`, `{"set":"production/postgres","target":{"kind":"staging","path":"x"}}`},
+	} {
+		if destructiveGateTargetKindRoutes[tc.route] == nil {
+			t.Fatalf("%s is not on the target-kind list", tc.route)
+		}
+		router := NewRouter(RouterConfig{Platform: allowingPlatform("alice"), Backend: newSyncFakeBackend(), Gate: NotYetImplementedGate{}, BinaryVersion: "test", Commit: "test"})
+		for body, wantGate := range map[string]bool{tc.source: true, tc.other: false} {
+			req := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, csrfPaired(req))
+			gated := responseErrorCode(rec.Body.String()) == "DESTRUCTIVE_OPERATIONS_DISABLED"
+			if gated != wantGate {
+				t.Errorf("%s with %s: refused by the gate = %v, want %v (%d %s)", tc.route, body, gated, wantGate, rec.Code, rec.Body.String())
+			}
+		}
+	}
+}
+
 // TestEveryMutatingAPIRouteRefusesARequestWithNoCSRFPair walks the route
 // table and fires a real request at every non-GET /api/v1 route, and
 // what it proves is the CSRF walk in its name and nothing more.
@@ -503,7 +590,7 @@ func TestEveryMutatingAPIRouteRefusesARequestWithNoCSRFPair(t *testing.T) {
 		if route == "/health/live" || route == "/health/ready" {
 			return nil
 		}
-		if destructiveGateExemptRoutes[method+" "+route] {
+		if destructiveGateExemptRoutes[method+" "+route] || destructiveGateTargetKindRoutes[method+" "+route] != nil {
 			return nil
 		}
 

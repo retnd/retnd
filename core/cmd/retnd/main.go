@@ -251,6 +251,10 @@ commands:
                                                   list only the artifacts in one lifecycle state, e.g. QUARANTINED_LOST
   artifacts [--source S] [--backup-set B] --json
                                                   list as the API's ListArtifactsResponse (#1147)
+  artifacts [--source S] [--backup-set B] [--state S] --count [--json]
+                                                  print how many backups are held outside quarantine, the number the
+                                                  web console's Backups badge reads (the sidebar shows >100 past a
+                                                  hundred, this always prints the number); --json prints {"count": N} (#1186)
   activity [--backup-set S] [--severity warn|error] [--limit N] [--json]
                                                   list recorded lifecycle events, newest first: the same durable
                                                   transition log the Web UI's Activity page draws. Beside a serving
@@ -355,6 +359,18 @@ commands:
                                                   this deployment, so this needs RETND_API_URL and the two credential
                                                   variables beside it and is refused without them. The same as
                                                   POST /api/v1/assurance/operations/{op}/cancel (EPIC Q)
+  assurance list [--backup-set S] [--bucket due|overdue|degraded|untested] [--json]
+                                                  the backups behind the Web UI Dashboard's Assurance tile, most urgent
+                                                  first: each one in due, overdue or degraded (or in the buckets --bucket
+                                                  names, one or a comma list; untested is the tile's "No recovery test"),
+                                                  why it is listed in the same words as the tile's row with the age of each
+                                                  check, and the recovery-test command that runs it. A backup can be in
+                                                  several buckets; untested is listed only when asked for. A set whose
+                                                  policy can't be read is said on stderr and its recovery claims are
+                                                  unknown. It reads this host's journal and has no route of its own;
+                                                  settings assurance due is the scrub schedule behind it. --json prints
+                                                  {generated_at, items:[{artifact_id, artifact_name, backup_set_id, buckets,
+                                                  content, recovery, reason}]} with each claim as {state, at, check} (#1174)
   auth password --password-stdin
                                                   change the administrator's password. The current password and then the
                                                   new one come from stdin, one per line, and never from a flag, so neither
@@ -551,9 +567,9 @@ commands:
                                                   to skip, because a restore is billed and takes hours; --days
                                                   defaults to 7 and is bounded to 1..30. artifacts <id> lists
                                                   which medium each copy is on
-  recover <source/backup-set/artifact> --to - | NAME | medium:ID[/KEY] [--copy M] [--acknowledge-cost] [--json]
-  recover --set <source/backup-set> [--newest-only] [--since DATE] --to NAME | medium:ID[/PREFIX] [--preflight] [--acknowledge-cost] [--json]
-  recover <id> <id> ... --to NAME | medium:ID[/PREFIX] [--preflight] [--acknowledge-cost] [--json]
+  recover <source/backup-set/artifact> [--to source:[FOLDER] | - | NAME | medium:ID[/KEY]] [--acknowledge-source-write] [--preflight] [--copy M] [--acknowledge-cost] [--json]
+  recover --set <source/backup-set> [--newest-only | --since DATE | --all] [--to source:[FOLDER] | NAME | medium:ID[/PREFIX]] [--acknowledge-source-write] [--preflight] [--acknowledge-cost] [--json]
+  recover <id> <id> ... [--to source:[FOLDER] | NAME | medium:ID[/PREFIX]] [--acknowledge-source-write] [--preflight] [--acknowledge-cost] [--json]
                                                   get the retained bytes of one artifact back (EPIC Q, FR-67). It
                                                   reads one copy, checks all of it against the SHA-256 recorded when
                                                   the backup was ingested, and only then writes it: to standard
@@ -573,6 +589,8 @@ commands:
                                                   --follow prints the recovery's stages on standard error as it
                                                   passes through them, in the engine's order; the exit status is the
                                                   recovery's own
+                                                  system staging [PATH] lists the folders already under the staging
+                                                  root, as the NAMEs --to takes
                                                   With --set (a whole backup set) or two or more ids, the same
                                                   recovery is done for every file into ONE destination, under a
                                                   per-set folder, never to standard output. A pre-flight comes
@@ -586,7 +604,23 @@ commands:
                                                   leaves no half-written file, and a manifest listing every file
                                                   with its digest is written beside them. Exits 0 when every row was
                                                   recovered and 32 when some were not (failed, needs a thaw,
-                                                  quarantined or lost); a kopia set is refused naming snapshot restore
+                                                  quarantined or lost); a kopia set is refused naming snapshot restore.
+                                                  With no --to the backup goes back where it came from (#1191),
+                                                  where that can work: an SFTP upload onto the set's own source
+                                                  host, into a new retnd-recovered-<date>-<time>-<4 hex> folder under
+                                                  its remote path, or --to source:FOLDER for a retnd-recovered-*
+                                                  folder you name. Each file is written under a temporary name and
+                                                  renamed into place, so nothing there is ever replaced. It writes
+                                                  onto a production machine, so it needs --acknowledge-source-write,
+                                                  which acknowledges the destination printed first, and without it
+                                                  it is refused before any network call (exit 40). A set whose source
+                                                  is not SFTP, or one declared read_only, has no such default and
+                                                  needs --to. A whole set onto the source host also needs
+                                                  --newest-only, --since or --all. --to source: --preflight prints
+                                                  where it would write and runs the write check, which writes and
+                                                  removes one probe file. The source host's refusals exit 38 to 43.
+                                                  A staging folder called source is still --to source; one whose
+                                                  name starts with source:, medium: or - is written ./NAME.
   backup-set enabled <source/backup-set> <on|off>
                                                   turn one already-configured backup set on or off, which
                                                   --disabled can only do at creation. "off" stops the scheduler
@@ -899,6 +933,15 @@ commands:
                                                   (run, fetch, restore, snapshot restore|verify|hold|unhold, retention
                                                   apply) work here. --json prints the same body as
                                                   GET /api/v1/system/capabilities (#1165)
+  system staging [PATH] [--json]                  the folders below the staging root on the machine the engine runs
+                                                  on, as the names a recover --to takes: the terminal's half of the
+                                                  folder browser behind "Under the staging root on this retnd host".
+                                                  PATH is relative to that root; one that climbs out or goes through a
+                                                  symbolic link is refused, and nothing is created or changed. Needs a
+                                                  route to the engine and refuses without one. The folder names alone
+                                                  go to stdout, one per line, so a script can read them; the root and
+                                                  any note go to stderr. --json prints the same body as
+                                                  GET /api/v1/system/staging-directories (#1179)
   system first-run [--json]                      which guided setup steps the engine counts as done, pending or
                                                   skipped (the administrator, the mail server, the first backup set),
                                                   the next one, and any problem with the configuration directory. status

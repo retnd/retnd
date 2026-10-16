@@ -36,10 +36,7 @@ import { useApi } from "@shared/api/ApiContext";
 import { ConfirmationDialog } from "@shared/components/ConfirmationDialog";
 import { Note, Row, Rows } from "@shared/components/Definitions";
 import { EmptyState, ErrorState } from "@shared/components/EmptyState";
-import { GateNotice } from "@shared/components/GateNotice";
-import { GateRefusal } from "@shared/components/GateRefusal";
-import { useDestructiveGate } from "@shared/hooks/useDestructiveGate";
-import { snapshotHoldCommand, snapshotUnholdCommand, snapshotVerifyCommand } from "@shared/pages/snapshotCommands";
+import { Acknowledgement } from "@shared/components/Acknowledgement";
 import { CONSISTENCY_COPY, VERIFICATION_COPY, VerificationBadge } from "@shared/components/EngineBadge";
 import { MetricCard } from "@shared/components/MetricCard";
 import { OperationProgress } from "@shared/components/OperationProgress";
@@ -74,10 +71,12 @@ export function SnapshotDetailPage({ readOnly }: { readOnly: boolean }) {
   const verify = useSnapshotOperation("Could not start the verification.");
   const hold = useSnapshotOperation("Could not place the hold.");
   const release = useSnapshotOperation("Could not release the hold.");
-  const gate = useDestructiveGate();
 
   const [holdReason, setHoldReason] = useState("");
   const [holdOpen, setHoldOpen] = useState(false);
+  // Issue #1164: releasing lifts a protection, so the dialog waits for an
+  // explicit tick and the request carries it.
+  const [releaseAcknowledged, setReleaseAcknowledged] = useState(false);
   const [releasing, setReleasing] = useState<SnapshotHold | null>(null);
 
   if (detail.error)
@@ -146,13 +145,7 @@ export function SnapshotDetailPage({ readOnly }: { readOnly: boolean }) {
                       configRevision,
                       idempotencyKey
                     }),
-                  () => detail.reload(),
-                  {
-                    outcome: "The verification was not started",
-                    nothingChanged: "Nothing was queued and nothing was read.",
-                    command: snapshotVerifyCommand(setId, snapshot.runId),
-                    reason: gate.reason
-                  }
+                  () => detail.reload()
                 )
               }
             >
@@ -162,7 +155,6 @@ export function SnapshotDetailPage({ readOnly }: { readOnly: boolean }) {
               className="btn"
               disabled={readOnly || hold.busy || !hold.ready}
               onClick={() => {
-                hold.clearGate();
                 setHoldReason("");
                 setHoldOpen(true);
               }}
@@ -184,19 +176,6 @@ export function SnapshotDetailPage({ readOnly }: { readOnly: boolean }) {
         }
       />
 
-      <GateNotice
-        gate={gate}
-        headline="Verifying, holding and releasing a snapshot, and restoring from it, are refused over HTTP on this deployment."
-        command={snapshotVerifyCommand(setId, snapshot.runId)}
-      />
-
-      {[verify.gate, hold.gate, release.gate].map((notice, index) =>
-        notice ? (
-          <div key={"gate" + index} style={{ marginBottom: 14 }}>
-            <GateRefusal notice={notice} />
-          </div>
-        ) : null
-      )}
 
       {[verify.failure, hold.failure, release.failure].map((failure, index) =>
         failure ? (
@@ -421,7 +400,7 @@ export function SnapshotDetailPage({ readOnly }: { readOnly: boolean }) {
                           aria-label={"Release hold " + h.holdId}
                           disabled={readOnly || release.busy || !release.ready}
                           onClick={() => {
-                            release.clearGate();
+                            setReleaseAcknowledged(false);
                             setReleasing(h);
                           }}
                         >
@@ -452,7 +431,7 @@ export function SnapshotDetailPage({ readOnly }: { readOnly: boolean }) {
       </Card>
 
       <ConfirmationDialog
-        open={holdOpen && hold.gate === null}
+        open={holdOpen}
         eyebrow="Retention will not delete a held snapshot"
         title="Place a hold"
         confirmLabel="Place hold"
@@ -472,12 +451,6 @@ export function SnapshotDetailPage({ readOnly }: { readOnly: boolean }) {
             () => {
               setHoldOpen(false);
               detail.reload();
-            },
-            {
-              outcome: "The hold was not placed",
-              nothingChanged: "No hold was recorded, so retention still treats this snapshot as it did.",
-              command: snapshotHoldCommand(setId, holdReason.trim(), snapshot.runId),
-              reason: gate.reason
             }
           )
         }
@@ -498,12 +471,12 @@ export function SnapshotDetailPage({ readOnly }: { readOnly: boolean }) {
       </ConfirmationDialog>
 
       <ConfirmationDialog
-        open={releasing !== null && release.gate === null}
+        open={releasing !== null}
         destructive
         eyebrow="The retention chain governs it again"
         title="Release this hold"
         confirmLabel="Release hold"
-        disabled={release.busy}
+        disabled={release.busy || !releaseAcknowledged}
         onCancel={() => setReleasing(null)}
         onConfirm={() => {
           const target = releasing;
@@ -514,18 +487,13 @@ export function SnapshotDetailPage({ readOnly }: { readOnly: boolean }) {
               api.releaseSnapshotHold({
                 backupSetId: setId,
                 holdId: target.holdId,
+                acknowledged: releaseAcknowledged,
                 configRevision,
                 idempotencyKey
               }),
             () => {
               setReleasing(null);
               detail.reload();
-            },
-            {
-              outcome: "The hold was not released",
-              nothingChanged: "The hold is still in place, so retention still will not delete this snapshot.",
-              command: snapshotUnholdCommand(setId, target.holdId),
-              reason: gate.reason
             }
           );
         }}
@@ -537,6 +505,11 @@ export function SnapshotDetailPage({ readOnly }: { readOnly: boolean }) {
               "retention chain again. The next pass may delete it. Releasing deletes nothing " +
               "by itself, and any other hold on this snapshot still holds it."}
         </p>
+        <div data-release-ack style={{ marginTop: 14 }}>
+          <Acknowledgement checked={releaseAcknowledged} onChange={setReleaseAcknowledged}>
+            {"I understand that releasing this hold lets the next retention run delete the snapshot."}
+          </Acknowledgement>
+        </div>
       </ConfirmationDialog>
     </>
   );

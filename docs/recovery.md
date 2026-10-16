@@ -580,6 +580,32 @@ the state database, and recoveries and recovery tests share that one directory. 
 to the root, its TTL or the read ceilings is read once, so it takes effect when the
 serving process next starts.
 
+Choosing the target in the web interface no longer means typing from memory (#1179). *Staging
+path on the host* shows the folders below the staging root, on the machine retnd runs on, and
+*Use this folder* puts the chosen one in the field (for one backup it adds the backup's own file
+name, because a single recovery's target is `folder/name`; a set or a selection takes the folder
+alone). *Configured destination* is a drop-down of every destination under Settings, Storage
+destinations, and says *None configured* when there are none. On a selection, *Download in this
+browser* makes one link per backup, each from its own single-use grant and each checked against its
+recorded digest by the host as it sends it, and you open each link yourself. It is offered for at most
+as many backups as the engine streams downloads at once (four unless the platform sets fewer, reported
+as `max_download_streams` by `GET /api/v1/settings/assurance`), because the download past that ceiling
+would be refused. A bigger selection goes to a staging folder or a destination. The page counts the
+links you opened, never files arriving, says when the links stop working (a grant lasts two minutes)
+and can make fresh ones. An archived copy is left out and named, because a download link lasts minutes
+and a restore takes hours. The terminal twin is one `retnd recover <id> --to - > <file>` per backup.
+
+The folder list is the host's, so the terminal has it too: `retnd system staging [PATH]` prints
+the same folders as the names `--to` takes, one per line on stdout so a script can read them (the
+root and any note go to stderr). It reads only. It reaches nothing outside the staging root, it
+refuses a name that is absolute, climbs with `..` or goes through a symbolic link, and it never lists
+a link or a file. It asks the engine and refuses without a route to it, because the folders are on
+the engine's machine. The route is `GET /api/v1/system/staging-directories`: a folder that is not
+there is a 404 `DIRECTORY_NOT_FOUND` (the page steps back up to the folder above), one the host may
+not read is a 409 `DIRECTORY_NOT_READABLE`, and a listing reads at most 100,000 entries, returns at
+most 1,000 folders (the first by name, marked as cut) and gives up after ten seconds. The staging
+root's custody check runs again on every listing.
+
 What happens, in order, and why the order is the point:
 
 1. **A grant is minted.** It is short-lived, single-use and tied to the session that asked
@@ -722,6 +748,36 @@ backup can still be downloaded from its own page. `--to -` is refused for the sa
 restore points inside an encrypted repository, so the whole set is a snapshot restore, and
 `recover --set` refuses with a sentence naming `retnd snapshot restore <source/backup-set>`
 rather than pretend the two are one operation.
+
+## Sending a backup back to its source host
+
+With no `--to`, `retnd recover` sends the backup back where it came from (#1191): an SFTP upload onto the set's own source host, over the set's own settings, into a new folder `retnd-recovered-<date>-<time>-<4 hex>` under the set's remote path. That writes onto a production machine, so it needs `--acknowledge-source-write`, which acknowledges the destination retnd prints first. Without it, retnd refuses before it opens any connection (`RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED`, exit 40) and names the exact `sftp://` folder it would have written to:
+
+```
+retnd recover production/postgres-primary/postgres-prod-20260828.dump.zst --acknowledge-source-write
+retnd recover --set production/postgres-primary --newest-only --to source:retnd-recovered-incident-4711 --acknowledge-source-write
+retnd recover --set production/postgres-primary --to source: --preflight
+```
+
+The colon matters. `--to source:` is a fresh folder on the source host, and `--to source:FOLDER` one you name (one segment starting with `retnd-recovered-`, then letters, digits, `.`, `_` or `-`, not ending in a dot). `--to source` with no colon is a staging folder called "source", as it always was. A whole set onto the source host needs `--newest-only`, `--since` or `--all`, because the default act should never be "every retained backup onto a production volume".
+
+**Where the default does not apply.** A set that does not pull over SFTP (or an incremental one) has no source host, and a set declared `read_only: true` is never written to, so for both `--to` stays required and the usage error says why.
+
+**What happens before a byte is read.** retnd checks the destination again from the configuration, then runs the write check (the connection test's probe: one file written, removed and confirmed gone) unless one ran in the last five minutes, then asks the host how much space is free. A read-only pull account is refused there (`RECOVERY_SOURCE_HOST_READ_ONLY`, exit 39), a probe that could not remove its own file is too (`RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE`, exit 43, naming the file to delete), an unreachable host is `RECOVERY_SOURCE_HOST_UNREACHABLE` (exit 41, worth trying again), and a run that does not fit the host's free space less the staging reserve is `RECOVERY_SOURCE_HOST_NO_SPACE` (exit 42). `--to source: --preflight` prints the destination and runs that check without recovering anything.
+
+**How each file lands.** The folder is claimed with a rename that fails when anything is already at that name, so retnd only ever writes into a folder it has just created. Each file is written as `.<name>.retnd-partial-<random>` in that folder and then renamed into place with a plain SFTP rename, which the server refuses when the name is taken, so nothing is ever replaced and a dropped connection never leaves a short file under a real name. If the temporary file cannot be removed after a failure, the error names it so you can delete it. Where the host lets retnd run `sha256sum`, the placed file's digest is checked on the host; where it does not (a chrooted SFTP-only account, for example), the result says `verified: size`. A set run writes `manifest-<operation id>.json` beside the files.
+
+**If the configuration changes.** The acknowledgement is for one host, account, remote path, folder and host-key file. retnd works the destination out again before every file, and if the set has moved to another host, been declared `read_only`, or stopped being SFTP, nothing more is written and the rest of the run is reported as refused.
+
+**What to do with a recovered folder afterwards.** retnd never deletes on the source host, so the folder stays until you act on it:
+
+- To **adopt** it (make the recovered file the live one), move or rename the file out of the folder on the host, for example `mv retnd-recovered-.../dump.zst ../`. Once it is out of the folder, the next backup run sees it like any other file, so do this knowing that a set which deletes from its source will back it up and then delete it.
+- To **remove** it, delete the folder on the host once you no longer need it. Nothing in retnd refers to it.
+- **Production-side tooling**: a rotation script, a mirror or a cleanup job on the source host sees these folders too. If one of them would prune, mirror or re-process `retnd-recovered-*`, exclude the name there.
+
+**Discovery.** The next backup run skips a `retnd-recovered-*` folder directly under the remote path, and only there: a folder of that name deeper in the tree is yours and is backed up like anything else. The run logs how many files it skipped, and `retnd fetch --dry-run` and the connection test skip and count the same files. A retnd build older than #1191 does not know this rule, so if you downgrade, its next run would take these files for new backups.
+
+In the web interface the same choice is "Source host (SFTP)", first in every recovery dialog and preselected where it can work. Opening the dialog does not touch the host: ticking "I understand this writes N bytes onto HOST" or pressing "Check write access" runs the write check, and on a local-account profile Recover asks for your password again.
 
 ## What "verified" does and does not mean: three claims, not one
 

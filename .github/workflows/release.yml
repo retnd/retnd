@@ -117,6 +117,10 @@ on:
         description: "Type the image tag being published (for example 0.1.0) to confirm. Ignored when publish is false."
         type: string
         default: ""
+      tag_latest_for:
+        description: "Re-point ghcr.io/retnd/retnd:latest at an already published version (for example 0.6.4), without building or publishing anything. Refuses a version with no published image, one whose digest differs from container/release-manifest.json, and one that is not the highest release. Leave empty for a normal run."
+        type: string
+        default: ""
 
 concurrency:
   group: release-${{ github.ref }}
@@ -135,12 +139,14 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       publish: ${{ steps.decide.outputs.publish }}
+      repoint: ${{ steps.decide.outputs.repoint }}
     steps:
       - name: Decide
         id: decide
         env:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_PUBLISH: ${{ inputs.publish }}
+          INPUT_REPOINT: ${{ inputs.tag_latest_for }}
         run: |
           # The ref gate comes before everything else, and it is not about
           # the event. workflow_dispatch can be aimed at any branch, so
@@ -162,7 +168,20 @@ jobs:
             publish="${INPUT_PUBLISH:-false}"
             echo "Dispatched on the release branch with publish=${publish}." >> "$GITHUB_STEP_SUMMARY"
           fi
+          # A latest re-point (#1168) is its own kind of run: it builds
+          # nothing, publishes nothing and signs nothing, so it forces
+          # publish to false whatever else was typed. require-release-gate
+          # and compliance-artifacts skip on it, which skips publish and
+          # everything downstream of publish, and repoint-latest is the one
+          # job left standing.
+          repoint=false
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ -n "${INPUT_REPOINT:-}" ]; then
+            repoint=true
+            publish=false
+            echo "Re-pointing latest at ${INPUT_REPOINT}. Nothing is built, pushed, signed or attested." >> "$GITHUB_STEP_SUMMARY"
+          fi
           echo "publish=${publish}" >> "$GITHUB_OUTPUT"
+          echo "repoint=${repoint}" >> "$GITHUB_OUTPUT"
 
   # Did anything actually check this commit before it got here?
   #
@@ -230,6 +249,7 @@ jobs:
   require-release-gate:
     name: the release gate passed on what this publishes
     needs: decide
+    if: needs.decide.outputs.repoint != 'true'
     runs-on: ubuntu-latest
     permissions:
       # Reading check runs, and nothing else. No id-token, no packages:
@@ -476,6 +496,7 @@ jobs:
   compliance-artifacts:
     name: compliance artifacts are what this tree generates
     needs: decide
+    if: needs.decide.outputs.repoint != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -723,6 +744,131 @@ jobs:
             -m "Automated by .github/workflows/release.yml after reading the index and platform digests back from GHCR, updating the installer pin, and regenerating the provenance bundle."
           git push origin HEAD:main
 
+  # ---- the latest tag (issue #1168) --------------------------------------
+  #
+  # ghcr.io/retnd/retnd:latest is for humans and quick pulls. Compose files,
+  # the installer and the docs keep pinning the version's index digest, and
+  # docs/install.md says latest is not to be installed from.
+  #
+  # Both jobs below are scripts/release/latest.sh and nothing else: the rule
+  # (latest only ever moves to the highest non-prerelease release, so a 0.5.x
+  # backport or a prerelease never takes it), the move (docker buildx
+  # imagetools create by digest, so latest and the version tag are one
+  # digest and the cosign signature and SBOM attestation verify for both)
+  # and the post-publish check live there, where
+  # scripts/tests/release-moves-latest.test.sh drives them against stand-in
+  # gh and docker.
+  #
+  # Least privilege. packages: write is the whole reason these are jobs of
+  # their own and not steps of `publish`: moving a tag needs to push to the
+  # registry and nothing else. No id-token (nothing is signed here; the
+  # signature is already on the digest) and no contents: write (nothing is
+  # released here). contents: read is for the checkout and for reading the
+  # release list.
+  #
+  # The version reaches the shell through env, never through a ${{ }}
+  # expansion in the script, for the reason `publish`'s confirmation step
+  # spells out.
+
+  # After the image is built, pushed, signed and attested. A failure here
+  # leaves the release published and the run red, which is the point: the
+  # tag not following is something to see, not to discover later.
+  tag-latest:
+    name: move the latest tag to this release
+    needs: [decide, publish]
+    if: needs.decide.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Read the tag canonical.json declares
+        id: tag
+        run: |
+          tag="$(python3 -c 'import json; print(json.load(open("distribution/packaging/canonical.json"))["image"]["tag"])')"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Is this the highest published release
+        id: rule
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          verdict="$(bash scripts/release/latest.sh should-be-latest "$TAG")"
+          echo "latest=${verdict}" >> "$GITHUB_OUTPUT"
+          echo "${TAG} takes latest: ${verdict}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Move latest to this release's index digest
+        if: steps.rule.outputs.latest == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: bash scripts/release/latest.sh move "$TAG"
+
+      - name: Check latest resolves to this release's digest
+        if: steps.rule.outputs.latest == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: bash scripts/release/latest.sh verify "$TAG"
+
+  # The backfill: workflow_dispatch with tag_latest_for=<version>, which
+  # also covers a release cut before this existed. Nothing is built. Run it
+  # from the ref that records the version in container/release-manifest.json
+  # (main, once the release has merged back), because that file is what the
+  # registry's digest is checked against.
+  repoint-latest:
+    name: re-point latest at a published release
+    needs: decide
+    if: needs.decide.outputs.repoint == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Re-point latest, refusing anything the manifest does not describe
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.tag_latest_for }}
+        run: bash scripts/release/latest.sh repoint "$VERSION"
+
+      - name: Check latest resolves to that release's digest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.tag_latest_for }}
+        run: bash scripts/release/latest.sh verify "$VERSION"
+
   # ---- the GitHub Release (issue #1078) ---------------------------------
   #
   # Three jobs that run only after `publish` has pushed, signed and attested
@@ -811,6 +957,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
       - name: Download the tarballs
         uses: actions/download-artifact@v8
         with:
@@ -830,15 +979,25 @@ jobs:
           TAG: ${{ needs.cli-binaries.outputs.tag }}
         run: |
           notes="retnd ${TAG}. The container image is ghcr.io/retnd/retnd:${TAG}, published at https://github.com/retnd/retnd/pkgs/container/retnd and signed with cosign (see docs/compliance/release-provenance.md). The tarballs below are checksummed in SHA256SUMS and are not signed."
+          # The release page's "Latest" badge follows the same rule as the
+          # image's latest tag (#1168): the highest non-prerelease release
+          # wins, so a backport or a prerelease is created with
+          # --latest=false and never takes the badge from a newer release.
+          if [ "$(bash scripts/release/latest.sh should-be-latest "$TAG")" = true ]; then
+            latest_flag="--latest"
+          else
+            latest_flag="--latest=false"
+          fi
           if gh release view "v${TAG}" >/dev/null 2>&1; then
             gh release upload "v${TAG}" dist-cli/*.tar.gz dist-cli/SHA256SUMS --clobber
-            gh release edit "v${TAG}" --title "retnd ${TAG}" --notes "$notes"
-            echo "Refreshed the existing release v${TAG}." >> "$GITHUB_STEP_SUMMARY"
+            gh release edit "v${TAG}" --title "retnd ${TAG}" --notes "$notes" "$latest_flag"
+            echo "Refreshed the existing release v${TAG} (${latest_flag})." >> "$GITHUB_STEP_SUMMARY"
           else
             gh release create "v${TAG}" dist-cli/*.tar.gz dist-cli/SHA256SUMS \
               --target "$GITHUB_SHA" \
               --title "retnd ${TAG}" \
-              --notes "$notes"
-            echo "Created release v${TAG}." >> "$GITHUB_STEP_SUMMARY"
+              --notes "$notes" \
+              "$latest_flag"
+            echo "Created release v${TAG} (${latest_flag})." >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "Package: https://github.com/retnd/retnd/pkgs/container/retnd" >> "$GITHUB_STEP_SUMMARY"

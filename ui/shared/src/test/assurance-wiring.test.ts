@@ -7,7 +7,7 @@ import { MIN_CADENCE_SECONDS, MIN_RECOVERY_TEST_CADENCE_SECONDS, cadenceProblem,
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
 import { contentClaim } from "@shared/assurance/realAssurance";
 import { RECOVERY_STAGES } from "@shared/assurance/stages";
-import { recoverCommand, recoveryTestCommand, scrubCommand, snapshotRestoreCommand, thawCommand } from "@shared/assurance/assuranceCommands";
+import { recoverCommand, recoveryTestCommand, recoveryTestFollowCommand, setTerminalCommand, scrubCommand, snapshotRestoreCommand, thawCommand } from "@shared/assurance/assuranceCommands";
 import { recoveryRefusal } from "@shared/assurance/recoveryMessages";
 import { RetndError } from "@shared/api/contracts";
 import type { ApiErrorCode } from "@shared/api/contracts";
@@ -43,7 +43,11 @@ describe("the terminal commands are ones the CLI has", () => {
     expect(recoverCommand("s/set/a.zst", "download", "", false)).toBe("retnd recover s/set/a.zst --to - > recovered-file");
     expect(recoverCommand("s/set/a.zst", "download", "", true)).toBe("retnd recover s/set/a.zst --acknowledge-cost --to - > recovered-file");
     expect(recoverCommand("s/set/a.zst", "storage", "offsite", false)).toBe("retnd recover s/set/a.zst --to medium:offsite");
-    expect(usage).toContain("--to - | NAME | medium:ID[/KEY]");
+    // #1193's review folded the source host into the synopsis, with --to in
+    // brackets because the source host is the default where it can work.
+    expect(usage).toContain("--to source:[FOLDER] | - | NAME | medium:ID[/KEY]");
+    expect(recoverCommand("s/set/a.zst", "source", "retnd-recovered-x", false, true)).toBe("retnd recover s/set/a.zst --to source:retnd-recovered-x --acknowledge-source-write");
+    expect(usage).toContain("--acknowledge-source-write");
   });
   it("scrub, recovery-test, restore and snapshot restore exist as verbs", () => {
     expect(usage).toMatch(/\n {2}scrub \[<source\/backup-set>/);
@@ -54,6 +58,11 @@ describe("the terminal commands are ones the CLI has", () => {
     expect(snapshotRestoreCommand("s/set")).toMatch(/^retnd snapshot restore s\/set --to /);
     expect(usage).toMatch(/\n {2}recovery-test <source\/backup-set>/);
     expect(recoveryTestCommand("s/set")).toBe("retnd recovery-test s/set");
+    // the progress bar and the set terminal each have a terminal twin (#1176)
+    expect(recoveryTestFollowCommand("s/set")).toBe("retnd recovery-test s/set --follow");
+    expect(usage).toContain("activity --follow [--backup-set S");
+    expect(usage).toMatch(/recovery-test[^\n]*\n[\s\S]*--follow prints the test's stages/);
+    expect(setTerminalCommand("s/set")).toBe("retnd activity --follow --backup-set s/set");
   });
 });
 

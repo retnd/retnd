@@ -154,10 +154,19 @@ type oper struct {
 	RequestBody *body                 `json:"requestBody"`
 	Responses   map[string]*response  `json:"responses"`
 	Gate        bool                  `json:"x-destructive-gate"`
-	Idempotency string                `json:"x-idempotency-key"`
-	Concurrency *string               `json:"x-optimistic-concurrency"`
-	CSRF        bool                  `json:"x-csrf-required"`
-	Authn       bool                  `json:"x-authenticated"`
+	// GateExemptActions is read so the contract can say which actions of a
+	// gated route the gate lets by (issue #1164: POST /operations is gated
+	// per action). It is documentation the Go tests hold the router to, and
+	// reaches no binding.
+	GateExemptActions []string `json:"x-destructive-gate-exempt-actions"`
+	// GateTargetKinds is read for the same reason: the recovery routes are
+	// gated for one target kind only (issue #1191's source host), and the Go
+	// tests hold the router to the list. It reaches no binding.
+	GateTargetKinds []string `json:"x-destructive-gate-target-kinds"`
+	Idempotency     string   `json:"x-idempotency-key"`
+	Concurrency     *string  `json:"x-optimistic-concurrency"`
+	CSRF            bool     `json:"x-csrf-required"`
+	Authn           bool     `json:"x-authenticated"`
 }
 
 type body struct {

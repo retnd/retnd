@@ -94,6 +94,18 @@ var routes = map[string]entry{
 		build:    func(Action) *cmd { return newCmd("system", "capabilities") },
 		examples: []Action{{}},
 	},
+	key("GET", "/system/staging-directories"): {
+		// #1179. The staging folder browser's route: the terminal lists the same folders with `system staging`, and a path
+		// given to the page is the PATH given here.
+		build: func(a Action) *cmd {
+			c := newCmd("system", "staging")
+			if p := a.Query.Get("path"); p != "" {
+				c.argv = append(c.argv, p)
+			}
+			return c
+		},
+		examples: []Action{{}, {Query: url.Values{"path": {"daily/2026-10"}}}},
+	},
 	key("GET", "/system/storage"): {
 		build:    func(Action) *cmd { return newCmd("storage") },
 		examples: []Action{{}},
@@ -702,13 +714,15 @@ var routes = map[string]entry{
 			case "download":
 				c.flag("to", "-")
 			case "staging":
-				c.flag("to", req.Target.Path)
+				c.flag("to", stagingName(req.Target.Path))
 			case "storage":
 				to := "medium:" + req.Target.Medium
 				if req.Target.Key != "" {
 					to += "/" + req.Target.Key
 				}
 				c.flag("to", to)
+			case "source":
+				sourceTarget(c, req.Target.Path, req.Target.AcknowledgedDestination)
 			}
 			if req.Acknowledged {
 				c.bare("acknowledge-cost")
@@ -722,6 +736,10 @@ var routes = map[string]entry{
 				Body: []byte(`{"copy":"offsite_s3","acknowledged":true,"target":{"kind":"staging","path":"restore/dump.tar"}}`)},
 			{Params: map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar"},
 				Body: []byte(`{"target":{"kind":"storage","medium":"offsite_s3","key":"recovered/dump.tar"}}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar"},
+				Body: []byte(`{"target":{"kind":"source","path":"retnd-recovered-20261015-101500-a1b2","acknowledged_destination":"sh1-0123456789abcdef0123456789abcdef"}}`)},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups", "name": "dump.tar"},
+				Body: []byte(`{"target":{"kind":"staging","path":"source:old"}}`)},
 		},
 	},
 	key("POST", "/recoveries"): {
@@ -746,13 +764,20 @@ var routes = map[string]entry{
 			}
 			switch req.Target.Kind {
 			case "staging":
-				c.flag("to", req.Target.Path)
+				c.flag("to", stagingName(req.Target.Path))
 			case "storage":
 				to := "medium:" + req.Target.Medium
 				if req.Target.Key != "" {
 					to += "/" + req.Target.Key
 				}
 				c.flag("to", to)
+			case "source":
+				sourceTarget(c, req.Target.Path, req.Target.AcknowledgedDestination)
+				// A whole set onto the source host is spelled out (#1193):
+				// the terminal refuses it without a narrowing or --all.
+				if req.Set != "" && !req.NewestOnly && req.Since == "" && !req.Preflight {
+					c.bare("all")
+				}
 			}
 			if req.Preflight {
 				c.bare("preflight")
@@ -767,6 +792,28 @@ var routes = map[string]entry{
 			{Body: []byte(`{"set":"api-server/var-backups","newest_only":true,"acknowledged":true,"target":{"kind":"storage","medium":"offsite_s3","key":"recovered"}}`)},
 			{Body: []byte(`{"set":"api-server/var-backups","since":"2026-10-01T00:00:00Z","preflight":true,"target":{"kind":"staging","path":"restore/var-backups"}}`)},
 			{Body: []byte(`{"artifacts":["api-server/var-backups/a.tar","api-server/var-backups/b.tar"],"target":{"kind":"staging","path":"restore/picked"}}`)},
+			{Body: []byte(`{"set":"api-server/var-backups","target":{"kind":"source","path":"retnd-recovered-20261015-101500-a1b2","acknowledged_destination":"sh1-0123456789abcdef0123456789abcdef"}}`)},
+			{Body: []byte(`{"set":"api-server/var-backups","newest_only":true,"target":{"kind":"source","path":"retnd-recovered-20261015-101500-a1b2","acknowledged_destination":"sh1-0123456789abcdef0123456789abcdef"}}`)},
+			{Body: []byte(`{"set":"api-server/var-backups","preflight":true,"target":{"kind":"source","path":"retnd-recovered-20261015-101500-a1b2"}}`)},
+			{Body: []byte(`{"artifacts":["api-server/var-backups/a.tar"],"target":{"kind":"staging","path":"-odd"}}`)},
+			{Body: []byte(`{"artifacts":["api-server/var-backups/a.tar"],"target":{"kind":"staging","path":"medium:x"}}`)},
+		},
+	},
+	key("GET", "/backup-sets/{source}/{set}/source-host"): {
+		why:               "describing where a source-host recovery would write has no verb of its own, because the terminal never describes without checking: `" + Binary + " recover --set <source/backup-set> --to source: --preflight` prints the same description and then runs the write check, which writes and removes one probe file on that host",
+		namesShippedVerbs: []string{"recover"},
+	},
+	key("POST", "/backup-sets/{source}/{set}/source-host/write-check"): {
+		build: func(a Action) *cmd {
+			c := newCmd("recover")
+			c.flag("set", a.Params["source"]+"/"+a.Params["set"])
+			c.flag("to", "source:"+a.Query.Get("folder"))
+			c.bare("preflight")
+			return c
+		},
+		examples: []Action{
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}},
+			{Params: map[string]string{"source": "api-server", "set": "var-backups"}, Query: mustQuery("folder=retnd-recovered-20261015-101500-a1b2")},
 		},
 	},
 	key("GET", "/recoveries/{grant}"): {
@@ -2107,4 +2154,27 @@ func RecordedReasons() map[string]string {
 		"GET /health/live":  "an unauthenticated liveness probe for an orchestrator, deliberately outside /api/v1 and the spec; `" + WebBinary + " healthcheck --url` is the command that calls any probe",
 		"GET /health/ready": "an unauthenticated readiness probe for an orchestrator, deliberately outside /api/v1 and the spec; `" + WebBinary + " healthcheck --url` is the command that calls any probe",
 	}
+}
+
+// sourceTarget spells the source-host target (issues #1191 and #1193):
+// `--to source:` for a fresh folder, `--to source:FOLDER` for a named one,
+// the colon always there so a staging folder called "source" stays one, and
+// --acknowledge-source-write when the request acknowledged its destination
+// (the terminal acknowledges the destination it resolves and prints).
+func sourceTarget(c *cmd, folder, acknowledged string) {
+	c.flag("to", "source:"+folder)
+	if acknowledged != "" {
+		c.bare("acknowledge-source-write")
+	}
+}
+
+// stagingName spells a staging name so the terminal cannot read it as
+// something else (#1193): a name that starts with "-" (standard output, or a
+// flag), "source:" (the source host) or "medium:" (another destination) is
+// written ./NAME, which means the same place under the staging root.
+func stagingName(name string) string {
+	if strings.HasPrefix(name, "-") || strings.HasPrefix(name, "source:") || strings.HasPrefix(name, "medium:") {
+		return "./" + name
+	}
+	return name
 }

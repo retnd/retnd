@@ -193,7 +193,47 @@ func (s *Service) BuildHealthReport(ctx context.Context, versionInfo VersionInfo
 			sets = append(sets, health.ComputeBackupSetHealth(bs.ID, records, reinstated, evidence, bs.StaleAfter.Duration(), in, now))
 		}
 	}
-	return health.NewReport(process, sets, now), nil
+	report := health.NewReport(process, sets, now)
+	retained, err := s.retainedCount(ctx, sets)
+	if err != nil {
+		return health.Report{}, err
+	}
+	report.RetainedCount = retained
+	return report, nil
+}
+
+// retainedCount is the deployment's figure for the sidebar's Backups badge
+// (issue #1186): every backup outside quarantine, the configured sets' from
+// the reads this report already made, and those of sets whose configuration
+// was removed, which ListArtifacts still lists and which are still on
+// storage. Only the removed sets cost a read here, and a deployment that has
+// never removed one pays a single query for the list of set ids.
+//
+// A failure fails the report, for the reason the reinstatement history does
+// above: a number that silently left some backups out would be a confident
+// wrong answer on every screen.
+func (s *Service) retainedCount(ctx context.Context, sets []health.BackupSetHealth) (int, error) {
+	n := 0
+	configured := map[string]bool{}
+	for _, bs := range sets {
+		n += bs.RetainedCount
+		configured[bs.Set.String()] = true
+	}
+	known, err := s.Journal.ListBackupSetIDs(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("app: health: listing the backup sets on record: %w", err)
+	}
+	for _, id := range known {
+		if configured[id.String()] {
+			continue
+		}
+		records, err := s.Journal.ListByBackupSet(ctx, id)
+		if err != nil {
+			return 0, fmt.Errorf("app: health: listing %s: %w", id, err)
+		}
+		n += health.CountRetained(records)
+	}
+	return n, nil
 }
 
 // retentionHoldReason is FR-30's question asked of one backup set for the

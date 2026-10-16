@@ -496,6 +496,14 @@ bash scripts/tests/every-module-builds-on-its-own.test.sh
 gate_step "a publish the release gate never passed is still refused (#575)"
 bash scripts/tests/release-refuses-an-ungated-publish.test.sh
 
+# The image's `latest` tag (#1168). scripts/release/latest.sh decides whether
+# a version is the highest non-prerelease release, moves the tag by digest
+# and checks it landed; this drives it against stand-in gh and docker, and
+# then checks release.yml's wiring and permissions. No containers, no
+# network.
+gate_step "the release still moves the latest tag, only forwards (#1168)"
+bash scripts/tests/release-moves-latest.test.sh
+
 gate_step "core/ go build"
 (cd core && GOWORK=off go build ./...)
 

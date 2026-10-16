@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "5c49e450162fa5aedd863b19c5e5852db80b8046a8884b25e2bcca3f3dbc4acf";
+export const CONTRACT_SHA256 = "4c2219cff050814453220e17afa679623584055454b6be7fa4e852317b5735e2";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -44,6 +44,12 @@ export const WIRE_ERROR_CODES = [
   "SSH_KEY_NOT_FOUND",
   "HOST_KEY_PROBE_FAILED",
   "DESTRUCTIVE_OPERATIONS_DISABLED",
+  "STEP_UP_REQUIRED",
+  "STEP_UP_FAILED",
+  "STEP_UP_UNAVAILABLE",
+  "INSECURE_TRANSPORT_ACK_REQUIRED",
+  "RESTORE_TARGET_NOT_ACKNOWLEDGED",
+  "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED",
   "INTERNAL",
   "ALREADY_CONFIGURED",
   "NOT_CONFIGURED",
@@ -107,6 +113,14 @@ export const WIRE_ERROR_CODES = [
   "RECOVERY_READS_BUSY",
   "RECOVERY_DESTINATION_BUSY",
   "RECOVERY_DOWNLOADS_BUSY",
+  "DIRECTORY_NOT_FOUND",
+  "DIRECTORY_NOT_READABLE",
+  "RECOVERY_SOURCE_HOST_UNAVAILABLE",
+  "RECOVERY_SOURCE_HOST_READ_ONLY",
+  "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED",
+  "RECOVERY_SOURCE_HOST_UNREACHABLE",
+  "RECOVERY_SOURCE_HOST_NO_SPACE",
+  "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE",
 ] as const;
 
 /** This UI's own presentation vocabulary. No endpoint emits these;
@@ -163,6 +177,12 @@ export const API_ERROR_CODES = [
   "SSH_KEY_NOT_FOUND",
   "HOST_KEY_PROBE_FAILED",
   "DESTRUCTIVE_OPERATIONS_DISABLED",
+  "STEP_UP_REQUIRED",
+  "STEP_UP_FAILED",
+  "STEP_UP_UNAVAILABLE",
+  "INSECURE_TRANSPORT_ACK_REQUIRED",
+  "RESTORE_TARGET_NOT_ACKNOWLEDGED",
+  "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED",
   "INTERNAL",
   "ALREADY_CONFIGURED",
   "NOT_CONFIGURED",
@@ -226,6 +246,14 @@ export const API_ERROR_CODES = [
   "RECOVERY_READS_BUSY",
   "RECOVERY_DESTINATION_BUSY",
   "RECOVERY_DOWNLOADS_BUSY",
+  "DIRECTORY_NOT_FOUND",
+  "DIRECTORY_NOT_READABLE",
+  "RECOVERY_SOURCE_HOST_UNAVAILABLE",
+  "RECOVERY_SOURCE_HOST_READ_ONLY",
+  "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED",
+  "RECOVERY_SOURCE_HOST_UNREACHABLE",
+  "RECOVERY_SOURCE_HOST_NO_SPACE",
+  "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -234,12 +262,12 @@ export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
  *  the RIGHT refusal rather than any refusal. */
 export const API_ERROR_CLASSES = {
   "authentication": ["UNAUTHENTICATED", "BOOTSTRAP_TOKEN_INVALID", "RESET_TOKEN_INVALID", "VERIFY_TOKEN_INVALID"],
-  "authorization": ["ENROLLMENT_CLOSED", "DESTRUCTIVE_OPERATIONS_DISABLED", "CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "RECOVERY_GRANT_SESSION_ENDED"],
-  "conflict": ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "IDEMPOTENCY_KEY_CONFLICT", "CONFIG_REVISION_STALE", "ALREADY_CONFIGURED", "ARTIFACT_NOT_QUARANTINED", "ARTIFACT_IRRECOVERABLE", "REINSTATEMENT_REFUSED", "BACKUP_SET_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED", "ARTIFACT_NOT_FAILED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE", "MEDIUM_IS_DEFAULT", "MEDIUM_CONNECTION_NOT_PROVEN", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED", "REPOSITORY_DOMAIN_EXISTS", "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE", "WORKFLOWS_NOT_CONFIGURED", "WORKFLOW_SCRIPT_REJECTED", "RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_GRANT_USED", "RECOVERY_GRANT_EXPIRED", "RECOVERY_TARGET_EXISTS", "RECOVERY_USE_SNAPSHOT_RESTORE", "RECOVERY_BUSY"],
-  "internal": ["INTERNAL", "INTERNAL_ERROR", "RECOVERY_LOCAL_COPY_CORRUPT", "RECOVERY_REMOTE_COPY_CORRUPT", "RECOVERY_NO_SPACE", "RECOVERY_BELOW_RESERVE", "RECOVERY_FAILED"],
-  "not-found": ["BACKUP_SET_NOT_FOUND", "OPERATION_NOT_FOUND", "RETENTION_PLAN_NOT_FOUND", "ARTIFACT_NOT_FOUND", "MEDIUM_NOT_FOUND", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_HOLD_NOT_FOUND", "REPOSITORY_DOMAIN_NOT_FOUND", "WORKFLOW_ENV_NOT_FOUND", "WORKFLOW_RUN_NOT_FOUND", "WORKFLOW_STEP_NOT_FOUND", "RECOVERY_COPY_NOT_FOUND", "RECOVERY_GRANT_UNKNOWN"],
+  "authorization": ["ENROLLMENT_CLOSED", "DESTRUCTIVE_OPERATIONS_DISABLED", "CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "RECOVERY_GRANT_SESSION_ENDED", "STEP_UP_REQUIRED", "STEP_UP_FAILED", "INSECURE_TRANSPORT_ACK_REQUIRED"],
+  "conflict": ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "IDEMPOTENCY_KEY_CONFLICT", "CONFIG_REVISION_STALE", "ALREADY_CONFIGURED", "ARTIFACT_NOT_QUARANTINED", "ARTIFACT_IRRECOVERABLE", "REINSTATEMENT_REFUSED", "BACKUP_SET_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED", "ARTIFACT_NOT_FAILED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE", "MEDIUM_IS_DEFAULT", "MEDIUM_CONNECTION_NOT_PROVEN", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED", "REPOSITORY_DOMAIN_EXISTS", "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE", "WORKFLOWS_NOT_CONFIGURED", "WORKFLOW_SCRIPT_REJECTED", "RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_GRANT_USED", "RECOVERY_GRANT_EXPIRED", "RECOVERY_TARGET_EXISTS", "RECOVERY_USE_SNAPSHOT_RESTORE", "RECOVERY_BUSY", "DIRECTORY_NOT_READABLE", "RESTORE_TARGET_NOT_ACKNOWLEDGED", "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_UNAVAILABLE", "RECOVERY_SOURCE_HOST_READ_ONLY", "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE"],
+  "internal": ["INTERNAL", "INTERNAL_ERROR", "RECOVERY_LOCAL_COPY_CORRUPT", "RECOVERY_REMOTE_COPY_CORRUPT", "RECOVERY_NO_SPACE", "RECOVERY_BELOW_RESERVE", "RECOVERY_FAILED", "RECOVERY_SOURCE_HOST_NO_SPACE"],
+  "not-found": ["BACKUP_SET_NOT_FOUND", "OPERATION_NOT_FOUND", "RETENTION_PLAN_NOT_FOUND", "ARTIFACT_NOT_FOUND", "MEDIUM_NOT_FOUND", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_HOLD_NOT_FOUND", "REPOSITORY_DOMAIN_NOT_FOUND", "WORKFLOW_ENV_NOT_FOUND", "WORKFLOW_RUN_NOT_FOUND", "WORKFLOW_STEP_NOT_FOUND", "RECOVERY_COPY_NOT_FOUND", "RECOVERY_GRANT_UNKNOWN", "DIRECTORY_NOT_FOUND"],
   "throttling": ["RATE_LIMITED", "RECOVERY_TOO_MANY_GRANTS", "RECOVERY_READS_BUSY", "RECOVERY_DESTINATION_BUSY", "RECOVERY_DOWNLOADS_BUSY"],
-  "unavailable": ["NOT_CONFIGURED", "SMTP_SEND_FAILED", "WORKFLOW_ENGINE_UNAVAILABLE", "RECOVERY_UNAVAILABLE", "RECOVERY_INTERRUPTED"],
+  "unavailable": ["NOT_CONFIGURED", "SMTP_SEND_FAILED", "WORKFLOW_ENGINE_UNAVAILABLE", "RECOVERY_UNAVAILABLE", "RECOVERY_INTERRUPTED", "STEP_UP_UNAVAILABLE", "RECOVERY_SOURCE_HOST_UNREACHABLE"],
   "validation": ["INVALID_REQUEST", "INVALID_EMAIL", "SSH_KEY_NOT_FOUND", "HOST_KEY_PROBE_FAILED", "MEDIUM_DISCLOSURE_REQUIRED", "BACKUP_SET_NOT_INCREMENTAL", "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED", "RECOVERY_TARGET_INVALID"],
 } as const satisfies Record<string, readonly ApiErrorCode[]>;
 
@@ -1009,7 +1037,7 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     errorCodes: {
       400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
-      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED", "INSECURE_TRANSPORT_ACK_REQUIRED"],
       404: ["BACKUP_SET_NOT_FOUND", "RETENTION_PLAN_NOT_FOUND"],
       409: ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY"],
       500: ["INTERNAL"],
@@ -1119,6 +1147,49 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       409: ["INCREMENTAL_ENGINE_DISABLED"],
       500: ["INTERNAL"],
       503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "describeSourceHost",
+    method: "GET",
+    path: "/backup-sets/{source}/{set}/source-host",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "SourceHostDescription",
+    successStatus: 200,
+    errorCodes: {
+      400: ["RECOVERY_TARGET_INVALID"],
+      401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      501: ["RECOVERY_UNAVAILABLE"],
+    }
+  },
+  {
+    id: "checkSourceHostWrite",
+    method: "POST",
+    path: "/backup-sets/{source}/{set}/source-host/write-check",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: true,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "SourceHostDescription",
+    successStatus: 200,
+    errorCodes: {
+      400: ["RECOVERY_TARGET_INVALID"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      409: ["RECOVERY_SOURCE_HOST_UNAVAILABLE"],
+      429: ["RATE_LIMITED"],
+      500: ["INTERNAL"],
+      501: ["RECOVERY_UNAVAILABLE"],
     }
   },
   {
@@ -1292,13 +1363,14 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     errorCodes: {
       400: ["INVALID_REQUEST", "RECOVERY_TARGET_INVALID"],
       401: ["UNAUTHENTICATED"],
-      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED", "INSECURE_TRANSPORT_ACK_REQUIRED", "STEP_UP_REQUIRED", "STEP_UP_FAILED"],
       404: ["ARTIFACT_NOT_FOUND", "RECOVERY_COPY_NOT_FOUND"],
-      409: ["RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_USE_SNAPSHOT_RESTORE"],
-      429: ["RECOVERY_TOO_MANY_GRANTS"],
+      409: ["RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_USE_SNAPSHOT_RESTORE", "RECOVERY_SOURCE_HOST_UNAVAILABLE", "RECOVERY_SOURCE_HOST_READ_ONLY", "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE"],
+      429: ["RECOVERY_TOO_MANY_GRANTS", "RATE_LIMITED"],
       500: ["INTERNAL", "RECOVERY_FAILED"],
       501: ["RECOVERY_UNAVAILABLE"],
-      503: ["RECOVERY_UNAVAILABLE"],
+      503: ["RECOVERY_UNAVAILABLE", "STEP_UP_UNAVAILABLE", "RECOVERY_SOURCE_HOST_UNREACHABLE"],
+      507: ["RECOVERY_SOURCE_HOST_NO_SPACE"],
     }
   },
   {
@@ -1389,11 +1461,12 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     errorCodes: {
       400: ["INVALID_REQUEST", "BACKUP_SET_NOT_INCREMENTAL"],
       401: ["UNAUTHENTICATED"],
-      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED", "STEP_UP_REQUIRED", "STEP_UP_FAILED", "INSECURE_TRANSPORT_ACK_REQUIRED"],
       404: ["BACKUP_SET_NOT_FOUND", "ARTIFACT_NOT_FOUND", "COPY_NOT_FOUND", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_HOLD_NOT_FOUND"],
-      409: ["CONFIG_REVISION_STALE", "IDEMPOTENCY_KEY_CONFLICT", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "RESTORE_REFUSED", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED"],
+      409: ["CONFIG_REVISION_STALE", "IDEMPOTENCY_KEY_CONFLICT", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "RESTORE_REFUSED", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED", "RESTORE_TARGET_NOT_ACKNOWLEDGED", "RECOVERY_COST_NOT_ACKNOWLEDGED", "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED"],
+      429: ["RATE_LIMITED"],
       500: ["INTERNAL"],
-      503: ["RESTORE_UNAVAILABLE"],
+      503: ["RESTORE_UNAVAILABLE", "STEP_UP_UNAVAILABLE"],
     }
   },
   {
@@ -1507,14 +1580,14 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     errorCodes: {
       400: ["INVALID_REQUEST", "RECOVERY_TARGET_INVALID"],
       401: ["UNAUTHENTICATED"],
-      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED", "INSECURE_TRANSPORT_ACK_REQUIRED", "STEP_UP_REQUIRED", "STEP_UP_FAILED"],
       404: ["ARTIFACT_NOT_FOUND", "BACKUP_SET_NOT_FOUND"],
-      409: ["RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_USE_SNAPSHOT_RESTORE"],
-      429: ["RECOVERY_READS_BUSY", "RECOVERY_DESTINATION_BUSY"],
+      409: ["RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_USE_SNAPSHOT_RESTORE", "RECOVERY_SOURCE_HOST_UNAVAILABLE", "RECOVERY_SOURCE_HOST_READ_ONLY", "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE"],
+      429: ["RECOVERY_READS_BUSY", "RECOVERY_DESTINATION_BUSY", "RATE_LIMITED"],
       500: ["INTERNAL", "RECOVERY_FAILED"],
       501: ["RECOVERY_UNAVAILABLE"],
-      503: ["RECOVERY_UNAVAILABLE"],
-      507: ["RECOVERY_NO_SPACE", "RECOVERY_BELOW_RESERVE"],
+      503: ["RECOVERY_UNAVAILABLE", "STEP_UP_UNAVAILABLE", "RECOVERY_SOURCE_HOST_UNREACHABLE"],
+      507: ["RECOVERY_NO_SPACE", "RECOVERY_BELOW_RESERVE", "RECOVERY_SOURCE_HOST_NO_SPACE"],
     }
   },
   {
@@ -1531,16 +1604,16 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     successStatus: 206,
     errorCodes: {
       401: ["UNAUTHENTICATED"],
-      403: ["RECOVERY_GRANT_SESSION_ENDED"],
+      403: ["RECOVERY_GRANT_SESSION_ENDED", "DESTRUCTIVE_OPERATIONS_DISABLED"],
       404: ["ARTIFACT_NOT_FOUND", "RECOVERY_COPY_NOT_FOUND", "RECOVERY_GRANT_UNKNOWN"],
-      409: ["RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_BUSY", "RECOVERY_TARGET_EXISTS"],
+      409: ["RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_BUSY", "RECOVERY_TARGET_EXISTS", "RECOVERY_SOURCE_HOST_UNAVAILABLE", "RECOVERY_SOURCE_HOST_READ_ONLY", "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED"],
       410: ["RECOVERY_GRANT_USED", "RECOVERY_GRANT_EXPIRED"],
       416: ["INVALID_REQUEST"],
       429: ["RECOVERY_READS_BUSY", "RECOVERY_DESTINATION_BUSY", "RECOVERY_DOWNLOADS_BUSY"],
       500: ["INTERNAL", "RECOVERY_LOCAL_COPY_CORRUPT", "RECOVERY_FAILED"],
       501: ["RECOVERY_UNAVAILABLE"],
       502: ["RECOVERY_REMOTE_COPY_CORRUPT"],
-      503: ["RECOVERY_UNAVAILABLE", "RECOVERY_INTERRUPTED"],
+      503: ["RECOVERY_UNAVAILABLE", "RECOVERY_INTERRUPTED", "RECOVERY_SOURCE_HOST_UNREACHABLE"],
       507: ["RECOVERY_NO_SPACE", "RECOVERY_BELOW_RESERVE"],
     }
   },
@@ -2205,6 +2278,28 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "listStagingDirectories",
+    method: "GET",
+    path: "/system/staging-directories",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "StagingDirectoryResponse",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      404: ["DIRECTORY_NOT_FOUND"],
+      409: ["DIRECTORY_NOT_READABLE"],
+      500: ["INTERNAL"],
+      501: ["RECOVERY_UNAVAILABLE"],
+      503: ["RECOVERY_UNAVAILABLE"],
+    }
+  },
+  {
     id: "listStorageStatus",
     method: "GET",
     path: "/system/storage",
@@ -2542,6 +2637,7 @@ export interface WireAssuranceSettingsResponse {
   configured?: boolean;
   host_knobs?: WireAssuranceHostKnob[];
   max_concurrent_full_reads?: number;
+  max_download_streams?: number;
   max_per_destination?: number;
   recovery_test?: WireAssuranceRecoveryTestPolicy;
   scrub?: WireAssuranceScrubPolicy;
@@ -2970,14 +3066,22 @@ export interface WireCycleOutcome {
 
 /** Whether this deployment's destructive gate is open, and why it is
  *  not when it is not (issue #1165). The gate is the one the routes
- *  marked x-destructive-gate ask before they act, and the state here
- *  is read from that same gate at the moment of the request, so it
- *  can change while the process runs. The CLI is not behind it: the
- *  terminal verbs the gated routes have equivalents for run with no
- *  gate. */
+ *  marked x-destructive-gate ask before they act, and the one the
+ *  recovery routes marked x-destructive-gate-target-kinds ask for a
+ *  recovery onto the source host (issue #1191), and the state here is
+ *  read from that same gate at the moment of the request, so it can
+ *  change while the process runs. It is open on a local-account
+ *  profile and shut on a gateway profile until #92 ships a verified
+ *  gate (issue #1163). step_up_required and
+ *  insecure_transport_ack_required say what an open gate still asks
+ *  for, read from what the router will enforce rather than assumed.
+ *  The CLI is not behind the gate: the terminal verbs the gated
+ *  routes have equivalents for run with no gate. */
 export interface WireDestructiveOperationsStatus {
+  insecure_transport_ack_required: boolean;
   reason: string;
   state: "open" | "shut";
+  step_up_required: boolean;
 }
 
 /** POST /auth/enroll. The credentials, and optionally the two things
@@ -3052,6 +3156,7 @@ export interface WireForgotPasswordRequest {
 export interface WireHealthResponse {
   backup_sets: WireBackupSetHealth[];
   generated_at: string;
+  retained_count: number;
 }
 
 /** POST /ssh/host-key-probe. Opens a real outbound connection, trusts
@@ -3614,6 +3719,7 @@ export interface WireRecoveryManyItem {
   sha256?: string;
   size_bytes?: number;
   status: "ready" | "recovered" | "failed" | "skipped" | "needs_thaw" | "quarantined" | "unrecoverable";
+  verified?: "sha256" | "size";
 }
 
 /** The pre-flight: what a recovery of several backups would do,
@@ -3621,15 +3727,19 @@ export interface WireRecoveryManyItem {
 export interface WireRecoveryManyPlan {
   chargeable_bytes: number;
   chargeable_count: number;
+  destination_id?: string;
   folder: string;
   free_bytes?: number;
   items: WireRecoveryManyItem[];
   refusal?: WireRecoveryManyError;
   reserve_bytes: number;
   set?: string;
+  source_free_bytes?: number;
+  source_reserve_bytes?: number;
   target: WireRecoveryTarget;
   totals: WireRecoveryManyTotals;
   unknown_sizes: number;
+  url?: string;
 }
 
 /** POST /recoveries. Recovers several backups, or every restore point
@@ -3655,6 +3765,7 @@ export interface WireRecoveryManyRequest {
  *  with each other and with the disk. */
 export interface WireRecoveryManyResult {
   cancelled: boolean;
+  destination_id?: string;
   folder: string;
   items: WireRecoveryManyItem[];
   manifest_key?: string;
@@ -3664,6 +3775,7 @@ export interface WireRecoveryManyResult {
   set?: string;
   target: WireRecoveryTarget;
   totals: WireRecoveryManyTotals;
+  url?: string;
 }
 
 /** Counts of the rows of a plan or a result, and the bytes they come
@@ -3701,12 +3813,14 @@ export interface WireRecoveryMintRequest {
 export interface WireRecoveryMintResponse {
   artifact_id: string;
   copy: string;
+  destination_id?: string;
   download_url?: string;
   expires_at?: string;
   grant?: string;
   restore?: WireRecoveryRestoreOperation;
   size_bytes?: number;
   target?: WireRecoveryTarget;
+  url?: string;
 }
 
 export interface WireRecoveryRestoreOperation {
@@ -3722,10 +3836,13 @@ export interface WireRecoveryResult {
   artifact_id: string;
   bytes: number;
   copy: string;
+  destination_id?: string;
   key?: string;
   path?: string;
   sha256: string;
   target: WireRecoveryTarget;
+  url?: string;
+  verified?: "sha256" | "size";
 }
 
 /** GET /auth/recovery and PATCH /auth/recovery: the recovery address,
@@ -3768,10 +3885,19 @@ export interface WireRecoverySettingsUpdate {
  *  matched the SHA-256 the journal recorded. A download is not
  *  staged: it is refused before its first byte unless a read of the
  *  whole copy has matched that digest, and each chunk is checked
- *  again as it is sent. */
+ *  again as it is sent. source (issue #1191) uploads back onto the
+ *  backup set's own SFTP source host, built from the set's
+ *  configuration and never from the request, into a new folder under
+ *  its remote path, under a temporary name renamed into place so
+ *  nothing there is ever replaced. It writes onto a production
+ *  machine, so it needs acknowledged_destination, and over HTTP it
+ *  goes through the destructive gate, the insecure-transport
+ *  acknowledgement and the step-up re-authentication
+ *  (x-destructive-gate-target-kinds). */
 export interface WireRecoveryTarget {
+  acknowledged_destination?: string;
   key?: string;
-  kind: "download" | "staging" | "storage";
+  kind: "download" | "staging" | "storage" | "source";
   medium?: string;
   path?: string;
 }
@@ -4335,8 +4461,11 @@ export interface WireSnapshotHold {
 /** POST /operations' parameters when the action is
  *  release_snapshot_hold: end one hold, by its id. Releasing does not
  *  delete anything; it returns the snapshot to whatever the retention
- *  policy already said about it. */
+ *  policy already said about it. Releasing makes the snapshot
+ *  prunable by the next retention run, so it needs the operator's
+ *  explicit acknowledgement (issue #1164). */
 export interface WireSnapshotHoldReleaseRequest {
+  acknowledged: boolean;
   backup_set_id: string;
   hold_id: string;
 }
@@ -4366,6 +4495,7 @@ export interface WireSnapshotResponse {
  *  provider to make an archived object readable again, over hours, at
  *  a cost, and writes nothing anywhere. */
 export interface WireSnapshotRestoreRequest {
+  acknowledged?: boolean;
   backup_set_id: string;
   conflict?: "refuse" | "skip" | "overwrite";
   snapshot_id?: string;
@@ -4432,6 +4562,47 @@ export interface WireSnapshotVerifyRequest {
   level?: string;
   run_id?: string;
   sample_percent?: number;
+}
+
+/** Where a recovery of one backup set onto its own source host (issue
+ *  #1191) would write, built from the set's configuration alone, and
+ *  what the last write check found. Reading it never touches the
+ *  network; the write check is a separate POST that runs only when
+ *  the operator asks for it. */
+export interface WireSourceHostDescription {
+  available: boolean;
+  checked_at?: string;
+  code?: string;
+  destination_id?: string;
+  detail?: string;
+  folder?: string;
+  free_bytes?: number;
+  host?: string;
+  left_file?: string;
+  port?: number;
+  read_only?: boolean;
+  reason?: string;
+  remote_path?: string;
+  set_id: string;
+  url?: string;
+  user?: string;
+  write_access: "not_checked" | "writable" | "read_only" | "unreachable" | "probe_left_file";
+}
+
+/** One sub-folder of a listed folder. */
+export interface WireStagingDirectoryEntry {
+  name: string;
+  path: string;
+}
+
+/** GET /system/staging-directories. One folder under the staging
+ *  root: its sub-folders by name, relative to the root. */
+export interface WireStagingDirectoryResponse {
+  entries: WireStagingDirectoryEntry[];
+  parent: string | null;
+  path: string;
+  root: string;
+  truncated: boolean;
 }
 
 /** POST /backup-sets/{source}/{set}/recovery-test. Starts a recovery

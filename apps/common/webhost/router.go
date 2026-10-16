@@ -57,6 +57,18 @@ type RouterConfig struct {
 	// omission.
 	Gate DestructiveGate
 
+	// StepUp re-checks the signed-in administrator's password before a
+	// restore runs on a profile whose gate opens for local accounts
+	// (issue #1163). Nil means no restore can pass that check: it fails
+	// closed.
+	StepUp StepUpVerifier
+
+	// TrustForwardedHeaders says the peer in front of this handler is the
+	// project's own edge proxy, whose X-Forwarded-Proto and X-Forwarded-For
+	// can be believed. It is the same value the session cookie's Secure flag
+	// is decided with, passed down so the two cannot disagree (issue #1163).
+	TrustForwardedHeaders bool
+
 	// FirstRun, when non-nil, is the setup surface of an instance that
 	// may have no configuration yet (issue #176, firstrun.go). Combined
 	// with a nil Backend it selects a completely different, much smaller
@@ -234,19 +246,20 @@ type handlers struct {
 	binaryVersion string
 	commit        string
 
-	// gate is the same DestructiveGate requireDestructiveGate wraps
-	// POST /api/v1/operations in (below). createBackupSet
-	// (handlers_backupsets.go) also consults it directly, NOT through
-	// that middleware: a plain "just persist" create is deliberately
-	// exempt from the gate at the route level (destructiveGateExemptRoutes,
-	// router_test.go — creating a backup set never touches remote or
-	// local backup data by itself), but request.run_immediately turns
-	// that same call into "also start a run_cycle", the exact action
-	// requireDestructiveGate exists to block — so createBackupSet checks
-	// gate itself, conditionally, only on that branch, rather than the
-	// route being gated unconditionally (mandatory review finding M3, PR
-	// #155).
-	gate DestructiveGate
+	// enforce is the gate together with what an open one still asks for
+	// (gate_profile.go): the step-up verifier and whether forwarded headers
+	// can be believed. The gated routes, createBackupSet's run_immediately
+	// and the capabilities read all ask enforce.decide or read enforce, so
+	// they cannot disagree about what the router will enforce.
+	//
+	// createBackupSet consults it directly, NOT through a middleware: a
+	// plain "just persist" create is deliberately exempt from the gate at
+	// the route level (destructiveGateExemptRoutes, router_test.go:
+	// creating a backup set never touches remote or local backup data by
+	// itself), but request.run_immediately turns that same call into "also
+	// start a run_cycle", so createBackupSet asks enforce.decide itself,
+	// only on that branch (mandatory review finding M3, PR #155).
+	enforce gateEnforcement
 
 	// firstRun and onConfigured are RouterConfig's own fields of the same
 	// names; see firstrun.go for what each is for.
@@ -305,7 +318,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		backend:       cfg.Backend,
 		binaryVersion: cfg.BinaryVersion,
 		commit:        cfg.Commit,
-		gate:          gate,
+		enforce:       gateEnforcement{gate: gate, stepUp: cfg.StepUp, trustFwd: cfg.TrustForwardedHeaders},
 		firstRun:      cfg.FirstRun,
 		onConfigured:  cfg.OnConfigured,
 		progress:      cfg.Setup,
@@ -372,6 +385,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// Issue #104 (B3.4): FR-21's existing capacity refusal, surfaced
 		// honestly. Read-only, same as the two routes above.
 		r.Get("/system/storage", h.systemStorage)
+		// Issue #1179: the folders below the recovery staging root, for the
+		// staging folder browser. A read of the host's file system, so read-only by registration (no other verb
+		// exists), confined to that one root by the service, and outside
+		// the destructive gate like the reads above.
+		r.Get("/system/staging-directories", h.listStagingDirectories)
 		// Issue #211: FR-24's backup-freshness verdict, authenticated and
 		// inside /api/v1. Deliberately NOT the same thing as /health/live
 		// and /health/ready above, which are unauthenticated probes that
@@ -400,7 +418,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// destructiveGateExemptRoutes (router_test.go) with the rest.
 		r.With(requireCSRF).Post("/repositories", h.createRepositoryDomain)
 
-		r.With(requireCSRF, requireDestructiveGate(gate)).Post("/operations", h.submitOperation)
+		r.With(requireCSRF, requireOperationGate(h.enforce)).Post("/operations", h.submitOperation)
 		r.Get("/operations/{id}", h.getOperation)
 		// Issue #211: the list counterpart of the polling read above. GET
 		// on this path used to be a 405, which is what the shared UI's
@@ -428,7 +446,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// route is actually reached rather than swallowed by the
 		// catch-all.
 		r.Get("/backup-sets/{source}/{set}/retention/preview", h.previewRetention)
-		r.With(requireCSRF, requireDestructiveGate(gate)).Post("/backup-sets/{source}/{set}/retention/apply", h.applyRetention)
+		r.With(requireCSRF, requireRouteGate(h.enforce)).Post("/backup-sets/{source}/{set}/retention/apply", h.applyRetention)
 
 		// Issue #146 (B2.7): the add-backup-set wizard's (#98) write path.
 		// Every POST here carries requireCSRF: create-backup-set and
@@ -656,12 +674,29 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// (there is no role to gate on). The redeem is a GET, so it takes
 		// neither; the grant in its path is what it presents. See
 		// handlers_recovery.go for the whole argument.
-		r.With(requireCSRF).Post("/backups/{source}/{set}/{name}/recovery", h.mintRecovery)
-		r.Get("/recoveries/{grant}", h.redeemRecovery)
+		//
+		// Issues #1191 and #1193: the one exception is a recovery onto the
+		// set's own source host, which writes onto a production machine.
+		// That target alone goes through the gate, the acknowledgement of
+		// its destination and the step-up (requireSourceRecoveryGate,
+		// recovery_source.go), on the mint, on POST /recoveries and again on
+		// the redeem that does the upload (requireSourceGrantGate); every
+		// other target passes untouched. openapi.json marks the three with
+		// x-destructive-gate-target-kinds.
+		r.With(requireCSRF, requireSourceRecoveryGate(h.enforce, h.backend, maxRecoveryMintBodyBytes, mintSourceTarget)).Post("/backups/{source}/{set}/{name}/recovery", h.mintRecovery)
+		r.With(requireSourceGrantGate(h.enforce, h.backend)).Get("/recoveries/{grant}", h.redeemRecovery)
 		// #1106 and #1107: several backups, or a whole backup set, to one
 		// destination. The same tier as the mint (CSRF, no destructive
-		// gate) for the same reason; see handlers_recoverymany.go.
-		r.With(requireCSRF).Post("/recoveries", h.recoverMany)
+		// gate except for the source host) for the same reason; see
+		// handlers_recoverymany.go.
+		r.With(requireCSRF, requireSourceRecoveryGate(h.enforce, h.backend, maxRecoverManyBodyBytes, recoverManySourceTarget)).Post("/recoveries", h.recoverMany)
+		// Issue #1193: where a set's source-host recovery would write, from
+		// configuration alone (a read, so a dialog may ask on open), and
+		// the write check, which writes and removes one probe file on that
+		// host and so runs only on the operator's say-so, behind CSRF and
+		// refused by a shut gate before anything is written.
+		r.Get("/backup-sets/{source}/{set}/source-host", h.describeSourceHost)
+		r.With(requireCSRF, requireDestructiveGate(h.enforce.gate)).Post("/backup-sets/{source}/{set}/source-host/write-check", h.checkSourceHostWrite)
 		r.Get("/activity", h.listActivity)
 		// Issue #573: what each backup set is DOING right now, as
 		// opposed to the durable record of what happened that the route

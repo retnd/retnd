@@ -52,12 +52,20 @@ import {
   shortSha,
   targetLabel
 } from "@shared/components/workflowPresentation";
-import { apiErrorOf, describeFailure, workflowScriptRefusalOf } from "@shared/api/failure";
+import { describeFailure } from "@shared/api/failure";
 import { useAsync } from "@shared/hooks/useAsync";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { bytes, stamp } from "@shared/utilities/format";
 import { workflowRunPath } from "@shared/utilities/routes";
+import {
+  HOOK_DIR_LABEL,
+  hookDirState,
+  useSetWorkflow,
+  workflowSaveFailureText
+} from "@shared/pages/useSetWorkflow";
+import type { HookDirKey, SetWorkflowModel } from "@shared/pages/useSetWorkflow";
 import type {
+  BackupSetWorkflow,
   WorkflowBlockingScript,
   WorkflowFinding,
   WorkflowLintFinding,
@@ -299,6 +307,8 @@ export function WorkflowSaveRefusal({
   );
 }
 
+/** The card on its own, reading its own set's workflow. The set page uses
+ *  SetWorkflowCard instead, because its edit session shares the read. */
 export function BackupSetWorkflowCard({
   source,
   set,
@@ -308,11 +318,46 @@ export function BackupSetWorkflowCard({
   set: string;
   readOnly: boolean;
 }) {
+  const model = useSetWorkflow(source, set);
+  return <SetWorkflowCard source={source} set={set} readOnly={readOnly} model={model} />;
+}
+
+/** The before and after directory boxes, as the set page's edit session
+ *  holds them (#1189). Present only in edit mode. */
+export interface SetHookEdit {
+  /** What each box holds, or undefined for "as saved". */
+  draft: Partial<Record<HookDirKey, string>>;
+  /** The boxes whose write is in flight. */
+  saving: HookDirKey[];
+  /** A sentence under a box, from its last write or from SAVE ALL. */
+  errors: Partial<Record<HookDirKey, string>>;
+  onChange(key: HookDirKey, value: string): void;
+  onSave(key: HookDirKey): void;
+  /** Turns the stage off. The only way a box is ever sent empty. */
+  onClear(key: HookDirKey): void;
+}
+
+export function SetWorkflowCard({
+  source,
+  set,
+  readOnly,
+  model,
+  hooks
+}: {
+  source: string;
+  set: string;
+  readOnly: boolean;
+  model: SetWorkflowModel;
+  /** Given while the set page is in edit mode (#1189). The before and
+   *  after fields exist only then, which is also the only time the
+   *  empty-state sentence may point at them. */
+  hooks?: SetHookEdit;
+}) {
   const api = useApi();
   const navigate = useNavigate();
   const setId = source + "/" + set;
 
-  const workflow = useAsync(() => api.getBackupSetWorkflow(source, set), [api, source, set]);
+  const { workflow, refusal, write: writeWorkflow } = model;
   const settings = useAsync(() => api.getWorkflowSettings(), [api]);
   const globalEnv = useAsync(() => api.listWorkflowEnvironment(), [api]);
   const setEnv = useAsync(() => api.listBackupSetWorkflowEnvironment(source, set), [api, source, set]);
@@ -325,44 +370,6 @@ export function BackupSetWorkflowCard({
   const [validatedAt, setValidatedAt] = useState<string | null>(null);
   const [validating, setValidating] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
-  /** The last workflow write this card was refused over, kept until the
-   *  next write: a banner that vanished on the next render would leave an
-   *  operator with a picker that snapped back and no reason why. */
-  const [refusal, setRefusal] = useState<{
-    blocking: WorkflowBlockingScript[];
-    message: string;
-  } | null>(null);
-
-  /**
-   * One workflow write, with the save gate's refusal separated from every
-   * other failure.
-   *
-   * It re-throws either way, because the control that issued the write
-   * has its own "saving" state to unwind and its own short sentence to
-   * show; this only adds the structured refusal that a one-line sentence
-   * cannot carry.
-   */
-  const writeWorkflow = useCallback(
-    (patch: Parameters<typeof api.patchBackupSetWorkflow>[2]) =>
-      api
-        .patchBackupSetWorkflow(source, set, patch)
-        .then((result) => {
-          setRefusal(null);
-          workflow.reload();
-          return result;
-        })
-        .catch((e: unknown) => {
-          const failure = describeFailure(e, "this workflow configuration was not saved");
-          if (apiErrorOf(e)?.code === "WORKFLOW_SCRIPT_REJECTED") {
-            setRefusal({ blocking: workflowScriptRefusalOf(e), message: failure.message });
-          } else {
-            setRefusal(null);
-          }
-          throw e;
-        }),
-    [api, source, set, workflow]
-  );
-
   const validate = useCallback(() => {
     setValidating(true);
     setValidationError(null);
@@ -452,16 +459,47 @@ export function BackupSetWorkflowCard({
     );
   }
 
-  // The quiet path. One sentence, no table, no findings, no history.
+  const hooksEditor = hooks ? (
+    <SetHooksEditor
+      workflow={workflow.data}
+      rootConfigured={settings.data?.configured ?? true}
+      root={settings.data?.root ?? ""}
+      readOnly={readOnly}
+      hooks={hooks}
+    />
+  ) : null;
+  const refusalBanner = refusal ? (
+    <Banner tone="danger" dismissKey={refusal.message} tip="workflow.set.save-refused">
+      <WorkflowSaveRefusal blocking={refusal.blocking} fallback={refusal.message} />
+    </Banner>
+  ) : null;
+
+  // The quiet path. One sentence, no table, no findings, no history. In
+  // edit mode it is the sentence's replacement rather than an addition: the
+  // two fields and the hooks they would produce, and nothing else (#1189).
   if (!hasWorkflowSurface(workflow.data, globalStages)) {
+    if (hooksEditor) {
+      return (
+        <section className="card">
+          <div className="card__header">{heading}</div>
+          <div className="card__body" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {hooksEditor}
+            {refusalBanner}
+          </div>
+        </section>
+      );
+    }
     return (
       <section className="card">
         <div className="card__header">{heading}</div>
         <div className="card__body">
           <p style={{ margin: 0, fontSize: 13, color: "var(--text-2)", maxWidth: "76ch" }}>
             {"No hooks are configured for this backup set, and this deployment configures none " +
-              "globally, so nothing runs before or after its backups. Hook directories are set " +
-              "under Settings \u203a Workflow and per set here."}
+              "globally, so nothing runs before or after its backups. Deployment-wide hook " +
+              "directories are set under Settings \u203a Workflow" +
+              (readOnly
+                ? "; this deployment is read-only, so nothing can be changed from here."
+                : ", and this set's own are set in this page's edit mode.")}
           </p>
         </div>
       </section>
@@ -515,6 +553,8 @@ export function BackupSetWorkflowCard({
           />
         </CellGrid>
 
+        {hooksEditor}
+
         <ExecConnectionPicker
           ownSourceRef={setId}
           chosen={workflow.data.remoteExecConnectionRef}
@@ -523,11 +563,7 @@ export function BackupSetWorkflowCard({
           onChoose={(ref) => writeWorkflow({ remoteExecConnectionRef: ref })}
         />
 
-        {refusal ? (
-          <Banner tone="danger" dismissKey={refusal.message} tip="workflow.set.save-refused">
-            <WorkflowSaveRefusal blocking={refusal.blocking} fallback={refusal.message} />
-          </Banner>
-        ) : null}
+        {refusalBanner}
 
         <div>
           <div
@@ -707,6 +743,186 @@ export function BackupSetWorkflowCard({
   );
 }
 
+/** Stage directories in the order a run takes them, as the engine reported
+ *  them: the deployment's before, this set's before, this set's after, the
+ *  deployment's after. */
+function stagesOf(workflow: BackupSetWorkflow, phase: "before" | "after") {
+  return workflow.stages.filter((stage) => stage.phase === phase);
+}
+
+/**
+ * The before and after workflow directories of one set, in edit mode
+ * (#1189), and the hooks that will actually run as a result.
+ *
+ * The fields write through the same PATCH `retnd backup-set workflow patch
+ * --before-dir/--after-dir` uses, so the shell-rule save gate, the
+ * workflow-root containment check and "empty clears it" are the service's,
+ * not this form's. What the boxes hold belongs to the set page's edit
+ * session, not to this card: SAVE ALL carries their unsaved text and the
+ * CANCEL ledger names them, exactly as it does the page's own boxes. The
+ * page sends them as a separate write before the set's configuration
+ * PATCH rather than folding them into it, because the workflow block has
+ * its own refusal (a script that does not parse) and one rejected hook must
+ * not fail a rename.
+ *
+ * "Effective" is the engine's own `stages` list and not a computation here.
+ * A set's directory does NOT override the deployment's: both run, the
+ * deployment's outermost. The sentence under the list says so, because an
+ * operator who reads "set over global" will otherwise expect a set's
+ * directory to switch the deployment's off.
+ */
+function SetHooksEditor({
+  workflow,
+  rootConfigured,
+  root,
+  readOnly,
+  hooks
+}: {
+  workflow: BackupSetWorkflow;
+  rootConfigured: boolean;
+  root: string;
+  readOnly: boolean;
+  hooks: SetHookEdit;
+}) {
+  return (
+    <div
+      data-testid="workflow-set-editor"
+      style={{ display: "flex", flexDirection: "column", gap: 10 }}
+    >
+      {!rootConfigured ? (
+        <p role="note" style={{ margin: 0, fontSize: 13, color: "var(--text-2)", maxWidth: "76ch" }}>
+          {"This deployment has no workflow root yet, so there is nowhere for a hook directory to " +
+            "live and a per-set one would be refused. Set the root under Settings \u203a Workflow first."}
+        </p>
+      ) : null}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12 }}>
+        {(["beforeDir", "afterDir"] as const).map((key) => (
+          <HookDirField
+            key={key}
+            dirKey={key}
+            saved={workflow[key]}
+            draft={hooks.draft[key]}
+            saving={hooks.saving.includes(key)}
+            error={hooks.errors[key]}
+            disabled={readOnly || !rootConfigured}
+            root={root}
+            onChange={(value) => hooks.onChange(key, value)}
+            onSave={() => hooks.onSave(key)}
+            onClear={() => hooks.onClear(key)}
+          />
+        ))}
+      </div>
+      <div data-testid="workflow-set-effective" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <div className="eyebrow" style={{ fontSize: 10.5, color: "var(--text-2)" }}>
+          Hooks that run for this set
+        </div>
+        {(["before", "after"] as const).map((phase) => {
+          const stages = stagesOf(workflow, phase);
+          return stages.length === 0 ? (
+            <span key={phase} style={{ fontSize: 13, color: "var(--text-2)" }}>
+              {"Nothing runs " + phase + " this set's backups."}
+            </span>
+          ) : (
+            stages.map((stage) => (
+              <span key={phase + stage.scope + stage.dir} style={{ fontSize: 13, color: "var(--text-2)" }}>
+                <span style={{ textTransform: "capitalize" }}>{phase}</span>
+                {" \u00b7 " + (stage.scope === "set" ? "this set" : "deployment") + " \u00b7 "}
+                <span className="mono">{stage.dir}</span>
+              </span>
+            ))
+          );
+        })}
+        <span style={{ fontSize: "var(--text-xs)", color: "var(--text-2)", maxWidth: "76ch" }}>
+          {"A set's directory adds to the deployment's rather than replacing it: the deployment's " +
+            "before runs first and its after runs last."}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function HookDirField({
+  dirKey,
+  saved,
+  draft,
+  saving,
+  error,
+  disabled,
+  root,
+  onChange,
+  onSave,
+  onClear
+}: {
+  dirKey: HookDirKey;
+  saved: string;
+  draft: string | undefined;
+  saving: boolean;
+  error: string | undefined;
+  disabled: boolean;
+  root: string;
+  onChange(value: string): void;
+  onSave(): void;
+  onClear(): void;
+}) {
+  const phase = dirKey === "beforeDir" ? "before" : "after";
+  const value = draft ?? saved;
+  const state = hookDirState(draft, saved);
+  const id = "workflow-set-" + phase + "-dir";
+  const hintId = id + "-hint";
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <label htmlFor={id} className="eyebrow" style={{ fontSize: 10.5, color: "var(--text-2)" }}>
+        {HOOK_DIR_LABEL[dirKey]}
+      </label>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <input
+          id={id}
+          data-testid={"workflow-set-" + phase + "-input"}
+          className="input input--mono input--sm input--strong-edge"
+          value={value}
+          disabled={disabled || saving}
+          spellCheck={false}
+          placeholder="Not configured"
+          aria-describedby={hintId}
+          onChange={(e) => onChange(e.target.value)}
+          style={{ flex: 1, minWidth: 0 }}
+        />
+        <button
+          className="btn btn--sm btn--strong-edge"
+          data-testid={"workflow-set-" + phase + "-save"}
+          aria-label={"Save " + HOOK_DIR_LABEL[dirKey].toLowerCase()}
+          disabled={disabled || saving || state !== "changed"}
+          onClick={onSave}
+        >
+          {saving ? "Saving\u2026" : "Save"}
+        </button>
+        {saved !== "" ? (
+          <button
+            className="btn btn--sm btn--strong-edge"
+            data-testid={"workflow-set-" + phase + "-clear"}
+            aria-label={"Clear " + HOOK_DIR_LABEL[dirKey].toLowerCase()}
+            disabled={disabled || saving}
+            onClick={onClear}
+          >
+            Clear
+          </button>
+        ) : null}
+      </div>
+      <span id={hintId} style={{ fontSize: "var(--text-xs)", color: "var(--text-2)" }}>
+        {state === "emptied"
+          ? "Emptying the box doesn't clear it. Press Clear to stop this set's " + phase + " stage running."
+          : "A directory under the workflow root" + (root ? " (" + root + ")" : "") + "." +
+            (saved !== "" ? " Clear stops this set's " + phase + " stage running." : "")}
+      </span>
+      {error ? (
+        <span role="alert" style={{ fontSize: "var(--text-xs)", color: "var(--danger)" }}>
+          {error}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 /**
  * Which connection a remote hook executes over.
  *
@@ -763,11 +979,7 @@ function ExecConnectionPicker({
               // service's multi-line sentence on this line as well would
               // put one refusal on screen twice and read as two separate
               // things having gone wrong.
-              setFailure(
-                apiErrorOf(err)?.code === "WORKFLOW_SCRIPT_REJECTED"
-                  ? null
-                  : describeFailure(err, "that connection was not saved").message
-              );
+              setFailure(workflowSaveFailureText(err, "that connection was not saved"));
             });
         }}
         style={{

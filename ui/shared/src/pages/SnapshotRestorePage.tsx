@@ -37,6 +37,8 @@ import { useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { useApi } from "@shared/api/ApiContext";
+import { acknowledgeInsecureTransport } from "@shared/api/client";
+import { apiErrorOf } from "@shared/api/failure";
 import { Cell, CellGrid, Note } from "@shared/components/Definitions";
 import { Choice, Toggle } from "@shared/components/Choice";
 import { EmptyState, ErrorState } from "@shared/components/EmptyState";
@@ -47,6 +49,7 @@ import { snapshotRestoreCommand } from "@shared/pages/snapshotCommands";
 import { VERIFICATION_COPY } from "@shared/components/EngineBadge";
 import { OperationProgress } from "@shared/components/OperationProgress";
 import { PageHeader } from "@shared/components/PageHeader";
+import { StepUpFields, stepUpMessage } from "@shared/components/StepUpFields";
 import { StepBody, StepControls, StepRail } from "@shared/components/WizardStep";
 import { WarningBanner } from "@shared/components/WarningBanner";
 import { useAsync } from "@shared/hooks/useAsync";
@@ -86,6 +89,11 @@ export function SnapshotRestorePage({ readOnly }: { readOnly: boolean }) {
   const [sourcePath, setSourcePath] = useState("");
   const [targetPath, setTargetPath] = useState("");
   const [conflict, setConflict] = useState<RestoreConflictPolicy>("refuse");
+  // Issue #1163. Only drawn, asked for and sent where the engine says it will
+  // check them (gate.stepUpRequired), which is a local-account profile.
+  const [stepUpPassword, setStepUpPassword] = useState("");
+  const [restoreAcknowledged, setRestoreAcknowledged] = useState(false);
+  const [stepUpError, setStepUpError] = useState<string | null>(null);
 
   // A run with no committed manifest has no id the repository can be
   // asked for, so it is not a restore source at all and is not offered.
@@ -130,6 +138,7 @@ export function SnapshotRestorePage({ readOnly }: { readOnly: boolean }) {
 
   const missingTarget = targetPath.trim() === "";
   const submitted = restore.operation !== null;
+  const missingStepUp = gate.stepUpRequired && (stepUpPassword === "" || !restoreAcknowledged);
   const finishHint = !restore.ready
     ? "Waiting for this instance's configuration revision, which a restore is checked against."
     : submitted
@@ -138,7 +147,9 @@ export function SnapshotRestorePage({ readOnly }: { readOnly: boolean }) {
         ? "Name a directory on this deployment to restore into."
         : selected === null
           ? "Choose a snapshot to restore from."
-          : undefined;
+          : missingStepUp
+            ? "Enter your password and tick the box under the summary. A restore asks for both."
+            : undefined;
 
   // What each step is waiting for, one entry per step, each of them
   // about that step's OWN question and nothing about the steps around
@@ -198,7 +209,7 @@ export function SnapshotRestorePage({ readOnly }: { readOnly: boolean }) {
 
       {restore.gate ? <GateRefusal notice={restore.gate} /> : null}
 
-      {restore.failure ? (
+      {restore.failure && stepUpError === null ? (
         <ErrorState
           message={restore.failure.message}
           remediation={restore.failure.remediation}
@@ -405,6 +416,20 @@ export function SnapshotRestorePage({ readOnly }: { readOnly: boolean }) {
                 />
               </CellGrid>
 
+              {gate.stepUpRequired && !submitted ? (
+                <StepUpFields
+                  password={stepUpPassword}
+                  onPassword={setStepUpPassword}
+                  acknowledged={restoreAcknowledged}
+                  onAcknowledged={setRestoreAcknowledged}
+                  acknowledgement={
+                    "I understand this writes files into " + (targetPath.trim() || "the destination") +
+                    (conflict === "overwrite" ? " and replaces any file already there." : " as this restore is set up.")
+                  }
+                  error={stepUpError}
+                />
+              ) : null}
+
               {restore.operation ? (
                 <div style={{ marginTop: 16 }}>
                   <div
@@ -460,29 +485,52 @@ export function SnapshotRestorePage({ readOnly }: { readOnly: boolean }) {
             !restore.ready ||
             restore.operation !== null ||
             selected === null ||
-            missingTarget
+            missingTarget ||
+            missingStepUp
           }
-          onFinish={() => {
+          onFinish={() => void (async () => {
             if (selected === null || selected.snapshotId === null) return;
+            const snapshotId = selected.snapshotId;
+            setStepUpError(null);
+            // Issue #1163. The password is read once for this press and not
+            // kept past it, whichever way it goes. On a connection that is not
+            // encrypted the operator is asked BEFORE it is sent: the password
+            // is the very thing that question is about.
+            const password = stepUpPassword;
+            if (gate.stepUpRequired) {
+              setStepUpPassword("");
+              if (gate.insecureTransportAckRequired && !(await acknowledgeInsecureTransport())) {
+                setStepUpError(stepUpMessage("INSECURE_TRANSPORT_ACK_REQUIRED"));
+                return;
+              }
+            }
             // Target: the snapshot AND where it is being written. A
             // second press with the same answers is a retry of one
             // submission; an operator who changed the destination after
             // a refusal is asking for a different restore, and re-using
             // the key would have the service replay the first.
             restore.submit(
-              selected.snapshotId + " -> " + targetPath.trim(),
+              snapshotId + " -> " + targetPath.trim(),
               ({ configRevision, idempotencyKey }) =>
               api.restoreSnapshot({
                 backupSetId: setId,
-                snapshotId: selected.snapshotId ?? undefined,
+                snapshotId,
                 // Omitted rather than sent empty: an absent source_path
                 // asks for the whole tree, and "" would be a request to
                 // restore a path with no name.
                 ...(wholeTree || sourcePath.trim() === "" ? {} : { sourcePath: sourcePath.trim() }),
                 targetPath: targetPath.trim(),
                 conflict,
+                // Sent only where the engine said it will check them. The
+                // password rides a header (api/client.ts) and is never kept.
+                ...(gate.stepUpRequired ? { stepUpPassword: password, acknowledged: restoreAcknowledged } : {}),
                 configRevision,
                 idempotencyKey
+              }).catch((e: unknown) => {
+                // The engine's step-up refusals belong beside the field they
+                // are about, in words, not in the generic banner above.
+                setStepUpError(stepUpMessage(apiErrorOf(e)?.code));
+                throw e;
               }),
               undefined,
               {
@@ -491,14 +539,14 @@ export function SnapshotRestorePage({ readOnly }: { readOnly: boolean }) {
                 command: snapshotRestoreCommand({
                   setId,
                   targetPath: targetPath.trim(),
-                  snapshotId: selected.snapshotId,
+                  snapshotId,
                   sourcePath: wholeTree ? undefined : sourcePath.trim(),
                   conflict
                 }),
                 reason: gate.reason
               }
             );
-          }}
+          })()}
         />
       </section>
     </div>

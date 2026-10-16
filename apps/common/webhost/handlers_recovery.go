@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -77,6 +76,15 @@ type recoveryTargetBody struct {
 	Path   string `json:"path,omitempty"`
 	Medium string `json:"medium,omitempty"`
 	Key    string `json:"key,omitempty"`
+	// AcknowledgedDestination is, for the "source" kind (#1193), the
+	// destination_id GET .../source-host returned, echoed as the yes to
+	// writing onto exactly that host, account, path and folder. Requests
+	// only: a response never carries it.
+	AcknowledgedDestination string `json:"acknowledged_destination,omitempty"`
+}
+
+func (t recoveryTargetBody) service() service.RecoveryTarget {
+	return service.RecoveryTarget{Kind: t.Kind, Path: t.Path, Medium: t.Medium, Key: t.Key, AcknowledgedDestination: t.AcknowledgedDestination}
 }
 
 type recoveryMintRequest struct {
@@ -98,6 +106,9 @@ type recoveryMintResponse struct {
 	Target      *recoveryTargetBody    `json:"target,omitempty"`
 	SizeBytes   *int64                 `json:"size_bytes,omitempty"`
 	Restore     *recoveryRestoreStatus `json:"restore,omitempty"`
+	// DestinationID and URL say where a source-host grant writes (#1193).
+	DestinationID string `json:"destination_id,omitempty"`
+	URL           string `json:"url,omitempty"`
 }
 
 type recoveryRestoreStatus struct {
@@ -114,6 +125,10 @@ type recoveryResultResponse struct {
 	Key        string             `json:"key,omitempty"`
 	Bytes      int64              `json:"bytes"`
 	SHA256     string             `json:"sha256"`
+	// For a source target (#1193).
+	DestinationID string `json:"destination_id,omitempty"`
+	URL           string `json:"url,omitempty"`
+	Verified      string `json:"verified,omitempty"`
 }
 
 func (h *handlers) recoveryBackend(w http.ResponseWriter) (RecoveryClient, bool) {
@@ -131,14 +146,14 @@ func (h *handlers) mintRecovery(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxRecoveryMintBodyBytes)
-	var body recoveryMintRequest
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&body); err != nil && !errors.Is(err, io.EOF) {
-		writeDecodeError(w, err, maxRecoveryMintBodyBytes)
+	// Decoded once: the source-host gate in front of this handler read this
+	// same value (recovery_source.go).
+	parsed, r := recoveryRequest[recoveryMintRequest](w, r, maxRecoveryMintBodyBytes)
+	if parsed.err != nil {
+		writeDecodeError(w, parsed.err, maxRecoveryMintBodyBytes)
 		return
 	}
+	body := parsed.body
 
 	id := artifactIDFrom(r)
 	// MintRecovery writes the action-log row itself (it knows the copy and
@@ -148,9 +163,7 @@ func (h *handlers) mintRecovery(w http.ResponseWriter, r *http.Request) {
 		ArtifactID:      id,
 		Copy:            body.Copy,
 		AcknowledgeCost: body.AcknowledgeCost,
-		Target: service.RecoveryTarget{
-			Kind: body.Target.Kind, Path: body.Target.Path, Medium: body.Target.Medium, Key: body.Target.Key,
-		},
+		Target:          body.Target.service(),
 	})
 	if err != nil {
 		h.writeRecoveryError(w, r, err)
@@ -171,6 +184,9 @@ func (h *handlers) mintRecovery(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt:   grant.ExpiresAt.UTC().Format(time.RFC3339),
 		Target:      &recoveryTargetBody{Kind: grant.Target.Kind, Path: grant.Target.Path, Medium: grant.Target.Medium, Key: grant.Target.Key},
 		SizeBytes:   grant.SizeBytes,
+		// Never the consent: where it writes, as the engine worked it out.
+		DestinationID: grant.DestinationID,
+		URL:           grant.URL,
 	})
 }
 
@@ -197,6 +213,7 @@ func (h *handlers) redeemRecovery(w http.ResponseWriter, r *http.Request) {
 			ArtifactID: result.ArtifactID, Copy: result.Copy,
 			Target: recoveryTargetBody{Kind: result.Target.Kind, Path: result.Target.Path, Medium: result.Target.Medium, Key: result.Target.Key},
 			Path:   result.Path, Key: result.Key, Bytes: result.Bytes, SHA256: result.SHA256,
+			DestinationID: result.DestinationID, URL: result.URL, Verified: result.Verified,
 		})
 		return
 	}
@@ -486,6 +503,21 @@ func (h *handlers) writeRecoveryError(w http.ResponseWriter, r *http.Request, er
 			writeError(w, http.StatusBadRequest, "RECOVERY_TARGET_INVALID", re.Message)
 		case "RECOVERY_TARGET_EXISTS":
 			writeError(w, http.StatusConflict, "RECOVERY_TARGET_EXISTS", re.Message)
+		case "RECOVERY_SOURCE_HOST_UNAVAILABLE":
+			writeError(w, http.StatusConflict, "RECOVERY_SOURCE_HOST_UNAVAILABLE", re.Message)
+		case "RECOVERY_SOURCE_HOST_READ_ONLY":
+			writeError(w, http.StatusConflict, "RECOVERY_SOURCE_HOST_READ_ONLY", re.Message)
+		case "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED":
+			writeError(w, http.StatusConflict, "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED", re.Message)
+		case "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE":
+			writeError(w, http.StatusConflict, "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE", re.Message)
+		case "RECOVERY_SOURCE_HOST_NO_SPACE":
+			writeError(w, http.StatusInsufficientStorage, "RECOVERY_SOURCE_HOST_NO_SPACE", re.Message)
+		case "RECOVERY_SOURCE_HOST_UNREACHABLE":
+			// Transient: the host did not answer, and trying again is the
+			// right move, so it says when (#1193).
+			w.Header().Set("Retry-After", strconv.Itoa(sourceHostRetryAfterSeconds))
+			writeError(w, http.StatusServiceUnavailable, "RECOVERY_SOURCE_HOST_UNREACHABLE", re.Message)
 		case "RECOVERY_USE_SNAPSHOT_RESTORE":
 			writeError(w, http.StatusConflict, "RECOVERY_USE_SNAPSHOT_RESTORE", re.Message)
 		case "RECOVERY_UNAVAILABLE":

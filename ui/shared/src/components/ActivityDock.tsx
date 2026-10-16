@@ -33,17 +33,18 @@
  *
  * # What it does with a restart, and why it differs from the strips
  *
- * The polling loop under this panel is the strips' own (useActivityWindow,
- * #596), which is where the cursor, the epoch check, the timer and the
- * out-of-band refresh live. This panel is two options on it: `fold`, so
- * every bucket in a reading lands in ONE window rather than one per set,
- * and `onRestart`, because what the two surfaces do about a restart is
- * deliberately opposite. A strip drops everything it holds, because a
- * progress bar and a step sentence describing a process that no longer
- * exists are active lies about work in flight. A terminal is a log, and
- * throwing away the lines leading up to a crash throws away the only
- * evidence of why it crashed. So this keeps them, draws a rule, and
- * starts a fresh buffer under it.
+ * The polling loop under this panel is the shared terminal state's
+ * (state/terminalStore, #596 and #1177), which is where the cursor, the
+ * epoch check, the timer and the out-of-band refresh live, once for every
+ * terminal. The strips and this panel read the same node, so they change in
+ * the same commit. What is this panel's is how it draws a restart, because
+ * what the two surfaces do about one is deliberately opposite. A strip
+ * drops everything it holds, because a progress bar and a step sentence
+ * describing a process that no longer exists are active lies about work in
+ * flight. A terminal is a log, and throwing away the lines leading up to a
+ * crash throws away the only evidence of why it crashed. So this keeps
+ * them (the store freezes them per dead process), draws a rule, and starts
+ * a fresh buffer under it.
  *
  * It used to be a copy of that loop rather than a caller of it, and the
  * copy is where its cursor bug lived: rebuilt from the events that
@@ -83,34 +84,29 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePlatform } from "@shared/platform/PlatformContext";
-import { mergeActivity, useActivityWindow } from "@shared/pages/useActivityFeed";
+import { useTerminalFeed } from "@shared/pages/useActivityFeed";
+import { DOCK_BUFFER } from "@shared/state/terminalStore";
 import { activityLine, logText, UnfinishedActionsNotice } from "@shared/pages/ActivityStrip";
 import type { LineTone } from "@shared/pages/ActivityStrip";
 import { BROWSER_NOTICE_EVENT, noticeAsEvent } from "@shared/pages/SetActivityPanel";
 import { useCausl } from "@shared/state/graph";
 import { browserNoticesNode } from "@shared/state/browserNotices";
 import type { BrowserNotice } from "@shared/state/browserNotices";
-import type { LiveActivity, SetActivity, SetActivityEvent, UnfinishedAction } from "@shared/types/activity";
+import type { SetActivity, SetActivityEvent, UnfinishedAction } from "@shared/types/activity";
 import { clock } from "@shared/utilities/format";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { TooltipId } from "@shared/tooltips/tooltips";
 import { copyText } from "@shared/utilities/copyText";
-
-/** How many lines the dock holds.
- *
- * More than a strip's 300, because this aggregates every bucket rather
- * than windowing one, and because it is the surface an operator scrolls
- * back through after something went wrong. Still bounded, for the reason
- * that constant already gives: an unbounded buffer in a tab left open for
- * a week is a leak with a nice name. What is gone is said in the
- * scrollback, and the durable record is the Activity page. */
-const DOCK_BUFFER = 1000;
 
 const STORAGE = {
   open: "retnd.dock.open",
   height: "retnd.dock.height",
   filter: "retnd.dock.filter"
 } as const;
+
+/** The chips when no reading has named any sets yet. One array, so the
+ *  memos keyed on it do not see a new one every render. */
+const NO_SETS: string[] = [];
 
 const MIN_HEIGHT = 120;
 const MAX_HEIGHT = 720;
@@ -146,6 +142,7 @@ export function dockReservedHeight(open: boolean, height: number): number {
  *  the list survives into the entry and the conversion happens at the
  *  moment of drawing (see entryEvent, which calls the panel's own
  *  noticeAsEvent so both terminals and every export say the same words). */
+
 export type DockEntry =
   | { kind: "event"; event: SetActivityEvent }
   | { kind: "restart"; at: string }
@@ -250,89 +247,6 @@ export function dockEntries(history: DockEntry[], current: SetActivity | undefin
     .filter((event) => !frozen.has(eventKey(event)))
     .map((event) => ({ kind: "event", event }));
   return [...history, ...live].slice(-DOCK_BUFFER);
-}
-
-/**
- * Folds one reading into the single window the dock holds.
- *
- * Every bucket in the reading is flattened into one synthetic set, and
- * mergeActivity does the rest: dedup by sequence, order by sequence, trim
- * to the window, and carry `dropped` forward once lines have been lost.
- * That is the same function the strips use and it is used for the same
- * three properties, at the dock's own buffer size.
- *
- * Deduplicating by sequence is correct and cheap because the engine's
- * counter is one counter for the whole process, which is the property
- * the cursor already relies on. What this does NOT do is decide that
- * cursor: it is a window, and a window is what happened to arrive.
- * useActivityWindow takes the cursor from what the service says it holds
- * (see nextCursor), which is a different number on every idle poll and is
- * the whole of the defect this panel shipped with. The set a line belongs to rides along as
- * its own `backup_set` field, filled in from the bucket it arrived in for
- * the events that do not already carry one: an event the service put in
- * a set's bucket IS about that set, so writing it down is recording what
- * the service already decided rather than guessing.
- */
-export function foldReading(previous: SetActivity | undefined, next: LiveActivity): SetActivity {
-  const events: SetActivityEvent[] = [];
-  for (const set of next.sets) {
-    for (const e of set.events) {
-      events.push(e.fields.backup_set ? e : { ...e, fields: { ...e.fields, backup_set: set.setId } });
-    }
-  }
-  for (const e of next.deployment?.events ?? []) events.push(e);
-  events.sort((a, b) => a.sequence - b.sequence);
-
-  // Every bucket's open actions, in the order they started (issue #625).
-  // The deployment's are the ones this dock exists for: a cycle belongs
-  // to no single backup set, so a cycle that announced itself and went
-  // quiet has no strip to be reported on and this is the only surface
-  // that can say so.
-  const unfinishedActions = [
-    ...next.sets.flatMap((s) => s.unfinishedActions ?? []),
-    ...(next.deployment?.unfinishedActions ?? [])
-  ].sort((a, b) => a.sequence - b.sequence);
-
-  const dropped = next.sets.some((s) => s.dropped) || (next.deployment?.dropped ?? false);
-  // The earliest sequence any bucket is still holding. Zero when nothing
-  // is held anywhere, which is the honest answer for a process that has
-  // said nothing yet: a bound taken over an empty set of buckets would
-  // otherwise come out as infinity and read as a window starting after
-  // everything that has ever happened.
-  const bounds = [...next.sets.map((s) => s.oldestSequence), next.deployment?.oldestSequence ?? 0].filter((n) => n > 0);
-  if (events.length > 0) bounds.push(events[0].sequence);
-  const oldest = bounds.length > 0 ? Math.min(...bounds) : 0;
-
-  const reading: SetActivity = {
-    setId: "",
-    active: next.sets.some((s) => s.active),
-    stage: null,
-    artifact: null,
-    artifactsCompleted: 0,
-    artifactsTotal: null,
-    progressBasis: "unknown",
-    bytesTransferred: null,
-    bytesTotal: null,
-    bytesPerSecond: null,
-    failures: 0,
-    outcome: null,
-    startedAt: null,
-    finishedAt: null,
-    events,
-    unfinishedActions,
-    truncated: next.sets.some((s) => s.truncated) || (next.deployment?.truncated ?? false),
-    dropped,
-    oldestSequence: oldest,
-    // The newest sequence any bucket says it HOLDS, which is not the
-    // newest that arrived: an idle reading hands over nothing while the
-    // service is still holding four thousand lines. Reporting the arrival
-    // here would be a window claiming to be a bound.
-    latestSequence: next.sets.reduce(
-      (high, s) => Math.max(high, s.latestSequence),
-      Math.max(next.deployment?.latestSequence ?? 0, events.length > 0 ? events[events.length - 1].sequence : 0)
-    )
-  };
-  return mergeActivity(previous, reading, DOCK_BUFFER);
 }
 
 /** The dock's own filters. Never drops a line from the buffer, only from
@@ -617,8 +531,6 @@ export function ActivityDock() {
   // reading of the live feed can ever carry one.
   const notices = useCausl(browserNoticesNode);
 
-  const [history, setHistory] = useState<DockEntry[]>([]);
-
   const [open, setOpen] = useState(() => readStored(STORAGE.open) !== "0");
   const [height, setHeight] = useState(() => Number(readStored(STORAGE.height)) || DEFAULT_HEIGHT);
   const [filter, setFilter] = useState<DockFilter>(() => readStored(STORAGE.filter) ?? "all");
@@ -629,22 +541,23 @@ export function ActivityDock() {
   const [level, setLevel] = useState<DockLevel | null>(null);
   const [announcement, setAnnouncement] = useState("");
 
-  // Freeze what the dead process left, with a rule under it, and let the
-  // loop start a fresh window. Both halves matter: the lines leading up
-  // to a crash are the evidence, and the new process's sequence numbers
-  // start again at 1 and would otherwise land on top of them.
-  const onRestart = useCallback(
-    (reading: LiveActivity, held: SetActivity | undefined) =>
-      setHistory((current) => [...dockEntries(current, held), { kind: "restart" as const, at: reading.observedAt }].slice(-DOCK_BUFFER)),
-    []
+  // The cursor, the epoch, the timer and the restart check are the shared
+  // terminal state's (state/terminalStore, #1177): one reader for every
+  // terminal, so this panel and a set's own terminal change in the same
+  // commit. What is this panel's is how it draws a restart: it keeps the lines
+  // the dead process left, with a rule under each, where a strip drops them.
+  const feed = useTerminalFeed();
+  const held = feed.state.combined;
+  const readingNow = feed.state.reading;
+  const feedError = feed.state.error;
+  const history = useMemo(
+    () =>
+      feed.state.generations.reduce<DockEntry[]>(
+        (acc, g) => [...dockEntries(acc, g.window), { kind: "restart" as const, at: g.at }].slice(-DOCK_BUFFER),
+        []
+      ),
+    [feed.state.generations]
   );
-
-  // The cursor, the epoch, the timer and the out-of-band refresh are the
-  // strips' own loop, unchanged (#596). What is this panel's is the two
-  // options: one window over every bucket rather than one per set, and a
-  // restart that keeps its lines instead of dropping them.
-  const feed = useActivityWindow<SetActivity>({ fold: foldReading, onRestart });
-  const held = feed.held;
 
   useEffect(() => writeStored(STORAGE.open, open ? "1" : "0"), [open]);
   useEffect(() => writeStored(STORAGE.height, String(height)), [height]);
@@ -671,7 +584,7 @@ export function ActivityDock() {
   // The chips are a function of the latest reading rather than state of
   // their own: a set is configured or it is not, and the reading says so
   // on every poll.
-  const sets = useMemo(() => (feed.reading?.sets ?? []).map((s) => s.setId), [feed.reading]);
+  const sets = readingNow?.setIds ?? NO_SETS;
   const all = useMemo(
     () => withoutContradictedGaps(foldBrowserNotices(dockEntries(history, held), notices)),
     [history, held, notices]
@@ -863,8 +776,8 @@ export function ActivityDock() {
             line count or a Save button squeezed to nothing would be the
             clip moved rather than fixed. */}
         <InfoTooltip id="activity.dock.status" style={{ flex: "none" }}>
-          <span className="mono" style={{ flex: "none", color: feed.error ? "var(--warn)" : "var(--text-3)" }}>
-            {feed.error
+          <span className="mono" style={{ flex: "none", color: feedError ? "var(--warn)" : "var(--text-3)" }}>
+            {feedError
               ? "not refreshing"
               : activeLevel
                 ? shown.length + " of " + bySource.length + (bySource.length === 1 ? " line" : " lines")

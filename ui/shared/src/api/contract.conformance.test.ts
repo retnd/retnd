@@ -404,7 +404,7 @@ describe("every request the shared client makes is a declared operation", () => 
         configRevision: "rev-1", idempotencyKey: "idem-hold-snapshot"
       })],
       ["releaseSnapshotHold", () => httpApi.releaseSnapshotHold({
-        backupSetId: "src/set-1", holdId: "hold-1",
+        backupSetId: "src/set-1", holdId: "hold-1", acknowledged: true,
         configRevision: "rev-1", idempotencyKey: "idem-release-hold"
       })],
       ["previewRetention", () => httpApi.previewRetention("src", "set-1")],
@@ -492,6 +492,11 @@ describe("every request the shared client makes is a declared operation", () => 
       // EPIC Q's recovery pair (#976), reached by the Recover artifact dialog.
       ["mintRecovery", () => httpApi.mintRecovery("src/set-1/a.tar.gz", { target: { kind: "staging", path: "restore-1" }, acknowledged: true })],
       ["redeemRecovery", () => httpApi.redeemRecovery("grant-token")],
+      // #1191 after #1193's review: where a recovery onto the set's own source
+      // host would write (configuration only), and the write check that runs
+      // only when the operator asks.
+      ["describeSourceHost", () => httpApi.describeSourceHost("src", "set-1")],
+      ["checkSourceHostWrite", () => httpApi.checkSourceHostWrite("src", "set-1")],
       // #1106: several backups, or a whole set, to one destination. Both calls
       // are POST /recoveries; the first sends preflight true.
       ["planRecoverMany", () => httpApi.planRecoverMany({ set: "src/set-1", target: { kind: "staging", path: "restore-set" } })],
@@ -506,6 +511,7 @@ describe("every request the shared client makes is a declared operation", () => 
       ["getRecoveryTestOutput", () => httpApi.getRecoveryTestOutput("src", "set-1")],
       // EPIC Q's assurance surface (Q1.4, #982).
       ["getAssuranceSettings", () => httpApi.getAssuranceSettings()],
+      ["listStagingDirectories", () => httpApi.listStagingDirectories("daily/2026 10")],
       ["patchAssuranceSettings", () => httpApi.patchAssuranceSettings({ scrubCadenceSeconds: 43_200 })],
       ["getBackupSetAssurance", () => httpApi.getBackupSetAssurance("src", "set-1")],
       ["patchBackupSetAssurance", () => httpApi.patchBackupSetAssurance("src", "set-1", { scrubCadenceSeconds: 7_200 })],

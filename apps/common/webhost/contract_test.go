@@ -252,8 +252,12 @@ var contractBindings = map[string]contractBinding{
 	"updateBackupSetAssurance": {updateBackupSetAssuranceRequest{}, backupSetAssuranceResponse{}, "/api/v1/backup-sets/src/set-1/assurance"},
 	"resetBackupSetAssurance":  {nil, backupSetAssuranceResponse{}, "/api/v1/backup-sets/src/set-1/assurance"},
 	"listAssuranceDue":         {nil, assuranceDueResponse{}, "/api/v1/assurance/due"},
+	"listStagingDirectories":   {nil, stagingDirectoryResponse{}, "/api/v1/system/staging-directories"},
 	"startRecoveryTest":        {startRecoveryTestRequest{}, recoveryTestStartedResponse{}, "/api/v1/backup-sets/src/set-1/recovery-test"},
 	"startScrub":               {nil, scrubStartedResponse{}, "/api/v1/backup-sets/src/set-1/scrub"},
+	// Issues #1191 and #1193.
+	"describeSourceHost":       {nil, sourceHostBody{}, "/api/v1/backup-sets/src/set-1/source-host"},
+	"checkSourceHostWrite":     {nil, sourceHostBody{}, "/api/v1/backup-sets/src/set-1/source-host/write-check"},
 	"cancelAssuranceOperation": {nil, assuranceOperationCancelledResponse{}, "/api/v1/assurance/operations/op_1/cancel"},
 	"getRecoveryTestOutput":    {nil, recoveryTestOutputResponse{}, "/api/v1/backup-sets/src/set-1/recovery-test/output"},
 	"getWorkflowRun":           {nil, workflowRunResponse{}, "/api/v1/workflow-runs/run_1"},
@@ -685,7 +689,9 @@ func TestContract_DeclaredRequirementsMatchWhatTheRoutesEnforce(t *testing.T) {
 
 var (
 	writeErrorCode = regexp.MustCompile(`write(?:Auth)?Error\([^,]+,\s*[^,]+,\s*"([A-Z][A-Z0-9_]+)"`)
-	assignedCode   = regexp.MustCompile(`\.Code\s*=\s*"([A-Z][A-Z0-9_]+)"`)
+	// gate_profile.go's one refusal constructor: status first, then the code.
+	gateRefusalCode = regexp.MustCompile(`newGateRefusal\([^,]+,\s*"([A-Z][A-Z0-9_]+)"`)
+	assignedCode    = regexp.MustCompile(`\.Code\s*=\s*"([A-Z][A-Z0-9_]+)"`)
 )
 
 // emittedWireCodes scans the two packages that actually put an error code
@@ -718,7 +724,7 @@ func emittedWireCodes(t *testing.T) map[string]string {
 				t.Fatalf("reading %s: %v", path, err)
 			}
 			files++
-			for _, re := range []*regexp.Regexp{writeErrorCode, assignedCode} {
+			for _, re := range []*regexp.Regexp{writeErrorCode, gateRefusalCode, assignedCode} {
 				for _, m := range re.FindAllStringSubmatch(string(src), -1) {
 					found[m[1]] = path
 				}

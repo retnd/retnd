@@ -1,0 +1,162 @@
+{
+  "about": "Shared vectors for the assurance listing (#1174): facts and a fixed now in, rendered claim states, buckets and the tile row's sentence out. Asserted by core/service (go test) and ui/shared/src/test/assurance-listing-vectors.test.ts (vitest). Change one side and both must still pass.",
+  "cases": [
+    {
+      "name": "the scrub schedule says overdue",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/the-scrub-schedule-says-overdue.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "content",
+            "verified_at": "2026-08-14T12:00:00Z",
+            "recovery_state": "readable",
+            "recovery_check": "builtin",
+            "recovery_tested_at": "2026-10-14T11:00:00Z"
+          }
+        ]
+      },
+      "due": {
+        "overdue": true,
+        "never": false
+      },
+      "want": {
+        "content": "overdue",
+        "recovery": "pass_builtin",
+        "buckets": [
+          "overdue",
+          "due"
+        ],
+        "reason": "Content: overdue 61d ago. Recovery: recovered, readable 60m ago."
+      }
+    },
+    {
+      "name": "overdue but never assured reads its pass",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/overdue-but-never-assured-reads-its-pass.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "content",
+            "verified_at": "2026-10-14T09:00:00Z",
+            "recovery_state": "passed",
+            "recovery_tested_at": "2026-10-14T11:00:00Z"
+          }
+        ]
+      },
+      "due": {
+        "overdue": true,
+        "never": true
+      },
+      "want": {
+        "content": "pass",
+        "recovery": "pass",
+        "buckets": [],
+        "reason": "Content: content verified 3h ago. Recovery: recovery test passed 60m ago."
+      }
+    },
+    {
+      "name": "ages at the edges, just now and a minute",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/ages-at-the-edges,-just-now-and-a-minute.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "content",
+            "verified_at": "2026-10-14T11:58:30Z",
+            "recovery_state": "passed",
+            "recovery_tested_at": "2026-10-14T11:58:31Z"
+          }
+        ]
+      },
+      "want": {
+        "content": "pass",
+        "recovery": "pass",
+        "buckets": [],
+        "reason": "Content: content verified 1m ago. Recovery: recovery test passed just now."
+      }
+    },
+    {
+      "name": "ages at the edges, minutes into hours",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/ages-at-the-edges,-minutes-into-hours.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "content",
+            "verified_at": "2026-10-14T10:30:01Z",
+            "recovery_state": "passed",
+            "recovery_tested_at": "2026-10-14T10:30:00Z"
+          }
+        ]
+      },
+      "want": {
+        "content": "pass",
+        "recovery": "pass",
+        "buckets": [],
+        "reason": "Content: content verified 89m ago. Recovery: recovery test passed 1h ago."
+      }
+    },
+    {
+      "name": "ages at the edges, hours into days",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/ages-at-the-edges,-hours-into-days.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "content",
+            "verified_at": "2026-10-12T12:01:00Z",
+            "recovery_state": "passed",
+            "recovery_tested_at": "2026-10-12T12:00:00Z"
+          }
+        ]
+      },
+      "want": {
+        "content": "pass",
+        "recovery": "pass",
+        "buckets": [],
+        "reason": "Content: content verified 47h ago. Recovery: recovery test passed 2d ago."
+      }
+    },
+    {
+      "name": "a time in the future reads just now",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/a-time-in-the-future-reads-just-now.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "content",
+            "verified_at": "2026-10-14T12:10:00Z"
+          }
+        ]
+      },
+      "want": {
+        "content": "pass",
+        "recovery": "never_run",
+        "buckets": [
+          "due",
+          "untested"
+        ],
+        "reason": "Content: content verified just now. Recovery: never run."
+      }
+    }
+  ]
+}

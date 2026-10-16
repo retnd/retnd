@@ -2,10 +2,10 @@
   "spdxVersion": "SPDX-2.3",
   "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
-  "name": "retnd 0.6.4",
-  "documentNamespace": "https://github.com/retnd/retnd/spdx/577fcde3d461eeb0a14bfb3875c00f09a275c0e1",
+  "name": "retnd 0.7.0",
+  "documentNamespace": "https://github.com/retnd/retnd/spdx/2ebdaa498df1f4975a1dddf6f70549f89c11cdf3",
   "creationInfo": {
-    "created": "2026-10-15T03:52:01Z",
+    "created": "2026-10-16T01:58:44Z",
     "creators": [
       "Tool: retnd-provenance",
       "Organization: Roman Goldmann"
@@ -2589,9 +2589,9 @@
       ]
     },
     {
-      "SPDXID": "SPDXRef-Package-go-google.golang.org-grpc-v1.84.0-dev.0.20260723093437-b6eac429d7b6",
+      "SPDXID": "SPDXRef-Package-go-google.golang.org-grpc-v1.84.0",
       "name": "google.golang.org/grpc",
-      "versionInfo": "v1.84.0-dev.0.20260723093437-b6eac429d7b6",
+      "versionInfo": "v1.84.0",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "Apache-2.0",
@@ -2601,7 +2601,7 @@
         {
           "referenceCategory": "PACKAGE-MANAGER",
           "referenceType": "purl",
-          "referenceLocator": "pkg:golang/google.golang.org/grpc@v1.84.0-dev.0.20260723093437-b6eac429d7b6"
+          "referenceLocator": "pkg:golang/google.golang.org/grpc@v1.84.0"
         }
       ],
       "checksums": [
@@ -3559,7 +3559,7 @@
     {
       "spdxElementId": "SPDXRef-DOCUMENT",
       "relationshipType": "DESCRIBES",
-      "relatedSpdxElement": "SPDXRef-Package-go-google.golang.org-grpc-v1.84.0-dev.0.20260723093437-b6eac429d7b6"
+      "relatedSpdxElement": "SPDXRef-Package-go-google.golang.org-grpc-v1.84.0"
     },
     {
       "spdxElementId": "SPDXRef-DOCUMENT",

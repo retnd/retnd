@@ -107,8 +107,8 @@ const surfaces = [
     async prep(page) {
       await page.getByRole("button", { name: "Recover artifact", exact: true }).click();
       const dlg = page.getByRole("dialog", { name: "Recover artifact" });
-      await dlg.getByRole("radio", { name: "Staging path on the host" }).check();
-      await dlg.getByRole("textbox", { name: /Recover to/ }).waitFor();
+      await dlg.getByRole("radio", { name: "Under the staging root on this retnd host" }).check();
+      await dlg.getByRole("textbox", { name: /Name under the staging root/ }).waitFor();
       return ['[role="dialog"]'];
     }
   },

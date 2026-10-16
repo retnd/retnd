@@ -20,6 +20,7 @@
 import type { IconName } from "@shared/design-system/icons";
 import { stamp } from "@shared/utilities/format";
 import { backupSetPath } from "@shared/utilities/routes";
+import { SETTINGS_SECTIONS, settingsLink } from "@shared/utilities/routes";
 import type { AchievedClass, ClaimRecord, ClaimStatus, CopyContent, CopyFailure } from "./types";
 
 export type RenderState = ClaimStatus | "existence_only" | "attested_only" | "pass_builtin";
@@ -42,8 +43,8 @@ export interface RenderedClaim {
 
 // ------------------------------------------- a claim nobody has configured
 
-export const DEFAULTS_ANCHOR = "assurance-defaults";
-export const DEFAULTS_LINK = "/settings#" + DEFAULTS_ANCHOR;
+export const DEFAULTS_ANCHOR = SETTINGS_SECTIONS.assurance;
+export const DEFAULTS_LINK = settingsLink("assurance");
 
 /** What is known about the configuration behind a claim that has no result.
  *  `default` and `own` are a set with a configuration (the deployment's, or
@@ -67,7 +68,7 @@ export function neverConfiguredWording(
     case "default": return { label: "Default configuration", link: DEFAULTS_LINK, ...(note ? { note } : {}) };
     case "own": {
       const to = opts.setId ? backupSetPath(...(opts.setId.split("/") as [string, string])) + "#assurance" : undefined;
-      return { label: "This set's own policy", ...(to ? { link: to } : {}), ...(note ? { note } : {}) };
+      return { label: "Custom configuration", ...(to ? { link: to } : {}), ...(note ? { note } : {}) };
     }
     case "loading": return { label: "Loading configuration" };
     case "unavailable": return { label: "Configuration unavailable" };
@@ -248,6 +249,15 @@ export function renderStored(copies: number | undefined): { state: "stored" | "n
 /** The states a Recovery claim is in when nothing has been tested: a test nobody
  *  asked for, one that was asked for and never ran, and one the server cannot
  *  say. None of them is a pass, and none of them is a failure. */
+/** "Content: never run. Recovery: could not complete 1d ago." The sentence a
+ *  Dashboard row gives for why a backup is listed (#1174), and the one
+ *  `retnd assurance list` prints: core/service/assurancelist.go builds the
+ *  same string, and the shared vectors pin both. */
+export function listingReason(content: Pick<RenderedClaim, "label" | "age">, recovery: Pick<RenderedClaim, "label" | "age">): string {
+  const part = (name: string, c: Pick<RenderedClaim, "label" | "age">) => name + ": " + c.label.toLowerCase() + (c.age ? " " + c.age : "");
+  return part("Content", content) + ". " + part("Recovery", recovery) + ".";
+}
+
 const UNTESTED: readonly RenderState[] = ["never_configured", "never_run", "unknown"];
 
 export type Bucket = "due" | "overdue" | "degraded" | "untested";

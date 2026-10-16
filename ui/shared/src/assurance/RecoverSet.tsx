@@ -41,7 +41,7 @@
  * command rather than pretending the two are one operation.
  */
 import "./assurance.css";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { useApi } from "@shared/api/ApiContext";
 import type {
@@ -52,10 +52,13 @@ import { CommandEcho } from "@shared/pages/CommandEcho";
 import { Icon } from "@shared/design-system/icons";
 import type { IconName } from "@shared/design-system/icons";
 import { bytes } from "@shared/utilities/format";
+import { RecoverySourceChoice, RecoverySourceNote, RecoveryTargetChoices, RecoveryTargetField } from "./RecoveryTargetFields";
+import { useRecoveryTarget } from "./useRecoveryTarget";
+import type { RecoveryPlace } from "./recoveryPlaces";
 import { recoverSetCommand, recoverSetPreflightCommand, snapshotRestoreCommand } from "./assuranceCommands";
+import { useSourceRecovery } from "./useSourceRecovery";
 
 type Narrow = "all" | "newest" | "since";
-type Where = "staging" | "storage";
 
 const STATUS_LABEL: Record<RecoverManyItem["status"], string> = {
   ready: "Will be recovered",
@@ -89,18 +92,28 @@ export function RecoverSetDialog({
   returnFocus?: RefObject<HTMLElement>;
 }) {
   const api = useApi();
-  const [narrow, setNarrow] = useState<Narrow>("all");
+  // Null until the operator picks one: a run onto the source host defaults to
+  // the newest restore point only (#1193's review), anything else to all.
+  const [narrowChosen, setNarrow] = useState<Narrow | null>(null);
   const [since, setSince] = useState("");
-  const [target, setTarget] = useState<Where>("staging");
-  const [where, setWhere] = useState("");
+  // Issue #1191: null until the operator picks one; until then the default
+  // follows the source host's answer, below.
+  const { kind: chosen, where, setWhere, choose } = useRecoveryTarget<RecoveryPlace>(null);
   const [accepted, setAccepted] = useState(false);
-  const [stagingRoot, setStagingRoot] = useState<string | null>(null);
   const [plan, setPlan] = useState<RecoverManyPlan | null>(null);
   const [planFailure, setPlanFailure] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>({ k: "choose" });
   const box = useRef<HTMLDivElement>(null);
   const abort = useRef<AbortController | null>(null);
   const kopia = engine === "kopia";
+  const source = useSourceRecovery(kopia ? null : setId, { bytes: plan?.target.kind === "source" ? plan.totals.bytes : null });
+  // Until something is chosen: the source host once it has answered and can
+  // be used, and otherwise what this dialog offered before #1191 (staging),
+  // with the source radio still first and its reason under it.
+  const target: RecoveryPlace | null = chosen ?? (
+    kopia || !source.ready ? null : source.preselect ? "source" : "staging");
+  const narrow: Narrow = narrowChosen ?? (target === "source" ? "newest" : "all");
+  const sourceFolder = source.description?.folder ?? "";
 
   useEffect(() => {
     const back = returnFocus?.current ?? (document.activeElement as HTMLElement | null);
@@ -122,28 +135,27 @@ export function RecoverSetDialog({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, phase.k]);
-  useEffect(() => {
-    let live = true;
-    void api.getAssuranceSettings().then((s) => { if (live) setStagingRoot(s.stagingRoot); }, () => undefined);
-    return () => { live = false; };
-  }, [api]);
 
   const sinceIso = narrow === "since" && since ? new Date(since + "T00:00:00Z").toISOString() : undefined;
   const sinceMissing = narrow === "since" && !since;
-  const targetSpec = useMemo((): RecoveryTargetSpec => {
+  // What the run asks for. The plan is the same request without the tick:
+  // ticking the box or typing a password never asks for a new pre-flight.
+  const planTarget = useMemo((): RecoveryTargetSpec => {
     // Until a destination is named the plan is asked for against a placeholder
     // name: what is in the set, what it costs and how big it is do not depend
     // on where it goes, and the pre-flight is the thing worth seeing early.
-    if (target === "staging") return { kind: "staging", path: where.trim() || "recovery" };
-    return { kind: "storage", medium: where.trim() || "destination" };
-  }, [target, where]);
-  const request = useCallback((): RecoverManyRequest => ({
+    if (target === "source") return { kind: "source", ...(sourceFolder ? { path: sourceFolder } : {}) };
+    if (target === "storage") return { kind: "storage", medium: where.trim() || "destination" };
+    return { kind: "staging", path: where.trim() || "recovery" };
+  }, [target, where, sourceFolder]);
+  const planRequest = useMemo((): RecoverManyRequest => ({
     set: setId,
     ...(narrow === "newest" ? { newestOnly: true } : {}),
     ...(sinceIso ? { since: sinceIso } : {}),
     ...(accepted ? { acknowledged: true } : {}),
-    target: targetSpec
-  }), [setId, narrow, sinceIso, accepted, targetSpec]);
+    target: planTarget
+  }), [setId, narrow, sinceIso, accepted, planTarget]);
+  const runTarget = target === "source" ? source.targetSpec : planTarget;
 
   // The pre-flight, redrawn when a choice changes. A stale answer never
   // overwrites a newer one.
@@ -153,21 +165,33 @@ export function RecoverSetDialog({
     if (skipPlan) return;
     let live = true;
     const t = setTimeout(() => {
-      api.planRecoverMany(request()).then(
+      api.planRecoverMany(planRequest).then(
         (p) => { if (live) { setPlan(p); setPlanFailure(null); } },
         (e) => { if (live) { setPlan(null); setPlanFailure(describeFailure(e, "The pre-flight could not be made.").message); } }
       );
     }, 150);
     return () => { live = false; clearTimeout(t); };
-  }, [api, skipPlan, request]);
+  }, [api, skipPlan, planRequest]);
 
   const go = async () => {
+    // A source target asks about an unencrypted connection BEFORE the password
+    // is sent (#1163), and the password goes with this one request only.
+    const once = target === "source" ? await source.beforeSubmit() : {};
+    if (once === null || !runTarget) { if (target === "source" && once !== null) source.done(); return; }
+    try {
+      await run(once, runTarget);
+    } finally {
+      if (target === "source") source.done();
+    }
+  };
+  const run = async (once: { stepUpPassword?: string }, runTarget: RecoveryTargetSpec) => {
     abort.current = new AbortController();
     const total = plan?.totals.bytes ?? 0;
     const of = (plan?.totals.ready ?? 0) + (plan?.totals.needsThaw ?? 0);
     setPhase({ k: "running", lines: [], done: 0, total, index: 0, of, cancelling: false });
     try {
-      const result = await api.recoverMany(request(), {
+      const result = await api.recoverMany({ ...planRequest, target: runTarget }, {
+        ...once,
         signal: abort.current.signal,
         onProgress: (p) => setPhase((cur) => {
           if (cur.k !== "running") return cur;
@@ -178,8 +202,14 @@ export function RecoverSetDialog({
       });
       setPhase({ k: "done", result });
     } catch (e) {
+      const code = (e as { api?: { code?: string } })?.api?.code ?? "";
+      // The tick or the password (#1191): back to the choice, with the reason.
+      if (target === "source" && source.refusal(code)) {
+        setPhase({ k: "choose" });
+        return;
+      }
       const f = describeFailure(e, "The recovery could not be started.");
-      setPhase({ k: "refused", message: f.message, code: (e as { api?: { code?: string } })?.api?.code ?? "" });
+      setPhase({ k: "refused", message: f.message, code });
     }
   };
   const cancel = () => {
@@ -195,10 +225,11 @@ export function RecoverSetDialog({
   // The cost refusal is what the checkbox answers; any other refusal blocks.
   const hardRefusal = refusal && refusal.code !== "RECOVERY_COST_NOT_ACKNOWLEDGED" ? refusal : null;
   const actionable = (shown?.totals.ready ?? 0) + (shown?.totals.needsThaw ?? 0);
-  const needsTarget = where.trim() === "";
+  const needsTarget = target === null || (target === "source" ? !source.canSubmit : where.trim() === "");
   const ackRequired = costNeeded && !accepted;
   const canGo = !!shown && actionable > 0 && !hardRefusal && !needsTarget && !ackRequired && !sinceMissing;
-  const command = recoverSetCommand(setId, narrow, since, target, where.trim(), costNeeded && accepted);
+  const echoWhere = target === "source" ? sourceFolder : where.trim();
+  const command = target ? recoverSetCommand(setId, narrow, since, target, echoWhere, costNeeded && accepted, source.acknowledged) : null;
 
   return (
     <div className="dialog-scrim" style={{ gridTemplateColumns: "minmax(0, 1fr)" }} onClick={(e) => e.target === e.currentTarget && phase.k !== "running" && onClose()}>
@@ -234,17 +265,20 @@ export function RecoverSetDialog({
             <>
               <fieldset className="field" style={{ border: 0, margin: 0, padding: 0 }}>
                 <legend className="field__label">Which backups</legend>
+                {/* onClick as well as onChange: the default follows the destination, so
+                    clicking the radio that is already on is still a choice, and it has
+                    to survive a later change of destination. */}
                 <div role="radiogroup" aria-label="Which backups of this set" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   <label style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-                    <input type="radio" name="recover-set-narrow" checked={narrow === "all"} onChange={() => setNarrow("all")} />
+                    <input type="radio" name="recover-set-narrow" checked={narrow === "all"} onChange={() => setNarrow("all")} onClick={() => setNarrow("all")} />
                     Every retained restore point
                   </label>
                   <label style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-                    <input type="radio" name="recover-set-narrow" checked={narrow === "newest"} onChange={() => setNarrow("newest")} />
+                    <input type="radio" name="recover-set-narrow" checked={narrow === "newest"} onChange={() => setNarrow("newest")} onClick={() => setNarrow("newest")} />
                     The newest restore point only
                   </label>
                   <label style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                    <input type="radio" name="recover-set-narrow" checked={narrow === "since"} onChange={() => setNarrow("since")} />
+                    <input type="radio" name="recover-set-narrow" checked={narrow === "since"} onChange={() => setNarrow("since")} onClick={() => setNarrow("since")} />
                     Everything since
                     <input
                       type="date" className="input input--mono" aria-label="Recover everything since this date" value={since}
@@ -257,29 +291,31 @@ export function RecoverSetDialog({
               <fieldset className="field" style={{ border: 0, margin: 0, padding: 0 }}>
                 <legend className="field__label">Where it goes</legend>
                 <div role="radiogroup" aria-label="Where should the set go?" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <label style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-                    <input type="radio" name="recover-set-target" checked={target === "staging"} onChange={() => { setTarget("staging"); setWhere(""); }} />
-                    Folder under the staging root on the host
-                  </label>
-                  <label style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
-                    <input type="radio" name="recover-set-target" checked={target === "storage"} onChange={() => { setTarget("storage"); setWhere(""); }} />
-                    Configured destination
-                  </label>
+                  {/* Issue #1191: first, and the preselected choice where the set has one. */}
+                  <RecoverySourceChoice name="recover-set-target" value={target} source={source} onChoose={choose} />
+                  {/* Issue #1190: offered the same way on every screen. */}
+                  <RecoveryTargetChoices name="recover-set-target" value={target} onChoose={choose} />
                 </div>
                 <div style={{ color: "var(--text-2)", marginTop: 4 }} data-testid="no-browser-download">
                   There is no browser download for a set: that would be one archive the host has to build and keep, and every backup can still be downloaded from its own page.
                 </div>
-                {target === "staging" ? (
-                  <label className="field" style={{ marginTop: 6 }}>
-                    <span className="field__label">{"Folder name under the staging root " + (stagingRoot ? stagingRoot + " " : "") + "(set by the host)"}</span>
-                    <input className="input input--mono" aria-label="Recover the set to a folder under the staging root" value={where} onChange={(e) => setWhere(e.target.value)} />
-                  </label>
-                ) : (
-                  <label className="field" style={{ marginTop: 6 }}>
-                    <span className="field__label">Destination id</span>
-                    <input className="input input--mono" aria-label="Recover the set to destination id" value={where} onChange={(e) => setWhere(e.target.value)} />
-                  </label>
-                )}
+                {source.offered && source.unavailable ? (
+                  <div style={{ marginTop: 6 }}><RecoverySourceNote source={source} /></div>
+                ) : null}
+                {target !== null ? (
+                  <div style={{ marginTop: 6 }}>
+                    {target === "source" ? <RecoveryTargetField place="source" source={source} />
+                      : target === "storage" ? <RecoveryTargetField place="storage" value={where} onChange={setWhere} />
+                      : (
+                        <RecoveryTargetField
+                          place="staging"
+                          value={where}
+                          onChange={setWhere}
+                          meaning="A folder: the set's files go under it, with a manifest."
+                        />
+                      )}
+                  </div>
+                ) : null}
               </fieldset>
 
               <PreFlight plan={shown} failure={planFailure} sinceMissing={sinceMissing} />
@@ -305,7 +341,9 @@ export function RecoverSetDialog({
                 </div>
               ) : null}
 
-              <CommandEcho label="Same thing from the terminal" commands={[command, recoverSetPreflightCommand(setId, narrow, since, target, where.trim())]} />
+              {command && target ? (
+                <CommandEcho label="Same thing from the terminal" commands={[command, recoverSetPreflightCommand(setId, narrow, since, target, echoWhere)]} />
+              ) : null}
               {phase.k === "refused" ? (
                 <div role="alert" data-testid="refusal" data-code={phase.code} className="aop__alert">
                   <strong>Nothing was recovered</strong>
@@ -417,6 +455,13 @@ function Summary({ result }: { result: RecoverManyResult }) {
         <li>{"Lost: " + t.unrecoverable}</li>
       </ul>
       <div>{"Each recovered file was matched to the digest recorded when it was ingested before it was placed. " + bytes(t.bytes) + " in all."}</div>
+      {result.target.kind === "source" && t.recovered > 0 ? (
+        <div data-testid="result-verified">
+          {result.items.every((i) => i.status !== "recovered" || i.verified === "sha256")
+            ? "Each file on the source host was then checked by SHA-256 on the host, and matched."
+            : "The source host cannot compute a digest, so for some files only the size of what it holds was checked, and it matched."}
+        </div>
+      ) : null}
       {result.cancelled ? (
         <div data-testid="result-cancelled-note">
           The run was cancelled. The files listed as recovered are complete; the file that was being read was discarded and no half-written file was kept. The host writes a manifest of what it did beside the files.

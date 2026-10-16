@@ -14,6 +14,8 @@ const region = (page: Page) => page.getByRole("region", { name: "Assurance" });
 // bracketed names are older than this work and are measured by its own suite).
 const TERMINAL_LINES = '[aria-label="Terminal"] [class^="activity-log__line--"]';
 const terminal = (page: Page) => page.getByLabel("Terminal", { exact: true }).getByRole("log");
+// The set's own terminal, where a run's output lives since #1176.
+const setTerminal = (page: Page) => page.locator("#set-terminal").getByRole("log");
 
 test.describe("#985 Scrub now", () => {
   test("starts a scrub, follows it to a finish, and prints its terminal twins beside it", async ({ page }) => {
@@ -33,7 +35,7 @@ test.describe("#985 Scrub now", () => {
 
     await expect(prog).toHaveAttribute("data-state", "complete", { timeout: 20_000 });
     await expect(prog.getByRole("status")).toHaveText("Scrub finished");
-    await expect(section.getByTestId("operation-line").last()).toContainText("scrub pass finished (manual, set production/postgres-primary)");
+    await expect(setTerminal(page)).toContainText("scrub pass finished (manual, set production/postgres-primary)");
     // a finished run has nothing left to cancel
     await expect(section.getByRole("button", { name: "Cancel" })).toHaveCount(0);
   });
@@ -46,7 +48,8 @@ test.describe("#985 Scrub now", () => {
     await section.getByRole("button", { name: "Scrub now" }).click();
     await expect(section.getByTestId("operation-progress")).toHaveAttribute("data-state", "failed", { timeout: 20_000 });
     await expect(section.getByTestId("operation-progress").getByRole("status")).toHaveText("Scrub failed");
-    await expect(section.getByTestId("operation-line").filter({ hasText: "scrub did not pass:" })).toContainText("sha256 differs from the one recorded at ingest");
+    await expect(setTerminal(page)).toContainText("scrub did not pass:");
+    await expect(setTerminal(page)).toContainText("sha256 differs from the one recorded at ingest");
     await expect(content).toHaveAttribute("data-state", "failed", { timeout: 15_000 });
     await expect(section.getByText("Content verified")).toHaveCount(0);
     await expect(terminal(page)).toContainText("scrub did not pass: postgres-prod-20260828.dump.zst on local (content check): sha256 differs");
@@ -156,10 +159,10 @@ test.describe("#985 following an operation", () => {
     const section = region(page);
     await section.getByRole("button", { name: "Run recovery test" }).click();
     await expect(section.getByTestId("operation-progress")).toHaveAttribute("data-state", "complete", { timeout: 60_000 });
-    const lines = await section.getByTestId("operation-line").allTextContents();
-    expect(lines).toEqual([
-      "Recovery test started", "Resolving copy", "Reading", "Verifying", "Validating", "Cleaning temporary files", "Complete", "Recovery test finished"
-    ]);
+    // the run's own output is in the set terminal, not drawn a second time here
+    await expect(section.getByTestId("operation-line")).toHaveCount(0);
+    await expect(setTerminal(page)).toContainText("recovery test started");
+    await expect(setTerminal(page)).toContainText("recovery test passed:", { timeout: 30_000 });
     const stages = [
       "Resolving copy", "Reading", "Verifying", "Validating", "Cleaning temporary files", "Complete"
     ];

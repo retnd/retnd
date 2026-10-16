@@ -1,0 +1,205 @@
+{
+  "about": "Shared vectors for the assurance listing (#1174): facts and a fixed now in, rendered claim states, buckets and the tile row's sentence out. Asserted by core/service (go test) and ui/shared/src/test/assurance-listing-vectors.test.ts (vitest). Change one side and both must still pass.",
+  "cases": [
+    {
+      "name": "recovery tests off on the default configuration",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/recovery-tests-off-on-the-default-config.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "content",
+            "verified_at": "2026-10-14T11:00:00Z"
+          }
+        ]
+      },
+      "policy": {
+        "off": true,
+        "basis": "default"
+      },
+      "want": {
+        "content": "pass",
+        "recovery": "never_configured",
+        "buckets": [
+          "untested"
+        ],
+        "reason": "Content: content verified 60m ago. Recovery: default configuration."
+      }
+    },
+    {
+      "name": "recovery tests off by the set's own policy",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/recovery-tests-off-by-the-set's-own-poli.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "content",
+            "verified_at": "2026-10-14T11:00:00Z"
+          }
+        ]
+      },
+      "policy": {
+        "off": true,
+        "basis": "own"
+      },
+      "want": {
+        "content": "pass",
+        "recovery": "never_configured",
+        "buckets": [
+          "untested"
+        ],
+        "reason": "Content: content verified 60m ago. Recovery: custom configuration."
+      }
+    },
+    {
+      "name": "recovery tests off with no policy at all",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/recovery-tests-off-with-no-policy-at-all.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "content",
+            "verified_at": "2026-10-14T11:00:00Z"
+          }
+        ]
+      },
+      "policy": {
+        "off": true,
+        "basis": "none"
+      },
+      "want": {
+        "content": "pass",
+        "recovery": "never_configured",
+        "buckets": [
+          "untested"
+        ],
+        "reason": "Content: content verified 60m ago. Recovery: not configured."
+      }
+    },
+    {
+      "name": "the engine says there is no validator",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/the-engine-says-there-is-no-validator.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "content",
+            "verified_at": "2026-10-14T11:00:00Z",
+            "recovery_state": "not_configured"
+          }
+        ]
+      },
+      "policy": {
+        "off": false,
+        "basis": "default"
+      },
+      "want": {
+        "content": "pass",
+        "recovery": "never_configured",
+        "buckets": [
+          "untested"
+        ],
+        "reason": "Content: content verified 60m ago. Recovery: default configuration."
+      }
+    },
+    {
+      "name": "a policy that could not be read is not a test owed",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/a-policy-that-could-not-be-read-is-not-a.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "content",
+            "verified_at": "2026-10-14T11:00:00Z"
+          }
+        ]
+      },
+      "policy": {
+        "off": false,
+        "basis": "unavailable"
+      },
+      "want": {
+        "content": "pass",
+        "recovery": "unknown",
+        "buckets": [
+          "untested"
+        ],
+        "reason": "Content: content verified 60m ago. Recovery: unknown."
+      }
+    },
+    {
+      "name": "a policy that could not be read leaves a verdict alone",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/a-policy-that-could-not-be-read-leaves-a.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "content",
+            "verified_at": "2026-10-14T11:00:00Z",
+            "recovery_state": "failed",
+            "recovery_tested_at": "2026-10-14T10:00:00Z"
+          }
+        ]
+      },
+      "policy": {
+        "off": false,
+        "basis": "unavailable"
+      },
+      "want": {
+        "content": "pass",
+        "recovery": "failed",
+        "buckets": [
+          "degraded"
+        ],
+        "reason": "Content: content verified 60m ago. Recovery: recovery test failed 2h ago."
+      }
+    },
+    {
+      "name": "tests on with no verdict yet",
+      "now": "2026-10-14T12:00:00Z",
+      "artifact": {
+        "id": "s/a/tests-on-with-no-verdict-yet.zst",
+        "quarantined": false,
+        "placements": [
+          {
+            "status": "ACTIVE",
+            "access": "immediate",
+            "verification_class": "content",
+            "verified_at": "2026-10-14T11:00:00Z"
+          }
+        ]
+      },
+      "policy": {
+        "off": false,
+        "basis": "own"
+      },
+      "want": {
+        "content": "pass",
+        "recovery": "never_run",
+        "buckets": [
+          "due",
+          "untested"
+        ],
+        "reason": "Content: content verified 60m ago. Recovery: never run."
+      }
+    }
+  ]
+}

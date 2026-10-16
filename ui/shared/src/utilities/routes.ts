@@ -101,3 +101,36 @@ export function snapshotRetentionPath(source: string, set: string): string {
 export function workflowRunPath(runId: string): string {
   return "/workflow-runs/" + encodeURIComponent(runId);
 }
+
+/**
+ * Every section of the Settings page, and the anchor it answers to (issue #1188).
+ *
+ * One table, read by the page that draws the sections and by every link that
+ * points into one, so a link cannot name an id the page no longer has. It lives
+ * here with the other route builders rather than with the page, because domain
+ * code (assurance/claims.ts) links into Settings and must not import a page.
+ * The ids are stable on purpose: they are in people's bookmarks, in the CLI's
+ * output and in the chips on other pages, and renaming one is a breaking change
+ * (see LEGACY_SECTION_IDS in pages/settingsSections.ts for the one that was).
+ */
+export const SETTINGS_SECTIONS = {
+  serviceBehaviour: "service-behaviour",
+  backupDefaults: "backup-defaults",
+  capacity: "capacity",
+  retention: "retention",
+  storageDestinations: "storage-destinations",
+  workflow: "workflow",
+  assurance: "assurance",
+  notifications: "notifications",
+  interface: "interface",
+  catalogRecovery: "catalog-recovery",
+  platform: "platform",
+  systemInformation: "system-information",
+  password: "password",
+  accountRecovery: "account-recovery"
+} as const;
+
+export type SettingsSection = keyof typeof SETTINGS_SECTIONS;
+
+/** The in-app path of a Settings section. */
+export const settingsLink = (section: SettingsSection): string => "/settings#" + SETTINGS_SECTIONS[section];

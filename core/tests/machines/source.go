@@ -1762,3 +1762,18 @@ func (f *Source) AuthorizeKey(t *testing.T, authorizedKeyLine string) {
 		t.Fatalf("machines: authorizing an extra key on %s: %v\n%s", f.ContainerID(), err, errOut)
 	}
 }
+
+// Inside runs argv inside the source machine's container and returns what
+// it printed (#1193: a test that drops the fixture's SSH sessions mid-upload
+// needs to list and signal processes there). It goes through the harness's
+// bounded docker call like everything else here, and a non-zero exit is an
+// answer, returned as output, exactly as ExecHost.Inside does.
+func (f *Source) Inside(t *testing.T, argv ...string) string {
+	t.Helper()
+	args := append([]string{"exec", f.containerID}, argv...)
+	stdout, stderr, err := dockerRun(dockerProbeTimeout, args...)
+	if err != nil && errors.Is(err, errDockerTimedOut) {
+		t.Fatalf("%s machines: `docker exec` on the source machine did not answer within %s: %v", infraMarker, dockerProbeTimeout, err)
+	}
+	return stdout + stderr
+}

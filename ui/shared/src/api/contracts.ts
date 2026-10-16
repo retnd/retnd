@@ -568,6 +568,9 @@ export interface RestoreCopyRequest {
   /** The operator saying they know this is billed and takes hours.
    *  Required true; see BackupApi.restoreCopy. */
   acknowledged: boolean;
+  /** Issue #1163: the administrator's password, sent again where the engine
+   *  says restores need it. */
+  stepUpPassword?: string;
   /** The configuration revision the caller is displaying. */
   configRevision: string;
   /** One key per LOGICAL restore, reused on every retry of it. POST
@@ -1923,6 +1926,13 @@ export interface SnapshotRestoreRequest {
    *  operator can ask for an overwrite and the request should say what
    *  was asked for. */
   conflict?: RestoreConflictPolicy;
+  /** Issue #1163: the administrator's password, sent again, where the engine
+   *  says restores need it (destructiveOperations.stepUpRequired). Never
+   *  stored, never logged: it rides one request header. */
+  stepUpPassword?: string;
+  /** Issue #1163: the operator's explicit acknowledgement that this writes
+   *  into the destination. */
+  acknowledged?: boolean;
   configRevision: string;
   idempotencyKey: string;
 }
@@ -1959,6 +1969,10 @@ export interface SnapshotHoldRequest {
 export interface SnapshotHoldReleaseRequest {
   backupSetId: string;
   holdId: string;
+  /** Issue #1164: releasing lifts a protection, so the engine wants the
+   *  operator's explicit acknowledgement in the request. Required to be
+   *  true; a screen sends what the operator ticked. */
+  acknowledged: boolean;
   configRevision: string;
   idempotencyKey: string;
 }
@@ -2266,9 +2280,14 @@ export interface WorkflowRunnerStatus {
  *  redeems the grant, `staging` places one file under the host's recovery
  *  staging root, `storage` uploads to another configured destination. */
 export interface RecoveryTargetSpec {
-  kind: "download" | "staging" | "storage";
-  /** staging: a name under the staging root. */
+  kind: "download" | "staging" | "storage" | "source";
+  /** staging: a name under the staging root. source (#1191): the new
+   *  retnd-recovered-* folder under the set's remote path. */
   path?: string;
+  /** source: the destinationId the engine described for exactly this host,
+   *  account, path and folder, echoed back as the yes to writing there. Only
+   *  ever sent; a response never carries it. */
+  acknowledgedDestination?: string;
   /** storage: a configured destination id. */
   medium?: string;
   /** storage: an object key, defaulting to recovered/<artifact id>. */
@@ -2281,6 +2300,48 @@ export interface RecoveryMintRequest {
   /** The explicit yes to a chargeable retrieval. Absent is a no. */
   acknowledged?: boolean;
   target: RecoveryTargetSpec;
+}
+
+/** The one-shot options of a request that may carry the password again
+ *  (#1163, #1191). The password goes in a header with this one request and
+ *  is never part of a request object a screen keeps. */
+export interface StepUpOptions {
+  stepUpPassword?: string;
+}
+
+/** What the last write check of a source host found (#1191). */
+export type SourceWriteAccess = "not_checked" | "writable" | "read_only" | "unreachable" | "probe_left_file";
+
+/** Issue #1191: where a recovery of a backup set onto its own source host
+ *  would write, read from configuration alone (GET
+ *  /backup-sets/{source}/{set}/source-host), and what the last write check
+ *  found (POST .../source-host/write-check, run only when asked). */
+export interface SourceHostDescription {
+  setId: string;
+  /** False when the set has no source host (not SFTP, or incremental). */
+  available: boolean;
+  /** Why not, in the engine's words. */
+  reason?: string;
+  host?: string;
+  port?: number;
+  user?: string;
+  remotePath?: string;
+  /** The new folder this description is for. */
+  folder?: string;
+  /** Exactly where the engine will write, as it spells it. */
+  url?: string;
+  /** What a recovery echoes back as target.acknowledgedDestination. */
+  destinationId?: string;
+  /** The set is declared read_only: never written, never probed. */
+  readOnly?: boolean;
+  writeAccess: SourceWriteAccess;
+  code?: string;
+  detail?: string;
+  checkedAt?: string;
+  /** For probe_left_file: the probe file to delete on the host. */
+  leftFile?: string;
+  /** Free bytes under remote_path, when a write check could ask. */
+  freeBytes?: number;
 }
 
 /** A grant, or the provider restore that has to finish before there can be
@@ -2296,6 +2357,9 @@ export type RecoveryMint =
       expiresAt: string;
       target: RecoveryTargetSpec;
       sizeBytes?: number;
+      /** source (#1191): the destination this grant writes into. */
+      destinationId?: string;
+      url?: string;
     }
   | {
       kind: "restore";
@@ -2318,6 +2382,12 @@ export interface RecoveryPlacement {
   bytes: number;
   /** The digest of the bytes placed, equal to the one the journal recorded. */
   sha256: string;
+  /** source (#1191): where it was written. */
+  url?: string;
+  destinationId?: string;
+  /** source: how the placed file was checked on the host. "sha256" is the
+   *  host's own digest; "size" means only the length is known to match. */
+  verified?: "sha256" | "size";
 }
 
 /** One backup in a plan or a result of a recovery of several (#1106, #1107).
@@ -2347,6 +2417,8 @@ export interface RecoverManyItem {
   message?: string;
   /** A provider restore was started for this file. */
   restoreOperationId?: string;
+  /** source (#1191): how the placed file was checked on the host. */
+  verified?: "sha256" | "size";
 }
 
 export interface RecoverManyTotals {
@@ -2375,6 +2447,12 @@ export interface RecoverManyPlan {
   /** Free bytes on the staging disk, when it can say. */
   freeBytes?: number;
   reserveBytes: number;
+  /** source (#1191): the destination the run would write into. */
+  destinationId?: string;
+  url?: string;
+  /** source: free bytes on the source host, absent when it cannot say. */
+  sourceFreeBytes?: number;
+  sourceReserveBytes?: number;
   /** Present when the run itself would be refused (cost not acknowledged,
    *  files do not fit): the code and sentence it would be refused with. */
   refusal?: { code: string; message: string };
@@ -2392,7 +2470,7 @@ export interface RecoverManyRequest {
   copy?: string;
   /** One yes for the whole request's cost. Absent is a no. */
   acknowledged?: boolean;
-  /** `staging` or `storage`; a download is refused for several files. */
+  /** `staging`, `storage` or `source`; a download is refused for several files. */
   target: RecoveryTargetSpec;
 }
 
@@ -2409,6 +2487,9 @@ export interface RecoverManyResult {
   manifestPath?: string;
   manifestKey?: string;
   manifestSha256?: string;
+  /** source (#1191): the destination the run wrote into. */
+  destinationId?: string;
+  url?: string;
   /** Set when the files were recovered but the run could not finish, for
    *  example the manifest could not be written. */
   error?: { code: string; message: string };
@@ -2517,6 +2598,30 @@ export interface AssuranceHostKnob {
   reason: string;
 }
 
+/** One folder under the root the host lets a person browse (issue #1179). */
+export interface StagingDirectoryEntry {
+  name: string;
+  /** The folder's name relative to the root: what a staging target takes. */
+  path: string;
+}
+
+/**
+ * One folder on the machine retnd runs on, listed read-only (issue #1179).
+ * Every path here is relative to `root`; the host refuses a name that leaves
+ * it, so a page cannot ask about anywhere else.
+ */
+export interface StagingDirectory {
+  /** The staging root, as the host spells it. */
+  root: string;
+  /** The listed folder, "" for the root itself. */
+  path: string;
+  /** The folder above this one, "" for the root, null at the root. */
+  parent: string | null;
+  entries: StagingDirectoryEntry[];
+  /** True when the folder holds more sub-folders than the host lists. */
+  truncated: boolean;
+}
+
 /** The deployment-wide assurance policy. `configured` false means every
  *  value is a default nobody had to set. */
 export interface AssuranceSettings extends AssurancePolicy {
@@ -2525,6 +2630,9 @@ export interface AssuranceSettings extends AssurancePolicy {
   stagingTtlSeconds: number;
   maxConcurrentFullReads: number;
   maxPerDestination: number;
+  /** The engine's ceiling on browser downloads streamed at once (#1179).
+   *  Read only. 0 when the engine did not report one. */
+  maxDownloadStreams?: number;
   hostKnobs: AssuranceHostKnob[];
 }
 
@@ -2883,6 +2991,13 @@ export interface WorkflowValidation {
 export interface DestructiveOperations {
   state: "open" | "shut";
   reason: string;
+  /** Issue #1163: restores re-ask for the administrator's password. True only
+   *  where the gate is open for local accounts. */
+  stepUpRequired: boolean;
+  /** Issue #1163: the browser reached retnd over plain HTTP from another
+   *  machine (as the hop facing it judged), so the engine wants one more
+   *  acknowledgement, and a password is not sent before it is given. */
+  insecureTransportAckRequired: boolean;
 }
 
 /** GET /system/capabilities. */
@@ -3164,7 +3279,7 @@ export interface RetndApi {
    * and did not acknowledge it REJECTS with RECOVERY_COST_NOT_ACKNOWLEDGED
    * and starts nothing.
    */
-  mintRecovery(artifactId: string, req: RecoveryMintRequest): Promise<RecoveryMint>;
+  mintRecovery(artifactId: string, req: RecoveryMintRequest, opts?: StepUpOptions): Promise<RecoveryMint>;
   /**
    * Redeem a grant whose target is on the host (staging or storage). The
    * request stays open while the host re-reads the copy, matches it to the
@@ -3174,6 +3289,20 @@ export interface RetndApi {
    * the bytes never pass through this page's memory.
    */
   redeemRecovery(grant: string): Promise<RecoveryPlacement>;
+  /**
+   * Issue #1191: where a recovery of this set onto its own source host would
+   * write, from configuration alone. It never touches the network, so a
+   * dialog asks it on open. `folder` describes a named folder instead of a
+   * fresh one.
+   */
+  describeSourceHost(source: string, set: string, opts?: { folder?: string; signal?: AbortSignal }): Promise<SourceHostDescription>;
+  /**
+   * Issue #1191: check whether retnd may write on the source host, by writing
+   * and removing one probe file there. Only on the operator's say-so (the
+   * acknowledgement, or "Check write access"); the engine refuses it on a
+   * shut gate and caches its answer for five minutes.
+   */
+  checkSourceHostWrite(source: string, set: string, opts?: { folder?: string; signal?: AbortSignal }): Promise<SourceHostDescription>;
 
   /**
    * #1106, #1107: what recovering several backups, or a whole backup set, to
@@ -3190,7 +3319,7 @@ export interface RetndApi {
    * refusal before the run starts (the cost, the space, a bad destination)
    * REJECTS and starts nothing.
    */
-  recoverMany(req: RecoverManyRequest, opts?: { onProgress?: (p: RecoverManyProgress) => void; signal?: AbortSignal }): Promise<RecoverManyResult>;
+  recoverMany(req: RecoverManyRequest, opts?: { onProgress?: (p: RecoverManyProgress) => void; signal?: AbortSignal } & StepUpOptions): Promise<RecoverManyResult>;
 
   /**
    * EPIC Q (#980, issue #985): start a recovery test of this backup set now,
@@ -3782,6 +3911,9 @@ export interface RetndApi {
    *  is validated, persisted and hot-reloaded in one step, so every set
    *  that inherits the change decides under it on its next read. */
   getAssuranceSettings(): Promise<AssuranceSettings>;
+  /** The sub-folders of one folder under the staging root, for the folder
+   *  browser on "Under the staging root on this retnd host" (issue #1179). */
+  listStagingDirectories(path?: string): Promise<StagingDirectory>;
   patchAssuranceSettings(patch: AssuranceSettingsPatch): Promise<AssuranceSettings>;
   getBackupSetAssurance(source: string, set: string): Promise<BackupSetAssurance>;
   patchBackupSetAssurance(source: string, set: string, patch: BackupSetAssurancePatch): Promise<BackupSetAssurance>;

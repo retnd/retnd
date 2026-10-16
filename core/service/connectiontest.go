@@ -13,6 +13,7 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/discovery"
 	"github.com/retnd/retnd/core/internal/obs"
 	"github.com/retnd/retnd/core/internal/sourcecheck"
 	"github.com/retnd/retnd/core/internal/transport"
@@ -133,7 +134,7 @@ func (b *BackupService) runConnectionTest(ctx context.Context, id string, set *c
 			if err != nil {
 				return 0, err
 			}
-			return len(entries), nil
+			return listedCandidates(entries), nil
 		},
 		// The write probe (issue #852), over the SAME transport.Source
 		// the listing above uses, so what is proven is the access
@@ -620,4 +621,17 @@ func trustedHostKeys(path string) ([]sourcecheck.TrustedKey, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+// listedCandidates is how many listed objects discovery would look at: the
+// connection test's "N entries" leaves out what discovery skips in a folder
+// a source-host recovery created (#1193), so the two never disagree.
+func listedCandidates(entries []transport.RemoteArtifact) int {
+	n := 0
+	for _, e := range entries {
+		if !discovery.InRecoveredFolder(e.Path) {
+			n++
+		}
+	}
+	return n
 }

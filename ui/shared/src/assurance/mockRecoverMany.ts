@@ -113,12 +113,16 @@ export function createMockRecoverMany(scenario: string, rowsFor: (setId: string)
     const sets = new Set([...wanted].map((id) => id.split("/").slice(0, 2).join("/")));
     const all = [...sets].flatMap((s) => {
       const base = rowsFor(s);
-      return scenario.startsWith("assurance-set-") && s === "production/postgres-primary" ? historyRows(base) : base;
+      // #1191's source-host scenarios recover the same set history.
+      return (scenario.startsWith("assurance-set-") || scenario.startsWith("source-")) && s === "production/postgres-primary" ? historyRows(base) : base;
     });
     return all.filter((a) => wanted.has(a.id));
   };
 
   const folderOf = (req: RecoverManyRequest, items: RecoverManyItem[]) => {
+    // #1191: the source host is the set's own, so its files go straight into
+    // the one new folder, not under a per-set one.
+    if (req.target.kind === "source") return req.target.path || "retnd-recovered";
     const base = req.target.kind === "storage" ? (req.target.key || "recovered") : (req.target.path ?? "");
     const sets = new Set(items.map((i) => i.artifactId.split("/").slice(0, 2).join("/")));
     return sets.size === 1 ? base + "/" + [...sets][0] : base;

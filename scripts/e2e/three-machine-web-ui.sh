@@ -314,17 +314,17 @@
 #                    quiet: none of the variables above is set, so every
 #                    workflow case skips itself and says so.
 #
-# One thing this rig cannot give a browser, and says so rather than
-# leaving a suite to discover it as a timeout: a browser cannot START a
-# backup. POST /api/v1/operations run_backup_set is refused 403
-# DESTRUCTIVE_OPERATIONS_DISABLED on every deployment this repository
-# can build, because apps/common/webhost ships one DestructiveGate and
-# its own doc says nothing may flip it before #92. The SCHEDULER runs
-# the same cycle on a timer regardless, which gate.go states in as many
-# words, so the rig sets that timer to the product's own floor -- one
-# minute, config.MinPollInterval -- and hands it over as
-# RETND_WF_POLL_SECONDS. A spec watches for the run the timer produces
-# instead of asking for one.
+# One thing this rig does not lean on, and says so rather than leaving a
+# suite to discover it as a timeout: a browser starting a backup. POST
+# /api/v1/operations run_backup_set was refused 403
+# DESTRUCTIVE_OPERATIONS_DISABLED on every deployment until #1163 opened
+# the destructive gate for the local-account profiles, and it still is on
+# a gateway profile (#92), so a suite written for both cannot count on
+# it. The SCHEDULER runs the same cycle on a timer whatever the gate says,
+# which gate.go states in as many words, so the rig sets that timer to
+# the product's own floor (one minute, config.MinPollInterval) and hands
+# it over as RETND_WF_POLL_SECONDS. A spec watches for the run the timer
+# produces instead of asking for one.
 #
 # The exit status is the client container's, not the teardown's. A run that
 # tore down cleanly after a red suite is a red run.
@@ -711,9 +711,10 @@ engine_token_path="$engine_secrets_mount/$runner_token_name"
 runner_display="Host Workflow Runner"
 
 # How often the deployment polls, in seconds, and it is the product's own
-# floor (config.MinPollInterval): a browser cannot START a run -- the
-# destructive gate refuses one on every deployment this repository can
-# build (#92) -- so the runs a suite watches are the scheduler's, and
+# floor (config.MinPollInterval): a browser cannot be counted on to START
+# a run (the destructive gate refuses one on a gateway profile, #92, and
+# was shut everywhere until #1163), so the runs a suite watches are the
+# scheduler's, and
 # this is how long the longest of those waits can be. Handed to the
 # client so no spec has to hard-code a cadence the rig owns.
 wf_poll_seconds=60

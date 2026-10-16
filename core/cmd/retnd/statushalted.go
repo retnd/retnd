@@ -63,8 +63,9 @@ type statusReportJSON struct {
 func printStatusJSON(report health.Report) int {
 	out := statusReportJSON{
 		HealthResponse: apicontract.HealthResponse{
-			GeneratedAt: formatActivityTime(report.GeneratedAt),
-			BackupSets:  make([]apicontract.BackupSetHealth, 0, len(report.BackupSets)),
+			GeneratedAt:   formatActivityTime(report.GeneratedAt),
+			BackupSets:    make([]apicontract.BackupSetHealth, 0, len(report.BackupSets)),
+			RetainedCount: report.RetainedCount,
 		},
 		Process: statusProcess{
 			BinaryVersion: report.Process.BinaryVersion,

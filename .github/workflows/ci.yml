@@ -399,6 +399,12 @@ jobs:
         working-directory: ui/shared
         run: npm run lint
 
+      # `npm run lint` is tsc alone, so without this step an eslint error
+      # (a React hooks rule, say) reached main with every job green.
+      - name: Lint
+        working-directory: ui/shared
+        run: npm run eslint
+
       - name: Typecheck every provider frontend
         working-directory: ui/shared
         run: npm run typecheck:providers
@@ -770,6 +776,9 @@ jobs:
 
       - name: and a publish the release gate never passed is still refused
         run: bash scripts/tests/release-refuses-an-ungated-publish.test.sh
+
+      - name: and the release still moves the latest tag, only forwards (#1168)
+        run: bash scripts/tests/release-moves-latest.test.sh
 
       - name: a proof this runner could not perform still reads as incomplete
         run: bash scripts/tests/two-machine-ci-verdict.test.sh

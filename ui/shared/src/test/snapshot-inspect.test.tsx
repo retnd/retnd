@@ -206,11 +206,18 @@ describe("the snapshot inspector", () => {
     act(() => {
       screen.getByRole("button", { name: "Release hold hold_01J9Z6" }).click();
     });
+    // Releasing lifts a protection, so the dialog waits for an explicit tick
+    // (issue #1164) and sends it.
+    expect(screen.getByRole("button", { name: "Release hold" }).hasAttribute("disabled")).toBe(true);
+    act(() => {
+      screen.getByRole("checkbox", { name: /I understand/ }).click();
+    });
     act(() => {
       screen.getByRole("button", { name: "Release hold" }).click();
     });
 
     await waitFor(() => expect(release).toHaveBeenCalledTimes(1));
+    expect(release.mock.calls[0][0].acknowledged).toBe(true);
     expect(release.mock.calls[0][0].holdId).toBe("hold_01J9Z6");
     expect(release.mock.calls[0][0].idempotencyKey).toBeTruthy();
   });

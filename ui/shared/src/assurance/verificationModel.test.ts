@@ -58,7 +58,7 @@ describe("#1134 the facts of one backup", () => {
     await refreshAssuranceModel();
     const v = graph.read(factsNode).byArtifact[NEWEST].recoveryView;
     expect(v.label).toBe("Default configuration");
-    expect(v.link).toBe("/settings#assurance-defaults");
+    expect(v.link).toBe("/settings#assurance");
     expect(v.state).toBe("never_configured");
     expect(v.effective).toBe("Recovery tests are off, a manual run uses the built-in check");
   });
@@ -77,7 +77,7 @@ describe("#1134 the facts of one backup", () => {
     bindAssuranceSource(src);
     await refreshAssuranceModel();
     const v = graph.read(factsNode).byArtifact[NEWEST].recoveryView;
-    expect(v.label).toBe("This set's own policy");
+    expect(v.label).toBe("Custom configuration");
     expect(v.link).toBe("/sets/production/postgres-primary#assurance");
   });
 
@@ -228,7 +228,7 @@ describe("#1141 the one wording for a claim nobody has configured", () => {
     const facts = graph.read(factsNode).byArtifact;
     for (const id of [NEWEST]) {
       expect(facts[id].recoveryView.label).toBe("Default configuration");
-      expect(facts[id].recoveryView.link).toBe("/settings#assurance-defaults");
+      expect(facts[id].recoveryView.link).toBe("/settings#assurance");
       expect(facts[id].recoveryView.untested).toBe(NONE_RAN);
       expect(facts[id].recoveryView.basis).toBe("default");
     }
@@ -286,7 +286,7 @@ describe("#1141 the one wording for a claim nobody has configured", () => {
 
   it("#1141 a set with its own policy says that, links to its card, and says none has run", () => {
     const w = neverConfiguredWording("recovery", "own", { setId: SET, noRunYet: true });
-    expect(w).toEqual({ label: "This set's own policy", link: "/sets/production/postgres-primary#assurance", note: NONE_RAN });
+    expect(w).toEqual({ label: "Custom configuration", link: "/sets/production/postgres-primary#assurance", note: NONE_RAN });
   });
 });
 

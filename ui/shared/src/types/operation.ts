@@ -315,6 +315,13 @@ export interface SystemHealth {
    */
   readOnlyRetainedCount: number;
   /**
+   * How many backups the deployment holds outside quarantine, removed sets'
+   * included (issue #1186): GET /system/health's retained_count, the figure
+   * the sidebar's Backups badge reads. Null when the engine is too old to
+   * report it, which is "unknown" rather than zero.
+   */
+  retainedCount: number | null;
+  /**
    * The WORST per-set storage verdict, and how many sets could not be
    * measured at all. A max and a count, which is the whole of what the
    * per-set list can honestly be reduced to.

@@ -48,6 +48,27 @@
         "schema": {
           "type": "string"
         }
+      },
+      "StepUpPassword": {
+        "name": "X-Retnd-Step-Up-Password",
+        "in": "header",
+        "required": false,
+        "description": "The administrator's password, sent again by a restore, and by a recovery onto the source host (issue #1191), wherever capabilities report destructive_operations.step_up_required. A header and never a body field, so the request recorder cannot echo it. Never stored or logged.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "InsecureTransportAck": {
+        "name": "X-Retnd-Insecure-Transport-Ack",
+        "in": "header",
+        "required": false,
+        "description": "The value \"acknowledged\", sent by a gated act (including a recovery onto the source host, issue #1191) when capabilities report destructive_operations.insecure_transport_ack_required: the operator has been told this connection is not encrypted and the session is travelling in the clear.",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "acknowledged"
+          ]
+        }
       }
     },
     "schemas": {
@@ -89,6 +110,12 @@
           "SSH_KEY_NOT_FOUND",
           "HOST_KEY_PROBE_FAILED",
           "DESTRUCTIVE_OPERATIONS_DISABLED",
+          "STEP_UP_REQUIRED",
+          "STEP_UP_FAILED",
+          "STEP_UP_UNAVAILABLE",
+          "INSECURE_TRANSPORT_ACK_REQUIRED",
+          "RESTORE_TARGET_NOT_ACKNOWLEDGED",
+          "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED",
           "INTERNAL",
           "ALREADY_CONFIGURED",
           "NOT_CONFIGURED",
@@ -151,7 +178,15 @@
           "RECOVERY_FAILED",
           "RECOVERY_READS_BUSY",
           "RECOVERY_DESTINATION_BUSY",
-          "RECOVERY_DOWNLOADS_BUSY"
+          "RECOVERY_DOWNLOADS_BUSY",
+          "DIRECTORY_NOT_FOUND",
+          "DIRECTORY_NOT_READABLE",
+          "RECOVERY_SOURCE_HOST_UNAVAILABLE",
+          "RECOVERY_SOURCE_HOST_READ_ONLY",
+          "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED",
+          "RECOVERY_SOURCE_HOST_UNREACHABLE",
+          "RECOVERY_SOURCE_HOST_NO_SPACE",
+          "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE"
         ],
         "x-code-origins": {
           "authentication-failed": "ui",
@@ -250,7 +285,21 @@
           "RECOVERY_FAILED": "wire",
           "RECOVERY_READS_BUSY": "wire",
           "RECOVERY_DESTINATION_BUSY": "wire",
-          "RECOVERY_DOWNLOADS_BUSY": "wire"
+          "RECOVERY_DOWNLOADS_BUSY": "wire",
+          "DIRECTORY_NOT_FOUND": "wire",
+          "DIRECTORY_NOT_READABLE": "wire",
+          "STEP_UP_REQUIRED": "wire",
+          "STEP_UP_FAILED": "wire",
+          "STEP_UP_UNAVAILABLE": "wire",
+          "INSECURE_TRANSPORT_ACK_REQUIRED": "wire",
+          "RESTORE_TARGET_NOT_ACKNOWLEDGED": "wire",
+          "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED": "wire",
+          "RECOVERY_SOURCE_HOST_UNAVAILABLE": "wire",
+          "RECOVERY_SOURCE_HOST_READ_ONLY": "wire",
+          "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED": "wire",
+          "RECOVERY_SOURCE_HOST_UNREACHABLE": "wire",
+          "RECOVERY_SOURCE_HOST_NO_SPACE": "wire",
+          "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE": "wire"
         },
         "x-error-classes": {
           "authentication": [
@@ -264,7 +313,10 @@
             "DESTRUCTIVE_OPERATIONS_DISABLED",
             "CSRF_TOKEN_MISSING",
             "CSRF_TOKEN_MISMATCH",
-            "RECOVERY_GRANT_SESSION_ENDED"
+            "RECOVERY_GRANT_SESSION_ENDED",
+            "STEP_UP_REQUIRED",
+            "STEP_UP_FAILED",
+            "INSECURE_TRANSPORT_ACK_REQUIRED"
           ],
           "validation": [
             "INVALID_REQUEST",
@@ -309,7 +361,14 @@
             "RECOVERY_GRANT_EXPIRED",
             "RECOVERY_TARGET_EXISTS",
             "RECOVERY_USE_SNAPSHOT_RESTORE",
-            "RECOVERY_BUSY"
+            "RECOVERY_BUSY",
+            "DIRECTORY_NOT_READABLE",
+            "RESTORE_TARGET_NOT_ACKNOWLEDGED",
+            "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED",
+            "RECOVERY_SOURCE_HOST_UNAVAILABLE",
+            "RECOVERY_SOURCE_HOST_READ_ONLY",
+            "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED",
+            "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE"
           ],
           "not-found": [
             "BACKUP_SET_NOT_FOUND",
@@ -324,7 +383,8 @@
             "WORKFLOW_RUN_NOT_FOUND",
             "WORKFLOW_STEP_NOT_FOUND",
             "RECOVERY_COPY_NOT_FOUND",
-            "RECOVERY_GRANT_UNKNOWN"
+            "RECOVERY_GRANT_UNKNOWN",
+            "DIRECTORY_NOT_FOUND"
           ],
           "throttling": [
             "RATE_LIMITED",
@@ -340,14 +400,17 @@
             "RECOVERY_REMOTE_COPY_CORRUPT",
             "RECOVERY_NO_SPACE",
             "RECOVERY_BELOW_RESERVE",
-            "RECOVERY_FAILED"
+            "RECOVERY_FAILED",
+            "RECOVERY_SOURCE_HOST_NO_SPACE"
           ],
           "unavailable": [
             "NOT_CONFIGURED",
             "SMTP_SEND_FAILED",
             "WORKFLOW_ENGINE_UNAVAILABLE",
             "RECOVERY_UNAVAILABLE",
-            "RECOVERY_INTERRUPTED"
+            "RECOVERY_INTERRUPTED",
+            "STEP_UP_UNAVAILABLE",
+            "RECOVERY_SOURCE_HOST_UNREACHABLE"
           ]
         }
       },
@@ -558,7 +621,7 @@
       },
       "DestructiveOperationsStatus": {
         "type": "object",
-        "description": "Whether this deployment's destructive gate is open, and why it is not when it is not (issue #1165). The gate is the one the routes marked x-destructive-gate ask before they act, and the state here is read from that same gate at the moment of the request, so it can change while the process runs. The CLI is not behind it: the terminal verbs the gated routes have equivalents for run with no gate.",
+        "description": "Whether this deployment's destructive gate is open, and why it is not when it is not (issue #1165). The gate is the one the routes marked x-destructive-gate ask before they act, and the one the recovery routes marked x-destructive-gate-target-kinds ask for a recovery onto the source host (issue #1191), and the state here is read from that same gate at the moment of the request, so it can change while the process runs. It is open on a local-account profile and shut on a gateway profile until #92 ships a verified gate (issue #1163). step_up_required and insecure_transport_ack_required say what an open gate still asks for, read from what the router will enforce rather than assumed. The CLI is not behind the gate: the terminal verbs the gated routes have equivalents for run with no gate.",
         "additionalProperties": false,
         "properties": {
           "state": {
@@ -571,12 +634,22 @@
           },
           "reason": {
             "type": "string",
-            "description": "A short reason for a shut gate, such as \"gate shut until #92\". Always present, and empty when the gate is open."
+            "description": "A short reason for a shut gate, such as \"gateway profile: its identity is a header this build cannot verify, so the gate stays shut until #92\". Always present, and empty when the gate is open."
+          },
+          "step_up_required": {
+            "type": "boolean",
+            "description": "True when the gate is open and a restore (restore_placement or restore_snapshot), and a recovery onto the source host (issue #1191), must carry the administrator's password again in the X-Retnd-Step-Up-Password header. False when the gate is shut, because nothing will run, and false for a gate that asks for no re-authentication."
+          },
+          "insecure_transport_ack_required": {
+            "type": "boolean",
+            "description": "True when the gate is open and the browser that asked reached retnd over plain HTTP from another machine: a gated act then also needs X-Retnd-Insecure-Transport-Ack: acknowledged. Decided at the hop that faces the browser: serve-ui stamps its verdict on every request it proxies, because the engine behind it only ever sees serve-ui. Computed from the request that asked, so GET /system/capabilities is answered Cache-Control: no-store."
           }
         },
         "required": [
           "state",
-          "reason"
+          "reason",
+          "step_up_required",
+          "insecure_transport_ack_required"
         ]
       },
       "StorageStatus": {
@@ -1227,7 +1300,7 @@
             "properties": {
               "run_immediately": {
                 "type": "boolean",
-                "description": "Also submit a run_cycle. This branch, and only this branch, is subject to the destructive gate, and every build of this release refuses it until issue #92 ships a verified gate: the backup set is still created, the response is 201, no run starts, and run_error carries the refusal. Start the first run from a terminal with `retnd fetch --backup-set <source/backup-set>`, after stopping the web service."
+                "description": "Also submit a run_cycle. This branch, and only this branch, is subject to the destructive gate. It runs on a local-account profile, where the gate is open (issue #1163); on a gateway profile the gate is shut until issue #92 ships a verified gate, and over a connection that needs the insecure-transport acknowledgement it is refused without it. When it is refused the backup set is still created, the response is 201, no run starts, and run_error carries the refusal. Start the first run from a terminal with `retnd fetch --backup-set <source/backup-set>`, after stopping the web service."
               },
               "acknowledge_repoint": {
                 "type": "boolean",
@@ -3066,11 +3139,17 @@
             "items": {
               "$ref": "#/components/schemas/BackupSetHealth"
             }
+          },
+          "retained_count": {
+            "type": "integer",
+            "description": "How many backups this deployment holds outside quarantine (issue #1186): every backup GET /backups lists except the QUARANTINED and QUARANTINED_LOST ones, which the quarantine count already covers. In-flight and failed backups count, and so do the backups of a backup set whose configuration was removed, since they stay on storage and on that list. This is the figure the console's sidebar Backups badge reads, so it costs no extra request; `retnd artifacts --count` prints the same number. Zero is a real reading, so it is always present.",
+            "format": "int32"
           }
         },
         "required": [
           "generated_at",
-          "backup_sets"
+          "backup_sets",
+          "retained_count"
         ]
       },
       "CatalogFailure": {
@@ -3794,7 +3873,7 @@
           },
           "acknowledged": {
             "type": "boolean",
-            "description": "The operator saying, in one field, that they know a restore costs money and takes hours. Required true. It is the opposite of a force flag: the value that costs nothing is the default, so a caller that forgot to ask a human gets a refusal rather than a bill."
+            "description": "The operator saying, in one field, that they know a restore costs money and takes hours. Required true. It is the opposite of a force flag: the value that costs nothing is the default, so a caller that forgot to ask a human gets a refusal rather than a bill. Where the destructive gate opens for local accounts (issue #1163) this one field is also the restore's consent there: it is checked before the administrator's password is asked for, and refused with 409 RECOVERY_COST_NOT_ACKNOWLEDGED. A thaw writes into no directory, so there is no second consent to give."
           }
         },
         "required": [
@@ -5649,6 +5728,11 @@
               "overwrite"
             ],
             "x-go-omitempty": true
+          },
+          "acknowledged": {
+            "type": "boolean",
+            "description": "The operator saying they understand this writes into target_path. Required to be true wherever the destructive gate is open for local accounts (issue #1163); the request is refused with 409 RESTORE_TARGET_NOT_ACKNOWLEDGED otherwise.",
+            "x-go-omitempty": true
           }
         },
         "required": [
@@ -5711,7 +5795,7 @@
       },
       "SnapshotHoldReleaseRequest": {
         "type": "object",
-        "description": "POST /operations' parameters when the action is release_snapshot_hold: end one hold, by its id. Releasing does not delete anything; it returns the snapshot to whatever the retention policy already said about it.",
+        "description": "POST /operations' parameters when the action is release_snapshot_hold: end one hold, by its id. Releasing does not delete anything; it returns the snapshot to whatever the retention policy already said about it. Releasing makes the snapshot prunable by the next retention run, so it needs the operator's explicit acknowledgement (issue #1164).",
         "additionalProperties": false,
         "properties": {
           "backup_set_id": {
@@ -5721,11 +5805,16 @@
           "hold_id": {
             "type": "string",
             "description": "The hold to release, as GET /backup-sets/{source}/{set}/holds reports it."
+          },
+          "acknowledged": {
+            "type": "boolean",
+            "description": "Must be true. The operator saying they understand that releasing this hold lets the next retention run prune the snapshot. Refused with 409 SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED otherwise."
           }
         },
         "required": [
           "backup_set_id",
-          "hold_id"
+          "hold_id",
+          "acknowledged"
         ]
       },
       "WorkflowSecretReference": {
@@ -6682,20 +6771,21 @@
       "RecoveryTarget": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Where one recovery writes its bytes. The set is closed: download streams to the caller that redeems the grant, staging places one file under the configured recovery staging root, storage uploads to another configured storage destination. A staging or storage target is written only after the whole copy has been read and has matched the SHA-256 the journal recorded. A download is not staged: it is refused before its first byte unless a read of the whole copy has matched that digest, and each chunk is checked again as it is sent.",
+        "description": "Where one recovery writes its bytes. The set is closed: download streams to the caller that redeems the grant, staging places one file under the configured recovery staging root, storage uploads to another configured storage destination. A staging or storage target is written only after the whole copy has been read and has matched the SHA-256 the journal recorded. A download is not staged: it is refused before its first byte unless a read of the whole copy has matched that digest, and each chunk is checked again as it is sent. source (issue #1191) uploads back onto the backup set's own SFTP source host, built from the set's configuration and never from the request, into a new folder under its remote path, under a temporary name renamed into place so nothing there is ever replaced. It writes onto a production machine, so it needs acknowledged_destination, and over HTTP it goes through the destructive gate, the insecure-transport acknowledgement and the step-up re-authentication (x-destructive-gate-target-kinds).",
         "properties": {
           "kind": {
             "type": "string",
             "enum": [
               "download",
               "staging",
-              "storage"
+              "storage",
+              "source"
             ]
           },
           "path": {
             "type": "string",
             "x-go-omitempty": true,
-            "description": "For staging: the name to place the recovered file under, relative to the recovery staging root. It may name subdirectories, may not leave the root and may not pass through a symlink. The file is placed under a unique name so nothing is ever replaced."
+            "description": "For staging: the name to place the recovered file under, relative to the recovery staging root. It may name subdirectories, may not leave the root and may not pass through a symlink. The file is placed under a unique name so nothing is ever replaced. For source: the new folder under the set's remote path, one segment of letters, digits, '.', '_' and '-' starting with retnd-recovered- and not ending in a dot. Omitted, a new retnd-recovered-<date>-<time>-<4 hex> folder. An existing folder is refused, never written into."
           },
           "medium": {
             "type": "string",
@@ -6706,6 +6796,11 @@
             "type": "string",
             "x-go-omitempty": true,
             "description": "For storage: the object key. Defaults to recovered/<artifact id>. An existing object is never replaced."
+          },
+          "acknowledged_destination": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "For source: the destination_id GET /backup-sets/{source}/{set}/source-host returned for exactly this host, account, remote path and folder, echoed back as the yes to writing there (issue #1191). The engine works the id out again from its own configuration when the recovery is asked for and before every file it uploads, and refuses with RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED when it is missing or no longer matches, naming what changed. Only ever sent: a response never echoes it, and says destination_id and url instead."
           }
         },
         "required": [
@@ -6779,6 +6874,16 @@
             "x-go-omitempty": true,
             "x-go-pointer": true,
             "description": "Present instead of a grant when a provider restore was started."
+          },
+          "destination_id": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "For a source target (issue #1191): the id of the destination this grant writes into, the value a request acknowledges with."
+          },
+          "url": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "For a source target: sftp://user@host[:port]/remote_path/folder/, the folder this grant writes into."
           }
         },
         "required": [
@@ -6840,6 +6945,25 @@
           "sha256": {
             "type": "string",
             "description": "The digest of the bytes placed, equal to the digest the journal recorded."
+          },
+          "destination_id": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "For a source target (issue #1191): the id of the destination the file was written to, the value a request acknowledges with."
+          },
+          "url": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "For a source target: sftp://user@host[:port]/remote_path/folder/, the folder the file was written to."
+          },
+          "verified": {
+            "type": "string",
+            "enum": [
+              "sha256",
+              "size"
+            ],
+            "x-go-omitempty": true,
+            "description": "For a source target: how the placed file was checked against what was sent. sha256 is the host's own digest of the file, compared with the recorded one; size is used where the host cannot compute a digest, and then only the length is known to match."
           }
         },
         "required": [
@@ -6982,6 +7106,15 @@
             "x-go-omitempty": true,
             "x-go-pointer": true,
             "description": "Present when a provider restore was started for this file."
+          },
+          "verified": {
+            "type": "string",
+            "enum": [
+              "sha256",
+              "size"
+            ],
+            "x-go-omitempty": true,
+            "description": "For a source target: how the placed file was checked against what was sent. sha256 is the host's own digest of the file, compared with the recorded one; size is used where the host cannot compute a digest, and then only the length is known to match."
           }
         },
         "required": [
@@ -7088,6 +7221,29 @@
             "x-go-omitempty": true,
             "x-go-pointer": true,
             "description": "Present on a pre-flight answer when the run itself would be refused (the cost is not acknowledged, the files do not fit): the code and message the run would be refused with, which carry the numbers. The plan beside it is the same one the refusal is about. A run that is not a pre-flight is refused with an error response instead."
+          },
+          "destination_id": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "For a source target (issue #1191): the id of the destination the run would write into, the value a request acknowledges with."
+          },
+          "url": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "For a source target: sftp://user@host[:port]/remote_path/folder/, the folder the run would write into."
+          },
+          "source_free_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "x-go-omitempty": true,
+            "x-go-pointer": true,
+            "description": "For a source target: free bytes on the source host's volume under the set's remote path (statvfs@openssh.com). Absent when the host cannot say, which the dialog says in words rather than treating as room."
+          },
+          "source_reserve_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "x-go-omitempty": true,
+            "description": "For a source target: the space the run leaves free on the source host. A run whose bytes do not fit in source_free_bytes minus this is refused with RECOVERY_SOURCE_HOST_NO_SPACE before anything is read."
           }
         },
         "required": [
@@ -7145,6 +7301,16 @@
           "manifest_sha256": {
             "type": "string",
             "x-go-omitempty": true
+          },
+          "destination_id": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "For a source target (issue #1191): the id of the destination the run wrote into, the value a request acknowledges with."
+          },
+          "url": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "For a source target: sftp://user@host[:port]/remote_path/folder/, the folder the run wrote into."
           }
         },
         "required": [
@@ -7362,6 +7528,11 @@
               "$ref": "#/components/schemas/AssuranceHostKnob"
             },
             "description": "The four host-scoped settings and the staging root, each with its written 'no' for a per-set override."
+          },
+          "max_download_streams": {
+            "type": "integer",
+            "description": "The ceiling on browser downloads this process streams at once, as the engine runs it (the platform's limit where it sets one, the engine's default otherwise). Read only: it is the host's, not a setting. A page offering several downloads at once offers no more than this.",
+            "format": "int64"
           }
         }
       },
@@ -7530,6 +7701,65 @@
           "backup_set_id",
           "operation_id",
           "coalesced"
+        ]
+      },
+      "StagingDirectoryEntry": {
+        "type": "object",
+        "description": "One sub-folder of a listed folder.",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The folder's own name."
+          },
+          "path": {
+            "type": "string",
+            "description": "Its name relative to the root: the value a staging target takes."
+          }
+        },
+        "required": [
+          "name",
+          "path"
+        ]
+      },
+      "StagingDirectoryResponse": {
+        "type": "object",
+        "description": "GET /system/staging-directories. One folder under the staging root: its sub-folders by name, relative to the root.",
+        "additionalProperties": false,
+        "properties": {
+          "root": {
+            "type": "string",
+            "description": "The staging root, as the host spells it (GET /settings/assurance reports the same)."
+          },
+          "path": {
+            "type": "string",
+            "description": "The listed folder relative to the root, empty for the root itself."
+          },
+          "parent": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The folder above this one relative to the root (empty when that is the root itself), and null at the root."
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StagingDirectoryEntry"
+            },
+            "description": "The real sub-folders, sorted by name. Files and symbolic links are never listed."
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True when the folder holds more sub-folders than are listed (at most 1000 are)."
+          }
+        },
+        "required": [
+          "root",
+          "path",
+          "parent",
+          "entries",
+          "truncated"
         ]
       },
       "AssuranceDueItem": {
@@ -8059,6 +8289,107 @@
           "bytes_read",
           "sets"
         ]
+      },
+      "SourceHostDescription": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Where a recovery of one backup set onto its own source host (issue #1191) would write, built from the set's configuration alone, and what the last write check found. Reading it never touches the network; the write check is a separate POST that runs only when the operator asks for it.",
+        "properties": {
+          "set_id": {
+            "type": "string",
+            "description": "The backup set, source/set."
+          },
+          "available": {
+            "type": "boolean",
+            "description": "Whether this set has a source host to send a backup back to: an SFTP source and a non-incremental set."
+          },
+          "reason": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "Why there is none, when available is false."
+          },
+          "host": {
+            "type": "string",
+            "x-go-omitempty": true
+          },
+          "port": {
+            "type": "integer",
+            "x-go-omitempty": true
+          },
+          "user": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The account the set pulls with, which is the one that would write."
+          },
+          "remote_path": {
+            "type": "string",
+            "x-go-omitempty": true
+          },
+          "folder": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The new folder this description is for: the folder query parameter, or a fresh retnd-recovered-<date>-<time>-<4 hex> name."
+          },
+          "url": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "sftp://user@host[:port]/remote_path/folder/, exactly as the engine will write it."
+          },
+          "destination_id": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "A digest of host, port, account, remote path, folder and the host-key file this set trusts. A recovery acknowledges this destination by sending it back as target.acknowledged_destination."
+          },
+          "read_only": {
+            "type": "boolean",
+            "x-go-omitempty": true,
+            "description": "The set is declared read_only: retnd never writes there and never probes it."
+          },
+          "write_access": {
+            "type": "string",
+            "enum": [
+              "not_checked",
+              "writable",
+              "read_only",
+              "unreachable",
+              "probe_left_file"
+            ],
+            "description": "What the last write check found. not_checked: nobody has asked in the last five minutes. writable: a probe file was written, removed and confirmed gone. read_only: the account may not write there, or the set is declared read_only. unreachable: the host did not answer, which is worth trying again. probe_left_file: a probe file was written and could not be removed, so retnd treats the host as not writable (the connection test does too) and does not probe it again until left_file is gone."
+          },
+          "code": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "A stable code for write_access read_only, unreachable or probe_left_file: RECOVERY_SOURCE_HOST_READ_ONLY, RECOVERY_SOURCE_HOST_UNREACHABLE or RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE."
+          },
+          "detail": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "The sentence that goes with write_access."
+          },
+          "checked_at": {
+            "type": "string",
+            "format": "date-time",
+            "x-go-omitempty": true,
+            "description": "When the write check whose answer this is ran."
+          },
+          "left_file": {
+            "type": "string",
+            "x-go-omitempty": true,
+            "description": "For probe_left_file: the full path of the probe file to delete on the host."
+          },
+          "free_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "x-go-omitempty": true,
+            "x-go-pointer": true,
+            "description": "Free bytes on the volume under remote_path, when the write check could ask (statvfs@openssh.com). Absent when nobody asked or the host cannot say."
+          }
+        },
+        "required": [
+          "set_id",
+          "available",
+          "write_access"
+        ]
       }
     },
     "responses": {}
@@ -8226,7 +8557,7 @@
       "post": {
         "operationId": "submitOperation",
         "summary": "Submit a durable operation: a run cycle, one backup set's run, a restore of one archived copy, or one of the incremental engine's four acts (restore a snapshot, verify one, hold one, release a hold).",
-        "description": "In every build of this release this route refuses every action with 403 DESTRUCTIVE_OPERATIONS_DISABLED: the destructive gate is shut until issue #92 ships a verified gate, and retnd-web has no setting that opens it. Nothing here can be retried into working. The same acts run from a terminal on the host, where no gate applies: `retnd run` and `retnd fetch --backup-set` for run_cycle and run_backup_set (both refuse while the web service is serving the deployment, so stop the web service first), `retnd restore` for restore_placement, and `retnd snapshot restore`, `retnd snapshot verify`, `retnd snapshot hold` and `retnd snapshot unhold` for the four snapshot acts.",
+        "description": "The destructive gate applies per action. The actions verify_snapshot, hold_snapshot and release_snapshot_hold are NOT behind it (issue #1164) and work on every profile: verify only reads, and a hold only protects a snapshot from pruning. The release_snapshot_hold action lifts that protection, so its parameters must carry acknowledged: true, refused with 409 SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED otherwise; this is new in 0.7.0 and a client that released holds before must start sending it. Every other action is gated. On a local-account profile the gate is open (issue #1163): run_cycle and run_backup_set run, and a restore (restore_placement, restore_snapshot) additionally needs acknowledged: true in its parameters and the administrator's password in the X-Retnd-Step-Up-Password header. The acknowledgement is asked first and is per action: restore_snapshot's says it writes into target_path (409 RESTORE_TARGET_NOT_ACKNOWLEDGED), and restore_placement's is the one its restore.acknowledged always carried, that a thaw costs money and takes hours (409 RECOVERY_COST_NOT_ACKNOWLEDGED), since a thaw writes into no directory. Then the password: 403 STEP_UP_REQUIRED or STEP_UP_FAILED, 429 RATE_LIMITED with Retry-After when too many were checked in the last minute, and 503 STEP_UP_UNAVAILABLE where the deployment cannot check one. When the browser reached retnd over plain HTTP from another machine, a gated act also needs X-Retnd-Insecure-Transport-Ack: acknowledged, refused with 403 INSECURE_TRANSPORT_ACK_REQUIRED otherwise. That is a consent prompt, not an access control: it makes sure the operator was told, and the hop facing the browser (serve-ui in every shipped deployment) decides it. On a gateway profile the gate stays shut until #92 ships a verified gate: every gated action is refused with 403 DESTRUCTIVE_OPERATIONS_DISABLED, retnd-web has no setting that opens it, and the same acts run from a terminal on the host, where no gate applies: `retnd run` and `retnd fetch --backup-set` for run_cycle and run_backup_set (both refuse while the web service is serving the deployment, so stop the web service first), `retnd restore` for restore_placement, and `retnd snapshot restore` for restore_snapshot. An action that cannot be read plainly out of the body (a duplicate or non-string action key) is gated, never exempt. GET /system/capabilities reports which case a deployment is in.",
         "tags": [
           "operations"
         ],
@@ -8240,6 +8571,12 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/IdempotencyKey"
+          },
+          {
+            "$ref": "#/components/parameters/StepUpPassword"
+          },
+          {
+            "$ref": "#/components/parameters/InsecureTransportAck"
           }
         ],
         "requestBody": {
@@ -8291,7 +8628,7 @@
             ]
           },
           "403": {
-            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, DESTRUCTIVE_OPERATIONS_DISABLED.",
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, DESTRUCTIVE_OPERATIONS_DISABLED, STEP_UP_REQUIRED, STEP_UP_FAILED, INSECURE_TRANSPORT_ACK_REQUIRED.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8302,7 +8639,10 @@
             "x-error-codes": [
               "CSRF_TOKEN_MISSING",
               "CSRF_TOKEN_MISMATCH",
-              "DESTRUCTIVE_OPERATIONS_DISABLED"
+              "DESTRUCTIVE_OPERATIONS_DISABLED",
+              "STEP_UP_REQUIRED",
+              "STEP_UP_FAILED",
+              "INSECURE_TRANSPORT_ACK_REQUIRED"
             ]
           },
           "404": {
@@ -8323,7 +8663,7 @@
             ]
           },
           "409": {
-            "description": "Refused: CONFIG_REVISION_STALE, IDEMPOTENCY_KEY_CONFLICT, OPERATION_ALREADY_RUNNING, BACKUP_SET_HELD_FOR_EDITING, RESTORE_REFUSED, SNAPSHOT_NOT_HOLDABLE. The body is one of two shapes and the code decides which: CONFIG_REVISION_STALE carries the structured config_revision a client retries against, the others are the plain error envelope. oneOf rather than one schema with an optional config_revision, so a client reading .config_revision after a CONFIG_REVISION_STALE still gets a field the type system guarantees is there. SNAPSHOT_NOT_HOLDABLE is the state of the snapshot rather than of the request: the run committed no manifest, or its snapshot is already gone, already being deleted, or not in the repository at all, so a hold accepted now would protect nothing. Nothing about the body would make it work, which is why it is not an INVALID_REQUEST. Refused: INCREMENTAL_ENGINE_DISABLED. EPIC K's production feature gate (#789): this DEPLOYMENT is configured not to run the incremental engine, so nothing here may open a repository. It is distinct from BACKUP_SET_NOT_INCREMENTAL, which is about the SET being the wrong kind: this one is answered by enabling incremental_engine.enabled in the deployment's configuration (or RETND_INCREMENTAL_ENGINE=1 in the engine process's environment), never by changing the request. Artifact backup sets are unaffected by it.",
+            "description": "Refused: CONFIG_REVISION_STALE, IDEMPOTENCY_KEY_CONFLICT, OPERATION_ALREADY_RUNNING, BACKUP_SET_HELD_FOR_EDITING, RESTORE_REFUSED, SNAPSHOT_NOT_HOLDABLE. The body is one of two shapes and the code decides which: CONFIG_REVISION_STALE carries the structured config_revision a client retries against, the others are the plain error envelope. oneOf rather than one schema with an optional config_revision, so a client reading .config_revision after a CONFIG_REVISION_STALE still gets a field the type system guarantees is there. SNAPSHOT_NOT_HOLDABLE is the state of the snapshot rather than of the request: the run committed no manifest, or its snapshot is already gone, already being deleted, or not in the repository at all, so a hold accepted now would protect nothing. Nothing about the body would make it work, which is why it is not an INVALID_REQUEST. Refused: INCREMENTAL_ENGINE_DISABLED. EPIC K's production feature gate (#789): this DEPLOYMENT is configured not to run the incremental engine, so nothing here may open a repository. It is distinct from BACKUP_SET_NOT_INCREMENTAL, which is about the SET being the wrong kind: this one is answered by enabling incremental_engine.enabled in the deployment's configuration (or RETND_INCREMENTAL_ENGINE=1 in the engine process's environment), never by changing the request. Artifact backup sets are unaffected by it. Refused: RESTORE_TARGET_NOT_ACKNOWLEDGED, RECOVERY_COST_NOT_ACKNOWLEDGED, SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED. Consent refusals, each named for what was not acknowledged, like the other *_NOT_ACKNOWLEDGED codes: a restore_snapshot that did not acknowledge writing into its target_path, a restore_placement that did not acknowledge its retrieval cost (asked before the password where the gate opens for local accounts), and a release_snapshot_hold that did not acknowledge the snapshot becoming prunable (asked on every profile).",
             "content": {
               "application/json": {
                 "schema": {
@@ -8345,7 +8685,23 @@
               "BACKUP_SET_HELD_FOR_EDITING",
               "RESTORE_REFUSED",
               "SNAPSHOT_NOT_HOLDABLE",
-              "INCREMENTAL_ENGINE_DISABLED"
+              "INCREMENTAL_ENGINE_DISABLED",
+              "RESTORE_TARGET_NOT_ACKNOWLEDGED",
+              "RECOVERY_COST_NOT_ACKNOWLEDGED",
+              "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED"
+            ]
+          },
+          "429": {
+            "description": "Refused: RATE_LIMITED. Too many password checks for restores were asked for in the last minute, the right password included, so this one was refused without the password being looked at. Retry-After says how many seconds until the next check is allowed. It is not STEP_UP_FAILED: trying again at once keeps the limit tripped.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RATE_LIMITED"
             ]
           },
           "500": {
@@ -8362,7 +8718,7 @@
             ]
           },
           "503": {
-            "description": "Refused: RESTORE_UNAVAILABLE. This deployment has no way to reach a storage medium, so no restore can be asked for. Nothing about the request would make it work; something about the deployment has to change first.",
+            "description": "Refused: RESTORE_UNAVAILABLE. This deployment has no way to reach a storage medium, so no restore can be asked for. Nothing about the request would make it work; something about the deployment has to change first. Refused: STEP_UP_UNAVAILABLE. Where the gate opens for local accounts a restore re-checks the administrator's password, and this deployment has nothing to check it with, so restores fail closed. Like RESTORE_UNAVAILABLE, it is the deployment and not the request; run `retnd snapshot restore` on the host instead.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8371,7 +8727,8 @@
               }
             },
             "x-error-codes": [
-              "RESTORE_UNAVAILABLE"
+              "RESTORE_UNAVAILABLE",
+              "STEP_UP_UNAVAILABLE"
             ]
           }
         },
@@ -8379,7 +8736,12 @@
         "x-idempotency-key": "required",
         "x-optimistic-concurrency": "config_revision",
         "x-csrf-required": true,
-        "x-authenticated": true
+        "x-authenticated": true,
+        "x-destructive-gate-exempt-actions": [
+          "verify_snapshot",
+          "hold_snapshot",
+          "release_snapshot_hold"
+        ]
       },
       "get": {
         "operationId": "listOperations",
@@ -8648,7 +9010,7 @@
       "post": {
         "operationId": "applyRetention",
         "summary": "Apply a plan the operator already approved, by id. The one operation in this contract that deletes local restore points.",
-        "description": "In every build of this release this route refuses with 403 DESTRUCTIVE_OPERATIONS_DISABLED: the destructive gate is shut until issue #92 ships a verified gate, and retnd-web has no setting that opens it. The terminal does the same work with no gate: `retnd retention apply <source/backup-set> --acknowledge` previews and applies in one invocation.",
+        "description": "The destructive gate is open on a local-account profile (issue #1163) and shut on a gateway profile until #92 ships a verified gate, where this route refuses with 403 DESTRUCTIVE_OPERATIONS_DISABLED and retnd-web has no setting that opens it. Where it is open the request still carries the plan_id the operator reviewed; when the session cookie cannot be Secure on this connection and the peer is not loopback it also needs X-Retnd-Insecure-Transport-Ack: acknowledged, refused with 403 INSECURE_TRANSPORT_ACK_REQUIRED otherwise. The terminal does the same work with no gate: `retnd retention apply <source/backup-set> --acknowledge` previews and applies in one invocation.",
         "tags": [
           "retention"
         ],
@@ -8675,6 +9037,9 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "$ref": "#/components/parameters/InsecureTransportAck"
           }
         ],
         "requestBody": {
@@ -8725,7 +9090,7 @@
             ]
           },
           "403": {
-            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, DESTRUCTIVE_OPERATIONS_DISABLED.",
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, DESTRUCTIVE_OPERATIONS_DISABLED, INSECURE_TRANSPORT_ACK_REQUIRED.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8736,7 +9101,8 @@
             "x-error-codes": [
               "CSRF_TOKEN_MISSING",
               "CSRF_TOKEN_MISMATCH",
-              "DESTRUCTIVE_OPERATIONS_DISABLED"
+              "DESTRUCTIVE_OPERATIONS_DISABLED",
+              "INSECURE_TRANSPORT_ACK_REQUIRED"
             ]
           },
           "404": {
@@ -10913,6 +11279,139 @@
         "x-idempotency-key": "none",
         "x-optimistic-concurrency": null,
         "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/system/staging-directories": {
+      "get": {
+        "operationId": "listStagingDirectories",
+        "summary": "The sub-folders of one folder under the recovery staging root, for the folder browser on a staging target. A read of the machine the engine runs on, so read-only (this resource has no write verb), confined to that one root (which is why it is named for it), and never through a symbolic link. Names are relative to the root. One listing reads at most a fixed number of entries and runs under a deadline.",
+        "tags": [
+          "system"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The folder to list, relative to the staging root: no leading slash, no empty, . or .. segment. Omitted or empty means the root itself."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StagingDirectoryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. The name is not a folder name under the root: absolute, climbing, malformed (not UTF-8, a control character or a backslash) or through a symbolic link. The message names no path of the host's.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "404": {
+            "description": "Refused: DIRECTORY_NOT_FOUND. The name is well formed and there is no folder by it under the root (it was never there, was removed, or is a file). A page browsing the folders steps back up a level.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "DIRECTORY_NOT_FOUND"
+            ]
+          },
+          "409": {
+            "description": "Refused: DIRECTORY_NOT_READABLE. The folder is there and the host may not read it, or could not (an I/O error). The message names no path of the host's.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "DIRECTORY_NOT_READABLE"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "501": {
+            "description": "Refused: RECOVERY_UNAVAILABLE.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_UNAVAILABLE"
+            ]
+          },
+          "503": {
+            "description": "Refused: RECOVERY_UNAVAILABLE. This deployment has no staging root it would use (none, or one that fails the custody check, which is made again on every listing), or the listing ran past its deadline.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_UNAVAILABLE"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
         "x-authenticated": true
       }
     },
@@ -17573,6 +18072,12 @@
               "type": "string"
             },
             "description": "The backup's own name within that backup set. A backup's identity is exactly source/set/name, and a name never contains a separator, which is why this route declares three parameters rather than taking one value and splitting it."
+          },
+          {
+            "$ref": "#/components/parameters/StepUpPassword"
+          },
+          {
+            "$ref": "#/components/parameters/InsecureTransportAck"
           }
         ],
         "requestBody": {
@@ -17634,7 +18139,7 @@
             ]
           },
           "403": {
-            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, DESTRUCTIVE_OPERATIONS_DISABLED, INSECURE_TRANSPORT_ACK_REQUIRED, STEP_UP_REQUIRED, STEP_UP_FAILED. A source target (issue #1191) alone is refused here when the destructive gate is shut, when plain HTTP from another machine was not acknowledged, or when the step-up password is missing or wrong.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17644,7 +18149,11 @@
             },
             "x-error-codes": [
               "CSRF_TOKEN_MISSING",
-              "CSRF_TOKEN_MISMATCH"
+              "CSRF_TOKEN_MISMATCH",
+              "DESTRUCTIVE_OPERATIONS_DISABLED",
+              "INSECURE_TRANSPORT_ACK_REQUIRED",
+              "STEP_UP_REQUIRED",
+              "STEP_UP_FAILED"
             ]
           },
           "404": {
@@ -17662,7 +18171,7 @@
             ]
           },
           "409": {
-            "description": "Refused: RECOVERY_COST_NOT_ACKNOWLEDGED, RECOVERY_NO_COPY, RECOVERY_NOT_READABLE, RECOVERY_NO_DIGEST, RECOVERY_USE_SNAPSHOT_RESTORE. The first names the cost and starts nothing. The last is a backup set stored by the kopia engine, whose backups are restore points: use `retnd snapshot restore`.",
+            "description": "Refused: RECOVERY_COST_NOT_ACKNOWLEDGED, RECOVERY_NO_COPY, RECOVERY_NOT_READABLE, RECOVERY_NO_DIGEST, RECOVERY_USE_SNAPSHOT_RESTORE, RECOVERY_SOURCE_HOST_UNAVAILABLE, RECOVERY_SOURCE_HOST_READ_ONLY, RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED. The first names the cost and starts nothing. The last is a backup set stored by the kopia engine, whose backups are restore points: use `retnd snapshot restore`. RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED is a source target (issue #1191) whose target.acknowledged_destination is missing or no longer matches the destination as configured. RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE is a write check that left its probe file on the source host; retnd does not treat that host as writable until the file named in the message is gone.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17675,11 +18184,15 @@
               "RECOVERY_NO_COPY",
               "RECOVERY_NOT_READABLE",
               "RECOVERY_NO_DIGEST",
-              "RECOVERY_USE_SNAPSHOT_RESTORE"
+              "RECOVERY_USE_SNAPSHOT_RESTORE",
+              "RECOVERY_SOURCE_HOST_UNAVAILABLE",
+              "RECOVERY_SOURCE_HOST_READ_ONLY",
+              "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED",
+              "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE"
             ]
           },
           "429": {
-            "description": "Refused: RECOVERY_TOO_MANY_GRANTS. Too many recoveries are waiting to be collected; use or let some expire first.",
+            "description": "Refused: RECOVERY_TOO_MANY_GRANTS. Too many recoveries are waiting to be collected; use or let some expire first. Refused: RATE_LIMITED. A source target's step-up password check is rate limited; Retry-After says how many seconds until the next check is allowed, and the password was not looked at.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17688,7 +18201,8 @@
               }
             },
             "x-error-codes": [
-              "RECOVERY_TOO_MANY_GRANTS"
+              "RECOVERY_TOO_MANY_GRANTS",
+              "RATE_LIMITED"
             ]
           },
           "500": {
@@ -17719,7 +18233,7 @@
             ]
           },
           "503": {
-            "description": "Refused: RECOVERY_UNAVAILABLE. There is no state directory to stage a recovery in.",
+            "description": "Refused: RECOVERY_UNAVAILABLE. There is no state directory to stage a recovery in. Refused: STEP_UP_UNAVAILABLE. A source target needs the password re-checked where the gate opens for local accounts, and this deployment cannot re-check it; run `retnd recover --acknowledge-source-write` on the host. Refused: RECOVERY_SOURCE_HOST_UNREACHABLE. retnd could not reach the source host to check it or write there; nothing was written, and it is worth trying again (Retry-After).",
             "content": {
               "application/json": {
                 "schema": {
@@ -17728,7 +18242,22 @@
               }
             },
             "x-error-codes": [
-              "RECOVERY_UNAVAILABLE"
+              "RECOVERY_UNAVAILABLE",
+              "STEP_UP_UNAVAILABLE",
+              "RECOVERY_SOURCE_HOST_UNREACHABLE"
+            ]
+          },
+          "507": {
+            "description": "Refused: RECOVERY_SOURCE_HOST_NO_SPACE. The bytes this would write onto the source host do not fit in its free space less a reserve; nothing was read.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_SOURCE_HOST_NO_SPACE"
             ]
           }
         },
@@ -17736,7 +18265,11 @@
         "x-idempotency-key": "none",
         "x-optimistic-concurrency": null,
         "x-csrf-required": true,
-        "x-authenticated": true
+        "x-authenticated": true,
+        "description": "Gated per target kind (x-destructive-gate-target-kinds): a source target (issue #1191) writes onto the production host the backup came from, so that one kind goes through the destructive gate. The gate is open on a local-account profile (issue #1163) and shut on a gateway profile until #92 ships a verified gate, where a source target is refused with 403 DESTRUCTIVE_OPERATIONS_DISABLED. Where it is open a source target also needs target.acknowledged_destination, X-Retnd-Insecure-Transport-Ack when plain HTTP comes from another machine, and the password again in X-Retnd-Step-Up-Password. Every other target kind reads and overwrites nothing and is not gated. A source grant lives 60 seconds, and redeeming it checks the gate again. The terminal does the same work with no gate: `retnd recover` with `--to source:` and `--acknowledge-source-write`.",
+        "x-destructive-gate-target-kinds": [
+          "source"
+        ]
       }
     },
     "/recoveries": {
@@ -17807,7 +18340,7 @@
             ]
           },
           "403": {
-            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, DESTRUCTIVE_OPERATIONS_DISABLED, INSECURE_TRANSPORT_ACK_REQUIRED, STEP_UP_REQUIRED, STEP_UP_FAILED. A source target (issue #1191) alone is refused here when the destructive gate is shut, when plain HTTP from another machine was not acknowledged, or when the step-up password is missing or wrong.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17817,7 +18350,11 @@
             },
             "x-error-codes": [
               "CSRF_TOKEN_MISSING",
-              "CSRF_TOKEN_MISMATCH"
+              "CSRF_TOKEN_MISMATCH",
+              "DESTRUCTIVE_OPERATIONS_DISABLED",
+              "INSECURE_TRANSPORT_ACK_REQUIRED",
+              "STEP_UP_REQUIRED",
+              "STEP_UP_FAILED"
             ]
           },
           "404": {
@@ -17835,7 +18372,7 @@
             ]
           },
           "409": {
-            "description": "Refused: RECOVERY_COST_NOT_ACKNOWLEDGED, RECOVERY_NO_COPY, RECOVERY_USE_SNAPSHOT_RESTORE. The first names the whole request's cost and starts nothing. The last is a backup set stored by the kopia engine, whose whole-set restore is `retnd snapshot restore`.",
+            "description": "Refused: RECOVERY_COST_NOT_ACKNOWLEDGED, RECOVERY_NO_COPY, RECOVERY_USE_SNAPSHOT_RESTORE, RECOVERY_SOURCE_HOST_UNAVAILABLE, RECOVERY_SOURCE_HOST_READ_ONLY, RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED. The first names the whole request's cost and starts nothing. The last is a backup set stored by the kopia engine, whose whole-set restore is `retnd snapshot restore`. RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED is a source target (issue #1191) whose target.acknowledged_destination is missing or no longer matches the destination as configured. RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE is a write check that left its probe file on the source host; retnd does not treat that host as writable until the file named in the message is gone.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17846,11 +18383,15 @@
             "x-error-codes": [
               "RECOVERY_COST_NOT_ACKNOWLEDGED",
               "RECOVERY_NO_COPY",
-              "RECOVERY_USE_SNAPSHOT_RESTORE"
+              "RECOVERY_USE_SNAPSHOT_RESTORE",
+              "RECOVERY_SOURCE_HOST_UNAVAILABLE",
+              "RECOVERY_SOURCE_HOST_READ_ONLY",
+              "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED",
+              "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE"
             ]
           },
           "429": {
-            "description": "Refused: RECOVERY_READS_BUSY, RECOVERY_DESTINATION_BUSY. The host's read budgets are spent; try again when a read finishes.",
+            "description": "Refused: RECOVERY_READS_BUSY, RECOVERY_DESTINATION_BUSY. The host's read budgets are spent; try again when a read finishes. Refused: RATE_LIMITED. A source target's step-up password check is rate limited; Retry-After says how many seconds until the next check is allowed, and the password was not looked at.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17860,7 +18401,8 @@
             },
             "x-error-codes": [
               "RECOVERY_READS_BUSY",
-              "RECOVERY_DESTINATION_BUSY"
+              "RECOVERY_DESTINATION_BUSY",
+              "RATE_LIMITED"
             ]
           },
           "500": {
@@ -17891,7 +18433,7 @@
             ]
           },
           "503": {
-            "description": "Refused: RECOVERY_UNAVAILABLE. There is no state directory to stage a recovery in.",
+            "description": "Refused: RECOVERY_UNAVAILABLE. There is no state directory to stage a recovery in. Refused: STEP_UP_UNAVAILABLE. A source target needs the password re-checked where the gate opens for local accounts, and this deployment cannot re-check it; run `retnd recover --acknowledge-source-write` on the host. Refused: RECOVERY_SOURCE_HOST_UNREACHABLE. retnd could not reach the source host to check it or write there; nothing was written, and it is worth trying again (Retry-After).",
             "content": {
               "application/json": {
                 "schema": {
@@ -17900,11 +18442,13 @@
               }
             },
             "x-error-codes": [
-              "RECOVERY_UNAVAILABLE"
+              "RECOVERY_UNAVAILABLE",
+              "STEP_UP_UNAVAILABLE",
+              "RECOVERY_SOURCE_HOST_UNREACHABLE"
             ]
           },
           "507": {
-            "description": "Refused: RECOVERY_NO_SPACE, RECOVERY_BELOW_RESERVE. The files do not fit the staging disk; the message carries the numbers and nothing was read.",
+            "description": "Refused: RECOVERY_NO_SPACE, RECOVERY_BELOW_RESERVE. The files do not fit the staging disk; the message carries the numbers and nothing was read. Refused: RECOVERY_SOURCE_HOST_NO_SPACE. The bytes this would write onto the source host do not fit in its free space less a reserve; nothing was read.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17914,7 +18458,8 @@
             },
             "x-error-codes": [
               "RECOVERY_NO_SPACE",
-              "RECOVERY_BELOW_RESERVE"
+              "RECOVERY_BELOW_RESERVE",
+              "RECOVERY_SOURCE_HOST_NO_SPACE"
             ]
           }
         },
@@ -17922,7 +18467,19 @@
         "x-idempotency-key": "none",
         "x-optimistic-concurrency": null,
         "x-csrf-required": true,
-        "x-authenticated": true
+        "x-authenticated": true,
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/StepUpPassword"
+          },
+          {
+            "$ref": "#/components/parameters/InsecureTransportAck"
+          }
+        ],
+        "description": "Gated per target kind (x-destructive-gate-target-kinds): a source target (issue #1191) writes onto the production host the backup came from, so that one kind goes through the destructive gate. The gate is open on a local-account profile (issue #1163) and shut on a gateway profile until #92 ships a verified gate, where a source target is refused with 403 DESTRUCTIVE_OPERATIONS_DISABLED. Where it is open a source target also needs target.acknowledged_destination, X-Retnd-Insecure-Transport-Ack when plain HTTP comes from another machine, and the password again in X-Retnd-Step-Up-Password. Every other target kind reads and overwrites nothing and is not gated. A plan (preflight: true) writes nothing and is not gated. The terminal does the same work with no gate: `retnd recover` with `--to source:` and `--acknowledge-source-write`.",
+        "x-destructive-gate-target-kinds": [
+          "source"
+        ]
       }
     },
     "/recoveries/{grant}": {
@@ -17990,7 +18547,7 @@
             ]
           },
           "403": {
-            "description": "Refused: RECOVERY_GRANT_SESSION_ENDED. The session that minted this grant has ended, or this is another session.",
+            "description": "Refused: RECOVERY_GRANT_SESSION_ENDED. The session that minted this grant has ended, or this is another session. DESTRUCTIVE_OPERATIONS_DISABLED is a source grant redeemed after the destructive gate shut.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17999,7 +18556,8 @@
               }
             },
             "x-error-codes": [
-              "RECOVERY_GRANT_SESSION_ENDED"
+              "RECOVERY_GRANT_SESSION_ENDED",
+              "DESTRUCTIVE_OPERATIONS_DISABLED"
             ]
           },
           "404": {
@@ -18018,7 +18576,7 @@
             ]
           },
           "409": {
-            "description": "Refused: RECOVERY_NOT_READABLE, RECOVERY_NO_DIGEST, RECOVERY_BUSY, RECOVERY_TARGET_EXISTS. RECOVERY_BUSY is a second request for a server-side (staging or storage) target while the first is still carrying it out; a download has no such state.",
+            "description": "Refused: RECOVERY_NOT_READABLE, RECOVERY_NO_DIGEST, RECOVERY_BUSY, RECOVERY_TARGET_EXISTS, RECOVERY_SOURCE_HOST_UNAVAILABLE, RECOVERY_SOURCE_HOST_READ_ONLY. RECOVERY_BUSY is a second request for a server-side (staging or storage) target while the first is still carrying it out; a download has no such state.",
             "content": {
               "application/json": {
                 "schema": {
@@ -18030,7 +18588,10 @@
               "RECOVERY_NOT_READABLE",
               "RECOVERY_NO_DIGEST",
               "RECOVERY_BUSY",
-              "RECOVERY_TARGET_EXISTS"
+              "RECOVERY_TARGET_EXISTS",
+              "RECOVERY_SOURCE_HOST_UNAVAILABLE",
+              "RECOVERY_SOURCE_HOST_READ_ONLY",
+              "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED"
             ]
           },
           "410": {
@@ -18058,6 +18619,21 @@
             },
             "x-error-codes": [
               "INVALID_REQUEST"
+            ]
+          },
+          "429": {
+            "description": "Refused: RECOVERY_READS_BUSY, RECOVERY_DESTINATION_BUSY, RECOVERY_DOWNLOADS_BUSY. A budget is full: this host runs only so many full reads of retained copies at once, and against one destination, and streams only so many downloads. Nothing was read, the grant is not spent, and Retry-After says when to come back.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_READS_BUSY",
+              "RECOVERY_DESTINATION_BUSY",
+              "RECOVERY_DOWNLOADS_BUSY"
             ]
           },
           "500": {
@@ -18102,7 +18678,7 @@
             ]
           },
           "503": {
-            "description": "Refused: RECOVERY_UNAVAILABLE, RECOVERY_INTERRUPTED.",
+            "description": "Refused: RECOVERY_UNAVAILABLE, RECOVERY_INTERRUPTED. Refused: RECOVERY_SOURCE_HOST_UNREACHABLE. retnd could not reach the source host to check it or write there; nothing was written, and it is worth trying again (Retry-After).",
             "content": {
               "application/json": {
                 "schema": {
@@ -18112,7 +18688,8 @@
             },
             "x-error-codes": [
               "RECOVERY_UNAVAILABLE",
-              "RECOVERY_INTERRUPTED"
+              "RECOVERY_INTERRUPTED",
+              "RECOVERY_SOURCE_HOST_UNREACHABLE"
             ]
           },
           "507": {
@@ -18128,28 +18705,17 @@
               "RECOVERY_NO_SPACE",
               "RECOVERY_BELOW_RESERVE"
             ]
-          },
-          "429": {
-            "description": "Refused: RECOVERY_READS_BUSY, RECOVERY_DESTINATION_BUSY, RECOVERY_DOWNLOADS_BUSY. A budget is full: this host runs only so many full reads of retained copies at once, and against one destination, and streams only so many downloads. Nothing was read, the grant is not spent, and Retry-After says when to come back.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "x-error-codes": [
-              "RECOVERY_READS_BUSY",
-              "RECOVERY_DESTINATION_BUSY",
-              "RECOVERY_DOWNLOADS_BUSY"
-            ]
           }
         },
         "x-destructive-gate": false,
         "x-idempotency-key": "none",
         "x-optimistic-concurrency": null,
         "x-csrf-required": false,
-        "x-authenticated": true
+        "x-authenticated": true,
+        "description": "Redeems a grant. For a source grant (issue #1191) this is where the upload onto the source host happens, so the destructive gate is checked again here: a grant minted while the gate was open is refused with 403 DESTRUCTIVE_OPERATIONS_DISABLED once it is shut on a gateway profile (until #92), and the destination is worked out again from configuration and refused when it no longer matches what was acknowledged. A local-account profile keeps it open. Every other grant reads and overwrites nothing and is not gated. The terminal does the same work with no gate: `retnd recover` with `--to source:` and `--acknowledge-source-write`.",
+        "x-destructive-gate-target-kinds": [
+          "source"
+        ]
       }
     },
     "/settings/assurance": {
@@ -19412,6 +19978,301 @@
         "x-idempotency-key": "none",
         "x-optimistic-concurrency": null,
         "x-csrf-required": false,
+        "x-authenticated": true
+      }
+    },
+    "/backup-sets/{source}/{set}/source-host": {
+      "get": {
+        "operationId": "describeSourceHost",
+        "summary": "Where a recovery onto this backup set's own source host would write, from configuration alone.",
+        "description": "Issue #1191. Reads the set's configuration and the cached answer of the last write check (five minutes); it never touches the network, so a dialog can call it on open. folder names the new folder to describe; without it a fresh name is suggested. The terminal equivalent is `retnd recover --set <source/backup-set> --to source: --preflight`.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "source",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The configured source this backup set belongs to."
+          },
+          {
+            "name": "set",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The backup set's own name within that source."
+          },
+          {
+            "name": "folder",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "A retnd-recovered-* folder to describe instead of a fresh one."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The destination.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceHostDescription"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: RECOVERY_TARGET_INVALID. The folder is not a valid recovered-folder name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_TARGET_INVALID"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "404": {
+            "description": "Refused: BACKUP_SET_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "BACKUP_SET_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "501": {
+            "description": "Refused: RECOVERY_UNAVAILABLE. The backend behind this router cannot recover backups.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_UNAVAILABLE"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      }
+    },
+    "/backup-sets/{source}/{set}/source-host/write-check": {
+      "post": {
+        "operationId": "checkSourceHostWrite",
+        "summary": "Check whether retnd may write on this backup set's source host, by writing and removing one probe file.",
+        "description": "Issue #1191. Runs the write probe the connection test runs (#852) on the operator's say-so: one probe file is written under the set's remote path, removed, and its absence confirmed, and the free space is asked for. The answer is cached per set for five minutes and shared with the recovery that follows, concurrent checks of one set share one probe, and every probe writes an audit row. A set declared read_only is answered without a probe. The destructive gate is open on a local-account profile (issue #1163) and shut on a gateway profile until #92 ships a verified gate, and a shut gate refuses this check with 403 DESTRUCTIVE_OPERATIONS_DISABLED before anything is written. The terminal equivalent, with no gate, is `retnd recover --set <source/backup-set> --to source: --preflight`.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "source",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The configured source this backup set belongs to."
+          },
+          {
+            "name": "set",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The backup set's own name within that source."
+          },
+          {
+            "name": "folder",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The folder the answer describes, as for the GET."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The destination, and what the check found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceHostDescription"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: RECOVERY_TARGET_INVALID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_TARGET_INVALID"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, DESTRUCTIVE_OPERATIONS_DISABLED. The last is a shut destructive gate: nothing was written on the host.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH",
+              "DESTRUCTIVE_OPERATIONS_DISABLED"
+            ]
+          },
+          "404": {
+            "description": "Refused: BACKUP_SET_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "BACKUP_SET_NOT_FOUND"
+            ]
+          },
+          "409": {
+            "description": "Refused: RECOVERY_SOURCE_HOST_UNAVAILABLE. The set has no source host to check (not SFTP, or incremental).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_SOURCE_HOST_UNAVAILABLE"
+            ]
+          },
+          "429": {
+            "description": "Refused: RATE_LIMITED. Too many write checks ran in the last minute; Retry-After says when the next one may. A cached answer is never refused.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RATE_LIMITED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "501": {
+            "description": "Refused: RECOVERY_UNAVAILABLE. The backend behind this router cannot recover backups.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RECOVERY_UNAVAILABLE"
+            ]
+          }
+        },
+        "x-destructive-gate": true,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
         "x-authenticated": true
       }
     }
