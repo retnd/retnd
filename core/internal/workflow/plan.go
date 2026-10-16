@@ -226,6 +226,14 @@ type SnapshotRequest struct {
 	// finds there, so a path that means different things depending on the
 	// working directory is not acceptable.
 	SpoolRoot string
+
+	// Only, when set, is the file name of the one script this plan holds
+	// (#1204). Discovery still lists the directory and holds every entry
+	// to the name rule, so a stray file is refused as it always was, but
+	// only the named script is captured, spooled and planned: the others
+	// are never read. A plan in which no stage holds it has no steps, and
+	// the caller decides what that means.
+	Only string
 }
 
 // Plan is the immutable result of a snapshot: the complete, ordered list
@@ -617,6 +625,10 @@ func snapshotInto(req SnapshotRequest, stages []StageSpec, dirs *spoolDirs, maxS
 			return Plan{}, err
 		}
 
+		if req.Only != "" {
+			scripts = onlyScript(scripts, req.Only)
+		}
+
 		for _, script := range scripts {
 			order := len(plan.steps)
 			id := StepID(order, stage.Scope, stage.Phase, script.Name)
@@ -1003,4 +1015,15 @@ func secretLocation(ref secretref.Ref) []string {
 	default:
 		return []string{"none"}
 	}
+}
+
+// onlyScript keeps the script named name, and nothing else (#1204).
+func onlyScript(scripts []Script, name string) []Script {
+	for _, s := range scripts {
+		if s.Name == name {
+			return []Script{s}
+		}
+	}
+
+	return nil
 }
