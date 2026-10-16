@@ -204,8 +204,8 @@ function MenuPopup({
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
     >
       {groups.map((g, gi) => (
-        <div key={g.label} role="group" aria-labelledby={id + "-g-" + g.label} className="amenu__group">
-          <div id={id + "-g-" + g.label} role="presentation" className="amenu__group-label">{g.label}</div>
+        <div key={g.label} role="group" aria-labelledby={id + "-g-" + gi} className="amenu__group">
+          <div id={id + "-g-" + gi} role="presentation" className="amenu__group-label">{g.label}</div>
           {g.items.map((item, k) => {
             const i = starts[gi] + k;
             const labelId = id + "-" + item.id;

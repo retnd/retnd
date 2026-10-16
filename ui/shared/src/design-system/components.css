@@ -107,7 +107,7 @@ input, select, textarea, button {
 .table thead tr { background: var(--surface-2); }
 .table th {
   text-align: left; padding: 9px 12px;
-  font-size: var(--text-sm); font-weight: 500; color: var(--text-3);
+  font-size: var(--text-sm); font-weight: 500; color: var(--text-2);
   border-bottom: 1px solid var(--border); white-space: nowrap;
 }
 .table td { padding: 11px 12px; border-bottom: 1px solid var(--border); }

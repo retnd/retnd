@@ -21,8 +21,9 @@ import { measureContrast, measureEdges, open, row, setTheme } from "./helpers";
  * 25, so the specs that wait for the end carry their own timeout.
  */
 const BILLING = "billing-20260827.sql.gz";
+const PG = "postgres-prod-20260828.dump.zst";
+const PG_ID = "production/postgres-primary/" + PG;
 const BILLING_ID = "production/billing-mysql/" + BILLING;
-const BILLING_OLD = "billing-20260824.sql.gz";
 const actions = (page: Page, file: string) => page.getByRole("button", { name: "Actions for " + file });
 const menu = (page: Page) => page.getByRole("menu");
 const item = (page: Page, name: string | RegExp) => menu(page).getByRole("menuitem", { name });
@@ -152,15 +153,16 @@ test.describe("#1202 the Backups row Actions menu", () => {
   test("#1202 Run recovery test starts a test of that backup, shows it to the end with its terminal twin, and the claims refresh", async ({ page }) => {
     test.setTimeout(120_000);
     await open(page, "/backups", "default", { wire: true });
-    const recovery = row(page, BILLING).locator('[data-claim="recovery"]');
+    // Postgres: its copy is on the local placement a finished test writes onto (the Billing one is archived).
+    const recovery = row(page, PG).locator('[data-claim="recovery"]');
     await expect(recovery).not.toHaveAttribute("data-state", "pass");
-    await openMenu(page, BILLING);
+    await openMenu(page, PG);
     await item(page, "Run recovery test").click();
     await expect(menu(page)).toHaveCount(0);
     const panel = runs(page).getByTestId("operation-progress");
     await expect(panel).toHaveAttribute("data-state", "running");
-    await expect(runs(page)).toContainText("Recovery test of " + BILLING);
-    await expect(runs(page)).toContainText("retnd recovery-test production/billing-mysql --artifact " + BILLING_ID);
+    await expect(runs(page)).toContainText("Recovery test of " + PG);
+    await expect(runs(page)).toContainText("retnd recovery-test production/postgres-primary --artifact " + PG_ID);
     await expect(runs(page).getByRole("button", { name: "Cancel" })).toBeVisible();
     await expect(panel).toHaveAttribute("data-state", "complete", { timeout: 60_000 });
     await expect(recovery, "the row's Recovery claim is re-read when the run ends").toHaveAttribute("data-state", "pass", { timeout: 10_000 });
@@ -168,15 +170,17 @@ test.describe("#1202 the Backups row Actions menu", () => {
 
   test("#1202 while a test runs, another backup of the same set says why it cannot start one", async ({ page }) => {
     test.setTimeout(60_000);
-    await open(page, "/backups", "default", { wire: true });
+    // The default catalogue holds one listed Billing backup (the other is quarantined), so a second one comes from the generated rows.
+    await open(page, "/backups", "backups-many", { wire: true });
     await openMenu(page, BILLING);
     await item(page, "Run recovery test").click();
     await expect(runs(page).getByTestId("operation-progress")).toHaveAttribute("data-state", "running");
-    await openMenu(page, BILLING_OLD);
+    const other = (await page.getByRole("button", { name: /^Actions for billing-mysql-/ }).first().getAttribute("aria-label"))!.replace(/^Actions for /, "");
+    await openMenu(page, other);
     const test_ = item(page, "Run recovery test");
     await expect(test_).toHaveAttribute("aria-disabled", "true");
     await expect(test_).toContainText("A recovery test of " + BILLING + " is running for this set");
-    await test_.click();
+    await test_.click({ force: true });
     await expect(menu(page), "a disabled item does nothing and leaves the menu open").toBeVisible();
     // Another set is not held up by it.
     await page.keyboard.press("Escape");
@@ -204,7 +208,7 @@ test.describe("#1202 the Backups row Actions menu", () => {
       await expect(item(page, name)).toHaveAttribute("aria-disabled", "true");
       await expect(item(page, name)).toContainText("This session is read-only");
     }
-    await item(page, /^Recover artifact/).click();
+    await item(page, /^Recover artifact/).click({ force: true });
     await expect(page.getByRole("dialog", { name: "Recover artifact" })).toHaveCount(0);
     await expect(menu(page)).toBeVisible();
   });
@@ -218,11 +222,11 @@ test.describe("#1202 the Backups row Actions menu", () => {
     // The reason is the item's description, so a screen reader hears it.
     const described = await t.getAttribute("aria-describedby");
     expect(described).toBeTruthy();
-    await expect(page.locator("#" + described)).toContainText(/no recovery-test validator/i);
+    await expect(page.locator(`[id="${described}"]`)).toContainText(/no recovery-test validator/i);
   });
 
   test("#1202 a server with no scrub route gets a disabled Scrub item that names the terminal command", async ({ page }) => {
-    await open(page, "/backups", "assurance-no-operations", { wire: true });
+    await open(page, "/backups", "assurance-no-operations");
     await openMenu(page, BILLING);
     const s = item(page, /^Scrub this backup/);
     await expect(s).toHaveAttribute("aria-disabled", "true");
@@ -265,7 +269,7 @@ test.describe("#1202 the Backups row Actions menu", () => {
 
   for (const theme of ["light", "dark"] as const) {
     test("#1202 the Actions button, the menu and a disabled reason meet AA in the " + theme + " theme", async ({ page }) => {
-      await open(page, "/backups", "assurance-no-operations", { wire: true });
+      await open(page, "/backups", "assurance-no-operations");
       await setTheme(page, theme);
       await expect(actions(page, BILLING)).toBeVisible();
       expect(await measureContrast(page, "1202 actions button " + theme, '[data-row-actions]')).toEqual([]);

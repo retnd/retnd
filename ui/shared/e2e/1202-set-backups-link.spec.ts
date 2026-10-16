@@ -72,8 +72,7 @@ test.describe("#1202 a set links to its backups, and the set filter is in the UR
     await expect(filter(page)).toHaveValue(BILLING);
     await filter(page).selectOption("");
     await expect(page).not.toHaveURL(/set=/);
-    const names = new Set(await setCells(page).allTextContents());
-    expect(names.size).toBeGreaterThan(1);
+    await expect.poll(async () => new Set(await setCells(page).allTextContents()).size, "All lists more than one set again").toBeGreaterThan(1);
   });
 
   test("#1202 following the link still clears a selection, and paging counts only the set's backups", async ({ page }) => {
@@ -82,8 +81,10 @@ test.describe("#1202 a set links to its backups, and the set filter is in the UR
     await expect(page.getByTestId("selection-count")).toContainText("1");
     await filter(page).selectOption(BILLING);
     await expect(page.getByTestId("selection-notice")).toContainText("The selection was cleared because the filter changed.");
-    const shown = await setCells(page).count();
-    await expect(where(page)).toContainText("of " + shown);
+    await expect(where(page)).toContainText(/of \d+/);
+    const shown = Number(/of (\d+)\s*$/.exec((await where(page).textContent()) ?? "")![1]);
+    expect(shown).toBeGreaterThan(0);
+    await expect(setCells(page)).toHaveCount(shown);
     await page.getByRole("checkbox", { name: "Select all matching backups" }).check();
     await expect(page.getByTestId("selection-count")).toContainText(String(shown));
   });
@@ -97,9 +98,9 @@ test.describe("#1202 a set links to its backups, and the set filter is in the UR
 
   test("#1202 a snapshot set's page offers no link to Backups, an artifact set's page does", async ({ page }) => {
     await open(page, "/sets/production/postgres-primary", "default");
-    await expect(page.getByRole("button", { name: "Snapshots" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Snapshots", exact: true })).toBeVisible();
     await expect(link(page)).toHaveCount(0);
-    await open(page, "/sets/media/weekly-archive", "default");
+    await open(page, "/sets/media/weekly-archive", MANY);
     await expect(page.getByRole("button", { name: "Recover this backup set" })).toBeVisible();
     await expect(link(page)).toBeVisible();
     await expect(link(page)).toHaveAttribute("href", /\/backups\?set=media(%2F|\/)weekly-archive/);
