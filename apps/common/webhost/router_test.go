@@ -127,6 +127,16 @@ var destructiveGateExemptRoutes = map[string]bool{
 	"POST /api/v1/ssh-keys/from-candidate":     true,
 	"POST /api/v1/ssh/host-key-probe":          true,
 
+	// Issue #1203. Removing a custom validator stops a script from running
+	// and deletes no backup datum: the class of clearing a stage directory
+	// under PATCH /settings/workflow. It has to work on a shut gate, so an
+	// operator can take a bad validator out wherever they could not have
+	// put one in. The preview is a POST that writes nothing at all. The
+	// upload and the edit are NOT here: they put code where the engine runs
+	// it, and are gated (handlers_customvalidators.go).
+	"DELETE /api/v1/assurance/validators/{name}": true,
+	"POST /api/v1/assurance/validator-preview":   true,
+
 	// Issue #419: the operator route out of FAILED. Same tier as the
 	// quarantine retry it sits beside, and for the same reason: it moves
 	// a journal row back into the pipeline and touches no backup datum at

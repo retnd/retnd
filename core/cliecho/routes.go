@@ -1620,6 +1620,100 @@ var routes = map[string]entry{
 		},
 		examples: []Action{{Params: map[string]string{"op": "7b0c9a1e-0000-4000-8000-000000000001"}}},
 	},
+	// ------------------------------------------- custom validators (#1203) ---
+	key("GET", "/assurance/validators"): {
+		build: func(a Action) *cmd {
+			c := newCmd("assurance", "validator", "list")
+			c.flagIfSet("backup-set", a.Query.Get("backup_set"))
+			c.flagIfSet("artifact", a.Query.Get("artifact"))
+			return c
+		},
+		examples: []Action{
+			{},
+			{Query: mustQuery("backup_set=api-server%2Fvar-backups")},
+			{Query: mustQuery("artifact=api-server%2Fvar-backups%2FMANIFEST-20260902T153521Z.txt")},
+		},
+	},
+	key("POST", "/assurance/validators"): {
+		build: func(a Action) *cmd {
+			var req apicontract.CreateCustomValidatorRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("assurance", "validator", "add", req.Name).flag("pattern", req.Pattern)
+			c.flagIfSet("backup-set", req.BackupSetID)
+			// The script travelled inline; on a terminal it is a file.
+			return c.placeholderFlag("script", "the script file you uploaded")
+		},
+		why: "there is no verb that uploads a validator from a request body",
+		examples: []Action{
+			{Body: []byte(`{"name":"manifest","pattern":"^MANIFEST-\\d{8}T\\d{6}Z\\.txt$","backup_set_id":"api-server/var-backups","script":"#!/usr/bin/env bash\nexit 0\n"}`)},
+			{Body: []byte(`{"name":"dumps","pattern":"\\.sql\\.gz$","script":"#!/usr/bin/env bash\nexit 0\n"}`)},
+		},
+	},
+	key("PUT", "/assurance/validators/{name}"): {
+		build: func(a Action) *cmd {
+			var req apicontract.UpdateCustomValidatorRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("assurance", "validator", "update", a.Params["name"]).flag("pattern", req.Pattern)
+			c.flagIfSet("backup-set", req.BackupSetID)
+			if req.Script != "" {
+				c.placeholderFlag("script", "the script file you uploaded")
+			}
+			return c
+		},
+		why: "there is no verb that replaces a validator from a request body",
+		examples: []Action{
+			{Params: map[string]string{"name": "manifest"}, Body: []byte(`{"pattern":"^MANIFEST-","backup_set_id":"api-server/var-backups"}`)},
+			{Params: map[string]string{"name": "manifest"}, Body: []byte(`{"pattern":"^MANIFEST-","script":"#!/usr/bin/env bash\nexit 0\n"}`)},
+		},
+	},
+	key("DELETE", "/assurance/validators/{name}"): {
+		build: func(a Action) *cmd {
+			return newCmd("assurance", "validator", "remove", a.Params["name"])
+		},
+		examples: []Action{{Params: map[string]string{"name": "manifest"}}},
+	},
+	key("GET", "/assurance/validators/{name}/script"): {
+		build: func(a Action) *cmd {
+			return newCmd("assurance", "validator", "script", a.Params["name"])
+		},
+		examples: []Action{{Params: map[string]string{"name": "manifest"}}},
+	},
+	key("POST", "/assurance/validator-preview"): {
+		build: func(a Action) *cmd {
+			var req apicontract.PreviewCustomValidatorRequest
+			if !decode(a.Body, &req) {
+				return nil
+			}
+			c := newCmd("assurance", "validator", "add")
+			if req.Replacing != "" {
+				c = newCmd("assurance", "validator", "update", req.Replacing)
+			}
+			c.flag("pattern", req.Pattern)
+			c.flagIfSet("backup-set", req.BackupSetID)
+			return c.bare("dry-run")
+		},
+		why: "there is no verb that previews a pattern from a request body",
+		examples: []Action{
+			{Body: []byte(`{"pattern":"^MANIFEST-\\d{8}T\\d{6}Z\\.txt$"}`)},
+			{Body: []byte(`{"pattern":"^MANIFEST-","backup_set_id":"api-server/var-backups","replacing":"manifest"}`)},
+		},
+	},
+	key("GET", "/assurance/validator-patterns"): {
+		build: func(a Action) *cmd {
+			c := newCmd("assurance", "validator", "patterns")
+			c.flagIfSet("backup-set", a.Query.Get("backup_set"))
+			return c
+		},
+		examples: []Action{{}, {Query: mustQuery("backup_set=api-server%2Fvar-backups")}},
+	},
+	key("GET", "/assurance/default-validator-script"): {
+		build:    func(Action) *cmd { return newCmd("assurance", "validator", "default-script") },
+		examples: []Action{{}},
+	},
 	key("GET", "/assurance/due"): {
 		build: func(a Action) *cmd {
 			c := newCmd("settings", "assurance", "due")

@@ -442,6 +442,9 @@ type gatedAct struct {
 	// (issue #1191), nil for everything else. Its target is read off the
 	// recovery body the handler then runs (recoveryRequest).
 	sourceRecovery *sourceRecoveryAct
+	// validatorUpload is an upload or edit of a custom recovery-test
+	// validator (#1203): new code the engine will run on the host.
+	validatorUpload bool
 }
 
 // sourceRecoveryAct is what decide needs from a source-host recovery: the
@@ -488,6 +491,11 @@ func (e gateEnforcement) decide(r *http.Request, act gatedAct) (gateRefusal, boo
 	}
 	if stepUp && act.sourceRecovery != nil {
 		return e.checkSourceRecovery(r, act.sourceRecovery)
+	}
+	if stepUp && act.validatorUpload {
+		return e.checkStepUp(r, stepUpAct{
+			name: "a validator upload", plural: "validator uploads", onHost: "retnd assurance validator add",
+		})
 	}
 	return gateRefusal{}, false
 }
