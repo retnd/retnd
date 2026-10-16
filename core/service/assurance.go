@@ -437,7 +437,7 @@ func (b *BackupService) UpdateAssuranceSettings(_ context.Context, req UpdateAss
 	// A block that now says nothing is removed rather than written empty,
 	// so clearing the last field returns the file to a config that never
 	// mentioned assurance.
-	if *blk == (config.AssuranceBlock{}) {
+	if blk.IsZero() {
 		cfg.AssuranceBlock = nil
 	} else {
 		cfg.AssuranceBlock = blk
