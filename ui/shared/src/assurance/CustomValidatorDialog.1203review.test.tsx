@@ -159,7 +159,7 @@ describe("CustomValidatorDialog editing (#1213 contract)", () => {
   beforeEach(() => { resetGraphForTests(); });
 
   const current = {
-    name: "billing-dump", pattern: "^b$", backupSetId: "production/billing-mysql", scope: "backup_set" as const, anchored: true,
+    name: "billing-dump", pattern: "^b$", backupSetId: "production/billing-mysql", scope: "backup_set" as const, anchored: true, env: "minimal" as const,
     scriptFile: "billing-dump.local.sh", scriptPresent: true, scriptSha256: "feedbeef", scriptSizeBytes: 3, uploadedAt: "",
     matchCount: 0, matchSets: [], exampleName: ""
   };

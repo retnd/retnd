@@ -2714,6 +2714,9 @@ export interface AssuranceDue {
 /** One custom recovery-test validator (#1203): an operator's NAME.local.sh
  *  attached to an artifact-name pattern (Go RE2), scoped to one backup set
  *  or to every set. `backupSetId` is empty for a global one. */
+/** What a custom validator's script starts with (#1221). */
+export type ValidatorEnv = "minimal" | "workflow";
+
 export interface CustomValidator {
   name: string;
   pattern: string;
@@ -2722,6 +2725,10 @@ export interface CustomValidator {
   /** False when the pattern is not anchored with ^...$, so it matches
    *  anywhere in a name. */
   anchored: boolean;
+  /** The environment the script starts with (#1221): `minimal` (the
+   *  RECOVERY_TEST_* variables, the product's facts and PATH) or `workflow`
+   *  (the backup set's workflow environment too, secrets included). */
+  env: ValidatorEnv;
   scriptFile: string;
   scriptPresent: boolean;
   scriptSha256: string;
@@ -2825,6 +2832,8 @@ export interface CustomValidatorCreate {
   /** Empty for every backup set. */
   backupSetId?: string;
   script: string;
+  /** Left out is minimal. */
+  env?: ValidatorEnv;
 }
 
 /** An edit is a whole replacement (#1213): the pattern and the scope are the
@@ -2835,6 +2844,9 @@ export interface CustomValidatorCreate {
 export type CustomValidatorUpdate = {
   pattern: string;
   backupSetId?: string;
+  /** A replacement carries the env too (#1221): left out means minimal, so a
+   *  caller editing a validator sends back the one it read. */
+  env?: ValidatorEnv;
 } & ({ script: string; keepScriptSha256?: never } | { keepScriptSha256: string; script?: never });
 
 /** The deployment-wide workflow configuration, RESOLVED: the timeout a

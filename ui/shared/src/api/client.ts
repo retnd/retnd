@@ -2931,6 +2931,7 @@ function fromWireAssuranceDue(s: WireAssuranceDueResponse): AssuranceDue {
 function fromWireCustomValidator(v: WireCustomValidator): CustomValidator {
   return {
     name: v.name, pattern: v.pattern, backupSetId: v.backup_set_id ?? "", scope: v.scope, anchored: v.anchored,
+    env: v.env === "workflow" ? "workflow" : "minimal",
     scriptFile: v.script_file, scriptPresent: v.script_present, scriptSha256: v.script_sha256,
     scriptSizeBytes: v.script_size_bytes, uploadedAt: v.uploaded_at, matchCount: v.match_count,
     matchSets: v.match_sets ?? [], exampleName: v.example_name ?? "",
@@ -4312,7 +4313,8 @@ export const httpApi: RetndApi = {
       ...stepUpHeaders(opts),
       body: JSON.stringify({
         name: req.name, pattern: req.pattern, script: req.script,
-        ...(req.backupSetId ? { backup_set_id: req.backupSetId } : {})
+        ...(req.backupSetId ? { backup_set_id: req.backupSetId } : {}),
+        ...(req.env ? { env: req.env } : {})
       })
     }).then(fromWireCustomValidator),
   updateCustomValidator: (name, req, opts) =>
@@ -4324,6 +4326,7 @@ export const httpApi: RetndApi = {
       body: JSON.stringify({
         pattern: req.pattern,
         backup_set_id: req.backupSetId ?? "",
+        ...(req.env ? { env: req.env } : {}),
         ...(req.script !== undefined ? { script: req.script } : { script_sha256: req.keepScriptSha256 })
       })
     }).then(fromWireCustomValidator),

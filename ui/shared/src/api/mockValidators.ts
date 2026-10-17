@@ -122,7 +122,7 @@ function seed(scenario: string): CustomValidator[] {
 function mk(name: string, pattern: string, backupSetId: string): CustomValidator {
   const script = scriptFor(name);
   return {
-    name, pattern, backupSetId, scope: backupSetId ? "backup_set" : "global", anchored: isAnchored(pattern),
+    name, pattern, backupSetId, scope: backupSetId ? "backup_set" : "global", anchored: isAnchored(pattern), env: "minimal",
     scriptFile: name + ".local.sh", scriptPresent: true,
     // A fixed digest per name keeps the fixture deterministic; real ones
     // are computed on upload below.
@@ -281,7 +281,7 @@ export function createMockValidators(env: MockValidatorsEnv): Pick<
         );
       }
       const v: CustomValidator = {
-        ...mk(req.name, req.pattern, setId),
+        ...mk(req.name, req.pattern, setId), env: req.env ?? "minimal",
         scriptSha256: await sha256Hex(req.script), scriptSizeBytes: byteLength(req.script), uploadedAt: new Date().toISOString()
       };
       validators = [...validators, v];
@@ -315,6 +315,8 @@ export function createMockValidators(env: MockValidatorsEnv): Pick<
       }
       const next: CustomValidator = {
         ...current, pattern: req.pattern, backupSetId: setId, scope: setId ? "backup_set" : "global", anchored: isAnchored(req.pattern),
+        // A replacement: env left out is minimal, never what it had.
+        env: req.env ?? "minimal",
         ...(req.script !== undefined
           ? { scriptSha256: await sha256Hex(req.script), scriptSizeBytes: byteLength(req.script), uploadedAt: new Date().toISOString() }
           : {})
