@@ -142,6 +142,8 @@ test.describe("#1233 choosing workflow takes the gate and the password an upload
     await expect(dlg.locator("[data-gate-notice]")).toBeVisible();
     await expect(dlg.locator("[data-env-gate]")).toContainText("same gate");
     await expect(dlg.locator("[data-env-gate]")).toContainText("password");
+    // The command for the host carries the choice, so running it does what was asked.
+    await expect(dlg.locator("[data-gate-notice]")).toContainText("--env workflow");
   });
 
   test("pressing upload with workflow on a shut gate is refused and nothing is added", async ({ page }) => {
@@ -190,7 +192,7 @@ test.describe("#1233 the Declare validator line", () => {
     const line = assurance(page).locator("[data-validator-env]");
     await expect(line).toHaveAttribute("data-validator-env", "workflow");
     await expect(line).toContainText(WORKFLOW);
-    await expect(line).toContainText("billing-dump");
+    await expect(assurance(page).locator("[data-validator-env-line]")).toContainText("billing-dump");
   });
 
   test("names the environment of the validator that would run: minimal", async ({ page }) => {
