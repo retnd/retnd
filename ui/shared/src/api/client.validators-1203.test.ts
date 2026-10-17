@@ -68,6 +68,17 @@ describe("the custom validator routes on the wire", () => {
     expect(got).toMatchObject({ valid: false, error: "bad", matchSets: [], sample: [], conflicts: [] });
   });
 
+  it("hands the caller's abort signal to the preview request", async () => {
+    const f = fetchReturning({ valid: true, error: "", anchored: true, match_count: 0, match_sets: null, sample: null, conflicts: null });
+    vi.stubGlobal("fetch", f);
+    const ac = new AbortController();
+    await httpApi.previewCustomValidator({ pattern: "^a$" }, { signal: ac.signal });
+    const init = f.mock.calls[f.mock.calls.length - 1][1] as RequestInit;
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    ac.abort();
+    expect(init.signal?.aborted).toBe(true);
+  });
+
   it("uploads with the password in a header only, and no backup set for a global validator", async () => {
     const f = fetchReturning(wireValidator, 201);
     vi.stubGlobal("fetch", f);
