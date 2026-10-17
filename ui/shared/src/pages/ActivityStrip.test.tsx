@@ -31,7 +31,6 @@ const SET: BackupSet = {
   username: "backup-agent",
   remoteFolder: "/var/backups",
   includePatterns: ["*"],
-  excludePatterns: [],
   completionMethod: "completion-marker",
   stableForSeconds: 0,
   destination: "/data/backups/api-server/var-backups",

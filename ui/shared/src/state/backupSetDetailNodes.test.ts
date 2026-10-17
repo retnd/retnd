@@ -25,7 +25,7 @@ const SET_V1: BackupSet = {
   name: "Production PostgreSQL",
   host: "prod-db-01.internal", port: 22, username: "backup-agent",
   remoteFolder: "/backups/postgresql/", includePatterns: ["*.dump.zst"],
-  excludePatterns: ["*.tmp"], completionMethod: "completion-marker", stableForSeconds: 0,
+  completionMethod: "completion-marker", stableForSeconds: 0,
   destination: "/data/backups/production/postgres/", retentionIsOverride: false,
   pollIntervalSeconds: null, effectivePollIntervalSeconds: 900,
   validations: ["transfer", "checksum"],

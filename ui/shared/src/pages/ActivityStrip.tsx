@@ -638,12 +638,16 @@ function actionWords(action: string): string {
  *
  * A warning tone rather than an error one, on purpose. Nothing has gone
  * wrong yet; something has failed to say that it has not.
+ *
+ * `onTerminal` is for the docked terminal, which is a dark surface in both
+ * themes: --warn is drawn for the page and is 3.84:1 on it in the light theme
+ * (#1235), so it takes the terminal's own warning ink there.
  */
-export function UnfinishedActionsNotice({ actions }: { actions: UnfinishedAction[] }) {
+export function UnfinishedActionsNotice({ actions, onTerminal = false }: { actions: UnfinishedAction[]; onTerminal?: boolean }) {
   if (actions.length === 0) return null;
   return (
     <InfoTooltip id="activity.unfinished-action" block>
-      <div style={{ padding: "0 var(--space-5) var(--space-3)", color: "var(--warn)", fontSize: "var(--text-xs)" }}>
+      <div style={{ padding: "0 var(--space-5) var(--space-3)", color: onTerminal ? "var(--term-warn)" : "var(--warn)", fontSize: "var(--text-xs)" }}>
         {actions.map((a) => (
           <div key={a.actionId}>
             {actionWords(a.action)} started {relativeAge(a.startedAt)} and has not reported an outcome.

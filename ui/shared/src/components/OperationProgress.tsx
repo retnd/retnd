@@ -156,7 +156,7 @@ function Live({
           <div
             style={{
               width: (percent ?? 0) + "%", height: "100%",
-              background: nonDestructive ? "var(--text-3)" : "var(--accent)"
+              background: nonDestructive ? "var(--edge-3)" : "var(--accent)"
             }}
           />
         </div>
