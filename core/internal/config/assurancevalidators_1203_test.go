@@ -175,3 +175,18 @@ func TestCustomValidators_TwoSetScopedMatchesAreAnAmbiguityNotAGuess(t *testing.
 		t.Errorf("two set-scoped matches = %+v, want an ambiguity naming both and not the global one", m)
 	}
 }
+
+// #1220: the validator's name is the id the activity feed and the journal both
+// carry, and the feed withholds an id over 64 bytes, so a name may not be one.
+func TestCustomValidators_ANameThePanelsCannotCarryIsRefused(t *testing.T) {
+	long := strings.Repeat("a", MaxCustomValidatorNameBytes+1)
+	c := validatorConfig(CustomValidator{Name: long, Pattern: "x"})
+	err := c.Validate()
+	if err == nil || !strings.Contains(err.Error(), "may be at most 64") {
+		t.Fatalf("a %d byte name = %v", len(long), err)
+	}
+	c = validatorConfig(CustomValidator{Name: strings.Repeat("a", MaxCustomValidatorNameBytes), Pattern: "x"})
+	if err := c.Validate(); err != nil {
+		t.Errorf("a name of exactly the limit = %v", err)
+	}
+}

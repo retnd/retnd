@@ -35,6 +35,17 @@
   - A retnd from before this release refuses a `config.yaml` that has `assurance.validators` in it. Remove them
     before you downgrade.
   - The upload check is a lint, not a sandbox, and a validator runs with the set's workflow environment.
+  - A validator's `name` is also its id in the activity feed and in the journal (#1220): a test decided by a
+    custom validator is now recorded under `NAME`, not `NAME.local.sh`, and the list reads both spellings. Runs
+    decided by a set's `validator_id` or by the built-in check are recorded exactly as before. A name is at
+    most 64 bytes, because the feed withholds a longer id; `config.yaml` with a longer one is refused.
+  - `config.yaml` pins each script by hash (#1222): uploads and edits write `script_sha256` into the entry, a
+    recovery test refuses a script that no longer hashes to it (`could not complete`, "edited on disk", plus a
+    `recovery_test_validator_edited` warning), and `list` and the API's `CustomValidator` carry `pinned_sha256`
+    and `script_state` (`pinned`, `unpinned`, `edited_on_disk`, `missing`). An entry written before this has no
+    hash, keeps working and shows as `unpinned` until its next save pins it; nothing rewrites your file. Keeping
+    a script by `script_sha256` is refused for one edited on disk, so the way to approve an edit is to send the
+    script. A retnd from before this release also refuses the `script_sha256` key.
 - **`GET /api/v1/assurance/operations/{op}` and `retnd assurance show <operation-id> [--json]`** (#1200). One
   scrub or recovery test read back by the operation id its start returned, running or finished a month ago:
   how it ended (`state` is an enum: `running`, `passed`, `failed`, `did_not_complete`, `cancelled`, or
