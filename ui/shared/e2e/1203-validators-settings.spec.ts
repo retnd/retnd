@@ -104,7 +104,7 @@ test.describe("#1203 Settings, Recovery-test validators", () => {
     test(`the card meets WCAG AA in ${theme}`, async ({ page }) => {
       await open(page, "/settings");
       await setTheme(page, theme);
-      await expect(card(page)).toBeVisible();
+      await expect(rowOf(page, "any-tar")).toBeVisible();
       expect(await measureContrast(page, "1203 settings card " + theme, '[aria-label="Recovery-test validators"]'), theme).toEqual([]);
       expect(await measureBorders(page, "1203 settings card " + theme, '[aria-label="Recovery-test validators"] button'), theme).toEqual([]);
     });

@@ -7,17 +7,20 @@ import type { Page } from "@playwright/test";
 import { open, setTheme } from "./helpers";
 
 const beat = (p: Page, ms = 900) => p.waitForTimeout(ms);
+
+// The first page of a run compiles the app, and these passes are slow on
+// purpose; the default 30 s also covers the page fixture's own setup.
+test.describe.configure({ timeout: 150_000 });
 const POSTGRES = String.raw`^postgres-prod-\d{8}\.dump\.zst$`;
 const PASSWORD = "correct-horse-battery";
 
 for (const theme of ["light", "dark"] as const) {
   test(`#1203 walkthrough (${theme}): Settings, pick a suggested pattern, upload, password`, async ({ page }) => {
-    test.setTimeout(150_000);
     await open(page, "/settings", "local-account-profile");
     await setTheme(page, theme);
     const card = page.getByRole("region", { name: "Recovery-test validators" });
     await card.scrollIntoViewIfNeeded();
-    await expect(card).toBeVisible();
+    await expect(card).toBeVisible({ timeout: 30_000 });
     await beat(page, 1800);
     await card.getByRole("button", { name: "Add validator" }).click();
     const dlg = page.getByRole("dialog", { name: "Add validator" });
@@ -38,11 +41,10 @@ for (const theme of ["light", "dark"] as const) {
   });
 
   test(`#1203 walkthrough (${theme}): a backup's page, Declare validator, a pattern the engine refuses`, async ({ page }) => {
-    test.setTimeout(150_000);
     await open(page, "/backups/production/postgres-primary/postgres-prod-20260828.dump.zst");
     await setTheme(page, theme);
     const region = page.getByRole("region", { name: "Assurance" });
-    await expect(region).toBeVisible();
+    await expect(region).toBeVisible({ timeout: 30_000 });
     await beat(page, 1500);
     await region.getByRole("button", { name: "Declare validator" }).click();
     const dlg = page.getByRole("dialog", { name: "Add validator" });
