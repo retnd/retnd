@@ -167,6 +167,11 @@ type CustomValidator struct {
 	// the name; a surface may want to say so.
 	Anchored bool
 
+	// Env is the environment a recovery test gives the script (#1221):
+	// minimal or workflow, the validator's own setting when it has one and
+	// otherwise what its set, then the deployment, then the default says.
+	Env string
+
 	ScriptFile    string
 	ScriptPresent bool
 	ScriptSHA256  string
@@ -242,6 +247,10 @@ type CreateCustomValidatorRequest struct {
 	// ScriptSHA256 (update only) keeps the stored script, provided it is
 	// still the one with this hash.
 	ScriptSHA256 string
+	// Env is minimal or workflow (#1221), the environment the script starts
+	// with. Empty is minimal, on an update too: an update replaces the
+	// validator whole, so leaving it out never keeps what was there.
+	Env string
 }
 
 // CustomValidatorAmbiguity is one backup in the journal that more than one

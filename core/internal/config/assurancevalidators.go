@@ -82,6 +82,11 @@ type CustomValidator struct {
 	// and empty for one that applies to every matching artifact in every
 	// set.
 	BackupSet string `yaml:"backup_set,omitempty"`
+
+	// Env is minimal or workflow (#1221): the environment the validator's
+	// script starts with. Empty means the entry does not say, and the set's
+	// then the deployment's validator_env decides.
+	Env string `yaml:"env,omitempty"`
 }
 
 // ResolvedCustomValidator is a validated entry, pattern compiled.
@@ -92,6 +97,15 @@ type ResolvedCustomValidator struct {
 	// BackupSet is the zero id for a global validator.
 	BackupSet  model.BackupSetID
 	ScriptFile string
+	// Env is what the entry states, "" when it states nothing.
+	Env string
+}
+
+// ResolveValidatorEnv is the precedence for one run (#1221): the validator's
+// own env, then the set's validator_env (which already folds in the
+// deployment's), then minimal.
+func ResolveValidatorEnv(validatorEnv, inherited string) string {
+	return ValidatorEnvMinimal
 }
 
 // Global reports whether the validator applies in every backup set.

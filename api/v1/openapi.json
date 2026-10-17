@@ -8573,6 +8573,14 @@
             "description": "The newest recovery test this validator decided; absent when it has decided none.",
             "x-go-omitempty": true,
             "x-go-pointer": true
+          },
+          "env": {
+            "type": "string",
+            "description": "The environment a recovery test gives this validator's script (#1221): minimal or workflow. It is the validator's own setting when the configuration states one, and otherwise the backup set's, then the deployment's, then minimal. Anything but the exact value workflow means minimal.",
+            "enum": [
+              "minimal",
+              "workflow"
+            ]
           }
         },
         "required": [
@@ -8588,7 +8596,8 @@
           "uploaded_at",
           "match_count",
           "match_sets",
-          "example_name"
+          "example_name",
+          "env"
         ]
       },
       "CustomValidatorResolution": {
@@ -8756,6 +8765,14 @@
           "script": {
             "type": "string",
             "description": "The whole script, as UTF-8 text with no NUL byte, at most max_script_bytes. It must pass the check that gates saving a workflow (workflowlint)."
+          },
+          "env": {
+            "type": "string",
+            "description": "What environment the script starts with: minimal (the RECOVERY_TEST_* variables, the product's RETND_* facts and the baseline PATH, and nothing else) or workflow (the backup set's merged workflow environment as well, secrets included). Exactly those two spellings. Absent means minimal. Any other spelling is refused (400).",
+            "enum": [
+              "minimal",
+              "workflow"
+            ]
           }
         },
         "required": [
@@ -8784,6 +8801,14 @@
           "script_sha256": {
             "type": "string",
             "description": "Keep the stored script, and say which one by its SHA-256 (CustomValidator.script_sha256 as the client last read it). Refused with 409 VALIDATOR_SCRIPT_CHANGED when the stored script is no longer that one, so an edit never silently keeps a script somebody else replaced. Send this or script, not both."
+          },
+          "env": {
+            "type": "string",
+            "description": "What environment the script starts with: minimal (the RECOVERY_TEST_* variables, the product's RETND_* facts and the baseline PATH, and nothing else) or workflow (the backup set's merged workflow environment as well, secrets included). Exactly those two spellings. This is a replacement, not a merge: absent means minimal, never what the validator had, so an edit cannot widen the environment by leaving the field out. Any other spelling is refused (400).",
+            "enum": [
+              "minimal",
+              "workflow"
+            ]
           }
         },
         "required": [
