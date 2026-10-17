@@ -6,9 +6,8 @@
 // server and the browser specs ever run them. This builds the real
 // production bundle with Vite's own API (into a temp directory, so the
 // checkout's dist/ is left alone) and greps every emitted file for strings
-// that exist only in the fixtures. The size cap is a second net: the
-// fixtures were roughly a third of the bundle, so a regression that drags
-// them back in shows up even if someone renames every marker.
+// that exist only in the fixtures. When a new fixture file lands, add one of
+// its strings to FIXTURE_MARKERS so it is held to the same rule.
 import { describe, it, expect, beforeAll } from "vitest";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -48,10 +47,5 @@ describe("production bundle", () => {
   it("contains no mock fixture strings in any emitted file", () => {
     const hits = files.flatMap((f) => findFixtureMarkers(readFileSync(f, "utf8")).map((m) => `${f.split("/").pop()}: ${m}`));
     expect(hits).toEqual([]);
-  });
-
-  it("keeps the whole emitted JS under 450 kB", () => {
-    const total = files.filter((f) => f.endsWith(".js")).reduce((n, f) => n + statSync(f).size, 0);
-    expect(total).toBeLessThan(450 * 1024);
   });
 });

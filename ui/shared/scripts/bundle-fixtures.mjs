@@ -1,10 +1,11 @@
 // Strings that only the mock API and its fixtures contain. If any of them is
 // in a production bundle, test data is shipping to operators (#1216).
+// Only strings that exist nowhere but the fixtures: host names and example
+// text that the field help and the set wizard legitimately ship (for example
+// prod-db-01.internal, "Production PostgreSQL") are not markers.
 export const FIXTURE_MARKERS = [
   "aop_1200_",
-  "prod-db-01.internal",
   "billing-db.internal",
-  "Production PostgreSQL",
   "Auth service config",
   "cid_4ad812",
   "aop_validator_fixture",
