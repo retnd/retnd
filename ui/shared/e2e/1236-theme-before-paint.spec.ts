@@ -16,7 +16,7 @@
  */
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { open } from "./helpers";
+import { open, preselectTheme } from "./helpers";
 
 type Theme = "light" | "dark";
 
@@ -108,5 +108,14 @@ test.describe("#1236 the theme is on the page from the first frame", () => {
         await verdict(page, theme, "preset " + theme + " " + path);
       });
     }
+  }
+
+  for (const theme of ["dark", "light"] as const) {
+    test("the shared preselectTheme helper, " + theme, async ({ page }) => {
+      await record(page);
+      await preselectTheme(page, theme);
+      await open(page, "/backups");
+      await verdict(page, theme, "helper " + theme);
+    });
   }
 });

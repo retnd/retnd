@@ -7,7 +7,7 @@
  */
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
-import { open, setTheme, spaGo } from "./helpers";
+import { open, preselectTheme, setTheme, spaGo } from "./helpers";
 
 const S = "assurance-default-untested";
 const SET = "/sets/production/postgres-primary";
@@ -27,6 +27,7 @@ test.use({ viewport: { width: 1280, height: 900 }, video: process.env.E2E_VIDEO 
 for (const theme of ["light", "dark"] as const) {
   test(`1175 walkthrough (${theme}): the chip and the Lifecycle agree, then Custom configuration and its link`, async ({ page }) => {
     test.setTimeout(180_000);
+    await preselectTheme(page, theme);
     await open(page, NEWEST_PATH, S, { wire: true });
     const card = page.getByRole("region", { name: "Assurance" });
     await expect(card.locator('[data-claim="content"]')).toContainText("Content verified");
@@ -63,6 +64,7 @@ for (const theme of ["light", "dark"] as const) {
 
   test(`1188 walkthrough (${theme}): the Default configuration chip lands on the Assurance section`, async ({ page }) => {
     test.setTimeout(120_000);
+    await preselectTheme(page, theme);
     await open(page, "/backups", S, { wire: true });
     await expect(page.locator("main")).toBeVisible();
     await setTheme(page, theme);
@@ -81,6 +83,7 @@ for (const theme of ["light", "dark"] as const) {
   test(`1180 walkthrough (${theme}): page size, paging, a remembered choice, All, select all across pages`, async ({ page }) => {
     test.setTimeout(180_000);
     const size = page.getByRole("combobox", { name: "Rows per page" });
+    await preselectTheme(page, theme);
     await open(page, "/backups", "backups-many");
     await expect(page.locator("main")).toBeVisible();
     await setTheme(page, theme);

@@ -8,6 +8,28 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <!-- #1236: the theme is put on the root element here, before the first
+         paint, rather than by the app's own start-up. The boot is async
+         (#1216), so anything that waits for it paints the light tokens first
+         and a stored dark preference flashes. An attribute that is already
+         valid is left alone, which is how a spec or an embedding page can
+         choose a theme ahead of this script. Storage that throws (a blocked
+         profile) falls back to light, the same as src/theme.ts. Keep the two
+         in step: src/theme.test.ts runs this script. -->
+    <script id="theme-boot">
+      (function () {
+        var root = document.documentElement;
+        var t = root.getAttribute("data-theme");
+        if (t !== "dark" && t !== "light") {
+          try {
+            t = window.localStorage.getItem("retnd.theme") === "dark" ? "dark" : "light";
+          } catch (e) {
+            t = "light";
+          }
+          root.setAttribute("data-theme", t);
+        }
+      })();
+    </script>
   </head>
   <body>
     <!--

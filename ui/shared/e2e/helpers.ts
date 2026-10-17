@@ -108,16 +108,32 @@ export async function measureContrast(page: Page, label: string, selector: strin
   return all.filter((m) => m.ratio < m.need).map((m) => m.text + " " + m.ratio.toFixed(2));
 }
 
-/** Sets the theme the way the app's own switch does, then checks it stuck.
- *  The app writes `data-theme` from its own state when it mounts, and since
- *  the async boot (#1216) that can land after a spec's first lines, which
- *  puts the screen back in light. So this lets the page settle for a couple
- *  of frames and asserts the attribute (#1229): a spec that calls it too
- *  early now fails here instead of measuring or recording the wrong theme. */
+/** Chooses the theme for every load this page makes from now on, before any
+ *  app script runs: it stores the preference the way the app's own switch
+ *  does, and index.html's pre-paint script turns that into `data-theme` on
+ *  the root before the first frame (#1236). Call it before `open`, and a
+ *  spec or a recording starts in the theme it asked for with no flash. */
+export async function preselectTheme(page: Page, theme: "light" | "dark") {
+  await page.addInitScript((t) => {
+    try { window.localStorage.setItem("retnd.theme", t); } catch { /* storage blocked: the attribute below still applies */ }
+  }, theme);
+}
+
+/** Sets the theme on a page that is already open, then checks it stuck.
+ *  It goes by the same two paths a load does: the stored preference (also
+ *  registered for any later load, via `preselectTheme`) and the root element's
+ *  attribute, which the app now respects instead of overwriting (#1236). It
+ *  lets the page settle for a couple of frames and asserts the attribute
+ *  (#1229), so a spec that calls it before the screen is up fails here
+ *  instead of measuring or recording the wrong theme. */
 export async function setTheme(page: Page, theme: "light" | "dark") {
-  await page.evaluate((t) => document.documentElement.setAttribute("data-theme", t), theme);
+  await preselectTheme(page, theme);
+  await page.evaluate((t) => {
+    try { window.localStorage.setItem("retnd.theme", t); } catch { /* blocked */ }
+    document.documentElement.setAttribute("data-theme", t);
+  }, theme);
   await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(done, 150)))));
-  await expect(page.locator("html"), "setTheme(" + theme + ") did not stick: the app reset it after boot").toHaveAttribute("data-theme", theme, { timeout: 1000 });
+  await expect(page.locator("html"), "setTheme(" + theme + ") did not stick: something reset it after boot").toHaveAttribute("data-theme", theme, { timeout: 1000 });
 }
 
 /** Navigates inside the running app without reloading it. The development

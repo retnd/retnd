@@ -79,22 +79,21 @@ import { ServiceUnreachablePage, SessionCheckFailedPage } from "@shared/pages/Se
 import { InsecureTransportPrompt } from "@shared/components/InsecureTransportPrompt";
 import { TooltipOptOutDialog } from "@shared/components/TooltipOptOutDialog";
 import { isServiceUnreachable } from "@shared/api/failure";
+import { applyTheme, resolveTheme } from "@shared/theme";
+import type { Theme } from "@shared/theme";
 
-const THEME_KEY = "retnd.theme";
 
 export function App() {
   const api = useApi();
   const { auth, authError, authLoading, refreshAuth, bridge } = usePlatform();
   const navigate = useNavigate();
 
-  const [theme, setTheme] = useState<"light" | "dark">(() => {
-    const stored = window.localStorage.getItem(THEME_KEY);
-    return stored === "dark" ? "dark" : "light";
-  });
+  // #1236: index.html has already put the theme on the root element before the
+  // first paint, so this starts from what is there instead of overwriting it.
+  const [theme, setTheme] = useState<Theme>(resolveTheme);
 
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    window.localStorage.setItem(THEME_KEY, theme);
+    applyTheme(theme);
   }, [theme]);
 
   // Issue #176: which mode this instance is in, asked before anything
