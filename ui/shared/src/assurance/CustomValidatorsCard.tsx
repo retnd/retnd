@@ -64,7 +64,7 @@ export function CustomValidatorsCard({ readOnly }: { readOnly: boolean }) {
     setRemoveBusy(true);
     try {
       await api.removeCustomValidator(removing.name);
-      setStatus("Removed " + removing.name + ". Nothing runs it any more.");
+      setStatus("Removed " + removing.name + ". Nothing runs it any more, and its script was moved aside, not deleted.");
       setRemoving(null);
       await load();
     } catch (e) {
@@ -75,7 +75,9 @@ export function CustomValidatorsCard({ readOnly }: { readOnly: boolean }) {
     }
   };
 
-  const disabled = readOnly || !list || !list.available;
+  // A directory the engine refuses runs nothing, so there is nothing to add to or edit.
+  const refused = list?.directoryRefused ?? "";
+  const disabled = readOnly || !list || !list.available || refused !== "";
 
   return (
     <section className="card" tabIndex={-1} data-assurance="" data-validators="" aria-label="Recovery-test validators">
@@ -111,6 +113,24 @@ export function CustomValidatorsCard({ readOnly }: { readOnly: boolean }) {
           </p>
         ) : null}
         {error ? <div role="alert" data-validators-error="" style={{ color: "var(--danger)", fontWeight: 600 }}>{error}</div> : null}
+        {refused ? (
+          <div role="alert" data-validators-refused="" style={{ color: "var(--danger)", fontWeight: 600 }}>
+            No validator script runs while the validator directory is refused: {refused}
+          </div>
+        ) : null}
+        {list && list.ambiguities.length > 0 ? (
+          <div role="status" data-testid="validators-ambiguities" style={{ fontSize: "var(--text-sm)", color: "var(--text)" }}>
+            <strong>Two patterns match one backup.</strong> A recovery test of these ends could not complete rather than guessing,
+            so narrow one pattern or change its scope:
+            <ul style={{ margin: "4px 0 0", paddingLeft: 20 }}>
+              {list.ambiguities.map((a) => (
+                <li key={a.example}>
+                  {a.validators.join(" and ")} both match <span className="mono" style={{ overflowWrap: "anywhere" }}>{a.example}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         {list && !list.available ? (
           <p role="status" style={{ margin: 0 }} data-validators-unavailable="">
             This deployment cannot keep custom validators: {list.unavailableReason || "no workflow root is configured"}.
@@ -157,7 +177,7 @@ export function CustomValidatorsCard({ readOnly }: { readOnly: boolean }) {
                     <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
                       <span style={{ display: "inline-flex", gap: 6 }}>
                         <button className="btn btn--sm btn--strong-edge" aria-label={"View script " + v.name} onClick={() => void viewScript(v.name)}>View</button>
-                        <button className="btn btn--sm btn--strong-edge" aria-label={"Edit " + v.name} disabled={readOnly || !list.available} onClick={() => setDialog({ kind: "edit", validator: v })}>Edit</button>
+                        <button className="btn btn--sm btn--strong-edge" aria-label={"Edit " + v.name} disabled={disabled} onClick={() => setDialog({ kind: "edit", validator: v })}>Edit</button>
                         <button className="btn btn--sm btn--strong-edge" aria-label={"Remove " + v.name} disabled={readOnly} onClick={() => setRemoving(v)}>Remove</button>
                       </span>
                     </td>
@@ -174,7 +194,7 @@ export function CustomValidatorsCard({ readOnly }: { readOnly: boolean }) {
           mode={dialog}
           list={list}
           returnFocus={dialog.kind === "add" ? addButton : undefined}
-          onClose={() => setDialog(null)}
+          onClose={() => { setDialog(null); void load(); }}
           onSaved={({ validator, edited }) => {
             setDialog(null);
             setStatus((edited ? "Saved " : "Uploaded ") + validator.name + ".");
@@ -198,7 +218,8 @@ export function CustomValidatorsCard({ readOnly }: { readOnly: boolean }) {
         <p style={{ margin: 0 }}>
           <span className="mono">{removing?.name}</span> applies to{" "}
           <span className="mono">{removing?.backupSetId || "every backup set"}</span>, and {matchWords(removing?.matchCount ?? 0)}{" "}
-          match its pattern now. Removing it stops it running and takes its script out of the workflow root.
+          match its pattern now. Removing it stops it running and moves its script aside, to recovery-test-validators.superseded
+          beside the stage directory; nothing is deleted.
         </p>
         <p style={{ margin: 0 }}>
           A recovery test of those backups then falls back to the next check in the order above: the set&apos;s validator_id, the one

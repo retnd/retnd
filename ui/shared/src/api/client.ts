@@ -2915,6 +2915,8 @@ function fromWireValidatorList(r: WireListCustomValidatorsResponse): CustomValid
     available: r.available, unavailableReason: r.unavailable_reason ?? "", runnerConfigured: r.runner_configured,
     directory: r.directory ?? "", workflowRoot: r.workflow_root ?? "", maxValidators: r.max_validators,
     maxScriptBytes: r.max_script_bytes, maxPatternBytes: r.max_pattern_bytes,
+    directoryRefused: r.directory_refused ?? "",
+    ambiguities: (r.ambiguities ?? []).map((a) => ({ backupSetId: a.backup_set_id, example: a.example, validators: a.validators ?? [] })),
     validators: (r.validators ?? []).map(fromWireCustomValidator),
     ...(r.resolution
       ? { resolution: { artifactId: r.resolution.artifact_id, validator: r.resolution.validator, fallback: r.resolution.fallback, ambiguous: r.resolution.ambiguous ?? [] } }
@@ -4282,10 +4284,12 @@ export const httpApi: RetndApi = {
     request<WireCustomValidator>("/assurance/validators/" + encodeURIComponent(name), {
       method: "PUT",
       ...stepUpHeaders(opts),
+      // A true replace: the scope is always said (empty is every set), and
+      // the script is either sent or kept by hash.
       body: JSON.stringify({
         pattern: req.pattern,
-        ...(req.backupSetId ? { backup_set_id: req.backupSetId } : {}),
-        ...(req.script ? { script: req.script } : {})
+        backup_set_id: req.backupSetId ?? "",
+        ...(req.script !== undefined ? { script: req.script } : { script_sha256: req.keepScriptSha256 })
       })
     }).then(fromWireCustomValidator),
   removeCustomValidator: (name) =>

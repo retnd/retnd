@@ -40,7 +40,7 @@ const WORDS: Record<StepUpAct, { help: string; nothing: string; start: string; t
     help: "Uploading a script asks for your password again. It is sent once with this request and not kept.",
     nothing: "No validator was uploaded or changed.",
     start: "Enter your password to upload the validator.",
-    terminal: "upload a validator from the web interface. Run retnd assurance validator add on the host."
+    terminal: "upload a validator from the web interface. Run retnd assurance validators add on the host."
   }
 };
 

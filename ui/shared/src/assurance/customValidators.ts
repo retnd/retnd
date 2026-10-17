@@ -77,7 +77,7 @@ export function lastResultWords(r: { state: string; at: string } | undefined): s
  *  shellQuote, so the line can be pasted as it stands. */
 export function addCommand(name: string, pattern: string, backupSetId: string): string {
   return (
-    "retnd assurance validator add " + shellQuote(name || "NAME") + " --pattern " + shellQuote(pattern || "PATTERN") +
+    "retnd assurance validators add " + shellQuote(name || "NAME") + " --pattern " + shellQuote(pattern || "PATTERN") +
     (backupSetId ? " --backup-set " + shellQuote(backupSetId) : "") + " --script FILE"
   );
 }

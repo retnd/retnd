@@ -204,7 +204,14 @@ export function CustomValidatorDialog({
     forget();
     try {
       const validator = edit
-        ? await api.updateCustomValidator(edit.name, { pattern, backupSetId: setId || undefined, script: script || undefined }, opts)
+        ? await api.updateCustomValidator(
+            edit.name,
+            // A replacement: an empty script box keeps the stored script by the hash this list read.
+            script === ""
+              ? { pattern, backupSetId: setId || undefined, keepScriptSha256: edit.scriptSha256 }
+              : { pattern, backupSetId: setId || undefined, script },
+            opts
+          )
         : await api.createCustomValidator({ name, pattern, backupSetId: setId || undefined, script }, opts);
       onSaved({ validator, edited: edit !== null });
     } catch (e) {
@@ -219,6 +226,13 @@ export function CustomValidatorDialog({
             reason: gate.reason,
             correlationId: a?.correlationId
           })
+        );
+        return;
+      }
+      if ((a?.code as string | undefined) === "VALIDATOR_SCRIPT_CHANGED") {
+        setError(
+          "The script on the host changed after this list was read, so nothing was saved. Close this, let the list refresh, " +
+          "read the script as it is now and edit again."
         );
         return;
       }
@@ -357,7 +371,7 @@ export function CustomValidatorDialog({
               onChange={(e) => setPattern(e.target.value)}
             />
             <span id="validator-pattern-help" style={quiet}>
-              A Go (RE2) regular expression matched against an artifact's file name. Anchor it with ^ and $.
+              A Go (RE2) regular expression matched against an artifact's file name, with no repeat count above 255. Anchor it with ^ and $.
             </span>
           </div>
           <PatternPreview pattern={pattern} judged={judged} failed={failedPreview} />

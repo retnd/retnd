@@ -201,6 +201,9 @@ export function createMockValidators(env: MockValidatorsEnv): Pick<
         maxValidators: MAX_VALIDATORS,
         maxScriptBytes: MAX_SCRIPT_BYTES,
         maxPatternBytes: MAX_PATTERN_BYTES,
+        // The mock refuses a collision when a validator is added, so none can arise.
+        directoryRefused: "",
+        ambiguities: [],
         validators: validators
           .filter((v) => !filter?.backupSetId || v.backupSetId === "" || v.backupSetId === filter.backupSetId)
           .sort((a, b) => Number(b.backupSetId !== "") - Number(a.backupSetId !== "") || a.name.localeCompare(b.name))
@@ -294,6 +297,13 @@ export function createMockValidators(env: MockValidatorsEnv): Pick<
       if (!current) throw notThere(name);
       const bad = parseProblem(req.pattern);
       if (bad) throw refusal("INVALID_REQUEST", bad);
+      // A replacement: the script is sent or kept by hash, one of the two.
+      if ((req.script === undefined) === (req.keepScriptSha256 === undefined)) {
+        throw refusal("INVALID_REQUEST", "send either script or script_sha256, one of the two");
+      }
+      if (req.keepScriptSha256 !== undefined && req.keepScriptSha256 !== current.scriptSha256) {
+        throw refusal("VALIDATOR_SCRIPT_CHANGED", "the stored script is not the one with that hash any more");
+      }
       const setId = req.backupSetId ?? "";
       if (!knownSet(setId)) throw refusal("BACKUP_SET_NOT_FOUND", "there is no backup set " + setId);
       const clash = conflictsOf(req.pattern, setId, name)[0];

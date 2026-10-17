@@ -45,6 +45,8 @@ test.describe("#1203 review: removing a validator", () => {
     await expect(dlg).toContainText("recovery-test folder");
     await expect(dlg).toContainText("built-in check");
     await expect(dlg).not.toContainText("deletes its script");
+    await expect(dlg).toContainText("moves its script aside");
+    await expect(dlg).toContainText("recovery-test-validators.superseded");
   });
 });
 

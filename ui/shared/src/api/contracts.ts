@@ -2737,8 +2737,23 @@ export interface CustomValidatorList {
   maxValidators: number;
   maxScriptBytes: number;
   maxPatternBytes: number;
+  /** Why the stage directory cannot be used (writable by another account,
+   *  owned by one this process does not trust), or empty. While it is set no
+   *  validator script runs, whatever `available` says about uploading. */
+  directoryRefused: string;
   validators: CustomValidator[];
+  /** Backups already in the journal that two or more patterns at one scope
+   *  match; a recovery test of one ends could not complete. */
+  ambiguities: CustomValidatorAmbiguity[];
   resolution?: CustomValidatorResolution;
+}
+
+/** One backup that more than one validator's pattern matches at one scope. */
+export interface CustomValidatorAmbiguity {
+  backupSetId: string;
+  /** The newest backup they collide on, source/set/name. */
+  example: string;
+  validators: string[];
 }
 
 /** A pattern suggested from the backups already held. */
@@ -2792,12 +2807,15 @@ export interface CustomValidatorCreate {
   script: string;
 }
 
-/** A new pattern and scope; an absent `script` keeps the uploaded one. */
-export interface CustomValidatorUpdate {
+/** An edit is a whole replacement (#1213): the pattern and the scope are the
+ *  new ones (an absent `backupSetId` is every set, so a caller that means to
+ *  keep a set sends it again), and the script is either sent or kept by the
+ *  hash the caller last read, never both and never neither. A hash that is no
+ *  longer the stored script's is refused VALIDATOR_SCRIPT_CHANGED. */
+export type CustomValidatorUpdate = {
   pattern: string;
   backupSetId?: string;
-  script?: string;
-}
+} & ({ script: string; keepScriptSha256?: never } | { keepScriptSha256: string; script?: never });
 
 /** The deployment-wide workflow configuration, RESOLVED: the timeout a
  *  hook will actually get, the stages that will actually run, the
