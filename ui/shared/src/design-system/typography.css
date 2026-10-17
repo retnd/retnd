@@ -169,7 +169,9 @@ h2 { font-size: var(--text-lg); font-weight: 600; letter-spacing: -0.01em; margi
   font-size: var(--text-sm);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-3);
+  /* --text-3 is the ink for edges and decoration (3:1). Text needs 4.5:1:
+     --text-3 was 3.35:1 (light) and 3.85:1 (dark) on a card (#1229). */
+  color: var(--text-2);
   font-weight: 500;
 }
 
