@@ -100,6 +100,8 @@ func describeValidator(ctx context.Context, cfg *config.Config, store validatorS
 	if present {
 		v.ScriptPresent, v.ScriptSHA256, v.ScriptSize = true, info.SHA256, info.Size
 	}
+	v.ScriptPinnedSHA256 = cv.ScriptSHA256
+	v.ScriptState = scriptStateOf(present, info.SHA256, cv.ScriptSHA256)
 	m, err := config.ScanValidatorMatches(ctx, cv, setNames(scope))
 	if err != nil {
 		return CustomValidator{}, err

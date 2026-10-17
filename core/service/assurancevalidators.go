@@ -115,6 +115,39 @@ func DefaultCustomValidatorScript() ValidatorScript {
 	return validatorScriptOf(DefaultValidatorFileName, []byte(defaultValidatorScript))
 }
 
+// The states a validator's script is in, as the list reports them (#1222).
+const (
+	// ScriptStatePinned: the file hashes to what config.yaml pins. This is
+	// the state every upload and edit leaves.
+	ScriptStatePinned = "pinned"
+	// ScriptStateUnpinned: config.yaml pins nothing, because the entry was
+	// written before pinning or by hand. The script runs as it always did and
+	// the next save of the validator pins it.
+	ScriptStateUnpinned = "unpinned"
+	// ScriptStateEdited: config.yaml pins a hash and the file no longer has
+	// it. A recovery test that would use this validator ends could_not_complete
+	// without running the script, and an edit cannot keep it by hash: sending
+	// the script is the way to approve what is on disk.
+	ScriptStateEdited = "edited_on_disk"
+	// ScriptStateMissing: the file is not there (or cannot be read).
+	ScriptStateMissing = "missing"
+)
+
+// scriptStateOf is the state of a script given what is on disk and what the
+// entry pins. found is "" when the file is not there.
+func scriptStateOf(present bool, found, pinned string) string {
+	switch {
+	case !present:
+		return ScriptStateMissing
+	case pinned == "":
+		return ScriptStateUnpinned
+	case found == pinned:
+		return ScriptStatePinned
+	default:
+		return ScriptStateEdited
+	}
+}
+
 // CustomValidatorResult is the newest recovery test a validator decided.
 type CustomValidatorResult struct {
 	State    string
@@ -135,9 +168,17 @@ type CustomValidator struct {
 
 	ScriptFile    string
 	ScriptPresent bool
-	ScriptSHA256  string
-	ScriptSize    int64
-	UploadedAt    time.Time
+	// ScriptSHA256 is the hash of the bytes in the file now.
+	ScriptSHA256 string
+	ScriptSize   int64
+	UploadedAt   time.Time
+
+	// ScriptPinnedSHA256 is the hash config.yaml pins for this validator
+	// (script_sha256, #1222), "" for an entry that has none.
+	ScriptPinnedSHA256 string
+	// ScriptState is ScriptStatePinned, ScriptStateUnpinned,
+	// ScriptStateEdited or ScriptStateMissing.
+	ScriptState string
 
 	// Matches is how many artifacts in the journal, within the validator's
 	// scope, have a name the pattern matches; MatchSets the sets they are
@@ -441,23 +482,43 @@ func (b *BackupService) writeCustomValidator(ctx context.Context, req CreateCust
 	if len(c) > 0 {
 		return CustomValidator{}, fmt.Errorf("%w: %s also matches %s, and two validators at one scope for the same backup is an ambiguity; narrow one of the patterns", ErrValidatorConflict, c[0].Validator, c[0].Example)
 	}
+	// What config.yaml pins for this name now, before the entry is replaced.
+	previousPin := ""
+	if idx >= 0 {
+		previousPin = blk.Validators[idx].ScriptSHA256
+	}
+	pin := ""
+	if req.Script != "" {
+		pin = validatorScriptOf(file, []byte(req.Script)).SHA256
+	}
 	if update && req.ScriptSHA256 != "" {
 		// Keeping a script by its hash means the script now stored is that
 		// one. The bytes are read and hashed here, never taken from the
 		// list's cache: the cache is a convenience for a display, and this
 		// is the check that stops an edit from keeping somebody else's code.
 		stored, err := store.Read(file, running.EffectiveMaxScriptSize())
+		var found string
+		if err == nil {
+			found = validatorScriptOf(file, stored).SHA256
+		}
 		switch {
 		case errors.Is(err, os.ErrNotExist):
 			return CustomValidator{}, fmt.Errorf("%w: no script is stored for %q to keep; send the script", ErrValidatorScriptChanged, req.Name)
 		case err != nil:
 			return CustomValidator{}, fmt.Errorf("service: reading the stored script of %q: %w", req.Name, err)
-		case validatorScriptOf(file, stored).SHA256 != req.ScriptSHA256:
+		case previousPin != "" && found != previousPin:
+			// The list reports the hash of what is on disk, so a client that
+			// echoes it back would approve a script nobody has read. Keeping
+			// is for the script that was approved; approving a different one
+			// means sending it.
+			return CustomValidator{}, fmt.Errorf("%w: %q was edited on disk (config.yaml pins sha256 %s and the file holds %s); keeping it would approve code nobody has read, so send the script to approve it", ErrValidatorScriptChanged, req.Name, previousPin, found)
+		case found != req.ScriptSHA256:
 			return CustomValidator{}, fmt.Errorf("%w: %q now holds a different script than the one this edit was made against; read it again and decide", ErrValidatorScriptChanged, req.Name)
 		}
+		pin = found
 	}
 
-	entry := config.CustomValidator{Name: req.Name, Pattern: req.Pattern}
+	entry := config.CustomValidator{Name: req.Name, Pattern: req.Pattern, ScriptSHA256: pin}
 	if !set.IsZero() {
 		entry.BackupSet = set.String()
 	}
@@ -511,7 +572,8 @@ func (b *BackupService) writeCustomValidator(ctx context.Context, req CreateCust
 	if update {
 		event, msg = eventValidatorUpdated, "custom validator replaced"
 	}
-	b.logger.Event(ctx, obs.LevelInfo, event, msg, append(validatorEventAttrs(out), slog.Bool("script_replaced", req.Script != ""))...)
+	b.logger.Event(ctx, obs.LevelInfo, event, msg, append(validatorEventAttrs(out),
+		slog.Bool("script_replaced", req.Script != ""), slog.String("previous_pinned_sha256", previousPin))...)
 	return out, nil
 }
 
@@ -521,6 +583,7 @@ func validatorEventAttrs(v CustomValidator) []slog.Attr {
 	attrs := []slog.Attr{
 		slog.String("name", v.Name), slog.String("scope", v.Scope), slog.String("pattern", v.Pattern),
 		slog.String("script_sha256", v.ScriptSHA256), slog.Int64("script_size_bytes", v.ScriptSize),
+		slog.String("pinned_sha256", v.ScriptPinnedSHA256), slog.String("script_state", v.ScriptState),
 	}
 	if v.BackupSetID != "" {
 		attrs = append(attrs, slog.String("backup_set", v.BackupSetID))

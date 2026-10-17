@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -109,6 +110,16 @@ type stageValidator struct {
 	bs         config.BackupSet
 	scriptFile string
 	custom     []config.ResolvedCustomValidator
+	// edited, when set, is told about a custom validator whose script no
+	// longer hashes to the one config.yaml pins (#1222), so the test can leave
+	// an event beside the could_not_complete it ends with.
+	edited *scriptEdit
+}
+
+// scriptEdit is a pinned script found changed: the validator, the hash
+// config.yaml pins and the hash the file has.
+type scriptEdit struct {
+	validator, pinned, found string
 }
 
 // validatorChoice is what runs for one artifact.
@@ -132,6 +143,7 @@ func (v stageValidator) choose(artifact model.ArtifactID) validatorChoice {
 	case m.Validator != nil:
 		return validatorChoice{custom: m.Validator, req: StageRequest{
 			Set: v.bs, SetDir: config.CustomValidatorDir, LocalOnly: true, Only: m.Validator.ScriptFile,
+			ExpectSHA256: m.Validator.ScriptSHA256,
 		}}
 	}
 	req := StageRequest{Set: v.bs, SetDir: RecoveryTestSetDir(v.bs.ID), LocalOnly: true, MaxScripts: 1}
@@ -166,6 +178,25 @@ func (c validatorChoice) missing() error {
 	return fmt.Errorf("the declared validator %s was not found in %s", c.req.Only, c.req.SetDir)
 }
 
+// foundHash picks the hash the runner found out of its ErrStageScriptChanged
+// message ("... sha256 <hex>").
+var foundHash = regexp.MustCompile(`sha256 ([0-9a-f]{64})`)
+
+// changed turns the runner's refusal of an edited script into the sentence the
+// test ends with, and tells the test about it.
+func (v stageValidator) changed(c validatorChoice, err error) error {
+	found := foundHash.FindStringSubmatch(err.Error())
+	hash := ""
+	if len(found) == 2 {
+		hash = found[1]
+	}
+	if v.edited != nil {
+		*v.edited = scriptEdit{validator: c.custom.Name, pinned: c.custom.ScriptSHA256, found: hash}
+	}
+	return fmt.Errorf("the custom validator %s was edited on disk: config.yaml pins its script at sha256 %s and %s now holds %s; read the script and save the validator again to approve it",
+		c.custom.Name, c.custom.ScriptSHA256, c.custom.ScriptFile, hash)
+}
+
 func (v stageValidator) Configured(ctx context.Context, _ model.BackupSetID, artifact model.ArtifactID) (bool, error) {
 	c := v.choose(artifact)
 	if err := c.problem(artifact); err != nil {
@@ -175,6 +206,9 @@ func (v stageValidator) Configured(ctx context.Context, _ model.BackupSetID, art
 	req.DryRun = true
 	res, err := v.stages.RunStage(ctx, req)
 	if err != nil {
+		if errors.Is(err, ErrStageScriptChanged) && c.custom != nil {
+			return false, v.changed(c, err)
+		}
 		if errors.Is(err, ErrStageScriptMissing) && c.declares() {
 			return false, c.missing()
 		}
@@ -217,6 +251,9 @@ func (v stageValidator) Validate(ctx context.Context, in recoverytest.ValidatorI
 	if err != nil {
 		if errors.Is(err, ErrStageScriptMissing) && c.declares() {
 			return recoverytest.ValidatorOutcome{}, c.missing()
+		}
+		if errors.Is(err, ErrStageScriptChanged) && c.custom != nil {
+			return recoverytest.ValidatorOutcome{}, v.changed(c, err)
 		}
 		return recoverytest.ValidatorOutcome{}, err
 	}
@@ -378,6 +415,8 @@ func (s *Service) RecoveryTest(ctx context.Context, req RecoveryTestRequest) (Re
 	}
 
 	validator, verr := s.validatorFor(bs)
+	var edited scriptEdit
+	validator.edited = &edited
 	opID := req.OperationID
 	if opID == "" {
 		opID = uuid.NewString()
@@ -438,6 +477,9 @@ func (s *Service) RecoveryTest(ctx context.Context, req RecoveryTestRequest) (Re
 		// The verdict says what happened; this leaves the reason where an
 		// operator looking for the downgrade will find it.
 		s.logger().RecoveryTestValidatorFallback(ctx, opID, bs.ID.String(), target.String(), matched, ranInstead(verr, res))
+	}
+	if edited.validator != "" {
+		s.logger().RecoveryTestValidatorEdited(ctx, opID, bs.ID.String(), target.String(), edited.validator, edited.pinned, edited.found)
 	}
 	if res.Artifact.Name != "" {
 		artifactLabel = res.Artifact.String()

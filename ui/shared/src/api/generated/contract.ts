@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "93ea6c880b0402ebb3ebf8236db8df7af6a5ca225607ef0d4703fb721e9fa638";
+export const CONTRACT_SHA256 = "634b6bca5ee99dae6fda20db676d43d20367923c0ccd0a89913a13551162de92";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -3269,11 +3269,13 @@ export interface WireCustomValidator {
   match_sets: string[];
   name: string;
   pattern: string;
+  pinned_sha256: string;
   scope: "backup_set" | "global";
   script_file: string;
   script_present: boolean;
   script_sha256: string;
   script_size_bytes: number;
+  script_state: "pinned" | "unpinned" | "edited_on_disk" | "missing";
   uploaded_at: string;
 }
 

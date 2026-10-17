@@ -8541,7 +8541,21 @@
           },
           "script_sha256": {
             "type": "string",
-            "description": "SHA-256 of the script's bytes; empty when script_present is false."
+            "description": "SHA-256 of the script's bytes as the file holds them now; empty when script_present is false. Send it back as script_sha256 on PUT to keep the script, which is refused (409 VALIDATOR_SCRIPT_CHANGED) when script_state is edited_on_disk."
+          },
+          "pinned_sha256": {
+            "type": "string",
+            "description": "The SHA-256 config.yaml pins for this validator's script (assurance.validators[].script_sha256, #1222), written whenever the script is uploaded or edited; empty for an entry written before pinning, which runs as it always did until it is next saved. A recovery test runs the script only if script_sha256 equals this."
+          },
+          "script_state": {
+            "type": "string",
+            "description": "pinned: the file hashes to pinned_sha256. unpinned: nothing is pinned yet (an entry written before pinning); the script runs and the next save pins it. edited_on_disk: the file no longer hashes to pinned_sha256, so a recovery test this validator applies to ends could_not_complete without running it, and the script can only be approved by sending it again. missing: the file is not there.",
+            "enum": [
+              "pinned",
+              "unpinned",
+              "edited_on_disk",
+              "missing"
+            ]
           },
           "script_size_bytes": {
             "type": "integer",
@@ -8584,6 +8598,8 @@
           "script_file",
           "script_present",
           "script_sha256",
+          "pinned_sha256",
+          "script_state",
           "script_size_bytes",
           "uploaded_at",
           "match_count",
@@ -8783,7 +8799,7 @@
           },
           "script_sha256": {
             "type": "string",
-            "description": "Keep the stored script, and say which one by its SHA-256 (CustomValidator.script_sha256 as the client last read it). Refused with 409 VALIDATOR_SCRIPT_CHANGED when the stored script is no longer that one, so an edit never silently keeps a script somebody else replaced. Send this or script, not both."
+            "description": "Keep the stored script, and say which one by its SHA-256 (CustomValidator.script_sha256 as the client last read it). Refused with 409 VALIDATOR_SCRIPT_CHANGED when the stored script is no longer that one, so an edit never silently keeps a script somebody else replaced, and also when the script was edited on disk since it was last saved (CustomValidator.script_state edited_on_disk), because keeping it would approve code nobody has read: send the script to approve it. Keeping a script whose entry has no pin yet pins it. Send this or script, not both."
           }
         },
         "required": [
@@ -20746,7 +20762,7 @@
       "put": {
         "operationId": "updateCustomValidator",
         "summary": "Replace a custom validator's pattern, scope and (optionally) script.",
-        "description": "Issue #1203. A true replacement, not a merge: the request carries the whole validator. An absent backup_set_id makes it global, and the script is either sent (script) or explicitly kept by hash (script_sha256); a request with neither, or with both, is refused 400 INVALID_REQUEST, and a hash that is not the stored script's is refused 409 VALIDATOR_SCRIPT_CHANGED. Nothing is inferred from what a field leaves out. Gated like the upload, because a new pattern changes which data the script runs against and a new script is new code: the destructive gate is open on a local-account profile (issue #1163) and shut on a gateway profile until #92, and the password is asked for again wherever the gate is open (a deployment that cannot check one answers 503 STEP_UP_UNAVAILABLE). The terminal equivalent is `retnd assurance validators update`, which needs --backup-set or --global.",
+        "description": "Issue #1203. A true replacement, not a merge: the request carries the whole validator. An absent backup_set_id makes it global, and the script is either sent (script) or explicitly kept by hash (script_sha256); a request with neither, or with both, is refused 400 INVALID_REQUEST, and a hash that is not the stored script's, or a script edited on disk since it was saved, is refused 409 VALIDATOR_SCRIPT_CHANGED. Whatever is saved is pinned: the response's pinned_sha256 is the hash of the script now stored. Nothing is inferred from what a field leaves out. Gated like the upload, because a new pattern changes which data the script runs against and a new script is new code: the destructive gate is open on a local-account profile (issue #1163) and shut on a gateway profile until #92, and the password is asked for again wherever the gate is open (a deployment that cannot check one answers 503 STEP_UP_UNAVAILABLE). The terminal equivalent is `retnd assurance validators update`, which needs --backup-set or --global.",
         "tags": [
           "assurance"
         ],

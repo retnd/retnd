@@ -1041,9 +1041,17 @@ activity feed.
 **`name` and `validator_id` are different things.** A custom validator's `name` is NAME in its
 `NAME.local.sh` under `<workflow root>/recovery-test-validators/`, chosen by you, unique across
 the deployment (compared without regard to case, since a case-insensitive volume would make
-`Foo` and `foo` one file), and it never begins `retnd-`. `validator_id` names a script in a
-set's own `recovery-test/<source>/<set>` directory. They share the file-name rules and nothing
-else; the activity feed and a copy's recorded result name the script that actually ran.
+`Foo` and `foo` one file), is at most 64 bytes, and never begins `retnd-`. `validator_id` names
+a script in a set's own `recovery-test/<source>/<set>` directory. They share the file-name rules
+and nothing else.
+
+The `name` is also the validator's one id in what a test leaves behind: the activity feed's
+`validator` field and the copy's recorded result both carry it, so a line in the feed can be
+joined to a result without knowing two spellings. That is why a name is capped at 64 bytes (the
+feed withholds a longer id). A test decided by a set's `validator_id` is recorded under the
+script's file name (`NAME.local.sh`) as it always was, and so is the built-in check under its
+reserved id; results written before this release name a custom validator by its file, and the
+list reads both spellings and shows the newer.
 
 What a pattern may be:
 
@@ -1067,12 +1075,28 @@ How scripts are kept:
   new script or `script_sha256` to keep the stored one, which is refused if the stored script is
   no longer that one. Leaving the scope out means every set, which is why
   `retnd assurance validators update` makes you say `--backup-set` or `--global`.
+- `config.yaml` pins the script: every upload and edit writes the script's SHA-256 into the
+  entry as `script_sha256`, and a recovery test runs the script only if the file still hashes to
+  it (checked against the very bytes the runner is about to execute). A script someone changed
+  on disk since it was saved, by hand, by a sync tool or by an interrupted write, is not run:
+  the test ends `could not complete` with "edited on disk" and the two hashes, an
+  `recovery_test_validator_edited` warning is left in the feed, and `list` shows the validator as
+  `edited_on_disk`. The states are `pinned`, `unpinned`, `edited_on_disk` and `missing`.
+  To accept what is on disk, read it and send it again (`update --script FILE`, or `PUT` with
+  `script`); keeping it by `script_sha256` is refused for an edited script, because the list
+  shows the hash of what is on disk and echoing it back would approve code nobody read.
 - A crash between writing a script and writing `config.yaml` can leave a script the file does
-  not name (moved aside on the next upload), or on an edit a new script under the old pattern.
-  Pinning the script's hash in `config.yaml` would close that window and is not done yet.
+  not name (moved aside on the next upload), or on an edit a new script under the old pin.
+  The first is inert. The second is `edited_on_disk` and is refused at run time instead of being
+  run under an approval it never had; saving the validator again clears it.
+- An entry written before pinning (or by hand) has no `script_sha256`. It is accepted and runs as
+  it always did, and `list` shows it as `unpinned`. Nothing rewrites your `config.yaml` for you:
+  the next save of that validator pins it, and so does an edit that keeps the script by its hash.
+  You may also write `script_sha256` into `config.yaml` yourself (64 lower-case hex digits).
 - Each upload, edit and removal writes a `validator_uploaded`, `validator_updated` or
-  `validator_removed` event with the name, scope, pattern and the script's SHA-256 and size
-  (never the script).
+  `validator_removed` event with the name, scope, pattern, the script's SHA-256 and size, the
+  hash now pinned, the hash that was pinned before (`previous_pinned_sha256`) and the script's
+  state (never the script).
 
 **An older retnd refuses a `config.yaml` that has `assurance.validators` in it**, because the
 key is new and unknown keys are refused. Remove the validators (or the block) before going
