@@ -19,7 +19,9 @@ export const FIXTURE_MARKERS = [
   "validators-state-edited",
   "validators-state-missing",
   "restore-log",
-  "edited on the host after it was uploaded"
+  "edited on the host after it was uploaded",
+  // #1233: the environment scenario.
+  "validators-env-workflow"
 ];
 
 /** Returns the markers found in a text blob. */
