@@ -44,7 +44,7 @@ func TestValidators1203_APutEchoesWhereItGoesAndWhichScript(t *testing.T) {
 	if !strings.Contains(global.Shell(), "--global") || strings.Contains(global.Shell(), "--backup-set") {
 		t.Errorf("a global replacement echoes %q", global.Shell())
 	}
-	if !global.Placeholder || !strings.Contains(global.Shell(), "--script") || !strings.Contains(global.Shell(), "26 bytes") || !strings.Contains(global.Shell(), hash) {
+	if !global.Placeholder || !strings.Contains(global.Shell(), "--script") || !strings.Contains(global.Shell(), "27 bytes") || !strings.Contains(global.Shell(), hash) {
 		t.Errorf("the script placeholder does not say which script it is (size and sha256): %q", global.Shell())
 	}
 }
@@ -55,7 +55,7 @@ func TestValidators1203_APostPlaceholderCarriesTheScriptsSizeAndHash(t *testing.
 	hash := hex.EncodeToString(sum[:])
 	line := Echo(Action{Method: "POST", Route: "/assurance/validators",
 		Body: []byte(`{"name":"dumps","pattern":"\\.sql$","script":"#!/usr/bin/env bash\nexit 0\n"}`)})
-	if !line.Placeholder || !strings.Contains(line.Shell(), "26 bytes") || !strings.Contains(line.Shell(), hash) {
+	if !line.Placeholder || !strings.Contains(line.Shell(), "27 bytes") || !strings.Contains(line.Shell(), hash) {
 		t.Errorf("echo = %q", line.Shell())
 	}
 	if strings.Contains(line.Shell(), "exit 0") {
