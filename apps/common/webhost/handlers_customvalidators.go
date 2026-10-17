@@ -129,7 +129,7 @@ func (h *handlers) createCustomValidator(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	v, err := b.CreateCustomValidator(r.Context(), service.CreateCustomValidatorRequest{
-		Name: body.Name, Pattern: body.Pattern, BackupSetID: body.BackupSetID, Script: body.Script,
+		Name: body.Name, Pattern: body.Pattern, BackupSetID: body.BackupSetID, Script: body.Script, Env: body.Env,
 	})
 	if err != nil {
 		h.writeCustomValidatorError(w, r, err, "failed to store the custom validator")
@@ -149,7 +149,7 @@ func (h *handlers) updateCustomValidator(w http.ResponseWriter, r *http.Request)
 	}
 	v, err := b.UpdateCustomValidator(r.Context(), service.CreateCustomValidatorRequest{
 		Name: chi.URLParam(r, "name"), Pattern: body.Pattern, BackupSetID: body.BackupSetID, Script: body.Script,
-		ScriptSHA256: body.ScriptSha256,
+		ScriptSHA256: body.ScriptSha256, Env: body.Env,
 	})
 	if err != nil {
 		h.writeCustomValidatorError(w, r, err, "failed to store the custom validator")

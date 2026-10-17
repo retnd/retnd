@@ -899,7 +899,7 @@ next starts.
 | Scrub cadence and strategy (`auto`, `existence`, `content`) | Yes |
 | Recovery-test mode (`inherit`, `off`, `builtin`, `required`, `custom`) and its validator | Yes |
 | Built-in check when no validator is declared (`builtin_check`: `structure` or `off`) | Yes |
-| Environment a validator starts with (`validator_env`: `minimal` or `workflow`) | Yes |
+| Environment a validator starts with (`validator_env`: `minimal` or `workflow`) | Yes, and each custom validator can say its own (`env`) |
 | Recovery staging root and TTL | **No.** One staging filesystem, shared by recoveries and recovery tests |
 | Concurrency ceilings (full reads, per destination) | **No.** One host |
 
@@ -923,8 +923,13 @@ on `minimal` unless the script really needs one of those variables: a validator 
 a recovered copy and is more likely than a backup hook to be written by someone else. A set
 can opt in on its own, or opt back out when the deployment has opted in, and a value that is
 not exactly one of the two words is refused when the configuration loads, so a typo can
-never open the larger environment. For now the key is set in the configuration file; the
+never open the larger environment. The set's key is set in the configuration file; the
 settings screens and the CLI do not show it yet, and they leave it alone when they save.
+A custom validator (see *Custom validators by backup name* below) can say its own `env` as
+well, and that is the narrowest setting, so it wins: the validator's `env`, then the set's
+`validator_env`, then the deployment's, then `minimal`. The set's `validator_env` is the
+default for the set's own script (`validator_id`, or the one in its `recovery-test`
+directory) and for any custom validator whose entry states no `env`.
 
 **A configuration that uses the `assurance:` key cannot be read by a build that predates
 it.** The loader rejects unknown keys, so downgrading after you have added the block fails
@@ -1019,7 +1024,7 @@ file name is refused when you save it. It runs the way every other hook runs, th
 host workflow runner, with the same custody checks, shell verification and fail-closed
 timeout. Its environment is smaller than a hook's: the `RECOVERY_TEST_*` variables, the
 product's `RETND_*` facts and the baseline `PATH`, with the set's workflow variables (secrets
-included) only when you set `validator_env: workflow`. It is run **against a recovered copy in an isolated
+included) only when you opt in with `validator_env: workflow`, or, for a custom validator, its own `env: workflow`. It is run **against a recovered copy in an isolated
 path**, never against the durable file, and the path reaches it as `RECOVERY_TEST_FILE`.
 The runner's container cannot see the staging directory unless you declare it with
 `--hook-mount`, and a script that cannot open the file fails rather than passing. Its output is untrusted terminal input: no raw control byte reaches a
@@ -1052,6 +1057,19 @@ such backup in the journal. When a pattern matched and the test ran something el
 workflow runner is not wired, say), a `recovery_test_validator_fallback` warning is left in the
 activity feed.
 
+**Each custom validator says what environment its script starts with.** `env` is `minimal` (the
+default) or `workflow`, and nothing else: any other spelling (`Workflow`, `all`, a padded value)
+is refused when the configuration loads and when you save, and a refused value never counts as
+the opt-in. `minimal` is the `RECOVERY_TEST_*` variables, the product's `RETND_*` facts and the
+baseline `PATH`; `workflow` adds the backup set's merged workflow environment, secrets included,
+the way a backup hook gets it. The validator's own `env` beats the set's `validator_env` and the
+deployment's, in both directions, so one validator can opt in alone, and one can stay `minimal`
+under a set that opted in. A hand-written entry with no `env` follows the set. One made with
+`retnd assurance validators add|update --env minimal|workflow` or the API always states it, so
+it does not start following a later opt-in on the set; delete the line in `config.yaml` if you
+want it to. An edit replaces the validator whole, so an edit that leaves `env` out is `minimal`,
+never what the validator had before. The list shows the environment each validator really gets.
+
 **`name` and `validator_id` are different things.** A custom validator's `name` is NAME in its
 `NAME.local.sh` under `<workflow root>/recovery-test-validators/`, chosen by you, unique across
 the deployment (compared without regard to case, since a case-insensitive volume would make
@@ -1079,14 +1097,14 @@ How scripts are kept:
   number after it when that name is taken). Nothing is deleted.
 - An edit (`PUT`) replaces the validator whole. It carries the pattern, the scope, and either the
   new script or `script_sha256` to keep the stored one, which is refused if the stored script is
-  no longer that one. Leaving the scope out means every set, which is why
+  no longer that one, and its `env` (left out means `minimal`). Leaving the scope out means every set, which is why
   `retnd assurance validators update` makes you say `--backup-set` or `--global`.
 - A crash between writing a script and writing `config.yaml` can leave a script the file does
   not name (moved aside on the next upload), or on an edit a new script under the old pattern.
   Pinning the script's hash in `config.yaml` would close that window and is not done yet.
 - Each upload, edit and removal writes a `validator_uploaded`, `validator_updated` or
-  `validator_removed` event with the name, scope, pattern and the script's SHA-256 and size
-  (never the script).
+  `validator_removed` event with the name, scope, pattern, `env` and the script's SHA-256 and
+  size (never the script).
 
 **An older retnd refuses a `config.yaml` that has `assurance.validators` in it**, because the
 key is new and unknown keys are refused. Remove the validators (or the block) before going
@@ -1094,8 +1112,8 @@ back to a release without this feature.
 
 The upload check is a lint and **not a sandbox**: it stops common shell mistakes, not a script
 that does harm on purpose. A validator runs the way every other hook does, in the runner's
-container, with the set's merged workflow environment (secrets included, if you put them
-there). Installing one is as serious as adding a hook, which is why uploading and editing ask
+container, with the small environment unless you opt it in (`env: workflow`, which hands it the
+set's merged workflow environment, secrets included, if you put them there). Installing one is as serious as adding a hook, which is why uploading and editing ask
 for the administrator's password again, and are refused outright where the destructive gate is
 shut.
 

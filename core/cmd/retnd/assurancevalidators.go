@@ -251,6 +251,7 @@ func printCustomValidator(w io.Writer, v service.CustomValidator) {
 		script = fmt.Sprintf("%d bytes, sha256 %s, written %s", v.ScriptSize, listingText(v.ScriptSHA256), v.UploadedAt.Format(time.RFC3339))
 	}
 	say(w, "  script %s: %s\n", listingText(v.ScriptFile), script)
+	say(w, "  env %s\n", listingText(v.Env))
 	if v.Matches > 0 {
 		say(w, "  matches %d backup(s) in %s, e.g. %s\n", v.Matches, strings.Join(listingTexts(v.MatchSets), ", "), listingText(v.ExampleName))
 	} else {
@@ -288,6 +289,7 @@ type validatorWriteFlags struct {
 	script  *string
 	set     *string
 	global  *bool
+	env     *string
 	dryRun  *bool
 }
 
@@ -299,9 +301,20 @@ func validatorWriteFlagSet(form string) (*validatorWriteFlags, func(args []strin
 		script:  fs.String("script", "", "the NAME.local.sh file to upload"),
 		set:     fs.String("backup-set", "", "scope it to this source/backup-set"),
 		global:  fs.Bool("global", false, "apply it in every backup set"),
+		env:     fs.String("env", "", "the environment its script starts with: minimal (the default; the RECOVERY_TEST_* variables, RETND_* facts and PATH) or workflow (the backup set's workflow environment too, secrets included)"),
 		dryRun:  fs.Bool("dry-run", false, "say what the pattern matches and what it collides with, and save nothing"),
 	}
 	return f, func(args []string) ([]string, error) { return parseFlagsAroundOperands(fs, args) }, cfgPath
+}
+
+// checkValidatorEnv refuses an --env that is not exactly one of the two
+// values before anything is read or written; the service refuses it again, so
+// this is only the earlier and friendlier of two doors.
+func checkValidatorEnv(form, env string) (int, bool) {
+	if env == "" || env == "minimal" || env == "workflow" {
+		return exitOK, true
+	}
+	return usageError("%s: --env %q must be exactly minimal or workflow", form, env), false
 }
 
 func previewValidator(cfgPath, pattern, set, replacing string, asJSON bool) int {
@@ -354,6 +367,9 @@ func cmdAssuranceValidatorAdd(args []string) int {
 	if *f.global && *f.set != "" {
 		return usageError("assurance validators add: --global and --backup-set say opposite things; give one")
 	}
+	if code, ok := checkValidatorEnv("assurance validators add", *f.env); !ok {
+		return code
+	}
 	if *f.dryRun {
 		if *f.script != "" {
 			return usageError("assurance validators add --dry-run judges the pattern and reads no script; drop --script")
@@ -374,7 +390,7 @@ func cmdAssuranceValidatorAdd(args []string) int {
 		return fail(fmt.Errorf("reading --script: %w", err))
 	}
 	return writeValidator(*cfgPath, *f.asJSON, func(ctx context.Context, r customValidatorRoute) (service.CustomValidator, error) {
-		return r.CreateCustomValidator(ctx, service.CreateCustomValidatorRequest{Name: operands[0], Pattern: *f.pattern, BackupSetID: *f.set, Script: body})
+		return r.CreateCustomValidator(ctx, service.CreateCustomValidatorRequest{Name: operands[0], Pattern: *f.pattern, BackupSetID: *f.set, Script: body, Env: *f.env})
 	})
 }
 
@@ -396,6 +412,9 @@ func cmdAssuranceValidatorUpdate(args []string) int {
 	case !*f.global && *f.set == "":
 		return usageError("assurance validators update: say where it applies, --backup-set SOURCE/SET or --global. An update replaces the validator whole, and leaving the scope out used to widen a set-scoped validator to every set")
 	}
+	if code, ok := checkValidatorEnv("assurance validators update", *f.env); !ok {
+		return code
+	}
 	if *f.dryRun {
 		if *f.script != "" {
 			return usageError("assurance validators update --dry-run judges the pattern and reads no script; drop --script")
@@ -409,7 +428,7 @@ func cmdAssuranceValidatorUpdate(args []string) int {
 		}
 	}
 	return writeValidator(*cfgPath, *f.asJSON, func(ctx context.Context, r customValidatorRoute) (service.CustomValidator, error) {
-		req := service.CreateCustomValidatorRequest{Name: operands[0], Pattern: *f.pattern, BackupSetID: *f.set, Script: body}
+		req := service.CreateCustomValidatorRequest{Name: operands[0], Pattern: *f.pattern, BackupSetID: *f.set, Script: body, Env: *f.env}
 		if body == "" {
 			// Keep the stored script, and say which one: read from the very
 			// process the update is about to go to, so a script replaced in
@@ -578,7 +597,7 @@ func cmdAssuranceValidatorDefaultScript(args []string) int {
 // The wire to service half, for the routed forms.
 func customValidatorFromWire(w apicontract.CustomValidator) service.CustomValidator {
 	v := service.CustomValidator{
-		Name: w.Name, Pattern: w.Pattern, Anchored: w.Anchored, BackupSetID: w.BackupSetID, Scope: w.Scope,
+		Name: w.Name, Pattern: w.Pattern, Anchored: w.Anchored, BackupSetID: w.BackupSetID, Scope: w.Scope, Env: w.Env,
 		ScriptFile: w.ScriptFile, ScriptPresent: w.ScriptPresent, ScriptSHA256: w.ScriptSha256, ScriptSize: w.ScriptSizeBytes,
 		Matches: int(w.MatchCount), MatchSets: append([]string{}, w.MatchSets...), ExampleName: w.ExampleName,
 	}
@@ -667,7 +686,7 @@ func (r *engineRoute) PreviewCustomValidator(ctx context.Context, pattern, backu
 // CreateCustomValidator is POST /assurance/validators.
 func (r *engineRoute) CreateCustomValidator(ctx context.Context, req service.CreateCustomValidatorRequest) (service.CustomValidator, error) {
 	w, err := r.client.CreateCustomValidator(ctx, apicontract.CreateCustomValidatorRequest{
-		Name: req.Name, Pattern: req.Pattern, BackupSetID: req.BackupSetID, Script: req.Script,
+		Name: req.Name, Pattern: req.Pattern, BackupSetID: req.BackupSetID, Script: req.Script, Env: req.Env,
 	})
 	if err != nil {
 		return service.CustomValidator{}, err
@@ -678,7 +697,7 @@ func (r *engineRoute) CreateCustomValidator(ctx context.Context, req service.Cre
 // UpdateCustomValidator is PUT /assurance/validators/{name}.
 func (r *engineRoute) UpdateCustomValidator(ctx context.Context, req service.CreateCustomValidatorRequest) (service.CustomValidator, error) {
 	w, err := r.client.UpdateCustomValidator(ctx, req.Name, apicontract.UpdateCustomValidatorRequest{
-		Pattern: req.Pattern, BackupSetID: req.BackupSetID, Script: req.Script, ScriptSha256: req.ScriptSHA256,
+		Pattern: req.Pattern, BackupSetID: req.BackupSetID, Script: req.Script, ScriptSha256: req.ScriptSHA256, Env: req.Env,
 	})
 	if err != nil {
 		return service.CustomValidator{}, err

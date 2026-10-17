@@ -95,7 +95,7 @@ func TestIssue1221_ValidatorEnvRoundTripsThroughTheFileAndAnUnstatedOneIsNotWrit
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := len(regexp.MustCompile(`(?m)^\s+env: `).FindAll(encoded, -1)); n != 1 || !strings.Contains(string(encoded), "env: workflow") {
+	if n := len(regexp.MustCompile(`(?m)^\s+env: (minimal|workflow)$`).FindAll(encoded, -1)); n != 1 || !strings.Contains(string(encoded), "env: workflow") {
 		t.Errorf("the file should carry env once, for the entry that states it:\n%s", encoded)
 	}
 	p := filepath.Join(t.TempDir(), "config.yaml")

@@ -395,9 +395,21 @@ func (b *BackupService) describeValidator(ctx context.Context, cfg *config.Confi
 		Name: cv.Name, Pattern: cv.Pattern, Scope: cv.Scope(), Anchored: patternAnchored(cv.Pattern),
 		ScriptFile: cv.ScriptFile, MatchSets: []string{},
 	}
+	// What the script really starts with: its own word, or the set's (the
+	// deployment's folded in) for a set-scoped validator, or the deployment's
+	// for a global one, whose set varies with the backup it checks.
+	inherited := cfg.Assurance.RecoveryTest.ValidatorEnv
 	if !cv.Global() {
 		v.BackupSetID = cv.BackupSet.String()
+		for _, src := range cfg.Sources {
+			for _, bs := range src.BackupSets {
+				if bs.ID == cv.BackupSet {
+					inherited = bs.Assurance.RecoveryTest.ValidatorEnv
+				}
+			}
+		}
 	}
+	v.Env = config.ResolveValidatorEnv(cv.Env, inherited)
 	if !root.IsZero() {
 		path := filepath.Join(root.Path(), config.CustomValidatorDir, cv.ScriptFile)
 		if info, err := os.Lstat(path); err == nil && info.Mode().IsRegular() {
@@ -915,6 +927,16 @@ func (b *BackupService) writeCustomValidator(ctx context.Context, req CreateCust
 	if err != nil {
 		return CustomValidator{}, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
 	}
+	// Left out is minimal, an update included: a replacement never keeps the
+	// wider environment by omission. The entry always says which, so a later
+	// opt-in on the set cannot widen a validator written through here.
+	env := req.Env
+	if env == "" {
+		env = config.ValidatorEnvMinimal
+	}
+	if env != config.ValidatorEnvMinimal && env != config.ValidatorEnvWorkflow {
+		return CustomValidator{}, invalidValidator("env is %q and must be exactly %q or %q", req.Env, config.ValidatorEnvMinimal, config.ValidatorEnvWorkflow)
+	}
 	if update {
 		switch {
 		case req.Script == "" && req.ScriptSHA256 == "":
@@ -1019,7 +1041,7 @@ func (b *BackupService) writeCustomValidator(ctx context.Context, req CreateCust
 		}
 	}
 
-	entry := config.CustomValidator{Name: req.Name, Pattern: req.Pattern}
+	entry := config.CustomValidator{Name: req.Name, Pattern: req.Pattern, Env: env}
 	if !set.IsZero() {
 		entry.BackupSet = set.String()
 	}
@@ -1082,7 +1104,7 @@ func (b *BackupService) writeCustomValidator(ctx context.Context, req CreateCust
 func validatorEventAttrs(v CustomValidator) []slog.Attr {
 	attrs := []slog.Attr{
 		slog.String("name", v.Name), slog.String("scope", v.Scope), slog.String("pattern", v.Pattern),
-		slog.String("script_sha256", v.ScriptSHA256), slog.Int64("script_size_bytes", v.ScriptSize),
+		slog.String("env", v.Env), slog.String("script_sha256", v.ScriptSHA256), slog.Int64("script_size_bytes", v.ScriptSize),
 	}
 	if v.BackupSetID != "" {
 		attrs = append(attrs, slog.String("backup_set", v.BackupSetID))

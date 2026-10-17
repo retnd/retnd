@@ -260,7 +260,9 @@ What the validator can reach:
   `PATH`, and nothing else. The set's workflow variables, secrets included, are not in it,
   and a secret's file or command is not even read on its behalf. An operator who wants
   them there says so with `assurance.recovery_test.validator_env: workflow` (on the
-  deployment or on one set), and anything other than exactly `minimal` or `workflow` is
+  deployment or on one set) or, for a custom validator, with that validator's own
+  `env: workflow`, which wins over the set's and the deployment's setting in both
+  directions. Anything other than exactly `minimal` or `workflow` is
   refused when the configuration loads. It never inherits the engine's own environment, so
   no credential, key or token of the engine's is in it either way.
 - **Its own process group and a timeout that fails closed.** A validator that never

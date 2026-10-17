@@ -32,7 +32,10 @@ import (
 // The environment is the small one unless the operator opts in (#1221): the
 // RECOVERY_TEST_* variables, the product's own RETND_* facts and the baseline
 // PATH. The set's workflow variables, secrets included, reach the validator
-// only under assurance.recovery_test.validator_env: workflow.
+// only when it is opted in: a custom validator's own env (assurance.validators)
+// when it states one, then assurance.recovery_test.validator_env on the set,
+// then on the deployment. The set's own script (validator_id, or the one in
+// its recovery-test directory) follows the set's value alone.
 //
 // It is told about the recovered copy through ordinary variables:
 //
@@ -116,8 +119,13 @@ type stageValidator struct {
 	custom     []config.ResolvedCustomValidator
 }
 
-func (v stageValidator) workflowEnv() bool {
-	return v.bs.Assurance.RecoveryTest.ValidatorEnv == config.ValidatorEnvWorkflow
+// workflowEnv says whether a script may start with the set's workflow
+// environment (#1221). The validator's own env decides when it states one,
+// then the set's validator_env (the deployment's already folded in), then
+// minimal. Only the exact word workflow opens it: anything else, a stray
+// spelling and an empty value included, is the small environment.
+func (v stageValidator) workflowEnv(own string) bool {
+	return config.ResolveValidatorEnv(own, v.bs.Assurance.RecoveryTest.ValidatorEnv) == config.ValidatorEnvWorkflow
 }
 
 // validatorChoice is what runs for one artifact.
@@ -141,13 +149,13 @@ func (v stageValidator) choose(artifact model.ArtifactID) validatorChoice {
 	case m.Validator != nil:
 		return validatorChoice{custom: m.Validator, req: StageRequest{
 			Set: v.bs, SetDir: config.CustomValidatorDir, LocalOnly: true, Only: m.Validator.ScriptFile,
-			InheritWorkflowEnv: v.workflowEnv(),
+			InheritWorkflowEnv: v.workflowEnv(m.Validator.Env),
 		}}
 	}
 	req := StageRequest{Set: v.bs, SetDir: RecoveryTestSetDir(v.bs.ID), LocalOnly: true, MaxScripts: 1,
 		// Only the exact opt-in opens the workflow environment (#1221). Any
 		// other value, an empty one included, is the small environment.
-		InheritWorkflowEnv: v.workflowEnv()}
+		InheritWorkflowEnv: v.workflowEnv("")}
 	if v.scriptFile != "" {
 		req.Only = v.scriptFile
 		// The directory may hold other validators (one per id); only the

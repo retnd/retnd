@@ -35,3 +35,11 @@ func TestValidators1221_APutEchoesTheEnvItSaysAndNothingElse(t *testing.T) {
 		t.Errorf("a replacement that leaves env out echoes %q", got)
 	}
 }
+
+func TestValidators1221_AnEnvTheAPIWouldRefuseIsNotEchoed(t *testing.T) {
+	line := Echo(Action{Method: "POST", Route: "/assurance/validators",
+		Body: []byte(`{"name":"dumps","pattern":"\\.sql$","env":"Workflow","script":"#!/usr/bin/env bash\nexit 0\n"}`)}).Shell()
+	if strings.Contains(line, "--env") || strings.Contains(line, "Workflow") {
+		t.Errorf("echo = %q: only the two words the API accepts belong in a copyable command", line)
+	}
+}

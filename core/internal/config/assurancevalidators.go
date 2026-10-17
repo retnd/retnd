@@ -104,7 +104,19 @@ type ResolvedCustomValidator struct {
 // ResolveValidatorEnv is the precedence for one run (#1221): the validator's
 // own env, then the set's validator_env (which already folds in the
 // deployment's), then minimal.
+//
+// It fails closed at every step. A validator that states something takes the
+// decision with it: a value that is not exactly workflow is minimal and never
+// falls through to a set's opt-in, so a spelling the loader would refuse
+// cannot widen anything if it ever got this far. Only the exact word
+// workflow opens the larger environment.
 func ResolveValidatorEnv(validatorEnv, inherited string) string {
+	if validatorEnv != "" {
+		inherited = validatorEnv
+	}
+	if inherited == ValidatorEnvWorkflow {
+		return ValidatorEnvWorkflow
+	}
 	return ValidatorEnvMinimal
 }
 
@@ -257,6 +269,14 @@ func (c *Config) resolveCustomValidators(v *validator, list []CustomValidator) [
 			ok = false
 		}
 		r.Regexp = re
+		if cv.Env != "" {
+			if !containsString(ValidatorEnvs, cv.Env) {
+				v.addf("%s.env: %q is not one of %v", path, cv.Env, ValidatorEnvs)
+				ok = false
+			} else {
+				r.Env = cv.Env
+			}
+		}
 		if cv.BackupSet != "" {
 			id, err := model.ParseBackupSetID(cv.BackupSet)
 			switch {
