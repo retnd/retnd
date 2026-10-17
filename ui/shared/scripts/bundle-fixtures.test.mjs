@@ -1,3 +1,4 @@
+// @vitest-environment node
 // A production build must not carry the mock API or its fixtures (#1216).
 //
 // createApp used to import @shared/api/mock statically, so several thousand
@@ -9,7 +10,7 @@
 // fixtures were roughly a third of the bundle, so a regression that drags
 // them back in shows up even if someone renames every marker.
 import { describe, it, expect, beforeAll } from "vitest";
-import { build } from "vite";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, dirname, join } from "node:path";
@@ -29,7 +30,14 @@ describe("production bundle", () => {
   let files = [];
   beforeAll(async () => {
     const outDir = mkdtempSync(resolve(tmpdir(), "retnd-bundle-"));
-    await build({ root, logLevel: "silent", configFile: resolve(root, "vite.config.ts"), build: { outDir, emptyOutDir: true } });
+    // A subprocess, not vite's JS API: vitest runs with NODE_ENV=test, which
+    // would make import.meta.env.DEV true and build the development composition.
+    const r = spawnSync(process.execPath, [resolve(root, "node_modules/vite/bin/vite.js"), "build", "--outDir", outDir, "--emptyOutDir"], {
+      cwd: root,
+      encoding: "utf8",
+      env: { ...process.env, NODE_ENV: "production" }
+    });
+    if (r.status !== 0) throw new Error("vite build failed:\n" + r.stdout + r.stderr);
     files = walk(outDir).filter((f) => /\.(js|css|html)$/.test(f));
   }, 280_000);
 

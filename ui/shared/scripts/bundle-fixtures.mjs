@@ -2,6 +2,11 @@
 // in a production bundle, test data is shipping to operators (#1216).
 export const FIXTURE_MARKERS = [
   "aop_1200_",
+  "prod-db-01.internal",
+  "billing-db.internal",
+  "Production PostgreSQL",
+  "Auth service config",
+  "cid_4ad812",
   "aop_validator_fixture",
   "aop_default_policy_fixture",
   "assurance-ingest-failed-scrubbed",
