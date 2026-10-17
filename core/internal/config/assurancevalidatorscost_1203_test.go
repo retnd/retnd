@@ -1,6 +1,7 @@
 package config
 
 import (
+	"regexp/syntax"
 	"strings"
 	"testing"
 	"time"
@@ -51,8 +52,12 @@ func TestCompileValidatorPattern_StillAcceptsWhatOperatorsWrite(t *testing.T) {
 	}
 }
 
-// Whatever is accepted is cheap: the worst accepted shape matches a 255 byte
-// name well inside a millisecond or two, not the 13 ms the review measured.
+// Whatever is accepted is cheap: its program is inside the bound, so matching
+// a 255 byte name is a small number of steps. This does not time the match
+// against a tight limit, because -race and a loaded host make that a flaky
+// test of the machine; it checks the program size, which is what the cost is
+// proportional to, and keeps a generous wall-clock limit only to catch an
+// order of magnitude going missing.
 func TestCompileValidatorPattern_AnAcceptedPatternIsCheapToMatch(t *testing.T) {
 	name := strings.Repeat("a", 255)
 	for _, p := range []string{`^[a-z]{0,255}$`, `^(?:[a-z]{0,10}){0,10}$`, `^[a-z]{0,100}[a-z]{0,100}[a-z]{0,50}$`} {
@@ -60,14 +65,27 @@ func TestCompileValidatorPattern_AnAcceptedPatternIsCheapToMatch(t *testing.T) {
 		if err != nil {
 			continue // refused is fine: it is bounded either way
 		}
+		prog, perr := syntax.Compile(mustParse(t, p).Simplify())
+		if perr != nil || len(prog.Inst) > MaxCustomValidatorProgramSize {
+			t.Errorf("%q was accepted with a program of %d instructions (%v)", p, len(prog.Inst), perr)
+		}
 		start := time.Now()
-		for i := 0; i < 50; i++ {
+		for i := 0; i < 20; i++ {
 			re.MatchString(name)
 		}
-		if per := time.Since(start) / 50; per > 3*time.Millisecond {
+		if per := time.Since(start) / 20; per > 100*time.Millisecond {
 			t.Errorf("%q costs %s per match against a 255 byte name", p, per)
 		}
 	}
+}
+
+func mustParse(t *testing.T, p string) *syntax.Regexp {
+	t.Helper()
+	re, err := syntax.Parse(p, syntax.Perl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return re
 }
 
 // On a case-insensitive volume Foo.local.sh and foo.local.sh are one file.
