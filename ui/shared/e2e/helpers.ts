@@ -54,6 +54,9 @@ export async function contrastReport(page: Page, selector: string) {
       if (cs.visibility === "hidden" || cs.display === "none") return;
       // WCAG exempts inactive (disabled) components from the contrast minimum.
       if (e.closest(":disabled")) return;
+      // Text clipped to a pixel for screen readers (.visually-hidden) is not drawn.
+      const box = e.getBoundingClientRect();
+      if (box.width <= 1 && box.height <= 1) return;
       let bg: number[] | null = null;
       let bgNode: Element | null = null;
       for (let n: Element | null = e; n; n = n.parentElement) {
