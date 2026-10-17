@@ -5,7 +5,7 @@
  */
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { open } from "./helpers";
+import { measureContrast, open, setTheme } from "./helpers";
 
 const card = (p: Page) => p.getByRole("region", { name: "Recovery-test validators" });
 
@@ -47,3 +47,21 @@ test.describe("#1203 review: removing a validator", () => {
     await expect(dlg).not.toContainText("deletes its script");
   });
 });
+
+for (const theme of ["light", "dark"] as const) {
+  test(`#1203 review: the new file messages and the remove confirmation meet WCAG AA in ${theme}`, async ({ page }) => {
+    const dlg = await openAdd(page);
+    await setTheme(page, theme);
+    await dlg.getByLabel("Script file").setInputFiles({ name: "bin.sh", mimeType: "text/plain", buffer: Buffer.from([0xff, 0xfe]) });
+    await expect(dlg.locator("[data-validator-file-problem]")).toBeVisible();
+    expect(await measureContrast(page, "1203 file problem " + theme, "[data-validator-file-problem]"), theme).toEqual([]);
+    await dlg.getByLabel("Script file").setInputFiles({ name: "win.sh", mimeType: "text/plain", buffer: Buffer.from("a\r\nb\r\n") });
+    await expect(dlg.locator("[data-validator-file-note]")).toBeVisible();
+    expect(await measureContrast(page, "1203 file note " + theme, "[data-validator-file-note]"), theme).toEqual([]);
+    await dlg.getByRole("button", { name: "Cancel" }).click();
+    await card(page).getByRole("button", { name: "Remove billing-dump" }).click();
+    const confirm = page.getByRole("dialog", { name: "Remove validator billing-dump" });
+    await expect(confirm).toBeVisible();
+    expect(await measureContrast(page, "1203 remove confirmation " + theme, '[role="dialog"]'), theme).toEqual([]);
+  });
+}
