@@ -32,10 +32,13 @@ test.describe("#1203 Add validator", () => {
     await expect(dlg.getByRole("radio", { name: POSTGRES })).toHaveAccessibleName(/matches 1 backup\b/);
   });
 
-  test("says which suggestion already has a validator", async ({ page }) => {
+  test("says which suggestion already has a validator, at the scope it is on", async ({ page }) => {
     const dlg = await openAdd(page);
+    // billing-dump is scoped to one set, so it is on that set's pattern and
+    // not on the same pattern offered for every set.
+    await expect(dlg.getByRole("radio", { name: BILLING })).not.toHaveAccessibleName(/already checked/);
+    await dlg.getByLabel("Applies to").selectOption("production/billing-mysql");
     await expect(dlg.getByRole("radio", { name: BILLING })).toHaveAccessibleName(/already checked by billing-dump/);
-    await expect(dlg.getByRole("radio", { name: POSTGRES })).not.toHaveAccessibleName(/already checked/);
   });
 
   test("choosing a suggestion fills the pattern and previews what it matches", async ({ page }) => {
@@ -184,6 +187,10 @@ test.describe("#1203 Add validator", () => {
     test(`the dialog meets WCAG AA in ${theme}`, async ({ page }) => {
       const dlg = await openAdd(page);
       await dlg.getByRole("radio", { name: POSTGRES }).check();
+      // Everything filled in, so the primary button is live and measured too.
+      await dlg.getByLabel("Name", { exact: true }).fill("postgres-dump");
+      await dlg.getByRole("button", { name: "Start from the default script" }).click();
+      await expect(dlg.getByRole("button", { name: "Upload validator" })).toBeEnabled();
       await setTheme(page, theme);
       expect(await measureContrast(page, "1203 add dialog " + theme, '[role="dialog"]'), theme).toEqual([]);
       expect(await measureBorders(page, "1203 add dialog " + theme, '[role="dialog"] input, [role="dialog"] select, [role="dialog"] textarea, [role="dialog"] button'), theme).toEqual([]);

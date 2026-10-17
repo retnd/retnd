@@ -93,9 +93,11 @@ test.describe("#1203 Settings, Recovery-test validators", () => {
   });
 
   test("the section is a Settings anchor", async ({ page }) => {
-    await open(page, "/settings#validators");
-    await expect(page.locator("#validators")).toBeVisible();
-    await expect(page.locator("#validators")).toBeInViewport();
+    // The hash goes after the query, the order a browser puts them in.
+    await open(page, "/settings");
+    await page.goto("/settings?scenario=default#validators");
+    await page.waitForTimeout(1500);
+    await expect(page.locator("#validators").getByRole("heading", { name: "Recovery-test validators" })).toBeInViewport({ ratio: 1 });
   });
 
   for (const theme of ["light", "dark"] as const) {

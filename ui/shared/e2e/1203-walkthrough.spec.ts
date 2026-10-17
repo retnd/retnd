@@ -13,9 +13,10 @@ const PASSWORD = "correct-horse-battery";
 for (const theme of ["light", "dark"] as const) {
   test(`#1203 walkthrough (${theme}): Settings, pick a suggested pattern, upload, password`, async ({ page }) => {
     test.setTimeout(150_000);
-    await open(page, "/settings#validators", "local-account-profile");
+    await open(page, "/settings", "local-account-profile");
     await setTheme(page, theme);
     const card = page.getByRole("region", { name: "Recovery-test validators" });
+    await card.scrollIntoViewIfNeeded();
     await expect(card).toBeVisible();
     await beat(page, 1800);
     await card.getByRole("button", { name: "Add validator" }).click();
