@@ -228,8 +228,15 @@ func (v stageValidator) Validate(ctx context.Context, in recoverytest.ValidatorI
 		return recoverytest.ValidatorOutcome{}, c.missing()
 	}
 
+	// A custom validator is recorded under its name, the id the feed already
+	// carries (#1220). A set's own validator keeps the script file name it has
+	// always been recorded under, so history already written reads the same.
+	id := sc.Name
+	if c.custom != nil {
+		id = c.custom.Name
+	}
 	return recoverytest.ValidatorOutcome{
-		ID: sc.Name, Hash: sc.SHA256, Disposition: sc.Disposition, ExitCode: sc.ExitCode,
+		ID: id, Hash: sc.SHA256, Disposition: sc.Disposition, ExitCode: sc.ExitCode,
 		Termination: sc.Termination, Output: sc.Output, Truncated: sc.OutputTruncated, Detail: sc.Detail,
 	}, nil
 }

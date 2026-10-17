@@ -109,9 +109,14 @@ func describeValidator(ctx context.Context, cfg *config.Config, store validatorS
 		if !cv.AppliesTo(va.Set) {
 			continue
 		}
-		if r, ok := va.last[cv.ScriptFile]; ok && (v.LastResult == nil || r.At.After(v.LastResult.At)) {
-			rr := r
-			v.LastResult = &rr
+		// A test is recorded under the validator's name (#1220). Rows written
+		// before that carry the script file that ran, so both are read and the
+		// newer one is the last result.
+		for _, id := range []string{cv.Name, cv.ScriptFile} {
+			if r, ok := va.last[id]; ok && (v.LastResult == nil || r.At.After(v.LastResult.At)) {
+				rr := r
+				v.LastResult = &rr
+			}
 		}
 	}
 	return v, nil
