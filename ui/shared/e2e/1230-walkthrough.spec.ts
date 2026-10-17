@@ -21,6 +21,8 @@ for (const theme of ["light", "dark"] as const) {
     await setTheme(page, theme);
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
     await beat(page, 2500);
+    const left = () => card.locator(".table-scroll").evaluate((el) => { el.scrollLeft = 0; });
+    await left();
     await card.getByRole("button", { name: "Edit manifest-check" }).click();
     const dlg = page.getByRole("dialog", { name: "Edit validator" });
     await expect(dlg.locator("[data-validator-script-state]")).toContainText("Edited on disk");
@@ -30,6 +32,7 @@ for (const theme of ["light", "dark"] as const) {
     await dlg.getByRole("button", { name: "Save changes" }).click();
     const state = card.getByRole("row").filter({ hasText: "manifest-check" }).locator("[data-script-state]");
     await expect(state).toHaveAttribute("data-script-state", "pinned");
+    await left();
     await beat(page, 3000);
   });
 

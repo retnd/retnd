@@ -154,7 +154,7 @@ export function CustomValidatorsCard({ readOnly }: { readOnly: boolean }) {
             <table className="table" style={{ minWidth: 900 }} aria-label="Custom validators">
               <thead>
                 <tr>
-                  {["Name", "Pattern", "Applies to", "Matches", "Script", "Last test"].map((h) => (
+                  {["Name", "Script", "Pattern", "Applies to", "Matches", "Last test"].map((h) => (
                     <th key={h} scope="col" style={{ color: "var(--text-2)" }}>{h}</th>
                   ))}
                   <th scope="col" style={{ color: "var(--text-2)" }}><span className="visually-hidden">Actions</span></th>
@@ -163,7 +163,8 @@ export function CustomValidatorsCard({ readOnly }: { readOnly: boolean }) {
               <tbody>
                 {list.validators.map((v) => (
                   <tr key={v.name} data-validator={v.name}>
-                    <td className="mono" style={{ overflowWrap: "anywhere" }}>{v.name}</td>
+                    <td className="mono" style={{ overflowWrap: "anywhere", minWidth: 130 }}>{v.name}</td>
+                    <td><ScriptStateCell v={v} /></td>
                     <td>
                       <span className="mono" style={{ overflowWrap: "anywhere" }}>{v.pattern}</span>
                       {!v.anchored ? (
@@ -174,7 +175,6 @@ export function CustomValidatorsCard({ readOnly }: { readOnly: boolean }) {
                     </td>
                     <td>{v.backupSetId || "Every backup set"}</td>
                     <td title={v.matchSets.join(", ")}>{matchWords(v.matchCount)}</td>
-                    <td><ScriptStateCell v={v} /></td>
                     <td>{lastResultWords(v.lastResult)}</td>
                     <td style={{ whiteSpace: "nowrap", textAlign: "right" }}>
                       <span style={{ display: "inline-flex", gap: 6 }}>
