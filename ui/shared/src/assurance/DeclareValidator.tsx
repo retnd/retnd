@@ -10,6 +10,7 @@ import type { CustomValidatorList } from "@shared/api/contracts";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { CustomValidatorDialog } from "./CustomValidatorDialog";
 import { scriptStateWords } from "./customValidators";
+import { ValidatorEnvLabel } from "./ValidatorEnvLabel";
 
 export function DeclareValidator({ artifactId, readOnly }: { artifactId: string; readOnly: boolean }) {
   const api = useOptionalApi();
@@ -65,6 +66,11 @@ export function DeclareValidator({ artifactId, readOnly }: { artifactId: string;
               ? "A recovery test of this backup cannot complete. Restore " + runs.scriptFile +
                 " on the host, or upload the script again from " + runs.name + " on Settings."
               : words.action}
+          </div>
+        ) : null}
+        {runs ? (
+          <div data-validator-env-line="" style={{ color: "var(--text)" }}>
+            {runs.name} starts with the <ValidatorEnvLabel env={runs.env} />.
           </div>
         ) : null}
         <div role="status" data-validator-declared="" style={{ color: "var(--text)" }}>{said}</div>

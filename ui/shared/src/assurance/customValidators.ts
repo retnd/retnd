@@ -11,7 +11,7 @@
  * (a browser's own RegExp would accept lookaheads RE2 refuses).
  */
 
-import type { ValidatorScriptState } from "@shared/api/contracts";
+import type { ValidatorEnv, ValidatorScriptState } from "@shared/api/contracts";
 import { shellQuote } from "./assuranceCommands";
 
 /** The pattern an artifact's own name gives: every run of digits becomes
@@ -76,10 +76,11 @@ export function lastResultWords(r: { state: string; at: string } | undefined): s
 /** The command that does the same upload from a shell on the host, for the
  *  notice a shut gate gets. Every operand a person typed goes through
  *  shellQuote, so the line can be pasted as it stands. */
-export function addCommand(name: string, pattern: string, backupSetId: string): string {
+export function addCommand(name: string, pattern: string, backupSetId: string, env: ValidatorEnv = "minimal"): string {
   return (
     "retnd assurance validators add " + shellQuote(name || "NAME") + " --pattern " + shellQuote(pattern || "PATTERN") +
-    (backupSetId ? " --backup-set " + shellQuote(backupSetId) : "") + " --script FILE"
+    (backupSetId ? " --backup-set " + shellQuote(backupSetId) : "") + " --script FILE" +
+    (env === "workflow" ? " --env workflow" : "")
   );
 }
 
@@ -154,3 +155,33 @@ export function canKeepStoredScript(v: { scriptState: ValidatorScriptState; scri
 
 /** The first twelve characters of a digest, enough to tell two apart. */
 export const shortHash = (sha: string): string => (sha === "" ? "none" : sha.slice(0, 12));
+
+/** What a validator's environment is called in the browser, and what it
+ *  exposes (issue #1233). `retnd assurance validators list` prints "env
+ *  minimal" or "env workflow" and `--env` takes those two words, so `cli` is
+ *  that word and every label starts from it. `careful` is the one that widens
+ *  what the script can see: it is bold and set apart on the page, and its
+ *  label says "secrets included" so nobody has to read a colour to know. */
+export interface ValidatorEnvWords {
+  cli: ValidatorEnv;
+  label: string;
+  sentence: string;
+  careful: boolean;
+}
+
+export function validatorEnvWords(env: ValidatorEnv): ValidatorEnvWords {
+  if (env === "workflow") {
+    return {
+      cli: "workflow",
+      label: "Workflow environment, secrets included",
+      sentence: "The script also sees the backup set's workflow variables, secrets included, so any script uploaded here can read them.",
+      careful: true
+    };
+  }
+  return {
+    cli: "minimal",
+    label: "Minimal environment",
+    sentence: "The script starts with the RECOVERY_TEST_* variables, the RETND_* facts and PATH, and nothing else.",
+    careful: false
+  };
+}
