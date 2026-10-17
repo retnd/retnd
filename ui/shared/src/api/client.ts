@@ -2932,6 +2932,7 @@ function fromWireCustomValidator(v: WireCustomValidator): CustomValidator {
   return {
     name: v.name, pattern: v.pattern, backupSetId: v.backup_set_id ?? "", scope: v.scope, anchored: v.anchored,
     scriptFile: v.script_file, scriptPresent: v.script_present, scriptSha256: v.script_sha256,
+    pinnedSha256: v.pinned_sha256 ?? "", scriptState: v.script_state ?? (v.script_present ? "unpinned" : "missing"),
     scriptSizeBytes: v.script_size_bytes, uploadedAt: v.uploaded_at, matchCount: v.match_count,
     matchSets: v.match_sets ?? [], exampleName: v.example_name ?? "",
     ...(v.last_result ? { lastResult: { artifactId: v.last_result.artifact_id, at: v.last_result.at, state: v.last_result.state } } : {})
