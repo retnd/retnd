@@ -656,6 +656,14 @@ func (c *Client) CancelAssuranceOperation(ctx context.Context, operationID strin
 	return out, err
 }
 
+// GetAssuranceOperation is GET /assurance/operations/{op}: one scrub or
+// recovery test read back by its id, from the durable activity record (#1200).
+func (c *Client) GetAssuranceOperation(ctx context.Context, operationID string) (apicontract.AssuranceOperationRecord, error) {
+	var out apicontract.AssuranceOperationRecord
+	err := c.call(ctx, "getAssuranceOperation", []string{operationID}, nil, &out)
+	return out, err
+}
+
 // ListOperations is GET /operations: every operation the engine holds,
 // newest first. The API takes no filter, so a caller narrows the answer itself.
 func (c *Client) ListOperations(ctx context.Context) (apicontract.ListOperationsResponse, error) {

@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "206886ccbcd1dcdd1a617db3379c516f0cd6c3584a6313ad4b4854b6549d9a70";
+export const CONTRACT_SHA256 = "93ea6c880b0402ebb3ebf8236db8df7af6a5ca225607ef0d4703fb721e9fa638";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -385,6 +385,25 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
       404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "getAssuranceOperation",
+    method: "GET",
+    path: "/assurance/operations/{op}",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "AssuranceOperationRecord",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["OPERATION_NOT_FOUND"],
       500: ["INTERNAL"],
       503: ["NOT_CONFIGURED"],
     }
@@ -2785,6 +2804,20 @@ export interface WireAssuranceOperationCancelled {
   kind: "scrub" | "recovery_test";
   operation_id: string;
   status: "cancelling";
+}
+
+/** One scrub, recovery test or recovery as the durable activity
+ *  record holds it (#1200). */
+export interface WireAssuranceOperationRecord {
+  backup_set_id: string;
+  ended_at: string;
+  events: WireLiveActivityEvent[];
+  kind: "scrub" | "recovery_test" | "recovery";
+  operation_id: string;
+  reason: string;
+  stage: string;
+  started_at: string;
+  state: "running" | "passed" | "failed" | "did_not_complete" | "cancelled" | "unfinished";
 }
 
 /** A resolved recovery-test policy. */

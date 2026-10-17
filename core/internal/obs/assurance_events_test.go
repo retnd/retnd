@@ -57,7 +57,7 @@ func TestEveryCompletionStatesAResultAndPairsWithItsStart(t *testing.T) {
 	l.RecoveryStage(ctx, "op1", "prod/db", "reading")
 	l.RecoveryEnd(ctx, "op1", "prod/db", "prod/db/a.dump", 12, time.Second, ResultError, "no readable copy")
 	l.RecoveryTestStart(ctx, "t1", "prod/db", "prod/db/a.dump", "pg-restore-check")
-	l.RecoveryTestEnd(ctx, "t1", "prod/db", "prod/db/a.dump", "pg-restore-check", time.Second, ResultWarn, "validator failed")
+	l.RecoveryTestEnd(ctx, "t1", "prod/db", "prod/db/a.dump", "pg-restore-check", time.Second, ResultWarn, "validator failed", false)
 
 	lines := decodeLines(t, buf)
 	if len(lines) != 5 {

@@ -338,6 +338,8 @@ func (e *fakeEngine) api(w http.ResponseWriter, r *http.Request, path, token str
 		e.setEnabled(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/backup-sets/"), "/enabled"))
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/read-only"):
 		e.setReadOnly(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/backup-sets/"), "/read-only"))
+	case r.Method == http.MethodGet && strings.HasPrefix(path, "/assurance/operations/") && !strings.Contains(strings.TrimPrefix(path, "/assurance/operations/"), "/"):
+		e.getAssuranceOperation(w, r, strings.TrimPrefix(path, "/assurance/operations/"))
 	case r.Method == http.MethodPost && strings.HasPrefix(path, "/assurance/operations/") && strings.HasSuffix(path, "/cancel"):
 		e.cancelAssuranceOperation(w, r, strings.TrimSuffix(strings.TrimPrefix(path, "/assurance/operations/"), "/cancel"))
 	case r.Method == http.MethodGet && path == "/system/capabilities":
@@ -1168,6 +1170,21 @@ func (e *fakeEngine) cancelAssuranceOperation(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusAccepted, apicontract.AssuranceOperationCancelled{
 		OperationID: got.OperationID, Kind: got.Kind, BackupSetID: got.BackupSetID, Status: got.Status,
 	})
+}
+
+// getAssuranceOperation is GET /assurance/operations/{op} (#1200), off the
+// real service like every other route here.
+func (e *fakeEngine) getAssuranceOperation(w http.ResponseWriter, r *http.Request, op string) {
+	got, err := e.svc.AssuranceOperation(r.Context(), op)
+	if err != nil {
+		if errors.Is(err, service.ErrOperationNotFound) {
+			refuse(w, http.StatusNotFound, apicontract.ErrorCodeOperationNotFound, err.Error())
+			return
+		}
+		refuse(w, http.StatusInternalServerError, apicontract.ErrorCodeInternal, "failed to read the operation")
+		return
+	}
+	writeJSON(w, http.StatusOK, assuranceOperationContract(got))
 }
 
 // secondsPtr and durationPtr mirror webhost's whole-seconds conversion for

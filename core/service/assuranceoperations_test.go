@@ -313,6 +313,10 @@ func TestCancelStopsARunningScrubAndLeavesNoVerdictBehind(t *testing.T) {
 	if st := claimOf(t, f, a, "warm").AssuranceState; st == state.AssurancePassed {
 		t.Errorf("a cancelled scrub left the copy %q", st)
 	}
+	// #1200: read back by its id, it says it was cancelled.
+	if rec, err := f.b.AssuranceOperation(ctx, started.OperationID); err != nil || rec.State != AssuranceOpCancelled {
+		t.Errorf("the cancelled scrub read back as %+v (%v), want cancelled", rec, err)
+	}
 	// And it can be run again.
 	f.b.state.Load().inner.MediumStore = f.store
 	if _, err := f.b.StartScrub(ctx, "production/postgres", ScrubOptions{}); err != nil {
@@ -341,6 +345,15 @@ func TestStartScrubRunsAPassInTheBackgroundUnderAnOperationId(t *testing.T) {
 	}
 	if rows := f.eventsNamed(t, obs.EventScrubPass); len(rows) != 1 {
 		t.Errorf("%d scrub_pass rows, want 1", len(rows))
+	}
+	// #1200: the pass carries the operation id, so the scrub is read back
+	// by the id its start answered with.
+	rec, err := f.b.AssuranceOperation(ctx, started.OperationID)
+	if err != nil {
+		t.Fatalf("reading the scrub back by its id: %v", err)
+	}
+	if rec.Kind != "scrub" || rec.State != AssuranceOpPassed || rec.BackupSetID != "production/postgres" {
+		t.Errorf("record = %+v", rec)
 	}
 }
 

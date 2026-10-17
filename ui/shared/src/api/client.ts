@@ -107,6 +107,7 @@ import type {
   WireRecoveryTestOutput,
   WireScrubStarted,
   WireAssuranceOperationCancelled,
+  WireAssuranceOperationRecord,
   WireRecoverySettingsResponse,
   WireRecoverySettingsUpdate,
   WireRetentionOverride,
@@ -172,6 +173,7 @@ import type {
   SourceHostDescription,
   StepUpOptions,
   AssuranceDue,
+  AssuranceOperationRecord,
   RecoveryTestOutput,
   AssuranceSettings,
   AssuranceSettingsPatch,
@@ -2152,6 +2154,36 @@ function fromWireLiveActivityEvent(e: WireLiveActivityEvent): SetActivityEvent {
     scope: e.scope,
     message: e.message,
     fields
+  };
+}
+
+/** One assurance operation read back from the durable record (issue #1200).
+ *  The state and kind are the contract's closed enums. A value this build
+ *  does not know is refused out loud rather than drawn as something it
+ *  isn't: defaulting it to "unfinished" or to a recovery test would state a
+ *  fact about a run the server never stated. */
+const ASSURANCE_OPERATION_STATES: readonly AssuranceOperationRecord["state"][] = [
+  "running", "passed", "failed", "did_not_complete", "cancelled", "unfinished"
+];
+const ASSURANCE_OPERATION_KINDS: readonly AssuranceOperationRecord["kind"][] = ["scrub", "recovery_test", "recovery"];
+
+function fromWireAssuranceOperation(r: WireAssuranceOperationRecord): AssuranceOperationRecord {
+  if (!ASSURANCE_OPERATION_KINDS.includes(r.kind)) {
+    throw new Error("The server sent an operation of kind " + JSON.stringify(r.kind) + ", which this build does not know. Update the UI.");
+  }
+  if (!ASSURANCE_OPERATION_STATES.includes(r.state)) {
+    throw new Error("The server sent an operation in state " + JSON.stringify(r.state) + ", which this build does not know. Update the UI.");
+  }
+  return {
+    operationId: r.operation_id,
+    kind: r.kind,
+    backupSetId: r.backup_set_id,
+    state: r.state,
+    stage: r.stage,
+    reason: r.reason,
+    startedAt: r.started_at,
+    endedAt: r.ended_at,
+    events: r.events.map(fromWireLiveActivityEvent)
   };
 }
 
@@ -4232,6 +4264,9 @@ export const httpApi: RetndApi = {
 
   getRecoveryTestOutput: (source, set) =>
     request<WireRecoveryTestOutput>(backupSetPath(source, set) + "/recovery-test/output").then(fromWireRecoveryTestOutput),
+
+  getAssuranceOperation: (operationId) =>
+    request<WireAssuranceOperationRecord>("/assurance/operations/" + encodeURIComponent(operationId)).then(fromWireAssuranceOperation),
 
   getAssuranceSettings: () =>
     request<WireAssuranceSettingsResponse>("/settings/assurance").then(fromWireAssuranceSettings),
