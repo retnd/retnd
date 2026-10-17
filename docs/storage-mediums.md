@@ -529,7 +529,10 @@ The rules that matter:
   `RECOVERY_TEST_SIZE` set. It records the result together with the name and
   the hash of the script that ran. Your script never writes the claim: a script
   that exits 0 without opening the file still cannot make a pass out of bytes
-  that did not match. The runner's container cannot see the staging directory
+  that did not match. The script starts with a small environment (those
+  variables, the product's `RETND_*` facts and a baseline `PATH`); the set's
+  workflow variables and secrets reach it only under `validator_env: workflow`
+  (see the recovery guide). The runner's container cannot see the staging directory
   unless you declare it with `--hook-mount`, and a script that cannot see the
   file fails rather than passing. A set with no such directory reads `not
   configured`, which is not a pass and not a failure. A failing test runs the

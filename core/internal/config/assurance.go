@@ -184,6 +184,7 @@ var (
 	GlobalRecoveryModes = []string{RecoveryTestOff, RecoveryTestBuiltin, RecoveryTestRequired}
 	SetRecoveryModes    = []string{RecoveryTestInherit, RecoveryTestOff, RecoveryTestBuiltin, RecoveryTestRequired, RecoveryTestCustom}
 	BuiltinChecks       = []string{BuiltinCheckStructure, BuiltinCheckOff}
+	ValidatorEnvs       = []string{ValidatorEnvMinimal, ValidatorEnvWorkflow}
 )
 
 func containsString(list []string, s string) bool {
@@ -281,6 +282,18 @@ func (c *Config) resolveGlobalAssurance(v *validator) AssuranceDefaults {
 		v.addf("%s.recovery_test.builtin_check: %q is not one of %v", p, rt.BuiltinCheck, BuiltinChecks)
 	} else if rt.Mode == RecoveryTestBuiltin && rt.BuiltinCheck == BuiltinCheckOff {
 		v.addf("%s.recovery_test: mode %s runs the built-in structure check, so builtin_check: %s refuses it; set builtin_check to %s or choose another mode", p, RecoveryTestBuiltin, BuiltinCheckOff, BuiltinCheckStructure)
+	}
+
+	// A validator starts with the small environment unless the operator says
+	// workflow. A spelling that is not exactly one of the two is refused and
+	// resolves to minimal, so a typo can never open the larger environment.
+	rt.ValidatorEnv = ValidatorEnvMinimal
+	if b.RecoveryTest.ValidatorEnv != "" {
+		if !containsString(ValidatorEnvs, b.RecoveryTest.ValidatorEnv) {
+			v.addf("%s.recovery_test.validator_env: %q is not one of %v", p, b.RecoveryTest.ValidatorEnv, ValidatorEnvs)
+		} else {
+			rt.ValidatorEnv = b.RecoveryTest.ValidatorEnv
+		}
 	}
 
 	out.StagingRoot = b.StagingRoot
@@ -391,6 +404,13 @@ func resolveSetAssurance(v *validator, path string, o *AssuranceOverride, global
 			v.addf("%s.builtin_check: %q is not one of %v", rp, rt.BuiltinCheck, BuiltinChecks)
 		} else {
 			out.RecoveryTest.BuiltinCheck = rt.BuiltinCheck
+		}
+	}
+	if rt.ValidatorEnv != "" {
+		if !containsString(ValidatorEnvs, rt.ValidatorEnv) {
+			v.addf("%s.validator_env: %q is not one of %v", rp, rt.ValidatorEnv, ValidatorEnvs)
+		} else {
+			out.RecoveryTest.ValidatorEnv = rt.ValidatorEnv
 		}
 	}
 	if (rt.Mode == RecoveryTestBuiltin || rt.BuiltinCheck != "") && out.RecoveryTest.Mode == RecoveryTestBuiltin && out.RecoveryTest.BuiltinCheck == BuiltinCheckOff {

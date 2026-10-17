@@ -899,6 +899,7 @@ next starts.
 | Scrub cadence and strategy (`auto`, `existence`, `content`) | Yes |
 | Recovery-test mode (`inherit`, `off`, `builtin`, `required`, `custom`) and its validator | Yes |
 | Built-in check when no validator is declared (`builtin_check`: `structure` or `off`) | Yes |
+| Environment a validator starts with (`validator_env`: `minimal` or `workflow`) | Yes |
 | Recovery staging root and TTL | **No.** One staging filesystem, shared by recoveries and recovery tests |
 | Concurrency ceilings (full reads, per destination) | **No.** One host |
 
@@ -913,6 +914,17 @@ can be used.
 `builtin_check` takes `structure` (the default) or `off`. It is allowed with every mode, and
 it governs the manual **Run recovery test** as well as the schedule: `off` means a set with
 no validator is refused as before, with a reason saying the built-in check is off.
+
+`validator_env` takes `minimal` (the default) or `workflow`. It is allowed with every mode.
+`minimal` starts the validator with the `RECOVERY_TEST_*` variables, the product's own
+`RETND_*` facts and the baseline `PATH`. `workflow` also hands it the backup set's merged
+workflow environment, secrets included, the same variables its backup hooks get. Leave it
+on `minimal` unless the script really needs one of those variables: a validator runs against
+a recovered copy and is more likely than a backup hook to be written by someone else. A set
+can opt in on its own, or opt back out when the deployment has opted in, and a value that is
+not exactly one of the two words is refused when the configuration loads, so a typo can
+never open the larger environment. For now the key is set in the configuration file; the
+settings screens and the CLI do not show it yet, and they leave it alone when they save.
 
 **A configuration that uses the `assurance:` key cannot be read by a build that predates
 it.** The loader rejects unknown keys, so downgrading after you have added the block fails
@@ -1004,8 +1016,10 @@ The validator is a script of yours: `validator_id` is the file name of a `NAME.l
 `recovery-test/<source>/<set>` under the workflow root, written without the suffix. It is
 not picked from a list of registered validators, and a name that could not be a script's
 file name is refused when you save it. It runs the way every other hook runs, through the
-host workflow runner, with the same custody checks, shell verification, resolved
-environment and fail-closed timeout. It is run **against a recovered copy in an isolated
+host workflow runner, with the same custody checks, shell verification and fail-closed
+timeout. Its environment is smaller than a hook's: the `RECOVERY_TEST_*` variables, the
+product's `RETND_*` facts and the baseline `PATH`, with the set's workflow variables (secrets
+included) only when you set `validator_env: workflow`. It is run **against a recovered copy in an isolated
 path**, never against the durable file, and the path reaches it as `RECOVERY_TEST_FILE`.
 The runner's container cannot see the staging directory unless you declare it with
 `--hook-mount`, and a script that cannot open the file fails rather than passing. Its output is untrusted terminal input: no raw control byte reaches a

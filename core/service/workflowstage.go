@@ -182,11 +182,18 @@ func describeBlocking(r workflowlint.ScriptReport) string {
 	return fmt.Sprintf("%s: %s", blocking[0].Code, blocking[0].Message)
 }
 
-// stageEnvironment layers a request's own variables over the set's merged
-// workflow environment. The names are validated by the environment model, so
-// a RETND_ name is refused here as it is in configuration.
+// stageEnvironment builds a stage's environment. It starts from the sanitized
+// baseline alone and layers the set's merged workflow environment over it
+// only when the request asks (InheritWorkflowEnv), so a stage that did not
+// ask never has a workflow variable, and a secret's file or command is never
+// resolved on its behalf. The request's own variables go on top. The names
+// are validated by the environment model, so a RETND_ name is refused here as
+// it is in configuration.
 func stageEnvironment(req app.StageRequest) (workflow.Environment, error) {
-	layers := [][]workflow.EnvVar{req.Set.WorkflowEnvironment.Vars()}
+	layers := [][]workflow.EnvVar{workflow.SanitizedBaseline()}
+	if req.InheritWorkflowEnv {
+		layers = [][]workflow.EnvVar{req.Set.WorkflowEnvironment.Vars()}
+	}
 
 	if len(req.Vars) > 0 {
 		names := make([]string, 0, len(req.Vars))

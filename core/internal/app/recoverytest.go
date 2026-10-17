@@ -28,6 +28,11 @@ import (
 // hashed, shell verification, the host runner's container, the resolved
 // environment. This product adds no execution boundary for it.
 //
+// The environment is the small one unless the operator opts in (#1221): the
+// RECOVERY_TEST_* variables, the product's own RETND_* facts and the baseline
+// PATH. The set's workflow variables, secrets included, reach the validator
+// only under assurance.recovery_test.validator_env: workflow.
+//
 // It is told about the recovered copy through ordinary variables:
 //
 //	RECOVERY_TEST_FILE       the recovered bytes, a path the runner can read
@@ -101,7 +106,12 @@ type stageValidator struct {
 }
 
 func (v stageValidator) request() StageRequest {
-	req := StageRequest{Set: v.bs, SetDir: RecoveryTestSetDir(v.bs.ID), LocalOnly: true, MaxScripts: 1}
+	req := StageRequest{
+		Set: v.bs, SetDir: RecoveryTestSetDir(v.bs.ID), LocalOnly: true, MaxScripts: 1,
+		// Only the exact opt-in opens the workflow environment (#1221). Any
+		// other value, an empty one included, is the small environment.
+		InheritWorkflowEnv: v.bs.Assurance.RecoveryTest.ValidatorEnv == config.ValidatorEnvWorkflow,
+	}
 	if v.scriptFile != "" {
 		req.Only = v.scriptFile
 		// The directory may hold other validators (one per id); only the

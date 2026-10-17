@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **A recovery-test validator starts with a small environment** (#1221). It used to run with the backup
+  set's whole merged workflow environment, so a secret you had put there for a backup hook (a database
+  password, an API token) reached a script that is run against a recovered copy. It now gets the
+  `RECOVERY_TEST_*` variables, the product's `RETND_*` facts and the baseline `PATH`, and nothing else; the
+  secret's file or command is not even read for it. If an existing validator relied on a workflow variable,
+  set `assurance.recovery_test.validator_env: workflow` on the deployment or on that set and it sees
+  them again. Anything other than `minimal` or `workflow` is refused when the configuration loads. The
+  assurance notification scripts are hooks and keep the workflow environment. The key is set in the
+  configuration file for now; the settings screens and the CLI leave it alone when they save.
+
 ## [0.7.0] - 2026-10-15
 
 0.7.0 is a minor rather than 0.6.5 because three things in it change what an existing setup does, and
