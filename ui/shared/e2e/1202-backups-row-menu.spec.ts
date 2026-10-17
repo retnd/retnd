@@ -270,8 +270,8 @@ test.describe("#1202 the Backups row Actions menu", () => {
   for (const theme of ["light", "dark"] as const) {
     test("#1202 the Actions button, the menu and a disabled reason meet AA in the " + theme + " theme", async ({ page }) => {
       await open(page, "/backups", "assurance-no-operations");
-      await setTheme(page, theme);
       await expect(actions(page, BILLING)).toBeVisible();
+      await setTheme(page, theme);
       expect(await measureContrast(page, "1202 actions button " + theme, '[data-row-actions]')).toEqual([]);
       expect(await measureEdges(page, "1202 actions button " + theme, '[data-row-actions] > button')).toEqual([]);
       await openMenu(page, BILLING);

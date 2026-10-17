@@ -267,6 +267,7 @@ test.describe("#1107 contrast", () => {
   for (const theme of ["light", "dark"] as const) {
     test("selected row, checkbox and action bar meet AA in the " + theme + " theme", async ({ page }) => {
       await open(page, "/backups", MANY);
+      await expect(page.locator("main")).toBeVisible();
       await setTheme(page, theme);
       await rowBox(page, "postgres-primary-20260801.bak").check();
       await rowBox(page, "billing-mysql-20260802.bak").check();
@@ -308,6 +309,7 @@ test.describe("#1107 contrast of the progress dialog", () => {
   for (const theme of ["light", "dark"] as const) {
     test("a failed line, a recovered line and the summary meet AA in the " + theme + " theme", async ({ page }) => {
       await open(page, "/backups", "backups-many-corrupt");
+      await expect(page.locator("main")).toBeVisible();
       await setTheme(page, theme);
       await page.getByLabel("Received on or after").fill("2026-08-03");
       await page.getByLabel("Received on or before").fill("2026-08-07");

@@ -73,6 +73,7 @@ test.describe("#1176 recovery test progress and the set terminal", () => {
   for (const theme of ["light", "dark"] as const) {
     test("the progress, step count and pointer meet WCAG AA in the " + theme + " theme", async ({ page }) => {
       await open(page, SET, "assurance-slow-test", { wire: true });
+      await expect(page.locator("main")).toBeVisible();
       await setTheme(page, theme);
       await region(page).getByRole("button", { name: "Run recovery test" }).click();
       await expect(region(page).getByRole("link", { name: "Output is in the set terminal" })).toBeVisible();

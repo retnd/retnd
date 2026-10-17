@@ -241,9 +241,9 @@ test.describe("#1134 the Dashboard tally", () => {
 for (const theme of ["light", "dark"] as const) {
   test(`#1134 the new text on every surface meets AA in the ${theme} theme`, async ({ page }) => {
     await open(page, "/backups", S, { wire: true });
-    await setTheme(page, theme);
     const chip = recovery(listRow(page, NEWEST));
     await expect(chip.getByTestId("recovery-effective")).toBeVisible();
+    await setTheme(page, theme);
     await expect(chip.getByTestId("recovery-elsewhere")).toBeVisible();
     expect(await measureContrast(page, `list recovery chip, ${theme}`, '[data-claim="recovery"]')).toEqual([]);
 

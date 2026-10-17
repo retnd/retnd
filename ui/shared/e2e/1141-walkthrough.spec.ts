@@ -28,9 +28,9 @@ for (const theme of ["light", "dark"] as const) {
   test(`1141 walkthrough (${theme}): Dashboard, Backups, a backup, the Backup Sets card, an unreadable policy`, async ({ page }) => {
     test.setTimeout(180_000);
     await open(page, "/", S, { wire: true });
-    await setTheme(page, theme);
     const tile = page.getByRole("region", { name: "Assurance summary" });
     await expect(tile.getByTestId("assurance-untested-note")).toBeVisible();
+    await setTheme(page, theme);
     await into(tile);
     if (before) await expect(tile.getByTestId("assurance-untested-note")).not.toContainText("default configuration");
     else await expect(tile.getByTestId("assurance-untested-note")).toContainText("2 of them are in sets on the default configuration.");
@@ -65,6 +65,7 @@ for (const theme of ["light", "dark"] as const) {
     // The policy cannot be read: main called this "Not configured".
     await page.addInitScript(() => { (window as unknown as Record<string, unknown>).__retndPolicy = { fail: true }; });
     await open(page, "/backups", S, { wire: true });
+    await expect(page.locator("main")).toBeVisible();
     await setTheme(page, theme);
     const failed = page.getByRole("row").filter({ has: page.locator("td.mono", { hasText: NEWEST }) }).locator('[data-claim="recovery"]');
     await into(failed);
