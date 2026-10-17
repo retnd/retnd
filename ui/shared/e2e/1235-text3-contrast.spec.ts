@@ -69,6 +69,11 @@ const SCREENS: Screen[] = [
       await page.getByRole("button", { name: /Add a destination/ }).first().click();
       await page.waitForTimeout(500);
     } },
+  { name: "settings-validator-edit-dialog", path: "/settings", scenario: "validators-states", drive: async (page) => {
+      await page.getByRole("button", { name: "Edit manifest-check" }).click();
+      await expect(page.getByRole("dialog", { name: "Edit validator" })).toBeVisible();
+      await page.waitForTimeout(500);
+    } },
   { name: "repositories", path: "/repositories" },
   { name: "repositories-new", path: "/repositories/new" },
   { name: "repositories-health", path: "/repositories/health" },
