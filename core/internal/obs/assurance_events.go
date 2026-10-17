@@ -163,7 +163,12 @@ func (l *Logger) RecoveryTestStart(ctx context.Context, opID, backupSet, artifac
 }
 
 // RecoveryTestEnd logs EventRecoveryTestEnd for the test opID started.
-func (l *Logger) RecoveryTestEnd(ctx context.Context, opID, backupSet, artifact, validatorID string, d time.Duration, result Result, reason string) {
+// cancelled says the test was stopped by a cancel request; it rides on the
+// line as cancelled=true, because the result (warn) is the same for a test
+// that could not complete and the reason is words, not a field to branch on
+// (#1200). A test cut short by anything else, shutdown included, is not
+// cancelled.
+func (l *Logger) RecoveryTestEnd(ctx context.Context, opID, backupSet, artifact, validatorID string, d time.Duration, result Result, reason string, cancelled bool) {
 	attrs := []slog.Attr{
 		slog.String("op_id", opID),
 		slog.String("backup_set", backupSet),
@@ -173,6 +178,9 @@ func (l *Logger) RecoveryTestEnd(ctx context.Context, opID, backupSet, artifact,
 	}
 	if reason != "" {
 		attrs = append(attrs, slog.String("reason", cleanReason(reason)))
+	}
+	if cancelled {
+		attrs = append(attrs, slog.Bool("cancelled", true))
 	}
 	l.emitMarked(ctx, result.Level(), mark{result: result, action: ActionRecoveryTest, actionID: opID},
 		EventRecoveryTestEnd, "recovery test finished", attrs...)

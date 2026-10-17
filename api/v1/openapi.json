@@ -8027,6 +8027,75 @@
           "records"
         ]
       },
+      "AssuranceOperationRecord": {
+        "type": "object",
+        "description": "One scrub, recovery test or recovery as the durable activity record holds it (#1200).",
+        "additionalProperties": false,
+        "properties": {
+          "operation_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "scrub",
+              "recovery_test",
+              "recovery"
+            ],
+            "description": "scrub, recovery_test or recovery, read off the run's own lines (or, for a run that has written none yet, off the registry of running operations)."
+          },
+          "backup_set_id": {
+            "type": "string",
+            "description": "The set the run belongs to, source/name. Empty only when no line names one."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "running",
+              "passed",
+              "failed",
+              "did_not_complete",
+              "cancelled",
+              "unfinished"
+            ],
+            "description": "What the lines add up to: running (no end line, and this engine is running it), passed, failed, did_not_complete (a recovery test that could not complete, a refusal among them, or a scrub that could not check a copy), cancelled (stopped by a cancel request: the end line says cancelled=true, and a run cut short for any other reason, shutdown included, is did_not_complete), or unfinished (no end line, and this engine is not running it: it may still be running in another process, or the process running it stopped before it could write one)."
+          },
+          "stage": {
+            "type": "string",
+            "description": "The last named stage the run reached, as the stage field of its recovery_stage lines names it; complete for a run that passed. Empty for a scrub, which names no stages."
+          },
+          "reason": {
+            "type": "string",
+            "description": "The end line's own words for a run that did not pass. Empty otherwise."
+          },
+          "started_at": {
+            "type": "string",
+            "description": "RFC 3339, the earliest line on record. Empty when there is none."
+          },
+          "ended_at": {
+            "type": "string",
+            "description": "RFC 3339, the end line (a scrub's pass line). Empty while there is none."
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LiveActivityEvent"
+            },
+            "description": "The run's lines, oldest first, in the live feed's own shape. Empty only for a run this engine is running that has not written a line yet; a run with nothing on record and not running is a 404."
+          }
+        },
+        "required": [
+          "operation_id",
+          "kind",
+          "backup_set_id",
+          "state",
+          "stage",
+          "reason",
+          "started_at",
+          "ended_at",
+          "events"
+        ]
+      },
       "ScrubCopyOutcome": {
         "type": "object",
         "additionalProperties": false,
@@ -21305,6 +21374,101 @@
             },
             "x-error-codes": [
               "UNAUTHENTICATED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      }
+    },
+    "/assurance/operations/{op}": {
+      "get": {
+        "operationId": "getAssuranceOperation",
+        "summary": "Read one scrub or recovery test back by its operation id, running or finished: its lines from the durable activity record (and the live feed, while it still holds them) and what they add up to. Read-only.",
+        "description": "Every line a recovery test or recovery writes carries its operation id as op_id, and so does every line of a scrub started with POST /backup-sets/{source}/{set}/scrub, so this finds a run long after the live feed has dropped it. The durable record keeps a run's start, the last stage it reached (stage lines are coalesced) and its end, for 30 days and at most 50,000 rows; while the run is still on the live feed its every stage line is included too. A scrub has no stage lines: a scrub_start, its scrub_failure lines and its scrub_pass (which an operator's scrub writes even when it selected nothing). A run this engine is running answers running at once, before it has written a line. It is not under /operations, which the destructive gate owns, and answers on a deployment whose gate is shut. The terminal's twin is `retnd assurance show <operation-id>`.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "op",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The operation id a scrub or a recovery test returned when it started."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssuranceOperationRecord"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "404": {
+            "description": "Refused: OPERATION_NOT_FOUND. Nothing is on record under this id: it was never an operation of this deployment, or its lines were pruned (they are kept for 30 days).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "OPERATION_NOT_FOUND"
             ]
           },
           "500": {

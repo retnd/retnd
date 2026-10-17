@@ -72,6 +72,20 @@ export function scrubPassText(e: SetActivityEvent): string {
   return head + (where ? " (" + where + ")" : "") + (parts.length ? ": " + parts.join(", ") : "");
 }
 
+/** `scrub_start`: a scrub an operator started, written the moment it begins
+ *  so the run is on the record while it works (#1200). */
+export function scrubStartText(e: SetActivityEvent): string {
+  const f = e.fields;
+  const how = f.trigger === "manual" ? "manual" : f.trigger === "schedule" ? "scheduled" : f.trigger;
+  const where = [how, f.scope].filter(Boolean).join(", ");
+  return "scrub started" + (where ? " (" + where + ")" : "");
+}
+
+/** The words for any line a scrub writes. */
+export function scrubLineText(e: SetActivityEvent): string {
+  return e.event === "scrub_start" ? scrubStartText(e) : e.event === "scrub_pass" ? scrubPassText(e) : scrubFailureText(e);
+}
+
 /** `scrub_failure`: the one per-copy line a pass writes. */
 export function scrubFailureText(e: SetActivityEvent): string {
   const f = e.fields;

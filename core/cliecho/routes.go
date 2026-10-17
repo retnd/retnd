@@ -1726,6 +1726,14 @@ var routes = map[string]entry{
 		build:    func(Action) *cmd { return newCmd("assurance", "validators", "default-script") },
 		examples: []Action{{}},
 	},
+	key("GET", "/assurance/operations/{op}"): {
+		// #1200. The Operation page's read: one scrub or recovery test's
+		// lines and how it ended, from the durable activity record.
+		build: func(a Action) *cmd {
+			return newCmd("assurance", "show", a.Params["op"])
+		},
+		examples: []Action{{Params: map[string]string{"op": "7b0c9a1e-0000-4000-8000-000000000001"}}},
+	},
 	key("GET", "/assurance/due"): {
 		build: func(a Action) *cmd {
 			c := newCmd("settings", "assurance", "due")

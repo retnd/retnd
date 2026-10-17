@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "206886ccbcd1dcdd1a617db3379c516f0cd6c3584a6313ad4b4854b6549d9a70"
+const ContractSHA256 = "04b276e49269dbe793ed8075d104179c993575eaf2d71d2be020cd757deeec0f"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -158,12 +158,6 @@ const (
 	ErrorCodeRecoverySourceHostUnreachable          ErrorCode = "RECOVERY_SOURCE_HOST_UNREACHABLE"
 	ErrorCodeRecoverySourceHostNoSpace              ErrorCode = "RECOVERY_SOURCE_HOST_NO_SPACE"
 	ErrorCodeRecoverySourceHostProbeLeftFile        ErrorCode = "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE"
-	ErrorCodeValidatorNotFound                      ErrorCode = "VALIDATOR_NOT_FOUND"
-	ErrorCodeValidatorExists                        ErrorCode = "VALIDATOR_EXISTS"
-	ErrorCodeValidatorPatternConflict               ErrorCode = "VALIDATOR_PATTERN_CONFLICT"
-	ErrorCodeValidatorLimitReached                  ErrorCode = "VALIDATOR_LIMIT_REACHED"
-	ErrorCodeValidatorsUnavailable                  ErrorCode = "VALIDATORS_UNAVAILABLE"
-	ErrorCodeValidatorScriptChanged                 ErrorCode = "VALIDATOR_SCRIPT_CHANGED"
 )
 
 // WireErrorCodes is codes a server may put on the wire. Every one of these is emitted by real handler code, and apps/common/webhost's TestContract_EveryWireErrorCodeIsRegistered holds that both ways.
@@ -269,12 +263,6 @@ var WireErrorCodes = []ErrorCode{
 	ErrorCodeRecoverySourceHostUnreachable,
 	ErrorCodeRecoverySourceHostNoSpace,
 	ErrorCodeRecoverySourceHostProbeLeftFile,
-	ErrorCodeValidatorNotFound,
-	ErrorCodeValidatorExists,
-	ErrorCodeValidatorPatternConflict,
-	ErrorCodeValidatorLimitReached,
-	ErrorCodeValidatorsUnavailable,
-	ErrorCodeValidatorScriptChanged,
 }
 
 // UIErrorCodes is the shared UI's own presentation vocabulary. No endpoint emits these; they are registered here so there is one registry rather than a second hand-maintained list in ui/shared.
@@ -404,12 +392,6 @@ var ErrorCodes = []ErrorCode{
 	ErrorCodeRecoverySourceHostUnreachable,
 	ErrorCodeRecoverySourceHostNoSpace,
 	ErrorCodeRecoverySourceHostProbeLeftFile,
-	ErrorCodeValidatorNotFound,
-	ErrorCodeValidatorExists,
-	ErrorCodeValidatorPatternConflict,
-	ErrorCodeValidatorLimitReached,
-	ErrorCodeValidatorsUnavailable,
-	ErrorCodeValidatorScriptChanged,
 }
 
 // ErrorClasses groups codes by the refusal they represent, so a caller (or
@@ -417,11 +399,11 @@ var ErrorCodes = []ErrorCode{
 var ErrorClasses = map[string][]ErrorCode{
 	"authentication": {ErrorCodeUnauthenticated, ErrorCodeBootstrapTokenInvalid, ErrorCodeResetTokenInvalid, ErrorCodeVerifyTokenInvalid},
 	"authorization":  {ErrorCodeEnrollmentClosed, ErrorCodeDestructiveOperationsDisabled, ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeRecoveryGrantSessionEnded, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeInsecureTransportAckRequired},
-	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy, ErrorCodeDirectoryNotReadable, ErrorCodeRestoreTargetNotAcknowledged, ErrorCodeSnapshotHoldReleaseNotAcknowledged, ErrorCodeRecoverySourceHostUnavailable, ErrorCodeRecoverySourceHostReadOnly, ErrorCodeRecoverySourceHostNotAcknowledged, ErrorCodeRecoverySourceHostProbeLeftFile, ErrorCodeValidatorExists, ErrorCodeValidatorPatternConflict, ErrorCodeValidatorLimitReached, ErrorCodeValidatorScriptChanged},
+	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy, ErrorCodeDirectoryNotReadable, ErrorCodeRestoreTargetNotAcknowledged, ErrorCodeSnapshotHoldReleaseNotAcknowledged, ErrorCodeRecoverySourceHostUnavailable, ErrorCodeRecoverySourceHostReadOnly, ErrorCodeRecoverySourceHostNotAcknowledged, ErrorCodeRecoverySourceHostProbeLeftFile},
 	"internal":       {ErrorCodeInternal, ErrorCodeInternalError, ErrorCodeRecoveryLocalCopyCorrupt, ErrorCodeRecoveryRemoteCopyCorrupt, ErrorCodeRecoveryNoSpace, ErrorCodeRecoveryBelowReserve, ErrorCodeRecoveryFailed, ErrorCodeRecoverySourceHostNoSpace},
-	"not-found":      {ErrorCodeBackupSetNotFound, ErrorCodeOperationNotFound, ErrorCodeRetentionPlanNotFound, ErrorCodeArtifactNotFound, ErrorCodeMediumNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound, ErrorCodeRepositoryDomainNotFound, ErrorCodeWorkflowEnvNotFound, ErrorCodeWorkflowRunNotFound, ErrorCodeWorkflowStepNotFound, ErrorCodeRecoveryCopyNotFound, ErrorCodeRecoveryGrantUnknown, ErrorCodeDirectoryNotFound, ErrorCodeValidatorNotFound},
+	"not-found":      {ErrorCodeBackupSetNotFound, ErrorCodeOperationNotFound, ErrorCodeRetentionPlanNotFound, ErrorCodeArtifactNotFound, ErrorCodeMediumNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound, ErrorCodeRepositoryDomainNotFound, ErrorCodeWorkflowEnvNotFound, ErrorCodeWorkflowRunNotFound, ErrorCodeWorkflowStepNotFound, ErrorCodeRecoveryCopyNotFound, ErrorCodeRecoveryGrantUnknown, ErrorCodeDirectoryNotFound},
 	"throttling":     {ErrorCodeRateLimited, ErrorCodeRecoveryTooManyGrants, ErrorCodeRecoveryReadsBusy, ErrorCodeRecoveryDestinationBusy, ErrorCodeRecoveryDownloadsBusy},
-	"unavailable":    {ErrorCodeNotConfigured, ErrorCodeSmtpSendFailed, ErrorCodeWorkflowEngineUnavailable, ErrorCodeRecoveryUnavailable, ErrorCodeRecoveryInterrupted, ErrorCodeStepUpUnavailable, ErrorCodeRecoverySourceHostUnreachable, ErrorCodeValidatorsUnavailable},
+	"unavailable":    {ErrorCodeNotConfigured, ErrorCodeSmtpSendFailed, ErrorCodeWorkflowEngineUnavailable, ErrorCodeRecoveryUnavailable, ErrorCodeRecoveryInterrupted, ErrorCodeStepUpUnavailable, ErrorCodeRecoverySourceHostUnreachable},
 	"validation":     {ErrorCodeInvalidRequest, ErrorCodeInvalidEmail, ErrorCodeSSHKeyNotFound, ErrorCodeHostKeyProbeFailed, ErrorCodeMediumDisclosureRequired, ErrorCodeBackupSetNotIncremental, ErrorCodeWorkflowAcknowledgementReasonRequired, ErrorCodeRecoveryTargetInvalid},
 }
 
@@ -469,16 +451,6 @@ var Endpoints = []Endpoint{
 		},
 	},
 	{
-		ID: "getDefaultValidatorScript", Method: "GET", Path: "/assurance/default-validator-script",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "", ResponseSchema: "ValidatorScriptResponse", SuccessStatus: 200,
-		ErrorCodes: map[int][]ErrorCode{
-			401: {ErrorCodeUnauthenticated},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeNotConfigured},
-		},
-	},
-	{
 		ID: "listAssuranceDue", Method: "GET", Path: "/assurance/due",
 		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
 		RequestSchema: "", ResponseSchema: "AssuranceDueResponse", SuccessStatus: 200,
@@ -486,6 +458,17 @@ var Endpoints = []Endpoint{
 			400: {ErrorCodeInvalidRequest},
 			401: {ErrorCodeUnauthenticated},
 			404: {ErrorCodeBackupSetNotFound},
+			500: {ErrorCodeInternal},
+			503: {ErrorCodeNotConfigured},
+		},
+	},
+	{
+		ID: "getAssuranceOperation", Method: "GET", Path: "/assurance/operations/{op}",
+		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
+		RequestSchema: "", ResponseSchema: "AssuranceOperationRecord", SuccessStatus: 200,
+		ErrorCodes: map[int][]ErrorCode{
+			401: {ErrorCodeUnauthenticated},
+			404: {ErrorCodeOperationNotFound},
 			500: {ErrorCodeInternal},
 			503: {ErrorCodeNotConfigured},
 		},
@@ -500,95 +483,6 @@ var Endpoints = []Endpoint{
 			404: {ErrorCodeOperationNotFound},
 			500: {ErrorCodeInternal},
 			503: {ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "listCustomValidatorPatterns", Method: "GET", Path: "/assurance/validator-patterns",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "", ResponseSchema: "CustomValidatorPatternsResponse", SuccessStatus: 200,
-		ErrorCodes: map[int][]ErrorCode{
-			401: {ErrorCodeUnauthenticated},
-			404: {ErrorCodeBackupSetNotFound},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "previewCustomValidator", Method: "POST", Path: "/assurance/validator-preview",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "PreviewCustomValidatorRequest", ResponseSchema: "CustomValidatorPreview", SuccessStatus: 200,
-		ErrorCodes: map[int][]ErrorCode{
-			400: {ErrorCodeInvalidRequest},
-			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
-			404: {ErrorCodeBackupSetNotFound},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "listCustomValidators", Method: "GET", Path: "/assurance/validators",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "", ResponseSchema: "ListCustomValidatorsResponse", SuccessStatus: 200,
-		ErrorCodes: map[int][]ErrorCode{
-			400: {ErrorCodeInvalidRequest},
-			401: {ErrorCodeUnauthenticated},
-			404: {ErrorCodeBackupSetNotFound},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "createCustomValidator", Method: "POST", Path: "/assurance/validators",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: true, Concurrency: "",
-		RequestSchema: "CreateCustomValidatorRequest", ResponseSchema: "CustomValidator", SuccessStatus: 201,
-		ErrorCodes: map[int][]ErrorCode{
-			400: {ErrorCodeInvalidRequest},
-			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeInsecureTransportAckRequired},
-			404: {ErrorCodeBackupSetNotFound},
-			409: {ErrorCodeValidatorExists, ErrorCodeValidatorPatternConflict, ErrorCodeValidatorLimitReached},
-			429: {ErrorCodeRateLimited},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeValidatorsUnavailable, ErrorCodeStepUpUnavailable, ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "removeCustomValidator", Method: "DELETE", Path: "/assurance/validators/{name}",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "", ResponseSchema: "CustomValidator", SuccessStatus: 200,
-		ErrorCodes: map[int][]ErrorCode{
-			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch},
-			404: {ErrorCodeValidatorNotFound},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "updateCustomValidator", Method: "PUT", Path: "/assurance/validators/{name}",
-		Authenticated: true, CSRFRequired: true, IdempotencyKey: "none", DestructiveGate: true, Concurrency: "",
-		RequestSchema: "UpdateCustomValidatorRequest", ResponseSchema: "CustomValidator", SuccessStatus: 200,
-		ErrorCodes: map[int][]ErrorCode{
-			400: {ErrorCodeInvalidRequest},
-			401: {ErrorCodeUnauthenticated},
-			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeInsecureTransportAckRequired},
-			404: {ErrorCodeBackupSetNotFound, ErrorCodeValidatorNotFound},
-			409: {ErrorCodeValidatorPatternConflict, ErrorCodeValidatorScriptChanged},
-			429: {ErrorCodeRateLimited},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeValidatorsUnavailable, ErrorCodeStepUpUnavailable, ErrorCodeNotConfigured},
-		},
-	},
-	{
-		ID: "getCustomValidatorScript", Method: "GET", Path: "/assurance/validators/{name}/script",
-		Authenticated: true, CSRFRequired: false, IdempotencyKey: "none", DestructiveGate: false, Concurrency: "",
-		RequestSchema: "", ResponseSchema: "ValidatorScriptResponse", SuccessStatus: 200,
-		ErrorCodes: map[int][]ErrorCode{
-			401: {ErrorCodeUnauthenticated},
-			404: {ErrorCodeValidatorNotFound},
-			500: {ErrorCodeInternal},
-			503: {ErrorCodeValidatorsUnavailable, ErrorCodeNotConfigured},
 		},
 	},
 	{
@@ -1971,6 +1865,20 @@ type AssuranceOperationCancelled struct {
 	Status      string `json:"status"`
 }
 
+// AssuranceOperationRecord is one scrub, recovery test or recovery as the durable activity
+// record holds it (#1200).
+type AssuranceOperationRecord struct {
+	BackupSetID string              `json:"backup_set_id"`
+	EndedAt     string              `json:"ended_at"`
+	Events      []LiveActivityEvent `json:"events"`
+	Kind        string              `json:"kind"`
+	OperationID string              `json:"operation_id"`
+	Reason      string              `json:"reason"`
+	Stage       string              `json:"stage"`
+	StartedAt   string              `json:"started_at"`
+	State       string              `json:"state"`
+}
+
 // AssuranceRecoveryTestPolicy is A resolved recovery-test policy.
 type AssuranceRecoveryTestPolicy struct {
 	BuiltinCheck         string `json:"builtin_check"`
@@ -2364,14 +2272,6 @@ type CreateBackupSetResponse struct {
 	RunError  string     `json:"run_error,omitempty"`
 }
 
-// CreateCustomValidatorRequest is A custom validator to upload.
-type CreateCustomValidatorRequest struct {
-	BackupSetID string `json:"backup_set_id"`
-	Name        string `json:"name"`
-	Pattern     string `json:"pattern"`
-	Script      string `json:"script"`
-}
-
 // CreateRepositoryDomainRequest is POST /repositories: declare a repository domain. What this
 // persists is a DECLARATION -- an id, a co-tenancy posture and the
 // reference the passphrase is resolved from -- and it creates no
@@ -2402,93 +2302,6 @@ type CreateRepositoryDomainRequest struct {
 type CredentialsRequest struct {
 	Password string `json:"password"`
 	Username string `json:"username"`
-}
-
-// CustomValidator is A custom recovery-test validator (#1203): an operator's
-// NAME.local.sh attached to an artifact-name pattern. For the copy a
-// recovery test is about to check, the first of these that applies
-// runs: a validator scoped to the copy's backup set whose pattern
-// matches its name, a global validator whose pattern matches, the
-// set's validator_id, the one script in
-// recovery-test/<source>/<set>, the built-in structure check. Two
-// patterns at one scope that both match a name end the test
-// could_not_complete rather than picking one.
-type CustomValidator struct {
-	Anchored        bool                   `json:"anchored"`
-	BackupSetID     string                 `json:"backup_set_id"`
-	ExampleName     string                 `json:"example_name"`
-	LastResult      *CustomValidatorResult `json:"last_result,omitempty"`
-	MatchCount      int64                  `json:"match_count"`
-	MatchSets       []string               `json:"match_sets"`
-	Name            string                 `json:"name"`
-	Pattern         string                 `json:"pattern"`
-	Scope           string                 `json:"scope"`
-	ScriptFile      string                 `json:"script_file"`
-	ScriptPresent   bool                   `json:"script_present"`
-	ScriptSha256    string                 `json:"script_sha256"`
-	ScriptSizeBytes int64                  `json:"script_size_bytes"`
-	UploadedAt      string                 `json:"uploaded_at"`
-}
-
-// CustomValidatorAmbiguity is A collision between custom validators found in the journal: one
-// backup, two or more patterns at one scope.
-type CustomValidatorAmbiguity struct {
-	BackupSetID string   `json:"backup_set_id"`
-	Example     string   `json:"example"`
-	Validators  []string `json:"validators"`
-}
-
-// CustomValidatorConflict is another validator at the same scope that already matches a backup
-// this pattern matches.
-type CustomValidatorConflict struct {
-	Example   string `json:"example"`
-	Validator string `json:"validator"`
-}
-
-// CustomValidatorPattern is A pattern suggested from existing backups: every run of digits
-// generalised (\d{8}, \d{4}-\d{2}-\d{2}, \d{8}T\d{6}Z), everything
-// else matched literally, anchored at both ends.
-type CustomValidatorPattern struct {
-	Example    string   `json:"example"`
-	MatchCount int64    `json:"match_count"`
-	MatchSets  []string `json:"match_sets"`
-	Pattern    string   `json:"pattern"`
-	Validator  string   `json:"validator"`
-}
-
-// CustomValidatorPatternsResponse is suggested patterns, most common first, at most 200.
-type CustomValidatorPatternsResponse struct {
-	BackupSetID string                   `json:"backup_set_id"`
-	Patterns    []CustomValidatorPattern `json:"patterns"`
-}
-
-// CustomValidatorPreview is what a pattern would match, judged by Go's RE2 (the engine that
-// will match it), so a browser's own regular expressions never
-// decide.
-type CustomValidatorPreview struct {
-	Anchored   bool                      `json:"anchored"`
-	Conflicts  []CustomValidatorConflict `json:"conflicts"`
-	Error      string                    `json:"error"`
-	MatchCount int64                     `json:"match_count"`
-	MatchSets  []string                  `json:"match_sets"`
-	Sample     []string                  `json:"sample"`
-	Valid      bool                      `json:"valid"`
-}
-
-// CustomValidatorResolution is which validator a recovery test of one backup would run.
-type CustomValidatorResolution struct {
-	Ambiguous  []string `json:"ambiguous"`
-	ArtifactID string   `json:"artifact_id"`
-	Fallback   string   `json:"fallback"`
-	Validator  string   `json:"validator"`
-}
-
-// CustomValidatorResult is the newest recovery test recorded under a custom validator's
-// script.
-type CustomValidatorResult struct {
-	ArtifactID string `json:"artifact_id"`
-	At         string `json:"at"`
-	State      string `json:"state"`
 }
 
 // CycleMoveOutcome is what a finished cycle's move pass got done: how many artifacts
@@ -2708,22 +2521,6 @@ type ListBackendsResponse struct {
 // top-level array.
 type ListBackupSetsResponse struct {
 	BackupSets []BackupSet `json:"backup_sets"`
-}
-
-// ListCustomValidatorsResponse is the custom validators, and what this deployment allows.
-type ListCustomValidatorsResponse struct {
-	Ambiguities       []CustomValidatorAmbiguity `json:"ambiguities"`
-	Available         bool                       `json:"available"`
-	Directory         string                     `json:"directory"`
-	DirectoryRefused  string                     `json:"directory_refused"`
-	MaxPatternBytes   int64                      `json:"max_pattern_bytes"`
-	MaxScriptBytes    int64                      `json:"max_script_bytes"`
-	MaxValidators     int64                      `json:"max_validators"`
-	Resolution        *CustomValidatorResolution `json:"resolution,omitempty"`
-	RunnerConfigured  bool                       `json:"runner_configured"`
-	UnavailableReason string                     `json:"unavailable_reason"`
-	Validators        []CustomValidator          `json:"validators"`
-	WorkflowRoot      string                     `json:"workflow_root"`
 }
 
 // ListOperationsResponse is GET /operations, newest first. The list counterpart of GET
@@ -3146,13 +2943,6 @@ type Placement struct {
 	StorageClass          string `json:"storage_class,omitempty"`
 	VerificationClass     string `json:"verification_class,omitempty"`
 	VerifiedAt            string `json:"verified_at,omitempty"`
-}
-
-// PreviewCustomValidatorRequest is A pattern to judge, without saving anything.
-type PreviewCustomValidatorRequest struct {
-	BackupSetID string `json:"backup_set_id"`
-	Pattern     string `json:"pattern"`
-	Replacing   string `json:"replacing"`
 }
 
 type RecoveryManyError struct {
@@ -4374,20 +4164,6 @@ type UpdateCapacitySettings struct {
 	WarningFreeBytes  *int64 `json:"warning_free_bytes"`
 }
 
-// UpdateCustomValidatorRequest is A custom validator, whole. A replacement and not a merge: every
-// field the validator has is in the request or it is not kept, so an
-// edit cannot narrow or widen a scope by leaving a field out. The
-// pattern and the scope (backup_set_id, empty for global) are always
-// the new ones; the script is either sent (script) or explicitly
-// kept (script_sha256), and exactly one of the two is required. The
-// name is the path's.
-type UpdateCustomValidatorRequest struct {
-	BackupSetID  string `json:"backup_set_id"`
-	Pattern      string `json:"pattern"`
-	Script       string `json:"script"`
-	ScriptSha256 string `json:"script_sha256"`
-}
-
 // UpdateRetentionSettings is A PARTIAL retention update. An omitted field is left exactly as
 // the running configuration has it; omitting tiers leaves the chain,
 // and a legacy file's own spelling of it, untouched.
@@ -4434,14 +4210,6 @@ type UpdateWorkflowSettingsRequest struct {
 type Validator struct {
 	ID      string `json:"id"`
 	Summary string `json:"summary"`
-}
-
-// ValidatorScriptResponse is A validator script's bytes, as text, with its identity.
-type ValidatorScriptResponse struct {
-	Content   string `json:"content"`
-	FileName  string `json:"file_name"`
-	Sha256    string `json:"sha256"`
-	SizeBytes int64  `json:"size_bytes"`
 }
 
 // VerificationClassInfo is one rung of the verification ladder (FR-31), with what it proves
@@ -4825,6 +4593,7 @@ var SchemaTypes = map[string]any{
 	"AssuranceDueResponse":               AssuranceDueResponse{},
 	"AssuranceHostKnob":                  AssuranceHostKnob{},
 	"AssuranceOperationCancelled":        AssuranceOperationCancelled{},
+	"AssuranceOperationRecord":           AssuranceOperationRecord{},
 	"AssuranceRecoveryTestPolicy":        AssuranceRecoveryTestPolicy{},
 	"AssuranceScrubPolicy":               AssuranceScrubPolicy{},
 	"AssuranceSettingsResponse":          AssuranceSettingsResponse{},
@@ -4851,17 +4620,8 @@ var SchemaTypes = map[string]any{
 	"ConnectionCheck":                    ConnectionCheck{},
 	"CreateBackupSetRequest":             CreateBackupSetRequest{},
 	"CreateBackupSetResponse":            CreateBackupSetResponse{},
-	"CreateCustomValidatorRequest":       CreateCustomValidatorRequest{},
 	"CreateRepositoryDomainRequest":      CreateRepositoryDomainRequest{},
 	"CredentialsRequest":                 CredentialsRequest{},
-	"CustomValidator":                    CustomValidator{},
-	"CustomValidatorAmbiguity":           CustomValidatorAmbiguity{},
-	"CustomValidatorConflict":            CustomValidatorConflict{},
-	"CustomValidatorPattern":             CustomValidatorPattern{},
-	"CustomValidatorPatternsResponse":    CustomValidatorPatternsResponse{},
-	"CustomValidatorPreview":             CustomValidatorPreview{},
-	"CustomValidatorResolution":          CustomValidatorResolution{},
-	"CustomValidatorResult":              CustomValidatorResult{},
 	"CycleMoveOutcome":                   CycleMoveOutcome{},
 	"CycleOutcome":                       CycleOutcome{},
 	"DestructiveOperationsStatus":        DestructiveOperationsStatus{},
@@ -4883,7 +4643,6 @@ var SchemaTypes = map[string]any{
 	"ListArtifactsResponse":              ListArtifactsResponse{},
 	"ListBackendsResponse":               ListBackendsResponse{},
 	"ListBackupSetsResponse":             ListBackupSetsResponse{},
-	"ListCustomValidatorsResponse":       ListCustomValidatorsResponse{},
 	"ListOperationsResponse":             ListOperationsResponse{},
 	"ListRepositoriesResponse":           ListRepositoriesResponse{},
 	"ListSSHKeyCandidatesResponse":       ListSSHKeyCandidatesResponse{},
@@ -4912,7 +4671,6 @@ var SchemaTypes = map[string]any{
 	"OperationProgress":                  OperationProgress{},
 	"OperationRestore":                   OperationRestore{},
 	"Placement":                          Placement{},
-	"PreviewCustomValidatorRequest":      PreviewCustomValidatorRequest{},
 	"RecoveryManyError":                  RecoveryManyError{},
 	"RecoveryManyEvent":                  RecoveryManyEvent{},
 	"RecoveryManyItem":                   RecoveryManyItem{},
@@ -4999,13 +4757,11 @@ var SchemaTypes = map[string]any{
 	"UpdateBackupSetRequest":             UpdateBackupSetRequest{},
 	"UpdateBackupSetWorkflowRequest":     UpdateBackupSetWorkflowRequest{},
 	"UpdateCapacitySettings":             UpdateCapacitySettings{},
-	"UpdateCustomValidatorRequest":       UpdateCustomValidatorRequest{},
 	"UpdateRetentionSettings":            UpdateRetentionSettings{},
 	"UpdateServiceSettings":              UpdateServiceSettings{},
 	"UpdateSettingsRequest":              UpdateSettingsRequest{},
 	"UpdateWorkflowSettingsRequest":      UpdateWorkflowSettingsRequest{},
 	"Validator":                          Validator{},
-	"ValidatorScriptResponse":            ValidatorScriptResponse{},
 	"VerificationClassInfo":              VerificationClassInfo{},
 	"VerifyEmailRequest":                 VerifyEmailRequest{},
 	"VersionResponse":                    VersionResponse{},

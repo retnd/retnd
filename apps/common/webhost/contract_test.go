@@ -270,6 +270,7 @@ var contractBindings = map[string]contractBinding{
 	"previewCustomValidator":      {apicontract.PreviewCustomValidatorRequest{}, apicontract.CustomValidatorPreview{}, "/api/v1/assurance/validator-preview"},
 	"listCustomValidatorPatterns": {nil, apicontract.CustomValidatorPatternsResponse{}, "/api/v1/assurance/validator-patterns"},
 	"getDefaultValidatorScript":   {nil, apicontract.ValidatorScriptResponse{}, "/api/v1/assurance/default-validator-script"},
+	"getAssuranceOperation":       {nil, assuranceOperationResponse{}, "/api/v1/assurance/operations/op_1"},
 	"getWorkflowRun":              {nil, workflowRunResponse{}, "/api/v1/workflow-runs/run_1"},
 	"listWorkflowRunSteps":        {nil, listWorkflowStepsResponse{}, "/api/v1/workflow-runs/run_1/steps"},
 	"getWorkflowStepLogs":         {nil, workflowStepLogPageResponse{}, "/api/v1/workflow-runs/run_1/steps/step_1/logs"},
