@@ -1014,6 +1014,77 @@ way its own output cannot forge. The newest test's output is kept
 and bounded (see *What the validator printed* above). What it can and cannot reach is in
 [the runtime contract](runtime-contract.md#validators-and-recovery-staging).
 
+### Custom validators by backup name
+
+`validator_id` is one script for a whole backup set. When one set holds backups of different
+kinds (a manifest, a database dump, an archive), you can attach a script to the kind instead:
+a **custom validator** is a `NAME.local.sh` and a regular expression over the backup's file
+name (never its path), for one backup set or for every set. Manage them in Settings >
+Assurance, with `retnd assurance validators`, or with `/api/v1/assurance/validators`.
+
+For the copy a recovery test is about to check, the first of these that applies runs:
+
+1. a custom validator scoped to the copy's backup set whose pattern matches its name;
+2. a global custom validator whose pattern matches;
+3. the set's `validator_id`;
+4. the one script in `recovery-test/<source>/<set>`;
+5. the built-in structure check.
+
+Two patterns at the same scope that both match one name are an ambiguity, and the test ends
+`could not complete` rather than picking one. Saving a pattern is refused when it would share
+an existing backup with another validator at that scope, but a backup that arrives later can
+still match both, so `retnd assurance validators list` (and the Settings card) warn about each
+such backup in the journal. When a pattern matched and the test ran something else (the host
+workflow runner is not wired, say), a `recovery_test_validator_fallback` warning is left in the
+activity feed.
+
+**`name` and `validator_id` are different things.** A custom validator's `name` is NAME in its
+`NAME.local.sh` under `<workflow root>/recovery-test-validators/`, chosen by you, unique across
+the deployment (compared without regard to case, since a case-insensitive volume would make
+`Foo` and `foo` one file), and it never begins `retnd-`. `validator_id` names a script in a
+set's own `recovery-test/<source>/<set>` directory. They share the file-name rules and nothing
+else; the activity feed and a copy's recorded result name the script that actually ran.
+
+What a pattern may be:
+
+- Go RE2 (no lookaround or backreferences), at most 512 bytes, matching anywhere in the name
+  unless you anchor it with `^` and `$`. `retnd assurance validators patterns` suggests
+  anchored ones from the backups you already have.
+- No repeat count above 255, and at most 1000 compiled instructions. RE2 cannot backtrack, but
+  a repeat of a repeat is still a large program, and the pattern is matched against every
+  backup name each time you preview or list, so those are refused when you save.
+
+How scripts are kept:
+
+- An upload is held to the check that gates saving a workflow, and written to a temporary file
+  and renamed in (directory `0750`, file `0640`), then the entry goes into `assurance.validators`
+  in `config.yaml`. Anything in the directory that `config.yaml` does not name is moved aside
+  on the next upload, and the 64 validator limit counts files.
+- Removing a validator, or a backup set that has some, **moves** the script to
+  `recovery-test-validators.superseded` beside the directory, under its own name (with a
+  number after it when that name is taken). Nothing is deleted.
+- An edit (`PUT`) replaces the validator whole. It carries the pattern, the scope, and either the
+  new script or `script_sha256` to keep the stored one, which is refused if the stored script is
+  no longer that one. Leaving the scope out means every set, which is why
+  `retnd assurance validators update` makes you say `--backup-set` or `--global`.
+- A crash between writing a script and writing `config.yaml` can leave a script the file does
+  not name (moved aside on the next upload), or on an edit a new script under the old pattern.
+  Pinning the script's hash in `config.yaml` would close that window and is not done yet.
+- Each upload, edit and removal writes a `validator_uploaded`, `validator_updated` or
+  `validator_removed` event with the name, scope, pattern and the script's SHA-256 and size
+  (never the script).
+
+**An older retnd refuses a `config.yaml` that has `assurance.validators` in it**, because the
+key is new and unknown keys are refused. Remove the validators (or the block) before going
+back to a release without this feature.
+
+The upload check is a lint and **not a sandbox**: it stops common shell mistakes, not a script
+that does harm on purpose. A validator runs the way every other hook does, in the runner's
+container, with the set's merged workflow environment (secrets included, if you put them
+there). Installing one is as serious as adding a hook, which is why uploading and editing ask
+for the administrator's password again, and are refused outright where the destructive gate is
+shut.
+
 ## When the catalog itself is gone
 
 Everything above assumes the journal answers. When it does not, this page's reason for
