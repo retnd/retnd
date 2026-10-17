@@ -957,6 +957,11 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// deletes nothing, so it has to answer on a deployment whose gate is
 		// shut.
 		r.With(requireCSRF).Post("/assurance/operations/{op}/cancel", h.cancelAssuranceOperation)
+		// One scrub or recovery test read back by its id, running or long
+		// finished, from the durable activity record (#1200). Beside the
+		// cancel for the same reason: it reads, and answers with the gate
+		// shut.
+		r.Get("/assurance/operations/{op}", h.getAssuranceOperation)
 
 		// EPIC L's workflow runs and recovery (#813).
 		//

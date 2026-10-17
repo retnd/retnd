@@ -359,6 +359,16 @@ commands:
                                                   this deployment, so this needs RETND_API_URL and the two credential
                                                   variables beside it and is refused without them. The same as
                                                   POST /api/v1/assurance/operations/{op}/cancel (EPIC Q)
+  assurance show <operation-id> [--json]
+                                                  one scrub or recovery test by the operation id its start returned,
+                                                  running or long finished: how it ended, the stage it reached, and its
+                                                  lines in the --follow format, read from the durable activity record
+                                                  (kept 30 days). It reads this host's journal, or the serving engine
+                                                  when one is attached. The same as
+                                                  GET /api/v1/assurance/operations/{op}, the Operation page's read. The
+                                                  validator's output is not in it: for a recovery test it prints the
+                                                  recovery-test --show-output command that shows it. The engine's own
+                                                  record of an operation is operation show (#1200)
   assurance list [--backup-set S] [--bucket due|overdue|degraded|untested] [--json]
                                                   the backups behind the Web UI Dashboard's Assurance tile, most urgent
                                                   first: each one in due, overdue or degraded (or in the buckets --bucket
@@ -436,7 +446,8 @@ commands:
                                                   one operation as the engine holds it. --follow polls until it finishes,
                                                   prints each change of status on standard error, and exits 0 for
                                                   completed and 1 for anything else. The same as
-                                                  GET /api/v1/operations/{id} (#1149)
+                                                  GET /api/v1/operations/{id}. A scrub's or recovery test's lines and
+                                                  how it ended are assurance show (#1149)
   catalog rebuild [--dry-run]                    reconstruct a lost/corrupted state database from sidecar recovery manifests
   catalog rebuild [--dry-run] --json
                                                   print the API's CatalogReportResponse for the whole deployment instead of

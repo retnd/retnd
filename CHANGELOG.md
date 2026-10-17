@@ -2,6 +2,44 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`GET /api/v1/assurance/operations/{op}` and `retnd assurance show <operation-id> [--json]`** (#1200). One
+  scrub or recovery test read back by the operation id its start returned, running or finished a month ago:
+  how it ended (`state` is an enum: `running`, `passed`, `failed`, `did_not_complete`, `cancelled`, or
+  `unfinished` for a run with no end that this engine isn't running, which can mean it is going in another
+  process as well as that its process stopped), `kind` (`scrub`, `recovery_test`, `recovery`, also an enum),
+  the last stage it reached, the end line's reason, and its lines oldest first in the live feed's own
+  shape. It reads the durable activity record (a run's start, its last stage and its end, kept for the
+  record's retention) plus whatever the live feed still holds. A run this engine is running answers
+  `running` at once, even before it has written a line, and an id with nothing on record is a 404
+  `OPERATION_NOT_FOUND` whose message states the retention. The verb prints the lines in the `activity
+  --follow` format under a heading in the Operation page's words, plus the `recovery-test --show-output`
+  command for the validator output the page shows (the record doesn't carry it); it reads this host's
+  journal with nothing serving and asks the engine when one is attached. `operation show` is the engine's own
+  record of an operation, and the two now point at each other.
+- **A scrub started with Scrub now writes a `scrub_start` line**, and its `scrub_start`, `scrub_failure` and
+  `scrub_pass` lines carry its operation id as `op_id`, so it is on the record from its first moment. Its
+  pass line is written even when the scrub selected nothing (a scheduled quiet pass still writes nothing).
+  A recovery test's `recovery_test_end` and a scrub's `scrub_pass` say `cancelled=true` when, and only when,
+  the run was stopped by a cancel request; a run cut short by the service shutting down is not cancelled.
+
+### Fixed
+
+- **The Operation page shows what a run did once it has left the live feed** (#1200). It used to draw only
+  what the live activity tail held, so a recovery test that had dropped off it read "no longer on the live
+  feed" with a stale "Stage 1 of 5", a 0% bar and an empty black terminal strip, and a reload or a link to
+  a finished run couldn't find it at all. The page now reads the run back from the durable record: its
+  start, the stage it reached and its end in the terminal, the outcome (finished, failed, cancelled) with
+  the stage count and bar where the run really got to, and, for a recovery test, the validator's output
+  when that output is this run's. A run whose lines were pruned is said in words (after a short grace
+  period, because the writer behind the record batches and a run read right after its start can be a
+  moment from it), a run with no end says it may still be running elsewhere rather than that its process
+  died, no empty terminal strip is ever drawn, Following only shows while something is live, and a finished scrub's bar is full rather
+  than empty. The page prints the terminal commands that match it, `retnd assurance show <operation-id>` and, for a
+  recovery test, `recovery-test --show-output`. The footer line
+  ("retnd running on ...") also moved to the secondary text colour, since it measured 4.23:1, under AA.
+
 ## [0.7.0] - 2026-10-15
 
 0.7.0 is a minor rather than 0.6.5 because three things in it change what an existing setup does, and

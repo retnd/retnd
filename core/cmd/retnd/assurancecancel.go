@@ -26,13 +26,15 @@ import (
 // is deliberately not under /operations: stopping a read deletes nothing, so
 // it does not need the destructive gate.
 //
-// `assurance list` (#1174) is the terminal's twin of the Dashboard's
+// `assurance show <op>` (#1200) is the Operation page's twin and is in
+// assuranceshow.go. `assurance list` (#1174) is the terminal's twin of the Dashboard's
 // Assurance tile and is not routed: it reads the journal. Starting a scrub or
 // a recovery test is `scrub` and `recovery-test`, and reading the policy is
 // `settings assurance`; none of those is a subcommand of this verb.
 var assuranceVerbs = map[string]func(args []string) int{
 	"cancel": cmdAssuranceCancel,
 	"list":   cmdAssuranceList,
+	"show":   cmdAssuranceShow,
 }
 
 func cmdAssurance(args []string) int {
@@ -44,7 +46,7 @@ func cmdAssurance(args []string) int {
 			return verb(append(append([]string{}, args[:i]...), args[i+1:]...))
 		}
 	}
-	return usageError("assurance: expected `assurance list` or `assurance cancel <operation-id>`")
+	return usageError("assurance: expected `assurance list`, `assurance show <operation-id>` or `assurance cancel <operation-id>`")
 }
 
 func cmdAssuranceCancel(args []string) int {

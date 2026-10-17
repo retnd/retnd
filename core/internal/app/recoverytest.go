@@ -283,7 +283,7 @@ func (s *Service) RecoveryTest(ctx context.Context, req RecoveryTestRequest) (Re
 	if res.Artifact.Name != "" {
 		artifactLabel = res.Artifact.String()
 	}
-	s.logger().RecoveryTestEnd(ctx, opID, bs.ID.String(), artifactLabel, validatorID, s.now().Sub(started), recoveryTestResult(res, err), recoveryTestReason(res, err))
+	s.logger().RecoveryTestEnd(ctx, opID, bs.ID.String(), artifactLabel, validatorID, s.now().Sub(started), recoveryTestResult(res, err), recoveryTestReason(ctx, res, err), cancelledOnRequest(ctx) && errors.Is(err, context.Canceled))
 	if err == nil {
 		s.keepRecoveryOutput(ctx, journal, opID, bs.ID, res)
 		s.logRecoveryTest(ctx, res)
@@ -347,9 +347,21 @@ func recoveryTestResult(r recoverytest.Result, err error) obs.Result {
 	}
 }
 
-func recoveryTestReason(r recoverytest.Result, err error) string {
+// RecoveryTestCancelledReason and RecoveryTestInterruptedReason are the
+// words of an end line for a test cut short: stopped on request, or
+// interrupted by anything else (the service shutting down). The words are for
+// a reader; which of the two it was is the line's cancelled field (#1200).
+const (
+	RecoveryTestCancelledReason   = "cancelled before it finished; no result was recorded"
+	RecoveryTestInterruptedReason = "interrupted before it finished; no result was recorded"
+)
+
+func recoveryTestReason(ctx context.Context, r recoverytest.Result, err error) string {
 	if errors.Is(err, context.Canceled) {
-		return "cancelled before it finished; no result was recorded"
+		if cancelledOnRequest(ctx) {
+			return RecoveryTestCancelledReason
+		}
+		return RecoveryTestInterruptedReason
 	}
 	if err != nil {
 		return recoverytest.SanitizeLabel(err.Error(), 200)

@@ -70,8 +70,9 @@ import type {
 } from "@shared/types/operation";
 import { createMockRecoverMany } from "@shared/assurance/mockRecoverMany";
 import { createMockHostBrowse } from "@shared/assurance/mockHostBrowse";
-import { BUILTIN_ARTIFACT, DEFAULT_POLICY_NEWEST, DEFAULT_POLICY_TESTED, INGEST_FAILED_SCENARIO, followsDefault, untestedScenario, assuranceLiveEvents, assuranceUnfinished, createMockAssurance, createMockRecovery, overlayAssurance, overlayThaw } from "@shared/assurance/mockAssurance";
+import { BUILTIN_ARTIFACT, DEFAULT_POLICY_NEWEST, DEFAULT_POLICY_TESTED, INGEST_FAILED_SCENARIO, followsDefault, untestedScenario, assuranceLiveEvents, assuranceStoredLines, assuranceUnfinished, createMockAssurance, createMockRecovery, overlayAssurance, overlayThaw } from "@shared/assurance/mockAssurance";
 import { createHttpAssurance } from "@shared/assurance/realAssurance";
+import { HISTORY_IDS, HISTORY_RUNNING, LATE_MISSES, OFF_TAIL_SCENARIO, OPERATION_HISTORY_SCENARIO, RETENTION_DAYS, durableRecordOf, historyLines, historyValidatorResult } from "@shared/assurance/mockOperationHistory";
 import type { DeploymentActivity, SetActivity, SetActivityEvent } from "@shared/types/activity";
 
 /** Development fixtures. Covers every scenario the brief requires (§42):
@@ -246,6 +247,14 @@ export const SCENARIOS = [
   "source-probe-left-file",
   "source-unreachable",
   "source-space-unknown",
+  // Issue #1200: the Operation page for runs that are no longer on the live
+  // feed. "operation-history" has finished runs (passed, failed, cancelled, a
+  // scrub) that only the durable activity record still holds, plus one id
+  // whose lines were pruned. "operation-off-tail" starts a recovery test whose
+  // lines leave the live tail as they are written, so only the unfinished
+  // list carries it while it runs.
+  "operation-history",
+  "operation-off-tail",
 ] as const;
 
 export type Scenario = (typeof SCENARIOS)[number];
@@ -4135,6 +4144,8 @@ export function createMockApi(
   options: { wire?: boolean; wireRestore?: boolean; liveProbe?: LiveProbe } = {}
 ): RetndApi {
   const liveProbe = options.liveProbe;
+  // #1200: how many reads of the operation-history "late" run have been made.
+  let lateReads = 0;
   // #1106: Recover this backup set is for artifact-engine sets, and every
   // fixture set but one is incremental. The recover-set scenarios present the
   // fixture sets as artifact sets (the mock host's recoverMany holds the rows);
@@ -6003,6 +6014,8 @@ export function createMockApi(
         backupSetId: source + "/" + set, recorded: false, operationId: "", artifactId: "", medium: "",
         state: "" as never, recordedAt: "", truncated: false, records: []
       }),
+    // Nothing is on record for an id this server never ran (#1200).
+    getAssuranceOperation: (operationId) => Promise.reject(operationNotOnRecord(operationId)),
 
     getAssuranceSettings: () => delay(structuredClone(assuranceSettings)),
     listStagingDirectories: (path) => mockHostBrowse(path ?? ""),
@@ -6198,8 +6211,27 @@ export function createMockApi(
       await assurance.cancelOperation(operationId);
       return { operationId, kind: "scrub" as const, backupSetId: "", status: "cancelling" as const };
     },
+    // #1200: a run read back by its id from the durable record, which keeps
+    // what the live tail has dropped. operation-history's fixtures, else the
+    // runs this mock started.
+    getAssuranceOperation: async (operationId) => {
+      // The late run is not on the record for its first reads: the writer
+      // batches, so a read right after a start can find nothing yet.
+      if (scenario === OPERATION_HISTORY_SCENARIO && operationId === HISTORY_IDS.late) {
+        lateReads += 1;
+        if (lateReads <= LATE_MISSES) throw operationNotOnRecord(operationId);
+      }
+      const stored = scenario === OPERATION_HISTORY_SCENARIO
+        ? { lines: historyLines(Date.now())[operationId] ?? [], running: HISTORY_RUNNING.has(operationId) }
+        : assuranceStoredLines(operationId);
+      const rec = stored ? durableRecordOf(operationId, stored.lines, stored.running) : null;
+      if (!rec) throw operationNotOnRecord(operationId);
+      return delay(rec);
+    },
     getRecoveryTestOutput: async (source, set) => {
-      const v = await assurance.getValidatorResult(source + "/" + set);
+      const v = scenario === OPERATION_HISTORY_SCENARIO && source + "/" + set === "production/postgres-primary"
+        ? historyValidatorResult(Date.now())
+        : await assurance.getValidatorResult(source + "/" + set);
       return v
         ? { backupSetId: source + "/" + set, recorded: true, ...v }
         : { backupSetId: source + "/" + set, recorded: false, operationId: "", artifactId: "", medium: "", state: "" as never, recordedAt: "", truncated: false, records: [] };
@@ -6211,7 +6243,9 @@ export function createMockApi(
         ...base,
         deployment: dockDeployment(scenario, base.deployment),
         sets: base.sets.map((s) => {
-          const all = assuranceLiveEvents(s.setId);
+          // operation-off-tail (#1200): the run's own lines have already
+          // left the tail by the time anyone reads it.
+          const all = assuranceLiveEvents(s.setId).filter((e) => scenario !== OFF_TAIL_SCENARIO || !e.fields.op_id);
           const extra = all.filter((e) => e.sequence > since);
           const open = assuranceUnfinished(s.setId);
           return {
@@ -6228,6 +6262,16 @@ export function createMockApi(
   // app uses (realAssurance), reading the routes above the way it reads a
   // server, so the browser specs can drive that code and not the mock's.
   return { ...routes, assurance: options.wire ? createHttpAssurance(routes) : assurance };
+}
+
+/** The service's refusal for an operation id with nothing on record (#1200). */
+function operationNotOnRecord(operationId: string): RetndError {
+  return new RetndError({
+    code: "OPERATION_NOT_FOUND",
+    message: "nothing is on record for this operation id: it never existed here, or its lines were pruned (a run's lines are kept for " + RETENTION_DAYS + " days)",
+    status: 404,
+    correlationId: "cid_mock_" + operationId
+  });
 }
 
 /** The deployment bucket for the scenarios that shape the terminal's feed

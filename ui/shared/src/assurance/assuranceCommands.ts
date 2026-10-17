@@ -70,6 +70,13 @@ export function assuranceCancelCommand(operationId: string): string {
   return "retnd assurance cancel " + shellQuote(operationId);
 }
 
+/** What the Operation page shows: one scrub or recovery test read back by its
+ *  id, `retnd assurance show <operation-id>`, the same read as
+ *  GET /assurance/operations/{op} (#1200). */
+export function assuranceShowCommand(operationId: string): string {
+  return "retnd assurance show " + operationId;
+}
+
 /** What Show validator output does: print the newest test's stored output,
  *  the body GET .../recovery-test/output serves. It runs no test. */
 export function showOutputCommand(setId: string): string {
