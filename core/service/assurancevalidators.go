@@ -166,6 +166,11 @@ type CustomValidator struct {
 	// the name; a surface may want to say so.
 	Anchored bool
 
+	// Env is the environment a recovery test gives the script (#1221):
+	// minimal or workflow, the validator's own setting when it has one and
+	// otherwise what its set, then the deployment, then the default says.
+	Env string
+
 	ScriptFile    string
 	ScriptPresent bool
 	// ScriptSHA256 is the hash of the bytes in the file now.
@@ -249,6 +254,10 @@ type CreateCustomValidatorRequest struct {
 	// ScriptSHA256 (update only) keeps the stored script, provided it is
 	// still the one with this hash.
 	ScriptSHA256 string
+	// Env is minimal or workflow (#1221), the environment the script starts
+	// with. Empty is minimal, on an update too: an update replaces the
+	// validator whole, so leaving it out never keeps what was there.
+	Env string
 }
 
 // CustomValidatorAmbiguity is one backup in the journal that more than one
@@ -393,6 +402,16 @@ func (b *BackupService) writeCustomValidator(ctx context.Context, req CreateCust
 	if err != nil {
 		return CustomValidator{}, fmt.Errorf("%w: %v", ErrInvalidRequest, err)
 	}
+	// Left out is minimal, an update included: a replacement never keeps the
+	// wider environment by omission. The entry always says which, so a later
+	// opt-in on the set cannot widen a validator written through here.
+	env := req.Env
+	if env == "" {
+		env = config.ValidatorEnvMinimal
+	}
+	if env != config.ValidatorEnvMinimal && env != config.ValidatorEnvWorkflow {
+		return CustomValidator{}, invalidValidator("env is %q and must be exactly %q or %q", req.Env, config.ValidatorEnvMinimal, config.ValidatorEnvWorkflow)
+	}
 	if update {
 		switch {
 		case req.Script == "" && req.ScriptSHA256 == "":
@@ -518,7 +537,7 @@ func (b *BackupService) writeCustomValidator(ctx context.Context, req CreateCust
 		pin = found
 	}
 
-	entry := config.CustomValidator{Name: req.Name, Pattern: req.Pattern, ScriptSHA256: pin}
+	entry := config.CustomValidator{Name: req.Name, Pattern: req.Pattern, Env: env, ScriptSHA256: pin}
 	if !set.IsZero() {
 		entry.BackupSet = set.String()
 	}
@@ -581,7 +600,7 @@ func (b *BackupService) writeCustomValidator(ctx context.Context, req CreateCust
 // where it applies and which script, by hash and size and never by body.
 func validatorEventAttrs(v CustomValidator) []slog.Attr {
 	attrs := []slog.Attr{
-		slog.String("name", v.Name), slog.String("scope", v.Scope), slog.String("pattern", v.Pattern),
+		slog.String("name", v.Name), slog.String("scope", v.Scope), slog.String("pattern", v.Pattern), slog.String("env", v.Env),
 		slog.String("script_sha256", v.ScriptSHA256), slog.Int64("script_size_bytes", v.ScriptSize),
 		slog.String("pinned_sha256", v.ScriptPinnedSHA256), slog.String("script_state", v.ScriptState),
 	}

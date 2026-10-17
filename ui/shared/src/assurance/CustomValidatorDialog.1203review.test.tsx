@@ -159,7 +159,7 @@ describe("CustomValidatorDialog editing (#1213 contract)", () => {
   beforeEach(() => { resetGraphForTests(); });
 
   const current = {
-    name: "billing-dump", pattern: "^b$", backupSetId: "production/billing-mysql", scope: "backup_set" as const, anchored: true,
+    name: "billing-dump", pattern: "^b$", backupSetId: "production/billing-mysql", scope: "backup_set" as const, anchored: true, env: "minimal" as const,
     scriptFile: "billing-dump.local.sh", scriptPresent: true, scriptSha256: "feedbeef", pinnedSha256: "feedbeef", scriptState: "pinned" as const, scriptSizeBytes: 3, uploadedAt: "",
     matchCount: 0, matchSets: [], exampleName: ""
   };
@@ -186,7 +186,7 @@ describe("CustomValidatorDialog editing (#1213 contract)", () => {
     await save(update);
     await waitFor(() => expect(update).toHaveBeenCalled());
     expect(update).toHaveBeenCalledWith(
-      "billing-dump", { pattern: "^b$", backupSetId: "production/billing-mysql", keepScriptSha256: "feedbeef" }, {}
+      "billing-dump", { pattern: "^b$", backupSetId: "production/billing-mysql", keepScriptSha256: "feedbeef", env: "minimal" }, {}
     );
   });
 
@@ -195,7 +195,7 @@ describe("CustomValidatorDialog editing (#1213 contract)", () => {
     await save(update, "#!/bin/sh\nexit 0\n");
     await waitFor(() => expect(update).toHaveBeenCalled());
     expect(update).toHaveBeenCalledWith(
-      "billing-dump", { pattern: "^b$", backupSetId: "production/billing-mysql", script: "#!/bin/sh\nexit 0\n" }, {}
+      "billing-dump", { pattern: "^b$", backupSetId: "production/billing-mysql", script: "#!/bin/sh\nexit 0\n", env: "minimal" }, {}
     );
   });
 

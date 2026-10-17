@@ -77,6 +77,16 @@ func positiveQuery(a Action, name string) int {
 	return n
 }
 
+// validatorEnvFlag echoes a validator's env (#1221) only when it is exactly one
+// of the two words the API accepts. The flag is a choice from a closed set, so
+// there is nothing of the operator's to leak, and anything else is a request
+// the engine refuses and has no business in a copyable command line.
+func validatorEnvFlag(c *cmd, env string) {
+	if env == "minimal" || env == "workflow" {
+		c.flag("env", env)
+	}
+}
+
 var routes = map[string]entry{
 	// ---------------------------------------------------------- system ---
 	key("GET", "/system/version"): {
@@ -1644,6 +1654,7 @@ var routes = map[string]entry{
 			}
 			c := newCmd("assurance", "validators", "add", req.Name).flag("pattern", req.Pattern)
 			c.flagIfSet("backup-set", req.BackupSetID)
+			validatorEnvFlag(c, req.Env)
 			// The script travelled inline; on a terminal it is a file. The
 			// placeholder says which one by size and hash, never by body.
 			return c.placeholderFlag("script", scriptIdentity(req.Script))
@@ -1652,6 +1663,7 @@ var routes = map[string]entry{
 		examples: []Action{
 			{Body: []byte(`{"name":"manifest","pattern":"^MANIFEST-\\d{8}T\\d{6}Z\\.txt$","backup_set_id":"api-server/var-backups","script":"#!/usr/bin/env bash\nexit 0\n"}`)},
 			{Body: []byte(`{"name":"dumps","pattern":"\\.sql\\.gz$","script":"#!/usr/bin/env bash\nexit 0\n"}`)},
+			{Body: []byte(`{"name":"dumps","pattern":"\\.sql\\.gz$","env":"workflow","script":"#!/usr/bin/env bash\nexit 0\n"}`)},
 		},
 	},
 	key("PUT", "/assurance/validators/{name}"): {
@@ -1665,6 +1677,7 @@ var routes = map[string]entry{
 			// an absent backup_set_id is global and the terminal has to be told
 			// so (--global), not left to infer it.
 			scopeFlag(c, req.BackupSetID)
+			validatorEnvFlag(c, req.Env)
 			// Without --script the terminal keeps the stored script by its
 			// hash, which is what script_sha256 is, so there is nothing to echo.
 			if req.Script != "" {
@@ -1676,6 +1689,7 @@ var routes = map[string]entry{
 		examples: []Action{
 			{Params: map[string]string{"name": "manifest"}, Body: []byte(`{"pattern":"^MANIFEST-","backup_set_id":"api-server/var-backups"}`)},
 			{Params: map[string]string{"name": "manifest"}, Body: []byte(`{"pattern":"^MANIFEST-","script":"#!/usr/bin/env bash\nexit 0\n"}`)},
+			{Params: map[string]string{"name": "manifest"}, Body: []byte(`{"pattern":"^MANIFEST-","env":"workflow","script_sha256":"` + strings.Repeat("ab", 32) + `"}`)},
 		},
 	},
 	key("DELETE", "/assurance/validators/{name}"): {

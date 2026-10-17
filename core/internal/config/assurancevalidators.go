@@ -90,6 +90,11 @@ type CustomValidator struct {
 	// set.
 	BackupSet string `yaml:"backup_set,omitempty"`
 
+	// Env is minimal or workflow (#1221): the environment the validator's
+	// script starts with. Empty means the entry does not say, and the set's
+	// then the deployment's validator_env decides.
+	Env string `yaml:"env,omitempty"`
+
 	// ScriptSHA256 is the hex SHA-256 of the script the operator approved
 	// (#1222). The service writes it whenever it writes the script, and a
 	// recovery test runs the script only if it still hashes to this. An entry
@@ -106,8 +111,29 @@ type ResolvedCustomValidator struct {
 	// BackupSet is the zero id for a global validator.
 	BackupSet  model.BackupSetID
 	ScriptFile string
+	// Env is what the entry states, "" when it states nothing.
+	Env string
 	// ScriptSHA256 is the pinned hash, "" for an entry with none.
 	ScriptSHA256 string
+}
+
+// ResolveValidatorEnv is the precedence for one run (#1221): the validator's
+// own env, then the set's validator_env (which already folds in the
+// deployment's), then minimal.
+//
+// It fails closed at every step. A validator that states something takes the
+// decision with it: a value that is not exactly workflow is minimal and never
+// falls through to a set's opt-in, so a spelling the loader would refuse
+// cannot widen anything if it ever got this far. Only the exact word
+// workflow opens the larger environment.
+func ResolveValidatorEnv(validatorEnv, inherited string) string {
+	if validatorEnv != "" {
+		inherited = validatorEnv
+	}
+	if inherited == ValidatorEnvWorkflow {
+		return ValidatorEnvWorkflow
+	}
+	return ValidatorEnvMinimal
 }
 
 // Global reports whether the validator applies in every backup set.
@@ -263,6 +289,14 @@ func (c *Config) resolveCustomValidators(v *validator, list []CustomValidator) [
 			ok = false
 		}
 		r.Regexp = re
+		if cv.Env != "" {
+			if !containsString(ValidatorEnvs, cv.Env) {
+				v.addf("%s.env: %q is not one of %v", path, cv.Env, ValidatorEnvs)
+				ok = false
+			} else {
+				r.Env = cv.Env
+			}
+		}
 		if cv.ScriptSHA256 != "" && !IsScriptSHA256(cv.ScriptSHA256) {
 			v.addf("%s.script_sha256: %q is not a SHA-256 in lower-case hex (64 characters); leave it out to run whatever script the file holds, and the next save of the validator will pin it", path, cv.ScriptSHA256)
 			ok = false

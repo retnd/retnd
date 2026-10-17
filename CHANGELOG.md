@@ -34,7 +34,8 @@
     `recovery_test_validator_fallback` warning.
   - A retnd from before this release refuses a `config.yaml` that has `assurance.validators` in it. Remove them
     before you downgrade.
-  - The upload check is a lint, not a sandbox, and a validator runs with the set's workflow environment.
+  - The upload check is a lint, not a sandbox. A validator starts with a small environment unless it is opted in
+    to the workflow one (see *Changed*, #1221).
   - A validator's `name` is also its id in the activity feed and in the journal (#1220): a test decided by a
     custom validator is now recorded under `NAME`, not `NAME.local.sh`, and the list reads both spellings. Runs
     decided by a set's `validator_id` or by the built-in check are recorded exactly as before. A name is at
@@ -65,6 +66,28 @@
   pass line is written even when the scrub selected nothing (a scheduled quiet pass still writes nothing).
   A recovery test's `recovery_test_end` and a scrub's `scrub_pass` say `cancelled=true` when, and only when,
   the run was stopped by a cancel request; a run cut short by the service shutting down is not cancelled.
+
+### Changed
+
+- **A recovery-test validator starts with a small environment** (#1221). It used to run with the backup
+  set's whole merged workflow environment, so a secret you had put there for a backup hook (a database
+  password, an API token) reached a script that is run against a recovered copy. It now gets the
+  `RECOVERY_TEST_*` variables, the product's `RETND_*` facts and the baseline `PATH`, and nothing else; the
+  secret's file or command is not even read for it. If an existing validator relied on a workflow variable,
+  set `assurance.recovery_test.validator_env: workflow` on the deployment or on that set and it sees
+  them again. Anything other than `minimal` or `workflow` is refused when the configuration loads. The
+  assurance notification scripts are hooks and keep the workflow environment. The set's key is set in the
+  configuration file for now; the settings screens and the CLI leave it alone when they save.
+- **A custom validator can opt in on its own** (#1221). Its entry takes `env: minimal|workflow`, and the
+  validator's own word wins over the set's `validator_env` and the deployment's, in both directions (a
+  validator can opt in under a minimal set, or stay minimal under a set that opted in). `POST` and `PUT
+  /api/v1/assurance/validators` take `env`, the list returns it (the environment the validator really gets),
+  `retnd assurance validators add|update` take `--env minimal|workflow`, and the `validator_uploaded`,
+  `validator_updated` and `validator_removed` events carry it. A `PUT` is a whole replacement, so an edit that
+  leaves `env` out is `minimal`, never what the validator had. Any other spelling is refused (400, and when
+  the configuration loads), and a refused value never counts as the opt-in. A validator written through the
+  API or the CLI always states its `env`, so it does not follow a later opt-in on the set; a hand-written
+  entry with no `env` does. The Settings screen has no control for it yet (a follow-up on the validators UI).
 
 ### Fixed
 

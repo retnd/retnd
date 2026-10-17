@@ -404,12 +404,17 @@ commands:
                                                    collides with and saves nothing. Beside a serving engine that this
                                                    command has a route to, that is POST /api/v1/assurance/validators, which
                                                    asks for the password again; this command sends RETND_API_PASSWORD
+                                                   --env minimal|workflow says what the script starts with: minimal (the
+                                                   default) is the RECOVERY_TEST_* variables, RETND_* facts and PATH, and
+                                                   workflow adds the backup set's workflow environment, secrets included
   assurance validators update <name> --pattern RE (--backup-set S | --global) [--script FILE] [--dry-run] [--json]
                                                    replace a validator whole: its pattern, its scope and its script. The
                                                    scope has to be said, --backup-set S or --global for every set, because
                                                    an update that left it out would widen a set-scoped validator. Without
                                                    --script the stored script is kept by its hash, and refused if somebody
                                                    replaced it in between. Routed, PUT /api/v1/assurance/validators/{name}
+                                                   --env minimal|workflow is replaced too: leaving it out means minimal,
+                                                   never what the validator had
   assurance validators remove <name> [--json]
                                                    take a validator out of config.yaml and move its script into the
                                                    recovery-test-validators.superseded directory beside the stage directory

@@ -30,7 +30,7 @@ func (e *fakeEngine) serveCustomValidator(w http.ResponseWriter, r *http.Request
 			refuse(w, http.StatusBadRequest, apicontract.ErrorCodeInvalidRequest, err.Error())
 			return true
 		}
-		v, err := e.svc.CreateCustomValidator(r.Context(), service.CreateCustomValidatorRequest{Name: body.Name, Pattern: body.Pattern, BackupSetID: body.BackupSetID, Script: body.Script})
+		v, err := e.svc.CreateCustomValidator(r.Context(), service.CreateCustomValidatorRequest{Name: body.Name, Pattern: body.Pattern, BackupSetID: body.BackupSetID, Script: body.Script, Env: body.Env})
 		if err != nil {
 			refuseServiceError(w, "createCustomValidator", err)
 			return true
@@ -44,7 +44,7 @@ func (e *fakeEngine) serveCustomValidator(w http.ResponseWriter, r *http.Request
 			refuse(w, http.StatusBadRequest, apicontract.ErrorCodeInvalidRequest, err.Error())
 			return true
 		}
-		v, err := e.svc.UpdateCustomValidator(r.Context(), service.CreateCustomValidatorRequest{Name: name, Pattern: body.Pattern, BackupSetID: body.BackupSetID, Script: body.Script, ScriptSHA256: body.ScriptSha256})
+		v, err := e.svc.UpdateCustomValidator(r.Context(), service.CreateCustomValidatorRequest{Name: name, Pattern: body.Pattern, BackupSetID: body.BackupSetID, Script: body.Script, ScriptSHA256: body.ScriptSha256, Env: body.Env})
 		if err != nil {
 			refuseServiceError(w, "updateCustomValidator", err)
 			return true
