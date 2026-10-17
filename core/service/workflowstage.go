@@ -117,6 +117,17 @@ func (b *BackupService) RunStage(ctx context.Context, req app.StageRequest) (app
 		// (#1204).
 		return app.StageResult{}, fmt.Errorf("%w: %s", app.ErrStageScriptMissing, req.Only)
 	}
+	if req.ExpectSHA256 != "" {
+		// The hash the caller approved is held against the bytes the plan
+		// was built from (the spooled copy), which are the bytes that would
+		// run, so the check and the run cannot see different files.
+		if req.Only == "" || len(steps) != 1 {
+			return app.StageResult{}, fmt.Errorf("service: a stage request that expects a hash names the one script it means (Only)")
+		}
+		if steps[0].ScriptSHA256 != req.ExpectSHA256 {
+			return app.StageResult{}, fmt.Errorf("%w: %s holds sha256 %s", app.ErrStageScriptChanged, steps[0].ScriptName, steps[0].ScriptSHA256)
+		}
+	}
 	if req.MaxScripts > 0 && len(steps) > req.MaxScripts {
 		return app.StageResult{}, fmt.Errorf("service: %d scripts were found and this purpose takes at most %d; which one is meant is not something to guess", len(steps), req.MaxScripts)
 	}
