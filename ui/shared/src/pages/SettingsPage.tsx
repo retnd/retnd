@@ -40,6 +40,7 @@ import { CapacityCard } from "@shared/pages/CapacityCard";
 import { ServiceBehaviourCard } from "@shared/pages/ServiceBehaviourCard";
 import { StorageDestinationsCard } from "@shared/pages/StorageDestinationsCard";
 import { AssuranceSettingsCard } from "@shared/assurance/AssuranceSettingsCard";
+import { CustomValidatorsCard } from "@shared/assurance/CustomValidatorsCard";
 import { WorkflowSettingsCard } from "@shared/pages/WorkflowSettingsCard";
 import { HelpField } from "@shared/components/FieldHelp";
 import { PasswordInput } from "@shared/components/PasswordInput";
@@ -183,6 +184,11 @@ export function SettingsPage({ readOnly }: { readOnly: boolean }) {
               host-scoped knobs shown as readouts. Additive: nothing above
               or below it moved. */}
           <Anchored section="assurance"><AssuranceSettingsCard readOnly={readOnly} /></Anchored>
+
+          {/* Issue #1203: the validators beside the assurance block they refine.
+              A validator is attached to a kind of artifact; the block above
+              names the set-wide catch-all they sit in front of. */}
+          <Anchored section="validators"><CustomValidatorsCard readOnly={readOnly} /></Anchored>
 
           <section className="card" {...settingsAnchor("notifications")}>
             <div className="card__header">

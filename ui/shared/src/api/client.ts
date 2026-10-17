@@ -150,6 +150,11 @@ import type {
   WireWorkflowValidatedScript,
   WireWorkflowValidationResponse,
   WireCapabilitiesResponse,
+  WireCustomValidator,
+  WireCustomValidatorPatternsResponse,
+  WireCustomValidatorPreview,
+  WireListCustomValidatorsResponse,
+  WireValidatorScriptResponse,
   WireVersionResponse
 } from "./generated/contract";
 import type {
@@ -170,6 +175,11 @@ import type {
   RecoveryTestOutput,
   AssuranceSettings,
   AssuranceSettingsPatch,
+  CustomValidator,
+  CustomValidatorList,
+  CustomValidatorPatterns,
+  CustomValidatorPreview,
+  ValidatorScript,
   BackupSetAssurance,
   BackupSetAssurancePatch,
   BackendManifest,
@@ -2884,6 +2894,51 @@ function fromWireAssuranceDue(s: WireAssuranceDueResponse): AssuranceDue {
   };
 }
 
+
+// Issue #1203: the custom validators' wire shapes, in the page's own.
+function fromWireCustomValidator(v: WireCustomValidator): CustomValidator {
+  return {
+    name: v.name, pattern: v.pattern, backupSetId: v.backup_set_id ?? "", scope: v.scope, anchored: v.anchored,
+    scriptFile: v.script_file, scriptPresent: v.script_present, scriptSha256: v.script_sha256,
+    scriptSizeBytes: v.script_size_bytes, uploadedAt: v.uploaded_at, matchCount: v.match_count,
+    matchSets: v.match_sets ?? [], exampleName: v.example_name ?? "",
+    ...(v.last_result ? { lastResult: { artifactId: v.last_result.artifact_id, at: v.last_result.at, state: v.last_result.state } } : {})
+  };
+}
+
+function fromWireValidatorScript(s: WireValidatorScriptResponse): ValidatorScript {
+  return { fileName: s.file_name, sha256: s.sha256, sizeBytes: s.size_bytes, content: s.content };
+}
+
+function fromWireValidatorList(r: WireListCustomValidatorsResponse): CustomValidatorList {
+  return {
+    available: r.available, unavailableReason: r.unavailable_reason ?? "", runnerConfigured: r.runner_configured,
+    directory: r.directory ?? "", workflowRoot: r.workflow_root ?? "", maxValidators: r.max_validators,
+    maxScriptBytes: r.max_script_bytes, maxPatternBytes: r.max_pattern_bytes,
+    validators: (r.validators ?? []).map(fromWireCustomValidator),
+    ...(r.resolution
+      ? { resolution: { artifactId: r.resolution.artifact_id, validator: r.resolution.validator, fallback: r.resolution.fallback, ambiguous: r.resolution.ambiguous ?? [] } }
+      : {})
+  };
+}
+
+function fromWireValidatorPatterns(r: WireCustomValidatorPatternsResponse): CustomValidatorPatterns {
+  return {
+    backupSetId: r.backup_set_id ?? "",
+    patterns: (r.patterns ?? []).map((p) => ({
+      pattern: p.pattern, example: p.example, matchCount: p.match_count, matchSets: p.match_sets ?? [], validator: p.validator ?? ""
+    }))
+  };
+}
+
+function fromWireValidatorPreview(p: WireCustomValidatorPreview): CustomValidatorPreview {
+  return {
+    valid: p.valid, error: p.error ?? "", anchored: p.anchored, matchCount: p.match_count, matchSets: p.match_sets ?? [],
+    sample: p.sample ?? [], conflicts: p.conflicts ?? []
+  };
+}
+
+
 /** A PATCH body carrying only the fields a caller named: an absent key is
  *  "leave this alone", and a zero or empty value is "clear this". */
 function wireAssurancePatch(
@@ -4189,6 +4244,55 @@ export const httpApi: RetndApi = {
       method: "PATCH",
       body: JSON.stringify(wireAssurancePatch(patch))
     }).then(fromWireAssuranceSettings),
+  listCustomValidators: (filter) => {
+    const q = new URLSearchParams();
+    if (filter?.backupSetId) q.set("backup_set", filter.backupSetId);
+    if (filter?.artifactId) q.set("artifact", filter.artifactId);
+    const qs = q.toString();
+    return request<WireListCustomValidatorsResponse>("/assurance/validators" + (qs ? "?" + qs : "")).then(fromWireValidatorList);
+  },
+  listCustomValidatorPatterns: (backupSetId) => {
+    const q = new URLSearchParams();
+    if (backupSetId) q.set("backup_set", backupSetId);
+    const qs = q.toString();
+    return request<WireCustomValidatorPatternsResponse>("/assurance/validator-patterns" + (qs ? "?" + qs : "")).then(fromWireValidatorPatterns);
+  },
+  previewCustomValidator: (req) =>
+    request<WireCustomValidatorPreview>("/assurance/validator-preview", {
+      method: "POST",
+      body: JSON.stringify({
+        pattern: req.pattern,
+        ...(req.backupSetId ? { backup_set_id: req.backupSetId } : {}),
+        ...(req.replacing ? { replacing: req.replacing } : {})
+      })
+    }).then(fromWireValidatorPreview),
+  // The password rides a header on this one request and never the body, as
+  // for a recovery onto the source host (#1191).
+  createCustomValidator: (req, opts) =>
+    request<WireCustomValidator>("/assurance/validators", {
+      method: "POST",
+      ...stepUpHeaders(opts),
+      body: JSON.stringify({
+        name: req.name, pattern: req.pattern, script: req.script,
+        ...(req.backupSetId ? { backup_set_id: req.backupSetId } : {})
+      })
+    }).then(fromWireCustomValidator),
+  updateCustomValidator: (name, req, opts) =>
+    request<WireCustomValidator>("/assurance/validators/" + encodeURIComponent(name), {
+      method: "PUT",
+      ...stepUpHeaders(opts),
+      body: JSON.stringify({
+        pattern: req.pattern,
+        ...(req.backupSetId ? { backup_set_id: req.backupSetId } : {}),
+        ...(req.script ? { script: req.script } : {})
+      })
+    }).then(fromWireCustomValidator),
+  removeCustomValidator: (name) =>
+    request<WireCustomValidator>("/assurance/validators/" + encodeURIComponent(name), { method: "DELETE" }).then(fromWireCustomValidator),
+  getCustomValidatorScript: (name) =>
+    request<WireValidatorScriptResponse>("/assurance/validators/" + encodeURIComponent(name) + "/script").then(fromWireValidatorScript),
+  getDefaultValidatorScript: () =>
+    request<WireValidatorScriptResponse>("/assurance/default-validator-script").then(fromWireValidatorScript),
   getBackupSetAssurance: (source, set) =>
     request<WireBackupSetAssurance>(assurancePath(source, set)).then(fromWireBackupSetAssurance),
   patchBackupSetAssurance: (source, set, patch) =>
