@@ -199,35 +199,43 @@ func listingTexts(in []string) []string {
 	return out
 }
 
+// say and sayln write a line of a listing. A listing to a terminal or a buffer
+// has nothing useful to do with a write error, and the callers that care
+// (standard output) already see it in the exit of the process, so it is
+// dropped here once instead of at every line.
+func say(w io.Writer, format string, a ...any) { _, _ = fmt.Fprintf(w, format, a...) }
+
+func sayln(w io.Writer, a ...any) { _, _ = fmt.Fprintln(w, a...) }
+
 // printCustomValidatorList is the text form of the list.
 func printCustomValidatorList(w io.Writer, l service.CustomValidators) {
 	if !l.Available {
-		fmt.Fprintf(w, "uploads: unavailable: %s\n", listingText(l.UnavailableReason))
+		say(w, "uploads: unavailable: %s\n", listingText(l.UnavailableReason))
 	}
 	if l.DirectoryRefused != "" {
-		fmt.Fprintf(w, "directory refused: %s\n  no validator script can run until that is fixed\n", listingText(l.DirectoryRefused))
+		say(w, "directory refused: %s\n  no validator script can run until that is fixed\n", listingText(l.DirectoryRefused))
 	}
 	if !l.RunnerConfigured {
-		fmt.Fprintln(w, "note: no host workflow runner is configured, so a validator is stored and cannot run yet")
+		sayln(w, "note: no host workflow runner is configured, so a validator is stored and cannot run yet")
 	}
 	if len(l.Validators) == 0 {
-		fmt.Fprintln(w, "no custom validators")
+		sayln(w, "no custom validators")
 	}
 	for _, v := range l.Validators {
 		printCustomValidator(w, v)
 	}
 	for _, a := range l.Ambiguities {
-		fmt.Fprintf(w, "ambiguous: %s in %s: the patterns of %s all match it at one scope, so a recovery test of it ends could_not_complete; narrow one of them\n",
+		say(w, "ambiguous: %s in %s: the patterns of %s all match it at one scope, so a recovery test of it ends could_not_complete; narrow one of them\n",
 			listingText(a.Example), listingText(a.BackupSetID), strings.Join(listingTexts(a.Validators), ", "))
 	}
 	if r := l.Resolution; r != nil {
 		switch {
 		case len(r.Ambiguous) > 0:
-			fmt.Fprintf(w, "%s: %s all match at one scope, so a test ends could_not_complete\n", listingText(r.ArtifactID), strings.Join(listingTexts(r.Ambiguous), ", "))
+			say(w, "%s: %s all match at one scope, so a test ends could_not_complete\n", listingText(r.ArtifactID), strings.Join(listingTexts(r.Ambiguous), ", "))
 		case r.Validator != "":
-			fmt.Fprintf(w, "%s: a recovery test runs %s\n", listingText(r.ArtifactID), listingText(r.Validator))
+			say(w, "%s: a recovery test runs %s\n", listingText(r.ArtifactID), listingText(r.Validator))
 		default:
-			fmt.Fprintf(w, "%s: no pattern applies; %s decides\n", listingText(r.ArtifactID), listingText(r.Fallback))
+			say(w, "%s: no pattern applies; %s decides\n", listingText(r.ArtifactID), listingText(r.Fallback))
 		}
 	}
 }
@@ -237,22 +245,22 @@ func printCustomValidator(w io.Writer, v service.CustomValidator) {
 	if v.BackupSetID != "" {
 		scope = listingText(v.BackupSetID)
 	}
-	fmt.Fprintf(w, "%s  %s  %s\n", listingText(v.Name), scope, listingText(v.Pattern))
+	say(w, "%s  %s  %s\n", listingText(v.Name), scope, listingText(v.Pattern))
 	script := "MISSING, so a test it applies to cannot complete"
 	if v.ScriptPresent {
 		script = fmt.Sprintf("%d bytes, sha256 %s, written %s", v.ScriptSize, listingText(v.ScriptSHA256), v.UploadedAt.Format(time.RFC3339))
 	}
-	fmt.Fprintf(w, "  script %s: %s\n", listingText(v.ScriptFile), script)
+	say(w, "  script %s: %s\n", listingText(v.ScriptFile), script)
 	if v.Matches > 0 {
-		fmt.Fprintf(w, "  matches %d backup(s) in %s, e.g. %s\n", v.Matches, strings.Join(listingTexts(v.MatchSets), ", "), listingText(v.ExampleName))
+		say(w, "  matches %d backup(s) in %s, e.g. %s\n", v.Matches, strings.Join(listingTexts(v.MatchSets), ", "), listingText(v.ExampleName))
 	} else {
-		fmt.Fprintln(w, "  matches no backup yet")
+		sayln(w, "  matches no backup yet")
 	}
 	if !v.Anchored {
-		fmt.Fprintln(w, "  the pattern is not anchored with ^...$, so it matches anywhere in a name")
+		sayln(w, "  the pattern is not anchored with ^...$, so it matches anywhere in a name")
 	}
 	if r := v.LastResult; r != nil {
-		fmt.Fprintf(w, "  last test: %s at %s (%s)\n", listingText(r.State), r.At.Format(time.RFC3339), listingText(r.Artifact))
+		say(w, "  last test: %s at %s (%s)\n", listingText(r.State), r.At.Format(time.RFC3339), listingText(r.Artifact))
 	}
 }
 
