@@ -87,9 +87,12 @@ type ScrubSetReport struct {
 type ScrubSummary struct {
 	Trigger string
 	Scope   string
-	// OpID is the operation id of an operator's scrub now, which every line
-	// of the pass carries as op_id (#1200). Empty for a scheduled pass.
-	OpID string
+	// opID is the operation id of an operator's scrub now, which every line
+	// of the pass carries as op_id (#1200). Empty for a scheduled pass. It is
+	// unexported because it belongs to the run, not to the result: the
+	// result's wire form (ScrubResult) is a public contract and an operation
+	// id is not part of what a scrub reports.
+	opID string
 	Sets []ScrubSetReport
 
 	Selected, Checked, Passed, Failed, CouldNotComplete, RequiresRestore int
@@ -174,7 +177,7 @@ func (s *Service) Scrub(ctx context.Context, req ScrubRequest) (ScrubSummary, er
 
 	started := s.now()
 	sum := ScrubSummary{Trigger: req.Trigger, Scope: scrubScope(req)}
-	sum.OpID = req.OpID
+	sum.opID = req.OpID
 
 	sets, err := s.scrubTargets(req)
 	if err != nil {
@@ -290,7 +293,7 @@ func (s *Service) tally(ctx context.Context, sum *ScrubSummary, set model.Backup
 		// asked passed and the trouble was elsewhere (a hook that would not
 		// start). The artifact could not be checked, and it is said once.
 		sum.CouldNotComplete++
-		s.logger().ScrubFailure(ctx, obs.ScrubFailureInfo{OpID: sum.OpID, Artifact: e.Artifact.String(), Reason: e.Err.Error()})
+		s.logger().ScrubFailure(ctx, obs.ScrubFailureInfo{OpID: sum.opID, Artifact: e.Artifact.String(), Reason: e.Err.Error()})
 	}
 	// QC-04: what a destination holds that the journal does not know, and the
 	// destinations that could not be asked. Findings, not copy outcomes: none
@@ -328,11 +331,11 @@ func (s *Service) tallyCopy(ctx context.Context, sum *ScrubSummary, a model.Arti
 	case c.Verdict == state.ScrubFailed:
 		sum.Checked++
 		sum.Failed++
-		s.logger().ScrubFailure(ctx, obs.ScrubFailureInfo{OpID: sum.OpID, Artifact: a.String(), Medium: c.Medium, Class: string(c.Class), Reason: c.Reason})
+		s.logger().ScrubFailure(ctx, obs.ScrubFailureInfo{OpID: sum.opID, Artifact: a.String(), Medium: c.Medium, Class: string(c.Class), Reason: c.Reason})
 		return true
 	case c.Verdict == state.ScrubCouldNotComplete:
 		sum.CouldNotComplete++
-		s.logger().ScrubFailure(ctx, obs.ScrubFailureInfo{OpID: sum.OpID, Artifact: a.String(), Medium: c.Medium, Class: string(c.Class), Reason: c.Reason})
+		s.logger().ScrubFailure(ctx, obs.ScrubFailureInfo{OpID: sum.opID, Artifact: a.String(), Medium: c.Medium, Class: string(c.Class), Reason: c.Reason})
 		return true
 	}
 	return false
@@ -358,9 +361,9 @@ func (s *Service) finishScrub(ctx context.Context, journal scrubJournal, sum Scr
 		}
 		sum.PassID = id
 	}
-	if worthARow || sum.OpID != "" {
+	if worthARow || sum.opID != "" {
 		s.logger().ScrubPass(ctx, obs.ScrubPassCounts{
-			Trigger: sum.Trigger, Scope: sum.Scope, OpID: sum.OpID, Cancelled: cancelledOnRequest(ctx),
+			Trigger: sum.Trigger, Scope: sum.Scope, OpID: sum.opID, Cancelled: cancelledOnRequest(ctx),
 			Selected: sum.Selected, Checked: sum.Checked,
 			Passed: sum.Passed, Failed: sum.Failed, CouldNotComplete: sum.CouldNotComplete,
 			RequiresRestore: sum.RequiresRestore, SkippedHeld: sum.SkippedHeld,
