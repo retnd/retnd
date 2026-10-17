@@ -23,8 +23,8 @@
  * rather than threading both through the select is the small price of
  * keeping every picker on this page keyed the same way.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import { useAsync } from "@shared/hooks/useAsync";
 import { useCausl } from "@shared/state/graph";
@@ -64,15 +64,14 @@ import { ActionMenu } from "@shared/components/ActionMenu";
 import type { OpenAt } from "@shared/components/ActionMenu";
 import { CommandEcho } from "./CommandEcho";
 import { RecoverArtifactDialog } from "@shared/assurance/RecoverArtifact";
-import { startRecoveryRun } from "@shared/assurance/useRunAssurance";
 import { useDestructiveGate } from "@shared/hooks/useDestructiveGate";
-import { describeFailure } from "@shared/api/failure";
-import { artifactsInSetCommand } from "@shared/assurance/assuranceCommands";
-import type { Operation } from "@shared/assurance/types";
+import type { AssuranceApi } from "@shared/assurance/types";
+import type { BackupFacts } from "@shared/assurance/verificationModel";
 import { MenuRuns } from "./BackupRowActions";
-import { isRunning, rowMenuGroups } from "./backupRowMenu";
+import { rowMenuGroups, setFilterEcho } from "./backupRowMenu";
 import type { MenuRun } from "./backupRowMenu";
-import { RETRY_ACCEPTED, retryRefusalSentence } from "./retryIngestion";
+import { useBatchedSearchParams } from "./useBatchedSearchParams";
+import { useRowMenuRuns } from "./useRowMenuRuns";
 
 /** Called "Backups", never "Restore points" — the product does not perform
  *  application restore (§13). */
@@ -82,10 +81,11 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   // Issue #1202: the set filter is the URL's `set` parameter, so the set
   // page's link, a reload and a pasted address all land on the same list.
   // Every other parameter on the URL is kept as it is.
-  const [params, setParams] = useSearchParams();
+  // Edits go through the batching hook: two in one tick both land.
+  const [params, patchParams] = useBatchedSearchParams();
   const setFilter = params.get("set") ?? "";
   const setSetFilter = (v: string) =>
-    setParams((p) => { const n = new URLSearchParams(p); if (v) n.set("set", v); else n.delete("set"); return n; }, { replace: true });
+    patchParams((n) => { if (v) n.set("set", v); else n.delete("set"); }, { replace: true });
   const [previewFor, setPreviewFor] = useState<string | null>(null);
   // Issue #1107. Received-on-or-after / before bounds, as yyyy-mm-dd.
   const [after, setAfter] = useState("");
@@ -160,49 +160,26 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   // The dialog hands focus back to whatever held it when it opened, and the
   // menu has put it back on the row's Actions button by then.
   const [recoverFor, setRecoverFor] = useState<string | null>(null);
-  const [menuRuns, setMenuRuns] = useState<MenuRun[]>([]);
   const gate = useDestructiveGate();
+  const toggle = useStable((id: string, on: boolean) => {
+    setNotice("");
+    setPicked((cur) => { const n = new Set(cur); if (on) n.add(id); else n.delete(id); return n; });
+  });
   const closeMenu = useCallback(() => setMenu(null), []);
-  const patchRun = useCallback((key: string, p: Partial<MenuRun>) => setMenuRuns((rs) => rs.map((r) => (r.key === key ? { ...r, ...p } : r))), []);
-  const onRunState = useCallback((key: string, state: Operation["state"]) => patchRun(key, { state }), [patchRun]);
-  const startRun = (a: BackupArtifact, kind: MenuRun["kind"]) => {
-    const key = kind + ":" + a.id + ":" + nextRunKey();
-    const run: MenuRun = { key, kind, setId: a.setId, setName: a.setName, artifactId: a.id, file: a.filename, starting: true };
-    setMenuRuns((rs) => [run, ...rs.filter((r) => isRunning(r) || r.kind !== kind || r.artifactId !== a.id)]);
-    return key;
-  };
-  const runTest = async (a: BackupArtifact) => {
-    if (!api.assurance) return;
-    const key = startRun(a, "recovery_test");
-    const out = await startRecoveryRun(api.assurance, a.setId, a.id, gate);
-    patchRun(key, { starting: false, opId: out.operation?.id, error: out.error ?? null, refused: out.refused ?? null });
-  };
-  const runScrub = async (a: BackupArtifact) => {
-    if (!api.assurance) return;
-    const key = startRun(a, "scrub");
-    try {
-      const o = await api.assurance.startScrub(a.setId);
-      patchRun(key, { starting: false, opId: o.id });
-    } catch (e) {
-      patchRun(key, { starting: false, error: describeFailure(e, "could not start").message });
-    }
-  };
-  const runRetry = async (a: BackupArtifact) => {
-    const key = startRun(a, "retry");
-    try {
-      await api.retryFailedIngestion(a.id);
-      patchRun(key, { starting: false, said: { tone: "ok", text: RETRY_ACCEPTED } });
-      artifacts.reload();
-    } catch (e) {
-      patchRun(key, { starting: false, error: retryRefusalSentence(e) });
-    }
-  };
+  const openMenu = useCallback((id: string, at: OpenAt) => setMenu({ id, at }), []);
+  const openRecover = useStable((id: string) => setRecoverFor(id));
 
   // The shared sets node (App.tsx fetches it once, #106) — not this page's
   // own listSets() call. App.tsx always mounts above every route, so the
   // node is already populated by the time this page can render.
   const sets = useCausl(setsNode);
   const artifacts = useAsync(() => api.listArtifacts(setFilter || undefined), [api, setFilter]);
+  // What the row menus started (#1202), and the handlers that start it.
+  const rowRuns = useRowMenuRuns({ api, gate, onRetried: artifacts.reload });
+  const goTo = useStable((a: BackupArtifact) => navigate(artifactPath(a.id)));
+  const startTest = useStable((a: BackupArtifact) => void rowRuns.test(a));
+  const startScrub = useStable((a: BackupArtifact) => void rowRuns.scrub(a));
+  const startRetry = useStable((a: BackupArtifact) => void rowRuns.retry(a));
   // Adjusted while rendering rather than in an effect: it is derived from the
   // list and has nothing outside React to synchronise with.
   const unfilteredCount = !setFilter && artifacts.data ? artifacts.data.length : null;
@@ -230,6 +207,8 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   // other.
   const previewSet = previewFor ? (sets.data ?? []).find((s) => s.id === previewFor) : null;
   const filteredSet = setFilter ? (sets.data ?? []).find((s) => s.id === setFilter) ?? null : null;
+  // The `set` value comes from the address, so what is echoed is checked first.
+  const setEcho = setFilterEcho(setFilter, sets.data);
 
   // #275: nothing to list, and nothing wrong either.
   if (isNotConfigured(artifacts.error))
@@ -256,10 +235,6 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   // and nothing else: the ticked set is always read back through `rows`.
   const selectable = rows.filter((a) => unselectableReason(a) === null);
   const ticked = selectable.filter((a) => picked.has(a.id));
-  const toggle = (id: string, on: boolean) => {
-    setNotice("");
-    setPicked((cur) => { const n = new Set(cur); if (on) n.add(id); else n.delete(id); return n; });
-  };
   const allTicked = selectable.length > 0 && ticked.length === selectable.length;
   const selectAll = () => { setNotice(""); setPicked(new Set(selectable.map((a) => a.id))); };
   // One page of the filtered list. Select-all above reads `rows`, never this.
@@ -397,7 +372,7 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
           <span role="status" data-testid="assurance-filter-status">
             {"Showing " + rows.length + " of " + inRange.length + " backups " + bucketPhrase(bucket as Bucket)}
           </span>
-          <button className="btn btn--sm" onClick={() => changeFilter(() => setParams((p) => { const n = new URLSearchParams(p); n.delete("assurance"); return n; }))}>
+          <button className="btn btn--sm" onClick={() => changeFilter(() => patchParams((n) => { n.delete("assurance"); }, { replace: true }))}>
             Show all backups
           </button>
         </div>
@@ -416,12 +391,12 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
           {filteredSet ? (
             <Link className="setchip__back" to={backupSetPath(filteredSet.source, filteredSet.set)}>{"Back to the " + filteredSet.name + " set"}</Link>
           ) : null}
-          <span style={{ flexBasis: "100%" }} data-assurance="">
-            <CommandEcho label="Same list from the terminal" commands={[artifactsInSetCommand(setFilter)]} />
-          </span>
+          {setEcho ? <span style={{ flexBasis: "100%" }} data-assurance="">
+            <CommandEcho label="Same list from the terminal" commands={[setEcho]} />
+          </span> : null}
         </div>
       ) : null}
-      <MenuRuns runs={menuRuns} assurance={api.assurance} readOnly={readOnly} onState={onRunState} onDismiss={(key) => setMenuRuns((rs) => rs.filter((r) => r.key !== key))} />
+      <MenuRuns runs={rowRuns.runs} assurance={api.assurance} readOnly={readOnly} onState={rowRuns.onState} onDismiss={rowRuns.dismiss} />
       {!artifacts.data || artifacts.loading ? null : rows.length === 0 && fetched.length > 0 ? (
         <EmptyState title="No backups in that range">
           Nothing was received between those dates. Clear a date to widen the list.
@@ -470,80 +445,25 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
               </thead>
               <tbody>
                 {shown.map((a) => (
-                  <tr
+                  <BackupRow
                     key={a.id}
-                    // Through the builder, never by concatenation: an
-                    // artifact id spans three path segments and each one
-                    // has to be escaped on its own (issue #677).
-                    onClick={() => navigate(artifactPath(a.id))}
-                    // #1202: a right-click, Shift+F10 or the context-menu key
-                    // anywhere in the row opens the row's Actions menu.
-                    onContextMenu={(e) => { e.preventDefault(); setMenu({ id: a.id, at: "first" }); }}
-                    onKeyDown={(e) => {
-                      if ((e.key === "F10" && e.shiftKey) || e.key === "ContextMenu") { e.preventDefault(); setMenu({ id: a.id, at: "first" }); }
-                    }}
-                    style={{ cursor: "pointer" }}
-                    data-selected={picked.has(a.id) && unselectableReason(a) === null ? "true" : undefined}
-                    data-menu-open={menu?.id === a.id ? "true" : undefined}
-                  >
-                    {canRecover ? (
-                      <td className="selcell" onClick={(e) => e.stopPropagation()}>
-                        <SelectBox artifact={a} on={picked.has(a.id)} onChange={(v) => toggle(a.id, v)} />
-                      </td>
-                    ) : null}
-                    <td className="mono" style={{ whiteSpace: "nowrap", color: "var(--text-2)" }}>
-                      {stamp(a.receivedAt)}
-                    </td>
-                    <td>{a.setName}</td>
-                    <td className="mono" style={{ fontSize: "var(--text-sm)" }}>
-                      {a.filename}
-                      {/* The old Validation column drew a green "Verified" for an ingest-time
-                          check, beside the three claims that say what is known now. That column
-                          is retired. A validation that FAILED is still worth saying, and is
-                          said as the failure it is, in the danger colour, never as a pass. */}
-                      {a.validation === "failed" ? (
-                        <div style={{ color: "var(--danger)", fontFamily: "var(--font-sans, inherit)" }}>
-                          <span aria-hidden="true" style={{ display: "inline-flex", verticalAlign: "middle", marginRight: 4 }}>
-                            <Icon name="warning" />
-                          </span>
-                          Failed validation
-                        </div>
-                      ) : null}
-                    </td>
-                    <td className="mono" style={{ textAlign: "right", whiteSpace: "nowrap" }}>{bytes(a.sizeBytes)}</td>
-                    <td>
-                      <ClaimChips facts={facts.byArtifact[a.id]} available={!!api.assurance && !facts.error} />
-                    </td>
-                    <td><RetentionCell artifact={a} /></td>
-                    {showsMedium ? (
-                      <td style={{ whiteSpace: "nowrap" }}><MediumCell artifact={a} /></td>
-                    ) : null}
-                    <td style={{ fontSize: "var(--text-sm)", color: "var(--text-2)", whiteSpace: "nowrap" }}>
-                      {a.remoteSourceRemovedAt ? "Remote source removed" : "Remote source retained"}
-                    </td>
-                    {/* The trigger's cell never navigates: the row's click is
-                        stopped here, like the checkbox cell's. */}
-                    <td className="actcell" data-row-actions="" onClick={(e) => e.stopPropagation()}>
-                      <ActionMenu
-                        label={"Actions for " + a.filename}
-                        open={menu?.id === a.id}
-                        openAt={menu?.at}
-                        onOpen={(at) => setMenu({ id: a.id, at })}
-                        onClose={closeMenu}
-                        groups={rowMenuGroups(a, {
-                          readOnly,
-                          assurance: api.assurance,
-                          facts: facts.byArtifact[a.id],
-                          runs: menuRuns,
-                          onRecover: () => setRecoverFor(a.id),
-                          onTest: () => void runTest(a),
-                          onScrub: () => void runScrub(a),
-                          onRetry: () => void runRetry(a),
-                          onOpen: () => navigate(artifactPath(a.id))
-                        })}
-                      />
-                    </td>
-                  </tr>
+                    a={a}
+                    canRecover={canRecover}
+                    showsMedium={showsMedium}
+                    ticked={picked.has(a.id)}
+                    facts={facts.byArtifact[a.id]}
+                    claimsAvailable={!!api.assurance && !facts.error}
+                    menuAt={menu?.id === a.id ? menu.at : null}
+                    menuCtx={menu?.id === a.id ? { readOnly, assurance: api.assurance, facts: facts.byArtifact[a.id], runs: rowRuns.runs } : null}
+                    onOpenBackup={goTo}
+                    onToggle={toggle}
+                    onOpenMenu={openMenu}
+                    onCloseMenu={closeMenu}
+                    onRecover={openRecover}
+                    onTest={startTest}
+                    onScrub={startScrub}
+                    onRetry={startRetry}
+                  />
                 ))}
               </tbody>
             </table>
@@ -639,12 +559,135 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   );
 }
 
-/** A key for each thing a row menu starts, unique for the page's life. */
-let runKeys = 0;
-function nextRunKey(): number {
-  runKeys += 1;
-  return runKeys;
+/** A function whose identity never changes and which always calls the latest
+ *  `fn`, so a memoised row is not re-rendered by a handler closing over this
+ *  render's state. */
+function useStable<A extends unknown[], R>(fn: (...args: A) => R): (...args: A) => R {
+  const latest = useRef(fn);
+  useEffect(() => { latest.current = fn; });
+  return useCallback((...args: A) => latest.current(...args), []);
 }
+
+/** What the open row's menu needs to decide its items. Only the row whose menu
+ *  is open is given one, so the other rows' props do not change when a run
+ *  starts or ends and they are not drawn again. */
+interface RowMenuCtx {
+  readOnly: boolean;
+  assurance: AssuranceApi | undefined;
+  facts: BackupFacts | undefined;
+  runs: MenuRun[];
+}
+
+const NO_GROUPS: never[] = [];
+
+/** One row of the table. Memoised: the page re-renders on every operation poll
+ *  and a table of a hundred rows should not be rebuilt each time (#1202). */
+const BackupRow = memo(function BackupRow({
+  a, canRecover, showsMedium, ticked, facts, claimsAvailable, menuAt, menuCtx,
+  onOpenBackup, onToggle, onOpenMenu, onCloseMenu, onRecover, onTest, onScrub, onRetry
+}: {
+  a: BackupArtifact;
+  canRecover: boolean;
+  showsMedium: boolean;
+  ticked: boolean;
+  facts: BackupFacts | undefined;
+  claimsAvailable: boolean;
+  menuAt: OpenAt | null;
+  menuCtx: RowMenuCtx | null;
+  onOpenBackup(a: BackupArtifact): void;
+  onToggle(id: string, on: boolean): void;
+  onOpenMenu(id: string, at: OpenAt): void;
+  onCloseMenu(): void;
+  onRecover(id: string): void;
+  onTest(a: BackupArtifact): void;
+  onScrub(a: BackupArtifact): void;
+  onRetry(a: BackupArtifact): void;
+}) {
+  const open = menuAt !== null;
+  return (
+    <tr
+      // Through the builder, never by concatenation: an artifact id spans
+      // three path segments and each one has to be escaped on its own
+      // (issue #677).
+      onClick={() => onOpenBackup(a)}
+      // #1202: Shift+F10 or the context-menu key anywhere in the row opens the
+      // row's Actions menu. A right-click is the browser's own everywhere but
+      // the Actions cell (below), so a file name can still be copied.
+      onKeyDown={(e) => {
+        if ((e.key === "F10" && e.shiftKey) || e.key === "ContextMenu") { e.preventDefault(); onOpenMenu(a.id, "first"); }
+      }}
+      style={{ cursor: "pointer" }}
+      data-selected={ticked && unselectableReason(a) === null ? "true" : undefined}
+      data-menu-open={open ? "true" : undefined}
+    >
+      {canRecover ? (
+        <td className="selcell" onClick={(e) => e.stopPropagation()}>
+          <SelectBox artifact={a} on={ticked} onChange={(v) => onToggle(a.id, v)} />
+        </td>
+      ) : null}
+      <td className="mono" style={{ whiteSpace: "nowrap", color: "var(--text-2)" }}>
+        {stamp(a.receivedAt)}
+      </td>
+      <td>{a.setName}</td>
+      <td className="mono" style={{ fontSize: "var(--text-sm)" }}>
+        {a.filename}
+        {/* The old Validation column drew a green "Verified" for an ingest-time
+            check, beside the three claims that say what is known now. That column
+            is retired. A validation that FAILED is still worth saying, and is
+            said as the failure it is, in the danger colour, never as a pass. */}
+        {a.validation === "failed" ? (
+          <div style={{ color: "var(--danger)", fontFamily: "var(--font-sans, inherit)" }}>
+            <span aria-hidden="true" style={{ display: "inline-flex", verticalAlign: "middle", marginRight: 4 }}>
+              <Icon name="warning" />
+            </span>
+            Failed validation
+          </div>
+        ) : null}
+      </td>
+      <td className="mono" style={{ textAlign: "right", whiteSpace: "nowrap" }}>{bytes(a.sizeBytes)}</td>
+      <td>
+        <ClaimChips facts={facts} available={claimsAvailable} />
+      </td>
+      <td><RetentionCell artifact={a} /></td>
+      {showsMedium ? (
+        <td style={{ whiteSpace: "nowrap" }}><MediumCell artifact={a} /></td>
+      ) : null}
+      <td style={{ fontSize: "var(--text-sm)", color: "var(--text-2)", whiteSpace: "nowrap" }}>
+        {a.remoteSourceRemovedAt ? "Remote source removed" : "Remote source retained"}
+      </td>
+      {/* The trigger's cell never navigates: the row's click is stopped here,
+          like the checkbox cell's. It is also the one cell whose right-click
+          is taken over, to open the menu. */}
+      <td
+        className="actcell"
+        data-row-actions=""
+        onClick={(e) => e.stopPropagation()}
+        onContextMenu={(e) => { e.preventDefault(); onOpenMenu(a.id, "first"); }}
+      >
+        <ActionMenu
+          label={"Actions for " + a.filename}
+          open={open}
+          openAt={menuAt ?? undefined}
+          onOpen={(at) => onOpenMenu(a.id, at)}
+          onClose={onCloseMenu}
+          rootProps={ASSURANCE_ROOT}
+          groups={menuCtx ? () => rowMenuGroups(a, {
+            ...menuCtx,
+            onRecover: () => onRecover(a.id),
+            onTest: () => onTest(a),
+            onScrub: () => onScrub(a),
+            onRetry: () => onRetry(a),
+            onOpen: () => onOpenBackup(a)
+          }) : NO_GROUPS}
+        />
+      </td>
+    </tr>
+  );
+});
+
+/** The pop-up is portalled out of the page's assurance scope (assurance.css
+ *  keys on the attribute), so it carries the attribute itself. */
+const ASSURANCE_ROOT = { "data-assurance": "" } as const;
 
 /** One row's checkbox. A row that cannot be recovered is disabled and the
  *  reason is attached to the control, so a screen reader hears it and a

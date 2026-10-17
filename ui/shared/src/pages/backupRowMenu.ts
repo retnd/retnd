@@ -9,7 +9,7 @@ import type { GateRefusalNotice } from "@shared/api/gate";
 import { NO_VALIDATOR_REASON, recoveryTestWouldBeRefused } from "@shared/assurance/verificationModel";
 import type { BackupFacts } from "@shared/assurance/verificationModel";
 import type { AssuranceApi, Operation } from "@shared/assurance/types";
-import { artifactCommand, recoverCommand, recoveryTestArtifactCommand, retryCommand, scrubCommand } from "@shared/assurance/assuranceCommands";
+import { artifactCommand, artifactsInSetCommand, recoverCommand, recoveryTestArtifactCommand, retryCommand, scrubCommand } from "@shared/assurance/assuranceCommands";
 import type { BackupArtifact } from "@shared/types/backup";
 import { isRetryable } from "./retryIngestion";
 
@@ -45,6 +45,17 @@ export interface RowMenuContext {
 
 /** Whether a run is still going, for the busy reasons. */
 export const isRunning = (r: MenuRun): boolean => r.starting || (r.opId !== undefined && (r.state === undefined || r.state === "running"));
+
+/** What a `?set=` value may be echoed as. The address takes any text, and the
+ *  echo is a line somebody pastes into a shell, so it names a set only if this
+ *  deployment lists it, or the value has the shape of a set id (source/set)
+ *  for a set that was removed and whose backups are still listed (#523). Any
+ *  other value is not echoed at all; the builder quotes what it does print. */
+export function setFilterEcho(setFilter: string, known: ReadonlyArray<{ id: string }> | null | undefined): string | null {
+  if (!setFilter) return null;
+  if (known?.some((s) => s.id === setFilter) || /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(setFilter)) return artifactsInSetCommand(setFilter);
+  return null;
+}
 
 /** The menu for one row. */
 export function rowMenuGroups(a: BackupArtifact, ctx: RowMenuContext): ActionMenuGroup[] {
@@ -88,12 +99,13 @@ export function rowMenuGroups(a: BackupArtifact, ctx: RowMenuContext): ActionMen
     onSelect: ctx.onScrub
   };
   const groups: ActionMenuGroup[] = [
-    { label: "Get it back", items: [recover] },
-    { label: "Check it", items: [test, scrub] }
+    { id: "get", label: "Get it back", items: [recover] },
+    { id: "check", label: "Check it", items: [test, scrub] }
   ];
   if (isRetryable(a)) {
     const busyRetry = ctx.runs.find((r) => r.kind === "retry" && r.artifactId === a.id && r.starting);
     groups.push({
+      id: "repair",
       label: "Repair",
       items: [{
         id: "retry",
@@ -106,6 +118,7 @@ export function rowMenuGroups(a: BackupArtifact, ctx: RowMenuContext): ActionMen
     });
   }
   groups.push({
+    id: "more",
     label: "More",
     items: [{ id: "open", label: "Open backup page", description: "Its copies, lifecycle and the full assurance card.", echo: artifactCommand(a.id), onSelect: ctx.onOpen }]
   });

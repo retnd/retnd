@@ -99,9 +99,9 @@ test.describe("#1202 the Backups row Actions menu", () => {
     await expect(page).toHaveURL(/\/backups\?/);
   });
 
-  test("#1202 a right-click on the row, or Shift+F10 inside it, opens that row's menu instead of the backup", async ({ page }) => {
+  test("#1202 a right-click on the Actions cell, or Shift+F10 inside the row, opens that row's menu instead of the backup", async ({ page }) => {
     await open(page, "/backups");
-    await row(page, BILLING).getByRole("cell", { name: "Billing MySQL" }).click({ button: "right" });
+    await row(page, BILLING).locator("td.actcell").click({ button: "right", position: { x: 2, y: 2 } });
     await expect(page.getByRole("menu", { name: "Actions for " + BILLING })).toBeVisible();
     await expect(item(page, /^Recover artifact/)).toBeFocused();
     await page.keyboard.press("Escape");

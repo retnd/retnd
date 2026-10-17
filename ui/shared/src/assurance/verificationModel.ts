@@ -64,14 +64,14 @@ export interface SetPolicyFact {
   validatorDeclared?: boolean;
 }
 
-/** Whether a recovery test on this set could only be refused, so a button that
- *  starts one is not offered (#1108, #1111). The engine's own answer
- *  (effective_check) wins; a server that does not send it is read from
- *  validator_declared. Unknown is not a refusal. */
 /** What a control says beside a recovery test the set can only refuse
  *  (#1108): the Dashboard's rows and the Backups row menu say it alike. */
 export const NO_VALIDATOR_REASON = "No recovery-test validator is declared for this set, so a test can only be refused.";
 
+/** Whether a recovery test on this set could only be refused, so a button that
+ *  starts one is not offered (#1108, #1111). The engine's own answer
+ *  (effective_check) wins; a server that does not send it is read from
+ *  validator_declared. Unknown is not a refusal. */
 export function recoveryTestWouldBeRefused(policy: SetPolicyFact | null | undefined): boolean {
   if (!policy) return false;
   if (policy.effectiveCheck === "builtin" || policy.effectiveCheck === "validator") return false;

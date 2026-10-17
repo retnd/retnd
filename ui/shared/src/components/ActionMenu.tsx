@@ -26,7 +26,7 @@
  * CommandEcho's tooltip host, because a tooltip trigger inside a menu would be
  * a focus stop the arrow keys never reach.
  */
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, RefObject } from "react";
 import { createPortal } from "react-dom";
 
@@ -35,14 +35,21 @@ export interface ActionMenuItem {
   label: string;
   /** One line saying what the item does. */
   description?: string;
-  /** Why it cannot run now. Non-null makes the item disabled. */
+  /** Why it cannot run now. Any non-empty string makes the item disabled and
+   *  is shown in place of the description. `null`, `undefined` and the empty
+   *  string all mean the item can run, so a reason built by joining
+   *  conditions may be "" without disabling anything. */
   disabledReason?: string | null;
-  /** The same thing from the terminal. */
+  /** The same thing from the terminal. Optional: an item with none leaves the
+   *  footer empty while it has focus (and the footer is not drawn). */
   echo?: string;
   onSelect(): void;
 }
 
 export interface ActionMenuGroup {
+  /** The group's key, stable across renders. The label is for people and two
+   *  groups may share one. */
+  id: string;
   label: string;
   items: ActionMenuItem[];
 }
@@ -66,26 +73,48 @@ function placeMenu(
   return { top: clamp(top, viewport.height - size.height), left: clamp(anchor.right - size.width, viewport.width - size.width) };
 }
 
+/** Where the pop-up already is, kept inside the viewport for its new size. */
+function keepMenu(
+  at: { top: number; left: number },
+  size: { width: number; height: number },
+  viewport: { width: number; height: number }
+): { top: number; left: number } {
+  const MARGIN = 8;
+  const clamp = (v: number, limit: number) => Math.max(MARGIN, Math.min(v, limit - MARGIN));
+  return { top: clamp(at.top, viewport.height - size.height), left: clamp(at.left, viewport.width - size.width) };
+}
+
 export function ActionMenu({
-  label, triggerText = "Actions", groups, open, openAt = "first", onOpen, onClose, buttonRef, footerLabel = "Same thing from the terminal"
+  label, triggerText = "Actions", groups, open, openAt = "first", onOpen, onClose, buttonRef, footerLabel = "Same thing from the terminal", rootProps
 }: {
   /** The trigger's accessible name and the menu's. */
   label: string;
   triggerText?: string;
-  groups: ActionMenuGroup[];
+  /** The menu's content, or a function that builds it. A function is called
+   *  only while the menu is open, so a list of many menus pays for the one
+   *  that is showing and not for every closed trigger on every render. */
+  groups: ActionMenuGroup[] | (() => ActionMenuGroup[]);
   open: boolean;
   openAt?: OpenAt;
   onOpen(at: OpenAt): void;
   onClose(): void;
+  /** Keep this stable (wrap it in useCallback) if the trigger's row is memoised. */
   buttonRef?: (el: HTMLButtonElement | null) => void;
+  /** The footer's heading, "Same thing from the terminal" unless given. */
   footerLabel?: string;
+  /** Extra data attributes for the pop-up's root, which is portalled out of
+   *  the page and so cannot inherit them from where it was declared. */
+  rootProps?: Record<`data-${string}`, string | undefined>;
 }) {
   const trigger = useRef<HTMLButtonElement | null>(null);
   const menuId = useId();
+  // One function for as long as the caller's is the same, so a memoised row
+  // is not handed a new ref on every render.
+  const setTrigger = useCallback((el: HTMLButtonElement | null) => { trigger.current = el; buttonRef?.(el); }, [buttonRef]);
   return (
     <>
       <button
-        ref={(el) => { trigger.current = el; buttonRef?.(el); }}
+        ref={setTrigger}
         type="button"
         className="btn btn--sm btn--strong-edge amenu__trigger"
         aria-label={label}
@@ -102,14 +131,14 @@ export function ActionMenu({
         <span aria-hidden="true" className="amenu__caret">{"▾"}</span>
       </button>
       {open ? (
-        <MenuPopup id={menuId} label={label} groups={groups} openAt={openAt} trigger={trigger} onClose={onClose} footerLabel={footerLabel} />
+        <MenuPopup id={menuId} label={label} groups={typeof groups === "function" ? groups() : groups} openAt={openAt} trigger={trigger} onClose={onClose} footerLabel={footerLabel} rootProps={rootProps} />
       ) : null}
     </>
   );
 }
 
 function MenuPopup({
-  id, label, groups, openAt, trigger, onClose, footerLabel
+  id, label, groups, openAt, trigger, onClose, footerLabel, rootProps
 }: {
   id: string;
   label: string;
@@ -118,32 +147,66 @@ function MenuPopup({
   trigger: RefObject<HTMLButtonElement | null>;
   onClose(): void;
   footerLabel: string;
+  rootProps?: Record<`data-${string}`, string | undefined>;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const items = groups.flatMap((g) => g.items);
-  const [active, setActive] = useState(() => (openAt === "last" ? items.length - 1 : 0));
+  const [requested, setActive] = useState(() => (openAt === "last" ? items.length - 1 : 0));
+  // The list comes from props and can shrink or empty while the menu is open
+  // (a FAILED backup recovers and loses its Retry item), so the position the
+  // keys see is always inside it. -1 when there is nothing to be on.
+  const active = items.length === 0 ? -1 : Math.max(0, Math.min(requested, items.length - 1));
   const [place, setPlace] = useState<{ top: number; left: number } | null>(null);
   const close = useRef(onClose);
   useEffect(() => { close.current = onClose; });
 
-  // Placed before paint, and again whenever the page under it moves.
+  // Placed before paint, and again whenever the page under it moves. A scroll
+  // is measured at most once a frame, and a measurement that lands where the
+  // pop-up already is changes nothing, so scrolling a long table does not
+  // re-render the menu or pull focus back to the item every time.
+  // `stay` is for a change of the pop-up's own size (the footer): it keeps the
+  // pop-up where it is, clamped into the viewport, because the pointer is in it
+  // and a menu that jumps between a press and its release loses the click.
+  const measure = useRef<(stay?: boolean) => void>(() => {});
   useLayoutEffect(() => {
-    const at = () => {
+    measure.current = (stay) => {
       const t = trigger.current, m = box.current;
       if (!t || !m) return;
-      setPlace(placeMenu(t.getBoundingClientRect(), { width: m.offsetWidth, height: m.offsetHeight }, { width: window.innerWidth, height: window.innerHeight }));
+      const size = { width: m.offsetWidth, height: m.offsetHeight };
+      const viewport = { width: window.innerWidth, height: window.innerHeight };
+      const anchor = stay ? null : t.getBoundingClientRect();
+      setPlace((p) => {
+        const next = stay && p ? keepMenu(p, size, viewport) : placeMenu(anchor ?? t.getBoundingClientRect(), size, viewport);
+        return p && p.top === next.top && p.left === next.left ? p : next;
+      });
     };
-    at();
-    window.addEventListener("resize", at);
-    window.addEventListener("scroll", at, true);
-    return () => { window.removeEventListener("resize", at); window.removeEventListener("scroll", at, true); };
+  });
+  useLayoutEffect(() => {
+    let frame = 0;
+    const later = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => { frame = 0; measure.current(); });
+    };
+    measure.current();
+    window.addEventListener("resize", later);
+    window.addEventListener("scroll", later, true);
+    return () => {
+      window.removeEventListener("resize", later);
+      window.removeEventListener("scroll", later, true);
+      if (frame) cancelAnimationFrame(frame);
+    };
   }, [trigger]);
+  // The footer grows or shrinks with the focused item's twin, and the pop-up
+  // with it, so it is fitted to the viewport again when the footer changes.
+  const echo = items[active]?.echo;
+  useLayoutEffect(() => { measure.current(true); }, [echo]);
 
   // Roving focus: the active item holds it. Re-run once placed, because the
   // first pass runs while the pop-up is still hidden for measuring.
+  const placed = place !== null;
   useEffect(() => {
     box.current?.querySelectorAll<HTMLElement>('[role="menuitem"]')[active]?.focus();
-  }, [active, place]);
+  }, [active, placed]);
 
   // A press anywhere else closes it. Focus is not pulled back to the trigger:
   // the press already put it where the operator wanted it.
@@ -158,8 +221,8 @@ function MenuPopup({
   }, [trigger]);
 
   const back = () => { trigger.current?.focus(); close.current(); };
-  const choose = (item: ActionMenuItem) => {
-    if (item.disabledReason) return;
+  const choose = (item: ActionMenuItem | undefined) => {
+    if (!item || item.disabledReason) return;
     back();
     item.onSelect();
   };
@@ -167,8 +230,11 @@ function MenuPopup({
   const onKeyDown = (e: ReactKeyboardEvent) => {
     e.stopPropagation();
     const n = items.length;
-    if (e.key === "ArrowDown") { e.preventDefault(); setActive((i) => (i + 1) % n); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); setActive((i) => (i - 1 + n) % n); }
+    // Nothing to move through: the keys that act on an item do nothing, and
+    // Escape and Tab below still close the menu.
+    if (n === 0 && e.key !== "Escape" && e.key !== "Tab") { if (e.key.length > 1 || e.key === " ") e.preventDefault(); return; }
+    if (e.key === "ArrowDown") { e.preventDefault(); setActive((active + 1) % n); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActive((active - 1 + n) % n); }
     else if (e.key === "Home") { e.preventDefault(); setActive(0); }
     else if (e.key === "End") { e.preventDefault(); setActive(n - 1); }
     else if (e.key === "Escape") { e.preventDefault(); back(); }
@@ -187,7 +253,6 @@ function MenuPopup({
     }
   };
 
-  const echo = items[active]?.echo;
   // Each group's first item's position in the flat list the keys walk.
   const starts = groups.map((_, g) => groups.slice(0, g).reduce((n, x) => n + x.items.length, 0));
   return createPortal(
@@ -197,14 +262,14 @@ function MenuPopup({
       role="menu"
       aria-label={label}
       className="amenu"
-      data-assurance=""
+      {...rootProps}
       style={place ? { top: place.top, left: place.left } : { top: 0, left: 0, visibility: "hidden" }}
       onKeyDown={onKeyDown}
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
     >
       {groups.map((g, gi) => (
-        <div key={g.label} role="group" aria-labelledby={id + "-g-" + gi} className="amenu__group">
+        <div key={g.id} role="group" aria-labelledby={id + "-g-" + gi} className="amenu__group">
           <div id={id + "-g-" + gi} role="presentation" className="amenu__group-label">{g.label}</div>
           {g.items.map((item, k) => {
             const i = starts[gi] + k;
