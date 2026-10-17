@@ -130,7 +130,8 @@ test.describe("#1200 a cold open of a finished run reads the durable record", ()
   test("a run whose lines were pruned is said in words, with no empty strip", async ({ page }) => {
     await open(page, OPS + "aop_1200_pruned", "operation-history", { wire: true });
     const none = page.getByTestId("operation-none");
-    await expect(none).toBeVisible();
+    // After a short grace period (the writer behind the record batches), then said.
+    await expect(none).toBeVisible({ timeout: 15_000 });
     await expect(none).toContainText("Nothing is on record for this operation");
     await expect(none).toContainText("30 days");
     await expect(page.locator(".aop__lines")).toHaveCount(0);
@@ -144,7 +145,7 @@ test.describe("#1200 a cold open of a finished run reads the durable record", ()
   test("no finished run draws an empty terminal or offers Following", async ({ page }) => {
     for (const id of ["aop_1200_passed", "aop_1200_failed", "aop_1200_cancelled", "aop_1200_scrub", "aop_1200_pruned"]) {
       await open(page, OPS + id, "operation-history", { wire: true });
-      await expect(page.getByTestId(/^operation-(progress|none)$/)).toBeVisible();
+      await expect(page.getByTestId(/^operation-(progress|none)$/)).toBeVisible({ timeout: 15_000 });
       await noEmptyTerminal(page);
       await expect(following(page), id).toHaveCount(0);
     }

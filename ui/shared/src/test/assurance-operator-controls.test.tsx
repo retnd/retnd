@@ -256,6 +256,19 @@ describe("cancelling a recovery test", () => {
     expect(read.events[read.events.length - 1].text).toMatch(/cancelled/i);
   });
 
+  // #1200: the end line says it was stopped on request (cancelled=true), so a
+  // cancel from another tab, or the terminal, reads as cancelled here too.
+  it("an end line that says cancelled=true is Cancelled though this page never asked", async () => {
+    const getLiveActivity = vi.fn().mockResolvedValue(live([
+      ev(1, "recovery_test_start", { op_id: "op-1" }),
+      ev(2, "recovery_test_end", { op_id: "op-1", reason: "stopped", cancelled: "true" }, "warn", "warn")
+    ]));
+    const a = createHttpAssurance(start({ getLiveActivity }));
+    await a.startRecoveryTest(SET);
+    const read = await a.readOperation("op-1", 0);
+    expect(read.operation.state).toBe("cancelled");
+  });
+
   it("between the accepted cancel and the end line the operation says it is cancelling", async () => {
     const getLiveActivity = vi.fn().mockResolvedValue(live([ev(1, "recovery_test_start", { op_id: "op-1" })], { open: true }));
     const a = createHttpAssurance(start({ getLiveActivity }));

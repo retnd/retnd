@@ -27,10 +27,28 @@ for (const theme of ["light", "dark"] as const) {
     expect(await measureContrast(page, "1200 failed " + theme, '[data-testid="operation-page"]')).toEqual([]);
   });
 
+  test(`#1200 a running scrub and an unfinished run are legible (${theme})`, async ({ page }) => {
+    await open(page, OPS + "aop_1200_scrub_running", "operation-history", { wire: true });
+    await setTheme(page, theme);
+    await expect(page.getByTestId("operation-progress")).toHaveAttribute("data-state", "running");
+    expect(await measureContrast(page, "1200 running scrub " + theme, '[data-testid="operation-page"]')).toEqual([]);
+    await open(page, OPS + "aop_1200_unfinished", "operation-history", { wire: true });
+    await setTheme(page, theme);
+    await expect(page.getByTestId("operation-progress")).toHaveAttribute("data-state", "unfinished");
+    expect(await measureContrast(page, "1200 unfinished " + theme, '[data-testid="operation-page"]')).toEqual([]);
+  });
+
+  test(`#1200 the looking-for-it note is legible (${theme})`, async ({ page }) => {
+    await open(page, OPS + "aop_1200_late", "operation-history", { wire: true });
+    await setTheme(page, theme);
+    await expect(page.getByTestId("operation-looking")).toBeVisible();
+    expect(await measureContrast(page, "1200 looking " + theme, '[data-testid="operation-page"]')).toEqual([]);
+  });
+
   test(`#1200 the words for a pruned run are legible (${theme})`, async ({ page }) => {
     await open(page, OPS + "aop_1200_pruned", "operation-history", { wire: true });
     await setTheme(page, theme);
-    await expect(page.getByTestId("operation-none")).toBeVisible();
+    await expect(page.getByTestId("operation-none")).toBeVisible({ timeout: 15_000 });
     expect(await measureContrast(page, "1200 pruned " + theme, '[data-testid="operation-page"]')).toEqual([]);
     expect(await measureContrast(page, "1200 footer " + theme, '[data-testid="app-footer"]')).toEqual([]);
   });

@@ -4,11 +4,12 @@
  * what the record says: the lines in the panel's words, the stage reached and
  * how it ended.
  */
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { httpApi } from "@shared/api/client";
 import { createMockApi } from "@shared/api/mock";
 import { RetndError } from "@shared/api/contracts";
 import type { AssuranceOperationRecord, RetndApi } from "@shared/api/contracts";
-import { createHttpAssurance, feedFromRecord } from "@shared/assurance/realAssurance";
+import { NotOnRecord, createHttpAssurance, feedFromRecord } from "@shared/assurance/realAssurance";
 import type { SetActivityEvent } from "@shared/types/activity";
 
 const SET = "production/postgres-primary";
@@ -66,5 +67,51 @@ describe("#1200 a run read from the durable record", () => {
     const getAssuranceOperation = vi.fn().mockRejectedValue(new RetndError({ code: "INTERNAL", message: "boom", status: 500, correlationId: "c" }));
     const a = createHttpAssurance(rootWith({ getLiveActivity: vi.fn().mockResolvedValue(emptyLive), getAssuranceOperation }));
     await expect(a.readOperation("op-1", 0)).rejects.toMatchObject({ name: "RetndError" });
+  });
+});
+
+describe("#1200 review: the record's words are not guessed", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+  const body = (over: Record<string, unknown>) => ({
+    operation_id: "op-1", kind: "recovery_test", backup_set_id: SET, state: "passed", stage: "complete", reason: "",
+    started_at: T, ended_at: T, events: [], ...over
+  });
+  const serve = (b: unknown) => vi.stubGlobal("fetch", vi.fn(async () => ({
+    ok: true, status: 200, headers: { get: () => null }, json: async () => b, text: async () => JSON.stringify(b)
+  })));
+
+  it("a state this build does not know is refused out loud, not drawn as unfinished", async () => {
+    serve(body({ state: "paused" }));
+    await expect(httpApi.getAssuranceOperation("op-1")).rejects.toThrow(/state "paused".*does not know/);
+  });
+
+  it("a kind this build does not know is refused out loud, not drawn as a recovery test", async () => {
+    serve(body({ kind: "migration" }));
+    await expect(httpApi.getAssuranceOperation("op-1")).rejects.toThrow(/kind "migration".*does not know/);
+  });
+
+  it("the known states and kinds read through as they are", async () => {
+    serve(body({ kind: "scrub", state: "did_not_complete" }));
+    await expect(httpApi.getAssuranceOperation("op-1")).resolves.toMatchObject({ kind: "scrub", state: "did_not_complete" });
+  });
+
+  it("an id with nothing on record is a NotOnRecord instance carrying the server's words", async () => {
+    const words = "nothing is on record for this operation id (a run's lines are kept for 7 days)";
+    const getAssuranceOperation = vi.fn().mockRejectedValue(new RetndError({ code: "OPERATION_NOT_FOUND", message: words, status: 404, correlationId: "c" }));
+    const a = createHttpAssurance(rootWith({ getLiveActivity: vi.fn().mockResolvedValue(emptyLive), getAssuranceOperation }));
+    const err = await a.readOperation("op-1", 0).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(NotOnRecord);
+    expect((err as Error).message).toBe(words);
+  });
+
+  it("a running scrub with no line yet is drawn as running, with its start line when it has one", () => {
+    const start = line(20, "scrub_start", { trigger: "manual", scope: "set " + SET });
+    const rec: AssuranceOperationRecord = {
+      operationId: "op-1", kind: "scrub", backupSetId: SET, state: "running", stage: "", reason: "", startedAt: T, endedAt: "", events: [start]
+    };
+    const feed = feedFromRecord(rec, 0);
+    expect(feed.operation).toMatchObject({ kind: "scrub", state: "running" });
+    expect(feed.events.map((e) => e.text)).toEqual(["scrub started (manual, set " + SET + ")"]);
+    expect(feedFromRecord({ ...rec, events: [] }, 0).events).toEqual([]);
   });
 });

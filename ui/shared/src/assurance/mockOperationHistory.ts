@@ -11,7 +11,7 @@
  * the rest), and an end line, each carrying the run's `op_id`. A scrub has no
  * start or stage line, only its `scrub_pass`.
  *
- * One more id is deliberately absent: a run older than the record's 30 days,
+ * One more id is deliberately absent: a run older than the record's retention,
  * whose lines were pruned. The page has to say that in words.
  */
 import type { AssuranceOperationRecord } from "@shared/api/contracts";
@@ -31,8 +31,23 @@ export const HISTORY_IDS = {
   failed: "aop_1200_failed",
   cancelled: "aop_1200_cancelled",
   scrub: "aop_1200_scrub",
-  pruned: "aop_1200_pruned"
+  pruned: "aop_1200_pruned",
+  /** A scrub that is running now and has written only its start line. */
+  scrubRunning: "aop_1200_scrub_running",
+  /** A recovery test with no end that nothing is running: it may be running
+   *  in another process, or its process stopped. */
+  unfinished: "aop_1200_unfinished",
+  /** A finished run the record does not hold yet for the first reads (the
+   *  writer batches), and then does. */
+  late: "aop_1200_late"
 } as const;
+
+/** The runs that are running now, as the engine's registry would say. */
+export const HISTORY_RUNNING: ReadonlySet<string> = new Set([HISTORY_IDS.scrubRunning]);
+/** How many reads of the late run find nothing before it appears. */
+export const LATE_MISSES = 2;
+/** How long the record keeps a run's lines, in the words the mock's refusal uses. */
+export const RETENTION_DAYS = 30;
 
 const HOUR = 3_600_000;
 const NEWEST = "production/postgres-primary/postgres-prod-20260828.dump.zst";
@@ -45,18 +60,21 @@ export interface StoredLine { setId: string; event: SetActivityEvent }
 
 function recoveryTest(
   opId: string, setId: string, artifact: string, startedAt: number, seq: number,
-  stage: string, end: { result: "success" | "error" | "warn"; level: "info" | "error" | "warn"; reason?: string; secs: number }
+  stage: string, end: { result: "success" | "error" | "warn"; level: "info" | "error" | "warn"; reason?: string; secs: number; cancelled?: boolean } | null
 ): StoredLine[] {
   const at = (s: number) => new Date(startedAt + s * 1000).toISOString();
   const base = { scope: "set" as const, action: "recovery_test", actionId: opId };
   return [
     { setId, event: { ...base, sequence: seq, at: at(0), level: "info", event: "recovery_test_start", message: "recovery test starting",
       fields: { op_id: opId, backup_set: setId, artifact, validator: "pg-restore-check" } } },
-    { setId, event: { ...base, sequence: seq + 1, at: at(end.secs - 1), level: "info", event: "recovery_stage", message: "recovery stage",
+    { setId, event: { ...base, sequence: seq + 1, at: at((end?.secs ?? 10) - 1), level: "info", event: "recovery_stage", message: "recovery stage",
       fields: { op_id: opId, backup_set: setId, stage, stage_label: stageLabel(stage) } } },
-    { setId, event: { ...base, sequence: seq + 2, at: at(end.secs), level: end.level, event: "recovery_test_end", result: end.result,
+    ...(end ? [{ setId, event: { ...base, sequence: seq + 2, at: at(end.secs), level: end.level, event: "recovery_test_end", result: end.result,
       message: "recovery test finished",
-      fields: { op_id: opId, backup_set: setId, artifact, validator: "pg-restore-check", duration: end.secs + "s", ...(end.reason ? { reason: end.reason } : {}) } } }
+      fields: {
+        op_id: opId, backup_set: setId, artifact, validator: "pg-restore-check", duration: end.secs + "s",
+        ...(end.reason ? { reason: end.reason } : {}), ...(end.cancelled ? { cancelled: "true" } : {})
+      } } }] : [])
   ];
 }
 
@@ -68,7 +86,18 @@ export function historyLines(now: number): Record<string, StoredLine[]> {
     [HISTORY_IDS.failed]: recoveryTest(HISTORY_IDS.failed, HISTORY_SET, OLDER, now - 30 * HOUR, 90_110, "verifying",
       { result: "error", level: "error", reason: FAILED_REASON, secs: 19 }),
     [HISTORY_IDS.cancelled]: recoveryTest(HISTORY_IDS.cancelled, HISTORY_SET, NEWEST, now - 6 * HOUR, 90_210, "reading",
-      { result: "warn", level: "warn", reason: CANCELLED_REASON, secs: 4 }),
+      { result: "warn", level: "warn", reason: CANCELLED_REASON, secs: 4, cancelled: true }),
+    [HISTORY_IDS.unfinished]: recoveryTest(HISTORY_IDS.unfinished, HISTORY_SET, OLDER, now - 5 * HOUR, 90_510, "reading", null),
+    [HISTORY_IDS.late]: recoveryTest(HISTORY_IDS.late, HISTORY_SET, NEWEST, now - 20_000, 90_610, "complete",
+      { result: "success", level: "info", secs: 12 }),
+    [HISTORY_IDS.scrubRunning]: [{
+      setId: HISTORY_SET,
+      event: {
+        sequence: 90_700, at: new Date(now - 4_000).toISOString(), scope: "set", level: "info", event: "scrub_start",
+        message: "scrub starting",
+        fields: { trigger: "manual", scope: "set " + HISTORY_SET, op_id: HISTORY_IDS.scrubRunning }
+      }
+    }],
     [HISTORY_IDS.scrub]: [{
       setId: HISTORY_SET,
       event: {
@@ -111,16 +140,17 @@ export function durableRecordOf(opId: string, lines: StoredLine[], running: bool
   const events = kept.map((l) => l.event);
   const has = (name: string) => events.some((e) => e.event === name);
   const kind: AssuranceOperationRecord["kind"] =
-    has("scrub_pass") || has("scrub_failure") ? "scrub" : has("recovery_start") || has("recovery_end") ? "recovery" : "recovery_test";
+    has("scrub_start") || has("scrub_pass") || has("scrub_failure") ? "scrub" : has("recovery_start") || has("recovery_end") ? "recovery" : "recovery_test";
   const end = events.find((e) => e.event === "recovery_test_end" || e.event === "recovery_end");
   const pass = events.find((e) => e.event === "scrub_pass");
   let state: AssuranceOperationRecord["state"] = running ? "running" : "unfinished";
   let stage = lastStage?.event.fields.stage ?? "";
   const reason = end?.fields.reason ?? "";
   if (end) {
-    if (end.result === "success") { state = "passed"; stage = "complete"; }
+    if (end.fields.cancelled === "true") state = "cancelled";
+    else if (end.result === "success") { state = "passed"; stage = "complete"; }
     else if (end.result === "error") state = "failed";
-    else state = reason === CANCELLED_REASON ? "cancelled" : "did_not_complete";
+    else state = "did_not_complete";
   } else if (pass) {
     state = pass.fields.cancelled === "true" ? "cancelled"
       : Number(pass.fields.failed) > 0 ? "failed"

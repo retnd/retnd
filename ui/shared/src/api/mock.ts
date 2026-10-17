@@ -72,7 +72,7 @@ import { createMockRecoverMany } from "@shared/assurance/mockRecoverMany";
 import { createMockHostBrowse } from "@shared/assurance/mockHostBrowse";
 import { BUILTIN_ARTIFACT, DEFAULT_POLICY_NEWEST, DEFAULT_POLICY_TESTED, INGEST_FAILED_SCENARIO, followsDefault, untestedScenario, assuranceLiveEvents, assuranceStoredLines, assuranceUnfinished, createMockAssurance, createMockRecovery, overlayAssurance, overlayThaw } from "@shared/assurance/mockAssurance";
 import { createHttpAssurance } from "@shared/assurance/realAssurance";
-import { OFF_TAIL_SCENARIO, OPERATION_HISTORY_SCENARIO, durableRecordOf, historyLines, historyValidatorResult } from "@shared/assurance/mockOperationHistory";
+import { HISTORY_IDS, HISTORY_RUNNING, LATE_MISSES, OFF_TAIL_SCENARIO, OPERATION_HISTORY_SCENARIO, RETENTION_DAYS, durableRecordOf, historyLines, historyValidatorResult } from "@shared/assurance/mockOperationHistory";
 import type { DeploymentActivity, SetActivity, SetActivityEvent } from "@shared/types/activity";
 
 /** Development fixtures. Covers every scenario the brief requires (§42):
@@ -4137,6 +4137,8 @@ export function createMockApi(
   options: { wire?: boolean; wireRestore?: boolean; liveProbe?: LiveProbe } = {}
 ): RetndApi {
   const liveProbe = options.liveProbe;
+  // #1200: how many reads of the operation-history "late" run have been made.
+  let lateReads = 0;
   // #1106: Recover this backup set is for artifact-engine sets, and every
   // fixture set but one is incremental. The recover-set scenarios present the
   // fixture sets as artifact sets (the mock host's recoverMany holds the rows);
@@ -6204,8 +6206,14 @@ export function createMockApi(
     // what the live tail has dropped. operation-history's fixtures, else the
     // runs this mock started.
     getAssuranceOperation: async (operationId) => {
+      // The late run is not on the record for its first reads: the writer
+      // batches, so a read right after a start can find nothing yet.
+      if (scenario === OPERATION_HISTORY_SCENARIO && operationId === HISTORY_IDS.late) {
+        lateReads += 1;
+        if (lateReads <= LATE_MISSES) throw operationNotOnRecord(operationId);
+      }
       const stored = scenario === OPERATION_HISTORY_SCENARIO
-        ? { lines: historyLines(Date.now())[operationId] ?? [], running: false }
+        ? { lines: historyLines(Date.now())[operationId] ?? [], running: HISTORY_RUNNING.has(operationId) }
         : assuranceStoredLines(operationId);
       const rec = stored ? durableRecordOf(operationId, stored.lines, stored.running) : null;
       if (!rec) throw operationNotOnRecord(operationId);
@@ -6251,7 +6259,7 @@ export function createMockApi(
 function operationNotOnRecord(operationId: string): RetndError {
   return new RetndError({
     code: "OPERATION_NOT_FOUND",
-    message: "nothing is on record for this operation id: it never existed here, or its lines were pruned (they are kept for 30 days)",
+    message: "nothing is on record for this operation id: it never existed here, or its lines were pruned (a run's lines are kept for " + RETENTION_DAYS + " days)",
     status: 404,
     correlationId: "cid_mock_" + operationId
   });

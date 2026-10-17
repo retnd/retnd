@@ -78,6 +78,19 @@ func TestAssuranceShowReadsAFinishedRunFromTheJournal(t *testing.T) {
 	}
 }
 
+// The page also shows the validator's output; the record does not carry it,
+// so the verb says where to get it rather than leaving a gap that looks like
+// there was none (#1200 review).
+func TestAssuranceShowOfARecoveryTestPointsAtTheValidatorOutput(t *testing.T) {
+	clearInheritedRouteSettings()
+	cfg := writeTestConfig(t)
+	seedRun(t, cfg, "op-seed")
+	out := captureStdout(t, func() { run([]string{"assurance", "show", "--config", cfg, "op-seed"}) })
+	if want := "validator output: retnd recovery-test " + rtSet + " --show-output"; !strings.Contains(out, want) {
+		t.Errorf("stdout lacks %q:\n%s", want, out)
+	}
+}
+
 func TestAssuranceShowJSONIsTheContractObject(t *testing.T) {
 	clearInheritedRouteSettings()
 	cfg := writeTestConfig(t)

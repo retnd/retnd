@@ -2,7 +2,11 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"os"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -24,12 +28,12 @@ func (r *durableRig) runLine(event, opID string, result obs.Result, fields ...ob
 	})
 }
 
-func (r *durableRig) recoveryTest(opID string, stages []string, end obs.Result, reason string) {
+func (r *durableRig) recoveryTest(opID string, stages []string, end obs.Result, reason string, extra ...obs.Field) {
 	r.runLine(obs.EventRecoveryTestStart, opID, "", obs.Field{Key: "artifact", Value: "alpha/nightly/a.zst"})
 	for _, s := range stages {
 		r.runLine(obs.EventRecoveryStage, opID, "", obs.Field{Key: "stage", Value: s}, obs.Field{Key: "stage_label", Value: obs.StageLabel(s)})
 	}
-	var fields []obs.Field
+	fields := extra
 	if reason != "" {
 		fields = append(fields, obs.Field{Key: "reason", Value: reason})
 	}
@@ -109,13 +113,19 @@ func TestHowARecoveryTestEndedIsReadOffItsEndLine(t *testing.T) {
 		stages                             []string
 	}{
 		{"failed", "sha256 differs", AssuranceOpFailed, "verifying", obs.ResultError, []string{"resolving_copy", "reading", "verifying"}},
-		{"cancelled", app.RecoveryTestCancelledReason, AssuranceOpCancelled, "reading", obs.ResultWarn, []string{"resolving_copy", "reading"}},
+		{"cancelled", "stopped on request", AssuranceOpCancelled, "reading", obs.ResultWarn, []string{"resolving_copy", "reading"}},
+		// The words of the reason decide nothing: only the cancelled field does.
+		{"warn with the cancelled wording but no field", app.RecoveryTestCancelledReason, AssuranceOpDidNotComplete, "reading", obs.ResultWarn, []string{"resolving_copy", "reading"}},
 		{"did not complete", "the copy could not be read", AssuranceOpDidNotComplete, "resolving_copy", obs.ResultWarn, []string{"resolving_copy"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			r := newDurableRig(t)
-			r.recoveryTest("op-x", c.stages, c.result, c.reason)
+			var extra []obs.Field
+			if c.wantState == AssuranceOpCancelled {
+				extra = append(extra, obs.Field{Key: "cancelled", Value: "true"})
+			}
+			r.recoveryTest("op-x", c.stages, c.result, c.reason, extra...)
 			r.flush()
 			r.svc.activity = nil
 			rec, err := r.svc.AssuranceOperation(context.Background(), "op-x")
@@ -134,7 +144,7 @@ func TestARunWithNoEndIsRunningOnlyWhileThisProcessRunsIt(t *testing.T) {
 	r.runLine(obs.EventRecoveryTestStart, "op-live", "")
 	r.runLine(obs.EventRecoveryStage, "op-live", "", obs.Field{Key: "stage", Value: "reading"})
 	r.svc.ops.mu.Lock()
-	r.svc.ops.add(&assuranceOp{id: "op-live", kind: opKindRecoveryTest, set: "alpha/nightly", cancel: func() {}})
+	r.svc.ops.add(&assuranceOp{id: "op-live", kind: opKindRecoveryTest, set: "alpha/nightly", cancel: func(error) {}})
 	r.svc.ops.mu.Unlock()
 	rec, err := r.svc.AssuranceOperation(context.Background(), "op-live")
 	if err != nil {
@@ -202,5 +212,165 @@ func TestNothingOnRecordIsNotFound(t *testing.T) {
 	}
 	if _, err := r.svc.AssuranceOperation(context.Background(), ""); !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("an empty id: err = %v, want ErrInvalidRequest", err)
+	}
+}
+
+// #1200 (review): a scrub now is "running" from the moment it starts, before
+// it has written a single line, and a scrub that selects nothing is too. The
+// registry is asked before the record is called empty.
+func TestARunningScrubThatHasWrittenNothingYetIsRunningNotMissing(t *testing.T) {
+	r := newDurableRig(t)
+	r.svc.ops.mu.Lock()
+	r.svc.ops.add(&assuranceOp{id: "op-quiet", kind: opKindScrub, set: "alpha/nightly", cancel: func(error) {}})
+	r.svc.ops.mu.Unlock()
+
+	rec, err := r.svc.AssuranceOperation(context.Background(), "op-quiet")
+	if err != nil {
+		t.Fatalf("err = %v, want a running record", err)
+	}
+	if rec.State != AssuranceOpRunning || rec.Kind != "scrub" || rec.BackupSetID != "alpha/nightly" || len(rec.Events) != 0 {
+		t.Fatalf("record = %+v", rec)
+	}
+	if rec.StartedAt.IsZero() {
+		t.Fatal("a running record has no start time")
+	}
+	r.svc.ops.finish("op-quiet")
+	if _, err := r.svc.AssuranceOperation(context.Background(), "op-quiet"); !errors.Is(err, ErrOperationNotFound) {
+		t.Fatalf("once it ends with nothing written it is on no record: err = %v", err)
+	}
+}
+
+// The cancel request, and nothing else, is what the registry marks as a
+// cancellation: the work reads it off the context's cause.
+func TestCancellingAnOperationIsMarkedOnItsContextAndShutdownIsNot(t *testing.T) {
+	r := newDurableRig(t)
+	ctx, cancel := context.WithCancelCause(context.Background())
+	r.svc.ops.mu.Lock()
+	r.svc.ops.add(&assuranceOp{id: "op-cx", kind: opKindScrub, set: "alpha/nightly", cancel: cancel})
+	r.svc.ops.mu.Unlock()
+	if _, err := r.svc.CancelAssuranceOperation(context.Background(), "op-cx"); err != nil {
+		t.Fatal(err)
+	}
+	if !errors.Is(context.Cause(ctx), app.ErrOperationCancelled) {
+		t.Fatalf("cause = %v, want app.ErrOperationCancelled", context.Cause(ctx))
+	}
+	// Finishing an operation releases its context without calling it a cancel.
+	ctx2, cancel2 := context.WithCancelCause(context.Background())
+	r.svc.ops.mu.Lock()
+	r.svc.ops.add(&assuranceOp{id: "op-done", kind: opKindScrub, set: "alpha/nightly", cancel: cancel2})
+	r.svc.ops.mu.Unlock()
+	r.svc.ops.finish("op-done")
+	if errors.Is(context.Cause(ctx2), app.ErrOperationCancelled) {
+		t.Fatal("finishing an operation was taken for a cancel request")
+	}
+}
+
+// The summariser reads event and field NAMES out of the lines the engine
+// writes. This drives the engine's own logger, not hand-built lines, so a
+// rename on either side of that contract fails here rather than quietly
+// turning every run into "unfinished".
+func TestTheSummariserReadsWhatTheEngineActuallyWrites(t *testing.T) {
+	ctx := context.Background()
+	cases := []struct {
+		name      string
+		write     func(l *obs.Logger)
+		id        string
+		wantKind  string
+		wantState string
+	}{
+		{"recovery test passed", func(l *obs.Logger) {
+			l.RecoveryTestStart(ctx, "p1", "alpha/nightly", "alpha/nightly/a.zst", "v")
+			l.RecoveryStage(ctx, "p1", "alpha/nightly", "reading")
+			l.RecoveryTestEnd(ctx, "p1", "alpha/nightly", "alpha/nightly/a.zst", "v", time.Second, obs.ResultSuccess, "", false)
+		}, "p1", "recovery_test", AssuranceOpPassed},
+		{"recovery test failed", func(l *obs.Logger) {
+			l.RecoveryTestStart(ctx, "p2", "alpha/nightly", "alpha/nightly/a.zst", "v")
+			l.RecoveryTestEnd(ctx, "p2", "alpha/nightly", "alpha/nightly/a.zst", "v", time.Second, obs.ResultError, "sha256 differs", false)
+		}, "p2", "recovery_test", AssuranceOpFailed},
+		{"recovery test cancelled", func(l *obs.Logger) {
+			l.RecoveryTestStart(ctx, "p3", "alpha/nightly", "alpha/nightly/a.zst", "v")
+			l.RecoveryTestEnd(ctx, "p3", "alpha/nightly", "alpha/nightly/a.zst", "v", time.Second, obs.ResultWarn, "stopped", true)
+		}, "p3", "recovery_test", AssuranceOpCancelled},
+		{"recovery test interrupted by shutdown", func(l *obs.Logger) {
+			l.RecoveryTestStart(ctx, "p4", "alpha/nightly", "alpha/nightly/a.zst", "v")
+			l.RecoveryTestEnd(ctx, "p4", "alpha/nightly", "alpha/nightly/a.zst", "v", time.Second, obs.ResultWarn, "interrupted", false)
+		}, "p4", "recovery_test", AssuranceOpDidNotComplete},
+		{"recovery passed", func(l *obs.Logger) {
+			l.RecoveryStart(ctx, "p5", "alpha/nightly", "alpha/nightly/a.zst")
+			l.RecoveryEnd(ctx, "p5", "alpha/nightly", "alpha/nightly/a.zst", 10, time.Second, obs.ResultSuccess, "")
+		}, "p5", "recovery", AssuranceOpPassed},
+		{"scrub running", func(l *obs.Logger) {
+			l.ScrubStart(ctx, obs.ScrubStartInfo{Trigger: "manual", Scope: "set alpha/nightly", OpID: "p6"})
+		}, "p6", "scrub", AssuranceOpUnfinished},
+		{"scrub passed", func(l *obs.Logger) {
+			l.ScrubStart(ctx, obs.ScrubStartInfo{Trigger: "manual", Scope: "set alpha/nightly", OpID: "p7"})
+			l.ScrubPass(ctx, obs.ScrubPassCounts{Trigger: "manual", Scope: "set alpha/nightly", OpID: "p7", Selected: 1, Checked: 1, Passed: 1})
+		}, "p7", "scrub", AssuranceOpPassed},
+		{"scrub failed", func(l *obs.Logger) {
+			l.ScrubStart(ctx, obs.ScrubStartInfo{Trigger: "manual", Scope: "set alpha/nightly", OpID: "p8"})
+			l.ScrubFailure(ctx, obs.ScrubFailureInfo{OpID: "p8", Artifact: "alpha/nightly/a.zst", Medium: "local", Class: "content", Reason: "bad"})
+			l.ScrubPass(ctx, obs.ScrubPassCounts{Trigger: "manual", Scope: "set alpha/nightly", OpID: "p8", Selected: 1, Checked: 1, Failed: 1})
+		}, "p8", "scrub", AssuranceOpFailed},
+		{"scrub cancelled", func(l *obs.Logger) {
+			l.ScrubPass(ctx, obs.ScrubPassCounts{Trigger: "manual", Scope: "set alpha/nightly", OpID: "p9", Cancelled: true})
+		}, "p9", "scrub", AssuranceOpCancelled},
+		{"scrub could not complete", func(l *obs.Logger) {
+			l.ScrubPass(ctx, obs.ScrubPassCounts{Trigger: "manual", Scope: "set alpha/nightly", OpID: "p10", Selected: 1, CouldNotComplete: 1})
+		}, "p10", "scrub", AssuranceOpDidNotComplete},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := newDurableRig(t)
+			// The rig's service has no logger; this one writes through the
+			// same tap production wires, to nowhere else.
+			r.svc.cancel()
+			<-r.svc.activityDone
+			r.svc = New(r.cfg, r.journal, nil, obs.New(io.Discard, obs.LevelDebug))
+			c.write(r.svc.logger)
+			r.flush()
+			r.svc.activity = nil
+			rec, err := r.svc.AssuranceOperation(ctx, c.id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if rec.Kind != c.wantKind || rec.State != c.wantState {
+				t.Fatalf("kind %q state %q, want %q %q (lines %v)", rec.Kind, rec.State, c.wantKind, c.wantState, eventsNamed(rec))
+			}
+			if rec.BackupSetID != "alpha/nightly" {
+				t.Errorf("set = %q, want alpha/nightly", rec.BackupSetID)
+			}
+		})
+	}
+}
+
+// The kinds and states are closed vocabularies: the OpenAPI document lists
+// them and a client switches on them, so the document and the service say
+// the same words, and a new one is a deliberate change to both.
+func TestTheStatesAndKindsAreTheOnesTheContractDeclares(t *testing.T) {
+	raw, err := os.ReadFile("../../api/v1/openapi.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Components struct {
+			Schemas map[string]struct {
+				Properties map[string]struct {
+					Enum []string `json:"enum"`
+				} `json:"properties"`
+			} `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	props := doc.Components.Schemas["AssuranceOperationRecord"].Properties
+	for field, want := range map[string][]string{"state": AssuranceOpStates, "kind": AssuranceOpKinds} {
+		got := props[field].Enum
+		sort.Strings(got)
+		w := append([]string(nil), want...)
+		sort.Strings(w)
+		if strings.Join(got, ",") != strings.Join(w, ",") || len(got) == 0 {
+			t.Errorf("%s: the contract declares %v, the service has %v", field, got, w)
+		}
 	}
 }

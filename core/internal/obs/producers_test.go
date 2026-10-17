@@ -129,7 +129,7 @@ func TestTheAssuranceEmitterGuardCanFail(t *testing.T) {
 // to the same rule by name, and the test fails if one of them is renamed or
 // deleted, so a rename cannot make it pass by looking at nothing.
 func TestTheScrubAndRecoveryTestEventsHaveAProductionEmitterToo(t *testing.T) {
-	want := []string{"RecoveryTest", "ScrubFailure", "ScrubPass"}
+	want := []string{"RecoveryTest", "ScrubFailure", "ScrubPass", "ScrubStart"}
 	declared := map[string]bool{}
 	for _, name := range assuranceEmitters(t, "events.go") {
 		declared[name] = true
