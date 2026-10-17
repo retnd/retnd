@@ -134,11 +134,11 @@ func TestValidatorStore_RefusalNamesAStageDirectoryDiscoveryWouldRefuse(t *testi
 	if got := store.Refusal(); got != "" {
 		t.Errorf("a good directory = %q", got)
 	}
-	if err := os.Symlink(rootPath, filepath.Join(dir, "link.local.sh")); err != nil {
-		t.Skip("cannot make a symlink here")
+	if err := os.Chmod(dir, 0o777); err != nil {
+		t.Fatal(err)
 	}
-	if got := store.Refusal(); got == "" {
-		t.Error("a directory holding a link was not refused")
+	if got := store.Refusal(); !strings.Contains(got, "permissions") {
+		t.Errorf("a world-writable directory = %q, want the custody refusal", got)
 	}
 }
 
