@@ -1095,10 +1095,6 @@
     "label": "Include",
     "html": "The patterns a file must match to be collected. An empty list, shown as a dash, collects everything in the remote folder."
   },
-  "sets.detail.exclude": {
-    "label": "Exclude",
-    "html": "The patterns that keep a file out of this set even when it matched an include. A dash means nothing is excluded."
-  },
   "sets.detail.completion-method": {
     "label": "Completion method",
     "html": "How this set decides a file on the source has finished being written before it is collected. A producer-provided marker is definite; inferring completion from a size that stopped changing is a guess, and half a file collected as though it were whole is not recoverable."
