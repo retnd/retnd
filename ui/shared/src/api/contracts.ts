@@ -2714,6 +2714,9 @@ export interface AssuranceDue {
 /** One custom recovery-test validator (#1203): an operator's NAME.local.sh
  *  attached to an artifact-name pattern (Go RE2), scoped to one backup set
  *  or to every set. `backupSetId` is empty for a global one. */
+/** Whether the script on the host is the one config.yaml pins (#1222). */
+export type ValidatorScriptState = "pinned" | "unpinned" | "edited_on_disk" | "missing";
+
 export interface CustomValidator {
   name: string;
   pattern: string;
@@ -2724,7 +2727,14 @@ export interface CustomValidator {
   anchored: boolean;
   scriptFile: string;
   scriptPresent: boolean;
+  /** The hash of the script as the file holds it now; empty when it is missing. */
   scriptSha256: string;
+  /** The hash config.yaml pins; empty for an entry written before pinning. */
+  pinnedSha256: string;
+  /** pinned, unpinned (written before pinning, runs, the next save pins it),
+   *  edited_on_disk (a test ends could not complete; only sending the script
+   *  approves it) or missing. */
+  scriptState: ValidatorScriptState;
   scriptSizeBytes: number;
   uploadedAt: string;
   /** How many existing backups in scope the pattern matches. */

@@ -11,6 +11,7 @@
  * (a browser's own RegExp would accept lookaheads RE2 refuses).
  */
 
+import type { ValidatorScriptState } from "@shared/api/contracts";
 import { shellQuote } from "./assuranceCommands";
 
 /** The pattern an artifact's own name gives: every run of digits becomes
@@ -105,3 +106,51 @@ export async function readScriptFile(file: { size: number; arrayBuffer(): Promis
   const normalised = text.includes("\r");
   return { ok: true, text: normalised ? text.replace(/\r\n?/g, "\n") : text, normalised };
 }
+
+/** What a validator's script state is called in the browser, and what to do
+ *  about it (issue #1230). The words follow `retnd assurance validators list`
+ *  (core/cmd/retnd/assurancevalidators.go), so the terminal and the page tell
+ *  one story. `failing` is the two states in which a recovery test this
+ *  validator applies to cannot complete; they are bold as well as coloured. */
+export interface ScriptStateWords {
+  label: string;
+  action: string;
+  failing: boolean;
+}
+
+export function scriptStateWords(state: ValidatorScriptState): ScriptStateWords {
+  switch (state) {
+    case "pinned":
+      return { label: "Pinned", action: "", failing: false };
+    case "unpinned":
+      return {
+        label: "Not pinned yet (saving it pins it)",
+        action: "It was written before pinning and runs as it did.",
+        failing: false
+      };
+    case "edited_on_disk":
+      return {
+        label: "Edited on disk since you uploaded it",
+        action:
+          "A recovery test it applies to ends could not complete without running it. Read the script (View), then Edit and send it again to approve it.",
+        failing: true
+      };
+    case "missing":
+      return {
+        label: "Script missing",
+        action:
+          "A recovery test it applies to cannot complete. Restore the script file on the host, or Edit and upload the script again.",
+        failing: true
+      };
+  }
+}
+
+/** Whether "keep the stored script" can be offered: the engine refuses it for
+ *  a script edited on disk (VALIDATOR_SCRIPT_CHANGED) and there is nothing to
+ *  keep when the file is missing. */
+export function canKeepStoredScript(v: { scriptState: ValidatorScriptState; scriptPresent: boolean }): boolean {
+  return v.scriptPresent && (v.scriptState === "pinned" || v.scriptState === "unpinned");
+}
+
+/** The first twelve characters of a digest, enough to tell two apart. */
+export const shortHash = (sha: string): string => (sha === "" ? "none" : sha.slice(0, 12));

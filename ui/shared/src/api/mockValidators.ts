@@ -17,6 +17,7 @@ import type {
   CustomValidatorPatterns,
   CustomValidatorPreview,
   RetndApi,
+  ValidatorScriptState,
   ValidatorScript
 } from "./contracts";
 import { RetndError } from "./contracts";
@@ -110,13 +111,47 @@ function seed(scenario: string): CustomValidator[] {
       return mk("seed-" + n, "^seed-" + n + "-x$", "");
     });
   }
+  // #1230: the script states. "validators-states" holds one validator in each
+  // state; "validators-state-unpinned", "-edited" and "-missing" put
+  // billing-dump itself in that state, so a backup it covers can show it.
+  const single = (
+    { "validators-state-unpinned": "unpinned", "validators-state-edited": "edited_on_disk", "validators-state-missing": "missing" } as Record<
+      string,
+      ValidatorScriptState
+    >
+  )[scenario];
+  const billing: CustomValidator = {
+    ...mk("billing-dump", String.raw`^billing-\d{8}\.sql\.gz$`, "production/billing-mysql"),
+    lastResult: { artifactId: "production/billing-mysql/billing-20260827.sql.gz", at: "2026-08-30T04:12:00+02:00", state: "passed" }
+  };
+  if (scenario === "validators-states") {
+    return [
+      billing,
+      inState(mk("any-tar", String.raw`\.tar\.zst$`, ""), "unpinned"),
+      inState(mk("manifest-check", String.raw`^manifest-\d{8}\.json$`, ""), "edited_on_disk"),
+      inState(mk("restore-log", String.raw`^restore-\d{8}\.log$`, ""), "missing")
+    ];
+  }
   return [
-    {
-      ...mk("billing-dump", String.raw`^billing-\d{8}\.sql\.gz$`, "production/billing-mysql"),
-      lastResult: { artifactId: "production/billing-mysql/billing-20260827.sql.gz", at: "2026-08-30T04:12:00+02:00", state: "passed" }
-    },
+    single ? inState(billing, single) : billing,
     mk("any-tar", String.raw`\.tar\.zst$`, "")
   ];
+}
+
+/** The text a script holds after somebody edited it on the host. */
+const EDITED_TAIL = "# edited on the host after it was uploaded\n";
+
+/** A validator moved into one script state, the way the engine reports it:
+ *  edited_on_disk keeps the pin and has the file hash to something else,
+ *  missing has no file, unpinned has no pin. */
+function inState(v: CustomValidator, state: ValidatorScriptState): CustomValidator {
+  if (state === "unpinned") return { ...v, pinnedSha256: "", scriptState: "unpinned" };
+  if (state === "edited_on_disk") {
+    const edited = scriptFor(v.name) + EDITED_TAIL;
+    return { ...v, scriptState: "edited_on_disk", scriptSha256: fakeDigest(edited), scriptSizeBytes: byteLength(edited) };
+  }
+  if (state === "missing") return { ...v, scriptState: "missing", scriptPresent: false, scriptSha256: "", scriptSizeBytes: 0, uploadedAt: "" };
+  return v;
 }
 
 function mk(name: string, pattern: string, backupSetId: string): CustomValidator {
@@ -126,7 +161,7 @@ function mk(name: string, pattern: string, backupSetId: string): CustomValidator
     scriptFile: name + ".local.sh", scriptPresent: true,
     // A fixed digest per name keeps the fixture deterministic; real ones
     // are computed on upload below.
-    scriptSha256: fakeDigest(script), scriptSizeBytes: byteLength(script), uploadedAt: "2026-08-29T09:30:00+02:00",
+    scriptSha256: fakeDigest(script), pinnedSha256: fakeDigest(script), scriptState: "pinned", scriptSizeBytes: byteLength(script), uploadedAt: "2026-08-29T09:30:00+02:00",
     matchCount: 0, matchSets: [], exampleName: ""
   };
 }
@@ -157,7 +192,11 @@ export function createMockValidators(env: MockValidatorsEnv): Pick<
 > {
   const unavailable = env.scenario === "validators-unavailable";
   let validators = seed(env.scenario);
-  const scripts = new Map<string, string>(validators.map((v) => [v.name, scriptFor(v.name)]));
+  const scripts = new Map<string, string>(
+    validators
+      .filter((v) => v.scriptPresent)
+      .map((v) => [v.name, v.scriptState === "edited_on_disk" ? scriptFor(v.name) + EDITED_TAIL : scriptFor(v.name)])
+  );
 
   /** The backups a scope can see: one set's, or every set's. */
   const inScope = (setId: string): MockValidatorBackup[] =>
@@ -282,7 +321,8 @@ export function createMockValidators(env: MockValidatorsEnv): Pick<
       }
       const v: CustomValidator = {
         ...mk(req.name, req.pattern, setId),
-        scriptSha256: await sha256Hex(req.script), scriptSizeBytes: byteLength(req.script), uploadedAt: new Date().toISOString()
+        scriptSha256: await sha256Hex(req.script), pinnedSha256: await sha256Hex(req.script),
+        scriptSizeBytes: byteLength(req.script), uploadedAt: new Date().toISOString()
       };
       validators = [...validators, v];
       scripts.set(v.name, req.script);
@@ -301,6 +341,16 @@ export function createMockValidators(env: MockValidatorsEnv): Pick<
       if ((req.script === undefined) === (req.keepScriptSha256 === undefined)) {
         throw refusal("INVALID_REQUEST", "send either script or script_sha256, one of the two");
       }
+      // Keeping a script that was edited on disk would approve code nobody has
+      // read, and a missing one has nothing to keep (#1222).
+      if (req.keepScriptSha256 !== undefined && (current.scriptState === "edited_on_disk" || !current.scriptPresent)) {
+        throw refusal(
+          "VALIDATOR_SCRIPT_CHANGED",
+          current.scriptPresent
+            ? "the script was edited on disk since it was saved, so it cannot be kept; send the script to approve it"
+            : "the script file is missing, so there is nothing to keep; send the script"
+        );
+      }
       if (req.keepScriptSha256 !== undefined && req.keepScriptSha256 !== current.scriptSha256) {
         throw refusal("VALIDATOR_SCRIPT_CHANGED", "the stored script is not the one with that hash any more");
       }
@@ -315,9 +365,13 @@ export function createMockValidators(env: MockValidatorsEnv): Pick<
       }
       const next: CustomValidator = {
         ...current, pattern: req.pattern, backupSetId: setId, scope: setId ? "backup_set" : "global", anchored: isAnchored(req.pattern),
+        // Whatever is saved is pinned: a kept script is pinned at the hash it has.
         ...(req.script !== undefined
-          ? { scriptSha256: await sha256Hex(req.script), scriptSizeBytes: byteLength(req.script), uploadedAt: new Date().toISOString() }
-          : {})
+          ? {
+              scriptSha256: await sha256Hex(req.script), pinnedSha256: await sha256Hex(req.script), scriptPresent: true,
+              scriptState: "pinned" as const, scriptSizeBytes: byteLength(req.script), uploadedAt: new Date().toISOString()
+            }
+          : { pinnedSha256: current.scriptSha256, scriptState: "pinned" as const })
       };
       if (req.script !== undefined) scripts.set(name, req.script);
       validators = validators.map((v) => (v.name === name ? next : v));
@@ -335,7 +389,8 @@ export function createMockValidators(env: MockValidatorsEnv): Pick<
     getCustomValidatorScript: async (name) => {
       const v = validators.find((x) => x.name === name);
       const content = scripts.get(name);
-      if (!v || content === undefined) throw notThere(name);
+      if (!v) throw notThere(name);
+      if (content === undefined) throw refusal("VALIDATOR_NOT_FOUND", "the script file " + v.scriptFile + " is not there");
       const s: ValidatorScript = { fileName: v.scriptFile, sha256: await sha256Hex(content), sizeBytes: byteLength(content), content };
       return env.delay(s);
     },
