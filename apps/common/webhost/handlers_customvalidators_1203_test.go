@@ -311,3 +311,21 @@ func TestCustomValidatorRoutes_UnknownBodyFieldsAreRefused(t *testing.T) {
 		t.Errorf("got %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestCustomValidatorRoutes_EditOnAnOpenGateWithThePasswordIsAccepted(t *testing.T) {
+	b := newValidatorFakeBackend()
+	step := &stubStepUp{user: "alice", password: stepUpPassword}
+	router := validatorRouter(b, NewProfileGate(profile.Generic), step)
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, validatorRequest(http.MethodPut, "/api/v1/assurance/validators/manifest", `{"pattern":"^MANIFEST-"}`, stepUpPassword))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(b.updated) != 1 || b.updated[0].Name != "manifest" || b.updated[0].Pattern != "^MANIFEST-" {
+		t.Errorf("backend was asked %+v", b.updated)
+	}
+	if step.asked() != 1 {
+		t.Errorf("the password was checked %d times, want once", step.asked())
+	}
+}

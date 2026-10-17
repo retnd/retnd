@@ -159,3 +159,19 @@ func TestCustomValidators_RoundTripThroughTheFile(t *testing.T) {
 		t.Errorf("read back %+v", back.Assurance.Validators)
 	}
 }
+
+func TestCustomValidators_TwoSetScopedMatchesAreAnAmbiguityNotAGuess(t *testing.T) {
+	set := model.BackupSetID{Source: "production", Set: "postgres-primary"}
+	c := validatorConfig(
+		CustomValidator{Name: "set-a", Pattern: `^MANIFEST-`, BackupSet: set.String()},
+		CustomValidator{Name: "set-b", Pattern: `\.txt$`, BackupSet: set.String()},
+		CustomValidator{Name: "global", Pattern: `^MANIFEST-`},
+	)
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	m := MatchCustomValidator(c.Assurance.Validators, set, "MANIFEST-20260902T153521Z.txt")
+	if m.Validator != nil || len(m.Ambiguous) != 2 || m.Ambiguous[0] != "set-a" || m.Ambiguous[1] != "set-b" {
+		t.Errorf("two set-scoped matches = %+v, want an ambiguity naming both and not the global one", m)
+	}
+}
