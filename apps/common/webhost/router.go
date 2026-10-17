@@ -957,6 +957,22 @@ func NewRouter(cfg RouterConfig) http.Handler {
 		// deletes nothing, so it has to answer on a deployment whose gate is
 		// shut.
 		r.With(requireCSRF).Post("/assurance/operations/{op}/cancel", h.cancelAssuranceOperation)
+		// Custom recovery-test validators (#1203). The upload and the edit
+		// put code where the engine runs it on the host, so they carry the
+		// destructive gate and the step-up a recovery onto the source host
+		// does; removing one stops a script running and is CSRF alone, so a
+		// bad validator can be taken out on a shut gate. The preview is a
+		// POST that writes nothing. handlers_customvalidators.go has the
+		// argument; the names are static segments, so "default-validator-
+		// script" and "validator-patterns" can never be read as a {name}.
+		r.Get("/assurance/validators", h.listCustomValidators)
+		r.With(requireCSRF, requireValidatorGate(h.enforce)).Post("/assurance/validators", h.createCustomValidator)
+		r.With(requireCSRF, requireValidatorGate(h.enforce)).Put("/assurance/validators/{name}", h.updateCustomValidator)
+		r.With(requireCSRF).Delete("/assurance/validators/{name}", h.removeCustomValidator)
+		r.Get("/assurance/validators/{name}/script", h.getCustomValidatorScript)
+		r.With(requireCSRF).Post("/assurance/validator-preview", h.previewCustomValidator)
+		r.Get("/assurance/validator-patterns", h.listCustomValidatorPatterns)
+		r.Get("/assurance/default-validator-script", h.getDefaultValidatorScript)
 		// One scrub or recovery test read back by its id, running or long
 		// finished, from the durable activity record (#1200). Beside the
 		// cancel for the same reason: it reads, and answers with the gate

@@ -12,13 +12,14 @@ import (
 
 func TestAssuranceEventNamesAreStable(t *testing.T) {
 	for name, pair := range map[string][2]string{
-		"EventRecoveryStart":     {EventRecoveryStart, "recovery_start"},
-		"EventRecoveryStage":     {EventRecoveryStage, "recovery_stage"},
-		"EventRecoveryEnd":       {EventRecoveryEnd, "recovery_end"},
-		"EventRecoveryTestStart": {EventRecoveryTestStart, "recovery_test_start"},
-		"EventRecoveryTestEnd":   {EventRecoveryTestEnd, "recovery_test_end"},
-		"ActionRecovery":         {ActionRecovery, "recovery"},
-		"ActionRecoveryTest":     {ActionRecoveryTest, "recovery_test"},
+		"EventRecoveryStart":                 {EventRecoveryStart, "recovery_start"},
+		"EventRecoveryStage":                 {EventRecoveryStage, "recovery_stage"},
+		"EventRecoveryEnd":                   {EventRecoveryEnd, "recovery_end"},
+		"EventRecoveryTestStart":             {EventRecoveryTestStart, "recovery_test_start"},
+		"EventRecoveryTestEnd":               {EventRecoveryTestEnd, "recovery_test_end"},
+		"EventRecoveryTestValidatorFallback": {EventRecoveryTestValidatorFallback, "recovery_test_validator_fallback"},
+		"ActionRecovery":                     {ActionRecovery, "recovery"},
+		"ActionRecoveryTest":                 {ActionRecoveryTest, "recovery_test"},
 	} {
 		if pair[0] != pair[1] {
 			t.Errorf("%s = %q, want %q (renaming a catalog name is a breaking change)", name, pair[0], pair[1])

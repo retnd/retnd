@@ -56,6 +56,9 @@ type seenRequest struct {
 	CSRFCookie string
 	Session    string
 	UserAgent  string
+	// StepUp is the password step-up header, which only the operations in
+	// stepUpOperations may carry (#1203).
+	StepUp string
 }
 
 // fakeEngine serves /api/v1 the way the engine container does.
@@ -209,7 +212,7 @@ func (e *fakeEngine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	escaped := r.URL.EscapedPath()
 	ep, known := lookupRoute(r.Method, escaped)
 
-	seen := seenRequest{Method: r.Method, Path: escaped, Query: r.URL.RawQuery, Operation: ep.ID, CSRFHeader: r.Header.Get(csrfHeaderName), UserAgent: r.Header.Get("User-Agent")}
+	seen := seenRequest{Method: r.Method, Path: escaped, Query: r.URL.RawQuery, Operation: ep.ID, CSRFHeader: r.Header.Get(csrfHeaderName), UserAgent: r.Header.Get("User-Agent"), StepUp: r.Header.Get(stepUpHeaderName)}
 	if c, err := r.Cookie(csrfCookieName); err == nil {
 		seen.CSRFCookie = c.Value
 	}

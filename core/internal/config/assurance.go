@@ -126,6 +126,11 @@ type AssuranceBlock struct {
 	StagingTTL             Duration `yaml:"staging_ttl,omitempty"`
 	MaxConcurrentFullReads int      `yaml:"max_concurrent_full_reads,omitempty"`
 	MaxPerDestination      int      `yaml:"max_per_destination,omitempty"`
+
+	// Validators are the custom recovery-test validators (#1203), each a
+	// script attached to an artifact-name pattern. See
+	// assurancevalidators.go.
+	Validators []CustomValidator `yaml:"validators,omitempty"`
 }
 
 // AssuranceOverride is a backup set's own `assurance:` block.
@@ -158,6 +163,10 @@ type AssuranceDefaults struct {
 	// TestAssurance_NoConsumerReadsThePointers is there to stop.
 	MaxConcurrentFullReadsWritten bool
 	MaxPerDestinationWritten      bool
+
+	// Validators are assurance.validators, validated and compiled, in the
+	// order they are written (#1203).
+	Validators []ResolvedCustomValidator
 }
 
 // AssuranceIsOverride reports whether this set declares its own policy.
@@ -192,6 +201,9 @@ func containsString(list []string, s string) bool {
 // override flags were once a silent no-op.
 func (c *Config) resolveAssurance(v *validator) {
 	global := c.resolveGlobalAssurance(v)
+	if c.AssuranceBlock != nil {
+		global.Validators = c.resolveCustomValidators(v, c.AssuranceBlock.Validators)
+	}
 	c.Assurance = global
 	for i := range c.Sources {
 		for j := range c.Sources[i].BackupSets {

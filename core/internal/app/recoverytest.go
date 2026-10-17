@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -88,19 +89,51 @@ var ErrRecoveryTestUnavailable = errors.New("app: this journal cannot record a r
 
 // stageValidator is recoverytest.Validator over the stage runner.
 //
-// scriptFile is the validator_id turned into the file name it selects
-// (config.RecoveryTestScriptName), or "" when the policy names none, in which
-// case the directory must hold exactly one script and that one is the
-// validator. A named script that is not there is an error and never "not
-// configured": the operator declared a validator, so its absence is the
-// reason the test could not run.
+// Which script runs is decided per artifact, most specific first (#1203):
+//
+//  1. a custom validator scoped to this set whose pattern matches the
+//     artifact's name (its script in config.CustomValidatorDir);
+//  2. a global custom validator whose pattern matches;
+//  3. the set's validator_id (scriptFile), its own or inherited;
+//  4. the one script in recovery-test/<source>/<set>.
+//
+// The built-in structure check is the rung after these, and it is
+// recoverytest.Run's to take when Configured says there is nothing here.
+//
+// A named script that is not there is an error and never "not configured":
+// the operator declared a validator, so its absence is the reason the test
+// could not run. Two patterns matching one name at the same scope is an
+// error for the same reason, and it names both rather than guessing.
 type stageValidator struct {
 	stages     StageRunner
 	bs         config.BackupSet
 	scriptFile string
+	custom     []config.ResolvedCustomValidator
 }
 
-func (v stageValidator) request() StageRequest {
+// validatorChoice is what runs for one artifact.
+type validatorChoice struct {
+	req StageRequest
+	// custom is the custom validator chosen, nil for the set's own.
+	custom *config.ResolvedCustomValidator
+	// ambiguous names the validators that matched at one scope.
+	ambiguous []string
+}
+
+func (v stageValidator) choose(artifact model.ArtifactID) validatorChoice {
+	// No copy means no name to match: a pattern is never asked about "".
+	var m config.CustomValidatorMatch
+	if artifact.Name != "" {
+		m = config.MatchCustomValidator(v.custom, v.bs.ID, artifact.Name)
+	}
+	switch {
+	case len(m.Ambiguous) > 0:
+		return validatorChoice{ambiguous: m.Ambiguous}
+	case m.Validator != nil:
+		return validatorChoice{custom: m.Validator, req: StageRequest{
+			Set: v.bs, SetDir: config.CustomValidatorDir, LocalOnly: true, Only: m.Validator.ScriptFile,
+		}}
+	}
 	req := StageRequest{Set: v.bs, SetDir: RecoveryTestSetDir(v.bs.ID), LocalOnly: true, MaxScripts: 1}
 	if v.scriptFile != "" {
 		req.Only = v.scriptFile
@@ -108,56 +141,91 @@ func (v stageValidator) request() StageRequest {
 		// named one is read or run.
 		req.MaxScripts = 0
 	}
-	return req
+	return validatorChoice{req: req}
 }
 
-func (v stageValidator) missing() error {
-	return fmt.Errorf("the declared validator %s was not found in %s", v.scriptFile, RecoveryTestSetDir(v.bs.ID))
+// declares says whether something was declared for this artifact by name,
+// so a failure to find it is a finding and not "nothing configured".
+func (c validatorChoice) declares() bool {
+	return c.custom != nil || len(c.ambiguous) > 0 || c.req.Only != ""
 }
 
-func (v stageValidator) Configured(ctx context.Context, _ model.BackupSetID) (bool, error) {
-	req := v.request()
+func (c validatorChoice) problem(artifact model.ArtifactID) error {
+	if len(c.ambiguous) > 0 {
+		return fmt.Errorf("%s matches the patterns of %d validators at the same scope (%s), and which one is meant is not something to guess; narrow one of the patterns",
+			artifact.Name, len(c.ambiguous), strings.Join(c.ambiguous, ", "))
+	}
+	return nil
+}
+
+func (c validatorChoice) missing() error {
+	if c.custom != nil {
+		return fmt.Errorf("the custom validator %s (pattern %s) applies, and its script %s was not found in %s",
+			c.custom.Name, c.custom.Pattern, c.custom.ScriptFile, config.CustomValidatorDir)
+	}
+	return fmt.Errorf("the declared validator %s was not found in %s", c.req.Only, c.req.SetDir)
+}
+
+func (v stageValidator) Configured(ctx context.Context, _ model.BackupSetID, artifact model.ArtifactID) (bool, error) {
+	c := v.choose(artifact)
+	if err := c.problem(artifact); err != nil {
+		return false, err
+	}
+	req := c.req
 	req.DryRun = true
 	res, err := v.stages.RunStage(ctx, req)
 	if err != nil {
-		if errors.Is(err, ErrStageScriptMissing) && v.scriptFile != "" {
-			return false, v.missing()
+		if errors.Is(err, ErrStageScriptMissing) && c.declares() {
+			return false, c.missing()
 		}
 		if isNotConfigured(err) {
-			if v.scriptFile != "" {
-				return false, v.missing()
+			if c.declares() {
+				return false, c.missing()
 			}
 			return false, nil
 		}
 
 		return false, err
 	}
-	if v.scriptFile != "" && !(res.Configured && len(res.Scripts) == 1 && res.Scripts[0].Name == v.scriptFile) {
-		return false, v.missing()
+	if c.req.Only != "" && (!res.Configured || len(res.Scripts) != 1 || res.Scripts[0].Name != c.req.Only) {
+		return false, c.missing()
 	}
 
 	return res.Configured && len(res.Scripts) > 0, nil
 }
 
 func (v stageValidator) Validate(ctx context.Context, in recoverytest.ValidatorInput) (recoverytest.ValidatorOutcome, error) {
-	req := v.request()
+	c := v.choose(in.Artifact)
+	if err := c.problem(in.Artifact); err != nil {
+		return recoverytest.ValidatorOutcome{}, err
+	}
+	req := c.req
 	req.Vars = map[string]string{
 		"RECOVERY_TEST_FILE":     in.File,
 		"RECOVERY_TEST_ARTIFACT": stageValue(in.Artifact.String(), 400),
+		"RECOVERY_TEST_NAME":     stageValue(in.Artifact.Name, 255),
 		"RECOVERY_TEST_MEDIUM":   stageValue(in.Medium, 120),
 		"RECOVERY_TEST_DIGEST":   in.Digest,
 		"RECOVERY_TEST_SIZE":     fmt.Sprint(in.Size),
 	}
+	if c.custom != nil {
+		req.Vars["RECOVERY_TEST_VALIDATOR"] = c.custom.Name
+		req.Vars["RECOVERY_TEST_PATTERN"] = stageValue(c.custom.Pattern, config.MaxCustomValidatorPatternBytes)
+		req.Vars["RECOVERY_TEST_SCOPE"] = c.custom.Scope()
+	}
 	res, err := v.stages.RunStage(ctx, req)
 	if err != nil {
+		if errors.Is(err, ErrStageScriptMissing) && c.declares() {
+			return recoverytest.ValidatorOutcome{}, c.missing()
+		}
 		return recoverytest.ValidatorOutcome{}, err
 	}
 	if !res.Configured || len(res.Scripts) != 1 {
 		return recoverytest.ValidatorOutcome{}, fmt.Errorf("the validator directory held %d scripts when the test ran, and a recovery test has exactly one", len(res.Scripts))
 	}
 	sc := res.Scripts[0]
-	if v.scriptFile != "" && sc.Name != v.scriptFile {
-		return recoverytest.ValidatorOutcome{}, v.missing()
+	if c.req.Only != "" && sc.Name != c.req.Only {
+		return recoverytest.ValidatorOutcome{}, c.missing()
 	}
 
 	return recoverytest.ValidatorOutcome{
@@ -169,6 +237,9 @@ func (v stageValidator) Validate(ctx context.Context, in recoverytest.ValidatorI
 // validatorFor resolves a set's policy into the validator its tests use.
 func (s *Service) validatorFor(bs config.BackupSet) (stageValidator, error) {
 	v := stageValidator{stages: s.Stages, bs: bs}
+	if s.Config != nil {
+		v.custom = s.Config.Assurance.Validators
+	}
 	if id := bs.Assurance.RecoveryTest.ValidatorID; id != "" {
 		file, err := config.RecoveryTestScriptName(id)
 		if err != nil {
@@ -180,15 +251,51 @@ func (s *Service) validatorFor(bs config.BackupSet) (stageValidator, error) {
 	return v, nil
 }
 
+// newestArtifact is the artifact a test of set would pick when none is
+// named, or the zero id when the set has no known good copy (or no journal
+// that can say).
+func (s *Service) newestArtifact(ctx context.Context, set model.BackupSetID) model.ArtifactID {
+	id, _, _ := s.newestArtifactErr(ctx, set)
+	return id
+}
+
+// newestArtifactErr is newestArtifact with the reason it found none. A set
+// with no known good copy is the zero id and no error; ok is false when the
+// journal cannot say at all, so a caller can tell "nothing yet" from "cannot
+// look".
+func (s *Service) newestArtifactErr(ctx context.Context, set model.BackupSetID) (id model.ArtifactID, ok bool, err error) {
+	journal, can := s.Journal.(recoverytest.Journal)
+	if !can {
+		return model.ArtifactID{}, false, nil
+	}
+	rec, _, err := recoverytest.Newest(ctx, journal, set)
+	switch {
+	case errors.Is(err, recoverytest.ErrNoKnownGoodCopy):
+		return model.ArtifactID{}, true, nil
+	case err != nil:
+		return model.ArtifactID{}, true, err
+	}
+	return rec.Artifact, true, nil
+}
+
 // RecoveryTestValidatorDeclared answers, without running anything, whether a
 // recovery test of set would find a validator to run. It makes the dry run
-// RecoveryTest makes first, through the same validatorFor, so a button built
-// on this answer and the test's own "not_configured" refusal cannot disagree.
+// RecoveryTest makes first, through the same validatorFor and for the same
+// newest copy, so a button built on this answer and the test's own
+// "not_configured" refusal cannot disagree.
 //
 // Only a clean "there is none" is false. A validator the operator declared by
-// name but that cannot be found or examined is true, because the test then
-// ends could_not_complete with that reason and not not_configured.
+// name (or by a pattern that matches the newest copy) but that cannot be
+// found or examined is true, because the test then ends could_not_complete
+// with that reason and not not_configured.
 func (s *Service) RecoveryTestValidatorDeclared(ctx context.Context, set model.BackupSetID) (bool, error) {
+	return s.validatorDeclaredFor(ctx, set, s.newestArtifact(ctx, set))
+}
+
+// validatorDeclaredFor is RecoveryTestValidatorDeclared for a copy the caller
+// has already picked, so a caller that needs several answers about one test
+// resolves the newest copy once and asks them all about the same name.
+func (s *Service) validatorDeclaredFor(ctx context.Context, set model.BackupSetID, artifact model.ArtifactID) (bool, error) {
 	bs, ok := s.backupSet(set)
 	if !ok {
 		return false, fmt.Errorf("app: backup set %s is not configured", set)
@@ -200,11 +307,29 @@ func (s *Service) RecoveryTestValidatorDeclared(ctx context.Context, set model.B
 	if err != nil {
 		return true, nil
 	}
-	configured, err := validator.Configured(ctx, set)
+	configured, err := validator.Configured(ctx, set, artifact)
 	if err != nil {
 		return true, nil
 	}
 	return configured, nil
+}
+
+// RecoveryTestValidatorFor names the custom validator that would run for
+// artifact in set, or "" when none of the patterns apply (the set's own
+// validator, the built-in or nothing decides then). ambiguous lists the
+// validators whose patterns collide at one scope.
+func (s *Service) RecoveryTestValidatorFor(set model.BackupSetID, artifactName string) (name string, ambiguous []string) {
+	// No copy means no name, and a pattern is never asked about "": ^$ and .*
+	// match it, and a set that has not been backed up yet would resolve to
+	// whichever validator happened to say so.
+	if s.Config == nil || artifactName == "" {
+		return "", nil
+	}
+	m := config.MatchCustomValidator(s.Config.Assurance.Validators, set, artifactName)
+	if m.Validator != nil {
+		return m.Validator.Name, nil
+	}
+	return "", m.Ambiguous
 }
 
 // RecoveryTest runs a recovery test as req describes.
@@ -253,12 +378,27 @@ func (s *Service) RecoveryTest(ctx context.Context, req RecoveryTestRequest) (Re
 	started := s.now()
 	validatorID := bs.Assurance.RecoveryTest.ValidatorID
 	artifactLabel := ""
+	// The copy this test is about, resolved once: the feed's line, the
+	// effective check and the run itself are all about this one name. Asking
+	// the journal separately for each would let a backup that lands in
+	// between make the feed name one validator while another runs.
+	var target model.ArtifactID
+	var targetErr error
 	if req.Artifact != nil {
 		artifactLabel = req.Artifact.String()
+		target = *req.Artifact
+	} else {
+		target, _, targetErr = s.newestArtifactErr(ctx, bs.ID)
+	}
+	// A custom validator whose pattern matches the copy is the one that
+	// runs (#1203), so it is the one the feed names.
+	matched, _ := s.RecoveryTestValidatorFor(bs.ID, target.Name)
+	if matched != "" {
+		validatorID = matched
 	}
 	// The feed names the check that is about to run: the reserved identity
 	// when it is the built-in, so a surface can word the line from it.
-	if check, _, cerr := s.RecoveryTestEffectiveCheck(ctx, bs.ID); cerr == nil && check == CheckBuiltin {
+	if check, _, cerr := s.effectiveCheckFor(ctx, bs.ID, target, targetErr); cerr == nil && check == CheckBuiltin {
 		validatorID = recoverytest.BuiltinValidatorID
 	}
 	s.logger().RecoveryTestStart(ctx, opID, bs.ID.String(), artifactLabel, validatorID)
@@ -276,9 +416,21 @@ func (s *Service) RecoveryTest(ctx context.Context, req RecoveryTestRequest) (Re
 	if verr != nil {
 		err = verr
 	} else {
+		pick := req.Artifact
+		if pick == nil && target.Name != "" {
+			// The copy the feed was worded for, not whichever is newest by
+			// the time Run asks again.
+			pick = &target
+		}
 		res, err = recoverytest.Run(ctx, deps, bs.ID, recoverytest.Config{Cadence: bs.Assurance.RecoveryTestInterval(), BuiltinCheck: bs.Assurance.RecoveryTest.BuiltinCheck}, recoverytest.Request{
-			Artifact: req.Artifact, Scheduled: req.Scheduled, AcknowledgeCost: req.AcknowledgeCost,
+			Artifact: pick, Scheduled: req.Scheduled, AcknowledgeCost: req.AcknowledgeCost,
 		})
+	}
+	if matched != "" && (verr != nil || deps.Validator == nil || res.Check == recoverytest.CheckBuiltin) {
+		// A pattern matched this copy and the test did not run its script.
+		// The verdict says what happened; this leaves the reason where an
+		// operator looking for the downgrade will find it.
+		s.logger().RecoveryTestValidatorFallback(ctx, opID, bs.ID.String(), target.String(), matched, ranInstead(verr, res))
 	}
 	if res.Artifact.Name != "" {
 		artifactLabel = res.Artifact.String()
@@ -323,6 +475,19 @@ func (s *Service) keepRecoveryOutput(ctx context.Context, journal recoverytest.J
 	})
 	if err != nil {
 		s.logger().Error(ctx, "recovery-test-output", err)
+	}
+}
+
+// ranInstead says what stood in for a matched custom validator that did not
+// run.
+func ranInstead(verr error, res recoverytest.Result) string {
+	switch {
+	case verr != nil:
+		return "nothing: " + recoverytest.SanitizeLabel(verr.Error(), 200)
+	case res.Check == recoverytest.CheckBuiltin:
+		return "the built-in structure check"
+	default:
+		return "nothing: no stage runner is wired"
 	}
 }
 
@@ -501,11 +666,13 @@ func (s *Service) RecoveryTestTick(ctx context.Context) {
 					s.logger().Error(ctx, "recovery-test-validator", verr)
 					continue
 				}
-				if configured, err := validator.Configured(ctx, bs.ID); err != nil {
-					// A declared validator that is not there is a finding the
-					// test itself records (could_not_complete); let it run once
-					// per cadence like any other so the claim says why.
-					if validator.scriptFile == "" {
+				newest := s.newestArtifact(ctx, bs.ID)
+				if configured, err := validator.Configured(ctx, bs.ID, newest); err != nil {
+					// A declared validator that is not there (or two patterns
+					// that collide) is a finding the test itself records
+					// (could_not_complete); let it run once per cadence like
+					// any other so the claim says why.
+					if !validator.choose(newest).declares() {
 						continue
 					}
 				} else if !configured {
@@ -606,11 +773,20 @@ func (s *Service) kopiaRecoveryClaim(ctx context.Context, bs config.BackupSet) (
 // reads nothing: the newest known good copy is judged by its name alone, so a
 // button built on this cannot disagree with the refusal the test would give.
 func (s *Service) RecoveryTestEffectiveCheck(ctx context.Context, set model.BackupSetID) (check, reason string, err error) {
+	target, _, nerr := s.newestArtifactErr(ctx, set)
+	return s.effectiveCheckFor(ctx, set, target, nerr)
+}
+
+// effectiveCheckFor is RecoveryTestEffectiveCheck for a copy the caller has
+// already resolved (nerr is what resolving it reported), so a test that needs
+// this answer and the copy resolves the copy once and cannot name one
+// validator while running another.
+func (s *Service) effectiveCheckFor(ctx context.Context, set model.BackupSetID, target model.ArtifactID, nerr error) (check, reason string, err error) {
 	bs, ok := s.backupSet(set)
 	if !ok {
 		return "", "", fmt.Errorf("app: backup set %s is not configured", set)
 	}
-	declared, err := s.RecoveryTestValidatorDeclared(ctx, set)
+	declared, err := s.validatorDeclaredFor(ctx, set, target)
 	if err != nil {
 		return "", "", err
 	}
@@ -620,20 +796,18 @@ func (s *Service) RecoveryTestEffectiveCheck(ctx context.Context, set model.Back
 	if bs.Assurance.RecoveryTest.BuiltinCheck == config.BuiltinCheckOff {
 		return CheckNone, recoverytest.BuiltinOffReason, nil
 	}
-	journal, ok := s.Journal.(recoverytest.Journal)
-	if !ok {
+	if _, ok := s.Journal.(recoverytest.Journal); !ok {
 		return CheckBuiltin, "", nil
 	}
-	rec, _, err := recoverytest.Newest(ctx, journal, set)
 	switch {
-	case errors.Is(err, recoverytest.ErrNoKnownGoodCopy):
+	case nerr != nil:
+		return "", "", nerr
+	case target.Name == "":
 		// Nothing to judge by yet; the test itself will say there is no copy.
 		return CheckBuiltin, "", nil
-	case err != nil:
-		return "", "", err
 	}
-	if _, applies := (recoverytest.StructureCheck{}).Applies(rec.Artifact.Name); !applies {
-		return CheckNone, recoverytest.NoReaderReason(rec.Artifact.Name), nil
+	if _, applies := (recoverytest.StructureCheck{}).Applies(target.Name); !applies {
+		return CheckNone, recoverytest.NoReaderReason(target.Name), nil
 	}
 	return CheckBuiltin, "", nil
 }

@@ -483,7 +483,26 @@ func (c *Client) newRequest(ctx context.Context, ep apicontract.Endpoint, target
 		}
 		req.Header.Set(csrfHeaderName, token)
 	}
+	if stepUpOperations[ep.ID] && c.password != "" {
+		req.Header.Set(stepUpHeaderName, c.password)
+	}
 	return req, nil
+}
+
+// stepUpHeaderName is webhost.StepUpHeader, spelled here because this
+// package does not import the web host.
+const stepUpHeaderName = "X-Retnd-Step-Up-Password"
+
+// stepUpOperations are the operations this client answers the password
+// step-up for, with the administrator's password it already signs in with
+// (#1203). A terminal that holds that password has already proved what the
+// step-up asks a browser session to prove again. It is a list and not
+// "every gated operation" on purpose: a restore's step-up is paired with
+// an acknowledgement the operator has to give, and sending the password
+// on its own would be this client deciding something for them.
+var stepUpOperations = map[string]bool{
+	"createCustomValidator": true,
+	"updateCustomValidator": true,
 }
 
 // The rate limit this client is on the wrong side of, and why waiting is

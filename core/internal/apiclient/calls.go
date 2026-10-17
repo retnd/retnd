@@ -866,3 +866,75 @@ func (c *Client) ImportSSHKeyFromCandidate(ctx context.Context, req apicontract.
 	err := c.call(ctx, "importSSHKeyFromCandidate", nil, req, &out)
 	return out, err
 }
+
+// Custom recovery-test validators (#1203). The writes have to reach the
+// engine that would otherwise never read the change; the reads are here for
+// the same reason from the other side: a list or a script read from this
+// host's own files, beside a serving engine, is a list of a deployment that
+// process may not be serving.
+
+// ListCustomValidators is GET /assurance/validators. Empty arguments send no
+// query, which is the unfiltered list.
+func (c *Client) ListCustomValidators(ctx context.Context, backupSet, artifact string) (apicontract.ListCustomValidatorsResponse, error) {
+	query := url.Values{}
+	if backupSet != "" {
+		query.Set("backup_set", backupSet)
+	}
+	if artifact != "" {
+		query.Set("artifact", artifact)
+	}
+	if len(query) == 0 {
+		query = nil
+	}
+	var out apicontract.ListCustomValidatorsResponse
+	err := c.callQuery(ctx, "listCustomValidators", nil, query, nil, &out)
+	return out, err
+}
+
+// CustomValidatorScript is GET /assurance/validators/{name}/script.
+func (c *Client) CustomValidatorScript(ctx context.Context, name string) (apicontract.ValidatorScriptResponse, error) {
+	var out apicontract.ValidatorScriptResponse
+	err := c.call(ctx, "getCustomValidatorScript", []string{name}, nil, &out)
+	return out, err
+}
+
+// CustomValidatorPatterns is GET /assurance/validator-patterns.
+func (c *Client) CustomValidatorPatterns(ctx context.Context, backupSet string) (apicontract.CustomValidatorPatternsResponse, error) {
+	var query url.Values
+	if backupSet != "" {
+		query = url.Values{"backup_set": []string{backupSet}}
+	}
+	var out apicontract.CustomValidatorPatternsResponse
+	err := c.callQuery(ctx, "listCustomValidatorPatterns", nil, query, nil, &out)
+	return out, err
+}
+
+// PreviewCustomValidator is POST /assurance/validator-preview. It writes
+// nothing and asks no password, so it is not in stepUpOperations.
+func (c *Client) PreviewCustomValidator(ctx context.Context, req apicontract.PreviewCustomValidatorRequest) (apicontract.CustomValidatorPreview, error) {
+	var out apicontract.CustomValidatorPreview
+	err := c.call(ctx, "previewCustomValidator", nil, req, &out)
+	return out, err
+}
+
+// CreateCustomValidator is POST /assurance/validators. It answers the
+// password step-up with this client's own password (stepUpOperations).
+func (c *Client) CreateCustomValidator(ctx context.Context, req apicontract.CreateCustomValidatorRequest) (apicontract.CustomValidator, error) {
+	var out apicontract.CustomValidator
+	err := c.call(ctx, "createCustomValidator", nil, req, &out)
+	return out, err
+}
+
+// UpdateCustomValidator is PUT /assurance/validators/{name}.
+func (c *Client) UpdateCustomValidator(ctx context.Context, name string, req apicontract.UpdateCustomValidatorRequest) (apicontract.CustomValidator, error) {
+	var out apicontract.CustomValidator
+	err := c.call(ctx, "updateCustomValidator", []string{name}, req, &out)
+	return out, err
+}
+
+// RemoveCustomValidator is DELETE /assurance/validators/{name}.
+func (c *Client) RemoveCustomValidator(ctx context.Context, name string) (apicontract.CustomValidator, error) {
+	var out apicontract.CustomValidator
+	err := c.call(ctx, "removeCustomValidator", []string{name}, nil, &out)
+	return out, err
+}

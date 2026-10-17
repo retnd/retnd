@@ -130,11 +130,13 @@ var ErrCorruptCopy = errors.New("recoverytest: the recovered bytes do not match 
 var ErrNoKnownGoodCopy = errors.New("recoverytest: this backup set has no known good copy to test")
 
 // Validator is the operator's declared validator, as the application resolves
-// it. Configured says whether one exists for set at all, without running
-// anything, so a set without one reads "not configured" before a copy is
-// asked for. Validate runs it against a recovered file.
+// it. Configured says whether one exists for this artifact of set at all,
+// without running anything, so a set without one reads "not configured"
+// before a copy is asked for. The artifact is passed because which validator
+// applies can depend on its name (#1203: a custom validator is attached to an
+// artifact-name pattern). Validate runs it against a recovered file.
 type Validator interface {
-	Configured(ctx context.Context, set model.BackupSetID) (bool, error)
+	Configured(ctx context.Context, set model.BackupSetID, artifact model.ArtifactID) (bool, error)
 	Validate(ctx context.Context, in ValidatorInput) (ValidatorOutcome, error)
 }
 
@@ -319,7 +321,7 @@ func Run(ctx context.Context, deps Deps, set model.BackupSetID, cfg Config, req 
 	configured := false
 	if deps.Validator != nil {
 		var cerr error
-		configured, cerr = deps.Validator.Configured(ctx, set)
+		configured, cerr = deps.Validator.Configured(ctx, set, rec.Artifact)
 		if cerr != nil {
 			res.State = state.RecoveryCouldNotComplete
 			res.Reason = "the validator could not be examined: " + safeError(cerr)

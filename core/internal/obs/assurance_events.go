@@ -40,6 +40,11 @@ const (
 	// recovery_test action.
 	EventRecoveryTestStart = "recovery_test_start"
 	EventRecoveryTestEnd   = "recovery_test_end"
+
+	// EventRecoveryTestValidatorFallback says a custom validator's pattern
+	// matched the copy a recovery test was about and the test did not run
+	// its script (#1203).
+	EventRecoveryTestValidatorFallback = "recovery_test_validator_fallback"
 )
 
 // The action names the pairs above are bracketed under.
@@ -122,6 +127,23 @@ func (l *Logger) RecoveryEnd(ctx context.Context, opID, backupSet, artifact stri
 	}
 	l.emitMarked(ctx, result.Level(), mark{result: result, action: ActionRecovery, actionID: opID},
 		EventRecoveryEnd, "recovery finished", attrs...)
+}
+
+// RecoveryTestValidatorFallback logs EventRecoveryTestValidatorFallback for
+// the test opID: validator matched artifact, and ran is what stood in for it.
+// The validator is named by id only; see validatorRef. It is a warning and
+// not an error because the test still has a verdict, from a check the
+// operator did not pick for this name.
+func (l *Logger) RecoveryTestValidatorFallback(ctx context.Context, opID, backupSet, artifact, validator, ran string) {
+	l.emitMarked(ctx, LevelWarn, mark{action: ActionRecoveryTest, actionID: opID},
+		EventRecoveryTestValidatorFallback,
+		"the custom validator matched but did not run: "+cleanReason(ran),
+		slog.String("op_id", opID),
+		slog.String("backup_set", backupSet),
+		slog.String("artifact", artifact),
+		slog.String("validator", validatorRef(validator)),
+		slog.String("ran", cleanReason(ran)),
+	)
 }
 
 // RecoveryTestStart logs EventRecoveryTestStart. The validator is named by

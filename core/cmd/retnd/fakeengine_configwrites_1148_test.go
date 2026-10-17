@@ -70,6 +70,10 @@ func (e *fakeEngine) dispatchConfigWrite(w http.ResponseWriter, r *http.Request,
 		return true
 	}
 
+	if e.serveCustomValidator(w, r, path) {
+		return true
+	}
+
 	rest, ok := strings.CutPrefix(path, "/backup-sets/")
 	if !ok {
 		return false
