@@ -35,8 +35,8 @@ for (const theme of ["light", "dark"] as const) {
 
     // Verify from the snapshot list.
     await open(page, `/sets/${SET}/snapshots`, "local-account-profile");
-    await setTheme(page, theme);
     await expect(page.getByRole("button", { name: "Verify latest" })).toBeVisible();
+    await setTheme(page, theme);
     await beat(page, 1600);
     await page.getByRole("button", { name: "Verify latest" }).click();
     await expect(page.getByRole("region", { name: "Verification in progress" })).toBeVisible();
@@ -85,6 +85,7 @@ for (const theme of ["light", "dark"] as const) {
     test.setTimeout(180_000);
     const DIALOG = "This connection is not encrypted";
     await open(page, `/sets/${SET}/restore`, "insecure-transport");
+    await expect(page.locator("main")).toBeVisible();
     await setTheme(page, theme);
     await page.getByRole("button", { name: "Continue" }).click();
     await page.getByRole("button", { name: "Continue" }).click();
@@ -121,8 +122,8 @@ for (const theme of ["light", "dark"] as const) {
 
     // The list: no notice, and verify works on a shut gate.
     await open(page, `/sets/${SET}/snapshots`, "gateway-profile");
-    await setTheme(page, theme);
     await expect(page.getByRole("button", { name: "Verify latest" })).toBeVisible();
+    await setTheme(page, theme);
     await expect(notice).toHaveCount(0);
     await beat(page, 1600);
     await page.getByRole("button", { name: "Verify latest" }).click();

@@ -39,9 +39,9 @@ test.describe("#985 a copy that failed is shown as failed", () => {
   for (const theme of ["light", "dark"] as const) {
     test("the failed copy says which copy, how often and why, and clears 4.5:1, " + theme, async ({ page }) => {
       await open(page, "/backups", "assurance-more");
-      await setTheme(page, theme);
       const r = row(page, "billing-20260827.sql.gz");
       await expect(r.locator('[data-claim="content"]')).toHaveAttribute("data-state", "failed");
+      await setTheme(page, theme);
       await expect(r.locator('[data-claim="content"]')).not.toContainText("Never run");
       const failures = r.getByTestId("copy-failures");
       await expect(failures).toContainText("The last scrub of the local copy failed, 3 times in a row");

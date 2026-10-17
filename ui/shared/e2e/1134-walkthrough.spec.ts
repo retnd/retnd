@@ -24,9 +24,9 @@ for (const theme of ["light", "dark"] as const) {
   test(`1134 walkthrough (${theme}): Dashboard, Backups, a backup, its set, the Backup Sets card`, async ({ page }) => {
     test.setTimeout(180_000);
     await open(page, "/", S, { wire: true });
-    await setTheme(page, theme);
     const tile = page.getByRole("region", { name: "Assurance summary" });
     await expect(tile.getByTestId("assurance-untested-note")).toBeVisible();
+    await setTheme(page, theme);
     await into(tile);
     await beat(page, 2400);
     await tile.getByRole("link", { name: "Show 1 backup with no recovery test" }).click();

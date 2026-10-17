@@ -28,9 +28,9 @@ for (const theme of ["light", "dark"] as const) {
   test(`1175 walkthrough (${theme}): the chip and the Lifecycle agree, then Custom configuration and its link`, async ({ page }) => {
     test.setTimeout(180_000);
     await open(page, NEWEST_PATH, S, { wire: true });
-    await setTheme(page, theme);
     const card = page.getByRole("region", { name: "Assurance" });
     await expect(card.locator('[data-claim="content"]')).toContainText("Content verified");
+    await setTheme(page, theme);
     const verified = step(page, "VERIFIED");
     await into(verified);
     if (before) await expect(verified).toContainText("\u2014");
@@ -64,6 +64,7 @@ for (const theme of ["light", "dark"] as const) {
   test(`1188 walkthrough (${theme}): the Default configuration chip lands on the Assurance section`, async ({ page }) => {
     test.setTimeout(120_000);
     await open(page, "/backups", S, { wire: true });
+    await expect(page.locator("main")).toBeVisible();
     await setTheme(page, theme);
     const chip = listRow(page, NEWEST).locator('[data-claim="recovery"]').getByRole("link", { name: "Default configuration" });
     await into(chip);
@@ -81,6 +82,7 @@ for (const theme of ["light", "dark"] as const) {
     test.setTimeout(180_000);
     const size = page.getByRole("combobox", { name: "Rows per page" });
     await open(page, "/backups", "backups-many");
+    await expect(page.locator("main")).toBeVisible();
     await setTheme(page, theme);
     if (before) {
       await expect(size).toHaveCount(0);
@@ -99,16 +101,16 @@ for (const theme of ["light", "dark"] as const) {
     await size.selectOption("50");
     await beat(page, 1500);
     await page.reload();
-    await setTheme(page, theme);
     await expect(size).toHaveValue("50");
+    await setTheme(page, theme);
     await into(page.getByTestId("backups-paging"));
     await beat(page, 2200);
     await size.selectOption("All");
     await expect(page.getByTestId("backups-page-status")).toContainText("34 of 34");
     await beat(page, 1500);
     await page.reload();
-    await setTheme(page, theme);
     await expect(size).toHaveValue("50");
+    await setTheme(page, theme);
     await size.selectOption("20");
     await page.getByRole("checkbox", { name: "Select all matching backups" }).check();
     await expect(page.getByTestId("selection-count")).toContainText("33 selected");

@@ -40,8 +40,8 @@ for (const theme of ["light", "dark"] as const) {
 
   test(`#985 D8 the Not configured chip exists to be measured (${theme})`, async ({ page }) => {
     await open(page, "/backups");
-    await setTheme(page, theme);
     await expect(row(page, "media-week34.tar").locator('[data-claim="recovery"][data-state="never_configured"]')).toBeVisible();
+    await setTheme(page, theme);
     await expect(row(page, "media-week34.tar").locator('[data-claim="stored"][data-state="no_copy"]')).toBeVisible();
   });
 }

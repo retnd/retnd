@@ -25,6 +25,7 @@ test.use({ viewport: { width: 1280, height: 1400 }, video: process.env.E2E_VIDEO
 for (const theme of ["light", "dark"] as const) {
   test(`1111 walkthrough (${theme}): Settings, then a set's own policy, round trip the built-in check`, async ({ page }) => {
     await open(page, "/settings");
+    await expect(page.locator("main")).toBeVisible();
     await setTheme(page, theme);
     await show(page);
     await beat(page);

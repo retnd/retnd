@@ -29,8 +29,8 @@ for (const theme of ["light", "dark"] as const) {
 
     // The restore wizard: four steps, then the refusal with their answers.
     await open(page, `/sets/${SET}/restore`, "gateway-profile");
-    await setTheme(page, theme);
     await expect(notice).toBeVisible();
+    await setTheme(page, theme);
     await beat(page, 1800);
     await page.getByRole("button", { name: "Continue" }).click();
     await beat(page, 600);
