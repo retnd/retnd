@@ -24,7 +24,7 @@ import { gateRefusalNotice, isGateRefusal } from "@shared/api/gate";
 import type { GateRefusalNotice } from "@shared/api/gate";
 import { apiErrorOf, describeFailure } from "@shared/api/failure";
 import type { GateReading } from "@shared/hooks/useDestructiveGate";
-import { recoveryTestCommand } from "./assuranceCommands";
+import { recoveryTestArtifactCommand, recoveryTestCommand } from "./assuranceCommands";
 import type { AssuranceApi, Operation } from "./types";
 import { noteAssuranceChanged } from "./verificationModel";
 import { useOperation } from "./useOperation";
@@ -55,7 +55,7 @@ export async function startRecoveryRun(
         refused: gateRefusalNotice({
           outcome: "The recovery test was not started",
           nothingChanged: "Nothing was read or written.",
-          command: recoveryTestCommand(setId) + (artifactId ? " --artifact " + artifactId : ""),
+          command: artifactId ? recoveryTestArtifactCommand(setId, artifactId) : recoveryTestCommand(setId),
           reason: gate.reason,
           correlationId: apiErrorOf(e)?.correlationId
         })

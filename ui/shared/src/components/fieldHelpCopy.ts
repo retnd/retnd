@@ -386,7 +386,7 @@ export const FIELD_HELP = {
     what: "Which backup set's retained artifacts the table lists.",
     example: "production/postgres-primary",
     effect:
-      "Refetches the artifact list for that set alone, so the totals in the page header count only its backups. It also enables Preview retention, which needs one named set to plan a retention pass against."
+      "Refetches the artifact list for that set alone, so the totals in the page header count only its backups. It also enables Preview retention, which needs one named set to plan a retention pass against. The choice is kept in the address as ?set=SOURCE/SET, so a link, a reload or a pasted address lands on the same list."
   },
 
   // -------------------------------------------------------------- sets
