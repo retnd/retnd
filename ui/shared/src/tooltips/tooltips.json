@@ -2031,6 +2031,14 @@
     "label": "Assurance policy",
     "html": "<strong>Follow the deployment</strong> shows what the deployment setting resolves to for this set. <strong>This set's own policy</strong> pins this set's scrub cadence and reads and its recovery test, and a later change to the deployment does not move it."
   },
+  "assurance.validators.card": {
+    "label": "Recovery-test validators",
+    "html": "Scripts that decide whether a recovered copy is good, each attached to a pattern on artifact file names. A validator for one backup set wins over one for every set."
+  },
+  "assurance.validators.declare": {
+    "label": "Declare validator",
+    "html": "Attach a validation script to backups named like this one. The pattern starts from this backup's own name, with every run of digits generalised."
+  },
   "assurance.artifact.card": {
     "label": "Backup assurance",
     "html": "The three claims for this backup, each with its own age, and the way to recover the artifact."

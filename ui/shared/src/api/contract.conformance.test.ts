@@ -519,6 +519,17 @@ describe("every request the shared client makes is a declared operation", () => 
       ["patchBackupSetAssurance", () => httpApi.patchBackupSetAssurance("src", "set-1", { scrubCadenceSeconds: 7_200 })],
       ["resetBackupSetAssurance", () => httpApi.resetBackupSetAssurance("src", "set-1")],
       ["listAssuranceDue", () => httpApi.listAssuranceDue({ backupSetId: "src/set-1", status: "overdue" })],
+      // Issue #1203: the custom recovery-test validators. The two writes carry
+      // the password again, which is what the gate-and-step-up tests below
+      // look for on the wire.
+      ["listCustomValidators", () => httpApi.listCustomValidators({ backupSetId: "src/set-1", artifactId: "src/set-1/a.tar.gz" })],
+      ["listCustomValidatorPatterns", () => httpApi.listCustomValidatorPatterns("src/set-1")],
+      ["previewCustomValidator", () => httpApi.previewCustomValidator({ pattern: "^a$", backupSetId: "src/set-1", replacing: "v" })],
+      ["createCustomValidator", () => httpApi.createCustomValidator({ name: "v", pattern: "^a$", script: "#!/bin/sh\n" }, { stepUpPassword: "pw" })],
+      ["updateCustomValidator", () => httpApi.updateCustomValidator("v", { pattern: "^b$", keepScriptSha256: "ab" }, { stepUpPassword: "pw" })],
+      ["removeCustomValidator", () => httpApi.removeCustomValidator("v")],
+      ["getCustomValidatorScript", () => httpApi.getCustomValidatorScript("v")],
+      ["getDefaultValidatorScript", () => httpApi.getDefaultValidatorScript()],
       ["getWorkflowSettings", () => httpApi.getWorkflowSettings()],
       ["patchWorkflowSettings", () => httpApi.patchWorkflowSettings({ scriptTimeoutSeconds: 300 })],
       ["listWorkflowEnvironment", () => httpApi.listWorkflowEnvironment()],
