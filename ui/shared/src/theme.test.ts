@@ -50,6 +50,20 @@ describe("the pre-paint script in index.html (#1236)", () => {
   });
 });
 
+describe("the canvas rule in index.html (#1236)", () => {
+  it("declares color-scheme for both themes, before the stylesheets", () => {
+    const css = /<style id="theme-boot-canvas">([\s\S]*?)<\/style>/.exec(html)![1];
+    expect(css).toMatch(/:root\s*\{\s*color-scheme:\s*light;\s*\}/);
+    expect(css).toMatch(/:root\[data-theme="dark"\]\s*\{\s*color-scheme:\s*dark;\s*\}/);
+    expect(html.indexOf('id="theme-boot"')).toBeLessThan(html.indexOf('id="theme-boot-canvas"'));
+    expect(html.indexOf('id="theme-boot-canvas"')).toBeLessThan(html.indexOf('src="/src/main.tsx"'));
+  });
+  it("holds no colour value of its own", () => {
+    const css = /<style id="theme-boot-canvas">([\s\S]*?)<\/style>/.exec(html)![1];
+    expect(css).not.toMatch(/#[0-9a-f]{3,8}\b|rgb|hsl|oklch/i);
+  });
+});
+
 describe("resolveTheme and applyTheme", () => {
   it("prefers the attribute the page already carries over storage", () => {
     window.localStorage.setItem("retnd.theme", "light");

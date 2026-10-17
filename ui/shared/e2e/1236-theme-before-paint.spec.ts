@@ -20,7 +20,7 @@ import { open, preselectTheme } from "./helpers";
 
 type Theme = "light" | "dark";
 
-interface Frame { attr: string | null; bg: string | null }
+interface Frame { attr: string | null; bg: string | null; scheme: string | null }
 
 /** Installs the recorder. Must be added before the preselect script. */
 async function record(page: Page) {
@@ -38,7 +38,14 @@ async function record(page: Page) {
     };
     new MutationObserver(note).observe(document, { subtree: true, attributes: true, attributeFilter: ["data-theme"] });
     const tick = () => {
-      w.__frames.push({ attr: read(), bg: document.body ? getComputedStyle(document.body).backgroundColor : null });
+      w.__frames.push({
+        attr: read(),
+        bg: document.body ? getComputedStyle(document.body).backgroundColor : null,
+        // What paints the canvas before any stylesheet has arrived: in the
+        // development build the CSS comes in through a module, after the
+        // first frames, so this is the only thing that can hold them dark.
+        scheme: document.documentElement ? getComputedStyle(document.documentElement).colorScheme : null
+      });
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
@@ -86,6 +93,8 @@ async function verdict(page: Page, theme: Theme, label: string) {
   const painted = frames.filter((f) => f.bg !== null && f.bg !== "rgba(0, 0, 0, 0)");
   const off = painted.filter((f) => (theme === "dark" ? luminance(f.bg!) > 0.3 : luminance(f.bg!) < 0.7));
   expect(off.length, label + ": " + off.length + " painted frames had the wrong background").toBe(0);
+  const unthemed = frames.filter((f) => f.scheme !== theme);
+  expect(unthemed.length, label + ": " + unthemed.length + " of " + frames.length + " frames had color-scheme " + [...new Set(unthemed.map((f) => f.scheme))].join("/") + " on the root, so the canvas was not " + theme).toBe(0);
   await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
 }
 

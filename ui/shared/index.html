@@ -30,6 +30,15 @@
         }
       })();
     </script>
+    <!-- #1236: and the one rule that has to be on the page before any
+         stylesheet. color-scheme is what the browser paints the empty canvas
+         in, and tokens.css, which declares the same thing, arrives later (in
+         the development build through a module, so after the first frames).
+         It holds no colour of its own: the palette stays in tokens.css. -->
+    <style id="theme-boot-canvas">
+      :root { color-scheme: light; }
+      :root[data-theme="dark"] { color-scheme: dark; }
+    </style>
   </head>
   <body>
     <!--
