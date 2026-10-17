@@ -7,7 +7,7 @@ import { addCommand, readScriptFile, scriptBytes, suggestPattern, validatorNameP
 
 describe("addCommand", () => {
   it("quotes the name, the pattern and the set id for a shell", () => {
-    expect(addCommand("a b", "^x$", "src/set 1")).toBe("retnd assurance validator add 'a b' --pattern '^x$' --backup-set 'src/set 1' --script FILE");
+    expect(addCommand("a b", "^x$", "src/set 1")).toBe("retnd assurance validators add 'a b' --pattern '^x$' --backup-set 'src/set 1' --script FILE");
   });
 
   it("does not let a name or a set id end the line", () => {
@@ -18,7 +18,7 @@ describe("addCommand", () => {
 
   it("leaves a plain name and set id bare", () => {
     expect(addCommand("billing-dump", "^b$", "production/billing-mysql")).toBe(
-      "retnd assurance validator add billing-dump --pattern '^b$' --backup-set production/billing-mysql --script FILE"
+      "retnd assurance validators add billing-dump --pattern '^b$' --backup-set production/billing-mysql --script FILE"
     );
   });
 });

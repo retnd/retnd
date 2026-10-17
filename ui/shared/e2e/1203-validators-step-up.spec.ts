@@ -89,7 +89,7 @@ test.describe("#1203 upload takes the password and the gate", () => {
     const dlg = await filled(page, "gateway-profile");
     const notice = dlg.locator("[data-gate-notice]");
     await expect(notice).toBeVisible();
-    await expect(notice).toContainText("retnd assurance validator add postgres-dump");
+    await expect(notice).toContainText("retnd assurance validators add postgres-dump");
     for (const theme of ["light", "dark"] as const) {
       await setTheme(page, theme);
       expect(await measureContrast(page, "1203 shut gate " + theme, "[data-gate-notice]"), theme).toEqual([]);
@@ -101,7 +101,7 @@ test.describe("#1203 upload takes the password and the gate", () => {
     await upload(page).click();
     const refusal = dlg.locator("[data-gate-refusal]");
     await expect(refusal).toContainText("The validator was not uploaded");
-    await expect(refusal).toContainText("retnd assurance validator add postgres-dump");
+    await expect(refusal).toContainText("retnd assurance validators add postgres-dump");
     await expect(card(page).getByRole("row").filter({ hasText: "postgres-dump" })).toHaveCount(0);
     for (const theme of ["light", "dark"] as const) {
       await setTheme(page, theme);

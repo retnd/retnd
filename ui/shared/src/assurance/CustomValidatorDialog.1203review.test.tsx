@@ -7,6 +7,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiProvider } from "@shared/api/ApiContext";
 import { createMockApi } from "@shared/api/mock";
+import { RetndError } from "@shared/api/contracts";
 import type { CustomValidatorList, CustomValidatorPreview, RetndApi } from "@shared/api/contracts";
 import { graph, resetGraphForTests } from "@shared/state/graph";
 import { setsNode } from "@shared/state/appNodes";
@@ -150,5 +151,60 @@ describe("CustomValidatorDialog (review of #1203)", () => {
       expect(await screen.findByText(/line endings were converted/i)).toBeInTheDocument();
       expect((screen.getByLabelText("Script") as HTMLTextAreaElement).value).toBe("a\nb");
     });
+  });
+});
+
+// The contract #1213 settled on: an edit is a whole replacement.
+describe("CustomValidatorDialog editing (#1213 contract)", () => {
+  beforeEach(() => { resetGraphForTests(); });
+
+  const current = {
+    name: "billing-dump", pattern: "^b$", backupSetId: "production/billing-mysql", scope: "backup_set" as const, anchored: true,
+    scriptFile: "billing-dump.local.sh", scriptPresent: true, scriptSha256: "feedbeef", scriptSizeBytes: 3, uploadedAt: "",
+    matchCount: 0, matchSets: [], exampleName: ""
+  };
+
+  async function save(update: ReturnType<typeof vi.fn>, typedScript?: string) {
+    const onSaved = vi.fn();
+    const base = createMockApi("validators-none");
+    const api = { ...base, updateCustomValidator: update } as unknown as RetndApi;
+    const list = await base.listCustomValidators();
+    render(
+      <ApiProvider api={api}>
+        <CustomValidatorDialog mode={{ kind: "edit", validator: current }} list={list} onClose={() => undefined} onSaved={onSaved} />
+      </ApiProvider>
+    );
+    if (typedScript !== undefined) type(screen.getByLabelText("Script"), typedScript);
+    const button = screen.getByRole("button", { name: "Save changes" });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+    return onSaved;
+  }
+
+  it("keeps the script by the hash it read when the script box is empty, and says its scope", async () => {
+    const update = vi.fn(() => Promise.resolve(current));
+    await save(update);
+    await waitFor(() => expect(update).toHaveBeenCalled());
+    expect(update).toHaveBeenCalledWith(
+      "billing-dump", { pattern: "^b$", backupSetId: "production/billing-mysql", keepScriptSha256: "feedbeef" }, {}
+    );
+  });
+
+  it("sends the script and not the hash when a new one was typed", async () => {
+    const update = vi.fn(() => Promise.resolve(current));
+    await save(update, "#!/bin/sh\nexit 0\n");
+    await waitFor(() => expect(update).toHaveBeenCalled());
+    expect(update).toHaveBeenCalledWith(
+      "billing-dump", { pattern: "^b$", backupSetId: "production/billing-mysql", script: "#!/bin/sh\nexit 0\n" }, {}
+    );
+  });
+
+  it("explains a script that changed under it, and does not report a save", async () => {
+    const update = vi.fn(() => Promise.reject(new RetndError({ code: "VALIDATOR_SCRIPT_CHANGED" as never, message: "the stored script is not the one you read", correlationId: "c" })));
+    const onSaved = await save(update);
+    const alert = await screen.findByText(/script on the host changed/i);
+    expect(alert).toBeInTheDocument();
+    expect(alert.textContent).toMatch(/nothing was saved/i);
+    expect(onSaved).not.toHaveBeenCalled();
   });
 });

@@ -101,15 +101,44 @@ describe("the custom validator routes on the wire", () => {
     expect(c.body.backup_set_id).toBe("src/set-1");
   });
 
-  it("edits with PUT on the escaped name, and leaves the script out to keep it", async () => {
+  // #1213 made the PUT a true replace: the pattern and the scope are always
+  // the new ones, and the script is either sent or kept by its hash.
+  it("edits with PUT on the escaped name, and keeps the script by its hash, with the scope spelled out", async () => {
     const f = fetchReturning(wireValidator);
     vi.stubGlobal("fetch", f);
-    await httpApi.updateCustomValidator("a b", { pattern: "^b$" }, { stepUpPassword: "pw" });
+    await httpApi.updateCustomValidator("a b", { pattern: "^b$", keepScriptSha256: "ab12" }, { stepUpPassword: "pw" });
     const c = lastCall(f);
     expect(c.url).toBe("/api/v1/assurance/validators/a%20b");
     expect(c.method).toBe("PUT");
     expect(c.headers.get(STEP_UP_HEADER)).toBe("pw");
-    expect(c.body).toEqual({ pattern: "^b$" });
+    expect(c.body).toEqual({ pattern: "^b$", backup_set_id: "", script_sha256: "ab12" });
+  });
+
+  it("edits with a new script and a set, and sends the hash of nothing", async () => {
+    const f = fetchReturning(wireValidator);
+    vi.stubGlobal("fetch", f);
+    await httpApi.updateCustomValidator("v", { pattern: "^b$", backupSetId: "src/set-1", script: "#!/bin/sh\n" });
+    expect(lastCall(f).body).toEqual({ pattern: "^b$", backup_set_id: "src/set-1", script: "#!/bin/sh\n" });
+  });
+
+  it("reads the ambiguities and the refused directory a list now carries", async () => {
+    const f = fetchReturning({
+      available: true, directory: "/d", directory_refused: "writable by another account", max_pattern_bytes: 512, max_script_bytes: 262144,
+      max_validators: 64, runner_configured: true, unavailable_reason: "", validators: [], workflow_root: "/w",
+      ambiguities: [{ backup_set_id: "src/set-1", example: "src/set-1/a-1.txt", validators: ["x", "y"] }]
+    });
+    vi.stubGlobal("fetch", f);
+    const got = await httpApi.listCustomValidators();
+    expect(got.directoryRefused).toBe("writable by another account");
+    expect(got.ambiguities).toEqual([{ backupSetId: "src/set-1", example: "src/set-1/a-1.txt", validators: ["x", "y"] }]);
+  });
+
+  it("reads an engine that does not send them as having none", async () => {
+    const f = fetchReturning({ available: true, validators: null });
+    vi.stubGlobal("fetch", f);
+    const got = await httpApi.listCustomValidators();
+    expect(got.directoryRefused).toBe("");
+    expect(got.ambiguities).toEqual([]);
   });
 
   it("removes with DELETE, a CSRF token and no password", async () => {
