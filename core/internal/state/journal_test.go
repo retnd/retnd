@@ -35,7 +35,7 @@ import (
 // is what survives the handle being closed, and an in-memory database is
 // gone the moment it is. The path is returned for the tests that reopen it
 // or inspect it with a second connection.
-func openJournal(t *testing.T) (*Journal, string) {
+func openJournal(t testing.TB) (*Journal, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "journal.db")
 	j, err := Open(context.Background(), path)
@@ -50,7 +50,7 @@ func openJournal(t *testing.T) (*Journal, string) {
 // model.NewArtifactID rather than as a struct literal so a change that made
 // this name invalid would fail loudly instead of producing a journal row
 // nothing else in the product could ever address.
-func testArtifact(t *testing.T) model.ArtifactID {
+func testArtifact(t testing.TB) model.ArtifactID {
 	t.Helper()
 	set, err := model.NewBackupSetID("production", "postgres-primary")
 	if err != nil {

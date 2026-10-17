@@ -1059,7 +1059,7 @@ func journalShape(t *testing.T, j *Journal, set model.BackupSetID) map[string]st
 // driveOneArtifact runs the nominal lifecycle sequence for one artifact,
 // discover through complete, recording the durable local placement at
 // COMMITTED exactly as internal/lifecycle's Commit does.
-func driveOneArtifact(t *testing.T, j *Journal, set model.BackupSetID, name string, at time.Time) {
+func driveOneArtifact(t testing.TB, j *Journal, set model.BackupSetID, name string, at time.Time) {
 	t.Helper()
 	ctx := context.Background()
 	artifact, err := model.NewArtifactID(set, name)

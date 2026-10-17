@@ -16,6 +16,7 @@ func CustomValidatorWire(v CustomValidator) apicontract.CustomValidator {
 	out := apicontract.CustomValidator{
 		Name: v.Name, Pattern: v.Pattern, Anchored: v.Anchored, BackupSetID: v.BackupSetID, Scope: v.Scope, Env: v.Env,
 		ScriptFile: v.ScriptFile, ScriptPresent: v.ScriptPresent, ScriptSha256: v.ScriptSHA256, ScriptSizeBytes: v.ScriptSize,
+		PinnedSha256: v.ScriptPinnedSHA256, ScriptState: v.ScriptState,
 		MatchCount: int64(v.Matches), MatchSets: append([]string{}, v.MatchSets...), ExampleName: v.ExampleName,
 	}
 	if !v.UploadedAt.IsZero() {

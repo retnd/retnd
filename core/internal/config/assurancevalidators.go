@@ -67,11 +67,18 @@ const MaxCustomValidatorRepeat = 255
 // a few long bounded repeats and refuses the multiplied ones.
 const MaxCustomValidatorProgramSize = 1000
 
+// MaxCustomValidatorNameBytes bounds a validator's name. The name is the
+// validator's canonical id (#1220): it is what the activity feed and the
+// journal both record, and the feed withholds an id over 64 bytes.
+const MaxCustomValidatorNameBytes = 64
+
 // CustomValidator is one entry under assurance.validators.
 type CustomValidator struct {
 	// Name selects the script NAME.local.sh in CustomValidatorDir. It
-	// follows validator_id's rules (RecoveryTestScriptName) and is unique
-	// across the deployment.
+	// follows validator_id's rules (RecoveryTestScriptName), is at most
+	// MaxCustomValidatorNameBytes, and is unique across the deployment. It is
+	// also the validator's canonical id: a recovery test it decided is
+	// recorded under it in the activity feed and in the journal.
 	Name string `yaml:"name"`
 
 	// Pattern is a Go RE2 regular expression matched against the artifact's
@@ -87,6 +94,13 @@ type CustomValidator struct {
 	// script starts with. Empty means the entry does not say, and the set's
 	// then the deployment's validator_env decides.
 	Env string `yaml:"env,omitempty"`
+
+	// ScriptSHA256 is the hex SHA-256 of the script the operator approved
+	// (#1222). The service writes it whenever it writes the script, and a
+	// recovery test runs the script only if it still hashes to this. An entry
+	// without one (written before pinning, or by hand) is accepted and runs
+	// as it always did; the next save of the validator pins it.
+	ScriptSHA256 string `yaml:"script_sha256,omitempty"`
 }
 
 // ResolvedCustomValidator is a validated entry, pattern compiled.
@@ -99,6 +113,8 @@ type ResolvedCustomValidator struct {
 	ScriptFile string
 	// Env is what the entry states, "" when it states nothing.
 	Env string
+	// ScriptSHA256 is the pinned hash, "" for an entry with none.
+	ScriptSHA256 string
 }
 
 // ResolveValidatorEnv is the precedence for one run (#1221): the validator's
@@ -249,7 +265,7 @@ func (c *Config) resolveCustomValidators(v *validator, list []CustomValidator) [
 	out := make([]ResolvedCustomValidator, 0, len(list))
 	for i, cv := range list {
 		path := fmt.Sprintf("%s[%d]", p, i)
-		r := ResolvedCustomValidator{Name: cv.Name, Pattern: cv.Pattern}
+		r := ResolvedCustomValidator{Name: cv.Name, Pattern: cv.Pattern, ScriptSHA256: cv.ScriptSHA256}
 		ok := true
 		file, err := RecoveryTestScriptName(cv.Name)
 		if err != nil {
@@ -257,6 +273,10 @@ func (c *Config) resolveCustomValidators(v *validator, list []CustomValidator) [
 			ok = false
 		}
 		r.ScriptFile = file
+		if len(cv.Name) > MaxCustomValidatorNameBytes {
+			v.addf("%s.name: %q is %d bytes and a name may be at most %d; it is the id the activity feed and the journal record for this validator", path, cv.Name, len(cv.Name), MaxCustomValidatorNameBytes)
+			ok = false
+		}
 		folded := strings.ToLower(cv.Name)
 		if j, dup := names[folded]; dup && cv.Name != "" {
 			v.addf("%s.name: %q is already the name of %s[%d] (names are compared without regard to case, since a case-insensitive volume would make them one file); each validator is one script file, so names are unique across the deployment", path, cv.Name, p, j)
@@ -276,6 +296,10 @@ func (c *Config) resolveCustomValidators(v *validator, list []CustomValidator) [
 			} else {
 				r.Env = cv.Env
 			}
+		}
+		if cv.ScriptSHA256 != "" && !IsScriptSHA256(cv.ScriptSHA256) {
+			v.addf("%s.script_sha256: %q is not a SHA-256 in lower-case hex (64 characters); leave it out to run whatever script the file holds, and the next save of the validator will pin it", path, cv.ScriptSHA256)
+			ok = false
 		}
 		if cv.BackupSet != "" {
 			id, err := model.ParseBackupSetID(cv.BackupSet)
@@ -301,6 +325,21 @@ func (c *Config) resolveCustomValidators(v *validator, list []CustomValidator) [
 		}
 	}
 	return out
+}
+
+// IsScriptSHA256 reports whether s is a SHA-256 as 64 lower-case hex digits,
+// the one spelling script_sha256 is written and compared in.
+func IsScriptSHA256(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // CustomValidatorMatch is what MatchCustomValidator found.

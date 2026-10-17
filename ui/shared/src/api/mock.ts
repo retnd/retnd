@@ -54,6 +54,7 @@ import type {
   WorkflowValidation
 } from "./contracts";
 import { RetndError, LOCAL_DESTINATION_ID } from "./contracts";
+import { createMockValidators } from "./mockValidators";
 import type { BackupArtifact, BackupSet, RetentionPlan } from "@shared/types/backup";
 import type {
   RepositoryHealth,
@@ -172,6 +173,13 @@ export const SCENARIOS = [
   "assurance-download-outcomes",
   // A set that declares no recovery-test validator: the run is refused.
   "assurance-no-validator",
+  // Issue #1203: custom recovery-test validators. Every other scenario holds
+  // two (one scoped to a set, one global and not anchored). "validators-none"
+  // holds none, "validators-unavailable" is a deployment with no workflow root
+  // to keep scripts in, and "validators-full" is at the 64 the engine allows.
+  "validators-none",
+  "validators-unavailable",
+  "validators-full",
   // #1111: no validator declared, the newest copy is a .tar.zst, and the
   // built-in structure check runs; the manual run ends "readable".
   "assurance-builtin-check",
@@ -1892,7 +1900,7 @@ function notAcknowledged(
 function mockStepUp(
   password: string | undefined,
   acknowledged: boolean | undefined,
-  kind: "snapshot" | "placement" | "source",
+  kind: "snapshot" | "placement" | "source" | "validator",
   limited = false
 ): Promise<never> | null {
   if (acknowledged !== true)
@@ -1903,7 +1911,12 @@ function mockStepUp(
       : notAcknowledged("RECOVERY_COST_NOT_ACKNOWLEDGED", "a provider restore has a retrieval cost and takes hours, so it needs your explicit acknowledgement");
   const refuse = (code: "STEP_UP_REQUIRED" | "STEP_UP_FAILED" | "RATE_LIMITED", message: string) =>
     Promise.reject(new RetndError({ code, message, correlationId: "cid_mockstepup" }));
-  if (!password) return refuse("STEP_UP_REQUIRED", (kind === "source" ? "a recovery onto the source host" : "a restore") + " asks for your password again");
+  if (!password) {
+    return refuse(
+      "STEP_UP_REQUIRED",
+      (kind === "source" ? "a recovery onto the source host" : kind === "validator" ? "installing a custom validator" : "a restore") + " asks for your password again"
+    );
+  }
   if (limited) return refuse("RATE_LIMITED", "too many password checks in the last minute; wait before trying again");
   if (password !== MOCK_ADMIN_PASSWORD) return refuse("STEP_UP_FAILED", "that password was not accepted");
   return null;
@@ -4288,6 +4301,23 @@ export function createMockApi(
   // answers and what the health report's retainedCount counts (#1186).
   // Read on every call, because writes here mutate the fixtures.
   const retained = (): BackupArtifact[] => padRetained(artifacts.filter((a) => !a.quarantine), retainedPad);
+  // Issue #1203: the custom validators see every backup the journal holds,
+  // quarantined ones included, as the engine's reads do.
+  const validatorsApi = createMockValidators({
+    scenario,
+    backups: () => artifacts.map((x) => ({ id: x.id, setId: x.setId, filename: x.filename })),
+    delay,
+    // The upload and the edit take the gate and, on a profile that re-checks
+    // it, the password; the engine's order is the gate, the transport, the
+    // password. A remove takes none of them.
+    writeRefusal: (password) => {
+      if (gateShut) return gateRefusal();
+      if (!localAccount) return null;
+      const unsent = password ? insecureTransportPasswordCheck() : null;
+      if (unsent) return unsent;
+      return mockStepUp(password, true, "validator", scenario === "step-up-limited");
+    }
+  });
   // Issue #176: a fresh app-store install has no configuration at all.
   // Mutable, because completing setup is what makes it configured — the
   // same one-way transition the real backend makes in-process.
@@ -6017,6 +6047,7 @@ export function createMockApi(
     // Nothing is on record for an id this server never ran (#1200).
     getAssuranceOperation: (operationId) => Promise.reject(operationNotOnRecord(operationId)),
 
+    ...validatorsApi,
     getAssuranceSettings: () => delay(structuredClone(assuranceSettings)),
     listStagingDirectories: (path) => mockHostBrowse(path ?? ""),
     patchAssuranceSettings: (patch) => {

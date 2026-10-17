@@ -252,6 +252,14 @@ func printCustomValidator(w io.Writer, v service.CustomValidator) {
 	}
 	say(w, "  script %s: %s\n", listingText(v.ScriptFile), script)
 	say(w, "  env %s\n", listingText(v.Env))
+	switch v.ScriptState {
+	case service.ScriptStatePinned:
+		say(w, "  pinned in config.yaml at sha256 %s\n", listingText(v.ScriptPinnedSHA256))
+	case service.ScriptStateUnpinned:
+		sayln(w, "  not pinned in config.yaml (written before pinning); it runs as it did, and saving the validator again pins it")
+	case service.ScriptStateEdited:
+		say(w, "  EDITED ON DISK: config.yaml pins sha256 %s, so a test this validator applies to ends could_not_complete without running it; read the script and send it again (update --script) to approve it\n", listingText(v.ScriptPinnedSHA256))
+	}
 	if v.Matches > 0 {
 		say(w, "  matches %d backup(s) in %s, e.g. %s\n", v.Matches, strings.Join(listingTexts(v.MatchSets), ", "), listingText(v.ExampleName))
 	} else {
@@ -599,6 +607,7 @@ func customValidatorFromWire(w apicontract.CustomValidator) service.CustomValida
 	v := service.CustomValidator{
 		Name: w.Name, Pattern: w.Pattern, Anchored: w.Anchored, BackupSetID: w.BackupSetID, Scope: w.Scope, Env: w.Env,
 		ScriptFile: w.ScriptFile, ScriptPresent: w.ScriptPresent, ScriptSHA256: w.ScriptSha256, ScriptSize: w.ScriptSizeBytes,
+		ScriptPinnedSHA256: w.PinnedSha256, ScriptState: w.ScriptState,
 		Matches: int(w.MatchCount), MatchSets: append([]string{}, w.MatchSets...), ExampleName: w.ExampleName,
 	}
 	if t, err := time.Parse(time.RFC3339, w.UploadedAt); err == nil {

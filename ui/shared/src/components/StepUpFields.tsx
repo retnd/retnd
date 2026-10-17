@@ -19,7 +19,7 @@
 import { Acknowledgement } from "@shared/components/Acknowledgement";
 
 /** The act a password check is for, which decides the words. */
-export type StepUpAct = "restore" | "source";
+export type StepUpAct = "restore" | "source" | "validator";
 
 const WORDS: Record<StepUpAct, { help: string; nothing: string; start: string; terminal: string }> = {
   restore: {
@@ -33,6 +33,14 @@ const WORDS: Record<StepUpAct, { help: string; nothing: string; start: string; t
     nothing: "Nothing was written to the source host.",
     start: "Enter your password to write onto the source host.",
     terminal: "write onto the source host from the web interface. Run retnd recover --acknowledge-source-write on the host."
+  },
+  // #1203: an upload puts new code where the engine will run it, so it asks
+  // the way a write onto the source host does.
+  validator: {
+    help: "Uploading a script asks for your password again. It is sent once with this request and not kept.",
+    nothing: "No validator was uploaded or changed.",
+    start: "Enter your password to upload the validator.",
+    terminal: "upload a validator from the web interface. Run retnd assurance validators add on the host."
   }
 };
 

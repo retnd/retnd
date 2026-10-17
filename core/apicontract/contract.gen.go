@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "f302df46d728512dc95b8856fbfb58dc761be7b8eba52395f33392eb49ebb417"
+const ContractSHA256 = "e2cf09fac616dc93d05c57871d9dcb0976e8efd7de370475524611573ab071a9"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -2449,11 +2449,13 @@ type CustomValidator struct {
 	MatchSets       []string               `json:"match_sets"`
 	Name            string                 `json:"name"`
 	Pattern         string                 `json:"pattern"`
+	PinnedSha256    string                 `json:"pinned_sha256"`
 	Scope           string                 `json:"scope"`
 	ScriptFile      string                 `json:"script_file"`
 	ScriptPresent   bool                   `json:"script_present"`
 	ScriptSha256    string                 `json:"script_sha256"`
 	ScriptSizeBytes int64                  `json:"script_size_bytes"`
+	ScriptState     string                 `json:"script_state"`
 	UploadedAt      string                 `json:"uploaded_at"`
 }
 

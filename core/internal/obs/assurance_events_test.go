@@ -18,6 +18,7 @@ func TestAssuranceEventNamesAreStable(t *testing.T) {
 		"EventRecoveryTestStart":             {EventRecoveryTestStart, "recovery_test_start"},
 		"EventRecoveryTestEnd":               {EventRecoveryTestEnd, "recovery_test_end"},
 		"EventRecoveryTestValidatorFallback": {EventRecoveryTestValidatorFallback, "recovery_test_validator_fallback"},
+		"EventRecoveryTestValidatorEdited":   {EventRecoveryTestValidatorEdited, "recovery_test_validator_edited"},
 		"ActionRecovery":                     {ActionRecovery, "recovery"},
 		"ActionRecoveryTest":                 {ActionRecoveryTest, "recovery_test"},
 	} {
