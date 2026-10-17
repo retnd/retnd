@@ -14,7 +14,7 @@ import { CustomValidatorDialog } from "./CustomValidatorDialog";
 const current = {
   name: "billing-dump", pattern: "^b$", backupSetId: "production/billing-mysql", scope: "backup_set" as const, anchored: true,
   env: "workflow" as const,
-  scriptFile: "billing-dump.local.sh", scriptPresent: true, scriptSha256: "feedbeef", scriptSizeBytes: 3, uploadedAt: "",
+  scriptFile: "billing-dump.local.sh", scriptPresent: true, scriptSha256: "feedbeef", pinnedSha256: "feedbeef", scriptState: "pinned" as const, scriptSizeBytes: 3, uploadedAt: "",
   matchCount: 0, matchSets: [], exampleName: ""
 };
 
