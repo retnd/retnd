@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/internal/obs"
 )
 
@@ -20,7 +19,7 @@ import (
 // (migration 0018) can, because every line a recovery test writes carries its
 // op_id, and since #1200 so does a scrub started with "scrub now". That
 // record keeps a run's start, the LAST stage it reached (stage lines are
-// coalesced) and its end, for 30 days.
+// coalesced) and its end, for activityRetention.
 //
 // So this reads the record by op_id and adds whatever of the run the ring
 // still holds, merged by sequence, because the writer batches (a line can be
@@ -30,11 +29,13 @@ import (
 // the lines can't carry is "still running in this process", and the
 // registry of running operations answers that.
 //
-// Nothing on record is ErrOperationNotFound: an id that never existed, and
-// one whose lines were pruned, look the same from here, and a caller says so
-// in those words.
+// Nothing on record is ErrOperationNotFound (NotOnRecordWords): an id that
+// never existed, and one whose lines were pruned, look the same from here.
+// A run this process is running is never that, even before it has written a
+// line: the registry is asked first.
 
-// The states an assurance operation can be in, as the record says.
+// The states an assurance operation can be in, as the record says. They are a
+// closed vocabulary, declared as an enum in the OpenAPI document.
 const (
 	AssuranceOpRunning        = "running"
 	AssuranceOpPassed         = "passed"
@@ -46,6 +47,22 @@ const (
 	// running it stopped before it could write one.
 	AssuranceOpUnfinished = "unfinished"
 )
+
+// AssuranceOpStates and AssuranceOpKinds are the vocabularies, for a test
+// that holds the service to the contract's enums.
+var (
+	AssuranceOpStates = []string{
+		AssuranceOpRunning, AssuranceOpPassed, AssuranceOpFailed, AssuranceOpDidNotComplete, AssuranceOpCancelled, AssuranceOpUnfinished,
+	}
+	AssuranceOpKinds = []string{opKindScrub, opKindRecoveryTest, obs.ActionRecovery}
+)
+
+// NotOnRecordWords is what a caller says for an id nothing is on record
+// under, so the route, the terminal and the page use one sentence and the
+// retention is stated once.
+func NotOnRecordWords() string {
+	return fmt.Sprintf("nothing is on record for this operation id: it never existed here, or its lines were pruned (a run's lines are kept for %d days)", int(activityRetention.Hours()/24))
+}
 
 // AssuranceOperationRecord is one scrub's or recovery test's lines and what
 // they add up to.
@@ -89,13 +106,18 @@ func (b *BackupService) AssuranceOperation(ctx context.Context, id string) (Assu
 	}
 	events = append(events, b.activity.linesOf(id)...)
 	events = uniqueBySequence(events)
+	op := b.ops.get(id)
 	if len(events) == 0 {
-		return AssuranceOperationRecord{}, fmt.Errorf("%w: nothing is on record for %q; a run's lines are kept for 30 days", ErrOperationNotFound, id)
+		if op == nil {
+			return AssuranceOperationRecord{}, fmt.Errorf("%w: %s", ErrOperationNotFound, NotOnRecordWords())
+		}
+		// Running, and so far silent: the writer batches, and a scrub that
+		// selects nothing writes only at the end. The registry knows it.
+		return AssuranceOperationRecord{
+			OperationID: id, Kind: op.kind, BackupSetID: op.set, State: AssuranceOpRunning, StartedAt: op.startedAt,
+		}, nil
 	}
-	b.ops.mu.Lock()
-	running := b.ops.byID[id] != nil
-	b.ops.mu.Unlock()
-	rec := summariseAssuranceOperation(id, events, running)
+	rec := summariseAssuranceOperation(id, events, op != nil)
 	if rec.BackupSetID == "" {
 		rec.BackupSetID = setID
 	}
@@ -177,7 +199,7 @@ func summariseAssuranceOperation(id string, events []LiveActivityEvent, running 
 			if s := fieldValue(e.Fields, "stage"); s != "" {
 				rec.Stage = s
 			}
-		case obs.EventScrubPass, obs.EventScrubFailure:
+		case obs.EventScrubStart, obs.EventScrubPass, obs.EventScrubFailure:
 			rec.Kind = opKindScrub
 		}
 		switch e.Event {
@@ -195,12 +217,12 @@ func summariseAssuranceOperation(id string, events []LiveActivityEvent, running 
 		rec.EndedAt = end.At
 		rec.Reason = fieldValue(end.Fields, "reason")
 		switch {
+		case fieldValue(end.Fields, "cancelled") == "true":
+			rec.State = AssuranceOpCancelled
 		case end.Result == string(obs.ResultSuccess):
 			rec.State, rec.Stage = AssuranceOpPassed, "complete"
 		case end.Result == string(obs.ResultError):
 			rec.State = AssuranceOpFailed
-		case rec.Reason == app.RecoveryTestCancelledReason:
-			rec.State = AssuranceOpCancelled
 		default:
 			rec.State = AssuranceOpDidNotComplete
 		}

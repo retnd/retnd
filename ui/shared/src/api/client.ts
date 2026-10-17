@@ -2148,17 +2148,27 @@ function fromWireLiveActivityEvent(e: WireLiveActivityEvent): SetActivityEvent {
 }
 
 /** One assurance operation read back from the durable record (issue #1200).
- *  The state and kind are the server's closed vocabularies; anything this
- *  build does not know reads as unfinished and as a recovery test, the
- *  states that claim the least. */
+ *  The state and kind are the contract's closed enums. A value this build
+ *  does not know is refused out loud rather than drawn as something it
+ *  isn't: defaulting it to "unfinished" or to a recovery test would state a
+ *  fact about a run the server never stated. */
+const ASSURANCE_OPERATION_STATES: readonly AssuranceOperationRecord["state"][] = [
+  "running", "passed", "failed", "did_not_complete", "cancelled", "unfinished"
+];
+const ASSURANCE_OPERATION_KINDS: readonly AssuranceOperationRecord["kind"][] = ["scrub", "recovery_test", "recovery"];
+
 function fromWireAssuranceOperation(r: WireAssuranceOperationRecord): AssuranceOperationRecord {
-  const states = ["running", "passed", "failed", "did_not_complete", "cancelled", "unfinished"] as const;
-  const kinds = ["scrub", "recovery_test", "recovery"] as const;
+  if (!ASSURANCE_OPERATION_KINDS.includes(r.kind)) {
+    throw new Error("The server sent an operation of kind " + JSON.stringify(r.kind) + ", which this build does not know. Update the UI.");
+  }
+  if (!ASSURANCE_OPERATION_STATES.includes(r.state)) {
+    throw new Error("The server sent an operation in state " + JSON.stringify(r.state) + ", which this build does not know. Update the UI.");
+  }
   return {
     operationId: r.operation_id,
-    kind: (kinds as readonly string[]).includes(r.kind) ? (r.kind as AssuranceOperationRecord["kind"]) : "recovery_test",
+    kind: r.kind,
     backupSetId: r.backup_set_id,
-    state: (states as readonly string[]).includes(r.state) ? (r.state as AssuranceOperationRecord["state"]) : "unfinished",
+    state: r.state,
     stage: r.stage,
     reason: r.reason,
     startedAt: r.started_at,

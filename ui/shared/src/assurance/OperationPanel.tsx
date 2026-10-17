@@ -77,7 +77,7 @@ export function OperationPanel({
     : operation.state === "failed" ? KIND_LABEL[operation.kind] + " failed"
     : operation.state === "cancelled" ? KIND_LABEL[operation.kind] + " cancelled"
     : operation.state === "untracked" ? KIND_LABEL[operation.kind] + " is no longer on the live feed. Its result lands on the " + LANDS_ON[operation.kind] + " chip."
-    : operation.state === "unfinished" ? KIND_LABEL[operation.kind] + " has no end on record. The process running it stopped before it finished, so it has no result."
+    : operation.state === "unfinished" ? KIND_LABEL[operation.kind] + " has no end on record. It may still be running in another process, or the process running it stopped before it finished."
     : null;
   return (
     <div

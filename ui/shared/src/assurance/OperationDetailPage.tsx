@@ -9,8 +9,10 @@
  * it reached and how it ended. A finished recovery test also shows its
  * validator's output when that output is this run's (the server keeps the
  * newest test's per set, so an older run's would be someone else's). A run
- * with nothing on record is said in words. The terminal twin,
- * `retnd assurance show <id>`, prints the same lines.
+ * with nothing on record is said in words. The terminal counterpart,
+ * `retnd assurance show <id>`, prints the same lines and outcome; the
+ * validator output is `retnd recovery-test <set> --show-output`, and the page
+ * echoes both.
  */
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -20,7 +22,7 @@ import { EmptyState } from "@shared/components/EmptyState";
 import { CommandEcho } from "@shared/pages/CommandEcho";
 import { OperationPanel } from "./OperationPanel";
 import { ValidatorLog } from "./ValidatorLog";
-import { assuranceShowCommand } from "./assuranceCommands";
+import { assuranceShowCommand, showOutputCommand } from "./assuranceCommands";
 import { useOperation } from "./useOperation";
 import type { AssuranceApi, Operation, ValidatorResult } from "./types";
 
@@ -41,6 +43,19 @@ function useRunOutput(api: AssuranceApi | undefined, op: Operation | null): Vali
   return held && held.id === id ? held.result : null;
 }
 
+/** The page's two reads, as commands: the run's lines and outcome, and, for a
+ *  recovery test, the validator output the page shows under them. The record
+ *  behind `assurance show` does not carry that output (it is kept per set),
+ *  so the second command is how a terminal gets what the page shows. */
+function terminalCommands(opId: string, op: Operation | null): string[] {
+  const out = [assuranceShowCommand(opId)];
+  // Only a test that ended has output of its own to show.
+  if (op && op.kind === "recovery_test" && op.setId && (op.state === "complete" || op.state === "failed" || op.state === "cancelled")) {
+    out.push(showOutputCommand(op.setId));
+  }
+  return out;
+}
+
 export function OperationDetailPage({ readOnly }: { readOnly: boolean }) {
   const { id } = useParams();
   const api = useApi().assurance;
@@ -57,10 +72,15 @@ export function OperationDetailPage({ readOnly }: { readOnly: boolean }) {
         <EmptyState title="Not available">This server does not offer scrub or recovery operations yet.</EmptyState>
       ) : (
         <div data-assurance="" data-testid="operation-page" style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
-          {op.missing ? (
+          {op.looking ? (
+            <div className="aop" data-testid="operation-looking" role="status">
+              <span className="aop__quiet">Looking for this operation</span>
+            </div>
+          ) : op.missing ? (
             <div className="aop" data-testid="operation-none" role="status">
               <strong>Nothing is on record for this operation.</strong>
-              <span>A run&rsquo;s lines are kept for 30 days, so this one&rsquo;s were pruned, or the id isn&rsquo;t one this deployment ran. Its result, if it had one, is on the chip it fed.</span>
+              {/* The server's own words, which say how long lines are kept. */}
+              <span>{op.error} Its result, if it had one, is on the chip it fed.</span>
             </div>
           ) : (
             <OperationPanel
@@ -76,7 +96,7 @@ export function OperationDetailPage({ readOnly }: { readOnly: boolean }) {
             />
           )}
           {output ? <ValidatorLog result={output} /> : null}
-          {opId ? <CommandEcho label="Read it from the terminal" commands={[assuranceShowCommand(opId)]} /> : null}
+          {opId ? <CommandEcho label="Read it from the terminal" commands={terminalCommands(opId, op.operation)} /> : null}
         </div>
       )}
     </>

@@ -3382,7 +3382,7 @@ export interface RetndApi {
    * GET /assurance/operations/{op} (issue #1200): one scrub or recovery test
    * read back by its id, running or long finished, from the durable activity
    * record. REJECTS with OPERATION_NOT_FOUND (404) when nothing of it is on
-   * record: never an operation here, or its lines were pruned (30 days).
+   * record: never an operation here, or its lines were pruned (the message states the retention).
    */
   getAssuranceOperation(operationId: string): Promise<AssuranceOperationRecord>;
 

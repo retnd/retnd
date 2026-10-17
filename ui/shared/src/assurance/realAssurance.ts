@@ -21,7 +21,7 @@
  * tail, not a record. A run whose lines have fallen off it, or that a
  * reload or a link opens cold, is read back from the durable activity record
  * instead (GET /assurance/operations/{op}, #1200), which keeps each run's
- * start, the last stage it reached and its end for 30 days. Only a run that
+ * start, the last stage it reached and its end for its retention. Only a run that
  * is on neither is reported as `untracked`, which is not a verdict, and the
  * chip is where the result lands.
  *
@@ -39,7 +39,7 @@ import type { AssuranceOperationRecord, RetndApi } from "@shared/api/contracts";
 import { RetndError } from "@shared/api/contracts";
 import type { LiveActivity, SetActivityEvent } from "@shared/types/activity";
 import type { BackupArtifact, BackupPlacement } from "@shared/types/backup";
-import { BUILTIN_CHECK_ID, scrubFailureText, scrubPassText, stageWords } from "./feedText";
+import { BUILTIN_CHECK_ID, scrubLineText, stageWords } from "./feedText";
 import type {
   AchievedClass, ArtifactAssurance, AssuranceApi, ClaimRecord, CopyContent, CopyFailure, Operation, OperationEvent, OperationFeed,
   OperationKind, ValidatorResult
@@ -208,13 +208,12 @@ export class NotFollowable extends Error {
 }
 
 /** Thrown for an operation id the durable record holds nothing of: it was
- *  never one of this deployment's runs, or its lines were pruned (#1200). */
+ *  never one of this deployment's runs, or its lines were pruned (#1200). The
+ *  words are the server's own, which state its retention, so the number is not
+ *  repeated here. */
 export class NotOnRecord extends Error {
-  constructor() {
-    super(
-      "Nothing is on record for this operation. A run's lines are kept for 30 days, so this one's were pruned, " +
-      "or the id isn't one this deployment ran."
-    );
+  constructor(serverWords = "") {
+    super(serverWords || "Nothing is on record for this operation: it never existed here, or its lines were pruned.");
     this.name = "NotOnRecord";
   }
 }
@@ -289,7 +288,8 @@ async function readRun(api: RetndApi, operationId: string, mine: Followed, curso
   const set = live.sets.find((s) => s.setId === mine.setId);
   const lines = (set?.events ?? []).filter((e) => e.fields.op_id === operationId);
   const end = lines.find(isEnd);
-  const cancelled = !!end && end.result === "warn" && mine.cancelRequestedAt > 0;
+  // Stopped on request: the end line says so itself, or this page asked.
+  const cancelled = !!end && end.result === "warn" && (end.fields.cancelled === "true" || mine.cancelRequestedAt > 0);
   const events: OperationEvent[] = lines.map((e) => ({
     seq: e.sequence, at: e.at, stage: e.fields.stage ?? e.event,
     kind: isStart(e) ? "start" : isEnd(e) ? "end" : "stage",
@@ -335,13 +335,13 @@ export function feedFromRecord(rec: AssuranceOperationRecord, cursor: number, ov
   const lines = rec.events.filter((e) => e.sequence > cursor);
   const events: OperationEvent[] = lines.map((e) =>
     rec.kind === "scrub"
-      ? { seq: e.sequence, at: e.at, stage: e.event, kind: "scrub", text: e.event === "scrub_pass" ? scrubPassText(e) : scrubFailureText(e) }
+      ? { seq: e.sequence, at: e.at, stage: e.event, kind: "scrub", text: scrubLineText(e) }
       : {
         seq: e.sequence, at: e.at, stage: e.fields.stage ?? e.event,
         kind: isStart(e) ? "start" : isEnd(e) ? "end" : "stage",
         text: runLineText(rec.kind, e, cancelled && isEnd(e))
       });
-  const state = RECORD_STATE[rec.state] ?? "unfinished";
+  const state = RECORD_STATE[rec.state];
   const end = rec.events.find(isEnd);
   const done = end ? Number(end.fields.bytes) : 0;
   const stage = rec.kind === "scrub" ? (state === "running" ? "scrub" : "complete") : rec.stage || "resolving_copy";
@@ -354,13 +354,14 @@ export function feedFromRecord(rec: AssuranceOperationRecord, cursor: number, ov
   return { operation, events, nextCursor: head };
 }
 
-/** The durable record of one run, or null when it holds nothing of it. Any
- *  other failure is the caller's to handle. */
-async function readRecord(api: RetndApi, operationId: string): Promise<AssuranceOperationRecord | null> {
+/** The durable record of one run. Throws {@link NotOnRecord} when it holds
+ *  nothing of it, in the server's words; any other failure is the caller's
+ *  to handle. */
+async function readRecord(api: RetndApi, operationId: string): Promise<AssuranceOperationRecord> {
   try {
     return await api.getAssuranceOperation(operationId);
   } catch (e) {
-    if (e instanceof RetndError && e.api.code === "OPERATION_NOT_FOUND") return null;
+    if (e instanceof RetndError && e.api.code === "OPERATION_NOT_FOUND") throw new NotOnRecord(e.api.message);
     throw e;
   }
 }
@@ -375,12 +376,12 @@ async function readScrub(api: RetndApi, operationId: string, mine: Followed, cur
   const mineLines = all
     .filter((e) => e.sequence > Math.max(cursor, mine.floor))
     .filter((e) =>
+      (e.event === "scrub_start" && e.fields.op_id === operationId) ||
       (e.event === "scrub_pass" && e.fields.trigger === "manual" && e.fields.scope === "set " + mine.setId) ||
       (e.event === "scrub_failure" && (e.fields.artifact ?? "").startsWith(prefix)))
     .sort((a, b) => a.sequence - b.sequence);
   const events: OperationEvent[] = mineLines.map((e) => ({
-    seq: e.sequence, at: e.at, stage: e.event, kind: "scrub",
-    text: e.event === "scrub_pass" ? scrubPassText(e) : scrubFailureText(e)
+    seq: e.sequence, at: e.at, stage: e.event, kind: "scrub", text: scrubLineText(e)
   }));
   const now = Date.now();
   if (mineLines.length > 0) mine.lastLineAt = now;
@@ -511,22 +512,19 @@ export function createHttpAssurance(api: RetndApi): AssuranceApi {
   const fromRecord = new Set<string>();
 
   const readOperation = async (operationId: string, cursor: number): Promise<OperationFeed> => {
-    if (fromRecord.has(operationId)) {
-      const rec = await readRecord(api, operationId);
-      if (!rec) throw new NotOnRecord();
-      return feedFromRecord(rec, cursor);
-    }
+    if (fromRecord.has(operationId)) return feedFromRecord(await readRecord(api, operationId), cursor);
     let mine = followed.get(operationId);
     if (!mine) {
       try {
         mine = await attach(operationId);
       } catch (e) {
         if (!(e instanceof NotFollowable)) throw e;
-        // Not on the live feed: a finished run, opened cold (#1200).
-        const rec = await readRecord(api, operationId);
-        if (!rec) throw new NotOnRecord();
-        fromRecord.add(operationId);
-        return feedFromRecord(rec, cursor);
+        // Not on the live feed: a run opened cold (#1200). Finished, it is
+        // read from the record from now on; running, the live feed is asked
+        // again next time, in case it has caught up.
+        const fed = feedFromRecord(await readRecord(api, operationId), cursor);
+        if (fed.operation.state !== "running") fromRecord.add(operationId);
+        return fed;
       }
     }
     const live = mine.kind === "scrub" ? await readScrub(api, operationId, mine, cursor) : await readRun(api, operationId, mine, cursor);
@@ -536,9 +534,8 @@ export function createHttpAssurance(api: RetndApi): AssuranceApi {
     const lost = live.operation.state === "untracked";
     const blind = live.operation.state === "running" && mine.kind !== "scrub" && !mine.sawLines;
     if (!lost && !blind) return live;
-    let rec: AssuranceOperationRecord | null = null;
-    try { rec = await readRecord(api, operationId); } catch { /* the live answer stands */ }
-    if (!rec) return live;
+    let rec: AssuranceOperationRecord;
+    try { rec = await readRecord(api, operationId); } catch { return live; }
     const fed = feedFromRecord(rec, cursor, {
       ...(mine.joined ? { joined: true } : {}),
       ...(rec.state === "running" && mine.cancelRequestedAt > 0 ? { cancelling: true } : {})

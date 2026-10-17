@@ -63,7 +63,12 @@ type assuranceOp struct {
 	artifact string
 	ack      bool
 
-	cancel context.CancelFunc
+	// cancel ends the work's context. A cancel request passes
+	// app.ErrOperationCancelled as the cause, which is how the work tells a
+	// stop on request from the context ending for another reason (#1200).
+	cancel context.CancelCauseFunc
+	// startedAt is when the operation was registered.
+	startedAt time.Time
 }
 
 // assuranceOps is the registry of running operations.
@@ -88,7 +93,18 @@ func (r *assuranceOps) add(op *assuranceOp) {
 	if r.byID == nil {
 		r.byID = map[string]*assuranceOp{}
 	}
+	if op.startedAt.IsZero() {
+		op.startedAt = time.Now().UTC()
+	}
 	r.byID[op.id] = op
+}
+
+// get is the operation running under id, or nil. It is the one way to ask
+// the registry, so nothing outside it reaches into mu.
+func (r *assuranceOps) get(id string) *assuranceOp {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.byID[id]
 }
 
 // finish removes the operation and releases its context.
@@ -98,7 +114,7 @@ func (r *assuranceOps) finish(id string) {
 	delete(r.byID, id)
 	r.mu.Unlock()
 	if op != nil {
-		op.cancel()
+		op.cancel(nil)
 	}
 }
 
@@ -183,12 +199,12 @@ func (b *BackupService) StartScrub(_ context.Context, id string, _ ScrubOptions)
 		return ScrubStarted{}, err
 	}
 	opID := uuid.NewString()
-	ctx, cancel := context.WithCancel(b.ctx)
+	ctx, cancel := context.WithCancelCause(b.ctx)
 
 	b.ops.mu.Lock()
 	if b.ops.running(opKindScrub, set.String()) != nil {
 		b.ops.mu.Unlock()
-		cancel()
+		cancel(nil)
 		return ScrubStarted{}, ErrScrubRunning
 	}
 	b.ops.add(&assuranceOp{id: opID, kind: opKindScrub, set: set.String(), cancel: cancel})
@@ -218,13 +234,11 @@ func (b *BackupService) StartScrub(_ context.Context, id string, _ ScrubOptions)
 // (never started, already finished, or another process's) is
 // ErrOperationNotFound.
 func (b *BackupService) CancelAssuranceOperation(_ context.Context, id string) (AssuranceOperationCancelled, error) {
-	b.ops.mu.Lock()
-	op := b.ops.byID[id]
-	b.ops.mu.Unlock()
+	op := b.ops.get(id)
 	if op == nil || id == "" {
 		return AssuranceOperationCancelled{}, fmt.Errorf("%w: no scrub or recovery test is running under %q", ErrOperationNotFound, id)
 	}
-	op.cancel()
+	op.cancel(app.ErrOperationCancelled)
 	return AssuranceOperationCancelled{OperationID: op.id, Kind: op.kind, BackupSetID: op.set, Status: "cancelling"}, nil
 }
 

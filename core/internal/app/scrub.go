@@ -66,9 +66,10 @@ type ScrubRequest struct {
 	AllowEgress bool
 
 	// OpID is the operation id an operator's "scrub now" was answered with
-	// (service.StartScrub). It rides on the pass's lines as op_id, so the
-	// durable activity record can answer "what did this scrub do" by that
-	// id (#1200). Empty for a scheduled pass and for the CLI's own scrub.
+	// (service.StartScrub). It rides on the pass's start, failure and pass
+	// lines as op_id, so the durable activity record can answer "what did
+	// this scrub do" by that id (#1200). Empty for a scheduled pass and for
+	// the CLI's own scrub.
 	OpID string
 }
 
@@ -86,7 +87,10 @@ type ScrubSetReport struct {
 type ScrubSummary struct {
 	Trigger string
 	Scope   string
-	Sets    []ScrubSetReport
+	// OpID is the operation id of an operator's scrub now, which every line
+	// of the pass carries as op_id (#1200). Empty for a scheduled pass.
+	OpID string
+	Sets []ScrubSetReport
 
 	Selected, Checked, Passed, Failed, CouldNotComplete, RequiresRestore int
 	SkippedHeld, SkippedLeased, Refused                                  int
@@ -170,13 +174,16 @@ func (s *Service) Scrub(ctx context.Context, req ScrubRequest) (ScrubSummary, er
 
 	started := s.now()
 	sum := ScrubSummary{Trigger: req.Trigger, Scope: scrubScope(req)}
-	// The pass's lines carry the operation id, read back off the context
-	// where they are written, so it is not a field of the summary (#1200).
-	ctx = context.WithValue(ctx, scrubOpKey{}, req.OpID)
+	sum.OpID = req.OpID
 
 	sets, err := s.scrubTargets(req)
 	if err != nil {
 		return sum, err
+	}
+	if req.OpID != "" {
+		// An operator's scrub is on the record from its first moment, so it
+		// can be read back by its id while it runs (#1200).
+		s.logger().ScrubStart(ctx, obs.ScrubStartInfo{Trigger: req.Trigger, Scope: sum.Scope, OpID: req.OpID})
 	}
 
 	holds := BackupSetHoldsFrom(ctx)
@@ -283,7 +290,7 @@ func (s *Service) tally(ctx context.Context, sum *ScrubSummary, set model.Backup
 		// asked passed and the trouble was elsewhere (a hook that would not
 		// start). The artifact could not be checked, and it is said once.
 		sum.CouldNotComplete++
-		s.logger().ScrubFailure(ctx, scrubOpOf(ctx), e.Artifact.String(), "", "", e.Err.Error())
+		s.logger().ScrubFailure(ctx, obs.ScrubFailureInfo{OpID: sum.OpID, Artifact: e.Artifact.String(), Reason: e.Err.Error()})
 	}
 	// QC-04: what a destination holds that the journal does not know, and the
 	// destinations that could not be asked. Findings, not copy outcomes: none
@@ -321,11 +328,11 @@ func (s *Service) tallyCopy(ctx context.Context, sum *ScrubSummary, a model.Arti
 	case c.Verdict == state.ScrubFailed:
 		sum.Checked++
 		sum.Failed++
-		s.logger().ScrubFailure(ctx, scrubOpOf(ctx), a.String(), c.Medium, string(c.Class), c.Reason)
+		s.logger().ScrubFailure(ctx, obs.ScrubFailureInfo{OpID: sum.OpID, Artifact: a.String(), Medium: c.Medium, Class: string(c.Class), Reason: c.Reason})
 		return true
 	case c.Verdict == state.ScrubCouldNotComplete:
 		sum.CouldNotComplete++
-		s.logger().ScrubFailure(ctx, scrubOpOf(ctx), a.String(), c.Medium, string(c.Class), c.Reason)
+		s.logger().ScrubFailure(ctx, obs.ScrubFailureInfo{OpID: sum.OpID, Artifact: a.String(), Medium: c.Medium, Class: string(c.Class), Reason: c.Reason})
 		return true
 	}
 	return false
@@ -333,19 +340,13 @@ func (s *Service) tallyCopy(ctx context.Context, sum *ScrubSummary, a model.Arti
 
 // finishScrub writes the durable pass row, when the pass did anything worth
 // a row, and the one pass event. Both happen even when the pass was cut
-// short: counts of what did run are still true.
-// scrubOpKey carries a scrub now's operation id to the lines its pass
-// writes (ScrubRequest.OpID).
-type scrubOpKey struct{}
-
-func scrubOpOf(ctx context.Context) string {
-	id, _ := ctx.Value(scrubOpKey{}).(string)
-	return id
-}
-
+// short: counts of what did run are still true. An operator's scrub always
+// gets its pass event, row or not, because its start line is on the record
+// and a run with a start and no end would read as unfinished for good.
 func (s *Service) finishScrub(ctx context.Context, journal scrubJournal, sum ScrubSummary, started time.Time) ScrubSummary {
 	finished := s.now()
-	if sum.Selected > 0 || sum.SkippedHeld > 0 || sum.SkippedLeased > 0 || sum.CouldNotComplete > 0 {
+	worthARow := sum.Selected > 0 || sum.SkippedHeld > 0 || sum.SkippedLeased > 0 || sum.CouldNotComplete > 0
+	if worthARow {
 		id, err := journal.RecordScrubPass(context.WithoutCancel(ctx), state.ScrubPass{
 			TriggeredBy: sum.Trigger, Scope: sum.Scope, StartedAt: started, FinishedAt: finished,
 			Selected: sum.Selected, Checked: sum.Checked, Passed: sum.Passed, Failed: sum.Failed,
@@ -356,8 +357,10 @@ func (s *Service) finishScrub(ctx context.Context, journal scrubJournal, sum Scr
 			s.logger().Error(ctx, "scrub-pass-record", err)
 		}
 		sum.PassID = id
+	}
+	if worthARow || sum.OpID != "" {
 		s.logger().ScrubPass(ctx, obs.ScrubPassCounts{
-			Trigger: sum.Trigger, Scope: sum.Scope, OpID: scrubOpOf(ctx), Cancelled: errors.Is(ctx.Err(), context.Canceled),
+			Trigger: sum.Trigger, Scope: sum.Scope, OpID: sum.OpID, Cancelled: cancelledOnRequest(ctx),
 			Selected: sum.Selected, Checked: sum.Checked,
 			Passed: sum.Passed, Failed: sum.Failed, CouldNotComplete: sum.CouldNotComplete,
 			RequiresRestore: sum.RequiresRestore, SkippedHeld: sum.SkippedHeld,
@@ -365,6 +368,17 @@ func (s *Service) finishScrub(ctx context.Context, journal scrubJournal, sum Scr
 		})
 	}
 	return sum
+}
+
+// ErrOperationCancelled is the cause an operation's context is cancelled
+// with when an operator asked it to stop (service.CancelAssuranceOperation).
+// A context that ends for any other reason, the service shutting down among
+// them, ends with context.Canceled and is not a cancellation: the work asks
+// for the cause, not the error, to tell the two apart (#1200).
+var ErrOperationCancelled = errors.New("app: operation cancelled on request")
+
+func cancelledOnRequest(ctx context.Context) bool {
+	return errors.Is(context.Cause(ctx), ErrOperationCancelled)
 }
 
 func scrubScope(r ScrubRequest) string {

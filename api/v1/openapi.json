@@ -8019,7 +8019,12 @@
           },
           "kind": {
             "type": "string",
-            "description": "scrub, recovery_test or recovery, read off the run's own lines."
+            "enum": [
+              "scrub",
+              "recovery_test",
+              "recovery"
+            ],
+            "description": "scrub, recovery_test or recovery, read off the run's own lines (or, for a run that has written none yet, off the registry of running operations)."
           },
           "backup_set_id": {
             "type": "string",
@@ -8027,7 +8032,15 @@
           },
           "state": {
             "type": "string",
-            "description": "What the lines add up to: running (no end line, and this engine is running it), passed, failed, did_not_complete (a recovery test that could not complete, a refusal among them, or a scrub that could not check a copy), cancelled (stopped on request), or unfinished (no end line and this engine is not running it: the process running it stopped before it could write one)."
+            "enum": [
+              "running",
+              "passed",
+              "failed",
+              "did_not_complete",
+              "cancelled",
+              "unfinished"
+            ],
+            "description": "What the lines add up to: running (no end line, and this engine is running it), passed, failed, did_not_complete (a recovery test that could not complete, a refusal among them, or a scrub that could not check a copy), cancelled (stopped by a cancel request: the end line says cancelled=true, and a run cut short for any other reason, shutdown included, is did_not_complete), or unfinished (no end line, and this engine is not running it: it may still be running in another process, or the process running it stopped before it could write one)."
           },
           "stage": {
             "type": "string",
@@ -8050,7 +8063,7 @@
             "items": {
               "$ref": "#/components/schemas/LiveActivityEvent"
             },
-            "description": "The run's lines, oldest first, in the live feed's own shape. Never empty: a run with nothing on record is a 404."
+            "description": "The run's lines, oldest first, in the live feed's own shape. Empty only for a run this engine is running that has not written a line yet; a run with nothing on record and not running is a 404."
           }
         },
         "required": [
@@ -19938,7 +19951,7 @@
       "get": {
         "operationId": "getAssuranceOperation",
         "summary": "Read one scrub or recovery test back by its operation id, running or finished: its lines from the durable activity record (and the live feed, while it still holds them) and what they add up to. Read-only.",
-        "description": "Every line a recovery test or recovery writes carries its operation id as op_id, and so does every line of a scrub started with POST /backup-sets/{source}/{set}/scrub, so this finds a run long after the live feed has dropped it. The durable record keeps a run's start, the last stage it reached (stage lines are coalesced) and its end, for 30 days and at most 50,000 rows; while the run is still on the live feed its every stage line is included too. A scrub has no start or stage line, only its scrub_failure lines and its scrub_pass. It is not under /operations, which the destructive gate owns, and answers on a deployment whose gate is shut. The terminal's twin is `retnd assurance show <operation-id>`.",
+        "description": "Every line a recovery test or recovery writes carries its operation id as op_id, and so does every line of a scrub started with POST /backup-sets/{source}/{set}/scrub, so this finds a run long after the live feed has dropped it. The durable record keeps a run's start, the last stage it reached (stage lines are coalesced) and its end, for 30 days and at most 50,000 rows; while the run is still on the live feed its every stage line is included too. A scrub has no stage lines: a scrub_start, its scrub_failure lines and its scrub_pass (which an operator's scrub writes even when it selected nothing). A run this engine is running answers running at once, before it has written a line. It is not under /operations, which the destructive gate owns, and answers on a deployment whose gate is shut. The terminal's twin is `retnd assurance show <operation-id>`.",
         "tags": [
           "assurance"
         ],

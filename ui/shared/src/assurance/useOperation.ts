@@ -17,9 +17,17 @@
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { describeFailure } from "@shared/api/failure";
+import { NotOnRecord } from "./realAssurance";
 import type { AssuranceApi, Operation, OperationEvent } from "./types";
 
 export const POLL_MS = 1000;
+
+/** How long a run that nothing knows yet is looked for before it is said to
+ *  be missing. The writer behind the durable record batches (a line can be a
+ *  quarter of a second from the journal), so an id read right after its start
+ *  can be a 404 for a moment. Longer than that, shorter than a person waits
+ *  for an answer (#1200). */
+export const MISSING_GRACE_MS = 3000;
 
 const NO_EVENTS: OperationEvent[] = [];
 
@@ -48,6 +56,9 @@ interface Reading {
   /** Nothing of the run is on record anywhere (#1200): a pruned run, or an
    *  id that was never one. Said in words, never drawn as an empty panel. */
   missing?: boolean;
+  /** Nothing has answered for this id yet, inside the grace period: it is
+   *  being looked for, which is not the same as being missing. */
+  looking?: boolean;
 }
 const NOTHING: Reading = { operation: null, events: NO_EVENTS, error: null };
 
@@ -77,6 +88,7 @@ function acquire(api: AssuranceApi, id: string, retain: boolean): Follow {
     };
     const publish = (r: Reading) => { entry.reading = r; for (const l of entry.listeners) l(); };
     let cursor = 0;
+    const beganAt = Date.now();
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const tick = async () => {
@@ -101,9 +113,16 @@ function acquire(api: AssuranceApi, id: string, retain: boolean): Follow {
         const message = e instanceof Error ? e.message : "could not read progress";
         // Nothing of the run is on record (#1200): it will not be there a
         // second later, so say so once, in words, and stop asking.
-        const missing = e instanceof Error && e.name === "NotOnRecord";
-        publish({ ...entry.reading, error: message, ...(missing ? { missing } : {}) });
-        if (missing) return;
+        if (e instanceof NotOnRecord) {
+          if (entry.reading.operation === null && Date.now() - beganAt < MISSING_GRACE_MS) {
+            publish({ ...entry.reading, looking: true });
+            timer = setTimeout(tick, POLL_MS);
+            return;
+          }
+          publish({ ...entry.reading, error: message, looking: false, missing: true });
+          return;
+        }
+        publish({ ...entry.reading, error: message });
         // An id that is not on the feed will not be there a second later
         // either: say so once and stop asking.
         if (e instanceof Error && e.name === "NotFollowable") return;
@@ -189,5 +208,5 @@ export function useOperation(
   const shown = operation && cancelling === operationId && operation.state === "running" && !operation.cancelling
     ? { ...operation, cancelling: true }
     : operation;
-  return { operation: shown, events, error, cancel, cancelError, missing: !!reading.missing };
+  return { operation: shown, events, error, cancel, cancelError, missing: !!reading.missing, looking: !!reading.looking };
 }

@@ -355,13 +355,12 @@ func (h *handlers) cancelAssuranceOperation(w http.ResponseWriter, r *http.Reque
 
 // getAssuranceOperation reads one scrub or recovery test back by its id
 // (#1200): its lines, oldest first, and what they add up to. An id with
-// nothing on record (never one, or pruned past the record's 30 days) is
+// nothing on record (never one, or pruned past the record's retention) is
 // OPERATION_NOT_FOUND, in words that say both.
 func (h *handlers) getAssuranceOperation(w http.ResponseWriter, r *http.Request) {
 	rec, err := h.backend.AssuranceOperation(r.Context(), chi.URLParam(r, "op"))
 	if errors.Is(err, service.ErrOperationNotFound) {
-		writeError(w, http.StatusNotFound, "OPERATION_NOT_FOUND",
-			"nothing is on record for this operation id: it never existed here, or its lines were pruned (they are kept for 30 days)")
+		writeError(w, http.StatusNotFound, "OPERATION_NOT_FOUND", service.NotOnRecordWords())
 		return
 	}
 	if err != nil {

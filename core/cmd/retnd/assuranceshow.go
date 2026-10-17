@@ -14,8 +14,11 @@ import (
 	"github.com/retnd/retnd/core/service"
 )
 
-// `retnd assurance show <operation-id> [--json]` (#1200): the terminal's twin
-// of the Operation page. It prints one scrub's or recovery test's lines, in
+// `retnd assurance show <operation-id> [--json]` (#1200): the terminal's
+// counterpart of the Operation page's lines and outcome (the page also shows
+// the validator's output, which lives per set and is `recovery-test
+// --show-output`; this prints that command). For the engine's own record of
+// an operation, a different thing, see `retnd operation show`. It prints one scrub's or recovery test's lines, in
 // the line format `activity --follow` uses, under a heading that says what
 // the run was and how it ended, for a run still going or one that finished
 // an hour ago. --json prints the body of GET /assurance/operations/{op}.
@@ -33,7 +36,7 @@ import (
 //
 // An id with nothing on record is an error (exit 1) in words that cover
 // both ways it happens: it never was an operation here, or its lines were
-// pruned past the record's 30 days.
+// pruned past the record's retention.
 
 func cmdAssuranceShow(args []string) int {
 	fs, cfgPath := newFlagSet("assurance show")
@@ -101,7 +104,7 @@ func cmdAssuranceShow(args []string) int {
 }
 
 func notOnRecord(opID string) error {
-	return fmt.Errorf("nothing is on record for operation %s: it was never an operation of this deployment, or its lines were pruned (they are kept for 30 days)", opID)
+	return fmt.Errorf("operation %s: %s", opID, service.NotOnRecordWords())
 }
 
 // assuranceOperationContract renders the service's record in the contract's
@@ -149,6 +152,13 @@ func writeAssuranceOperation(w io.Writer, r apicontract.AssuranceOperationRecord
 	}
 	for _, e := range r.Events {
 		fmt.Fprintln(w, formatFollowEvent(e))
+	}
+	// The Operation page shows the validator's output under a recovery
+	// test; the record doesn't carry it (it is the newest test's, kept per
+	// set), so say where it is rather than leave it looking absent. A test
+	// that never ended has none.
+	if r.Kind == "recovery_test" && r.BackupSetID != "" && r.State != service.AssuranceOpRunning && r.State != service.AssuranceOpUnfinished {
+		fmt.Fprintf(w, "validator output: retnd recovery-test %s --show-output\n", r.BackupSetID)
 	}
 }
 
