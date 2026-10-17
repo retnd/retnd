@@ -164,8 +164,8 @@ describe("D8 the Not configured chip edge is a UI boundary: 3:1 against its fill
       });
     }
   }
-  it("control: the old edge (--text-3 on --surface-3) is under 3:1 in the light theme", () => {
-    expect(ratio(tokenHex("light", "--text-3"), tokenHex("light", "--surface-3"))).toBeLessThan(3);
+  it("control: the old edge (--edge-3, the former --text-3, on --surface-3) is under 3:1 in the light theme", () => {
+    expect(ratio(tokenHex("light", "--edge-3"), tokenHex("light", "--surface-3"))).toBeLessThan(3);
   });
 });
 

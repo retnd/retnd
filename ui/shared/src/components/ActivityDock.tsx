@@ -992,7 +992,7 @@ function DockLog({
             runnable under it. Muted, because it is a header and not an
             event: nothing happened at it. */}
         <InfoTooltip id="activity.dock.preamble" block>
-          <div className="activity-log__time" style={{ color: "var(--text-3)" }}>
+          <div className="activity-log__time">
             {preamble}
           </div>
         </InfoTooltip>
@@ -1001,7 +1001,7 @@ function DockLog({
             name. */}
         {dropped ? (
           <InfoTooltip id="activity.dock.dropped" block>
-            <div style={{ color: "var(--text-3)" }}>
+            <div style={{ color: "var(--term-time)" }}>
               {"──── earlier lines are not held here any more · the full record is on the Activity page ────"}
             </div>
           </InfoTooltip>
@@ -1010,7 +1010,7 @@ function DockLog({
           if (entry.kind === "restart") {
             return (
               <InfoTooltip key={"restart-" + i} id="activity.dock.restart" block>
-                <div style={{ color: "var(--warn)" }}>
+                <div style={{ color: "var(--term-warn)" }}>
                   {restartRule(entry.at)}
                 </div>
               </InfoTooltip>
@@ -1026,7 +1026,7 @@ function DockLog({
             dockReservedHeight) and be clipped by the section's own
             maxHeight, which for a notice about something that has gone
             quiet is the worst possible place to put it. */}
-        <UnfinishedActionsNotice actions={unfinished} />
+        <UnfinishedActionsNotice actions={unfinished} onTerminal />
       </div>
     </>
   );
@@ -1041,7 +1041,7 @@ function DockLine({ event, viewer }: { event: SetActivityEvent; viewer: string |
       <span className="activity-log__time">{line.time}</span>{" "}
       <span
         className="activity-log__time"
-        style={{ color: prefix.action ? "var(--accent)" : "var(--text-3)" }}
+        style={{ color: prefix.action ? "var(--term-accent)" : "var(--term-time)" }}
       >
         {"[" + prefix.label + "]"}
       </span>{" "}
