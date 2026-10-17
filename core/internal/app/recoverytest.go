@@ -161,7 +161,7 @@ func (v stageValidator) choose(artifact model.ArtifactID) validatorChoice {
 		return validatorChoice{custom: m.Validator, req: StageRequest{
 			Set: v.bs, SetDir: config.CustomValidatorDir, LocalOnly: true, Only: m.Validator.ScriptFile,
 			InheritWorkflowEnv: v.workflowEnv(m.Validator.Env),
-			ExpectSHA256: m.Validator.ScriptSHA256,
+			ExpectSHA256:       m.Validator.ScriptSHA256,
 		}}
 	}
 	req := StageRequest{Set: v.bs, SetDir: RecoveryTestSetDir(v.bs.ID), LocalOnly: true, MaxScripts: 1,
