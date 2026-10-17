@@ -91,6 +91,15 @@
 
 ### Fixed
 
+- **A hook whose Host Workflow Runner stops answering is now bounded by its script timeout** (#931). The
+  client only bounded the connect, so a runner that was stopped rather than dead accepted the connection and
+  then never replied to the hello, and the step's `script_timeout` could not end the wait. The run stayed in
+  progress, the set was never scheduled again, and no hold existed to explain why. The handshake now ends
+  with the step's context (and with its own 10 second bound for a caller with no deadline), the connection is
+  closed so a live runner reads the lease as expired, and a step whose timeout ran out while the runner was
+  silent is recorded as `timed_out` with termination unconfirmed (it used to read `transport_lost`), keeping
+  any output it had printed. The run finalises as failed instead of hanging.
+
 - **The Operation page shows what a run did once it has left the live feed** (#1200). It used to draw only
   what the live activity tail held, so a recovery test that had dropped off it read "no longer on the live
   feed" with a stale "Stage 1 of 5", a 0% bar and an empty black terminal strip, and a reload or a link to
