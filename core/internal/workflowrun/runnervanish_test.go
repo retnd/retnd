@@ -180,7 +180,7 @@ func TestRun_ARunWhoseRunnerGoesSilentFinalisesInsideTheBound(t *testing.T) {
 	}
 
 	step := stateOf(t, h.store, "vanish-run", "10-quiesce.local.sh")
-	if step.State != workflow.StateTimedOut {
+	if workflow.State(step.State) != workflow.StateTimedOut {
 		t.Errorf("journal says the step is %q, want timed_out", step.State)
 	}
 
