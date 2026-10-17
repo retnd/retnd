@@ -113,9 +113,9 @@ test.describe("#1188 the anchor styling", () => {
   for (const theme of ["light", "dark"] as const) {
     test(`#1188 the :target highlight is visible and meets 3:1 against the page in the ${theme} theme`, async ({ page }) => {
       await openAt(page, "#assurance");
-      await setTheme(page, theme);
       const card = page.locator("#assurance");
       await expect(card).toBeVisible();
+      await setTheme(page, theme);
       const m = await page.evaluate(() => {
         const el = document.querySelector("#assurance")!;
         const cs = getComputedStyle(el);

@@ -22,6 +22,7 @@ for (const theme of ["light", "dark"] as const) {
   test(`1186 walkthrough (${theme}): 40 then 119 retained backups`, async ({ page }) => {
     test.setTimeout(120_000);
     await open(page, "/?artifacts=40");
+    await expect(page.locator("main")).toBeVisible();
     await setTheme(page, theme);
     await badge(page).hover();
     await beat(page, 2200);
@@ -30,6 +31,7 @@ for (const theme of ["light", "dark"] as const) {
     await beat(page, 1800);
 
     await open(page, "/?artifacts=119");
+    await expect(page.locator("main")).toBeVisible();
     await setTheme(page, theme);
     await beat(page, 2200);
     if (before) await expect(badge(page)).not.toHaveText(">100");

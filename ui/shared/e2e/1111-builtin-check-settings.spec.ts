@@ -109,6 +109,7 @@ test.describe("#1111 a set's own Assurance policy: Built-in check when no valida
 for (const theme of ["light", "dark"] as const) {
   test(`1111 contrast (${theme}): the new text and controls meet WCAG AA`, async ({ page }) => {
     await open(page, "/settings");
+    await expect(page.locator("main")).toBeVisible();
     await setTheme(page, theme);
     await card(page).getByLabel("Recovery test", { exact: true }).selectOption("builtin");
     await card(page).getByLabel(BUILTIN).selectOption("off");

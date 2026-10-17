@@ -157,6 +157,7 @@ test.describe("#985 validator output", () => {
 for (const theme of ["light", "dark"] as const) {
   test(`#985 the operation panel and the validator log meet contrast in the ${theme} theme`, async ({ page }) => {
     await open(page, SET, "assurance-validator-output");
+    await expect(page.locator("main")).toBeVisible();
     await setTheme(page, theme);
     const section = region(page);
     await section.getByRole("button", { name: "Run recovery test" }).click();
