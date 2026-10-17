@@ -61,7 +61,6 @@ const SET: BackupSet = {
   username: "backup-agent",
   remoteFolder: "/backups/postgresql/",
   includePatterns: ["*.dump.zst"],
-  excludePatterns: ["*.tmp"],
   completionMethod: "completion-marker",
   stableForSeconds: 0,
   destination: "/data/backups/production/postgres/",

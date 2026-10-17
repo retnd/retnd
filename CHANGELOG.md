@@ -47,6 +47,11 @@
     hash, keeps working and shows as `unpinned` until its next save pins it; nothing rewrites your file. Keeping
     a script by `script_sha256` is refused for one edited on disk, so the way to approve an edit is to send the
     script. A retnd from before this release also refuses the `script_sha256` key.
+  - The web UI shows and sets a validator's environment (#1233). The Recovery-test validators card has an
+    Environment column ("Minimal environment" or "Workflow environment, secrets included"), the add and edit
+    dialog has a labelled choice that starts on minimal, and a backup's Declare validator line says which
+    environment the validator that would run starts with. Choosing workflow takes the same gate and password as
+    any upload, and the command offered for a shut gate carries `--env workflow`.
 - **`GET /api/v1/assurance/operations/{op}` and `retnd assurance show <operation-id> [--json]`** (#1200). One
   scrub or recovery test read back by the operation id its start returned, running or finished a month ago:
   how it ended (`state` is an enum: `running`, `passed`, `failed`, `did_not_complete`, `cancelled`, or

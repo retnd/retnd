@@ -187,6 +187,9 @@ export const SCENARIOS = [
   "validators-state-unpinned",
   "validators-state-edited",
   "validators-state-missing",
+  // #1233: the environment. billing-dump opts in to the workflow environment
+  // (secrets included); any-tar keeps the minimal one every validator starts with.
+  "validators-env-workflow",
   // #1111: no validator declared, the newest copy is a .tar.zst, and the
   // built-in structure check runs; the manual run ends "readable".
   "assurance-builtin-check",
@@ -408,7 +411,7 @@ const SETS: BackupSet[] = [
     id: "production/postgres-primary", source: "production", set: "postgres-primary", name: "Production PostgreSQL",
     host: "prod-db-01.internal", port: 22, username: "backup-agent",
     remoteFolder: "/backups/postgresql/", includePatterns: ["*.dump.zst"],
-    excludePatterns: ["*.tmp", "*.part"], completionMethod: "completion-marker", stableForSeconds: 0,
+    completionMethod: "completion-marker", stableForSeconds: 0,
     destination: "/data/backups/production/postgres/", retentionIsOverride: false,
     // Issue #845: inherits the deployment's cadence, which is the
     // ordinary case and the one the edit form has to draw as "inherit".
@@ -443,7 +446,7 @@ const SETS: BackupSet[] = [
     id: "production/billing-mysql", source: "production", set: "billing-mysql", name: "Billing MySQL",
     host: "billing-db.internal", port: 22, username: "backup-agent",
     remoteFolder: "/srv/backups/mysql/", includePatterns: ["*.sql.gz"],
-    excludePatterns: ["*.part"], completionMethod: "atomic-rename", stableForSeconds: 0,
+    completionMethod: "atomic-rename", stableForSeconds: 0,
     destination: "/data/backups/production/billing/", retentionIsOverride: false,
     // The one fixture that polls on its own cadence, so every surface
     // that draws an override is exercised against a set that has one.
@@ -489,7 +492,7 @@ const SETS: BackupSet[] = [
     id: "production/auth-config", source: "production", set: "auth-config", name: "Auth service config",
     host: "prod-db-01.internal", port: 22, username: "backup-agent",
     remoteFolder: "/etc/auth-service/backups/", includePatterns: ["*.tar.zst"],
-    excludePatterns: [], completionMethod: "stable-size", stableForSeconds: 300,
+    completionMethod: "stable-size", stableForSeconds: 300,
     destination: "/data/backups/production/auth/",
     retentionIsOverride: true,
     pollIntervalSeconds: null, effectivePollIntervalSeconds: 15 * 60,
@@ -519,7 +522,7 @@ const SETS: BackupSet[] = [
     id: "media/weekly-archive", source: "media", set: "weekly-archive", name: "Media archive",
     host: "media-01.internal", port: 2222, username: "archive",
     remoteFolder: "/export/weekly/", includePatterns: ["*.tar"],
-    excludePatterns: [], completionMethod: "completion-marker", stableForSeconds: 0,
+    completionMethod: "completion-marker", stableForSeconds: 0,
     destination: "/data/backups/media/",
     retentionIsOverride: true,
     pollIntervalSeconds: 6 * 60 * 60, effectivePollIntervalSeconds: 6 * 60 * 60,
@@ -561,7 +564,6 @@ const SETS: BackupSet[] = [
 const PRISTINE_SETS: BackupSet[] = SETS.map((set) => ({
   ...set,
   includePatterns: [...set.includePatterns],
-  excludePatterns: [...set.excludePatterns],
   // The incremental block is copied too (issue #788), because
   // updateBackupSet writes THROUGH it: a shared reference would mean the
   // first test that saves a verification budget edits the pristine copy
@@ -596,7 +598,6 @@ export function resetMockFixtures(): void {
     SETS.push({
       ...set,
       includePatterns: [...set.includePatterns],
-      excludePatterns: [...set.excludePatterns],
       incremental: set.incremental === null ? null : { ...set.incremental }
     });
   }
@@ -2113,7 +2114,6 @@ function mockBackupSetFromCreateRequest(req: CreateBackupSetRequest): BackupSet 
     username: req.user,
     remoteFolder: req.remotePath,
     includePatterns: req.include,
-    excludePatterns: [],
     completionMethod: completionMethodFromStrategy(req.completionStrategy),
     stableForSeconds: req.stableForSeconds ?? 0,
     destination: req.localPath,

@@ -87,11 +87,11 @@
    [data-assurance] section, so the panel carries the same ink rules itself. */
 .aop .eyebrow, .aop .tooltip__icon, .aop .tooltip__close, .aop .tooltip__trigger { color: var(--text-2); }
 
-.aknob { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: baseline; padding: 6px 8px; background: var(--surface-3); border-radius: var(--radius-md); border: 1px dashed var(--text-3); font-size: var(--text-sm); color: var(--text); }
+.aknob { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: baseline; padding: 6px 8px; background: var(--surface-3); border-radius: var(--radius-md); border: 1px dashed var(--edge-3); font-size: var(--text-sm); color: var(--text); }
 .aknob__scope { font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text); }
 
 .avlog { display: flex; flex-direction: column; gap: var(--space-2); }
-.avlog__marker { padding: 2px 8px; border: 1px dashed var(--text-3); border-radius: var(--radius-sm); font-style: italic; color: var(--text); background: var(--warn-quiet); }
+.avlog__marker { padding: 2px 8px; border: 1px dashed var(--edge-3); border-radius: var(--radius-sm); font-style: italic; color: var(--text); background: var(--warn-quiet); }
 .avlog__pre { margin: 0; padding: var(--space-3); background: var(--term-bg); color: var(--term-text); border-radius: var(--radius-md); font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.7; white-space: pre-wrap; word-break: break-all; max-height: 240px; overflow: auto; }
 
 .anotice { border: 2px solid var(--warn); background: var(--warn-quiet); border-radius: var(--radius-md); padding: var(--space-3); color: var(--text); }
@@ -115,19 +115,19 @@
 /* A UI component's boundary needs 3:1 against what it sits on. The shared
    --border-strong is 1.69:1 on the light surface and 1.81:1 on the dark one, so
    inside the assurance surfaces the edges of inputs, selects, chips, readouts
-   and bars take --text-3 (3.39:1 and 3.85:1), an existing token. The shared
+   and bars take --edge-3 (3.35:1 and 3.85:1 on the surface). The shared
    .input rule and the token are untouched. */
 [data-assurance] .input,
-[data-assurance] select.input { border-color: var(--text-3); }
+[data-assurance] select.input { border-color: var(--edge-3); }
 
 /* The same holds for the operator controls (Scrub now, Run recovery test,
    Show validator output, Save policy): a plain button's edge is --border,
    1.33:1 on the surface. Inside the assurance surfaces, and on the operation
-   page that mounts the panel outside them, the edge takes --text-3 (3.39:1
+   page that mounts the panel outside them, the edge takes --edge-3 (3.35:1
    light, 3.85:1 dark). The primary and destructive buttons keep the edge
    they already have. */
 [data-assurance] .btn:not(.btn--primary):not(.btn--destructive),
-.aop .btn:not(.btn--primary):not(.btn--destructive) { border-color: var(--text-3); }
+.aop .btn:not(.btn--primary):not(.btn--destructive) { border-color: var(--edge-3); }
 
 /* How a browser download ended, read from the engine's feed (item 14). Three
    outcomes, three shapes, and none of them wears the success tokens: a
@@ -201,7 +201,7 @@
 .input.input--bold { border-color: var(--text-2); }
 
 /* The folder browser and the destination drop-down (issue #1179). Colours are
-   existing tokens only. A control's edge takes --text-3 (3.39:1 on the light
+   existing tokens only. A control's edge takes --edge-3 (3.35:1 on the light
    surface, 3.85:1 on the dark one), as every other control in the assurance
    surfaces does, because the shared --border and --border-strong edges are
    1.33:1 to 1.81:1. The folder names are buttons, so each is reachable and
@@ -210,7 +210,7 @@
   display: flex; flex-direction: column; gap: 8px;
   padding: 10px 12px;
   background: var(--surface-2);
-  border: 1px solid var(--text-3); border-radius: var(--radius-md);
+  border: 1px solid var(--edge-3); border-radius: var(--radius-md);
   font-size: var(--text-sm); color: var(--text);
 }
 .hostbrowse__where { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
@@ -224,7 +224,7 @@
 /* What "Use this folder" will set (the review of #1185): the --text-2 label
    pair above, so the same measured ratios hold. */
 .hostbrowse__sets { min-width: 0; overflow-wrap: anywhere; }
-.hostbrowse .btn, [data-assurance] select.select, .selbar select.select { border-color: var(--text-3); }
+.hostbrowse .btn, [data-assurance] select.select, .selbar select.select { border-color: var(--edge-3); }
 
 /* The staging folder field every screen shares (issue #1190): the name, what
    it means on that screen, and the host's folders under it. The meaning line

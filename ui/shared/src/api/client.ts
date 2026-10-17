@@ -842,7 +842,6 @@ function fromWireBackupSet(bs: WireBackupSet, health?: WireBackupSetHealth): Bac
     username: bs.user,
     remoteFolder: bs.remote_path,
     includePatterns: bs.include,
-    excludePatterns: [],
     completionMethod: COMPLETION_STRATEGY_TO_METHOD[bs.completion_strategy] ?? "atomic-rename",
     stableForSeconds: bs.stable_for_seconds,
     destination: bs.local_path,
