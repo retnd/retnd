@@ -17,10 +17,13 @@ const PASSWORD = "correct-horse-battery";
 for (const theme of ["light", "dark"] as const) {
   test(`#1203 walkthrough (${theme}): Settings, pick a suggested pattern, upload, password`, async ({ page }) => {
     await open(page, "/settings", "local-account-profile");
-    await setTheme(page, theme);
     const card = page.getByRole("region", { name: "Recovery-test validators" });
     await card.scrollIntoViewIfNeeded();
     await expect(card).toBeVisible({ timeout: 30_000 });
+    // After the app has booted: the mock now loads lazily, and a theme set
+    // before that is overwritten by the app's own start-up.
+    await setTheme(page, theme);
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
     await beat(page, 1800);
     await card.getByRole("button", { name: "Add validator" }).click();
     const dlg = page.getByRole("dialog", { name: "Add validator" });
@@ -42,9 +45,11 @@ for (const theme of ["light", "dark"] as const) {
 
   test(`#1203 walkthrough (${theme}): a backup's page, Declare validator, a pattern the engine refuses`, async ({ page }) => {
     await open(page, "/backups/production/postgres-primary/postgres-prod-20260828.dump.zst");
-    await setTheme(page, theme);
     const region = page.getByRole("region", { name: "Assurance" });
     await expect(region).toBeVisible({ timeout: 30_000 });
+    // After the app has booted, as above.
+    await setTheme(page, theme);
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
     await beat(page, 1500);
     await region.getByRole("button", { name: "Declare validator" }).click();
     const dlg = page.getByRole("dialog", { name: "Add validator" });
