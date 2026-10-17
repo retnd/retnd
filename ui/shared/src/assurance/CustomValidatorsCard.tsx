@@ -19,6 +19,7 @@ import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { CustomValidatorDialog } from "./CustomValidatorDialog";
 import type { ValidatorDialogMode } from "./CustomValidatorDialog";
 import { lastResultWords, matchWords } from "./customValidators";
+import { ScriptStateCell } from "./ScriptStateCell";
 import { ValidatorScriptDialog } from "./ValidatorScriptDialog";
 
 export function CustomValidatorsCard({ readOnly }: { readOnly: boolean }) {
@@ -150,10 +151,10 @@ export function CustomValidatorsCard({ readOnly }: { readOnly: boolean }) {
 
         {list && list.validators.length > 0 ? (
           <div className="table-scroll">
-            <table className="table" style={{ minWidth: 760 }} aria-label="Custom validators">
+            <table className="table" style={{ minWidth: 900 }} aria-label="Custom validators">
               <thead>
                 <tr>
-                  {["Name", "Pattern", "Applies to", "Matches", "Last test"].map((h) => (
+                  {["Name", "Script", "Pattern", "Applies to", "Matches", "Last test"].map((h) => (
                     <th key={h} scope="col" style={{ color: "var(--text-2)" }}>{h}</th>
                   ))}
                   <th scope="col" style={{ color: "var(--text-2)" }}><span className="visually-hidden">Actions</span></th>
@@ -162,7 +163,8 @@ export function CustomValidatorsCard({ readOnly }: { readOnly: boolean }) {
               <tbody>
                 {list.validators.map((v) => (
                   <tr key={v.name} data-validator={v.name}>
-                    <td className="mono" style={{ overflowWrap: "anywhere" }}>{v.name}</td>
+                    <td className="mono" style={{ overflowWrap: "anywhere", minWidth: 130 }}>{v.name}</td>
+                    <td><ScriptStateCell v={v} /></td>
                     <td>
                       <span className="mono" style={{ overflowWrap: "anywhere" }}>{v.pattern}</span>
                       {!v.anchored ? (

@@ -38,7 +38,7 @@ import { useDestructiveGate } from "@shared/hooks/useDestructiveGate";
 import { useCausl } from "@shared/state/graph";
 import { setsNode } from "@shared/state/appNodes";
 import {
-  addCommand, kib, matchWords, readScriptFile, scriptBytes, scriptProblem, suggestPattern, validatorNameProblem
+  addCommand, canKeepStoredScript, kib, matchWords, readScriptFile, scriptBytes, scriptProblem, scriptStateWords, shortHash, suggestPattern, validatorNameProblem
 } from "./customValidators";
 import { defaultValidatorScript } from "./defaultValidatorScript";
 import { useDialogFocus } from "@shared/hooks/useDialogFocus";
@@ -151,11 +151,14 @@ export function CustomValidatorDialog({
   const shownScriptProblem = script === "" ? null : scriptIssue;
   const atLimit = !edit && list.validators.length >= list.maxValidators;
   const needsPassword = gate.stepUpRequired;
+  // An edit may leave the script empty to keep the stored one, unless the
+  // engine would refuse that (edited on disk, or the file is gone).
+  const mayKeep = edit !== null && canKeepStoredScript(edit);
 
   const ready =
     !submitting && !atLimit && list.available &&
     nameProblem === null &&
-    (edit ? script === "" || scriptIssue === null : scriptIssue === null) &&
+    (mayKeep ? script === "" || scriptIssue === null : scriptIssue === null) &&
     pattern !== "" && judged !== null && judged.valid && judged.conflicts.length === 0 &&
     (!needsPassword || hasPassword);
 
@@ -207,7 +210,7 @@ export function CustomValidatorDialog({
         ? await api.updateCustomValidator(
             edit.name,
             // A replacement: an empty script box keeps the stored script by the hash this list read.
-            script === ""
+            script === "" && mayKeep
               ? { pattern, backupSetId: setId || undefined, keepScriptSha256: edit.scriptSha256, env: edit.env }
               : { pattern, backupSetId: setId || undefined, script, env: edit.env },
             opts
@@ -231,8 +234,9 @@ export function CustomValidatorDialog({
       }
       if ((a?.code as string | undefined) === "VALIDATOR_SCRIPT_CHANGED") {
         setError(
-          "The script on the host changed after this list was read, so nothing was saved. Close this, let the list refresh, " +
-          "read the script as it is now and edit again."
+          "The script on the host changed after this list was read, or was edited on disk since it was last saved, so nothing was " +
+          "saved and the stored script cannot be kept. Close this, let the list refresh, read the script as it is now and edit " +
+          "again, sending the script to approve it."
         );
         return;
       }
@@ -309,6 +313,8 @@ export function CustomValidatorDialog({
           </div>
           {name !== "" && nameProblem ? <div role="alert" data-validator-field-problem="" style={bad}>{nameProblem}</div> : null}
 
+          {edit ? <ScriptStateNote v={edit} /> : null}
+
           <div className="field">
             <label className="field__label" htmlFor="validator-scope">Applies to</label>
             <select id="validator-scope" className="select input input--bold" value={setId} aria-describedby="validator-scope-help" onChange={(e) => setSetId(e.target.value)}>
@@ -382,8 +388,10 @@ export function CustomValidatorDialog({
               <ScriptBox value={script} onChange={onScriptTyped} />
             </div>
             <span id="validator-script-help" style={quiet}>
-              {edit
+              {edit && mayKeep
                 ? "Leave the script empty to keep the one that is uploaded. "
+                : edit
+                ? "The stored script cannot be kept: send the script to approve it. "
                 : "Type it, choose a file, or start from the documented default. "}
               It runs on the retnd host against a recovered copy, so read it as you would any script you put there.
             </span>
@@ -446,6 +454,48 @@ export function CustomValidatorDialog({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** The state of the script being edited, in words (#1230). An edited-on-disk
+ *  script is explained at length because the dialog changes with it: "keep the
+ *  stored script" is gone, the engine refuses it (VALIDATOR_SCRIPT_CHANGED),
+ *  and sending the script is how it is approved. */
+function ScriptStateNote({ v }: { v: CustomValidator }) {
+  const words = scriptStateWords(v.scriptState);
+  return (
+    <div
+      data-validator-script-state=""
+      data-script-state={v.scriptState}
+      role={words.failing ? "alert" : "status"}
+      style={{ display: "flex", flexDirection: "column", gap: 4, ...small, color: words.failing ? "var(--danger)" : "var(--text)" }}
+    >
+      <span style={{ fontWeight: words.failing ? 700 : 600 }}>Script: {words.label}</span>
+      {v.scriptState === "pinned" ? (
+        <span style={{ color: "var(--text-2)" }}>config.yaml pins sha256 {shortHash(v.pinnedSha256)}, and the script on the host has that hash.</span>
+      ) : null}
+      {v.scriptState === "unpinned" ? (
+        <span style={{ color: "var(--text-2)" }}>
+          It was written before pinning and runs as it did. Saving this validator, with or without a new script, pins the script at the
+          hash it has now.
+        </span>
+      ) : null}
+      {v.scriptState === "edited_on_disk" ? (
+        <span>
+          The script on the host no longer matches the hash config.yaml pins (pinned {shortHash(v.pinnedSha256)}, on disk{" "}
+          {shortHash(v.scriptSha256)}), so a recovery test this validator applies to ends could not complete without running it. The
+          stored script cannot be kept: the engine refuses that with VALIDATOR_SCRIPT_CHANGED, because it would approve code nobody has
+          read. Sending the script is how you approve it. Read the one on the host first (Cancel, then View on the card), then paste it,
+          choose a file or start from the default below.
+        </span>
+      ) : null}
+      {v.scriptState === "missing" ? (
+        <span>
+          The script file {v.scriptFile} is not on the host, so a recovery test this validator applies to cannot complete and there is
+          nothing to keep. Restore the file, or send the script below to upload it again.
+        </span>
+      ) : null}
     </div>
   );
 }

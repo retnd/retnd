@@ -22,7 +22,7 @@ const listWith = async (names: string[], resolution?: CustomValidatorList["resol
     ...base,
     validators: names.map((name) => ({
       name, pattern: "^" + name + "$", backupSetId: "", scope: "global" as const, anchored: true, env: "minimal" as const, scriptFile: name + ".local.sh",
-      scriptPresent: true, scriptSha256: "ab", scriptSizeBytes: 1, uploadedAt: "", matchCount: 0, matchSets: [], exampleName: ""
+      scriptPresent: true, scriptSha256: "ab", pinnedSha256: "ab", scriptState: "pinned" as const, scriptSizeBytes: 1, uploadedAt: "", matchCount: 0, matchSets: [], exampleName: ""
     })),
     ...(resolution ? { resolution } : {})
   };

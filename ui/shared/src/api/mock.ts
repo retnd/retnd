@@ -180,6 +180,13 @@ export const SCENARIOS = [
   "validators-none",
   "validators-unavailable",
   "validators-full",
+  // #1230: the script states (#1222). "validators-states" holds one validator
+  // in each of pinned, unpinned, edited_on_disk and missing; the three below
+  // put billing-dump alone in that state (the default has it pinned).
+  "validators-states",
+  "validators-state-unpinned",
+  "validators-state-edited",
+  "validators-state-missing",
   // #1111: no validator declared, the newest copy is a .tar.zst, and the
   // built-in structure check runs; the manual run ends "readable".
   "assurance-builtin-check",
