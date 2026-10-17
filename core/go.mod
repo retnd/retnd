@@ -8,7 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.107.3
 	github.com/aws/aws-sdk-go-v2/service/sts v1.44.1
 	github.com/google/uuid v1.6.0
-	github.com/klauspost/compress v1.19.0
+	github.com/klauspost/compress v1.20.3
 	github.com/kopia/kopia v0.23.1
 	github.com/rclone/rclone v1.75.1
 	golang.org/x/crypto v0.57.0
