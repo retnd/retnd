@@ -225,9 +225,19 @@ describe("storage pressure (\u00a756)", () => {
   // where it does not happen. That refusal is not enforced from here, and
   // this assertion does not pretend to enforce it; what it enforces is
   // that a THIRD removal-shaped call still has to come and argue.
-  it("has exactly two removal operations, and both remove configuration rather than backups", () => {
+  //
+  // removeCustomValidator (#1203) is the third, and here is its argument. It
+  // takes one validator's entry out of config.yaml and its script out of the
+  // workflow root, and nothing else: it never reaches a backup, a copy or a
+  // medium, because a validator only READS a recovered copy. It does take
+  // coverage away, though. The backups that validator matched are tested by
+  // the next check down (validator_id, the set's folder, the built-in check)
+  // from then on, so Settings' confirmation says exactly that before it asks.
+  // The route is CSRF only while the upload, which plants the code, takes the
+  // destructive gate and the password again.
+  it("has exactly three removal operations, and all three remove configuration rather than backups", () => {
     const removals = Object.keys(httpApi).filter((name) => /delete|remove/i.test(name));
-    expect(removals.sort()).toEqual(["removeSet", "removeStorageMedium"]);
+    expect(removals.sort()).toEqual(["removeCustomValidator", "removeSet", "removeStorageMedium"]);
   });
 
   // applyRetention is the one call in the whole surface that removes

@@ -2711,6 +2711,132 @@ export interface AssuranceDue {
   items: AssuranceDueItem[];
 }
 
+/** One custom recovery-test validator (#1203): an operator's NAME.local.sh
+ *  attached to an artifact-name pattern (Go RE2), scoped to one backup set
+ *  or to every set. `backupSetId` is empty for a global one. */
+export interface CustomValidator {
+  name: string;
+  pattern: string;
+  backupSetId: string;
+  scope: "backup_set" | "global";
+  /** False when the pattern is not anchored with ^...$, so it matches
+   *  anywhere in a name. */
+  anchored: boolean;
+  scriptFile: string;
+  scriptPresent: boolean;
+  scriptSha256: string;
+  scriptSizeBytes: number;
+  uploadedAt: string;
+  /** How many existing backups in scope the pattern matches. */
+  matchCount: number;
+  matchSets: string[];
+  exampleName: string;
+  lastResult?: { artifactId: string; at: string; state: string };
+}
+
+/** Which check a recovery test of one backup would run, when the list was
+ *  asked about a backup. */
+export interface CustomValidatorResolution {
+  artifactId: string;
+  /** The custom validator that wins, or empty. */
+  validator: string;
+  /** What decides when no pattern does. */
+  fallback: "" | "validator_id" | "set_directory" | "builtin" | "none";
+  /** Validators at one scope that all matched, which ends a test
+   *  could_not_complete. */
+  ambiguous: string[];
+}
+
+/** The custom validators and what this deployment allows. */
+export interface CustomValidatorList {
+  available: boolean;
+  unavailableReason: string;
+  runnerConfigured: boolean;
+  directory: string;
+  workflowRoot: string;
+  maxValidators: number;
+  maxScriptBytes: number;
+  maxPatternBytes: number;
+  /** Why the stage directory cannot be used (writable by another account,
+   *  owned by one this process does not trust), or empty. While it is set no
+   *  validator script runs, whatever `available` says about uploading. */
+  directoryRefused: string;
+  validators: CustomValidator[];
+  /** Backups already in the journal that two or more patterns at one scope
+   *  match; a recovery test of one ends could not complete. */
+  ambiguities: CustomValidatorAmbiguity[];
+  resolution?: CustomValidatorResolution;
+}
+
+/** One backup that more than one validator's pattern matches at one scope. */
+export interface CustomValidatorAmbiguity {
+  backupSetId: string;
+  /** The newest backup they collide on, source/set/name. */
+  example: string;
+  validators: string[];
+}
+
+/** A pattern suggested from the backups already held. */
+export interface CustomValidatorPattern {
+  pattern: string;
+  example: string;
+  matchCount: number;
+  matchSets: string[];
+  /** The validator already on exactly this pattern, or empty. */
+  validator: string;
+}
+
+export interface CustomValidatorPatterns {
+  backupSetId: string;
+  patterns: CustomValidatorPattern[];
+}
+
+/** What a pattern would match, judged by the engine's RE2. */
+export interface CustomValidatorPreview {
+  valid: boolean;
+  error: string;
+  anchored: boolean;
+  matchCount: number;
+  matchSets: string[];
+  sample: string[];
+  /** Validators at the same scope that already match a backup this one
+   *  matches. */
+  conflicts: Array<{ validator: string; example: string }>;
+}
+
+export interface CustomValidatorPreviewRequest {
+  pattern: string;
+  backupSetId?: string;
+  /** The validator being edited, so it does not collide with itself. */
+  replacing?: string;
+}
+
+/** A validator script's bytes as text, with its identity. */
+export interface ValidatorScript {
+  fileName: string;
+  sha256: string;
+  sizeBytes: number;
+  content: string;
+}
+
+export interface CustomValidatorCreate {
+  name: string;
+  pattern: string;
+  /** Empty for every backup set. */
+  backupSetId?: string;
+  script: string;
+}
+
+/** An edit is a whole replacement (#1213): the pattern and the scope are the
+ *  new ones (an absent `backupSetId` is every set, so a caller that means to
+ *  keep a set sends it again), and the script is either sent or kept by the
+ *  hash the caller last read, never both and never neither. A hash that is no
+ *  longer the stored script's is refused VALIDATOR_SCRIPT_CHANGED. */
+export type CustomValidatorUpdate = {
+  pattern: string;
+  backupSetId?: string;
+} & ({ script: string; keepScriptSha256?: never } | { keepScriptSha256: string; script?: never });
+
 /** The deployment-wide workflow configuration, RESOLVED: the timeout a
  *  hook will actually get, the stages that will actually run, the
  *  environment a hook will actually see. That is why this read exists
@@ -3947,6 +4073,18 @@ export interface RetndApi {
   patchBackupSetAssurance(source: string, set: string, patch: BackupSetAssurancePatch): Promise<BackupSetAssurance>;
   resetBackupSetAssurance(source: string, set: string): Promise<BackupSetAssurance>;
   listAssuranceDue(filter?: { backupSetId?: string; status?: "all" | "due" | "overdue" }): Promise<AssuranceDue>;
+
+  /** Issue #1203: the custom recovery-test validators. Reads are plain; an
+   *  upload or an edit takes the destructive gate and the password again
+   *  (a header, one request, never kept), and a remove is CSRF only. */
+  listCustomValidators(filter?: { backupSetId?: string; artifactId?: string }): Promise<CustomValidatorList>;
+  listCustomValidatorPatterns(backupSetId?: string): Promise<CustomValidatorPatterns>;
+  previewCustomValidator(req: CustomValidatorPreviewRequest, opts?: { signal?: AbortSignal }): Promise<CustomValidatorPreview>;
+  createCustomValidator(req: CustomValidatorCreate, opts?: StepUpOptions): Promise<CustomValidator>;
+  updateCustomValidator(name: string, req: CustomValidatorUpdate, opts?: StepUpOptions): Promise<CustomValidator>;
+  removeCustomValidator(name: string): Promise<CustomValidator>;
+  getCustomValidatorScript(name: string): Promise<ValidatorScript>;
+  getDefaultValidatorScript(): Promise<ValidatorScript>;
 
   /** The deployment-wide environment, and its two writes. Every one of
    *  the three answers with the whole list, because a set or an unset is

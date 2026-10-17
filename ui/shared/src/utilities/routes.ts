@@ -121,6 +121,7 @@ export const SETTINGS_SECTIONS = {
   storageDestinations: "storage-destinations",
   workflow: "workflow",
   assurance: "assurance",
+  validators: "validators",
   notifications: "notifications",
   interface: "interface",
   catalogRecovery: "catalog-recovery",
