@@ -15,34 +15,59 @@ import type { RecoveryTargetSpec } from "@shared/api/contracts";
 
 /** `<source>/<set>`, the same id the web uses for a backup set. */
 export function scrubCommand(setId: string): string {
-  return "retnd scrub " + setId;
+  return "retnd scrub " + shellQuote(setId);
 }
 
 /** `retnd recovery-test <source/backup-set>`: the same test the Run recovery
  *  test control starts, with no cost acknowledged unless the flag says so. */
 export function recoveryTestCommand(setId: string): string {
-  return "retnd recovery-test " + setId;
+  return "retnd recovery-test " + shellQuote(setId);
+}
+
+/** The recovery test of ONE backup of a set (#1174, #1202): the Dashboard's
+ *  row button and the Backups row menu both name the backup they were pressed
+ *  for, the same as the `artifact_id` the route carries. */
+export function recoveryTestArtifactCommand(setId: string, artifactId: string): string {
+  return recoveryTestCommand(setId) + " --artifact " + shellQuote(artifactId);
+}
+
+/** What Retry ingestion does (#662, #1202): `retnd retry <id>` puts one FAILED
+ *  backup back into the pipeline, the same as POST .../{name}/retry. */
+export function retryCommand(artifactId: string): string {
+  return "retnd retry " + shellQuote(artifactId);
+}
+
+/** One backup's own record, the terminal's version of its page: `retnd
+ *  artifacts` with exactly one operand prints that backup's detail. */
+export function artifactCommand(artifactId: string): string {
+  return "retnd artifacts " + shellQuote(artifactId);
+}
+
+/** The Backups list narrowed to one set (#1202), the same narrowing the
+ *  page's `?set=` filter makes. */
+export function artifactsInSetCommand(setId: string): string {
+  return "retnd artifacts --backup-set " + shellQuote(setId);
 }
 
 /** The progress bar and its step count, in a terminal: `--follow` prints each
  *  stage the test enters, in the engine's order, on standard error as it
  *  happens, and the exit status is the test's (#1176). */
 export function recoveryTestFollowCommand(setId: string): string {
-  return "retnd recovery-test " + setId + " --follow";
+  return "retnd recovery-test " + shellQuote(setId) + " --follow";
 }
 
 /** The set's terminal, in a terminal: the live feed narrowed to this set,
  *  which is where a run's output lives (#1176, #1177). `--json` prints the
  *  wire events, stage and stage_label fields included. */
 export function setTerminalCommand(setId: string): string {
-  return "retnd activity --follow --backup-set " + setId;
+  return "retnd activity --follow --backup-set " + shellQuote(setId);
 }
 
 /** What Cancel does: `retnd assurance cancel <operation-id>`, the same call
  *  as POST /assurance/operations/{op}/cancel. The id is the one the scrub or
  *  recovery test returned when it started. */
 export function assuranceCancelCommand(operationId: string): string {
-  return "retnd assurance cancel " + operationId;
+  return "retnd assurance cancel " + shellQuote(operationId);
 }
 
 /** What the Operation page shows: one scrub or recovery test read back by its
@@ -55,13 +80,13 @@ export function assuranceShowCommand(operationId: string): string {
 /** What Show validator output does: print the newest test's stored output,
  *  the body GET .../recovery-test/output serves. It runs no test. */
 export function showOutputCommand(setId: string): string {
-  return "retnd recovery-test " + setId + " --show-output";
+  return "retnd recovery-test " + shellQuote(setId) + " --show-output";
 }
 
 /** A read of every copy's bytes on a storage medium costs egress, so the CLI
  *  makes it two flags rather than one. */
 export function scrubContentCommand(setId: string): string {
-  return "retnd scrub " + setId + " --content --allow-egress";
+  return "retnd scrub " + shellQuote(setId) + " --content --allow-egress";
 }
 
 /**
@@ -72,14 +97,14 @@ export function scrubContentCommand(setId: string): string {
 export function recoverCommand(artifactId: string, target: RecoveryTargetSpec["kind"], where: string, acknowledgeCost: boolean, acknowledgeSource = false): string {
   const to =
     target === "download" ? "--to - > recovered-file"
-    : target === "staging" ? "--to " + stagingName(where)
+    : target === "staging" ? "--to " + stagingTo(where)
     : target === "source" ? sourceTo(where, acknowledgeSource)
-    : "--to medium:" + (where || "<id>");
+    : "--to " + mediumTo(where);
   // The flag goes before a shell redirection, never after it.
   const ack = acknowledgeCost ? " --acknowledge-cost" : "";
   return target === "download"
-    ? "retnd recover " + artifactId + ack + " " + to
-    : "retnd recover " + artifactId + " " + to + ack;
+    ? "retnd recover " + shellQuote(artifactId) + ack + " " + to
+    : "retnd recover " + shellQuote(artifactId) + " " + to + ack;
 }
 
 /**
@@ -90,7 +115,7 @@ export function recoverCommand(artifactId: string, target: RecoveryTargetSpec["k
  * file name repeated on every line was not.
  */
 export function recoverToFileCommand(artifactId: string, filename: string): string {
-  return "retnd recover " + artifactId + " --to - > " + shellQuote(filename);
+  return "retnd recover " + shellQuote(artifactId) + " --to - > " + shellQuote(filename);
 }
 
 /**
@@ -99,13 +124,13 @@ export function recoverToFileCommand(artifactId: string, filename: string): stri
  * --to NAME or medium:ID and --acknowledge-cost, in that order.
  */
 export function recoverSetCommand(setId: string, narrow: "all" | "newest" | "since", since: string, target: "staging" | "storage" | "source", where: string, acknowledgeCost: boolean, acknowledgeSource = false): string {
-  const parts = ["retnd recover --set " + setId];
+  const parts = ["retnd recover --set " + shellQuote(setId)];
   if (narrow === "newest") parts.push("--newest-only");
-  if (narrow === "since") parts.push("--since " + (since || "<date>"));
+  if (narrow === "since") parts.push("--since " + (since ? shellQuote(since) : "<date>"));
   // A whole set onto the production host has to be asked for in so many
   // words in the terminal (#1193's review), so "all" is spelled out there.
   if (narrow === "all" && target === "source") parts.push("--all");
-  parts.push(target === "staging" ? "--to " + stagingName(where) : target === "source" ? sourceTo(where, acknowledgeSource) : "--to medium:" + (where || "<id>"));
+  parts.push(target === "staging" ? "--to " + stagingTo(where) : target === "source" ? sourceTo(where, acknowledgeSource) : "--to " + mediumTo(where));
   if (acknowledgeCost) parts.push("--acknowledge-cost");
   return parts.join(" ");
 }
@@ -116,14 +141,14 @@ export function recoverSetCommand(setId: string, narrow: "all" | "newest" | "sin
  * spelling, and the page does not offer one.
  */
 export function recoverManyCommand(artifactIds: string[], target: "staging" | "storage" | "source", where: string, acknowledgeCost: boolean, acknowledgeSource = false): string {
-  const to = target === "staging" ? "--to " + stagingName(where) : target === "source" ? sourceTo(where, acknowledgeSource) : "--to medium:" + (where || "<id>");
-  return "retnd recover " + artifactIds.join(" ") + " " + to + (acknowledgeCost ? " --acknowledge-cost" : "");
+  const to = target === "staging" ? "--to " + stagingTo(where) : target === "source" ? sourceTo(where, acknowledgeSource) : "--to " + mediumTo(where);
+  return "retnd recover " + artifactIds.map(shellQuote).join(" ") + " " + to + (acknowledgeCost ? " --acknowledge-cost" : "");
 }
 
 /** Issue #1191: the source host, into the named new folder. The colon is
  *  required, like medium:, so a bare `source` stays a staging name. */
 function sourceTo(folder: string, acknowledged: boolean): string {
-  return "--to source:" + folder + (acknowledged ? " --acknowledge-source-write" : "");
+  return "--to " + shellQuote("source:" + folder) + (acknowledged ? " --acknowledge-source-write" : "");
 }
 
 /** A staging name as the terminal must spell it (#1193's review). A name the
@@ -135,6 +160,16 @@ export function stagingName(where: string): string {
   return where.startsWith("-") || where.startsWith("source:") || where.startsWith("medium:") ? "./" + where : where;
 }
 
+/** A staging name, quoted for a shell, or its placeholder when none is given. */
+function stagingTo(where: string): string {
+  return where ? shellQuote(stagingName(where)) : "<name>";
+}
+
+/** A storage destination, `medium:ID`, quoted, or its placeholder. */
+function mediumTo(where: string): string {
+  return where ? shellQuote("medium:" + where) : "medium:<id>";
+}
+
 /** The same pre-flight on its own: nothing is read and nothing is written. */
 export function recoverSetPreflightCommand(setId: string, narrow: "all" | "newest" | "since", since: string, target: "staging" | "storage" | "source", where: string): string {
   return recoverSetCommand(setId, narrow, since, target, where, false) + " --preflight";
@@ -143,12 +178,12 @@ export function recoverSetPreflightCommand(setId: string, narrow: "all" | "newes
 /** A backup set stored by the snapshot engine has restore points, not
  *  artifacts, and `recover` refuses it with this verb's name. */
 export function snapshotRestoreCommand(setId: string): string {
-  return "retnd snapshot restore " + setId + " --to <dir>";
+  return "retnd snapshot restore " + shellQuote(setId) + " --to <dir>";
 }
 
 /** The provider restore on its own, without recovering anything yet. */
 export function thawCommand(artifactId: string): string {
-  return "retnd restore " + artifactId + " --medium <id> --acknowledge";
+  return "retnd restore " + shellQuote(artifactId) + " --medium <id> --acknowledge";
 }
 
 /** The flags `retnd settings assurance patch` and `retnd backup-set assurance`
@@ -171,8 +206,11 @@ export function durationFlag(total: number): string {
   return (h ? h + "h" : "") + (m ? m + "m" : "") + (s ? s + "s" : "");
 }
 
-/** core/cliecho's shellQuote. */
-function shellQuote(v: string): string {
+/** core/cliecho's shellQuote: what a line shows for any value that came from
+ *  outside this file (an id, a file name, a path in the address). A word made
+ *  only of safe characters is printed as it is, anything else in single quotes,
+ *  so a pasted line can never be more than the command it was drawn as. */
+export function shellQuote(v: string): string {
   if (v === "") return "''";
   return /^[A-Za-z0-9_@%+=:,./-]+$/.test(v) ? v : "'" + v.replace(/'/g, "'\\''") + "'";
 }
@@ -199,5 +237,5 @@ export function settingsCommand(patch: AssuranceFlags = {}): string {
 /** `retnd backup-set assurance <set>` for the own policy the per-set Save
  *  would write (#1111), or its `--reset` when the set goes back to following. */
 export function setAssuranceCommand(setId: string, patch: AssuranceFlags | "reset"): string {
-  return ["retnd backup-set assurance " + setId, ...(patch === "reset" ? ["--reset"] : assuranceFlags(patch))].join(" ");
+  return ["retnd backup-set assurance " + shellQuote(setId), ...(patch === "reset" ? ["--reset"] : assuranceFlags(patch))].join(" ");
 }

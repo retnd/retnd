@@ -26,7 +26,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import { fetchResource, useResource } from "@shared/state/resource";
 import { graph } from "@shared/state/graph";
@@ -990,6 +990,15 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
                   Snapshot retention
                 </button>
               </>
+            ) : null}
+            {/* #1202: this set's backups are the Backups list filtered to
+                it, by the URL's own `set` parameter, so the list, its paging
+                and its selection are the ones that page already has. A
+                snapshot set's history is its Snapshots page, above. */}
+            {s.engine !== "kopia" ? (
+              <Link className="btn btn--edge" data-testid="set-backups-link" to={"/backups?set=" + encodeURIComponent(s.id)}>
+                Backups in this set
+              </Link>
             ) : null}
             <InfoTooltip id="sets.detail.preview-retention" alignEnd>
               <button className="btn" disabled={readOnly} onClick={() => setPreviewOpen(true)}>Preview retention</button>
