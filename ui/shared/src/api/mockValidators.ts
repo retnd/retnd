@@ -132,6 +132,10 @@ function seed(scenario: string): CustomValidator[] {
       inState(mk("restore-log", String.raw`^restore-\d{8}\.log$`, ""), "missing")
     ];
   }
+  // #1233: billing-dump has opted in to the workflow environment.
+  if (scenario === "validators-env-workflow") {
+    return [{ ...billing, env: "workflow" }, mk("any-tar", String.raw`\.tar\.zst$`, "")];
+  }
   return [
     single ? inState(billing, single) : billing,
     mk("any-tar", String.raw`\.tar\.zst$`, "")

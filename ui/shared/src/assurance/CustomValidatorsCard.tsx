@@ -20,6 +20,7 @@ import { CustomValidatorDialog } from "./CustomValidatorDialog";
 import type { ValidatorDialogMode } from "./CustomValidatorDialog";
 import { lastResultWords, matchWords } from "./customValidators";
 import { ScriptStateCell } from "./ScriptStateCell";
+import { ValidatorEnvLabel } from "./ValidatorEnvLabel";
 import { ValidatorScriptDialog } from "./ValidatorScriptDialog";
 
 export function CustomValidatorsCard({ readOnly }: { readOnly: boolean }) {
@@ -151,10 +152,10 @@ export function CustomValidatorsCard({ readOnly }: { readOnly: boolean }) {
 
         {list && list.validators.length > 0 ? (
           <div className="table-scroll">
-            <table className="table" style={{ minWidth: 900 }} aria-label="Custom validators">
+            <table className="table" style={{ minWidth: 1050 }} aria-label="Custom validators">
               <thead>
                 <tr>
-                  {["Name", "Script", "Pattern", "Applies to", "Matches", "Last test"].map((h) => (
+                  {["Name", "Script", "Environment", "Pattern", "Applies to", "Matches", "Last test"].map((h) => (
                     <th key={h} scope="col" style={{ color: "var(--text-2)" }}>{h}</th>
                   ))}
                   <th scope="col" style={{ color: "var(--text-2)" }}><span className="visually-hidden">Actions</span></th>
@@ -165,6 +166,7 @@ export function CustomValidatorsCard({ readOnly }: { readOnly: boolean }) {
                   <tr key={v.name} data-validator={v.name}>
                     <td className="mono" style={{ overflowWrap: "anywhere", minWidth: 130 }}>{v.name}</td>
                     <td><ScriptStateCell v={v} /></td>
+                    <td style={{ minWidth: 150 }}><ValidatorEnvLabel env={v.env} /></td>
                     <td>
                       <span className="mono" style={{ overflowWrap: "anywhere" }}>{v.pattern}</span>
                       {!v.anchored ? (
