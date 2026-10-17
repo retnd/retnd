@@ -56,6 +56,9 @@ func (d *dirStages) RunStage(_ context.Context, req StageRequest) (StageResult, 
 	out := StageResult{Configured: len(names) > 0}
 	for _, n := range names {
 		sc := StageScript{Dir: req.SetDir, Name: n, SHA256: strings.Repeat("cd", 32), Target: "local"}
+		if req.ExpectSHA256 != "" && req.ExpectSHA256 != sc.SHA256 {
+			return StageResult{}, fmt.Errorf("%w: %s holds sha256 %s", ErrStageScriptChanged, n, sc.SHA256)
+		}
 		if !req.DryRun {
 			code := d.exit[n]
 			sc.State, sc.Disposition, sc.ExitCode = "success", "exited", &code
