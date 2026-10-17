@@ -28,14 +28,14 @@ import (
 //
 // `assurance list` (#1174) is the terminal's twin of the Dashboard's
 // Assurance tile and is not routed: it reads the journal. `assurance
-// validator` (#1203) is the custom recovery-test validators, in
-// assurancevalidator.go. Starting a scrub or
+// validators` (#1203) is the custom recovery-test validators, in
+// assurancevalidators.go. Starting a scrub or
 // a recovery test is `scrub` and `recovery-test`, and reading the policy is
 // `settings assurance`; none of those is a subcommand of this verb.
 var assuranceVerbs = map[string]func(args []string) int{
-	"cancel":    cmdAssuranceCancel,
-	"list":      cmdAssuranceList,
-	"validator": cmdAssuranceValidator,
+	"cancel":     cmdAssuranceCancel,
+	"list":       cmdAssuranceList,
+	"validators": cmdAssuranceValidators,
 }
 
 func cmdAssurance(args []string) int {
@@ -47,7 +47,7 @@ func cmdAssurance(args []string) int {
 			return verb(append(append([]string{}, args[:i]...), args[i+1:]...))
 		}
 	}
-	return usageError("assurance: expected `assurance list`, `assurance cancel <operation-id>` or `assurance validator ...`")
+	return usageError("assurance: expected `assurance list`, `assurance cancel <operation-id>` or `assurance validators ...`")
 }
 
 func cmdAssuranceCancel(args []string) int {

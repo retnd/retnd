@@ -11,7 +11,7 @@ import (
 	"github.com/retnd/retnd/core/service"
 )
 
-// #1203: `retnd assurance validator`, against a real configuration file and a
+// #1203: `retnd assurance validators`, against a real configuration file and a
 // real workflow root, with nothing serving (so the writes go to the file).
 
 // validatorWorkflowRoot is a workflow root discovery's custody rules accept:
