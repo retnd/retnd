@@ -11,7 +11,10 @@ export const FIXTURE_MARKERS = [
   "aop_validator_fixture",
   "aop_default_policy_fixture",
   "assurance-ingest-failed-scrubbed",
-  "assurance-no-validator"
+  "assurance-no-validator",
+  // #1203: the validators mock and its scenarios.
+  "cid_mockvalidator",
+  "validators-unavailable"
 ];
 
 /** Returns the markers found in a text blob. */
