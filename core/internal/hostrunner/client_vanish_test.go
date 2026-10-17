@@ -131,83 +131,83 @@ func (q *quietRunner) waitEnded(t *testing.T, within time.Duration) {
 	}
 }
 
-type outcome struct {
+type callOutcome struct {
 	elapsed time.Duration
 	err     error
 }
 
-// within runs fn and fails the test if it has not returned by limit. The
+// boundedCall runs fn and fails the test if it has not returned by limit. The
 // goroutine is left behind on failure; the stand-in's cleanup closes its
 // socket.
-func within(t *testing.T, limit time.Duration, fn func() error) outcome {
+func boundedCall(t *testing.T, limit time.Duration, fn func() error) callOutcome {
 	t.Helper()
 	start := time.Now()
 	done := make(chan error, 1)
 	go func() { done <- fn() }()
 	select {
 	case err := <-done:
-		return outcome{elapsed: time.Since(start), err: err}
+		return callOutcome{elapsed: time.Since(start), err: err}
 	case <-time.After(limit):
 		t.Fatalf("still blocked after %s: the call ignores its context and the step's script_timeout never fires", limit)
-		return outcome{}
+		return callOutcome{}
 	}
 }
 
 const (
-	stepBound = 400 * time.Millisecond
-	// slack is generous on purpose: MARS runs these under load.
-	slack = 5 * time.Second
+	vanishBound = 400 * time.Millisecond
+	// vanishSlack is generous on purpose: MARS runs these under load.
+	vanishSlack = 5 * time.Second
 )
 
 func TestExecute_ARunnerThatNeverAnswersTheHelloIsBoundedByTheStepContext(t *testing.T) {
 	q := startQuietRunner(t, quietBeforeWelcome)
 
-	ctx, cancel := context.WithTimeout(context.Background(), stepBound)
+	ctx, cancel := context.WithTimeout(context.Background(), vanishBound)
 	defer cancel()
 
-	got := within(t, slack, func() error {
-		_, err := q.client().Execute(ctx, ExecuteRequest{RunID: "r", StepID: "s", Script: []byte("true"), Timeout: stepBound}, nil)
+	got := boundedCall(t, vanishSlack, func() error {
+		_, err := q.client().Execute(ctx, ExecuteRequest{RunID: "r", StepID: "s", Script: []byte("true"), Timeout: vanishBound}, nil)
 		return err
 	})
 	if got.err == nil {
 		t.Fatal("Execute reported success against a runner that never answered")
 	}
-	q.waitEnded(t, slack)
+	q.waitEnded(t, vanishSlack)
 }
 
 func TestExecute_ARunnerThatGoesSilentMidStepIsBoundedAndKeepsWhatItSaid(t *testing.T) {
 	q := startQuietRunner(t, quietMidStep)
 
-	ctx, cancel := context.WithTimeout(context.Background(), stepBound)
+	ctx, cancel := context.WithTimeout(context.Background(), vanishBound)
 	defer cancel()
 
 	var sink collector
-	got := within(t, slack, func() error {
-		_, err := q.client().Execute(ctx, ExecuteRequest{RunID: "r", StepID: "s", Script: []byte("true"), Timeout: stepBound}, &sink)
+	got := boundedCall(t, vanishSlack, func() error {
+		_, err := q.client().Execute(ctx, ExecuteRequest{RunID: "r", StepID: "s", Script: []byte("true"), Timeout: vanishBound}, &sink)
 		return err
 	})
 	if got.err == nil {
-		t.Fatal("Execute reported success for a step whose runner went silent before any outcome")
+		t.Fatal("Execute reported success for a step whose runner went silent before any callOutcome")
 	}
-	if got.elapsed < stepBound/2 {
-		t.Errorf("returned after %s, well inside the %s bound: it gave up on something other than the bound", got.elapsed, stepBound)
+	if got.elapsed < vanishBound/2 {
+		t.Errorf("returned after %s, well inside the %s bound: it gave up on something other than the bound", got.elapsed, vanishBound)
 	}
 	if len(sink.chunks) != 1 || string(sink.chunks[0].Data) != "quiescing the database\n" {
 		t.Errorf("partial output before the runner went quiet was lost or altered: %+v", sink.chunks)
 	}
-	q.waitEnded(t, slack)
+	q.waitEnded(t, vanishSlack)
 }
 
 func TestExecute_ARunnerThatDiesMidStepReturnsAnErrorAtOnce(t *testing.T) {
 	q := startQuietRunner(t, vanishMidStep)
 
 	var sink collector
-	got := within(t, slack, func() error {
+	got := boundedCall(t, vanishSlack, func() error {
 		_, err := q.client().Execute(context.Background(), ExecuteRequest{RunID: "r", StepID: "s", Script: []byte("true"), Timeout: time.Minute}, &sink)
 		return err
 	})
 	if got.err == nil {
-		t.Fatal("a runner that closed without an outcome was reported as success")
+		t.Fatal("a runner that closed without an callOutcome was reported as success")
 	}
 	if len(sink.chunks) != 1 {
 		t.Errorf("partial output was lost: %+v", sink.chunks)
@@ -224,12 +224,12 @@ func TestOtherOperations_AreBoundedByTheirContextAgainstAQuietRunner(t *testing.
 		for _, mode := range []quietMode{quietBeforeWelcome, quietMidStep} {
 			t.Run(name, func(t *testing.T) {
 				q := startQuietRunner(t, mode)
-				ctx, cancel := context.WithTimeout(context.Background(), stepBound)
+				ctx, cancel := context.WithTimeout(context.Background(), vanishBound)
 				defer cancel()
 
-				got := within(t, slack, func() error { return op(q.client(), ctx) })
+				got := boundedCall(t, vanishSlack, func() error { return op(q.client(), ctx) })
 				if got.err == nil {
-					t.Fatalf("%s reported success against a runner that never produced an outcome", name)
+					t.Fatalf("%s reported success against a runner that never produced an callOutcome", name)
 				}
 			})
 		}
@@ -246,7 +246,7 @@ func TestStatus_AHelloNobodyAnswersIsBoundedEvenWithNoDeadlineFromTheCaller(t *t
 	}
 	q := startQuietRunner(t, quietBeforeWelcome)
 
-	got := within(t, DialTimeout+slack, func() error {
+	got := boundedCall(t, DialTimeout+vanishSlack, func() error {
 		_, err := q.client().Status(context.Background())
 		return err
 	})
