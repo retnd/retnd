@@ -28,7 +28,7 @@ func TestIssue1221_ThePatchDoorsKeepAValidatorEnvTheyDoNotExpose(t *testing.T) {
 	if !strings.Contains(string(raw), "validator_env: workflow") {
 		t.Errorf("a patch dropped the operator's opt-in:\n%s", raw)
 	}
-	cfg, err := config.Load(configPath)
+	cfg, err := config.LoadAndValidate(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestIssue1221_AMisspeltValidatorEnvInTheFileDoesNotLoad(t *testing.T) {
 	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := config.Load(configPath); err == nil || !strings.Contains(err.Error(), "validator_env") {
+	if _, err := config.LoadAndValidate(configPath); err == nil || !strings.Contains(err.Error(), "validator_env") {
 		t.Errorf("Load err = %v, want a refusal naming validator_env", err)
 	}
 }
