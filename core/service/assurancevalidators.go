@@ -56,6 +56,10 @@ import (
 // workflows.max_script_size_bytes binds too when it is smaller.
 const MaxCustomValidatorScriptBytes = 256 << 10
 
+// validatorScanHook is a test seam: it is called with "start" before a
+// journal scan and "listed" after each set's backups were read.
+var validatorScanHook func(stage string, set model.BackupSetID)
+
 // maxPatternSuggestions bounds the suggestions one read returns.
 const maxPatternSuggestions = 200
 
@@ -80,6 +84,9 @@ var (
 	// ErrValidatorsUnavailable is a deployment with nowhere to keep a
 	// script: no workflow root, or one this process cannot write.
 	ErrValidatorsUnavailable = errors.New("service: custom validators cannot be stored on this deployment")
+	// ErrValidatorScriptChanged is an edit that asked to keep a script by its
+	// hash when the stored script is no longer that one.
+	ErrValidatorScriptChanged = errors.New("service: the stored script is not the one this edit was made against")
 )
 
 // ValidatorScript is a script's bytes and identity.
@@ -160,7 +167,12 @@ type CustomValidators struct {
 	// Available says a validator can be uploaded here; Reason says why not.
 	Available         bool
 	UnavailableReason string
-	RunnerConfigured  bool
+	// DirectoryRefused says why the stage directory cannot be used, "" when
+	// it can or is not there yet.
+	DirectoryRefused string
+	RunnerConfigured bool
+	// Ambiguities are backups in scope that two patterns match at one scope.
+	Ambiguities []CustomValidatorAmbiguity
 
 	MaxValidators   int
 	MaxScriptBytes  int64
@@ -179,12 +191,24 @@ type CustomValidatorsFilter struct {
 }
 
 // CreateCustomValidatorRequest uploads a validator, or (Update) replaces
-// one. On an update an empty Script keeps the stored one.
+// one. An update is a whole replacement: it carries either the new Script or
+// the ScriptSHA256 of the stored one it means to keep, and never neither.
 type CreateCustomValidatorRequest struct {
 	Name        string
 	Pattern     string
 	BackupSetID string
 	Script      string
+	// ScriptSHA256 (update only) keeps the stored script, provided it is
+	// still the one with this hash.
+	ScriptSHA256 string
+}
+
+// CustomValidatorAmbiguity is one backup in the journal that more than one
+// validator's pattern matches at the same scope.
+type CustomValidatorAmbiguity struct {
+	BackupSetID string
+	Validators  []string
+	Example     string
 }
 
 // CustomValidatorPreview is what a pattern would do, without saving it.
@@ -734,7 +758,7 @@ func (b *BackupService) writeCustomValidator(ctx context.Context, req CreateCust
 	}
 	cfg.AssuranceBlock = blk
 
-	var undo func()
+	var undo func() error
 	if req.Script != "" {
 		undo, err = writeValidatorScript(root, file, []byte(req.Script))
 		if err != nil {
@@ -743,7 +767,7 @@ func (b *BackupService) writeCustomValidator(ctx context.Context, req CreateCust
 	}
 	if err := b.persistConfig(cfg); err != nil {
 		if undo != nil {
-			undo()
+			_ = undo()
 		}
 		return CustomValidator{}, err
 	}
@@ -824,7 +848,7 @@ func removeValidatorScripts(root workflow.Root, files ...string) {
 
 // writeValidatorScript writes body as dir/file atomically and returns how to
 // put things back as they were.
-func writeValidatorScript(root workflow.Root, file string, body []byte) (func(), error) {
+func writeValidatorScript(root workflow.Root, file string, body []byte) (func() error, error) {
 	dir := filepath.Join(root.Path(), config.CustomValidatorDir)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, unavailableWrite(err, dir)
@@ -842,7 +866,7 @@ func writeValidatorScript(root workflow.Root, file string, body []byte) (func(),
 		return nil, unavailableWrite(err, root.Path())
 	}
 	tmpName := tmp.Name()
-	fail := func(err error) (func(), error) {
+	fail := func(err error) (func() error, error) {
 		_ = tmp.Close()
 		_ = os.Remove(tmpName)
 		return nil, err
@@ -864,12 +888,13 @@ func writeValidatorScript(root workflow.Root, file string, body []byte) (func(),
 		return nil, fmt.Errorf("service: writing %s: %w", file, err)
 	}
 	syncDir(dir)
-	return func() {
+	return func() error {
 		if prevErr == nil {
 			_, _ = writeValidatorScript(root, file, previous)
-			return
+			return nil
 		}
 		_ = os.Remove(target)
+		return nil
 	}, nil
 }
 
