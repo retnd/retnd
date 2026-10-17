@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/retnd/retnd/core/internal/model"
 	"github.com/retnd/retnd/core/internal/state"
 )
 
@@ -17,7 +18,7 @@ func recordValidatorTest(t *testing.T, svc *BackupService, name, validatorID str
 	t.Helper()
 	ctx := context.Background()
 	bs := svc.state.Load().inner.Config.Sources[0].BackupSets[0]
-	a := seedCompleteArtifactAt(t, ctx, svc.journal, bs, name, at.Add(-time.Hour), "/backups/"+name)
+	a := commitArtifactWithLocalCopy(t, svc, bs.ID, name, at.Add(-time.Hour))
 	rt := state.RecoveryTest{
 		Copy: state.CopyRef{Artifact: a, Medium: state.MediumLocal}, State: st, At: at, NextDue: at.Add(time.Hour),
 		ValidatorID: validatorID, ValidatorHash: strings.Repeat("ab", 32),
@@ -70,4 +71,39 @@ func TestListCustomValidators_TheLastResultIsFoundUnderTheNameAndUnderTheOldFile
 	if r := l.Validators[0].LastResult; r == nil || r.Artifact != "production/alpha/MANIFEST-3.txt" {
 		t.Errorf("the newest row, whichever spelling it uses, should be the last result: %+v", r)
 	}
+}
+
+// commitArtifactWithLocalCopy walks one artifact to COMPLETE with a durable
+// local placement, the shape a recovery test is recorded against.
+func commitArtifactWithLocalCopy(t *testing.T, svc *BackupService, set model.BackupSetID, name string, at time.Time) model.ArtifactID {
+	t.Helper()
+	ctx := context.Background()
+	artifact, err := model.NewArtifactID(set, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	size := int64(4096)
+	final := "/backups/" + name
+	partial := final + ".partial"
+	if _, err := svc.journal.Discover(ctx, artifact, name+":discover", "incoming/"+name, state.RemoteIdentity{Size: &size}, at); err != nil {
+		t.Fatal(err)
+	}
+	for _, tr := range []state.Transition{
+		{Artifact: artifact, Key: name + ":transferring", From: "DISCOVERED", To: "TRANSFERRING", OccurredAt: at, LocalPath: &partial},
+		{Artifact: artifact, Key: name + ":transferred", From: "TRANSFERRING", To: "TRANSFERRED", OccurredAt: at, Transfer: &state.TransferResult{BytesTransferred: size}},
+		{Artifact: artifact, Key: name + ":verifying", From: "TRANSFERRED", To: "VERIFYING", OccurredAt: at},
+		{Artifact: artifact, Key: name + ":verified", From: "VERIFYING", To: "VERIFIED", OccurredAt: at, Hashes: &state.HashUpdate{Hash: "abc123", Alg: "sha256"}},
+		{Artifact: artifact, Key: name + ":committing", From: "VERIFIED", To: "COMMITTING", OccurredAt: at},
+		{Artifact: artifact, Key: name + ":committed", From: "COMMITTING", To: "COMMITTED", OccurredAt: at, LocalPath: &final,
+			Placement: &state.PlacementUpdate{Medium: state.MediumLocal, Location: final, Size: &size, Hash: "abc123", HashAlg: "sha256",
+				VerificationClass: state.VerificationContent, Status: state.PlacementActive}},
+		{Artifact: artifact, Key: name + ":pending", From: "COMMITTED", To: "REMOTE_DELETE_PENDING", OccurredAt: at},
+		{Artifact: artifact, Key: name + ":complete", From: "REMOTE_DELETE_PENDING", To: "COMPLETE", OccurredAt: at,
+			Retention: &state.RetentionUpdate{Tier: "daily"}},
+	} {
+		if _, err := svc.journal.RecordTransition(ctx, tr); err != nil {
+			t.Fatalf("-> %s: %v", tr.To, err)
+		}
+	}
+	return artifact
 }
