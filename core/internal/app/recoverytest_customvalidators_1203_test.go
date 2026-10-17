@@ -127,8 +127,8 @@ func TestCustomValidator_TheSetsOwnPatternWinsOverAGlobalPatternAndTheSetsValida
 		t.Errorf("ran %v, want only the set-scoped pattern's script", got)
 	}
 	p := localCopyOf(t, journal, a)
-	if p.RecoveryValidatorID != "set-manifest.local.sh" {
-		t.Errorf("recorded validator = %q", p.RecoveryValidatorID)
+	if p.RecoveryValidatorID != "set-manifest" {
+		t.Errorf("recorded validator = %q, want the validator's name (#1220)", p.RecoveryValidatorID)
 	}
 	asked := stages.asked[0]
 	if asked.Vars["RECOVERY_TEST_VALIDATOR"] != "set-manifest" || asked.Vars["RECOVERY_TEST_SCOPE"] != "backup_set" ||
