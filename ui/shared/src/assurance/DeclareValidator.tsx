@@ -9,6 +9,7 @@ import { useOptionalApi } from "@shared/api/ApiContext";
 import type { CustomValidatorList } from "@shared/api/contracts";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { CustomValidatorDialog } from "./CustomValidatorDialog";
+import { scriptStateWords } from "./customValidators";
 
 export function DeclareValidator({ artifactId, readOnly }: { artifactId: string; readOnly: boolean }) {
   const api = useOptionalApi();
@@ -36,6 +37,9 @@ export function DeclareValidator({ artifactId, readOnly }: { artifactId: string;
 
   if (!api || !list) return null;
   const r = list.resolution;
+  // The validator that would run, with the state its script is in (#1230).
+  const runs = r && r.validator ? list.validators.find((v) => v.name === r.validator) : undefined;
+  const words = runs ? scriptStateWords(runs.scriptState) : null;
   return (
     <div className="card__body" data-validators="" style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap", paddingTop: 0 }}>
       <div style={{ flex: 1, minWidth: 240, fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
@@ -45,6 +49,23 @@ export function DeclareValidator({ artifactId, readOnly }: { artifactId: string;
           <span data-validator-covered="" role="alert" style={{ color: "var(--danger)", fontWeight: 600 }}>
             {r.ambiguous.join(" and ")} both match this name at one scope, so a recovery test of it ends could not complete.
           </span>
+        ) : null}
+        {runs && words ? (
+          <div
+            data-validator-script-state=""
+            data-script-state={runs.scriptState}
+            role={words.failing ? "alert" : undefined}
+            style={words.failing ? { color: "var(--danger)", fontWeight: 600 } : { color: "var(--text)" }}
+          >
+            Script: {words.label}.{" "}
+            {runs.scriptState === "edited_on_disk"
+              ? "A recovery test of this backup ends could not complete until the script is approved: Edit " + runs.name +
+                " on Settings and send the script again."
+              : runs.scriptState === "missing"
+              ? "A recovery test of this backup cannot complete. Restore " + runs.scriptFile +
+                " on the host, or upload the script again from " + runs.name + " on Settings."
+              : words.action}
+          </div>
         ) : null}
         <div role="status" data-validator-declared="" style={{ color: "var(--text)" }}>{said}</div>
       </div>
