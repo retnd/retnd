@@ -54,13 +54,13 @@ describe("CustomValidatorDialog and env (#1221)", () => {
     );
   });
 
-  it("an add sends no env, so it is minimal", async () => {
+  it("an add says minimal out loud (#1233)", async () => {
     const create = vi.fn((req: unknown) => Promise.resolve({ ...current, ...(req as object) }));
     await save({ createCustomValidator: create as never }, { kind: "add" }, [
       ["Name", "fresh"], ["Artifact-name pattern", "^f"], ["Script", "#!/bin/sh\nexit 0\n"]
     ]);
     await waitFor(() => expect(create).toHaveBeenCalled());
     const [req] = create.mock.calls[0] as unknown as [Record<string, unknown>];
-    expect(req).not.toHaveProperty("env");
+    expect(req).toHaveProperty("env", "minimal");
   });
 });

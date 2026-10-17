@@ -187,6 +187,9 @@ export const SCENARIOS = [
   "validators-state-unpinned",
   "validators-state-edited",
   "validators-state-missing",
+  // #1233: the environment. billing-dump opts in to the workflow environment
+  // (secrets included); any-tar keeps the minimal one every validator starts with.
+  "validators-env-workflow",
   // #1111: no validator declared, the newest copy is a .tar.zst, and the
   // built-in structure check runs; the manual run ends "readable".
   "assurance-builtin-check",

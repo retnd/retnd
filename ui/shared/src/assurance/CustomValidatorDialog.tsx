@@ -26,7 +26,7 @@ import type { RefObject } from "react";
 import { useApi } from "@shared/api/ApiContext";
 import { acknowledgeInsecureTransport } from "@shared/api/client";
 import type {
-  CustomValidator, CustomValidatorList, CustomValidatorPatterns, CustomValidatorPreview, StepUpOptions
+  CustomValidator, CustomValidatorList, CustomValidatorPatterns, CustomValidatorPreview, StepUpOptions, ValidatorEnv
 } from "@shared/api/contracts";
 import type { BackupSet } from "@shared/types/backup";
 import { apiErrorOf, describeFailure } from "@shared/api/failure";
@@ -38,7 +38,7 @@ import { useDestructiveGate } from "@shared/hooks/useDestructiveGate";
 import { useCausl } from "@shared/state/graph";
 import { setsNode } from "@shared/state/appNodes";
 import {
-  addCommand, canKeepStoredScript, kib, matchWords, readScriptFile, scriptBytes, scriptProblem, scriptStateWords, shortHash, suggestPattern, validatorNameProblem
+  addCommand, canKeepStoredScript, kib, matchWords, readScriptFile, scriptBytes, scriptProblem, scriptStateWords, shortHash, suggestPattern, validatorEnvWords, validatorNameProblem
 } from "./customValidators";
 import { defaultValidatorScript } from "./defaultValidatorScript";
 import { useDialogFocus } from "@shared/hooks/useDialogFocus";
@@ -78,6 +78,9 @@ export function CustomValidatorDialog({
   // browser's own derivation only while the engine has not answered).
   const [typed, setTyped] = useState<string | null>(edit ? edit.pattern : null);
   const [script, setScript] = useState("");
+  // #1233: an add starts on the minimal environment, an edit on the one the
+  // validator has. Workflow is the operator's own choice, never a default.
+  const [validatorEnv, setValidatorEnv] = useState<ValidatorEnv>(edit?.env ?? "minimal");
   // The sets come from the shell's own node, not a fetch of this dialog's.
   const sets: BackupSet[] = useCausl(setsNode).data ?? [];
   // What the suggestion read last answered, and for which scope: a scope
@@ -211,11 +214,11 @@ export function CustomValidatorDialog({
             edit.name,
             // A replacement: an empty script box keeps the stored script by the hash this list read.
             script === "" && mayKeep
-              ? { pattern, backupSetId: setId || undefined, keepScriptSha256: edit.scriptSha256, env: edit.env }
-              : { pattern, backupSetId: setId || undefined, script, env: edit.env },
+              ? { pattern, backupSetId: setId || undefined, keepScriptSha256: edit.scriptSha256, env: validatorEnv }
+              : { pattern, backupSetId: setId || undefined, script, env: validatorEnv },
             opts
           )
-        : await api.createCustomValidator({ name, pattern, backupSetId: setId || undefined, script }, opts);
+        : await api.createCustomValidator({ name, pattern, backupSetId: setId || undefined, script, env: validatorEnv }, opts);
       onSaved({ validator, edited: edit !== null });
     } catch (e) {
       setSubmitting(false);
@@ -225,7 +228,7 @@ export function CustomValidatorDialog({
           gateRefusalNotice({
             outcome: edit ? "The validator was not changed" : "The validator was not uploaded",
             nothingChanged: "No script was written and nothing was changed.",
-            command: addCommand(name || edit?.name || "", pattern, setId),
+            command: addCommand(name || edit?.name || "", pattern, setId, validatorEnv),
             reason: gate.reason,
             correlationId: a?.correlationId
           })
@@ -364,6 +367,8 @@ export function CustomValidatorDialog({
             ) : null}
           </fieldset>
 
+          <EnvChoice value={validatorEnv} onChange={setValidatorEnv} />
+
           <div className="field">
             <label className="field__label" htmlFor="validator-pattern">Artifact-name pattern</label>
             <input
@@ -429,8 +434,14 @@ export function CustomValidatorDialog({
           <GateNotice
             gate={gate}
             headline="Uploading a validator is refused over HTTP on this deployment."
-            command={addCommand(name || edit?.name || "", pattern, setId)}
+            command={addCommand(name || edit?.name || "", pattern, setId, validatorEnv)}
           />
+          {validatorEnv === "workflow" && (gate.state === "shut" || needsPassword) ? (
+            <div data-env-gate="" style={quiet}>
+              Choosing the workflow environment widens what the uploaded script can see, so it takes the same gate and the same
+              password as an upload.
+            </div>
+          ) : null}
 
           {needsPassword ? (
             <div data-step-up="" style={{ maxWidth: 520 }}>
@@ -496,6 +507,39 @@ function ScriptStateNote({ v }: { v: CustomValidator }) {
           nothing to keep. Restore the file, or send the script below to upload it again.
         </span>
       ) : null}
+    </div>
+  );
+}
+
+/** The environment the script starts with (#1233): two radios in words, the
+ *  minimal one first and chosen on an add. The workflow one says what it
+ *  exposes, and is bold so it reads as the one that needs care. */
+function EnvChoice({ value, onChange }: { value: ValidatorEnv; onChange(v: ValidatorEnv): void }) {
+  return (
+    <div role="radiogroup" aria-labelledby="validator-env-legend" data-validator-env-choice="" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div id="validator-env-legend" className="field__label">Environment</div>
+      {(["minimal", "workflow"] as const).map((env) => {
+        const words = validatorEnvWords(env);
+        return (
+          <div key={env} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+            <input
+              type="radio"
+              id={"validator-env-" + env}
+              name="validator-env"
+              checked={value === env}
+              aria-describedby={"validator-env-" + env + "-help"}
+              onChange={() => onChange(env)}
+              style={{ marginTop: 3 }}
+            />
+            <div style={{ minWidth: 0 }}>
+              <label htmlFor={"validator-env-" + env} style={{ ...small, color: "var(--text)", fontWeight: words.careful ? 700 : 400, cursor: "pointer" }}>
+                {words.label}
+              </label>
+              <div id={"validator-env-" + env + "-help"} style={quiet}>{words.sentence}</div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
