@@ -97,6 +97,10 @@ type tree struct {
 	spoolRoot string
 	dirs      map[stage]string
 	setID     model.BackupSetID
+
+	// timeout is the per-step bound the plan is snapshotted with. Zero
+	// takes 5s.
+	timeout time.Duration
 }
 
 // newTree lays out the four hook directories and the scripts in them.
@@ -179,7 +183,7 @@ func (tr *tree) snapshotWithEnv(t *testing.T, runID string, vars []workflow.EnvV
 			workflow.StageDirs{Before: tr.dirs[setBefore], After: tr.dirs[setAfter]},
 		),
 		Env:                     env,
-		Timeout:                 5 * time.Second,
+		Timeout:                 tr.stepTimeout(),
 		RemoteExecConnectionRef: "nas",
 		SpoolRoot:               tr.spoolRoot,
 	})
@@ -188,6 +192,14 @@ func (tr *tree) snapshotWithEnv(t *testing.T, runID string, vars []workflow.EnvV
 	}
 
 	return plan
+}
+
+func (tr *tree) stepTimeout() time.Duration {
+	if tr.timeout > 0 {
+		return tr.timeout
+	}
+
+	return 5 * time.Second
 }
 
 // recorder is the shared dispatch log both fake executors append to, so a
