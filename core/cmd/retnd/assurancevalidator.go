@@ -97,52 +97,57 @@ func cmdAssuranceValidatorList(args []string) int {
 	if *asJSON {
 		return emitWireJSON(service.CustomValidatorsWire(l))
 	}
+	printCustomValidatorList(os.Stdout, l)
+	return exitOK
+}
+
+// printCustomValidatorList is the text form of the list.
+func printCustomValidatorList(w io.Writer, l service.CustomValidators) {
 	if !l.Available {
-		fmt.Printf("uploads: unavailable: %s\n", l.UnavailableReason)
+		fmt.Fprintf(w, "uploads: unavailable: %s\n", l.UnavailableReason)
 	}
 	if !l.RunnerConfigured {
-		fmt.Println("note: no host workflow runner is configured, so a validator is stored and cannot run yet")
+		fmt.Fprintln(w, "note: no host workflow runner is configured, so a validator is stored and cannot run yet")
 	}
 	if len(l.Validators) == 0 {
-		fmt.Println("no custom validators")
+		fmt.Fprintln(w, "no custom validators")
 	}
 	for _, v := range l.Validators {
-		printCustomValidator(v)
+		printCustomValidator(w, v)
 	}
 	if r := l.Resolution; r != nil {
 		switch {
 		case len(r.Ambiguous) > 0:
-			fmt.Printf("%s: %s all match at one scope, so a test ends could_not_complete\n", r.ArtifactID, strings.Join(r.Ambiguous, ", "))
+			fmt.Fprintf(w, "%s: %s all match at one scope, so a test ends could_not_complete\n", r.ArtifactID, strings.Join(r.Ambiguous, ", "))
 		case r.Validator != "":
-			fmt.Printf("%s: a recovery test runs %s\n", r.ArtifactID, r.Validator)
+			fmt.Fprintf(w, "%s: a recovery test runs %s\n", r.ArtifactID, r.Validator)
 		default:
-			fmt.Printf("%s: no pattern applies; %s decides\n", r.ArtifactID, r.Fallback)
+			fmt.Fprintf(w, "%s: no pattern applies; %s decides\n", r.ArtifactID, r.Fallback)
 		}
 	}
-	return exitOK
 }
 
-func printCustomValidator(v service.CustomValidator) {
+func printCustomValidator(w io.Writer, v service.CustomValidator) {
 	scope := "every set"
 	if v.BackupSetID != "" {
 		scope = v.BackupSetID
 	}
-	fmt.Printf("%s  %s  %s\n", v.Name, scope, v.Pattern)
+	fmt.Fprintf(w, "%s  %s  %s\n", v.Name, scope, v.Pattern)
 	script := "MISSING, so a test it applies to cannot complete"
 	if v.ScriptPresent {
 		script = fmt.Sprintf("%d bytes, sha256 %s, written %s", v.ScriptSize, v.ScriptSHA256, v.UploadedAt.Format(time.RFC3339))
 	}
-	fmt.Printf("  script %s: %s\n", v.ScriptFile, script)
+	fmt.Fprintf(w, "  script %s: %s\n", v.ScriptFile, script)
 	if v.Matches > 0 {
-		fmt.Printf("  matches %d backup(s) in %s, e.g. %s\n", v.Matches, strings.Join(v.MatchSets, ", "), v.ExampleName)
+		fmt.Fprintf(w, "  matches %d backup(s) in %s, e.g. %s\n", v.Matches, strings.Join(v.MatchSets, ", "), v.ExampleName)
 	} else {
-		fmt.Println("  matches no backup yet")
+		fmt.Fprintln(w, "  matches no backup yet")
 	}
 	if !v.Anchored {
-		fmt.Println("  the pattern is not anchored with ^...$, so it matches anywhere in a name")
+		fmt.Fprintln(w, "  the pattern is not anchored with ^...$, so it matches anywhere in a name")
 	}
 	if r := v.LastResult; r != nil {
-		fmt.Printf("  last test: %s at %s (%s)\n", r.State, r.At.Format(time.RFC3339), r.Artifact)
+		fmt.Fprintf(w, "  last test: %s at %s (%s)\n", r.State, r.At.Format(time.RFC3339), r.Artifact)
 	}
 }
 
@@ -325,7 +330,7 @@ func writeValidator(cfgPath string, asJSON bool, do func(context.Context, custom
 	if asJSON {
 		return emitWireJSON(service.CustomValidatorWire(v))
 	}
-	printCustomValidator(v)
+	printCustomValidator(os.Stdout, v)
 	return exitOK
 }
 
