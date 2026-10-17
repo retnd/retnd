@@ -11,6 +11,8 @@
  * (a browser's own RegExp would accept lookaheads RE2 refuses).
  */
 
+import { shellQuote } from "./assuranceCommands";
+
 /** The pattern an artifact's own name gives: every run of digits becomes
  *  \d{n}, everything else is matched literally, anchored at both ends. The
  *  same derivation as service.SuggestArtifactPattern, so the pattern chosen
@@ -40,15 +42,19 @@ export function validatorNameProblem(name: string): string | null {
   return null;
 }
 
-/** The size of a script as the engine counts it: its UTF-8 bytes. */
-export const scriptBytes = (script: string): number => new TextEncoder().encode(script).length;
+const encoder = new TextEncoder();
+
+/** The size of a script as the engine counts it: its UTF-8 bytes. The encoder
+ *  is built once; a script can be 256 KiB and this runs on every keystroke. */
+export const scriptBytes = (script: string): number => encoder.encode(script).length;
 
 /** What is wrong with a script, or null. `max` is the deployment's own
- *  limit (the list route serves it). */
-export function scriptProblem(script: string, max: number): string | null {
+ *  limit (the list route serves it). `bytes` is the script's size when the
+ *  caller already has it, so a large script is not encoded twice. */
+export function scriptProblem(script: string, max: number, bytes?: number): string | null {
   if (script === "") return "A validator needs a script.";
   if (script.includes("\0")) return "The script holds a NUL byte, which a script file may not.";
-  const n = scriptBytes(script);
+  const n = bytes ?? scriptBytes(script);
   if (n > max) return `The script is ${n} bytes; this deployment takes at most ${kib(max)}.`;
   return null;
 }
@@ -67,11 +73,35 @@ export function lastResultWords(r: { state: string; at: string } | undefined): s
 }
 
 /** The command that does the same upload from a shell on the host, for the
- *  notice a shut gate gets. */
+ *  notice a shut gate gets. Every operand a person typed goes through
+ *  shellQuote, so the line can be pasted as it stands. */
 export function addCommand(name: string, pattern: string, backupSetId: string): string {
-  const q = (s: string) => "'" + s.replace(/'/g, `'\\''`) + "'";
   return (
-    "retnd assurance validator add " + (name || "NAME") + " --pattern " + q(pattern || "PATTERN") +
-    (backupSetId ? " --backup-set " + backupSetId : "") + " --script FILE"
+    "retnd assurance validator add " + shellQuote(name || "NAME") + " --pattern " + shellQuote(pattern || "PATTERN") +
+    (backupSetId ? " --backup-set " + shellQuote(backupSetId) : "") + " --script FILE"
   );
+}
+
+export type ScriptFileRead = { ok: true; text: string; normalised: boolean } | { ok: false; problem: string };
+
+/** What the Choose a file control makes of a file. The size is checked before
+ *  any of it is read, the bytes must be UTF-8 (a lossy decode would upload
+ *  something other than the file), and CRLF line endings become LF, which is
+ *  what the textarea would do anyway, so the result says when it happened. */
+export async function readScriptFile(file: { size: number; arrayBuffer(): Promise<ArrayBuffer> }, max: number): Promise<ScriptFileRead> {
+  if (file.size > max) return { ok: false, problem: `That file is ${file.size} bytes; this deployment takes at most ${kib(max)}.` };
+  let buf: ArrayBuffer;
+  try {
+    buf = await file.arrayBuffer();
+  } catch {
+    return { ok: false, problem: "That file could not be read." };
+  }
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(buf);
+  } catch {
+    return { ok: false, problem: "That file is not valid UTF-8, so it was not loaded." };
+  }
+  const normalised = text.includes("\r");
+  return { ok: true, text: normalised ? text.replace(/\r\n?/g, "\n") : text, normalised };
 }

@@ -227,12 +227,14 @@ describe("storage pressure (\u00a756)", () => {
   // that a THIRD removal-shaped call still has to come and argue.
   //
   // removeCustomValidator (#1203) is the third, and here is its argument. It
-  // removes one validator's entry from config.yaml and the script file it
-  // named from the workflow root, and nothing else. A validator only ever
-  // READS a recovered copy to say whether it is good, so taking one away can
-  // stop a check from running and cannot reach a backup, a copy or a medium.
-  // That is also why the route is CSRF only while the upload, which plants
-  // the code, takes the destructive gate and the password again.
+  // takes one validator's entry out of config.yaml and its script out of the
+  // workflow root, and nothing else: it never reaches a backup, a copy or a
+  // medium, because a validator only READS a recovered copy. It does take
+  // coverage away, though. The backups that validator matched are tested by
+  // the next check down (validator_id, the set's folder, the built-in check)
+  // from then on, so Settings' confirmation says exactly that before it asks.
+  // The route is CSRF only while the upload, which plants the code, takes the
+  // destructive gate and the password again.
   it("has exactly three removal operations, and all three remove configuration rather than backups", () => {
     const removals = Object.keys(httpApi).filter((name) => /delete|remove/i.test(name));
     expect(removals.sort()).toEqual(["removeCustomValidator", "removeSet", "removeStorageMedium"]);

@@ -4033,7 +4033,7 @@ export interface RetndApi {
    *  (a header, one request, never kept), and a remove is CSRF only. */
   listCustomValidators(filter?: { backupSetId?: string; artifactId?: string }): Promise<CustomValidatorList>;
   listCustomValidatorPatterns(backupSetId?: string): Promise<CustomValidatorPatterns>;
-  previewCustomValidator(req: CustomValidatorPreviewRequest): Promise<CustomValidatorPreview>;
+  previewCustomValidator(req: CustomValidatorPreviewRequest, opts?: { signal?: AbortSignal }): Promise<CustomValidatorPreview>;
   createCustomValidator(req: CustomValidatorCreate, opts?: StepUpOptions): Promise<CustomValidator>;
   updateCustomValidator(name: string, req: CustomValidatorUpdate, opts?: StepUpOptions): Promise<CustomValidator>;
   removeCustomValidator(name: string): Promise<CustomValidator>;

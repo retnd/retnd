@@ -120,7 +120,8 @@ test.describe("#1203 Add validator", () => {
   test("refuses a script larger than the deployment allows", async ({ page }) => {
     const dlg = await openAdd(page);
     await dlg.getByLabel("Script file").setInputFiles({ name: "big.sh", mimeType: "text/plain", buffer: Buffer.from("#!/bin/sh\n" + "# pad\n".repeat(50_000)) });
-    await expect(dlg.locator("[data-validator-field-problem]")).toContainText("256 KiB");
+    await expect(dlg.locator("[data-validator-file-problem]")).toContainText("this deployment takes at most 256 KiB");
+    await expect(dlg.getByLabel("Script", { exact: true })).toHaveValue("");
     await expect(dlg.getByRole("button", { name: "Upload validator" })).toBeDisabled();
   });
 

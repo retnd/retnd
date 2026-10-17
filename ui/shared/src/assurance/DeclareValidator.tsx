@@ -19,10 +19,17 @@ export function DeclareValidator({ artifactId, readOnly }: { artifactId: string;
   const setId = artifactId.split("/").slice(0, 2).join("/");
   const filename = artifactId.split("/").slice(2).join("/");
 
+  // Answers can arrive out of order (another backup, a save while a read is
+  // out); only the newest question's answer is kept.
+  const asked = useRef(0);
   const load = useCallback(() => {
     // An engine older than #1203 has no such route; the row is then not drawn.
     if (!api || typeof api.listCustomValidators !== "function") return Promise.resolve();
-    return api.listCustomValidators({ artifactId }).then(setList, () => setList(null));
+    const mine = ++asked.current;
+    return api.listCustomValidators({ artifactId }).then(
+      (l) => { if (mine === asked.current) setList(l); },
+      () => { if (mine === asked.current) setList(null); }
+    );
   }, [api, artifactId]);
 
   useEffect(() => { void load(); }, [load]);

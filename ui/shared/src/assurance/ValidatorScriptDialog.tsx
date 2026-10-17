@@ -5,7 +5,7 @@
  */
 import { useRef } from "react";
 import type { ValidatorScript } from "@shared/api/contracts";
-import { useDialogFocus } from "./useDialogFocus";
+import { useDialogFocus } from "@shared/hooks/useDialogFocus";
 
 export function ValidatorScriptDialog({ name, script, onClose }: { name: string; script: ValidatorScript; onClose(): void }) {
   const box = useRef<HTMLDivElement>(null);

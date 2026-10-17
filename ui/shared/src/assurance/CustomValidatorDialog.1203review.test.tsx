@@ -14,10 +14,6 @@ import type { BackupSet } from "@shared/types/backup";
 import { CustomValidatorDialog } from "./CustomValidatorDialog";
 import type { ValidatorDialogMode } from "./CustomValidatorDialog";
 
-const valid = (over: Partial<CustomValidatorPreview> = {}): CustomValidatorPreview => ({
-  valid: true, error: "", anchored: true, matchCount: 1, matchSets: ["production/billing-mysql"], sample: ["a"], conflicts: [], ...over
-});
-
 async function mount(over: Partial<RetndApi> = {}, mode: ValidatorDialogMode = { kind: "add" }) {
   const base = createMockApi("validators-none");
   const api = { ...base, ...over } as RetndApi;
@@ -78,9 +74,10 @@ describe("CustomValidatorDialog (review of #1203)", () => {
     const previewCustomValidator = vi.fn(() => (++calls === 1 ? Promise.reject(new Error("engine down")) : new Promise<CustomValidatorPreview>(() => undefined)));
     await mount({ previewCustomValidator } as unknown as Partial<RetndApi>);
     type(pattern(), "^a$");
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/engine down|could not judge/));
+    const failure = () => document.querySelector("[data-validator-preview] [role=alert]");
+    await waitFor(() => expect(failure()).not.toBeNull());
     type(pattern(), "^ab$");
-    expect(screen.queryByText(/engine down|could not judge/)).toBeNull();
+    expect(failure()).toBeNull();
   });
 
   it("takes its backup sets from the shared sets node and does not list them again", async () => {

@@ -21,7 +21,7 @@
  * Removing one takes neither (Settings' card), because it only stops a script
  * from running.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { useApi } from "@shared/api/ApiContext";
 import { acknowledgeInsecureTransport } from "@shared/api/client";
@@ -35,10 +35,13 @@ import { GateNotice } from "@shared/components/GateNotice";
 import { GateRefusal } from "@shared/components/GateRefusal";
 import { StepUpPassword, stepUpMessage } from "@shared/components/StepUpFields";
 import { useDestructiveGate } from "@shared/hooks/useDestructiveGate";
+import { useCausl } from "@shared/state/graph";
+import { setsNode } from "@shared/state/appNodes";
 import {
-  addCommand, kib, matchWords, scriptBytes, scriptProblem, suggestPattern, validatorNameProblem
+  addCommand, kib, matchWords, readScriptFile, scriptBytes, scriptProblem, suggestPattern, validatorNameProblem
 } from "./customValidators";
-import { useDialogFocus } from "./useDialogFocus";
+import { defaultValidatorScript } from "./defaultValidatorScript";
+import { useDialogFocus } from "@shared/hooks/useDialogFocus";
 
 export type ValidatorDialogMode =
   | { kind: "add"; backupSetId?: string; artifact?: { id: string; filename: string } }
@@ -70,14 +73,20 @@ export function CustomValidatorDialog({
 
   const [name, setName] = useState(edit?.name ?? "");
   const [setId, setSetId] = useState(edit ? edit.backupSetId : mode.kind === "add" ? mode.backupSetId ?? "" : "");
-  const [pattern, setPattern] = useState(edit ? edit.pattern : artifact ? suggestPattern(artifact.filename) : "");
+  // What the operator chose or typed; null until they do. Until then, for a
+  // backup's own page, the engine's suggestion for that backup stands (and the
+  // browser's own derivation only while the engine has not answered).
+  const [typed, setTyped] = useState<string | null>(edit ? edit.pattern : null);
   const [script, setScript] = useState("");
-  const [sets, setSets] = useState<BackupSet[]>([]);
+  // The sets come from the shell's own node, not a fetch of this dialog's.
+  const sets: BackupSet[] = useCausl(setsNode).data ?? [];
   // What the suggestion read last answered, and for which scope: a scope
   // that has not been answered yet shows as "reading", not as the last one's.
   const [read, setRead] = useState<{ scope: string; patterns: CustomValidatorPatterns | null } | null>(null);
   const [preview, setPreview] = useState<{ for: string; p: CustomValidatorPreview } | null>(null);
-  const [previewFailed, setPreviewFailed] = useState<string | null>(null);
+  const [previewFailed, setPreviewFailed] = useState<{ for: string; message: string } | null>(null);
+  const [fileProblem, setFileProblem] = useState<string | null>(null);
+  const [fileNote, setFileNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<ReturnType<typeof gateRefusalNotice> | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -90,13 +99,7 @@ export function CustomValidatorDialog({
   const [passwordKey, setPasswordKey] = useState(0);
   const forget = () => { password.current = ""; setHasPassword(false); setPasswordKey((k) => k + 1); };
 
-  useDialogFocus(box, onClose, returnFocus);
-
-  useEffect(() => {
-    let live = true;
-    void api.listSets().then((x) => { if (live) setSets(x); }, () => undefined);
-    return () => { live = false; };
-  }, [api]);
+  useDialogFocus(box, onClose, { returnFocus, busy: submitting });
 
   // The suggestions follow the scope: a set's own, or every set's.
   useEffect(() => {
@@ -108,25 +111,43 @@ export function CustomValidatorDialog({
     return () => { live = false; };
   }, [api, setId]);
 
-  // What the pattern matches, asked of the engine a beat after the last key.
-  useEffect(() => {
-    if (pattern === "") return;
-    let live = true;
-    const timer = setTimeout(() => {
-      api.previewCustomValidator({ pattern, backupSetId: setId || undefined, replacing: edit?.name }).then(
-        (p) => { if (live) { setPreview({ for: pattern + "\u0000" + setId, p }); setPreviewFailed(null); } },
-        (e: unknown) => { if (live) setPreviewFailed(describeFailure(e, "the engine could not judge this pattern").message); }
-      );
-    }, 200);
-    return () => { live = false; clearTimeout(timer); };
-  }, [api, pattern, setId, edit?.name]);
-
   const patterns = read && read.scope === setId ? read.patterns : null;
   const patternsFailed = read !== null && read.scope === setId && read.patterns === null;
-  const judged = preview && preview.for === pattern + "\u0000" + setId ? preview.p : null;
+  const pattern =
+    typed ??
+    (artifact
+      ? patterns?.patterns.find((p) => p.example === artifact.filename)?.pattern ?? suggestPattern(artifact.filename)
+      : "");
+  const setPattern = setTyped;
+  const judgedKey = pattern + "\u0000" + setId;
+
+  // What the pattern matches, asked of the engine a beat after the last key.
+  // A newer pattern (or closing the dialog) aborts the request in flight, and
+  // a failure is kept against the pattern it was for, so it goes away when the
+  // pattern does.
+  useEffect(() => {
+    if (pattern === "") return;
+    const ac = new AbortController();
+    const timer = setTimeout(() => {
+      api.previewCustomValidator({ pattern, backupSetId: setId || undefined, replacing: edit?.name }, { signal: ac.signal }).then(
+        (p) => { if (!ac.signal.aborted) setPreview({ for: pattern + "\u0000" + setId, p }); },
+        (e: unknown) => {
+          if (!ac.signal.aborted) {
+            setPreviewFailed({ for: pattern + "\u0000" + setId, message: describeFailure(e, "the engine could not judge this pattern").message });
+          }
+        }
+      );
+    }, 200);
+    return () => { ac.abort(); clearTimeout(timer); };
+  }, [api, pattern, setId, edit?.name]);
+
+  const judged = preview && preview.for === judgedKey ? preview.p : null;
+  const failedPreview = previewFailed && previewFailed.for === judgedKey ? previewFailed.message : null;
 
   const nameProblem = edit ? null : validatorNameProblem(name);
-  const scriptIssue = scriptProblem(script, list.maxScriptBytes);
+  // One encode of the script per change to it, however often this renders.
+  const bytes = useMemo(() => scriptBytes(script), [script]);
+  const scriptIssue = useMemo(() => scriptProblem(script, list.maxScriptBytes, bytes), [script, list.maxScriptBytes, bytes]);
   const shownScriptProblem = script === "" ? null : scriptIssue;
   const atLimit = !edit && list.validators.length >= list.maxValidators;
   const needsPassword = gate.stepUpRequired;
@@ -143,7 +164,7 @@ export function CustomValidatorDialog({
   const download = async () => {
     setDefaultFailed(null);
     try {
-      const d = await api.getDefaultValidatorScript();
+      const d = await defaultValidatorScript(api);
       const url = URL.createObjectURL(new Blob([d.content], { type: "text/x-shellscript" }));
       const a = document.createElement("a");
       a.href = url;
@@ -160,7 +181,9 @@ export function CustomValidatorDialog({
   const startFromDefault = async () => {
     setDefaultFailed(null);
     try {
-      setScript((await api.getDefaultValidatorScript()).content);
+      setScript((await defaultValidatorScript(api)).content);
+      setFileNote(null);
+      setFileProblem(null);
     } catch (e) {
       setDefaultFailed(describeFailure(e, "could not read the default script").message);
     }
@@ -203,12 +226,26 @@ export function CustomValidatorDialog({
     }
   };
 
+  const onScriptTyped = useCallback((v: string) => { setScript(v); setFileNote(null); }, []);
+
+  const chooseFile = async (f: File) => {
+    const got = await readScriptFile(f, list.maxScriptBytes);
+    if (got.ok) {
+      setScript(got.text);
+      setFileProblem(null);
+      setFileNote(got.normalised ? "Line endings were converted to LF, so the script is the one shown here, not byte for byte the file." : null);
+    } else {
+      setFileProblem(got.problem);
+      setFileNote(null);
+    }
+  };
+
   const title = edit ? "Edit validator" : "Add validator";
   const known = new Set(sets.map((s) => s.id));
   const extraSet = setId !== "" && !known.has(setId);
 
   return (
-    <div className="dialog-scrim" style={{ gridTemplateColumns: "minmax(0, 1fr)" }} onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="dialog-scrim" style={{ gridTemplateColumns: "minmax(0, 1fr)" }} onClick={(e) => e.target === e.currentTarget && !submitting && onClose()}>
       <div
         ref={box}
         tabIndex={-1}
@@ -323,22 +360,12 @@ export function CustomValidatorDialog({
               A Go (RE2) regular expression matched against an artifact's file name. Anchor it with ^ and $.
             </span>
           </div>
-          <PatternPreview pattern={pattern} judged={judged} failed={previewFailed} />
+          <PatternPreview pattern={pattern} judged={judged} failed={failedPreview} />
 
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <div className="field">
               <label className="field__label" htmlFor="validator-script">Script</label>
-              <textarea
-                id="validator-script"
-                className="input input--bold input--mono"
-                value={script}
-                rows={9}
-                spellCheck={false}
-                autoCapitalize="none"
-                aria-describedby="validator-script-help"
-                style={{ height: "auto", padding: "8px 10px", resize: "vertical", whiteSpace: "pre" }}
-                onChange={(e) => setScript(e.target.value)}
-              />
+              <ScriptBox value={script} onChange={onScriptTyped} />
             </div>
             <span id="validator-script-help" style={quiet}>
               {edit
@@ -363,15 +390,17 @@ export function CustomValidatorDialog({
                   onChange={(e) => {
                     const f = e.target.files?.[0];
                     e.target.value = "";
-                    if (f) void f.text().then(setScript);
+                    if (f) void chooseFile(f);
                   }}
                 />
               </label>
               <span data-script-size="" style={quiet}>
-                {scriptBytes(script)} {scriptBytes(script) === 1 ? "byte" : "bytes"} of {kib(list.maxScriptBytes)}
+                {bytes} {bytes === 1 ? "byte" : "bytes"} of {kib(list.maxScriptBytes)}
               </span>
             </div>
             {defaultFailed ? <div role="alert" style={bad}>{defaultFailed}</div> : null}
+            {fileProblem ? <div role="alert" data-validator-file-problem="" style={bad}>{fileProblem}</div> : null}
+            {fileNote ? <div role="status" data-validator-file-note="" style={quiet}>{fileNote}</div> : null}
             {shownScriptProblem ? <div role="alert" data-validator-field-problem="" style={bad}>{shownScriptProblem}</div> : null}
           </div>
 
@@ -397,7 +426,7 @@ export function CustomValidatorDialog({
         </div>
 
         <div className="card__footer" style={{ display: "flex", justifyContent: "flex-end", gap: 9, borderRadius: "0 0 10px 10px" }}>
-          <button className="btn btn--strong-edge" onClick={onClose}>Cancel</button>
+          <button className="btn btn--strong-edge" disabled={submitting} onClick={onClose}>Cancel</button>
           <button className="btn btn--primary" disabled={!ready} onClick={() => void save()}>
             {edit ? "Save changes" : "Upload validator"}
           </button>
@@ -406,6 +435,24 @@ export function CustomValidatorDialog({
     </div>
   );
 }
+
+/** The script's textarea on its own and memoised, so a keystroke in some other
+ *  field does not make React compare a 256 KiB value again. */
+const ScriptBox = memo(function ScriptBox({ value, onChange }: { value: string; onChange(v: string): void }) {
+  return (
+    <textarea
+      id="validator-script"
+      className="input input--bold input--mono"
+      value={value}
+      rows={9}
+      spellCheck={false}
+      autoCapitalize="none"
+      aria-describedby="validator-script-help"
+      style={{ height: "auto", padding: "8px 10px", resize: "vertical", whiteSpace: "pre" }}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  );
+});
 
 /** The engine's refusal in its own words, capitalised; the page's own sentence
  *  when it said nothing usable. */

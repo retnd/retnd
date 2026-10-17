@@ -33,10 +33,15 @@ export function CustomValidatorsCard({ readOnly }: { readOnly: boolean }) {
   const [script, setScript] = useState<{ name: string; script: ValidatorScript } | null>(null);
   const addButton = useRef<HTMLButtonElement>(null);
 
+  // Only the newest read's answer is kept: a read that was asked first can
+  // be answered last, and must not put an older list back.
+  const asked = useRef(0);
   const load = useCallback(() => {
+    const mine = ++asked.current;
     return api.listCustomValidators().then(
-      (l) => { setList(l); setError(null); },
+      (l) => { if (mine === asked.current) { setList(l); setError(null); } },
       (e: unknown) => {
+        if (mine !== asked.current) return;
         if (isNotConfigured(apiErrorOf(e))) setNotConfigured(true);
         else setError(describeFailure(e, "could not read the custom validators").message);
       }
@@ -59,7 +64,7 @@ export function CustomValidatorsCard({ readOnly }: { readOnly: boolean }) {
     setRemoveBusy(true);
     try {
       await api.removeCustomValidator(removing.name);
-      setStatus("Removed " + removing.name + ". Its script file is gone and nothing runs it any more.");
+      setStatus("Removed " + removing.name + ". Nothing runs it any more.");
       setRemoving(null);
       await load();
     } catch (e) {
@@ -192,12 +197,13 @@ export function CustomValidatorsCard({ readOnly }: { readOnly: boolean }) {
       >
         <p style={{ margin: 0 }}>
           <span className="mono">{removing?.name}</span> applies to{" "}
-          <span className="mono">{removing?.backupSetId || "every backup set"}</span>. Removing it deletes its script file from
-          the workflow root.
+          <span className="mono">{removing?.backupSetId || "every backup set"}</span>, and {matchWords(removing?.matchCount ?? 0)}{" "}
+          match its pattern now. Removing it stops it running and takes its script out of the workflow root.
         </p>
         <p style={{ margin: 0 }}>
-          Recovery testing of the backups it matched falls back to the next check in the order above: the set&apos;s validator_id, its
-          recovery-test folder, or the built-in check. Backups and past results are not touched.
+          A recovery test of those backups then falls back to the next check in the order above: the set&apos;s validator_id, the one
+          script in its recovery-test folder, or the built-in check (and to no check at all if that is switched off). Backups and past
+          results are not touched.
         </p>
       </ConfirmationDialog>
     </section>

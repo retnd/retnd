@@ -2,13 +2,14 @@
  * The in-process stand-in for the custom recovery-test validator routes
  * (issue #1203), over the same fixture backups the rest of the mock serves.
  *
- * It is not a second implementation of the engine: it keeps just enough of the
- * engine's rules that a screen can be driven through every answer the engine
- * gives. The names refused, the limit, the 409s, the pattern errors in Go's
- * words, the collision between two patterns at one scope, and the order a
- * recovery test tries things in all come from core/service/assurancevalidators.go.
- * The pattern is judged by a browser RegExp here, which is why the real
- * screen never does that itself: it asks the preview route.
+ * It is not a second implementation of the engine, and it keeps only the rules
+ * the specs drive a screen through: the limit, the 409s, a pattern the engine
+ * refuses (a lookahead, in Go's words), the collision between two patterns at
+ * one scope, and the resolution of one backup. Name and script rules are not
+ * here: the dialog refuses those before anything is sent, and the engine's own
+ * words for them are pinned in customValidators.1203review.test.ts. The pattern
+ * is judged by a browser RegExp here, which is why the real screen never does
+ * that itself: it asks the preview route.
  */
 import type {
   CustomValidator,
@@ -39,7 +40,6 @@ export interface MockValidatorsEnv {
 const MAX_VALIDATORS = 64;
 const MAX_SCRIPT_BYTES = 262144;
 const MAX_PATTERN_BYTES = 512;
-const RESERVED_PREFIX = "retnd-";
 
 export const MOCK_DEFAULT_SCRIPT = `#!/usr/bin/env bash
 # A recovery-test validator, as retnd runs it.
@@ -81,9 +81,8 @@ function refusal(code: string, message: string): RetndError {
 /** The engine's own words when it cannot parse a pattern (Go's regexp). */
 function parseProblem(pattern: string): string | null {
   if (pattern === "") return "a validator needs a pattern to match artifact names against";
-  if (byteLength(pattern) > MAX_PATTERN_BYTES) return "the pattern is " + byteLength(pattern) + " bytes; at most " + MAX_PATTERN_BYTES + " are allowed";
-  const perl = /\(\?(<=|<!|=|!|>)|\\[1-9]|\*\+|\+\+|\?\+/.exec(pattern);
-  if (perl) return "error parsing regexp: invalid or unsupported Perl syntax: `" + perl[0].slice(0, 3) + "`";
+  const perl = /\(\?(<=|<!|=|!)/.exec(pattern);
+  if (perl) return "error parsing regexp: invalid or unsupported Perl syntax: `" + perl[0] + "`";
   try {
     new RegExp(pattern);
   } catch (e) {
@@ -191,22 +190,6 @@ export function createMockValidators(env: MockValidatorsEnv): Pick<
   const noRoom = () =>
     refusal("VALIDATORS_UNAVAILABLE", "this deployment cannot keep custom validators: no workflow root is configured");
 
-  /** The engine's checks on a name, in its words. */
-  const nameProblem = (name: string): string | null => {
-    if (name === "") return "a validator id must not be empty";
-    if (name.trim() !== name || /[/\\\0\n\r \t]/.test(name)) return JSON.stringify(name) + " must be a bare identifier: no path separator, whitespace or control character";
-    if (name.startsWith(RESERVED_PREFIX)) return JSON.stringify(name) + " is not usable: ids beginning " + RESERVED_PREFIX + " are the product's own built-in checks";
-    if (name.endsWith(".sh")) return JSON.stringify(name) + " is a file name; name the script without its .local.sh suffix";
-    return null;
-  };
-
-  const scriptProblem = (script: string): string | null => {
-    if (script === "") return "a validator needs a script";
-    if (script.includes("\0")) return "the script holds a NUL byte";
-    if (byteLength(script) > MAX_SCRIPT_BYTES) return "the script is " + byteLength(script) + " bytes; at most " + MAX_SCRIPT_BYTES + " are allowed";
-    return null;
-  };
-
   return {
     listCustomValidators: (filter) => {
       const list: CustomValidatorList = {
@@ -259,7 +242,8 @@ export function createMockValidators(env: MockValidatorsEnv): Pick<
       return env.delay(out);
     },
 
-    previewCustomValidator: (req) => {
+    previewCustomValidator: (req, opts) => {
+      if (opts?.signal?.aborted) return Promise.reject(new DOMException("aborted", "AbortError"));
       const setId = req.backupSetId ?? "";
       if (!knownSet(setId)) return Promise.reject(refusal("BACKUP_SET_NOT_FOUND", "there is no backup set " + setId));
       const problem = parseProblem(req.pattern);
@@ -280,7 +264,7 @@ export function createMockValidators(env: MockValidatorsEnv): Pick<
       const denied = env.writeRefusal(opts?.stepUpPassword);
       if (denied) return denied;
       if (unavailable) throw noRoom();
-      const bad = nameProblem(req.name) ?? parseProblem(req.pattern) ?? scriptProblem(req.script);
+      const bad = parseProblem(req.pattern);
       if (bad) throw refusal("INVALID_REQUEST", bad);
       const setId = req.backupSetId ?? "";
       if (!knownSet(setId)) throw refusal("BACKUP_SET_NOT_FOUND", "there is no backup set " + setId);
@@ -308,7 +292,7 @@ export function createMockValidators(env: MockValidatorsEnv): Pick<
       if (unavailable) throw noRoom();
       const current = validators.find((v) => v.name === name);
       if (!current) throw notThere(name);
-      const bad = parseProblem(req.pattern) ?? (req.script !== undefined ? scriptProblem(req.script) : null);
+      const bad = parseProblem(req.pattern);
       if (bad) throw refusal("INVALID_REQUEST", bad);
       const setId = req.backupSetId ?? "";
       if (!knownSet(setId)) throw refusal("BACKUP_SET_NOT_FOUND", "there is no backup set " + setId);

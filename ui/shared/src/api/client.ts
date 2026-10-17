@@ -4257,9 +4257,10 @@ export const httpApi: RetndApi = {
     const qs = q.toString();
     return request<WireCustomValidatorPatternsResponse>("/assurance/validator-patterns" + (qs ? "?" + qs : "")).then(fromWireValidatorPatterns);
   },
-  previewCustomValidator: (req) =>
+  previewCustomValidator: (req, opts) =>
     request<WireCustomValidatorPreview>("/assurance/validator-preview", {
       method: "POST",
+      signal: opts?.signal,
       body: JSON.stringify({
         pattern: req.pattern,
         ...(req.backupSetId ? { backup_set_id: req.backupSetId } : {}),
