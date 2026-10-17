@@ -189,7 +189,7 @@
       "lines": [
         "$ retnd version -> exit 0",
         "  out| retnd dev",
-        "  out| rclone v1.75.1",
+        "  out| rclone v1.75.2",
         "  out| go <GOVERSION>",
         "  out| commit none",
         "$ retnd sources --config <ROOT>/config.yaml -> exit 0",
