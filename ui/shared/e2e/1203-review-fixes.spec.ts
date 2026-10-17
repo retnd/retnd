@@ -54,6 +54,7 @@ for (const theme of ["light", "dark"] as const) {
   test(`#1203 review: the new file messages and the remove confirmation meet WCAG AA in ${theme}`, async ({ page }) => {
     const dlg = await openAdd(page);
     await setTheme(page, theme);
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
     await dlg.getByLabel("Script file").setInputFiles({ name: "bin.sh", mimeType: "text/plain", buffer: Buffer.from([0xff, 0xfe]) });
     await expect(dlg.locator("[data-validator-file-problem]")).toBeVisible();
     expect(await measureContrast(page, "1203 file problem " + theme, "[data-validator-file-problem]"), theme).toEqual([]);

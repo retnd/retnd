@@ -50,6 +50,7 @@ test.describe("#1203 upload takes the password and the gate", () => {
     await expect(card(page).getByRole("row").filter({ hasText: "postgres-dump" })).toHaveCount(0);
     for (const theme of ["light", "dark"] as const) {
       await setTheme(page, theme);
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
       expect(await measureContrast(page, "1203 wrong password " + theme, "[data-validator-error]"), theme).toEqual([]);
     }
   });
@@ -92,6 +93,7 @@ test.describe("#1203 upload takes the password and the gate", () => {
     await expect(notice).toContainText("retnd assurance validators add postgres-dump");
     for (const theme of ["light", "dark"] as const) {
       await setTheme(page, theme);
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
       expect(await measureContrast(page, "1203 shut gate " + theme, "[data-gate-notice]"), theme).toEqual([]);
     }
   });
@@ -105,6 +107,7 @@ test.describe("#1203 upload takes the password and the gate", () => {
     await expect(card(page).getByRole("row").filter({ hasText: "postgres-dump" })).toHaveCount(0);
     for (const theme of ["light", "dark"] as const) {
       await setTheme(page, theme);
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
       expect(await measureContrast(page, "1203 gate refusal " + theme, "[data-gate-refusal]"), theme).toEqual([]);
     }
   });

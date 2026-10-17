@@ -193,6 +193,7 @@ test.describe("#1203 Add validator", () => {
       await dlg.getByRole("button", { name: "Start from the default script" }).click();
       await expect(dlg.getByRole("button", { name: "Upload validator" })).toBeEnabled();
       await setTheme(page, theme);
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
       expect(await measureContrast(page, "1203 add dialog " + theme, '[role="dialog"]'), theme).toEqual([]);
       expect(await measureBorders(page, "1203 add dialog " + theme, '[role="dialog"] input, [role="dialog"] select, [role="dialog"] textarea, [role="dialog"] button'), theme).toEqual([]);
       await dlg.getByLabel("Artifact-name pattern").fill("^(?=x)$");

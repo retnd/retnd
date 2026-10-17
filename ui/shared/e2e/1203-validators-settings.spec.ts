@@ -103,8 +103,10 @@ test.describe("#1203 Settings, Recovery-test validators", () => {
   for (const theme of ["light", "dark"] as const) {
     test(`the card meets WCAG AA in ${theme}`, async ({ page }) => {
       await open(page, "/settings");
-      await setTheme(page, theme);
       await expect(rowOf(page, "any-tar")).toBeVisible();
+      // After the app has booted: its own start-up sets the theme attribute.
+      await setTheme(page, theme);
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
       expect(await measureContrast(page, "1203 settings card " + theme, '[aria-label="Recovery-test validators"]'), theme).toEqual([]);
       expect(await measureBorders(page, "1203 settings card " + theme, '[aria-label="Recovery-test validators"] button'), theme).toEqual([]);
     });

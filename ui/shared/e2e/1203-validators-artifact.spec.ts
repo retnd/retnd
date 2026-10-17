@@ -77,6 +77,7 @@ test.describe("#1203 Declare validator, from a backup's page", () => {
       await open(page, BILLING_PAGE);
       await expect(assurance(page).locator("[data-validator-covered]")).toBeVisible();
       await setTheme(page, theme);
+      await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
       expect(await measureContrast(page, "1203 covered line " + theme, "[data-validator-covered]"), theme).toEqual([]);
       await assurance(page).getByRole("button", { name: "Declare validator" }).click();
       expect(await measureContrast(page, "1203 declare dialog " + theme, '[role="dialog"]'), theme).toEqual([]);
