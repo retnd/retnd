@@ -69,6 +69,16 @@ type session struct {
 	welcome Welcome
 }
 
+// endWith closes the connection when ctx ends and returns the function
+// that stops watching. Every operation does this, not only Execute: a
+// runner that answers the hello and then goes quiet must not be able to
+// hold a status check or a cancel past its caller's deadline either.
+func (s *session) endWith(ctx context.Context) (stop func()) {
+	cancel := context.AfterFunc(ctx, func() { s.conn.Close() })
+
+	return func() { cancel() }
+}
+
 func (c Client) open(ctx context.Context) (*session, error) {
 	if c.SocketPath == "" {
 		return nil, fmt.Errorf("%w: no workflow runner socket was configured", ErrServer)
@@ -141,6 +151,7 @@ func (c Client) Status(ctx context.Context) (Status, error) {
 		return Status{}, err
 	}
 	defer s.conn.Close()
+	defer s.endWith(ctx)()
 
 	if err := WriteMessage(s.conn, Message{Kind: KindRequest, Request: &Request{Op: OpStatus}}); err != nil {
 		return Status{}, err
@@ -162,6 +173,7 @@ func (c Client) SyntaxCheck(ctx context.Context, runID, stepID string, script []
 		return err
 	}
 	defer s.conn.Close()
+	defer s.endWith(ctx)()
 
 	req := newScriptRequest(OpSyntaxCheck, runID, stepID, script)
 	if err := WriteMessage(s.conn, Message{Kind: KindRequest, Request: &req}); err != nil {
@@ -198,8 +210,7 @@ func (c Client) Execute(ctx context.Context, req ExecuteRequest, sink Sink) (Res
 	}
 	defer s.conn.Close()
 
-	stop := context.AfterFunc(ctx, func() { s.conn.Close() })
-	defer stop()
+	defer s.endWith(ctx)()
 
 	wire := newScriptRequest(OpExecute, req.RunID, req.StepID, req.Script)
 	wire.Env = req.Env
@@ -217,6 +228,7 @@ func (c Client) Cancel(ctx context.Context, runID, stepID string) error {
 		return err
 	}
 	defer s.conn.Close()
+	defer s.endWith(ctx)()
 
 	req := Request{Op: OpCancel, RunID: runID, StepID: stepID}
 	if err := WriteMessage(s.conn, Message{Kind: KindRequest, Request: &req}); err != nil {
