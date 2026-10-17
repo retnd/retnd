@@ -228,11 +228,13 @@ type SnapshotRequest struct {
 	SpoolRoot string
 
 	// Only, when set, is the file name of the one script this plan holds
-	// (#1204). Discovery still lists the directory and holds every entry
-	// to the name rule, so a stray file is refused as it always was, but
-	// only the named script is captured, spooled and planned: the others
-	// are never read. A plan in which no stage holds it has no steps, and
-	// the caller decides what that means.
+	// (#1204). Only that file is looked up (DiscoverOne): the rest of the
+	// directory is neither listed nor held to the name rule or the entry
+	// limit, and the others are never read, so one stray file cannot refuse
+	// the script that was asked for. The directory itself is still held to
+	// custody, and the named file to every rule a captured script is. A
+	// plan in which no stage holds it has no steps, and the caller decides
+	// what that means.
 	Only string
 }
 
@@ -620,13 +622,16 @@ func snapshotInto(req SnapshotRequest, stages []StageSpec, dirs *spoolDirs, maxS
 			return Plan{}, err
 		}
 
-		scripts, err := Discover(dir)
+		var scripts []Script
+		if req.Only != "" {
+			// Told which script, so only that file is looked for. The rest
+			// of the directory is not this purpose's to judge (#1203).
+			scripts, err = DiscoverOne(dir, req.Only)
+		} else {
+			scripts, err = Discover(dir)
+		}
 		if err != nil {
 			return Plan{}, err
-		}
-
-		if req.Only != "" {
-			scripts = onlyScript(scripts, req.Only)
 		}
 
 		for _, script := range scripts {
@@ -1015,15 +1020,4 @@ func secretLocation(ref secretref.Ref) []string {
 	default:
 		return []string{"none"}
 	}
-}
-
-// onlyScript keeps the script named name, and nothing else (#1204).
-func onlyScript(scripts []Script, name string) []Script {
-	for _, s := range scripts {
-		if s.Name == name {
-			return []Script{s}
-		}
-	}
-
-	return nil
 }

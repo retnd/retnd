@@ -11,7 +11,7 @@ import (
 	"github.com/retnd/retnd/core/service"
 )
 
-// #1203: `retnd assurance validator`, against a real configuration file and a
+// #1203: `retnd assurance validators`, against a real configuration file and a
 // real workflow root, with nothing serving (so the writes go to the file).
 
 // validatorWorkflowRoot is a workflow root discovery's custody rules accept:
@@ -69,7 +69,7 @@ func TestAssuranceValidator_AddListScriptRemoveRoundTrip(t *testing.T) {
 
 	var code int
 	out := captureStdout(t, func() {
-		code = run([]string{"assurance", "validator", "add", "manifest", "--pattern", `^MANIFEST-\d{8}T\d{6}Z\.txt$`,
+		code = run([]string{"assurance", "validators", "add", "manifest", "--pattern", `^MANIFEST-\d{8}T\d{6}Z\.txt$`,
 			"--backup-set", cliSet, "--script", script, "--json", "--config", configPath})
 	})
 	if code != exitOK {
@@ -86,22 +86,22 @@ func TestAssuranceValidator_AddListScriptRemoveRoundTrip(t *testing.T) {
 		t.Errorf("the script is not in the workflow root: %v", err)
 	}
 
-	out = captureStdout(t, func() { code = run([]string{"assurance", "validator", "list", "--config", configPath}) })
+	out = captureStdout(t, func() { code = run([]string{"assurance", "validators", "list", "--config", configPath}) })
 	if code != exitOK || !strings.Contains(out, "manifest  "+cliSet+`  ^MANIFEST-\d{8}T\d{6}Z\.txt$`) || !strings.Contains(out, "script manifest.local.sh") {
 		t.Errorf("list exit %d:\n%s", code, out)
 	}
-	out = captureStdout(t, func() { code = run([]string{"assurance", "validator", "list", "--json", "--config", configPath}) })
+	out = captureStdout(t, func() { code = run([]string{"assurance", "validators", "list", "--json", "--config", configPath}) })
 	var l apicontract.ListCustomValidatorsResponse
 	if err := json.Unmarshal([]byte(out), &l); err != nil || len(l.Validators) != 1 || l.Directory != "recovery-test-validators" {
 		t.Errorf("list --json = %+v, %v\n%s", l, err, out)
 	}
 
-	out = captureStdout(t, func() { code = run([]string{"assurance", "validator", "script", "manifest", "--config", configPath}) })
+	out = captureStdout(t, func() { code = run([]string{"assurance", "validators", "script", "manifest", "--config", configPath}) })
 	if code != exitOK || out != goodCLIValidator {
 		t.Errorf("script exit %d printed %q", code, out)
 	}
 
-	if code := run([]string{"assurance", "validator", "remove", "manifest", "--config", configPath}); code != exitOK {
+	if code := run([]string{"assurance", "validators", "remove", "manifest", "--config", configPath}); code != exitOK {
 		t.Fatalf("remove exit %d", code)
 	}
 	if _, err := os.Stat(filepath.Join(root, "recovery-test-validators", "manifest.local.sh")); !os.IsNotExist(err) {
@@ -118,10 +118,10 @@ const goodCLIValidator = "#!/usr/bin/env bash\nset -euo pipefail\ntest -s \"$REC
 func TestAssuranceValidator_UpdateKeepsTheScriptWithoutScript(t *testing.T) {
 	configPath, root := writeValidatorTestConfig(t)
 	script := writeScriptFixture(t, goodCLIValidator)
-	if code := run([]string{"assurance", "validator", "add", "v", "--pattern", "^a", "--script", script, "--config", configPath}); code != exitOK {
+	if code := run([]string{"assurance", "validators", "add", "v", "--pattern", "^a", "--script", script, "--config", configPath}); code != exitOK {
 		t.Fatalf("add exit %d", code)
 	}
-	if code := run([]string{"assurance", "validator", "update", "v", "--pattern", "^b", "--backup-set", cliSet, "--config", configPath}); code != exitOK {
+	if code := run([]string{"assurance", "validators", "update", "v", "--pattern", "^b", "--backup-set", cliSet, "--config", configPath}); code != exitOK {
 		t.Fatalf("update exit %d", code)
 	}
 	raw, _ := os.ReadFile(configPath)
@@ -139,14 +139,14 @@ func TestAssuranceValidator_DryRunJudgesWithRE2AndSavesNothing(t *testing.T) {
 	before, _ := os.ReadFile(configPath)
 	var code int
 	out := captureStdout(t, func() {
-		code = run([]string{"assurance", "validator", "add", "--pattern", `^MANIFEST-\d+`, "--dry-run", "--json", "--config", configPath})
+		code = run([]string{"assurance", "validators", "add", "--pattern", `^MANIFEST-\d+`, "--dry-run", "--json", "--config", configPath})
 	})
 	var p apicontract.CustomValidatorPreview
 	if code != exitOK || json.Unmarshal([]byte(out), &p) != nil || !p.Valid {
 		t.Errorf("dry run exit %d: %s", code, out)
 	}
 	out = captureStdout(t, func() {
-		code = run([]string{"assurance", "validator", "add", "--pattern", `(?=x)`, "--dry-run", "--config", configPath})
+		code = run([]string{"assurance", "validators", "add", "--pattern", `(?=x)`, "--dry-run", "--config", configPath})
 	})
 	if code != exitFailure || !strings.Contains(out, "RE2") {
 		t.Errorf("a lookahead dry run exit %d:\n%s", code, out)
@@ -159,19 +159,19 @@ func TestAssuranceValidator_DryRunJudgesWithRE2AndSavesNothing(t *testing.T) {
 
 func TestAssuranceValidator_DefaultScriptPrintsAndWritesANewFileOnly(t *testing.T) {
 	var code int
-	out := captureStdout(t, func() { code = run([]string{"assurance", "validator", "default-script"}) })
+	out := captureStdout(t, func() { code = run([]string{"assurance", "validators", "default-script"}) })
 	if code != exitOK || out != service.DefaultCustomValidatorScript().Content {
 		t.Fatalf("default-script exit %d", code)
 	}
 	target := filepath.Join(t.TempDir(), "mine.local.sh")
-	if code := run([]string{"assurance", "validator", "default-script", "--output", target}); code != exitOK {
+	if code := run([]string{"assurance", "validators", "default-script", "--output", target}); code != exitOK {
 		t.Fatalf("--output exit %d", code)
 	}
 	got, _ := os.ReadFile(target)
 	if string(got) != service.DefaultCustomValidatorScript().Content {
 		t.Error("--output wrote something else")
 	}
-	if code := run([]string{"assurance", "validator", "default-script", "--output", target}); code == exitOK {
+	if code := run([]string{"assurance", "validators", "default-script", "--output", target}); code == exitOK {
 		t.Error("--output replaced a file that already existed")
 	}
 }
@@ -179,7 +179,7 @@ func TestAssuranceValidator_DefaultScriptPrintsAndWritesANewFileOnly(t *testing.
 func TestAssuranceValidator_PatternsSuggestFromTheJournal(t *testing.T) {
 	configPath, _ := writeValidatorTestConfig(t)
 	var code int
-	out := captureStdout(t, func() { code = run([]string{"assurance", "validator", "patterns", "--json", "--config", configPath}) })
+	out := captureStdout(t, func() { code = run([]string{"assurance", "validators", "patterns", "--json", "--config", configPath}) })
 	var p apicontract.CustomValidatorPatternsResponse
 	if code != exitOK || json.Unmarshal([]byte(out), &p) != nil || p.Patterns == nil {
 		t.Errorf("patterns exit %d: %s", code, out)
@@ -190,16 +190,16 @@ func TestAssuranceValidator_UsageRefusals(t *testing.T) {
 	configPath, _ := writeValidatorTestConfig(t)
 	script := writeScriptFixture(t, goodCLIValidator)
 	for _, argv := range [][]string{
-		{"assurance", "validator"},
-		{"assurance", "validator", "frobnicate"},
-		{"assurance", "validator", "add", "v", "--script", script},
-		{"assurance", "validator", "add", "v", "--pattern", "x"},
-		{"assurance", "validator", "add", "--pattern", "x", "--script", script},
-		{"assurance", "validator", "add", "--pattern", "x", "--dry-run", "--script", script},
-		{"assurance", "validator", "update", "v"},
-		{"assurance", "validator", "remove"},
-		{"assurance", "validator", "list", "extra"},
-		{"assurance", "validator", "default-script", "extra"},
+		{"assurance", "validators"},
+		{"assurance", "validators", "frobnicate"},
+		{"assurance", "validators", "add", "v", "--script", script},
+		{"assurance", "validators", "add", "v", "--pattern", "x"},
+		{"assurance", "validators", "add", "--pattern", "x", "--script", script},
+		{"assurance", "validators", "add", "--pattern", "x", "--dry-run", "--script", script},
+		{"assurance", "validators", "update", "v"},
+		{"assurance", "validators", "remove"},
+		{"assurance", "validators", "list", "extra"},
+		{"assurance", "validators", "default-script", "extra"},
 	} {
 		if code := run(append(argv, "--config", configPath)); code != exitUsage {
 			t.Errorf("%v exit %d, want usage %d", argv, code, exitUsage)
@@ -211,7 +211,7 @@ func TestAssuranceValidator_ARefusedUploadExitsWithTheOrdinaryFailureAndWritesNo
 	configPath, root := writeValidatorTestConfig(t)
 	bad := writeScriptFixture(t, "#!/usr/bin/env bash\nrm -rf /$UNSET_DIR\n")
 	before, _ := os.ReadFile(configPath)
-	if code := run([]string{"assurance", "validator", "add", "v", "--pattern", "x", "--script", bad, "--config", configPath}); code != exitFailure {
+	if code := run([]string{"assurance", "validators", "add", "v", "--pattern", "x", "--script", bad, "--config", configPath}); code != exitFailure {
 		t.Errorf("a lint refusal exit %d, want %d", code, exitFailure)
 	}
 	after, _ := os.ReadFile(configPath)

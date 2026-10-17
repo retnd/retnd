@@ -44,12 +44,54 @@ func (e *fakeEngine) serveCustomValidator(w http.ResponseWriter, r *http.Request
 			refuse(w, http.StatusBadRequest, apicontract.ErrorCodeInvalidRequest, err.Error())
 			return true
 		}
-		v, err := e.svc.UpdateCustomValidator(r.Context(), service.CreateCustomValidatorRequest{Name: name, Pattern: body.Pattern, BackupSetID: body.BackupSetID, Script: body.Script})
+		v, err := e.svc.UpdateCustomValidator(r.Context(), service.CreateCustomValidatorRequest{Name: name, Pattern: body.Pattern, BackupSetID: body.BackupSetID, Script: body.Script, ScriptSHA256: body.ScriptSha256})
 		if err != nil {
 			refuseServiceError(w, "updateCustomValidator", err)
 			return true
 		}
 		writeJSON(w, http.StatusOK, service.CustomValidatorWire(v))
+		return true
+	case path == "/assurance/validators" && r.Method == http.MethodGet:
+		q := r.URL.Query()
+		stepUpSeen.Store("GET "+path, r.URL.RawQuery)
+		l, err := e.svc.ListCustomValidators(r.Context(), service.CustomValidatorsFilter{BackupSetID: q.Get("backup_set"), ArtifactID: q.Get("artifact")})
+		if err != nil {
+			refuseServiceError(w, "listCustomValidators", err)
+			return true
+		}
+		writeJSON(w, http.StatusOK, service.CustomValidatorsWire(l))
+		return true
+	case isOne && r.Method == http.MethodGet && strings.HasSuffix(name, "/script"):
+		stepUpSeen.Store("GET "+path, "read")
+		s, err := e.svc.CustomValidatorScript(r.Context(), strings.TrimSuffix(name, "/script"))
+		if err != nil {
+			refuseServiceError(w, "getCustomValidatorScript", err)
+			return true
+		}
+		writeJSON(w, http.StatusOK, service.ValidatorScriptWire(s))
+		return true
+	case path == "/assurance/validator-patterns" && r.Method == http.MethodGet:
+		stepUpSeen.Store("GET "+path, "read")
+		p, err := e.svc.CustomValidatorPatterns(r.Context(), r.URL.Query().Get("backup_set"))
+		if err != nil {
+			refuseServiceError(w, "listCustomValidatorPatterns", err)
+			return true
+		}
+		writeJSON(w, http.StatusOK, service.CustomValidatorPatternsWire(p))
+		return true
+	case path == "/assurance/validator-preview" && r.Method == http.MethodPost:
+		stepUpSeen.Store("POST "+path, "read")
+		var body apicontract.PreviewCustomValidatorRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			refuse(w, http.StatusBadRequest, apicontract.ErrorCodeInvalidRequest, err.Error())
+			return true
+		}
+		p, err := e.svc.PreviewCustomValidator(r.Context(), body.Pattern, body.BackupSetID, body.Replacing)
+		if err != nil {
+			refuseServiceError(w, "previewCustomValidator", err)
+			return true
+		}
+		writeJSON(w, http.StatusOK, service.CustomValidatorPreviewWire(p))
 		return true
 	case isOne && r.Method == http.MethodDelete:
 		stepUpSeen.Store(r.Method+" "+path, r.Header.Get("X-Retnd-Step-Up-Password"))
@@ -64,14 +106,34 @@ func (e *fakeEngine) serveCustomValidator(w http.ResponseWriter, r *http.Request
 	return false
 }
 
+// routedValidatorFixture is routedFixture with a workflow root discovery's
+// custody rules accept on the engine's side: a script is written there, and a
+// root under a world-writable /tmp (what t.TempDir gives on Linux) is refused.
+func routedValidatorFixture(t *testing.T) (cliConfig string, engine *fakeEngine) {
+	t.Helper()
+	cliConfig, _ = workflowFixture(t)
+	engineConfig := writeTestConfigFor(t, cliConfig)
+	raw, err := os.ReadFile(engineConfig)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	block := "workflows:\n  root: " + validatorWorkflowRoot(t) + "\n"
+	if err := os.WriteFile(engineConfig, append(raw, []byte(block)...), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	engine = startFakeEngine(t, engineConfig)
+	engine.attach(t)
+	return cliConfig, engine
+}
+
 func TestAssuranceValidator_RoutedWritesLandThroughTheEngineWithTheStepUp(t *testing.T) {
-	cliConfig, engine := routedFixture(t)
+	cliConfig, engine := routedValidatorFixture(t)
 	script := writeScriptFixture(t, goodCLIValidator)
 	beforeCLI := readFile(t, cliConfig)
 
 	for _, argv := range [][]string{
-		{"assurance", "validator", "add", "routed", "--pattern", "^R-", "--script", script},
-		{"assurance", "validator", "update", "routed", "--pattern", "^S-", "--backup-set", cliSet},
+		{"assurance", "validators", "add", "routed", "--pattern", "^R-", "--script", script},
+		{"assurance", "validators", "update", "routed", "--pattern", "^S-", "--backup-set", cliSet},
 	} {
 		var code int
 		stderr := captureStderr(t, func() {
@@ -95,7 +157,7 @@ func TestAssuranceValidator_RoutedWritesLandThroughTheEngineWithTheStepUp(t *tes
 		t.Error("the CLI's own config.yaml changed as well as the engine's")
 	}
 
-	if code := captureStdoutCode(t, func() int { return run(withConfig([]string{"assurance", "validator", "remove", "routed"}, cliConfig)) }); code != exitOK {
+	if code := captureStdoutCode(t, func() int { return run(withConfig([]string{"assurance", "validators", "remove", "routed"}, cliConfig)) }); code != exitOK {
 		t.Fatalf("routed remove exited %d", code)
 	}
 	if v, _ := stepUpSeen.Load("DELETE /assurance/validators/routed"); v != nil && v.(string) != "" {

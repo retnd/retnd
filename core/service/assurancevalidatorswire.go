@@ -7,7 +7,7 @@ import (
 )
 
 // The custom validator bodies as the API serves them (#1203), here rather
-// than in the web host so `retnd assurance validator --json` prints the same
+// than in the web host so `retnd assurance validators --json` prints the same
 // objects through the same projection.
 
 // CustomValidatorWire is the API body for one validator, used by the route and by
@@ -32,8 +32,15 @@ func CustomValidatorsWire(l CustomValidators) apicontract.ListCustomValidatorsRe
 	out := apicontract.ListCustomValidatorsResponse{
 		Validators: make([]apicontract.CustomValidator, 0, len(l.Validators)),
 		Directory:  l.Directory, WorkflowRoot: l.WorkflowRoot, Available: l.Available, UnavailableReason: l.UnavailableReason,
+		DirectoryRefused: l.DirectoryRefused,
 		RunnerConfigured: l.RunnerConfigured, MaxValidators: int64(l.MaxValidators), MaxScriptBytes: l.MaxScriptBytes,
 		MaxPatternBytes: int64(l.MaxPatternBytes),
+		Ambiguities:     make([]apicontract.CustomValidatorAmbiguity, 0, len(l.Ambiguities)),
+	}
+	for _, a := range l.Ambiguities {
+		out.Ambiguities = append(out.Ambiguities, apicontract.CustomValidatorAmbiguity{
+			BackupSetID: a.BackupSetID, Validators: append([]string{}, a.Validators...), Example: a.Example,
+		})
 	}
 	for _, v := range l.Validators {
 		out.Validators = append(out.Validators, CustomValidatorWire(v))

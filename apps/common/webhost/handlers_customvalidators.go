@@ -17,7 +17,7 @@ import (
 //
 //	GET    /assurance/validators[?backup_set=&artifact=]
 //	POST   /assurance/validators                 CSRF, gate, step-up
-//	PUT    /assurance/validators/{name}          CSRF, gate, step-up
+//	PUT    /assurance/validators/{name}          CSRF, gate, step-up (a whole replace)
 //	DELETE /assurance/validators/{name}          CSRF
 //	GET    /assurance/validators/{name}/script
 //	POST   /assurance/validator-preview          CSRF, writes nothing
@@ -38,6 +38,18 @@ import (
 // script is new code. Removing one only stops a script from running, which is
 // the class of clearing a stage directory, so it is CSRF alone, and it has to
 // work on a shut gate so an operator can take a bad validator out.
+//
+// The password is asked for wherever the gate is open, whether or not the
+// gate says it asks for one for restores (requireValidatorGate, decide): an
+// upload that needs a password only when the gate volunteers that it does is
+// an upload the next gate implementation can forget to protect.
+//
+// # PUT is a whole replace
+//
+// The body carries the pattern, the scope and either the new script or the
+// hash of the stored one to keep. Nothing is inferred from a field left out,
+// because an inferred scope is how an edit of the pattern alone made a
+// set-scoped validator global.
 //
 // The preview is a POST because it carries a pattern, and it writes nothing.
 // It is behind CSRF like every other POST in this router.
@@ -137,6 +149,7 @@ func (h *handlers) updateCustomValidator(w http.ResponseWriter, r *http.Request)
 	}
 	v, err := b.UpdateCustomValidator(r.Context(), service.CreateCustomValidatorRequest{
 		Name: chi.URLParam(r, "name"), Pattern: body.Pattern, BackupSetID: body.BackupSetID, Script: body.Script,
+		ScriptSHA256: body.ScriptSha256,
 	})
 	if err != nil {
 		h.writeCustomValidatorError(w, r, err, "failed to store the custom validator")
@@ -221,6 +234,8 @@ func (h *handlers) writeCustomValidatorError(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusConflict, "VALIDATOR_PATTERN_CONFLICT", msg)
 	case errors.Is(err, service.ErrValidatorLimit):
 		writeError(w, http.StatusConflict, "VALIDATOR_LIMIT_REACHED", msg)
+	case errors.Is(err, service.ErrValidatorScriptChanged):
+		writeError(w, http.StatusConflict, "VALIDATOR_SCRIPT_CHANGED", msg)
 	case errors.Is(err, service.ErrValidatorsUnavailable):
 		writeError(w, http.StatusServiceUnavailable, "VALIDATORS_UNAVAILABLE", msg)
 	default:

@@ -492,9 +492,18 @@ func (e gateEnforcement) decide(r *http.Request, act gatedAct) (gateRefusal, boo
 	if stepUp && act.sourceRecovery != nil {
 		return e.checkSourceRecovery(r, act.sourceRecovery)
 	}
-	if stepUp && act.validatorUpload {
+	if act.validatorUpload {
+		// Not under `stepUp &&` like the two above, on purpose. A restore's
+		// step-up is a condition an open gate declares; an upload of code
+		// the engine will run on the host is not something an open gate may
+		// leave unchecked just because it does not say so. A gate that does
+		// not implement gateConditions (a test double, whatever #92 writes)
+		// reads as "no conditions" in conditionsOf, and treating that as
+		// "no password" let an upload through on the CSRF pair alone. So this
+		// fails closed: where the gate is open the password is asked for,
+		// and where nothing can check it the answer is 503, not 201.
 		return e.checkStepUp(r, stepUpAct{
-			name: "a validator upload", plural: "validator uploads", onHost: "retnd assurance validator add",
+			name: "a validator upload", plural: "validator uploads", onHost: "retnd assurance validators add",
 		})
 	}
 	return gateRefusal{}, false

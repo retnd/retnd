@@ -7,7 +7,7 @@
 # recovery-test validator. Download it, read it, change the part marked
 # "ADAPT HERE" to check what your backups actually contain, and upload it
 # again under your own name (Settings > Assurance, or
-# `retnd assurance validator add NAME --pattern REGEX --script FILE`).
+# `retnd assurance validators add NAME --pattern REGEX --script FILE`).
 #
 # WHEN IT RUNS
 #
@@ -52,6 +52,16 @@
 #   It has workflows.script_timeout to finish (5 minutes unless the
 #   deployment or the set says otherwise). A script that runs over is killed
 #   and the test is recorded as FAILED.
+#
+# WHAT THE UPLOAD CHECK IS NOT
+#
+#   An upload has to pass the check that gates saving a workflow. That check
+#   refuses shell mistakes that are almost always wrong, such as rm -rf on an
+#   unset variable. It is a lint and not a sandbox: it does not stop a script
+#   from doing whatever its container can do. The script runs with the set's
+#   merged workflow environment, the same variables its other hooks get,
+#   secrets included if you put them there. Treat uploading a validator the
+#   way you treat adding a hook.
 #
 # WHAT IT IS TOLD (environment)
 #

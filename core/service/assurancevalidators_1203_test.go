@@ -245,13 +245,13 @@ func TestCustomValidators_WithoutAWorkflowRootIsUnavailable(t *testing.T) {
 	}
 }
 
-func TestCustomValidators_UpdateKeepsTheScriptWhenNoneIsSentAndReplacesItWhenOneIs(t *testing.T) {
+func TestCustomValidators_UpdateKeepsTheScriptByHashAndReplacesItWhenOneIsSent(t *testing.T) {
 	ctx := context.Background()
 	svc, _, root := openWorkflowSaveService(t)
 	if _, err := svc.CreateCustomValidator(ctx, CreateCustomValidatorRequest{Name: "v", Pattern: "^a", Script: goodValidator}); err != nil {
 		t.Fatal(err)
 	}
-	v, err := svc.UpdateCustomValidator(ctx, CreateCustomValidatorRequest{Name: "v", Pattern: "^b", BackupSetID: "production/alpha"})
+	v, err := svc.UpdateCustomValidator(ctx, CreateCustomValidatorRequest{Name: "v", Pattern: "^b", BackupSetID: "production/alpha", ScriptSHA256: validatorScriptOf("v", []byte(goodValidator)).SHA256})
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -260,17 +260,17 @@ func TestCustomValidators_UpdateKeepsTheScriptWhenNoneIsSentAndReplacesItWhenOne
 	}
 	body, _ := os.ReadFile(filepath.Join(root, config.CustomValidatorDir, "v.local.sh"))
 	if string(body) != goodValidator {
-		t.Error("an update with no script changed the script")
+		t.Error("keeping the script by its hash changed it")
 	}
 	next := goodValidator + "echo again\n"
-	if _, err := svc.UpdateCustomValidator(ctx, CreateCustomValidatorRequest{Name: "v", Pattern: "^b", Script: next}); err != nil {
+	if _, err := svc.UpdateCustomValidator(ctx, CreateCustomValidatorRequest{Name: "v", Pattern: "^b", BackupSetID: "production/alpha", Script: next}); err != nil {
 		t.Fatal(err)
 	}
 	body, _ = os.ReadFile(filepath.Join(root, config.CustomValidatorDir, "v.local.sh"))
 	if string(body) != next {
 		t.Error("an update with a script did not replace it")
 	}
-	if _, err := svc.UpdateCustomValidator(ctx, CreateCustomValidatorRequest{Name: "nope", Pattern: "x"}); !errors.Is(err, ErrValidatorNotFound) {
+	if _, err := svc.UpdateCustomValidator(ctx, CreateCustomValidatorRequest{Name: "nope", Pattern: "x", Script: goodValidator}); !errors.Is(err, ErrValidatorNotFound) {
 		t.Errorf("update of a missing validator = %v", err)
 	}
 }

@@ -2,6 +2,40 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Custom recovery-test validators, by backup name** (#1203, #1204). A validator is a `NAME.local.sh` and a
+  Go RE2 pattern over the backup's file name, for one backup set or every set, so a set that holds a manifest
+  and a database dump can check each its own way. For the copy a recovery test is about to check, the first of
+  these applies: the set's own pattern, a global pattern, the set's `validator_id`, the one script in its
+  recovery-test directory, the built-in structure check. Two patterns at one scope that match one backup end
+  the test `could not complete` instead of picking one, and `list` warns about every backup in the journal
+  that both match. New: `GET/POST /api/v1/assurance/validators`, `PUT/DELETE
+  /api/v1/assurance/validators/{name}`, `GET .../{name}/script`, `POST /assurance/validator-preview`,
+  `GET /assurance/validator-patterns` and `GET /assurance/default-validator-script`, and `retnd assurance
+  validators list|add|update|remove|script|patterns|default-script`. The reads ask the serving engine when
+  `RETND_API_URL` names one. Uploading and editing are behind the destructive gate and ask for the password
+  again (503 `STEP_UP_UNAVAILABLE` where nothing can check it), because they put code where the engine runs it
+  on the host; removing does not need the gate. Things to know:
+  - `PUT` is a whole replace: it carries the pattern, the scope and either the new `script` or `script_sha256`
+    to keep the stored one (409 `VALIDATOR_SCRIPT_CHANGED` if it moved on). `retnd assurance validators update`
+    needs `--backup-set` or `--global`, so an edit can no longer widen a set-scoped validator by leaving the
+    scope out.
+  - A pattern may not repeat more than 255 times or compile to more than 1000 instructions, and names that differ
+    only by case are one name. The preview and list scans stop when the request does, and a write scans the
+    journal before it takes the configuration lock.
+  - Removing a validator, or a backup set that had some, moves the script to
+    `recovery-test-validators.superseded`; nothing is deleted. Files in the directory that `config.yaml` does not
+    name are moved there on the next upload.
+  - A recovery test that names its script (`validator_id` and every custom validator) now looks that file up
+    directly, so a stray file beside it or a 65th file no longer refuses it (#1204).
+  - Uploads, edits and removals leave `validator_uploaded`, `validator_updated` and `validator_removed` events
+    (hash and size, never the script), and a matched validator that the test did not run leaves a
+    `recovery_test_validator_fallback` warning.
+  - A retnd from before this release refuses a `config.yaml` that has `assurance.validators` in it. Remove them
+    before you downgrade.
+  - The upload check is a lint, not a sandbox, and a validator runs with the set's workflow environment.
+
 ## [0.7.0] - 2026-10-15
 
 0.7.0 is a minor rather than 0.6.5 because three things in it change what an existing setup does, and

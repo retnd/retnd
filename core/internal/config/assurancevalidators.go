@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"regexp"
+	"regexp/syntax"
 	"strings"
 	"unicode/utf8"
 
@@ -44,10 +45,27 @@ const CustomValidatorDir = "recovery-test-validators"
 // is declared and not the first time a test reads the directory.
 const MaxCustomValidators = 64
 
-// MaxCustomValidatorPatternBytes bounds a pattern. RE2 cannot backtrack, so
-// this is not about run time; it keeps a pattern something a person can read
-// in a table cell and a config diff.
+// MaxCustomValidatorPatternBytes bounds a pattern's length, which keeps it
+// something a person can read in a table cell and a config diff. It does NOT
+// bound what the pattern costs to run: RE2 cannot backtrack, but its run time
+// is still linear in the size of the compiled program, and 39 copies of
+// [a-z]{0,1000} fit in 507 bytes and compile to a program that takes about
+// 13 ms per match against a 255 byte name. The preview route matches every
+// artifact name in scope on a request that needs only a CSRF token, so the
+// cost has to be bounded where the pattern is accepted, by the next two
+// constants.
 const MaxCustomValidatorPatternBytes = 512
+
+// MaxCustomValidatorRepeat is the largest repeat count a pattern may use
+// ({n}, {n,m}). 255 is the longest name a backup can have, so no honest
+// pattern needs more.
+const MaxCustomValidatorRepeat = 255
+
+// MaxCustomValidatorProgramSize is the most instructions a pattern may
+// compile to. The patterns an operator writes are tens of instructions
+// ("^MANIFEST-\\d{8}T\\d{6}Z\\.txt$" is under fifty); this leaves room for
+// a few long bounded repeats and refuses the multiplied ones.
+const MaxCustomValidatorProgramSize = 1000
 
 // CustomValidator is one entry under assurance.validators.
 type CustomValidator struct {
@@ -111,11 +129,70 @@ func CompileValidatorPattern(p string) (*regexp.Regexp, error) {
 	if !utf8.ValidString(p) {
 		return nil, fmt.Errorf("the pattern is not valid UTF-8")
 	}
+	tree, err := syntax.Parse(p, syntax.Perl)
+	if err != nil {
+		return nil, fmt.Errorf("%q is not a Go (RE2) regular expression: %v", p, err)
+	}
+	if n := largestRepeat(tree); n > MaxCustomValidatorRepeat {
+		return nil, fmt.Errorf("the pattern repeats something %d times and a repeat may be at most %d, the longest name a backup can have", n, MaxCustomValidatorRepeat)
+	}
+	// The estimate comes first so that a pattern built to multiply
+	// ((a{255}){255}) is refused before anything is expanded to measure it.
+	if est := programEstimate(tree); est > MaxCustomValidatorProgramSize {
+		return nil, fmt.Errorf("the pattern compiles to a program of about %d instructions and may be at most %d; it is matched against every backup name, so use fewer or smaller repeats", est, MaxCustomValidatorProgramSize)
+	}
+	prog, err := syntax.Compile(tree.Simplify())
+	if err != nil {
+		return nil, fmt.Errorf("%q is not a Go (RE2) regular expression: %v", p, err)
+	}
+	if n := len(prog.Inst); n > MaxCustomValidatorProgramSize {
+		return nil, fmt.Errorf("the pattern compiles to a program of %d instructions and may be at most %d; it is matched against every backup name, so use fewer or smaller repeats", n, MaxCustomValidatorProgramSize)
+	}
 	re, err := regexp.Compile(p)
 	if err != nil {
 		return nil, fmt.Errorf("%q is not a Go (RE2) regular expression: %v", p, err)
 	}
 	return re, nil
+}
+
+// largestRepeat is the biggest explicit repeat count anywhere in the tree.
+func largestRepeat(re *syntax.Regexp) int {
+	n := 0
+	if re.Op == syntax.OpRepeat {
+		n = max(re.Min, re.Max)
+	}
+	for _, sub := range re.Sub {
+		n = max(n, largestRepeat(sub))
+	}
+	return n
+}
+
+// programEstimate is an upper-ish bound on the compiled program's size that
+// is cheap to compute and saturates, so a hostile pattern cannot make the
+// estimate itself expensive. A repeat costs its body once per copy.
+func programEstimate(re *syntax.Regexp) int {
+	const ceiling = 1 << 24
+	sat := func(n int) int { return min(n, ceiling) }
+	total := 1
+	switch re.Op {
+	case syntax.OpLiteral:
+		total = max(1, len(re.Rune))
+	case syntax.OpRepeat:
+		copies := re.Max
+		if copies < 0 {
+			copies = re.Min + 1
+		}
+		body := 0
+		for _, sub := range re.Sub {
+			body += programEstimate(sub)
+		}
+		// Each optional copy also costs a split.
+		return sat((body + 1) * max(copies, 1))
+	}
+	for _, sub := range re.Sub {
+		total = sat(total + programEstimate(sub))
+	}
+	return sat(total)
 }
 
 // resolveCustomValidators validates assurance.validators against the whole
@@ -135,6 +212,8 @@ func (c *Config) resolveCustomValidators(v *validator, list []CustomValidator) [
 			sets[bs.ID] = true
 		}
 	}
+	// Keyed by the folded name: on a case-insensitive volume Foo.local.sh and
+	// foo.local.sh are one file, and a name must mean one script everywhere.
 	names := map[string]int{}
 	type scoped struct {
 		set     model.BackupSetID
@@ -152,11 +231,12 @@ func (c *Config) resolveCustomValidators(v *validator, list []CustomValidator) [
 			ok = false
 		}
 		r.ScriptFile = file
-		if j, dup := names[cv.Name]; dup && cv.Name != "" {
-			v.addf("%s.name: %q is already the name of %s[%d]; each validator is one script file, so names are unique across the deployment", path, cv.Name, p, j)
+		folded := strings.ToLower(cv.Name)
+		if j, dup := names[folded]; dup && cv.Name != "" {
+			v.addf("%s.name: %q is already the name of %s[%d] (names are compared without regard to case, since a case-insensitive volume would make them one file); each validator is one script file, so names are unique across the deployment", path, cv.Name, p, j)
 			ok = false
 		}
-		names[cv.Name] = i
+		names[folded] = i
 		re, err := CompileValidatorPattern(cv.Pattern)
 		if err != nil {
 			v.addf("%s.pattern: %v", path, err)

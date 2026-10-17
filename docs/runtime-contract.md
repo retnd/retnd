@@ -271,6 +271,17 @@ workflow runner under the contract in
 [the host workflow runner ADR](adr/0020-host-workflow-runner.md), and a recovery itself
 starts no subprocess at all.
 
+Custom validators (a `NAME.local.sh` attached to a backup-name pattern, #1203) are the same
+kind of script and get the same reach. They live in `recovery-test-validators` under the
+workflow root, and uploading one over the API or with `retnd assurance validators` makes the
+engine write into that directory (a `0750` directory, `0640` files, renamed into place), which
+is the one thing this feature writes besides `config.yaml`. Removing one renames the script
+into `recovery-test-validators.superseded` beside it and deletes nothing. A workflow tree
+mounted read-only, which is the usual container layout, answers `VALIDATORS_UNAVAILABLE`: put
+the script there yourself and declare it under `assurance.validators`. Uploading and editing
+sit behind the destructive gate and the password step-up, for the reason a recovery onto the
+source host does. The upload check is a lint, not a sandbox.
+
 The built-in structure check, which a recovery test runs instead of a validator when the set
 declares none, adds nothing to that list. It runs in the engine process: it uses the gzip
 and tar readers from the standard library and the zstd reader the binary already links, it

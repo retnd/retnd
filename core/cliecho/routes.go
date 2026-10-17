@@ -1,6 +1,8 @@
 package cliecho
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net/url"
 	"strconv"
 	"strings"
@@ -1623,7 +1625,7 @@ var routes = map[string]entry{
 	// ------------------------------------------- custom validators (#1203) ---
 	key("GET", "/assurance/validators"): {
 		build: func(a Action) *cmd {
-			c := newCmd("assurance", "validator", "list")
+			c := newCmd("assurance", "validators", "list")
 			c.flagIfSet("backup-set", a.Query.Get("backup_set"))
 			c.flagIfSet("artifact", a.Query.Get("artifact"))
 			return c
@@ -1640,10 +1642,11 @@ var routes = map[string]entry{
 			if !decode(a.Body, &req) {
 				return nil
 			}
-			c := newCmd("assurance", "validator", "add", req.Name).flag("pattern", req.Pattern)
+			c := newCmd("assurance", "validators", "add", req.Name).flag("pattern", req.Pattern)
 			c.flagIfSet("backup-set", req.BackupSetID)
-			// The script travelled inline; on a terminal it is a file.
-			return c.placeholderFlag("script", "the script file you uploaded")
+			// The script travelled inline; on a terminal it is a file. The
+			// placeholder says which one by size and hash, never by body.
+			return c.placeholderFlag("script", scriptIdentity(req.Script))
 		},
 		why: "there is no verb that uploads a validator from a request body",
 		examples: []Action{
@@ -1657,10 +1660,15 @@ var routes = map[string]entry{
 			if !decode(a.Body, &req) {
 				return nil
 			}
-			c := newCmd("assurance", "validator", "update", a.Params["name"]).flag("pattern", req.Pattern)
-			c.flagIfSet("backup-set", req.BackupSetID)
+			c := newCmd("assurance", "validators", "update", a.Params["name"]).flag("pattern", req.Pattern)
+			// An update says where it goes: the request is a replacement, so
+			// an absent backup_set_id is global and the terminal has to be told
+			// so (--global), not left to infer it.
+			scopeFlag(c, req.BackupSetID)
+			// Without --script the terminal keeps the stored script by its
+			// hash, which is what script_sha256 is, so there is nothing to echo.
 			if req.Script != "" {
-				c.placeholderFlag("script", "the script file you uploaded")
+				c.placeholderFlag("script", scriptIdentity(req.Script))
 			}
 			return c
 		},
@@ -1672,13 +1680,13 @@ var routes = map[string]entry{
 	},
 	key("DELETE", "/assurance/validators/{name}"): {
 		build: func(a Action) *cmd {
-			return newCmd("assurance", "validator", "remove", a.Params["name"])
+			return newCmd("assurance", "validators", "remove", a.Params["name"])
 		},
 		examples: []Action{{Params: map[string]string{"name": "manifest"}}},
 	},
 	key("GET", "/assurance/validators/{name}/script"): {
 		build: func(a Action) *cmd {
-			return newCmd("assurance", "validator", "script", a.Params["name"])
+			return newCmd("assurance", "validators", "script", a.Params["name"])
 		},
 		examples: []Action{{Params: map[string]string{"name": "manifest"}}},
 	},
@@ -1688,12 +1696,16 @@ var routes = map[string]entry{
 			if !decode(a.Body, &req) {
 				return nil
 			}
-			c := newCmd("assurance", "validator", "add")
+			c := newCmd("assurance", "validators", "add")
 			if req.Replacing != "" {
-				c = newCmd("assurance", "validator", "update", req.Replacing)
+				c = newCmd("assurance", "validators", "update", req.Replacing)
 			}
 			c.flag("pattern", req.Pattern)
-			c.flagIfSet("backup-set", req.BackupSetID)
+			if req.Replacing != "" {
+				scopeFlag(c, req.BackupSetID)
+			} else {
+				c.flagIfSet("backup-set", req.BackupSetID)
+			}
 			return c.bare("dry-run")
 		},
 		why: "there is no verb that previews a pattern from a request body",
@@ -1704,14 +1716,14 @@ var routes = map[string]entry{
 	},
 	key("GET", "/assurance/validator-patterns"): {
 		build: func(a Action) *cmd {
-			c := newCmd("assurance", "validator", "patterns")
+			c := newCmd("assurance", "validators", "patterns")
 			c.flagIfSet("backup-set", a.Query.Get("backup_set"))
 			return c
 		},
 		examples: []Action{{}, {Query: mustQuery("backup_set=api-server%2Fvar-backups")}},
 	},
 	key("GET", "/assurance/default-validator-script"): {
-		build:    func(Action) *cmd { return newCmd("assurance", "validator", "default-script") },
+		build:    func(Action) *cmd { return newCmd("assurance", "validators", "default-script") },
 		examples: []Action{{}},
 	},
 	key("GET", "/assurance/due"): {
@@ -2271,4 +2283,24 @@ func stagingName(name string) string {
 		return "./" + name
 	}
 	return name
+}
+
+// scopeFlag is --backup-set S for a validator scoped to a set and --global for
+// one that applies in every set: `assurance validators update` needs one of
+// the two, so a request with no set echoes the second and not nothing.
+func scopeFlag(c *cmd, backupSetID string) {
+	if backupSetID != "" {
+		c.flag("backup-set", backupSetID)
+		return
+	}
+	c.bare("global")
+}
+
+// scriptIdentity is what the placeholder for an uploaded script says it
+// stands for: its size and SHA-256, which are what the engine records and
+// what `assurance validators list` prints, so the line can be matched to the
+// script without the script being in it.
+func scriptIdentity(script string) string {
+	sum := sha256.Sum256([]byte(script))
+	return "the script file you uploaded, " + strconv.Itoa(len(script)) + " bytes, sha256 " + hex.EncodeToString(sum[:])
 }
