@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "255543d99491c98a80d02791f277635fd3b2ca6c84fb2ec537774a0800a7f4be"
+const ContractSHA256 = "206886ccbcd1dcdd1a617db3379c516f0cd6c3584a6313ad4b4854b6549d9a70"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -163,6 +163,7 @@ const (
 	ErrorCodeValidatorPatternConflict               ErrorCode = "VALIDATOR_PATTERN_CONFLICT"
 	ErrorCodeValidatorLimitReached                  ErrorCode = "VALIDATOR_LIMIT_REACHED"
 	ErrorCodeValidatorsUnavailable                  ErrorCode = "VALIDATORS_UNAVAILABLE"
+	ErrorCodeValidatorScriptChanged                 ErrorCode = "VALIDATOR_SCRIPT_CHANGED"
 )
 
 // WireErrorCodes is codes a server may put on the wire. Every one of these is emitted by real handler code, and apps/common/webhost's TestContract_EveryWireErrorCodeIsRegistered holds that both ways.
@@ -273,6 +274,7 @@ var WireErrorCodes = []ErrorCode{
 	ErrorCodeValidatorPatternConflict,
 	ErrorCodeValidatorLimitReached,
 	ErrorCodeValidatorsUnavailable,
+	ErrorCodeValidatorScriptChanged,
 }
 
 // UIErrorCodes is the shared UI's own presentation vocabulary. No endpoint emits these; they are registered here so there is one registry rather than a second hand-maintained list in ui/shared.
@@ -407,6 +409,7 @@ var ErrorCodes = []ErrorCode{
 	ErrorCodeValidatorPatternConflict,
 	ErrorCodeValidatorLimitReached,
 	ErrorCodeValidatorsUnavailable,
+	ErrorCodeValidatorScriptChanged,
 }
 
 // ErrorClasses groups codes by the refusal they represent, so a caller (or
@@ -414,7 +417,7 @@ var ErrorCodes = []ErrorCode{
 var ErrorClasses = map[string][]ErrorCode{
 	"authentication": {ErrorCodeUnauthenticated, ErrorCodeBootstrapTokenInvalid, ErrorCodeResetTokenInvalid, ErrorCodeVerifyTokenInvalid},
 	"authorization":  {ErrorCodeEnrollmentClosed, ErrorCodeDestructiveOperationsDisabled, ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeRecoveryGrantSessionEnded, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeInsecureTransportAckRequired},
-	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy, ErrorCodeDirectoryNotReadable, ErrorCodeRestoreTargetNotAcknowledged, ErrorCodeSnapshotHoldReleaseNotAcknowledged, ErrorCodeRecoverySourceHostUnavailable, ErrorCodeRecoverySourceHostReadOnly, ErrorCodeRecoverySourceHostNotAcknowledged, ErrorCodeRecoverySourceHostProbeLeftFile, ErrorCodeValidatorExists, ErrorCodeValidatorPatternConflict, ErrorCodeValidatorLimitReached},
+	"conflict":       {ErrorCodeRetentionPlanStale, ErrorCodeRetentionApplyBusy, ErrorCodeOperationAlreadyRunning, ErrorCodeBackupSetHeldForEditing, ErrorCodeIdempotencyKeyConflict, ErrorCodeConfigRevisionStale, ErrorCodeAlreadyConfigured, ErrorCodeArtifactNotQuarantined, ErrorCodeArtifactIrrecoverable, ErrorCodeReinstatementRefused, ErrorCodeBackupSetRepointNotAcknowledged, ErrorCodeBackupSetHistoryRepointNotAcknowledged, ErrorCodeBackupSetHostKeyChangeNotAcknowledged, ErrorCodeArtifactNotFailed, ErrorCodeBackupSetConnectionNotProven, ErrorCodeBackupSetSourceNotWritable, ErrorCodeMediumIsDefault, ErrorCodeMediumConnectionNotProven, ErrorCodeSnapshotNotHoldable, ErrorCodeIncrementalEngineDisabled, ErrorCodeRepositoryDomainExists, ErrorCodeRepositoryDomainMaintainedElsewhere, ErrorCodeWorkflowsNotConfigured, ErrorCodeWorkflowScriptRejected, ErrorCodeRecoveryCostNotAcknowledged, ErrorCodeRecoveryNoCopy, ErrorCodeRecoveryNotReadable, ErrorCodeRecoveryNoDigest, ErrorCodeRecoveryGrantUsed, ErrorCodeRecoveryGrantExpired, ErrorCodeRecoveryTargetExists, ErrorCodeRecoveryUseSnapshotRestore, ErrorCodeRecoveryBusy, ErrorCodeDirectoryNotReadable, ErrorCodeRestoreTargetNotAcknowledged, ErrorCodeSnapshotHoldReleaseNotAcknowledged, ErrorCodeRecoverySourceHostUnavailable, ErrorCodeRecoverySourceHostReadOnly, ErrorCodeRecoverySourceHostNotAcknowledged, ErrorCodeRecoverySourceHostProbeLeftFile, ErrorCodeValidatorExists, ErrorCodeValidatorPatternConflict, ErrorCodeValidatorLimitReached, ErrorCodeValidatorScriptChanged},
 	"internal":       {ErrorCodeInternal, ErrorCodeInternalError, ErrorCodeRecoveryLocalCopyCorrupt, ErrorCodeRecoveryRemoteCopyCorrupt, ErrorCodeRecoveryNoSpace, ErrorCodeRecoveryBelowReserve, ErrorCodeRecoveryFailed, ErrorCodeRecoverySourceHostNoSpace},
 	"not-found":      {ErrorCodeBackupSetNotFound, ErrorCodeOperationNotFound, ErrorCodeRetentionPlanNotFound, ErrorCodeArtifactNotFound, ErrorCodeMediumNotFound, ErrorCodeSnapshotNotFound, ErrorCodeSnapshotHoldNotFound, ErrorCodeRepositoryDomainNotFound, ErrorCodeWorkflowEnvNotFound, ErrorCodeWorkflowRunNotFound, ErrorCodeWorkflowStepNotFound, ErrorCodeRecoveryCopyNotFound, ErrorCodeRecoveryGrantUnknown, ErrorCodeDirectoryNotFound, ErrorCodeValidatorNotFound},
 	"throttling":     {ErrorCodeRateLimited, ErrorCodeRecoveryTooManyGrants, ErrorCodeRecoveryReadsBusy, ErrorCodeRecoveryDestinationBusy, ErrorCodeRecoveryDownloadsBusy},
@@ -571,7 +574,7 @@ var Endpoints = []Endpoint{
 			401: {ErrorCodeUnauthenticated},
 			403: {ErrorCodeCSRFTokenMissing, ErrorCodeCSRFTokenMismatch, ErrorCodeDestructiveOperationsDisabled, ErrorCodeStepUpRequired, ErrorCodeStepUpFailed, ErrorCodeInsecureTransportAckRequired},
 			404: {ErrorCodeBackupSetNotFound, ErrorCodeValidatorNotFound},
-			409: {ErrorCodeValidatorPatternConflict},
+			409: {ErrorCodeValidatorPatternConflict, ErrorCodeValidatorScriptChanged},
 			429: {ErrorCodeRateLimited},
 			500: {ErrorCodeInternal},
 			503: {ErrorCodeValidatorsUnavailable, ErrorCodeStepUpUnavailable, ErrorCodeNotConfigured},
@@ -2427,6 +2430,14 @@ type CustomValidator struct {
 	UploadedAt      string                 `json:"uploaded_at"`
 }
 
+// CustomValidatorAmbiguity is A collision between custom validators found in the journal: one
+// backup, two or more patterns at one scope.
+type CustomValidatorAmbiguity struct {
+	BackupSetID string   `json:"backup_set_id"`
+	Example     string   `json:"example"`
+	Validators  []string `json:"validators"`
+}
+
 // CustomValidatorConflict is another validator at the same scope that already matches a backup
 // this pattern matches.
 type CustomValidatorConflict struct {
@@ -2701,8 +2712,10 @@ type ListBackupSetsResponse struct {
 
 // ListCustomValidatorsResponse is the custom validators, and what this deployment allows.
 type ListCustomValidatorsResponse struct {
+	Ambiguities       []CustomValidatorAmbiguity `json:"ambiguities"`
 	Available         bool                       `json:"available"`
 	Directory         string                     `json:"directory"`
+	DirectoryRefused  string                     `json:"directory_refused"`
 	MaxPatternBytes   int64                      `json:"max_pattern_bytes"`
 	MaxScriptBytes    int64                      `json:"max_script_bytes"`
 	MaxValidators     int64                      `json:"max_validators"`
@@ -4361,12 +4374,18 @@ type UpdateCapacitySettings struct {
 	WarningFreeBytes  *int64 `json:"warning_free_bytes"`
 }
 
-// UpdateCustomValidatorRequest is A custom validator's new pattern, scope and, optionally, script.
-// The name is the path's.
+// UpdateCustomValidatorRequest is A custom validator, whole. A replacement and not a merge: every
+// field the validator has is in the request or it is not kept, so an
+// edit cannot narrow or widen a scope by leaving a field out. The
+// pattern and the scope (backup_set_id, empty for global) are always
+// the new ones; the script is either sent (script) or explicitly
+// kept (script_sha256), and exactly one of the two is required. The
+// name is the path's.
 type UpdateCustomValidatorRequest struct {
-	BackupSetID string `json:"backup_set_id"`
-	Pattern     string `json:"pattern"`
-	Script      string `json:"script"`
+	BackupSetID  string `json:"backup_set_id"`
+	Pattern      string `json:"pattern"`
+	Script       string `json:"script"`
+	ScriptSha256 string `json:"script_sha256"`
 }
 
 // UpdateRetentionSettings is A PARTIAL retention update. An omitted field is left exactly as
@@ -4836,6 +4855,7 @@ var SchemaTypes = map[string]any{
 	"CreateRepositoryDomainRequest":      CreateRepositoryDomainRequest{},
 	"CredentialsRequest":                 CredentialsRequest{},
 	"CustomValidator":                    CustomValidator{},
+	"CustomValidatorAmbiguity":           CustomValidatorAmbiguity{},
 	"CustomValidatorConflict":            CustomValidatorConflict{},
 	"CustomValidatorPattern":             CustomValidatorPattern{},
 	"CustomValidatorPatternsResponse":    CustomValidatorPatternsResponse{},

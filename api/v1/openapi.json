@@ -191,7 +191,8 @@
           "VALIDATOR_EXISTS",
           "VALIDATOR_PATTERN_CONFLICT",
           "VALIDATOR_LIMIT_REACHED",
-          "VALIDATORS_UNAVAILABLE"
+          "VALIDATORS_UNAVAILABLE",
+          "VALIDATOR_SCRIPT_CHANGED"
         ],
         "x-code-origins": {
           "authentication-failed": "ui",
@@ -309,7 +310,8 @@
           "VALIDATOR_EXISTS": "wire",
           "VALIDATOR_PATTERN_CONFLICT": "wire",
           "VALIDATOR_LIMIT_REACHED": "wire",
-          "VALIDATORS_UNAVAILABLE": "wire"
+          "VALIDATORS_UNAVAILABLE": "wire",
+          "VALIDATOR_SCRIPT_CHANGED": "wire"
         },
         "x-error-classes": {
           "authentication": [
@@ -381,7 +383,8 @@
             "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE",
             "VALIDATOR_EXISTS",
             "VALIDATOR_PATTERN_CONFLICT",
-            "VALIDATOR_LIMIT_REACHED"
+            "VALIDATOR_LIMIT_REACHED",
+            "VALIDATOR_SCRIPT_CHANGED"
           ],
           "not-found": [
             "BACKUP_SET_NOT_FOUND",
@@ -8441,7 +8444,7 @@
           },
           "pattern": {
             "type": "string",
-            "description": "A Go RE2 regular expression matched against the artifact's file name (never its path). Not forced to be anchored: an unanchored pattern matches anywhere in the name."
+            "description": "A Go RE2 regular expression matched against the artifact's file name (never its path). Not forced to be anchored: an unanchored pattern matches anywhere in the name. At most max_pattern_bytes long, no repeat count above 255, and a compiled program of at most 1000 instructions: RE2 cannot backtrack, but a bounded repeat of a bounded repeat is still slow to run against every backup name."
           },
           "anchored": {
             "type": "boolean",
@@ -8605,6 +8608,17 @@
             "format": "int64",
             "description": "The longest pattern (512)."
           },
+          "directory_refused": {
+            "type": "string",
+            "description": "Why the stage directory cannot be used, in a sentence an operator can act on (it is writable by another account, owned by one this process does not trust, or not a directory); empty when it is fine or does not exist yet. While it is set no validator script can run, whatever available says about uploading."
+          },
+          "ambiguities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomValidatorAmbiguity"
+            },
+            "description": "Backups already in the journal that more than one validator's pattern matches at the same scope. A recovery test of such a backup ends could_not_complete rather than choosing, so each one is a warning to narrow a pattern. Empty when there are none; only backups in the requested scope are examined."
+          },
           "resolution": {
             "$ref": "#/components/schemas/CustomValidatorResolution",
             "description": "Present only when the request named an artifact.",
@@ -8618,10 +8632,39 @@
           "workflow_root",
           "available",
           "unavailable_reason",
+          "directory_refused",
           "runner_configured",
           "max_validators",
           "max_script_bytes",
-          "max_pattern_bytes"
+          "max_pattern_bytes",
+          "ambiguities"
+        ]
+      },
+      "CustomValidatorAmbiguity": {
+        "type": "object",
+        "description": "A collision between custom validators found in the journal: one backup, two or more patterns at one scope.",
+        "additionalProperties": false,
+        "properties": {
+          "backup_set_id": {
+            "type": "string",
+            "description": "The backup set the backup is in, source/set."
+          },
+          "validators": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The validators whose patterns all match it at the same scope, in the order they are declared."
+          },
+          "example": {
+            "type": "string",
+            "description": "The newest backup they collide on, source/set/name."
+          }
+        },
+        "required": [
+          "backup_set_id",
+          "validators",
+          "example"
         ]
       },
       "CreateCustomValidatorRequest": {
@@ -8654,7 +8697,7 @@
       },
       "UpdateCustomValidatorRequest": {
         "type": "object",
-        "description": "A custom validator's new pattern, scope and, optionally, script. The name is the path's.",
+        "description": "A custom validator, whole. A replacement and not a merge: every field the validator has is in the request or it is not kept, so an edit cannot narrow or widen a scope by leaving a field out. The pattern and the scope (backup_set_id, empty for global) are always the new ones; the script is either sent (script) or explicitly kept (script_sha256), and exactly one of the two is required. The name is the path's.",
         "additionalProperties": false,
         "properties": {
           "pattern": {
@@ -8663,11 +8706,15 @@
           },
           "backup_set_id": {
             "type": "string",
-            "description": "source/set, or empty for global. Absent is global too: this is a replacement, not a merge."
+            "description": "source/set, or empty for global. Absent is global too: this is a replacement, not a merge, so a client that means to keep a validator scoped to a set must send that set again."
           },
           "script": {
             "type": "string",
-            "description": "The new script; absent or empty keeps the stored one."
+            "description": "The new script, whole (UTF-8 text, no NUL byte, at most max_script_bytes, and it must pass the check that gates saving a workflow). Send this or script_sha256, not both."
+          },
+          "script_sha256": {
+            "type": "string",
+            "description": "Keep the stored script, and say which one by its SHA-256 (CustomValidator.script_sha256 as the client last read it). Refused with 409 VALIDATOR_SCRIPT_CHANGED when the stored script is no longer that one, so an edit never silently keeps a script somebody else replaced. Send this or script, not both."
           }
         },
         "required": [
@@ -20350,7 +20397,7 @@
       "get": {
         "operationId": "listCustomValidators",
         "summary": "The custom recovery-test validators, with what each matches and its newest result.",
-        "description": "Issue #1203. Read-only. With backup_set, the ones that apply to that set, in the order a test tries them. With artifact, also which validator a recovery test of that backup would run (resolution).",
+        "description": "Issue #1203. Read-only. With backup_set, the ones that apply to that set, in the order a test tries them. With artifact, also which validator a recovery test of that backup would run (resolution), for that backup's set alone. ambiguities lists backups in scope that two patterns at one scope both match, which a recovery test refuses to choose between.",
         "tags": [
           "assurance"
         ],
@@ -20376,7 +20423,7 @@
             "schema": {
               "type": "string"
             },
-            "description": "source/set/name: also answer which validator a test of this backup would run."
+            "description": "source/set/name: also answer which validator a test of this backup would run. This narrows the answer to that backup's set exactly as backup_set does (and is refused with 400 when backup_set names another), so it costs one set's journal and not the deployment's."
           }
         ],
         "responses": {
@@ -20465,7 +20512,7 @@
       "post": {
         "operationId": "createCustomValidator",
         "summary": "Upload a custom validator: a script attached to an artifact-name pattern.",
-        "description": "Issue #1203. Writes the script to <workflow root>/recovery-test-validators/NAME.local.sh (to a temporary file in the root, then renamed in; directory 0750, file 0640) and the entry to config.yaml's assurance.validators, then hot-reloads. This is the one route that puts new code where the engine will run it on the host, so it carries what a recovery onto the source host carries: the destructive gate, which is open on a local-account profile (issue #1163) and shut on a gateway profile until #92 ships a verified gate, and where it is open the administrator's password again. The terminal equivalent is `retnd assurance validator add`.",
+        "description": "Issue #1203. Writes the script to <workflow root>/recovery-test-validators/NAME.local.sh (to a temporary file in the root, then renamed in; directory 0750, file 0640) and the entry to config.yaml's assurance.validators, then hot-reloads. This is the one route that puts new code where the engine will run it on the host, so it carries what a recovery onto the source host carries: the destructive gate, which is open on a local-account profile (issue #1163) and shut on a gateway profile until #92 ships a verified gate, and where it is open the administrator's password again. The terminal equivalent is `retnd assurance validators add`. Names that differ only by case are one name (a case-insensitive volume would make them one file).",
         "tags": [
           "assurance"
         ],
@@ -20596,7 +20643,7 @@
             ]
           },
           "503": {
-            "description": "Refused: VALIDATORS_UNAVAILABLE, STEP_UP_UNAVAILABLE, NOT_CONFIGURED. No workflow root is configured, or this process cannot write it (a read-only mount is the usual container layout). STEP_UP_UNAVAILABLE: this deployment cannot re-check the password, so it will not install a validator over HTTP; use `retnd assurance validator add` on the host. NOT_CONFIGURED: This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "description": "Refused: VALIDATORS_UNAVAILABLE, STEP_UP_UNAVAILABLE, NOT_CONFIGURED. No workflow root is configured, or this process cannot write it (a read-only mount is the usual container layout). STEP_UP_UNAVAILABLE: this deployment cannot re-check the password, so it will not install a validator over HTTP; use `retnd assurance validators add` on the host. NOT_CONFIGURED: This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
             "content": {
               "application/json": {
                 "schema": {
@@ -20630,7 +20677,7 @@
       "put": {
         "operationId": "updateCustomValidator",
         "summary": "Replace a custom validator's pattern, scope and (optionally) script.",
-        "description": "Issue #1203. A replacement, not a merge: an absent backup_set_id makes it global. An absent script keeps the stored one. Gated like the upload, because a new pattern changes which data the script runs against and a new script is new code: the destructive gate is open on a local-account profile (issue #1163) and shut on a gateway profile until #92, and where it is open the password is asked for again. The terminal equivalent is `retnd assurance validator update`.",
+        "description": "Issue #1203. A true replacement, not a merge: the request carries the whole validator. An absent backup_set_id makes it global, and the script is either sent (script) or explicitly kept by hash (script_sha256); a request with neither, or with both, is refused 400 INVALID_REQUEST, and a hash that is not the stored script's is refused 409 VALIDATOR_SCRIPT_CHANGED. Nothing is inferred from what a field leaves out. Gated like the upload, because a new pattern changes which data the script runs against and a new script is new code: the destructive gate is open on a local-account profile (issue #1163) and shut on a gateway profile until #92, and the password is asked for again wherever the gate is open (a deployment that cannot check one answers 503 STEP_UP_UNAVAILABLE). The terminal equivalent is `retnd assurance validators update`, which needs --backup-set or --global.",
         "tags": [
           "assurance"
         ],
@@ -20680,7 +20727,7 @@
             }
           },
           "400": {
-            "description": "Refused: INVALID_REQUEST.",
+            "description": "Refused: INVALID_REQUEST. Neither script nor script_sha256 was sent, or both were, or the pattern or script was refused.",
             "content": {
               "application/json": {
                 "schema": {
@@ -20738,7 +20785,7 @@
             ]
           },
           "409": {
-            "description": "Refused: VALIDATOR_PATTERN_CONFLICT.",
+            "description": "Refused: VALIDATOR_PATTERN_CONFLICT, VALIDATOR_SCRIPT_CHANGED. The second is script_sha256 naming a script that is not the stored one any more.",
             "content": {
               "application/json": {
                 "schema": {
@@ -20747,7 +20794,8 @@
               }
             },
             "x-error-codes": [
-              "VALIDATOR_PATTERN_CONFLICT"
+              "VALIDATOR_PATTERN_CONFLICT",
+              "VALIDATOR_SCRIPT_CHANGED"
             ]
           },
           "429": {
@@ -20777,7 +20825,7 @@
             ]
           },
           "503": {
-            "description": "Refused: VALIDATORS_UNAVAILABLE, STEP_UP_UNAVAILABLE, NOT_CONFIGURED. STEP_UP_UNAVAILABLE: this deployment cannot re-check the password, so it will not install a validator over HTTP; use `retnd assurance validator add` on the host. NOT_CONFIGURED: This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "description": "Refused: VALIDATORS_UNAVAILABLE, STEP_UP_UNAVAILABLE, NOT_CONFIGURED. STEP_UP_UNAVAILABLE: this deployment cannot re-check the password, so it will not install a validator over HTTP; use `retnd assurance validators update` on the host. NOT_CONFIGURED: This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
             "content": {
               "application/json": {
                 "schema": {
@@ -20800,8 +20848,8 @@
       },
       "delete": {
         "operationId": "removeCustomValidator",
-        "summary": "Remove a custom validator: its entry in config.yaml, then its script.",
-        "description": "Issue #1203. CSRF and not the destructive gate: it stops a script from running and deletes no backup, the same class as clearing a stage directory under PATCH /settings/workflow. A test the validator would have decided falls through to the next rung (a global pattern, validator_id, the set's directory, the built-in). Answers the validator as it was.",
+        "summary": "Remove a custom validator: its entry in config.yaml, then its script moved aside.",
+        "description": "Issue #1203. The script is not deleted: it is renamed into recovery-test-validators.superseded, a sibling of the stage directory, under its own name (with a numeric suffix when that is taken). CSRF and not the destructive gate: it stops a script from running and deletes no backup, the same class as clearing a stage directory under PATCH /settings/workflow. A test the validator would have decided falls through to the next rung (a global pattern, validator_id, the set's directory, the built-in). Answers the validator as it was.",
         "tags": [
           "assurance"
         ],
@@ -21008,7 +21056,7 @@
       "post": {
         "operationId": "previewCustomValidator",
         "summary": "Judge a pattern with Go's RE2 against the backups in scope, without saving anything.",
-        "description": "Issue #1203. A POST because it carries a pattern, and it writes nothing. RE2 and a browser's regular expressions disagree (lookaround, backreferences, \\d), so the engine that will match the pattern is the one that judges it. An invalid pattern answers 200 with valid false and the reason. The terminal equivalent is `retnd assurance validator add --dry-run`.",
+        "description": "Issue #1203. A POST because it carries a pattern, and it writes nothing. RE2 and a browser's regular expressions disagree (lookaround, backreferences, \\d), so the engine that will match the pattern is the one that judges it. An invalid pattern answers 200 with valid false and the reason. The terminal equivalent is `retnd assurance validators add --dry-run`.",
         "tags": [
           "assurance"
         ],
