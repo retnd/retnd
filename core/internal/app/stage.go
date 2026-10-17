@@ -54,6 +54,12 @@ type StageRequest struct {
 	SetDir    string
 	GlobalDir string
 
+	// InheritWorkflowEnv layers the set's merged workflow environment (its
+	// variables, secrets included) under Vars. The zero value is the small
+	// environment: the sanitized baseline, Vars and the product's own facts.
+	// A caller that wants the hooks' environment says so (#1221).
+	InheritWorkflowEnv bool
+
 	// Vars are ordinary environment variables layered over the set's
 	// workflow environment. They may not use the RETND_ prefix:
 	// those names are the product's own facts and the environment model

@@ -32,6 +32,15 @@ const (
 	BuiltinCheckOff       = "off"
 )
 
+// validator_env values (#1221): what environment a recovery-test validator
+// starts with. minimal is the RECOVERY_TEST_* variables, the product's own
+// RETND_* facts and the sanitized baseline; workflow adds the set's merged
+// workflow environment, secrets included.
+const (
+	ValidatorEnvMinimal  = "minimal"
+	ValidatorEnvWorkflow = "workflow"
+)
+
 // ReservedValidatorPrefix begins every id the product itself uses for one of
 // its built-in checks. An operator's validator_id may not start with it, so
 // a stored verdict under such an id can only have come from the product.
@@ -84,6 +93,11 @@ type AssuranceRecoveryTest struct {
 	// BuiltinCheck is structure or off (#1111); empty is structure globally
 	// and inherits per set. It governs the manual test with every mode.
 	BuiltinCheck string `yaml:"builtin_check,omitempty"`
+
+	// ValidatorEnv is minimal or workflow (#1221); empty is minimal globally
+	// and inherits per set. workflow is the operator's opt-in to hand the
+	// validator the set's workflow variables, secrets included.
+	ValidatorEnv string `yaml:"validator_env,omitempty"`
 }
 
 // RecoveryTestScriptName turns a recovery-test validator_id into the file
