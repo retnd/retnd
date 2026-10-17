@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sort"
 
 	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/model"
@@ -55,7 +54,10 @@ func (b *BackupService) artifactsInScope(ctx context.Context, cfg *config.Config
 			}
 			va := validatorArtifacts{SetNames: config.SetNames{Set: bs.ID}, last: map[string]CustomValidatorResult{}}
 			if b.journal != nil {
-				records, err := b.journal.ListByBackupSet(ctx, bs.ID)
+				// Names and the newest test per validator, not the records:
+				// a scan reads one name and a couple of placement fields from
+				// each artifact, and the whole record is far more than that.
+				scan, err := b.journal.NamesAndLastRecoveryTests(ctx, bs.ID)
 				if err != nil {
 					return nil, fmt.Errorf("service: reading %s's backups: %w", bs.ID, err)
 				}
@@ -65,17 +67,9 @@ func (b *BackupService) artifactsInScope(ctx context.Context, cfg *config.Config
 				if err := ctx.Err(); err != nil {
 					return nil, err
 				}
-				sort.SliceStable(records, func(i, j int) bool { return records[i].DiscoveredAt.After(records[j].DiscoveredAt) })
-				for _, r := range records {
-					va.Names = append(va.Names, r.Artifact.Name)
-					for _, p := range r.Placements {
-						if p.RecoveryValidatorID == "" || p.RecoveryTestedAt == nil {
-							continue
-						}
-						if cur, ok := va.last[p.RecoveryValidatorID]; !ok || p.RecoveryTestedAt.After(cur.At) {
-							va.last[p.RecoveryValidatorID] = CustomValidatorResult{State: p.RecoveryState, At: p.RecoveryTestedAt.UTC(), Artifact: r.Artifact.String()}
-						}
-					}
+				va.Names = scan.Names
+				for validator, t := range scan.LastTests {
+					va.last[validator] = CustomValidatorResult{State: t.State, At: t.At, Artifact: t.Artifact.String()}
 				}
 			}
 			out = append(out, va)

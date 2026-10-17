@@ -157,5 +157,5 @@ func benchmarkNames(b *testing.B, lean bool) {
 	}
 }
 
-func BenchmarkValidatorScan_NamesOnly(b *testing.B)     { benchmarkNames(b, true) }
-func BenchmarkValidatorScan_WholeRecords(b *testing.B)  { benchmarkNames(b, false) }
+func BenchmarkValidatorScan_NamesOnly(b *testing.B)    { benchmarkNames(b, true) }
+func BenchmarkValidatorScan_WholeRecords(b *testing.B) { benchmarkNames(b, false) }
