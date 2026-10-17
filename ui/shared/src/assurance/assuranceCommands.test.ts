@@ -4,7 +4,7 @@
  * the browser's half of that agreement.
  */
 import { describe, expect, it } from "vitest";
-import { recoverCommand, recoverManyCommand, recoverSetCommand, recoverSetPreflightCommand, stagingName } from "./assuranceCommands";
+import { artifactCommand, artifactsInSetCommand, recoverCommand, recoverManyCommand, recoverSetCommand, recoverSetPreflightCommand, recoveryTestArtifactCommand, retryCommand, scrubCommand, stagingName } from "./assuranceCommands";
 
 const ID = "production/postgres-primary/dump.zst";
 const FOLDER = "retnd-recovered-20261015-101500-a1b2";
@@ -63,5 +63,19 @@ describe("a staging name the CLI would read as something else is ./NAME", () => 
     expect(recoverCommand(ID, "staging", "source:db", false)).toBe("retnd recover " + ID + " --to ./source:db");
     expect(recoverSetCommand("a/b", "all", "", "staging", "-x", false)).toBe("retnd recover --set a/b --to ./-x");
     expect(recoverManyCommand([ID], "staging", "medium:m", false)).toBe("retnd recover " + ID + " --to ./medium:m");
+  });
+});
+
+describe("the Backups row menu's terminal twins (#1202)", () => {
+  it("a recovery test names the backup with --artifact", () => {
+    expect(recoveryTestArtifactCommand("production/postgres-primary", ID)).toBe("retnd recovery-test production/postgres-primary --artifact " + ID);
+  });
+  it("a scrub is the set's, because the route is per set", () => {
+    expect(scrubCommand("production/postgres-primary")).toBe("retnd scrub production/postgres-primary");
+  });
+  it("retry, one backup's record, and the list narrowed to a set", () => {
+    expect(retryCommand(ID)).toBe("retnd retry " + ID);
+    expect(artifactCommand(ID)).toBe("retnd artifacts " + ID);
+    expect(artifactsInSetCommand("production/postgres-primary")).toBe("retnd artifacts --backup-set production/postgres-primary");
   });
 });
