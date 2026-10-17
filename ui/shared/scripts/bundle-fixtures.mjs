@@ -14,7 +14,7 @@ export const FIXTURE_MARKERS = [
   "assurance-no-validator",
   // #1203: the validators mock and its scenarios.
   "cid_mockvalidator",
-  "validators-unavailable"
+  "billing-dump"
 ];
 
 /** Returns the markers found in a text blob. */
