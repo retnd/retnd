@@ -211,8 +211,8 @@ export function CustomValidatorDialog({
             edit.name,
             // A replacement: an empty script box keeps the stored script by the hash this list read.
             script === "" && mayKeep
-              ? { pattern, backupSetId: setId || undefined, keepScriptSha256: edit.scriptSha256 }
-              : { pattern, backupSetId: setId || undefined, script },
+              ? { pattern, backupSetId: setId || undefined, keepScriptSha256: edit.scriptSha256, env: edit.env }
+              : { pattern, backupSetId: setId || undefined, script, env: edit.env },
             opts
           )
         : await api.createCustomValidator({ name, pattern, backupSetId: setId || undefined, script }, opts);

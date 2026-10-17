@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "634b6bca5ee99dae6fda20db676d43d20367923c0ccd0a89913a13551162de92"
+const ContractSHA256 = "e2cf09fac616dc93d05c57871d9dcb0976e8efd7de370475524611573ab071a9"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -2392,6 +2392,7 @@ type CreateBackupSetResponse struct {
 // CreateCustomValidatorRequest is A custom validator to upload.
 type CreateCustomValidatorRequest struct {
 	BackupSetID string `json:"backup_set_id"`
+	Env         string `json:"env"`
 	Name        string `json:"name"`
 	Pattern     string `json:"pattern"`
 	Script      string `json:"script"`
@@ -2441,6 +2442,7 @@ type CredentialsRequest struct {
 type CustomValidator struct {
 	Anchored        bool                   `json:"anchored"`
 	BackupSetID     string                 `json:"backup_set_id"`
+	Env             string                 `json:"env"`
 	ExampleName     string                 `json:"example_name"`
 	LastResult      *CustomValidatorResult `json:"last_result,omitempty"`
 	MatchCount      int64                  `json:"match_count"`
@@ -4410,6 +4412,7 @@ type UpdateCapacitySettings struct {
 // name is the path's.
 type UpdateCustomValidatorRequest struct {
 	BackupSetID  string `json:"backup_set_id"`
+	Env          string `json:"env"`
 	Pattern      string `json:"pattern"`
 	Script       string `json:"script"`
 	ScriptSha256 string `json:"script_sha256"`

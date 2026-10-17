@@ -3,11 +3,15 @@ package service
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/retnd/retnd/core/internal/app"
 	"github.com/retnd/retnd/core/internal/config"
+	"github.com/retnd/retnd/core/internal/secretref"
+	"github.com/retnd/retnd/core/internal/workflow"
 	"github.com/retnd/retnd/core/internal/workflowexec"
 	"github.com/retnd/retnd/core/internal/workflowrun"
 )
@@ -190,5 +194,94 @@ func TestRunStageDryRunVerifiesAndIdentifiesAndRunsNothing(t *testing.T) {
 	writeHook(t, root, "recovery-test/production/alpha", "20-bad.local.sh", "#!/usr/bin/env bash", `rm -rf /$UNSET_DIR`)
 	if _, err := svc.RunStage(context.Background(), app.StageRequest{Set: set, SetDir: "recovery-test/production/alpha", DryRun: true}); err == nil {
 		t.Error("a dry run accepted a script the save gate would refuse")
+	}
+}
+
+// #1221: a stage that does not ask for the workflow environment runs with the
+// small one, and a secret in the set's environment is neither resolved nor
+// handed over. The resolution matters as much as the hand-over: a
+// command-sourced secret would otherwise run for a script that never sees it.
+
+func stageSetWithSecrets(t *testing.T, set config.BackupSet) config.BackupSet {
+	t.Helper()
+	secretFile := filepath.Join(symlinkFreeTempDir(t), "token")
+	if err := os.WriteFile(secretFile, []byte("s3cr3t-token-value\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env, err := workflow.NewEnvironment(workflow.SanitizedBaseline(), []workflow.EnvVar{
+		{Name: "BACKUP_DB_PASSWORD", Value: "hunter2-literal"},
+		{Name: "BACKUP_API_TOKEN", Secret: secretref.Ref{File: secretFile}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	set.WorkflowEnvironment = env
+
+	return set
+}
+
+func TestIssue1221_ADefaultStageDoesNotSeeTheSetsWorkflowVariablesOrSecrets(t *testing.T) {
+	svc, root, set, exec := stageService(t)
+	set = stageSetWithSecrets(t, set)
+	writeHook(t, root, "recovery-test/production/alpha", "10-check.local.sh", "#!/usr/bin/env bash", "true")
+
+	_, err := svc.RunStage(context.Background(), app.StageRequest{
+		Set: set, SetDir: "recovery-test/production/alpha", LocalOnly: true, MaxScripts: 1,
+		Vars: map[string]string{"RECOVERY_TEST_FILE": "/staging/artifact"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := strings.Join(exec.calls[0].Environ, "\n")
+	for _, leaked := range []string{"BACKUP_DB_PASSWORD", "hunter2-literal", "BACKUP_API_TOKEN", "s3cr3t-token-value"} {
+		if strings.Contains(env, leaked) {
+			t.Errorf("the default stage environment contains %q:\n%s", leaked, env)
+		}
+	}
+	for _, want := range []string{"RECOVERY_TEST_FILE=/staging/artifact", "RETND_BACKUP_SET_ID=production/alpha", "PATH="} {
+		if !strings.Contains(env, want) {
+			t.Errorf("the default stage environment is missing %q:\n%s", want, env)
+		}
+	}
+}
+
+func TestIssue1221_TheOptInStageSeesTheWorkflowVariablesAndSecrets(t *testing.T) {
+	svc, root, set, exec := stageService(t)
+	set = stageSetWithSecrets(t, set)
+	writeHook(t, root, "recovery-test/production/alpha", "10-check.local.sh", "#!/usr/bin/env bash", "true")
+
+	_, err := svc.RunStage(context.Background(), app.StageRequest{
+		Set: set, SetDir: "recovery-test/production/alpha", LocalOnly: true, MaxScripts: 1,
+		InheritWorkflowEnv: true,
+		Vars:               map[string]string{"RECOVERY_TEST_FILE": "/staging/artifact"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := strings.Join(exec.calls[0].Environ, "\n")
+	for _, want := range []string{"BACKUP_DB_PASSWORD=hunter2-literal", "BACKUP_API_TOKEN=s3cr3t-token-value", "RECOVERY_TEST_FILE=/staging/artifact", "RETND_BACKUP_SET_ID=production/alpha"} {
+		if !strings.Contains(env, want) {
+			t.Errorf("the opted-in stage environment is missing %q:\n%s", want, env)
+		}
+	}
+}
+
+func TestIssue1221_ADefaultStageNeverResolvesASecretItDoesNotHandOver(t *testing.T) {
+	svc, root, set, _ := stageService(t)
+	marker := filepath.Join(symlinkFreeTempDir(t), "resolver-ran")
+	env, err := workflow.NewEnvironment(workflow.SanitizedBaseline(), []workflow.EnvVar{
+		{Name: "FROM_COMMAND", Secret: secretref.Ref{Command: []string{"/bin/sh", "-c", "touch " + marker + "; echo x"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	set.WorkflowEnvironment = env
+	writeHook(t, root, "recovery-test/production/alpha", "10-check.local.sh", "#!/usr/bin/env bash", "true")
+
+	if _, err := svc.RunStage(context.Background(), app.StageRequest{Set: set, SetDir: "recovery-test/production/alpha", LocalOnly: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("a secret's command ran for a stage that was never given its value")
 	}
 }

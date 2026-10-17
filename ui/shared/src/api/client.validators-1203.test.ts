@@ -16,7 +16,7 @@ const lastCall = (f: ReturnType<typeof vi.fn>) => {
 };
 
 const wireValidator = {
-  anchored: true, backup_set_id: "", example_name: "a-1.txt", match_count: 1, match_sets: ["src/set-1"], name: "v",
+  anchored: true, backup_set_id: "", env: "minimal", example_name: "a-1.txt", match_count: 1, match_sets: ["src/set-1"], name: "v",
   pattern: "^a-\\d$", scope: "global", script_file: "v.local.sh", script_present: true, script_sha256: "ab", script_size_bytes: 12,
   uploaded_at: "2026-10-16T00:00:00Z"
 };

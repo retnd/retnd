@@ -34,6 +34,7 @@ type validatorStages struct {
 	seenBytes  []byte
 	validated  []StageRequest
 	notified   []StageRequest
+	dryRuns    []StageRequest
 
 	// delay is how long a validator takes, and beforeReturn runs once the
 	// script has "finished" and before its outcome is handed back, so a test
@@ -59,6 +60,7 @@ func (v *validatorStages) RunStage(_ context.Context, req StageRequest) (StageRe
 		return StageResult{}, fmt.Errorf("%w: %s", ErrStageScriptMissing, req.Only)
 	}
 	if req.DryRun {
+		v.dryRuns = append(v.dryRuns, req)
 		return StageResult{Configured: true, Scripts: []StageScript{{Name: v.outcome.Name, SHA256: v.outcome.SHA256}}}, nil
 	}
 	v.validated = append(v.validated, req)
@@ -373,5 +375,86 @@ func TestRecoveryTest_ARefusalOrAnIncompleteAttemptIsNotAnnouncedAsAFailure(t *t
 	}
 	if got := stages.events(); len(got) != 0 {
 		t.Errorf("an attempt that could not complete was announced as %v: nothing is known about the copy", got)
+	}
+}
+
+// #1221: a validator stage starts with the small environment. Only the
+// operator's validator_env: workflow hands it the set's workflow variables.
+
+func TestIssue1221_TheValidatorDoesNotInheritTheWorkflowEnvironmentByDefault(t *testing.T) {
+	ctx := context.Background()
+	stages := accepts()
+	svc, journal, bs := recoveryService(t, stages)
+	seedMovableArtifact(t, ctx, journal, bs, "env.dump", retentionTestNow.Add(-time.Hour))
+
+	if _, err := svc.RecoveryTest(ctx, RecoveryTestRequest{Set: bs.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if len(stages.validated) != 1 {
+		t.Fatalf("validator runs = %d", len(stages.validated))
+	}
+	req := stages.validated[0]
+	if req.InheritWorkflowEnv {
+		t.Error("the validator was asked to run with the workflow environment without an opt-in")
+	}
+	if req.Vars["RECOVERY_TEST_FILE"] == "" || req.Vars["RECOVERY_TEST_ARTIFACT"] == "" || req.Vars["RECOVERY_TEST_DIGEST"] == "" {
+		t.Errorf("the RECOVERY_TEST_* variables are still sent: %v", req.Vars)
+	}
+}
+
+func TestIssue1221_TheOptInHandsTheValidatorTheWorkflowEnvironment(t *testing.T) {
+	ctx := context.Background()
+	stages := accepts()
+	svc, journal, bs := recoveryService(t, stages)
+	svc.Config.Sources[0].BackupSets[0].Assurance.RecoveryTest.ValidatorEnv = config.ValidatorEnvWorkflow
+	seedMovableArtifact(t, ctx, journal, bs, "env.dump", retentionTestNow.Add(-time.Hour))
+
+	if _, err := svc.RecoveryTest(ctx, RecoveryTestRequest{Set: bs.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if len(stages.validated) != 1 || !stages.validated[0].InheritWorkflowEnv {
+		t.Fatalf("validator runs = %+v, want one with the opt-in", stages.validated)
+	}
+}
+
+func TestIssue1221_TheDryRunAndTheRealRunAgreeOnTheEnvironment(t *testing.T) {
+	ctx := context.Background()
+	stages := accepts()
+	svc, journal, bs := recoveryService(t, stages)
+	seedMovableArtifact(t, ctx, journal, bs, "env.dump", retentionTestNow.Add(-time.Hour))
+	if _, err := svc.RecoveryTest(ctx, RecoveryTestRequest{Set: bs.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if len(stages.dryRuns) == 0 {
+		t.Fatal("no dry run was made")
+	}
+	for _, r := range stages.dryRuns {
+		if r.InheritWorkflowEnv {
+			t.Error("the dry run was asked for the workflow environment without an opt-in")
+		}
+	}
+}
+
+func TestIssue1221_AnUnknownValidatorEnvOnTheResolvedPolicyFailsClosed(t *testing.T) {
+	ctx := context.Background()
+	stages := accepts()
+	svc, journal, bs := recoveryService(t, stages)
+	svc.Config.Sources[0].BackupSets[0].Assurance.RecoveryTest.ValidatorEnv = "WORKFLOW"
+	seedMovableArtifact(t, ctx, journal, bs, "env.dump", retentionTestNow.Add(-time.Hour))
+
+	_, _ = svc.RecoveryTest(ctx, RecoveryTestRequest{Set: bs.ID})
+	for _, r := range stages.validated {
+		if r.InheritWorkflowEnv {
+			t.Error("a value that is not exactly workflow opened the workflow environment")
+		}
+	}
+}
+
+func TestIssue1221_TheAssuranceNotificationKeepsTheHooksEnvironment(t *testing.T) {
+	stages := accepts()
+	svc, _, bs := recoveryService(t, stages)
+	svc.notifyAssurance(context.Background(), bs, assuranceFacts{Event: "scrub_failing", Summary: "x"})
+	if len(stages.notified) != 1 || !stages.notified[0].InheritWorkflowEnv {
+		t.Errorf("notified = %+v: a notification script is a hook and keeps the workflow environment", stages.notified)
 	}
 }

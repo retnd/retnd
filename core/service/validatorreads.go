@@ -92,9 +92,21 @@ func describeValidator(ctx context.Context, cfg *config.Config, store validatorS
 		Name: cv.Name, Pattern: cv.Pattern, Scope: cv.Scope(), Anchored: config.PatternAnchored(cv.Pattern),
 		ScriptFile: cv.ScriptFile, MatchSets: []string{},
 	}
+	// What the script really starts with (#1221): its own word, or the set's
+	// (the deployment's folded in) for a set-scoped validator, or the
+	// deployment's for a global one, whose set varies with the backup it checks.
+	inherited := cfg.Assurance.RecoveryTest.ValidatorEnv
 	if !cv.Global() {
 		v.BackupSetID = cv.BackupSet.String()
+		for _, src := range cfg.Sources {
+			for _, bs := range src.BackupSets {
+				if bs.ID == cv.BackupSet {
+					inherited = bs.Assurance.RecoveryTest.ValidatorEnv
+				}
+			}
+		}
 	}
+	v.Env = config.ResolveValidatorEnv(cv.Env, inherited)
 	info, present := store.Describe(cv.ScriptFile, maxValidatorScriptBytes(cfg))
 	v.UploadedAt = info.ModTime
 	if present {

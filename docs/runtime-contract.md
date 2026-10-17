@@ -255,9 +255,16 @@ What the validator can reach:
   otherwise it is `recovery-staging` beside the state database. The runner's container
   sees it only if you declare it with `--hook-mount`; a script that cannot open the file
   fails, and is not a pass.
-- **The hook environment, not the engine's.** The validator gets the set's resolved
-  workflow environment plus the `RECOVERY_TEST_*` variables. It does not inherit the
-  engine's own environment, so no credential, key or token of the engine's is in it.
+- **A small environment, not the engine's and not the hooks'.** The validator starts with
+  the `RECOVERY_TEST_*` variables, the product's own `RETND_*` facts and the baseline
+  `PATH`, and nothing else. The set's workflow variables, secrets included, are not in it,
+  and a secret's file or command is not even read on its behalf. An operator who wants
+  them there says so with `assurance.recovery_test.validator_env: workflow` (on the
+  deployment or on one set) or, for a custom validator, with that validator's own
+  `env: workflow`, which wins over the set's and the deployment's setting in both
+  directions. Anything other than exactly `minimal` or `workflow` is
+  refused when the configuration loads. It never inherits the engine's own environment, so
+  no credential, key or token of the engine's is in it either way.
 - **Its own process group and a timeout that fails closed.** A validator that never
   returns is terminated along with its group and the result is a failure. A child that
   deliberately detaches outside the group is outside what the reaper can reach, so

@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "634b6bca5ee99dae6fda20db676d43d20367923c0ccd0a89913a13551162de92";
+export const CONTRACT_SHA256 = "e2cf09fac616dc93d05c57871d9dcb0976e8efd7de370475524611573ab071a9";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -3214,6 +3214,7 @@ export interface WireCreateBackupSetResponse extends WireBackupSet {
 /** A custom validator to upload. */
 export interface WireCreateCustomValidatorRequest {
   backup_set_id?: string;
+  env?: "minimal" | "workflow";
   name: string;
   pattern: string;
   script: string;
@@ -3263,6 +3264,7 @@ export interface WireCredentialsRequest {
 export interface WireCustomValidator {
   anchored: boolean;
   backup_set_id: string;
+  env: "minimal" | "workflow";
   example_name: string;
   last_result?: WireCustomValidatorResult;
   match_count: number;
@@ -5232,6 +5234,7 @@ export interface WireUpdateCapacitySettings {
  *  name is the path's. */
 export interface WireUpdateCustomValidatorRequest {
   backup_set_id?: string;
+  env?: "minimal" | "workflow";
   pattern: string;
   script?: string;
   script_sha256?: string;
