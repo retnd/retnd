@@ -1,0 +1,62 @@
+/**
+ * Slow passes over #1203 for the GIFs in the PR, one per theme and per screen.
+ * Each ends on a DOM assertion about the state it shows. Run with E2E_VIDEO=1.
+ */
+import { expect, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { open, setTheme } from "./helpers";
+
+const beat = (p: Page, ms = 900) => p.waitForTimeout(ms);
+const POSTGRES = String.raw`^postgres-prod-\d{8}\.dump\.zst$`;
+const PASSWORD = "correct-horse-battery";
+
+for (const theme of ["light", "dark"] as const) {
+  test(`#1203 walkthrough (${theme}): Settings, pick a suggested pattern, upload, password`, async ({ page }) => {
+    test.setTimeout(150_000);
+    await open(page, "/settings#validators", "local-account-profile");
+    await setTheme(page, theme);
+    const card = page.getByRole("region", { name: "Recovery-test validators" });
+    await expect(card).toBeVisible();
+    await beat(page, 1800);
+    await card.getByRole("button", { name: "Add validator" }).click();
+    const dlg = page.getByRole("dialog", { name: "Add validator" });
+    await beat(page);
+    await dlg.getByLabel("Name", { exact: true }).pressSequentially("postgres-dump", { delay: 60 });
+    await dlg.getByRole("radio", { name: POSTGRES }).check();
+    await beat(page, 1500);
+    await dlg.getByRole("button", { name: "Start from the default script" }).click();
+    await beat(page, 1500);
+    await dlg.getByLabel("Your password").pressSequentially("not-the-password", { delay: 50 });
+    await dlg.getByRole("button", { name: "Upload validator" }).click();
+    await expect(dlg.locator("[data-validator-error]")).toContainText("That password was not accepted");
+    await beat(page, 2000);
+    await dlg.getByLabel("Your password").pressSequentially(PASSWORD, { delay: 50 });
+    await dlg.getByRole("button", { name: "Upload validator" }).click();
+    await expect(card.getByRole("row").filter({ hasText: "postgres-dump" })).toHaveCount(1);
+    await beat(page, 3000);
+  });
+
+  test(`#1203 walkthrough (${theme}): a backup's page, Declare validator, a pattern the engine refuses`, async ({ page }) => {
+    test.setTimeout(150_000);
+    await open(page, "/backups/production/postgres-primary/postgres-prod-20260828.dump.zst");
+    await setTheme(page, theme);
+    const region = page.getByRole("region", { name: "Assurance" });
+    await expect(region).toBeVisible();
+    await beat(page, 1500);
+    await region.getByRole("button", { name: "Declare validator" }).click();
+    const dlg = page.getByRole("dialog", { name: "Add validator" });
+    await expect(dlg.getByRole("radio", { name: POSTGRES })).toBeChecked();
+    await beat(page, 2500);
+    await dlg.getByLabel("Artifact-name pattern").fill("");
+    await dlg.getByLabel("Artifact-name pattern").pressSequentially("^(?=postgres)", { delay: 70 });
+    await expect(dlg.locator("[data-validator-preview]").getByRole("alert")).toContainText("invalid or unsupported Perl syntax");
+    await beat(page, 2500);
+    await dlg.getByRole("radio", { name: POSTGRES }).check();
+    await dlg.getByLabel("Name", { exact: true }).pressSequentially("postgres-dump", { delay: 60 });
+    await dlg.getByRole("button", { name: "Start from the default script" }).click();
+    await beat(page, 1500);
+    await dlg.getByRole("button", { name: "Upload validator" }).click();
+    await expect(region.locator("[data-validator-declared]")).toContainText("Uploaded postgres-dump");
+    await beat(page, 3000);
+  });
+}
