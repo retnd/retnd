@@ -50,7 +50,7 @@ import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import { copyText } from "@shared/utilities/copyText";
 import {
   recoveryEndText, recoveryStageText, recoveryStartText, recoveryTestEndText, recoveryTestStartText,
-  scrubFailureText, scrubPassText
+  scrubFailureText, scrubPassText, scrubStartText
 } from "@shared/assurance/feedText";
 
 /** How each line is coloured in the log. It is a display decision made
@@ -389,6 +389,9 @@ export function activityLine(e: SetActivityEvent): ActivityLine {
     // scrub that found a copy wrong must read as that, in words, in the same
     // place a passing one does. The colour is the line's stated result, as
     // for every line.
+    case "scrub_start":
+      text = scrubStartText(e);
+      break;
     case "scrub_pass":
       text = scrubPassText(e);
       break;

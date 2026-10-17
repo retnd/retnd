@@ -134,7 +134,7 @@ type fakeValidator struct {
 	calls      []ValidatorInput
 }
 
-func (f *fakeValidator) Configured(context.Context, model.BackupSetID) (bool, error) {
+func (f *fakeValidator) Configured(context.Context, model.BackupSetID, model.ArtifactID) (bool, error) {
 	return f.configured, f.cerr
 }
 

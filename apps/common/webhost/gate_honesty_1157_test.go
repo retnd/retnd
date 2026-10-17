@@ -152,8 +152,10 @@ func TestGateRefusal1157_TheContractSaysWhoTheGateIsShutFor(t *testing.T) {
 	// POST /operations, retention/apply and #1193's write check are gated
 	// outright; the mint, POST /recoveries and the redeem are gated for the
 	// source-host target kind, and say so the same way.
-	if gated != 6 {
-		t.Errorf("found %d gated operations, want 6 (POST /operations, retention/apply, the source-host write check, and the three recovery routes gated per target kind): the list this test guards moved", gated)
+	// #1203 adds the custom validator upload and its edit: both put code
+	// where the engine runs it on the host.
+	if gated != 8 {
+		t.Errorf("found %d gated operations, want 8 (POST /operations, retention/apply, the source-host write check, the three recovery routes gated per target kind, and the custom validator upload and edit): the list this test guards moved", gated)
 	}
 
 	create := string(doc.Components.Schemas["CreateBackupSetRequest"])

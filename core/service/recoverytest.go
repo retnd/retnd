@@ -203,7 +203,7 @@ func (b *BackupService) StartRecoveryTest(ctx context.Context, id string, opts R
 		return RecoveryTestStarted{BackupSetID: set.String(), OperationID: opID, Coalesced: true}, nil
 	}
 	opID := uuid.NewString()
-	runCtx, cancel := context.WithCancel(b.ctx)
+	runCtx, cancel := context.WithCancelCause(b.ctx)
 	b.ops.add(&assuranceOp{
 		id: opID, kind: opKindRecoveryTest, set: set.String(), artifact: opts.ArtifactID, ack: opts.AcknowledgeCost, cancel: cancel,
 	})

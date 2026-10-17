@@ -251,7 +251,7 @@ export function assuranceLiveEvents(setId: string): SetActivityEvent[] {
       if (v.operation.state === "failed") {
         push({
           at: endAt, level: "warn", event: "scrub_failure", result: "warn", message: "scrub found a copy wrong or could not check it",
-          fields: { artifact, medium: "local", class: "content", reason: FAIL_REASON }
+          fields: { artifact, medium: "local", class: "content", reason: FAIL_REASON, op_id: op.id }
         });
       }
       if (v.operation.state === "complete" || v.operation.state === "failed" || cancelled) {
@@ -259,8 +259,9 @@ export function assuranceLiveEvents(setId: string): SetActivityEvent[] {
         push({
           at: endAt, level: failed ? "warn" : "info", event: "scrub_pass", result: failed ? "warn" : "success", message: "scrub pass complete",
           fields: {
-            trigger: "manual", scope: "set " + setId, selected: "1", checked: cancelled ? "0" : "1", passed: cancelled || failed ? "0" : "1",
-            failed: String(failed), could_not_complete: "0", requires_restore: "0", skipped_held: "0", skipped_leased: "0", bytes_read: "0"
+            trigger: "manual", scope: "set " + setId, op_id: op.id, selected: "1", checked: cancelled ? "0" : "1", passed: cancelled || failed ? "0" : "1",
+            failed: String(failed), could_not_complete: "0", requires_restore: "0", skipped_held: "0", skipped_leased: "0", bytes_read: "0",
+            ...(cancelled ? { cancelled: "true" } : {})
           }
         });
       }
@@ -322,6 +323,17 @@ export function assuranceLiveEvents(setId: string): SetActivityEvent[] {
     }
   });
   return out;
+}
+
+/** Every line of one operation the mock store holds, with the set it was
+ *  written for, whatever the live tail has dropped (issue #1200), and
+ *  whether it is still running. Null for an id the store does not hold. */
+export function assuranceStoredLines(opId: string): { lines: Array<{ setId: string; event: SetActivityEvent }>; running: boolean } | null {
+  const op = load().ops[opId];
+  if (!op) return null;
+  const lines = assuranceLiveEvents(op.setId).map((event) => ({ setId: op.setId, event }));
+  const running = view(op, activeScenario === "assurance-scrub-fails", Date.now()).operation.state === "running";
+  return { lines, running };
 }
 
 /**

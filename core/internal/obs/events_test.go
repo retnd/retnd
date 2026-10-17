@@ -63,6 +63,7 @@ func TestEventNamesAreStable(t *testing.T) {
 		{"EventWorkflowStepEnd", EventWorkflowStepEnd, "workflow_step_end"},
 		{"EventWorkflowBypassed", EventWorkflowBypassed, "workflow_bypassed"},
 		{"EventScrubPass", EventScrubPass, "scrub_pass"},
+		{"EventScrubStart", EventScrubStart, "scrub_start"},
 		{"EventScrubFailure", EventScrubFailure, "scrub_failure"},
 		{"EventRecoveryTest", EventRecoveryTest, "recovery_test"},
 		{"EventScrubUnknownObject", EventScrubUnknownObject, "scrub_unknown_object"},
@@ -454,9 +455,57 @@ func TestScrubPassEventWithoutFailuresIsSuccess(t *testing.T) {
 	}
 }
 
+// #1200: a pass an operator started carries its operation id, and says when
+// it was cancelled; a scheduled one carries neither.
+func TestScrubLinesCarryTheOperationIDOfAScrubNow(t *testing.T) {
+	l, buf := newRecorder(t)
+	l.ScrubPass(context.Background(), ScrubPassCounts{Trigger: "manual", Scope: "set a/b", OpID: "op-1", Cancelled: true, Selected: 1})
+	l.ScrubFailure(context.Background(), ScrubFailureInfo{OpID: "op-1", Artifact: "a/b/c.dump", Medium: "local", Class: "content", Reason: "bad"})
+	l.ScrubPass(context.Background(), ScrubPassCounts{Trigger: "schedule", Scope: "all due"})
+	l.ScrubFailure(context.Background(), ScrubFailureInfo{Artifact: "a/b/c.dump", Medium: "local", Class: "content", Reason: "bad"})
+	lines := decodeLines(t, buf)
+	if lines[0]["op_id"] != "op-1" || lines[0]["cancelled"] != true || lines[1]["op_id"] != "op-1" {
+		t.Errorf("a scrub now's lines = %v / %v, want op_id on both and cancelled on the pass", lines[0], lines[1])
+	}
+	for _, l := range lines[2:] {
+		if _, ok := l["op_id"]; ok {
+			t.Errorf("a scheduled line carries op_id: %v", l)
+		}
+		if _, ok := l["cancelled"]; ok {
+			t.Errorf("a scheduled line carries cancelled: %v", l)
+		}
+	}
+}
+
+// #1200: a scrub now writes a start line that carries its operation id, so a
+// run that is still going (or selected nothing) is on the record by that id.
+func TestAScrubNowWritesAStartLineWithItsOperationID(t *testing.T) {
+	l, buf := newRecorder(t)
+	l.ScrubStart(context.Background(), ScrubStartInfo{Trigger: "manual", Scope: "set a/b", OpID: "op-1"})
+	line := decodeLines(t, buf)[0]
+	if line["event"] != EventScrubStart || line["op_id"] != "op-1" || line["trigger"] != "manual" || line["scope"] != "set a/b" {
+		t.Fatalf("line = %#v", line)
+	}
+}
+
+// #1200: a recovery test stopped on request says so in a field of its own,
+// rather than in the wording of its reason.
+func TestARecoveryTestStoppedOnRequestSaysCancelledAsAField(t *testing.T) {
+	l, buf := newRecorder(t)
+	l.RecoveryTestEnd(context.Background(), "op-1", "a/b", "a/b/c.dump", "v", time.Second, ResultWarn, "stopped", true)
+	l.RecoveryTestEnd(context.Background(), "op-2", "a/b", "a/b/c.dump", "v", time.Second, ResultWarn, "shutdown", false)
+	lines := decodeLines(t, buf)
+	if lines[0]["cancelled"] != true {
+		t.Errorf("a cancelled end line = %v, want cancelled=true", lines[0])
+	}
+	if _, ok := lines[1]["cancelled"]; ok {
+		t.Errorf("an end line that was not cancelled carries cancelled: %v", lines[1])
+	}
+}
+
 func TestScrubFailureEventCarriesNoRawControlBytes(t *testing.T) {
 	l, buf := newRecorder(t)
-	l.ScrubFailure(context.Background(), "prod/pg/a.dump", "local", "content", "bad\x1b[31m\x00 bytes")
+	l.ScrubFailure(context.Background(), ScrubFailureInfo{Artifact: "prod/pg/a.dump", Medium: "local", Class: "content", Reason: "bad\x1b[31m\x00 bytes"})
 	line := decodeLines(t, buf)[0]
 	if line["event"] != EventScrubFailure || line["result"] != string(ResultWarn) {
 		t.Fatalf("line = %#v", line)

@@ -241,6 +241,11 @@ func (b *BackupService) RemoveBackupSet(ctx context.Context, id string) error {
 		}
 	}()
 
+	// A custom validator scoped to this set goes with it (#1203): left in
+	// the file it would name a set that no longer exists, and the file
+	// would refuse to load.
+	droppedScripts := dropValidatorsForRemovedSet(cfg, id)
+
 	// Encoded before Validate, which resolves defaults in place; see
 	// SetBackupSetEnabled's own comment for the full reasoning and for
 	// what an unrelated edit would otherwise freeze into the file.
@@ -267,6 +272,10 @@ func (b *BackupService) RemoveBackupSet(ctx context.Context, id string) error {
 	b.adoptConfig(cfg)
 
 	removed = true
+	if root, why := workflowRootFor(cfg); why == "" {
+		// Moved aside, not deleted, like a validator removed on its own.
+		b.moveValidatorScriptsAside(ctx, root, droppedScripts...)
+	}
 
 	// On the record, at the moment it happens, and naming what stayed
 	// behind rather than only what went. A destructive control that

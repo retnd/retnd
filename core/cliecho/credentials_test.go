@@ -193,6 +193,12 @@ var flagsThatEchoWhatTheRequestSaid = map[string]string{
 	"--recovery-test-builtin-check": "structure or off",
 	"--recovery-test-validator":     "the id of a registered validator, never a path",
 	"--staging-root":                "an absolute directory on this deployment, never a secret",
+	// A custom recovery-test validator (#1203). The pattern is the regular
+	// expression the operator chose and has to retype, and the set is named
+	// by its own id. The script itself never reaches the line: it is a
+	// placeholder for the file the operator uploaded.
+	"--pattern":    "the artifact-name regular expression the operator chose for a custom validator",
+	"--backup-set": "the backup set a custom validator is scoped to, by its own id (source/set)",
 
 	// Retention and settings scalars.
 	"--timezone":       "the IANA zone retention decisions are made in",
@@ -299,6 +305,8 @@ var operandsThatNameTheSubject = map[string]string{
 	"POST /repositories":                "the repository domain's own id",
 	"POST /recoveries":                  "the backup ids a multi-backup recovery lists (source/set/name each)",
 	"POST /ssh/host-key-probe":          "the host being probed, which the operator typed and has to type again (issue #1153)",
+	"POST /assurance/validators":        "the custom validator's own name, NAME in NAME.local.sh (issue #1203)",
+	"POST /assurance/validator-preview": "the name of the custom validator being edited, when the preview is for an edit (issue #1203)",
 }
 
 // A credential in an endpoint URL, which is the leak the name-based test

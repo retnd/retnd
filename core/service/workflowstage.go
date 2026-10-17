@@ -104,12 +104,19 @@ func (b *BackupService) RunStage(ctx context.Context, req app.StageRequest) (app
 		RemoteExecConnectionRef: execRef,
 		MaxScriptSize:           cfg.EffectiveMaxScriptSize(),
 		SpoolRoot:               spool,
+		Only:                    req.Only,
 	})
 	if err != nil {
 		return app.StageResult{}, err
 	}
 
 	steps := plan.Steps()
+	if req.Only != "" && len(steps) == 0 {
+		// A purpose that was told which script to run never falls back to
+		// another, and never reads an empty plan as "nothing configured"
+		// (#1204).
+		return app.StageResult{}, fmt.Errorf("%w: %s", app.ErrStageScriptMissing, req.Only)
+	}
 	if req.MaxScripts > 0 && len(steps) > req.MaxScripts {
 		return app.StageResult{}, fmt.Errorf("service: %d scripts were found and this purpose takes at most %d; which one is meant is not something to guess", len(steps), req.MaxScripts)
 	}

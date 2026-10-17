@@ -90,3 +90,11 @@ func (f *asyncFakeBackend) CancelAssuranceOperation(_ context.Context, id string
 func (f *asyncFakeBackend) RecoveryTestOutput(_ context.Context, id string) (service.RecoveryTestOutput, error) {
 	return service.RecoveryTestOutput{BackupSetID: id}, nil
 }
+
+func (f *syncFakeBackend) AssuranceOperation(_ context.Context, id string) (service.AssuranceOperationRecord, error) {
+	return service.AssuranceOperationRecord{OperationID: id, Kind: "recovery_test", BackupSetID: "src/set-1", State: "passed", Stage: "complete"}, nil
+}
+
+func (f *asyncFakeBackend) AssuranceOperation(_ context.Context, id string) (service.AssuranceOperationRecord, error) {
+	return service.AssuranceOperationRecord{OperationID: id, Kind: "recovery_test", BackupSetID: "src/set-1", State: "passed", Stage: "complete"}, nil
+}

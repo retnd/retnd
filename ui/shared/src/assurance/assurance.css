@@ -79,6 +79,7 @@
 @keyframes aop-slide { from { margin-left: 0; } to { margin-left: 65%; } }
 @media (prefers-reduced-motion: reduce) { .aop__bar[data-indeterminate] > i { animation: none; width: 100%; } }
 .aop__outcome { font-weight: 600; color: var(--text); }
+.aop__quiet { font-size: var(--text-sm); color: var(--text-2); }
 /* A cancel the service refused, in its words: body ink on the quiet danger
    fill, with the danger edge as a redundant cue. */
 .aop__alert { border: 1px solid var(--danger); background: var(--danger-quiet); color: var(--text); border-radius: var(--radius-md); padding: var(--space-2); font-size: var(--text-sm); }

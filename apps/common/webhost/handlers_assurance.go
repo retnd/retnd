@@ -134,6 +134,21 @@ type assuranceOperationCancelledResponse struct {
 	Status      string `json:"status"`
 }
 
+// assuranceOperationResponse is one scrub or recovery test as the durable
+// activity record holds it (#1200). The events are the feed's own shape, so a
+// client draws them with the same code it draws the live feed with.
+type assuranceOperationResponse struct {
+	BackupSetID string                      `json:"backup_set_id"`
+	EndedAt     string                      `json:"ended_at"`
+	Events      []liveActivityEventResponse `json:"events"`
+	Kind        string                      `json:"kind"`
+	OperationID string                      `json:"operation_id"`
+	Reason      string                      `json:"reason"`
+	Stage       string                      `json:"stage"`
+	StartedAt   string                      `json:"started_at"`
+	State       string                      `json:"state"`
+}
+
 type recoveryTestOutputRecordBody struct {
 	Kind string `json:"kind"`
 	Text string `json:"text"`
@@ -336,6 +351,33 @@ func (h *handlers) cancelAssuranceOperation(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusAccepted, assuranceOperationCancelledResponse{
 		BackupSetID: got.BackupSetID, Kind: got.Kind, OperationID: got.OperationID, Status: got.Status,
 	})
+}
+
+// getAssuranceOperation reads one scrub or recovery test back by its id
+// (#1200): its lines, oldest first, and what they add up to. An id with
+// nothing on record (never one, or pruned past the record's retention) is
+// OPERATION_NOT_FOUND, in words that say both.
+func (h *handlers) getAssuranceOperation(w http.ResponseWriter, r *http.Request) {
+	rec, err := h.backend.AssuranceOperation(r.Context(), chi.URLParam(r, "op"))
+	if errors.Is(err, service.ErrOperationNotFound) {
+		writeError(w, http.StatusNotFound, "OPERATION_NOT_FOUND", service.NotOnRecordWords())
+		return
+	}
+	if err != nil {
+		h.writeAssuranceError(w, r, err, "failed to read the operation")
+		return
+	}
+	body := assuranceOperationResponse{
+		BackupSetID: rec.BackupSetID, Events: liveActivityEventsOf(rec.Events), Kind: rec.Kind,
+		OperationID: rec.OperationID, Reason: rec.Reason, Stage: rec.Stage, State: rec.State,
+	}
+	if !rec.StartedAt.IsZero() {
+		body.StartedAt = formatTime(rec.StartedAt)
+	}
+	if !rec.EndedAt.IsZero() {
+		body.EndedAt = formatTime(rec.EndedAt)
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
 // getRecoveryTestOutput is what the newest recovery test of a set printed.

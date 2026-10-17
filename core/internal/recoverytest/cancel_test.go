@@ -19,7 +19,7 @@ type cancellingValidator struct {
 	calls  int
 }
 
-func (c *cancellingValidator) Configured(context.Context, model.BackupSetID) (bool, error) {
+func (c *cancellingValidator) Configured(context.Context, model.BackupSetID, model.ArtifactID) (bool, error) {
 	return true, nil
 }
 

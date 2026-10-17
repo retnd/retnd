@@ -374,6 +374,47 @@ func Discover(stageDir string) ([]Script, error) {
 	return scripts, nil
 }
 
+// DiscoverOne resolves the one script called name in a resolved stage
+// directory, or nothing when it is not there (#1203).
+//
+// It exists for a purpose that was told which script it runs, where listing
+// the directory is the wrong question. A directory shared by many named
+// scripts (the custom recovery-test validators) is held to Discover's whole
+// rule, so one README or one editor backup beside the script that was asked
+// for refused every one of them, and so did the 65th entry. The directory
+// itself is still held to custody (ResolveStage did that), and the file is
+// held to everything a captured script is: the name rule here, and
+// regular-file, owner, mode and size on the open descriptor at capture time.
+// What is not checked is the other entries, which this purpose never reads.
+//
+// A name that is not a script name, or one with a separator in it, is
+// refused, so the argument can never leave stageDir.
+func DiscoverOne(stageDir, name string) ([]Script, error) {
+	target, err := ParseScriptName(name)
+	if err != nil {
+		return nil, err
+	}
+
+	path := filepath.Join(stageDir, name)
+
+	info, err := os.Lstat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+
+		return nil, fmt.Errorf("%w: %s cannot be read: %w", ErrStageDir, path, err)
+	}
+
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf(
+			"%w: %s is a %s, not a regular file. A hook is a file this process reads once and copies; anything else is something whose contents are supplied by whoever is on the other end of it",
+			ErrCustody, path, fileKind(info.Mode().Type()))
+	}
+
+	return []Script{{Name: name, Target: target, path: path}}, nil
+}
+
 // MaxScriptsPerStage bounds how many entries one hook directory may have.
 //
 // os.ReadDir is unbounded, and everything downstream of it is per-entry

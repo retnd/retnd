@@ -256,6 +256,19 @@ describe("cancelling a recovery test", () => {
     expect(read.events[read.events.length - 1].text).toMatch(/cancelled/i);
   });
 
+  // #1200: the end line says it was stopped on request (cancelled=true), so a
+  // cancel from another tab, or the terminal, reads as cancelled here too.
+  it("an end line that says cancelled=true is Cancelled though this page never asked", async () => {
+    const getLiveActivity = vi.fn().mockResolvedValue(live([
+      ev(1, "recovery_test_start", { op_id: "op-1" }),
+      ev(2, "recovery_test_end", { op_id: "op-1", reason: "stopped", cancelled: "true" }, "warn", "warn")
+    ]));
+    const a = createHttpAssurance(start({ getLiveActivity }));
+    await a.startRecoveryTest(SET);
+    const read = await a.readOperation("op-1", 0);
+    expect(read.operation.state).toBe("cancelled");
+  });
+
   it("between the accepted cancel and the end line the operation says it is cancelling", async () => {
     const getLiveActivity = vi.fn().mockResolvedValue(live([ev(1, "recovery_test_start", { op_id: "op-1" })], { open: true }));
     const a = createHttpAssurance(start({ getLiveActivity }));
@@ -290,9 +303,27 @@ describe("an operation this page did not start (a reload, or a link to its detai
     expect(read.operation).toMatchObject({ id: "op-9", kind: "recovery_test", setId: SET, state: "running", stage: "reading" });
   });
 
-  it("a scrub id, which is never on the feed, is refused in words rather than followed into silence", async () => {
+  // #1200: an id the live feed does not hold is read back from the durable
+  // record, and only one that is on neither is refused, in words that say
+  // why (pruned, or never one of this deployment's runs).
+  it("an id on neither the feed nor the record is refused in words rather than followed into silence", async () => {
     const a = createHttpAssurance(rootWith({ getLiveActivity: vi.fn().mockResolvedValue(live([])) }));
-    await expect(a.readOperation("scrub-op-1", 0)).rejects.toThrow(/scrub/i);
+    await expect(a.readOperation("scrub-op-1", 0)).rejects.toThrow(/nothing is on record.*30 days/i);
+  });
+
+  it("a finished scrub, which the live feed no longer holds, is read back from the durable record", async () => {
+    const pass = ev(7, "scrub_pass", {
+      trigger: "manual", scope: "set " + SET, op_id: "scrub-op-1", checked: "2", passed: "2", failed: "0", could_not_complete: "0"
+    }, "success");
+    const getAssuranceOperation = vi.fn().mockResolvedValue({
+      operationId: "scrub-op-1", kind: "scrub", backupSetId: SET, state: "passed", stage: "", reason: "",
+      startedAt: T, endedAt: T, events: [pass]
+    });
+    const a = createHttpAssurance(rootWith({ getLiveActivity: vi.fn().mockResolvedValue(live([])), getAssuranceOperation }));
+    const read = await a.readOperation("scrub-op-1", 0);
+    expect(getAssuranceOperation).toHaveBeenCalledWith("scrub-op-1");
+    expect(read.operation).toMatchObject({ id: "scrub-op-1", kind: "scrub", setId: SET, state: "complete" });
+    expect(read.events.map((e) => e.text)).toEqual([expect.stringMatching(/^scrub pass finished \(manual, set /)]);
   });
 });
 
