@@ -187,7 +187,7 @@ func (v stageValidator) Configured(ctx context.Context, _ model.BackupSetID, art
 
 		return false, err
 	}
-	if c.req.Only != "" && !(res.Configured && len(res.Scripts) == 1 && res.Scripts[0].Name == c.req.Only) {
+	if c.req.Only != "" && (!res.Configured || len(res.Scripts) != 1 || res.Scripts[0].Name != c.req.Only) {
 		return false, c.missing()
 	}
 

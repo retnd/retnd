@@ -385,3 +385,46 @@ func TestCustomValidators_TheDefaultScriptsNumbersAreTheEnginesNumbers(t *testin
 		t.Error("the default step timeout changed; update the default script's WHERE IT RUNS section")
 	}
 }
+
+func TestCustomValidators_ASixtyFifthValidatorIsRefusedAndWritesNothing(t *testing.T) {
+	ctx := context.Background()
+	svc, configPath, root := openWorkflowSaveService(t)
+	for i := 0; i < config.MaxCustomValidators; i++ {
+		req := CreateCustomValidatorRequest{Name: "v" + strings.Repeat("a", i/26) + string(rune('a'+i%26)), Pattern: "^p" + strings.Repeat("a", i/26) + string(rune('a'+i%26)), Script: goodValidator}
+		if _, err := svc.CreateCustomValidator(ctx, req); err != nil {
+			t.Fatalf("validator %d: %v", i, err)
+		}
+	}
+	before, _ := os.ReadFile(configPath)
+	_, err := svc.CreateCustomValidator(ctx, CreateCustomValidatorRequest{Name: "one-too-many", Pattern: "^zzz", Script: goodValidator})
+	if !errors.Is(err, ErrValidatorLimit) {
+		t.Fatalf("err = %v, want ErrValidatorLimit", err)
+	}
+	after, _ := os.ReadFile(configPath)
+	if string(before) != string(after) {
+		t.Error("a refused 65th upload changed config.yaml")
+	}
+	if entries, _ := os.ReadDir(filepath.Join(root, config.CustomValidatorDir)); len(entries) != config.MaxCustomValidators {
+		t.Errorf("the stage directory holds %d scripts, want %d", len(entries), config.MaxCustomValidators)
+	}
+}
+
+func TestCustomValidators_TheScriptBoundIsTheSmallerOfTheSpecAndTheDeployment(t *testing.T) {
+	ctx := context.Background()
+	var cfg config.Config
+	if got := maxValidatorScriptBytes(&cfg); got != MaxCustomValidatorScriptBytes {
+		t.Errorf("default bound = %d, want %d", got, MaxCustomValidatorScriptBytes)
+	}
+	cfg.Workflows.MaxScriptSizeBytes = 64
+	if got := maxValidatorScriptBytes(&cfg); got != 64 {
+		t.Errorf("bound under workflows.max_script_size_bytes=64 is %d", got)
+	}
+	err := checkValidatorScript(ctx, &cfg, "x.local.sh", goodValidator+"# "+strings.Repeat("a", 64))
+	if !errors.Is(err, ErrInvalidRequest) || !strings.Contains(err.Error(), "at most 64") {
+		t.Errorf("err = %v, want a refusal at 64 bytes", err)
+	}
+	cfg.Workflows.MaxScriptSizeBytes = 1 << 30
+	if got := maxValidatorScriptBytes(&cfg); got != MaxCustomValidatorScriptBytes {
+		t.Errorf("a generous deployment bound raised the cap to %d", got)
+	}
+}
