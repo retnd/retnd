@@ -229,7 +229,7 @@ func (e LocalExecutor) ExecuteStep(ctx context.Context, req StepRequest) (StepOu
 		})
 	}))
 	if err != nil {
-		return localFailure(err), nil
+		return localFailure(ctx, err), nil
 	}
 
 	return localOutcome(result), nil
@@ -242,12 +242,29 @@ func (e LocalExecutor) ExecuteStep(ctx context.Context, req StepRequest) (StepOu
 // Anything else is the socket, which is transport loss. The distinction
 // is what an operator needs: one is something to fix in the
 // configuration, the other is something to fix in the deployment.
-func localFailure(err error) StepOutcome {
+//
+// One more case comes before the socket: the step's own context ran out.
+// That is the step's script_timeout expiring while the runner was silent
+// (stopped, wedged, or gone without closing its socket), and it is a
+// TIMEOUT, not a lost transport (#931): the bound the operator configured
+// is what ended the step. Termination is reported as unconfirmed, because
+// the only party that could have proved the hook stopped is the runner
+// that stopped answering; the client closing the connection is what makes
+// a live runner read the lease as expired and kill the process group.
+func localFailure(ctx context.Context, err error) StepOutcome {
 	var refusal *hostrunner.Failure
 	if errors.As(err, &refusal) {
 		return StepOutcome{
 			Disposition: DispositionNotAttempted,
 			Detail:      refusal.Error(),
+		}
+	}
+
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return StepOutcome{
+			Disposition: DispositionTimedOut,
+			Certainty:   workflowexec.TerminationUnconfirmed,
+			Detail:      "the step's timeout expired while the workflow runner was not answering, so nothing proved the hook stopped: " + err.Error(),
 		}
 	}
 
