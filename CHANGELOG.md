@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-17
+
+0.7.1 is a patch release, and the one thing in it that is new rather than fixed is custom recovery-test
+validators: a script and a pattern over the backup's file name, in the engine, the API, `retnd assurance
+validators` and the Settings screen. Nothing in 0.7.0 changes meaning on upgrade, but four things are worth
+a read first. A validator starts with a small environment (the `RECOVERY_TEST_*` and `RETND_*` variables and
+`PATH`) and sees the workflow environment, secrets included, only if you opt in with `env: workflow` on the
+validator or `validator_env: workflow` on the set. `config.yaml` pins each validator script by hash, so a
+script edited on disk is refused until you save it again. A retnd older than this refuses a `config.yaml`
+that has `assurance.validators` or `script_sha256` in it, so remove them before you downgrade. And the
+`--text-3` ink (the quiet grey text) is darker in both themes so it meets AA contrast, which you will see
+as slightly stronger secondary text and unchanged borders... the rest is fixes: a hook whose runner goes
+quiet no longer hangs a run, the dark theme shows from the first frame, the Operation page reads finished
+runs back, and the Backups page gets a per-row actions menu.
+
 ### Added
 
 - **Custom recovery-test validators, by backup name** (#1203, #1204). A validator is a `NAME.local.sh` and a
@@ -72,6 +87,10 @@
   A recovery test's `recovery_test_end` and a scrub's `scrub_pass` say `cancelled=true` when, and only when,
   the run was stopped by a cancel request; a run cut short by the service shutting down is not cancelled.
 
+- **The Backups page has a per-row actions menu, and a set links to its backups** (#1202, #1214). Every row
+  on Backups gets one Actions menu in place of the strip of buttons, and the set page has a "Backups in this
+  set" link through to that set's backups. The backup and set detail pages use the same menu.
+
 ### Changed
 
 - **A recovery-test validator starts with a small environment** (#1221). It used to run with the backup
@@ -94,6 +113,15 @@
   API or the CLI always states its `env`, so it does not follow a later opt-in on the set; a hand-written
   entry with no `env` does. The Settings screen has no control for it yet (a follow-up on the validators UI).
 
+- **`--text-3` text is darker in both themes so it meets AA contrast** (#1235). The quiet grey used for
+  captions, timestamps and table meta measured between 2.9:1 and 4.2:1 on the page and card backgrounds in
+  places, under the 4.5:1 that WCAG AA asks for. In the light theme it moves from `#8b8d8a` to `#696b68` and
+  in the dark theme from `#767976` to `#959892` (5.38:1 and 5.80:1 on a card). The 3:1 job it also did, for
+  control edges and one bar fill, has its own `--edge-3` token with the old values, so borders look exactly
+  as before. The docked terminal, a dark surface in both themes, now uses its own inks for its time stamps,
+  its `[you]` label and the unfinished-actions notice, and the warn banner's eyebrow text is a little
+  stronger. If you theme the web interface with your own CSS, check anything you set from `--text-3`.
+
 ### Fixed
 
 - **A hook whose Host Workflow Runner stops answering is now bounded by its script timeout** (#931). The
@@ -104,6 +132,20 @@
   closed so a live runner reads the lease as expired, and a step whose timeout ran out while the runner was
   silent is recorded as `timed_out` with termination unconfirmed (it used to read `transport_lost`), keeping
   any output it had printed. The run finalises as failed instead of hanging.
+
+- **The web interface resolves its theme before the first paint** (#1236). A stored dark preference used to
+  show the light tokens for the first frames and then switch, because the theme was written by an effect
+  after the app had booted. A small inline script in the page now sets `data-theme` from the stored
+  preference before anything paints, and the app starts from that instead of overwriting it. Light is still
+  the default when nothing is stored.
+
+- **The backup detail page no longer shows an Exclude row that could never be filled** (#930). Nothing on the
+  wire carries a set's exclude patterns, so on a real deployment the row was a permanent dash. It is gone;
+  `exclude_paths` is still read from `config.yaml` as before and the API is unchanged.
+
+- **The production web bundle no longer carries the mock API's fixtures** (#1216). The mock was imported
+  statically, so its sample sets, events and hosts rode along in every build. It is now loaded only in the
+  dev build.
 
 - **The Operation page shows what a run did once it has left the live feed** (#1200). It used to draw only
   what the live activity tail held, so a recovery test that had dropped off it read "no longer on the live
