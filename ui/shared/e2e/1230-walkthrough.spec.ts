@@ -6,13 +6,14 @@
  */
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { open, setTheme } from "./helpers";
+import { open, preselectTheme, setTheme } from "./helpers";
 
 const beat = (p: Page, ms = 900) => p.waitForTimeout(ms);
 test.describe.configure({ timeout: 150_000 });
 
 for (const theme of ["light", "dark"] as const) {
   test(`#1230 walkthrough (${theme}): Settings, the four states, approve an edited script`, async ({ page }) => {
+    await preselectTheme(page, theme);
     await open(page, "/settings", "validators-states");
     const card = page.getByRole("region", { name: "Recovery-test validators" });
     await card.scrollIntoViewIfNeeded();
@@ -37,6 +38,7 @@ for (const theme of ["light", "dark"] as const) {
   });
 
   test(`#1230 walkthrough (${theme}): a backup's page under an edited validator`, async ({ page }) => {
+    await preselectTheme(page, theme);
     await open(page, "/backups/production/billing-mysql/billing-20260827.sql.gz", "validators-state-edited");
     const region = page.getByRole("region", { name: "Assurance" });
     await expect(region.locator("[data-validator-script-state]")).toBeVisible({ timeout: 30_000 });

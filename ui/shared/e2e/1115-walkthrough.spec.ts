@@ -4,12 +4,13 @@
  */
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { open, setTheme } from "./helpers";
+import { open, preselectTheme, setTheme } from "./helpers";
 
 const beat = (p: Page, ms = 900) => p.waitForTimeout(ms);
 
 for (const theme of ["light", "dark"] as const) {
   test(`#1115 walkthrough (${theme}): filter to warnings, to errors, clear, and a live warning arrives`, async ({ page }) => {
+    await preselectTheme(page, theme);
     await open(page, "/", "dock-live-line");
     const log = page.getByRole("region", { name: "Terminal" }).getByRole("log");
     await expect(log).toContainText("backup set updated");
