@@ -4,7 +4,7 @@
  */
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { open, setTheme } from "./helpers";
+import { open, preselectTheme, setTheme } from "./helpers";
 
 const beat = (p: Page, ms = 900) => p.waitForTimeout(ms);
 
@@ -16,6 +16,7 @@ const PASSWORD = "correct-horse-battery";
 
 for (const theme of ["light", "dark"] as const) {
   test(`#1203 walkthrough (${theme}): Settings, pick a suggested pattern, upload, password`, async ({ page }) => {
+    await preselectTheme(page, theme);
     await open(page, "/settings", "local-account-profile");
     const card = page.getByRole("region", { name: "Recovery-test validators" });
     await card.scrollIntoViewIfNeeded();
@@ -44,6 +45,7 @@ for (const theme of ["light", "dark"] as const) {
   });
 
   test(`#1203 walkthrough (${theme}): a backup's page, Declare validator, a pattern the engine refuses`, async ({ page }) => {
+    await preselectTheme(page, theme);
     await open(page, "/backups/production/postgres-primary/postgres-prod-20260828.dump.zst");
     const region = page.getByRole("region", { name: "Assurance" });
     await expect(region).toBeVisible({ timeout: 30_000 });

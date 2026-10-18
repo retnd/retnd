@@ -4,13 +4,14 @@
  */
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { open, setTheme } from "./helpers";
+import { open, preselectTheme, setTheme } from "./helpers";
 
 const beat = (p: Page, ms = 900) => p.waitForTimeout(ms);
 
 for (const theme of ["light", "dark"] as const) {
   test(`#1111 walkthrough (${theme}): run the recovery test, the chip reads Recovered, readable`, async ({ page }) => {
     test.setTimeout(150_000);
+    await preselectTheme(page, theme);
     await open(page, "/sets/production/postgres-primary", "assurance-builtin-check", { wire: true });
     const section = page.getByRole("region", { name: "Assurance" });
     const recovery = section.locator('[data-claim="recovery"]');
