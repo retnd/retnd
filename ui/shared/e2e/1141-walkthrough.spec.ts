@@ -10,7 +10,7 @@
  */
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
-import { open, setTheme, spaGo } from "./helpers";
+import { open, preselectTheme, setTheme, spaGo } from "./helpers";
 
 const S = "assurance-default-untested";
 const NEWEST = "postgres-prod-20260829.dump.zst";
@@ -27,10 +27,11 @@ test.use({ viewport: { width: 1280, height: 900 }, video: process.env.E2E_VIDEO 
 for (const theme of ["light", "dark"] as const) {
   test(`1141 walkthrough (${theme}): Dashboard, Backups, a backup, the Backup Sets card, an unreadable policy`, async ({ page }) => {
     test.setTimeout(180_000);
+    await preselectTheme(page, theme);
     await open(page, "/", S, { wire: true });
-    await setTheme(page, theme);
     const tile = page.getByRole("region", { name: "Assurance summary" });
     await expect(tile.getByTestId("assurance-untested-note")).toBeVisible();
+    await setTheme(page, theme);
     await into(tile);
     if (before) await expect(tile.getByTestId("assurance-untested-note")).not.toContainText("default configuration");
     else await expect(tile.getByTestId("assurance-untested-note")).toContainText("2 of them are in sets on the default configuration.");
@@ -65,6 +66,7 @@ for (const theme of ["light", "dark"] as const) {
     // The policy cannot be read: main called this "Not configured".
     await page.addInitScript(() => { (window as unknown as Record<string, unknown>).__retndPolicy = { fail: true }; });
     await open(page, "/backups", S, { wire: true });
+    await expect(page.locator("main")).toBeVisible();
     await setTheme(page, theme);
     const failed = page.getByRole("row").filter({ has: page.locator("td.mono", { hasText: NEWEST }) }).locator('[data-claim="recovery"]');
     await into(failed);

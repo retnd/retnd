@@ -51,6 +51,7 @@ import type { RecoveryRefusal } from "./recoveryMessages";
 import type { ArtifactAssurance } from "./types";
 import { useBackupFacts, useFactsIndex } from "./verificationModel";
 import { useSourceRecovery } from "./useSourceRecovery";
+import { DeclareValidator } from "./DeclareValidator";
 
 export function ArtifactAssuranceCard({ artifactId, readOnly }: { artifactId: string; readOnly: boolean }) {
   const api = useApi().assurance;
@@ -85,6 +86,7 @@ export function ArtifactAssuranceCard({ artifactId, readOnly }: { artifactId: st
         ) : null}
       </div>
       {api ? <DownloadOutcome artifactId={artifactId} /> : null}
+      <DeclareValidator artifactId={artifactId} readOnly={readOnly} />
       {open ? <RecoverArtifactDialog artifactId={artifactId} returnFocus={opener} onClose={() => setOpen(false)} /> : null}
     </section>
   );

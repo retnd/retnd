@@ -41,6 +41,11 @@ var ErrStageNotConfigured = errors.New("app: no scripts are configured for this"
 // script to run never falls back to another.
 var ErrStageScriptMissing = errors.New("app: the named script is not in its stage directory")
 
+// ErrStageScriptChanged is returned when a request names the hash its one
+// script has to have (ExpectSHA256) and the script found does not hash to it.
+// The message carries the hash that was found, spelled "sha256 <hex>".
+var ErrStageScriptChanged = errors.New("app: the script is not the one that was approved")
+
 // StageRequest says which directories to run and what to tell them.
 type StageRequest struct {
 	Set config.BackupSet
@@ -53,6 +58,12 @@ type StageRequest struct {
 	// missing one is absence and not a mistake.
 	SetDir    string
 	GlobalDir string
+
+	// InheritWorkflowEnv layers the set's merged workflow environment (its
+	// variables, secrets included) under Vars. The zero value is the small
+	// environment: the sanitized baseline, Vars and the product's own facts.
+	// A caller that wants the hooks' environment says so (#1221).
+	InheritWorkflowEnv bool
 
 	// Vars are ordinary environment variables layered over the set's
 	// workflow environment. They may not use the RETND_ prefix:
@@ -78,6 +89,13 @@ type StageRequest struct {
 	// in its place. It is how a recovery test's validator_id selects the
 	// validator.
 	Only string
+
+	// ExpectSHA256, with Only, is the hex hash the named script has to have
+	// (#1222). It is checked against the bytes the run is built from, after
+	// they have been read and before anything runs, so there is no gap
+	// between the check and the run; a script that hashes to something else
+	// is ErrStageScriptChanged and nothing runs. Empty means no expectation.
+	ExpectSHA256 string
 
 	// MaxOutputBytes bounds the output kept per script. Zero takes the
 	// engine's default.

@@ -17,7 +17,7 @@
  */
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { open, setTheme, spaGo } from "./helpers";
+import { open, preselectTheme, setTheme, spaGo } from "./helpers";
 
 const SET = "production/postgres-primary";
 const RUN = "run-2026-09-13-0400";
@@ -34,9 +34,10 @@ for (const theme of ["light", "dark"] as const) {
     const refusal = page.locator("[data-gate-refusal]");
 
     // Verify from the snapshot list.
+    await preselectTheme(page, theme);
     await open(page, `/sets/${SET}/snapshots`, "local-account-profile");
-    await setTheme(page, theme);
     await expect(page.getByRole("button", { name: "Verify latest" })).toBeVisible();
+    await setTheme(page, theme);
     await beat(page, 1600);
     await page.getByRole("button", { name: "Verify latest" }).click();
     await expect(page.getByRole("region", { name: "Verification in progress" })).toBeVisible();
@@ -84,7 +85,9 @@ for (const theme of ["light", "dark"] as const) {
   test(`1163 walkthrough (${theme}): over plain HTTP from another machine, a restore asks before the password leaves`, async ({ page }) => {
     test.setTimeout(180_000);
     const DIALOG = "This connection is not encrypted";
+    await preselectTheme(page, theme);
     await open(page, `/sets/${SET}/restore`, "insecure-transport");
+    await expect(page.locator("main")).toBeVisible();
     await setTheme(page, theme);
     await page.getByRole("button", { name: "Continue" }).click();
     await page.getByRole("button", { name: "Continue" }).click();
@@ -120,9 +123,10 @@ for (const theme of ["light", "dark"] as const) {
     const refusal = page.locator("[data-gate-refusal]");
 
     // The list: no notice, and verify works on a shut gate.
+    await preselectTheme(page, theme);
     await open(page, `/sets/${SET}/snapshots`, "gateway-profile");
-    await setTheme(page, theme);
     await expect(page.getByRole("button", { name: "Verify latest" })).toBeVisible();
+    await setTheme(page, theme);
     await expect(notice).toHaveCount(0);
     await beat(page, 1600);
     await page.getByRole("button", { name: "Verify latest" }).click();

@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "4c2219cff050814453220e17afa679623584055454b6be7fa4e852317b5735e2";
+export const CONTRACT_SHA256 = "e2cf09fac616dc93d05c57871d9dcb0976e8efd7de370475524611573ab071a9";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -121,6 +121,12 @@ export const WIRE_ERROR_CODES = [
   "RECOVERY_SOURCE_HOST_UNREACHABLE",
   "RECOVERY_SOURCE_HOST_NO_SPACE",
   "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE",
+  "VALIDATOR_NOT_FOUND",
+  "VALIDATOR_EXISTS",
+  "VALIDATOR_PATTERN_CONFLICT",
+  "VALIDATOR_LIMIT_REACHED",
+  "VALIDATORS_UNAVAILABLE",
+  "VALIDATOR_SCRIPT_CHANGED",
 ] as const;
 
 /** This UI's own presentation vocabulary. No endpoint emits these;
@@ -254,6 +260,12 @@ export const API_ERROR_CODES = [
   "RECOVERY_SOURCE_HOST_UNREACHABLE",
   "RECOVERY_SOURCE_HOST_NO_SPACE",
   "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE",
+  "VALIDATOR_NOT_FOUND",
+  "VALIDATOR_EXISTS",
+  "VALIDATOR_PATTERN_CONFLICT",
+  "VALIDATOR_LIMIT_REACHED",
+  "VALIDATORS_UNAVAILABLE",
+  "VALIDATOR_SCRIPT_CHANGED",
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
@@ -263,11 +275,11 @@ export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
 export const API_ERROR_CLASSES = {
   "authentication": ["UNAUTHENTICATED", "BOOTSTRAP_TOKEN_INVALID", "RESET_TOKEN_INVALID", "VERIFY_TOKEN_INVALID"],
   "authorization": ["ENROLLMENT_CLOSED", "DESTRUCTIVE_OPERATIONS_DISABLED", "CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "RECOVERY_GRANT_SESSION_ENDED", "STEP_UP_REQUIRED", "STEP_UP_FAILED", "INSECURE_TRANSPORT_ACK_REQUIRED"],
-  "conflict": ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "IDEMPOTENCY_KEY_CONFLICT", "CONFIG_REVISION_STALE", "ALREADY_CONFIGURED", "ARTIFACT_NOT_QUARANTINED", "ARTIFACT_IRRECOVERABLE", "REINSTATEMENT_REFUSED", "BACKUP_SET_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED", "ARTIFACT_NOT_FAILED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE", "MEDIUM_IS_DEFAULT", "MEDIUM_CONNECTION_NOT_PROVEN", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED", "REPOSITORY_DOMAIN_EXISTS", "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE", "WORKFLOWS_NOT_CONFIGURED", "WORKFLOW_SCRIPT_REJECTED", "RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_GRANT_USED", "RECOVERY_GRANT_EXPIRED", "RECOVERY_TARGET_EXISTS", "RECOVERY_USE_SNAPSHOT_RESTORE", "RECOVERY_BUSY", "DIRECTORY_NOT_READABLE", "RESTORE_TARGET_NOT_ACKNOWLEDGED", "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_UNAVAILABLE", "RECOVERY_SOURCE_HOST_READ_ONLY", "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE"],
+  "conflict": ["RETENTION_PLAN_STALE", "RETENTION_APPLY_BUSY", "OPERATION_ALREADY_RUNNING", "BACKUP_SET_HELD_FOR_EDITING", "IDEMPOTENCY_KEY_CONFLICT", "CONFIG_REVISION_STALE", "ALREADY_CONFIGURED", "ARTIFACT_NOT_QUARANTINED", "ARTIFACT_IRRECOVERABLE", "REINSTATEMENT_REFUSED", "BACKUP_SET_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HISTORY_REPOINT_NOT_ACKNOWLEDGED", "BACKUP_SET_HOST_KEY_CHANGE_NOT_ACKNOWLEDGED", "ARTIFACT_NOT_FAILED", "BACKUP_SET_CONNECTION_NOT_PROVEN", "BACKUP_SET_SOURCE_NOT_WRITABLE", "MEDIUM_IS_DEFAULT", "MEDIUM_CONNECTION_NOT_PROVEN", "SNAPSHOT_NOT_HOLDABLE", "INCREMENTAL_ENGINE_DISABLED", "REPOSITORY_DOMAIN_EXISTS", "REPOSITORY_DOMAIN_MAINTAINED_ELSEWHERE", "WORKFLOWS_NOT_CONFIGURED", "WORKFLOW_SCRIPT_REJECTED", "RECOVERY_COST_NOT_ACKNOWLEDGED", "RECOVERY_NO_COPY", "RECOVERY_NOT_READABLE", "RECOVERY_NO_DIGEST", "RECOVERY_GRANT_USED", "RECOVERY_GRANT_EXPIRED", "RECOVERY_TARGET_EXISTS", "RECOVERY_USE_SNAPSHOT_RESTORE", "RECOVERY_BUSY", "DIRECTORY_NOT_READABLE", "RESTORE_TARGET_NOT_ACKNOWLEDGED", "SNAPSHOT_HOLD_RELEASE_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_UNAVAILABLE", "RECOVERY_SOURCE_HOST_READ_ONLY", "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED", "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE", "VALIDATOR_EXISTS", "VALIDATOR_PATTERN_CONFLICT", "VALIDATOR_LIMIT_REACHED", "VALIDATOR_SCRIPT_CHANGED"],
   "internal": ["INTERNAL", "INTERNAL_ERROR", "RECOVERY_LOCAL_COPY_CORRUPT", "RECOVERY_REMOTE_COPY_CORRUPT", "RECOVERY_NO_SPACE", "RECOVERY_BELOW_RESERVE", "RECOVERY_FAILED", "RECOVERY_SOURCE_HOST_NO_SPACE"],
-  "not-found": ["BACKUP_SET_NOT_FOUND", "OPERATION_NOT_FOUND", "RETENTION_PLAN_NOT_FOUND", "ARTIFACT_NOT_FOUND", "MEDIUM_NOT_FOUND", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_HOLD_NOT_FOUND", "REPOSITORY_DOMAIN_NOT_FOUND", "WORKFLOW_ENV_NOT_FOUND", "WORKFLOW_RUN_NOT_FOUND", "WORKFLOW_STEP_NOT_FOUND", "RECOVERY_COPY_NOT_FOUND", "RECOVERY_GRANT_UNKNOWN", "DIRECTORY_NOT_FOUND"],
+  "not-found": ["BACKUP_SET_NOT_FOUND", "OPERATION_NOT_FOUND", "RETENTION_PLAN_NOT_FOUND", "ARTIFACT_NOT_FOUND", "MEDIUM_NOT_FOUND", "SNAPSHOT_NOT_FOUND", "SNAPSHOT_HOLD_NOT_FOUND", "REPOSITORY_DOMAIN_NOT_FOUND", "WORKFLOW_ENV_NOT_FOUND", "WORKFLOW_RUN_NOT_FOUND", "WORKFLOW_STEP_NOT_FOUND", "RECOVERY_COPY_NOT_FOUND", "RECOVERY_GRANT_UNKNOWN", "DIRECTORY_NOT_FOUND", "VALIDATOR_NOT_FOUND"],
   "throttling": ["RATE_LIMITED", "RECOVERY_TOO_MANY_GRANTS", "RECOVERY_READS_BUSY", "RECOVERY_DESTINATION_BUSY", "RECOVERY_DOWNLOADS_BUSY"],
-  "unavailable": ["NOT_CONFIGURED", "SMTP_SEND_FAILED", "WORKFLOW_ENGINE_UNAVAILABLE", "RECOVERY_UNAVAILABLE", "RECOVERY_INTERRUPTED", "STEP_UP_UNAVAILABLE", "RECOVERY_SOURCE_HOST_UNREACHABLE"],
+  "unavailable": ["NOT_CONFIGURED", "SMTP_SEND_FAILED", "WORKFLOW_ENGINE_UNAVAILABLE", "RECOVERY_UNAVAILABLE", "RECOVERY_INTERRUPTED", "STEP_UP_UNAVAILABLE", "RECOVERY_SOURCE_HOST_UNREACHABLE", "VALIDATORS_UNAVAILABLE"],
   "validation": ["INVALID_REQUEST", "INVALID_EMAIL", "SSH_KEY_NOT_FOUND", "HOST_KEY_PROBE_FAILED", "MEDIUM_DISCLOSURE_REQUIRED", "BACKUP_SET_NOT_INCREMENTAL", "WORKFLOW_ACKNOWLEDGEMENT_REASON_REQUIRED", "RECOVERY_TARGET_INVALID"],
 } as const satisfies Record<string, readonly ApiErrorCode[]>;
 
@@ -340,6 +352,24 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
     }
   },
   {
+    id: "getDefaultValidatorScript",
+    method: "GET",
+    path: "/assurance/default-validator-script",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ValidatorScriptResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
     id: "listAssuranceDue",
     method: "GET",
     path: "/assurance/due",
@@ -355,6 +385,25 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       400: ["INVALID_REQUEST"],
       401: ["UNAUTHENTICATED"],
       404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "getAssuranceOperation",
+    method: "GET",
+    path: "/assurance/operations/{op}",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "AssuranceOperationRecord",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["OPERATION_NOT_FOUND"],
       500: ["INTERNAL"],
       503: ["NOT_CONFIGURED"],
     }
@@ -377,6 +426,151 @@ export const API_OPERATIONS: readonly ContractOperation[] = [
       404: ["OPERATION_NOT_FOUND"],
       500: ["INTERNAL"],
       503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "listCustomValidatorPatterns",
+    method: "GET",
+    path: "/assurance/validator-patterns",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "CustomValidatorPatternsResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "previewCustomValidator",
+    method: "POST",
+    path: "/assurance/validator-preview",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "PreviewCustomValidatorRequest",
+    responseSchema: "CustomValidatorPreview",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "listCustomValidators",
+    method: "GET",
+    path: "/assurance/validators",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ListCustomValidatorsResponse",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "createCustomValidator",
+    method: "POST",
+    path: "/assurance/validators",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: true,
+    concurrency: "",
+    requestSchema: "CreateCustomValidatorRequest",
+    responseSchema: "CustomValidator",
+    successStatus: 201,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED", "STEP_UP_REQUIRED", "STEP_UP_FAILED", "INSECURE_TRANSPORT_ACK_REQUIRED"],
+      404: ["BACKUP_SET_NOT_FOUND"],
+      409: ["VALIDATOR_EXISTS", "VALIDATOR_PATTERN_CONFLICT", "VALIDATOR_LIMIT_REACHED"],
+      429: ["RATE_LIMITED"],
+      500: ["INTERNAL"],
+      503: ["VALIDATORS_UNAVAILABLE", "STEP_UP_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "removeCustomValidator",
+    method: "DELETE",
+    path: "/assurance/validators/{name}",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "CustomValidator",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH"],
+      404: ["VALIDATOR_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "updateCustomValidator",
+    method: "PUT",
+    path: "/assurance/validators/{name}",
+    authenticated: true,
+    csrfRequired: true,
+    idempotencyKey: "none",
+    destructiveGate: true,
+    concurrency: "",
+    requestSchema: "UpdateCustomValidatorRequest",
+    responseSchema: "CustomValidator",
+    successStatus: 200,
+    errorCodes: {
+      400: ["INVALID_REQUEST"],
+      401: ["UNAUTHENTICATED"],
+      403: ["CSRF_TOKEN_MISSING", "CSRF_TOKEN_MISMATCH", "DESTRUCTIVE_OPERATIONS_DISABLED", "STEP_UP_REQUIRED", "STEP_UP_FAILED", "INSECURE_TRANSPORT_ACK_REQUIRED"],
+      404: ["BACKUP_SET_NOT_FOUND", "VALIDATOR_NOT_FOUND"],
+      409: ["VALIDATOR_PATTERN_CONFLICT", "VALIDATOR_SCRIPT_CHANGED"],
+      429: ["RATE_LIMITED"],
+      500: ["INTERNAL"],
+      503: ["VALIDATORS_UNAVAILABLE", "STEP_UP_UNAVAILABLE", "NOT_CONFIGURED"],
+    }
+  },
+  {
+    id: "getCustomValidatorScript",
+    method: "GET",
+    path: "/assurance/validators/{name}/script",
+    authenticated: true,
+    csrfRequired: false,
+    idempotencyKey: "none",
+    destructiveGate: false,
+    concurrency: "",
+    requestSchema: "",
+    responseSchema: "ValidatorScriptResponse",
+    successStatus: 200,
+    errorCodes: {
+      401: ["UNAUTHENTICATED"],
+      404: ["VALIDATOR_NOT_FOUND"],
+      500: ["INTERNAL"],
+      503: ["VALIDATORS_UNAVAILABLE", "NOT_CONFIGURED"],
     }
   },
   {
@@ -2612,6 +2806,20 @@ export interface WireAssuranceOperationCancelled {
   status: "cancelling";
 }
 
+/** One scrub, recovery test or recovery as the durable activity
+ *  record holds it (#1200). */
+export interface WireAssuranceOperationRecord {
+  backup_set_id: string;
+  ended_at: string;
+  events: WireLiveActivityEvent[];
+  kind: "scrub" | "recovery_test" | "recovery";
+  operation_id: string;
+  reason: string;
+  stage: string;
+  started_at: string;
+  state: "running" | "passed" | "failed" | "did_not_complete" | "cancelled" | "unfinished";
+}
+
 /** A resolved recovery-test policy. */
 export interface WireAssuranceRecoveryTestPolicy {
   builtin_check?: "structure" | "off";
@@ -3003,6 +3211,15 @@ export interface WireCreateBackupSetResponse extends WireBackupSet {
   run_error?: string;
 }
 
+/** A custom validator to upload. */
+export interface WireCreateCustomValidatorRequest {
+  backup_set_id?: string;
+  env?: "minimal" | "workflow";
+  name: string;
+  pattern: string;
+  script: string;
+}
+
 /** POST /repositories: declare a repository domain. What this
  *  persists is a DECLARATION -- an id, a co-tenancy posture and the
  *  reference the passphrase is resolved from -- and it creates no
@@ -3033,6 +3250,96 @@ export interface WireCreateRepositoryDomainRequest {
 export interface WireCredentialsRequest {
   password: string;
   username: string;
+}
+
+/** A custom recovery-test validator (#1203): an operator's
+ *  NAME.local.sh attached to an artifact-name pattern. For the copy a
+ *  recovery test is about to check, the first of these that applies
+ *  runs: a validator scoped to the copy's backup set whose pattern
+ *  matches its name, a global validator whose pattern matches, the
+ *  set's validator_id, the one script in
+ *  recovery-test/<source>/<set>, the built-in structure check. Two
+ *  patterns at one scope that both match a name end the test
+ *  could_not_complete rather than picking one. */
+export interface WireCustomValidator {
+  anchored: boolean;
+  backup_set_id: string;
+  env: "minimal" | "workflow";
+  example_name: string;
+  last_result?: WireCustomValidatorResult;
+  match_count: number;
+  match_sets: string[];
+  name: string;
+  pattern: string;
+  pinned_sha256: string;
+  scope: "backup_set" | "global";
+  script_file: string;
+  script_present: boolean;
+  script_sha256: string;
+  script_size_bytes: number;
+  script_state: "pinned" | "unpinned" | "edited_on_disk" | "missing";
+  uploaded_at: string;
+}
+
+/** A collision between custom validators found in the journal: one
+ *  backup, two or more patterns at one scope. */
+export interface WireCustomValidatorAmbiguity {
+  backup_set_id: string;
+  example: string;
+  validators: string[];
+}
+
+/** Another validator at the same scope that already matches a backup
+ *  this pattern matches. */
+export interface WireCustomValidatorConflict {
+  example: string;
+  validator: string;
+}
+
+/** A pattern suggested from existing backups: every run of digits
+ *  generalised (\d{8}, \d{4}-\d{2}-\d{2}, \d{8}T\d{6}Z), everything
+ *  else matched literally, anchored at both ends. */
+export interface WireCustomValidatorPattern {
+  example: string;
+  match_count: number;
+  match_sets: string[];
+  pattern: string;
+  validator: string;
+}
+
+/** Suggested patterns, most common first, at most 200. */
+export interface WireCustomValidatorPatternsResponse {
+  backup_set_id: string;
+  patterns: WireCustomValidatorPattern[];
+}
+
+/** What a pattern would match, judged by Go's RE2 (the engine that
+ *  will match it), so a browser's own regular expressions never
+ *  decide. */
+export interface WireCustomValidatorPreview {
+  anchored: boolean;
+  conflicts: WireCustomValidatorConflict[];
+  error: string;
+  match_count: number;
+  match_sets: string[];
+  sample: string[];
+  valid: boolean;
+}
+
+/** Which validator a recovery test of one backup would run. */
+export interface WireCustomValidatorResolution {
+  ambiguous: string[];
+  artifact_id: string;
+  fallback: "" | "validator_id" | "set_directory" | "builtin" | "none";
+  validator: string;
+}
+
+/** The newest recovery test recorded under a custom validator's
+ *  script. */
+export interface WireCustomValidatorResult {
+  artifact_id: string;
+  at: string;
+  state: string;
 }
 
 /** What a finished cycle's move pass got done: how many artifacts
@@ -3252,6 +3559,22 @@ export interface WireListBackendsResponse {
  *  top-level array. */
 export interface WireListBackupSetsResponse {
   backup_sets: WireBackupSet[];
+}
+
+/** The custom validators, and what this deployment allows. */
+export interface WireListCustomValidatorsResponse {
+  ambiguities: WireCustomValidatorAmbiguity[];
+  available: boolean;
+  directory: string;
+  directory_refused: string;
+  max_pattern_bytes: number;
+  max_script_bytes: number;
+  max_validators: number;
+  resolution?: WireCustomValidatorResolution;
+  runner_configured: boolean;
+  unavailable_reason: string;
+  validators: WireCustomValidator[];
+  workflow_root: string;
 }
 
 /** GET /operations, newest first. The list counterpart of GET
@@ -3674,6 +3997,13 @@ export interface WirePlacement {
   storage_class?: string;
   verification_class?: "content" | "attested" | "existence";
   verified_at?: string;
+}
+
+/** A pattern to judge, without saving anything. */
+export interface WirePreviewCustomValidatorRequest {
+  backup_set_id?: string;
+  pattern: string;
+  replacing?: string;
 }
 
 export interface WireRecoveryManyError {
@@ -4895,6 +5225,21 @@ export interface WireUpdateCapacitySettings {
   warning_free_bytes?: number;
 }
 
+/** A custom validator, whole. A replacement and not a merge: every
+ *  field the validator has is in the request or it is not kept, so an
+ *  edit cannot narrow or widen a scope by leaving a field out. The
+ *  pattern and the scope (backup_set_id, empty for global) are always
+ *  the new ones; the script is either sent (script) or explicitly
+ *  kept (script_sha256), and exactly one of the two is required. The
+ *  name is the path's. */
+export interface WireUpdateCustomValidatorRequest {
+  backup_set_id?: string;
+  env?: "minimal" | "workflow";
+  pattern: string;
+  script?: string;
+  script_sha256?: string;
+}
+
 /** A PARTIAL retention update. An omitted field is left exactly as
  *  the running configuration has it; omitting tiers leaves the chain,
  *  and a legacy file's own spelling of it, untouched. */
@@ -4941,6 +5286,14 @@ export interface WireUpdateWorkflowSettingsRequest {
 export interface WireValidator {
   id: string;
   summary: string;
+}
+
+/** A validator script's bytes, as text, with its identity. */
+export interface WireValidatorScriptResponse {
+  content: string;
+  file_name: string;
+  sha256: string;
+  size_bytes: number;
 }
 
 /** One rung of the verification ladder (FR-31), with what it proves

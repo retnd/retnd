@@ -899,6 +899,7 @@ next starts.
 | Scrub cadence and strategy (`auto`, `existence`, `content`) | Yes |
 | Recovery-test mode (`inherit`, `off`, `builtin`, `required`, `custom`) and its validator | Yes |
 | Built-in check when no validator is declared (`builtin_check`: `structure` or `off`) | Yes |
+| Environment a validator starts with (`validator_env`: `minimal` or `workflow`) | Yes, and each custom validator can say its own (`env`) |
 | Recovery staging root and TTL | **No.** One staging filesystem, shared by recoveries and recovery tests |
 | Concurrency ceilings (full reads, per destination) | **No.** One host |
 
@@ -913,6 +914,22 @@ can be used.
 `builtin_check` takes `structure` (the default) or `off`. It is allowed with every mode, and
 it governs the manual **Run recovery test** as well as the schedule: `off` means a set with
 no validator is refused as before, with a reason saying the built-in check is off.
+
+`validator_env` takes `minimal` (the default) or `workflow`. It is allowed with every mode.
+`minimal` starts the validator with the `RECOVERY_TEST_*` variables, the product's own
+`RETND_*` facts and the baseline `PATH`. `workflow` also hands it the backup set's merged
+workflow environment, secrets included, the same variables its backup hooks get. Leave it
+on `minimal` unless the script really needs one of those variables: a validator runs against
+a recovered copy and is more likely than a backup hook to be written by someone else. A set
+can opt in on its own, or opt back out when the deployment has opted in, and a value that is
+not exactly one of the two words is refused when the configuration loads, so a typo can
+never open the larger environment. The set's key is set in the configuration file; the
+settings screens and the CLI do not show it yet, and they leave it alone when they save.
+A custom validator (see *Custom validators by backup name* below) can say its own `env` as
+well, and that is the narrowest setting, so it wins: the validator's `env`, then the set's
+`validator_env`, then the deployment's, then `minimal`. The set's `validator_env` is the
+default for the set's own script (`validator_id`, or the one in its `recovery-test`
+directory) and for any custom validator whose entry states no `env`.
 
 **A configuration that uses the `assurance:` key cannot be read by a build that predates
 it.** The loader rejects unknown keys, so downgrading after you have added the block fails
@@ -1004,8 +1021,10 @@ The validator is a script of yours: `validator_id` is the file name of a `NAME.l
 `recovery-test/<source>/<set>` under the workflow root, written without the suffix. It is
 not picked from a list of registered validators, and a name that could not be a script's
 file name is refused when you save it. It runs the way every other hook runs, through the
-host workflow runner, with the same custody checks, shell verification, resolved
-environment and fail-closed timeout. It is run **against a recovered copy in an isolated
+host workflow runner, with the same custody checks, shell verification and fail-closed
+timeout. Its environment is smaller than a hook's: the `RECOVERY_TEST_*` variables, the
+product's `RETND_*` facts and the baseline `PATH`, with the set's workflow variables (secrets
+included) only when you opt in with `validator_env: workflow`, or, for a custom validator, its own `env: workflow`. It is run **against a recovered copy in an isolated
 path**, never against the durable file, and the path reaches it as `RECOVERY_TEST_FILE`.
 The runner's container cannot see the staging directory unless you declare it with
 `--hook-mount`, and a script that cannot open the file fails rather than passing. Its output is untrusted terminal input: no raw control byte reaches a
@@ -1013,6 +1032,114 @@ structured field, a notification or the docked terminal, and a truncation is mar
 way its own output cannot forge. The newest test's output is kept
 and bounded (see *What the validator printed* above). What it can and cannot reach is in
 [the runtime contract](runtime-contract.md#validators-and-recovery-staging).
+
+### Custom validators by backup name
+
+`validator_id` is one script for a whole backup set. When one set holds backups of different
+kinds (a manifest, a database dump, an archive), you can attach a script to the kind instead:
+a **custom validator** is a `NAME.local.sh` and a regular expression over the backup's file
+name (never its path), for one backup set or for every set. Manage them in Settings >
+Assurance, with `retnd assurance validators`, or with `/api/v1/assurance/validators`.
+
+For the copy a recovery test is about to check, the first of these that applies runs:
+
+1. a custom validator scoped to the copy's backup set whose pattern matches its name;
+2. a global custom validator whose pattern matches;
+3. the set's `validator_id`;
+4. the one script in `recovery-test/<source>/<set>`;
+5. the built-in structure check.
+
+Two patterns at the same scope that both match one name are an ambiguity, and the test ends
+`could not complete` rather than picking one. Saving a pattern is refused when it would share
+an existing backup with another validator at that scope, but a backup that arrives later can
+still match both, so `retnd assurance validators list` (and the Settings card) warn about each
+such backup in the journal. When a pattern matched and the test ran something else (the host
+workflow runner is not wired, say), a `recovery_test_validator_fallback` warning is left in the
+activity feed.
+
+**Each custom validator says what environment its script starts with.** `env` is `minimal` (the
+default) or `workflow`, and nothing else: any other spelling (`Workflow`, `all`, a padded value)
+is refused when the configuration loads and when you save, and a refused value never counts as
+the opt-in. `minimal` is the `RECOVERY_TEST_*` variables, the product's `RETND_*` facts and the
+baseline `PATH`; `workflow` adds the backup set's merged workflow environment, secrets included,
+the way a backup hook gets it. The validator's own `env` beats the set's `validator_env` and the
+deployment's, in both directions, so one validator can opt in alone, and one can stay `minimal`
+under a set that opted in. A hand-written entry with no `env` follows the set. One made with
+`retnd assurance validators add|update --env minimal|workflow` or the API always states it, so
+it does not start following a later opt-in on the set; delete the line in `config.yaml` if you
+want it to. An edit replaces the validator whole, so an edit that leaves `env` out is `minimal`,
+never what the validator had before. The list shows the environment each validator really gets.
+
+**`name` and `validator_id` are different things.** A custom validator's `name` is NAME in its
+`NAME.local.sh` under `<workflow root>/recovery-test-validators/`, chosen by you, unique across
+the deployment (compared without regard to case, since a case-insensitive volume would make
+`Foo` and `foo` one file), is at most 64 bytes, and never begins `retnd-`. `validator_id` names
+a script in a set's own `recovery-test/<source>/<set>` directory. They share the file-name rules
+and nothing else.
+
+The `name` is also the validator's one id in what a test leaves behind: the activity feed's
+`validator` field and the copy's recorded result both carry it, so a line in the feed can be
+joined to a result without knowing two spellings. That is why a name is capped at 64 bytes (the
+feed withholds a longer id). A test decided by a set's `validator_id` is recorded under the
+script's file name (`NAME.local.sh`) as it always was, and so is the built-in check under its
+reserved id; results written before this release name a custom validator by its file, and the
+list reads both spellings and shows the newer.
+
+What a pattern may be:
+
+- Go RE2 (no lookaround or backreferences), at most 512 bytes, matching anywhere in the name
+  unless you anchor it with `^` and `$`. `retnd assurance validators patterns` suggests
+  anchored ones from the backups you already have.
+- No repeat count above 255, and at most 1000 compiled instructions. RE2 cannot backtrack, but
+  a repeat of a repeat is still a large program, and the pattern is matched against every
+  backup name each time you preview or list, so those are refused when you save.
+
+How scripts are kept:
+
+- An upload is held to the check that gates saving a workflow, and written to a temporary file
+  and renamed in (directory `0750`, file `0640`), then the entry goes into `assurance.validators`
+  in `config.yaml`. Anything in the directory that `config.yaml` does not name is moved aside
+  on the next upload, and the 64 validator limit counts files.
+- Removing a validator, or a backup set that has some, **moves** the script to
+  `recovery-test-validators.superseded` beside the directory, under its own name (with a
+  number after it when that name is taken). Nothing is deleted.
+- An edit (`PUT`) replaces the validator whole. It carries the pattern, the scope, and either the
+  new script or `script_sha256` to keep the stored one, which is refused if the stored script is
+  no longer that one, and its `env` (left out means `minimal`). Leaving the scope out means every set, which is why
+  `retnd assurance validators update` makes you say `--backup-set` or `--global`.
+- `config.yaml` pins the script: every upload and edit writes the script's SHA-256 into the
+  entry as `script_sha256`, and a recovery test runs the script only if the file still hashes to
+  it (checked against the very bytes the runner is about to execute). A script someone changed
+  on disk since it was saved, by hand, by a sync tool or by an interrupted write, is not run:
+  the test ends `could not complete` with "edited on disk" and the two hashes, an
+  `recovery_test_validator_edited` warning is left in the feed, and `list` shows the validator as
+  `edited_on_disk`. The states are `pinned`, `unpinned`, `edited_on_disk` and `missing`.
+  To accept what is on disk, read it and send it again (`update --script FILE`, or `PUT` with
+  `script`); keeping it by `script_sha256` is refused for an edited script, because the list
+  shows the hash of what is on disk and echoing it back would approve code nobody read.
+- A crash between writing a script and writing `config.yaml` can leave a script the file does
+  not name (moved aside on the next upload), or on an edit a new script under the old pin.
+  The first is inert. The second is `edited_on_disk` and is refused at run time instead of being
+  run under an approval it never had; saving the validator again clears it.
+- An entry written before pinning (or by hand) has no `script_sha256`. It is accepted and runs as
+  it always did, and `list` shows it as `unpinned`. Nothing rewrites your `config.yaml` for you:
+  the next save of that validator pins it, and so does an edit that keeps the script by its hash.
+  You may also write `script_sha256` into `config.yaml` yourself (64 lower-case hex digits).
+- Each upload, edit and removal writes a `validator_uploaded`, `validator_updated` or
+  `validator_removed` event with the name, scope, pattern, `env`, the script's SHA-256 and size, the
+  hash now pinned, the hash that was pinned before (`previous_pinned_sha256`) and the script's
+  state (never the script).
+
+**An older retnd refuses a `config.yaml` that has `assurance.validators` in it**, because the
+key is new and unknown keys are refused. Remove the validators (or the block) before going
+back to a release without this feature.
+
+The upload check is a lint and **not a sandbox**: it stops common shell mistakes, not a script
+that does harm on purpose. A validator runs the way every other hook does, in the runner's
+container, with the small environment unless you opt it in (`env: workflow`, which hands it the
+set's merged workflow environment, secrets included, if you put them there). Installing one is as serious as adding a hook, which is why uploading and editing ask
+for the administrator's password again, and are refused outright where the destructive gate is
+shut.
 
 ## When the catalog itself is gone
 

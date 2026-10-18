@@ -104,12 +104,30 @@ func (b *BackupService) RunStage(ctx context.Context, req app.StageRequest) (app
 		RemoteExecConnectionRef: execRef,
 		MaxScriptSize:           cfg.EffectiveMaxScriptSize(),
 		SpoolRoot:               spool,
+		Only:                    req.Only,
 	})
 	if err != nil {
 		return app.StageResult{}, err
 	}
 
 	steps := plan.Steps()
+	if req.Only != "" && len(steps) == 0 {
+		// A purpose that was told which script to run never falls back to
+		// another, and never reads an empty plan as "nothing configured"
+		// (#1204).
+		return app.StageResult{}, fmt.Errorf("%w: %s", app.ErrStageScriptMissing, req.Only)
+	}
+	if req.ExpectSHA256 != "" {
+		// The hash the caller approved is held against the bytes the plan
+		// was built from (the spooled copy), which are the bytes that would
+		// run, so the check and the run cannot see different files.
+		if req.Only == "" || len(steps) != 1 {
+			return app.StageResult{}, fmt.Errorf("service: a stage request that expects a hash names the one script it means (Only)")
+		}
+		if steps[0].ScriptSHA256 != req.ExpectSHA256 {
+			return app.StageResult{}, fmt.Errorf("%w: %s holds sha256 %s", app.ErrStageScriptChanged, steps[0].ScriptName, steps[0].ScriptSHA256)
+		}
+	}
 	if req.MaxScripts > 0 && len(steps) > req.MaxScripts {
 		return app.StageResult{}, fmt.Errorf("service: %d scripts were found and this purpose takes at most %d; which one is meant is not something to guess", len(steps), req.MaxScripts)
 	}
@@ -182,11 +200,18 @@ func describeBlocking(r workflowlint.ScriptReport) string {
 	return fmt.Sprintf("%s: %s", blocking[0].Code, blocking[0].Message)
 }
 
-// stageEnvironment layers a request's own variables over the set's merged
-// workflow environment. The names are validated by the environment model, so
-// a RETND_ name is refused here as it is in configuration.
+// stageEnvironment builds a stage's environment. It starts from the sanitized
+// baseline alone and layers the set's merged workflow environment over it
+// only when the request asks (InheritWorkflowEnv), so a stage that did not
+// ask never has a workflow variable, and a secret's file or command is never
+// resolved on its behalf. The request's own variables go on top. The names
+// are validated by the environment model, so a RETND_ name is refused here as
+// it is in configuration.
 func stageEnvironment(req app.StageRequest) (workflow.Environment, error) {
-	layers := [][]workflow.EnvVar{req.Set.WorkflowEnvironment.Vars()}
+	layers := [][]workflow.EnvVar{workflow.SanitizedBaseline()}
+	if req.InheritWorkflowEnv {
+		layers = [][]workflow.EnvVar{req.Set.WorkflowEnvironment.Vars()}
+	}
 
 	if len(req.Vars) > 0 {
 		names := make([]string, 0, len(req.Vars))

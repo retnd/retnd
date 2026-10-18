@@ -2,6 +2,165 @@
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-17
+
+0.7.1 is a patch release, and the one thing in it that is new rather than fixed is custom recovery-test
+validators: a script and a pattern over the backup's file name, in the engine, the API, `retnd assurance
+validators` and the Settings screen. Nothing in 0.7.0 changes meaning on upgrade, but four things are worth
+a read first. A validator starts with a small environment (the `RECOVERY_TEST_*` and `RETND_*` variables and
+`PATH`) and sees the workflow environment, secrets included, only if you opt in with `env: workflow` on the
+validator or `validator_env: workflow` on the set. `config.yaml` pins each validator script by hash, so a
+script edited on disk is refused until you save it again. A retnd older than this refuses a `config.yaml`
+that has `assurance.validators` or `script_sha256` in it, so remove them before you downgrade. And the
+`--text-3` ink (the quiet grey text) is darker in both themes so it meets AA contrast, which you will see
+as slightly stronger secondary text and unchanged borders... the rest is fixes: a hook whose runner goes
+quiet no longer hangs a run, the dark theme shows from the first frame, the Operation page reads finished
+runs back, and the Backups page gets a per-row actions menu.
+
+### Added
+
+- **Custom recovery-test validators, by backup name** (#1203, #1204). A validator is a `NAME.local.sh` and a
+  Go RE2 pattern over the backup's file name, for one backup set or every set, so a set that holds a manifest
+  and a database dump can check each its own way. For the copy a recovery test is about to check, the first of
+  these applies: the set's own pattern, a global pattern, the set's `validator_id`, the one script in its
+  recovery-test directory, the built-in structure check. Two patterns at one scope that match one backup end
+  the test `could not complete` instead of picking one, and `list` warns about every backup in the journal
+  that both match. New: `GET/POST /api/v1/assurance/validators`, `PUT/DELETE
+  /api/v1/assurance/validators/{name}`, `GET .../{name}/script`, `POST /assurance/validator-preview`,
+  `GET /assurance/validator-patterns` and `GET /assurance/default-validator-script`, and `retnd assurance
+  validators list|add|update|remove|script|patterns|default-script`. The reads ask the serving engine when
+  `RETND_API_URL` names one. Uploading and editing are behind the destructive gate and ask for the password
+  again (503 `STEP_UP_UNAVAILABLE` where nothing can check it), because they put code where the engine runs it
+  on the host; removing does not need the gate. Things to know:
+  - `PUT` is a whole replace: it carries the pattern, the scope and either the new `script` or `script_sha256`
+    to keep the stored one (409 `VALIDATOR_SCRIPT_CHANGED` if it moved on). `retnd assurance validators update`
+    needs `--backup-set` or `--global`, so an edit can no longer widen a set-scoped validator by leaving the
+    scope out.
+  - A pattern may not repeat more than 255 times or compile to more than 1000 instructions, and names that differ
+    only by case are one name. The preview and list scans stop when the request does, and a write scans the
+    journal before it takes the configuration lock.
+  - Removing a validator, or a backup set that had some, moves the script to
+    `recovery-test-validators.superseded`; nothing is deleted. Files in the directory that `config.yaml` does not
+    name are moved there on the next upload.
+  - A recovery test that names its script (`validator_id` and every custom validator) now looks that file up
+    directly, so a stray file beside it or a 65th file no longer refuses it (#1204).
+  - Uploads, edits and removals leave `validator_uploaded`, `validator_updated` and `validator_removed` events
+    (hash and size, never the script), and a matched validator that the test did not run leaves a
+    `recovery_test_validator_fallback` warning.
+  - A retnd from before this release refuses a `config.yaml` that has `assurance.validators` in it. Remove them
+    before you downgrade.
+  - The upload check is a lint, not a sandbox. A validator starts with a small environment unless it is opted in
+    to the workflow one (see *Changed*, #1221).
+  - A validator's `name` is also its id in the activity feed and in the journal (#1220): a test decided by a
+    custom validator is now recorded under `NAME`, not `NAME.local.sh`, and the list reads both spellings. Runs
+    decided by a set's `validator_id` or by the built-in check are recorded exactly as before. A name is at
+    most 64 bytes, because the feed withholds a longer id; `config.yaml` with a longer one is refused.
+  - `config.yaml` pins each script by hash (#1222): uploads and edits write `script_sha256` into the entry, a
+    recovery test refuses a script that no longer hashes to it (`could not complete`, "edited on disk", plus a
+    `recovery_test_validator_edited` warning), and `list` and the API's `CustomValidator` carry `pinned_sha256`
+    and `script_state` (`pinned`, `unpinned`, `edited_on_disk`, `missing`). An entry written before this has no
+    hash, keeps working and shows as `unpinned` until its next save pins it; nothing rewrites your file. Keeping
+    a script by `script_sha256` is refused for one edited on disk, so the way to approve an edit is to send the
+    script. A retnd from before this release also refuses the `script_sha256` key.
+  - The web UI shows and sets a validator's environment (#1233). The Recovery-test validators card has an
+    Environment column ("Minimal environment" or "Workflow environment, secrets included"), the add and edit
+    dialog has a labelled choice that starts on minimal, and a backup's Declare validator line says which
+    environment the validator that would run starts with. Choosing workflow takes the same gate and password as
+    any upload, and the command offered for a shut gate carries `--env workflow`.
+- **`GET /api/v1/assurance/operations/{op}` and `retnd assurance show <operation-id> [--json]`** (#1200). One
+  scrub or recovery test read back by the operation id its start returned, running or finished a month ago:
+  how it ended (`state` is an enum: `running`, `passed`, `failed`, `did_not_complete`, `cancelled`, or
+  `unfinished` for a run with no end that this engine isn't running, which can mean it is going in another
+  process as well as that its process stopped), `kind` (`scrub`, `recovery_test`, `recovery`, also an enum),
+  the last stage it reached, the end line's reason, and its lines oldest first in the live feed's own
+  shape. It reads the durable activity record (a run's start, its last stage and its end, kept for the
+  record's retention) plus whatever the live feed still holds. A run this engine is running answers
+  `running` at once, even before it has written a line, and an id with nothing on record is a 404
+  `OPERATION_NOT_FOUND` whose message states the retention. The verb prints the lines in the `activity
+  --follow` format under a heading in the Operation page's words, plus the `recovery-test --show-output`
+  command for the validator output the page shows (the record doesn't carry it); it reads this host's
+  journal with nothing serving and asks the engine when one is attached. `operation show` is the engine's own
+  record of an operation, and the two now point at each other.
+- **A scrub started with Scrub now writes a `scrub_start` line**, and its `scrub_start`, `scrub_failure` and
+  `scrub_pass` lines carry its operation id as `op_id`, so it is on the record from its first moment. Its
+  pass line is written even when the scrub selected nothing (a scheduled quiet pass still writes nothing).
+  A recovery test's `recovery_test_end` and a scrub's `scrub_pass` say `cancelled=true` when, and only when,
+  the run was stopped by a cancel request; a run cut short by the service shutting down is not cancelled.
+
+- **The Backups page has a per-row actions menu, and a set links to its backups** (#1202, #1214). Every row
+  on Backups gets one Actions menu in place of the strip of buttons, and the set page has a "Backups in this
+  set" link through to that set's backups. The backup and set detail pages use the same menu.
+
+### Changed
+
+- **A recovery-test validator starts with a small environment** (#1221). It used to run with the backup
+  set's whole merged workflow environment, so a secret you had put there for a backup hook (a database
+  password, an API token) reached a script that is run against a recovered copy. It now gets the
+  `RECOVERY_TEST_*` variables, the product's `RETND_*` facts and the baseline `PATH`, and nothing else; the
+  secret's file or command is not even read for it. If an existing validator relied on a workflow variable,
+  set `assurance.recovery_test.validator_env: workflow` on the deployment or on that set and it sees
+  them again. Anything other than `minimal` or `workflow` is refused when the configuration loads. The
+  assurance notification scripts are hooks and keep the workflow environment. The set's key is set in the
+  configuration file for now; the settings screens and the CLI leave it alone when they save.
+- **A custom validator can opt in on its own** (#1221). Its entry takes `env: minimal|workflow`, and the
+  validator's own word wins over the set's `validator_env` and the deployment's, in both directions (a
+  validator can opt in under a minimal set, or stay minimal under a set that opted in). `POST` and `PUT
+  /api/v1/assurance/validators` take `env`, the list returns it (the environment the validator really gets),
+  `retnd assurance validators add|update` take `--env minimal|workflow`, and the `validator_uploaded`,
+  `validator_updated` and `validator_removed` events carry it. A `PUT` is a whole replacement, so an edit that
+  leaves `env` out is `minimal`, never what the validator had. Any other spelling is refused (400, and when
+  the configuration loads), and a refused value never counts as the opt-in. A validator written through the
+  API or the CLI always states its `env`, so it does not follow a later opt-in on the set; a hand-written
+  entry with no `env` does. The Settings screen has no control for it yet (a follow-up on the validators UI).
+
+- **`--text-3` text is darker in both themes so it meets AA contrast** (#1235). The quiet grey used for
+  captions, timestamps and table meta measured between 2.9:1 and 4.2:1 on the page and card backgrounds in
+  places, under the 4.5:1 that WCAG AA asks for. In the light theme it moves from `#8b8d8a` to `#696b68` and
+  in the dark theme from `#767976` to `#959892` (5.38:1 and 5.80:1 on a card). The 3:1 job it also did, for
+  control edges and one bar fill, has its own `--edge-3` token with the old values, so borders look exactly
+  as before. The docked terminal, a dark surface in both themes, now uses its own inks for its time stamps,
+  its `[you]` label and the unfinished-actions notice, and the warn banner's eyebrow text is a little
+  stronger. If you theme the web interface with your own CSS, check anything you set from `--text-3`.
+
+### Fixed
+
+- **A hook whose Host Workflow Runner stops answering is now bounded by its script timeout** (#931). The
+  client only bounded the connect, so a runner that was stopped rather than dead accepted the connection and
+  then never replied to the hello, and the step's `script_timeout` could not end the wait. The run stayed in
+  progress, the set was never scheduled again, and no hold existed to explain why. The handshake now ends
+  with the step's context (and with its own 10 second bound for a caller with no deadline), the connection is
+  closed so a live runner reads the lease as expired, and a step whose timeout ran out while the runner was
+  silent is recorded as `timed_out` with termination unconfirmed (it used to read `transport_lost`), keeping
+  any output it had printed. The run finalises as failed instead of hanging.
+
+- **The web interface resolves its theme before the first paint** (#1236). A stored dark preference used to
+  show the light tokens for the first frames and then switch, because the theme was written by an effect
+  after the app had booted. A small inline script in the page now sets `data-theme` from the stored
+  preference before anything paints, and the app starts from that instead of overwriting it. Light is still
+  the default when nothing is stored.
+
+- **The backup detail page no longer shows an Exclude row that could never be filled** (#930). Nothing on the
+  wire carries a set's exclude patterns, so on a real deployment the row was a permanent dash. It is gone;
+  `exclude_paths` is still read from `config.yaml` as before and the API is unchanged.
+
+- **The production web bundle no longer carries the mock API's fixtures** (#1216). The mock was imported
+  statically, so its sample sets, events and hosts rode along in every build. It is now loaded only in the
+  dev build.
+
+- **The Operation page shows what a run did once it has left the live feed** (#1200). It used to draw only
+  what the live activity tail held, so a recovery test that had dropped off it read "no longer on the live
+  feed" with a stale "Stage 1 of 5", a 0% bar and an empty black terminal strip, and a reload or a link to
+  a finished run couldn't find it at all. The page now reads the run back from the durable record: its
+  start, the stage it reached and its end in the terminal, the outcome (finished, failed, cancelled) with
+  the stage count and bar where the run really got to, and, for a recovery test, the validator's output
+  when that output is this run's. A run whose lines were pruned is said in words (after a short grace
+  period, because the writer behind the record batches and a run read right after its start can be a
+  moment from it), a run with no end says it may still be running elsewhere rather than that its process
+  died, no empty terminal strip is ever drawn, Following only shows while something is live, and a finished scrub's bar is full rather
+  than empty. The page prints the terminal commands that match it, `retnd assurance show <operation-id>` and, for a
+  recovery test, `recovery-test --show-output`. The footer line
+  ("retnd running on ...") also moved to the secondary text colour, since it measured 4.23:1, under AA.
+
 ## [0.7.0] - 2026-10-15
 
 0.7.0 is a minor rather than 0.6.5 because three things in it change what an existing setup does, and

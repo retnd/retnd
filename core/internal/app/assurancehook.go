@@ -159,6 +159,9 @@ func (s *Service) notifyAssurance(ctx context.Context, bs config.BackupSet, f as
 		GlobalDir:         AssuranceHookGlobalDir,
 		ContinueOnFailure: true,
 		LocalOnly:         true,
+		// A notification is a hook like the others and keeps the workflow
+		// environment; only the recovery-test validator starts small (#1221).
+		InheritWorkflowEnv: true,
 		Vars: map[string]string{
 			"ASSURANCE_EVENT":          f.Event,
 			"ASSURANCE_BACKUP_SET":     bs.ID.String(),

@@ -11,7 +11,7 @@
  */
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { open, setTheme, spaGo } from "./helpers";
+import { open, preselectTheme, setTheme, spaGo } from "./helpers";
 
 const SET = "production/postgres-primary";
 const beat = async (p: Page, ms = 1300) => {
@@ -28,9 +28,10 @@ for (const theme of ["light", "dark"] as const) {
     const refusal = page.locator("[data-gate-refusal]");
 
     // The restore wizard: four steps, then the refusal with their answers.
+    await preselectTheme(page, theme);
     await open(page, `/sets/${SET}/restore`, "gateway-profile");
-    await setTheme(page, theme);
     await expect(notice).toBeVisible();
+    await setTheme(page, theme);
     await beat(page, 1800);
     await page.getByRole("button", { name: "Continue" }).click();
     await beat(page, 600);

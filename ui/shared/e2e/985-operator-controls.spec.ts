@@ -192,6 +192,7 @@ test.describe("#985 following an operation", () => {
 for (const theme of ["light", "dark"] as const) {
   test(`#985 the operator controls and their statuses meet contrast in the ${theme} theme`, async ({ page }) => {
     await open(page, SET, "assurance-validator-output", { wire: true });
+    await expect(page.locator("main")).toBeVisible();
     await setTheme(page, theme);
     const section = region(page);
     // running scrub with Cancel and the twins
@@ -218,6 +219,7 @@ for (const theme of ["light", "dark"] as const) {
     // a scrub (4s) and then a whole recovery test (25s) are followed to their ends
     test.setTimeout(120_000);
     await open(page, SET, "assurance-scrub-fails", { wire: true });
+    await expect(page.locator("main")).toBeVisible();
     await setTheme(page, theme);
     const section = region(page);
     await section.getByRole("button", { name: "Scrub now" }).click();

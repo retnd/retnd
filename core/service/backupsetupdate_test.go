@@ -741,6 +741,7 @@ var exemptFromIsolationFixture = map[string]string{
 	"Assurance.RecoveryTest.Cadence":      "the RESOLVED recovery-test cadence, same footing",
 	"Assurance.RecoveryTest.ValidatorID":  "the RESOLVED recovery-test validator, same footing",
 	"Assurance.RecoveryTest.BuiltinCheck": "the RESOLVED builtin_check (#1111), same footing",
+	"Assurance.RecoveryTest.ValidatorEnv": "the RESOLVED validator_env (#1221), same footing",
 	"Revalidation":                        "issue #315's re-check schedule, which no update-path request field can reach and which config.Validate does not require",
 
 	// EPIC L (#808). The merged environment a hook actually runs with,

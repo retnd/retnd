@@ -54,6 +54,7 @@ import type {
   WorkflowValidation
 } from "./contracts";
 import { RetndError, LOCAL_DESTINATION_ID } from "./contracts";
+import { createMockValidators } from "./mockValidators";
 import type { BackupArtifact, BackupSet, RetentionPlan } from "@shared/types/backup";
 import type {
   RepositoryHealth,
@@ -70,8 +71,9 @@ import type {
 } from "@shared/types/operation";
 import { createMockRecoverMany } from "@shared/assurance/mockRecoverMany";
 import { createMockHostBrowse } from "@shared/assurance/mockHostBrowse";
-import { BUILTIN_ARTIFACT, DEFAULT_POLICY_NEWEST, DEFAULT_POLICY_TESTED, INGEST_FAILED_SCENARIO, followsDefault, untestedScenario, assuranceLiveEvents, assuranceUnfinished, createMockAssurance, createMockRecovery, overlayAssurance, overlayThaw } from "@shared/assurance/mockAssurance";
+import { BUILTIN_ARTIFACT, DEFAULT_POLICY_NEWEST, DEFAULT_POLICY_TESTED, INGEST_FAILED_SCENARIO, followsDefault, untestedScenario, assuranceLiveEvents, assuranceStoredLines, assuranceUnfinished, createMockAssurance, createMockRecovery, overlayAssurance, overlayThaw } from "@shared/assurance/mockAssurance";
 import { createHttpAssurance } from "@shared/assurance/realAssurance";
+import { HISTORY_IDS, HISTORY_RUNNING, LATE_MISSES, OFF_TAIL_SCENARIO, OPERATION_HISTORY_SCENARIO, RETENTION_DAYS, durableRecordOf, historyLines, historyValidatorResult } from "@shared/assurance/mockOperationHistory";
 import type { DeploymentActivity, SetActivity, SetActivityEvent } from "@shared/types/activity";
 
 /** Development fixtures. Covers every scenario the brief requires (§42):
@@ -112,6 +114,13 @@ export const SCENARIOS = [
   "host-browse-vanished",
   "host-browse-session-ended",
   "backups-many-ceiling-2",
+  // Issue #1202: the many-backups fixture with every fixture set presented as
+  // an artifact set, so a set's page offers its link to the Backups list (a
+  // snapshot set's history is on its Snapshots page instead), and the default
+  // fixture with media-week34 FAILED and not quarantined, the one backup the
+  // row menu offers Retry ingestion for.
+  "backups-many-artifact-sets",
+  "backups-ingest-failed",
   "empty",
   "storage-critical",
   "catalog-recovery",
@@ -164,6 +173,23 @@ export const SCENARIOS = [
   "assurance-download-outcomes",
   // A set that declares no recovery-test validator: the run is refused.
   "assurance-no-validator",
+  // Issue #1203: custom recovery-test validators. Every other scenario holds
+  // two (one scoped to a set, one global and not anchored). "validators-none"
+  // holds none, "validators-unavailable" is a deployment with no workflow root
+  // to keep scripts in, and "validators-full" is at the 64 the engine allows.
+  "validators-none",
+  "validators-unavailable",
+  "validators-full",
+  // #1230: the script states (#1222). "validators-states" holds one validator
+  // in each of pinned, unpinned, edited_on_disk and missing; the three below
+  // put billing-dump alone in that state (the default has it pinned).
+  "validators-states",
+  "validators-state-unpinned",
+  "validators-state-edited",
+  "validators-state-missing",
+  // #1233: the environment. billing-dump opts in to the workflow environment
+  // (secrets included); any-tar keeps the minimal one every validator starts with.
+  "validators-env-workflow",
   // #1111: no validator declared, the newest copy is a .tar.zst, and the
   // built-in structure check runs; the manual run ends "readable".
   "assurance-builtin-check",
@@ -239,6 +265,14 @@ export const SCENARIOS = [
   "source-probe-left-file",
   "source-unreachable",
   "source-space-unknown",
+  // Issue #1200: the Operation page for runs that are no longer on the live
+  // feed. "operation-history" has finished runs (passed, failed, cancelled, a
+  // scrub) that only the durable activity record still holds, plus one id
+  // whose lines were pruned. "operation-off-tail" starts a recovery test whose
+  // lines leave the live tail as they are written, so only the unfinished
+  // list carries it while it runs.
+  "operation-history",
+  "operation-off-tail",
 ] as const;
 
 export type Scenario = (typeof SCENARIOS)[number];
@@ -377,7 +411,7 @@ const SETS: BackupSet[] = [
     id: "production/postgres-primary", source: "production", set: "postgres-primary", name: "Production PostgreSQL",
     host: "prod-db-01.internal", port: 22, username: "backup-agent",
     remoteFolder: "/backups/postgresql/", includePatterns: ["*.dump.zst"],
-    excludePatterns: ["*.tmp", "*.part"], completionMethod: "completion-marker", stableForSeconds: 0,
+    completionMethod: "completion-marker", stableForSeconds: 0,
     destination: "/data/backups/production/postgres/", retentionIsOverride: false,
     // Issue #845: inherits the deployment's cadence, which is the
     // ordinary case and the one the edit form has to draw as "inherit".
@@ -412,7 +446,7 @@ const SETS: BackupSet[] = [
     id: "production/billing-mysql", source: "production", set: "billing-mysql", name: "Billing MySQL",
     host: "billing-db.internal", port: 22, username: "backup-agent",
     remoteFolder: "/srv/backups/mysql/", includePatterns: ["*.sql.gz"],
-    excludePatterns: ["*.part"], completionMethod: "atomic-rename", stableForSeconds: 0,
+    completionMethod: "atomic-rename", stableForSeconds: 0,
     destination: "/data/backups/production/billing/", retentionIsOverride: false,
     // The one fixture that polls on its own cadence, so every surface
     // that draws an override is exercised against a set that has one.
@@ -458,7 +492,7 @@ const SETS: BackupSet[] = [
     id: "production/auth-config", source: "production", set: "auth-config", name: "Auth service config",
     host: "prod-db-01.internal", port: 22, username: "backup-agent",
     remoteFolder: "/etc/auth-service/backups/", includePatterns: ["*.tar.zst"],
-    excludePatterns: [], completionMethod: "stable-size", stableForSeconds: 300,
+    completionMethod: "stable-size", stableForSeconds: 300,
     destination: "/data/backups/production/auth/",
     retentionIsOverride: true,
     pollIntervalSeconds: null, effectivePollIntervalSeconds: 15 * 60,
@@ -488,7 +522,7 @@ const SETS: BackupSet[] = [
     id: "media/weekly-archive", source: "media", set: "weekly-archive", name: "Media archive",
     host: "media-01.internal", port: 2222, username: "archive",
     remoteFolder: "/export/weekly/", includePatterns: ["*.tar"],
-    excludePatterns: [], completionMethod: "completion-marker", stableForSeconds: 0,
+    completionMethod: "completion-marker", stableForSeconds: 0,
     destination: "/data/backups/media/",
     retentionIsOverride: true,
     pollIntervalSeconds: 6 * 60 * 60, effectivePollIntervalSeconds: 6 * 60 * 60,
@@ -530,7 +564,6 @@ const SETS: BackupSet[] = [
 const PRISTINE_SETS: BackupSet[] = SETS.map((set) => ({
   ...set,
   includePatterns: [...set.includePatterns],
-  excludePatterns: [...set.excludePatterns],
   // The incremental block is copied too (issue #788), because
   // updateBackupSet writes THROUGH it: a shared reference would mean the
   // first test that saves a verification budget edits the pristine copy
@@ -565,7 +598,6 @@ export function resetMockFixtures(): void {
     SETS.push({
       ...set,
       includePatterns: [...set.includePatterns],
-      excludePatterns: [...set.excludePatterns],
       incremental: set.incremental === null ? null : { ...set.incremental }
     });
   }
@@ -1876,7 +1908,7 @@ function notAcknowledged(
 function mockStepUp(
   password: string | undefined,
   acknowledged: boolean | undefined,
-  kind: "snapshot" | "placement" | "source",
+  kind: "snapshot" | "placement" | "source" | "validator",
   limited = false
 ): Promise<never> | null {
   if (acknowledged !== true)
@@ -1887,7 +1919,12 @@ function mockStepUp(
       : notAcknowledged("RECOVERY_COST_NOT_ACKNOWLEDGED", "a provider restore has a retrieval cost and takes hours, so it needs your explicit acknowledgement");
   const refuse = (code: "STEP_UP_REQUIRED" | "STEP_UP_FAILED" | "RATE_LIMITED", message: string) =>
     Promise.reject(new RetndError({ code, message, correlationId: "cid_mockstepup" }));
-  if (!password) return refuse("STEP_UP_REQUIRED", (kind === "source" ? "a recovery onto the source host" : "a restore") + " asks for your password again");
+  if (!password) {
+    return refuse(
+      "STEP_UP_REQUIRED",
+      (kind === "source" ? "a recovery onto the source host" : kind === "validator" ? "installing a custom validator" : "a restore") + " asks for your password again"
+    );
+  }
   if (limited) return refuse("RATE_LIMITED", "too many password checks in the last minute; wait before trying again");
   if (password !== MOCK_ADMIN_PASSWORD) return refuse("STEP_UP_FAILED", "that password was not accepted");
   return null;
@@ -2077,7 +2114,6 @@ function mockBackupSetFromCreateRequest(req: CreateBackupSetRequest): BackupSet 
     username: req.user,
     remoteFolder: req.remotePath,
     includePatterns: req.include,
-    excludePatterns: [],
     completionMethod: completionMethodFromStrategy(req.completionStrategy),
     stableForSeconds: req.stableForSeconds ?? 0,
     destination: req.localPath,
@@ -4128,12 +4164,14 @@ export function createMockApi(
   options: { wire?: boolean; wireRestore?: boolean; liveProbe?: LiveProbe } = {}
 ): RetndApi {
   const liveProbe = options.liveProbe;
+  // #1200: how many reads of the operation-history "late" run have been made.
+  let lateReads = 0;
   // #1106: Recover this backup set is for artifact-engine sets, and every
   // fixture set but one is incremental. The recover-set scenarios present the
   // fixture sets as artifact sets (the mock host's recoverMany holds the rows);
   // the default scenario keeps the incremental ones, which is how the
   // snapshot-restore branch of the dialog is reached.
-  if (scenario.startsWith("assurance-set-") || scenario.startsWith("source-")) {
+  if (scenario.startsWith("assurance-set-") || scenario.startsWith("source-") || scenario === "backups-many-artifact-sets") {
     for (const s of SETS) { s.engine = "artifact"; s.incremental = null; }
   }
   // What a finished scrub or recovery test writes onto a copy, which the
@@ -4263,11 +4301,30 @@ export function createMockApi(
     ? [BUILTIN_ARTIFACT_FIXTURE, ...ARTIFACTS]
     : followsDefault(scenario)
     ? defaultPolicyArtifacts(untestedScenario(scenario), scenario === INGEST_FAILED_SCENARIO)
+    : scenario === "backups-ingest-failed"
+    ? ARTIFACTS.map((a) => (a.id === "media/weekly-archive/media-week34.tar" ? { ...a, state: "FAILED", validation: "pending" as const } : a))
     : ARTIFACTS;
   // Every backup outside quarantine, padded to ?artifacts=N: what the list
   // answers and what the health report's retainedCount counts (#1186).
   // Read on every call, because writes here mutate the fixtures.
   const retained = (): BackupArtifact[] => padRetained(artifacts.filter((a) => !a.quarantine), retainedPad);
+  // Issue #1203: the custom validators see every backup the journal holds,
+  // quarantined ones included, as the engine's reads do.
+  const validatorsApi = createMockValidators({
+    scenario,
+    backups: () => artifacts.map((x) => ({ id: x.id, setId: x.setId, filename: x.filename })),
+    delay,
+    // The upload and the edit take the gate and, on a profile that re-checks
+    // it, the password; the engine's order is the gate, the transport, the
+    // password. A remove takes none of them.
+    writeRefusal: (password) => {
+      if (gateShut) return gateRefusal();
+      if (!localAccount) return null;
+      const unsent = password ? insecureTransportPasswordCheck() : null;
+      if (unsent) return unsent;
+      return mockStepUp(password, true, "validator", scenario === "step-up-limited");
+    }
+  });
   // Issue #176: a fresh app-store install has no configuration at all.
   // Mutable, because completing setup is what makes it configured — the
   // same one-way transition the real backend makes in-process.
@@ -5994,7 +6051,10 @@ export function createMockApi(
         backupSetId: source + "/" + set, recorded: false, operationId: "", artifactId: "", medium: "",
         state: "" as never, recordedAt: "", truncated: false, records: []
       }),
+    // Nothing is on record for an id this server never ran (#1200).
+    getAssuranceOperation: (operationId) => Promise.reject(operationNotOnRecord(operationId)),
 
+    ...validatorsApi,
     getAssuranceSettings: () => delay(structuredClone(assuranceSettings)),
     listStagingDirectories: (path) => mockHostBrowse(path ?? ""),
     patchAssuranceSettings: (patch) => {
@@ -6189,8 +6249,27 @@ export function createMockApi(
       await assurance.cancelOperation(operationId);
       return { operationId, kind: "scrub" as const, backupSetId: "", status: "cancelling" as const };
     },
+    // #1200: a run read back by its id from the durable record, which keeps
+    // what the live tail has dropped. operation-history's fixtures, else the
+    // runs this mock started.
+    getAssuranceOperation: async (operationId) => {
+      // The late run is not on the record for its first reads: the writer
+      // batches, so a read right after a start can find nothing yet.
+      if (scenario === OPERATION_HISTORY_SCENARIO && operationId === HISTORY_IDS.late) {
+        lateReads += 1;
+        if (lateReads <= LATE_MISSES) throw operationNotOnRecord(operationId);
+      }
+      const stored = scenario === OPERATION_HISTORY_SCENARIO
+        ? { lines: historyLines(Date.now())[operationId] ?? [], running: HISTORY_RUNNING.has(operationId) }
+        : assuranceStoredLines(operationId);
+      const rec = stored ? durableRecordOf(operationId, stored.lines, stored.running) : null;
+      if (!rec) throw operationNotOnRecord(operationId);
+      return delay(rec);
+    },
     getRecoveryTestOutput: async (source, set) => {
-      const v = await assurance.getValidatorResult(source + "/" + set);
+      const v = scenario === OPERATION_HISTORY_SCENARIO && source + "/" + set === "production/postgres-primary"
+        ? historyValidatorResult(Date.now())
+        : await assurance.getValidatorResult(source + "/" + set);
       return v
         ? { backupSetId: source + "/" + set, recorded: true, ...v }
         : { backupSetId: source + "/" + set, recorded: false, operationId: "", artifactId: "", medium: "", state: "" as never, recordedAt: "", truncated: false, records: [] };
@@ -6202,7 +6281,9 @@ export function createMockApi(
         ...base,
         deployment: dockDeployment(scenario, base.deployment),
         sets: base.sets.map((s) => {
-          const all = assuranceLiveEvents(s.setId);
+          // operation-off-tail (#1200): the run's own lines have already
+          // left the tail by the time anyone reads it.
+          const all = assuranceLiveEvents(s.setId).filter((e) => scenario !== OFF_TAIL_SCENARIO || !e.fields.op_id);
           const extra = all.filter((e) => e.sequence > since);
           const open = assuranceUnfinished(s.setId);
           return {
@@ -6219,6 +6300,16 @@ export function createMockApi(
   // app uses (realAssurance), reading the routes above the way it reads a
   // server, so the browser specs can drive that code and not the mock's.
   return { ...routes, assurance: options.wire ? createHttpAssurance(routes) : assurance };
+}
+
+/** The service's refusal for an operation id with nothing on record (#1200). */
+function operationNotOnRecord(operationId: string): RetndError {
+  return new RetndError({
+    code: "OPERATION_NOT_FOUND",
+    message: "nothing is on record for this operation id: it never existed here, or its lines were pruned (a run's lines are kept for " + RETENTION_DAYS + " days)",
+    status: 404,
+    correlationId: "cid_mock_" + operationId
+  });
 }
 
 /** The deployment bucket for the scenarios that shape the terminal's feed

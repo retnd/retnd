@@ -30,14 +30,16 @@ test.describe("the Validation column is retired", () => {
   for (const theme of ["light", "dark"] as const) {
     test("a failed validation is said as a failure, with contrast, in the " + theme + " theme", async ({ page }) => {
       await open(page, "/backups/production/auth-config/auth-config-20260826.tar.zst");
-      await setTheme(page, theme);
       const badge = page.getByText("Failed validation", { exact: true }).first();
       await expect(badge).toBeVisible();
+      await setTheme(page, theme);
       await expect(page.getByText("Verified", { exact: true })).toHaveCount(0);
       const failures = await measureContrast(page, "failed-validation badge " + theme, "main");
       // Only the badge's own text is judged here; the rest of the page has
       // its own specs.
       expect(failures.filter((f) => f.startsWith("Failed validation"))).toEqual([]);
+      // The Artifact card's eyebrow sat under 4.5:1 in both themes (#1229).
+      expect(await measureContrast(page, "eyebrow " + theme, ".eyebrow")).toEqual([]);
     });
   }
 });

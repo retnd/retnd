@@ -93,7 +93,6 @@ export interface BackupSet {
   username: string;
   remoteFolder: string;
   includePatterns: string[];
-  excludePatterns: string[];
   completionMethod: CompletionMethod;
   /**
    * The window `stable-size` waits for before it treats a file as

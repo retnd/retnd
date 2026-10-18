@@ -186,7 +186,13 @@
           "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED",
           "RECOVERY_SOURCE_HOST_UNREACHABLE",
           "RECOVERY_SOURCE_HOST_NO_SPACE",
-          "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE"
+          "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE",
+          "VALIDATOR_NOT_FOUND",
+          "VALIDATOR_EXISTS",
+          "VALIDATOR_PATTERN_CONFLICT",
+          "VALIDATOR_LIMIT_REACHED",
+          "VALIDATORS_UNAVAILABLE",
+          "VALIDATOR_SCRIPT_CHANGED"
         ],
         "x-code-origins": {
           "authentication-failed": "ui",
@@ -299,7 +305,13 @@
           "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED": "wire",
           "RECOVERY_SOURCE_HOST_UNREACHABLE": "wire",
           "RECOVERY_SOURCE_HOST_NO_SPACE": "wire",
-          "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE": "wire"
+          "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE": "wire",
+          "VALIDATOR_NOT_FOUND": "wire",
+          "VALIDATOR_EXISTS": "wire",
+          "VALIDATOR_PATTERN_CONFLICT": "wire",
+          "VALIDATOR_LIMIT_REACHED": "wire",
+          "VALIDATORS_UNAVAILABLE": "wire",
+          "VALIDATOR_SCRIPT_CHANGED": "wire"
         },
         "x-error-classes": {
           "authentication": [
@@ -368,7 +380,11 @@
             "RECOVERY_SOURCE_HOST_UNAVAILABLE",
             "RECOVERY_SOURCE_HOST_READ_ONLY",
             "RECOVERY_SOURCE_HOST_NOT_ACKNOWLEDGED",
-            "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE"
+            "RECOVERY_SOURCE_HOST_PROBE_LEFT_FILE",
+            "VALIDATOR_EXISTS",
+            "VALIDATOR_PATTERN_CONFLICT",
+            "VALIDATOR_LIMIT_REACHED",
+            "VALIDATOR_SCRIPT_CHANGED"
           ],
           "not-found": [
             "BACKUP_SET_NOT_FOUND",
@@ -384,7 +400,8 @@
             "WORKFLOW_STEP_NOT_FOUND",
             "RECOVERY_COPY_NOT_FOUND",
             "RECOVERY_GRANT_UNKNOWN",
-            "DIRECTORY_NOT_FOUND"
+            "DIRECTORY_NOT_FOUND",
+            "VALIDATOR_NOT_FOUND"
           ],
           "throttling": [
             "RATE_LIMITED",
@@ -410,7 +427,8 @@
             "RECOVERY_UNAVAILABLE",
             "RECOVERY_INTERRUPTED",
             "STEP_UP_UNAVAILABLE",
-            "RECOVERY_SOURCE_HOST_UNREACHABLE"
+            "RECOVERY_SOURCE_HOST_UNREACHABLE",
+            "VALIDATORS_UNAVAILABLE"
           ]
         }
       },
@@ -8009,6 +8027,75 @@
           "records"
         ]
       },
+      "AssuranceOperationRecord": {
+        "type": "object",
+        "description": "One scrub, recovery test or recovery as the durable activity record holds it (#1200).",
+        "additionalProperties": false,
+        "properties": {
+          "operation_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "scrub",
+              "recovery_test",
+              "recovery"
+            ],
+            "description": "scrub, recovery_test or recovery, read off the run's own lines (or, for a run that has written none yet, off the registry of running operations)."
+          },
+          "backup_set_id": {
+            "type": "string",
+            "description": "The set the run belongs to, source/name. Empty only when no line names one."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "running",
+              "passed",
+              "failed",
+              "did_not_complete",
+              "cancelled",
+              "unfinished"
+            ],
+            "description": "What the lines add up to: running (no end line, and this engine is running it), passed, failed, did_not_complete (a recovery test that could not complete, a refusal among them, or a scrub that could not check a copy), cancelled (stopped by a cancel request: the end line says cancelled=true, and a run cut short for any other reason, shutdown included, is did_not_complete), or unfinished (no end line, and this engine is not running it: it may still be running in another process, or the process running it stopped before it could write one)."
+          },
+          "stage": {
+            "type": "string",
+            "description": "The last named stage the run reached, as the stage field of its recovery_stage lines names it; complete for a run that passed. Empty for a scrub, which names no stages."
+          },
+          "reason": {
+            "type": "string",
+            "description": "The end line's own words for a run that did not pass. Empty otherwise."
+          },
+          "started_at": {
+            "type": "string",
+            "description": "RFC 3339, the earliest line on record. Empty when there is none."
+          },
+          "ended_at": {
+            "type": "string",
+            "description": "RFC 3339, the end line (a scrub's pass line). Empty while there is none."
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LiveActivityEvent"
+            },
+            "description": "The run's lines, oldest first, in the live feed's own shape. Empty only for a run this engine is running that has not written a line yet; a run with nothing on record and not running is a 404."
+          }
+        },
+        "required": [
+          "operation_id",
+          "kind",
+          "backup_set_id",
+          "state",
+          "stage",
+          "reason",
+          "started_at",
+          "ended_at",
+          "events"
+        ]
+      },
       "ScrubCopyOutcome": {
         "type": "object",
         "additionalProperties": false,
@@ -8389,6 +8476,544 @@
           "set_id",
           "available",
           "write_access"
+        ]
+      },
+      "CustomValidatorResult": {
+        "type": "object",
+        "description": "The newest recovery test recorded under a custom validator's script.",
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "type": "string",
+            "description": "The verdict: passed, failed, refused_for_cost or could_not_complete."
+          },
+          "at": {
+            "type": "string",
+            "description": "When that test ran, RFC 3339."
+          },
+          "artifact_id": {
+            "type": "string",
+            "description": "The backup it tested, source/set/name."
+          }
+        },
+        "required": [
+          "state",
+          "at",
+          "artifact_id"
+        ]
+      },
+      "CustomValidator": {
+        "type": "object",
+        "description": "A custom recovery-test validator (#1203): an operator's NAME.local.sh attached to an artifact-name pattern. For the copy a recovery test is about to check, the first of these that applies runs: a validator scoped to the copy's backup set whose pattern matches its name, a global validator whose pattern matches, the set's validator_id, the one script in recovery-test/<source>/<set>, the built-in structure check. Two patterns at one scope that both match a name end the test could_not_complete rather than picking one.",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The validator's name, and its id in every path. NAME in NAME.local.sh: letters, digits, dot, dash and underscore, no leading dot or dash, never beginning retnd-."
+          },
+          "pattern": {
+            "type": "string",
+            "description": "A Go RE2 regular expression matched against the artifact's file name (never its path). Not forced to be anchored: an unanchored pattern matches anywhere in the name. At most max_pattern_bytes long, no repeat count above 255, and a compiled program of at most 1000 instructions: RE2 cannot backtrack, but a bounded repeat of a bounded repeat is still slow to run against every backup name."
+          },
+          "anchored": {
+            "type": "boolean",
+            "description": "The pattern begins with ^ and ends with $, so it matches whole names. A client may want to say so when it is false."
+          },
+          "backup_set_id": {
+            "type": "string",
+            "description": "source/set for a validator scoped to one backup set; empty for a global one."
+          },
+          "scope": {
+            "type": "string",
+            "description": "backup_set or global.",
+            "enum": [
+              "backup_set",
+              "global"
+            ]
+          },
+          "script_file": {
+            "type": "string",
+            "description": "The script's file name, NAME.local.sh, in <workflow root>/recovery-test-validators."
+          },
+          "script_present": {
+            "type": "boolean",
+            "description": "The script file is there and readable. False means the validator is declared and its script is missing, so a test it applies to ends could_not_complete."
+          },
+          "script_sha256": {
+            "type": "string",
+            "description": "SHA-256 of the script's bytes as the file holds them now; empty when script_present is false. Send it back as script_sha256 on PUT to keep the script, which is refused (409 VALIDATOR_SCRIPT_CHANGED) when script_state is edited_on_disk."
+          },
+          "pinned_sha256": {
+            "type": "string",
+            "description": "The SHA-256 config.yaml pins for this validator's script (assurance.validators[].script_sha256, #1222), written whenever the script is uploaded or edited; empty for an entry written before pinning, which runs as it always did until it is next saved. A recovery test runs the script only if script_sha256 equals this."
+          },
+          "script_state": {
+            "type": "string",
+            "description": "pinned: the file hashes to pinned_sha256. unpinned: nothing is pinned yet (an entry written before pinning); the script runs and the next save pins it. edited_on_disk: the file no longer hashes to pinned_sha256, so a recovery test this validator applies to ends could_not_complete without running it, and the script can only be approved by sending it again. missing: the file is not there.",
+            "enum": [
+              "pinned",
+              "unpinned",
+              "edited_on_disk",
+              "missing"
+            ]
+          },
+          "script_size_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The script's length; zero when script_present is false."
+          },
+          "uploaded_at": {
+            "type": "string",
+            "description": "When the script file was last written, RFC 3339; empty when script_present is false."
+          },
+          "match_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How many backups in the journal, within the validator's scope, have a name the pattern matches."
+          },
+          "match_sets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The backup sets those backups are in, source/set."
+          },
+          "example_name": {
+            "type": "string",
+            "description": "The newest of those backups' names; empty when none matches."
+          },
+          "last_result": {
+            "$ref": "#/components/schemas/CustomValidatorResult",
+            "description": "The newest recovery test this validator decided; absent when it has decided none.",
+            "x-go-omitempty": true,
+            "x-go-pointer": true
+          },
+          "env": {
+            "type": "string",
+            "description": "The environment a recovery test gives this validator's script (#1221): minimal or workflow. It is the validator's own setting when the configuration states one, and otherwise the backup set's, then the deployment's, then minimal. Anything but the exact value workflow means minimal.",
+            "enum": [
+              "minimal",
+              "workflow"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "pattern",
+          "anchored",
+          "backup_set_id",
+          "scope",
+          "script_file",
+          "script_present",
+          "script_sha256",
+          "pinned_sha256",
+          "script_state",
+          "script_size_bytes",
+          "uploaded_at",
+          "match_count",
+          "match_sets",
+          "example_name",
+          "env"
+        ]
+      },
+      "CustomValidatorResolution": {
+        "type": "object",
+        "description": "Which validator a recovery test of one backup would run.",
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "description": "The backup asked about, source/set/name."
+          },
+          "validator": {
+            "type": "string",
+            "description": "The custom validator whose pattern applies; empty when none does."
+          },
+          "ambiguous": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The custom validators whose patterns all match this name at the same scope. Non-empty means the test would end could_not_complete; validator is then empty."
+          },
+          "fallback": {
+            "type": "string",
+            "description": "When no pattern applies, what decides: validator_id (the set's), set_directory (the one script in recovery-test/<source>/<set>), builtin (the structure check) or none. Empty when a pattern applies or collides.",
+            "enum": [
+              "",
+              "validator_id",
+              "set_directory",
+              "builtin",
+              "none"
+            ]
+          }
+        },
+        "required": [
+          "artifact_id",
+          "validator",
+          "ambiguous",
+          "fallback"
+        ]
+      },
+      "ListCustomValidatorsResponse": {
+        "type": "object",
+        "description": "The custom validators, and what this deployment allows.",
+        "additionalProperties": false,
+        "properties": {
+          "validators": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomValidator"
+            },
+            "description": "With backup_set, the validators that apply to that set in the order a test tries them (its own, then the global ones); otherwise every validator, set-scoped first."
+          },
+          "directory": {
+            "type": "string",
+            "description": "Where the scripts live, relative to the workflow root: recovery-test-validators."
+          },
+          "workflow_root": {
+            "type": "string",
+            "description": "The configured workflow root; empty when none is."
+          },
+          "available": {
+            "type": "boolean",
+            "description": "A validator can be uploaded here. False when there is no workflow root or no configuration file; unavailable_reason says which."
+          },
+          "unavailable_reason": {
+            "type": "string",
+            "description": "Why available is false, in a sentence an operator can act on; empty otherwise."
+          },
+          "runner_configured": {
+            "type": "boolean",
+            "description": "A host workflow runner is configured. Without one a validator is stored and cannot run: the test ends could_not_complete."
+          },
+          "max_validators": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The most validators one deployment may declare (64, one stage directory's bound)."
+          },
+          "max_script_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The largest script an upload may carry: 256 KiB, or workflows.max_script_size_bytes when that is smaller."
+          },
+          "max_pattern_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The longest pattern (512)."
+          },
+          "directory_refused": {
+            "type": "string",
+            "description": "Why the stage directory cannot be used, in a sentence an operator can act on (it is writable by another account, owned by one this process does not trust, or not a directory); empty when it is fine or does not exist yet. While it is set no validator script can run, whatever available says about uploading."
+          },
+          "ambiguities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomValidatorAmbiguity"
+            },
+            "description": "Backups already in the journal that more than one validator's pattern matches at the same scope. A recovery test of such a backup ends could_not_complete rather than choosing, so each one is a warning to narrow a pattern. Empty when there are none; only backups in the requested scope are examined."
+          },
+          "resolution": {
+            "$ref": "#/components/schemas/CustomValidatorResolution",
+            "description": "Present only when the request named an artifact.",
+            "x-go-omitempty": true,
+            "x-go-pointer": true
+          }
+        },
+        "required": [
+          "validators",
+          "directory",
+          "workflow_root",
+          "available",
+          "unavailable_reason",
+          "directory_refused",
+          "runner_configured",
+          "max_validators",
+          "max_script_bytes",
+          "max_pattern_bytes",
+          "ambiguities"
+        ]
+      },
+      "CustomValidatorAmbiguity": {
+        "type": "object",
+        "description": "A collision between custom validators found in the journal: one backup, two or more patterns at one scope.",
+        "additionalProperties": false,
+        "properties": {
+          "backup_set_id": {
+            "type": "string",
+            "description": "The backup set the backup is in, source/set."
+          },
+          "validators": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The validators whose patterns all match it at the same scope, in the order they are declared."
+          },
+          "example": {
+            "type": "string",
+            "description": "The newest backup they collide on, source/set/name."
+          }
+        },
+        "required": [
+          "backup_set_id",
+          "validators",
+          "example"
+        ]
+      },
+      "CreateCustomValidatorRequest": {
+        "type": "object",
+        "description": "A custom validator to upload.",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "NAME in NAME.local.sh; see CustomValidator.name."
+          },
+          "pattern": {
+            "type": "string",
+            "description": "Go RE2, matched against artifact names. GET /assurance/validator-patterns suggests ready-made ones."
+          },
+          "backup_set_id": {
+            "type": "string",
+            "description": "source/set to scope it to one backup set (what a client declaring it from a backup should send); empty or absent for every set."
+          },
+          "script": {
+            "type": "string",
+            "description": "The whole script, as UTF-8 text with no NUL byte, at most max_script_bytes. It must pass the check that gates saving a workflow (workflowlint)."
+          },
+          "env": {
+            "type": "string",
+            "description": "What environment the script starts with: minimal (the RECOVERY_TEST_* variables, the product's RETND_* facts and the baseline PATH, and nothing else) or workflow (the backup set's merged workflow environment as well, secrets included). Exactly those two spellings. Absent means minimal. Any other spelling is refused (400).",
+            "enum": [
+              "minimal",
+              "workflow"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "pattern",
+          "script"
+        ]
+      },
+      "UpdateCustomValidatorRequest": {
+        "type": "object",
+        "description": "A custom validator, whole. A replacement and not a merge: every field the validator has is in the request or it is not kept, so an edit cannot narrow or widen a scope by leaving a field out. The pattern and the scope (backup_set_id, empty for global) are always the new ones; the script is either sent (script) or explicitly kept (script_sha256), and exactly one of the two is required. The name is the path's.",
+        "additionalProperties": false,
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Go RE2."
+          },
+          "backup_set_id": {
+            "type": "string",
+            "description": "source/set, or empty for global. Absent is global too: this is a replacement, not a merge, so a client that means to keep a validator scoped to a set must send that set again."
+          },
+          "script": {
+            "type": "string",
+            "description": "The new script, whole (UTF-8 text, no NUL byte, at most max_script_bytes, and it must pass the check that gates saving a workflow). Send this or script_sha256, not both."
+          },
+          "script_sha256": {
+            "type": "string",
+            "description": "Keep the stored script, and say which one by its SHA-256 (CustomValidator.script_sha256 as the client last read it). Refused with 409 VALIDATOR_SCRIPT_CHANGED when the stored script is no longer that one, so an edit never silently keeps a script somebody else replaced, and also when the script was edited on disk since it was last saved (CustomValidator.script_state edited_on_disk), because keeping it would approve code nobody has read: send the script to approve it. Keeping a script whose entry has no pin yet pins it. Send this or script, not both."
+          },
+          "env": {
+            "type": "string",
+            "description": "What environment the script starts with: minimal (the RECOVERY_TEST_* variables, the product's RETND_* facts and the baseline PATH, and nothing else) or workflow (the backup set's merged workflow environment as well, secrets included). Exactly those two spellings. This is a replacement, not a merge: absent means minimal, never what the validator had, so an edit cannot widen the environment by leaving the field out. Any other spelling is refused (400).",
+            "enum": [
+              "minimal",
+              "workflow"
+            ]
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      },
+      "PreviewCustomValidatorRequest": {
+        "type": "object",
+        "description": "A pattern to judge, without saving anything.",
+        "additionalProperties": false,
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Go RE2."
+          },
+          "backup_set_id": {
+            "type": "string",
+            "description": "source/set to judge it within one set; empty for every set."
+          },
+          "replacing": {
+            "type": "string",
+            "description": "The name of the validator being edited, so it is not reported as conflicting with itself."
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      },
+      "CustomValidatorConflict": {
+        "type": "object",
+        "description": "Another validator at the same scope that already matches a backup this pattern matches.",
+        "additionalProperties": false,
+        "properties": {
+          "validator": {
+            "type": "string",
+            "description": "Its name."
+          },
+          "example": {
+            "type": "string",
+            "description": "One backup both match, source/set/name."
+          }
+        },
+        "required": [
+          "validator",
+          "example"
+        ]
+      },
+      "CustomValidatorPreview": {
+        "type": "object",
+        "description": "What a pattern would match, judged by Go's RE2 (the engine that will match it), so a browser's own regular expressions never decide.",
+        "additionalProperties": false,
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "description": "The pattern compiles as RE2 and is within the length bound."
+          },
+          "error": {
+            "type": "string",
+            "description": "Why it does not, when valid is false; empty otherwise."
+          },
+          "anchored": {
+            "type": "boolean",
+            "description": "It begins with ^ and ends with $."
+          },
+          "match_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Backups in scope whose names it matches."
+          },
+          "match_sets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The sets they are in."
+          },
+          "sample": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Up to 20 of them, source/set/name, newest first per set."
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomValidatorConflict"
+            },
+            "description": "Validators at the same scope that would share a backup with it. Saving it with any here is refused 409 VALIDATOR_PATTERN_CONFLICT."
+          }
+        },
+        "required": [
+          "valid",
+          "error",
+          "anchored",
+          "match_count",
+          "match_sets",
+          "sample",
+          "conflicts"
+        ]
+      },
+      "CustomValidatorPattern": {
+        "type": "object",
+        "description": "A pattern suggested from existing backups: every run of digits generalised (\\d{8}, \\d{4}-\\d{2}-\\d{2}, \\d{8}T\\d{6}Z), everything else matched literally, anchored at both ends.",
+        "additionalProperties": false,
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "The suggested Go RE2 pattern."
+          },
+          "example": {
+            "type": "string",
+            "description": "The newest backup name it came from."
+          },
+          "match_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How many backups have this shape."
+          },
+          "match_sets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The sets they are in, source/set, sorted."
+          },
+          "validator": {
+            "type": "string",
+            "description": "The custom validator that already has exactly this pattern at the requested scope; empty when none has."
+          }
+        },
+        "required": [
+          "pattern",
+          "example",
+          "match_count",
+          "match_sets",
+          "validator"
+        ]
+      },
+      "CustomValidatorPatternsResponse": {
+        "type": "object",
+        "description": "Suggested patterns, most common first, at most 200.",
+        "additionalProperties": false,
+        "properties": {
+          "backup_set_id": {
+            "type": "string",
+            "description": "The set they were drawn from; empty for every set."
+          },
+          "patterns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomValidatorPattern"
+            },
+            "description": "Most common first, then by pattern."
+          }
+        },
+        "required": [
+          "backup_set_id",
+          "patterns"
+        ]
+      },
+      "ValidatorScriptResponse": {
+        "type": "object",
+        "description": "A validator script's bytes, as text, with its identity.",
+        "additionalProperties": false,
+        "properties": {
+          "file_name": {
+            "type": "string",
+            "description": "The name to save it under."
+          },
+          "sha256": {
+            "type": "string",
+            "description": "SHA-256 of content's bytes."
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "content's length in bytes."
+          },
+          "content": {
+            "type": "string",
+            "description": "The whole script."
+          }
+        },
+        "required": [
+          "file_name",
+          "sha256",
+          "size_bytes",
+          "content"
         ]
       }
     },
@@ -19875,6 +20500,1049 @@
         "x-idempotency-key": "none",
         "x-optimistic-concurrency": null,
         "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/assurance/validators": {
+      "get": {
+        "operationId": "listCustomValidators",
+        "summary": "The custom recovery-test validators, with what each matches and its newest result.",
+        "description": "Issue #1203. Read-only. With backup_set, the ones that apply to that set, in the order a test tries them. With artifact, also which validator a recovery test of that backup would run (resolution), for that backup's set alone. ambiguities lists backups in scope that two patterns at one scope both match, which a recovery test refuses to choose between.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "backup_set",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "source/set: narrow to one backup set."
+          },
+          {
+            "name": "artifact",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "source/set/name: also answer which validator a test of this backup would run. This narrows the answer to that backup's set exactly as backup_set does (and is refused with 400 when backup_set names another), so it costs one set's journal and not the deployment's."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListCustomValidatorsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. artifact is not source/set/name.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "404": {
+            "description": "Refused: BACKUP_SET_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "BACKUP_SET_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      },
+      "post": {
+        "operationId": "createCustomValidator",
+        "summary": "Upload a custom validator: a script attached to an artifact-name pattern.",
+        "description": "Issue #1203. Writes the script to <workflow root>/recovery-test-validators/NAME.local.sh (to a temporary file in the root, then renamed in; directory 0750, file 0640) and the entry to config.yaml's assurance.validators, then hot-reloads. This is the one route that puts new code where the engine will run it on the host, so it carries what a recovery onto the source host carries: the destructive gate, which is open on a local-account profile (issue #1163) and shut on a gateway profile until #92 ships a verified gate, and where it is open the administrator's password again. The terminal equivalent is `retnd assurance validators add`. Names that differ only by case are one name (a case-insensitive volume would make them one file).",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCustomValidatorRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created. The validator as the list shows it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomValidator"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. A bad name, a pattern that is not RE2 or is too long, or a script that is empty, too large, not UTF-8 text, or refused by the save-time lint. Nothing is written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, DESTRUCTIVE_OPERATIONS_DISABLED, STEP_UP_REQUIRED, STEP_UP_FAILED, INSECURE_TRANSPORT_ACK_REQUIRED. DESTRUCTIVE_OPERATIONS_DISABLED is a shut destructive gate (a gateway profile, until #92): nothing was written. Where the gate opens for local accounts the upload asks for the administrator's password again in X-Retnd-Step-Up-Password (STEP_UP_REQUIRED when it is missing, STEP_UP_FAILED when it is wrong), and on plain HTTP from another machine for X-Retnd-Insecure-Transport-Ack (INSECURE_TRANSPORT_ACK_REQUIRED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH",
+              "DESTRUCTIVE_OPERATIONS_DISABLED",
+              "STEP_UP_REQUIRED",
+              "STEP_UP_FAILED",
+              "INSECURE_TRANSPORT_ACK_REQUIRED"
+            ]
+          },
+          "404": {
+            "description": "Refused: BACKUP_SET_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "BACKUP_SET_NOT_FOUND"
+            ]
+          },
+          "409": {
+            "description": "Refused: VALIDATOR_EXISTS, VALIDATOR_PATTERN_CONFLICT, VALIDATOR_LIMIT_REACHED. VALIDATOR_EXISTS: the name is taken (PUT replaces). VALIDATOR_PATTERN_CONFLICT: another validator at the same scope already matches one of the same backups, or has exactly this pattern. VALIDATOR_LIMIT_REACHED: 64 already exist.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "VALIDATOR_EXISTS",
+              "VALIDATOR_PATTERN_CONFLICT",
+              "VALIDATOR_LIMIT_REACHED"
+            ]
+          },
+          "429": {
+            "description": "Refused: RATE_LIMITED. Too many password checks in the last minute; Retry-After says when the next is allowed. Nothing was written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RATE_LIMITED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: VALIDATORS_UNAVAILABLE, STEP_UP_UNAVAILABLE, NOT_CONFIGURED. No workflow root is configured, or this process cannot write it (a read-only mount is the usual container layout). STEP_UP_UNAVAILABLE: this deployment cannot re-check the password, so it will not install a validator over HTTP; use `retnd assurance validators add` on the host. NOT_CONFIGURED: This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "VALIDATORS_UNAVAILABLE",
+              "STEP_UP_UNAVAILABLE",
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/StepUpPassword"
+          },
+          {
+            "$ref": "#/components/parameters/InsecureTransportAck"
+          }
+        ],
+        "x-destructive-gate": true,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/assurance/validators/{name}": {
+      "put": {
+        "operationId": "updateCustomValidator",
+        "summary": "Replace a custom validator's pattern, scope and (optionally) script.",
+        "description": "Issue #1203. A true replacement, not a merge: the request carries the whole validator. An absent backup_set_id makes it global, and the script is either sent (script) or explicitly kept by hash (script_sha256); a request with neither, or with both, is refused 400 INVALID_REQUEST, and a hash that is not the stored script's, or a script edited on disk since it was saved, is refused 409 VALIDATOR_SCRIPT_CHANGED. Whatever is saved is pinned: the response's pinned_sha256 is the hash of the script now stored. Nothing is inferred from what a field leaves out. Gated like the upload, because a new pattern changes which data the script runs against and a new script is new code: the destructive gate is open on a local-account profile (issue #1163) and shut on a gateway profile until #92, and the password is asked for again wherever the gate is open (a deployment that cannot check one answers 503 STEP_UP_UNAVAILABLE). The terminal equivalent is `retnd assurance validators update`, which needs --backup-set or --global.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The validator's name."
+          },
+          {
+            "$ref": "#/components/parameters/StepUpPassword"
+          },
+          {
+            "$ref": "#/components/parameters/InsecureTransportAck"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCustomValidatorRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomValidator"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST. Neither script nor script_sha256 was sent, or both were, or the pattern or script was refused.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH, DESTRUCTIVE_OPERATIONS_DISABLED, STEP_UP_REQUIRED, STEP_UP_FAILED, INSECURE_TRANSPORT_ACK_REQUIRED. DESTRUCTIVE_OPERATIONS_DISABLED is a shut destructive gate (a gateway profile, until #92): nothing was written. Where the gate opens for local accounts the upload asks for the administrator's password again in X-Retnd-Step-Up-Password (STEP_UP_REQUIRED when it is missing, STEP_UP_FAILED when it is wrong), and on plain HTTP from another machine for X-Retnd-Insecure-Transport-Ack (INSECURE_TRANSPORT_ACK_REQUIRED).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH",
+              "DESTRUCTIVE_OPERATIONS_DISABLED",
+              "STEP_UP_REQUIRED",
+              "STEP_UP_FAILED",
+              "INSECURE_TRANSPORT_ACK_REQUIRED"
+            ]
+          },
+          "404": {
+            "description": "Refused: BACKUP_SET_NOT_FOUND, VALIDATOR_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "BACKUP_SET_NOT_FOUND",
+              "VALIDATOR_NOT_FOUND"
+            ]
+          },
+          "409": {
+            "description": "Refused: VALIDATOR_PATTERN_CONFLICT, VALIDATOR_SCRIPT_CHANGED. The second is script_sha256 naming a script that is not the stored one any more.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "VALIDATOR_PATTERN_CONFLICT",
+              "VALIDATOR_SCRIPT_CHANGED"
+            ]
+          },
+          "429": {
+            "description": "Refused: RATE_LIMITED. Too many password checks in the last minute; Retry-After says when the next is allowed. Nothing was written.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "RATE_LIMITED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: VALIDATORS_UNAVAILABLE, STEP_UP_UNAVAILABLE, NOT_CONFIGURED. STEP_UP_UNAVAILABLE: this deployment cannot re-check the password, so it will not install a validator over HTTP; use `retnd assurance validators update` on the host. NOT_CONFIGURED: This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "VALIDATORS_UNAVAILABLE",
+              "STEP_UP_UNAVAILABLE",
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": true,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      },
+      "delete": {
+        "operationId": "removeCustomValidator",
+        "summary": "Remove a custom validator: its entry in config.yaml, then its script moved aside.",
+        "description": "Issue #1203. The script is not deleted: it is renamed into recovery-test-validators.superseded, a sibling of the stage directory, under its own name (with a numeric suffix when that is taken). CSRF and not the destructive gate: it stops a script from running and deletes no backup, the same class as clearing a stage directory under PATCH /settings/workflow. A test the validator would have decided falls through to the next rung (a global pattern, validator_id, the set's directory, the built-in). Answers the validator as it was.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The validator's name."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomValidator"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "404": {
+            "description": "Refused: VALIDATOR_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "VALIDATOR_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/assurance/validators/{name}/script": {
+      "get": {
+        "operationId": "getCustomValidatorScript",
+        "summary": "Read an uploaded validator script back.",
+        "description": "Issue #1203. Read-only. The script as text with its SHA-256, for a client to show or download.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The validator's name."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidatorScriptResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "404": {
+            "description": "Refused: VALIDATOR_NOT_FOUND. No validator has that name, or its script file is missing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "VALIDATOR_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: VALIDATORS_UNAVAILABLE, NOT_CONFIGURED. NOT_CONFIGURED: This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "VALIDATORS_UNAVAILABLE",
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      }
+    },
+    "/assurance/validator-preview": {
+      "post": {
+        "operationId": "previewCustomValidator",
+        "summary": "Judge a pattern with Go's RE2 against the backups in scope, without saving anything.",
+        "description": "Issue #1203. A POST because it carries a pattern, and it writes nothing. RE2 and a browser's regular expressions disagree (lookaround, backreferences, \\d), so the engine that will match the pattern is the one that judges it. An invalid pattern answers 200 with valid false and the reason. The terminal equivalent is `retnd assurance validators add --dry-run`.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": [],
+            "csrf": [],
+            "csrfCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewCustomValidatorRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomValidatorPreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Refused: INVALID_REQUEST.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INVALID_REQUEST"
+            ]
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "403": {
+            "description": "Refused: CSRF_TOKEN_MISSING, CSRF_TOKEN_MISMATCH.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "CSRF_TOKEN_MISSING",
+              "CSRF_TOKEN_MISMATCH"
+            ]
+          },
+          "404": {
+            "description": "Refused: BACKUP_SET_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "BACKUP_SET_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": true,
+        "x-authenticated": true
+      }
+    },
+    "/assurance/validator-patterns": {
+      "get": {
+        "operationId": "listCustomValidatorPatterns",
+        "summary": "Suggest artifact-name patterns from the backups already in the journal.",
+        "description": "Issue #1203. Read-only. Every digit run of every backup name is generalised, so an operator picks a pattern rather than writing one: MANIFEST-20260902T153521Z.txt suggests ^MANIFEST-\\d{8}T\\d{6}Z\\.txt$. With backup_set, from that set alone.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "backup_set",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "source/set: narrow to one backup set."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomValidatorPatternsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "404": {
+            "description": "Refused: BACKUP_SET_NOT_FOUND.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "BACKUP_SET_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      }
+    },
+    "/assurance/default-validator-script": {
+      "get": {
+        "operationId": "getDefaultValidatorScript",
+        "summary": "The documented default validator script, to read and adapt.",
+        "description": "Issue #1203. Read-only, and the same bytes on every deployment. Its comments are the contract a validator is written against: the environment it is given, what its exit status means, what becomes of its output and where it runs. JSON rather than a raw download, so the client saves content under file_name.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidatorScriptResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
+        "x-authenticated": true
+      }
+    },
+    "/assurance/operations/{op}": {
+      "get": {
+        "operationId": "getAssuranceOperation",
+        "summary": "Read one scrub or recovery test back by its operation id, running or finished: its lines from the durable activity record (and the live feed, while it still holds them) and what they add up to. Read-only.",
+        "description": "Every line a recovery test or recovery writes carries its operation id as op_id, and so does every line of a scrub started with POST /backup-sets/{source}/{set}/scrub, so this finds a run long after the live feed has dropped it. The durable record keeps a run's start, the last stage it reached (stage lines are coalesced) and its end, for 30 days and at most 50,000 rows; while the run is still on the live feed its every stage line is included too. A scrub has no stage lines: a scrub_start, its scrub_failure lines and its scrub_pass (which an operator's scrub writes even when it selected nothing). A run this engine is running answers running at once, before it has written a line. It is not under /operations, which the destructive gate owns, and answers on a deployment whose gate is shut. The terminal's twin is `retnd assurance show <operation-id>`.",
+        "tags": [
+          "assurance"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "op",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "The operation id a scrub or a recovery test returned when it started."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssuranceOperationRecord"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Refused: UNAUTHENTICATED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "UNAUTHENTICATED"
+            ]
+          },
+          "404": {
+            "description": "Refused: OPERATION_NOT_FOUND. Nothing is on record under this id: it was never an operation of this deployment, or its lines were pruned (they are kept for 30 days).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "OPERATION_NOT_FOUND"
+            ]
+          },
+          "500": {
+            "description": "Refused: INTERNAL.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "INTERNAL"
+            ]
+          },
+          "503": {
+            "description": "Refused: NOT_CONFIGURED. This deployment has no configuration yet and is serving the first-run setup flow instead of the application. Every operation outside that flow answers this until setup completes, so a client can send the operator to setup rather than interpret a bare 404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "x-error-codes": [
+              "NOT_CONFIGURED"
+            ]
+          }
+        },
+        "x-destructive-gate": false,
+        "x-idempotency-key": "none",
+        "x-optimistic-concurrency": null,
+        "x-csrf-required": false,
         "x-authenticated": true
       }
     },

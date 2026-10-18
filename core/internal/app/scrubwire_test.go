@@ -43,6 +43,11 @@ func TestScrubSummaryWire_CarriesEveryField(t *testing.T) {
 	}
 	rv := reflect.ValueOf(sum)
 	for i := 0; i < rv.NumField(); i++ {
+		// An unexported field belongs to the run (the operation id a scrub
+		// now carries onto its lines), not to the result the wire reports.
+		if !rv.Type().Field(i).IsExported() {
+			continue
+		}
 		if rv.Field(i).IsZero() {
 			t.Fatalf("the fixture leaves ScrubSummary.%s zero, so the mapping of it is unchecked", rv.Type().Field(i).Name)
 		}

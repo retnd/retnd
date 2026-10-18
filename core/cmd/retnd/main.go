@@ -359,6 +359,16 @@ commands:
                                                   this deployment, so this needs RETND_API_URL and the two credential
                                                   variables beside it and is refused without them. The same as
                                                   POST /api/v1/assurance/operations/{op}/cancel (EPIC Q)
+  assurance show <operation-id> [--json]
+                                                  one scrub or recovery test by the operation id its start returned,
+                                                  running or long finished: how it ended, the stage it reached, and its
+                                                  lines in the --follow format, read from the durable activity record
+                                                  (kept 30 days). It reads this host's journal, or the serving engine
+                                                  when one is attached. The same as
+                                                  GET /api/v1/assurance/operations/{op}, the Operation page's read. The
+                                                  validator's output is not in it: for a recovery test it prints the
+                                                  recovery-test --show-output command that shows it. The engine's own
+                                                  record of an operation is operation show (#1200)
   assurance list [--backup-set S] [--bucket due|overdue|degraded|untested] [--json]
                                                   the backups behind the Web UI Dashboard's Assurance tile, most urgent
                                                   first: each one in due, overdue or degraded (or in the buckets --bucket
@@ -371,6 +381,58 @@ commands:
                                                   settings assurance due is the scrub schedule behind it. --json prints
                                                   {generated_at, items:[{artifact_id, artifact_name, backup_set_id, buckets,
                                                   content, recovery, reason}]} with each claim as {state, at, check} (#1174)
+  assurance validators list [--backup-set S] [--artifact ID] [--json]
+                                                   the custom recovery-test validators: each one's name, pattern, scope,
+                                                   script and how many backups it matches, and its newest result. With
+                                                   --backup-set, the ones that apply to that set in the order a test tries
+                                                   them; with --artifact, which validator a test of that backup would run
+                                                   (narrowed to that backup's set). A test picks, most specific first: the
+                                                   set's own pattern, a global pattern, the set's validator_id, the one
+                                                   script in its recovery-test directory, the built-in check. Two patterns at
+                                                   one scope that both match end the test could_not_complete, so the list
+                                                   warns about each backup in the journal they both match, and about a stage
+                                                   directory discovery refuses. Beside a serving engine that RETND_API_URL
+                                                   names, this asks that engine; otherwise it reads this host's config and
+                                                   journal. The same body as GET /api/v1/assurance/validators (#1203)
+  assurance validators add <name> --pattern RE --script FILE [--backup-set S] [--json]
+                                                   upload FILE as <workflow root>/recovery-test-validators/<name>.local.sh
+                                                   and attach it to the Go RE2 pattern RE, for one set or (without
+                                                   --backup-set) every set. Refused when the script fails the save-time lint,
+                                                   the pattern is too costly to match (repeats over 255, programs over 1000
+                                                   instructions) or shares a backup with another validator at the same scope.
+                                                   With --dry-run (no --script, name optional) it says what RE matches and
+                                                   collides with and saves nothing. Beside a serving engine that this
+                                                   command has a route to, that is POST /api/v1/assurance/validators, which
+                                                   asks for the password again; this command sends RETND_API_PASSWORD
+                                                   --env minimal|workflow says what the script starts with: minimal (the
+                                                   default) is the RECOVERY_TEST_* variables, RETND_* facts and PATH, and
+                                                   workflow adds the backup set's workflow environment, secrets included
+  assurance validators update <name> --pattern RE (--backup-set S | --global) [--script FILE] [--dry-run] [--json]
+                                                   replace a validator whole: its pattern, its scope and its script. The
+                                                   scope has to be said, --backup-set S or --global for every set, because
+                                                   an update that left it out would widen a set-scoped validator. Without
+                                                   --script the stored script is kept by its hash, and refused if somebody
+                                                   replaced it in between. Routed, PUT /api/v1/assurance/validators/{name}
+                                                   --env minimal|workflow is replaced too: leaving it out means minimal,
+                                                   never what the validator had
+  assurance validators remove <name> [--json]
+                                                   take a validator out of config.yaml and move its script into the
+                                                   recovery-test-validators.superseded directory beside the stage directory
+                                                   (nothing is deleted); tests it decided fall through to the next rung.
+                                                   Routed, DELETE /api/v1/assurance/validators/{name}
+  assurance validators script <name> [--output FILE] [--json]
+                                                   print an uploaded script, or write it to FILE, which must not exist yet.
+                                                   Asks the serving engine when one is reachable
+  assurance validators patterns [--backup-set S] [--json]
+                                                   suggest patterns from the backups already in the journal, every run of
+                                                   digits generalised (MANIFEST-20260902T153521Z.txt suggests
+                                                   ^MANIFEST-\d{8}T\d{6}Z\.txt$), most common first, with the count and
+                                                   sets each matches. GET /api/v1/assurance/validator-patterns
+  assurance validators default-script [--output FILE] [--json]
+                                                   the documented default validator script to read and adapt: the
+                                                   environment a validator gets, what its exit status means, what becomes
+                                                   of its output and where it runs. Reads no configuration.
+                                                   GET /api/v1/assurance/default-validator-script
   auth password --password-stdin
                                                   change the administrator's password. The current password and then the
                                                   new one come from stdin, one per line, and never from a flag, so neither
@@ -436,7 +498,8 @@ commands:
                                                   one operation as the engine holds it. --follow polls until it finishes,
                                                   prints each change of status on standard error, and exits 0 for
                                                   completed and 1 for anything else. The same as
-                                                  GET /api/v1/operations/{id} (#1149)
+                                                  GET /api/v1/operations/{id}. A scrub's or recovery test's lines and
+                                                  how it ended are assurance show (#1149)
   catalog rebuild [--dry-run]                    reconstruct a lost/corrupted state database from sidecar recovery manifests
   catalog rebuild [--dry-run] --json
                                                   print the API's CatalogReportResponse for the whole deployment instead of

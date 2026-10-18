@@ -169,7 +169,9 @@ h2 { font-size: var(--text-lg); font-weight: 600; letter-spacing: -0.01em; margi
   font-size: var(--text-sm);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-3);
+  /* The secondary ink, not --text-3: --text-3 is 4.5:1 or better since #1235,
+     but an eyebrow is a label and keeps the stronger of the two. */
+  color: var(--text-2);
   font-weight: 500;
 }
 

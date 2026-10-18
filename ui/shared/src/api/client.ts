@@ -107,6 +107,7 @@ import type {
   WireRecoveryTestOutput,
   WireScrubStarted,
   WireAssuranceOperationCancelled,
+  WireAssuranceOperationRecord,
   WireRecoverySettingsResponse,
   WireRecoverySettingsUpdate,
   WireRetentionOverride,
@@ -150,6 +151,11 @@ import type {
   WireWorkflowValidatedScript,
   WireWorkflowValidationResponse,
   WireCapabilitiesResponse,
+  WireCustomValidator,
+  WireCustomValidatorPatternsResponse,
+  WireCustomValidatorPreview,
+  WireListCustomValidatorsResponse,
+  WireValidatorScriptResponse,
   WireVersionResponse
 } from "./generated/contract";
 import type {
@@ -167,9 +173,15 @@ import type {
   SourceHostDescription,
   StepUpOptions,
   AssuranceDue,
+  AssuranceOperationRecord,
   RecoveryTestOutput,
   AssuranceSettings,
   AssuranceSettingsPatch,
+  CustomValidator,
+  CustomValidatorList,
+  CustomValidatorPatterns,
+  CustomValidatorPreview,
+  ValidatorScript,
   BackupSetAssurance,
   BackupSetAssurancePatch,
   BackendManifest,
@@ -830,7 +842,6 @@ function fromWireBackupSet(bs: WireBackupSet, health?: WireBackupSetHealth): Bac
     username: bs.user,
     remoteFolder: bs.remote_path,
     includePatterns: bs.include,
-    excludePatterns: [],
     completionMethod: COMPLETION_STRATEGY_TO_METHOD[bs.completion_strategy] ?? "atomic-rename",
     stableForSeconds: bs.stable_for_seconds,
     destination: bs.local_path,
@@ -2145,6 +2156,36 @@ function fromWireLiveActivityEvent(e: WireLiveActivityEvent): SetActivityEvent {
   };
 }
 
+/** One assurance operation read back from the durable record (issue #1200).
+ *  The state and kind are the contract's closed enums. A value this build
+ *  does not know is refused out loud rather than drawn as something it
+ *  isn't: defaulting it to "unfinished" or to a recovery test would state a
+ *  fact about a run the server never stated. */
+const ASSURANCE_OPERATION_STATES: readonly AssuranceOperationRecord["state"][] = [
+  "running", "passed", "failed", "did_not_complete", "cancelled", "unfinished"
+];
+const ASSURANCE_OPERATION_KINDS: readonly AssuranceOperationRecord["kind"][] = ["scrub", "recovery_test", "recovery"];
+
+function fromWireAssuranceOperation(r: WireAssuranceOperationRecord): AssuranceOperationRecord {
+  if (!ASSURANCE_OPERATION_KINDS.includes(r.kind)) {
+    throw new Error("The server sent an operation of kind " + JSON.stringify(r.kind) + ", which this build does not know. Update the UI.");
+  }
+  if (!ASSURANCE_OPERATION_STATES.includes(r.state)) {
+    throw new Error("The server sent an operation in state " + JSON.stringify(r.state) + ", which this build does not know. Update the UI.");
+  }
+  return {
+    operationId: r.operation_id,
+    kind: r.kind,
+    backupSetId: r.backup_set_id,
+    state: r.state,
+    stage: r.stage,
+    reason: r.reason,
+    startedAt: r.started_at,
+    endedAt: r.ended_at,
+    events: r.events.map(fromWireLiveActivityEvent)
+  };
+}
+
 /** The actions a bucket says are still open (issue #625). */
 function fromWireUnfinishedActions(actions: WireLiveActivityAction[]): UnfinishedAction[] {
   return actions.map((a) => ({
@@ -2883,6 +2924,55 @@ function fromWireAssuranceDue(s: WireAssuranceDueResponse): AssuranceDue {
     }))
   };
 }
+
+
+// Issue #1203: the custom validators' wire shapes, in the page's own.
+function fromWireCustomValidator(v: WireCustomValidator): CustomValidator {
+  return {
+    name: v.name, pattern: v.pattern, backupSetId: v.backup_set_id ?? "", scope: v.scope, anchored: v.anchored,
+    env: v.env === "workflow" ? "workflow" : "minimal",
+    scriptFile: v.script_file, scriptPresent: v.script_present, scriptSha256: v.script_sha256,
+    pinnedSha256: v.pinned_sha256 ?? "", scriptState: v.script_state ?? (v.script_present ? "unpinned" : "missing"),
+    scriptSizeBytes: v.script_size_bytes, uploadedAt: v.uploaded_at, matchCount: v.match_count,
+    matchSets: v.match_sets ?? [], exampleName: v.example_name ?? "",
+    ...(v.last_result ? { lastResult: { artifactId: v.last_result.artifact_id, at: v.last_result.at, state: v.last_result.state } } : {})
+  };
+}
+
+function fromWireValidatorScript(s: WireValidatorScriptResponse): ValidatorScript {
+  return { fileName: s.file_name, sha256: s.sha256, sizeBytes: s.size_bytes, content: s.content };
+}
+
+function fromWireValidatorList(r: WireListCustomValidatorsResponse): CustomValidatorList {
+  return {
+    available: r.available, unavailableReason: r.unavailable_reason ?? "", runnerConfigured: r.runner_configured,
+    directory: r.directory ?? "", workflowRoot: r.workflow_root ?? "", maxValidators: r.max_validators,
+    maxScriptBytes: r.max_script_bytes, maxPatternBytes: r.max_pattern_bytes,
+    directoryRefused: r.directory_refused ?? "",
+    ambiguities: (r.ambiguities ?? []).map((a) => ({ backupSetId: a.backup_set_id, example: a.example, validators: a.validators ?? [] })),
+    validators: (r.validators ?? []).map(fromWireCustomValidator),
+    ...(r.resolution
+      ? { resolution: { artifactId: r.resolution.artifact_id, validator: r.resolution.validator, fallback: r.resolution.fallback, ambiguous: r.resolution.ambiguous ?? [] } }
+      : {})
+  };
+}
+
+function fromWireValidatorPatterns(r: WireCustomValidatorPatternsResponse): CustomValidatorPatterns {
+  return {
+    backupSetId: r.backup_set_id ?? "",
+    patterns: (r.patterns ?? []).map((p) => ({
+      pattern: p.pattern, example: p.example, matchCount: p.match_count, matchSets: p.match_sets ?? [], validator: p.validator ?? ""
+    }))
+  };
+}
+
+function fromWireValidatorPreview(p: WireCustomValidatorPreview): CustomValidatorPreview {
+  return {
+    valid: p.valid, error: p.error ?? "", anchored: p.anchored, matchCount: p.match_count, matchSets: p.match_sets ?? [],
+    sample: p.sample ?? [], conflicts: p.conflicts ?? []
+  };
+}
+
 
 /** A PATCH body carrying only the fields a caller named: an absent key is
  *  "leave this alone", and a zero or empty value is "clear this". */
@@ -4176,6 +4266,9 @@ export const httpApi: RetndApi = {
   getRecoveryTestOutput: (source, set) =>
     request<WireRecoveryTestOutput>(backupSetPath(source, set) + "/recovery-test/output").then(fromWireRecoveryTestOutput),
 
+  getAssuranceOperation: (operationId) =>
+    request<WireAssuranceOperationRecord>("/assurance/operations/" + encodeURIComponent(operationId)).then(fromWireAssuranceOperation),
+
   getAssuranceSettings: () =>
     request<WireAssuranceSettingsResponse>("/settings/assurance").then(fromWireAssuranceSettings),
   // Issue #1179. The path is relative to the staging root and may be empty
@@ -4189,6 +4282,60 @@ export const httpApi: RetndApi = {
       method: "PATCH",
       body: JSON.stringify(wireAssurancePatch(patch))
     }).then(fromWireAssuranceSettings),
+  listCustomValidators: (filter) => {
+    const q = new URLSearchParams();
+    if (filter?.backupSetId) q.set("backup_set", filter.backupSetId);
+    if (filter?.artifactId) q.set("artifact", filter.artifactId);
+    const qs = q.toString();
+    return request<WireListCustomValidatorsResponse>("/assurance/validators" + (qs ? "?" + qs : "")).then(fromWireValidatorList);
+  },
+  listCustomValidatorPatterns: (backupSetId) => {
+    const q = new URLSearchParams();
+    if (backupSetId) q.set("backup_set", backupSetId);
+    const qs = q.toString();
+    return request<WireCustomValidatorPatternsResponse>("/assurance/validator-patterns" + (qs ? "?" + qs : "")).then(fromWireValidatorPatterns);
+  },
+  previewCustomValidator: (req, opts) =>
+    request<WireCustomValidatorPreview>("/assurance/validator-preview", {
+      method: "POST",
+      signal: opts?.signal,
+      body: JSON.stringify({
+        pattern: req.pattern,
+        ...(req.backupSetId ? { backup_set_id: req.backupSetId } : {}),
+        ...(req.replacing ? { replacing: req.replacing } : {})
+      })
+    }).then(fromWireValidatorPreview),
+  // The password rides a header on this one request and never the body, as
+  // for a recovery onto the source host (#1191).
+  createCustomValidator: (req, opts) =>
+    request<WireCustomValidator>("/assurance/validators", {
+      method: "POST",
+      ...stepUpHeaders(opts),
+      body: JSON.stringify({
+        name: req.name, pattern: req.pattern, script: req.script,
+        ...(req.backupSetId ? { backup_set_id: req.backupSetId } : {}),
+        ...(req.env ? { env: req.env } : {})
+      })
+    }).then(fromWireCustomValidator),
+  updateCustomValidator: (name, req, opts) =>
+    request<WireCustomValidator>("/assurance/validators/" + encodeURIComponent(name), {
+      method: "PUT",
+      ...stepUpHeaders(opts),
+      // A true replace: the scope is always said (empty is every set), and
+      // the script is either sent or kept by hash.
+      body: JSON.stringify({
+        pattern: req.pattern,
+        backup_set_id: req.backupSetId ?? "",
+        ...(req.env ? { env: req.env } : {}),
+        ...(req.script !== undefined ? { script: req.script } : { script_sha256: req.keepScriptSha256 })
+      })
+    }).then(fromWireCustomValidator),
+  removeCustomValidator: (name) =>
+    request<WireCustomValidator>("/assurance/validators/" + encodeURIComponent(name), { method: "DELETE" }).then(fromWireCustomValidator),
+  getCustomValidatorScript: (name) =>
+    request<WireValidatorScriptResponse>("/assurance/validators/" + encodeURIComponent(name) + "/script").then(fromWireValidatorScript),
+  getDefaultValidatorScript: () =>
+    request<WireValidatorScriptResponse>("/assurance/default-validator-script").then(fromWireValidatorScript),
   getBackupSetAssurance: (source, set) =>
     request<WireBackupSetAssurance>(assurancePath(source, set)).then(fromWireBackupSetAssurance),
   patchBackupSetAssurance: (source, set, patch) =>

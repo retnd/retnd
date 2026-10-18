@@ -34,6 +34,20 @@ import (
 // load rather than for a fault.
 const DialTimeout = 10 * time.Second
 
+// HandshakeTimeout is how long the hello and its welcome may take once the
+// connect has succeeded.
+//
+// The connect succeeding proves very little about a runner: the kernel
+// completes it from the listen backlog, so a runner that has been stopped
+// (SIGSTOP, a host too loaded to schedule it, a wedged daemon under it)
+// still accepts the connection and the hello into the socket buffer, and
+// then never answers. Without a bound of its own the welcome read waited
+// forever, and because the caller's context was only wired to the
+// connection after the handshake, a step's script_timeout could not end
+// that wait either (#931). The caller's context still wins when it is
+// shorter; this is the floor for a caller that passed none.
+const HandshakeTimeout = DialTimeout
+
 // Client reaches one installation's runner.
 type Client struct {
 	// SocketPath is the runner's Unix socket. There is no address field
@@ -55,6 +69,16 @@ type session struct {
 	welcome Welcome
 }
 
+// endWith closes the connection when ctx ends and returns the function
+// that stops watching. Every operation does this, not only Execute: a
+// runner that answers the hello and then goes quiet must not be able to
+// hold a status check or a cancel past its caller's deadline either.
+func (s *session) endWith(ctx context.Context) (stop func()) {
+	cancel := context.AfterFunc(ctx, func() { s.conn.Close() })
+
+	return func() { cancel() }
+}
+
 func (c Client) open(ctx context.Context) (*session, error) {
 	if c.SocketPath == "" {
 		return nil, fmt.Errorf("%w: no workflow runner socket was configured", ErrServer)
@@ -68,19 +92,40 @@ func (c Client) open(ctx context.Context) (*session, error) {
 		return nil, fmt.Errorf("hostrunner: the workflow runner at %s cannot be reached: %w. A deployment with local hook scripts needs it running; one without local hooks does not", c.SocketPath, err)
 	}
 
+	// The handshake is bounded twice over: by the caller's context, which
+	// closes the connection so the blocked read returns, and by a
+	// deadline of its own for a caller with no deadline. Both are lifted
+	// once the welcome arrives, because from then on the operation
+	// itself owns the connection's lifetime.
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	_ = conn.SetDeadline(time.Now().Add(HandshakeTimeout))
+
+	fail := func(err error) (*session, error) {
+		stop()
+		conn.Close()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, fmt.Errorf("hostrunner: the workflow runner at %s did not complete its handshake before the caller's deadline (%w): %v", c.SocketPath, ctxErr, err)
+		}
+		return nil, err
+	}
+
 	if err := WriteMessage(conn, Message{
 		Kind:  KindHello,
 		Hello: &Hello{Protocol: Protocol, Version: c.Version, Token: c.Token},
 	}); err != nil {
-		conn.Close()
-		return nil, err
+		return fail(err)
 	}
 
 	msg, err := ReadMessage(conn)
 	if err != nil {
-		conn.Close()
-		return nil, err
+		return fail(err)
 	}
+	if !stop() {
+		// The context ended while the welcome was arriving and the
+		// connection is already closed under us.
+		return fail(ctx.Err())
+	}
+	_ = conn.SetDeadline(time.Time{})
 	switch {
 	case msg.Kind == KindFailure && msg.Failure != nil:
 		conn.Close()
@@ -106,6 +151,7 @@ func (c Client) Status(ctx context.Context) (Status, error) {
 		return Status{}, err
 	}
 	defer s.conn.Close()
+	defer s.endWith(ctx)()
 
 	if err := WriteMessage(s.conn, Message{Kind: KindRequest, Request: &Request{Op: OpStatus}}); err != nil {
 		return Status{}, err
@@ -127,6 +173,7 @@ func (c Client) SyntaxCheck(ctx context.Context, runID, stepID string, script []
 		return err
 	}
 	defer s.conn.Close()
+	defer s.endWith(ctx)()
 
 	req := newScriptRequest(OpSyntaxCheck, runID, stepID, script)
 	if err := WriteMessage(s.conn, Message{Kind: KindRequest, Request: &req}); err != nil {
@@ -163,8 +210,7 @@ func (c Client) Execute(ctx context.Context, req ExecuteRequest, sink Sink) (Res
 	}
 	defer s.conn.Close()
 
-	stop := context.AfterFunc(ctx, func() { s.conn.Close() })
-	defer stop()
+	defer s.endWith(ctx)()
 
 	wire := newScriptRequest(OpExecute, req.RunID, req.StepID, req.Script)
 	wire.Env = req.Env
@@ -182,6 +228,7 @@ func (c Client) Cancel(ctx context.Context, runID, stepID string) error {
 		return err
 	}
 	defer s.conn.Close()
+	defer s.endWith(ctx)()
 
 	req := Request{Op: OpCancel, RunID: runID, StepID: stepID}
 	if err := WriteMessage(s.conn, Message{Kind: KindRequest, Request: &req}); err != nil {

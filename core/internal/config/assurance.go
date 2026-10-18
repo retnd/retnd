@@ -32,6 +32,15 @@ const (
 	BuiltinCheckOff       = "off"
 )
 
+// validator_env values (#1221): what environment a recovery-test validator
+// starts with. minimal is the RECOVERY_TEST_* variables, the product's own
+// RETND_* facts and the sanitized baseline; workflow adds the set's merged
+// workflow environment, secrets included.
+const (
+	ValidatorEnvMinimal  = "minimal"
+	ValidatorEnvWorkflow = "workflow"
+)
+
 // ReservedValidatorPrefix begins every id the product itself uses for one of
 // its built-in checks. An operator's validator_id may not start with it, so
 // a stored verdict under such an id can only have come from the product.
@@ -84,6 +93,11 @@ type AssuranceRecoveryTest struct {
 	// BuiltinCheck is structure or off (#1111); empty is structure globally
 	// and inherits per set. It governs the manual test with every mode.
 	BuiltinCheck string `yaml:"builtin_check,omitempty"`
+
+	// ValidatorEnv is minimal or workflow (#1221); empty is minimal globally
+	// and inherits per set. workflow is the operator's opt-in to hand the
+	// validator the set's workflow variables, secrets included.
+	ValidatorEnv string `yaml:"validator_env,omitempty"`
 }
 
 // RecoveryTestScriptName turns a recovery-test validator_id into the file
@@ -126,6 +140,11 @@ type AssuranceBlock struct {
 	StagingTTL             Duration `yaml:"staging_ttl,omitempty"`
 	MaxConcurrentFullReads int      `yaml:"max_concurrent_full_reads,omitempty"`
 	MaxPerDestination      int      `yaml:"max_per_destination,omitempty"`
+
+	// Validators are the custom recovery-test validators (#1203), each a
+	// script attached to an artifact-name pattern. See
+	// assurancevalidators.go.
+	Validators []CustomValidator `yaml:"validators,omitempty"`
 }
 
 // AssuranceOverride is a backup set's own `assurance:` block.
@@ -158,6 +177,10 @@ type AssuranceDefaults struct {
 	// TestAssurance_NoConsumerReadsThePointers is there to stop.
 	MaxConcurrentFullReadsWritten bool
 	MaxPerDestinationWritten      bool
+
+	// Validators are assurance.validators, validated and compiled, in the
+	// order they are written (#1203).
+	Validators []ResolvedCustomValidator
 }
 
 // AssuranceIsOverride reports whether this set declares its own policy.
@@ -170,6 +193,7 @@ var (
 	GlobalRecoveryModes = []string{RecoveryTestOff, RecoveryTestBuiltin, RecoveryTestRequired}
 	SetRecoveryModes    = []string{RecoveryTestInherit, RecoveryTestOff, RecoveryTestBuiltin, RecoveryTestRequired, RecoveryTestCustom}
 	BuiltinChecks       = []string{BuiltinCheckStructure, BuiltinCheckOff}
+	ValidatorEnvs       = []string{ValidatorEnvMinimal, ValidatorEnvWorkflow}
 )
 
 func containsString(list []string, s string) bool {
@@ -192,6 +216,9 @@ func containsString(list []string, s string) bool {
 // override flags were once a silent no-op.
 func (c *Config) resolveAssurance(v *validator) {
 	global := c.resolveGlobalAssurance(v)
+	if c.AssuranceBlock != nil {
+		global.Validators = c.resolveCustomValidators(v, c.AssuranceBlock.Validators)
+	}
 	c.Assurance = global
 	for i := range c.Sources {
 		for j := range c.Sources[i].BackupSets {
@@ -267,6 +294,18 @@ func (c *Config) resolveGlobalAssurance(v *validator) AssuranceDefaults {
 		v.addf("%s.recovery_test.builtin_check: %q is not one of %v", p, rt.BuiltinCheck, BuiltinChecks)
 	} else if rt.Mode == RecoveryTestBuiltin && rt.BuiltinCheck == BuiltinCheckOff {
 		v.addf("%s.recovery_test: mode %s runs the built-in structure check, so builtin_check: %s refuses it; set builtin_check to %s or choose another mode", p, RecoveryTestBuiltin, BuiltinCheckOff, BuiltinCheckStructure)
+	}
+
+	// A validator starts with the small environment unless the operator says
+	// workflow. A spelling that is not exactly one of the two is refused and
+	// resolves to minimal, so a typo can never open the larger environment.
+	rt.ValidatorEnv = ValidatorEnvMinimal
+	if b.RecoveryTest.ValidatorEnv != "" {
+		if !containsString(ValidatorEnvs, b.RecoveryTest.ValidatorEnv) {
+			v.addf("%s.recovery_test.validator_env: %q is not one of %v", p, b.RecoveryTest.ValidatorEnv, ValidatorEnvs)
+		} else {
+			rt.ValidatorEnv = b.RecoveryTest.ValidatorEnv
+		}
 	}
 
 	out.StagingRoot = b.StagingRoot
@@ -377,6 +416,13 @@ func resolveSetAssurance(v *validator, path string, o *AssuranceOverride, global
 			v.addf("%s.builtin_check: %q is not one of %v", rp, rt.BuiltinCheck, BuiltinChecks)
 		} else {
 			out.RecoveryTest.BuiltinCheck = rt.BuiltinCheck
+		}
+	}
+	if rt.ValidatorEnv != "" {
+		if !containsString(ValidatorEnvs, rt.ValidatorEnv) {
+			v.addf("%s.validator_env: %q is not one of %v", rp, rt.ValidatorEnv, ValidatorEnvs)
+		} else {
+			out.RecoveryTest.ValidatorEnv = rt.ValidatorEnv
 		}
 	}
 	if (rt.Mode == RecoveryTestBuiltin || rt.BuiltinCheck != "") && out.RecoveryTest.Mode == RecoveryTestBuiltin && out.RecoveryTest.BuiltinCheck == BuiltinCheckOff {

@@ -117,8 +117,8 @@ test.describe("#1141 while the set's policy has not arrived", () => {
 for (const theme of ["light", "dark"] as const) {
   test(`#1141 the new words meet AA in the ${theme} theme`, async ({ page }) => {
     await open(page, "/backups", S, { wire: true });
-    await setTheme(page, theme);
     await expect(recovery(listRow(page, NEWEST)).getByTestId("recovery-untested")).toBeVisible();
+    await setTheme(page, theme);
     expect(await measureContrast(page, `list recovery chip, ${theme}`, '[data-claim="recovery"]')).toEqual([]);
     expect(await measureContrast(page, `NEW list note "No recovery test has run yet", ${theme}`, '[data-testid="recovery-untested"]')).toEqual([]);
     expect(await measureContrast(page, `NEW list link "Default configuration", ${theme}`, '[data-claim="recovery"] a.alink')).toEqual([]);

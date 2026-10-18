@@ -61,7 +61,6 @@ function slashIdSet(overrides: Partial<BackupSet> = {}): BackupSet {
     username: "backup-agent",
     remoteFolder: "/srv/backups/",
     includePatterns: [],
-    excludePatterns: [],
     completionMethod: "atomic-rename",
     stableForSeconds: 0,
     destination: "/data/backups/production/api-server/",

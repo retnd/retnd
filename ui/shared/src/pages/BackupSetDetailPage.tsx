@@ -26,7 +26,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import { fetchResource, useResource } from "@shared/state/resource";
 import { graph } from "@shared/state/graph";
@@ -991,6 +991,15 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
                 </button>
               </>
             ) : null}
+            {/* #1202: this set's backups are the Backups list filtered to
+                it, by the URL's own `set` parameter, so the list, its paging
+                and its selection are the ones that page already has. A
+                snapshot set's history is its Snapshots page, above. */}
+            {s.engine !== "kopia" ? (
+              <Link className="btn btn--edge" data-testid="set-backups-link" to={"/backups?set=" + encodeURIComponent(s.id)}>
+                Backups in this set
+              </Link>
+            ) : null}
             <InfoTooltip id="sets.detail.preview-retention" alignEnd>
               <button className="btn" disabled={readOnly} onClick={() => setPreviewOpen(true)}>Preview retention</button>
             </InfoTooltip>
@@ -1324,7 +1333,7 @@ export function BackupSetDetailPage({ readOnly }: { readOnly: boolean }) {
             <dl style={{ margin: 0, display: "grid", gridTemplateColumns: "172px 1fr", gap: "11px 16px", fontSize: 13 }}>
               <Row label="Remote folder" value={s.remoteFolder} mono tip="sets.detail.remote-folder" />
               <Row label="Include" value={s.includePatterns.join(", ") || "\u2014"} mono tip="sets.detail.include" />
-              <Row label="Exclude" value={s.excludePatterns.join(", ") || "\u2014"} mono tip="sets.detail.exclude" />
+              {/* No Exclude row (#930): exclude_paths is config-file-only and the wire does not carry it, so a row here could only ever be a dash. */}
               <Row
                 label="Completion method"
                 tip="sets.detail.completion-method"

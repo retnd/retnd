@@ -1,3 +1,4 @@
+import { expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
 /** Opens a path in the development build with the named mock scenario. */
@@ -37,7 +38,15 @@ export async function contrastReport(page: Page, selector: string) {
       const f = (v: number) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
       return 0.2126 * f(a[0]) + 0.7152 * f(a[1]) + 0.0722 * f(a[2]);
     };
-    const out: Array<{ text: string; ratio: number; need: number; fg: string; bg: string }> = [];
+    const out: Array<{ text: string; ratio: number; need: number; fg: string; bg: string; sel: string; t3: boolean }> = [];
+    const t3 = rgb(getComputedStyle(document.documentElement).getPropertyValue("--text-3")).slice(0, 3).join(",");
+    // A readable address for the element: its tag and classes, under the nearest
+    // ancestor that carries a data-testid (#1235: failures name selector + text).
+    const where = (el: Element) => {
+      const me = el.tagName.toLowerCase() + [...el.classList].slice(0, 3).map((k) => "." + k).join("") + (el.getAttribute("data-testid") ? "[data-testid=" + el.getAttribute("data-testid") + "]" : "");
+      const anc = el.parentElement?.closest("[data-testid]");
+      return (anc && anc !== el ? "[data-testid=" + anc.getAttribute("data-testid") + "] " : "") + me;
+    };
     document.querySelectorAll(sel + ", " + sel + " *").forEach((e) => {
       const own = [...e.childNodes].some((n) => n.nodeType === 3 && (n.textContent ?? "").trim());
       if (!own) return;
@@ -45,6 +54,9 @@ export async function contrastReport(page: Page, selector: string) {
       if (cs.visibility === "hidden" || cs.display === "none") return;
       // WCAG exempts inactive (disabled) components from the contrast minimum.
       if (e.closest(":disabled")) return;
+      // Text clipped to a pixel for screen readers (.visually-hidden) is not drawn.
+      const box = e.getBoundingClientRect();
+      if (box.width <= 1 && box.height <= 1) return;
       let bg: number[] | null = null;
       let bgNode: Element | null = null;
       for (let n: Element | null = e; n; n = n.parentElement) {
@@ -53,6 +65,7 @@ export async function contrastReport(page: Page, selector: string) {
       }
       if (!bg || !bgNode) return;
       let fg = rgb(cs.color);
+      const usesT3 = fg.slice(0, 3).join(",") === t3;
       // Opacity composites. A translucent element dims its own text toward the
       // fill it sits on, and a translucent ancestor of that fill dims the fill
       // and the text together toward whatever is behind it. Ignoring either is
@@ -79,7 +92,8 @@ export async function contrastReport(page: Page, selector: string) {
       const need = px >= 24 || (px >= 18.66 && parseInt(cs.fontWeight) >= 700) ? 3 : 4.5;
       out.push({
         text: (e.textContent ?? "").trim().slice(0, 40), ratio: Math.round(ratio * 100) / 100, need,
-        fg: fg.slice(0, 3).map(Math.round).join(","), bg: bg.slice(0, 3).map(Math.round).join(",")
+        fg: fg.slice(0, 3).map(Math.round).join(","), bg: bg.slice(0, 3).map(Math.round).join(","),
+        sel: where(e), t3: usesT3
       });
     });
     return out;
@@ -107,9 +121,32 @@ export async function measureContrast(page: Page, label: string, selector: strin
   return all.filter((m) => m.ratio < m.need).map((m) => m.text + " " + m.ratio.toFixed(2));
 }
 
-/** Sets the theme the way the app's own switch does. */
+/** Chooses the theme for every load this page makes from now on, before any
+ *  app script runs: it stores the preference the way the app's own switch
+ *  does, and index.html's pre-paint script turns that into `data-theme` on
+ *  the root before the first frame (#1236). Call it before `open`, and a
+ *  spec or a recording starts in the theme it asked for with no flash. */
+export async function preselectTheme(page: Page, theme: "light" | "dark") {
+  await page.addInitScript((t) => {
+    try { window.localStorage.setItem("retnd.theme", t); } catch { /* storage blocked: the attribute below still applies */ }
+  }, theme);
+}
+
+/** Sets the theme on a page that is already open, then checks it stuck.
+ *  It goes by the same two paths a load does: the stored preference (also
+ *  registered for any later load, via `preselectTheme`) and the root element's
+ *  attribute, which the app now respects instead of overwriting (#1236). It
+ *  lets the page settle for a couple of frames and asserts the attribute
+ *  (#1229), so a spec that calls it before the screen is up fails here
+ *  instead of measuring or recording the wrong theme. */
 export async function setTheme(page: Page, theme: "light" | "dark") {
-  await page.evaluate((t) => document.documentElement.setAttribute("data-theme", t), theme);
+  await preselectTheme(page, theme);
+  await page.evaluate((t) => {
+    try { window.localStorage.setItem("retnd.theme", t); } catch { /* blocked */ }
+    document.documentElement.setAttribute("data-theme", t);
+  }, theme);
+  await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(done, 150)))));
+  await expect(page.locator("html"), "setTheme(" + theme + ") did not stick: something reset it after boot").toHaveAttribute("data-theme", theme, { timeout: 1000 });
 }
 
 /** Navigates inside the running app without reloading it. The development

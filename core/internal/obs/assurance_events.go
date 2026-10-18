@@ -40,6 +40,16 @@ const (
 	// recovery_test action.
 	EventRecoveryTestStart = "recovery_test_start"
 	EventRecoveryTestEnd   = "recovery_test_end"
+
+	// EventRecoveryTestValidatorFallback says a custom validator's pattern
+	// matched the copy a recovery test was about and the test did not run
+	// its script (#1203).
+	EventRecoveryTestValidatorFallback = "recovery_test_validator_fallback"
+
+	// EventRecoveryTestValidatorEdited says a custom validator's script no
+	// longer hashes to the script_sha256 config.yaml pins, so the test ended
+	// could_not_complete without running it (#1222).
+	EventRecoveryTestValidatorEdited = "recovery_test_validator_edited"
 )
 
 // The action names the pairs above are bracketed under.
@@ -124,6 +134,55 @@ func (l *Logger) RecoveryEnd(ctx context.Context, opID, backupSet, artifact stri
 		EventRecoveryEnd, "recovery finished", attrs...)
 }
 
+// RecoveryTestValidatorFallback logs EventRecoveryTestValidatorFallback for
+// the test opID: validator matched artifact, and ran is what stood in for it.
+// The validator is named by id only; see validatorRef. It is a warning and
+// not an error because the test still has a verdict, from a check the
+// operator did not pick for this name.
+func (l *Logger) RecoveryTestValidatorFallback(ctx context.Context, opID, backupSet, artifact, validator, ran string) {
+	l.emitMarked(ctx, LevelWarn, mark{action: ActionRecoveryTest, actionID: opID},
+		EventRecoveryTestValidatorFallback,
+		"the custom validator matched but did not run: "+cleanReason(ran),
+		slog.String("op_id", opID),
+		slog.String("backup_set", backupSet),
+		slog.String("artifact", artifact),
+		slog.String("validator", validatorRef(validator)),
+		slog.String("ran", cleanReason(ran)),
+	)
+}
+
+// RecoveryTestValidatorEdited logs EventRecoveryTestValidatorEdited for the
+// test opID: the script of validator hashes to found and config.yaml pins
+// pinned. Both are hex digests, so they are safe in a line as they are; the
+// validator is named by id only (see validatorRef). It is a warning because
+// the file the operator approved is not the file that is there.
+func (l *Logger) RecoveryTestValidatorEdited(ctx context.Context, opID, backupSet, artifact, validator, pinned, found string) {
+	l.emitMarked(ctx, LevelWarn, mark{action: ActionRecoveryTest, actionID: opID},
+		EventRecoveryTestValidatorEdited,
+		"the custom validator's script was edited on disk and was not run",
+		slog.String("op_id", opID),
+		slog.String("backup_set", backupSet),
+		slog.String("artifact", artifact),
+		slog.String("validator", validatorRef(validator)),
+		slog.String("pinned_sha256", hexOnly(pinned)),
+		slog.String("found_sha256", hexOnly(found)),
+	)
+}
+
+// hexOnly is s when it is a plain lower-case hex string and "(withheld)" when
+// it is anything else, so a digest field never carries more than a digest.
+func hexOnly(s string) string {
+	if len(s) == 0 || len(s) > 128 {
+		return "(withheld)"
+	}
+	for _, r := range s {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return "(withheld)"
+		}
+	}
+	return s
+}
+
 // RecoveryTestStart logs EventRecoveryTestStart. The validator is named by
 // id only; see validatorRef.
 func (l *Logger) RecoveryTestStart(ctx context.Context, opID, backupSet, artifact, validatorID string) {
@@ -141,7 +200,12 @@ func (l *Logger) RecoveryTestStart(ctx context.Context, opID, backupSet, artifac
 }
 
 // RecoveryTestEnd logs EventRecoveryTestEnd for the test opID started.
-func (l *Logger) RecoveryTestEnd(ctx context.Context, opID, backupSet, artifact, validatorID string, d time.Duration, result Result, reason string) {
+// cancelled says the test was stopped by a cancel request; it rides on the
+// line as cancelled=true, because the result (warn) is the same for a test
+// that could not complete and the reason is words, not a field to branch on
+// (#1200). A test cut short by anything else, shutdown included, is not
+// cancelled.
+func (l *Logger) RecoveryTestEnd(ctx context.Context, opID, backupSet, artifact, validatorID string, d time.Duration, result Result, reason string, cancelled bool) {
 	attrs := []slog.Attr{
 		slog.String("op_id", opID),
 		slog.String("backup_set", backupSet),
@@ -151,6 +215,9 @@ func (l *Logger) RecoveryTestEnd(ctx context.Context, opID, backupSet, artifact,
 	}
 	if reason != "" {
 		attrs = append(attrs, slog.String("reason", cleanReason(reason)))
+	}
+	if cancelled {
+		attrs = append(attrs, slog.Bool("cancelled", true))
 	}
 	l.emitMarked(ctx, result.Level(), mark{result: result, action: ActionRecoveryTest, actionID: opID},
 		EventRecoveryTestEnd, "recovery test finished", attrs...)

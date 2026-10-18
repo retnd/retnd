@@ -111,9 +111,12 @@ export interface ArtifactAssurance {
 
 export type OperationKind = "scrub" | "recovery_test" | "recovery";
 /** `untracked` is a run this page started and can no longer see: the live
- *  feed that carried its lines has dropped them. It is NOT a verdict. The
- *  chip the run feeds is where the result lands. */
-export type OperationState = "running" | "complete" | "failed" | "cancelled" | "untracked";
+ *  feed that carried its lines has dropped them and the durable record holds
+ *  nothing of it either. It is NOT a verdict. The chip the run feeds is where
+ *  the result lands. `unfinished` is a run the durable record holds with no
+ *  end line that nothing is running any more: the process running it stopped
+ *  before it ended (#1200). Not a verdict either. */
+export type OperationState = "running" | "complete" | "failed" | "cancelled" | "untracked" | "unfinished";
 
 export interface OperationEvent {
   /** Strictly increasing per operation; the key reconnects deduplicate on. */

@@ -23,12 +23,12 @@
  * rather than threading both through the select is the small price of
  * keeping every picker on this page keyed the same way.
  */
-import { useEffect, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { useApi } from "@shared/api/ApiContext";
 import { useAsync } from "@shared/hooks/useAsync";
 import { useCausl } from "@shared/state/graph";
-import { setsNode } from "@shared/state/appNodes";
+import { healthNode, setsNode } from "@shared/state/appNodes";
 import { PageHeader } from "@shared/components/PageHeader";
 import { FieldHelp } from "@shared/components/FieldHelp";
 import { FIELD_HELP } from "@shared/components/fieldHelpCopy";
@@ -46,7 +46,7 @@ import { RetentionPreviewDialog } from "./RetentionPreviewDialog";
 import { bytes, stamp } from "@shared/utilities/format";
 import { useHoverTitle } from "@shared/hooks/useTooltips";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
-import { artifactPath } from "@shared/utilities/routes";
+import { artifactPath, backupSetPath } from "@shared/utilities/routes";
 import type { BackupArtifact } from "@shared/types/backup";
 import type { RunTarget } from "@shared/assurance/recoverMany";
 import { BackupsSelectionBar } from "./BackupsSelectionBar";
@@ -60,13 +60,32 @@ import type { StepUpOptions } from "@shared/api/contracts";
 import { inReceivedRange, unselectableReason } from "./backupSelection";
 import { PAGE_SIZES, allOffered, isPageSize, pageWindow, readPageSize, rememberPageSize } from "./backupsPaging";
 import type { PageChoice, PageSize } from "./backupsPaging";
+import { ActionMenu } from "@shared/components/ActionMenu";
+import type { OpenAt } from "@shared/components/ActionMenu";
+import { CommandEcho } from "./CommandEcho";
+import { RecoverArtifactDialog } from "@shared/assurance/RecoverArtifact";
+import { useDestructiveGate } from "@shared/hooks/useDestructiveGate";
+import type { AssuranceApi } from "@shared/assurance/types";
+import type { BackupFacts } from "@shared/assurance/verificationModel";
+import { MenuRuns } from "./BackupRowActions";
+import { rowMenuGroups, setFilterEcho } from "./backupRowMenu";
+import type { MenuRun } from "./backupRowMenu";
+import { useBatchedSearchParams } from "./useBatchedSearchParams";
+import { useRowMenuRuns } from "./useRowMenuRuns";
 
 /** Called "Backups", never "Restore points" — the product does not perform
  *  application restore (§13). */
 export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   const api = useApi();
   const navigate = useNavigate();
-  const [setFilter, setSetFilter] = useState("");
+  // Issue #1202: the set filter is the URL's `set` parameter, so the set
+  // page's link, a reload and a pasted address all land on the same list.
+  // Every other parameter on the URL is kept as it is.
+  // Edits go through the batching hook: two in one tick both land.
+  const [params, patchParams] = useBatchedSearchParams();
+  const setFilter = params.get("set") ?? "";
+  const setSetFilter = (v: string) =>
+    patchParams((n) => { if (v) n.set("set", v); else n.delete("set"); }, { replace: true });
   const [previewFor, setPreviewFor] = useState<string | null>(null);
   // Issue #1107. Received-on-or-after / before bounds, as yyyy-mm-dd.
   const [after, setAfter] = useState("");
@@ -136,14 +155,38 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   // disabled state and no pop-up, which is what they asked for.
   const hoverTitle = useHoverTitle();
 
+  // Issue #1202: the row menus. One open at a time, keyed by backup.
+  const [menu, setMenu] = useState<{ id: string; at: OpenAt } | null>(null);
+  // The dialog hands focus back to whatever held it when it opened, and the
+  // menu has put it back on the row's Actions button by then.
+  const [recoverFor, setRecoverFor] = useState<string | null>(null);
+  const gate = useDestructiveGate();
+  const toggle = useStable((id: string, on: boolean) => {
+    setNotice("");
+    setPicked((cur) => { const n = new Set(cur); if (on) n.add(id); else n.delete(id); return n; });
+  });
+  const closeMenu = useCallback(() => setMenu(null), []);
+  const openMenu = useCallback((id: string, at: OpenAt) => setMenu({ id, at }), []);
+  const openRecover = useStable((id: string) => setRecoverFor(id));
+
   // The shared sets node (App.tsx fetches it once, #106) — not this page's
   // own listSets() call. App.tsx always mounts above every route, so the
   // node is already populated by the time this page can render.
   const sets = useCausl(setsNode);
   const artifacts = useAsync(() => api.listArtifacts(setFilter || undefined), [api, setFilter]);
+  // What the row menus started (#1202), and the handlers that start it.
+  const rowRuns = useRowMenuRuns({ api, gate, onRetried: artifacts.reload });
+  const goTo = useStable((a: BackupArtifact) => navigate(artifactPath(a.id)));
+  const startTest = useStable((a: BackupArtifact) => void rowRuns.test(a));
+  const startScrub = useStable((a: BackupArtifact) => void rowRuns.scrub(a));
+  const startRetry = useStable((a: BackupArtifact) => void rowRuns.retry(a));
   // Adjusted while rendering rather than in an effect: it is derived from the
   // list and has nothing outside React to synchronise with.
   const unfilteredCount = !setFilter && artifacts.data ? artifacts.data.length : null;
+  // A page that ARRIVES filtered (#1202) has not seen the unfiltered list, so
+  // it asks the health report how many the deployment holds rather than
+  // offering "All" off the narrowed count.
+  const retained = useCausl(healthNode).data?.retainedCount ?? null;
   if (unfilteredCount !== null && unfilteredCount !== held) setHeld(unfilteredCount);
   // EPIC Q (issue #985): the three assurance claims per backup, read from the
   // verification model (issue #1134) like every other surface that shows them,
@@ -155,7 +198,6 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   const tally = useTally();
   // The Dashboard's counts link here as ?assurance=<bucket>, and the filter
   // is the same definition the count is made of (claims.bucketsOf).
-  const [params, setParams] = useSearchParams();
   const asked = params.get("assurance");
   const bucket: Bucket | null = (BUCKETS as readonly string[]).includes(asked ?? "") ? (asked as Bucket) : null;
   // previewFor is the flat BackupSet.id the <select> below is keyed by
@@ -164,6 +206,9 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   // BackupSet.source/set's own doc), so this resolves the one from the
   // other.
   const previewSet = previewFor ? (sets.data ?? []).find((s) => s.id === previewFor) : null;
+  const filteredSet = setFilter ? (sets.data ?? []).find((s) => s.id === setFilter) ?? null : null;
+  // The `set` value comes from the address, so what is echoed is checked first.
+  const setEcho = setFilterEcho(setFilter, sets.data);
 
   // #275: nothing to list, and nothing wrong either.
   if (isNotConfigured(artifacts.error))
@@ -190,14 +235,11 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   // and nothing else: the ticked set is always read back through `rows`.
   const selectable = rows.filter((a) => unselectableReason(a) === null);
   const ticked = selectable.filter((a) => picked.has(a.id));
-  const toggle = (id: string, on: boolean) => {
-    setNotice("");
-    setPicked((cur) => { const n = new Set(cur); if (on) n.add(id); else n.delete(id); return n; });
-  };
   const allTicked = selectable.length > 0 && ticked.length === selectable.length;
   const selectAll = () => { setNotice(""); setPicked(new Set(selectable.map((a) => a.id))); };
   // One page of the filtered list. Select-all above reads `rows`, never this.
-  const offerAll = allOffered(held ?? fetched.length);
+  const known = held ?? (setFilter ? retained : fetched.length);
+  const offerAll = known !== null && allOffered(known);
   const effective: PageChoice = choice === "all" && !offerAll ? remembered : choice;
   const win = pageWindow(rows.length, effective, pageAt);
   const shown = rows.slice(win.start, win.end);
@@ -249,6 +291,12 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
                   {(sets.data ?? []).map((s) => (
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
+                  {/* A link can name a set this deployment no longer
+                      configures, whose backups are still listed (#523). The
+                      dropdown says the id rather than quietly showing "All". */}
+                  {setFilter && sets.data && !sets.data.some((s) => s.id === setFilter) ? (
+                    <option value={setFilter}>{setFilter}</option>
+                  ) : null}
                 </select>
               )}
             </FieldHelp>
@@ -324,11 +372,31 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
           <span role="status" data-testid="assurance-filter-status">
             {"Showing " + rows.length + " of " + inRange.length + " backups " + bucketPhrase(bucket as Bucket)}
           </span>
-          <button className="btn btn--sm" onClick={() => changeFilter(() => setParams((p) => { const n = new URLSearchParams(p); n.delete("assurance"); return n; }))}>
+          <button className="btn btn--sm" onClick={() => changeFilter(() => patchParams((n) => { n.delete("assurance"); }, { replace: true }))}>
             Show all backups
           </button>
         </div>
       ) : null}
+      {setFilter && artifacts.data && !artifacts.loading ? (
+        <div data-testid="set-filter-status" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", margin: "0 0 10px", fontSize: "var(--text-sm)", color: "var(--text-2)" }}>
+          <span role="status">
+            {"Showing " + rows.length + (rows.length === 1 ? " backup in " : " backups in ")}
+            <span className="setchip">
+              <span>{filteredSet?.name ?? fetched[0]?.setName ?? setFilter}</span>
+              <button type="button" className="setchip__clear" aria-label="Show all backup sets" onClick={() => changeFilter(() => setSetFilter(""))}>
+                <span aria-hidden="true">{"\u00d7"}</span>
+              </button>
+            </span>
+          </span>
+          {filteredSet ? (
+            <Link className="setchip__back" to={backupSetPath(filteredSet.source, filteredSet.set)}>{"Back to the " + filteredSet.name + " set"}</Link>
+          ) : null}
+          {setEcho ? <span style={{ flexBasis: "100%" }} data-assurance="">
+            <CommandEcho label="Same list from the terminal" commands={[setEcho]} />
+          </span> : null}
+        </div>
+      ) : null}
+      <MenuRuns runs={rowRuns.runs} assurance={api.assurance} readOnly={readOnly} onState={rowRuns.onState} onDismiss={rowRuns.dismiss} />
       {!artifacts.data || artifacts.loading ? null : rows.length === 0 && fetched.length > 0 ? (
         <EmptyState title="No backups in that range">
           Nothing was received between those dates. Clear a date to widen the list.
@@ -341,7 +409,7 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
         <div className="card">
           {/* A small app window must never hide a column (§31). */}
           <div className="table-scroll">
-            <table className="table" style={{ minWidth: 1020 }}>
+            <table className="table" style={{ minWidth: 1100 }}>
               <caption className="eyebrow" style={{ textAlign: "left", padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
                 <InfoTooltip id="backups.table"><span>Retained backups</span></InfoTooltip>
               </caption>
@@ -372,55 +440,30 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
                   <th scope="col"><InfoTooltip id="backups.col.retention"><span>Retention</span></InfoTooltip></th>
                   {showsMedium ? <th scope="col"><InfoTooltip id="backups.col.medium"><span>Medium</span></InfoTooltip></th> : null}
                   <th scope="col"><InfoTooltip id="backups.col.status"><span>Status</span></InfoTooltip></th>
+                  <th scope="col" className="actcell"><span className="visually-hidden">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
                 {shown.map((a) => (
-                  <tr
+                  <BackupRow
                     key={a.id}
-                    // Through the builder, never by concatenation: an
-                    // artifact id spans three path segments and each one
-                    // has to be escaped on its own (issue #677).
-                    onClick={() => navigate(artifactPath(a.id))}
-                    style={{ cursor: "pointer" }}
-                    data-selected={picked.has(a.id) && unselectableReason(a) === null ? "true" : undefined}
-                  >
-                    {canRecover ? (
-                      <td className="selcell" onClick={(e) => e.stopPropagation()}>
-                        <SelectBox artifact={a} on={picked.has(a.id)} onChange={(v) => toggle(a.id, v)} />
-                      </td>
-                    ) : null}
-                    <td className="mono" style={{ whiteSpace: "nowrap", color: "var(--text-2)" }}>
-                      {stamp(a.receivedAt)}
-                    </td>
-                    <td>{a.setName}</td>
-                    <td className="mono" style={{ fontSize: "var(--text-sm)" }}>
-                      {a.filename}
-                      {/* The old Validation column drew a green "Verified" for an ingest-time
-                          check, beside the three claims that say what is known now. That column
-                          is retired. A validation that FAILED is still worth saying, and is
-                          said as the failure it is, in the danger colour, never as a pass. */}
-                      {a.validation === "failed" ? (
-                        <div style={{ color: "var(--danger)", fontFamily: "var(--font-sans, inherit)" }}>
-                          <span aria-hidden="true" style={{ display: "inline-flex", verticalAlign: "middle", marginRight: 4 }}>
-                            <Icon name="warning" />
-                          </span>
-                          Failed validation
-                        </div>
-                      ) : null}
-                    </td>
-                    <td className="mono" style={{ textAlign: "right", whiteSpace: "nowrap" }}>{bytes(a.sizeBytes)}</td>
-                    <td>
-                      <ClaimChips facts={facts.byArtifact[a.id]} available={!!api.assurance && !facts.error} />
-                    </td>
-                    <td><RetentionCell artifact={a} /></td>
-                    {showsMedium ? (
-                      <td style={{ whiteSpace: "nowrap" }}><MediumCell artifact={a} /></td>
-                    ) : null}
-                    <td style={{ fontSize: "var(--text-sm)", color: "var(--text-2)", whiteSpace: "nowrap" }}>
-                      {a.remoteSourceRemovedAt ? "Remote source removed" : "Remote source retained"}
-                    </td>
-                  </tr>
+                    a={a}
+                    canRecover={canRecover}
+                    showsMedium={showsMedium}
+                    ticked={picked.has(a.id)}
+                    facts={facts.byArtifact[a.id]}
+                    claimsAvailable={!!api.assurance && !facts.error}
+                    menuAt={menu?.id === a.id ? menu.at : null}
+                    menuCtx={menu?.id === a.id ? { readOnly, assurance: api.assurance, facts: facts.byArtifact[a.id], runs: rowRuns.runs } : null}
+                    onOpenBackup={goTo}
+                    onToggle={toggle}
+                    onOpenMenu={openMenu}
+                    onCloseMenu={closeMenu}
+                    onRecover={openRecover}
+                    onTest={startTest}
+                    onScrub={startScrub}
+                    onRetry={startRetry}
+                  />
                 ))}
               </tbody>
             </table>
@@ -502,12 +545,149 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
         />
       ) : null}
 
+      {recoverFor ? (
+        <RecoverArtifactDialog
+          artifactId={recoverFor}
+          onClose={() => setRecoverFor(null)}
+        />
+      ) : null}
+
       {previewSet ? (
         <RetentionPreviewDialog source={previewSet.source} set={previewSet.set} open onClose={() => setPreviewFor(null)} />
       ) : null}
     </>
   );
 }
+
+/** A function whose identity never changes and which always calls the latest
+ *  `fn`, so a memoised row is not re-rendered by a handler closing over this
+ *  render's state. */
+function useStable<A extends unknown[], R>(fn: (...args: A) => R): (...args: A) => R {
+  const latest = useRef(fn);
+  useEffect(() => { latest.current = fn; });
+  return useCallback((...args: A) => latest.current(...args), []);
+}
+
+/** What the open row's menu needs to decide its items. Only the row whose menu
+ *  is open is given one, so the other rows' props do not change when a run
+ *  starts or ends and they are not drawn again. */
+interface RowMenuCtx {
+  readOnly: boolean;
+  assurance: AssuranceApi | undefined;
+  facts: BackupFacts | undefined;
+  runs: MenuRun[];
+}
+
+const NO_GROUPS: never[] = [];
+
+/** One row of the table. Memoised: the page re-renders on every operation poll
+ *  and a table of a hundred rows should not be rebuilt each time (#1202). */
+const BackupRow = memo(function BackupRow({
+  a, canRecover, showsMedium, ticked, facts, claimsAvailable, menuAt, menuCtx,
+  onOpenBackup, onToggle, onOpenMenu, onCloseMenu, onRecover, onTest, onScrub, onRetry
+}: {
+  a: BackupArtifact;
+  canRecover: boolean;
+  showsMedium: boolean;
+  ticked: boolean;
+  facts: BackupFacts | undefined;
+  claimsAvailable: boolean;
+  menuAt: OpenAt | null;
+  menuCtx: RowMenuCtx | null;
+  onOpenBackup(a: BackupArtifact): void;
+  onToggle(id: string, on: boolean): void;
+  onOpenMenu(id: string, at: OpenAt): void;
+  onCloseMenu(): void;
+  onRecover(id: string): void;
+  onTest(a: BackupArtifact): void;
+  onScrub(a: BackupArtifact): void;
+  onRetry(a: BackupArtifact): void;
+}) {
+  const open = menuAt !== null;
+  return (
+    <tr
+      // Through the builder, never by concatenation: an artifact id spans
+      // three path segments and each one has to be escaped on its own
+      // (issue #677).
+      onClick={() => onOpenBackup(a)}
+      // #1202: Shift+F10 or the context-menu key anywhere in the row opens the
+      // row's Actions menu. A right-click is the browser's own everywhere but
+      // the Actions cell (below), so a file name can still be copied.
+      onKeyDown={(e) => {
+        if ((e.key === "F10" && e.shiftKey) || e.key === "ContextMenu") { e.preventDefault(); onOpenMenu(a.id, "first"); }
+      }}
+      style={{ cursor: "pointer" }}
+      data-selected={ticked && unselectableReason(a) === null ? "true" : undefined}
+      data-menu-open={open ? "true" : undefined}
+    >
+      {canRecover ? (
+        <td className="selcell" onClick={(e) => e.stopPropagation()}>
+          <SelectBox artifact={a} on={ticked} onChange={(v) => onToggle(a.id, v)} />
+        </td>
+      ) : null}
+      <td className="mono" style={{ whiteSpace: "nowrap", color: "var(--text-2)" }}>
+        {stamp(a.receivedAt)}
+      </td>
+      <td>{a.setName}</td>
+      <td className="mono" style={{ fontSize: "var(--text-sm)" }}>
+        {a.filename}
+        {/* The old Validation column drew a green "Verified" for an ingest-time
+            check, beside the three claims that say what is known now. That column
+            is retired. A validation that FAILED is still worth saying, and is
+            said as the failure it is, in the danger colour, never as a pass. */}
+        {a.validation === "failed" ? (
+          <div style={{ color: "var(--danger)", fontFamily: "var(--font-sans, inherit)" }}>
+            <span aria-hidden="true" style={{ display: "inline-flex", verticalAlign: "middle", marginRight: 4 }}>
+              <Icon name="warning" />
+            </span>
+            Failed validation
+          </div>
+        ) : null}
+      </td>
+      <td className="mono" style={{ textAlign: "right", whiteSpace: "nowrap" }}>{bytes(a.sizeBytes)}</td>
+      <td>
+        <ClaimChips facts={facts} available={claimsAvailable} />
+      </td>
+      <td><RetentionCell artifact={a} /></td>
+      {showsMedium ? (
+        <td style={{ whiteSpace: "nowrap" }}><MediumCell artifact={a} /></td>
+      ) : null}
+      <td style={{ fontSize: "var(--text-sm)", color: "var(--text-2)", whiteSpace: "nowrap" }}>
+        {a.remoteSourceRemovedAt ? "Remote source removed" : "Remote source retained"}
+      </td>
+      {/* The trigger's cell never navigates: the row's click is stopped here,
+          like the checkbox cell's. It is also the one cell whose right-click
+          is taken over, to open the menu. */}
+      <td
+        className="actcell"
+        data-row-actions=""
+        onClick={(e) => e.stopPropagation()}
+        onContextMenu={(e) => { e.preventDefault(); onOpenMenu(a.id, "first"); }}
+      >
+        <ActionMenu
+          label={"Actions for " + a.filename}
+          open={open}
+          openAt={menuAt ?? undefined}
+          onOpen={(at) => onOpenMenu(a.id, at)}
+          onClose={onCloseMenu}
+          rootProps={ASSURANCE_ROOT}
+          groups={menuCtx ? () => rowMenuGroups(a, {
+            ...menuCtx,
+            onRecover: () => onRecover(a.id),
+            onTest: () => onTest(a),
+            onScrub: () => onScrub(a),
+            onRetry: () => onRetry(a),
+            onOpen: () => onOpenBackup(a)
+          }) : NO_GROUPS}
+        />
+      </td>
+    </tr>
+  );
+});
+
+/** The pop-up is portalled out of the page's assurance scope (assurance.css
+ *  keys on the attribute), so it carries the attribute itself. */
+const ASSURANCE_ROOT = { "data-assurance": "" } as const;
 
 /** One row's checkbox. A row that cannot be recovered is disabled and the
  *  reason is attached to the control, so a screen reader hears it and a

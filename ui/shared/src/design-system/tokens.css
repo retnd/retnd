@@ -26,17 +26,23 @@
   --border: #e0dfdc;
   --border-strong: #c8c7c3;
   /* The edge of a control that has to be found by its edge (a text box, a
-     bordered list). WCAG asks 3:1 against what it sits on, and
-     --border-strong is 1.69:1 (light) and 1.81:1 (dark) on --surface, so
-     these take the tertiary ink: 3.35:1 and 3.85:1. Defined once and
-     following --text-3 into the dark theme, so the next contrast fix lands
-     on every control that uses it. */
-  --control-edge: var(--text-3);
+     bordered list), and the fill of a bar. WCAG asks 3:1 against what it sits
+     on, and --border-strong is 1.69:1 (light) and 1.81:1 (dark) on --surface.
+     --edge-3 is the ink for that job and for nothing else: 3.35:1 and 3.85:1
+     on --surface. It is the value --text-3 had before #1235 moved the text
+     token to 4.5:1, so every edge drawn with it looks exactly as it did.
+     --control-edge follows it, so the next contrast fix to the edge lands on
+     every control that uses it. */
+  --edge-3: #8b8d8a;
+  --control-edge: var(--edge-3);
 
   /* text */
   --text: #191a19;
   --text-2: #5b5d5b;
-  --text-3: #8b8d8a;
+  /* Tertiary TEXT, #1235: 4.5:1 or better on every surface and tint text sits
+     on (5.38:1 on --surface, 4.80:1 on --bg, 4.62:1 on --danger-quiet), still
+     weaker than --text-2 (6.64:1). Edges and fills use --edge-3 instead. */
+  --text-3: #696b68;
 
   /* accent — provider overridable */
   --platform-accent: oklch(0.52 0.09 255);
@@ -61,7 +67,8 @@
      needs regardless of what the page around it is doing. */
   --term-bg: #14150f;
   --term-text: #d7d9d2;
-  --term-time: #6f736a;
+  --term-time: #868b80;
+  --term-accent: oklch(0.70 0.09 255);
   --term-info: #9aa39b;
   --term-ok: oklch(0.72 0.11 155);
   --term-warn: oklch(0.78 0.12 75);
@@ -83,7 +90,9 @@
   --border-strong: #454745;
   --text: #eceeeb;
   --text-2: #a3a6a2;
-  --text-3: #767976;
+  /* 5.80:1 on --surface, 6.37:1 on --bg, 4.65:1 on --accent-quiet, the worst. */
+  --text-3: #959892;
+  --edge-3: #767976;
   --platform-accent: oklch(0.70 0.09 255);
   --accent-quiet: oklch(0.30 0.045 255);
   --ok: oklch(0.72 0.11 155);      --ok-quiet: oklch(0.28 0.05 155);
