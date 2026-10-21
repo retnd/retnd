@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -331,6 +332,63 @@ func TestRecoverSetNewestOnlyAndSinceNarrowTheSet(t *testing.T) {
 	}
 	if res.Totals.Recovered != 2 {
 		t.Fatalf("since recovered %+v", res.Totals)
+	}
+}
+
+// Issue #1251: Until is the upper bound Since was missing, at or before the
+// moment, so a range is the two together; with NewestOnly the newest restore
+// point is the newest inside the range, and without a set it is refused like
+// the other two.
+func TestIssue1251_RecoverSetUntilNarrowsTheSet(t *testing.T) {
+	seed := func(f *recoveryFixture) {
+		f.seedMany(t,
+			manyFile{name: "old.zst", data: manyData(1, 1000), age: 10 * 24 * time.Hour},
+			manyFile{name: "mid.zst", data: manyData(2, 1000), age: 3 * 24 * time.Hour},
+			manyFile{name: "new.zst", data: manyData(3, 1000), age: time.Hour},
+		)
+	}
+	names := func(items []RecoverManyItem) string {
+		var out []string
+		for _, it := range items {
+			out = append(out, it.Name)
+		}
+		sort.Strings(out)
+		return strings.Join(out, ",")
+	}
+
+	f := newRecoveryFixture(t, fixtureOpts{})
+	seed(f)
+	req := setReq("u")
+	req.Until = time.Now().Add(-2 * 24 * time.Hour)
+	plan, err := f.b.PlanRecoverMany(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := names(plan.Items); got != "mid.zst,old.zst" {
+		t.Fatalf("until planned %s, want mid.zst,old.zst", got)
+	}
+
+	req.Since = time.Now().Add(-5 * 24 * time.Hour)
+	if plan, err = f.b.PlanRecoverMany(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if got := names(plan.Items); got != "mid.zst" {
+		t.Fatalf("since and until planned %s, want mid.zst", got)
+	}
+
+	req = setReq("n")
+	req.NewestOnly, req.Until = true, time.Now().Add(-2*24*time.Hour)
+	if plan, err = f.b.PlanRecoverMany(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if got := names(plan.Items); got != "mid.zst" {
+		t.Fatalf("newest-only with until planned %s, want the newest inside the range, mid.zst", got)
+	}
+
+	ids := f.seedMany(t, manyFile{name: "x.zst", data: manyData(4, 10), age: time.Minute})
+	_, err = f.b.PlanRecoverMany(context.Background(), RecoverManyRequest{Artifacts: ids, Until: time.Now(), Target: stagingTo("x")})
+	if !errors.Is(err, ErrRecoverManyInvalid) {
+		t.Fatalf("until without a set = %v, want ErrRecoverManyInvalid", err)
 	}
 }
 
