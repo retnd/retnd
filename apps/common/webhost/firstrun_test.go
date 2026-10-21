@@ -52,9 +52,15 @@ type fakeFirstRun struct {
 	probed      string
 	activated   int
 	activateErr error
+
+	// deploymentID is what the first-run surface names its deployment as
+	// (#1254); empty is a surface that cannot name one.
+	deploymentID string
 }
 
 func (f *fakeFirstRun) Configured() bool { return f.configured }
+
+func (f *fakeFirstRun) DeploymentID() string { return f.deploymentID }
 
 // The looking half of the setup surface (#592). A first-run instance has
 // no configuration, so nothing can be USING a key, but it does have a
