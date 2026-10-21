@@ -3115,13 +3115,14 @@ services:
 
       # EPIC L (#808, #809): the hook scripts, the door to the host
       # runner, and the credential that door requires. Three mounts, and
-      # the differences between them are the whole security argument.
+      # the differences between them are the whole security argument,
+      # plus the two validator directories at the end (#1246).
       #
       # The scripts are READ-ONLY. This container plans a workflow — it
       # reads each script once, hashes it and copies it into its own
       # private spool under /data/state, and never opens the original
       # again — so write access here would buy nothing and would let a
-      # compromised engine edit what the host is about to execute.
+      # compromised engine edit the hook scripts an operator put there.
       #
       # The runtime directory is writable because it holds a SOCKET, and
       # connecting to a Unix socket is a write. It is the ONLY way into
@@ -3171,9 +3172,26 @@ services:
       # .env predates EPIC L still starts. `./` resolves beside this
       # file, which is the installation prefix, and is where the
       # installer creates them.
+      #
+      # The last two are custom recovery-test validators (#1203, #1246),
+      # and they are WRITABLE on purpose. Unlike a hook script, which an
+      # operator writes and this container only reads, a validator is
+      # written BY this engine: it is uploaded through the API (behind the
+      # destructive gate and a password) and pinned by hash in
+      # config.yaml, which this container already writes. Under the
+      # read-only tree above it was refused on every install. Mounting
+      # just these two directories over it keeps the hook scripts
+      # read-only, and the engine still cannot touch a stage directory
+      # an operator configured. The second is where a removed validator's
+      # script is moved rather than deleted. Both sit inside the
+      # workflows directory on the host, where the host runner and an
+      # operator's backups expect them, and the installer creates them
+      # 0700 before the first `up` so Docker does not make them as root.
       - ${WORKFLOWS_DIR:-./workflows}:/workflows:ro
       - ${RUNTIME_DIR:-./run}:/data/run
       - ${RUNNER_TOKEN_FILE:-./secrets/workflow-runner.token}:/etc/retnd/workflow-runner.token:ro
+      - ${WORKFLOWS_DIR:-./workflows}/recovery-test-validators:/workflows/recovery-test-validators
+      - ${WORKFLOWS_DIR:-./workflows}/recovery-test-validators.superseded:/workflows/recovery-test-validators.superseded
 
     # `unless-stopped`: restart across crashes and NAS reboots, but stay
     # down if an operator deliberately stops it — the right policy now that
@@ -3387,7 +3405,7 @@ services:
 """
 
 # Written by scripts/install/embed_compose.py alongside the blob above.
-EMBEDDED_COMPOSE_SHA256 = "ff83ed975be6d5d0eea4df8c7d4b635da7cf2c34c723000a493e0993b65d5296"
+EMBEDDED_COMPOSE_SHA256 = "95a0b6eec86008a19cdacb5d7938d6b92408bba2e48da880cefb6235e5f23aab"
 
 
 def embedded_compose_bytes() -> bytes:
@@ -3522,9 +3540,11 @@ def warn_about_writable_ancestors(path: Path, stop_at: Path) -> list:
 # the runner creates and removes trees in. This section is everything the
 # installer does about it, and what it deliberately does not do:
 #
-#   * it never adds a capability, a mount or a privilege to the engine.
-#     The engine gains exactly two bind mounts, one of them read-only,
-#     and distribution/compose's gates still pass unchanged.
+#   * it never adds a capability or a privilege to the engine. The
+#     engine's mounts for this are the read-only script tree, the
+#     runtime directory, the read-only runner token and (#1246) the two
+#     custom validator directories under the script tree, and
+#     distribution/compose's gates hold each one to its write mode.
 #   * it never creates a user account. Account creation differs on every
 #     platform this product targets (DSM, OMV, Proxmox, TrueNAS, a plain
 #     systemd host), and an installer that invented one would be making a
@@ -3539,6 +3559,16 @@ def warn_about_writable_ancestors(path: Path, stop_at: Path) -> list:
 # the runtime does.
 CONTAINER_WORKFLOWS_DIR = "/workflows"
 CONTAINER_RUNTIME_DIR = "/data/run"
+
+# VALIDATOR_DIRS are the two directories under the workflows directory that
+# the engine WRITES (#1246): custom recovery-test validators, and the
+# sibling their scripts are moved into when they leave. The script tree is
+# mounted read-only, so the compose file mounts these two writable on their
+# own, and they are created here first so the mount lands on a directory
+# this installer made rather than one Docker made as root. The names are
+# core/internal/config's CustomValidatorDir and core/service's
+# supersededSuffix.
+VALIDATOR_DIRS = ("recovery-test-validators", "recovery-test-validators.superseded")
 
 # CONTAINER_RUNNER_TOKEN is where the runner's credential is bound inside
 # the engine, and it is a FIXED path rather than a derived one for the
@@ -4502,6 +4532,10 @@ def stage_payload(args) -> None:
     # with whatever mode it feels like. Creating them first, 0700, is how
     # the mount lands on a directory this installer owns.
     make_secure_dir(args.workflows_dir)
+    # #1246: the two validator directories are mounted writable over the
+    # read-only tree, so they are staged for the same reason the tree is.
+    for name in VALIDATOR_DIRS:
+        make_secure_dir(args.workflows_dir / name)
     make_secure_dir(args.runtime_dir)
     # The workspace is NOT mounted, and that is the point of it being a
     # separate directory: the runtime directory is bound into the engine
@@ -4921,6 +4955,12 @@ def cmd_install(args) -> int:
     # it used to live, every path it looked at was absent on a fresh
     # install and the whole thing was a no-op.
     prepare_engine_config_dirs(args)
+
+    # Before the stack comes up, because the engine reads config.yaml when
+    # it starts. An upgrade has already stopped it (prepare_for_mode), so
+    # nothing else is writing the file. A fresh install has no file yet and
+    # this does nothing.
+    fill_workflow_root(args)
 
     if args.image_archive is not None:
         say(f"==> Loading {args.image_archive}")
@@ -6926,6 +6966,48 @@ def rewrite_persisted_config(args):
         say(f"     {change}")
     replace_file_atomically(path, rewritten, mode=path.stat().st_mode & 0o777)
     return original, changes
+
+
+# A top-level `workflows:` key, at the start of a line. A commented-out one
+# starts with `#` and is not matched, and a nested key is indented.
+WORKFLOWS_KEY = re.compile(r"^workflows\s*:", re.MULTILINE)
+
+
+def fill_workflow_root(args) -> bool:
+    """Write the workflow root into an installed config.yaml that says
+    nothing about workflows (#1246). Returns whether it wrote.
+
+    The compose file has always mounted <prefix>/workflows at /workflows,
+    and nothing told the engine: a config.yaml with no workflows block has
+    no root, so custom validators refused with "no workflow root is
+    configured" and no hook could run, on every deployment that never ran
+    `settings workflow patch --root`. The engine now falls back to
+    /workflows when it is mounted, and this makes the file say the same
+    thing, so what an operator reads in config.yaml is what the deployment
+    does.
+
+    Only a file with no top-level `workflows:` key at all. A block that is
+    there is the operator's, including `disabled: true`, which is how a
+    cleared root is written down, and is left exactly as it is. No file
+    means a deployment whose first config.yaml has not been written yet,
+    and that is the engine's to write (#1049), not this installer's.
+
+    Appended as text rather than re-serialised, so the operator's own
+    layout and comments are untouched, through the same atomic replace as
+    every other write this installer makes to the file.
+    """
+    path = args.config_dir / "config.yaml"
+    if not path.is_file():
+        return False
+    original = path.read_text(encoding="utf-8")
+    if WORKFLOWS_KEY.search(original):
+        return False
+    text = original if original.endswith("\n") or not original else original + "\n"
+    text += f"workflows:\n  root: {CONTAINER_WORKFLOWS_DIR}\n"
+    say(f"==> {path} names no workflow root; writing workflows.root: {CONTAINER_WORKFLOWS_DIR}, "
+        "the directory this deployment mounts there")
+    replace_file_atomically(path, text, mode=path.stat().st_mode & 0o777)
+    return True
 
 
 def rename_runner_binaries(args) -> list:

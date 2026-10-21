@@ -417,7 +417,7 @@ func (b *BackupService) ValidateWorkflow(ctx context.Context, id string) (Workfl
 			// this report to give and a reader must not have to know
 			// that it is always true today to interpret the other half.
 			ValidForBackup: true,
-			Root:           cfg.Workflows.Root,
+			Root:           cfg.WorkflowRoot(),
 		},
 	}
 
@@ -575,7 +575,7 @@ func (v *workflowValidator) checkPlan(ctx context.Context, stages []workflow.Sta
 	}
 	v.releaseSpool = cleanup
 
-	root, err := workflow.NewRoot(v.cfg.Workflows.Root)
+	root, err := workflow.NewRoot(v.cfg.WorkflowRoot())
 	if err != nil {
 		v.fail(WorkflowCheckDirectories, err.Error())
 		for _, check := range planChecks()[1:] {

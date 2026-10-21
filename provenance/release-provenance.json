@@ -56,7 +56,7 @@
   },
   "checksums": {
     "path": "provenance/checksums.txt",
-    "sha256": "899e18f6f3fbcf4953beefb8ed42c2df0187b97288ab41936bcf8b2d75db6221",
+    "sha256": "b617ebb0a8ac5ea0dcdea07f08646555506779d0ae60c5c23d787395d0818108",
     "format": "sha256sum"
   },
   "artifacts": [
@@ -168,7 +168,7 @@
     {
       "target": "generic",
       "path": "container/compose.yaml",
-      "sha256": "ff83ed975be6d5d0eea4df8c7d4b635da7cf2c34c723000a493e0993b65d5296"
+      "sha256": "95a0b6eec86008a19cdacb5d7938d6b92408bba2e48da880cefb6235e5f23aab"
     }
   ],
   "unbuiltTargets": [

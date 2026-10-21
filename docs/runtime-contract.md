@@ -109,8 +109,9 @@ are this contract deleted:
 - run a **separate, version-matched, unprivileged process on the host** and let
   the engine ask it, over one Unix-domain socket, with a narrow vocabulary.
 
-retnd does the fourth. The engine gains exactly three bind mounts and nothing
-else:
+retnd does the fourth. The engine gains exactly three bind mounts for it and
+nothing else, plus the two custom validator directories described further down
+(#1246):
 
 ```text
 ${WORKFLOWS_DIR:-./workflows}:/workflows:ro    the hook scripts, READ-ONLY
@@ -283,9 +284,21 @@ kind of script and get the same reach. They live in `recovery-test-validators` u
 workflow root, and uploading one over the API or with `retnd assurance validators` makes the
 engine write into that directory (a `0750` directory, `0640` files, renamed into place), which
 is the one thing this feature writes besides `config.yaml`. Removing one renames the script
-into `recovery-test-validators.superseded` beside it and deletes nothing. A workflow tree
-mounted read-only, which is the usual container layout, answers `VALIDATORS_UNAVAILABLE`: put
-the script there yourself and declare it under `assurance.validators`. Uploading and editing
+into `recovery-test-validators.superseded` beside it and deletes nothing. The workflow tree is
+mounted read-only, so the canonical stack mounts just those two directories writable over it
+(#1246):
+
+```text
+${WORKFLOWS_DIR:-./workflows}/recovery-test-validators:/workflows/recovery-test-validators
+${WORKFLOWS_DIR:-./workflows}/recovery-test-validators.superseded:/workflows/recovery-test-validators.superseded
+```
+
+Every hook script an operator wrote stays read-only, and no stage directory an operator
+configures becomes writable; `distribution/compose` refuses a writable mount under the tree
+with any other name. A deployment without the two mounts (an older compose file, or a profile
+that carries only the tree) answers `VALIDATORS_UNAVAILABLE` and says which directory it could
+not write. With no `workflows.root` in `config.yaml`, the engine uses `/workflows` when it is
+mounted, and says so. Uploading and editing
 sit behind the destructive gate and the password step-up, for the reason a recovery onto the
 source host does. The upload check is a lint, not a sandbox.
 

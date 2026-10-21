@@ -342,6 +342,9 @@ func New(cfg *config.Config, journal *state.Journal, tr transport.Transport, log
 	logger = logger.WithSink(activity)
 	b.logger = logger
 	b.activity = activity
+	// A no-op for a configuration OpenConfigAndJournal already resolved;
+	// here for a caller that built its own (#1246).
+	applyDefaultWorkflowRoot(cfg)
 	inner := app.New(cfg, journal, tr, logger)
 	// The stage runner is wired here, and not with the lifecycle, because
 	// it needs no reconciliation: it runs scripts that are not backups, so
@@ -475,6 +478,11 @@ func OpenConfigAndJournal(ctx context.Context, configPath string) (*config.Confi
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("service: load config: %w", err)
 	}
+	// #1246: a configuration that names no workflow root uses the mounted
+	// default. After validation, so the file validates the same on every
+	// machine; here, so every caller of this door (the CLI's own
+	// openService included) gets the root the engine will run with.
+	applyDefaultWorkflowRoot(cfg)
 
 	// The catalog-membership half of validator resolution runs BEFORE
 	// §46.1's startup sequence, because it is the one refusal here that

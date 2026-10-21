@@ -178,9 +178,17 @@ func (b *BackupService) ListCustomValidators(ctx context.Context, filter CustomV
 
 	root, why := workflowRootFor(cfg)
 	store := newValidatorStore(root)
+	if why == "" {
+		// The root is there and the directory may still be one this
+		// process cannot write: the read-only hook tree, with no
+		// validator mount over it (#1246). Said here, so the card does
+		// not offer an upload that is refused when it is sent.
+		why = store.Unwritable()
+	}
 	out := CustomValidators{
-		Directory: config.CustomValidatorDir, WorkflowRoot: cfg.Workflows.Root,
-		Available: why == "" && b.configPath != "", UnavailableReason: why,
+		Directory: config.CustomValidatorDir, WorkflowRoot: cfg.WorkflowRoot(),
+		WorkflowRootDefault: cfg.WorkflowRootIsDefault(),
+		Available:           why == "" && b.configPath != "", UnavailableReason: why,
 		RunnerConfigured: cfg.Workflows.Runner.Configured(),
 		MaxValidators:    config.MaxCustomValidators, MaxScriptBytes: maxValidatorScriptBytes(cfg),
 		MaxPatternBytes: config.MaxCustomValidatorPatternBytes,

@@ -624,7 +624,7 @@ func customValidatorsFromWire(w apicontract.ListCustomValidatorsResponse) servic
 	out := service.CustomValidators{
 		Validators: make([]service.CustomValidator, 0, len(w.Validators)),
 		Directory:  w.Directory, WorkflowRoot: w.WorkflowRoot, Available: w.Available, UnavailableReason: w.UnavailableReason,
-		DirectoryRefused: w.DirectoryRefused, RunnerConfigured: w.RunnerConfigured,
+		WorkflowRootDefault: w.WorkflowRootDefault, DirectoryRefused: w.DirectoryRefused, RunnerConfigured: w.RunnerConfigured,
 		MaxValidators: int(w.MaxValidators), MaxScriptBytes: w.MaxScriptBytes, MaxPatternBytes: int(w.MaxPatternBytes),
 	}
 	for _, v := range w.Validators {

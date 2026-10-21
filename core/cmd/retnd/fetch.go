@@ -285,12 +285,12 @@ func reportResolvedWorkflow(cfg *config.Config, source, set string) {
 	}
 
 	// The root is named beside the stages because a stage directory is
-	// configured RELATIVE to it (config.Workflows.Root, and
+	// configured RELATIVE to it (config.WorkflowRoot, and
 	// workflow.Root.ResolveStage is what joins them), so a list of bare
 	// names like "global-before" is not something an operator can go and
 	// look at.
 	fmt.Printf("workflow: a run of %s/%s would execute %d stage(s) under %s, in this order, with a %s bound per script:\n",
-		source, set, len(stages), cfg.Workflows.Root, cfg.EffectiveScriptTimeout(bs))
+		source, set, len(stages), cfg.WorkflowRoot(), cfg.EffectiveScriptTimeout(bs))
 	for _, st := range stages {
 		fmt.Printf("  %-10s %-7s %s\n", st.Scope, st.Phase, st.Dir)
 	}

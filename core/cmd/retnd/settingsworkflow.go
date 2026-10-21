@@ -9,6 +9,7 @@ import (
 
 	"github.com/retnd/retnd/core/cliecho"
 	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/service"
 )
 
@@ -166,7 +167,7 @@ var workflowSettingsPatchFlagNames = []string{"root", "before-dir", "after-dir",
 
 func declareWorkflowSettingsFlags(fs *flag.FlagSet) workflowSettingsFlags {
 	return workflowSettingsFlags{
-		root: fs.String("root", "", "patch only: workflows.root, the one approved absolute directory hook scripts may live under. Clearing it turns workflows off for this deployment"),
+		root: fs.String("root", "", "patch only: workflows.root, the one approved absolute directory hook scripts may live under. With none set, /workflows is used when it is there. Clearing it turns workflows off for this deployment, that default included (written as workflows.disabled)"),
 		beforeDir: fs.String("before-dir", "",
 			"patch only: workflows.global.before_dir, the deployment-wide stage that runs before every backup set's pass. A path under the root; clearing it disables that stage"),
 		afterDir: fs.String("after-dir", "",
@@ -572,11 +573,20 @@ func workflowSecretLocation(s service.WorkflowSecretRef) string {
 
 // printWorkflowSettings renders the RESOLVED deployment-wide block.
 func printWorkflowSettings(s service.WorkflowSettings) {
-	if !s.Configured {
-		fmt.Println("this deployment configures no workflow root, so it runs no hook scripts at all")
-		fmt.Printf("  set one with `%s settings workflow patch --root /path/to/workflows`; until then every backup set's pass runs exactly as it did before hooks existed\n", cliecho.Binary)
-	} else {
+	// Three states and three sentences (#1246): a root the file names, the
+	// default one found mounted, and none. "None" splits again, because a
+	// root an operator cleared is a decision and one never set is not.
+	switch {
+	case s.Configured && s.RootDefault:
+		fmt.Printf("workflow root: %s (the default: config.yaml names none and this directory is mounted)\n", s.Root)
+	case s.Configured:
 		fmt.Printf("workflow root: %s\n", s.Root)
+	case s.Disabled:
+		fmt.Println("workflows are turned off for this deployment (workflows.disabled), so it runs no hook scripts and keeps no custom validators")
+		fmt.Printf("  set a root with `%s settings workflow patch --root /path/to/workflows` to turn them back on\n", cliecho.Binary)
+	default:
+		fmt.Println("this deployment configures no workflow root, so it runs no hook scripts at all")
+		fmt.Printf("  set one with `%s settings workflow patch --root /path/to/workflows`, or mount one at %s, the default; until then every backup set's pass runs exactly as it did before hooks existed\n", cliecho.Binary, config.DefaultWorkflowRoot)
 	}
 	fmt.Printf("  before stage: %s\n", workflowStageDir(s.BeforeDir))
 	fmt.Printf("  after stage:  %s\n", workflowStageDir(s.AfterDir))

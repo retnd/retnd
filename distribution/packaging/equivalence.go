@@ -262,14 +262,14 @@ func equivalentMounts(role string, got, want *Service) []Divergence {
 }
 
 // hostPlaneMountPaths is the set of container paths on the canonical side
-// that belong to a host-plane role. The role is read off the mount rather
+// that belong to a host-plane role or a validator role (OptionalRoles). The role is read off the mount rather
 // than looked up from canonical.json a second time: ReadCompose already
 // resolved it from the container path, which is the only side of a mount
 // the binaries fix.
 func hostPlaneMountPaths(svc *Service) map[string]bool {
 	out := map[string]bool{}
 	for _, m := range svc.Mounts {
-		if slices.Contains(HostPlaneRoles, m.Role) {
+		if slices.Contains(OptionalRoles(), m.Role) {
 			out[m.ContainerPath] = true
 		}
 	}

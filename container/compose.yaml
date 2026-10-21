@@ -408,13 +408,14 @@ services:
 
       # EPIC L (#808, #809): the hook scripts, the door to the host
       # runner, and the credential that door requires. Three mounts, and
-      # the differences between them are the whole security argument.
+      # the differences between them are the whole security argument,
+      # plus the two validator directories at the end (#1246).
       #
       # The scripts are READ-ONLY. This container plans a workflow — it
       # reads each script once, hashes it and copies it into its own
       # private spool under /data/state, and never opens the original
       # again — so write access here would buy nothing and would let a
-      # compromised engine edit what the host is about to execute.
+      # compromised engine edit the hook scripts an operator put there.
       #
       # The runtime directory is writable because it holds a SOCKET, and
       # connecting to a Unix socket is a write. It is the ONLY way into
@@ -464,9 +465,26 @@ services:
       # .env predates EPIC L still starts. `./` resolves beside this
       # file, which is the installation prefix, and is where the
       # installer creates them.
+      #
+      # The last two are custom recovery-test validators (#1203, #1246),
+      # and they are WRITABLE on purpose. Unlike a hook script, which an
+      # operator writes and this container only reads, a validator is
+      # written BY this engine: it is uploaded through the API (behind the
+      # destructive gate and a password) and pinned by hash in
+      # config.yaml, which this container already writes. Under the
+      # read-only tree above it was refused on every install. Mounting
+      # just these two directories over it keeps the hook scripts
+      # read-only, and the engine still cannot touch a stage directory
+      # an operator configured. The second is where a removed validator's
+      # script is moved rather than deleted. Both sit inside the
+      # workflows directory on the host, where the host runner and an
+      # operator's backups expect them, and the installer creates them
+      # 0700 before the first `up` so Docker does not make them as root.
       - ${WORKFLOWS_DIR:-./workflows}:/workflows:ro
       - ${RUNTIME_DIR:-./run}:/data/run
       - ${RUNNER_TOKEN_FILE:-./secrets/workflow-runner.token}:/etc/retnd/workflow-runner.token:ro
+      - ${WORKFLOWS_DIR:-./workflows}/recovery-test-validators:/workflows/recovery-test-validators
+      - ${WORKFLOWS_DIR:-./workflows}/recovery-test-validators.superseded:/workflows/recovery-test-validators.superseded
 
     # `unless-stopped`: restart across crashes and NAS reboots, but stay
     # down if an operator deliberately stops it — the right policy now that

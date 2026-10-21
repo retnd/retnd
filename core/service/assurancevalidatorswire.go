@@ -33,7 +33,7 @@ func CustomValidatorsWire(l CustomValidators) apicontract.ListCustomValidatorsRe
 	out := apicontract.ListCustomValidatorsResponse{
 		Validators: make([]apicontract.CustomValidator, 0, len(l.Validators)),
 		Directory:  l.Directory, WorkflowRoot: l.WorkflowRoot, Available: l.Available, UnavailableReason: l.UnavailableReason,
-		DirectoryRefused: l.DirectoryRefused,
+		WorkflowRootDefault: l.WorkflowRootDefault, DirectoryRefused: l.DirectoryRefused,
 		RunnerConfigured: l.RunnerConfigured, MaxValidators: int64(l.MaxValidators), MaxScriptBytes: l.MaxScriptBytes,
 		MaxPatternBytes: int64(l.MaxPatternBytes),
 		Ambiguities:     make([]apicontract.CustomValidatorAmbiguity, 0, len(l.Ambiguities)),

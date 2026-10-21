@@ -44,6 +44,22 @@
   destination) had its own copy of these lines that printed the endpoint as typed and a credentials command
   word for word; it now cuts the first and shows a placeholder for the second, the same as the terminal.
 
+- **Custom validators work on a default install** (#1246). The Docker host installer makes
+  `<prefix>/workflows` and mounts it at `/workflows`, and never told the engine: `config.yaml` had no
+  `workflows` block, so the Custom validators card refused with "no workflow root is configured" and no hook
+  could run either. A configuration that names no `workflows.root` now uses `/workflows` when that directory
+  is there, and the card and `retnd settings workflow` call it the default rather than "not configured". An
+  explicit root still wins. Clearing the root (`settings workflow patch --root ""`) now writes
+  `workflows.disabled: true`, because an empty root would otherwise pick the default up again on the next
+  start; a retnd older than this refuses a `config.yaml` with `disabled` in it, so remove it before you
+  downgrade. An upgrade through the installer writes `workflows.root: /workflows` into a `config.yaml` that
+  has no `workflows` block and leaves one you wrote alone. The hook tree stays mounted read-only, and the
+  compose file now mounts `recovery-test-validators` and `recovery-test-validators.superseded` writable over
+  it, so the engine can save a validator without being able to touch a hook script. A validator script is
+  now written through a temporary file in its own directory rather than in the root, and a move aside
+  between the two mounts copies and then removes instead of failing on `EXDEV`. When there really is nowhere
+  to write, the card and the error say which directory was tried and what fixes it.
+
 ## [0.7.1] - 2026-10-17
 
 0.7.1 is a patch release, and the one thing in it that is new rather than fixed is custom recovery-test

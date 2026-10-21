@@ -138,10 +138,12 @@ type workflowSettingsResponse struct {
 	AfterDir                string                     `json:"after_dir"`
 	BeforeDir               string                     `json:"before_dir"`
 	Configured              bool                       `json:"configured"`
+	Disabled                bool                       `json:"disabled"`
 	Environment             []workflowEnvVarBody       `json:"environment"`
 	ExecConnections         []string                   `json:"exec_connections"`
 	MaxScriptSizeBytes      int64                      `json:"max_script_size_bytes"`
 	Root                    string                     `json:"root"`
+	RootDefault             bool                       `json:"root_default"`
 	Runner                  workflowRunnerSettingsBody `json:"runner"`
 	ScriptTimeoutConfigured bool                       `json:"script_timeout_configured"`
 	ScriptTimeoutSeconds    int64                      `json:"script_timeout_seconds"`
@@ -760,6 +762,8 @@ func toWorkflowSettingsBody(s service.WorkflowSettings) workflowSettingsResponse
 	out := workflowSettingsResponse{
 		Configured:              s.Configured,
 		Root:                    s.Root,
+		RootDefault:             s.RootDefault,
+		Disabled:                s.Disabled,
 		BeforeDir:               s.BeforeDir,
 		AfterDir:                s.AfterDir,
 		ScriptTimeoutSeconds:    durationSeconds(s.ScriptTimeout),

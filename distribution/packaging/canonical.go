@@ -91,6 +91,15 @@ type ContainerPaths struct {
 	Runtime     string `json:"runtime"`
 	Workflows   string `json:"workflows"`
 	RunnerToken string `json:"runnerToken"`
+
+	// Validators and ValidatorsSuperseded are the two directories under
+	// Workflows that the engine WRITES (#1246): custom recovery-test
+	// validators, and where a removed one's script is moved. Workflows is
+	// read-only, so they are mounted writable on their own over it, which
+	// keeps every hook script an operator wrote read-only. ValidatorRoles
+	// below says how optional they are.
+	Validators           string `json:"validators"`
+	ValidatorsSuperseded string `json:"validatorsSuperseded"`
 }
 
 // HostPaths are the platform's own default locations on the NAS
@@ -425,6 +434,10 @@ func (c ContainerPaths) ByRole(role string) (string, bool) {
 		return c.Workflows, true
 	case "runnerToken":
 		return c.RunnerToken, true
+	case "validators":
+		return c.Validators, true
+	case "validatorsSuperseded":
+		return c.ValidatorsSuperseded, true
 	}
 	return "", false
 }
@@ -470,13 +483,31 @@ var Roles = []string{"state", "backups", "config", "sshKey", "knownHosts"}
 // never asked about it.
 var HostPlaneRoles = []string{"runtime", "workflows", "runnerToken"}
 
+// ValidatorRoles are the custom validator directories (#1246): known,
+// optional, and held to their write mode when carried, like
+// HostPlaneRoles, and optional even for a profile that declares local
+// hooks, which HostPlaneRoles are not. A profile that carries the script
+// tree and not these still runs every hook; what it cannot do is keep a
+// validator uploaded through the API, and the engine says so in words
+// when one is uploaded. The canonical stack carries both.
+var ValidatorRoles = []string{"validators", "validatorsSuperseded"}
+
+// OptionalRoles is HostPlaneRoles and ValidatorRoles: every known role a
+// profile may leave out.
+func OptionalRoles() []string {
+	out := make([]string, 0, len(HostPlaneRoles)+len(ValidatorRoles))
+	out = append(out, HostPlaneRoles...)
+	out = append(out, ValidatorRoles...)
+	return out
+}
+
 // KnownRoles is every role the canonical image recognises, required or
 // not. Anything deciding "is this container path one of ours" reads this;
 // anything deciding "must this platform mount it" reads Roles.
 func KnownRoles() []string {
-	out := make([]string, 0, len(Roles)+len(HostPlaneRoles))
+	out := make([]string, 0, len(Roles)+len(HostPlaneRoles)+len(ValidatorRoles))
 	out = append(out, Roles...)
-	out = append(out, HostPlaneRoles...)
+	out = append(out, OptionalRoles()...)
 	return out
 }
 

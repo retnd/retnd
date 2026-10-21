@@ -2946,7 +2946,7 @@ function fromWireValidatorScript(s: WireValidatorScriptResponse): ValidatorScrip
 function fromWireValidatorList(r: WireListCustomValidatorsResponse): CustomValidatorList {
   return {
     available: r.available, unavailableReason: r.unavailable_reason ?? "", runnerConfigured: r.runner_configured,
-    directory: r.directory ?? "", workflowRoot: r.workflow_root ?? "", workflowRootDefault: false, maxValidators: r.max_validators,
+    directory: r.directory ?? "", workflowRoot: r.workflow_root ?? "", workflowRootDefault: r.workflow_root_default ?? false, maxValidators: r.max_validators,
     maxScriptBytes: r.max_script_bytes, maxPatternBytes: r.max_pattern_bytes,
     directoryRefused: r.directory_refused ?? "",
     ambiguities: (r.ambiguities ?? []).map((a) => ({ backupSetId: a.backup_set_id, example: a.example, validators: a.validators ?? [] })),

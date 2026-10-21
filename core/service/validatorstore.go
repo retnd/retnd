@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/workflow"
 )
@@ -27,11 +29,26 @@ import (
 //
 // # How a script is written
 //
-// To a temporary file in the workflow root and then renamed into the
-// directory, so discovery never sees a half-written file or an entry whose
-// name is not a script's (it refuses a whole directory for one of those).
+// To a dot-named temporary file in the stage directory itself, then renamed
+// over its name, so a reader never sees a half-written script. It used to go
+// in the workflow root, which a container mounts read-only (#1246), so every
+// upload there was refused even with the directory itself writable; and a
+// rename only works within one mount, which in a container the stage
+// directory is. The temporary name is harmless beside the scripts: a
+// recovery test looks up the one script it was told to run (DiscoverOne) and
+// never lists the directory, the write that made the file holds configMu for
+// its whole life, and one left by a crash is not a name the configuration
+// declares, so the next write moves it aside (Reconcile).
 // The directory is 0750 and the file 0640, both owned by this process, which
 // is what discovery's custody rules accept.
+//
+// # Where it can be written
+//
+// The stage directory has to be writable by this process and its root does
+// not, which is the packaged layout: a read-only /workflows with
+// recovery-test-validators and its .superseded sibling mounted writable over
+// it. Unwritable says, before anyone uploads, when the directory is not, and
+// unavailableWrite is the same sentence for a write the filesystem refused.
 //
 // # Nothing is deleted
 //
@@ -40,7 +57,15 @@ import (
 // recovery-test-validators.superseded, under its own name or with a numeric
 // suffix when that name is taken. The sibling is not a stage directory, so
 // discovery never reads it, and it is not inside the one that is, so it does
-// not count against the 64 entry limit.
+// not count against the 64 entry limit. In a container the two are separate
+// mounts, where rename(2) fails with EXDEV however close they sit, so a move
+// between them copies the script into the sibling, makes the copy durable,
+// and only then takes it out of the stage directory: the script exists
+// exactly once at the end either way.
+
+// renameValidatorFile is os.Rename, a variable so a test can make it fail
+// the way a rename between two mounts does.
+var renameValidatorFile = os.Rename
 
 // supersededSuffix names the sibling directory scripts are moved into.
 const supersededSuffix = ".superseded"
@@ -130,6 +155,25 @@ func (s validatorStore) EntryCount() int {
 		return 0
 	}
 	return stageEntryCount(s.root)
+}
+
+// Unwritable says why this process cannot write a script into the stage
+// directory, "" when it can or there is no root to look under (which
+// workflowRootFor has already said). A directory that is not there yet is
+// asked of its root, which is where writeValidatorScript would make it.
+func (s validatorStore) Unwritable() string {
+	if s.root.IsZero() {
+		return ""
+	}
+	dir := filepath.Join(s.root.Path(), config.CustomValidatorDir)
+	target := dir
+	if _, err := os.Lstat(dir); errors.Is(err, os.ErrNotExist) {
+		target = s.root.Path()
+	}
+	if err := unix.Access(target, unix.W_OK); err != nil {
+		return unwritableReason(dir, err)
+	}
+	return ""
 }
 
 // Refusal says why the stage directory cannot be used, or "" when it can, is
@@ -231,13 +275,47 @@ func moveValidatorAside(root workflow.Root, file string) error {
 			return err
 		}
 		if err := renameValidatorFile(src, dst); err != nil {
-			return err
+			if !errors.Is(err, syscall.EXDEV) {
+				return err
+			}
+			if err := copyValidatorAside(src, dst); err != nil {
+				return err
+			}
 		}
 		syncDir(aside)
 		syncDir(filepath.Dir(src))
 		return nil
 	}
 	return fmt.Errorf("service: %s already has 10000 superseded copies of %s", aside, file)
+}
+
+// copyValidatorAside is the move for two directories on different mounts:
+// copy src to dst (created exclusively, so nothing already superseded is
+// overwritten), make the copy durable, then remove src. A failure before the
+// removal takes the partial copy back and leaves src where it was.
+func copyValidatorAside(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o640)
+	if err != nil {
+		return unavailableWrite(err, filepath.Dir(dst))
+	}
+	_, err = io.Copy(out, in)
+	if err == nil {
+		err = out.Sync()
+	}
+	if cerr := out.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(dst)
+		return fmt.Errorf("service: copying %s into %s: %w", filepath.Base(src), filepath.Dir(dst), err)
+	}
+	syncDir(filepath.Dir(dst))
+	return os.Remove(src)
 }
 
 // reconcileValidatorDir moves every entry the configuration does not name out
@@ -292,9 +370,9 @@ func writeValidatorScript(root workflow.Root, file string, body []byte) (func() 
 		return nil, invalidValidator("the stored %s is over %d bytes, so it cannot be kept to put back if the configuration write fails; remove the validator and add it again", file, MaxCustomValidatorScriptBytes)
 	}
 
-	tmp, err := os.CreateTemp(root.Path(), ".retnd-validator-*.tmp")
+	tmp, err := os.CreateTemp(dir, ".retnd-validator-*.tmp")
 	if err != nil {
-		return nil, unavailableWrite(err, root.Path())
+		return nil, unavailableWrite(err, dir)
 	}
 	tmpName := tmp.Name()
 	fail := func(err error) (func() error, error) {
@@ -306,7 +384,7 @@ func writeValidatorScript(root workflow.Root, file string, body []byte) (func() 
 		return fail(fmt.Errorf("service: writing %s: %w", file, err))
 	}
 	if _, err := tmp.Write(body); err != nil {
-		return fail(unavailableWrite(err, root.Path()))
+		return fail(unavailableWrite(err, dir))
 	}
 	if err := tmp.Sync(); err != nil {
 		return fail(fmt.Errorf("service: writing %s: %w", file, err))
@@ -342,7 +420,15 @@ func syncDir(dir string) {
 // deployment cannot keep validators, when that is what it is.
 func unavailableWrite(err error, where string) error {
 	if errors.Is(err, syscall.EROFS) || errors.Is(err, os.ErrPermission) {
-		return fmt.Errorf("%w: %s cannot be written by this process (%v); the workflow tree may be mounted read-only, which is the usual container layout, so put the script there yourself and declare it in config.yaml", ErrValidatorsUnavailable, where, err)
+		return fmt.Errorf("%w: %s", ErrValidatorsUnavailable, unwritableReason(where, err))
 	}
 	return fmt.Errorf("service: writing a validator script under %s: %w", where, err)
+}
+
+// unwritableReason is the sentence for a validator directory this process
+// cannot write (#1246). It says what was tried and what fixes it, because
+// the usual cause is a layout and not a mistake: the hook tree is mounted
+// read-only on purpose, and these two directories need mounts of their own.
+func unwritableReason(where string, err error) string {
+	return fmt.Sprintf("%s is not writable by this process (%v). The workflow tree is normally mounted read-only, and custom validators need %s and %s writable on their own: the packaged stacks mount both over the tree (re-run the installer to get them), or add the two mounts yourself", where, err, config.CustomValidatorDir, config.CustomValidatorDir+supersededSuffix)
 }

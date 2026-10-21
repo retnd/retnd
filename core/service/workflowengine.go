@@ -561,7 +561,7 @@ func (b *BackupService) snapshotWorkflow(set config.BackupSet, o workflowRunOpti
 		return workflow.Plan{}, nil
 	}
 
-	root, err := workflow.NewRoot(cfg.Workflows.Root)
+	root, err := workflow.NewRoot(cfg.WorkflowRoot())
 	if err != nil {
 		return workflow.Plan{}, err
 	}

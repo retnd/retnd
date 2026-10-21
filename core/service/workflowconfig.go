@@ -273,7 +273,9 @@ func workflowSettingsOf(cfg *config.Config) WorkflowSettings {
 
 	s := WorkflowSettings{
 		Configured:              cfg.WorkflowsConfigured(),
-		Root:                    w.Root,
+		Root:                    cfg.WorkflowRoot(),
+		RootDefault:             cfg.WorkflowRootIsDefault(),
+		Disabled:                w.Disabled,
 		BeforeDir:               w.Global.BeforeDir,
 		AfterDir:                w.Global.AfterDir,
 		ScriptTimeout:           cfg.EffectiveScriptTimeout(nil),
@@ -320,6 +322,15 @@ func (b *BackupService) UpdateWorkflowSettings(ctx context.Context, req UpdateWo
 	w := &cfg.Workflows
 	if req.Root != nil {
 		w.Root = strings.TrimSpace(*req.Root)
+		// Clearing the root is written down as disabled (#1246): an
+		// absent root now means "use the mounted default", so an empty
+		// one left to omitempty would be undone by the next start. Naming
+		// a root turns workflows back on.
+		w.Disabled = w.Root == ""
+	} else if (req.BeforeDir != nil && strings.TrimSpace(*req.BeforeDir) != "") || (req.AfterDir != nil && strings.TrimSpace(*req.AfterDir) != "") {
+		// A global stage needs a root in the file; on a deployment
+		// running on the default one, that is the root it gets.
+		b.writeDefaultWorkflowRoot(cfg)
 	}
 	if req.BeforeDir != nil {
 		w.Global.BeforeDir = strings.TrimSpace(*req.BeforeDir)
@@ -442,6 +453,7 @@ func (b *BackupService) UpdateBackupSetWorkflow(ctx context.Context, id string, 
 		return BackupSetWorkflow{}, err
 	}
 
+	b.writeDefaultWorkflowRoot(cfg)
 	if !cfg.WorkflowsConfigured() {
 		return BackupSetWorkflow{}, ErrWorkflowsNotConfigured
 	}
@@ -537,6 +549,7 @@ func (b *BackupService) SetWorkflowEnv(_ context.Context, backupSetID string, v 
 		return nil, fmt.Errorf("service: re-reading configuration: %w", err)
 	}
 
+	b.writeDefaultWorkflowRoot(cfg)
 	if !cfg.WorkflowsConfigured() {
 		return nil, ErrWorkflowsNotConfigured
 	}

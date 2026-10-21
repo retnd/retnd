@@ -12,7 +12,10 @@
 // That is the whole security argument of the host runner stated as a
 // document check: the engine gains a READ-ONLY view of the script tree
 // and a WRITABLE directory containing one Unix socket, and it gains no
-// capability, no privilege, no device and no Docker socket. Every one of
+// capability, no privilege, no device and no Docker socket. The one
+// writable exception under the tree is the pair of directories custom
+// validators are kept in (#1246), which hold scripts the engine writes
+// itself and are named exactly. Every one of
 // those is a line somebody could add to container/compose.yaml in an
 // afternoon while debugging a hook that will not start, and the whole
 // point of #865 is that such a line has to fail a gate rather than ship.
@@ -23,6 +26,7 @@
 package compose_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -125,8 +129,11 @@ func TestTheRunnerDoorIsWritableAndIsNotTheDaemonSocketsDirectory(t *testing.T) 
 // something:
 //
 //   - a WRITABLE mount anywhere in the workflow surface other than the
-//     runner's door. Read-only is the whole argument for the script tree
-//     and for any credential beside it.
+//     runner's door and the two custom validator directories (#1246,
+//     validatorDirs below). Read-only is the whole argument for the
+//     script tree and for any credential beside it; the validator
+//     directories hold scripts the engine itself writes, and naming them
+//     exactly keeps every other directory under the tree refused.
 //   - anything nested UNDER the runner's door, which is how the runner's
 //     own workspace would become reachable. That workspace is where the
 //     runner writes its private copy of a script and the per-step working
@@ -159,7 +166,7 @@ func workflowMountFindings(doc compose.Document, svc map[string]any) []string {
 
 			continue
 		}
-		if mount.ContainerPath == runnerDoorPath || mount.ReadOnly {
+		if mount.ContainerPath == runnerDoorPath || mount.ReadOnly || slices.Contains(validatorDirs, mount.ContainerPath) {
 			continue
 		}
 		if strings.Contains(mount.ContainerPath, "workflow") || strings.Contains(mount.ContainerPath, "workspace") {

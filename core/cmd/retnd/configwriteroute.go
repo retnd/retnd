@@ -167,6 +167,8 @@ func workflowSettingsFromWire(w apicontract.WorkflowSettingsResponse) service.Wo
 	return service.WorkflowSettings{
 		Configured:              w.Configured,
 		Root:                    w.Root,
+		RootDefault:             w.RootDefault,
+		Disabled:                w.Disabled,
 		BeforeDir:               w.BeforeDir,
 		AfterDir:                w.AfterDir,
 		ScriptTimeout:           time.Duration(w.ScriptTimeoutSeconds) * time.Second,
@@ -312,6 +314,8 @@ func workflowSettingsToWire(s service.WorkflowSettings) apicontract.WorkflowSett
 	return apicontract.WorkflowSettingsResponse{
 		Configured:              s.Configured,
 		Root:                    s.Root,
+		RootDefault:             s.RootDefault,
+		Disabled:                s.Disabled,
 		BeforeDir:               s.BeforeDir,
 		AfterDir:                s.AfterDir,
 		ScriptTimeoutSeconds:    int64(s.ScriptTimeout / time.Second),

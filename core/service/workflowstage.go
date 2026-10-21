@@ -40,10 +40,10 @@ func (b *BackupService) RunStage(ctx context.Context, req app.StageRequest) (app
 	}
 	cfg := st.inner.Config
 
-	if cfg.Workflows.Root == "" {
+	if cfg.WorkflowRoot() == "" {
 		return app.StageResult{}, app.ErrStageNotConfigured
 	}
-	root, err := workflow.NewRoot(cfg.Workflows.Root)
+	root, err := workflow.NewRoot(cfg.WorkflowRoot())
 	if err != nil {
 		return app.StageResult{}, err
 	}

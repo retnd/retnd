@@ -1070,6 +1070,12 @@ it does not start following a later opt-in on the set; delete the line in `confi
 want it to. An edit replaces the validator whole, so an edit that leaves `env` out is `minimal`,
 never what the validator had before. The list shows the environment each validator really gets.
 
+The workflow root is `workflows.root` in `config.yaml`, or `/workflows` when the file names
+none and that directory is there, which is where every packaged stack mounts the workflows
+directory. The Settings card and `retnd settings workflow` say when it is that default. Clearing
+the root (`retnd settings workflow patch --root ""`) writes `workflows.disabled: true`, which
+turns workflows off, default included, until a root is set again.
+
 **`name` and `validator_id` are different things.** A custom validator's `name` is NAME in its
 `NAME.local.sh` under `<workflow root>/recovery-test-validators/`, chosen by you, unique across
 the deployment (compared without regard to case, since a case-insensitive volume would make
@@ -1097,8 +1103,10 @@ What a pattern may be:
 How scripts are kept:
 
 - An upload is held to the check that gates saving a workflow, and written to a temporary file
-  and renamed in (directory `0750`, file `0640`), then the entry goes into `assurance.validators`
-  in `config.yaml`. Anything in the directory that `config.yaml` does not name is moved aside
+  in the directory and renamed in (directory `0750`, file `0640`), then the entry goes into
+  `assurance.validators` in `config.yaml`. Only `recovery-test-validators` and its `.superseded`
+  sibling have to be writable, so a read-only workflow tree with those two mounted writable over
+  it (the packaged layout) keeps validators fine. Anything in the directory that `config.yaml` does not name is moved aside
   on the next upload, and the 64 validator limit counts files.
 - Removing a validator, or a backup set that has some, **moves** the script to
   `recovery-test-validators.superseded` beside the directory, under its own name (with a

@@ -309,11 +309,20 @@ type CustomValidatorPatterns struct {
 }
 
 // workflowRootFor is the canonical workflow root, or why there is none.
+//
+// The two reasons there can be none are different facts and get different
+// sentences (#1246). An operator who cleared the root is told that is what
+// stops this, and how to undo it. A deployment with no root at all is told
+// where the default was looked for, so "not configured" is never the whole
+// answer on a machine where the product could have found one itself.
 func workflowRootFor(cfg *config.Config) (workflow.Root, string) {
-	if cfg.Workflows.Root == "" {
-		return workflow.Root{}, "no workflow root is configured (workflows.root), so there is nowhere to keep a validator script; set one under Settings > Workflow"
+	if cfg.Workflows.Disabled {
+		return workflow.Root{}, "workflows are turned off for this deployment (workflows.disabled, which is what clearing the root writes), so there is nowhere to keep a validator script; set a workflow root under Settings > Workflow, or with `settings workflow patch --root`, to turn them back on"
 	}
-	root, err := workflow.NewRoot(cfg.Workflows.Root)
+	if cfg.WorkflowRoot() == "" {
+		return workflow.Root{}, fmt.Sprintf("no workflow root is configured (workflows.root) and nothing is mounted at %s, the default one, so there is nowhere to keep a validator script; mount the workflows directory there (the packaged stacks do) and restart, or set workflows.root under Settings > Workflow", defaultWorkflowRoot)
+	}
+	root, err := workflow.NewRoot(cfg.WorkflowRoot())
 	if err != nil {
 		return workflow.Root{}, fmt.Sprintf("the workflow root cannot be used: %v", err)
 	}
