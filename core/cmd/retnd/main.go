@@ -257,6 +257,13 @@ commands:
                                                   print how many backups are held outside quarantine, the number the
                                                   web console's Backups badge reads (the sidebar shows >100 past a
                                                   hundred, this always prints the number); --json prints {"count": N} (#1186)
+  artifacts [--source S] [--backup-set B] [--state S] [--since DATE] [--until DATE] [--count] [--json]
+                                                  list or count only the backups received in a range, the Backups
+                                                  page's "Received on or after" and "Received on or before". Both
+                                                  bounds are inclusive, on the time the backup was last updated (the
+                                                  page's received time). A DATE is YYYY-MM-DD, the whole of that day
+                                                  in UTC, or an RFC 3339 time, that moment exactly; --until before
+                                                  --since is refused (#1251)
   activity [--backup-set S] [--severity warn|error] [--limit N] [--json]
                                                   list recorded lifecycle events, newest first: the same durable
                                                   transition log the Web UI's Activity page draws. Beside a serving
@@ -654,7 +661,7 @@ commands:
                                                   defaults to 7 and is bounded to 1..30. artifacts <id> lists
                                                   which medium each copy is on
   recover <source/backup-set/artifact> [--to source:[FOLDER] | - | NAME | medium:ID[/KEY]] [--acknowledge-source-write] [--preflight] [--copy M] [--acknowledge-cost] [--json]
-  recover --set <source/backup-set> [--newest-only | --since DATE | --all] [--to source:[FOLDER] | NAME | medium:ID[/PREFIX]] [--acknowledge-source-write] [--preflight] [--acknowledge-cost] [--json]
+  recover --set <source/backup-set> [--newest-only] [--since DATE] [--until DATE] [--all] [--to source:[FOLDER] | NAME | medium:ID[/PREFIX]] [--acknowledge-source-write] [--preflight] [--acknowledge-cost] [--json]
   recover <id> <id> ... [--to source:[FOLDER] | NAME | medium:ID[/PREFIX]] [--acknowledge-source-write] [--preflight] [--acknowledge-cost] [--json]
                                                   get the retained bytes of one artifact back (EPIC Q, FR-67). It
                                                   reads one copy, checks all of it against the SHA-256 recorded when
@@ -683,7 +690,9 @@ commands:
                                                   first: the number and size of the files, what is quarantined,
                                                   lost or needs a thaw, the cost of the whole set, and whether it
                                                   fits the destination (refused with the numbers if not, before a
-                                                  byte is read). --newest-only and --since narrow a set;
+                                                  byte is read). --newest-only, --since and --until narrow a set (the
+                                                  dates as artifacts takes them, both ends inclusive; --newest-only then
+                                                  picks the newest inside the range, and --all goes with none of them);
                                                   --preflight stops after that. Each file is checked like a single
                                                   recovery; one failing does not stop the rest. A progress line per
                                                   file and a running total are printed, Ctrl-C cancels the run and

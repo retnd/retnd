@@ -33,7 +33,7 @@ func TestRecoverManyIsRefusedBeforeAnythingIsOpened(t *testing.T) {
 		{"set with standard output", []string{"--set", recoverSetID, "--to", "-"}, "cannot go to standard output"},
 		{"several ids with standard output", []string{recoverID, recoverID + "2", "--to", "-"}, "cannot go to standard output"},
 		{"set that is not a set id", []string{"--set", "nonsense", "--to", "out"}, "source/backup-set"},
-		{"newest-only without a set", []string{recoverID, "--newest-only", "--to", "out"}, "--newest-only and --since need --set"},
+		{"newest-only without a set", []string{recoverID, "--newest-only", "--to", "out"}, "--newest-only, --since and --until need --set"},
 		{"bad since", []string{"--set", recoverSetID, "--since", "yesterday", "--to", "out"}, "--since"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

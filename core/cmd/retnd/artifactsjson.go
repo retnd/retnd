@@ -63,7 +63,19 @@ func withState(records []state.Record, want string) []state.Record {
 	return kept
 }
 
-func artifactsJSON(ctx context.Context, cfgPath string, operands []string, source, set, wantState string) int {
+// receivedIn keeps the records received inside rng (#1251), by the updated_at
+// the API serves and the Backups page reads as receivedAt.
+func receivedIn(records []state.Record, rng receivedRange) []state.Record {
+	kept := make([]state.Record, 0, len(records))
+	for _, r := range records {
+		if rng.holds(r.UpdatedAt) {
+			kept = append(kept, r)
+		}
+	}
+	return kept
+}
+
+func artifactsJSON(ctx context.Context, cfgPath string, operands []string, source, set, wantState string, rng receivedRange) int {
 	if len(operands) == 1 && (source != "" || set != "") {
 		return usageError("artifacts: --source/--backup-set cannot be combined with an artifact argument")
 	}
@@ -104,6 +116,11 @@ func artifactsJSON(ctx context.Context, cfgPath string, operands []string, sourc
 			continue
 		}
 		if wantState != "" && a.State != wantState {
+			continue
+		}
+		// Nor does the received-date range (#1251): the page applies it in
+		// the browser over the same list.
+		if !rng.holds(a.UpdatedAt) {
 			continue
 		}
 		kept = append(kept, a)

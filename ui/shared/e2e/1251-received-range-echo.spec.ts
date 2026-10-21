@@ -10,8 +10,9 @@ import { measureContrast, open, setTheme } from "./helpers";
  * --until (inclusive, by calendar day, like the inputs), and a range the CLI
  * would refuse has no line at all.
  *
- * `backups-many-artifact-sets` gives Billing MySQL one backup a day through
- * August 2026, named by its date, so a range has rows on either side.
+ * `backups-many-artifact-sets` gives Billing MySQL a backup every third day of
+ * August 2026 (the 2nd, 5th, ... 29th), named by its date, so a range has rows
+ * on either side.
  */
 const MANY = "backups-many-artifact-sets";
 const BILLING = "production/billing-mysql";
@@ -35,13 +36,14 @@ test.describe("#1251 the set filter's terminal line carries the received-date ra
   test("#1251 both dates set: the line names the set and the range, and the screen lists that range", async ({ page }) => {
     await open(page, "/backups?set=" + BILLING, MANY);
     await after(page).fill("2026-08-20");
-    await before(page).fill("2026-08-24");
-    await expect(echo(page)).toHaveText("retnd artifacts --backup-set " + BILLING + " --since 2026-08-20 --until 2026-08-24");
-    // The line is about the rows on screen: five days, both ends included.
-    await expect.poll(() => shownCount(page)).toBe(5);
-    await expect(rows(page)).toHaveCount(5);
-    for (const d of ["20", "24"]) await expect(rows(page).filter({ hasText: "202608" + d })).toHaveCount(1);
-    await expect(rows(page).filter({ hasText: "20260825" })).toHaveCount(0);
+    await before(page).fill("2026-08-26");
+    await expect(echo(page)).toHaveText("retnd artifacts --backup-set " + BILLING + " --since 2026-08-20 --until 2026-08-26");
+    // The line is about the rows on screen: Billing MySQL's backups of the
+    // 20th, 23rd and 26th, both ends of the range included.
+    await expect.poll(() => shownCount(page)).toBe(3);
+    await expect(rows(page)).toHaveCount(3);
+    for (const d of ["20", "23", "26"]) await expect(rows(page).filter({ hasText: "billing-mysql-202608" + d })).toHaveCount(1);
+    for (const d of ["17", "29"]) await expect(rows(page).filter({ hasText: "billing-mysql-202608" + d })).toHaveCount(0);
   });
 
   test("#1251 one bound alone is --since or --until alone", async ({ page }) => {

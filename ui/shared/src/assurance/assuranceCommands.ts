@@ -44,9 +44,14 @@ export function artifactCommand(artifactId: string): string {
 }
 
 /** The Backups list narrowed to one set (#1202), the same narrowing the
- *  page's `?set=` filter makes. */
-export function artifactsInSetCommand(setId: string): string {
-  return "retnd artifacts --backup-set " + shellQuote(setId);
+ *  page's `?set=` filter makes, and to the received-date range when the page
+ *  has one (#1251): `--since` and `--until` take the date inputs' YYYY-MM-DD
+ *  values, inclusive on both ends like the inputs. An empty bound is left out. */
+export function artifactsInSetCommand(setId: string, range: { since: string; until: string } = { since: "", until: "" }): string {
+  const parts = ["retnd artifacts --backup-set " + shellQuote(setId)];
+  if (range.since) parts.push("--since " + shellQuote(range.since));
+  if (range.until) parts.push("--until " + shellQuote(range.until));
+  return parts.join(" ");
 }
 
 /** The progress bar and its step count, in a terminal: `--follow` prints each

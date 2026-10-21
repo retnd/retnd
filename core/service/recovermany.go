@@ -33,11 +33,13 @@ type RecoverManyRequest struct {
 	Artifacts []string
 
 	// Set is a "source/set" id: every retained, known-good backup of the
-	// set. NewestOnly narrows it to the newest restore point and Since to
-	// those updated at or after that moment. Both only apply with Set.
+	// set. NewestOnly narrows it to the newest restore point, Since to those
+	// updated at or after that moment and Until to those updated at or
+	// before it (#1251). All three only apply with Set.
 	Set        string
 	NewestOnly bool
 	Since      time.Time
+	Until      time.Time
 
 	// Copy is a medium id, or "" / "best-available", applied to every file.
 	Copy string
@@ -217,8 +219,8 @@ func (b *BackupService) scopeRecoverMany(ctx context.Context, h *recoveryHost, r
 	switch {
 	case req.Set != "" && len(req.Artifacts) > 0, req.Set == "" && len(req.Artifacts) == 0:
 		return sc, ErrRecoverManyInvalid
-	case req.Set == "" && (req.NewestOnly || !req.Since.IsZero()):
-		return sc, fmt.Errorf("%w: newest-only and since narrow a backup set, so they need one", ErrRecoverManyInvalid)
+	case req.Set == "" && (req.NewestOnly || !req.Since.IsZero() || !req.Until.IsZero()):
+		return sc, fmt.Errorf("%w: newest-only, since and until narrow a backup set, so they need one", ErrRecoverManyInvalid)
 	}
 
 	t := req.Target
@@ -320,14 +322,17 @@ func distinctSets(arts []Artifact) map[string]bool {
 	return out
 }
 
-// narrowSet applies since and newest-only to a whole set's rows. Rows that
-// are not restore points are kept (they are listed in the summary, never
-// silently dropped) unless since rules them out by age, or newest-only has
-// already chosen a restore point newer than they are.
+// narrowSet applies since, until and newest-only to a whole set's rows. Rows
+// that are not restore points are kept (they are listed in the summary, never
+// silently dropped) unless since or until rules them out by age, or
+// newest-only has already chosen a restore point newer than they are.
 func narrowSet(all []Artifact, req RecoverManyRequest) []Artifact {
 	var rows []Artifact
 	for _, a := range all {
 		if !req.Since.IsZero() && a.UpdatedAt.Before(req.Since) {
+			continue
+		}
+		if !req.Until.IsZero() && a.UpdatedAt.After(req.Until) {
 			continue
 		}
 		rows = append(rows, a)

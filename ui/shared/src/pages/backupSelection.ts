@@ -18,7 +18,9 @@ export function unselectableReason(a: BackupArtifact): string | null {
 }
 
 /** The calendar day a backup was received, read in the offset the record
- *  carries, so a filter by day means the same day on every machine. */
+ *  carries, so a filter by day means the same day on every machine. The
+ *  engine serves updated_at in UTC, so this is the UTC day, which is the day
+ *  `retnd artifacts --since/--until` reads a bare date as (#1251). */
 export function receivedDay(a: BackupArtifact): string {
   return a.receivedAt.slice(0, 10);
 }

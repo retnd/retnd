@@ -208,7 +208,8 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   const previewSet = previewFor ? (sets.data ?? []).find((s) => s.id === previewFor) : null;
   const filteredSet = setFilter ? (sets.data ?? []).find((s) => s.id === setFilter) ?? null : null;
   // The `set` value comes from the address, so what is echoed is checked first.
-  const setEcho = setFilterEcho(setFilter, sets.data);
+  // The date range rides along, so the line lists what the screen does (#1251).
+  const setEcho = setFilterEcho(setFilter, sets.data, after, before);
 
   // #275: nothing to list, and nothing wrong either.
   if (isNotConfigured(artifacts.error))

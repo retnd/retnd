@@ -50,11 +50,19 @@ export const isRunning = (r: MenuRun): boolean => r.starting || (r.opId !== unde
  *  echo is a line somebody pastes into a shell, so it names a set only if this
  *  deployment lists it, or the value has the shape of a set id (source/set)
  *  for a set that was removed and whose backups are still listed (#523). Any
- *  other value is not echoed at all; the builder quotes what it does print. */
-export function setFilterEcho(setFilter: string, known: ReadonlyArray<{ id: string }> | null | undefined): string | null {
+ *  other value is not echoed at all; the builder quotes what it does print.
+ *
+ *  `after` and `before` are the page's received-date inputs, and the line
+ *  carries them as --since and --until (#1251), because it is labelled as the
+ *  same list. A bound that is not a YYYY-MM-DD date, or a range whose end is
+ *  before its start (the CLI refuses that), gets no line rather than one that
+ *  lists something else. */
+export function setFilterEcho(setFilter: string, known: ReadonlyArray<{ id: string }> | null | undefined, after = "", before = ""): string | null {
   if (!setFilter) return null;
-  if (known?.some((s) => s.id === setFilter) || /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(setFilter)) return artifactsInSetCommand(setFilter);
-  return null;
+  if (!known?.some((s) => s.id === setFilter) && !/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(setFilter)) return null;
+  const isDay = (d: string) => d === "" || /^\d{4}-\d{2}-\d{2}$/.test(d);
+  if (!isDay(after) || !isDay(before) || (after && before && before < after)) return null;
+  return artifactsInSetCommand(setFilter, { since: after, until: before });
 }
 
 /** The menu for one row. */
