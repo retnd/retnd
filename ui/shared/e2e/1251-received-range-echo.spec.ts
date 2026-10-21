@@ -21,6 +21,7 @@ const echo = (page: Page) => status(page).locator("code");
 const after = (page: Page) => page.getByLabel("Received on or after");
 const before = (page: Page) => page.getByLabel("Received on or before");
 const rows = (page: Page) => page.locator("table.table tbody tr");
+const listEcho = (page: Page) => page.getByTestId("list-filter-echo");
 
 async function shownCount(page: Page): Promise<number> {
   const m = /Showing (\d+) backups? in/.exec((await status(page).textContent()) ?? "");
@@ -66,11 +67,29 @@ test.describe("#1251 the set filter's terminal line carries the received-date ra
     await expect(echo(page)).toHaveCount(0);
   });
 
-  test("#1251 an assurance bucket on top of the set filter has no artifacts line, since artifacts cannot narrow by bucket", async ({ page }) => {
+  test("#1251 an assurance bucket on top of the set filter is --assurance on the set's line", async ({ page }) => {
     await open(page, "/backups?set=production/postgres-primary&assurance=untested", "assurance-default-policy", { wire: true });
     await expect(page.getByTestId("assurance-filter-status")).toHaveText("Showing 1 of 2 backups with no recovery test");
     await expect(status(page)).toContainText("Showing 1 backup in");
-    await expect(echo(page)).toHaveCount(0);
+    await expect(echo(page)).toHaveText("retnd artifacts --backup-set production/postgres-primary --assurance untested");
+    await expect(listEcho(page)).toHaveCount(0);
+  });
+
+  test("#1251 a range with no set filter has its own terminal line", async ({ page }) => {
+    await open(page, "/backups", MANY);
+    await expect(listEcho(page)).toHaveCount(0);
+    await after(page).fill("2026-08-20");
+    await before(page).fill("2026-08-26");
+    await expect(listEcho(page).locator("code")).toHaveText("retnd artifacts --since 2026-08-20 --until 2026-08-26");
+    await before(page).fill("");
+    await after(page).fill("");
+    await expect(listEcho(page)).toHaveCount(0);
+  });
+
+  test("#1251 an assurance bucket with no set filter has its own terminal line", async ({ page }) => {
+    await open(page, "/backups?assurance=untested", "assurance-default-policy", { wire: true });
+    await expect(page.getByTestId("assurance-filter-status")).toHaveText("Showing 1 of 2 backups with no recovery test");
+    await expect(listEcho(page).locator("code")).toHaveText("retnd artifacts --assurance untested");
   });
 
   test("#1251 the Time column shows when a backup arrived, the time the date range filters on", async ({ page }) => {
@@ -84,6 +103,15 @@ test.describe("#1251 the set filter's terminal line carries the received-date ra
   });
 
   for (const theme of ["light", "dark"] as const) {
+    test("#1251 the terminal line with no set filter meets AA in the " + theme + " theme", async ({ page }) => {
+      await open(page, "/backups", MANY);
+      await after(page).fill("2026-08-20");
+      await before(page).fill("2026-08-26");
+      await expect(listEcho(page).locator("code")).toContainText("--until 2026-08-26");
+      await setTheme(page, theme);
+      expect(await measureContrast(page, "1251 list echo " + theme, '[data-testid="list-filter-echo"]')).toEqual([]);
+    });
+
     test("#1251 the status with the ranged line meets AA in the " + theme + " theme", async ({ page }) => {
       await open(page, "/backups?set=" + BILLING, MANY);
       await after(page).fill("2026-08-20");
