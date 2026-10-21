@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"strings"
 	"time"
 	"unicode"
@@ -211,6 +212,17 @@ func sayln(w io.Writer, a ...any) { _, _ = fmt.Fprintln(w, a...) }
 func printCustomValidatorList(w io.Writer, l service.CustomValidators) {
 	if !l.Available {
 		say(w, "uploads: unavailable: %s\n", listingText(l.UnavailableReason))
+	}
+	// Where scripts are kept, and whether that root is one config.yaml
+	// names or the mounted default (#1246), as the Settings card and
+	// `settings workflow` say it.
+	if l.WorkflowRoot != "" {
+		dir := path.Join(l.WorkflowRoot, l.Directory)
+		if l.WorkflowRootDefault {
+			say(w, "scripts: %s (under the default workflow root: config.yaml names none, and this directory is mounted)\n", listingText(dir))
+		} else {
+			say(w, "scripts: %s\n", listingText(dir))
+		}
 	}
 	if l.DirectoryRefused != "" {
 		say(w, "directory refused: %s\n  no validator script can run until that is fixed\n", listingText(l.DirectoryRefused))

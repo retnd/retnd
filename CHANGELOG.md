@@ -48,7 +48,7 @@
   `<prefix>/workflows` and mounts it at `/workflows`, and never told the engine: `config.yaml` had no
   `workflows` block, so the Custom validators card refused with "no workflow root is configured" and no hook
   could run either. A configuration that names no `workflows.root` now uses `/workflows` when that directory
-  is there, and the card and `retnd settings workflow` call it the default rather than "not configured". An
+  is there, and the card, `retnd settings workflow` and `retnd assurance validators list` call it the default rather than "not configured". An
   explicit root still wins. Clearing the root (`settings workflow patch --root ""`) now writes
   `workflows.disabled: true`, because an empty root would otherwise pick the default up again on the next
   start; a retnd older than this refuses a `config.yaml` with `disabled` in it, so remove it before you
