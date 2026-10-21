@@ -2,17 +2,25 @@ import { describe, expect, it } from "vitest";
 import type { BackendManifest } from "@shared/api/contracts";
 import {
   configureCommand,
-  defaultCommand,
+  endpointNote,
+  endpointWithoutUserinfo,
   importCredentialsCommand,
   preflightCommand
 } from "@shared/pages/destinationConfigureCommands";
+import { setDefaultCommand } from "@shared/pages/storageDestinationCommands";
+// The vectors core/cliecho's configure_golden_1252_test.go checks too.
+// Through `?raw` for the reason manifest-field-renderer.test.tsx gives.
+import goldenSource from "../../../../core/cliecho/testdata/medium_configure_1252.json?raw";
 
 /**
  * The lines the configure-a-destination wizard prints (#1252).
  *
- * Each expected string below is the one core/cliecho prints for the same
- * request (storageconfigure_1154_test.go), so the line beside a control and
- * the line the global terminal records after it agree byte for byte.
+ * The hand-written cases below read well as documentation. The ones that
+ * keep this copy honest are at the bottom: the shared golden file, which
+ * the Go suite checks core/cliecho against, so the line printed beside a
+ * button and the line the terminal records after it describe the same
+ * configuration. Where they differ is written down in the module's own
+ * docblock.
  */
 
 const LOCAL_VOLUME: BackendManifest = {
@@ -111,10 +119,98 @@ describe("the configure wizard's terminal lines (#1252)", () => {
   });
 
   it("prints medium default for making it the default", () => {
-    expect(defaultCommand("usb_disk")).toBe("retnd medium default usb_disk");
+    expect(setDefaultCommand("usb_disk")).toBe("retnd medium default usb_disk");
   });
 
   it("still takes credential material on stdin only", () => {
     expect(importCredentialsCommand()).toBe("retnd medium import-credentials --stdin");
+  });
+
+  it("keeps a field whose id is an Object.prototype key (#1252 review)", () => {
+    const odd: BackendManifest = {
+      ...LOCAL_VOLUME,
+      fields: [
+        { id: "constructor", label: "Odd", kind: "string", required: false },
+        { id: "toString", label: "Odder", kind: "string", required: false }
+      ]
+    };
+    expect(configureCommand(odd, "x", { constructor: "a", toString: "b" })).toBe(
+      "retnd medium configure x --backend local_volume --field constructor=a --field toString=b"
+    );
+  });
+
+  it("cuts userinfo out of any url-kind field, whatever its id (#1252 review)", () => {
+    const webdav: BackendManifest = {
+      ...LOCAL_VOLUME,
+      id: "webdav",
+      fields: [{ id: "webdav_url", label: "Address", kind: "url", required: true }]
+    };
+    const line = configureCommand(webdav, "dav", { webdav_url: "https://u:secret@dav.example.test/x" });
+    expect(line).toBe("retnd medium configure dav --backend webdav --field webdav_url=https://dav.example.test/x");
+    expect(endpointNote(webdav, { webdav_url: "https://u:secret@dav.example.test/x" })).toBe("stripped");
+  });
+
+  it("says which way the endpoint went, for the note under the line", () => {
+    expect(endpointNote(S3, { bucket: "b" })).toBeNull();
+    expect(endpointNote(S3, { bucket: "b", endpoint: "https://s3.example.test" })).toBeNull();
+    expect(endpointNote(S3, { bucket: "b", endpoint: "https://k:s@s3.example.test" })).toBe("stripped");
+    expect(endpointNote(S3, { bucket: "b", endpoint: "https://k:s/x@s3.example.test" })).toBe("withheld");
+  });
+});
+
+interface Golden {
+  endpoint_vectors: { in: string; out: string; withheld: boolean }[];
+  configure_cases: {
+    name: string;
+    id: string;
+    backend: string;
+    fields: Record<string, string>;
+    kinds: Record<string, string>;
+    credentials_id: string;
+    preflight: boolean;
+    line: string;
+    runnable: boolean;
+  }[];
+  default_cases: { id: string; line: string }[];
+}
+
+const golden = JSON.parse(goldenSource) as Golden;
+
+/** A manifest carrying just the fields a golden case names, with the kinds
+ *  it gives them: the browser decides by kind, and cliecho by the bundled
+ *  manifest, which is where these kinds were copied from. */
+function goldenManifest(c: Golden["configure_cases"][number]): BackendManifest {
+  return {
+    ...LOCAL_VOLUME,
+    id: c.backend,
+    fields: Object.keys(c.fields).map((id) => ({
+      id,
+      label: id,
+      kind: (c.kinds[id] ?? "string") as BackendManifest["fields"][number]["kind"],
+      required: false
+    }))
+  };
+}
+
+describe("the golden file core/cliecho is checked against (#1252)", () => {
+  it("has cases in it, so the loops below cannot pass on nothing", () => {
+    expect(golden.endpoint_vectors.length).toBeGreaterThan(5);
+    expect(golden.configure_cases.length).toBeGreaterThan(3);
+    expect(golden.default_cases.length).toBeGreaterThan(0);
+  });
+
+  it.each(golden.endpoint_vectors)("cuts the endpoint $in the way cliecho does", (v) => {
+    expect(endpointWithoutUserinfo(v.in)).toEqual({ value: v.out, withheld: v.withheld });
+  });
+
+  it.each(golden.configure_cases)("prints the line cliecho prints: $name", (c) => {
+    const build = c.preflight ? preflightCommand : configureCommand;
+    const manifest = goldenManifest(c);
+    expect(build(manifest, c.id, c.fields, c.credentials_id || null)).toBe(c.line);
+    expect(endpointNote(manifest, c.fields) !== "withheld").toBe(c.runnable);
+  });
+
+  it.each(golden.default_cases)("prints medium default $id the way cliecho does", (c) => {
+    expect(setDefaultCommand(c.id)).toBe(c.line);
   });
 });

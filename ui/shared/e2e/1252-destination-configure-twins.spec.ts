@@ -8,7 +8,7 @@
  */
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { open } from "./helpers";
+import { contrastReport, open, setTheme } from "./helpers";
 
 test.describe.configure({ timeout: 60_000 });
 
@@ -110,6 +110,44 @@ test("1252: an S3 twin carries its fields as --field and the credential as a ref
   expect(shown).not.toContain("CANARY-1252-DO-NOT-PRINT");
   expect(shown).not.toContain("EXAMPLE-NOT-A-REAL-KEY");
   expect(shown).not.toContain("retnd medium add");
+});
+
+test("1252: an endpoint the cut can't read is held back, with a note that meets AA", async ({ page }) => {
+  // The form refuses a username or password in an endpoint, so the case
+  // that reaches this screen is a legitimate "@" after the host. The line
+  // can't tell that from a password with a "/" in it, so it holds the
+  // value back rather than guess (review M1), and says the line won't run.
+  await startAdding(page, /^S3 or S3-compatible/, "cold_archive");
+  await page.getByRole("button", { name: "Next: configure it", exact: true }).click();
+
+  const w = wizard(page, "cold_archive");
+  await fieldControl(page, "bucket").fill("acme-backups");
+  await fieldControl(page, "endpoint").fill("https://minio.example.test/tenant@eu");
+  await fieldControl(page, "credentials").fill("EXAMPLE-NOT-A-REAL-KEY");
+  await page.getByRole("textbox", { name: "Access key — secret" }).fill("CANARY-1252-DO-NOT-PRINT");
+  await page.getByRole("button", { name: "Next: test connection", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Next: review", exact: true })).toBeEnabled({ timeout: 15_000 });
+
+  for (const step of ["test", "review"]) {
+    if (step === "review") await page.getByRole("button", { name: "Next: review", exact: true }).click();
+    const line = (await w.locator("code").allTextContents()).join("\n");
+    expect(line, step).toContain(
+      "--field <endpoint=the value, left out because it looks like it carries credentials>"
+    );
+    expect(line, step).not.toContain("minio.example.test");
+    const note = page.getByTestId("configure-endpoint-note");
+    await expect(note, step).toContainText("won't run as printed");
+  }
+
+  for (const theme of ["light", "dark"] as const) {
+    await setTheme(page, theme);
+    const report = await contrastReport(page, "[data-testid=configure-endpoint-note]");
+    expect(report.length, theme).toBeGreaterThan(0);
+    for (const m of report) {
+      console.log(`1252 note contrast, ${theme}: ${m.ratio.toFixed(2)}:1 (needs ${m.need}) ${m.fg} on ${m.bg}`);
+      expect(m.ratio, `${theme} ${m.text}`).toBeGreaterThanOrEqual(m.need);
+    }
+  }
 });
 
 function escape(s: string) {

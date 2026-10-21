@@ -218,6 +218,10 @@ describe("the check", () => {
 
     expect(importCredentials).toHaveBeenCalledWith(PLACEHOLDER_KEY_ID, CANARY_SECRET);
     expect(preflight).toHaveBeenCalledWith("locker_one", {
+      // The backend on every request, declared destination or not
+      // (#1252): the engine checks it matches, so a stale form is refused
+      // rather than reinterpreted, and the echoed line names it too.
+      backend: "widget_locker",
       // Keyed by field id, with the unset optional enum ABSENT rather
       // than sent as its unset_means value: a default resolved at read
       // time must not travel as though somebody chose it (#294).
@@ -396,6 +400,7 @@ describe("the review step", () => {
     await waitFor(() => expect(configure).toHaveBeenCalled());
 
     expect(configure).toHaveBeenCalledWith("locker_one", {
+      backend: "widget_locker",
       fields: { path: "/mnt/lockers", prefix: "widgets/2026" },
       credentials: { credentialsId: "cred-669" }
     });
