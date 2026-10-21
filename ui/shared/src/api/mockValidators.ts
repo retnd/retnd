@@ -104,7 +104,8 @@ function derive(name: string): string {
 }
 
 function seed(scenario: string): CustomValidator[] {
-  if (scenario === "validators-none" || scenario === "validators-unavailable") return [];
+  if (scenario === "validators-none" || scenario === "validators-unavailable" || scenario === "validators-workflows-off") return [];
+  if (scenario === "validators-default-root") return [];
   if (scenario === "validators-full") {
     return Array.from({ length: MAX_VALIDATORS }, (_, i) => {
       const n = String(i + 1).padStart(2, "0");
@@ -194,7 +195,13 @@ export function createMockValidators(env: MockValidatorsEnv): Pick<
   | "getCustomValidatorScript"
   | "getDefaultValidatorScript"
 > {
-  const unavailable = env.scenario === "validators-unavailable";
+  // #1246: "validators-workflows-off" is a deployment whose operator cleared
+  // the root (workflows.disabled), and "validators-default-root" one whose
+  // config.yaml names no root and runs on the mounted /workflows.
+  const turnedOff = env.scenario === "validators-workflows-off";
+  const unavailable = env.scenario === "validators-unavailable" || turnedOff;
+  const defaultRoot = env.scenario === "validators-default-root";
+  const root = defaultRoot ? "/workflows" : "/var/lib/retnd/workflows";
   let validators = seed(env.scenario);
   const scripts = new Map<string, string>(
     validators
@@ -237,10 +244,13 @@ export function createMockValidators(env: MockValidatorsEnv): Pick<
     listCustomValidators: (filter) => {
       const list: CustomValidatorList = {
         available: !unavailable,
-        unavailableReason: unavailable ? "no workflow root is configured, so there is nowhere to keep a validator script" : "",
+        unavailableReason: turnedOff
+          ? "workflows are turned off for this deployment (workflows.disabled), so there is nowhere to keep a validator script; set a workflow root under Settings > Workflow to turn them back on"
+          : unavailable ? "no workflow root is configured, so there is nowhere to keep a validator script" : "",
         runnerConfigured: !unavailable,
-        directory: unavailable ? "" : "/var/lib/retnd/workflows/recovery-test-validators",
-        workflowRoot: unavailable ? "" : "/var/lib/retnd/workflows",
+        directory: unavailable ? "" : root + "/recovery-test-validators",
+        workflowRoot: unavailable ? "" : root,
+        workflowRootDefault: defaultRoot,
         maxValidators: MAX_VALIDATORS,
         maxScriptBytes: MAX_SCRIPT_BYTES,
         maxPatternBytes: MAX_PATTERN_BYTES,

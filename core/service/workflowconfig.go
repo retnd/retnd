@@ -143,6 +143,14 @@ type WorkflowSettings struct {
 	BeforeDir string
 	AfterDir  string
 
+	// RootDefault says Root is the default root (config.DefaultWorkflowRoot,
+	// found mounted) rather than one config.yaml names (#1246).
+	RootDefault bool
+
+	// Disabled says an operator cleared the root (workflows.disabled), so
+	// no default is looked for either.
+	Disabled bool
+
 	// ScriptTimeout is the bound a hook gets when its backup set does not
 	// say. It is RESOLVED: a deployment that configures none reports
 	// internal/workflow's default rather than a zero an operator would

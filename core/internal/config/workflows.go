@@ -69,6 +69,20 @@ type Workflows struct {
 	// why it cannot be this one.
 	Root string `yaml:"root,omitempty"`
 
+	// Disabled is the written form of a root an operator cleared (#1246).
+	// An absent root and a cleared one were the same file once omitempty
+	// had dropped the empty string, and since an absent root now means
+	// "use DefaultWorkflowRoot when it is there", clearing it needs a
+	// spelling of its own that survives the save.
+	Disabled bool `yaml:"disabled,omitempty"`
+
+	// defaultRoot is the directory ApplyDefaultWorkflowRoot found for a
+	// configuration that names no root. Unexported, so it is never
+	// marshalled: it is what this process resolved, not what the
+	// operator wrote, and a settings save must not freeze it into the
+	// file.
+	defaultRoot string
+
 	// Global is the pair of hook directories that run for every backup
 	// set in the deployment.
 	Global WorkflowStageDirs `yaml:"global,omitempty"`
@@ -365,6 +379,19 @@ func (e EnvironmentVariable) envVar() workflow.EnvVar {
 // all: one question, answered in one place, so no surface re-derives it
 // from a different combination of fields.
 func (c *Config) WorkflowsConfigured() bool { return c.Workflows.Root != "" }
+
+// DefaultWorkflowRoot is the conventional container path for the hook
+// tree (#1246).
+const DefaultWorkflowRoot = "/workflows"
+
+// ApplyDefaultWorkflowRoot is a placeholder for #1246's default root.
+func (c *Config) ApplyDefaultWorkflowRoot(dir string, present func(string) bool) {}
+
+// WorkflowRoot is the root this deployment uses.
+func (c *Config) WorkflowRoot() string { return c.Workflows.Root }
+
+// WorkflowRootIsDefault reports whether WorkflowRoot is the default.
+func (c *Config) WorkflowRootIsDefault() bool { return false }
 
 // WorkflowStagesFor returns the stages one backup set runs, in execution
 // order, or nothing when this deployment or this set configures none.

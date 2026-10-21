@@ -357,6 +357,61 @@ func TestAReadOnlyCredentialFileMountIsNotRefused(t *testing.T) {
 	}
 }
 
+// The two directories custom recovery-test validators are kept in (#1246).
+// The engine writes them, so on a deployment whose script tree is mounted
+// read-only they need mounts of their own. They are the one writable place
+// under the script tree, and only those two names may be.
+var validatorDirs = []string{
+	hookScriptsPath + "/recovery-test-validators",
+	hookScriptsPath + "/recovery-test-validators.superseded",
+}
+
+// TestTheValidatorDirectoriesAreWritableAndTheHookTreeIsNot is #1246's
+// mount: a custom validator can be saved on a deployment whose hook tree
+// is read-only, without the rest of that tree becoming writable.
+func TestTheValidatorDirectoriesAreWritableAndTheHookTreeIsNot(t *testing.T) {
+	t.Parallel()
+
+	doc, svc := engine(t)
+	mounts := doc.Mounts(svc)
+
+	for _, dir := range validatorDirs {
+		mount, found := mountAt(mounts, dir)
+		if !found {
+			t.Errorf("the engine mounts nothing at %s, so the read-only %s above it refuses every validator an operator saves", dir, hookScriptsPath)
+			continue
+		}
+		if mount.ReadOnly {
+			t.Errorf("%s is mounted read-only; the engine writes validator scripts there", dir)
+		}
+		if !strings.HasSuffix(mount.HostPath, strings.TrimPrefix(dir, hookScriptsPath)) {
+			t.Errorf("%s is mounted from %s, which is not the same directory inside the host's script tree; the host runner reads it there", dir, mount.HostPath)
+		}
+	}
+	if mount, found := mountAt(mounts, hookScriptsPath); !found || !mount.ReadOnly {
+		t.Errorf("%s is not mounted read-only any more (found %v); the validator mounts were meant to leave the hook scripts as they were", hookScriptsPath, found)
+	}
+	for _, finding := range workflowMountFindings(doc, svc) {
+		t.Error(finding)
+	}
+}
+
+// TestAnotherWritableDirectoryUnderTheHookTreeIsStillRefused is the control
+// for the exception above: it covers the two validator directories and no
+// other name, so a writable hook stage is still a finding.
+func TestAnotherWritableDirectoryUnderTheHookTreeIsStillRefused(t *testing.T) {
+	t.Parallel()
+
+	doc, describe := canonical(t).WithVolume("/srv/retnd/workflows/global-before:" + hookScriptsPath + "/global-before")
+	if describe == "" {
+		t.Fatal("the mutation helper injected nothing, so this control is watching an unmutated document")
+	}
+	_, svc := engineOf(t, doc)
+	if len(workflowMountFindings(doc, svc)) == 0 {
+		t.Errorf("a writable hook stage under %s was not refused: %s", hookScriptsPath, describe)
+	}
+}
+
 // engineOf is engine() for a document a test has already built.
 func engineOf(t *testing.T, doc compose.Document) (compose.Document, map[string]any) {
 	t.Helper()

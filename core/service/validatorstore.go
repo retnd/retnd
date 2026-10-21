@@ -230,7 +230,7 @@ func moveValidatorAside(root workflow.Root, file string) error {
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		if err := os.Rename(src, dst); err != nil {
+		if err := renameValidatorFile(src, dst); err != nil {
 			return err
 		}
 		syncDir(aside)

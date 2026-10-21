@@ -180,6 +180,11 @@ export const SCENARIOS = [
   "validators-none",
   "validators-unavailable",
   "validators-full",
+  // #1246: "validators-default-root" runs on the mounted /workflows with no
+  // root in config.yaml; "validators-workflows-off" is a root an operator
+  // cleared (workflows.disabled).
+  "validators-default-root",
+  "validators-workflows-off",
   // #1230: the script states (#1222). "validators-states" holds one validator
   // in each of pinned, unpinned, edited_on_disk and missing; the three below
   // put billing-dump alone in that state (the default has it pinned).

@@ -6841,5 +6841,102 @@ class TestTheRunnerRunsHooksInContainers(unittest.TestCase):
 
 
 
+class TestTheWorkflowRootIsWrittenDown(unittest.TestCase):
+    """Issue #1246. The installer makes <prefix>/workflows and the compose
+    file mounts it at /workflows, and nothing told the engine: a config.yaml
+    with no workflows block has no root, so custom validators refused with
+    "no workflow root is configured" on a deployment that had one mounted.
+
+    An upgrade now writes the root into a config.yaml that says nothing
+    about workflows, so the file says what the deployment does. A block an
+    operator wrote, including one that turned workflows off, is theirs and
+    is left exactly as it is."""
+
+    CONFIG = "poll_interval: 15m\nstate:\n  database: /data/state/state.db\nsources: []\n"
+
+    def staged(self, text=None):
+        fx = Fixture(self)
+        args = fx.args(command="install")
+        installer.stage_payload(args)
+        path = args.config_dir / "config.yaml"
+        if text is not None:
+            path.write_text(text, encoding="utf-8")
+            os.chmod(path, 0o600)
+        return args, path
+
+    def test_a_config_with_no_workflows_block_gets_the_mounted_root(self):
+        args, path = self.staged(self.CONFIG)
+        with contextlib.redirect_stdout(io.StringIO()):
+            installer.fill_workflow_root(args)
+        text = path.read_text(encoding="utf-8")
+        self.assertTrue(text.startswith(self.CONFIG), "everything the operator had has to stay as it was")
+        self.assertIn("\nworkflows:\n  root: " + installer.CONTAINER_WORKFLOWS_DIR + "\n", text)
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600, "the file keeps its mode")
+
+    def test_a_file_without_a_final_newline_still_gets_a_block_of_its_own(self):
+        args, path = self.staged(self.CONFIG.rstrip("\n"))
+        with contextlib.redirect_stdout(io.StringIO()):
+            installer.fill_workflow_root(args)
+        self.assertIn("sources: []\nworkflows:\n  root: /workflows\n", path.read_text(encoding="utf-8"))
+
+    def test_a_workflows_block_the_operator_wrote_is_left_alone(self):
+        for block in ("workflows:\n  disabled: true\n", "workflows:\n  root: /srv/hooks\n", "workflows: {}\n"):
+            with self.subTest(block=block):
+                args, path = self.staged(self.CONFIG + block)
+                with contextlib.redirect_stdout(io.StringIO()):
+                    installer.fill_workflow_root(args)
+                self.assertEqual(path.read_text(encoding="utf-8"), self.CONFIG + block)
+
+    def test_a_commented_out_block_is_not_a_block(self):
+        args, path = self.staged(self.CONFIG + "# workflows:\n#   root: /elsewhere\n")
+        with contextlib.redirect_stdout(io.StringIO()):
+            installer.fill_workflow_root(args)
+        self.assertIn("\nworkflows:\n  root: /workflows\n", path.read_text(encoding="utf-8"))
+
+    def test_no_config_yet_means_nothing_is_written(self):
+        """A fresh install's first config.yaml is the engine's to write
+        (#1049); it uses the mounted root without one in the file."""
+        args, path = self.staged()
+        with contextlib.redirect_stdout(io.StringIO()):
+            installer.fill_workflow_root(args)
+        self.assertFalse(path.exists())
+
+    def test_the_install_writes_it_before_the_stack_comes_up(self):
+        src = Path(installer.__file__).read_bytes().decode("utf-8")
+        start = src.index("def cmd_install(args)")
+        body = src[start:src.index("\ndef ", start + 1)]
+        self.assertTrue("fill_workflow_root(" in body, "cmd_install no longer writes the root")
+        self.assertLess(body.index("stage_payload("), body.index("fill_workflow_root("))
+        self.assertLess(body.index("fill_workflow_root("), body.index('"up", "-d"'),
+                        "the engine reads config.yaml when it starts, so the root has to be there first")
+
+
+class TestTheValidatorDirectoriesAreStaged(unittest.TestCase):
+    """Issue #1246. The compose file mounts two directories under the
+    workflow tree writable for custom validators. A bind mount whose host
+    path does not exist is created by Docker as root, which the engine
+    (PUID) cannot write, so staging makes them first, 0700, like the tree
+    above them."""
+
+    def test_both_directories_exist_0700_after_staging(self):
+        old = os.umask(0)
+        self.addCleanup(os.umask, old)
+        fx = Fixture(self)
+        args = fx.args(command="install")
+        installer.stage_payload(args)
+        for name in ("recovery-test-validators", "recovery-test-validators.superseded"):
+            d = args.workflows_dir / name
+            self.assertTrue(d.is_dir(), f"{d} is not staged, so Docker would create it as root")
+            self.assertEqual(d.stat().st_mode & 0o777, 0o700)
+
+    def test_staged_directories_do_not_switch_the_runner_on(self):
+        """auto supervises the runner once there is a script in the tree;
+        two empty directories are not one."""
+        fx = Fixture(self)
+        args = fx.args(command="install")
+        installer.stage_payload(args)
+        self.assertFalse(installer.deployment_has_hooks(args))
+
+
 if __name__ == "__main__":
     unittest.main()

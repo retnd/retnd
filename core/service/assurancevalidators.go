@@ -217,6 +217,10 @@ type CustomValidators struct {
 	// WorkflowRoot the root itself ("" when none is configured).
 	Directory    string
 	WorkflowRoot string
+	// WorkflowRootDefault says WorkflowRoot is the default root
+	// (config.DefaultWorkflowRoot, found mounted) rather than one the
+	// configuration names (#1246).
+	WorkflowRootDefault bool
 	// Available says a validator can be uploaded here; Reason says why not.
 	Available         bool
 	UnavailableReason string

@@ -2771,6 +2771,9 @@ export interface CustomValidatorList {
   runnerConfigured: boolean;
   directory: string;
   workflowRoot: string;
+  /** workflowRoot is the default (/workflows, found mounted) rather than one
+   *  config.yaml names (#1246). */
+  workflowRootDefault: boolean;
   maxValidators: number;
   maxScriptBytes: number;
   maxPatternBytes: number;
