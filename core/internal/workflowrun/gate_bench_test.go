@@ -96,7 +96,7 @@ var benchStages = []stage{globalBefore, setBefore, setAfter, globalAfter}
 // every error a benchmark can check, it checks itself against b, and the
 // journal directory the zero T would have removed is removed here
 // instead. Without the second part each row would leave a .wfrun-*
-// directory behind in the package directory.
+// directory behind in the repository's .testtmp/.
 func benchHarness(b *testing.B) (*harness, *testing.T) {
 	b.Helper()
 

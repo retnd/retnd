@@ -50,8 +50,8 @@ func (j *Journal) AppendActivityEvents(ctx context.Context, rows []ActivityEvent
 			return errors.New("state: an activity event needs a positive sequence")
 		}
 		if r.Coalesce && r.ActionID != "" {
-			if _, err := tx.ExecContext(ctx,
-				`DELETE FROM activity_events WHERE event = ? AND action_id = ?`, r.Event, r.ActionID); err != nil {
+			q, args := coalesceStatement(r)
+			if _, err := tx.ExecContext(ctx, q, args...); err != nil {
 				return fmt.Errorf("state: coalesce activity events: %w", err)
 			}
 		}
@@ -68,6 +68,30 @@ func (j *Journal) AppendActivityEvents(ctx context.Context, rows []ActivityEvent
 		return fmt.Errorf("state: append activity events: %w", err)
 	}
 	return nil
+}
+
+// coalesceStatement is the delete that replaces a stored row of the same
+// stream as r.
+//
+// It runs inside AppendActivityEvents' transaction, which holds the
+// journal's only connection and its write lock, so it has to be an indexed
+// read (#1247). event and action_id are not indexed, and a delete on those
+// alone walks the whole table; on a host whose page cache a scrub has just
+// evicted, that walk is disk reads every other caller waits behind. The one
+// emitter of a coalesced line (obs.Logger.RecoveryStage) carries the
+// operation id as both op_id and the action id, so a row with an op_id is
+// found through idx_activity_events_op and the other two columns keep the
+// match exact. The statement's literal test that op_id is not empty adds
+// nothing to the match (a bound op_id is never empty here); it is there for
+// the planner, which cannot prove a bound parameter is non-empty and so will
+// not pick the partial index, whose WHERE is that same test, without it. A row without an op_id keeps the
+// unindexed delete, because nothing else names its stream.
+func coalesceStatement(r ActivityEventRow) (string, []any) {
+	if r.OpID != "" {
+		return `DELETE FROM activity_events WHERE op_id = ? AND op_id <> '' AND event = ? AND action_id = ?`,
+			[]any{r.OpID, r.Event, r.ActionID}
+	}
+	return `DELETE FROM activity_events WHERE event = ? AND action_id = ?`, []any{r.Event, r.ActionID}
 }
 
 // MaxActivityEventSeq is the highest sequence stored, or 0.
@@ -187,24 +211,56 @@ func reverseActivity(r []ActivityEventRow) {
 	}
 }
 
-// PruneActivityEvents applies the retention rule: rows older than
-// olderThan go, and then, if more than maxRows remain, the oldest of the
-// rest. It returns how many it removed.
-func (j *Journal) PruneActivityEvents(ctx context.Context, olderThan time.Time, maxRows int) (int64, error) {
-	if maxRows <= 0 {
-		return 0, errors.New("state: PruneActivityEvents needs a positive row bound")
+// The retention rule is 30 days and a row bound, oldest first, and it is
+// applied a batch at a time (#1247). Each call below is ONE statement that
+// removes at most limit rows and says how many it did, so the caller can
+// give every statement a deadline of its own, let the journal's only
+// connection go between them, and call again while a whole batch came back.
+// One statement that removed everything held that connection for as long
+// as everything took.
+
+// PruneActivityEventsByAge removes up to limit rows older than olderThan,
+// oldest first, and returns how many it removed. The rows are found through
+// idx_activity_events_at, so a call reads what it removes and nothing else.
+func (j *Journal) PruneActivityEventsByAge(ctx context.Context, olderThan time.Time, limit int) (int64, error) {
+	if limit <= 0 {
+		return 0, errors.New("state: PruneActivityEventsByAge needs a positive batch")
 	}
-	res, err := j.db.ExecContext(ctx, `DELETE FROM activity_events WHERE at < ?`, formatTime(olderThan))
+	res, err := j.db.ExecContext(ctx, `
+		DELETE FROM activity_events
+		 WHERE seq IN (SELECT seq FROM activity_events WHERE at < ? ORDER BY at LIMIT ?)`,
+		formatTime(olderThan), limit)
 	if err != nil {
 		return 0, fmt.Errorf("state: prune activity events by age: %w", err)
 	}
 	n, _ := res.RowsAffected()
-	res, err = j.db.ExecContext(ctx, `
-		DELETE FROM activity_events
-		 WHERE seq <= COALESCE((SELECT seq FROM activity_events ORDER BY seq DESC LIMIT 1 OFFSET ?), 0)`, maxRows)
-	if err != nil {
-		return n, fmt.Errorf("state: prune activity events by count: %w", err)
+	return n, nil
+}
+
+// PruneActivityEventsOverCount removes up to limit of the oldest rows beyond
+// the newest maxRows, and returns how many it removed.
+//
+// Each call counts the table and then walks, in sequence order, only as
+// many rows as it removes (at most limit). The count is still a full scan,
+// of the smallest covering index rather than of the table: SQLite keeps no
+// row count, so it is O(rows) per call, just over much less data than the
+// rows themselves. The statement this replaces found its cut-off with
+// OFFSET maxRows from the newest end, which walked up to maxRows rows of
+// the table itself on every call, whether or not anything was over the
+// bound. MAX(0, ...) matters: a negative LIMIT is no limit at all to
+// SQLite.
+func (j *Journal) PruneActivityEventsOverCount(ctx context.Context, maxRows, limit int) (int64, error) {
+	if maxRows <= 0 || limit <= 0 {
+		return 0, errors.New("state: PruneActivityEventsOverCount needs a positive row bound and batch")
 	}
-	m, _ := res.RowsAffected()
-	return n + m, nil
+	res, err := j.db.ExecContext(ctx, `
+		DELETE FROM activity_events
+		 WHERE seq IN (SELECT seq FROM activity_events ORDER BY seq
+		                LIMIT MAX(0, MIN(?, (SELECT COUNT(*) FROM activity_events) - ?)))`,
+		limit, maxRows)
+	if err != nil {
+		return 0, fmt.Errorf("state: prune activity events by count: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }

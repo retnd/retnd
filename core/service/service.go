@@ -358,6 +358,17 @@ func New(cfg *config.Config, journal *state.Journal, tr transport.Transport, log
 	// goroutine writes what this one files. Close drains it before the
 	// journal goes away.
 	activity.hydrate(ctx, journal, configuredSetIDs(cfg))
+	// A hold of the journal's one connection past state.SlowHoldThreshold
+	// names itself in the process log (#1247), so the next missed deadline
+	// can be traced to what held the journal. The tap is off: the hook runs
+	// while the connection is still held, and a line in the feed is a write
+	// to that same journal.
+	if journal != nil {
+		slowHolds := logger.WithSink(nil)
+		journal.SetSlowHoldHook(func(h state.SlowHold) {
+			slowHolds.JournalSlowHold(ctx, h.Op, h.Held, h.Waiters)
+		})
+	}
 	activity.durable = newActivityDurable(journal, logger)
 	// Not on b.wg: that group is the operations Close drains, and tests
 	// wait on it to mean "the work I started has finished". The writer runs

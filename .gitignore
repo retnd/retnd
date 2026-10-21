@@ -25,6 +25,10 @@
 /core/retnd
 /apps/generic/retnd-web
 
+# Scratch directories tests make inside the repository because the hook
+# custody walk refuses a fixture under a world-writable /tmp (#1247).
+/.testtmp/
+
 # SQLite journals produced by local runs
 *.db
 *.db-shm
