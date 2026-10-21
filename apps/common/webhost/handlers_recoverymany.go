@@ -57,6 +57,7 @@ type recoverManyRequestBody struct {
 	NewestOnly      bool               `json:"newest_only,omitempty"`
 	Since           string             `json:"since,omitempty"`
 	Until           string             `json:"until,omitempty"`
+	All             bool               `json:"all,omitempty"`
 	Copy            string             `json:"copy,omitempty"`
 	AcknowledgeCost bool               `json:"acknowledged,omitempty"`
 	Preflight       bool               `json:"preflight,omitempty"`
@@ -215,7 +216,7 @@ func (h *handlers) recoverMany(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req := service.RecoverManyRequest{
-		Artifacts: body.Artifacts, Set: body.Set, NewestOnly: body.NewestOnly, Copy: body.Copy,
+		Artifacts: body.Artifacts, Set: body.Set, NewestOnly: body.NewestOnly, All: body.All, Copy: body.Copy,
 		Target:          body.Target.service(),
 		AcknowledgeCost: body.AcknowledgeCost,
 	}

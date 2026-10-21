@@ -109,4 +109,3 @@ func TestIssue1251_AllReachesTheService(t *testing.T) {
 		t.Errorf("--all onto the source host was refused for not saying all = %d\n%s", code, out)
 	}
 }
-

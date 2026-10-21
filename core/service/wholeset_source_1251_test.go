@@ -36,7 +36,7 @@ func TestIssue1251_AWholeSetOntoTheSourceNeedsAll(t *testing.T) {
 			t.Errorf("%s: RecoverMany = %v, want ErrRecoverManyInvalid", name, err)
 			continue
 		}
-		for _, says := range []string{"all 3 retained restore points of production/postgres", "--all", `"all": true`} {
+		for _, says := range []string{"that keeps all 2 retained restore points of production/postgres", "--all", `"all": true`} {
 			if !strings.Contains(err.Error(), says) {
 				t.Errorf("%s: the refusal %q does not say %q", name, err, says)
 			}
@@ -51,16 +51,17 @@ func TestIssue1251_AWholeSetOntoTheSourceNeedsAll(t *testing.T) {
 		t.Errorf("a plan of the whole set onto the source = %v, want a plan", err)
 	}
 
-	// A range that leaves something out is a narrowing.
+	// A range that leaves something out is a narrowing. (The fixture's own
+	// dump.zst is not a restore point, so the set holds two.)
 	res, err := f.b.RecoverMany(ctx, f.session(), RecoverManyRequest{Set: "production/postgres", Target: ackedSource(t, f, ""), Until: time.Now().Add(-7 * 24 * time.Hour)}, nil)
 	if err != nil || res.Totals.Recovered != 1 {
-		t.Errorf("an until that keeps one of three = %+v, %v, want one recovered", res.Totals, err)
+		t.Errorf("an until that keeps one of two = %+v, %v, want one recovered", res.Totals, err)
 	}
 
 	// All says it.
 	res, err = f.b.RecoverMany(ctx, f.session(), RecoverManyRequest{Set: "production/postgres", Target: ackedSource(t, f, ""), All: true}, nil)
-	if err != nil || res.Totals.Recovered != 3 {
-		t.Errorf("all onto the source = %+v, %v, want three recovered", res.Totals, err)
+	if err != nil || res.Totals.Recovered != 2 {
+		t.Errorf("all onto the source = %+v, %v, want both recovered", res.Totals, err)
 	}
 }
 
@@ -82,6 +83,7 @@ func TestIssue1251_AllIsRefusedBesideANarrowingOrWithoutASet(t *testing.T) {
 
 func TestIssue1251_AWholeSetIntoStagingNeedsNoAll(t *testing.T) {
 	f := newRecoveryFixture(t, fixtureOpts{})
+	f.seedMany(t, manyFile{name: "a.zst", data: manyData(1, 1000), age: time.Hour})
 	res, err := f.b.RecoverMany(context.Background(), f.session(), setReq("whole"), nil)
 	if err != nil || res.Totals.Recovered != 1 {
 		t.Errorf("a whole set into staging = %+v, %v, want it recovered with no all", res.Totals, err)

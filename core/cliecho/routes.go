@@ -786,11 +786,13 @@ var routes = map[string]entry{
 				c.flag("to", to)
 			case "source":
 				sourceTarget(c, req.Target.Path, req.Target.AcknowledgedDestination)
-				// A whole set onto the source host is spelled out (#1193):
-				// the terminal refuses it without a narrowing or --all.
-				if req.Set != "" && !req.NewestOnly && req.Since == "" && req.Until == "" && !req.Preflight {
-					c.bare("all")
-				}
+			}
+			// --all is what the request said (the review of #1256): the
+			// service refuses a whole set onto the source host without it, as
+			// the terminal does, so printing it only when it was sent keeps
+			// the line and the request in agreement.
+			if req.All {
+				c.bare("all")
 			}
 			if req.Preflight {
 				c.bare("preflight")

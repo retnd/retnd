@@ -40,4 +40,3 @@ func TestEcho1251_AllIsWhatTheRequestSaid(t *testing.T) {
 		}
 	}
 }
-

@@ -143,7 +143,7 @@ func cmdRecoverMany(a manyArgs) int {
 		return usageError("recover: several backups cannot go to standard output; use a name under the recovery staging root or medium:ID[/PREFIX]")
 	}
 	req := service.RecoverManyRequest{
-		Artifacts: a.ids, Set: a.set, NewestOnly: a.newestOnly, Since: rng.since, Until: rng.until,
+		Artifacts: a.ids, Set: a.set, NewestOnly: a.newestOnly, Since: rng.since, Until: rng.until, All: a.all,
 		Copy: a.copySel, Target: target, AcknowledgeCost: a.ack,
 	}
 
@@ -183,7 +183,7 @@ func cmdRecoverMany(a manyArgs) int {
 				return fail(kerr)
 			}
 			if total > 0 && kept == total {
-				return usageError("recover: that range keeps all %d retained restore points of %s, which is the whole set onto its source host: say --all if that is what you mean, or narrow the range so it leaves something out", total, a.set)
+				return usageError("recover: %s", service.WholeSetOntoSourceRefusal(a.set, total))
 			}
 		}
 		if a.preflight {

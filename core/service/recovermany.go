@@ -40,6 +40,11 @@ type RecoverManyRequest struct {
 	NewestOnly bool
 	Since      time.Time
 	Until      time.Time
+	// All says every retained restore point of Set, explicitly. A whole set
+	// onto its source host is refused without it, and so is a range that
+	// keeps every one of them (#1193, the review of #1256): the API's
+	// spelling of the terminal's --all. It goes with none of the narrowings.
+	All bool
 
 	// Copy is a medium id, or "" / "best-available", applied to every file.
 	Copy string
@@ -221,6 +226,10 @@ func (b *BackupService) scopeRecoverMany(ctx context.Context, h *recoveryHost, r
 		return sc, ErrRecoverManyInvalid
 	case req.Set == "" && (req.NewestOnly || !req.Since.IsZero() || !req.Until.IsZero()):
 		return sc, fmt.Errorf("%w: newest-only, since and until narrow a backup set, so they need one", ErrRecoverManyInvalid)
+	case req.All && req.Set == "":
+		return sc, fmt.Errorf("%w: all is every restore point of a backup set, so it needs one", ErrRecoverManyInvalid)
+	case req.All && (req.NewestOnly || !req.Since.IsZero() || !req.Until.IsZero()):
+		return sc, fmt.Errorf("%w: all is every restore point, so it does not go with newest-only, since or until", ErrRecoverManyInvalid)
 	}
 
 	t := req.Target
@@ -350,6 +359,40 @@ func (b *BackupService) RangeKeepsWholeSet(ctx context.Context, req RecoverManyR
 	}
 	return kept, total, nil
 }
+
+// WholeSetOntoSourceRefusal is the one sentence the terminal and the API give
+// when a whole set would go onto its source host without being asked for as
+// all, so the two read the same (the review of #1256).
+func WholeSetOntoSourceRefusal(set string, total int) string {
+	return fmt.Sprintf("that keeps all %d retained restore points of %s, which is the whole set onto its source host: ask for all of them explicitly (--all, or \"all\": true on the API), or narrow it so it leaves something out", total, set)
+}
+
+// refuseWholeSetOntoSource holds a run to #1193's rule: every retained backup
+// of a set onto its production host is asked for as All. No narrowing, or a
+// range that keeps every restore point, is that act by another name. A plan
+// is not held to it, as `recover --preflight` is not: it writes nothing. It
+// reads the journal only, so the refusal comes before the host is touched.
+func (b *BackupService) refuseWholeSetOntoSource(ctx context.Context, req RecoverManyRequest) error {
+	if req.Set == "" || req.NewestOnly || req.All || !RecoveryTargetWritesToSourceHost(req.Target) {
+		return nil
+	}
+	kept, total, err := b.RangeKeepsWholeSet(ctx, req)
+	if err != nil {
+		return err
+	}
+	if total > 0 && kept == total {
+		return wholeSetOntoSourceError(WholeSetOntoSourceRefusal(req.Set, total))
+	}
+	return nil
+}
+
+// wholeSetOntoSourceError is ErrRecoverManyInvalid (a 400 on the route) whose
+// text is the refusal sentence alone, without the sentinel's own sentence,
+// which is about naming a set or a list and would read as the wrong reason.
+type wholeSetOntoSourceError string
+
+func (e wholeSetOntoSourceError) Error() string { return string(e) }
+func (e wholeSetOntoSourceError) Unwrap() error { return ErrRecoverManyInvalid }
 
 // narrowSet applies since, until and newest-only to a whole set's rows. Rows
 // that are not restore points are kept (they are listed in the summary, never
@@ -633,6 +676,9 @@ func (b *BackupService) RecoverMany(ctx context.Context, sess RecoverySession, r
 
 	h, err := b.recoveryReady()
 	if err != nil {
+		return RecoverManyResult{}, err
+	}
+	if err := b.refuseWholeSetOntoSource(ctx, req); err != nil {
 		return RecoverManyResult{}, err
 	}
 	b.sweepRecoveryIfDue(ctx)

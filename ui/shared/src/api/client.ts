@@ -3154,6 +3154,8 @@ function toWireRecoverMany(req: RecoverManyRequest, preflight: boolean): WireRec
     ...(req.artifacts?.length ? { artifacts: req.artifacts } : {}),
     ...(req.newestOnly ? { newest_only: true } : {}),
     ...(req.since ? { since: req.since } : {}),
+    ...(req.until ? { until: req.until } : {}),
+    ...(req.all ? { all: true } : {}),
     ...(req.copy ? { copy: req.copy } : {}),
     ...(req.acknowledged ? { acknowledged: true } : {}),
     ...(preflight ? { preflight: true } : {})
