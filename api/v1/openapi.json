@@ -5940,11 +5940,19 @@
         "properties": {
           "configured": {
             "type": "boolean",
-            "description": "Whether this deployment runs workflows at all, which is exactly \"is a workflow root set\". A deployment with no root has no approved tree for hook scripts to live in, so every per-set workflow write is refused until one is."
+            "description": "Whether this deployment runs workflows at all, which is exactly \"is there a workflow root\": the one config.yaml names, or the default (/workflows) when it names none and that directory is there (#1246). A deployment with no root has no approved tree for hook scripts to live in, so every per-set workflow write is refused until one is."
           },
           "root": {
             "type": "string",
-            "description": "The one directory hook scripts may live under. Every stage directory is resolved inside it and a path that escapes it is refused, which is the containment the whole feature rests on: a hook is arbitrary code, and the root is the operator's statement of where code they approved lives."
+            "description": "The one directory hook scripts may live under, as this process uses it: config.yaml's workflows.root, or the default when root_default is true. Every stage directory is resolved inside it and a path that escapes it is refused, which is the containment the whole feature rests on: a hook is arbitrary code, and the root is the operator's statement of where code they approved lives."
+          },
+          "root_default": {
+            "type": "boolean",
+            "description": "root is the default (/workflows, found present when this process read its configuration) and config.yaml names no root (#1246). The first write that needs a root in the file, such as a stage directory or a hook variable, writes this one there."
+          },
+          "disabled": {
+            "type": "boolean",
+            "description": "An operator cleared the root (config.yaml's workflows.disabled), so this deployment runs no workflows and does not look for the default root either. Setting a root clears it (#1246)."
           },
           "before_dir": {
             "type": "string",
@@ -5995,7 +6003,12 @@
         "properties": {
           "root": {
             "type": "string",
-            "description": "The approved tree hook scripts must live under. Setting it is what makes this deployment one that runs workflows.",
+            "description": "The approved tree hook scripts must live under. Setting it is what makes this deployment one that runs workflows, and it replaces the default root (/workflows) a deployment with none uses when that directory is there. An empty string clears it, which is written to config.yaml as workflows.disabled: true and turns workflows off, the default root included (#1246).",
+            "x-go-pointer": true
+          },
+          "disabled": {
+            "type": "boolean",
+            "description": "true turns workflows off: the root is cleared and config.yaml gets workflows.disabled, which a retnd older than this refuses. false turns them back on and leaves the root as the request or the file has it, so a deployment with none goes back to the mounted default (/workflows when it is there). Refused as true beside a non-empty root (#1246).",
             "x-go-pointer": true
           },
           "before_dir": {
@@ -8669,15 +8682,23 @@
           },
           "directory": {
             "type": "string",
-            "description": "Where the scripts live, relative to the workflow root: recovery-test-validators."
+            "description": "Where the scripts live, RELATIVE to the workflow root: recovery-test-validators. scripts_dir is the same place, absolute."
           },
           "workflow_root": {
             "type": "string",
-            "description": "The configured workflow root; empty when none is."
+            "description": "The workflow root the scripts are kept under: the one config.yaml names, or the default (/workflows) when it names none and that directory is there. Empty when there is neither."
+          },
+          "workflow_root_default": {
+            "type": "boolean",
+            "description": "workflow_root is the default root rather than one config.yaml names (#1246)."
+          },
+          "scripts_dir": {
+            "type": "string",
+            "description": "Where an upload lands: the stage directory under workflow_root, absolute (#1246). Empty when there is no root. directory is the same place relative to the root."
           },
           "available": {
             "type": "boolean",
-            "description": "A validator can be uploaded here. False when there is no workflow root or no configuration file; unavailable_reason says which."
+            "description": "A validator can be uploaded here. False when there is no workflow root (none configured and the default not there, or workflows turned off), no configuration file, or no writable validator directory; unavailable_reason says which."
           },
           "unavailable_reason": {
             "type": "string",
@@ -8724,6 +8745,8 @@
           "validators",
           "directory",
           "workflow_root",
+          "workflow_root_default",
+          "scripts_dir",
           "available",
           "unavailable_reason",
           "directory_refused",

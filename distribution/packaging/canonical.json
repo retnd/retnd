@@ -182,7 +182,9 @@
     "knownHosts": "/etc/retnd/known_hosts",
     "runtime": "/data/run",
     "workflows": "/workflows",
-    "runnerToken": "/etc/retnd/workflow-runner.token"
+    "runnerToken": "/etc/retnd/workflow-runner.token",
+    "validators": "/workflows/recovery-test-validators",
+    "validatorsSuperseded": "/workflows/recovery-test-validators.superseded"
   },
   "configFileName": "config.yaml",
   "_config_role_comment": [
@@ -216,7 +218,9 @@
     "/data/state",
     "/data/backups",
     "/etc/retnd/config",
-    "/data/run"
+    "/data/run",
+    "/workflows/recovery-test-validators",
+    "/workflows/recovery-test-validators.superseded"
   ],
   "_workflowRunner_comment": [
     "The host-side Host Workflow Runner contract (issue #877). Nothing in this",

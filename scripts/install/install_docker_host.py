@@ -3115,13 +3115,14 @@ services:
 
       # EPIC L (#808, #809): the hook scripts, the door to the host
       # runner, and the credential that door requires. Three mounts, and
-      # the differences between them are the whole security argument.
+      # the differences between them are the whole security argument,
+      # plus the two validator directories at the end (#1246).
       #
       # The scripts are READ-ONLY. This container plans a workflow — it
       # reads each script once, hashes it and copies it into its own
       # private spool under /data/state, and never opens the original
       # again — so write access here would buy nothing and would let a
-      # compromised engine edit what the host is about to execute.
+      # compromised engine edit the hook scripts an operator put there.
       #
       # The runtime directory is writable because it holds a SOCKET, and
       # connecting to a Unix socket is a write. It is the ONLY way into
@@ -3171,9 +3172,27 @@ services:
       # .env predates EPIC L still starts. `./` resolves beside this
       # file, which is the installation prefix, and is where the
       # installer creates them.
+      #
+      # The last two are custom recovery-test validators (#1203, #1246),
+      # and they are WRITABLE on purpose. Unlike a hook script, which an
+      # operator writes and this container only reads, a validator is
+      # written BY this engine: it is uploaded through the API (behind the
+      # destructive gate and a password) and pinned by hash in
+      # config.yaml, which this container already writes. Under the
+      # read-only tree above it was refused on every install. Mounting
+      # just these two directories over it keeps the hook scripts
+      # read-only, and config.yaml cannot name either of them as a hook
+      # stage (config.Validate refuses it), so nothing an upload writes
+      # ever runs as a hook. The second is where a removed validator's
+      # script is moved rather than deleted. Both sit inside the
+      # workflows directory on the host, where the host runner and an
+      # operator's backups expect them, and the installer creates them
+      # 0700 before the first `up` so Docker does not make them as root.
       - ${WORKFLOWS_DIR:-./workflows}:/workflows:ro
       - ${RUNTIME_DIR:-./run}:/data/run
       - ${RUNNER_TOKEN_FILE:-./secrets/workflow-runner.token}:/etc/retnd/workflow-runner.token:ro
+      - ${WORKFLOWS_DIR:-./workflows}/recovery-test-validators:/workflows/recovery-test-validators
+      - ${WORKFLOWS_DIR:-./workflows}/recovery-test-validators.superseded:/workflows/recovery-test-validators.superseded
 
     # `unless-stopped`: restart across crashes and NAS reboots, but stay
     # down if an operator deliberately stops it — the right policy now that
@@ -3387,7 +3406,7 @@ services:
 """
 
 # Written by scripts/install/embed_compose.py alongside the blob above.
-EMBEDDED_COMPOSE_SHA256 = "ff83ed975be6d5d0eea4df8c7d4b635da7cf2c34c723000a493e0993b65d5296"
+EMBEDDED_COMPOSE_SHA256 = "a0255eb73f038c2d82206cbe6eecd97bafe99db042c9d0c40e601a7121e6cbf0"
 
 
 def embedded_compose_bytes() -> bytes:
@@ -3449,6 +3468,32 @@ def checkout_compose_beside_this_installer():
 # says, so creating one and generating a key into it would move that failure
 # later rather than remove it.
 SECURE_DIR_MODE = 0o700
+
+
+def stage_validator_dir(path: Path) -> None:
+    """make_secure_dir for one of the two validator directories (#1246),
+    after refusing anything at that path that is not a plain directory.
+
+    These are bind-mounted WRITABLE into the engine. A symbolic link there
+    would be followed by Docker, so its target, wherever on the host it
+    points, would become writable by the engine; a regular file would make
+    the mkdir raise after an upgrade has already stopped the stack. Both
+    are refused by name, before anything is created.
+    """
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        make_secure_dir(path)
+        return
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+        kind = "a symbolic link" if stat.S_ISLNK(info.st_mode) else "not a directory"
+        raise Refusal(
+            EXIT_PREREQ_PATHS,
+            f"{path} is {kind}. It is mounted writable into the engine for custom recovery-test "
+            "validators, so it has to be a plain directory inside the workflows directory.",
+            f"Move it aside (mv {path} {path}.superseded) and re-run the installer, which creates it.",
+        )
+    make_secure_dir(path)
 
 
 def make_secure_dir(path: Path) -> None:
@@ -3522,9 +3567,11 @@ def warn_about_writable_ancestors(path: Path, stop_at: Path) -> list:
 # the runner creates and removes trees in. This section is everything the
 # installer does about it, and what it deliberately does not do:
 #
-#   * it never adds a capability, a mount or a privilege to the engine.
-#     The engine gains exactly two bind mounts, one of them read-only,
-#     and distribution/compose's gates still pass unchanged.
+#   * it never adds a capability or a privilege to the engine. The
+#     engine's mounts for this are the read-only script tree, the
+#     runtime directory, the read-only runner token and (#1246) the two
+#     custom validator directories under the script tree, and
+#     distribution/compose's gates hold each one to its write mode.
 #   * it never creates a user account. Account creation differs on every
 #     platform this product targets (DSM, OMV, Proxmox, TrueNAS, a plain
 #     systemd host), and an installer that invented one would be making a
@@ -3539,6 +3586,17 @@ def warn_about_writable_ancestors(path: Path, stop_at: Path) -> list:
 # the runtime does.
 CONTAINER_WORKFLOWS_DIR = "/workflows"
 CONTAINER_RUNTIME_DIR = "/data/run"
+
+# VALIDATOR_DIRS are the two directories under the workflows directory that
+# the engine WRITES (#1246): custom recovery-test validators, and the
+# sibling their scripts are moved into when they leave. The script tree is
+# mounted read-only, so the compose file mounts these two writable on their
+# own, and they are created here first so the mount lands on a directory
+# this installer made rather than one Docker made as root. The names are
+# core/internal/config's CustomValidatorDir and core/service's
+# supersededSuffix; canonical.json's containerPaths is the copy the
+# installer suite holds these to, and the engine's own suite holds those.
+VALIDATOR_DIRS = ("recovery-test-validators", "recovery-test-validators.superseded")
 
 # CONTAINER_RUNNER_TOKEN is where the runner's credential is bound inside
 # the engine, and it is a FIXED path rather than a derived one for the
@@ -4502,6 +4560,10 @@ def stage_payload(args) -> None:
     # with whatever mode it feels like. Creating them first, 0700, is how
     # the mount lands on a directory this installer owns.
     make_secure_dir(args.workflows_dir)
+    # #1246: the two validator directories are mounted writable over the
+    # read-only tree, so they are staged for the same reason the tree is.
+    for name in VALIDATOR_DIRS:
+        stage_validator_dir(args.workflows_dir / name)
     make_secure_dir(args.runtime_dir)
     # The workspace is NOT mounted, and that is the point of it being a
     # separate directory: the runtime directory is bound into the engine

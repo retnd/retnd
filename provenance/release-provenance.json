@@ -56,14 +56,14 @@
   },
   "checksums": {
     "path": "provenance/checksums.txt",
-    "sha256": "899e18f6f3fbcf4953beefb8ed42c2df0187b97288ab41936bcf8b2d75db6221",
+    "sha256": "2d4062b41a90034b0fbbdfd27f2199c4ece9cf0a52960ef02bf633b2374b8a0a",
     "format": "sha256sum"
   },
   "artifacts": [
     {
       "target": "casaos",
       "path": "apps/casaos/compose/retnd.yml",
-      "sha256": "7e245a828a7fb02ad3ef48d7a137d38a45e566634e0f3f07fbc4e7c45902de21"
+      "sha256": "cec5dee5f235b4eaf37c64c76ecd410710eaa1fa44cd84e01a6fa53b29ea135a"
     },
     {
       "target": "casaos",
@@ -78,7 +78,7 @@
     {
       "target": "openmediavault",
       "path": "apps/openmediavault/compose/retnd.yml",
-      "sha256": "3121e6c2bd4d9c728ba7e5fe7029097263ada8a053b27c5bc872683a6c47591a"
+      "sha256": "9848a3fe210aab17c91e65a51bff0a122a303a21acb74ae97841bdb3b2af3fe2"
     },
     {
       "target": "portainer",
@@ -88,7 +88,7 @@
     {
       "target": "portainer",
       "path": "apps/portainer/compose/retnd.yml",
-      "sha256": "e98e698cb40ffc35f7278be37e6c80f4df82d20b14e92e8fe7d71e67b43a1ad9"
+      "sha256": "cbc42f26baefdef3ff0e9d6eb780b13b8e927909a18015ba837ee79e410d40d6"
     },
     {
       "target": "portainer",
@@ -98,7 +98,7 @@
     {
       "target": "portainer",
       "path": "apps/portainer/templates.json",
-      "sha256": "165e012bf5fa5a64c3dc24eac780dd9931291fec94289e420f581f3e18a3c7ec"
+      "sha256": "070b0117f7a5aef91bc11056c8e6ddb3b8b683ef7336cbae84504edd8187fc74"
     },
     {
       "target": "proxmox",
@@ -108,7 +108,7 @@
     {
       "target": "proxmox",
       "path": "apps/proxmox/compose/retnd.yml",
-      "sha256": "a29ed9d43c851b37ce8741f511aeefeda8673c1a31e0c06c2d03042442ca99a6"
+      "sha256": "0cb195f8f0a2ee1c738f9a76a4480e478fcc3dcf727f559a1f1e6f9bf22b8c84"
     },
     {
       "target": "truenas",
@@ -168,7 +168,7 @@
     {
       "target": "generic",
       "path": "container/compose.yaml",
-      "sha256": "ff83ed975be6d5d0eea4df8c7d4b635da7cf2c34c723000a493e0993b65d5296"
+      "sha256": "a0255eb73f038c2d82206cbe6eecd97bafe99db042c9d0c40e601a7121e6cbf0"
     }
   ],
   "unbuiltTargets": [

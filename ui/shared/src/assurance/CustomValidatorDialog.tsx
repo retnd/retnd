@@ -310,7 +310,7 @@ export function CustomValidatorDialog({
               onChange={(e) => setName(e.target.value)}
             />
             <span id="validator-name-help" style={quiet}>
-              The NAME in NAME.local.sh, kept in {list.directory || "the workflow root"}.
+              The NAME in NAME.local.sh, kept in {list.scriptsDir || list.directory || "the workflow root"}.
               {edit ? " A validator keeps its name; remove it and add another to rename it." : ""}
             </span>
           </div>

@@ -6841,5 +6841,98 @@ class TestTheRunnerRunsHooksInContainers(unittest.TestCase):
 
 
 
+class TestTheInstallerLeavesTheWorkflowRootToTheEngine(unittest.TestCase):
+    """Issue #1246, review round. The engine uses /workflows when config.yaml
+    names no root, on every adapter, so the installer does not write one: a
+    regex append into an operator's YAML could produce a second workflows
+    block the engine refuses to start on, and it would turn "the default"
+    into "configured" for good on exactly the hosts that report it."""
+
+    def test_no_step_writes_a_workflows_block(self):
+        self.assertFalse(hasattr(installer, "fill_workflow_root"),
+                         "the installer still has a step that writes workflows.root into config.yaml")
+        src = Path(installer.__file__).read_bytes().decode("utf-8")
+        start = src.index("def cmd_install(args)")
+        body = src[start:src.index("\ndef ", start + 1)]
+        self.assertNotIn("workflows.root", body)
+
+    def test_an_upgrade_leaves_a_config_with_no_workflows_block_as_it_was(self):
+        fx = Fixture(self)
+        args = fx.args(command="install")
+        installer.stage_payload(args)
+        path = args.config_dir / "config.yaml"
+        text = "poll_interval: 15m\nstate:\n  database: /data/state/state.db\nsources: []\n"
+        path.write_text(text, encoding="utf-8")
+        installer.stage_payload(args)
+        installer.prepare_engine_config_dirs(args)
+        self.assertEqual(path.read_text(encoding="utf-8"), text)
+
+
+class TestTheInstallerConstantsAreTheCanonicalLayout(unittest.TestCase):
+    """Issue #1246, review round: the validator directory names live in Go,
+    canonical.json, the compose file and here. This holds the installer's
+    copy to canonical.json, which the Go side is held to as well."""
+
+    def test_the_constants_match_canonical_json(self):
+        canonical = json.loads((REPO_ROOT / "distribution" / "packaging" / "canonical.json").read_text(encoding="utf-8"))
+        paths = canonical["containerPaths"]
+        self.assertEqual(installer.CONTAINER_WORKFLOWS_DIR, paths["workflows"])
+        self.assertEqual(
+            tuple(installer.CONTAINER_WORKFLOWS_DIR + "/" + name for name in installer.VALIDATOR_DIRS),
+            (paths["validators"], paths["validatorsSuperseded"]))
+
+
+class TestTheValidatorDirectoriesAreStaged(unittest.TestCase):
+    """Issue #1246. The compose file mounts two directories under the
+    workflow tree writable for custom validators. A bind mount whose host
+    path does not exist is created by Docker as root, which the engine
+    (PUID) cannot write, so staging makes them first, 0700, like the tree
+    above them."""
+
+    def test_both_directories_exist_0700_after_staging(self):
+        old = os.umask(0)
+        self.addCleanup(os.umask, old)
+        fx = Fixture(self)
+        args = fx.args(command="install")
+        installer.stage_payload(args)
+        for name in ("recovery-test-validators", "recovery-test-validators.superseded"):
+            d = args.workflows_dir / name
+            self.assertTrue(d.is_dir(), f"{d} is not staged, so Docker would create it as root")
+            self.assertEqual(d.stat().st_mode & 0o777, 0o700)
+
+    def test_a_symlink_at_a_validator_path_is_refused_not_followed(self):
+        """Docker would bind-mount the link's target WRITABLE into the engine."""
+        fx = Fixture(self)
+        args = fx.args(command="install")
+        installer.stage_payload(args)
+        target = Path(fx.tmp.name) / "elsewhere"
+        target.mkdir()
+        link = args.workflows_dir / "recovery-test-validators"
+        link.rmdir()
+        link.symlink_to(target)
+        refused = refusal_from(installer.stage_payload, args)
+        self.assertIsNotNone(refused, "a symlink at a validator directory was followed")
+        self.assertIn(str(link), str(refused))
+
+    def test_a_file_at_a_validator_path_is_refused_with_its_name(self):
+        fx = Fixture(self)
+        args = fx.args(command="install")
+        installer.stage_payload(args)
+        spot = args.workflows_dir / "recovery-test-validators.superseded"
+        spot.rmdir()
+        spot.write_text("not a directory\n")
+        refused = refusal_from(installer.stage_payload, args)
+        self.assertIsNotNone(refused, "a regular file at a validator directory fell through to an exception")
+        self.assertIn(str(spot), str(refused))
+
+    def test_staged_directories_do_not_switch_the_runner_on(self):
+        """auto supervises the runner once there is a script in the tree;
+        two empty directories are not one."""
+        fx = Fixture(self)
+        args = fx.args(command="install")
+        installer.stage_payload(args)
+        self.assertFalse(installer.deployment_has_hooks(args))
+
+
 if __name__ == "__main__":
     unittest.main()

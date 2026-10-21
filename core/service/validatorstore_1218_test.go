@@ -111,7 +111,7 @@ func TestValidatorStore_ReconcileMovesWhatIsNotDeclaredAndCountsFiles(t *testing
 	if n := store.EntryCount(); n != 3 {
 		t.Errorf("EntryCount = %d, want 3", n)
 	}
-	if err := store.Reconcile(map[string]bool{"keep.local.sh": true}); err != nil {
+	if _, err := store.Reconcile(map[string]bool{"keep.local.sh": true}); err != nil {
 		t.Fatal(err)
 	}
 	if n := store.EntryCount(); n != 1 {

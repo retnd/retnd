@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **`workflows.disabled` is a new key, and an older retnd refuses it** (#1246). Clearing the workflow root
+  (`retnd settings workflow patch --disable`, or the older `--root ""`) now writes `workflows.disabled: true`
+  into `config.yaml`, because an absent root now means "use the mounted default". A retnd older than this
+  release refuses a `config.yaml` with that key and won't start, so before you downgrade run `retnd settings
+  workflow patch --enable` or delete the line. The patch says this when it writes the key.
+- **A root you cleared before this release comes back as the default** (#1246). A `config.yaml` whose root
+  was cleared before now looks the same as one that never had one, so on upgrade a deployment with
+  `/workflows` mounted picks it up: custom validators become available, and the Settings card, `retnd
+  settings workflow`, `retnd check` and the health report say workflows are on, with the default root. No hook
+  runs because of it, since a hook directory still needs a root named in the file. If you meant it to stay
+  off, run `retnd settings workflow patch --disable`.
+
 ### Fixed
 
 - **The hourly activity events prune no longer fails on a busy host or fills the terminal with errors**
@@ -43,6 +57,23 @@
   after the host, which is the safe way to be wrong. The S3 destination wizard (the Edit button on a
   destination) had its own copy of these lines that printed the endpoint as typed and a credentials command
   word for word; it now cuts the first and shows a placeholder for the second, the same as the terminal.
+
+- **Custom validators work on a default install** (#1246). The Docker host installer makes
+  `<prefix>/workflows` and mounts it at `/workflows`, and never told the engine: `config.yaml` had no
+  `workflows` block, so the Custom validators card refused with "no workflow root is configured". The engine
+  now uses `/workflows` when `config.yaml` names no root and that directory is there, on every adapter, and
+  the Settings card, `retnd settings workflow`, `retnd assurance validators list` and `retnd check` call it
+  the default rather than "not configured". An explicit root still wins, `--disable` turns workflows off
+  (default included) and `--enable` turns them back on; the API's `PATCH /settings/workflow` takes the same
+  `disabled`. The hook tree stays mounted read-only: the compose file and the CasaOS, Portainer, Proxmox and
+  OpenMediaVault stacks now mount `recovery-test-validators` and `recovery-test-validators.superseded`
+  writable over it, from the same host tree, and the installer creates both (refusing a symlink or a file
+  there). `config.yaml` can't name either directory as a hook stage. A move aside between the two mounts
+  copies and then removes, and it only moves regular files within the script size limit, never following a
+  link or blocking on a FIFO; anything else in the directory is left where it is and logged, and a
+  temporary file a crashed upload left behind is removed. The validator list now carries `scripts_dir`, the
+  absolute directory an upload lands in. When there really is nowhere to write, the card and the error say
+  which directory was tried and what fixes it.
 
 ## [0.7.1] - 2026-10-17
 

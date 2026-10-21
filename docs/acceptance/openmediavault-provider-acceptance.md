@@ -459,6 +459,8 @@ first hook rather than a hook that runs:
 | Host path | In the container | Why |
 |---|---|---|
 | `$DISK/appdata/retnd/workflows` | `/workflows` (read-only) | the hook scripts the engine reads |
+| `$DISK/appdata/retnd/workflows/recovery-test-validators` | `/workflows/recovery-test-validators` (writable) | custom validator scripts the engine writes when one is added (#1246) |
+| `$DISK/appdata/retnd/workflows/recovery-test-validators.superseded` | `/workflows/recovery-test-validators.superseded` (writable) | where a removed validator's script is moved |
 | `$DISK/appdata/retnd/run` | `/data/run` | where the runner's socket appears |
 | `$DISK/appdata/retnd/secrets/workflow-runner.token` | `/etc/retnd/workflow-runner.token` (read-only) | the credential the engine presents |
 

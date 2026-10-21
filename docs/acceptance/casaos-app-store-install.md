@@ -366,6 +366,8 @@ runs:
 | Host path | In the container | Why |
 |---|---|---|
 | `/DATA/AppData/retnd/workflows` | `/workflows` (read-only) | the hook scripts the engine reads |
+| `/DATA/AppData/retnd/workflows/recovery-test-validators` | `/workflows/recovery-test-validators` (writable) | custom validator scripts the engine writes when one is added (#1246) |
+| `/DATA/AppData/retnd/workflows/recovery-test-validators.superseded` | `/workflows/recovery-test-validators.superseded` (writable) | where a removed validator's script is moved |
 | `/DATA/AppData/retnd/run` | `/data/run` | where the runner's socket appears |
 | `/DATA/AppData/retnd/secrets/workflow-runner.token` | `/etc/retnd/workflow-runner.token` (read-only) | the credential the engine presents |
 

@@ -156,6 +156,15 @@ services:
       # The credential, one FILE and read-only, exactly like the SSH key
       # and known_hosts above.
       - /DATA/AppData/retnd/secrets/workflow-runner.token:/etc/retnd/workflow-runner.token:ro
+      # Custom recovery-test validators (#1246): the two directories under
+      # the script tree that the engine WRITES, when an operator uploads a
+      # validator and when one is removed. They are mounted writable over
+      # the read-only tree, from the same host tree, so every hook script
+      # above stays read-only and the host runner reads validators where
+      # they are. Create both, owned by the account this stack runs as,
+      # before the first start, or Docker makes them as root.
+      - /DATA/AppData/retnd/workflows/recovery-test-validators:/workflows/recovery-test-validators
+      - /DATA/AppData/retnd/workflows/recovery-test-validators.superseded:/workflows/recovery-test-validators.superseded
 
     # The start gate, and a liveness question rather than a health
     # verdict (issue #206). The Web UI below declares
@@ -225,6 +234,12 @@ services:
         - container: /etc/retnd/workflow-runner.token
           description:
             en_us: The Host Workflow Runner's credential, mounted read-only. The runner's installer writes it.
+        - container: /workflows/recovery-test-validators
+          description:
+            en_us: Custom recovery-test validators, written by retnd when you add one. Writable, and inside the workflows directory above.
+        - container: /workflows/recovery-test-validators.superseded
+          description:
+            en_us: Where a removed validator's script is moved rather than deleted. Writable, and inside the workflows directory above.
 
   # The web UI: the shared static bundle plus a reverse proxy to the
   # engine. The only container with a published port, and the app CasaOS

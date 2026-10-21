@@ -12,7 +12,10 @@
 // That is the whole security argument of the host runner stated as a
 // document check: the engine gains a READ-ONLY view of the script tree
 // and a WRITABLE directory containing one Unix socket, and it gains no
-// capability, no privilege, no device and no Docker socket. Every one of
+// capability, no privilege, no device and no Docker socket. The one
+// writable exception under the tree is the pair of directories custom
+// validators are kept in (#1246), which hold scripts the engine writes
+// itself and are named exactly. Every one of
 // those is a line somebody could add to container/compose.yaml in an
 // afternoon while debugging a hook that will not start, and the whole
 // point of #865 is that such a line has to fail a gate rather than ship.
@@ -23,6 +26,8 @@
 package compose_test
 
 import (
+	"path"
+	"slices"
 	"strings"
 	"testing"
 
@@ -125,8 +130,12 @@ func TestTheRunnerDoorIsWritableAndIsNotTheDaemonSocketsDirectory(t *testing.T) 
 // something:
 //
 //   - a WRITABLE mount anywhere in the workflow surface other than the
-//     runner's door. Read-only is the whole argument for the script tree
-//     and for any credential beside it.
+//     runner's door and the two custom validator directories (#1246,
+//     validatorDirs below), and those only from the host's own workflows
+//     tree. Read-only is the whole argument for the script tree and for
+//     any credential beside it; the validator directories hold scripts the
+//     engine itself writes, and naming them and their host path exactly
+//     keeps every other directory refused.
 //   - anything nested UNDER the runner's door, which is how the runner's
 //     own workspace would become reachable. That workspace is where the
 //     runner writes its private copy of a script and the per-step working
@@ -151,6 +160,14 @@ func TestNoWorkflowMountReachesTheRunnersWorkspaceOrIsWritable(t *testing.T) {
 func workflowMountFindings(doc compose.Document, svc map[string]any) []string {
 	var findings []string
 
+	// The validator directories are exempt only from the host's own script
+	// tree (#1246): the same name mounted from anywhere else, the host root
+	// included, is the debugging line this rule exists for.
+	treeHost := ""
+	if tree, found := mountAt(doc.Mounts(svc), hookScriptsPath); found {
+		treeHost = tree.HostPath
+	}
+
 	for _, mount := range doc.Mounts(svc) {
 		nested := strings.HasPrefix(mount.ContainerPath, runnerDoorPath+"/")
 		if nested {
@@ -160,6 +177,16 @@ func workflowMountFindings(doc compose.Document, svc map[string]any) []string {
 			continue
 		}
 		if mount.ContainerPath == runnerDoorPath || mount.ReadOnly {
+			continue
+		}
+		if slices.Contains(validatorDirs, mount.ContainerPath) {
+			want := path.Join(treeHost, path.Base(mount.ContainerPath))
+			if treeHost != "" && equalHostPath(mount.HostPath, want) {
+				continue
+			}
+			findings = append(findings, "the engine mounts "+mount.ContainerPath+" WRITABLE from "+mount.HostPath+
+				", which is not "+want+"; the validator directories may only come from the host's own workflows tree, the one "+hookScriptsPath+" is mounted from")
+
 			continue
 		}
 		if strings.Contains(mount.ContainerPath, "workflow") || strings.Contains(mount.ContainerPath, "workspace") {
@@ -354,6 +381,88 @@ func TestAReadOnlyCredentialFileMountIsNotRefused(t *testing.T) {
 		for _, f := range prohibited {
 			t.Errorf("a read-only credential file mount tripped the prohibition list: %s: %s", f.Rule, f.Detail)
 		}
+	}
+}
+
+// The two directories custom recovery-test validators are kept in (#1246).
+// The engine writes them, so on a deployment whose script tree is mounted
+// read-only they need mounts of their own. They are the one writable place
+// under the script tree, and only those two names may be.
+var validatorDirs = []string{
+	hookScriptsPath + "/recovery-test-validators",
+	hookScriptsPath + "/recovery-test-validators.superseded",
+}
+
+// TestTheValidatorDirectoriesAreWritableAndTheHookTreeIsNot is #1246's
+// mount: a custom validator can be saved on a deployment whose hook tree
+// is read-only, without the rest of that tree becoming writable.
+func TestTheValidatorDirectoriesAreWritableAndTheHookTreeIsNot(t *testing.T) {
+	t.Parallel()
+
+	doc, svc := engine(t)
+	mounts := doc.Mounts(svc)
+
+	for _, dir := range validatorDirs {
+		mount, found := mountAt(mounts, dir)
+		if !found {
+			t.Errorf("the engine mounts nothing at %s, so the read-only %s above it refuses every validator an operator saves", dir, hookScriptsPath)
+			continue
+		}
+		if mount.ReadOnly {
+			t.Errorf("%s is mounted read-only; the engine writes validator scripts there", dir)
+		}
+		if !strings.HasSuffix(mount.HostPath, strings.TrimPrefix(dir, hookScriptsPath)) {
+			t.Errorf("%s is mounted from %s, which is not the same directory inside the host's script tree; the host runner reads it there", dir, mount.HostPath)
+		}
+	}
+	if mount, found := mountAt(mounts, hookScriptsPath); !found || !mount.ReadOnly {
+		t.Errorf("%s is not mounted read-only any more (found %v); the validator mounts were meant to leave the hook scripts as they were", hookScriptsPath, found)
+	}
+	for _, finding := range workflowMountFindings(doc, svc) {
+		t.Error(finding)
+	}
+}
+
+// TestAnotherWritableDirectoryUnderTheHookTreeIsStillRefused is the control
+// for the exception above: it covers the two validator directories and no
+// other name, so a writable hook stage is still a finding.
+func TestAnotherWritableDirectoryUnderTheHookTreeIsStillRefused(t *testing.T) {
+	t.Parallel()
+
+	doc, describe := canonical(t).WithVolume("/srv/retnd/workflows/global-before:" + hookScriptsPath + "/global-before")
+	if describe == "" {
+		t.Fatal("the mutation helper injected nothing, so this control is watching an unmutated document")
+	}
+	_, svc := engineOf(t, doc)
+	if len(workflowMountFindings(doc, svc)) == 0 {
+		t.Errorf("a writable hook stage under %s was not refused: %s", hookScriptsPath, describe)
+	}
+}
+
+// TestAValidatorMountFromAnotherHostPathIsRefused is the control for the
+// exemption's other half: the two names are exempt only when they come from
+// the host's own workflows tree. A debugging line that mounts the host root,
+// or any other directory, writable at a validator path is a finding.
+func TestAValidatorMountFromAnotherHostPathIsRefused(t *testing.T) {
+	t.Parallel()
+
+	for _, volume := range []string{
+		"/:" + validatorDirs[0],
+		"/srv/anything/recovery-test-validators:" + validatorDirs[0],
+		"/etc:" + validatorDirs[1],
+	} {
+		t.Run(volume, func(t *testing.T) {
+			t.Parallel()
+
+			doc, describe := canonical(t).WithVolume(volume)
+			if describe == "" {
+				t.Fatal("the mutation helper injected nothing, so this control is watching an unmutated document")
+			}
+			_, svc := engineOf(t, doc)
+			if len(workflowMountFindings(doc, svc)) == 0 {
+				t.Errorf("a validator mount from a foreign host path was not refused: %s", describe)
+			}
+		})
 	}
 }
 

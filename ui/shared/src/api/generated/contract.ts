@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "e2cf09fac616dc93d05c57871d9dcb0976e8efd7de370475524611573ab071a9";
+export const CONTRACT_SHA256 = "8a0127472a4a8d87e7bd9f10a1a2366ee8acf369a55876265a51cba3246455de";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -3572,9 +3572,11 @@ export interface WireListCustomValidatorsResponse {
   max_validators: number;
   resolution?: WireCustomValidatorResolution;
   runner_configured: boolean;
+  scripts_dir: string;
   unavailable_reason: string;
   validators: WireCustomValidator[];
   workflow_root: string;
+  workflow_root_default: boolean;
 }
 
 /** GET /operations, newest first. The list counterpart of GET
@@ -5275,6 +5277,7 @@ export interface WireUpdateSettingsRequest {
 export interface WireUpdateWorkflowSettingsRequest {
   after_dir?: string;
   before_dir?: string;
+  disabled?: boolean;
   max_script_size_bytes?: number;
   root?: string;
   script_timeout_seconds?: number;
@@ -5531,10 +5534,12 @@ export interface WireWorkflowSettingsResponse {
   after_dir?: string;
   before_dir?: string;
   configured?: boolean;
+  disabled?: boolean;
   environment?: WireWorkflowEnvironmentVariable[];
   exec_connections?: string[];
   max_script_size_bytes?: number;
   root?: string;
+  root_default?: boolean;
   runner?: WireWorkflowRunnerSettings;
   script_timeout_configured?: boolean;
   script_timeout_seconds?: number;

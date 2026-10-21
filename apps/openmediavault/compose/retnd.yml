@@ -119,6 +119,15 @@ services:
       # it, and the rest of the secrets directory is not this container's
       # business.
       - ${DISK:?set DISK in retnd.env to your /srv/dev-disk-by-uuid-UUID path}/appdata/retnd/secrets/workflow-runner.token:/etc/retnd/workflow-runner.token:ro
+      # Custom recovery-test validators (#1246): the two directories under
+      # the script tree that the engine WRITES, when an operator uploads a
+      # validator and when one is removed. They are mounted writable over
+      # the read-only tree, from the same host tree, so every hook script
+      # above stays read-only and the host runner reads validators where
+      # they are. Create both, owned by the account this stack runs as,
+      # before the first start, or Docker makes them as root.
+      - ${DISK:?set DISK in retnd.env to your /srv/dev-disk-by-uuid-UUID path}/appdata/retnd/workflows/recovery-test-validators:/workflows/recovery-test-validators
+      - ${DISK:?set DISK in retnd.env to your /srv/dev-disk-by-uuid-UUID path}/appdata/retnd/workflows/recovery-test-validators.superseded:/workflows/recovery-test-validators.superseded
 
     # The start gate, and a liveness question rather than a health
     # verdict (issue #206). The Web UI below declares
