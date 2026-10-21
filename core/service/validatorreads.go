@@ -176,7 +176,7 @@ func (b *BackupService) ListCustomValidators(ctx context.Context, filter CustomV
 		only = artifact.Set
 	}
 
-	root, why := workflowRootFor(cfg)
+	root, why := workflowRootFor(st.workflowRoot)
 	store := newValidatorStore(root)
 	if why == "" {
 		// The root is there and the directory may still be one this
@@ -186,8 +186,9 @@ func (b *BackupService) ListCustomValidators(ctx context.Context, filter CustomV
 		why = store.Unwritable()
 	}
 	out := CustomValidators{
-		Directory: config.CustomValidatorDir, WorkflowRoot: cfg.WorkflowRoot(),
-		WorkflowRootDefault: cfg.WorkflowRootIsDefault(),
+		Directory: config.CustomValidatorDir, WorkflowRoot: st.workflowRoot.Path,
+		WorkflowRootDefault: st.workflowRoot.Default,
+		ScriptsDir:          scriptsDirOf(st.workflowRoot),
 		Available:           why == "" && b.configPath != "", UnavailableReason: why,
 		RunnerConfigured: cfg.Workflows.Runner.Configured(),
 		MaxValidators:    config.MaxCustomValidators, MaxScriptBytes: maxValidatorScriptBytes(cfg),
@@ -259,16 +260,16 @@ func (b *BackupService) fallbackFor(ctx context.Context, st *configState, set mo
 
 // CustomValidatorScript reads one uploaded script back.
 func (b *BackupService) CustomValidatorScript(_ context.Context, name string) (ValidatorScript, error) {
-	cfg := b.state.Load().inner.Config
-	cv, ok := findResolvedValidator(cfg, name)
+	st := b.state.Load()
+	cv, ok := findResolvedValidator(st.inner.Config, name)
 	if !ok {
 		return ValidatorScript{}, fmt.Errorf("%w: %q", ErrValidatorNotFound, name)
 	}
-	root, why := workflowRootFor(cfg)
+	root, why := workflowRootFor(st.workflowRoot)
 	if why != "" {
 		return ValidatorScript{}, fmt.Errorf("%w: %s", ErrValidatorsUnavailable, why)
 	}
-	body, err := newValidatorStore(root).Read(cv.ScriptFile, cfg.EffectiveMaxScriptSize())
+	body, err := newValidatorStore(root).Read(cv.ScriptFile, st.inner.Config.EffectiveMaxScriptSize())
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return ValidatorScript{}, fmt.Errorf("%w: %s is declared and its script %s is not in %s", ErrValidatorNotFound, name, cv.ScriptFile, config.CustomValidatorDir)

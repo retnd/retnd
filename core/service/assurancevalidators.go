@@ -318,14 +318,17 @@ type CustomValidatorPatterns struct {
 // stops this, and how to undo it. A deployment with no root at all is told
 // where the default was looked for, so "not configured" is never the whole
 // answer on a machine where the product could have found one itself.
-func workflowRootFor(cfg *config.Config) (workflow.Root, string) {
-	if cfg.Workflows.Disabled {
+func workflowRootFor(r WorkflowRootState) (workflow.Root, string) {
+	if r.Disabled {
 		return workflow.Root{}, "workflows are turned off for this deployment (workflows.disabled, which is what clearing the root writes), so there is nowhere to keep a validator script; set a workflow root under Settings > Workflow, or with `settings workflow patch --root`, to turn them back on"
 	}
-	if cfg.WorkflowRoot() == "" {
-		return workflow.Root{}, fmt.Sprintf("no workflow root is configured (workflows.root) and nothing is mounted at %s, the default one, so there is nowhere to keep a validator script; mount the workflows directory there (the packaged stacks do) and restart, or set workflows.root under Settings > Workflow", defaultWorkflowRoot)
+	if r.Path == "" && r.LookedFor != "" {
+		return workflow.Root{}, fmt.Sprintf("no workflow root is configured (workflows.root) and nothing is mounted at %s, the default one, so there is nowhere to keep a validator script; mount the workflows directory there (the packaged stacks do) and restart, or set workflows.root under Settings > Workflow", r.LookedFor)
 	}
-	root, err := workflow.NewRoot(cfg.WorkflowRoot())
+	if r.Path == "" {
+		return workflow.Root{}, "no workflow root is configured (workflows.root), so there is nowhere to keep a validator script; set one under Settings > Workflow"
+	}
+	root, err := workflow.NewRoot(r.Path)
 	if err != nil {
 		return workflow.Root{}, fmt.Sprintf("the workflow root cannot be used: %v", err)
 	}
@@ -450,7 +453,7 @@ func (b *BackupService) writeCustomValidator(ctx context.Context, req CreateCust
 	if err != nil {
 		return CustomValidator{}, err
 	}
-	if _, why := workflowRootFor(running); why != "" {
+	if _, why := workflowRootFor(b.workflowRoot()); why != "" {
 		return CustomValidator{}, fmt.Errorf("%w: %s", ErrValidatorsUnavailable, why)
 	}
 	if !update || req.Script != "" {
@@ -476,7 +479,7 @@ func (b *BackupService) writeCustomValidator(ctx context.Context, req CreateCust
 	if set, err = b.parseScopeSet(running, req.BackupSetID); err != nil {
 		return CustomValidator{}, err
 	}
-	root, why := workflowRootFor(running)
+	root, why := workflowRootFor(b.workflowRoot())
 	if why != "" {
 		return CustomValidator{}, fmt.Errorf("%w: %s", ErrValidatorsUnavailable, why)
 	}
@@ -571,8 +574,16 @@ func (b *BackupService) writeCustomValidator(ctx context.Context, req CreateCust
 		// a hand copy): it counts against discovery's 64 entry limit and,
 		// for the other stages that read the directory whole, one stray file
 		// refuses everything in it.
-		if _, err := store.Reconcile(declaredScriptFiles(blk.Validators)); err != nil {
+		skipped, err := store.Reconcile(declaredScriptFiles(blk.Validators))
+		if err != nil {
 			return CustomValidator{}, err
+		}
+		// Left where they are, not a reason to refuse this upload, and not
+		// silent either (#1246): a FIFO, a link or an oversized file in a
+		// directory the host can write is something an operator looks at.
+		for _, why := range skipped {
+			b.logger.Event(ctx, obs.LevelWarn, "validator_stray_left", "an entry in the validator directory that config.yaml does not name was left where it is",
+				slog.String("entry", why))
 		}
 		if !update {
 			// Files, not declarations: this is the bound discovery enforces.
@@ -645,7 +656,7 @@ func (b *BackupService) RemoveCustomValidator(ctx context.Context, name string) 
 	if !ok || cfg.AssuranceBlock == nil {
 		return CustomValidator{}, fmt.Errorf("%w: %q", ErrValidatorNotFound, name)
 	}
-	root, _ := workflowRootFor(running)
+	root, _ := workflowRootFor(b.workflowRoot())
 	removed, err := describeValidator(context.WithoutCancel(ctx), running, newValidatorStore(root), cv, nil)
 	if err != nil {
 		return CustomValidator{}, err

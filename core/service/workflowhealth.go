@@ -75,9 +75,9 @@ type workflowProbeCache struct {
 // takes a context: the probes below are network calls and a caller's
 // cancellation has to reach them.
 func (b *BackupService) WorkflowHealth(ctx context.Context) health.WorkflowHealth {
-	cfg := b.state.Load().inner.Config
-
-	out := health.WorkflowHealth{Configured: cfg.WorkflowsConfigured()}
+	// The service's root (#1246), so health and `settings workflow` agree on
+	// whether a deployment on the mounted default runs workflows.
+	out := health.WorkflowHealth{Configured: b.workflowRoot().Path != ""}
 	if !out.Configured {
 		// A deployment that runs no workflows gets the zero value, which
 		// health.WorkflowHealth's own doc says reads as exactly that.

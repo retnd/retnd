@@ -178,8 +178,8 @@ type Config struct {
 	// back from one carrying a "workflows: {}" an older binary refuses
 	// outright under Load's KnownFields(true). Absent means this
 	// deployment names no root, which is every configuration written
-	// before EPIC L, and since #1246 that runs on the mounted default
-	// root when there is one (Config.ApplyDefaultWorkflowRoot).
+	// before EPIC L, and since #1246 the service runs it on the mounted
+	// default root when there is one (core/service's ResolveWorkflowRoot).
 	Workflows Workflows `yaml:"workflows,omitempty"`
 }
 

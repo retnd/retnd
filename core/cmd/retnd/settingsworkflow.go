@@ -153,6 +153,8 @@ func cmdSettingsWorkflow(args []string) int {
 // workflowSettingsFlags are the deployment-wide patch's own flags.
 type workflowSettingsFlags struct {
 	root               *string
+	disable            *bool
+	enable             *bool
 	beforeDir          *string
 	afterDir           *string
 	scriptTimeout      *time.Duration
@@ -163,10 +165,14 @@ type workflowSettingsFlags struct {
 // under `patch`, shared between the refusal that rejects them elsewhere
 // and the builder that reads them, so the two lists cannot drift apart on
 // which flags are patch-only.
-var workflowSettingsPatchFlagNames = []string{"root", "before-dir", "after-dir", "script-timeout", "max-script-size-bytes"}
+var workflowSettingsPatchFlagNames = []string{"root", "disable", "enable", "before-dir", "after-dir", "script-timeout", "max-script-size-bytes"}
 
 func declareWorkflowSettingsFlags(fs *flag.FlagSet) workflowSettingsFlags {
 	return workflowSettingsFlags{
+		disable: fs.Bool("disable", false,
+			"patch only: turn workflows off for this deployment, the mounted /workflows default included. Clears the root and writes workflows.disabled, which a retnd older than this refuses"),
+		enable: fs.Bool("enable", false,
+			"patch only: turn workflows back on after --disable. Leaves the root unset unless --root names one, so the deployment goes back to /workflows when it is there"),
 		root: fs.String("root", "", "patch only: workflows.root, the one approved absolute directory hook scripts may live under. With none set, /workflows is used when it is there. Clearing it turns workflows off for this deployment, that default included (written as workflows.disabled)"),
 		beforeDir: fs.String("before-dir", "",
 			"patch only: workflows.global.before_dir, the deployment-wide stage that runs before every backup set's pass. A path under the root; clearing it disables that stage"),
@@ -219,6 +225,12 @@ func settingsWorkflowPatch(configPath string, fs *flag.FlagSet, f workflowSettin
 		switch fl.Name {
 		case "root":
 			req.Root = f.root
+		case "disable":
+			off := true
+			req.Disabled = &off
+		case "enable":
+			on := false
+			req.Disabled = &on
 		case "before-dir":
 			req.BeforeDir = f.beforeDir
 		case "after-dir":
@@ -235,7 +247,10 @@ func settingsWorkflowPatch(configPath string, fs *flag.FlagSet, f workflowSettin
 	// everything downstream of this point answers with the engine
 	// refusal, so an operator who forgot a flag would be sent off to stop
 	// a daemon over a missing --root.
-	if req.Root == nil && req.BeforeDir == nil && req.AfterDir == nil && req.ScriptTimeout == nil && req.MaxScriptSizeBytes == nil {
+	if visited := visitedFlags(fs); contains(visited, "disable") && contains(visited, "enable") {
+		return usageError("settings workflow patch: --disable and --enable ask for opposite things; pass one")
+	}
+	if req.Root == nil && req.Disabled == nil && req.BeforeDir == nil && req.AfterDir == nil && req.ScriptTimeout == nil && req.MaxScriptSizeBytes == nil {
 		return usageError("settings workflow patch: name at least one of --%s; a patch that changes nothing would rewrite and reload the configuration to no effect",
 			strings.Join(workflowSettingsPatchFlagNames, ", --"))
 	}
@@ -258,6 +273,12 @@ func settingsWorkflowPatch(configPath string, fs *flag.FlagSet, f workflowSettin
 		return printWorkflowJSON(workflowSettingsToWire(settings))
 	}
 	printWorkflowSettings(settings)
+	// workflows.disabled is new in this release (#1246), and an older
+	// retnd refuses a config.yaml that has it, so the patch that wrote it
+	// says so where the operator is looking.
+	if settings.Disabled && (req.Disabled != nil || (req.Root != nil && strings.TrimSpace(*req.Root) == "")) {
+		fmt.Println("  note: config.yaml now has workflows.disabled: true, and a retnd older than this release refuses to start on it; run `settings workflow patch --enable` (or remove the line) before you downgrade")
+	}
 
 	return 0
 }
@@ -583,7 +604,7 @@ func printWorkflowSettings(s service.WorkflowSettings) {
 		fmt.Printf("workflow root: %s\n", s.Root)
 	case s.Disabled:
 		fmt.Println("workflows are turned off for this deployment (workflows.disabled), so it runs no hook scripts and keeps no custom validators")
-		fmt.Printf("  set a root with `%s settings workflow patch --root /path/to/workflows` to turn them back on\n", cliecho.Binary)
+		fmt.Printf("  `%s settings workflow patch --enable` turns them back on (with /workflows when it is mounted), or `--root /path/to/workflows` names a root\n", cliecho.Binary)
 	default:
 		fmt.Println("this deployment configures no workflow root, so it runs no hook scripts at all")
 		fmt.Printf("  set one with `%s settings workflow patch --root /path/to/workflows`, or mount one at %s, the default; until then every backup set's pass runs exactly as it did before hooks existed\n", cliecho.Binary, config.DefaultWorkflowRoot)

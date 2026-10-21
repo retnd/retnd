@@ -38,9 +38,9 @@ import (
 // # Why the per-set block is a pointer and the global one is not
 //
 // Workflows is a struct on Config because "is this deployment running
-// workflows at all" is answered by whether it has a root (WorkflowRoot:
-// the one the file names, or the mounted default, #1246), and one more
-// nil check on the hot path buys nothing. BackupSet.Workflow is a POINTER
+// workflows at all" is answered by whether its Root is set (the mounted
+// default, #1246, is the service's answer and not this struct's), and one
+// more nil check on the hot path buys nothing. BackupSet.Workflow is a POINTER
 // because a set that says nothing and a set that says
 // "workflow: {}" are different operator statements: the first inherits
 // nothing and runs no per-set hooks, and the second is a block that
@@ -62,10 +62,10 @@ import (
 type Workflows struct {
 	// Root is the directory hook scripts live in, normally the read-only
 	// /workflows mount. It is the trust boundary: every stage directory
-	// must resolve inside it. A file that names none uses
-	// DefaultWorkflowRoot when that is there (ApplyDefaultWorkflowRoot,
-	// #1246), and a deployment with neither, or with Disabled set, runs
-	// no workflows at all.
+	// must resolve inside it. A file that names none runs on
+	// DefaultWorkflowRoot when the service finds it there (#1246), for
+	// custom validators and every report; hook directories still need it
+	// named here. With neither, or with Disabled set, nothing runs.
 	//
 	// It must be absolute and free of "..". Whether it EXISTS is
 	// internal/workflow's question, at run start; see this file's doc for
@@ -78,13 +78,6 @@ type Workflows struct {
 	// "use DefaultWorkflowRoot when it is there", clearing it needs a
 	// spelling of its own that survives the save.
 	Disabled bool `yaml:"disabled,omitempty"`
-
-	// defaultRoot is the directory ApplyDefaultWorkflowRoot found for a
-	// configuration that names no root. Unexported, so it is never
-	// marshalled: it is what this process resolved, not what the
-	// operator wrote, and a settings save must not freeze it into the
-	// file.
-	defaultRoot string
 
 	// Global is the pair of hook directories that run for every backup
 	// set in the deployment.
@@ -378,71 +371,20 @@ func (e EnvironmentVariable) envVar() workflow.EnvVar {
 	return v
 }
 
-// WorkflowsConfigured reports whether this deployment runs workflows at
-// all: one question, answered in one place, so no surface re-derives it
-// from a different combination of fields. A default root counts
-// (ApplyDefaultWorkflowRoot), because a deployment running on one runs
-// workflows exactly as if the file named it.
-func (c *Config) WorkflowsConfigured() bool { return c.WorkflowRoot() != "" }
+// WorkflowsConfigured reports whether this configuration FILE names a
+// workflow root: one question, answered in one place, so no surface
+// re-derives it from a different combination of fields. It is the file's
+// answer on purpose. Every hook directory, environment and runner rule
+// above needs a root in the file, and a deployment running on the mounted
+// default (#1246) is the service's to resolve (core/service's
+// ResolveWorkflowRoot), never this struct's, so a copy of a running
+// configuration cannot validate differently from the file it came from.
+func (c *Config) WorkflowsConfigured() bool { return c.Workflows.Root != "" }
 
 // DefaultWorkflowRoot is where a deployment that names no workflow root
 // looks for one (#1246): the path every packaged stack mounts the hook tree
-// at (container/compose.yaml binds <prefix>/workflows there).
+// at. This package only names it; core/service decides whether it is there.
 const DefaultWorkflowRoot = "/workflows"
-
-// ApplyDefaultWorkflowRoot makes dir this configuration's workflow root
-// when the file names none, has not turned workflows off, and present(dir)
-// says the directory is there (#1246).
-//
-// present is the caller's, and that is this file's rule rather than a
-// convenience: nothing in this package stats a path, so the question of
-// what is mounted is asked by the process that is about to use the answer
-// and handed in. It is asked only when the answer could matter, so an
-// explicit root and a cleared one never touch the disk.
-//
-// It runs after Validate, never inside it, so every rule above that says
-// "workflows.root must be set" still reads the FILE and a configuration
-// validates the same on every machine. What changes is what the running
-// process does: WorkflowRoot reports the default, and the stages, the
-// validators and the health report all follow it. It is idempotent, and
-// the default is held unexported so a marshal never writes it.
-//
-// The guess is bounded by present. A bare-metal engine with no /workflows
-// gets no root, exactly as before; a container with the mount gets the
-// directory the installer made for it, which is what Runner's doc above
-// declines to do for the socket only because there is no directory to
-// look at there.
-func (c *Config) ApplyDefaultWorkflowRoot(dir string, present func(string) bool) {
-	w := &c.Workflows
-	if w.Root != "" || w.Disabled || dir == "" {
-		w.defaultRoot = ""
-		return
-	}
-	if w.defaultRoot == dir {
-		return
-	}
-	w.defaultRoot = ""
-	if present(dir) {
-		w.defaultRoot = dir
-	}
-}
-
-// WorkflowRoot is the root this process uses: the configured one, or the
-// default ApplyDefaultWorkflowRoot found, or "" for neither. Workflows.Root
-// is what the file says; read this everywhere a root is USED.
-func (c *Config) WorkflowRoot() string {
-	if c.Workflows.Root != "" {
-		return c.Workflows.Root
-	}
-	return c.Workflows.defaultRoot
-}
-
-// WorkflowRootIsDefault reports whether WorkflowRoot is the default rather
-// than one the file names, which is what every surface reporting a root
-// says beside it.
-func (c *Config) WorkflowRootIsDefault() bool {
-	return c.Workflows.Root == "" && c.Workflows.defaultRoot != ""
-}
 
 // WorkflowStagesFor returns the stages one backup set runs, in execution
 // order, or nothing when this deployment or this set configures none.
@@ -541,8 +483,8 @@ func (v *validator) validateWorkflows(c *Config) {
 		v.addf("workflows.disabled: is set beside workflows.root %q; disabled is how a cleared root is written down, so a file that names a root and turns workflows off says two things, and choosing one would be guessing which the operator meant. Remove one of them", w.Root)
 	}
 
-	v.validateStageDir("workflows.global.before_dir", w.Global.BeforeDir)
-	v.validateStageDir("workflows.global.after_dir", w.Global.AfterDir)
+	v.validateStageDir("workflows.global.before_dir", w.Root, w.Global.BeforeDir)
+	v.validateStageDir("workflows.global.after_dir", w.Root, w.Global.AfterDir)
 
 	if w.ScriptTimeout != 0 && w.ScriptTimeout.Duration() <= 0 {
 		v.addf("workflows.script_timeout: must be a positive duration when set (got %s); a hook with no bound can hold a backup window open indefinitely, so there is no spelling of \"wait forever\"", w.ScriptTimeout)
@@ -561,12 +503,13 @@ func (v *validator) validateWorkflows(c *Config) {
 	// The root is required by anything that would use it, and refused
 	// nowhere else: a deployment that configures no workflows at all is
 	// every config file written before EPIC L and must stay valid. These
-	// read the FILE's root, never a default one (ApplyDefaultWorkflowRoot
-	// runs after this), so the answer does not depend on what this machine
-	// has mounted; a service write that adds one of these to a deployment
-	// on the default root writes that root into the file with it.
+	// read the FILE's root, never the mounted default (#1246), so the
+	// answer does not depend on what this machine has mounted. A deployment
+	// running on the default has to name it here for a hook directory, and
+	// `settings workflow patch --before-dir` and the per-set writes do that
+	// for it.
 	if w.Root == "" && !w.Global.isZero() {
-		v.addf("workflows.root: must be set when workflows.global names a hook directory; the root is the approved tree every hook script must live inside, and there is no default for it")
+		v.addf("workflows.root: must be set when workflows.global names a hook directory; the root is the approved tree every hook script must live inside, and a hook directory needs it named in config.yaml (the mounted /workflows default is not written for you, though `settings workflow patch --before-dir` writes it)")
 	}
 
 	if w.Root == "" && len(w.Environment) != 0 {
@@ -683,7 +626,7 @@ func (v *validator) validateExecConnections(conns []WorkflowExecConnection) {
 // only there, because it is the one escape an operator can see in their
 // own file and the cheapest moment to tell them is the restart that
 // introduced it.
-func (v *validator) validateStageDir(path, dir string) {
+func (v *validator) validateStageDir(path, root, dir string) {
 	if dir == "" {
 		return
 	}
@@ -701,6 +644,29 @@ func (v *validator) validateStageDir(path, dir string) {
 			return
 		}
 	}
+
+	if isValidatorDir(root, dir) {
+		v.addf("%s: %q is where custom validators are kept, which this engine writes when one is uploaded (#1246); a hook stage there would run whatever an upload put in it. Use a directory of its own", path, dir)
+	}
+}
+
+// isValidatorDir reports whether a stage directory is one of the two the
+// engine writes custom validator scripts into: CustomValidatorDir or its
+// .superseded sibling, relative to the root or spelled absolutely under it
+// (or under DefaultWorkflowRoot, where a packaged stack mounts them).
+func isValidatorDir(root, dir string) bool {
+	clean := filepath.Clean(dir)
+	for _, name := range []string{CustomValidatorDir, CustomValidatorDir + ".superseded"} {
+		if clean == name {
+			return true
+		}
+		for _, r := range []string{root, DefaultWorkflowRoot} {
+			if r != "" && clean == filepath.Join(r, name) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // validateEnvironment checks one environment block: every name, every
@@ -813,8 +779,8 @@ func (v *validator) validateBackupSetWorkflow(path string, c *Config, bs *Backup
 				path, describeSetWorkflowSettings(w))
 		}
 
-		v.validateStageDir(path+".workflow.before_dir", w.BeforeDir)
-		v.validateStageDir(path+".workflow.after_dir", w.AfterDir)
+		v.validateStageDir(path+".workflow.before_dir", c.Workflows.Root, w.BeforeDir)
+		v.validateStageDir(path+".workflow.after_dir", c.Workflows.Root, w.AfterDir)
 
 		if w.ScriptTimeout != 0 && w.ScriptTimeout.Duration() <= 0 {
 			v.addf("%s.workflow.script_timeout: must be a positive duration when set (got %s)", path, w.ScriptTimeout)

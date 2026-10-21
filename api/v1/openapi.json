@@ -6006,6 +6006,11 @@
             "description": "The approved tree hook scripts must live under. Setting it is what makes this deployment one that runs workflows, and it replaces the default root (/workflows) a deployment with none uses when that directory is there. An empty string clears it, which is written to config.yaml as workflows.disabled: true and turns workflows off, the default root included (#1246).",
             "x-go-pointer": true
           },
+          "disabled": {
+            "type": "boolean",
+            "description": "true turns workflows off: the root is cleared and config.yaml gets workflows.disabled, which a retnd older than this refuses. false turns them back on and leaves the root as the request or the file has it, so a deployment with none goes back to the mounted default (/workflows when it is there). Refused as true beside a non-empty root (#1246).",
+            "x-go-pointer": true
+          },
           "before_dir": {
             "type": "string",
             "description": "The deployment-wide \"before\" stage directory, relative to the root. An empty string clears it, which disables that stage.",
@@ -8677,7 +8682,7 @@
           },
           "directory": {
             "type": "string",
-            "description": "Where the scripts live, relative to the workflow root: recovery-test-validators."
+            "description": "Where the scripts live, RELATIVE to the workflow root: recovery-test-validators. scripts_dir is the same place, absolute."
           },
           "workflow_root": {
             "type": "string",
@@ -8686,6 +8691,10 @@
           "workflow_root_default": {
             "type": "boolean",
             "description": "workflow_root is the default root rather than one config.yaml names (#1246)."
+          },
+          "scripts_dir": {
+            "type": "string",
+            "description": "Where an upload lands: the stage directory under workflow_root, absolute (#1246). Empty when there is no root. directory is the same place relative to the root."
           },
           "available": {
             "type": "boolean",
@@ -8737,6 +8746,7 @@
           "directory",
           "workflow_root",
           "workflow_root_default",
+          "scripts_dir",
           "available",
           "unavailable_reason",
           "directory_refused",

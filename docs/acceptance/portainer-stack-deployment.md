@@ -372,6 +372,8 @@ rather than a hook that runs:
 | Form field | In the container | Why |
 |---|---|---|
 | `WORKFLOWS_DIR` (`/opt/retnd/workflows`) | `/workflows` (read-only) | the hook scripts the engine reads |
+| `$WORKFLOWS_DIR/recovery-test-validators` | `/workflows/recovery-test-validators` (writable) | custom validator scripts the engine writes when one is added (#1246) |
+| `$WORKFLOWS_DIR/recovery-test-validators.superseded` | `/workflows/recovery-test-validators.superseded` (writable) | where a removed validator's script is moved |
 | `RUNTIME_DIR` (`/opt/retnd/run`) | `/data/run` | where the runner's socket appears |
 | `RUNNER_TOKEN_FILE` (`/opt/retnd/secrets/workflow-runner.token`) | `/etc/retnd/workflow-runner.token` (read-only) | the credential the engine presents |
 

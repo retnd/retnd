@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path"
 	"strings"
 	"time"
 	"unicode"
@@ -216,8 +215,7 @@ func printCustomValidatorList(w io.Writer, l service.CustomValidators) {
 	// Where scripts are kept, and whether that root is one config.yaml
 	// names or the mounted default (#1246), as the Settings card and
 	// `settings workflow` say it.
-	if l.WorkflowRoot != "" {
-		dir := path.Join(l.WorkflowRoot, l.Directory)
+	if dir := l.ScriptsDir; dir != "" {
 		if l.WorkflowRootDefault {
 			say(w, "scripts: %s (under the default workflow root: config.yaml names none, and this directory is mounted)\n", listingText(dir))
 		} else {
@@ -636,7 +634,7 @@ func customValidatorsFromWire(w apicontract.ListCustomValidatorsResponse) servic
 	out := service.CustomValidators{
 		Validators: make([]service.CustomValidator, 0, len(w.Validators)),
 		Directory:  w.Directory, WorkflowRoot: w.WorkflowRoot, Available: w.Available, UnavailableReason: w.UnavailableReason,
-		WorkflowRootDefault: w.WorkflowRootDefault, DirectoryRefused: w.DirectoryRefused, RunnerConfigured: w.RunnerConfigured,
+		WorkflowRootDefault: w.WorkflowRootDefault, ScriptsDir: w.ScriptsDir, DirectoryRefused: w.DirectoryRefused, RunnerConfigured: w.RunnerConfigured,
 		MaxValidators: int(w.MaxValidators), MaxScriptBytes: w.MaxScriptBytes, MaxPatternBytes: int(w.MaxPatternBytes),
 	}
 	for _, v := range w.Validators {

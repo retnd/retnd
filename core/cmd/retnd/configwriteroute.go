@@ -36,6 +36,7 @@ func (r *engineRoute) UpdateWorkflowSettings(ctx context.Context, req service.Up
 	}
 	resp, err := r.client.UpdateWorkflowSettings(ctx, apicontract.UpdateWorkflowSettingsRequest{
 		Root:                 req.Root,
+		Disabled:             req.Disabled,
 		BeforeDir:            req.BeforeDir,
 		AfterDir:             req.AfterDir,
 		ScriptTimeoutSeconds: timeout,

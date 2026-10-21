@@ -26,6 +26,7 @@
 package compose_test
 
 import (
+	"path"
 	"slices"
 	"strings"
 	"testing"
@@ -130,10 +131,11 @@ func TestTheRunnerDoorIsWritableAndIsNotTheDaemonSocketsDirectory(t *testing.T) 
 //
 //   - a WRITABLE mount anywhere in the workflow surface other than the
 //     runner's door and the two custom validator directories (#1246,
-//     validatorDirs below). Read-only is the whole argument for the
-//     script tree and for any credential beside it; the validator
-//     directories hold scripts the engine itself writes, and naming them
-//     exactly keeps every other directory under the tree refused.
+//     validatorDirs below), and those only from the host's own workflows
+//     tree. Read-only is the whole argument for the script tree and for
+//     any credential beside it; the validator directories hold scripts the
+//     engine itself writes, and naming them and their host path exactly
+//     keeps every other directory refused.
 //   - anything nested UNDER the runner's door, which is how the runner's
 //     own workspace would become reachable. That workspace is where the
 //     runner writes its private copy of a script and the per-step working
@@ -158,6 +160,14 @@ func TestNoWorkflowMountReachesTheRunnersWorkspaceOrIsWritable(t *testing.T) {
 func workflowMountFindings(doc compose.Document, svc map[string]any) []string {
 	var findings []string
 
+	// The validator directories are exempt only from the host's own script
+	// tree (#1246): the same name mounted from anywhere else, the host root
+	// included, is the debugging line this rule exists for.
+	treeHost := ""
+	if tree, found := mountAt(doc.Mounts(svc), hookScriptsPath); found {
+		treeHost = tree.HostPath
+	}
+
 	for _, mount := range doc.Mounts(svc) {
 		nested := strings.HasPrefix(mount.ContainerPath, runnerDoorPath+"/")
 		if nested {
@@ -166,7 +176,17 @@ func workflowMountFindings(doc compose.Document, svc map[string]any) []string {
 
 			continue
 		}
-		if mount.ContainerPath == runnerDoorPath || mount.ReadOnly || slices.Contains(validatorDirs, mount.ContainerPath) {
+		if mount.ContainerPath == runnerDoorPath || mount.ReadOnly {
+			continue
+		}
+		if slices.Contains(validatorDirs, mount.ContainerPath) {
+			want := path.Join(treeHost, path.Base(mount.ContainerPath))
+			if treeHost != "" && equalHostPath(mount.HostPath, want) {
+				continue
+			}
+			findings = append(findings, "the engine mounts "+mount.ContainerPath+" WRITABLE from "+mount.HostPath+
+				", which is not "+want+"; the validator directories may only come from the host's own workflows tree, the one "+hookScriptsPath+" is mounted from")
+
 			continue
 		}
 		if strings.Contains(mount.ContainerPath, "workflow") || strings.Contains(mount.ContainerPath, "workspace") {

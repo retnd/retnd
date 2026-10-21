@@ -37,7 +37,7 @@ const (
 // hashes api/v1/openapi.json and compares. The full byte-for-byte
 // comparison still lives in scripts/api/check-contract-drift.sh, which is
 // the only thing that can also catch a hand edit to the body of this file.
-const ContractSHA256 = "b2417e1eb98acca08d9e9008ca529b19450b7d1fc3068b2e1900ea0cd7a5a419"
+const ContractSHA256 = "8a0127472a4a8d87e7bd9f10a1a2366ee8acf369a55876265a51cba3246455de"
 
 // ErrorCode is a stable, machine-readable failure token. The human-readable
 // message beside it on the wire MAY change without notice; this may not.
@@ -2750,6 +2750,7 @@ type ListCustomValidatorsResponse struct {
 	MaxValidators       int64                      `json:"max_validators"`
 	Resolution          *CustomValidatorResolution `json:"resolution,omitempty"`
 	RunnerConfigured    bool                       `json:"runner_configured"`
+	ScriptsDir          string                     `json:"scripts_dir"`
 	UnavailableReason   string                     `json:"unavailable_reason"`
 	Validators          []CustomValidator          `json:"validators"`
 	WorkflowRoot        string                     `json:"workflow_root"`
@@ -4454,6 +4455,7 @@ type UpdateSettingsRequest struct {
 type UpdateWorkflowSettingsRequest struct {
 	AfterDir             *string `json:"after_dir"`
 	BeforeDir            *string `json:"before_dir"`
+	Disabled             *bool   `json:"disabled"`
 	MaxScriptSizeBytes   *int64  `json:"max_script_size_bytes"`
 	Root                 *string `json:"root"`
 	ScriptTimeoutSeconds *int64  `json:"script_timeout_seconds"`

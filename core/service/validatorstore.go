@@ -60,12 +60,28 @@ import (
 // not count against the 64 entry limit. In a container the two are separate
 // mounts, where rename(2) fails with EXDEV however close they sit, so a move
 // between them copies the script into the sibling, makes the copy durable,
-// and only then takes it out of the stage directory: the script exists
-// exactly once at the end either way.
+// and only then takes it out of the stage directory. If that last removal
+// fails the copy is taken back too, so the script exists exactly once at the
+// end either way.
+//
+// The stage directory is visible on the host, so anyone who can write the
+// workflows tree can leave anything in it. The copy is held to what a script
+// is: a regular file, opened without following a link and without blocking
+// on a FIFO, the same file it was when it was looked at, and no larger than
+// an upload may be. Anything else is not moved: Reconcile leaves it where it
+// is and names it, rather than refusing every later upload over it, and a
+// temporary file a crashed write left behind is removed, since it was never
+// a script anybody saved.
 
-// renameValidatorFile is os.Rename, a variable so a test can make it fail
-// the way a rename between two mounts does.
-var renameValidatorFile = os.Rename
+// errNotMovable is an entry the store will not move aside: not a regular
+// file, or larger than a script may be.
+var errNotMovable = errors.New("not a script the store moves")
+
+// tempPrefix and tempSuffix name the store's own temporary files.
+const (
+	tempPrefix = ".retnd-validator-"
+	tempSuffix = ".tmp"
+)
 
 // supersededSuffix names the sibling directory scripts are moved into.
 const supersededSuffix = ".superseded"
@@ -73,7 +89,9 @@ const supersededSuffix = ".superseded"
 // validatorStore is the stage directory under one workflow root. The zero
 // value (no root) stores nothing: reads find nothing and moves are no-ops.
 type validatorStore struct {
-	root   workflow.Root
+	root workflow.Root
+	// rename is os.Rename when nil. A test sets it to fail the way a
+	// rename between two mounts does.
 	rename func(src, dst string) error
 }
 
@@ -137,16 +155,25 @@ func (s validatorStore) MoveAside(file string) error {
 	if s.root.IsZero() {
 		return nil
 	}
-	return moveValidatorAside(s.root, file)
+	return moveValidatorAside(s.root, file, s.renamer())
+}
+
+func (s validatorStore) renamer() func(src, dst string) error {
+	if s.rename != nil {
+		return s.rename
+	}
+	return os.Rename
 }
 
 // Reconcile moves every entry the configuration does not name out of the
-// stage directory. declared holds lower-cased script file names.
+// stage directory, and returns the ones it left where they are (each as
+// "NAME: why") for the caller to report. declared holds lower-cased script
+// file names.
 func (s validatorStore) Reconcile(declared map[string]bool) ([]string, error) {
 	if s.root.IsZero() {
 		return nil, nil
 	}
-	return nil, reconcileValidatorDir(s.root, declared)
+	return reconcileValidatorDir(s.root, declared, s.renamer())
 }
 
 // EntryCount is how many entries the stage directory holds, the number
@@ -162,17 +189,23 @@ func (s validatorStore) EntryCount() int {
 // directory, "" when it can or there is no root to look under (which
 // workflowRootFor has already said). A directory that is not there yet is
 // asked of its root, which is where writeValidatorScript would make it.
+//
+// The .superseded sibling is asked the same question, because a removal
+// writes there: a card that offered an upload the next removal could not
+// finish would leave a stray script that blocks the upload after.
 func (s validatorStore) Unwritable() string {
 	if s.root.IsZero() {
 		return ""
 	}
-	dir := filepath.Join(s.root.Path(), config.CustomValidatorDir)
-	target := dir
-	if _, err := os.Lstat(dir); errors.Is(err, os.ErrNotExist) {
-		target = s.root.Path()
-	}
-	if err := unix.Access(target, unix.W_OK); err != nil {
-		return unwritableReason(dir, err)
+	for _, name := range []string{config.CustomValidatorDir, config.CustomValidatorDir + supersededSuffix} {
+		dir := filepath.Join(s.root.Path(), name)
+		target := dir
+		if _, err := os.Lstat(dir); errors.Is(err, os.ErrNotExist) {
+			target = s.root.Path()
+		}
+		if err := unix.Access(target, unix.W_OK); err != nil {
+			return unwritableReason(dir, err)
+		}
 	}
 	return ""
 }
@@ -256,11 +289,16 @@ func cachedHash(path string, info os.FileInfo, limit int64) (sha string, ok bool
 
 // moveValidatorAside renames one file out of the stage directory into its
 // .superseded sibling, under its own name or the first free numeric suffix.
-func moveValidatorAside(root workflow.Root, file string) error {
+// An entry that is not a regular file is errNotMovable.
+func moveValidatorAside(root workflow.Root, file string, rename func(src, dst string) error) error {
 	src := filepath.Join(root.Path(), config.CustomValidatorDir, file)
 	aside := filepath.Join(root.Path(), config.CustomValidatorDir+supersededSuffix)
-	if _, err := os.Lstat(src); err != nil {
+	info, err := os.Lstat(src)
+	if err != nil {
 		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%w: %s is a %s, not a script, so it is left where it is; move it yourself", errNotMovable, file, fileKindOf(info.Mode()))
 	}
 	if err := os.MkdirAll(aside, 0o750); err != nil {
 		return unavailableWrite(err, aside)
@@ -275,11 +313,11 @@ func moveValidatorAside(root workflow.Root, file string) error {
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		if err := renameValidatorFile(src, dst); err != nil {
+		if err := rename(src, dst); err != nil {
 			if !errors.Is(err, syscall.EXDEV) {
 				return err
 			}
-			if err := copyValidatorAside(src, dst); err != nil {
+			if err := copyValidatorAside(src, dst, info); err != nil {
 				return err
 			}
 		}
@@ -292,19 +330,35 @@ func moveValidatorAside(root workflow.Root, file string) error {
 
 // copyValidatorAside is the move for two directories on different mounts:
 // copy src to dst (created exclusively, so nothing already superseded is
-// overwritten), make the copy durable, then remove src. A failure before the
-// removal takes the partial copy back and leaves src where it was.
-func copyValidatorAside(src, dst string) error {
-	in, err := os.Open(src)
+// overwritten), make the copy durable, then remove src. seen is what Lstat
+// found at src, and the open has to be that same regular file.
+//
+// Any failure leaves src where it was and dst gone, including a removal of
+// src that fails after a good copy, so the script is never in both places.
+func copyValidatorAside(src, dst string, seen os.FileInfo) error {
+	in, err := os.OpenFile(src, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return fmt.Errorf("%w: %s cannot be opened as a script (%v), so it is left where it is", errNotMovable, filepath.Base(src), err)
+	}
+	defer in.Close()
+	opened, err := in.Stat()
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	if !opened.Mode().IsRegular() || !os.SameFile(seen, opened) {
+		return fmt.Errorf("%w: %s changed while it was being moved, so it is left where it is", errNotMovable, filepath.Base(src))
+	}
+	if opened.Size() > MaxCustomValidatorScriptBytes {
+		return fmt.Errorf("%w: %s is %d bytes, over the %d a script may be, so it is left where it is; move it yourself", errNotMovable, filepath.Base(src), opened.Size(), MaxCustomValidatorScriptBytes)
+	}
 	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o640)
 	if err != nil {
 		return unavailableWrite(err, filepath.Dir(dst))
 	}
-	_, err = io.Copy(out, in)
+	n, err := io.Copy(out, io.LimitReader(in, MaxCustomValidatorScriptBytes+1))
+	if err == nil && n > MaxCustomValidatorScriptBytes {
+		err = fmt.Errorf("%w: %s grew past %d bytes while it was being copied", errNotMovable, filepath.Base(src), MaxCustomValidatorScriptBytes)
+	}
 	if err == nil {
 		err = out.Sync()
 	}
@@ -313,33 +367,73 @@ func copyValidatorAside(src, dst string) error {
 	}
 	if err != nil {
 		_ = os.Remove(dst)
+		if errors.Is(err, errNotMovable) {
+			return err
+		}
 		return fmt.Errorf("service: copying %s into %s: %w", filepath.Base(src), filepath.Dir(dst), err)
 	}
 	syncDir(filepath.Dir(dst))
-	return os.Remove(src)
+	if err := os.Remove(src); err != nil {
+		_ = os.Remove(dst)
+		syncDir(filepath.Dir(dst))
+		return fmt.Errorf("service: %s was copied into %s and could not then be removed (%w), so the copy was taken back and it is where it was", filepath.Base(src), filepath.Dir(dst), err)
+	}
+	return nil
+}
+
+// fileKindOf names what was found where a script was expected.
+func fileKindOf(m os.FileMode) string {
+	switch {
+	case m&os.ModeSymlink != 0:
+		return "symbolic link"
+	case m.IsDir():
+		return "directory"
+	case m&os.ModeNamedPipe != 0:
+		return "named pipe"
+	case m&os.ModeSocket != 0:
+		return "socket"
+	case m&os.ModeDevice != 0:
+		return "device"
+	default:
+		return "special file"
+	}
 }
 
 // reconcileValidatorDir moves every entry the configuration does not name out
-// of the stage directory. A directory that is not there yet has nothing to
-// reconcile.
-func reconcileValidatorDir(root workflow.Root, declared map[string]bool) error {
+// of the stage directory, removes the store's own temporary files a crashed
+// write left behind, and leaves anything it will not move (errNotMovable)
+// where it is, returning those as "NAME: why". A directory that is not there
+// yet has nothing to reconcile.
+func reconcileValidatorDir(root workflow.Root, declared map[string]bool, rename func(src, dst string) error) ([]string, error) {
 	dir := filepath.Join(root.Path(), config.CustomValidatorDir)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil
+			return nil, nil
 		}
-		return unavailableWrite(err, dir)
+		return nil, unavailableWrite(err, dir)
 	}
+	var skipped []string
 	for _, e := range entries {
-		if declared[strings.ToLower(e.Name())] {
+		name := e.Name()
+		if declared[strings.ToLower(name)] {
 			continue
 		}
-		if err := moveValidatorAside(root, e.Name()); err != nil {
-			return fmt.Errorf("service: moving %s, which config.yaml does not name, out of %s: %w", e.Name(), config.CustomValidatorDir, err)
+		if strings.HasPrefix(name, tempPrefix) && strings.HasSuffix(name, tempSuffix) && e.Type().IsRegular() {
+			if err := os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return skipped, unavailableWrite(err, dir)
+			}
+			continue
+		}
+		if err := moveValidatorAside(root, name, rename); err != nil {
+			if errors.Is(err, errNotMovable) {
+				skipped = append(skipped, name+": "+err.Error())
+				continue
+			}
+			return skipped, fmt.Errorf("service: moving %s, which config.yaml does not name, out of %s: %w", name, config.CustomValidatorDir, err)
 		}
 	}
-	return nil
+	return skipped, nil
 }
 
 // stageEntryCount is how many entries the stage directory holds, the number
@@ -371,7 +465,7 @@ func writeValidatorScript(root workflow.Root, file string, body []byte) (func() 
 		return nil, invalidValidator("the stored %s is over %d bytes, so it cannot be kept to put back if the configuration write fails; remove the validator and add it again", file, MaxCustomValidatorScriptBytes)
 	}
 
-	tmp, err := os.CreateTemp(dir, ".retnd-validator-*.tmp")
+	tmp, err := os.CreateTemp(dir, tempPrefix+"*"+tempSuffix)
 	if err != nil {
 		return nil, unavailableWrite(err, dir)
 	}
@@ -431,5 +525,15 @@ func unavailableWrite(err error, where string) error {
 // the usual cause is a layout and not a mistake: the hook tree is mounted
 // read-only on purpose, and these two directories need mounts of their own.
 func unwritableReason(where string, err error) string {
-	return fmt.Sprintf("%s is not writable by this process (%v). The workflow tree is normally mounted read-only, and custom validators need %s and %s writable on their own: the packaged stacks mount both over the tree (re-run the installer to get them), or add the two mounts yourself", where, err, config.CustomValidatorDir, config.CustomValidatorDir+supersededSuffix)
+	return fmt.Sprintf("%s is not writable by this process (%v). The workflow tree is normally mounted read-only, and custom validators need %s and %s mounted writable over it, from the same directories inside the host's workflows tree; the packaged compose stacks and the Docker host installer do this, so an older stack needs those two mounts added", where, err, config.CustomValidatorDir, config.CustomValidatorDir+supersededSuffix)
+}
+
+// scriptsDirOf is the absolute directory an upload lands in, "" with no root.
+// One place joins the two, so no client has to guess which shape Directory
+// has (#1246).
+func scriptsDirOf(r WorkflowRootState) string {
+	if r.Path == "" {
+		return ""
+	}
+	return filepath.Join(r.Path, config.CustomValidatorDir)
 }

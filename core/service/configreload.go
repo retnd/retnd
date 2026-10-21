@@ -97,10 +97,6 @@ func (b *BackupService) adoptConfig(cfg *config.Config) string {
 	// only writer of b.state while configMu is held, so this read cannot
 	// itself race the swap below.
 	prevInner := b.state.Load().inner
-	// Every reload re-reads the file, so the default workflow root is
-	// resolved again here (#1246): a mount that has appeared since the last
-	// one is picked up, and a root the write just named replaces it.
-	applyDefaultWorkflowRoot(cfg)
 	newInner := app.New(cfg, b.journal, prevInner.Transport, b.logger)
 	if !newInner.AdoptAlerts(prevInner.Alerts) && b.alertSink != nil {
 		newInner.EnableAlerts(sinkAdapter{sink: b.alertSink})
@@ -128,7 +124,10 @@ func (b *BackupService) adoptConfig(cfg *config.Config) string {
 	// Before the store, deliberately: see this function's doc.
 	newInner.AdoptPollSchedule(prevInner)
 	revision := computeConfigRevision(cfg)
-	b.state.Store(&configState{inner: newInner, revision: revision})
+	// Every reload re-reads the file, so the default workflow root is
+	// resolved again here (#1246): a mount that has appeared since the last
+	// one is picked up, and a root the write just named replaces it.
+	b.state.Store(&configState{inner: newInner, revision: revision, workflowRoot: ResolveWorkflowRoot(cfg, b.rootDefault)})
 	b.holds.forgetRemovedNamedIn(cfg)
 	// Last, once everything a woken loop would read is in place: the
 	// scheduler is asleep on a timer computed from the configuration this

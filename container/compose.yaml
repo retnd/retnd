@@ -474,8 +474,9 @@ services:
       # config.yaml, which this container already writes. Under the
       # read-only tree above it was refused on every install. Mounting
       # just these two directories over it keeps the hook scripts
-      # read-only, and the engine still cannot touch a stage directory
-      # an operator configured. The second is where a removed validator's
+      # read-only, and config.yaml cannot name either of them as a hook
+      # stage (config.Validate refuses it), so nothing an upload writes
+      # ever runs as a hook. The second is where a removed validator's
       # script is moved rather than deleted. Both sit inside the
       # workflows directory on the host, where the host runner and an
       # operator's backups expect them, and the installer creates them

@@ -54,7 +54,7 @@ func TestSettingsWorkflowPatchDisablesAndEnables(t *testing.T) {
 	if strings.Contains(on, "turned off") {
 		t.Errorf("--enable left workflows turned off:\n%s", on)
 	}
-	if b, _ := os.ReadFile(configPath); strings.Contains(string(b), "disabled") {
+	if b, _ := os.ReadFile(configPath); strings.Contains(string(b), "workflows:") {
 		t.Errorf("config.yaml still says disabled after --enable:\n%s", b)
 	}
 }
@@ -82,7 +82,9 @@ func TestCheckReportsTheWorkflowRootItWouldUse(t *testing.T) {
 		{"default", config.Config{}, mounted, "workflow root: /workflows (the default", ""},
 		{"configured", config.Config{Workflows: config.Workflows{Root: "/srv/hooks"}}, mounted, "workflow root: /srv/hooks\n", "default"},
 		{"turned off", config.Config{Workflows: config.Workflows{Disabled: true}}, mounted, "turned off", ""},
-		{"none", config.Config{}, service.WorkflowRootDefault{Dir: "/workflows", Present: func(string) bool { return false }}, "no workflow root", ""},
+		// Silent, so a deployment with no workflows at all reads exactly as
+		// it did before (FR-35's compat capture).
+		{"none", config.Config{}, service.WorkflowRootDefault{Dir: "/workflows", Present: func(string) bool { return false }}, "", "workflow root"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var buf bytes.Buffer

@@ -66,6 +66,7 @@ func cmdCheck(args []string) int {
 	}
 	fmt.Printf("config OK: %d source(s), %d backup set(s)\n", len(cfg.Sources), sets)
 	fmt.Printf("state database OK: %s\n", cfg.State.Database)
+	printCheckWorkflowRoot(os.Stdout, cfg, workflowRootDefault())
 	// Nothing at all on a deployment that is not serving a pre-rename
 	// path, which is every deployment once the migration has been run:
 	// a line saying "not adopted" would be a line every operator learns
@@ -77,5 +78,29 @@ func cmdCheck(args []string) int {
 	return 0
 }
 
-// printCheckWorkflowRoot is a placeholder for #1246's check line.
-func printCheckWorkflowRoot(w io.Writer, cfg *config.Config, d service.WorkflowRootDefault) {}
+// printCheckWorkflowRoot is check's line about the workflow root (#1246): the
+// one the engine will run on, resolved exactly as the engine resolves it, so
+// a deployment on the mounted default is not reported as having none.
+// Silent when there is no root at all, for the reason at the end.
+func printCheckWorkflowRoot(w io.Writer, cfg *config.Config, d service.WorkflowRootDefault) {
+	r := service.ResolveWorkflowRoot(cfg, d)
+	switch {
+	case r.Disabled:
+		sayln(w, "workflow root: none, workflows are turned off (workflows.disabled)")
+	case r.Default:
+		say(w, "workflow root: %s (the default: config.yaml names none and this directory is mounted)\n", r.Path)
+	case r.Path != "":
+		say(w, "workflow root: %s\n", r.Path)
+	}
+	// Nothing at all for a deployment with no root and nothing mounted,
+	// which is every medium-free deployment FR-35 pins byte for byte
+	// (core/tests/compat): check said nothing about workflows before, and
+	// "none" is what it still means.
+}
+
+// workflowRootDefault is where this binary looks for the mounted default
+// workflow root when config.yaml names none (#1246). The production answer,
+// set here in main's package and nowhere below it; this package's TestMain
+// replaces it with "look for none", so the suite never reads the /workflows
+// of the machine it runs on.
+var workflowRootDefault = service.ProductionWorkflowRootDefault

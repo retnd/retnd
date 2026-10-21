@@ -1,7 +1,6 @@
 package service
 
 import (
-	"context"
 	"io"
 	"os"
 
@@ -12,45 +11,104 @@ import (
 //
 // A Docker host install makes <prefix>/workflows and mounts it at
 // /workflows, and never wrote a workflows block into config.yaml. So the
-// engine had no root, custom validators refused with "no workflow root is
-// configured", and no hook could run, on a deployment that had the
-// directory mounted the whole time. A configuration that names no root now
-// uses config.DefaultWorkflowRoot when that directory is there, and every
-// surface says it is the default (config.Config.ApplyDefaultWorkflowRoot
-// has the rule; this file is where the directory is looked at).
+// engine had no root and custom validators refused with "no workflow root
+// is configured", on a deployment that had the directory mounted the whole
+// time. A configuration that names no root now runs on the default when
+// that directory is there, and every surface says it is the default.
 //
-// It is resolved where a configuration becomes the running one: when a
-// deployment is opened (OpenConfigAndJournal, and New for a caller that
-// built its own) and on every reload (adoptConfig). A mount that appears
-// later is picked up by the next configuration change or restart, which is
-// what the refusal below tells an operator.
+// The resolved root belongs to this package and never to config.Config. A
+// Config is what the file says, and every rule config.Validate applies to
+// hook directories, environments and the runner reads the file's root, so
+// a copy of the running Config validates exactly as the file will on the
+// next start. What the default reaches is what has no file-side rule:
+// custom validators (where they are kept, and the stage a recovery test
+// runs one from) and the reports that say which root is in use.
+//
+// It is resolved where a configuration becomes the running one: OpenWith
+// (through useWorkflowRootDefault) and every reload (adoptConfig). A mount
+// that appears later is picked up by the next configuration change or
+// restart. Where it is looked for, and how, comes from the caller
+// (OpenOptions.WorkflowRoot), so no test reads the real /workflows of the
+// machine it runs on and no package variable is swapped to stop it.
 //
 // The file is not rewritten to say so. A write that needs a root in the
 // FILE, because config.Validate requires one beside what it adds (a stage
 // directory, a hook variable), writes the default there with it
-// (writeDefaultWorkflowRoot), so the file never says less than the
-// deployment does; the installer's upgrade writes it for a Docker host too.
+// (writeDefaultWorkflowRoot).
 
-// defaultWorkflowRoot and workflowRootPresent are where the default root is
-// looked for and how. Variables, so a test points both at a directory of
-// its own rather than depending on what /workflows is on the machine
-// running it.
-var (
-	defaultWorkflowRoot = config.DefaultWorkflowRoot
-	workflowRootPresent = func(dir string) bool {
+// WorkflowRootDefault is where a deployment whose configuration names no
+// workflow root looks for one, and how it decides the directory is there.
+// The zero value looks for none.
+type WorkflowRootDefault struct {
+	Dir     string
+	Present func(dir string) bool
+}
+
+// ProductionWorkflowRootDefault is config.DefaultWorkflowRoot, present when
+// it is a directory. The engine's serve and the CLI pass it; nothing else
+// should.
+func ProductionWorkflowRootDefault() WorkflowRootDefault {
+	return WorkflowRootDefault{Dir: config.DefaultWorkflowRoot, Present: func(dir string) bool {
 		info, err := os.Stat(dir)
 		return err == nil && info.IsDir()
-	}
-)
+	}}
+}
 
-// applyDefaultWorkflowRoot resolves cfg's default root against this
-// machine. Idempotent: every door a configuration comes through calls it,
-// and a configuration that came through two of them is asked once.
-func applyDefaultWorkflowRoot(cfg *config.Config) {
-	if cfg == nil {
-		return
+// WorkflowRootState is the root a process uses for one configuration.
+type WorkflowRootState struct {
+	// Path is the root, "" for none.
+	Path string
+	// Default says Path is the default rather than the file's root.
+	Default bool
+	// Disabled says the file turned workflows off (workflows.disabled), so
+	// no default is looked for either.
+	Disabled bool
+	// LookedFor is the default's directory when one was looked for and not
+	// found, so a refusal can name it.
+	LookedFor string
+}
+
+// ResolveWorkflowRoot is the root cfg runs on: the file's, else the default
+// when d finds it, else none. An explicit root and a cleared one never ask
+// d anything.
+func ResolveWorkflowRoot(cfg *config.Config, d WorkflowRootDefault) WorkflowRootState {
+	w := cfg.Workflows
+	switch {
+	case w.Root != "":
+		return WorkflowRootState{Path: w.Root}
+	case w.Disabled:
+		return WorkflowRootState{Disabled: true}
+	case d.Dir == "" || d.Present == nil:
+		return WorkflowRootState{}
+	case d.Present(d.Dir):
+		return WorkflowRootState{Path: d.Dir, Default: true}
+	default:
+		return WorkflowRootState{LookedFor: d.Dir}
 	}
-	cfg.ApplyDefaultWorkflowRoot(defaultWorkflowRoot, workflowRootPresent)
+}
+
+// OpenOptions are OpenWith's.
+type OpenOptions struct {
+	// LogTo is where the structured log goes; nil is standard output.
+	LogTo io.Writer
+	// WorkflowRoot is the default root this process looks for (#1246).
+	WorkflowRoot WorkflowRootDefault
+}
+
+// useWorkflowRootDefault sets where this service looks for a default root
+// and resolves the running configuration against it. Called once, by
+// OpenWith, before the service is handed to anyone.
+func (b *BackupService) useWorkflowRootDefault(d WorkflowRootDefault) {
+	b.configMu.Lock()
+	defer b.configMu.Unlock()
+	b.rootDefault = d
+	st := b.state.Load()
+	b.state.Store(&configState{inner: st.inner, revision: st.revision, workflowRoot: ResolveWorkflowRoot(st.inner.Config, d)})
+}
+
+// workflowRoot is the root the running configuration uses.
+func (b *BackupService) workflowRoot() WorkflowRootState {
+	return b.state.Load().workflowRoot
 }
 
 // writeDefaultWorkflowRoot puts the running process's default root into
@@ -62,40 +120,9 @@ func applyDefaultWorkflowRoot(cfg *config.Config) {
 //
 // The caller holds configMu and has re-read file from disk.
 func (b *BackupService) writeDefaultWorkflowRoot(file *config.Config) {
-	running := b.state.Load().inner.Config
-	if file.Workflows.Root != "" || file.Workflows.Disabled || !running.WorkflowRootIsDefault() {
+	running := b.workflowRoot()
+	if file.Workflows.Root != "" || file.Workflows.Disabled || !running.Default {
 		return
 	}
-	file.Workflows.Root = running.WorkflowRoot()
-}
-
-// Placeholders for the #1246 review's injected default; the fix fills them in.
-
-// WorkflowRootDefault is where a deployment with no root looks for one.
-type WorkflowRootDefault struct {
-	Dir     string
-	Present func(dir string) bool
-}
-
-// WorkflowRootState is the root a running process uses.
-type WorkflowRootState struct {
-	Path     string
-	Default  bool
-	Disabled bool
-}
-
-// ResolveWorkflowRoot resolves cfg's root against d.
-func ResolveWorkflowRoot(cfg *config.Config, d WorkflowRootDefault) WorkflowRootState {
-	return WorkflowRootState{Path: cfg.WorkflowRoot(), Default: cfg.WorkflowRootIsDefault(), Disabled: cfg.Workflows.Disabled}
-}
-
-// OpenOptions are Open's.
-type OpenOptions struct {
-	LogTo        io.Writer
-	WorkflowRoot WorkflowRootDefault
-}
-
-// OpenWith is Open with options.
-func OpenWith(ctx context.Context, configPath string, opts OpenOptions) (*BackupService, func() error, error) {
-	return OpenWithLog(ctx, configPath, os.Stdout)
+	file.Workflows.Root = running.Path
 }

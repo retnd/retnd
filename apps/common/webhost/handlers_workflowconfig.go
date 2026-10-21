@@ -159,6 +159,7 @@ type workflowSettingsResponse struct {
 type updateWorkflowSettingsRequest struct {
 	AfterDir             *string `json:"after_dir"`
 	BeforeDir            *string `json:"before_dir"`
+	Disabled             *bool   `json:"disabled"`
 	MaxScriptSizeBytes   *int64  `json:"max_script_size_bytes"`
 	Root                 *string `json:"root"`
 	ScriptTimeoutSeconds *int64  `json:"script_timeout_seconds"`
@@ -166,7 +167,7 @@ type updateWorkflowSettingsRequest struct {
 
 func (r updateWorkflowSettingsRequest) namesNothing() bool {
 	return r.AfterDir == nil && r.BeforeDir == nil && r.MaxScriptSizeBytes == nil &&
-		r.Root == nil && r.ScriptTimeoutSeconds == nil
+		r.Root == nil && r.Disabled == nil && r.ScriptTimeoutSeconds == nil
 }
 
 // workflowStageBody is one scope-and-phase pair that has a directory.
@@ -402,6 +403,7 @@ func (h *handlers) updateWorkflowSettings(w http.ResponseWriter, r *http.Request
 
 	settings, err := h.backend.UpdateWorkflowSettings(r.Context(), service.UpdateWorkflowSettingsRequest{
 		Root:               body.Root,
+		Disabled:           body.Disabled,
 		BeforeDir:          body.BeforeDir,
 		AfterDir:           body.AfterDir,
 		ScriptTimeout:      timeout,

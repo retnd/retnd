@@ -271,7 +271,7 @@ func openBackupServiceLoggingTo(ctx context.Context, configPath string, intent c
 		return nil, func() {}, fmt.Errorf("internal: openBackupService was given no intent for %s; a command has to say whether it writes the configuration", configPath)
 	}
 
-	svc, closeFn, err := service.OpenWithLog(ctx, configPath, logTo)
+	svc, closeFn, err := service.OpenWith(ctx, configPath, service.OpenOptions{LogTo: logTo, WorkflowRoot: workflowRootDefault()})
 	if err != nil {
 		return nil, func() {}, err
 	}
@@ -364,7 +364,7 @@ func openConfigWriteRoute(ctx context.Context, configPath string) (configWriteRo
 // standard output (#1152); everything else passes standard output, which is
 // what openConfigWriteRoute has always meant.
 func openConfigWriteRouteTo(ctx context.Context, configPath string, out io.Writer) (configWriteRoute, func(), error) {
-	svc, closeFn, err := service.OpenWithLog(ctx, configPath, out)
+	svc, closeFn, err := service.OpenWith(ctx, configPath, service.OpenOptions{LogTo: out, WorkflowRoot: workflowRootDefault()})
 	if err != nil {
 		return nil, func() {}, err
 	}

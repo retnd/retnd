@@ -1072,9 +1072,11 @@ never what the validator had before. The list shows the environment each validat
 
 The workflow root is `workflows.root` in `config.yaml`, or `/workflows` when the file names
 none and that directory is there, which is where every packaged stack mounts the workflows
-directory. The Settings card and `retnd settings workflow` say when it is that default. Clearing
-the root (`retnd settings workflow patch --root ""`) writes `workflows.disabled: true`, which
-turns workflows off, default included, until a root is set again.
+directory. The Settings card, `retnd settings workflow`, `retnd assurance validators list` and
+`retnd check` say when it is that default. `retnd settings workflow patch --disable` (or the older
+`--root ""`) writes `workflows.disabled: true`, which turns workflows off, default included, and
+`--enable` turns them back on. A retnd older than this refuses a `config.yaml` with `disabled` in
+it, so turn workflows back on, or delete the line, before you downgrade.
 
 **`name` and `validator_id` are different things.** A custom validator's `name` is NAME in its
 `NAME.local.sh` under `<workflow root>/recovery-test-validators/`, chosen by you, unique across

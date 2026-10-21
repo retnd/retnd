@@ -306,7 +306,7 @@ func TestWorkflowRootDefault_AClearedRootCanGoBackToTheDefault(t *testing.T) {
 		t.Errorf("after enable: %+v; turning workflows back on with no root has to land on the default", s)
 	}
 	raw, _ := os.ReadFile(configPath)
-	if strings.Contains(string(raw), "disabled") || strings.Contains(string(raw), "root:") {
+	if strings.Contains(string(raw), "workflows:") {
 		t.Errorf("config.yaml still names a root or disabled after enable:\n%s", raw)
 	}
 }

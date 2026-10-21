@@ -40,10 +40,12 @@ func (b *BackupService) RunStage(ctx context.Context, req app.StageRequest) (app
 	}
 	cfg := st.inner.Config
 
-	if cfg.WorkflowRoot() == "" {
+	// The service's root, not the file's (#1246): a custom validator runs
+	// from the stage directory under the mounted default as well.
+	if st.workflowRoot.Path == "" {
 		return app.StageResult{}, app.ErrStageNotConfigured
 	}
-	root, err := workflow.NewRoot(cfg.WorkflowRoot())
+	root, err := workflow.NewRoot(st.workflowRoot.Path)
 	if err != nil {
 		return app.StageResult{}, err
 	}

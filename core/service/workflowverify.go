@@ -224,7 +224,7 @@ func refuseUnverifiableScripts(ctx context.Context, cfg *config.Config, stages [
 	ctx, cancel := context.WithTimeout(ctx, workflowVerificationDeadline)
 	defer cancel()
 
-	root, err := workflow.NewRoot(cfg.WorkflowRoot())
+	root, err := workflow.NewRoot(cfg.Workflows.Root)
 	if err != nil {
 		// The root is not usable. Reported by validation, and not a
 		// reason to refuse a write: a patch naming a different root is

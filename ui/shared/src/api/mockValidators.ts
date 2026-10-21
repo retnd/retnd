@@ -248,10 +248,11 @@ export function createMockValidators(env: MockValidatorsEnv): Pick<
           ? "workflows are turned off for this deployment (workflows.disabled), so there is nowhere to keep a validator script; set a workflow root under Settings > Workflow to turn them back on"
           : unavailable ? "no workflow root is configured, so there is nowhere to keep a validator script" : "",
         runnerConfigured: !unavailable,
-        directory: unavailable ? "" : root + "/recovery-test-validators",
+        // Relative, as the engine sends it; scriptsDir is the absolute one.
+        directory: unavailable ? "" : "recovery-test-validators",
         workflowRoot: unavailable ? "" : root,
         workflowRootDefault: defaultRoot,
-        scriptsDir: "",
+        scriptsDir: unavailable ? "" : root + "/recovery-test-validators",
         maxValidators: MAX_VALIDATORS,
         maxScriptBytes: MAX_SCRIPT_BYTES,
         maxPatternBytes: MAX_PATTERN_BYTES,

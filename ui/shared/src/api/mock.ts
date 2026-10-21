@@ -5675,6 +5675,9 @@ export function createMockApi(
       if (medium.prefix) fields.prefix = medium.prefix;
       if (medium.storageClass) fields.storage_class = medium.storageClass;
       if (medium.uploadVerification) fields.upload_verification = medium.uploadVerification;
+      // A local volume's directory, which the engine reads back as `path`
+      // (found reviewing #1257).
+      if (medium.path) fields.path = medium.path;
       // A local destination reads no credential, which is a fact about
       // the manifest and not about this fixture's data: a boolean here
       // is the most that may be said either way (FR-33).

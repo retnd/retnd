@@ -96,7 +96,12 @@ type BackupService struct {
 	configChanged chan struct{}
 
 	journal *state.Journal
-	logger  *obs.Logger
+
+	// rootDefault is where this process looks for a workflow root when
+	// config.yaml names none (#1246). Zero, which New leaves it, looks
+	// for none; OpenWith sets it from the caller's options.
+	rootDefault WorkflowRootDefault
+	logger      *obs.Logger
 
 	// recovery is the artifact-recovery machinery (recover.go): the grant
 	// table, the staging area and the verifying engine. Zero until first
@@ -281,6 +286,14 @@ type BackupService struct {
 type configState struct {
 	inner    *app.Service
 	revision string
+	// workflowRoot is the root this process uses for this configuration
+	// (#1246): the file's, the mounted default, or none. It is the
+	// service's and not the Config's, so a copy of the running Config is
+	// exactly what the file says. revision does not cover it: the same
+	// file can resolve to the default on one start and to none on another
+	// (a mount that came or went), and that is the one fact about a
+	// running deployment the revision is not meant to carry.
+	workflowRoot WorkflowRootState
 }
 
 // New builds a BackupService from already-constructed dependencies. This
@@ -342,9 +355,6 @@ func New(cfg *config.Config, journal *state.Journal, tr transport.Transport, log
 	logger = logger.WithSink(activity)
 	b.logger = logger
 	b.activity = activity
-	// A no-op for a configuration OpenConfigAndJournal already resolved;
-	// here for a caller that built its own (#1246).
-	applyDefaultWorkflowRoot(cfg)
 	inner := app.New(cfg, journal, tr, logger)
 	// The stage runner is wired here, and not with the lifecycle, because
 	// it needs no reconciliation: it runs scripts that are not backups, so
@@ -478,11 +488,6 @@ func OpenConfigAndJournal(ctx context.Context, configPath string) (*config.Confi
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("service: load config: %w", err)
 	}
-	// #1246: a configuration that names no workflow root uses the mounted
-	// default. After validation, so the file validates the same on every
-	// machine; here, so every caller of this door (the CLI's own
-	// openService included) gets the root the engine will run with.
-	applyDefaultWorkflowRoot(cfg)
 
 	// The catalog-membership half of validator resolution runs BEFORE
 	// §46.1's startup sequence, because it is the one refusal here that
@@ -592,6 +597,19 @@ func Open(ctx context.Context, configPath string) (*BackupService, func() error,
 // error with it, because a log line in the middle of a recovered file is a
 // corrupted file.
 func OpenWithLog(ctx context.Context, configPath string, logTo io.Writer) (*BackupService, func() error, error) {
+	return OpenWith(ctx, configPath, OpenOptions{LogTo: logTo})
+}
+
+// OpenWith is Open with options: where the log goes, and the default
+// workflow root this process looks for when config.yaml names none
+// (#1246). A zero WorkflowRoot looks for none, which is what Open and
+// OpenWithLog pass, so only an entry point that is a real deployment (the
+// engine's serve, the CLI's main) ever stats /workflows.
+func OpenWith(ctx context.Context, configPath string, opts OpenOptions) (*BackupService, func() error, error) {
+	logTo := opts.LogTo
+	if logTo == nil {
+		logTo = os.Stdout
+	}
 	logger := obs.New(logTo, obs.LevelFromEnv())
 
 	// Issue #665: loads the bundled backend manifests and refuses loudly
@@ -628,6 +646,7 @@ func OpenWithLog(ctx context.Context, configPath string, logTo io.Writer) (*Back
 	}
 
 	svc := New(cfg, journal, rclone.New(), logger)
+	svc.useWorkflowRootDefault(opts.WorkflowRoot)
 	// Resolved, not as supplied: --config may name the configuration
 	// DIRECTORY the packaging mounts (issue #196), and every write path
 	// below (CreateBackupSet, UpdateSettings, ImportSSHKey, the
