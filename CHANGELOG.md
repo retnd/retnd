@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **The hourly activity events prune no longer fails on a busy host or fills the terminal with errors**
+  (#1247). The prune ran its age delete and its row-bound delete under one 10 second deadline, and the row
+  bound found its cut-off by walking up to 50,000 rows of the table on every run. On a NAS whose page cache a
+  scrub had just evicted, that walk was disk reads behind a saturated disk, it held the journal's only
+  connection while it ran, and it missed its deadline about once an hour, each time as an error line in the
+  terminal. Each prune statement now has its own 5 second deadline and removes at most 1,000 rows, the row
+  bound counts the table from an index and walks only the rows it removes, and the delete that coalesces
+  recovery stage lines uses the `op_id` index it was meant to instead of scanning the table inside the
+  writer's transaction. A prune that misses its deadline is retried a minute later and logged at debug, off
+  the terminal, and only a prune that has kept failing for six hours is reported as an error.
+
 ## [0.7.1] - 2026-10-17
 
 0.7.1 is a patch release, and the one thing in it that is new rather than fixed is custom recovery-test

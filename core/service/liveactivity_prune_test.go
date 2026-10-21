@@ -97,12 +97,6 @@ func (h *heldJournal) statement(ctx context.Context, kind string, limit int, run
 	return call.n, call.err
 }
 
-func (h *heldJournal) PruneActivityEvents(ctx context.Context, olderThan time.Time, maxRows int) (int64, error) {
-	return h.statement(ctx, "both", 0, func(ctx context.Context) (int64, error) {
-		return h.Journal.PruneActivityEvents(ctx, olderThan, maxRows)
-	})
-}
-
 func (h *heldJournal) PruneActivityEventsByAge(ctx context.Context, olderThan time.Time, limit int) (int64, error) {
 	return h.statement(ctx, "age", limit, func(ctx context.Context) (int64, error) {
 		return h.Journal.PruneActivityEventsByAge(ctx, olderThan, limit)

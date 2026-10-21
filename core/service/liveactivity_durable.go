@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sync/atomic"
 	"time"
 
@@ -61,6 +62,19 @@ import (
 // happened, not a setting an operator tunes, and a longer history is the
 // journal's transition log, which is not pruned.
 //
+// # A prune waits its turn (#1247)
+//
+// The journal has one connection, and a scrub or a recovery test can keep it
+// busy, or evict the page cache from under it, for longer than a prune
+// should wait. So a prune is a run of single statements, each removing at
+// most activityPruneBatch rows under activityPruneStatementTimeout of its
+// own, and the connection is free between them. One that misses its
+// deadline has lost a race, not found a fault: it is tried again
+// activityPruneRetry later and logged at debug to the process log alone,
+// not to the feed. Only a prune that has gone on failing for
+// activityPruneComplainAfter is an error, once per window: by then the
+// table is growing past its bound and somebody should know.
+//
 // # Reading it back
 //
 // At start the rings are refilled from the newest rows of each bucket and the
@@ -100,7 +114,6 @@ type activityJournal interface {
 	MaxActivityEventSeq(ctx context.Context) (int64, error)
 	RecentActivityEvents(ctx context.Context, setID string, limit int) ([]state.ActivityEventRow, error)
 	ActivityEventsBefore(ctx context.Context, setID string, before int64, limit int) ([]state.ActivityEventRow, bool, error)
-	PruneActivityEvents(ctx context.Context, olderThan time.Time, maxRows int) (int64, error)
 	PruneActivityEventsByAge(ctx context.Context, olderThan time.Time, limit int) (int64, error)
 	PruneActivityEventsOverCount(ctx context.Context, maxRows, limit int) (int64, error)
 }
@@ -120,16 +133,21 @@ type activityDurable struct {
 	logger  *obs.Logger
 	now     func() time.Time
 
-	// statementTimeout bounds each prune statement on its own.
+	// statementTimeout bounds each prune statement on its own. It is a
+	// field so a test can make a held connection cost milliseconds.
 	statementTimeout time.Duration
 
 	queue   chan durableItem
 	dropped atomic.Int64
 
 	// The rest belongs to run's goroutine and nothing else touches it.
-	batch     []durableItem
-	inserted  int
-	lastPrune time.Time
+	// pruneAt is when the next prune is owed (zero: now), and
+	// pruneFailingSince is when the run of failed prunes that has not
+	// ended yet began (zero: the last one worked).
+	batch             []durableItem
+	inserted          int
+	pruneAt           time.Time
+	pruneFailingSince time.Time
 }
 
 func newActivityDurable(j activityJournal, logger *obs.Logger) *activityDurable {
@@ -240,14 +258,11 @@ func (d *activityDurable) add(it durableItem) {
 	}
 }
 
-// tick is the flush timer: write the open batch, then prune if one is due.
+// tick is the flush timer: write the open batch, then prune if one is owed.
 func (d *activityDurable) tick() {
 	d.flush()
-	if d.lastPrune.IsZero() || d.now().Sub(d.lastPrune) >= activityPruneEvery {
-		wctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		d.prune(wctx)
-		cancel()
-		d.lastPrune = d.now()
+	if d.pruneDue() {
+		d.prune()
 	}
 }
 
@@ -271,16 +286,77 @@ func (d *activityDurable) flush() {
 		d.logger.Error(wctx, "activity_events_dropped",
 			fmt.Errorf("%d activity events were not stored because the writer fell behind", n))
 	}
-	if d.inserted >= activityPruneAfter || (d.inserted > 0 && d.now().Sub(d.lastPrune) >= activityPruneEvery) {
-		d.prune(wctx)
-		d.inserted, d.lastPrune = 0, d.now()
+	if d.inserted > 0 && d.pruneDue() {
+		d.prune()
 	}
 }
 
-func (d *activityDurable) prune(ctx context.Context) {
-	if _, err := d.journal.PruneActivityEvents(ctx, d.now().Add(-activityRetention), activityMaxRows); err != nil {
-		d.logger.Error(ctx, "activity_events_prune", err)
+// pruneDue reports whether a prune is owed: its time has come, or enough
+// rows went in since the last one. The second does not apply while prunes
+// are failing, or a busy feed would retry one on every flush.
+func (d *activityDurable) pruneDue() bool {
+	if d.inserted >= activityPruneAfter && d.pruneFailingSince.IsZero() {
+		return true
 	}
+	return !d.now().Before(d.pruneAt)
+}
+
+// prune applies the retention rule and decides what its outcome is worth
+// saying. See "A prune waits its turn" above.
+func (d *activityDurable) prune() {
+	err := d.pruneBatches()
+	now := d.now()
+	if err == nil {
+		d.inserted, d.pruneAt, d.pruneFailingSince = 0, now.Add(activityPruneEvery), time.Time{}
+		return
+	}
+	d.pruneAt = now.Add(activityPruneRetry)
+	if d.pruneFailingSince.IsZero() {
+		d.pruneFailingSince = now
+	}
+	ctx := context.Background()
+	if since := d.pruneFailingSince; now.Sub(since) >= activityPruneComplainAfter {
+		d.logger.Error(ctx, "activity_events_prune",
+			fmt.Errorf("the activity events table has not been pruned since %s: %w", since.Format(time.RFC3339), err))
+		d.pruneFailingSince = now
+		return
+	}
+	// The process log only, with the tap off: the feed is the operator's
+	// terminal, and a line in it at any level is a line somebody reads.
+	d.logger.WithSink(nil).Event(ctx, obs.LevelDebug, obs.EventError, "activity events prune deferred",
+		slog.String("op", "activity_events_prune"),
+		slog.String("error", err.Error()),
+		slog.Duration("retry_in", activityPruneRetry),
+	)
+}
+
+// pruneBatches runs the age rule and then the row bound, one statement at a
+// time, each under a deadline of its own, until a statement removes less
+// than a whole batch. It stops at the first failure: what is left is
+// removed by the retry.
+func (d *activityDurable) pruneBatches() error {
+	steps := []func(context.Context) (int64, error){
+		func(ctx context.Context) (int64, error) {
+			return d.journal.PruneActivityEventsByAge(ctx, d.now().Add(-activityRetention), activityPruneBatch)
+		},
+		func(ctx context.Context) (int64, error) {
+			return d.journal.PruneActivityEventsOverCount(ctx, activityMaxRows, activityPruneBatch)
+		},
+	}
+	for _, step := range steps {
+		for {
+			ctx, cancel := context.WithTimeout(context.Background(), d.statementTimeout)
+			n, err := step(ctx)
+			cancel()
+			if err != nil {
+				return err
+			}
+			if n < activityPruneBatch {
+				break
+			}
+		}
+	}
+	return nil
 }
 
 // coalesceStages turns a batch into rows, keeping only the last
