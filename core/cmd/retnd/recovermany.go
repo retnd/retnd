@@ -174,6 +174,18 @@ func cmdRecoverMany(a manyArgs) int {
 		if a.set != "" && !a.newestOnly && !rng.set() && !a.all && !a.preflight {
 			return usageError("recover: a whole backup set onto its source host is said explicitly: add --newest-only (the newest restore point, which the dialog defaults to), --since DATE and/or --until DATE, or --all for every retained restore point")
 		}
+		// A range that keeps every retained restore point is the whole set
+		// under another name (the review of #1256), so it is said as --all
+		// too. This reads the journal only, never the host.
+		if a.set != "" && !a.newestOnly && rng.set() && !a.all && !a.preflight {
+			kept, total, kerr := svc.RangeKeepsWholeSet(ctx, req)
+			if kerr != nil {
+				return fail(kerr)
+			}
+			if total > 0 && kept == total {
+				return usageError("recover: that range keeps all %d retained restore points of %s, which is the whole set onto its source host: say --all if that is what you mean, or narrow the range so it leaves something out", total, a.set)
+			}
+		}
 		if a.preflight {
 			return sourcePreflight(ctx, svc, of, req.Target.Path, a.asJSON, func() int { return manyPreflight(ctx, svc, req, a.asJSON) })
 		}

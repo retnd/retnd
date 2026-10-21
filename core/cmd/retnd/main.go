@@ -712,9 +712,11 @@ commands:
                                                   it is refused before any network call (exit 40). A set whose source
                                                   is not SFTP, or one declared read_only, has no such default and
                                                   needs --to. A whole set onto the source host also needs
-                                                  --newest-only, --since or --all. --to source: --preflight prints
-                                                  where it would write and runs the write check, which writes and
-                                                  removes one probe file. The source host's refusals exit 38 to 43.
+                                                  --newest-only, --since, --until or --all, and a range that keeps
+                                                  every retained restore point still needs --all. --to source:
+                                                  --preflight prints where it would write and runs the write check,
+                                                  which writes and removes one probe file. The source host's refusals
+                                                  exit 38 to 43.
                                                   A staging folder called source is still --to source; one whose
                                                   name starts with source:, medium: or - is written ./NAME.
   backup-set enabled <source/backup-set> <on|off>

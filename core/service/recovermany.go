@@ -324,6 +324,33 @@ func distinctSets(arts []Artifact) map[string]bool {
 	return out
 }
 
+// RangeKeepsWholeSet reports how many of req.Set's retained restore points
+// req's since and until keep, and how many there are. Newest-only is not
+// applied: the question is whether the range on its own narrowed anything.
+// The terminal asks it before a whole set goes onto its source host, where
+// #1193 wants "every retained backup" said as --all, so a range that keeps all
+// of them (--until 2099-01-01, --since 1970-01-01) is refused rather than
+// taken as a narrowing (the review of #1256). It reads the journal only.
+func (b *BackupService) RangeKeepsWholeSet(ctx context.Context, req RecoverManyRequest) (kept, total int, err error) {
+	all, err := b.ListArtifacts(ctx, ArtifactFilter{BackupSetID: req.Set})
+	if err != nil {
+		return 0, 0, err
+	}
+	ranged := req
+	ranged.NewestOnly = false
+	for _, a := range all {
+		if restorePointStates[a.State] {
+			total++
+		}
+	}
+	for _, a := range narrowSet(all, ranged) {
+		if restorePointStates[a.State] {
+			kept++
+		}
+	}
+	return kept, total, nil
+}
+
 // narrowSet applies since, until and newest-only to a whole set's rows. Rows
 // that are not restore points are kept (they are listed in the summary, never
 // silently dropped) unless since or until rules them out by age, or
