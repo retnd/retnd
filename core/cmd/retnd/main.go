@@ -257,14 +257,16 @@ commands:
                                                   print how many backups are held outside quarantine, the number the
                                                   web console's Backups badge reads (the sidebar shows >100 past a
                                                   hundred, this always prints the number); --json prints {"count": N} (#1186)
-  artifacts [--source S] [--backup-set B] [--state S] [--since DATE] [--until DATE] [--count] [--json]
+  artifacts [--source S] [--backup-set B] [--state S] [--assurance due|overdue|degraded|untested] [--since DATE] [--until DATE] [--count] [--json]
                                                   list or count only the backups received in a range, the Backups
                                                   page's "Received on or after" and "Received on or before". Both
                                                   bounds are inclusive, on the time the backup arrived (discovered_at),
                                                   which a later transition such as a set going read-only and back does
                                                   not move. A DATE is YYYY-MM-DD, the whole of that day in UTC, or an
                                                   RFC 3339 time, that moment exactly; --until before --since is
-                                                  refused (#1251)
+                                                  refused. --assurance keeps the backups in one assurance bucket (or
+                                                  a comma list of them), the page's ?assurance= filter, classified
+                                                  exactly as assurance list --bucket classifies them (#1251)
   activity [--backup-set S] [--severity warn|error] [--limit N] [--json]
                                                   list recorded lifecycle events, newest first: the same durable
                                                   transition log the Web UI's Activity page draws. Beside a serving

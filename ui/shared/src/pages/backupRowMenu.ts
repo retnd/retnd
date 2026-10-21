@@ -9,8 +9,9 @@ import type { GateRefusalNotice } from "@shared/api/gate";
 import { NO_VALIDATOR_REASON, recoveryTestWouldBeRefused } from "@shared/assurance/verificationModel";
 import type { BackupFacts } from "@shared/assurance/verificationModel";
 import type { AssuranceApi, Operation } from "@shared/assurance/types";
-import { artifactCommand, artifactsInSetCommand, recoverCommand, recoveryTestArtifactCommand, retryCommand, scrubCommand } from "@shared/assurance/assuranceCommands";
+import { artifactCommand, artifactsListCommand, recoverCommand, recoveryTestArtifactCommand, retryCommand, scrubCommand } from "@shared/assurance/assuranceCommands";
 import type { BackupArtifact } from "@shared/types/backup";
+import { BUCKETS } from "@shared/assurance/claims";
 import { isRetryable } from "./retryIngestion";
 
 /** One thing the menu started, kept until the operator dismisses it. */
@@ -46,25 +47,40 @@ export interface RowMenuContext {
 /** Whether a run is still going, for the busy reasons. */
 export const isRunning = (r: MenuRun): boolean => r.starting || (r.opId !== undefined && (r.state === undefined || r.state === "running"));
 
-/** What a `?set=` value may be echoed as. The address takes any text, and the
- *  echo is a line somebody pastes into a shell, so it names a set only if this
- *  deployment lists it, or the value has the shape of a set id (source/set)
- *  for a set that was removed and whose backups are still listed (#523). Any
- *  other value is not echoed at all; the builder quotes what it does print.
+/** The page's filters, for the terminal line under them. */
+export interface ListFilters {
+  /** The `?set=` value, from the address. */
+  set: string;
+  /** The sets this deployment lists. */
+  known: ReadonlyArray<{ id: string }> | null | undefined;
+  /** The received-date inputs, YYYY-MM-DD or empty. */
+  after: string;
+  before: string;
+  /** The `?assurance=` bucket while it narrows the list, or null. */
+  bucket: string | null;
+}
+
+/** The "Same list from the terminal" line for the page's filters, or null
+ *  when nothing narrows the list or the CLI cannot say what the screen shows.
  *
- *  `after` and `before` are the page's received-date inputs, and the line
- *  carries them as --since and --until (#1251), because it is labelled as the
- *  same list. A bound that is not a YYYY-MM-DD date, or a range whose end is
- *  before its start (the CLI refuses that), gets no line rather than one that
- *  lists something else. So does a list narrowed to an assurance bucket
- *  (`?assurance=`): `artifacts` has no flag for it, and the line would list
- *  every backup of the set. */
-export function setFilterEcho(setFilter: string, known: ReadonlyArray<{ id: string }> | null | undefined, after = "", before = "", bucket: string | null = null): string | null {
-  if (!setFilter || bucket) return null;
-  if (!known?.some((s) => s.id === setFilter) && !/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(setFilter)) return null;
+ *  The address takes any text, and the line is something somebody pastes into
+ *  a shell, so a `?set=` value is echoed only if this deployment lists it, or
+ *  it has the shape of a set id (source/set) for a set that was removed and
+ *  whose backups are still listed (#523). The builder quotes what it prints.
+ *
+ *  The date inputs become --since and --until (#1251), and the bucket
+ *  --assurance (the review of #1256): `artifacts --assurance` classifies a
+ *  backup the way `assurance list --bucket` and this page's filter do. A bound
+ *  that is not a YYYY-MM-DD date, a range whose end is before its start (the
+ *  CLI refuses that), or a bucket the CLI does not have gets no line, rather
+ *  than one that lists something else. */
+export function filterEcho(f: ListFilters): string | null {
+  if (f.set && !f.known?.some((s) => s.id === f.set) && !/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(f.set)) return null;
   const isDay = (d: string) => d === "" || /^\d{4}-\d{2}-\d{2}$/.test(d);
-  if (!isDay(after) || !isDay(before) || (after && before && before < after)) return null;
-  return artifactsInSetCommand(setFilter, { since: after, until: before });
+  if (!isDay(f.after) || !isDay(f.before) || (f.after && f.before && f.before < f.after)) return null;
+  if (f.bucket && !(BUCKETS as readonly string[]).includes(f.bucket)) return null;
+  if (!f.set && !f.after && !f.before && !f.bucket) return null;
+  return artifactsListCommand({ set: f.set, bucket: f.bucket ?? "", since: f.after, until: f.before });
 }
 
 /** The menu for one row. */
