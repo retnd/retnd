@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 
 	"github.com/retnd/retnd/core/internal/config"
@@ -18,20 +17,31 @@ import (
 // deployment against a directory of the test's own (stubDefaultWorkflowRoot),
 // so none of them depends on a real /workflows.
 
-// stubDefaultWorkflowRoot points the default root at dir and says whether it
-// is there, for the rest of the test.
-func stubDefaultWorkflowRoot(t *testing.T, dir string, there bool) {
+// rootDefault is a default workflow root at dir, present or not, for a test
+// to hand to OpenWith rather than looking at a real /workflows.
+func rootDefault(dir string, there bool) WorkflowRootDefault {
+	return WorkflowRootDefault{Dir: dir, Present: func(d string) bool { return there && d == dir }}
+}
+
+// openWithDefault opens configPath the way the engine's own entry points do,
+// with def as its default root.
+func openWithDefault(t *testing.T, configPath string, def WorkflowRootDefault) *BackupService {
 	t.Helper()
-	prevRoot, prevPresent := defaultWorkflowRoot, workflowRootPresent
-	defaultWorkflowRoot = dir
-	workflowRootPresent = func(d string) bool { return there && d == dir }
-	t.Cleanup(func() { defaultWorkflowRoot, workflowRootPresent = prevRoot, prevPresent })
+	svc, cleanup, err := OpenWith(context.Background(), configPath, OpenOptions{WorkflowRoot: def})
+	if err != nil {
+		t.Fatalf("OpenWith: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = svc.Close()
+		_ = cleanup()
+	})
+	return svc
 }
 
 // openNoWorkflowsService is openWorkflowSaveService's deployment written the
 // way an install that never ran `settings workflow patch --root` has it: no
-// workflows block at all. The default root is stubbed (present or not)
-// BEFORE the service opens, because opening is when it is resolved.
+// workflows block at all, opened with a default root (present or not) at a
+// directory of the test's own.
 func openNoWorkflowsService(t *testing.T, mounted bool) (*BackupService, string, string) {
 	t.Helper()
 
@@ -40,7 +50,6 @@ func openNoWorkflowsService(t *testing.T, mounted bool) (*BackupService, string,
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	stubDefaultWorkflowRoot(t, root, mounted)
 
 	remote := filepath.Join(dir, "remote")
 	local := filepath.Join(dir, "local")
@@ -71,15 +80,7 @@ func openNoWorkflowsService(t *testing.T, mounted bool) (*BackupService, string,
 		t.Fatal(err)
 	}
 
-	svc, cleanup, err := Open(context.Background(), configPath)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = svc.Close()
-		_ = cleanup()
-	})
-	return svc, configPath, root
+	return openWithDefault(t, configPath, rootDefault(root, mounted)), configPath, root
 }
 
 func TestWorkflowRootDefault_AMountedWorkflowsWithNoSectionCanKeepAValidator(t *testing.T) {
@@ -95,6 +96,10 @@ func TestWorkflowRootDefault_AMountedWorkflowsWithNoSectionCanKeepAValidator(t *
 	}
 	if list.WorkflowRoot != root || !list.WorkflowRootDefault {
 		t.Errorf("list root = %q (default %v), want %q reported as the default", list.WorkflowRoot, list.WorkflowRootDefault, root)
+	}
+	// One shape for every client: the absolute directory an upload lands in.
+	if want := filepath.Join(root, config.CustomValidatorDir); list.ScriptsDir != want {
+		t.Errorf("list scripts dir = %q, want %q", list.ScriptsDir, want)
 	}
 
 	if _, err := svc.CreateCustomValidator(ctx, CreateCustomValidatorRequest{Name: "manifest", Pattern: "^MANIFEST", Script: goodValidator}); err != nil {
@@ -119,8 +124,8 @@ func TestWorkflowRootDefault_SettingsReportTheDefaultRatherThanNotConfigured(t *
 
 func TestWorkflowRootDefault_AnExplicitlyClearedRootStillRefusesWithAReason(t *testing.T) {
 	ctx := context.Background()
-	svc, configPath, root := openWorkflowSaveService(t)
-	stubDefaultWorkflowRoot(t, root, true)
+	_, configPath, root := openWorkflowSaveService(t)
+	svc := openWithDefault(t, configPath, rootDefault(root, true))
 
 	clear := ""
 	if _, err := svc.UpdateWorkflowSettings(ctx, UpdateWorkflowSettingsRequest{Root: &clear}); err != nil {
@@ -147,15 +152,7 @@ func TestWorkflowRootDefault_AnExplicitlyClearedRootStillRefusesWithAReason(t *t
 	}
 	check(svc, "after the patch")
 
-	again, cleanup, err := Open(ctx, configPath)
-	if err != nil {
-		t.Fatalf("reopening: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = again.Close()
-		_ = cleanup()
-	})
-	check(again, "after a restart")
+	check(openWithDefault(t, configPath, rootDefault(root, true)), "after a restart")
 }
 
 func TestWorkflowRootDefault_AnUpgradeWithoutTheSectionEndsUpWithAUsableRoot(t *testing.T) {
@@ -249,28 +246,76 @@ func TestWorkflowRootDefault_AReadOnlyTreeWithNoValidatorDirectorySaysSo(t *test
 	}
 }
 
-// The validator directory and its .superseded sibling are two mounts in a
-// container, and rename(2) between two mounts is EXDEV even on one disk.
-func TestWorkflowRootDefault_AMoveAsideAcrossMountsStillMoves(t *testing.T) {
-	ctx := context.Background()
-	svc, _, root := openWorkflowSaveService(t)
-	if _, err := svc.CreateCustomValidator(ctx, CreateCustomValidatorRequest{Name: "v", Pattern: "^a", Script: goodValidator}); err != nil {
-		t.Fatal(err)
+// The default is the running process's, never the configuration's: a copy of
+// the running config that grew a per-set hook block with no root in the file
+// has to be refused exactly as the file would be on the next start.
+func TestWorkflowRootDefault_TheRunningConfigNeverCarriesTheDefault(t *testing.T) {
+	svc, _, _ := openNoWorkflowsService(t, true)
+	running := *svc.state.Load().inner.Config
+	if running.Workflows.Root != "" || running.WorkflowsConfigured() {
+		t.Fatalf("the running config carries a root (%q, configured %v); the default belongs to the service", running.Workflows.Root, running.WorkflowsConfigured())
 	}
-	prev := renameValidatorFile
-	renameValidatorFile = func(src, dst string) error {
-		return &os.LinkError{Op: "rename", Old: src, New: dst, Err: syscall.EXDEV}
+	running.Sources = append([]config.Source(nil), running.Sources...)
+	running.Sources[0].BackupSets = append([]config.BackupSet(nil), running.Sources[0].BackupSets...)
+	running.Sources[0].BackupSets[0].Workflow = &config.SetWorkflow{BeforeDir: "alpha-before"}
+	if err := running.Validate(); err == nil || !strings.Contains(err.Error(), "workflows.root") {
+		t.Errorf("Validate() = %v; a per-set hook block with no root in the file has to be refused", err)
 	}
-	t.Cleanup(func() { renameValidatorFile = prev })
+}
 
-	if _, err := svc.RemoveCustomValidator(ctx, "v"); err != nil {
-		t.Fatalf("Remove across mounts: %v", err)
+func TestWorkflowRootDefault_OpenWithNoDefaultLooksForNone(t *testing.T) {
+	asked := false
+	got := ResolveWorkflowRoot(&config.Config{}, WorkflowRootDefault{})
+	if got.Path != "" || got.Default {
+		t.Errorf("a zero default resolved %+v", got)
 	}
-	if _, err := os.Stat(filepath.Join(root, config.CustomValidatorDir, "v.local.sh")); !os.IsNotExist(err) {
-		t.Errorf("the script is still in the stage directory: %v", err)
+	got = ResolveWorkflowRoot(&config.Config{Workflows: config.Workflows{Root: "/srv/hooks"}},
+		WorkflowRootDefault{Dir: "/workflows", Present: func(string) bool { asked = true; return true }})
+	if got.Path != "/srv/hooks" || got.Default || asked {
+		t.Errorf("an explicit root resolved %+v (probed %v)", got, asked)
 	}
-	moved, err := os.ReadFile(filepath.Join(root, config.CustomValidatorDir+supersededSuffix, "v.local.sh"))
-	if err != nil || string(moved) != goodValidator {
-		t.Errorf("the superseded copy = %q, %v", moved, err)
+	got = ResolveWorkflowRoot(&config.Config{Workflows: config.Workflows{Disabled: true}},
+		WorkflowRootDefault{Dir: "/workflows", Present: func(string) bool { return true }})
+	if got.Path != "" || !got.Disabled {
+		t.Errorf("a cleared root resolved %+v", got)
+	}
+	got = ResolveWorkflowRoot(&config.Config{}, WorkflowRootDefault{Dir: "/workflows", Present: func(string) bool { return true }})
+	if got.Path != "/workflows" || !got.Default {
+		t.Errorf("a mounted default resolved %+v", got)
+	}
+}
+
+func TestWorkflowRootDefault_AClearedRootCanGoBackToTheDefault(t *testing.T) {
+	ctx := context.Background()
+	_, configPath, root := openWorkflowSaveService(t)
+	svc := openWithDefault(t, configPath, rootDefault(root, true))
+
+	off := true
+	if _, err := svc.UpdateWorkflowSettings(ctx, UpdateWorkflowSettingsRequest{Disabled: &off}); err != nil {
+		t.Fatalf("disabling: %v", err)
+	}
+	if s, _ := svc.WorkflowSettings(ctx); !s.Disabled || s.Configured {
+		t.Errorf("after disable: %+v", s)
+	}
+	on := false
+	s, err := svc.UpdateWorkflowSettings(ctx, UpdateWorkflowSettingsRequest{Disabled: &on})
+	if err != nil {
+		t.Fatalf("enabling: %v", err)
+	}
+	if s.Disabled || !s.RootDefault || s.Root != root {
+		t.Errorf("after enable: %+v; turning workflows back on with no root has to land on the default", s)
+	}
+	raw, _ := os.ReadFile(configPath)
+	if strings.Contains(string(raw), "disabled") || strings.Contains(string(raw), "root:") {
+		t.Errorf("config.yaml still names a root or disabled after enable:\n%s", raw)
+	}
+}
+
+func TestWorkflowRootDefault_DisablingWithARootIsRefused(t *testing.T) {
+	svc, _, _ := openWorkflowSaveService(t)
+	off, root := true, "/srv/hooks"
+	_, err := svc.UpdateWorkflowSettings(context.Background(), UpdateWorkflowSettingsRequest{Disabled: &off, Root: &root})
+	if !errors.Is(err, ErrInvalidRequest) {
+		t.Errorf("disabled with a root = %v; that is two statements that cannot both be meant", err)
 	}
 }

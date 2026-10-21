@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/retnd/retnd/core/cliecho"
 	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/internal/config"
 	"github.com/retnd/retnd/core/internal/state"
+	"github.com/retnd/retnd/core/service"
 )
 
 // cmdCheck is `retnd check`: a pre-flight answer to "can this
@@ -73,3 +76,6 @@ func cmdCheck(args []string) int {
 	}
 	return 0
 }
+
+// printCheckWorkflowRoot is a placeholder for #1246's check line.
+func printCheckWorkflowRoot(w io.Writer, cfg *config.Config, d service.WorkflowRootDefault) {}

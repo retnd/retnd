@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+	"io"
 	"os"
 
 	"github.com/retnd/retnd/core/internal/config"
@@ -65,4 +67,35 @@ func (b *BackupService) writeDefaultWorkflowRoot(file *config.Config) {
 		return
 	}
 	file.Workflows.Root = running.WorkflowRoot()
+}
+
+// Placeholders for the #1246 review's injected default; the fix fills them in.
+
+// WorkflowRootDefault is where a deployment with no root looks for one.
+type WorkflowRootDefault struct {
+	Dir     string
+	Present func(dir string) bool
+}
+
+// WorkflowRootState is the root a running process uses.
+type WorkflowRootState struct {
+	Path     string
+	Default  bool
+	Disabled bool
+}
+
+// ResolveWorkflowRoot resolves cfg's root against d.
+func ResolveWorkflowRoot(cfg *config.Config, d WorkflowRootDefault) WorkflowRootState {
+	return WorkflowRootState{Path: cfg.WorkflowRoot(), Default: cfg.WorkflowRootIsDefault(), Disabled: cfg.Workflows.Disabled}
+}
+
+// OpenOptions are Open's.
+type OpenOptions struct {
+	LogTo        io.Writer
+	WorkflowRoot WorkflowRootDefault
+}
+
+// OpenWith is Open with options.
+func OpenWith(ctx context.Context, configPath string, opts OpenOptions) (*BackupService, func() error, error) {
+	return OpenWithLog(ctx, configPath, os.Stdout)
 }

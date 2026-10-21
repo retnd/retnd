@@ -251,6 +251,7 @@ export function createMockValidators(env: MockValidatorsEnv): Pick<
         directory: unavailable ? "" : root + "/recovery-test-validators",
         workflowRoot: unavailable ? "" : root,
         workflowRootDefault: defaultRoot,
+        scriptsDir: "",
         maxValidators: MAX_VALIDATORS,
         maxScriptBytes: MAX_SCRIPT_BYTES,
         maxPatternBytes: MAX_PATTERN_BYTES,

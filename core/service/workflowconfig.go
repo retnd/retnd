@@ -184,6 +184,7 @@ type WorkflowSettings struct {
 // that stage -- so it must be expressible.
 type UpdateWorkflowSettingsRequest struct {
 	Root      *string
+	Disabled  *bool
 	BeforeDir *string
 	AfterDir  *string
 

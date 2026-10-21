@@ -2774,6 +2774,8 @@ export interface CustomValidatorList {
   /** workflowRoot is the default (/workflows, found mounted) rather than one
    *  config.yaml names (#1246). */
   workflowRootDefault: boolean;
+  /** Where an upload lands: the stage directory under the root, absolute. */
+  scriptsDir: string;
   maxValidators: number;
   maxScriptBytes: number;
   maxPatternBytes: number;

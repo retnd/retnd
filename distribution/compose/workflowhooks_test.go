@@ -419,6 +419,33 @@ func TestAnotherWritableDirectoryUnderTheHookTreeIsStillRefused(t *testing.T) {
 	}
 }
 
+// TestAValidatorMountFromAnotherHostPathIsRefused is the control for the
+// exemption's other half: the two names are exempt only when they come from
+// the host's own workflows tree. A debugging line that mounts the host root,
+// or any other directory, writable at a validator path is a finding.
+func TestAValidatorMountFromAnotherHostPathIsRefused(t *testing.T) {
+	t.Parallel()
+
+	for _, volume := range []string{
+		"/:" + validatorDirs[0],
+		"/srv/anything/recovery-test-validators:" + validatorDirs[0],
+		"/etc:" + validatorDirs[1],
+	} {
+		t.Run(volume, func(t *testing.T) {
+			t.Parallel()
+
+			doc, describe := canonical(t).WithVolume(volume)
+			if describe == "" {
+				t.Fatal("the mutation helper injected nothing, so this control is watching an unmutated document")
+			}
+			_, svc := engineOf(t, doc)
+			if len(workflowMountFindings(doc, svc)) == 0 {
+				t.Errorf("a validator mount from a foreign host path was not refused: %s", describe)
+			}
+		})
+	}
+}
+
 // engineOf is engine() for a document a test has already built.
 func engineOf(t *testing.T, doc compose.Document) (compose.Document, map[string]any) {
 	t.Helper()

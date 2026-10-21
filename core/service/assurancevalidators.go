@@ -221,6 +221,9 @@ type CustomValidators struct {
 	// (config.DefaultWorkflowRoot, found mounted) rather than one the
 	// configuration names (#1246).
 	WorkflowRootDefault bool
+	// ScriptsDir is where an upload lands: the stage directory under the
+	// root, absolute, so no client joins the two itself.
+	ScriptsDir string
 	// Available says a validator can be uploaded here; Reason says why not.
 	Available         bool
 	UnavailableReason string
@@ -568,7 +571,7 @@ func (b *BackupService) writeCustomValidator(ctx context.Context, req CreateCust
 		// a hand copy): it counts against discovery's 64 entry limit and,
 		// for the other stages that read the directory whole, one stray file
 		// refuses everything in it.
-		if err := store.Reconcile(declaredScriptFiles(blk.Validators)); err != nil {
+		if _, err := store.Reconcile(declaredScriptFiles(blk.Validators)); err != nil {
 			return CustomValidator{}, err
 		}
 		if !update {

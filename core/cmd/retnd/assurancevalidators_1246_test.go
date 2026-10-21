@@ -14,7 +14,7 @@ func TestValidatorListSaysTheRootIsTheDefault(t *testing.T) {
 	var buf bytes.Buffer
 	printCustomValidatorList(&buf, service.CustomValidators{
 		Available: true, RunnerConfigured: true, WorkflowRoot: "/workflows", WorkflowRootDefault: true,
-		Directory: "recovery-test-validators",
+		Directory: "recovery-test-validators", ScriptsDir: "/workflows/recovery-test-validators",
 	})
 	out := buf.String()
 	if !strings.Contains(out, "/workflows/recovery-test-validators") || !strings.Contains(out, "the default") {
@@ -26,6 +26,7 @@ func TestValidatorListDoesNotCallAConfiguredRootTheDefault(t *testing.T) {
 	var buf bytes.Buffer
 	printCustomValidatorList(&buf, service.CustomValidators{
 		Available: true, RunnerConfigured: true, WorkflowRoot: "/srv/hooks", Directory: "recovery-test-validators",
+		ScriptsDir: "/srv/hooks/recovery-test-validators",
 	})
 	out := buf.String()
 	if !strings.Contains(out, "/srv/hooks/recovery-test-validators") {

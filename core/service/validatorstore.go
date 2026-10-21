@@ -73,7 +73,8 @@ const supersededSuffix = ".superseded"
 // validatorStore is the stage directory under one workflow root. The zero
 // value (no root) stores nothing: reads find nothing and moves are no-ops.
 type validatorStore struct {
-	root workflow.Root
+	root   workflow.Root
+	rename func(src, dst string) error
 }
 
 func newValidatorStore(root workflow.Root) validatorStore { return validatorStore{root: root} }
@@ -141,11 +142,11 @@ func (s validatorStore) MoveAside(file string) error {
 
 // Reconcile moves every entry the configuration does not name out of the
 // stage directory. declared holds lower-cased script file names.
-func (s validatorStore) Reconcile(declared map[string]bool) error {
+func (s validatorStore) Reconcile(declared map[string]bool) ([]string, error) {
 	if s.root.IsZero() {
-		return nil
+		return nil, nil
 	}
-	return reconcileValidatorDir(s.root, declared)
+	return nil, reconcileValidatorDir(s.root, declared)
 }
 
 // EntryCount is how many entries the stage directory holds, the number
