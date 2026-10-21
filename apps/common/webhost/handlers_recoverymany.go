@@ -56,6 +56,7 @@ type recoverManyRequestBody struct {
 	Artifacts       []string           `json:"artifacts,omitempty"`
 	NewestOnly      bool               `json:"newest_only,omitempty"`
 	Since           string             `json:"since,omitempty"`
+	Until           string             `json:"until,omitempty"`
 	Copy            string             `json:"copy,omitempty"`
 	AcknowledgeCost bool               `json:"acknowledged,omitempty"`
 	Preflight       bool               `json:"preflight,omitempty"`
@@ -225,6 +226,20 @@ func (h *handlers) recoverMany(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		req.Since = t
+	}
+	if body.Until != "" {
+		t, err := time.Parse(time.RFC3339, body.Until)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "until must be an RFC 3339 time")
+			return
+		}
+		req.Until = t
+	}
+	// The terminal refuses an inverted range as a typo, and so does the
+	// route, rather than answer it with nothing (#1251).
+	if !req.Since.IsZero() && !req.Until.IsZero() && req.Until.Before(req.Since) {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "until is before since, so nothing can be in that range")
+		return
 	}
 	// Not self-audited: the action-log middleware records the request with
 	// the `retnd recover ...` command it is equivalent to, which is what the

@@ -771,6 +771,7 @@ var routes = map[string]entry{
 				c.bare("newest-only")
 			}
 			c.flagIfSet("since", req.Since)
+			c.flagIfSet("until", req.Until)
 			if req.Copy != "" && req.Copy != "best-available" {
 				c.flag("copy", req.Copy)
 			}
@@ -787,7 +788,7 @@ var routes = map[string]entry{
 				sourceTarget(c, req.Target.Path, req.Target.AcknowledgedDestination)
 				// A whole set onto the source host is spelled out (#1193):
 				// the terminal refuses it without a narrowing or --all.
-				if req.Set != "" && !req.NewestOnly && req.Since == "" && !req.Preflight {
+				if req.Set != "" && !req.NewestOnly && req.Since == "" && req.Until == "" && !req.Preflight {
 					c.bare("all")
 				}
 			}
@@ -803,6 +804,7 @@ var routes = map[string]entry{
 			{Body: []byte(`{"set":"api-server/var-backups","target":{"kind":"staging","path":"restore/var-backups"}}`)},
 			{Body: []byte(`{"set":"api-server/var-backups","newest_only":true,"acknowledged":true,"target":{"kind":"storage","medium":"offsite_s3","key":"recovered"}}`)},
 			{Body: []byte(`{"set":"api-server/var-backups","since":"2026-10-01T00:00:00Z","preflight":true,"target":{"kind":"staging","path":"restore/var-backups"}}`)},
+			{Body: []byte(`{"set":"api-server/var-backups","since":"2026-10-01T00:00:00Z","until":"2026-10-07T23:59:59Z","target":{"kind":"staging","path":"restore/var-backups"}}`)},
 			{Body: []byte(`{"artifacts":["api-server/var-backups/a.tar","api-server/var-backups/b.tar"],"target":{"kind":"staging","path":"restore/picked"}}`)},
 			{Body: []byte(`{"set":"api-server/var-backups","target":{"kind":"source","path":"retnd-recovered-20261015-101500-a1b2","acknowledged_destination":"sh1-0123456789abcdef0123456789abcdef"}}`)},
 			{Body: []byte(`{"set":"api-server/var-backups","newest_only":true,"target":{"kind":"source","path":"retnd-recovered-20261015-101500-a1b2","acknowledged_destination":"sh1-0123456789abcdef0123456789abcdef"}}`)},

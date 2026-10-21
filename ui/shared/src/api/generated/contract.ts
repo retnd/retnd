@@ -16,7 +16,7 @@ export const API_BASE_PATH = "/api/v1";
  *  A contract edited without regenerating changes this value, so the
  *  change is visible in review as well as to
  *  scripts/api/check-contract-drift.sh. */
-export const CONTRACT_SHA256 = "8a0127472a4a8d87e7bd9f10a1a2366ee8acf369a55876265a51cba3246455de";
+export const CONTRACT_SHA256 = "7d3c26e6e7553a8a390232b0ed225e75720a006b74e5c40a598e6b2e488e8f47";
 
 /** Codes a server may actually put on the wire. */
 export const WIRE_ERROR_CODES = [
@@ -4090,6 +4090,7 @@ export interface WireRecoveryManyRequest {
   set?: string;
   since?: string;
   target: WireRecoveryTarget;
+  until?: string;
 }
 
 /** What a run did. The summary and the manifest file written beside

@@ -7032,7 +7032,13 @@
             "type": "string",
             "format": "date-time",
             "x-go-omitempty": true,
-            "description": "With `set`: only backups updated at or after this moment."
+            "description": "With `set`: only backups that arrived (`discovered_at`) at or after this moment. A later transition, such as the set going read-only and back, does not move a backup."
+          },
+          "until": {
+            "type": "string",
+            "format": "date-time",
+            "x-go-omitempty": true,
+            "description": "With `set`: only backups that arrived (`discovered_at`) at or before this moment. Before `since` is refused with 400 (#1251)."
           },
           "copy": {
             "type": "string",
