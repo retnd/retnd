@@ -1,7 +1,9 @@
 /**
  * A slow, watchable pass over #1251 for the GIF in the PR. Run with
- * E2E_VIDEO=1. It ends on the strict assertion for what the recording shows:
- * the "Same list from the terminal" line carrying the received-date range.
+ * E2E_VIDEO=1. Each step ends on the strict assertion for what the recording
+ * shows: the "Same list from the terminal" line carrying the received-date
+ * range, then the range's own line with no set filter, then --assurance for a
+ * bucket (the review of #1256).
  */
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
@@ -34,4 +36,16 @@ test("#1251 walkthrough: the set filter's terminal line follows the date range",
 
   await expect(status).toContainText("Showing 3 backups in");
   await expect(echo).toHaveText("retnd artifacts --backup-set " + BILLING + " --since 2026-08-20 --until 2026-08-26");
+
+  // Without the set filter the range keeps a line of its own.
+  await status.getByRole("button", { name: "Show all backup sets" }).click();
+  const listEcho = page.getByTestId("list-filter-echo").locator("code");
+  await expect(listEcho).toHaveText("retnd artifacts --since 2026-08-20 --until 2026-08-26");
+  await beat(page, 2500);
+
+  // An assurance bucket is --assurance.
+  await open(page, "/backups?set=production/postgres-primary&assurance=untested", "assurance-default-policy", { wire: true });
+  await expect(page.getByTestId("assurance-filter-status")).toBeVisible();
+  await beat(page, 2500);
+  await expect(echo).toHaveText("retnd artifacts --backup-set production/postgres-primary --assurance untested");
 });
