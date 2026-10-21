@@ -56,6 +56,12 @@ describe("#1251 the set filter's terminal line carries the received-date range",
     expect(setFilterEcho("", KNOWN, "2026-08-20", "2026-08-24")).toBeNull();
   });
 
+  it("#1251 an assurance bucket narrowing the list has no artifacts line, which would list the whole set", () => {
+    expect(setFilterEcho(SET, KNOWN, "", "", "untested")).toBeNull();
+    expect(setFilterEcho(SET, KNOWN, "2026-08-20", "", "due")).toBeNull();
+    expect(setFilterEcho(SET, KNOWN, "", "", null)).toBe("retnd artifacts --backup-set " + SET);
+  });
+
   it("#1251 the builder takes the range", () => {
     expect(artifactsInSetCommand(SET, { since: "2026-08-20", until: "2026-08-24" })).toBe("retnd artifacts --backup-set " + SET + " --since 2026-08-20 --until 2026-08-24");
     expect(artifactsInSetCommand(SET, { since: "", until: "" })).toBe("retnd artifacts --backup-set " + SET);

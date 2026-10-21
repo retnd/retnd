@@ -66,6 +66,13 @@ test.describe("#1251 the set filter's terminal line carries the received-date ra
     await expect(echo(page)).toHaveCount(0);
   });
 
+  test("#1251 an assurance bucket on top of the set filter has no artifacts line, since artifacts cannot narrow by bucket", async ({ page }) => {
+    await open(page, "/backups?set=production/postgres-primary&assurance=untested", "assurance-default-policy", { wire: true });
+    await expect(page.getByTestId("assurance-filter-status")).toHaveText("Showing 1 of 2 backups with no recovery test");
+    await expect(status(page)).toContainText("Showing 1 backup in");
+    await expect(echo(page)).toHaveCount(0);
+  });
+
   for (const theme of ["light", "dark"] as const) {
     test("#1251 the status with the ranged line meets AA in the " + theme + " theme", async ({ page }) => {
       await open(page, "/backups?set=" + BILLING, MANY);
