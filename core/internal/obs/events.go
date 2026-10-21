@@ -794,11 +794,21 @@ func (l *Logger) Error(ctx context.Context, op string, err error) {
 // activity feed's prune missed its deadline with err and is tried again in
 // retryIn.
 func (l *Logger) ActivityPruneDeferred(ctx context.Context, err error, retryIn time.Duration) {
+	l.emit(ctx, LevelWarn, EventActivityPruneDeferred, "activity events prune deferred",
+		slog.String("op", "activity_events_prune"),
+		slog.String("error", err.Error()),
+		slog.Duration("retry_in", retryIn),
+	)
 }
 
 // JournalSlowHold logs EventJournalSlowHold at LevelWarn: op kept the
 // journal's connection for held while waiters callers queued behind it.
 func (l *Logger) JournalSlowHold(ctx context.Context, op string, held time.Duration, waiters int64) {
+	l.emit(ctx, LevelWarn, EventJournalSlowHold, "journal connection held",
+		slog.String("op", op),
+		slog.Int64("held_ms", held.Milliseconds()),
+		slog.Int64("waiters", waiters),
+	)
 }
 
 // WorkflowRunStart logs EventWorkflowRunStart: one workflow run

@@ -9,11 +9,23 @@
   bound found its cut-off by walking up to 50,000 rows of the table on every run. On a NAS whose page cache a
   scrub had just evicted, that walk was disk reads behind a saturated disk, it held the journal's only
   connection while it ran, and it missed its deadline about once an hour, each time as an error line in the
-  terminal. Each prune statement now has its own 5 second deadline and removes at most 1,000 rows, the row
-  bound counts the table from an index and walks only the rows it removes, and the delete that coalesces
-  recovery stage lines uses the `op_id` index it was meant to instead of scanning the table inside the
-  writer's transaction. A prune that misses its deadline is retried a minute later and logged at debug, off
-  the terminal, and only a prune that has kept failing for six hours is reported as an error.
+  terminal. Each prune statement now has its own 5 second deadline and removes at most 1,000 rows, one pass
+  sends at most ten of them and picks up again five seconds later, and stopping the engine stops a pass
+  (the shutdown flush no longer prunes at all). The row bound counts the table from its smallest index on
+  each statement, which is still a full scan of that index but no longer of the rows, and then walks only
+  the rows it removes. The delete that coalesces recovery stage lines uses the `op_id` index it was meant
+  to instead of scanning the table inside the writer's transaction. A prune that loses a race for the
+  journal is retried a minute later with one `activity_prune_deferred` warning in the process log, never
+  in the terminal; contention that lasts an hour is an error, and any other failure (a disk fault, a full
+  disk, a read-only or corrupt database) is an error straight away, each at most once an hour. The journal
+  also now logs a `journal_slow_hold` warning naming any statement, cursor or transaction that keeps its
+  connection for more than a second, with how many callers waited behind it, so the next missed deadline
+  says what it was waiting for.
+- **The publish no longer leaves main failing the deployment tripwire** (#1247). The release workflow's
+  merge back into main flipped `canonical.json` to published without moving its line in
+  `core/tests/deploymentdiff/testdata/digests.txt`, so main failed that test after every release. The
+  recorder now moves that line with the publish (and refuses when anything else in the file changed or the
+  recorded line had already drifted), and the merge back runs the test before it pushes.
 
 ## [0.7.1] - 2026-10-17
 

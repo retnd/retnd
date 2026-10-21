@@ -81,8 +81,11 @@ func (j *Journal) AppendActivityEvents(ctx context.Context, rows []ActivityEvent
 // emitter of a coalesced line (obs.Logger.RecoveryStage) carries the
 // operation id as both op_id and the action id, so a row with an op_id is
 // found through idx_activity_events_op and the other two columns keep the
-// match exact. A row without one keeps the unindexed delete, because
-// nothing else names its stream.
+// match exact. The statement's literal test that op_id is not empty adds
+// nothing to the match (a bound op_id is never empty here); it is there for
+// the planner, which cannot prove a bound parameter is non-empty and so will
+// not pick the partial index, whose WHERE is that same test, without it. A row without an op_id keeps the
+// unindexed delete, because nothing else names its stream.
 func coalesceStatement(r ActivityEventRow) (string, []any) {
 	if r.OpID != "" {
 		return `DELETE FROM activity_events WHERE op_id = ? AND op_id <> '' AND event = ? AND action_id = ?`,
@@ -237,12 +240,15 @@ func (j *Journal) PruneActivityEventsByAge(ctx context.Context, olderThan time.T
 // PruneActivityEventsOverCount removes up to limit of the oldest rows beyond
 // the newest maxRows, and returns how many it removed.
 //
-// The excess is counted, which SQLite answers from the smallest covering
-// index, and only that many rows (at most limit) are then walked in
-// sequence order. The statement this replaces found its cut-off with
-// OFFSET maxRows from the newest end, which walks up to maxRows rows of the
-// table itself on every call, whether or not anything is over the bound.
-// MAX(0, ...) matters: a negative LIMIT is no limit at all to SQLite.
+// Each call counts the table and then walks, in sequence order, only as
+// many rows as it removes (at most limit). The count is still a full scan,
+// of the smallest covering index rather than of the table: SQLite keeps no
+// row count, so it is O(rows) per call, just over much less data than the
+// rows themselves. The statement this replaces found its cut-off with
+// OFFSET maxRows from the newest end, which walked up to maxRows rows of
+// the table itself on every call, whether or not anything was over the
+// bound. MAX(0, ...) matters: a negative LIMIT is no limit at all to
+// SQLite.
 func (j *Journal) PruneActivityEventsOverCount(ctx context.Context, maxRows, limit int) (int64, error) {
 	if maxRows <= 0 || limit <= 0 {
 		return 0, errors.New("state: PruneActivityEventsOverCount needs a positive row bound and batch")

@@ -729,6 +729,11 @@ jobs:
           python3 scripts/install/test_install_docker_host.py
           bash scripts/release/check-published-provenance.sh
           sha256sum -c provenance/checksums.txt
+          # The deployment tripwire, before the push and not after it
+          # (#1247). The recorder moved canonical.json's line in its
+          # digests.txt with the publish; anything else that moved is a
+          # deployment change nobody reviewed, and main must not get it.
+          (cd core && go test ./tests/deploymentdiff/ -count=1)
 
       - name: Commit the release and registry facts to main
         env:
@@ -741,7 +746,7 @@ jobs:
           fi
           git commit \
             -m "Merge release into main after publishing ${TAG}" \
-            -m "Automated by .github/workflows/release.yml after reading the index and platform digests back from GHCR, updating the installer pin, and regenerating the provenance bundle."
+            -m "Automated by .github/workflows/release.yml after reading the index and platform digests back from GHCR, updating the installer pin and the deployment digest of canonical.json, and regenerating the provenance bundle."
           git push origin HEAD:main
 
   # ---- the latest tag (issue #1168) --------------------------------------

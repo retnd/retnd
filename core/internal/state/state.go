@@ -112,10 +112,18 @@ func (j *Journal) SetRedactor(r *obs.Redactor) {
 // so this journal pays the fsync-per-commit cost of synchronous=FULL
 // instead of the weaker default.
 func Open(ctx context.Context, path string) (*Journal, error) {
-	db, err := sql.Open(driverName, path)
+	// The registered driver, reached through a handle that never connects,
+	// so the journal's own handle can open it through the wrapper that
+	// times every hold of its connection (pressure.go).
+	probe, err := sql.Open(driverName, path)
 	if err != nil {
 		return nil, fmt.Errorf("state: open %s: %w", path, err)
 	}
+	drv := probe.Driver()
+	_ = probe.Close()
+	tracker := newHoldTracker()
+	db := sql.OpenDB(&timedConnector{name: path, drv: drv, tracker: tracker})
+	tracker.stats = db.Stats
 
 	db.SetMaxOpenConns(1)
 
@@ -136,7 +144,7 @@ func Open(ctx context.Context, path string) (*Journal, error) {
 		return nil, err
 	}
 
-	return &Journal{db: db, pressure: newHoldTracker()}, nil
+	return &Journal{db: db, pressure: tracker}, nil
 }
 
 // Close releases the underlying database handle.

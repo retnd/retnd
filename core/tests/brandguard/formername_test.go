@@ -79,6 +79,12 @@ func scan(root string) (hits []string, scanned int, err error) {
 				case ".git", "node_modules", "dist", "build", "target", ".worktrees":
 					return filepath.SkipDir
 				}
+				// internal/workflowrun's fixtures, from before they moved
+				// to .testtmp/ or from a run of an older checkout: test
+				// scratch, not files this guard owns (#1247).
+				if strings.HasPrefix(d.Name(), ".wfrun-") {
+					return filepath.SkipDir
+				}
 
 				return nil
 			}

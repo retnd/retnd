@@ -160,12 +160,12 @@ func TestContentionIsTheDeadlineAndTheLockAndNothingElse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer a.Close()
+	defer func() { _ = a.Close() }()
 	b, err := Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer b.Close()
+	defer func() { _ = b.Close() }()
 	if _, err := b.db.ExecContext(ctx, "PRAGMA busy_timeout = 0"); err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestContentionIsTheDeadlineAndTheLockAndNothingElse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		t.Fatal(err)
 	}
