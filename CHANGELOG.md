@@ -35,6 +35,15 @@
   rather than the values on screen. The add wizard's confirm step names `retnd medium backends` and `retnd
   medium configure`.
 
+- **A password with a `/`, `?` or `#` in it no longer leaks from an endpoint onto a printed command line**
+  (#1252). The userinfo cut in the terminal echo and in the browser's command lines stopped the address at
+  the first `/`, `?` or `#`, so `https://key:pa/ss@host` found no `@` to cut at and went onto the line
+  whole. Now an address that still has an `@` in it after the cut is left out, with a placeholder in its
+  place, and the line is marked as not runnable as printed. That also leaves out an address with a real `@`
+  after the host, which is the safe way to be wrong. The S3 destination wizard (the Edit button on a
+  destination) had its own copy of these lines that printed the endpoint as typed and a credentials command
+  word for word; it now cuts the first and shows a placeholder for the second, the same as the terminal.
+
 ## [0.7.1] - 2026-10-17
 
 0.7.1 is a patch release, and the one thing in it that is new rather than fixed is custom recovery-test

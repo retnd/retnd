@@ -1,6 +1,7 @@
 package cliecho
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -141,11 +142,16 @@ func TestIssue1252_TheConfigureLineMatchesTheSharedGolden(t *testing.T) {
 	}
 
 	if update {
-		out, err := json.MarshalIndent(g, "", "  ")
-		if err != nil {
+		// Not HTML-escaped: the lines carry "<" and ">" around a
+		// placeholder, and the file is read by people as well as tests.
+		var out bytes.Buffer
+		enc := json.NewEncoder(&out)
+		enc.SetEscapeHTML(false)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(g); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Clean(golden1252), append(out, '\n'), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Clean(golden1252), out.Bytes(), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}

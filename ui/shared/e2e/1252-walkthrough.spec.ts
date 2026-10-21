@@ -13,6 +13,9 @@ import { open } from "./helpers";
 
 const beat = (p: Page, ms = 900) => p.waitForTimeout(ms);
 test.describe.configure({ timeout: 150_000 });
+// A recording and nothing else: it asserts nothing about the lines and
+// spends most of its time waiting, so the ordinary run leaves it out.
+test.skip(!process.env.E2E_VIDEO, "recording only, run with E2E_VIDEO=1");
 
 /** Outlines the printed lines (and the gap note, where there is one) and
  *  scrolls them into view. Test-only; nothing here ships. */

@@ -32,9 +32,15 @@
  * leaks. The CLI instead has no flag that takes a secret at all: the
  * material only ever arrives on stdin, through `medium import-credentials
  * --stdin`, and stdin is not in the process table and not in shell
- * history. So there is nothing in these lines to redact, and what is
- * printed is the command that actually works, byte for byte, with nothing
- * starred out.
+ * history. So no flag on these lines carries key material.
+ *
+ * Two values could still carry one anyway, because they are free text an
+ * operator types: an endpoint URL with userinfo spelled into it, and a
+ * credentials command, which is a program and its arguments. Neither is
+ * printed as typed (#1252). The endpoint's userinfo is cut out, and an
+ * address the cut can't read is held back behind a placeholder; the
+ * command is never printed at all. Both follow core/cliecho, and where a
+ * placeholder stands in, the line won't run as printed.
  *
  * That property is asserted rather than trusted: this module's own test
  * plants a canary secret and searches every rendered line for it, with a
@@ -50,6 +56,8 @@
  */
 import { LOCAL_DESTINATION_ID } from "@shared/api/contracts";
 import type { StorageMediumSpec } from "@shared/api/contracts";
+import { shellQuote } from "@shared/assurance/assuranceCommands";
+import { endpointWithoutUserinfo, WITHHELD } from "@shared/pages/destinationConfigureCommands";
 
 /** The one command that ever handles material, and it reads it on stdin.
  *
@@ -189,24 +197,38 @@ export function showCommand(id: string): string {
  */
 function specFlags(spec: StorageMediumSpec): string[] {
   const out: string[] = [];
-  if (spec.type) out.push("--type", spec.type);
-  if (spec.region) out.push("--region", spec.region);
-  if (spec.endpoint) out.push("--endpoint", spec.endpoint);
-  if (spec.bucket) out.push("--bucket", spec.bucket);
-  if (spec.prefix) out.push("--prefix", spec.prefix);
-  if (spec.storageClass) out.push("--storage-class", spec.storageClass);
-  if (spec.uploadVerification) out.push("--upload-verification", spec.uploadVerification);
+  // Every value shell-quoted, the way core/cliecho's shellQuote does it, so
+  // a bucket with a space in it is one argument on the pasted line (#1252).
+  const flag = (name: string, value: string | undefined) => {
+    if (value) out.push(`--${name}`, shellQuote(value));
+  };
+  flag("type", spec.type);
+  flag("region", spec.region);
+  if (spec.endpoint) {
+    // Userinfo cut out, and an address the cut can't read held back behind
+    // a placeholder, for the reasons endpointWithoutUserinfo gives. The S3
+    // form hands the endpoint to rclone unexamined, so a key typed into it
+    // would otherwise go straight onto this line (#1252).
+    const cut = endpointWithoutUserinfo(spec.endpoint);
+    if (cut.withheld) out.push("--endpoint", `<${WITHHELD}>`);
+    else flag("endpoint", cut.value);
+  }
+  flag("bucket", spec.bucket);
+  flag("prefix", spec.prefix);
+  flag("storage-class", spec.storageClass);
+  flag("upload-verification", spec.uploadVerification);
 
   const c = spec.credentials;
-  if (c?.credentialsId) out.push("--credentials-id", c.credentialsId);
-  else if (c?.file) out.push("--credentials-file", c.file);
-  else if (c?.env) out.push("--credentials-env", c.env);
+  if (c?.credentialsId) flag("credentials-id", c.credentialsId);
+  else if (c?.file) flag("credentials-file", c.file);
+  else if (c?.env) flag("credentials-env", c.env);
   else if (c?.command && c.command.length > 0) {
-    // Quoted as one shell word, because it is one argv array on the other
-    // side and a bare `op read op://…` would be read as three flags'
-    // worth of operands. The line has to be copy-pasteable as typed or it
-    // teaches something that does not work.
-    out.push("--credentials-command", `'${c.command.join(" ")}'`);
+    // Named and never printed, the way core/cliecho's mediumCredentialFlags
+    // does it (#1252). It used to go on the line word for word, but a
+    // credentials command is the caller's words and `printf %s KEY:SECRET`
+    // is a valid one, so a placeholder stands in and the line won't run as
+    // printed.
+    out.push("--credentials-command", "<the command that prints these credentials>");
   }
   return out;
 }

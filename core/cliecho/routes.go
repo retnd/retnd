@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/retnd/retnd/core/apicontract"
+	"github.com/retnd/retnd/core/internal/backend"
 )
 
 // The table: every route the /api/v1 router registers, and what an
@@ -2167,7 +2168,11 @@ func mediumSpecFlags(c *cmd, req apicontract.StorageMediumRequest) *cmd {
 	// endpointWithoutUserinfo: a credential can be spelled into this
 	// field, and this is the one flag here whose value is not printed
 	// exactly as the request sent it.
-	c.flagIfSet("endpoint", endpointWithoutUserinfo(req.Endpoint))
+	if endpoint, ok := endpointWithoutUserinfo(req.Endpoint); ok {
+		c.flagIfSet("endpoint", endpoint)
+	} else {
+		c.placeholderFlag("endpoint", withheldValue)
+	}
 	c.flagIfSet("bucket", req.Bucket)
 	c.flagIfSet("prefix", req.Prefix)
 	c.flagIfSet("storage-class", req.StorageClass)
@@ -2198,28 +2203,65 @@ func mediumCredentialFlags(c *cmd, creds apicontract.StorageMediumCredentialsRef
 // configure` flags (#1154). The fields come out in the request's own order,
 // which the API sorts by field id, so one configuration is one line.
 //
-// An endpoint field has its userinfo taken out for mediumSpecFlags' reason:
+// A url-kind field has its userinfo taken out for mediumSpecFlags' reason:
 // a credential can be spelled into a URL, and this panel is
-// copy-to-clipboard and exportable. Every other field is printed as sent,
-// since a field value is configuration an operator typed and the manifest
-// gives a credential no field to be typed into.
+// copy-to-clipboard and exportable. Which fields those are comes from the
+// backend's manifest when the request names one, and `endpoint` always
+// counts, so a request that leaves the backend out (an edit of a declared
+// destination) cannot leak one by omission. An address the cut cannot read
+// is held back behind a placeholder (#1252). Every other field is printed
+// as sent, since a field value is configuration an operator typed and the
+// manifest gives a credential no field to be typed into.
 func mediumConfigurationFlags(c *cmd, req apicontract.MediumConfigurationRequest) *cmd {
 	c.flagIfSet("backend", req.Backend)
+	urlFields, credentialFields := manifestFieldKinds(req.Backend)
 	for _, f := range req.Fields {
 		// A credential-kind field is the one thing a manifest declares that
 		// is not a value an operator types into a command line. The API
 		// refuses it in this list, so no accepted request carries one, and
 		// a refused one must not put its content on an exportable panel.
-		if f.Field == "credentials" {
+		if f.Field == "credentials" || credentialFields[f.Field] {
 			continue
 		}
 		value := f.Value
-		if f.Field == "endpoint" {
-			value = endpointWithoutUserinfo(value)
+		if f.Field == "endpoint" || urlFields[f.Field] {
+			cut, ok := endpointWithoutUserinfo(value)
+			if !ok {
+				c.placeholderFlag("field", f.Field+"="+withheldValue)
+				continue
+			}
+			value = cut
 		}
 		c.flag("field", f.Field+"="+value)
 	}
 	return mediumCredentialFlags(c, req.Credentials)
+}
+
+// manifestFieldKinds is which of a backend's fields are url-kind and which
+// are credential-kind, read off the bundled manifest. An unknown or absent
+// backend answers two empty sets, and the callers' fixed ids still apply.
+func manifestFieldKinds(backendID string) (urls, credentials map[string]bool) {
+	urls, credentials = map[string]bool{}, map[string]bool{}
+	if backendID == "" {
+		return urls, credentials
+	}
+	reg, err := backend.Bundled()
+	if err != nil {
+		return urls, credentials
+	}
+	m, err := reg.Backend(backendID)
+	if err != nil {
+		return urls, credentials
+	}
+	for _, f := range m.Fields {
+		switch f.Kind {
+		case backend.KindURL:
+			urls[f.ID] = true
+		case backend.KindCredential:
+			credentials[f.ID] = true
+		}
+	}
+	return urls, credentials
 }
 
 // mediumSkipFlag echoes issue #636's opt-out when the request carried it.

@@ -3,17 +3,21 @@
  * equivalent to (issue #669; EPIC G's standing rule, argued in full in
  * storageDestinationCommands.ts).
  *
- * # Nothing here can carry a secret, and there is nothing to redact
+ * # Nothing here can carry a secret
  *
  * The same structural property the sibling module has, for the same
  * reason: this CLI has no flag that takes credential material at all.
  * Material only ever arrives on stdin, through `medium
  * import-credentials --stdin`, which is not in the process table and not
- * in shell history. So every line below is the command that actually
- * works, byte for byte, with nothing starred out - and the reason it is
- * safe to print before the operator has typed a key is that there is no
- * key in it. The credential appears only as the reference that exchange
- * returned, which is what `medium configure --credentials-id` takes.
+ * in shell history. The credential appears only as the reference that
+ * exchange returned, which is what `medium configure --credentials-id`
+ * takes, and a credential-kind field never goes on a line.
+ *
+ * The one place a secret could still ride along is a URL's userinfo, so a
+ * url-kind field is cut the way core/cliecho cuts it (see
+ * endpointWithoutUserinfo below). That is the line's one deliberate
+ * difference from the request it stands for: the request keeps whatever
+ * was typed, the line does not, and the wizard says so under the line.
  *
  * # One verb for the whole form
  *
@@ -24,17 +28,20 @@
  * flags and have no `--path`, so a local volume's line used to configure
  * less than the screen saved, with a note saying so.
  *
- * Each line is the one core/cliecho prints for the request the wizard
- * sends (its `medium configure` arms, routes.go), so the line beside a
- * control and the line the terminal records after it are one command.
- * The one deliberate difference is `--backend`: the wizard leaves the
- * backend out of the request when the destination is already declared,
- * and the echo follows the body, but `medium configure` checks that it
- * matches when it is given, so naming it on every line costs nothing and
- * makes the line say what kind of destination it is.
+ * Each line describes the same configuration as the request the wizard
+ * sends, and it is the line core/cliecho echoes for that request (its
+ * `medium configure` arms in routes.go). The wizard names the backend on
+ * every request, so `--backend` is on both. That agreement is checked,
+ * not assumed: core/cliecho/testdata/medium_configure_1252.json holds
+ * cases the Go suite and this module's tests both run.
  */
 import type { BackendManifest } from "@shared/api/contracts";
 import { shellQuote } from "@shared/assurance/assuranceCommands";
+
+/** What stands in for a value the userinfo cut could not read. The same
+ *  words core/cliecho uses (withheldValue), printed bare between "<" and
+ *  ">" the way its placeholders are, so the line visibly won't run. */
+export const WITHHELD = "the value, left out because it looks like it carries credentials";
 
 /**
  * `medium configure <id> --backend B --field id=value ...`, for the values
@@ -52,18 +59,26 @@ export function configureCommand(
   values: Record<string, string>,
   credentialsId: string | null = null
 ): string {
-  const credentialKind: Record<string, true> = {};
-  for (const field of manifest.fields) if (field.kind === "credential") credentialKind[field.id] = true;
+  const credentialIds = idsOfKind(manifest, "credential");
+  const urlIds = idsOfKind(manifest, "url");
 
   const parts = [`retnd medium configure ${shellQuote(destinationId)}`, `--backend ${shellQuote(manifest.id)}`];
   for (const id of Object.keys(values).sort()) {
-    if (credentialKind[id]) continue;
+    if (credentialIds.has(id)) continue;
     const raw = values[id];
     // `medium configure` refuses an empty value, and the request leaves
     // one out rather than sending it.
     if (!raw) continue;
-    const value = id === "endpoint" ? endpointWithoutUserinfo(raw) : raw;
-    parts.push(`--field ${shellQuote(`${id}=${value}`)}`);
+    if (urlIds.has(id)) {
+      const cut = endpointWithoutUserinfo(raw);
+      if (cut.withheld) {
+        parts.push(`--field <${id}=${WITHHELD}>`);
+        continue;
+      }
+      parts.push(`--field ${shellQuote(`${id}=${cut.value}`)}`);
+      continue;
+    }
+    parts.push(`--field ${shellQuote(`${id}=${raw}`)}`);
   }
   if (credentialsId) parts.push(`--credentials-id ${shellQuote(credentialsId)}`);
   return parts.join(" ");
@@ -82,12 +97,28 @@ export function preflightCommand(
   return `${configureCommand(manifest, destinationId, values, credentialsId)} --preflight`;
 }
 
-/** `medium default <id>`, the review step's second act, printed only
- *  while the box asking for it is ticked. A separate line because it is
- *  a separate request, made after the save (#622). The destinations
- *  list's Make default button prints the same line from the same
- *  function. */
-export { setDefaultCommand as defaultCommand } from "@shared/pages/storageDestinationCommands";
+/**
+ * Whether the line differs from the request because of a url field, and
+ * how: "stripped" when userinfo was cut out (running the line configures
+ * the address without it), "withheld" when the cut could not read the
+ * address and a placeholder stands in (the line won't run as printed), or
+ * null when the line carries every url field as typed. "withheld" wins
+ * when there are both, because it is the one that stops the line running.
+ */
+export function endpointNote(
+  manifest: BackendManifest,
+  values: Record<string, string>
+): "stripped" | "withheld" | null {
+  let note: "stripped" | null = null;
+  for (const id of idsOfKind(manifest, "url")) {
+    const raw = values[id];
+    if (!raw) continue;
+    const cut = endpointWithoutUserinfo(raw);
+    if (cut.withheld) return "withheld";
+    if (cut.value !== raw) note = "stripped";
+  }
+  return note;
+}
 
 /** `medium import-credentials --stdin`: the one command that ever
  *  handles material, and it takes no argument at all - which is the
@@ -96,10 +127,20 @@ export function importCredentialsCommand(): string {
   return "retnd medium import-credentials --stdin";
 }
 
-/** A credential can be spelled into a URL's userinfo, and these lines are
- *  copy-to-clipboard and exportable, so it comes out. The same cut
- *  core/cliecho makes (endpointWithoutUserinfo, cliecho.go). */
-function endpointWithoutUserinfo(raw: string): string {
+/**
+ * A credential can be spelled into a URL's userinfo, and these lines are
+ * copy-to-clipboard and exportable, so it comes out. The same cut
+ * core/cliecho makes (endpointWithoutUserinfo in cliecho.go), checked
+ * against the same vectors.
+ *
+ * The authority ends at the first "/", "?" or "#", so a password with one
+ * of those in it (https://u:pa/ss@host) ends it early and the cut finds
+ * no "@" to cut at. The result is checked rather than trusted: any "@"
+ * left in it means the address did not split the way the cut assumes, and
+ * the value is withheld. That also withholds an address with a real "@"
+ * in its path, which is the safe direction to be wrong in.
+ */
+export function endpointWithoutUserinfo(raw: string): { value: string; withheld: boolean } {
   let scheme = "";
   let rest = raw;
   const sep = rest.indexOf("://");
@@ -116,5 +157,10 @@ function endpointWithoutUserinfo(raw: string): string {
   }
   const at = authority.lastIndexOf("@");
   if (at >= 0) authority = authority.slice(at + 1);
-  return scheme + authority + tail;
+  const value = scheme + authority + tail;
+  return value.includes("@") ? { value: "", withheld: true } : { value, withheld: false };
+}
+
+function idsOfKind(manifest: BackendManifest, kind: BackendManifest["fields"][number]["kind"]): Set<string> {
+  return new Set(manifest.fields.filter((f) => f.kind === kind).map((f) => f.id));
 }

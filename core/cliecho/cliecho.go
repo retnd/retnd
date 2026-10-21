@@ -533,23 +533,34 @@ func seconds(v int64) string {
 }
 
 // endpointWithoutUserinfo drops any credentials spelled into a storage
-// destination's endpoint URL.
+// destination's endpoint URL, and says whether it could.
 //
 // https://AKIA...:wJalr...@minio.internal:9000 is a spelling rclone
 // accepts, apicontract.StorageMediumRequest.Endpoint is deliberately
 // unvalidated, and the field is not credential-shaped by name, so it went
 // straight onto a copy-to-clipboard panel and past a leak test that knew
-// eight field names. Nothing here is clever about it: the userinfo is
-// whatever sits before the last "@" in the authority, and it is removed
-// rather than starred out, because the destination without it is still
-// the address an operator needs and the credential reaches the binary
-// through one of the four credential flags instead.
+// eight field names. The userinfo is whatever sits before the last "@" in
+// the authority, and it is removed rather than starred out, because the
+// destination without it is still the address an operator needs and the
+// credential reaches the binary through one of the four credential flags
+// instead.
+//
+// The authority ends at the first "/", "?" or "#", and a password typed
+// with one of those in it (https://u:pa/ss@host) ends it early: the cut
+// finds no "@" in "u:pa" and used to hand the whole string back, password
+// and all (#1252). So the result is checked rather than trusted. An "@"
+// anywhere in it means the address did not split the way the cut assumes,
+// and the answer is ("", false): the caller holds the value back instead
+// of guessing. That also holds back an address with a real "@" in its
+// path, which is the safe direction to be wrong in.
+// testdata/medium_configure_1252.json has the vectors, and the browser's
+// copy of this function is checked against the same file.
 //
 // Textual rather than through net/url on purpose. url.Parse reads the
 // spelling with no scheme ("KEY:SECRET@host:9000") as a path and finds no
 // userinfo in it at all, and that spelling is a credential on a line just
 // as much as the well-formed one is.
-func endpointWithoutUserinfo(raw string) string {
+func endpointWithoutUserinfo(raw string) (string, bool) {
 	scheme, rest := "", raw
 	if i := strings.Index(rest, "://"); i >= 0 {
 		scheme, rest = rest[:i+3], rest[i+3:]
@@ -561,8 +572,18 @@ func endpointWithoutUserinfo(raw string) string {
 	if at := strings.LastIndex(authority, "@"); at >= 0 {
 		authority = authority[at+1:]
 	}
-	return scheme + authority + tail
+	out := scheme + authority + tail
+	if strings.Contains(out, "@") {
+		return "", false
+	}
+	return out, true
 }
+
+// withheldValue is the stand-in for an address endpointWithoutUserinfo
+// could not read. It goes through placeholderFlag, so the line is marked
+// not runnable as printed and the slot stays visible: a medium configure
+// line with the field simply missing would unset it when run.
+const withheldValue = "the value, left out because it looks like it carries credentials"
 
 // shellQuote makes one argument safe to paste into a shell, and leaves
 // alone the ones that need nothing.
