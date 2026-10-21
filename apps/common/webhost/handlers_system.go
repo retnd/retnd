@@ -64,8 +64,10 @@ type versionResponse struct {
 	// So a routed WRITE compares this instead, and refuses when the
 	// engine it reached is not the deployment the command was typed at.
 	//
-	// Empty means this process cannot name its deployment (a nil backend,
-	// or an identity file that could not be read). A client must read
+	// A first-run instance names the deployment it is being set up as
+	// (#1254), from the identity its announcement minted. Empty means this
+	// process cannot name its deployment (neither a backend nor a first-run
+	// surface, or an identity file that could not be read). A client must read
 	// that as unable to confirm rather than as agreement: two processes
 	// that both answer nothing are not thereby one deployment.
 	DeploymentID string `json:"deployment_id"`
@@ -150,9 +152,18 @@ func (h *handlers) systemVersion(w http.ResponseWriter, r *http.Request) {
 	// package's existing "not fully wired yet is a degraded response, not
 	// a crash" posture.
 	var configRevision, deploymentID string
-	if h.backend != nil {
+	switch {
+	case h.backend != nil:
 		configRevision = h.backend.ConfigRevision()
 		deploymentID = h.backend.DeploymentID()
+	case h.firstRun != nil:
+		// A first-run instance has no backend and does have a deployment:
+		// announcing about its journal minted the identity this reads
+		// (#1254). Without it, `retnd backup-set create` could not confirm
+		// which deployment it was about to hand a first configuration to,
+		// and would refuse. The revision stays empty, because there is no
+		// configuration to hash yet.
+		deploymentID = h.firstRun.DeploymentID()
 	}
 	writeJSON(w, http.StatusOK, versionResponse{
 		APIVersion:     "v1",

@@ -74,9 +74,9 @@ import (
 // sourceConnectionTester is the one call proving a candidate source takes.
 //
 // An interface of exactly one method rather than the whole route, for the
-// reason backupSetCreatePrereqs is one: the first-run path has no engine
-// route at all and calls service.FirstRun, and both are asked the same
-// question in the same words. It also means the helper below cannot reach
+// reason backupSetCreatePrereqs is one: the first-run path calls
+// service.FirstRun directly, or a first-run engine over its route (#1254),
+// and all of them are asked the same question in the same words. It also means the helper below cannot reach
 // a write from inside a check.
 type sourceConnectionTester interface {
 	TestConnection(ctx context.Context, req service.ConnectionTestRequest) (service.ConnectionTestResult, error)

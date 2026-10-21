@@ -410,25 +410,36 @@ func enterConfigWriteMode(ctx context.Context, configPath string, attach attachF
 // configFile is only ever announced, never probed. That split is the
 // point: the decision is about the deployment, which is the journal, and
 // the announcement is about the file this command is going to write.
-func enterFirstConfigWriteMode(configFile, stateDatabase string, announceTo, refuseTo io.Writer) (*service.ConfigWriteGuard, error) {
+//
+// It hands back one of two things. Direct mode is the claim, which the
+// caller holds across its own write and releases. Engine-attached mode
+// with a route (#1254) is the route and the address it leads to, with the
+// claim already given back, for the reason the comment above that release
+// gives.
+func enterFirstConfigWriteMode(configFile, stateDatabase string, announceTo, refuseTo io.Writer) (*service.ConfigWriteGuard, firstConfigRoute, string, error) {
 	guard, err := service.BeginConfigWriteForJournal(stateDatabase)
 	if err != nil {
-		return nil, err
+		return nil, nil, "", err
 	}
 	engine, err := detectRunningEngineForJournal(stateDatabase)
 	if err != nil {
 		_ = guard.Release()
-		return nil, cannotTellError(err)
+		return nil, nil, "", cannotTellError(err)
 	}
-	// No attach, and that is a decision rather than an omission. A route
-	// is an address this command has been given, and the write it would
-	// carry is POST /system/first-run, which is an operation an engine
-	// accepts exactly once and only while it is still unconfigured. Two of
-	// the three shapes that reach here beside a serving process are
-	// deployments that are already configured, where that request is
-	// simply the wrong one, and the third is a wizard the operator is
-	// already standing in front of. So engine-attached here is still
-	// exactly what it was: a refusal.
+	// The route is attachToFirstRunEngine's, and it only ever leads to an
+	// engine that is still on its first run (#1254). This used to pass no
+	// attach at all, on the reasoning that the one unconfigured shape here
+	// is a wizard the operator is already standing in front of. On a
+	// headless install nobody is: the engine serving that wizard is the
+	// container the command was typed in, so stopping it was not a way
+	// through either. The request it carries is the one the wizard sends,
+	// POST /system/first-run, and firstrunroute.go has the rest.
+	//
+	// The two configured shapes that reach here (a mistyped --config, a
+	// config.yaml renamed out from under a running engine) are exactly
+	// what they were. POST /system/first-run is the wrong request for an
+	// engine with a configuration, so attachToFirstRunEngine hands back no
+	// route for one and engine-attached is the refusal it always was.
 	//
 	// The clause below has to be true of all three, which is what it was
 	// not before #571. "That process read its configuration when it
@@ -439,11 +450,34 @@ func enterFirstConfigWriteMode(configFile, stateDatabase string, announceTo, ref
 		configFile: config.ResolvePath(configFile),
 		because:    "nothing re-reads a configuration file once a process is serving this deployment, and an instance still on its first-run setup flow will serve the configuration that flow writes rather than one written here",
 		remedy:     firstConfigRemedy,
-	}, nil, announceTo, refuseTo)
+	}, attachToFirstRunEngine, announceTo, refuseTo)
 	if err != nil {
-		return nil, err
+		return nil, nil, "", err
 	}
-	return write.guard, nil
+	if write.route == nil {
+		return write.guard, nil, "", nil
+	}
+
+	// Routed, so the claim goes back now rather than after the write, and
+	// that is a requirement rather than a courtesy. It is the journal's
+	// startup lock, and an engine finishing its first run takes that same
+	// lock to start serving what it just wrote (retnd-web's Activate,
+	// through service.Open). Held across the request, it would make the
+	// engine wait it out and answer restart_required: a first run that
+	// "worked" and left the deployment serving nothing. Nothing is lost by
+	// giving it back. It exists to stop an engine starting between this
+	// command's check and this command's own write, and on this path this
+	// command writes nothing: the engine already serving is the writer.
+	_ = write.guard.Release()
+	route, ok := write.route.(firstConfigRoute)
+	if !ok {
+		// Unreachable: attachToFirstRunEngine only ever builds an
+		// engineRoute. Said rather than asserted blind, because a route
+		// that cannot carry a first configuration must not fall through
+		// to a direct write.
+		return nil, nil, "", fmt.Errorf("this build's route to %s cannot carry a first configuration, so nothing was written; this is a bug", write.address)
+	}
+	return nil, route, write.address, nil
 }
 
 // settleConfigWriteMode is the tail both enter functions share: name the
@@ -497,7 +531,7 @@ func settleConfigWriteMode(ctx context.Context, guard *service.ConfigWriteGuard,
 		_ = guard.Release()
 		return nil, err
 	}
-	return &configWrite{guard: guard, route: d.route}, nil
+	return &configWrite{guard: guard, route: d.route, address: d.routeAddress}, nil
 }
 
 // attachFunc is how a caller says whether the write it is about to make
@@ -505,7 +539,9 @@ func settleConfigWriteMode(ctx context.Context, guard *service.ConfigWriteGuard,
 //
 // A nil attachFunc is "this write has no route", which is the honest
 // answer for every configuration write except the four #543 covers, the
-// three mutating backup-set verbs and `settings patch`. Saying it by
+// three mutating backup-set verbs and `settings patch`, the ones later
+// issues routed beside them, and the first configuration, whose attach
+// (#1254's attachToFirstRunEngine) only routes to an unconfigured engine. Saying it by
 // passing nil rather than by omitting a step is what makes the unrouted
 // writes visible: they are call sites that deliberately hand over
 // nothing, not call sites that forgot.
@@ -523,4 +559,6 @@ type attachFunc func(ctx context.Context, engine *service.RunningEngine) (config
 type configWrite struct {
 	guard *service.ConfigWriteGuard
 	route configWriteRoute
+	// address is where route leads, redacted, and empty with no route.
+	address string
 }

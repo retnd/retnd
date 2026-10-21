@@ -76,6 +76,13 @@ type FirstRunClient interface {
 	// the exclusive-create contract this package relies on without
 	// re-implementing any part of.
 	CreateInitialConfig(ctx context.Context, req service.CreateBackupSetRequest) (service.BackupSet, error)
+
+	// DeploymentID names the deployment this instance is being set up as,
+	// or "" when it cannot. GET /system/version reports it while there is
+	// no backend to ask (#1254): a terminal handing this instance its first
+	// configuration checks which deployment it reached first, and refuses
+	// an instance that names none.
+	DeploymentID() string
 }
 
 var _ FirstRunClient = (*service.FirstRun)(nil)

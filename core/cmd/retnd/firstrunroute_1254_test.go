@@ -386,7 +386,7 @@ func TestFirstRun1254_AConfiguredEngineStillRefusesAFirstConfiguration(t *testin
 			t.Errorf("a refused first configuration sent %q to a configured engine", seen)
 		}
 	}
-	if !strings.Contains(stderr, "nothing was written") || !strings.Contains(stderr, "cannot carry this one") {
+	if !strings.Contains(stderr, "nothing was written") || !strings.Contains(stderr, "cannot carry this one to a process that is already configured") {
 		t.Errorf("the refusal is not the one a configured deployment always got:\n%s", stderr)
 	}
 }

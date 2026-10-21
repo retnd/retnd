@@ -185,13 +185,16 @@ func backupSetVerbNames() []string {
 // one piece of work rather than two halves.
 //
 // The first configuration a create writes on an instance that has no
-// config.yaml yet has no route for a different reason: the only request
-// that would carry it is POST /system/first-run, which an engine accepts
-// once and only while it is still unconfigured, and a process found
-// serving the journal --state-database names is either past that moment or
-// standing in the setup flow the operator can finish themselves. Both
-// refuse beside a serving process, exactly as every configuration write did
-// before #543.
+// config.yaml yet goes the one way that can carry it: POST
+// /system/first-run, which an engine accepts once and only while it is
+// still unconfigured. So beside a process serving the journal
+// --state-database names, with an address to reach it, a create hands the
+// first configuration to that process when it is still on its first-run
+// setup flow (#1254). That is the only way through on a headless install,
+// where nobody is in front of the wizard and stopping the engine stops the
+// container the command runs in. Beside a process that is already past
+// that moment, the request is simply the wrong one, and the create refuses
+// exactly as every configuration write did before #543.
 //
 // That is issue #535: a `backup-set create` through docker exec against a
 // live server succeeded, `sources` listed both sets, and the Web UI showed
@@ -538,7 +541,8 @@ func (f *backupSetFlags) refuseEveryFlagBut(verb string, mine ...string) int {
 // engine when it can be reached, and the same service layer that route is
 // built on, called in this process, when nothing is serving. See the note
 // on the package's process boundary above cmdBackupSet for the third
-// answer, and for the one create that has no route at all.
+// answer, and for the first configuration, whose route is POST
+// /system/first-run and only ever leads to an engine still on its first run.
 func backupSetCreate(f *backupSetFlags, sourceName, name string) int {
 	// Both pairs below are alternatives, not a preference order. A caller
 	// who passed both has not said which one they meant, and picking one
@@ -900,7 +904,9 @@ func createIntoExistingConfig(ctx context.Context, configPath, keyFile, keyPassp
 }
 
 // createFirstConfig writes this deployment's first configuration, through
-// the same FirstRun method POST /api/v1/system/first-run calls.
+// the same FirstRun method POST /api/v1/system/first-run calls, or, beside
+// an engine still serving its first-run setup flow, through that request
+// itself (#1254).
 //
 // The installer deliberately leaves the configuration directory empty
 // (issue #176: a fresh install serves a setup flow rather than refusing
@@ -944,9 +950,20 @@ func createFirstConfig(ctx context.Context, configFile, stateDatabase, keyFile, 
 	// no route through openBackupService, so leaving it out would leave
 	// exactly one write that never says which world it believed it was
 	// in.
-	guard, err := enterFirstConfigWriteMode(configFile, stateDatabase, os.Stdout, os.Stderr)
+	//
+	// Beside an engine still serving its first-run setup flow, with an
+	// address to reach it, the first configuration is that engine's to
+	// write (#1254): a headless install has no wizard anybody is looking
+	// at and no way to stop the engine without stopping the container the
+	// command runs in. enterFirstConfigWriteMode decides that inside the
+	// same claim as everything above, and hands back a route instead of
+	// the claim when it does.
+	guard, route, address, err := enterFirstConfigWriteMode(configFile, stateDatabase, os.Stdout, os.Stderr)
 	if err != nil {
 		return fail(err)
+	}
+	if route != nil {
+		return createFirstConfigOnEngine(ctx, route, address, keyFile, keyPassphrase, trustHostKey, noVerify, req)
 	}
 	defer func() { _ = guard.Release() }()
 
@@ -964,9 +981,9 @@ func createFirstConfig(ctx context.Context, configFile, stateDatabase, keyFile, 
 
 	// The same check the configured path runs, through FirstRun's own
 	// TestConnection, which exists for the wizard that walks this same
-	// flow in a browser. There is no engine to route to here by
-	// construction (this branch was taken because there is no config.yaml
-	// at all), so this is the durable path in the only world it has.
+	// flow in a browser. Nothing is serving this deployment on this
+	// branch (a first-run engine took the route above), so this process
+	// is the only authority and this is the durable path.
 	if code := proveSourceConnection(ctx, firstRun, noVerify, connectionTestFor(req), cliecho.Binary+" backup-set test-connection "+req.SourceName+"/"+req.Name); code != 0 {
 		return code
 	}

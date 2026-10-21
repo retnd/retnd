@@ -449,6 +449,29 @@ func attachToEngine(ctx context.Context, engine *service.RunningEngine) (configW
 	if base == "" {
 		return nil, "", nil
 	}
+	client, err := newRouteClient(urlEnv, base)
+	if err != nil {
+		return nil, "", err
+	}
+	// Before the route is handed back, never after. A route returned and
+	// then checked would be a route some later caller could use without
+	// checking, and there is no version of this that is safe to skip.
+	if err := confirmDeployment(ctx, client, engine); err != nil {
+		return nil, "", err
+	}
+	// BaseURL() rather than the raw environment value: it is normalised
+	// and, more to the point, redacted, and this string is printed.
+	return &engineRoute{client: client}, client.BaseURL(), nil
+}
+
+// newRouteClient is the client both attach functions build from the
+// address and credentials this invocation was given (attachToEngine here,
+// attachToFirstRunEngine in firstrunroute.go), so the two cannot sign in
+// or identify themselves differently.
+//
+// An address that cannot be made into a client is a routeRefusal, the
+// same as every other way a named route is refused.
+func newRouteClient(urlEnv, base string) (*apiclient.Client, error) {
 	client, err := apiclient.New(apiclient.Config{
 		BaseURL:  base,
 		Username: strings.TrimSpace(envcompat.Value(apiUsernameRoute)),
@@ -465,21 +488,13 @@ func attachToEngine(ctx context.Context, engine *service.RunningEngine) (configW
 		// none: nothing was dialled. It carries a reason so the mode line
 		// says an address was given and could not be used, rather than
 		// saying this build has no route at all (mode.go's announce).
-		return nil, "", &routeRefusal{
+		return nil, &routeRefusal{
 			reason: fmt.Sprintf("$%s does not name an engine this command can reach", urlEnv),
 			detail: fmt.Sprintf("$%s does not name an engine this command can reach, so nothing was written: %v", urlEnv, err),
 			cause:  err,
 		}
 	}
-	// Before the route is handed back, never after. A route returned and
-	// then checked would be a route some later caller could use without
-	// checking, and there is no version of this that is safe to skip.
-	if err := confirmDeployment(ctx, client, engine); err != nil {
-		return nil, "", err
-	}
-	// BaseURL() rather than the raw environment value: it is normalised
-	// and, more to the point, redacted, and this string is printed.
-	return &engineRoute{client: client}, client.BaseURL(), nil
+	return client, nil
 }
 
 // clearInheritedRouteSettings removes the three route settings from this

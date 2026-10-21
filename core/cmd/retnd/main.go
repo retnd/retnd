@@ -171,8 +171,10 @@ commands:
                                                   (#543); with nothing serving, it is the same service layer that
                                                   route is built on, called here. On an instance with no config.yaml
                                                   yet this writes the first one instead (#176), and --state-database
-                                                  names the journal it points at; that create has no route, so it is
-                                                  refused while something serves that deployment (#536)
+                                                  names the journal it points at. Beside an engine still serving its
+                                                  first-run setup flow, that create is POST /api/v1/system/first-run
+                                                  against the engine when this command has a route to it (#1254);
+                                                  beside one that is already configured it is refused (#536)
                                                   The connection is proven before anything is written, and the create is
                                                   refused when it cannot be: --no-verify writes it anyway, says in so many
                                                   words that nothing was proven, and leaves the set marked as unverified

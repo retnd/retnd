@@ -133,7 +133,11 @@ var routes = map[string]entry{
 	key("POST", "/system/first-run"): {
 		// The first config.yaml, which usage() puts on `backup-set
 		// create`: "On an instance with no config.yaml yet this writes
-		// the first one instead (#176)". Same act, same verb.
+		// the first one instead (#176)". Same act, same verb, and since
+		// #1254 the same request too: pasted on the host whose wizard
+		// sent this, the line hands the first configuration to that
+		// engine as POST /system/first-run rather than being refused
+		// beside it.
 		build: func(a Action) *cmd {
 			var spec apicontract.BackupSetSpec
 			if !decode(a.Body, &spec) {
