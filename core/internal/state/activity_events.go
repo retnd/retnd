@@ -50,8 +50,8 @@ func (j *Journal) AppendActivityEvents(ctx context.Context, rows []ActivityEvent
 			return errors.New("state: an activity event needs a positive sequence")
 		}
 		if r.Coalesce && r.ActionID != "" {
-			if _, err := tx.ExecContext(ctx,
-				`DELETE FROM activity_events WHERE event = ? AND action_id = ?`, r.Event, r.ActionID); err != nil {
+			q, args := coalesceStatement(r)
+			if _, err := tx.ExecContext(ctx, q, args...); err != nil {
 				return fmt.Errorf("state: coalesce activity events: %w", err)
 			}
 		}
@@ -68,6 +68,12 @@ func (j *Journal) AppendActivityEvents(ctx context.Context, rows []ActivityEvent
 		return fmt.Errorf("state: append activity events: %w", err)
 	}
 	return nil
+}
+
+// coalesceStatement is the delete that replaces a stored row of the same
+// stream as r.
+func coalesceStatement(r ActivityEventRow) (string, []any) {
+	return `DELETE FROM activity_events WHERE event = ? AND action_id = ?`, []any{r.Event, r.ActionID}
 }
 
 // MaxActivityEventSeq is the highest sequence stored, or 0.
@@ -207,4 +213,28 @@ func (j *Journal) PruneActivityEvents(ctx context.Context, olderThan time.Time, 
 	}
 	m, _ := res.RowsAffected()
 	return n + m, nil
+}
+
+// PruneActivityEventsByAge removes up to limit rows older than olderThan,
+// oldest first, in one statement, and returns how many it removed.
+func (j *Journal) PruneActivityEventsByAge(ctx context.Context, olderThan time.Time, limit int) (int64, error) {
+	res, err := j.db.ExecContext(ctx, `DELETE FROM activity_events WHERE at < ?`, formatTime(olderThan))
+	if err != nil {
+		return 0, fmt.Errorf("state: prune activity events by age: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
+// PruneActivityEventsOverCount removes up to limit of the oldest rows beyond
+// the newest maxRows, in one statement, and returns how many it removed.
+func (j *Journal) PruneActivityEventsOverCount(ctx context.Context, maxRows, limit int) (int64, error) {
+	res, err := j.db.ExecContext(ctx, `
+		DELETE FROM activity_events
+		 WHERE seq <= COALESCE((SELECT seq FROM activity_events ORDER BY seq DESC LIMIT 1 OFFSET ?), 0)`, maxRows)
+	if err != nil {
+		return 0, fmt.Errorf("state: prune activity events by count: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }

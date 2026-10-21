@@ -77,8 +77,15 @@ const (
 	activityQueueSize  = 4096
 	activityPruneEvery = time.Hour
 	activityPruneAfter = 5_000
+	activityPruneBatch = 1_000
 	activityMessageMax = 2 << 10
 	activityFieldsMax  = 8 << 10
+)
+
+const (
+	activityPruneStatementTimeout = 5 * time.Second
+	activityPruneRetry            = time.Minute
+	activityPruneComplainAfter    = 6 * time.Hour
 )
 
 // activityNotStored are the events never written: periodic samples.
@@ -94,6 +101,8 @@ type activityJournal interface {
 	RecentActivityEvents(ctx context.Context, setID string, limit int) ([]state.ActivityEventRow, error)
 	ActivityEventsBefore(ctx context.Context, setID string, before int64, limit int) ([]state.ActivityEventRow, bool, error)
 	PruneActivityEvents(ctx context.Context, olderThan time.Time, maxRows int) (int64, error)
+	PruneActivityEventsByAge(ctx context.Context, olderThan time.Time, limit int) (int64, error)
+	PruneActivityEventsOverCount(ctx context.Context, maxRows, limit int) (int64, error)
 }
 
 var _ activityJournal = (*state.Journal)(nil)
@@ -111,12 +120,23 @@ type activityDurable struct {
 	logger  *obs.Logger
 	now     func() time.Time
 
+	// statementTimeout bounds each prune statement on its own.
+	statementTimeout time.Duration
+
 	queue   chan durableItem
 	dropped atomic.Int64
+
+	// The rest belongs to run's goroutine and nothing else touches it.
+	batch     []durableItem
+	inserted  int
+	lastPrune time.Time
 }
 
 func newActivityDurable(j activityJournal, logger *obs.Logger) *activityDurable {
-	return &activityDurable{journal: j, logger: logger, now: time.Now, queue: make(chan durableItem, activityQueueSize)}
+	return &activityDurable{
+		journal: j, logger: logger, now: time.Now, statementTimeout: activityPruneStatementTimeout,
+		queue: make(chan durableItem, activityQueueSize),
+	}
 }
 
 // offer is called under the feed's lock and must not block.
@@ -190,64 +210,70 @@ func rowOf(it durableItem) state.ActivityEventRow {
 func (d *activityDurable) run(ctx context.Context) {
 	tick := time.NewTicker(activityFlushEvery)
 	defer tick.Stop()
-	var batch []durableItem
-	var inserted int
-	lastPrune := time.Time{}
-
-	flush := func() {
-		if len(batch) == 0 && d.dropped.Load() == 0 {
-			return
-		}
-		wctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		rows := coalesceStages(batch)
-		if len(rows) > 0 {
-			if err := d.journal.AppendActivityEvents(wctx, rows); err != nil {
-				d.logger.Error(wctx, "activity_events_write", err)
-			} else {
-				inserted += len(rows)
-			}
-		}
-		batch = batch[:0]
-		if n := d.dropped.Swap(0); n > 0 {
-			d.logger.Error(wctx, "activity_events_dropped",
-				fmt.Errorf("%d activity events were not stored because the writer fell behind", n))
-		}
-		if inserted >= activityPruneAfter || (inserted > 0 && d.now().Sub(lastPrune) >= activityPruneEvery) {
-			d.prune(wctx)
-			inserted, lastPrune = 0, d.now()
-		}
-	}
 	for {
 		select {
 		case it := <-d.queue:
-			if storable(it.e) {
-				batch = append(batch, it)
-			}
-			if len(batch) >= activityBatchMax {
-				flush()
+			d.add(it)
+			if len(d.batch) >= activityBatchMax {
+				d.flush()
 			}
 		case <-tick.C:
-			flush()
-			if lastPrune.IsZero() || d.now().Sub(lastPrune) >= activityPruneEvery {
-				wctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				d.prune(wctx)
-				cancel()
-				lastPrune = d.now()
-			}
+			d.tick()
 		case <-ctx.Done():
 			for {
 				select {
 				case it := <-d.queue:
-					if storable(it.e) {
-						batch = append(batch, it)
-					}
+					d.add(it)
 				default:
-					flush()
+					d.flush()
 					return
 				}
 			}
 		}
+	}
+}
+
+// add files one queued event into the open batch, if it is stored at all.
+func (d *activityDurable) add(it durableItem) {
+	if storable(it.e) {
+		d.batch = append(d.batch, it)
+	}
+}
+
+// tick is the flush timer: write the open batch, then prune if one is due.
+func (d *activityDurable) tick() {
+	d.flush()
+	if d.lastPrune.IsZero() || d.now().Sub(d.lastPrune) >= activityPruneEvery {
+		wctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		d.prune(wctx)
+		cancel()
+		d.lastPrune = d.now()
+	}
+}
+
+// flush writes the open batch in one transaction.
+func (d *activityDurable) flush() {
+	if len(d.batch) == 0 && d.dropped.Load() == 0 {
+		return
+	}
+	wctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	rows := coalesceStages(d.batch)
+	if len(rows) > 0 {
+		if err := d.journal.AppendActivityEvents(wctx, rows); err != nil {
+			d.logger.Error(wctx, "activity_events_write", err)
+		} else {
+			d.inserted += len(rows)
+		}
+	}
+	d.batch = d.batch[:0]
+	if n := d.dropped.Swap(0); n > 0 {
+		d.logger.Error(wctx, "activity_events_dropped",
+			fmt.Errorf("%d activity events were not stored because the writer fell behind", n))
+	}
+	if d.inserted >= activityPruneAfter || (d.inserted > 0 && d.now().Sub(d.lastPrune) >= activityPruneEvery) {
+		d.prune(wctx)
+		d.inserted, d.lastPrune = 0, d.now()
 	}
 }
 
