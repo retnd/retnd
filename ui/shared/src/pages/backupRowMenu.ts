@@ -56,9 +56,11 @@ export const isRunning = (r: MenuRun): boolean => r.starting || (r.opId !== unde
  *  carries them as --since and --until (#1251), because it is labelled as the
  *  same list. A bound that is not a YYYY-MM-DD date, or a range whose end is
  *  before its start (the CLI refuses that), gets no line rather than one that
- *  lists something else. */
-export function setFilterEcho(setFilter: string, known: ReadonlyArray<{ id: string }> | null | undefined, after = "", before = ""): string | null {
-  if (!setFilter) return null;
+ *  lists something else. So does a list narrowed to an assurance bucket
+ *  (`?assurance=`): `artifacts` has no flag for it, and the line would list
+ *  every backup of the set. */
+export function setFilterEcho(setFilter: string, known: ReadonlyArray<{ id: string }> | null | undefined, after = "", before = "", bucket: string | null = null): string | null {
+  if (!setFilter || bucket) return null;
   if (!known?.some((s) => s.id === setFilter) && !/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(setFilter)) return null;
   const isDay = (d: string) => d === "" || /^\d{4}-\d{2}-\d{2}$/.test(d);
   if (!isDay(after) || !isDay(before) || (after && before && before < after)) return null;

@@ -208,8 +208,9 @@ export function BackupsPage({ readOnly }: { readOnly: boolean }) {
   const previewSet = previewFor ? (sets.data ?? []).find((s) => s.id === previewFor) : null;
   const filteredSet = setFilter ? (sets.data ?? []).find((s) => s.id === setFilter) ?? null : null;
   // The `set` value comes from the address, so what is echoed is checked first.
-  // The date range rides along, so the line lists what the screen does (#1251).
-  const setEcho = setFilterEcho(setFilter, sets.data, after, before);
+  // The date range rides along, so the line lists what the screen does, and a
+  // bucket the CLI cannot express leaves no line at all (#1251).
+  const setEcho = setFilterEcho(setFilter, sets.data, after, before, bucket);
 
   // #275: nothing to list, and nothing wrong either.
   if (isNotConfigured(artifacts.error))
