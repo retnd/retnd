@@ -145,6 +145,10 @@ type Config struct {
 	// caller that knows its own build (cmd/retnd does, from
 	// -ldflags) should say so here.
 	UserAgent string
+
+	// AcknowledgeInsecureTransport sends the insecure-transport
+	// acknowledgement (#1250's review). Not wired yet.
+	AcknowledgeInsecureTransport bool
 }
 
 // Client talks to one engine. Safe for concurrent use: the sign-in is

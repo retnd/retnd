@@ -49,6 +49,19 @@ import (
 // need not wait whole seconds.
 var operationPollEvery = time.Second
 
+// The waits the submit and the follow sit out (#1250's review). Declared
+// ahead of the behaviour that uses them so the tests for it can shorten them.
+var (
+	operationSubmitRetryWait = time.Second
+	operationSubmitDeadline  = 2 * time.Minute
+	operationFollowPatience  = 3 * time.Minute
+	operationFollowRetryMax  = 30 * time.Second
+)
+
+// isLoopbackHost says whether a route's host is this machine. A variable so
+// a test can stand an engine on 127.0.0.1 and have it treated as remote.
+var isLoopbackHost = func(string) bool { return true }
+
 // exitEngineGateShut: `operation run` was refused by the engine's destructive
 // gate (DESTRUCTIVE_OPERATIONS_DISABLED), so nothing was started. Its own code
 // because it is not a failure that retrying fixes and not one the command line

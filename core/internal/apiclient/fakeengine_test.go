@@ -62,6 +62,9 @@ type seenRequest struct {
 	// IdempotencyKey is the Idempotency-Key header, which only an
 	// operation the contract marks as keyed may carry (#1250).
 	IdempotencyKey string
+	// InsecureAck is the insecure-transport acknowledgement header, which
+	// only a client told to acknowledge plain http sends (#1250's review).
+	InsecureAck string
 }
 
 // fakeEngine serves /api/v1 the way the engine container does.
@@ -215,7 +218,7 @@ func (e *fakeEngine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	escaped := r.URL.EscapedPath()
 	ep, known := lookupRoute(r.Method, escaped)
 
-	seen := seenRequest{Method: r.Method, Path: escaped, Query: r.URL.RawQuery, Operation: ep.ID, CSRFHeader: r.Header.Get(csrfHeaderName), UserAgent: r.Header.Get("User-Agent"), StepUp: r.Header.Get(stepUpHeaderName), IdempotencyKey: r.Header.Get(idempotencyKeyHeaderName)}
+	seen := seenRequest{Method: r.Method, Path: escaped, Query: r.URL.RawQuery, Operation: ep.ID, CSRFHeader: r.Header.Get(csrfHeaderName), UserAgent: r.Header.Get("User-Agent"), StepUp: r.Header.Get(stepUpHeaderName), IdempotencyKey: r.Header.Get(idempotencyKeyHeaderName), InsecureAck: r.Header.Get("X-Retnd-Insecure-Transport-Ack")}
 	if c, err := r.Cookie(csrfCookieName); err == nil {
 		seen.CSRFCookie = c.Value
 	}
