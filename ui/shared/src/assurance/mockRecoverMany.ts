@@ -101,7 +101,10 @@ export function createMockRecoverMany(scenario: string, rowsFor: (setId: string)
       const base = rowsFor(req.set);
       const all = scenario.startsWith("assurance-set-") && req.set === "production/postgres-primary" ? historyRows(base) : base;
       let out = all;
-      if (req.since) out = out.filter((a) => a.receivedAt >= req.since!);
+      // When a backup arrived (producedAt, the wire's discovered_at), as the
+      // engine reads it (#1251).
+      if (req.since) out = out.filter((a) => a.producedAt >= req.since!);
+      if (req.until) out = out.filter((a) => a.producedAt <= req.until!);
       if (req.newestOnly) {
         const good = out.filter((a) => RESTORE_POINTS.has(a.state) && !a.quarantine);
         const newest = good.reduce<BackupArtifact | undefined>((m, a) => (!m || a.receivedAt > m.receivedAt ? a : m), undefined);
@@ -166,6 +169,17 @@ export function createMockRecoverMany(scenario: string, rowsFor: (setId: string)
   return {
     planRecoverMany: plan,
     recoverMany: async (req: RecoverManyRequest, opts?: { onProgress?: (p: RecoverManyProgress) => void; signal?: AbortSignal }): Promise<RecoverManyResult> => {
+      // The engine's rule since the review of #1256: every retained backup of
+      // a set onto its source host is asked for as "all", and a range that
+      // keeps all of them is that act by another name. A plan is not held to
+      // it; the run is.
+      if (req.set && req.target.kind === "source" && !req.newestOnly && !req.all) {
+        const kept = (r: RecoverManyRequest) => rows(r).filter((a) => RESTORE_POINTS.has(a.state) && !a.quarantine).length;
+        const total = kept({ ...req, since: undefined, until: undefined });
+        if (total > 0 && kept(req) === total) {
+          throw refuse("INVALID_REQUEST", "that keeps all " + total + " retained restore points of " + req.set + ", which is the whole set onto its source host: ask for all of them explicitly (--all, or \"all\": true on the API), or narrow it so it leaves something out", 400);
+        }
+      }
       const p = await plan(req);
       if (p.refusal) throw refuse(p.refusal.code, p.refusal.message, p.refusal.code === "RECOVERY_NO_SPACE" ? 507 : 409);
       const emit = opts?.onProgress;

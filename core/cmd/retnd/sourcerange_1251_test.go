@@ -95,3 +95,18 @@ func TestIssue1251_UsageSaysUntilNarrowsAWholeSetOntoTheSource(t *testing.T) {
 		t.Errorf("usage() does not say a range that keeps the whole set still needs --all")
 	}
 }
+
+// --all reaches the service as all, so the service's own rule (the same one)
+// does not refuse what the terminal let through.
+func TestIssue1251_AllReachesTheService(t *testing.T) {
+	configPath := writeSFTPTestConfig(t)
+	seedSourceSet(t, configPath)
+	var code int
+	out := captureStderr(t, func() {
+		code = run([]string{"recover", "--config", configPath, "--set", "production/postgres-primary", "--to", "source:", "--acknowledge-source-write", "--all"})
+	})
+	if code == exitUsage || strings.Contains(out, "whole set onto its source host") {
+		t.Errorf("--all onto the source host was refused for not saying all = %d\n%s", code, out)
+	}
+}
+

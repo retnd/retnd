@@ -215,6 +215,21 @@ func TestIssue1251_RecoverManyUntilCrossesTheBoundary(t *testing.T) {
 	}
 }
 
+// The review of #1256: "all" is how a request says every retained backup of
+// a set, which the service requires before a whole set goes onto its source
+// host, the way the terminal requires --all.
+func TestIssue1251_RecoverManyAllCrossesTheBoundary(t *testing.T) {
+	router, be := newManyRouter(t)
+	rec := postMany(t, router, `{"set":"production/postgres","all":true,"target":{"kind":"staging","path":"o"}}`, true)
+	if rec.Code != http.StatusOK || len(be.ran) != 1 || !be.ran[0].All {
+		t.Fatalf("= %d %s, request %+v", rec.Code, rec.Body.String(), be.ran)
+	}
+	rec = postMany(t, router, `{"set":"production/postgres","target":{"kind":"staging","path":"o"}}`, true)
+	if rec.Code != http.StatusOK || len(be.ran) != 2 || be.ran[1].All {
+		t.Fatalf("an absent all = %d, request %+v", rec.Code, be.ran)
+	}
+}
+
 func TestRecoverManyRefusesAMalformedBodyBeforeTheService(t *testing.T) {
 	router, be := newManyRouter(t)
 	for name, body := range map[string]string{
