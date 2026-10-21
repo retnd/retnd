@@ -505,6 +505,17 @@ commands:
                                                   completed and 1 for anything else. The same as
                                                   GET /api/v1/operations/{id}. A scrub's or recovery test's lines and
                                                   how it ended are assurance show (#1149)
+  operation run [--backup-set S] [--skip-workflow-scripts] [--follow] [--json]
+                                                  ask the engine to run every enabled set (run_cycle), or one set with
+                                                  --backup-set (run_backup_set), the way the Dashboard's and the set page's
+                                                  run buttons do. Unlike run and fetch the run happens in the process
+                                                  serving this deployment and is an operation list row, so this needs
+                                                  RETND_API_URL and the two credential variables beside it and is refused
+                                                  without them. The revision is the engine's own and every invocation is a
+                                                  new submission. --json prints the Operation the engine answers with;
+                                                  --follow polls like operation show --follow and exits 0 for completed and
+                                                  1 for anything else. A shut destructive gate exits 50 and nothing is
+                                                  started. The same as POST /api/v1/operations (#1250)
   catalog rebuild [--dry-run]                    reconstruct a lost/corrupted state database from sidecar recovery manifests
   catalog rebuild [--dry-run] --json
                                                   print the API's CatalogReportResponse for the whole deployment instead of
@@ -1104,5 +1115,8 @@ to print:
       nothing was recovered yet, 32 too many full reads running on this host, 33 too many
       on that one destination, 36 too many downloads in progress (a budget refusal: try
       again when one finishes). In every refusal no byte was delivered anywhere
+  50  operation run only: the engine's destructive gate refused the run, so nothing was
+      started. Retrying will not change it; run or fetch --backup-set on the host runs it
+      in that process instead (#1250)
 `)
 }

@@ -689,6 +689,25 @@ func (c *Client) GetOperation(ctx context.Context, id string) (apicontract.Opera
 	return out, err
 }
 
+// SubmitOperation is POST /operations: ask the engine to start durable work,
+// which `operation run` uses for run_cycle and run_backup_set (#1250). The
+// route requires an Idempotency-Key, so a submission without one is refused
+// here, before sign-in, rather than sent for the engine to answer with a 400
+// an operator cannot act on. The caller mints the key: this package cannot
+// know whether a second call is the same submission retried or a new one.
+func (c *Client) SubmitOperation(ctx context.Context, idempotencyKey string, req apicontract.SubmitOperationRequest) (apicontract.Operation, error) {
+	if idempotencyKey == "" {
+		return apicontract.Operation{}, &ContractViolation{
+			Operation: "submitOperation",
+			Method:    "POST",
+			Reason:    "the contract requires an Idempotency-Key on this operation and none was given",
+		}
+	}
+	var out apicontract.Operation
+	err := c.call(withIdempotencyKey(ctx, idempotencyKey), "submitOperation", nil, req, &out)
+	return out, err
+}
+
 // EPIC L's four routed workflow operations (#813), and the reason they
 // are four rather than eighteen.
 //

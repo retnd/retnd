@@ -486,7 +486,31 @@ func (c *Client) newRequest(ctx context.Context, ep apicontract.Endpoint, target
 	if stepUpOperations[ep.ID] && c.password != "" {
 		req.Header.Set(stepUpHeaderName, c.password)
 	}
+	if key := idempotencyKeyFrom(ctx); key != "" && ep.IdempotencyKey != "none" {
+		req.Header.Set(idempotencyKeyHeaderName, key)
+	}
 	return req, nil
+}
+
+// idempotencyKeyHeaderName is the header POST /operations reads its key from
+// (apps/common/webhost's submitOperation), spelled here because this package
+// does not import the web host.
+const idempotencyKeyHeaderName = "Idempotency-Key"
+
+// The key travels on the context rather than as another parameter through
+// call, callQuery and do, because one operation takes it and the sign-in and
+// every read share those paths (#1250). It is still per request: the key is
+// set by the one method that was handed it, and the 401 retry in callQuery
+// resends the same submission with the same key, which is what the key is for.
+type idempotencyKeyCtx struct{}
+
+func withIdempotencyKey(ctx context.Context, key string) context.Context {
+	return context.WithValue(ctx, idempotencyKeyCtx{}, key)
+}
+
+func idempotencyKeyFrom(ctx context.Context) string {
+	key, _ := ctx.Value(idempotencyKeyCtx{}).(string)
+	return key
 }
 
 // stepUpHeaderName is webhost.StepUpHeader, spelled here because this

@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`retnd operation run`, the terminal twin of the run buttons** (#1250). "Run all enabled sets" and "Run this
+  backup set" ask the engine to start a run with `POST /api/v1/operations`, and a terminal couldn't: `retnd run` and
+  `retnd fetch --backup-set` run the cycle in the CLI's own process, so a terminal that only has `RETND_API_URL`
+  had no way to start one, and a run started that way never showed in `operation list`. `retnd operation run
+  [--backup-set S] [--skip-workflow-scripts] [--follow] [--json]` posts the same body the buttons do, with the
+  engine's own `config_revision` and a fresh idempotency key each time. `--json` prints the `Operation` the engine
+  answers with, `--follow` polls it like `operation show --follow` and exits 0 for completed and 1 otherwise, and
+  a shut destructive gate exits 50 with nothing started. `run` and `fetch` are unchanged. The terminal panel now
+  echoes `retnd operation run` for both buttons instead of saying there's no equivalent.
+
 ### Changed
 
 - **`workflows.disabled` is a new key, and an older retnd refuses it** (#1246). Clearing the workflow root
