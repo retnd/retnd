@@ -26,6 +26,23 @@
   `core/tests/deploymentdiff/testdata/digests.txt`, so main failed that test after every release. The
   recorder now moves that line with the publish (and refuses when anything else in the file changed or the
   recorded line had already drifted), and the merge back runs the test before it pushes.
+- **The destination configure wizard prints `retnd medium configure`** (#1252). Its terminal lines were still
+  `medium add|edit` with a note saying the CLI couldn't carry a local volume's `path`, which stopped being true
+  when `medium configure --field` shipped in #1154. The review step now prints `retnd medium configure <id>
+  --backend B --field id=value ...` with the credential as `--credentials-id`, the same line the terminal
+  records after the save, and adds `retnd medium default <id>` when the default box is ticked. The test step
+  prints that line with `--preflight` instead of `medium test-connection`, which checks what's already saved
+  rather than the values on screen. The add wizard's confirm step names `retnd medium backends` and `retnd
+  medium configure`.
+
+- **A password with a `/`, `?` or `#` in it no longer leaks from an endpoint onto a printed command line**
+  (#1252). The userinfo cut in the terminal echo and in the browser's command lines stopped the address at
+  the first `/`, `?` or `#`, so `https://key:pa/ss@host` found no `@` to cut at and went onto the line
+  whole. Now an address that still has an `@` in it after the cut is left out, with a placeholder in its
+  place, and the line is marked as not runnable as printed. That also leaves out an address with a real `@`
+  after the host, which is the safe way to be wrong. The S3 destination wizard (the Edit button on a
+  destination) had its own copy of these lines that printed the endpoint as typed and a credentials command
+  word for word; it now cuts the first and shows a placeholder for the second, the same as the terminal.
 
 ## [0.7.1] - 2026-10-17
 

@@ -1,0 +1,153 @@
+{
+  "about": "Shared vectors for the medium configure line (#1252). core/cliecho's configure_golden_1252_test.go checks Echo against every case and rewrites this file with UPDATE_GOLDEN=1; ui/shared's destinationConfigureCommands.test.ts checks the browser's copy against the same cases, so the two cannot drift apart unnoticed.",
+  "endpoint_vectors": [
+    {
+      "in": "",
+      "out": "",
+      "withheld": false
+    },
+    {
+      "in": "https://minio.internal:9000",
+      "out": "https://minio.internal:9000",
+      "withheld": false
+    },
+    {
+      "in": "https://AKIA:secret@minio.internal:9000/b",
+      "out": "https://minio.internal:9000/b",
+      "withheld": false
+    },
+    {
+      "in": "KEY:SECRET@host:9000",
+      "out": "host:9000",
+      "withheld": false
+    },
+    {
+      "in": "https://u:p@ss@host/b",
+      "out": "https://host/b",
+      "withheld": false
+    },
+    {
+      "in": "https://u:p@[::1]:9000/x",
+      "out": "https://[::1]:9000/x",
+      "withheld": false
+    },
+    {
+      "in": "http://[fe80::1]:9000",
+      "out": "http://[fe80::1]:9000",
+      "withheld": false
+    },
+    {
+      "in": "https://u:pa/ss@host",
+      "out": "",
+      "withheld": true
+    },
+    {
+      "in": "https://u:pa?ss@host",
+      "out": "",
+      "withheld": true
+    },
+    {
+      "in": "https://u:pa#ss@host",
+      "out": "",
+      "withheld": true
+    },
+    {
+      "in": "https://minio.example.test/bucket@eu",
+      "out": "",
+      "withheld": true
+    }
+  ],
+  "configure_cases": [
+    {
+      "name": "a local volume's path is a field like any other",
+      "id": "usb_disk",
+      "backend": "local_volume",
+      "fields": {
+        "path": "/mnt/usb",
+        "prefix": "retnd"
+      },
+      "kinds": {
+        "path": "path",
+        "prefix": "key_prefix"
+      },
+      "credentials_id": "",
+      "preflight": false,
+      "line": "retnd medium configure usb_disk --backend local_volume --field path=/mnt/usb --field prefix=retnd",
+      "runnable": true
+    },
+    {
+      "name": "the preflight is the same line with --preflight",
+      "id": "usb_disk",
+      "backend": "local_volume",
+      "fields": {
+        "path": "/mnt/usb"
+      },
+      "kinds": {
+        "path": "path"
+      },
+      "credentials_id": "",
+      "preflight": true,
+      "line": "retnd medium configure usb_disk --backend local_volume --field path=/mnt/usb --preflight",
+      "runnable": true
+    },
+    {
+      "name": "fields sorted by id, a split value quoted, the credential a reference",
+      "id": "cold",
+      "backend": "s3",
+      "fields": {
+        "bucket": "acme backups",
+        "region": "eu-central-1",
+        "storage_class": "DEEP_ARCHIVE"
+      },
+      "kinds": {
+        "bucket": "string",
+        "region": "string",
+        "storage_class": "enum"
+      },
+      "credentials_id": "cred_01HX",
+      "preflight": false,
+      "line": "retnd medium configure cold --backend s3 --field 'bucket=acme backups' --field region=eu-central-1 --field storage_class=DEEP_ARCHIVE --credentials-id cred_01HX",
+      "runnable": true
+    },
+    {
+      "name": "userinfo in an endpoint is cut out",
+      "id": "cold",
+      "backend": "s3",
+      "fields": {
+        "bucket": "b",
+        "endpoint": "https://AKIA:secret@minio.internal:9000"
+      },
+      "kinds": {
+        "bucket": "string",
+        "endpoint": "url"
+      },
+      "credentials_id": "",
+      "preflight": false,
+      "line": "retnd medium configure cold --backend s3 --field bucket=b --field endpoint=https://minio.internal:9000",
+      "runnable": true
+    },
+    {
+      "name": "an endpoint the cut cannot read is held back, and the line says it will not run",
+      "id": "cold",
+      "backend": "s3",
+      "fields": {
+        "bucket": "b",
+        "endpoint": "https://u:pa/ss@minio.internal"
+      },
+      "kinds": {
+        "bucket": "string",
+        "endpoint": "url"
+      },
+      "credentials_id": "cred_01HX",
+      "preflight": true,
+      "line": "retnd medium configure cold --backend s3 --field bucket=b --field <endpoint=the value, left out because it looks like it carries credentials> --credentials-id cred_01HX --preflight",
+      "runnable": false
+    }
+  ],
+  "default_cases": [
+    {
+      "id": "usb_disk",
+      "line": "retnd medium default usb_disk"
+    }
+  ]
+}

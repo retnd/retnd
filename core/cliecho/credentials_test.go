@@ -334,7 +334,15 @@ func TestAnEndpointsUserinfoNeverReachesTheLine(t *testing.T) {
 		{"a path as well", "https://" + key + ":" + secretPart + "@minio.internal:9000/backups", "https://minio.internal:9000/backups"},
 		{"no scheme at all", key + ":" + secretPart + "@minio.internal:9000", "minio.internal:9000"},
 		{"nothing to strip", "https://s3.eu-central-1.example.net", "https://s3.eu-central-1.example.net"},
-		{"an at sign in the path only", "https://minio.internal/a@b", "https://minio.internal/a@b"},
+		// Held back since #1252, deliberately. The cut cannot tell a real
+		// "@" after the host from a password with a "/" in it
+		// (https://u:pa/ss@host reads as host "u:pa"), so any "@" left
+		// after the cut withholds the value behind a placeholder. Losing a
+		// rare address is the safe way to be wrong; printing a password is
+		// not.
+		{"an at sign in the path only", "https://minio.internal/a@b", "<" + withheldValue + ">"},
+		{"a slash in the secret", "https://" + key + ":not/" + secretPart + "@minio.internal", "<" + withheldValue + ">"},
+		{"a question mark in the secret", "https://" + key + ":not?" + secretPart + "@minio.internal", "<" + withheldValue + ">"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			line := Echo(Action{Method: "POST", Route: "/storage-mediums",
