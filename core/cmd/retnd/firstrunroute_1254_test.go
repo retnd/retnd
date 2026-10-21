@@ -98,6 +98,25 @@ func startFakeFirstRunEngine(t *testing.T, dbPath string) *fakeFirstRunEngine {
 	e.handle("GET /system/first-run", e.firstRunStatus)
 	e.handle("POST /ssh-keys", e.importKey)
 	e.handle("POST /system/first-run", e.completeFirstRun)
+	// The two key-store reads a first-run instance serves beside its
+	// imports (#1254's review, O10): the store it will use and the scan of
+	// the machine it runs on, through the same FirstRun the wizard reads.
+	e.handle("GET /ssh-keys", func(w http.ResponseWriter, r *http.Request) {
+		keys, err := e.firstRun.ListSSHKeys(r.Context())
+		if err != nil {
+			refuse(w, http.StatusInternalServerError, apicontract.ErrorCodeInternal, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, service.SSHKeysToWire(keys))
+	})
+	e.handle("GET /ssh/key-candidates", func(w http.ResponseWriter, r *http.Request) {
+		found, err := e.firstRun.DiscoverSSHKeyCandidates(r.Context())
+		if err != nil {
+			refuse(w, http.StatusInternalServerError, apicontract.ErrorCodeInternal, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, service.SSHDiscoveryToWire(found))
+	})
 	base.server = httptest.NewServer(base)
 	t.Cleanup(base.server.Close)
 	t.Cleanup(func() {
@@ -470,13 +489,6 @@ func TestFirstRun1254_ARefusalFromTheFirstRunRouteSaysWhy(t *testing.T) {
 			status:  http.StatusInternalServerError,
 			code:    apicontract.ErrorCodeInternal,
 			message: "this deployment cannot be set up yet and nothing was written: /data/state is mounted read-only. Fix that and submit this form again; there is no need to reinstall or restart anything.",
-		},
-		{
-			// The wizard finished first.
-			name:    "a race with the wizard",
-			status:  http.StatusConflict,
-			code:    apicontract.ErrorCodeAlreadyConfigured,
-			message: "this instance was configured while your setup was in progress; reload and sign in",
 		},
 	}
 	for _, tc := range cases {

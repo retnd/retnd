@@ -53,3 +53,22 @@ func TestUnconfiguredInstanceNamesItsDeployment_1254(t *testing.T) {
 		t.Errorf("a first-run surface with no identity answered deployment_id %q", version.DeploymentID)
 	}
 }
+
+// TestUnconfiguredInstanceServesItsKeyStoreReads_1254 is the HTTP half of
+// #1254's ssh-key routing. The first-run surface already lists its store
+// and scans its machine (#592, FirstRunClient's ListSSHKeys and
+// DiscoverSSHKeyCandidates), and the handlers already fall back to it
+// (h.setup()), but the unconfigured route table never registered the two
+// reads, so a first-run instance answered both 503 NOT_CONFIGURED. A
+// terminal finishing a first run on a headless install, and the wizard's
+// own "use a key this machine already has", both need them.
+func TestUnconfiguredInstanceServesItsKeyStoreReads_1254(t *testing.T) {
+	router := unconfiguredRouter(&fakeFirstRun{})
+	for _, path := range []string{"/api/v1/ssh-keys", "/api/v1/ssh/key-candidates"} {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusOK {
+			t.Errorf("GET %s on an unconfigured instance = %d, want 200: %s", path, rec.Code, rec.Body.String())
+		}
+	}
+}

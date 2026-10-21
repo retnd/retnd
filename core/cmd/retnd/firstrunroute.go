@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/retnd/retnd/core/cliecho"
 	"github.com/retnd/retnd/core/internal/apiclient"
@@ -49,6 +50,14 @@ import (
 // different deployment is still told "a first configuration has no route
 // here", rather than being reported as a mistyped address for a write that
 // was never going to be sent to it either way.
+
+// firstRunAttachTimeout and firstRunCompleteTimeout bound the first-run
+// route's requests (#1254's review). Declared ahead of the change that
+// applies them, so its tests can name them.
+var (
+	firstRunAttachTimeout   = 10 * time.Second
+	firstRunCompleteTimeout = 12 * time.Minute
+)
 
 // firstConfigRoute is what a routed first configuration needs: the key and
 // trust steps a create runs, the connection check in front of the write,
