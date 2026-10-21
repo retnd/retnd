@@ -433,7 +433,7 @@ describe("the review step", () => {
     expect(order).toEqual(["configure", "default"]);
   });
 
-  it("prints the terminal line and names the fields it cannot carry", async () => {
+  it("prints the whole configuration as medium configure, with no gap note (#1252)", async () => {
     await openWizard({
       importStorageCredentials: vi.fn(() => Promise.resolve("cred-669")),
       preflightStorageMediumConfiguration: vi.fn(() => Promise.resolve(report(true)))
@@ -444,12 +444,53 @@ describe("the review step", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Next: review" })).toBeEnabled());
     press("Next: review");
 
-    // `medium edit` has --prefix and has no --path, measured from its own
-    // flag switch. The gap is printed as a gap rather than papered over
-    // with an invented flag, which is what makes EPIC G's parity rule
-    // fail visibly instead of silently.
-    expect(screen.getByText("retnd medium edit locker_one --prefix widgets/2026")).toBeInTheDocument();
-    expect(screen.getByTestId("configure-command-gap")).toHaveTextContent("cannot carry path");
+    // `path` is a --field like any other since #1154, so the line carries
+    // everything this screen is about to save and there is no gap to name.
+    expect(
+      screen.getByText(
+        "retnd medium configure locker_one --backend widget_locker --field path=/mnt/lockers" +
+          " --field prefix=widgets/2026 --credentials-id cred-669"
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("configure-command-gap")).toBeNull();
+    expect(screen.getByRole("group", { name: "Configure locker_one" }).textContent).not.toContain("cannot carry");
+  });
+
+  it("prints the test step as the --preflight form of the same line (#1252)", async () => {
+    await openWizard({
+      importStorageCredentials: vi.fn(() => Promise.resolve("cred-669")),
+      preflightStorageMediumConfiguration: vi.fn(() => Promise.resolve(report(true)))
+    });
+
+    await describeTheLocker();
+    press("Next: test connection");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Next: review" })).toBeEnabled());
+
+    // The step checks the values on screen, which are not saved yet, so
+    // its twin is the write-nothing form and not test-connection.
+    const shown = screen.getByRole("group", { name: "Configure locker_one" }).textContent ?? "";
+    expect(shown).toContain(
+      "retnd medium configure locker_one --backend widget_locker --field path=/mnt/lockers" +
+        " --field prefix=widgets/2026 --credentials-id cred-669 --preflight"
+    );
+    expect(shown).not.toContain("medium test-connection");
+    expect(shown).not.toContain("already saved");
+  });
+
+  it("adds medium default to the review step's lines when the box is ticked (#1252)", async () => {
+    await openWizard({
+      importStorageCredentials: vi.fn(() => Promise.resolve("cred-669")),
+      preflightStorageMediumConfiguration: vi.fn(() => Promise.resolve(report(true)))
+    });
+
+    await describeTheLocker();
+    press("Next: test connection");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Next: review" })).toBeEnabled());
+    press("Next: review");
+
+    expect(screen.queryByText("retnd medium default locker_one")).toBeNull();
+    fireEvent.click(screen.getByRole("checkbox", { name: /default/i }));
+    expect(screen.getByText("retnd medium default locker_one")).toBeInTheDocument();
   });
 
   it("repeats the manager's refusal when the save itself is refused", async () => {
@@ -672,7 +713,7 @@ describe("the assertions #594 made about the add path, on the manifest renderer"
 
     const group = screen.getByRole("group", { name: "Configure locker_one" });
     const shown = group.textContent ?? "";
-    expect(shown).toContain("retnd medium edit locker_one");
+    expect(shown).toContain("retnd medium configure locker_one");
     expect(shown).not.toContain("--secret-access-key");
     expect(shown).not.toContain(CANARY_SECRET);
     expect(shown).not.toContain(PLACEHOLDER_KEY_ID);
@@ -763,7 +804,7 @@ describe("configuring a destination that does not exist yet", () => {
     });
   });
 
-  it("prints `medium add` rather than `medium edit` while nothing is declared", async () => {
+  it("names the backend on the line while nothing is declared (#1252)", async () => {
     await openWizard({
       destination: null,
       importStorageCredentials: vi.fn(() => Promise.resolve("cred-669")),
@@ -775,18 +816,15 @@ describe("configuring a destination that does not exist yet", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Next: review" })).toBeEnabled());
     press("Next: review");
 
-    // `medium edit` against an id nothing declares fails, and a printed
-    // line that fails is worse than no line: the entire reason these are
-    // printed is that an operator can copy them.
+    // `medium configure` declares and configures in one act, and needs
+    // --backend for an id nothing declares yet. It is the BACKEND ID and
+    // not the rclone backend: the synthetic manifest's id is
+    // `widget_locker` and its rclone backend would be `widgetlocker`, and
+    // the two coincide for s3 while diverging for local_volume.
     const shown = screen.getByRole("group", { name: "Configure locker_one" }).textContent ?? "";
-    // The whole line, and `--type` pinned to the BACKEND ID rather than
-    // to the rclone backend. The synthetic manifest's id is
-    // `widget_locker`; the manifest format's rclone backend for it is
-    // `widgetlocker`, and the two coincide for s3 while diverging for
-    // local_volume, so a test using a manifest where they matched would
-    // pass on the spelling that prints a command that fails.
-    expect(shown).toContain("retnd medium add locker_one --type widget_locker");
+    expect(shown).toContain("retnd medium configure locker_one --backend widget_locker --field path=/mnt/lockers");
     expect(shown).not.toContain("widgetlocker");
+    expect(shown).not.toContain("retnd medium add");
     expect(shown).not.toContain("retnd medium edit");
   });
 });
