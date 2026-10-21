@@ -4,7 +4,8 @@
  * and the review step's line, each outlined when it is on screen, then the
  * same for an S3 bucket's review step. It asserts nothing about the lines
  * themselves, so the one spec records the broken screens on main and the
- * fixed ones on the branch. Run with E2E_VIDEO=1.
+ * fixed ones on the branch. The outlined lines are wrapped rather than
+ * scrolled, for the recording only. Run with E2E_VIDEO=1.
  */
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
@@ -16,6 +17,8 @@ test.describe.configure({ timeout: 150_000 });
 /** Outlines the printed lines (and the gap note, where there is one) and
  *  scrolls them into view. Test-only; nothing here ships. */
 async function mark(page: Page) {
+  // Off the buttons, so a tooltip from the last click does not cover a line.
+  await page.mouse.move(1180, 120);
   await page.evaluate(() => {
     const targets = document.querySelectorAll(
       "[role=group][aria-label^='Configure '] code, [data-testid=configure-command-gap]," +
@@ -25,6 +28,9 @@ async function mark(page: Page) {
       const h = e as HTMLElement;
       h.style.outline = "2px dashed #d11a2a";
       h.style.outlineOffset = "2px";
+      // The echo scrolls a long line sideways; wrapped here so the whole
+      // line is in the recording.
+      if (h.tagName === "CODE") h.style.whiteSpace = "pre-wrap";
     });
     targets[targets.length - 1]?.scrollIntoView({ block: "center" });
   });
