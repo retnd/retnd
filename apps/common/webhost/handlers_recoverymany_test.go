@@ -190,6 +190,31 @@ func TestRecoverManyBodyCrossesTheBoundaryAsTheServiceRequest(t *testing.T) {
 	}
 }
 
+// Issue #1251, the review of #1256: `recover --set --until` had no API twin.
+// until is an instant on the wire, like since; the bare-date rule is the
+// terminal's.
+func TestIssue1251_RecoverManyUntilCrossesTheBoundary(t *testing.T) {
+	router, be := newManyRouter(t)
+	rec := postMany(t, router, `{"set":"production/postgres","since":"2026-10-01T00:00:00Z","until":"2026-10-07T23:59:59Z","target":{"kind":"staging","path":"o"}}`, true)
+	if rec.Code != http.StatusOK || len(be.ran) != 1 {
+		t.Fatalf("= %d %s", rec.Code, rec.Body.String())
+	}
+	if r := be.ran[0]; !r.Until.Equal(time.Date(2026, 10, 7, 23, 59, 59, 0, time.UTC)) || !r.Since.Equal(time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("request = %+v", r)
+	}
+	for name, body := range map[string]string{
+		"bad until":          `{"set":"a/b","until":"tomorrow","target":{"kind":"staging","path":"o"}}`,
+		"until before since": `{"set":"a/b","since":"2026-10-07T00:00:00Z","until":"2026-10-01T00:00:00Z","target":{"kind":"staging","path":"o"}}`,
+	} {
+		if rec := postMany(t, router, body, true); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s = %d %s", name, rec.Code, rec.Body.String())
+		}
+	}
+	if len(be.ran)+len(be.planned) != 1 {
+		t.Fatal("a refused request reached the service")
+	}
+}
+
 func TestRecoverManyRefusesAMalformedBodyBeforeTheService(t *testing.T) {
 	router, be := newManyRouter(t)
 	for name, body := range map[string]string{
