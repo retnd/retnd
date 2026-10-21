@@ -154,21 +154,18 @@ func TestAStorageMediumWriteEchoesTheSkipOnlyWhenItWasAskedFor(t *testing.T) {
 	}
 }
 
-// The gap the issue singles out, because it is the one a lazier
-// implementation gets wrong. `retnd run` exists, and printing it
-// here would print a command that does something different to a different
-// process.
-func TestRunAllDueSetsPrintsTheGapAndNotRetndRun(t *testing.T) {
+// The arm the original issue singled out, because it is the one a lazier
+// implementation gets wrong. `retnd run` exists, and printing it here would
+// print a command that does something different to a different process: it
+// runs the cycle in the operator's own shell. `operation run` (#1250) asks
+// the serving engine, which is what the button did.
+func TestRunAllDueSetsPrintsOperationRunAndNotRetndRun(t *testing.T) {
 	line := Echo(Action{Method: "POST", Route: "/operations", Body: []byte(`{"action":"` + apicontract.ActionRunCycle + `","config_revision":"r1"}`)})
-	if len(line.Command) != 0 {
-		t.Fatalf("run_cycle printed the command %v; `"+Binary+" run` opens the service in the operator's own process and runs a cycle THERE, so it is a different act against a different process",
-			line.Command)
+	if got, want := line.Shell(), Binary+" operation run"; got != want {
+		t.Fatalf("run_cycle printed\n  %s\nwant\n  %s", got, want)
 	}
-	if line.Route != "POST /api/v1/operations" {
-		t.Errorf("the gap does not name the route that needs a verb: %q", line.Route)
-	}
-	if !strings.Contains(line.GapDetail, "not in this engine") {
-		t.Errorf("the gap does not say why `"+Binary+" run` is not the answer: %q", line.GapDetail)
+	if line.Gap != "" {
+		t.Errorf("run_cycle still carries a gap: %q", line.GapDetail)
 	}
 
 	// The same route with a restore on it DOES have a verb, which is what

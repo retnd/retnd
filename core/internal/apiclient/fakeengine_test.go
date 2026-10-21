@@ -59,6 +59,9 @@ type seenRequest struct {
 	// StepUp is the password step-up header, which only the operations in
 	// stepUpOperations may carry (#1203).
 	StepUp string
+	// IdempotencyKey is the Idempotency-Key header, which only an
+	// operation the contract marks as keyed may carry (#1250).
+	IdempotencyKey string
 }
 
 // fakeEngine serves /api/v1 the way the engine container does.
@@ -212,7 +215,7 @@ func (e *fakeEngine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	escaped := r.URL.EscapedPath()
 	ep, known := lookupRoute(r.Method, escaped)
 
-	seen := seenRequest{Method: r.Method, Path: escaped, Query: r.URL.RawQuery, Operation: ep.ID, CSRFHeader: r.Header.Get(csrfHeaderName), UserAgent: r.Header.Get("User-Agent"), StepUp: r.Header.Get(stepUpHeaderName)}
+	seen := seenRequest{Method: r.Method, Path: escaped, Query: r.URL.RawQuery, Operation: ep.ID, CSRFHeader: r.Header.Get(csrfHeaderName), UserAgent: r.Header.Get("User-Agent"), StepUp: r.Header.Get(stepUpHeaderName), IdempotencyKey: r.Header.Get(idempotencyKeyHeaderName)}
 	if c, err := r.Cookie(csrfCookieName); err == nil {
 		seen.CSRFCookie = c.Value
 	}
