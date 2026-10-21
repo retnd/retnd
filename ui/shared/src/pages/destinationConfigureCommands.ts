@@ -12,111 +12,109 @@
  * in shell history. So every line below is the command that actually
  * works, byte for byte, with nothing starred out - and the reason it is
  * safe to print before the operator has typed a key is that there is no
- * key in it.
+ * key in it. The credential appears only as the reference that exchange
+ * returned, which is what `medium configure --credentials-id` takes.
  *
- * # A gap is printed as a gap, never as a plausible flag
+ * # One verb for the whole form
  *
- * This is the part worth reading. `retnd medium edit` takes the flags it
- * was written with - `--type`, `--region`, `--endpoint`, `--bucket`,
- * `--prefix`, `--storage-class`, `--upload-verification` and the four
- * credential spellings (core/cmd/retnd/medium.go:219) - and a
- * manifest can declare a field none of them names. `local_volume`'s
- * `path` is exactly that today: there is no `--path`, so a local volume
- * cannot be configured from a terminal at all.
+ * `medium configure <id> --backend B --field ID=VALUE` (#1154) takes a
+ * destination in its backend's own field ids, so every field a manifest
+ * declares has a spelling and there is no gap to print. That is what
+ * replaced `medium add|edit` here (#1252): those take a fixed set of
+ * flags and have no `--path`, so a local volume's line used to configure
+ * less than the screen saved, with a note saying so.
  *
- * The tempting thing is to print `--path /mnt/backups` anyway, because
- * it reads correctly and nobody would notice until they ran it. What
- * this module does instead is say which fields have no flag. That is the
- * whole point of EPIC G's rule as its own docblock states it: printing
- * "turns the CLI-parity requirement into something that fails visibly",
- * and a gap papered over with an invented flag is a requirement that
- * fails silently instead. The gap is real, it belongs to the CLI rather
- * than to this screen, and #669's PR body names it.
+ * Each line is the one core/cliecho prints for the request the wizard
+ * sends (its `medium configure` arms, routes.go), so the line beside a
+ * control and the line the terminal records after it are one command.
+ * The one deliberate difference is `--backend`: the wizard leaves the
+ * backend out of the request when the destination is already declared,
+ * and the echo follows the body, but `medium configure` checks that it
+ * matches when it is given, so naming it on every line costs nothing and
+ * makes the line say what kind of destination it is.
  */
 import type { BackendManifest } from "@shared/api/contracts";
+import { shellQuote } from "@shared/assurance/assuranceCommands";
 
 /**
- * The long flags `medium add` and `medium edit` actually parse, measured
- * from their own flag switch rather than assumed.
+ * `medium configure <id> --backend B --field id=value ...`, for the values
+ * the wizard is about to send.
  *
- * Keyed by the manifest FIELD ID each one sets, which is possible at all
- * because #665 gave a manifest's fields "deliberately the same spelling
- * the config schema already uses" (Field.ID's own doc) - so the flag is
- * the field id with underscores hyphenated, and this map only has to say
- * which of them exist. It is the CLI's vocabulary and not a backend's:
- * no entry here is reached by asking which backend is being configured.
+ * Fields go on the line sorted by id, because that is the order the
+ * request body carries them in (toWireMediumConfiguration sorts), and so
+ * the order the server's echo prints. A credential-kind field is never a
+ * value on a command line; the credential is the reference, or nothing,
+ * and nothing means `medium configure` keeps the one already configured.
  */
-const EDIT_FLAG_FIELDS: Record<string, true> = {
-  region: true,
-  endpoint: true,
-  bucket: true,
-  prefix: true,
-  storage_class: true,
-  upload_verification: true
-};
-
-/** `medium test-connection <id>`: the engine's own check, by id.
- *
- *  Labelled by the caller as what it is - a check of what is ALREADY
- *  saved - because that is the honest difference between it and the
- *  wizard's step 2, which checks values that have not been written yet.
- *  The two answer the same eight steps about the same destination; they
- *  differ in which configuration they answer about, and a line printed
- *  as if they were the same command would teach that difference away. */
-export function testConnectionCommand(destinationId: string): string {
-  return `retnd medium test-connection ${destinationId}`;
-}
-
-/**
- * `medium edit <id>` with one flag per configured field, and the fields
- * no flag can carry.
- *
- * Returned together deliberately. A caller that got only the line would
- * print a command that silently configures less than the screen above it
- * is about to save, which is the "verifies green, saves something
- * slightly different" defect in its printed form.
- */
-export function editConfigurationCommand(
+export function configureCommand(
   manifest: BackendManifest,
   destinationId: string,
   values: Record<string, string>,
-  creating = false
-): { command: string; fieldsWithNoFlag: string[] } {
-  // `add` or `edit`, from whether the destination is declared yet. It is
-  // one verb per fact rather than a printed line that is nearly right:
-  // `medium edit` against an id nothing declares fails, and a line that
-  // fails is worse than no line, because the whole reason these are
-  // printed is that an operator can copy them.
-  const parts = [`retnd medium ${creating ? "add" : "edit"} ${destinationId}`];
-  const fieldsWithNoFlag: string[] = [];
-  // `--type` takes the BACKEND ID and not the rclone backend, which is a
-  // distinction this line got wrong until #81 measured it:
-  // `medium add --type` sets StorageMediumSpec.Type, which is
-  // config.StorageMedium.Type, which IS the registry key the manifest is
-  // looked up by (core/service resolves it with reg.Backend(m.Type)).
-  // The two coincide for s3 and diverge for local_volume, where the
-  // rclone backend is `local` and the manifest id is `local_volume`, so
-  // the old spelling printed a line that failed on execution for the one
-  // destination a fresh install has.
-  if (creating) parts.push(`--type ${manifest.id}`);
+  credentialsId: string | null = null
+): string {
+  const credentialKind: Record<string, true> = {};
+  for (const field of manifest.fields) if (field.kind === "credential") credentialKind[field.id] = true;
 
-  for (const field of manifest.fields) {
-    if (field.kind === "credential") continue;
-    const value = values[field.id];
-    if (!value) continue;
-    if (!EDIT_FLAG_FIELDS[field.id]) {
-      fieldsWithNoFlag.push(field.id);
-      continue;
-    }
-    parts.push(`--${field.id.replace(/_/g, "-")} ${value}`);
+  const parts = [`retnd medium configure ${shellQuote(destinationId)}`, `--backend ${shellQuote(manifest.id)}`];
+  for (const id of Object.keys(values).sort()) {
+    if (credentialKind[id]) continue;
+    const raw = values[id];
+    // `medium configure` refuses an empty value, and the request leaves
+    // one out rather than sending it.
+    if (!raw) continue;
+    const value = id === "endpoint" ? endpointWithoutUserinfo(raw) : raw;
+    parts.push(`--field ${shellQuote(`${id}=${value}`)}`);
   }
-
-  return { command: parts.join(" "), fieldsWithNoFlag };
+  if (credentialsId) parts.push(`--credentials-id ${shellQuote(credentialsId)}`);
+  return parts.join(" ");
 }
+
+/** The test step's line: the same configuration, proven and not written.
+ *  The step checks the values on screen, which are not saved yet, so its
+ *  twin is the write-nothing form of the save and not `medium
+ *  test-connection`, which checks what is already saved. */
+export function preflightCommand(
+  manifest: BackendManifest,
+  destinationId: string,
+  values: Record<string, string>,
+  credentialsId: string | null = null
+): string {
+  return `${configureCommand(manifest, destinationId, values, credentialsId)} --preflight`;
+}
+
+/** `medium default <id>`, the review step's second act, printed only
+ *  while the box asking for it is ticked. A separate line because it is
+ *  a separate request, made after the save (#622). The destinations
+ *  list's Make default button prints the same line from the same
+ *  function. */
+export { setDefaultCommand as defaultCommand } from "@shared/pages/storageDestinationCommands";
 
 /** `medium import-credentials --stdin`: the one command that ever
  *  handles material, and it takes no argument at all - which is the
  *  point, and why this line is printable before anything is typed. */
 export function importCredentialsCommand(): string {
   return "retnd medium import-credentials --stdin";
+}
+
+/** A credential can be spelled into a URL's userinfo, and these lines are
+ *  copy-to-clipboard and exportable, so it comes out. The same cut
+ *  core/cliecho makes (endpointWithoutUserinfo, cliecho.go). */
+function endpointWithoutUserinfo(raw: string): string {
+  let scheme = "";
+  let rest = raw;
+  const sep = rest.indexOf("://");
+  if (sep >= 0) {
+    scheme = rest.slice(0, sep + 3);
+    rest = rest.slice(sep + 3);
+  }
+  let authority = rest;
+  let tail = "";
+  const end = rest.search(/[/?#]/);
+  if (end >= 0) {
+    authority = rest.slice(0, end);
+    tail = rest.slice(end);
+  }
+  const at = authority.lastIndexOf("@");
+  if (at >= 0) authority = authority.slice(at + 1);
+  return scheme + authority + tail;
 }

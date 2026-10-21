@@ -584,18 +584,19 @@ function ConfirmPane({
 
       {/* EPIC G's rule is that what an operator can DO names its
           equivalent command. These steps do nothing: they collect two
-          answers and hand them on, and there is no `retnd` invocation that
-          declares a destination carrying no values (see
-          storageDestinationCommands.ts, which is where the `declareCommand`
-          that used to be printed here was deleted and why). So the gap is
-          named, the way core/cliecho names a route with no verb, rather
-          than filled with a line that fails on execution. */}
+          answers and hand them on, so no runnable line is printed for
+          them. On a terminal the choice is read from `medium backends`
+          and the destination is declared in one act by `medium
+          configure`, which the next step prints in full (#1252). `medium
+          add` is not the twin: it has no --path, so it cannot declare a
+          local volume at all. */}
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         <span style={{ fontSize: "var(--text-xs)", color: "var(--text-3)" }}>Equivalent command</span>
         <span style={{ fontSize: 12, color: "var(--text-2)", maxWidth: "74ch" }}>
-          These steps run none. On a terminal a destination is declared in one act, by{" "}
-          <code className="mono">retnd medium add</code> carrying the values below — so the command this flow
-          is equivalent to is printed by the configure step, which is the step that writes.
+          These steps run none. On a terminal, <code className="mono">retnd medium backends</code> lists the
+          backends to choose from, and a destination is declared in one act, by{" "}
+          <code className="mono">retnd medium configure</code> carrying its values. That command is printed by the
+          configure step, which is the step that writes.
         </span>
       </div>
 

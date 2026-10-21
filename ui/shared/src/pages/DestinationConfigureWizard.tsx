@@ -64,9 +64,10 @@ import {
 } from "@shared/components/manifest/manifestFieldRules";
 import type { ManifestFieldValues } from "@shared/components/manifest/manifestFieldRules";
 import {
-  editConfigurationCommand,
+  configureCommand,
+  defaultCommand,
   importCredentialsCommand,
-  testConnectionCommand
+  preflightCommand
 } from "@shared/pages/destinationConfigureCommands";
 import { InfoTooltip } from "@shared/tooltips/InfoTooltip";
 import type { TooltipId } from "@shared/tooltips/tooltips";
@@ -272,15 +273,14 @@ export function DestinationConfigureWizard({
     }
   }, [api, credentialsId, destination, instanceId, makeDefault, manifest, onSaved, values]);
 
-  const echo = useMemo(() => {
-    if (values === null) return { command: "", fieldsWithNoFlag: [] as string[] };
-    return editConfigurationCommand(
-      manifest,
-      instanceId,
-      configurationValues(manifest, values),
-      destination === null
-    );
-  }, [destination, instanceId, manifest, values]);
+  // The terminal lines, from the same values the requests are built
+  // from (#1252). The credential is the reference the exchange returned,
+  // or nothing, which `medium configure` reads as "keep the stored one",
+  // the same as the request leaving `credentials` out.
+  const echoValues = useMemo(
+    () => (values === null ? null : configurationValues(manifest, values)),
+    [manifest, values]
+  );
 
   return (
     <div
@@ -379,10 +379,12 @@ export function DestinationConfigureWizard({
               </p>
             </Banner>
           ) : null}
-          <CommandEcho
-            label="the engine's own check, against what is already saved"
-            commands={[testConnectionCommand(instanceId)]}
-          />
+          {echoValues !== null ? (
+            <CommandEcho
+              label="the same check from a terminal, writing nothing"
+              commands={[preflightCommand(manifest, instanceId, echoValues, credentialsId)]}
+            />
+          ) : null}
           <Buttons
             onCancel={() => setStep("fields")}
             cancelLabel="Back"
@@ -409,20 +411,14 @@ export function DestinationConfigureWizard({
             currentDefault={currentDefault}
             onMakeDefaultChange={setMakeDefault}
           />
-          <CommandEcho label="the same thing from a terminal" commands={[echo.command]} />
-          {echo.fieldsWithNoFlag.length > 0 ? (
-            // A parity gap printed as a gap. `medium edit` has no flag
-            // for these field ids, so the line above configures less
-            // than this screen is about to save, and saying so is the
-            // whole point of printing commands at all (EPIC G's rule,
-            // argued in storageDestinationCommands.ts).
-            <p
-              data-testid="configure-command-gap"
-              style={{ margin: 0, fontSize: 12, color: "var(--text-3)", maxWidth: "74ch" }}
-            >
-              That command cannot carry {echo.fieldsWithNoFlag.join(", ")}: this CLI has no flag for
-              those fields yet, so the line above is not the whole of what this save writes.
-            </p>
+          {echoValues !== null ? (
+            <CommandEcho
+              label="the same thing from a terminal"
+              commands={[
+                configureCommand(manifest, instanceId, echoValues, credentialsId),
+                ...(makeDefault ? [defaultCommand(instanceId)] : [])
+              ]}
+            />
           ) : null}
           <Buttons
             onCancel={() => setStep("test")}

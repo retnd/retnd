@@ -67,10 +67,11 @@ export function importCredentialsCommand(): string {
  * There was a `declareCommand` here that rendered
  * `retnd medium add <id> --backend <backend>`, and it was wrong twice over.
  *
- * **`medium` has no `--backend` flag.** Its whole set is json, stdin,
+ * **`medium add` has no `--backend` flag.** Its whole set is json, stdin,
  * candidate, no-verify, type, region, endpoint, bucket, prefix,
  * storage-class, upload-verification and the four credential spellings
- * (`core/cmd/retnd/medium.go:183`). The line failed on execution
+ * (`--backend` arrived with #1154 and belongs to `medium configure`
+ * alone, which refuses it on any other verb). The line failed on execution
  * with `flag provided but not defined: -backend`, which is exactly what
  * EPIC G's rule exists to prevent: a printed command that looks right and
  * does not work is worse than no command, because an operator only finds
@@ -85,12 +86,12 @@ export function importCredentialsCommand(): string {
  * screen is equivalent to at ANY spelling, because it is equivalent to no
  * command at all — it collects two answers and hands them on.
  *
- * The honest answer is the one core/cliecho already uses for a route with
- * no verb: name the gap rather than invent a line. The whole flow's
- * equivalent command is `medium add` with the values it needs, and the
- * configure step is what prints it, because that is the step that writes.
+ * So the confirm step prints no line. The whole flow's equivalent command
+ * is `medium configure <id> --backend B --field ...` with the values it
+ * needs (#1154), and the configure step is what prints it, because that
+ * is the step that writes (destinationConfigureCommands.ts, #1252).
  * AddDestinationWizard's confirm pane says so in prose where the
- * CommandEcho used to be.
+ * CommandEcho used to be, and names `medium backends` for the choice.
  */
 
 /** `medium test-connection --candidate`: the wizard's step 3, proving a

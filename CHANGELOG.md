@@ -26,6 +26,14 @@
   `core/tests/deploymentdiff/testdata/digests.txt`, so main failed that test after every release. The
   recorder now moves that line with the publish (and refuses when anything else in the file changed or the
   recorded line had already drifted), and the merge back runs the test before it pushes.
+- **The destination configure wizard prints `retnd medium configure`** (#1252). Its terminal lines were still
+  `medium add|edit` with a note saying the CLI couldn't carry a local volume's `path`, which stopped being true
+  when `medium configure --field` shipped in #1154. The review step now prints `retnd medium configure <id>
+  --backend B --field id=value ...` with the credential as `--credentials-id`, the same line the terminal
+  records after the save, and adds `retnd medium default <id>` when the default box is ticked. The test step
+  prints that line with `--preflight` instead of `medium test-connection`, which checks what's already saved
+  rather than the values on screen. The add wizard's confirm step names `retnd medium backends` and `retnd
+  medium configure`.
 
 ## [0.7.1] - 2026-10-17
 
