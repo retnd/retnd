@@ -10,8 +10,12 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/retnd/retnd/core/apicontract"
+	"github.com/retnd/retnd/core/internal/app"
+	"github.com/retnd/retnd/core/internal/lifecycle"
+	"github.com/retnd/retnd/core/internal/state"
 )
 
 // Issue #1251. The Backups page narrows its list to the backups received in
@@ -24,10 +28,17 @@ import (
 // 2026-03-15 keeps a backup received at 23:30 that day, and an RFC 3339 time
 // is that moment exactly.
 //
-// The fixture is three backups of one set whose received time (the journal's
-// updated_at, the field the page reads as receivedAt and `recover --since`
-// compares) is set by hand after a real cycle, so each bound has a row on
-// either side of it.
+// The fixture is three backups of one set whose arrival time (the journal's
+// discovered_at, the field the API serves as discovered_at) is set by hand
+// after a real cycle, so each bound has a row on either side of it. Their
+// updated_at is set to one later moment for all three, the way a set flipped
+// read-only and back leaves it: the review of #1256 found the range measured
+// on updated_at, which moves on every transition, so a March backup touched
+// in October read as received in October.
+
+// rangeTouched is when every fixture backup last changed state, after all
+// three arrived: a range read off updated_at sees all three here.
+const rangeTouched = "2026-10-20T12:00:00Z"
 
 const (
 	rangeOlder  = "older.dump"  // 2026-03-01T10:00:00Z
@@ -54,7 +65,7 @@ func receivedRangeDeployment(t *testing.T) string {
 		rangeMiddle: "2026-03-15T23:30:00Z",
 		rangeNewer:  "2026-04-02T08:00:00Z",
 	} {
-		res, err := db.ExecContext(context.Background(), `UPDATE artifacts SET updated_at = ? WHERE artifact_name = ?`, at, name)
+		res, err := db.ExecContext(context.Background(), `UPDATE artifacts SET discovered_at = ?, updated_at = ? WHERE artifact_name = ?`, at, rangeTouched, name)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -300,4 +311,45 @@ func TestIssue1251_RecoverUsageOffersUntil(t *testing.T) {
 	if !strings.Contains(text, "--newest-only, --since and --until narrow a set") {
 		t.Errorf("usage() does not say --until narrows a set beside --newest-only and --since")
 	}
+}
+
+// TestIssue1251_ATransitionAfterArrivalDoesNotMoveABackupInTheRange flips the
+// middle backup through REMOTE_RETAINED and back just now, which is what a set
+// going read-only and coming back does, and checks both verbs still place it
+// on the day it arrived.
+func TestIssue1251_ATransitionAfterArrivalDoesNotMoveABackupInTheRange(t *testing.T) {
+	configPath := receivedRangeDeployment(t)
+	dbPath := journalNamedByTestConfig(t, configPath)
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var st string
+	if err := db.QueryRow(`SELECT state FROM artifacts WHERE artifact_name = ?`, rangeMiddle).Scan(&st); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	ctx := context.Background()
+	j, err := state.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := app.ParseArtifactID(recoverID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, hop := range [][2]string{{st, string(lifecycle.RemoteRetained)}, {string(lifecycle.RemoteRetained), st}} {
+		if _, err := j.RecordTransition(ctx, state.Transition{Artifact: id, Key: "flip-" + strconv.Itoa(i), From: hop[0], To: hop[1], OccurredAt: time.Now().UTC()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	j.Close()
+
+	out := artifactsOut(t, 0, "artifacts", "--config", configPath, "--since", "2026-03-15", "--until", "2026-03-15")
+	sameNames(t, "listed for its arrival day", listedNames(out), []string{rangeMiddle})
+	today := time.Now().UTC().Format("2006-01-02")
+	out = artifactsOut(t, 0, "artifacts", "--config", configPath, "--since", today)
+	sameNames(t, "listed for today, when it was only touched", listedNames(out), nil)
+	sameNames(t, "newest-only over the whole set", planNames(t, configPath, "--newest-only"), []string{rangeNewer})
+	sameNames(t, "newest-only up to its arrival day", planNames(t, configPath, "--newest-only", "--until", "2026-03-15"), []string{rangeMiddle})
 }

@@ -73,6 +73,16 @@ test.describe("#1251 the set filter's terminal line carries the received-date ra
     await expect(echo(page)).toHaveCount(0);
   });
 
+  test("#1251 the Time column shows when a backup arrived, the time the date range filters on", async ({ page }) => {
+    // The default fixture's newest PostgreSQL backup was discovered at
+    // 01:58:44+02:00 and last changed at 02:00:53+02:00. The column and the
+    // range both read the first.
+    await open(page, "/backups", "default");
+    const cell = page.getByRole("row").filter({ hasText: "postgres-prod-20260828.dump.zst" }).locator("td.mono").first();
+    await expect(cell).toContainText(":58:44");
+    await expect(cell).not.toContainText(":00:53");
+  });
+
   for (const theme of ["light", "dark"] as const) {
     test("#1251 the status with the ranged line meets AA in the " + theme + " theme", async ({ page }) => {
       await open(page, "/backups?set=" + BILLING, MANY);
