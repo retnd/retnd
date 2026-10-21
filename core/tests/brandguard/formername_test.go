@@ -72,7 +72,7 @@ func scan(root string) (hits []string, scanned int, err error) {
 		start := filepath.Join(root, r)
 		err := filepath.WalkDir(start, func(p string, d fs.DirEntry, err error) error {
 			if err != nil {
-				return err
+				return walkError(start, p, err)
 			}
 			if d.IsDir() {
 				switch d.Name() {
@@ -115,6 +115,11 @@ func scan(root string) (hits []string, scanned int, err error) {
 	return hits, scanned, nil
 }
 
+// walkError decides what an error met on the way through a root means.
+func walkError(start, p string, err error) error {
+	return err
+}
+
 func TestTheFormerNameAppearsNowhereInTheFilesThisGuardOwns(t *testing.T) {
 	hits, scanned, err := scan(repoRoot())
 	if err != nil {
@@ -125,6 +130,26 @@ func TestTheFormerNameAppearsNowhereInTheFilesThisGuardOwns(t *testing.T) {
 	}
 	if len(hits) > 0 {
 		t.Errorf("the former name is still spelled in %d places:\n%s", len(hits), strings.Join(hits, "\n"))
+	}
+}
+
+// Other packages' tests run beside this one and make and remove fixture
+// directories inside the tree (internal/workflowrun puts its .wfrun-* ones
+// next to its own sources). One that goes away between being listed and
+// being opened is not a file this guard owns, and failing on it made the
+// guard fail whenever the two happened to overlap.
+func TestAnEntryThatVanishesMidWalkIsSkippedButAMissingRootIsNot(t *testing.T) {
+	start := filepath.Join("r", "core")
+	gone := &fs.PathError{Op: "open", Path: "x", Err: fs.ErrNotExist}
+	if err := walkError(start, filepath.Join(start, "internal", ".wfrun-1"), gone); err != nil {
+		t.Errorf("an entry that vanished during the walk failed it: %v", err)
+	}
+	if err := walkError(start, start, gone); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("a missing root was let through as %v; it has to stay an error (#1125)", err)
+	}
+	denied := &fs.PathError{Op: "open", Path: "x", Err: fs.ErrPermission}
+	if err := walkError(start, filepath.Join(start, "internal"), denied); !errors.Is(err, fs.ErrPermission) {
+		t.Errorf("an unreadable directory was let through as %v; only a vanished one is skipped", err)
 	}
 }
 
