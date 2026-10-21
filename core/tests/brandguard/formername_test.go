@@ -115,8 +115,15 @@ func scan(root string) (hits []string, scanned int, err error) {
 	return hits, scanned, nil
 }
 
-// walkError decides what an error met on the way through a root means.
+// walkError decides what an error met on the way through a root means. An
+// entry below the root that no longer exists was removed after the walk
+// listed it (another package's test fixture, see
+// TestAnEntryThatVanishesMidWalkIsSkippedButAMissingRootIsNot) and is
+// skipped. Anything else, including a root that is not there, is returned.
 func walkError(start, p string, err error) error {
+	if p != start && errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
 	return err
 }
 
