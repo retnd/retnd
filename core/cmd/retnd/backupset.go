@@ -913,15 +913,6 @@ func createIntoExistingConfig(ctx context.Context, configPath, keyFile, keyPassp
 // to start), so this is the path a machine the installer has just set up
 // actually takes, and the two-machine end-to-end test walks it.
 func createFirstConfig(ctx context.Context, configFile, stateDatabase, keyFile, keyPassphrase string, trustHostKey, noVerify bool, req service.CreateBackupSetRequest) int {
-	if req.RunImmediately {
-		// The service ignores RunImmediately here, because a first-run
-		// instance has no BackupService to submit an operation to yet.
-		// Saying so is better than accepting the flag and doing nothing
-		// with it: an operator who asked for a run and got silence has
-		// been told the backup started.
-		return usageError("backup-set create: --run cannot be honoured while writing the first configuration, because there is no running service to submit a cycle to yet. Create the set, then `" + cliecho.Binary + " run`")
-	}
-
 	// This path writes a configuration without ever going through
 	// openBackupService, so it has to ask openBackupService's question
 	// itself, and it has to ask it about the journal rather than about
@@ -955,17 +946,39 @@ func createFirstConfig(ctx context.Context, configFile, stateDatabase, keyFile, 
 	// address to reach it, the first configuration is that engine's to
 	// write (#1254): a headless install has no wizard anybody is looking
 	// at and no way to stop the engine without stopping the container the
-	// command runs in. enterFirstConfigWriteMode decides that inside the
-	// same claim as everything above, and hands back a route instead of
-	// the claim when it does.
-	guard, route, address, err := enterFirstConfigWriteMode(configFile, stateDatabase, os.Stdout, os.Stderr)
+	// command runs in. enterFirstConfigWriteMode decides the mode inside
+	// the same claim as everything above, gives the claim back before it
+	// asks that engine anything, and hands back a route instead of the
+	// claim when there is one.
+	guard, route, address, err := enterFirstConfigWriteMode(ctx, configFile, stateDatabase, os.Stdout, os.Stderr)
 	if err != nil {
 		return fail(err)
 	}
+
+	// --run is refused on both paths, after the mode is known rather than
+	// before, because the reason is different on each and an operator is
+	// owed the true one (#1254's review). Nothing has been sent or written
+	// by here on either.
 	if route != nil {
+		if req.RunImmediately {
+			// There IS a running service here, and the set will be its
+			// to run. What cannot carry the request is POST
+			// /system/first-run, whose body (the contract's BackupSetSpec)
+			// has no run_immediately. `retnd run` would be the wrong
+			// remedy: it runs a cycle in this process, not in the engine.
+			return usageError("backup-set create: --run cannot be honoured while handing the first configuration to the engine at %s, because POST /system/first-run carries no run request. Create the set without it; the engine runs it on its schedule, and its Web UI's Run now starts one straight away", address)
+		}
 		return createFirstConfigOnEngine(ctx, route, address, keyFile, keyPassphrase, trustHostKey, noVerify, req)
 	}
 	defer func() { _ = guard.Release() }()
+	if req.RunImmediately {
+		// The service ignores RunImmediately here, because a first-run
+		// instance has no BackupService to submit an operation to yet.
+		// Saying so is better than accepting the flag and doing nothing
+		// with it: an operator who asked for a run and got silence has
+		// been told the backup started.
+		return usageError("backup-set create: --run cannot be honoured while writing the first configuration, because there is no running service to submit a cycle to yet. Create the set, then `" + cliecho.Binary + " run`")
+	}
 
 	firstRun, err := service.NewFirstRun(service.FirstRunDefaults{
 		ConfigPath:    configFile,

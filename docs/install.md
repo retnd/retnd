@@ -92,13 +92,20 @@ retnd backup-set create api/postgres --host ... --ssh-key-file ... --known-hosts
 ```
 
 `http://127.0.0.1:8080` is the engine's own listener from inside its container; from the
-host it's the published Web UI port. The administrator has to exist first, so enroll it
+host it's the published Web UI port. `retnd ssh-key import`, `list` and `discover` and `retnd
+ssh host-key-probe` go to the same engine with the same variables, so the key step works the
+same way (they find the engine through `$STATE_DATABASE` or the packaged journal path, since
+they take no `--state-database` of their own). The administrator has to exist first, so enroll it
 with the link the install printed (or `enroll-link` above) before you run this. Without the
 variables the command refuses with exit 3 and says how to give it a route, and nothing is
 written. The engine writes the configuration and starts serving it in place, and the
 command prints the set exactly as the engine wrote it. If the engine couldn't start serving
 it in place, the command says so and still exits 0, because the configuration is written:
-restart the engine and it picks it up.
+restart the engine and it picks it up. The engine can take a few minutes over this on a slow
+NAS (it proves the connection and opens its journal), so the command waits up to twelve
+minutes for the reply; if the reply still doesn't come, it asks the engine whether it's
+configured now and tells you which it is. If the wizard or another terminal finished first,
+it says nothing of yours was written, and `retnd sources` shows what the engine has.
 
 Beside an engine that's already configured, a create aimed at a path with no `config.yaml`
 (a mistyped `--config`, say) is still refused with exit 3 and nothing sent. That engine

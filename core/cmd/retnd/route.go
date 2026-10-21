@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/retnd/retnd/core/apicontract"
 	"github.com/retnd/retnd/core/envcompat"
@@ -464,16 +465,25 @@ func attachToEngine(ctx context.Context, engine *service.RunningEngine) (configW
 	return &engineRoute{client: client}, client.BaseURL(), nil
 }
 
-// newRouteClient is the client both attach functions build from the
-// address and credentials this invocation was given (attachToEngine here,
-// attachToFirstRunEngine in firstrunroute.go), so the two cannot sign in
+// newRouteClient is the client every route to the engine is built on, from
+// the address and credentials this invocation was given (attachToEngine
+// here, attachFirstRun in firstrunroute.go), so no two routes can sign in
 // or identify themselves differently.
 //
 // An address that cannot be made into a client is a routeRefusal, the
 // same as every other way a named route is refused.
 func newRouteClient(urlEnv, base string) (*apiclient.Client, error) {
+	return newRouteClientWithin(urlEnv, base, 0)
+}
+
+// newRouteClientWithin is newRouteClient with the per-request bound said
+// out loud, for a route that has one request slower than apiclient's
+// default (the first-run route's POST /system/first-run). Zero is that
+// default. A caller that raises it bounds every other call itself.
+func newRouteClientWithin(urlEnv, base string, timeout time.Duration) (*apiclient.Client, error) {
 	client, err := apiclient.New(apiclient.Config{
 		BaseURL:  base,
+		Timeout:  timeout,
 		Username: strings.TrimSpace(envcompat.Value(apiUsernameRoute)),
 		Password: envcompat.Value(apiPasswordRoute),
 		// The product and the build, so a request from this command is one

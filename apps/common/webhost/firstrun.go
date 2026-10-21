@@ -603,6 +603,17 @@ func newUnconfiguredRouter(h *handlers, platform capabilities.PlatformAdapter) h
 		r.With(requireCSRF).Post("/ssh-keys", h.importSSHKey)
 		r.With(requireCSRF).Post("/ssh-keys/from-candidate", h.importSSHKeyFromCandidate)
 		r.With(requireCSRF).Post("/ssh/host-key-probe", h.probeHostKey)
+
+		// The looking half of the key step (#592), which the first-run
+		// surface has always answered (FirstRunClient's ListSSHKeys and
+		// DiscoverSSHKeyCandidates, reached through h.setup()) and this
+		// table never registered, so both answered 503 (#1254). Read-only:
+		// public halves and fingerprints of the store, and where on this
+		// machine a key could be imported from. The wizard's "use a key
+		// this machine already has" and a terminal finishing a headless
+		// first run both need them.
+		r.Get("/ssh-keys", h.listSSHKeys)
+		r.Get("/ssh/key-candidates", h.listSSHKeyCandidates)
 		r.With(requireCSRF).Post("/backup-sets/test-connection", h.testConnection)
 
 		// The wizard's step 5 picklist. Read-only, and code-defined

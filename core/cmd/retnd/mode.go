@@ -413,10 +413,18 @@ func enterConfigWriteMode(ctx context.Context, configPath string, attach attachF
 //
 // It hands back one of two things. Direct mode is the claim, which the
 // caller holds across its own write and releases. Engine-attached mode
-// with a route (#1254) is the route and the address it leads to, with the
-// claim already given back, for the reason the comment above that release
-// gives.
-func enterFirstConfigWriteMode(configFile, stateDatabase string, announceTo, refuseTo io.Writer) (*service.ConfigWriteGuard, firstConfigRoute, string, error) {
+// with a route (#1254) is the route and the address it leads to, and no
+// claim at all: see the release below for why it is given back before the
+// engine is even asked.
+//
+// It does not go through settleConfigWriteMode, and that is the one
+// difference between it and enterConfigWriteMode. The tail is the same
+// four steps in the same order (the mode from the one answer, the route,
+// the announcement, the refusal), but the claim has to be given back in
+// the middle of them, between deciding the mode and building the route,
+// which is a step settleConfigWriteMode deliberately never takes for a
+// configured write.
+func enterFirstConfigWriteMode(ctx context.Context, configFile, stateDatabase string, announceTo, refuseTo io.Writer) (*service.ConfigWriteGuard, *firstRunEngineRoute, string, error) {
 	guard, err := service.BeginConfigWriteForJournal(stateDatabase)
 	if err != nil {
 		return nil, nil, "", err
@@ -426,58 +434,83 @@ func enterFirstConfigWriteMode(configFile, stateDatabase string, announceTo, ref
 		_ = guard.Release()
 		return nil, nil, "", cannotTellError(err)
 	}
-	// The route is attachToFirstRunEngine's, and it only ever leads to an
-	// engine that is still on its first run (#1254). This used to pass no
-	// attach at all, on the reasoning that the one unconfigured shape here
-	// is a wizard the operator is already standing in front of. On a
-	// headless install nobody is: the engine serving that wizard is the
-	// container the command was typed in, so stopping it was not a way
-	// through either. The request it carries is the one the wizard sends,
-	// POST /system/first-run, and firstrunroute.go has the rest.
-	//
-	// The two configured shapes that reach here (a mistyped --config, a
-	// config.yaml renamed out from under a running engine) are exactly
-	// what they were. POST /system/first-run is the wrong request for an
-	// engine with a configuration, so attachToFirstRunEngine hands back no
-	// route for one and engine-attached is the refusal it always was.
-	//
-	// The clause below has to be true of all three, which is what it was
-	// not before #571. "That process read its configuration when it
-	// started" is a false sentence to hand somebody whose engine has not
-	// read one at all and is waiting to be told what to serve.
-	write, err := settleConfigWriteMode(context.Background(), guard, modeDecision{
+	// The clause below has to be true of all three shapes that reach here
+	// beside a serving process, which is what it was not before #571.
+	// "That process read its configuration when it started" is a false
+	// sentence to hand somebody whose engine has not read one at all and
+	// is waiting to be told what to serve.
+	d := modeDecision{
+		mode:       modeOf(engine),
 		engine:     engine,
 		configFile: config.ResolvePath(configFile),
 		because:    "nothing re-reads a configuration file once a process is serving this deployment, and an instance still on its first-run setup flow will serve the configuration that flow writes rather than one written here",
 		remedy:     firstConfigRemedy,
-	}, attachToFirstRunEngine, announceTo, refuseTo)
-	if err != nil {
-		return nil, nil, "", err
 	}
-	if write.route == nil {
-		return write.guard, nil, "", nil
+	if d.mode == directMode {
+		// Nothing is serving, so this process is the only authority and
+		// keeps the claim across its own write, exactly as before.
+		d.announce(announceTo, refuseTo)
+		return guard, nil, "", nil
 	}
 
-	// Routed, so the claim goes back now rather than after the write, and
-	// that is a requirement rather than a courtesy. It is the journal's
-	// startup lock, and an engine finishing its first run takes that same
-	// lock to start serving what it just wrote (retnd-web's Activate,
-	// through service.Open). Held across the request, it would make the
-	// engine wait it out and answer restart_required: a first run that
-	// "worked" and left the deployment serving nothing. Nothing is lost by
-	// giving it back. It exists to stop an engine starting between this
-	// command's check and this command's own write, and on this path this
-	// command writes nothing: the engine already serving is the writer.
-	_ = write.guard.Release()
-	route, ok := write.route.(firstConfigRoute)
-	if !ok {
-		// Unreachable: attachToFirstRunEngine only ever builds an
-		// engineRoute. Said rather than asserted blind, because a route
-		// that cannot carry a first configuration must not fall through
-		// to a direct write.
-		return nil, nil, "", fmt.Errorf("this build's route to %s cannot carry a first configuration, so nothing was written; this is a bug", write.address)
+	// Something is serving, so this process is not going to write at all:
+	// either the engine writes (a route) or nothing does (a refusal). The
+	// claim goes back NOW, before a single request, and that is a
+	// requirement rather than a courtesy. It is the journal's startup lock,
+	// and an engine finishing a first run takes that same lock to start
+	// serving what it wrote (retnd-web's Activate, through service.Open),
+	// waiting only two seconds for it. Held across a sign-in and a read,
+	// it turns any first run finishing meanwhile (the wizard, a second
+	// terminal, this command's own POST) into restart_required: configured
+	// and serving nothing. Nothing is lost by giving it back. It exists to
+	// stop an engine starting between this command's check and this
+	// command's own write, and on this path there is no write of ours.
+	_ = guard.Release()
+
+	// The route is attachFirstRun's, and it only ever leads to an engine
+	// that is still on its first run (#1254). This used to pass no attach
+	// at all, on the reasoning that the one unconfigured shape here is a
+	// wizard the operator is already standing in front of. On a headless
+	// install nobody is: the engine serving that wizard is the container
+	// the command was typed in, so stopping it was not a way through
+	// either. The request it carries is the one the wizard sends, POST
+	// /system/first-run, and firstrunroute.go has the rest.
+	//
+	// The two configured shapes that reach here (a mistyped --config, a
+	// config.yaml renamed out from under a running engine) are exactly
+	// what they were. POST /system/first-run is the wrong request for an
+	// engine with a configuration, so attachFirstRun hands back no route
+	// for one and engine-attached is the refusal it always was.
+	attachCtx, cancel := context.WithTimeout(ctx, firstRunAttachTimeout)
+	defer cancel()
+	route, address, attachErr := attachFirstRun(attachCtx, engine)
+	var trouble *routeRefusal
+	if errors.As(attachErr, &trouble) {
+		d.trouble = trouble
 	}
-	return nil, route, write.address, nil
+	if route != nil {
+		// What announce and refusal read is only whether there is a
+		// route, and where it goes.
+		d.route = route.engine
+		d.routeAddress = address
+	}
+	d.announce(announceTo, refuseTo)
+	if attachErr != nil {
+		return nil, nil, "", attachErr
+	}
+	if err := d.refusal(); err != nil {
+		return nil, nil, "", err
+	}
+	return nil, route, address, nil
+}
+
+// modeOf is the mode a deployment is in, from the one answer about what is
+// serving it. It is the only place that answer becomes a mode.
+func modeOf(engine *service.RunningEngine) executionMode {
+	if engine != nil {
+		return engineAttachedMode
+	}
+	return directMode
 }
 
 // settleConfigWriteMode is the tail both enter functions share: name the
@@ -485,8 +518,9 @@ func enterFirstConfigWriteMode(configFile, stateDatabase string, announceTo, ref
 // say it out loud, and either hand the claim on or give it back with the
 // refusal.
 //
-// The mode is derived here and nowhere else, from the engine field alone,
-// so the two can never be set from different answers. A caller that built
+// The mode is derived here (and in enterFirstConfigWriteMode, through the
+// same modeOf), from the engine field alone, so the two can never be set
+// from different answers. A caller that built
 // a modeDecision and set the mode itself would be a second place that
 // could decide, which is what this issue exists to remove. The route is
 // settled in the same place and for the same reason: a command that asked
@@ -498,10 +532,7 @@ func enterFirstConfigWriteMode(configFile, stateDatabase string, announceTo, ref
 // established is not there, and would turn a stray environment variable
 // into a change aimed at somebody else's deployment.
 func settleConfigWriteMode(ctx context.Context, guard *service.ConfigWriteGuard, d modeDecision, attach attachFunc, announceTo, refuseTo io.Writer) (*configWrite, error) {
-	d.mode = directMode
-	if d.engine != nil {
-		d.mode = engineAttachedMode
-	}
+	d.mode = modeOf(d.engine)
 
 	var attachErr error
 	if d.mode == engineAttachedMode && attach != nil {
@@ -539,9 +570,10 @@ func settleConfigWriteMode(ctx context.Context, guard *service.ConfigWriteGuard,
 //
 // A nil attachFunc is "this write has no route", which is the honest
 // answer for every configuration write except the four #543 covers, the
-// three mutating backup-set verbs and `settings patch`, the ones later
-// issues routed beside them, and the first configuration, whose attach
-// (#1254's attachToFirstRunEngine) only routes to an unconfigured engine. Saying it by
+// three mutating backup-set verbs and `settings patch`, and the ones later
+// issues routed beside them. (The first configuration has a route too, but
+// not through this type: #1254's attachFirstRun runs after the claim is
+// given back, which enterFirstConfigWriteMode explains.) Saying it by
 // passing nil rather than by omitting a step is what makes the unrouted
 // writes visible: they are call sites that deliberately hand over
 // nothing, not call sites that forgot.
