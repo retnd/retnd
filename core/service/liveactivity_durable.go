@@ -100,6 +100,9 @@ const (
 	activityPruneStatementTimeout = 5 * time.Second
 	activityPruneRetry            = time.Minute
 	activityPruneComplainAfter    = 6 * time.Hour
+
+	activityPruneStatementsPerPass = 10
+	activityPruneContinue          = 5 * time.Second
 )
 
 // activityNotStored are the events never written: periodic samples.
@@ -139,6 +142,9 @@ type activityDurable struct {
 
 	queue   chan durableItem
 	dropped atomic.Int64
+
+	// parent is the writer's own context, set by run.
+	parent context.Context
 
 	// The rest belongs to run's goroutine and nothing else touches it.
 	// pruneAt is when the next prune is owed (zero: now), and

@@ -56,6 +56,9 @@ const driverName = "sqlite"
 type Journal struct {
 	db *sql.DB
 
+	// pressure times every hold of db's one connection (pressure.go).
+	pressure *holdTracker
+
 	// redact, when set, is the filter RecordTransition runs a Transition's
 	// error/detail-shaped string fields through before they are written
 	// down (issue #295). It is an atomic.Pointer, not a plain field,
@@ -133,7 +136,7 @@ func Open(ctx context.Context, path string) (*Journal, error) {
 		return nil, err
 	}
 
-	return &Journal{db: db}, nil
+	return &Journal{db: db, pressure: newHoldTracker()}, nil
 }
 
 // Close releases the underlying database handle.

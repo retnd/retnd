@@ -69,6 +69,8 @@ func TestEventNamesAreStable(t *testing.T) {
 		{"EventScrubUnknownObject", EventScrubUnknownObject, "scrub_unknown_object"},
 		{"EventScrubUnlisted", EventScrubUnlisted, "scrub_unlisted"},
 		{"EventError", EventError, "error"},
+		{"EventActivityPruneDeferred", EventActivityPruneDeferred, "activity_prune_deferred"},
+		{"EventJournalSlowHold", EventJournalSlowHold, "journal_slow_hold"},
 	}
 	seen := make(map[string]string, len(cases))
 	for _, c := range cases {
@@ -396,6 +398,40 @@ func TestErrorEvent(t *testing.T) {
 	lines := decodeLines(t, buf)
 	got := lines[0]
 	if got["event"] != EventError || got["level"] != "ERROR" || got["op"] != "load_config" {
+		t.Errorf("got %#v", got)
+	}
+}
+
+// A deferred prune is a warning with the error that deferred it, never an
+// error event: an alert rule counting errors must not count a lost race
+// (#1247).
+func TestActivityPruneDeferredEvent(t *testing.T) {
+	l, buf := newRecorder(t)
+	l.ActivityPruneDeferred(context.Background(), errors.New("context deadline exceeded"), time.Minute)
+
+	lines := decodeLines(t, buf)
+	if len(lines) != 1 {
+		t.Fatalf("%d lines", len(lines))
+	}
+	got := lines[0]
+	if got["event"] != EventActivityPruneDeferred || got["level"] != "WARN" || got["error"] != "context deadline exceeded" || got["retry_in"] == nil {
+		t.Errorf("got %#v", got)
+	}
+}
+
+// A slow hold names what held the journal, for how long, and how many
+// callers it kept waiting (#1247).
+func TestJournalSlowHoldEvent(t *testing.T) {
+	l, buf := newRecorder(t)
+	l.JournalSlowHold(context.Background(), "DELETE FROM activity_events", 12*time.Second, 3)
+
+	lines := decodeLines(t, buf)
+	if len(lines) != 1 {
+		t.Fatalf("%d lines", len(lines))
+	}
+	got := lines[0]
+	if got["event"] != EventJournalSlowHold || got["level"] != "WARN" || got["op"] != "DELETE FROM activity_events" ||
+		got["held_ms"] != float64(12000) || got["waiters"] != float64(3) {
 		t.Errorf("got %#v", got)
 	}
 }

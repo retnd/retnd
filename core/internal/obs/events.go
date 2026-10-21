@@ -340,6 +340,18 @@ const (
 	// to (RemoteDelete, Retry, CycleEnd, ...) when one applies; reach for
 	// this only when none does.
 	EventError = "error"
+
+	// EventActivityPruneDeferred says the activity feed's prune lost the
+	// journal's connection to somebody else and will be tried again
+	// (#1247). It is a warning and not an error: nothing failed that a
+	// retry will not fix, and an alert keyed on "error" must not count it.
+	EventActivityPruneDeferred = "activity_prune_deferred"
+
+	// EventJournalSlowHold names a statement, cursor or transaction that
+	// kept the journal's one connection past state.SlowHoldThreshold, and
+	// how many callers waited behind it (#1247). It is what lets the next
+	// "context deadline exceeded" be traced to whatever held the journal.
+	EventJournalSlowHold = "journal_slow_hold"
 )
 
 // Startup logs EventStartup: binaryVersion and commit are normally the
@@ -776,6 +788,17 @@ func (l *Logger) Error(ctx context.Context, op string, err error) {
 		slog.String("op", op),
 		slog.String("error", err.Error()),
 	)
+}
+
+// ActivityPruneDeferred logs EventActivityPruneDeferred at LevelWarn: the
+// activity feed's prune missed its deadline with err and is tried again in
+// retryIn.
+func (l *Logger) ActivityPruneDeferred(ctx context.Context, err error, retryIn time.Duration) {
+}
+
+// JournalSlowHold logs EventJournalSlowHold at LevelWarn: op kept the
+// journal's connection for held while waiters callers queued behind it.
+func (l *Logger) JournalSlowHold(ctx context.Context, op string, held time.Duration, waiters int64) {
 }
 
 // WorkflowRunStart logs EventWorkflowRunStart: one workflow run

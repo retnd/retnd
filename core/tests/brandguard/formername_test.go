@@ -160,6 +160,53 @@ func TestAnEntryThatVanishesMidWalkIsSkippedButAMissingRootIsNot(t *testing.T) {
 	}
 }
 
+// A fixture directory another package's tests make inside the tree
+// (internal/workflowrun's .wfrun-*) is that test's scratch, not a file this
+// guard owns, and walking into one is how the guard came to race its
+// removal. The control beside it proves the same file outside such a
+// directory is still found.
+func TestAFixtureDirectoryIsNotScanned(t *testing.T) {
+	tree := t.TempDir()
+	for _, r := range roots {
+		if strings.HasPrefix(r, "apps/") {
+			continue
+		}
+		dir := filepath.Join(tree, r)
+		if filepath.Ext(r) != "" {
+			dir = filepath.Dir(dir)
+		}
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if filepath.Ext(r) != "" {
+			if err := os.WriteFile(filepath.Join(tree, r), []byte("clean\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	fixture := filepath.Join(tree, "core", "internal", "workflowrun", ".wfrun-123")
+	if err := os.MkdirAll(fixture, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fixture, "state.txt"), []byte(upperForm+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hits, _, err := scan(tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 0 {
+		t.Errorf("the scan walked into a test fixture directory: %v", hits)
+	}
+
+	if err := os.WriteFile(filepath.Join(tree, "core", "internal", "workflowrun", "state.txt"), []byte(upperForm+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if hits, _, _ := scan(tree); len(hits) != 1 {
+		t.Errorf("the same file outside the fixture directory gave %v; the control needs exactly one hit", hits)
+	}
+}
+
 // scripts/architecture/verify-core-without-apps.sh deletes apps/ and runs
 // core's tests, so a root under apps/ that is not there is not an error. A
 // root that is not under apps/ still is, or a moved core/ would pass as an
