@@ -627,8 +627,10 @@ const BackupRow = memo(function BackupRow({
           <SelectBox artifact={a} on={ticked} onChange={(v) => onToggle(a.id, v)} />
         </td>
       ) : null}
+      {/* When the backup arrived, the time the date range filters on (#1251).
+          receivedAt is when it last changed, which a later transition moves. */}
       <td className="mono" style={{ whiteSpace: "nowrap", color: "var(--text-2)" }}>
-        {stamp(a.receivedAt)}
+        {stamp(a.producedAt)}
       </td>
       <td>{a.setName}</td>
       <td className="mono" style={{ fontSize: "var(--text-sm)" }}>

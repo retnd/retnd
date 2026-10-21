@@ -34,8 +34,8 @@ type RecoverManyRequest struct {
 
 	// Set is a "source/set" id: every retained, known-good backup of the
 	// set. NewestOnly narrows it to the newest restore point, Since to those
-	// updated at or after that moment and Until to those updated at or
-	// before it (#1251). All three only apply with Set.
+	// that arrived (DiscoveredAt) at or after that moment and Until to those
+	// that arrived at or before it (#1251). All three only apply with Set.
 	Set        string
 	NewestOnly bool
 	Since      time.Time
@@ -274,9 +274,11 @@ func (b *BackupService) scopeRecoverMany(ctx context.Context, h *recoveryHost, r
 			sc.arts = append(sc.arts, a)
 		}
 	}
+	// Oldest arrival first. DiscoveredAt, not UpdatedAt: a later transition
+	// (a set flipped read-only and back) must not reorder a backup (#1251).
 	sort.SliceStable(sc.arts, func(i, j int) bool {
-		if !sc.arts[i].UpdatedAt.Equal(sc.arts[j].UpdatedAt) {
-			return sc.arts[i].UpdatedAt.Before(sc.arts[j].UpdatedAt)
+		if !sc.arts[i].DiscoveredAt.Equal(sc.arts[j].DiscoveredAt) {
+			return sc.arts[i].DiscoveredAt.Before(sc.arts[j].DiscoveredAt)
 		}
 		return sc.arts[i].ID < sc.arts[j].ID
 	})
@@ -326,13 +328,18 @@ func distinctSets(arts []Artifact) map[string]bool {
 // that are not restore points are kept (they are listed in the summary, never
 // silently dropped) unless since or until rules them out by age, or
 // newest-only has already chosen a restore point newer than they are.
+//
+// Age is DiscoveredAt, when the backup arrived, which nothing changes after.
+// UpdatedAt moves on every transition, so reading it put a March backup whose
+// set went read-only and back in October into October's range and made it the
+// newest restore point (the review of #1256).
 func narrowSet(all []Artifact, req RecoverManyRequest) []Artifact {
 	var rows []Artifact
 	for _, a := range all {
-		if !req.Since.IsZero() && a.UpdatedAt.Before(req.Since) {
+		if !req.Since.IsZero() && a.DiscoveredAt.Before(req.Since) {
 			continue
 		}
-		if !req.Until.IsZero() && a.UpdatedAt.After(req.Until) {
+		if !req.Until.IsZero() && a.DiscoveredAt.After(req.Until) {
 			continue
 		}
 		rows = append(rows, a)
@@ -346,7 +353,7 @@ func narrowSet(all []Artifact, req RecoverManyRequest) []Artifact {
 		if !restorePointStates[a.State] {
 			continue
 		}
-		if newest == nil || a.UpdatedAt.After(newest.UpdatedAt) || (a.UpdatedAt.Equal(newest.UpdatedAt) && a.ID > newest.ID) {
+		if newest == nil || a.DiscoveredAt.After(newest.DiscoveredAt) || (a.DiscoveredAt.Equal(newest.DiscoveredAt) && a.ID > newest.ID) {
 			newest = a
 		}
 	}
@@ -357,7 +364,7 @@ func narrowSet(all []Artifact, req RecoverManyRequest) []Artifact {
 			if newest != nil && a.ID == newest.ID {
 				out = append(out, a)
 			}
-		case newest == nil || a.UpdatedAt.After(newest.UpdatedAt):
+		case newest == nil || a.DiscoveredAt.After(newest.DiscoveredAt):
 			out = append(out, a)
 		}
 	}

@@ -43,8 +43,11 @@ type manyArgs struct {
 // receivedRange is --since and --until, the received-date range `artifacts`
 // and `recover --set` share with the Backups page's "Received on or after" and
 // "Received on or before" (#1251). Both bounds are inclusive and either may be
-// absent (the zero time). The time compared is a backup's updated_at, which is
-// the page's receivedAt and what service.narrowSet reads.
+// absent (the zero time). The time compared is when a backup arrived, the
+// journal's discovered_at, which is what the page filters on and what
+// service.narrowSet reads. Not updated_at: that moves on every transition, so
+// a backup whose set went read-only and back would change days (the review of
+// #1256).
 type receivedRange struct {
 	since, until time.Time
 }

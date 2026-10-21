@@ -63,12 +63,12 @@ func withState(records []state.Record, want string) []state.Record {
 	return kept
 }
 
-// receivedIn keeps the records received inside rng (#1251), by the updated_at
-// the API serves and the Backups page reads as receivedAt.
+// receivedIn keeps the records that arrived inside rng (#1251), by the
+// discovered_at the API serves and the Backups page filters on.
 func receivedIn(records []state.Record, rng receivedRange) []state.Record {
 	kept := make([]state.Record, 0, len(records))
 	for _, r := range records {
-		if rng.holds(r.UpdatedAt) {
+		if rng.holds(r.DiscoveredAt) {
 			kept = append(kept, r)
 		}
 	}
@@ -120,7 +120,7 @@ func artifactsJSON(ctx context.Context, cfgPath string, operands []string, sourc
 		}
 		// Nor does the received-date range (#1251): the page applies it in
 		// the browser over the same list.
-		if !rng.holds(a.UpdatedAt) {
+		if !rng.holds(a.DiscoveredAt) {
 			continue
 		}
 		kept = append(kept, a)

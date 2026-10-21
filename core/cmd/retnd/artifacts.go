@@ -48,8 +48,8 @@ func cmdArtifacts(args []string) int {
 	setFlag := fs.String("backup-set", "", "only artifacts from this backup set, named <source/backup-set> or by set name alone where that is unambiguous")
 	stateFlag := fs.String("state", "", "only artifacts in this lifecycle state, e.g. COMMITTED or QUARANTINED_LOST (a list only)")
 	asJSON := fs.Bool("json", false, "emit JSON, the same body the API serves (Artifact for one, ListArtifactsResponse for a list), instead of text")
-	sinceFlag := fs.String("since", "", "only backups received on or after this date: YYYY-MM-DD (from the start of that day, UTC) or an RFC 3339 time (a list only)")
-	untilFlag := fs.String("until", "", "only backups received on or before this date: YYYY-MM-DD (to the end of that day, UTC) or an RFC 3339 time (a list only)")
+	sinceFlag := fs.String("since", "", "only backups that arrived (discovered_at) on or after this date: YYYY-MM-DD (from the start of that day, UTC) or an RFC 3339 time (a list only)")
+	untilFlag := fs.String("until", "", "only backups that arrived (discovered_at) on or before this date: YYYY-MM-DD (to the end of that day, UTC) or an RFC 3339 time (a list only)")
 	countFlag := fs.Bool("count", false, "print how many backups this deployment holds outside quarantine, the number the web console's Backups badge reads (the badge itself shows >100 past a hundred); with --state, how many are in that state; with --json, {\"count\": N} (a list only)")
 	// Flags may come before or after the operand, exactly like validate's
 	// own operand (see parseFlagsAroundOperands in setup.go for why).

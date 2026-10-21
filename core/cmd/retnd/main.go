@@ -260,10 +260,11 @@ commands:
   artifacts [--source S] [--backup-set B] [--state S] [--since DATE] [--until DATE] [--count] [--json]
                                                   list or count only the backups received in a range, the Backups
                                                   page's "Received on or after" and "Received on or before". Both
-                                                  bounds are inclusive, on the time the backup was last updated (the
-                                                  page's received time). A DATE is YYYY-MM-DD, the whole of that day
-                                                  in UTC, or an RFC 3339 time, that moment exactly; --until before
-                                                  --since is refused (#1251)
+                                                  bounds are inclusive, on the time the backup arrived (discovered_at),
+                                                  which a later transition such as a set going read-only and back does
+                                                  not move. A DATE is YYYY-MM-DD, the whole of that day in UTC, or an
+                                                  RFC 3339 time, that moment exactly; --until before --since is
+                                                  refused (#1251)
   activity [--backup-set S] [--severity warn|error] [--limit N] [--json]
                                                   list recorded lifecycle events, newest first: the same durable
                                                   transition log the Web UI's Activity page draws. Beside a serving
