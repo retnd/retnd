@@ -717,12 +717,16 @@ What it does that a shell loop over single recoveries does not:
   read or thawed before that. `--preflight` stops there.
 - **Which backups.** A restore point is a backup in `COMMITTED`, `REMOTE_DELETE_PENDING`,
   `COMPLETE` or `REMOTE_RETAINED` (Step 2 above). `--newest-only` takes the newest one,
-  `--since` the ones updated at or after a date and `--until` the ones updated at or before
-  one, so the two together are the Backups page's received-date range. A bare `YYYY-MM-DD`
-  is that whole day in UTC (`--until 2026-10-07` keeps a backup from 23:30 that day) and an
-  RFC 3339 time is that moment; `--until` before `--since` is refused. With `--newest-only`
-  it is the newest restore point inside the range. `retnd artifacts --since DATE --until
-  DATE` lists the same backups first, if you want to look before you recover. Quarantined and lost backups are listed in
+  `--since` the ones that arrived at or after a date and `--until` the ones that arrived at
+  or before one, so the two together are the Backups page's received-date range. "Arrived"
+  is `discovered_at`, which nothing changes afterwards: a backup whose set went read-only
+  and came back keeps its day, where the time it last changed (`updated_at`) would move it.
+  `--newest-only` picks by arrival too. A bare `YYYY-MM-DD` is that whole day in UTC
+  (`--until 2026-10-07` keeps a backup from 23:30 that day) and an RFC 3339 time is that
+  moment; `--until` before `--since` is refused. With `--newest-only` it is the newest
+  restore point inside the range. `retnd artifacts --since DATE --until DATE` lists the same
+  backups first, if you want to look before you recover, and `POST /api/v1/recoveries` takes
+  the same pair as `since` and `until` (RFC 3339 times). Quarantined and lost backups are listed in
   the pre-flight and the summary and are never included, and neither is a backup that is
   not yet a restore point.
 - **A folder per set.** Files land under `<folder>/<source>/<backup-set>/`, each with the
@@ -765,7 +769,7 @@ retnd recover --set production/postgres-primary --newest-only --to source:retnd-
 retnd recover --set production/postgres-primary --to source: --preflight
 ```
 
-The colon matters. `--to source:` is a fresh folder on the source host, and `--to source:FOLDER` one you name (one segment starting with `retnd-recovered-`, then letters, digits, `.`, `_` or `-`, not ending in a dot). `--to source` with no colon is a staging folder called "source", as it always was. A whole set onto the source host needs `--newest-only`, `--since`, `--until` or `--all`, because the default act should never be "every retained backup onto a production volume".
+The colon matters. `--to source:` is a fresh folder on the source host, and `--to source:FOLDER` one you name (one segment starting with `retnd-recovered-`, then letters, digits, `.`, `_` or `-`, not ending in a dot). `--to source` with no colon is a staging folder called "source", as it always was. A whole set onto the source host needs `--newest-only`, `--since`, `--until` or `--all`, because the default act should never be "every retained backup onto a production volume". A range that keeps every retained restore point (`--until 2099-01-01`, say) is that act by another name, so it is refused with the count and still needs `--all`.
 
 **Where the default does not apply.** A set that does not pull over SFTP (or an incremental one) has no source host, and a set declared `read_only: true` is never written to, so for both `--to` stays required and the usage error says why.
 
