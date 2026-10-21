@@ -6,13 +6,23 @@
 
 - **`retnd operation run`, the terminal twin of the run buttons** (#1250). "Run all enabled sets" and "Run this
   backup set" ask the engine to start a run with `POST /api/v1/operations`, and a terminal couldn't: `retnd run` and
-  `retnd fetch --backup-set` run the cycle in the CLI's own process, so a terminal that only has `RETND_API_URL`
-  had no way to start one, and a run started that way never showed in `operation list`. `retnd operation run
-  [--backup-set S] [--skip-workflow-scripts] [--follow] [--json]` posts the same body the buttons do, with the
-  engine's own `config_revision` and a fresh idempotency key each time. `--json` prints the `Operation` the engine
-  answers with, `--follow` polls it like `operation show --follow` and exits 0 for completed and 1 otherwise, and
-  a shut destructive gate exits 50 with nothing started. `run` and `fetch` are unchanged. The terminal panel now
-  echoes `retnd operation run` for both buttons instead of saying there's no equivalent.
+  `retnd fetch --backup-set` run the cycle in the CLI's own process, so a run started that way never showed in
+  `operation list`. `retnd operation run [--backup-set S] [--skip-workflow-scripts] [--follow] [--json]` posts the
+  same body the buttons do, with the engine's own `config_revision` and a fresh idempotency key each time. A reply
+  that goes missing is sent again with the same key, which the engine answers with the run it already started.
+  `--follow` (here and on `operation show`) sits out a few minutes of failed polls instead of calling the run
+  failed, and Ctrl-C stops following without stopping the run. `run` and `fetch` are unchanged, and the terminal
+  panel now echoes `retnd operation run` for both buttons instead of saying there's no equivalent.
+- **A remote terminal** (#1250). From a machine with no deployment of its own (no `config.yaml`, nothing serving
+  its default state database), `operation list|show|run`, `assurance cancel`, `backup-set edit-hold`, `auth` and
+  `activity --follow` now reach the engine with `RETND_API_URL` and the two credential variables alone, and say
+  which deployment they reached. `operation run` and `assurance cancel` also want `RETND_API_DEPLOYMENT_ID`. A host
+  that has a deployment never goes remote, so a stopped local engine with an address exported still refuses. Plain
+  http to anything but loopback needs `RETND_API_INSECURE_TRANSPORT=acknowledged`, and `RETND_API_CA_FILE` trusts a
+  self-signed reverse proxy on any route.
+- **Exit codes 50 to 52 for the engine's side of a route** (#1250). 50 is the destructive gate refusing any routed
+  command (a validator upload or a routed create used to exit 1 for it), 51 is "stopped watching, the operation may
+  still be running", and 52 is plain http refused. 10 to 49 stay reserved for `recover`.
 
 ### Changed
 
@@ -30,6 +40,8 @@
 
 ### Fixed
 
+- **A malformed `RETND_API_URL` no longer prints its password** (#1250). An address whose password held a `/` or
+  `?` doesn't parse, and the refusal used to quote it back in full. It now prints only the scheme.
 - **A headless install can finish its first run from a terminal** (#1254). When the engine is serving its
   first-run setup flow (it could not write its own default `config.yaml`), `retnd backup-set create` used to
   refuse with exit 3, on the reasoning that the operator was standing in front of the wizard. On a headless

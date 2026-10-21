@@ -151,6 +151,11 @@ type readDecision struct {
 
 	// because is the clause the unconfirmed announcement carries.
 	because string
+
+	// remote is the redacted address of a route taken with no deployment
+	// of this host's own (remote.go), and empty otherwise. engine is nil
+	// then, since nothing on this host announced anything.
+	remote string
 }
 
 // attached reports whether there is an engine to put a question to.
@@ -329,11 +334,17 @@ func dialEngine() (*apiclient.Client, error) {
 	if base == "" {
 		return nil, fmt.Errorf("%s is not set, so this command does not know where this deployment's engine is; set it to the engine's own address (http://127.0.0.1:8080 from inside its container) or to the published Web UI port, together with %s and %s", urlEnv, apiUsernameEnv, apiPasswordEnv)
 	}
+	transport, err := routeHTTPClient()
+	if err != nil {
+		return nil, err
+	}
 	return apiclient.New(apiclient.Config{
-		BaseURL:   base,
-		Username:  envcompat.Value(apiUsernameRoute),
-		Password:  envcompat.Value(apiPasswordRoute),
-		UserAgent: "retnd-cli/" + version,
+		BaseURL:                      base,
+		HTTPClient:                   transport,
+		AcknowledgeInsecureTransport: insecureTransportAcknowledged(),
+		Username:                     envcompat.Value(apiUsernameRoute),
+		Password:                     envcompat.Value(apiPasswordRoute),
+		UserAgent:                    "retnd-cli/" + version,
 	})
 }
 

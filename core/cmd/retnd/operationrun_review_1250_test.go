@@ -4,10 +4,8 @@ import (
 	"context"
 	"net/http"
 	"os"
-	"os/signal"
 	"strings"
 	"sync/atomic"
-	"syscall"
 	"testing"
 	"time"
 
@@ -228,25 +226,26 @@ func TestOperationFollowReview1250_CtrlCStopsFollowingNotTheRun(t *testing.T) {
 	}
 }
 
-// interruptOnceSeen sends this process SIGINT the first time the engine
-// sees route. A channel of its own is registered first, so that before a
-// command handles the signal it is swallowed rather than killing the test
-// binary.
+// interruptOnceSeen stands in for Ctrl-C the first time the engine sees
+// route: it cancels the context interruptContext hands a follow. A real
+// SIGINT is not an option in this binary (interruptContext's doc says why).
 func interruptOnceSeen(t *testing.T, e *fakeEngine, route string) {
 	t.Helper()
-	guard := make(chan os.Signal, 1)
-	signal.Notify(guard, os.Interrupt)
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(func() { cancel(); signal.Stop(guard) })
-	go func() {
-		for ctx.Err() == nil {
-			if containsRequest(e.requests(), route) {
-				_ = syscall.Kill(os.Getpid(), syscall.SIGINT)
-				return
+	old := interruptContext
+	interruptContext = func(ctx context.Context) (context.Context, context.CancelFunc) {
+		ctx, cancel := context.WithCancel(ctx)
+		go func() {
+			for ctx.Err() == nil {
+				if containsRequest(e.requests(), route) {
+					cancel()
+					return
+				}
+				time.Sleep(2 * time.Millisecond)
 			}
-			time.Sleep(2 * time.Millisecond)
-		}
-	}()
+		}()
+		return ctx, cancel
+	}
+	t.Cleanup(func() { interruptContext = old })
 }
 
 // M4: the help no longer sends anyone to a flag fetch refuses, and a shut

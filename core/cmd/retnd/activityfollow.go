@@ -101,7 +101,8 @@ const defaultFollowInterval = time.Second
 // of the flag parsing in front of it.
 func followActivity(ctx context.Context, mode readDecision, opts followOptions, out, errOut io.Writer) error {
 	if !mode.attached() {
-		return fmt.Errorf("--follow needs a route to the process serving this deployment and this command has none, so there is nothing to follow: the live feed is that process's own in-memory event stream and no file holds it. `activity` without --follow reads the durable transition log instead, which answers from this host's own journal and says so")
+		return fmt.Errorf("%w. `activity` without --follow reads the durable transition log instead, which answers from this host's own journal and says so",
+			noEngineRefusal("--follow reads the live feed, which is the serving process's own in-memory event stream and is held in no file, so there is nothing to follow without a route to that process"))
 	}
 	return followFeed(ctx, mode, mode.client.LiveActivity, opts, out, errOut)
 }

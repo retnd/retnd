@@ -1153,15 +1153,11 @@ var routes = map[string]entry{
 	},
 
 	// ------------------------------------------------------- backends ---
-	// EPIC I (#664). A gap entry rather than a command, and the gap is
-	// real: there is no verb that lists the registered backends at all.
-	// `medium add --backend <id>` takes one and refuses an id no manifest
-	// declares, so a terminal operator learns the set from a refusal
-	// rather than from a listing. Naming the missing verb here is the
-	// point of this table: a parity gap that is written down is a
-	// decision, and inventing a `medium backends` verb to satisfy this
-	// test would invert the rule, which exists so a missing verb is
-	// VISIBLE rather than absent.
+	// EPIC I (#664). The registered storage backends, which the Add
+	// destination dialog lists: `medium backends` prints the same set, so a
+	// terminal operator learns which ids `medium add --backend <id>` takes
+	// from a listing rather than from a refusal. It was a gap until that
+	// verb shipped (#1154).
 	key("GET", "/backends"): {
 		build:    func(Action) *cmd { return newCmd("medium", "backends") },
 		examples: []Action{{}},

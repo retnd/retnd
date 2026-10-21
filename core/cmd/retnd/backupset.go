@@ -966,7 +966,9 @@ func createFirstConfig(ctx context.Context, configFile, stateDatabase, keyFile, 
 			// /system/first-run, whose body (the contract's BackupSetSpec)
 			// has no run_immediately. `retnd run` would be the wrong
 			// remedy: it runs a cycle in this process, not in the engine.
-			return usageError("backup-set create: --run cannot be honoured while handing the first configuration to the engine at %s, because POST /system/first-run carries no run request. Create the set without it; the engine runs it on its schedule, and its Web UI's Run now starts one straight away", address)
+			// `operation run --backup-set` asks the engine (#1250), so it
+			// is the one to name once the set exists.
+			return usageError("backup-set create: --run cannot be honoured while handing the first configuration to the engine at %s, because POST /system/first-run carries no run request. Create the set without it, then `%s operation run --backup-set %s` asks the engine to run it straight away; otherwise the engine runs it on its schedule", address, cliecho.Binary, req.SourceName+"/"+req.Name)
 		}
 		return createFirstConfigOnEngine(ctx, route, address, keyFile, keyPassphrase, trustHostKey, noVerify, req)
 	}

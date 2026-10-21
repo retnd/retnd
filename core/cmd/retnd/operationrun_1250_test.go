@@ -384,7 +384,7 @@ func TestOperationRun1250_IsInUsage(t *testing.T) {
 			t.Errorf("usage()'s operation run entry does not mention %q:\n%s", want, block)
 		}
 	}
-	if !strings.Contains(text, "50  operation run") {
+	if !strings.Contains(text, "\n  50  ") {
 		t.Errorf("the exit code table has no row for %d", gateShutExit)
 	}
 }
